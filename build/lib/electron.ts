@@ -12,6 +12,11 @@ import { getVersion } from './getVersion.ts';
 import electron from '@vscode/gulp-electron';
 import json from 'gulp-json-editor';
 
+// VibeIDE: one env var from docs/knowledge.md / preLaunch; npm run electron does not use vibe-dev.bat.
+if (process.env['VIBE_ELECTRON_MIRROR'] && !process.env['ELECTRON_MIRROR']) {
+	process.env['ELECTRON_MIRROR'] = process.env['VIBE_ELECTRON_MIRROR'];
+}
+
 type DarwinDocumentSuffix = 'document' | 'script' | 'file' | 'source code';
 type DarwinDocumentType = {
 	name: string;
