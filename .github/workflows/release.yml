@@ -279,6 +279,16 @@ jobs:
         env:
           VIBE_VERSION: ${{ env.VIBE_VERSION }}
 
+      - name: Build release manifest and checksums
+        run: |
+          node scripts/vibe-release-manifest.mjs \
+            --root release-artifacts \
+            --tag "${VIBE_VERSION}" \
+            --extra sbom.json \
+            --extra transparency.json
+        env:
+          VIBE_VERSION: ${{ env.VIBE_VERSION }}
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -299,3 +309,5 @@ jobs:
             release-artifacts/linux-arm64/**/*.tar.gz
             sbom.json
             transparency.json
+            release-manifest.json
+            checksums-sha256.txt
