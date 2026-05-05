@@ -1,7 +1,7 @@
 @echo off
 REM VibeIDE — one-shot dev launch (Windows): optional profile wipe (--clear), gulp compile or opt-in transpile, React/NLS, Electron.
 REM Run from repo root: scripts\vibe-dev.bat   or   run-dev.bat (wrapper).
-REM Backup mirror (paths differ): bin\vibe-dev.bat — see docs/knowledge.md § Запуск dev VibeIDE.
+REM Backup mirror (paths differ): bin\vibe-dev.bat — см. docs/knowledge.md (Запуск dev VibeIDE).
 REM
 REM --clear / -clear /clear — delete dev profile dirs below, then launch ^(flags not passed to Electron^)
 REM По умолчанию transpile-client НЕ запускается: он чистит out и заменяет gulp-бандл на разрозненный ESM —
@@ -14,8 +14,16 @@ REM VIBE_SKIP_NLS=1         — skip vibe-nls-extract + clp cache clear
 setlocal EnableExtensions EnableDelayedExpansion
 title VibeIDE — vibe-dev
 
-REM Unstable TLS to GitHub release-assets (ECONNRESET): optional mirror for @electron/get.
-REM Example: set VIBE_ELECTRON_MIRROR=https://cdn.npmmirror.com/binaries/electron/
+REM Electron (@electron/get): map VIBE_ELECTRON_MIRROR to ELECTRON_MIRROR for npm run electron / preLaunch.
+REM Override: set VIBE_ELECTRON_MIRROR=https://cdn.npmmirror.com/binaries/electron/
+REM Opt out of default mirror (use GitHub only): set VIBE_NO_ELECTRON_MIRROR_FALLBACK=1
+if not defined VIBE_ELECTRON_MIRROR (
+	if not defined ELECTRON_MIRROR (
+		if not "!VIBE_NO_ELECTRON_MIRROR_FALLBACK!"=="1" (
+			set "VIBE_ELECTRON_MIRROR=https://cdn.npmmirror.com/binaries/electron/"
+		)
+	)
+)
 if defined VIBE_ELECTRON_MIRROR set "ELECTRON_MIRROR=!VIBE_ELECTRON_MIRROR!"
 
 cd /d "%~dp0.."
