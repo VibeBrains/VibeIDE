@@ -75,8 +75,8 @@ jobs:
       - name: Incremental compile (hot)
         id: compile_hot
         run: |
-          # Touch a TS file to trigger incremental recompile
-          touch src/vs/workbench/contrib/vibeide/vibeide.contribution.ts
+          # Touch a real TS entry (path must match repo — wrong path creates an empty file and NLS fails on empty sourcesContent)
+          touch src/vs/workbench/contrib/vibeide/browser/vibeide.contribution.ts
           START=$(date +%s%N)
           npm run compile
           END=$(date +%s%N)
