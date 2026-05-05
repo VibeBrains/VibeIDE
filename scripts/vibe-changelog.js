@@ -2,24 +2,50 @@
 /**
  * vibe changelog — generate CHANGELOG from git history + audit log
  * Separates AI-assisted changes from manual changes.
+ * Markdown output: Russian UI; commit subjects unchanged.
  *
  * Usage:
  *   node scripts/vibe-changelog.js
  *   node scripts/vibe-changelog.js --since v1.0.0
+ *   node scripts/vibe-changelog.js --first-release v0.1.0
  *   node scripts/vibe-changelog.js --format markdown|json
  */
 
 'use strict';
 
 const { execSync } = require('child_process');
-const fs = require('fs');
-const path = require('path');
 
 const args = process.argv.slice(2);
+const FIRST_RELEASE_IDX = args.indexOf('--first-release');
+const FIRST_RELEASE_VER = FIRST_RELEASE_IDX >= 0 ? args[FIRST_RELEASE_IDX + 1] : null;
 const SINCE = args.find(a => a.startsWith('--since='))?.split('=')[1]
 	|| (args.includes('--since') ? args[args.indexOf('--since') + 1] : null);
 const FORMAT = args.find(a => a.startsWith('--format='))?.split('=')[1]
 	|| (args.includes('--format') ? args[args.indexOf('--format') + 1] : 'markdown');
+
+/** Same block as README.md — «Поддержать проект» (GitHub Releases render HTML). */
+function supportFooterMarkdown() {
+	return `
+
+---
+
+## Поддержать проект
+
+Если VibeIDE оказался полезным — буду рад благодарности 🙏
+
+<a href="https://raw.githubusercontent.com/borodatych/VSCodeSyncFiles/main/media/QR-Code.jpg" target="_blank" rel="noopener noreferrer">
+  <img src="https://raw.githubusercontent.com/borodatych/VSCodeSyncFiles/main/media/QR-Code.jpg" width="120" alt="QR-код для поддержки проекта" />
+</a>
+`;
+}
+
+function firstReleaseMarkdown(version) {
+	const v = version || 'v?';
+	return `## VibeIDE ${v}
+
+Первый релиз или нет предыдущего тега — полный список изменений см. в коммитах на ветке \`main\`.
+${supportFooterMarkdown()}`;
+}
 
 function getCommits(since) {
 	const range = since ? `${since}..HEAD` : '--max-count=50';
@@ -39,14 +65,14 @@ function getCommits(since) {
 }
 
 function categorizeCommit(subject) {
-	if (subject?.startsWith('feat')) return '✨ Features';
-	if (subject?.startsWith('fix')) return '🐛 Bug Fixes';
-	if (subject?.startsWith('security')) return '🔒 Security';
-	if (subject?.startsWith('refactor')) return '♻️ Refactoring';
-	if (subject?.startsWith('perf')) return '🚀 Performance';
-	if (subject?.startsWith('docs')) return '📚 Documentation';
-	if (subject?.startsWith('build') || subject?.startsWith('ci')) return '📦 Build & CI';
-	return '🔧 Other Changes';
+	if (subject?.startsWith('feat')) return '✨ Новое';
+	if (subject?.startsWith('fix')) return '🐛 Исправления';
+	if (subject?.startsWith('security')) return '🔒 Безопасность';
+	if (subject?.startsWith('refactor')) return '♻️ Рефакторинг';
+	if (subject?.startsWith('perf')) return '🚀 Производительность';
+	if (subject?.startsWith('docs')) return '📚 Документация';
+	if (subject?.startsWith('build') || subject?.startsWith('ci')) return '📦 Сборка и CI';
+	return '🔧 Прочее';
 }
 
 function generateMarkdown(commits) {
@@ -60,32 +86,42 @@ function generateMarkdown(commits) {
 		sections[cat].push(commit);
 	}
 
-	let output = `# Changelog\n\n`;
-	if (SINCE) output += `Changes since ${SINCE}\n\n`;
-	output += `Generated: ${new Date().toISOString().split('T')[0]}\n\n`;
+	let output = `# История изменений\n\n`;
+	if (SINCE) output += `Изменения после тега ${SINCE}\n\n`;
+	output += `Сформировано: ${new Date().toISOString().split('T')[0]}\n\n`;
 	output += `---\n\n`;
 
 	for (const [category, catCommits] of Object.entries(sections)) {
 		output += `## ${category}\n\n`;
 		for (const c of catCommits) {
-			const aiTag = c.isAI ? ' `[AI-assisted]`' : '';
+			const aiTag = c.isAI ? ' \`[с AI]\`' : '';
 			output += `- ${c.subject}${aiTag} (${c.date}, ${c.hash.slice(0, 7)})\n`;
 		}
 		output += '\n';
 	}
 
 	output += `---\n\n`;
-	output += `**Summary:** ${commits.length} commits total — `;
-	output += `${humanCommits.length} manual, ${aiCommits.length} AI-assisted\n`;
+	output += `**Итого:** ${commits.length} коммитов — `;
+	output += `${humanCommits.length} вручную, ${aiCommits.length} с участием AI\n`;
+	output += supportFooterMarkdown();
 
 	return output;
 }
 
 // Main
+if (FIRST_RELEASE_VER && FORMAT === 'markdown') {
+	console.log(firstReleaseMarkdown(FIRST_RELEASE_VER));
+	process.exit(0);
+}
+
 const commits = getCommits(SINCE);
 
 if (commits.length === 0) {
-	console.log('No commits found.');
+	if (FORMAT === 'json') {
+		console.log('[]');
+	} else {
+		console.log(`# История изменений\n\nВ выбранном диапазоне коммитов нет.\n${supportFooterMarkdown()}`);
+	}
 	process.exit(0);
 }
 

@@ -248,9 +248,7 @@ jobs:
           if [ -n "$PREV" ]; then
             node scripts/vibe-changelog.js --since "$PREV" > RELEASE_NOTES.md
           else
-            echo "## VibeIDE ${VIBE_VERSION}" > RELEASE_NOTES.md
-            echo "" >> RELEASE_NOTES.md
-            echo "Первый релиз или нет предыдущего тега — полный changelog: см. коммиты на \`main\`." >> RELEASE_NOTES.md
+            node scripts/vibe-changelog.js --first-release "$VIBE_VERSION" > RELEASE_NOTES.md
           fi
 
       - name: Generate transparency report
