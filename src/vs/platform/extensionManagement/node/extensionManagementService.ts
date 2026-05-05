@@ -348,6 +348,7 @@ export class ExtensionManagementService extends AbstractExtensionManagementServi
 		if (
 			verificationStatus !== ExtensionSignatureVerificationCode.Success
 			&& !(verificationStatus === ExtensionSignatureVerificationCode.NotSigned && !shouldRequireSignature)
+			&& verificationStatus !== ExtensionSignatureVerificationCode.UnhandledException
 			&& verifySignature
 			&& this.environmentService.isBuilt
 			&& (await this.getTargetPlatform()) !== TargetPlatform.LINUX_ARMHF

@@ -35,6 +35,9 @@ import './media/vibeide.css'
 import './vibeNeonGlowTitleBar.js'
 import './vibeNeonThemeContribution.js'
 
+// Native workspace bookmarks (Vibe Projects)
+import './vibeProjects.contribution.js'
+
 // update (frontend part, also see platform/)
 import './vibeideUpdateActions.js'
 

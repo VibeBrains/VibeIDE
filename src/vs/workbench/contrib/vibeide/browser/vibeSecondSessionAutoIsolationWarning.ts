@@ -34,7 +34,10 @@ export class VibeSecondSessionAutoIsolationContribution extends Disposable imple
 		if (this._warnedOnce) {
 			return;
 		}
-		const threadCount = Object.keys(this._threads.state.allThreads).length;
+		// Match UI thread lists: empty placeholder threads (e.g. after openNewThread on startup) must not trigger this.
+		const threadCount = Object.values(this._threads.state.allThreads).filter(
+			t => (t?.messages?.length ?? 0) > 0,
+		).length;
 		if (threadCount < 2) {
 			return;
 		}

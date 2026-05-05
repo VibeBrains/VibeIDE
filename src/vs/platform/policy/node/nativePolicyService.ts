@@ -25,7 +25,15 @@ export class NativePolicyService extends AbstractPolicyService implements IPolic
 	protected async _updatePolicyDefinitions(policyDefinitions: IStringDictionary<PolicyDefinition>): Promise<void> {
 		this.logService.trace(`NativePolicyService#_updatePolicyDefinitions - Found ${Object.keys(policyDefinitions).length} policy definitions`);
 
-		const { createWatcher } = await import('@vscode/policy-watcher');
+		let createWatcher: (productName: string, definitions: IStringDictionary<PolicyDefinition>, cb: (update: PolicyUpdate<IStringDictionary<PolicyDefinition>>) => void) => Watcher;
+		try {
+			const mod = await import('@vscode/policy-watcher');
+			createWatcher = mod.createWatcher;
+		} catch (err) {
+			// Common when node_modules were installed with --ignore-scripts or native rebuild failed (e.g. MSB8040 Spectre libs missing on Windows).
+			this.logService.warn(`[NativePolicyService] @vscode/policy-watcher is not available; enterprise registry policies will be ignored until native bindings exist. ${err}`);
+			return;
+		}
 
 		await this.throttler.queue(() => new Promise<void>((c, e) => {
 			try {
