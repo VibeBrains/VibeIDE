@@ -23,13 +23,27 @@ const SINCE = args.find(a => a.startsWith('--since='))?.split('=')[1]
 const FORMAT = args.find(a => a.startsWith('--format='))?.split('=')[1]
 	|| (args.includes('--format') ? args[args.indexOf('--format') + 1] : 'markdown');
 
-/** Same block as README.md — «Поддержать проект» (GitHub Releases render HTML). */
+/** Community + donation footer: keep in sync with README.md (GitHub Releases render HTML). */
 function supportFooterMarkdown() {
 	return `
 
 ---
 
-## Поддержать проект
+## Связь, сообщество и поддержка
+
+**Discord** — самый быстрый способ задать вопрос по установке и использованию, обсудить идеи и поймать «плавающие» баги вместе с другими пользователями, пока вы ещё не уверены, что это стоит оформлять в тикет.
+
+<p>
+  <a href="https://discord.gg/NFc3EKPany" title="Приглашение в Discord VibeIDE">
+    <img src="https://img.shields.io/badge/Discord-войти_на_сервер-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord — приглашение на сервер" />
+  </a>
+</p>
+
+**GitHub Issues** — для **воспроизводимых** сбоев, регрессий и предложений по продукту лучше завести [issue в репозитории](https://github.com/VibeIDETeam/VibeIDE/issues/new): так задача не потеряется, к ней можно приложить логи и версию сборки, а исправление будет привязано к релизам.
+
+**Почта** — [mail@vibeide.ru](mailto:mail@vibeide.ru): деловые вопросы, партнёрство, обратная связь вне публичных площадок.
+
+### Поддержать проект
 
 Если VibeIDE оказался полезным — буду рад благодарности 🙏
 
