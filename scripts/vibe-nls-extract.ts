@@ -19,11 +19,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import glob from 'glob';
-import { promisify } from 'util';
+import { glob as fsGlob } from 'node:fs/promises';
 import { fileURLToPath } from 'url';
-
-const globAsync = promisify(glob);
 
 // ---------------------------------------------------------------------------
 // Paths — works in both ESM and tsx CJS mode
@@ -294,10 +291,14 @@ async function main(): Promise<void> {
 		process.exit(1);
 	}
 
-	const files = await globAsync('**/*.ts', {
-		cwd: SRC_DIR,
-		ignore: ['**/*.d.ts', '**/test/**'],
-	});
+	// Node built-in glob (Node 20.10+) — avoids relying on the `glob` npm package when node_modules is partial.
+	const files = await Array.fromAsync(
+		fsGlob('**/*.ts', {
+			cwd: SRC_DIR,
+			exclude: (rel) =>
+				rel.endsWith('.d.ts') || rel.split(/[/\\]/).includes('test'),
+		})
+	);
 
 	console.log(`[vibe-nls] Scanning ${files.length} TypeScript files...`);
 
