@@ -36,6 +36,12 @@ jobs:
           node-version-file: .nvmrc
           cache: 'npm'
 
+      # kerberos (node-gyp) needs krb5/GSSAPI headers on Linux
+      - name: Install Linux native build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libkrb5-dev
+
       - name: Install dependencies
         run: npm ci
         env:
@@ -189,8 +195,9 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libkrb5-dev rpm fakeroot
           npm ci
-          sudo apt-get install -y rpm fakeroot
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
