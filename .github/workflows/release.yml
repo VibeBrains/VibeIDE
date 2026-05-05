@@ -279,7 +279,7 @@ jobs:
           tag_name: ${{ env.VIBE_VERSION }}
           name: "VibeIDE ${{ env.VIBE_VERSION }}"
           body_path: RELEASE_NOTES.md
-          draft: true
+          draft: false
           files: |
             release-artifacts/windows-x64/**/*.exe
             release-artifacts/windows-x64/**/*.zip
