@@ -75,6 +75,9 @@ import './miscWokrbenchContrib.js'
 // remove built-in chat surfaces we don't use (1.118+ compatible via data-action-id selectors)
 import './hideBuiltinChat.js'
 
+// register IAgentSessionsService without the 70+ chat actions (avoids "UNKNOWN service agentSessions" errors)
+import './agentSessionsRegistration.js'
+
 // register file service (for explorer context menu)
 import './fileService.js'
 
