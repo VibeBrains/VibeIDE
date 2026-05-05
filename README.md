@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="cortexide-main.png" alt="VibeIDE" width="180" />
+  <img src="references/logo-final.png" alt="VibeIDE" width="180" />
 </p>
 
 <h1 align="center">VibeIDE</h1>

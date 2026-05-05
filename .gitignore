@@ -60,7 +60,8 @@ src/vs/workbench/contrib/vibeide/browser/react/src2/**
 extensions/copilot/test/simulation/cache/
 
 # VibeIDE local-only paths (keep out of git)
-references/
+references/*
+!references/logo-final.png
 CLAUDE.md
 .cursor/
 .vibe/
