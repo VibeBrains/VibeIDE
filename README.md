@@ -132,8 +132,7 @@ Pull request'ы приветствуются. Перед началом знач
 
 ## Поддержать проект
 
-Если VibeIDE оказался полезным — буду рад благодарности 🙏  
-(Тот же способ поддержки, что и у расширения [VSCodeSyncFiles](https://github.com/borodatych/VSCodeSyncFiles).)
+Если VibeIDE оказался полезным — буду рад благодарности 🙏
 
 <a href="https://raw.githubusercontent.com/borodatych/VSCodeSyncFiles/main/media/QR-Code.jpg" target="_blank" rel="noopener noreferrer">
   <img src="https://raw.githubusercontent.com/borodatych/VSCodeSyncFiles/main/media/QR-Code.jpg" width="120" alt="QR-код для поддержки проекта" />
