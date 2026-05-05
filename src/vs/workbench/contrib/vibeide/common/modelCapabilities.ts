@@ -1,0 +1,1956 @@
+/*--------------------------------------------------------------------------------------
+ *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
+ *--------------------------------------------------------------------------------------*/
+
+/**
+ * Model Capabilities and Configuration
+ *
+ * This file centralizes all model definitions and capabilities for VibeIDE.
+ *
+ * Structure:
+ * 1. defaultModelsOfProvider: Optional bootstrap (often empty) — UI lists are filled from IRemoteCatalogService and manual refresh in settings.
+ * 2. Model-specific options (e.g., openAIModelOptions): Detailed capabilities per model id
+ * 3. Provider settings: Fallback logic and provider-specific configurations
+ *
+ * When adding a **known** flagship model for heuristics/routing only (optional):
+ * 1. Add detailed capabilities to provider-specific modelOptions / fallback.
+ */
+
+import { FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName } from './vibeideSettingsTypes.js';
+
+
+
+
+
+// Key order controls Main Providers UI (see nonlocalProviderNames): OpenCode Zen + OpenCode + OpenRouter first, then free-tier-friendly, then by coding-model breadth/quality; locals last.
+export const defaultProviderSettings = {
+	openCodeZen: {
+		apiKey: '',
+	},
+	openCode: {
+		apiKey: '',
+	},
+	openRouter: {
+		apiKey: '',
+		/** `'1'` = load model list from OpenRouter public API without an API key (inference still needs a key). */
+		publicCatalog: '0',
+	},
+	gemini: {
+		apiKey: '',
+	},
+	groq: {
+		apiKey: '',
+	},
+	pollinations: {
+		apiKey: '',
+	},
+	anthropic: {
+		apiKey: '',
+	},
+	openAI: {
+		apiKey: '',
+	},
+	deepseek: {
+		apiKey: '',
+	},
+	mistral: {
+		apiKey: '',
+	},
+	xAI: {
+		apiKey: '',
+	},
+	openAICompatible: {
+		endpoint: '',
+		apiKey: '',
+		headersJSON: '{}', // default to {}
+	},
+	liteLLM: { // https://docs.litellm.ai/docs/providers/openai_compatible
+		endpoint: '',
+		apiKey: '',
+	},
+	googleVertex: { // google https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library
+		region: 'us-west2',
+		project: '',
+	},
+	microsoftAzure: { // microsoft Azure Foundry
+		project: '', // really 'resource'
+		apiKey: '',
+		azureApiVersion: '2024-05-01-preview',
+	},
+	awsBedrock: {
+		apiKey: '',
+		region: 'us-east-1', // add region setting
+		endpoint: '', // optionally allow overriding default
+	},
+	ollama: {
+		endpoint: 'http://127.0.0.1:11434',
+	},
+	vLLM: {
+		endpoint: 'http://localhost:8000',
+	},
+	lmStudio: {
+		endpoint: 'http://localhost:1234',
+	},
+
+} as const
+
+
+
+
+export const defaultModelsOfProvider = {
+	// Remote catalogs: lists come from IRemoteCatalogService (OpenAI-compatible /v1/models or provider APIs).
+	openAI: [],
+	anthropic: [],
+	xAI: [],
+	gemini: [],
+	deepseek: [],
+	// Local providers - models are autodetected dynamically
+	// Users can add custom model IDs that will be recognized via fallback logic
+	ollama: [ // Models autodetected from Ollama API
+		// NOTE: Models are dynamically detected. Users can add custom model IDs.
+		// Common models: qwen2.5-coder, llama3.1, deepseek-r1, devstral, etc.
+	],
+	vLLM: [ // Models autodetected from vLLM server
+		// NOTE: Models are dynamically detected. Users can add custom model IDs.
+	],
+	lmStudio: [ // Models autodetected from LM Studio
+		// NOTE: Models are dynamically detected. Users can add custom model IDs.
+	],
+
+	openRouter: [],
+	groq: [],
+	mistral: [],
+	openAICompatible: [], // fallback
+	googleVertex: [],
+	microsoftAzure: [],
+	awsBedrock: [],
+	liteLLM: [],
+	pollinations: [],
+	openCodeZen: [],
+	openCode: [],
+
+
+} as const satisfies Record<ProviderName, string[]>
+
+
+
+export type VibeideStaticModelInfo = { // not stateful
+	// Void uses the information below to know how to handle each model.
+	// for some examples, see openAIModelOptions and anthropicModelOptions (below).
+
+	contextWindow: number; // input tokens
+	reservedOutputTokenSpace: number | null; // reserve this much space in the context window for output, defaults to 4096 if null
+
+	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated'; // typically you should use 'system-role'. 'separated' means the system message is passed as a separate field (e.g. anthropic)
+	specialToolFormat?: 'openai-style' | 'anthropic-style' | 'gemini-style', // typically you should use 'openai-style'. null means "can't call tools by default", and asks the LLM to output XML in agent mode
+	supportsFIM: boolean; // whether the model was specifically designed for autocomplete or "FIM" ("fill-in-middle" format)
+
+	additionalOpenAIPayload?: { [key: string]: string } // additional payload in the message body for requests that are openai-compatible (ollama, vllm, openai, openrouter, etc)
+
+	// reasoning options
+	reasoningCapabilities: false | {
+		readonly supportsReasoning: true; // for clarity, this must be true if anything below is specified
+		readonly canTurnOffReasoning: boolean; // whether or not the user can disable reasoning mode (false if the model only supports reasoning)
+		readonly canIOReasoning: boolean; // whether or not the model actually outputs reasoning (eg o1 lets us control reasoning but not output it)
+		readonly reasoningReservedOutputTokenSpace?: number; // overrides normal reservedOutputTokenSpace
+		readonly reasoningSlider?:
+		| undefined
+		| { type: 'budget_slider'; min: number; max: number; default: number } // anthropic supports this (reasoning budget)
+		| { type: 'effort_slider'; values: string[]; default: string } // openai-compatible supports this (reasoning effort)
+
+		// if it's open source and specifically outputs think tags, put the think tags here and we'll parse them out (e.g. ollama)
+		readonly openSourceThinkTags?: [string, string];
+
+		// the only other field related to reasoning is "providerReasoningIOSettings", which varies by provider.
+	};
+
+
+	// --- below is just informative, not used in sending / receiving, cannot be customized in settings ---
+	cost: {
+		input: number;
+		output: number;
+		cache_read?: number;
+		cache_write?: number;
+	}
+	downloadable: false | {
+		sizeGb: number | 'not-known'
+	}
+}
+// if you change the above type, remember to update the Settings link
+
+
+
+export const modelOverrideKeys = [
+	'contextWindow',
+	'reservedOutputTokenSpace',
+	'supportsSystemMessage',
+	'specialToolFormat',
+	'supportsFIM',
+	'reasoningCapabilities',
+	'additionalOpenAIPayload'
+] as const
+
+export type ModelOverrides = Pick<
+	VibeideStaticModelInfo,
+	(typeof modelOverrideKeys)[number]
+>
+
+
+
+
+type ProviderReasoningIOSettings = {
+	// include this in payload to get reasoning
+	input?: { includeInPayload?: (reasoningState: SendableReasoningInfo) => null | { [key: string]: any }, };
+	// nameOfFieldInDelta: reasoning output is in response.choices[0].delta[deltaReasoningField]
+	// needsManualParse: whether we must manually parse out the <think> tags
+	output?:
+	| { nameOfFieldInDelta?: string, needsManualParse?: undefined, }
+	| { nameOfFieldInDelta?: undefined, needsManualParse?: true, };
+}
+
+type VoidStaticProviderInfo = { // doesn't change (not stateful)
+	providerReasoningIOSettings?: ProviderReasoningIOSettings; // input/output settings around thinking (allowed to be empty) - only applied if the model supports reasoning output
+	modelOptions: { [key: string]: VibeideStaticModelInfo };
+	modelOptionsFallback: (modelName: string, fallbackKnownValues?: Partial<VibeideStaticModelInfo>) => (VibeideStaticModelInfo & { modelName: string, recognizedModelName: string }) | null;
+}
+
+
+
+const defaultModelOptions = {
+	// Unknown model id (no registry match): must not reserve the entire window for output — that collapsed chat to ~256 tokens.
+	// Refined by extensiveModelOptionsFallback for known ids, or overridesOfModel from remote catalogs / user Model Overrides.
+	contextWindow: 262_144,
+	reservedOutputTokenSpace: 8_192,
+	cost: { input: 0, output: 0 },
+	downloadable: false,
+	supportsSystemMessage: 'system-role' as const,
+	supportsFIM: false,
+	reasoningCapabilities: false,
+} as const satisfies VibeideStaticModelInfo
+
+// TODO!!! double check all context sizes below
+// TODO!!! add openrouter common models
+// TODO!!! allow user to modify capabilities and tell them if autodetected model or falling back
+const openSourceModelOptions_assumingOAICompat = {
+	'deepseekR1': {
+		supportsFIM: false,
+		supportsSystemMessage: false,
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
+		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+	},
+	'deepseekCoderV3': {
+		supportsFIM: false,
+		supportsSystemMessage: false, // unstable
+		reasoningCapabilities: false,
+		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+	},
+	'deepseekCoderV2': {
+		supportsFIM: false,
+		supportsSystemMessage: false, // unstable
+		reasoningCapabilities: false,
+		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+	},
+	'codestral': {
+		supportsFIM: true,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+	},
+	'devstral': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+		contextWindow: 131_000, reservedOutputTokenSpace: 8_192,
+	},
+	'openhands-lm-32b': { // https://www.all-hands.dev/blog/introducing-openhands-lm-32b----a-strong-open-coding-agent-model
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false, // built on qwen 2.5 32B instruct
+		contextWindow: 128_000, reservedOutputTokenSpace: 4_096
+	},
+
+	// really only phi4-reasoning supports reasoning... simpler to combine them though
+	'phi4': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
+		contextWindow: 16_000, reservedOutputTokenSpace: 4_096,
+	},
+
+	'gemma': { // https://news.ycombinator.com/item?id=43451406
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+	},
+	// llama 4 https://ai.meta.com/blog/llama-4-multimodal-intelligence/
+	'llama4-scout': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+		contextWindow: 10_000_000, reservedOutputTokenSpace: 4_096,
+	},
+	'llama4-maverick': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+		contextWindow: 10_000_000, reservedOutputTokenSpace: 4_096,
+	},
+
+	// llama 3
+	'llama3': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+	},
+	'llama3.1': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+	},
+	'llama3.2': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+	},
+	'llama3.3': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+	},
+	// qwen
+	'qwen2.5coder': {
+		supportsFIM: true,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+	},
+	'qwq': {
+		supportsFIM: false, // no FIM, yes reasoning
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
+		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
+	},
+	'qwen3': {
+		supportsFIM: false, // replaces QwQ
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
+		contextWindow: 32_768, reservedOutputTokenSpace: 8_192,
+	},
+	// FIM only
+	'starcoder2': {
+		supportsFIM: true,
+		supportsSystemMessage: false,
+		reasoningCapabilities: false,
+		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
+
+	},
+	'codegemma:2b': {
+		supportsFIM: true,
+		supportsSystemMessage: false,
+		reasoningCapabilities: false,
+		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
+
+	},
+	'quasar': { // openrouter/quasar-alpha
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+		contextWindow: 1_000_000, reservedOutputTokenSpace: 32_000,
+	}
+} as const satisfies { [s: string]: Partial<VibeideStaticModelInfo> }
+
+
+
+
+// keep modelName, but use the fallback's defaults
+const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallback'] = (modelName, fallbackKnownValues) => {
+
+	const lower = modelName.toLowerCase()
+
+	const toFallback = <T extends { [s: string]: Omit<VibeideStaticModelInfo, 'cost' | 'downloadable'> },>(obj: T, recognizedModelName: string & keyof T)
+		: VibeideStaticModelInfo & { modelName: string, recognizedModelName: string } => {
+
+		const opts = obj[recognizedModelName]
+		const supportsSystemMessage = opts.supportsSystemMessage === 'separated'
+			? 'system-role'
+			: opts.supportsSystemMessage
+
+		return {
+			recognizedModelName,
+			modelName,
+			...opts,
+			supportsSystemMessage: supportsSystemMessage,
+			cost: { input: 0, output: 0 },
+			downloadable: false,
+			...fallbackKnownValues
+		};
+	}
+
+	// Gemini 3 models (latest):
+	if (lower.includes('gemini-3') && lower.includes('image')) return toFallback(geminiModelOptions, 'gemini-3-pro-image-preview')
+	if (lower.includes('gemini-3')) return toFallback(geminiModelOptions, 'gemini-3-pro-preview')
+	// Gemini 2.5 models:
+	if (lower.includes('gemini') && (lower.includes('2.5') || lower.includes('2-5'))) {
+		if (lower.includes('pro') && !lower.includes('preview')) return toFallback(geminiModelOptions, 'gemini-2.5-pro')
+		return toFallback(geminiModelOptions, 'gemini-2.5-pro-preview-05-06')
+	}
+
+	// Claude 4.5 models (latest):
+	if (lower.includes('claude-opus-4-5') || lower.includes('claude-4-5-opus') || (lower.includes('claude-opus') && lower.includes('4.5'))) return toFallback(anthropicModelOptions, 'claude-opus-4-5-20251101')
+	if (lower.includes('claude-sonnet-4-5') || lower.includes('claude-4-5-sonnet') || (lower.includes('claude-sonnet') && lower.includes('4.5'))) return toFallback(anthropicModelOptions, 'claude-sonnet-4-5-20250929')
+	if (lower.includes('claude-haiku-4-5') || lower.includes('claude-4-5-haiku') || (lower.includes('claude-haiku') && lower.includes('4.5'))) return toFallback(anthropicModelOptions, 'claude-haiku-4-5-20251001')
+	// Claude 4.1 models:
+	if (lower.includes('claude-opus-4-1') || lower.includes('claude-4-1-opus') || (lower.includes('claude-opus') && lower.includes('4.1'))) return toFallback(anthropicModelOptions, 'claude-opus-4-1-20250805')
+	// Claude 4.0 models (legacy):
+	if (lower.includes('claude-4-opus') || lower.includes('claude-opus-4')) return toFallback(anthropicModelOptions, 'claude-opus-4-20250514')
+	if (lower.includes('claude-4-sonnet') || lower.includes('claude-sonnet-4')) return toFallback(anthropicModelOptions, 'claude-sonnet-4-20250514')
+	// Claude 3.7 models
+	if (lower.includes('claude-3-7') || lower.includes('claude-3.7')) return toFallback(anthropicModelOptions, 'claude-3-7-sonnet-20250219')
+	// Claude 3.5 models
+	if (lower.includes('claude-3-5') || lower.includes('claude-3.5')) return toFallback(anthropicModelOptions, 'claude-3-5-sonnet-20241022')
+	// Claude 3 models (legacy)
+	if (lower.includes('claude')) return toFallback(anthropicModelOptions, 'claude-3-7-sonnet-20250219')
+
+	// xAI models (check latest first):
+	if (lower.includes('grok-4')) return toFallback(xAIModelOptions, 'grok-4')
+	if (lower.includes('grok-2') || lower.includes('grok2')) return toFallback(xAIModelOptions, 'grok-2')
+	if (lower.includes('grok-3') || lower.includes('grok3')) return toFallback(xAIModelOptions, 'grok-3')
+	if (lower.includes('grok')) return toFallback(xAIModelOptions, 'grok-3')
+
+	if (lower.includes('deepseek-r1') || lower.includes('deepseek-reasoner')) return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekR1')
+	if (lower.includes('deepseek') && lower.includes('v2')) return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekCoderV2')
+	if (lower.includes('deepseek')) return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekCoderV3')
+
+	if (lower.includes('llama3')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3')
+	if (lower.includes('llama3.1')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.1')
+	if (lower.includes('llama3.2')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.2')
+	if (lower.includes('llama3.3')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.3')
+	if (lower.includes('llama') || lower.includes('scout')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama4-scout')
+	if (lower.includes('llama') || lower.includes('maverick')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama4-scout')
+	if (lower.includes('llama')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama4-scout')
+
+	if (lower.includes('qwen') && lower.includes('2.5') && lower.includes('coder')) return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen2.5coder')
+	if (lower.includes('qwen') && lower.includes('3')) return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen3')
+	if (lower.includes('qwen')) return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen3')
+	if (lower.includes('qwq')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwq') }
+	if (lower.includes('phi4')) return toFallback(openSourceModelOptions_assumingOAICompat, 'phi4')
+	if (lower.includes('codestral')) return toFallback(openSourceModelOptions_assumingOAICompat, 'codestral')
+	if (lower.includes('devstral')) return toFallback(openSourceModelOptions_assumingOAICompat, 'devstral')
+
+	if (lower.includes('gemma')) return toFallback(openSourceModelOptions_assumingOAICompat, 'gemma')
+
+	if (lower.includes('starcoder2')) return toFallback(openSourceModelOptions_assumingOAICompat, 'starcoder2')
+
+	if (lower.includes('openhands')) return toFallback(openSourceModelOptions_assumingOAICompat, 'openhands-lm-32b') // max output uncler
+
+	if (lower.includes('quasar') || lower.includes('quaser')) return toFallback(openSourceModelOptions_assumingOAICompat, 'quasar')
+
+	// OpenAI models (check latest first, then reasoning models, then main models):
+	// GPT-5.1 series (latest):
+	if (lower.includes('gpt-5.1') || (lower.includes('gpt') && lower.includes('5.1'))) return toFallback(openAIModelOptions, 'gpt-5.1')
+	// GPT-5 series:
+	if (lower.includes('gpt-5') && lower.includes('pro')) return toFallback(openAIModelOptions, 'gpt-5-pro')
+	if (lower.includes('gpt-5') && lower.includes('nano')) return toFallback(openAIModelOptions, 'gpt-5-nano')
+	if (lower.includes('gpt-5') && lower.includes('mini')) return toFallback(openAIModelOptions, 'gpt-5-mini')
+	if (lower.includes('gpt-5') || (lower.includes('gpt') && lower.includes('5'))) return toFallback(openAIModelOptions, 'gpt-5')
+	// GPT-4.1 series:
+	if (lower.includes('gpt-4.1') && lower.includes('nano')) return toFallback(openAIModelOptions, 'gpt-4.1-nano')
+	if (lower.includes('gpt-4.1') && lower.includes('mini')) return toFallback(openAIModelOptions, 'gpt-4.1-mini')
+	if (lower.includes('gpt-4.1') || (lower.includes('gpt') && lower.includes('4.1'))) return toFallback(openAIModelOptions, 'gpt-4.1')
+	// Reasoning models (o-series):
+	if (lower.includes('o3') && lower.includes('deep') && lower.includes('search')) return toFallback(openAIModelOptions, 'o3-deep-search')
+	if (lower.includes('o3') && lower.includes('pro')) return toFallback(openAIModelOptions, 'o3-pro')
+	if (lower.includes('o3') && lower.includes('mini')) return toFallback(openAIModelOptions, 'o3-mini')
+	if (lower.includes('o3')) return toFallback(openAIModelOptions, 'o3')
+	if (lower.includes('o4') && lower.includes('mini')) return toFallback(openAIModelOptions, 'o4-mini')
+	if (lower.includes('o1') && lower.includes('pro')) return toFallback(openAIModelOptions, 'o1-pro')
+	if (lower.includes('o1') && lower.includes('mini')) return toFallback(openAIModelOptions, 'o1-mini')
+	if (lower.includes('o1')) return toFallback(openAIModelOptions, 'o1')
+	// GPT-4o series:
+	if (lower.includes('gpt-4o') && lower.includes('mini')) return toFallback(openAIModelOptions, 'gpt-4o-mini')
+	if (lower.includes('gpt-4o') || lower.includes('4o')) return toFallback(openAIModelOptions, 'gpt-4o')
+	// Legacy GPT-3.5 fallback:
+	if (lower.includes('gpt') && (lower.includes('3.5') || lower.includes('turbo'))) return toFallback(openAIModelOptions, 'gpt-4o-mini')
+
+
+	if (Object.keys(openSourceModelOptions_assumingOAICompat).map(k => k.toLowerCase()).includes(lower))
+		return toFallback(openSourceModelOptions_assumingOAICompat, lower as keyof typeof openSourceModelOptions_assumingOAICompat)
+
+	return null
+}
+
+
+
+
+
+
+// ---------------- ANTHROPIC ----------------
+// Reference: https://platform.claude.com/docs/en/about-claude/models/overview (checked 2025-11-30)
+const anthropicModelOptions = {
+	// Latest Claude 4.5 series:
+	'claude-opus-4-5-20251101': {
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 15.00, cache_read: 1.50, cache_write: 18.75, output: 30.00 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+		},
+	},
+	'claude-sonnet-4-5-20250929': {
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 6.00 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+		},
+	},
+	'claude-haiku-4-5-20251001': {
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.80, cache_read: 0.08, cache_write: 1.00, output: 4.00 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: false,
+	},
+	'claude-opus-4-1-20250805': {
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 15.00, cache_read: 1.50, cache_write: 18.75, output: 30.00 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+		},
+	},
+	// Claude 3.7 series:
+	'claude-3-7-sonnet-20250219': { // https://docs.anthropic.com/en/docs/about-claude/models/all-models#model-comparison-table
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 15.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192, // can bump it to 128_000 with beta mode output-128k-2025-02-19
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 }, // they recommend batching if max > 32_000. we cap at 8192 because above is typically not necessary (often even buggy)
+		},
+
+	},
+	// Legacy Claude 4.0 series (still available):
+	'claude-opus-4-20250514': {
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 15.00, cache_read: 1.50, cache_write: 18.75, output: 30.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192, // can bump it to 128_000 with beta mode output-128k-2025-02-19
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 }, // they recommend batching if max > 32_000. we cap at 8192 because above is typically not necessary (often even buggy)
+		},
+
+	},
+	'claude-sonnet-4-20250514': {
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 6.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192, // can bump it to 128_000 with beta mode output-128k-2025-02-19
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 }, // they recommend batching if max > 32_000. we cap at 8192 because above is typically not necessary (often even buggy)
+		},
+
+	},
+	'claude-3-5-sonnet-20241022': {
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 15.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: false,
+	},
+	'claude-3-5-haiku-20241022': {
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.80, cache_read: 0.08, cache_write: 1.00, output: 4.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: false,
+	},
+	'claude-3-opus-20240229': {
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 4_096,
+		cost: { input: 15.00, cache_read: 1.50, cache_write: 18.75, output: 75.00 },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: false,
+	},
+	'claude-3-sonnet-20240229': { // no point of using this, but including this for people who put it in
+		contextWindow: 200_000, cost: { input: 3.00, output: 15.00 },
+		downloadable: false,
+		reservedOutputTokenSpace: 4_096,
+		supportsFIM: false,
+		specialToolFormat: 'anthropic-style',
+		supportsSystemMessage: 'separated',
+		reasoningCapabilities: false,
+	}
+} as const satisfies { [s: string]: VibeideStaticModelInfo }
+
+const anthropicSettings: VoidStaticProviderInfo = {
+	providerReasoningIOSettings: {
+		input: {
+			includeInPayload: (reasoningInfo) => {
+				if (!reasoningInfo?.isReasoningEnabled) return null
+
+				if (reasoningInfo.type === 'budget_slider_value') {
+					return { thinking: { type: 'enabled', budget_tokens: reasoningInfo.reasoningBudget } }
+				}
+				return null
+			}
+		},
+	},
+	modelOptions: anthropicModelOptions,
+	modelOptionsFallback: (modelName) => {
+		const lower = modelName.toLowerCase()
+		let fallbackName: keyof typeof anthropicModelOptions | null = null
+		// Claude 4.5 models (latest):
+		if (lower.includes('claude-opus-4-5') || lower.includes('claude-4-5-opus') || (lower.includes('claude-opus') && lower.includes('4.5'))) fallbackName = 'claude-opus-4-5-20251101'
+		if (lower.includes('claude-sonnet-4-5') || lower.includes('claude-4-5-sonnet') || (lower.includes('claude-sonnet') && lower.includes('4.5'))) fallbackName = 'claude-sonnet-4-5-20250929'
+		if (lower.includes('claude-haiku-4-5') || lower.includes('claude-4-5-haiku') || (lower.includes('claude-haiku') && lower.includes('4.5'))) fallbackName = 'claude-haiku-4-5-20251001'
+		// Claude 4.1 models:
+		if (lower.includes('claude-opus-4-1') || lower.includes('claude-4-1-opus') || (lower.includes('claude-opus') && lower.includes('4.1'))) fallbackName = 'claude-opus-4-1-20250805'
+		// Claude 4.0 models (legacy):
+		if (lower.includes('claude-4-opus') || lower.includes('claude-opus-4') || lower.includes('claude-opus-4-0')) fallbackName = 'claude-opus-4-20250514'
+		if (lower.includes('claude-4-sonnet') || lower.includes('claude-sonnet-4') || lower.includes('claude-sonnet-4-0')) fallbackName = 'claude-sonnet-4-20250514'
+		// Claude 3.7 models
+		if (lower.includes('claude-3-7-sonnet') || lower.includes('claude-3-7-sonnet-latest')) fallbackName = 'claude-3-7-sonnet-20250219'
+		// Claude 3.5 models
+		if (lower.includes('claude-3-5-sonnet') || lower.includes('claude-3-5-sonnet-latest')) fallbackName = 'claude-3-5-sonnet-20241022'
+		if (lower.includes('claude-3-5-haiku') || lower.includes('claude-3-5-haiku-latest')) fallbackName = 'claude-3-5-haiku-20241022'
+		// Claude 3 models (legacy)
+		if (lower.includes('claude-3-opus') || lower.includes('claude-3-opus-latest')) fallbackName = 'claude-3-opus-20240229'
+		if (lower.includes('claude-3-sonnet') || lower.includes('claude-3-sonnet-latest')) fallbackName = 'claude-3-sonnet-20240229'
+		if (fallbackName) return { modelName: fallbackName, recognizedModelName: fallbackName, ...anthropicModelOptions[fallbackName] }
+		return null
+	},
+}
+
+
+// ---------------- OPENAI ----------------
+// NOTE: Keep this list in sync with OpenAI's current "production" models.
+// When adding a new model, make sure routing/risk policies are updated.
+// Reference: https://platform.openai.com/docs/models (checked 2025-11-30)
+const openAIModelOptions = { // https://platform.openai.com/docs/pricing
+	// Latest GPT-5 series (best for coding and agentic tasks):
+	'gpt-5.1': {
+		contextWindow: 1_047_576, // TODO: Verify actual context window
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 2.50, output: 10.00, cache_read: 0.625 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'low' } },
+	},
+	'gpt-5': {
+		contextWindow: 1_047_576, // TODO: Verify actual context window
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 2.50, output: 10.00, cache_read: 0.625 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'low' } },
+	},
+	'gpt-5-mini': {
+		contextWindow: 1_047_576, // TODO: Verify actual context window
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 0.50, output: 2.00, cache_read: 0.125 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: false,
+	},
+	'gpt-5-nano': {
+		contextWindow: 1_047_576, // TODO: Verify actual context window
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 0.10, output: 0.40, cache_read: 0.03 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: false,
+	},
+	'gpt-5-pro': {
+		contextWindow: 1_047_576, // TODO: Verify actual context window
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 5.00, output: 20.00, cache_read: 1.25 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'low' } },
+	},
+	// GPT-4.1 series (smartest non-reasoning models):
+	'gpt-4.1': {
+		contextWindow: 1_047_576, // TODO: Verify actual context window
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 2.00, output: 8.00, cache_read: 0.50 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: false,
+	},
+	'gpt-4.1-mini': {
+		contextWindow: 1_047_576, // TODO: Verify actual context window
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 0.40, output: 1.60, cache_read: 0.10 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: false,
+	},
+	'gpt-4.1-nano': {
+		contextWindow: 1_047_576, // TODO: Verify actual context window
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 0.10, output: 0.40, cache_read: 0.03 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: false,
+	},
+	// GPT-4o series (fast, intelligent, flexible):
+	'gpt-4o': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: 16_384,
+		cost: { input: 2.50, cache_read: 1.25, output: 10.00, },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'gpt-4o-mini': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: 16_384,
+		cost: { input: 0.15, cache_read: 0.075, output: 0.60, },
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	// Reasoning models (o-series):
+	'o3-deep-search': {
+		contextWindow: 1_047_576, // TODO: Verify actual context window
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 20.00, output: 80.00, cache_read: 5.00 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'low' } },
+	},
+	'o3-pro': {
+		contextWindow: 1_047_576, // TODO: Verify actual context window
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 15.00, output: 60.00, cache_read: 3.75 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'low' } },
+	},
+	'o3': {
+		contextWindow: 1_047_576, // TODO: Verify actual context window
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 10.00, output: 40.00, cache_read: 2.50 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'low' } },
+	},
+	'o3-mini': {
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: 100_000,
+		cost: { input: 1.10, cache_read: 0.55, output: 4.40, },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'low' } },
+	},
+	'o4-mini': {
+		contextWindow: 1_047_576, // TODO: Verify actual context window
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 1.10, output: 4.40, cache_read: 0.275 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'low' } },
+	},
+	'o1-pro': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: 100_000,
+		cost: { input: 20.00, cache_read: 10.00, output: 80.00, }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'low' } },
+	},
+	'o1': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: 100_000,
+		cost: { input: 15.00, cache_read: 7.50, output: 60.00, },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'developer-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'low' } },
+	},
+	'o1-mini': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: 65_536,
+		cost: { input: 1.10, cache_read: 0.55, output: 4.40, },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: false, // does not support any system
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'low' } },
+	},
+	// Legacy models (still available for backward compatibility):
+	// 'gpt-3.5-turbo': // Legacy chat model, not recommended for new usage
+} as const satisfies { [s: string]: VibeideStaticModelInfo }
+
+
+// https://platform.openai.com/docs/guides/reasoning?api-mode=chat
+const openAICompatIncludeInPayloadReasoning = (reasoningInfo: SendableReasoningInfo) => {
+	if (!reasoningInfo?.isReasoningEnabled) return null
+	if (reasoningInfo.type === 'effort_slider_value') {
+		return { reasoning_effort: reasoningInfo.reasoningEffort }
+	}
+	return null
+
+}
+
+const openAISettings: VoidStaticProviderInfo = {
+	modelOptions: openAIModelOptions,
+	modelOptionsFallback: (modelName) => {
+		const lower = modelName.toLowerCase()
+		let fallbackName: keyof typeof openAIModelOptions | null = null
+		// GPT-5.1 series (latest, check first):
+		if (lower.includes('gpt-5.1') || (lower.includes('gpt') && lower.includes('5.1'))) { fallbackName = 'gpt-5.1' }
+		// GPT-5 series:
+		if (lower.includes('gpt-5') && lower.includes('pro')) { fallbackName = 'gpt-5-pro' }
+		if (lower.includes('gpt-5') && lower.includes('nano')) { fallbackName = 'gpt-5-nano' }
+		if (lower.includes('gpt-5') && lower.includes('mini')) { fallbackName = 'gpt-5-mini' }
+		if (lower.includes('gpt-5') || (lower.includes('gpt') && lower.includes('5'))) { fallbackName = 'gpt-5' }
+		// GPT-4.1 series:
+		if (lower.includes('gpt-4.1') && lower.includes('nano')) { fallbackName = 'gpt-4.1-nano' }
+		if (lower.includes('gpt-4.1') && lower.includes('mini')) { fallbackName = 'gpt-4.1-mini' }
+		if (lower.includes('gpt-4.1') || (lower.includes('gpt') && lower.includes('4.1'))) { fallbackName = 'gpt-4.1' }
+		// Reasoning models (o-series, check before GPT-4o):
+		if (lower.includes('o3') && lower.includes('deep') && lower.includes('search')) { fallbackName = 'o3-deep-search' }
+		if (lower.includes('o3') && lower.includes('pro')) { fallbackName = 'o3-pro' }
+		if (lower.includes('o3') && lower.includes('mini')) { fallbackName = 'o3-mini' }
+		if (lower.includes('o3')) { fallbackName = 'o3' }
+		if (lower.includes('o4') && lower.includes('mini')) { fallbackName = 'o4-mini' }
+		if (lower.includes('o1') && lower.includes('pro')) { fallbackName = 'o1-pro' }
+		if (lower.includes('o1') && lower.includes('mini')) { fallbackName = 'o1-mini' }
+		if (lower.includes('o1')) { fallbackName = 'o1' }
+		// GPT-4o series:
+		if (lower.includes('gpt-4o') && lower.includes('mini')) { fallbackName = 'gpt-4o-mini' }
+		if (lower.includes('gpt-4o') || lower.includes('4o')) { fallbackName = 'gpt-4o' }
+		// Legacy models:
+		if (lower.includes('gpt-3.5') || lower.includes('3.5-turbo')) {
+			// Fallback to gpt-4o-mini for legacy 3.5-turbo requests
+			fallbackName = 'gpt-4o-mini'
+		}
+		if (fallbackName) return { modelName: fallbackName, recognizedModelName: fallbackName, ...openAIModelOptions[fallbackName] }
+		return null
+	},
+	providerReasoningIOSettings: {
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+	},
+}
+
+// ---------------- XAI ----------------
+const xAIModelOptions = {
+	// https://docs.x.ai/docs/guides/reasoning#reasoning
+	// https://docs.x.ai/docs/models#models-and-pricing
+	// Reference: https://docs.x.ai/docs/models (checked 2025-11-30)
+	'grok-4': {
+		contextWindow: 131_072, // TODO: Verify actual context window
+		reservedOutputTokenSpace: null,
+		cost: { input: 3.00, output: 15.00 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: false, // TODO: Verify if grok-4 supports reasoning
+	},
+	'grok-3': {
+		contextWindow: 131_072,
+		reservedOutputTokenSpace: null,
+		cost: { input: 3.00, output: 15.00 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: false,
+	},
+	'grok-3-fast': {
+		contextWindow: 131_072,
+		reservedOutputTokenSpace: null,
+		cost: { input: 5.00, output: 25.00 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: false,
+	},
+	// only mini supports thinking
+	'grok-3-mini': {
+		contextWindow: 131_072,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0.30, output: 0.50 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'high'], default: 'low' } },
+	},
+	'grok-3-mini-fast': {
+		contextWindow: 131_072,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0.60, output: 4.00 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['low', 'high'], default: 'low' } },
+	},
+	'grok-2': {
+		contextWindow: 131_072,
+		reservedOutputTokenSpace: null,
+		cost: { input: 2.00, output: 10.00 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: false,
+	},
+} as const satisfies { [s: string]: VibeideStaticModelInfo }
+
+const xAISettings: VoidStaticProviderInfo = {
+	modelOptions: xAIModelOptions,
+	modelOptionsFallback: (modelName) => {
+		const lower = modelName.toLowerCase()
+		let fallbackName: keyof typeof xAIModelOptions | null = null
+		// Check latest first:
+		if (lower.includes('grok-4')) fallbackName = 'grok-4'
+		if (lower.includes('grok-2')) fallbackName = 'grok-2'
+		if (lower.includes('grok-3')) fallbackName = 'grok-3'
+		if (lower.includes('grok')) fallbackName = 'grok-3'
+		if (fallbackName) return { modelName: fallbackName, recognizedModelName: fallbackName, ...xAIModelOptions[fallbackName] }
+		return null
+	},
+	// same implementation as openai
+	providerReasoningIOSettings: {
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+	},
+}
+
+
+// ---------------- GEMINI ----------------
+const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
+	// https://ai.google.dev/gemini-api/docs/thinking#set-budget
+	// Latest Gemini 3 series (preview):
+	'gemini-3-pro-preview': {
+		contextWindow: 1_048_576, // 1M tokens input
+		reservedOutputTokenSpace: 65_536, // 65K tokens output
+		cost: { input: 0, output: 0 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: false, // TODO: Verify if Gemini 3 supports reasoning
+	},
+	'gemini-3-pro-image-preview': {
+		contextWindow: 1_048_576, // 1M tokens input
+		reservedOutputTokenSpace: 65_536, // 65K tokens output
+		cost: { input: 0, output: 0 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: false, // TODO: Verify if Gemini 3 supports reasoning
+	},
+	// Gemini 2.5 series:
+	'gemini-2.5-pro': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0, output: 0 }, // TODO: Verify pricing
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: false,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 }, // max is really 24576
+			reasoningReservedOutputTokenSpace: 8192,
+		},
+	},
+	'gemini-2.5-pro-preview-05-06': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0, output: 0 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: false,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 }, // max is really 24576
+			reasoningReservedOutputTokenSpace: 8192,
+		},
+	},
+	'gemini-2.0-flash-lite': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0, output: 0 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: false, // no reasoning
+	},
+	'gemini-2.5-flash-preview-04-17': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.15, output: .60 }, // TODO $3.50 output with thinking not included
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: false,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 }, // max is really 24576
+			reasoningReservedOutputTokenSpace: 8192,
+		},
+	},
+	'gemini-2.5-pro-exp-03-25': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0, output: 0 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: false,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 }, // max is really 24576
+			reasoningReservedOutputTokenSpace: 8192,
+		},
+	},
+	'gemini-2.0-flash': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192, // 8_192,
+		cost: { input: 0.10, output: 0.40 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: false,
+	},
+	'gemini-2.0-flash-lite-preview-02-05': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192, // 8_192,
+		cost: { input: 0.075, output: 0.30 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: false,
+	},
+	'gemini-1.5-flash': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192, // 8_192,
+		cost: { input: 0.075, output: 0.30 },  // TODO!!! price doubles after 128K tokens, we are NOT encoding that info right now
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: false,
+	},
+	'gemini-1.5-pro': {
+		contextWindow: 2_097_152,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 1.25, output: 5.00 },  // TODO!!! price doubles after 128K tokens, we are NOT encoding that info right now
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: false,
+	},
+	'gemini-1.5-flash-8b': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.0375, output: 0.15 },  // TODO!!! price doubles after 128K tokens, we are NOT encoding that info right now
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: false,
+	},
+} as const satisfies { [s: string]: VibeideStaticModelInfo }
+
+const geminiSettings: VoidStaticProviderInfo = {
+	modelOptions: geminiModelOptions,
+	modelOptionsFallback: (modelName) => { return null },
+}
+
+
+
+// ---------------- DEEPSEEK API ----------------
+const deepseekModelOptions = {
+	'deepseek-chat': {
+		...openSourceModelOptions_assumingOAICompat.deepseekR1,
+		contextWindow: 64_000, // https://api-docs.deepseek.com/quick_start/pricing
+		reservedOutputTokenSpace: 8_000, // 8_000,
+		cost: { cache_read: .07, input: .27, output: 1.10, },
+		downloadable: false,
+	},
+	'deepseek-reasoner': {
+		...openSourceModelOptions_assumingOAICompat.deepseekCoderV2,
+		contextWindow: 64_000,
+		reservedOutputTokenSpace: 8_000, // 8_000,
+		cost: { cache_read: .14, input: .55, output: 2.19, },
+		downloadable: false,
+	},
+} as const satisfies { [s: string]: VibeideStaticModelInfo }
+
+
+const deepseekSettings: VoidStaticProviderInfo = {
+	modelOptions: deepseekModelOptions,
+	modelOptionsFallback: (modelName) => { return null },
+	providerReasoningIOSettings: {
+		// reasoning: OAICompat +  response.choices[0].delta.reasoning_content // https://api-docs.deepseek.com/guides/reasoning_model
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+
+
+
+// ---------------- MISTRAL ----------------
+
+const mistralModelOptions = { // https://mistral.ai/products/la-plateforme#pricing https://docs.mistral.ai/getting-started/models/models_overview/#premier-models
+	'mistral-large-latest': {
+		contextWindow: 131_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 2.00, output: 6.00 },
+		supportsFIM: true,
+		downloadable: { sizeGb: 73 },
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'mistral-medium-latest': { // https://openrouter.ai/mistralai/mistral-medium-3
+		contextWindow: 131_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.40, output: 2.00 },
+		supportsFIM: true,
+		downloadable: { sizeGb: 'not-known' },
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'codestral-latest': {
+		contextWindow: 256_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.30, output: 0.90 },
+		supportsFIM: true,
+		downloadable: { sizeGb: 13 },
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'magistral-medium-latest': {
+		contextWindow: 256_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.30, output: 0.90 }, // TODO: check this
+		supportsFIM: true,
+		downloadable: { sizeGb: 13 },
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] },
+	},
+	'magistral-small-latest': {
+		contextWindow: 40_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.30, output: 0.90 }, // TODO: check this
+		supportsFIM: true,
+		downloadable: { sizeGb: 13 },
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] },
+	},
+	'devstral-small-latest': { //https://openrouter.ai/mistralai/devstral-small:free
+		contextWindow: 131_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0, output: 0 },
+		supportsFIM: false,
+		downloadable: { sizeGb: 14 }, //https://ollama.com/library/devstral
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'ministral-8b-latest': { // ollama 'mistral'
+		contextWindow: 131_000,
+		reservedOutputTokenSpace: 4_096,
+		cost: { input: 0.10, output: 0.10 },
+		supportsFIM: false,
+		downloadable: { sizeGb: 4.1 },
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'ministral-3b-latest': {
+		contextWindow: 131_000,
+		reservedOutputTokenSpace: 4_096,
+		cost: { input: 0.04, output: 0.04 },
+		supportsFIM: false,
+		downloadable: { sizeGb: 'not-known' },
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+} as const satisfies { [s: string]: VibeideStaticModelInfo }
+
+const mistralSettings: VoidStaticProviderInfo = {
+	modelOptions: mistralModelOptions,
+	modelOptionsFallback: (modelName) => { return null },
+	providerReasoningIOSettings: {
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+	},
+}
+
+
+// ---------------- GROQ ----------------
+const groqModelOptions = { // https://console.groq.com/docs/models, https://groq.com/pricing/
+	'llama-3.3-70b-versatile': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: 32_768, // 32_768,
+		cost: { input: 0.59, output: 0.79 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'llama-3.1-8b-instant': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.05, output: 0.08 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'qwen-2.5-coder-32b': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: null, // not specified?
+		cost: { input: 0.79, output: 0.79 },
+		downloadable: false,
+		supportsFIM: false, // unfortunately looks like no FIM support on groq
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'qwen-qwq-32b': { // https://huggingface.co/Qwen/QwQ-32B
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: null, // not specified?
+		cost: { input: 0.29, output: 0.39 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] }, // we're using reasoning_format:parsed so really don't need to know openSourceThinkTags
+	},
+} as const satisfies { [s: string]: VibeideStaticModelInfo }
+const groqSettings: VoidStaticProviderInfo = {
+	modelOptions: groqModelOptions,
+	modelOptionsFallback: (modelName) => { return null },
+	providerReasoningIOSettings: {
+		// Must be set to either parsed or hidden when using tool calling https://console.groq.com/docs/reasoning
+		input: {
+			includeInPayload: (reasoningInfo) => {
+				if (!reasoningInfo?.isReasoningEnabled) return null
+				if (reasoningInfo.type === 'budget_slider_value') {
+					return { reasoning_format: 'parsed' }
+				}
+				return null
+			}
+		},
+		output: { nameOfFieldInDelta: 'reasoning' },
+	},
+}
+
+
+// ---------------- GOOGLE VERTEX ----------------
+const googleVertexModelOptions = {
+} as const satisfies Record<string, VibeideStaticModelInfo>
+const googleVertexSettings: VoidStaticProviderInfo = {
+	modelOptions: googleVertexModelOptions,
+	modelOptionsFallback: (modelName) => { return null },
+	providerReasoningIOSettings: {
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+	},
+}
+
+// ---------------- MICROSOFT AZURE ----------------
+const microsoftAzureModelOptions = {
+} as const satisfies Record<string, VibeideStaticModelInfo>
+const microsoftAzureSettings: VoidStaticProviderInfo = {
+	modelOptions: microsoftAzureModelOptions,
+	modelOptionsFallback: (modelName) => { return null },
+	providerReasoningIOSettings: {
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+	},
+}
+
+// ---------------- AWS BEDROCK ----------------
+const awsBedrockModelOptions = {
+} as const satisfies Record<string, VibeideStaticModelInfo>
+
+const awsBedrockSettings: VoidStaticProviderInfo = {
+	modelOptions: awsBedrockModelOptions,
+	modelOptionsFallback: (modelName) => { return null },
+	providerReasoningIOSettings: {
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+	},
+}
+
+
+// ---------------- VLLM, OLLAMA, OPENAICOMPAT (self-hosted / local) ----------------
+const ollamaModelOptions = {
+	'qwen2.5-coder:7b': {
+		contextWindow: 32_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: 1.9 },
+		supportsFIM: true,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style', // Ollama is OpenAI-compatible and supports tool calling
+		reasoningCapabilities: false,
+	},
+	'qwen2.5-coder:3b': {
+		contextWindow: 32_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: 1.9 },
+		supportsFIM: true,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style', // Ollama is OpenAI-compatible and supports tool calling
+		reasoningCapabilities: false,
+	},
+	'qwen2.5-coder:1.5b': {
+		contextWindow: 32_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: .986 },
+		supportsFIM: true,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style', // Ollama is OpenAI-compatible and supports tool calling
+		reasoningCapabilities: false,
+	},
+	'llama3.1': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: 4.9 },
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style', // Ollama is OpenAI-compatible and supports tool calling
+		reasoningCapabilities: false,
+	},
+	'qwen2.5-coder': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: 4.7 },
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style', // Ollama is OpenAI-compatible and supports tool calling
+		reasoningCapabilities: false,
+	},
+	'qwq': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: 32_000,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: 20 },
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style', // Ollama is OpenAI-compatible and supports tool calling
+		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: false, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] },
+	},
+	'deepseek-r1': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: 4.7 },
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style', // Ollama is OpenAI-compatible and supports tool calling
+		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: false, canTurnOffReasoning: false, openSourceThinkTags: ['<think>', '</think>'] },
+	},
+	'devstral:latest': {
+		contextWindow: 131_000,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0, output: 0 },
+		downloadable: { sizeGb: 14 },
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style', // Ollama is OpenAI-compatible and supports tool calling
+		reasoningCapabilities: false,
+	},
+
+} as const satisfies Record<string, VibeideStaticModelInfo>
+
+export const ollamaRecommendedModels = ['qwen2.5-coder:1.5b', 'llama3.1', 'qwq', 'deepseek-r1', 'devstral:latest'] as const satisfies (keyof typeof ollamaModelOptions)[]
+
+
+const vLLMSettings: VoidStaticProviderInfo = {
+	modelOptionsFallback: (modelName) => {
+		const fallback = extensiveModelOptionsFallback(modelName, { downloadable: { sizeGb: 'not-known' } });
+		// vLLM is OpenAI-compatible, so all models should support tool calling via OpenAI-style format
+		if (fallback && !fallback.specialToolFormat) {
+			fallback.specialToolFormat = 'openai-style';
+		}
+		return fallback;
+	},
+	modelOptions: {},
+	providerReasoningIOSettings: {
+		// reasoning: OAICompat + response.choices[0].delta.reasoning_content // https://docs.vllm.ai/en/stable/features/reasoning_outputs.html#streaming-chat-completions
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+
+const lmStudioSettings: VoidStaticProviderInfo = {
+	modelOptionsFallback: (modelName) => {
+		const fallback = extensiveModelOptionsFallback(modelName, { downloadable: { sizeGb: 'not-known' }, contextWindow: 4_096 });
+		// LM Studio is OpenAI-compatible, so all models should support tool calling via OpenAI-style format
+		if (fallback && !fallback.specialToolFormat) {
+			fallback.specialToolFormat = 'openai-style';
+		}
+		return fallback;
+	},
+	modelOptions: {},
+	providerReasoningIOSettings: {
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { needsManualParse: true },
+	},
+}
+
+const ollamaSettings: VoidStaticProviderInfo = {
+	modelOptionsFallback: (modelName) => {
+		const fallback = extensiveModelOptionsFallback(modelName, { downloadable: { sizeGb: 'not-known' } });
+		// Ollama is OpenAI-compatible, so all models should support tool calling via OpenAI-style format
+		if (fallback && !fallback.specialToolFormat) {
+			fallback.specialToolFormat = 'openai-style';
+		}
+		return fallback;
+	},
+	modelOptions: ollamaModelOptions,
+	providerReasoningIOSettings: {
+		// reasoning: we need to filter out reasoning <think> tags manually
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { needsManualParse: true },
+	},
+}
+
+const openaiCompatible: VoidStaticProviderInfo = {
+	modelOptionsFallback: (modelName) => {
+		const fallback = extensiveModelOptionsFallback(modelName);
+		// OpenAI-compatible providers should support tool calling via OpenAI-style format
+		if (fallback && !fallback.specialToolFormat) {
+			fallback.specialToolFormat = 'openai-style';
+		}
+		return fallback;
+	},
+	modelOptions: {},
+	providerReasoningIOSettings: {
+		// reasoning: we have no idea what endpoint they used, so we can't consistently parse out reasoning
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+
+const liteLLMSettings: VoidStaticProviderInfo = { // https://docs.litellm.ai/docs/reasoning_content
+	modelOptionsFallback: (modelName) => {
+		const fallback = extensiveModelOptionsFallback(modelName, { downloadable: { sizeGb: 'not-known' } });
+		// LiteLLM is OpenAI-compatible, so all models should support tool calling via OpenAI-style format
+		if (fallback && !fallback.specialToolFormat) {
+			fallback.specialToolFormat = 'openai-style';
+		}
+		return fallback;
+	},
+	modelOptions: {},
+	providerReasoningIOSettings: {
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+
+// ---------------- OPENCODE ZEN ----------------
+// Model ids: https://opencode.ai/zen/v1/models — sync via RemoteCatalogService (refresh catalog in settings).
+// Context limits: catalog entries may expose context_length in the future; until then, ids like gpt-5.1 / glm-5.1 match extensiveModelOptionsFallback; others use defaultModelOptions + user overrides.
+const openCodeZenSettings: VoidStaticProviderInfo = {
+	modelOptionsFallback: (modelName) => {
+		const fallback = extensiveModelOptionsFallback(modelName);
+		if (fallback && !fallback.specialToolFormat) {
+			fallback.specialToolFormat = 'openai-style';
+		}
+		return fallback;
+	},
+	modelOptions: {},
+	providerReasoningIOSettings: {
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+
+// ---------------- OPENCODE (GO) ----------------
+const openCodeSettings: VoidStaticProviderInfo = {
+	modelOptionsFallback: (modelName) => {
+		const fallback = extensiveModelOptionsFallback(modelName);
+		if (fallback && !fallback.specialToolFormat) {
+			fallback.specialToolFormat = 'openai-style';
+		}
+		return fallback;
+	},
+	modelOptions: {},
+	providerReasoningIOSettings: {
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+
+// ---------------- POLLINATIONS ----------------
+const pollinationsSettings: VoidStaticProviderInfo = {
+	modelOptionsFallback: (modelName) => {
+		const fallback = extensiveModelOptionsFallback(modelName);
+		if (fallback && !fallback.specialToolFormat) {
+			fallback.specialToolFormat = 'openai-style';
+		}
+		return fallback;
+	},
+	modelOptions: {},
+	providerReasoningIOSettings: {
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+
+
+// ---------------- OPENROUTER ----------------
+const openRouterModelOptions_assumingOpenAICompat = {
+	'qwen/qwen3-235b-a22b': {
+		contextWindow: 40_960,
+		reservedOutputTokenSpace: null,
+		cost: { input: .10, output: .10 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false },
+	},
+	'microsoft/phi-4-reasoning-plus:free': { // a 14B model...
+		contextWindow: 32_768,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false },
+	},
+	'mistralai/mistral-small-3.1-24b-instruct:free': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'google/gemini-2.0-flash-lite-preview-02-05:free': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'google/gemini-2.0-pro-exp-02-05:free': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'google/gemini-2.0-flash-exp:free': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'deepseek/deepseek-r1': {
+		...openSourceModelOptions_assumingOAICompat.deepseekR1,
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0.8, output: 2.4 },
+		downloadable: false,
+	},
+	'deepseek/deepseek-r1-zero:free': {
+		...openSourceModelOptions_assumingOAICompat.deepseekR1,
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: false,
+	},
+	'anthropic/claude-opus-4': {
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 15.00, output: 30.00 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+		},
+	},
+	'anthropic/claude-sonnet-4': {
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 3.00, output: 6.00 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 },
+		},
+	},
+	'anthropic/claude-3.7-sonnet:thinking': {
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 3.00, output: 15.00 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { // same as anthropic, see above
+			supportsReasoning: true,
+			canTurnOffReasoning: false,
+			canIOReasoning: true,
+			reasoningReservedOutputTokenSpace: 8192,
+			reasoningSlider: { type: 'budget_slider', min: 1024, max: 8192, default: 1024 }, // they recommend batching if max > 32_000.
+		},
+	},
+	'anthropic/claude-3.7-sonnet': {
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 3.00, output: 15.00 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false, // stupidly, openrouter separates thinking from non-thinking
+	},
+	'anthropic/claude-3.5-sonnet': {
+		contextWindow: 200_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 3.00, output: 15.00 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: false,
+	},
+	'mistralai/codestral-2501': {
+		...openSourceModelOptions_assumingOAICompat.codestral,
+		contextWindow: 256_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0.3, output: 0.9 },
+		downloadable: false,
+		reasoningCapabilities: false,
+	},
+	'mistralai/devstral-small:free': {
+		...openSourceModelOptions_assumingOAICompat.devstral,
+		contextWindow: 130_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0, output: 0 },
+		downloadable: false,
+		reasoningCapabilities: false,
+	},
+	'qwen/qwen-2.5-coder-32b-instruct': {
+		...openSourceModelOptions_assumingOAICompat['qwen2.5coder'],
+		contextWindow: 33_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0.07, output: 0.16 },
+		downloadable: false,
+	},
+	'qwen/qwq-32b': {
+		...openSourceModelOptions_assumingOAICompat['qwq'],
+		contextWindow: 33_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 0.07, output: 0.16 },
+		downloadable: false,
+	}
+} as const satisfies { [s: string]: VibeideStaticModelInfo }
+
+const openRouterSettings: VoidStaticProviderInfo = {
+	modelOptions: openRouterModelOptions_assumingOpenAICompat,
+	modelOptionsFallback: (modelName) => {
+		const res = extensiveModelOptionsFallback(modelName)
+		// openRouter does not support gemini-style, use openai-style instead
+		if (res?.specialToolFormat === 'gemini-style') {
+			res.specialToolFormat = 'openai-style'
+		}
+		return res
+	},
+	providerReasoningIOSettings: {
+		// reasoning: OAICompat + response.choices[0].delta.reasoning : payload should have {include_reasoning: true} https://openrouter.ai/announcements/reasoning-tokens-for-thinking-models
+		input: {
+			// https://openrouter.ai/docs/use-cases/reasoning-tokens
+			includeInPayload: (reasoningInfo) => {
+				if (!reasoningInfo?.isReasoningEnabled) return null
+
+				if (reasoningInfo.type === 'budget_slider_value') {
+					return {
+						reasoning: {
+							max_tokens: reasoningInfo.reasoningBudget
+						}
+					}
+				}
+				if (reasoningInfo.type === 'effort_slider_value')
+					return {
+						reasoning: {
+							effort: reasoningInfo.reasoningEffort
+						}
+					}
+				return null
+			}
+		},
+		output: { nameOfFieldInDelta: 'reasoning' },
+	},
+}
+
+
+
+
+// ---------------- model settings of everything above ----------------
+
+const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProviderInfo } = {
+	openAI: openAISettings,
+	anthropic: anthropicSettings,
+	xAI: xAISettings,
+	gemini: geminiSettings,
+
+	// open source models
+	deepseek: deepseekSettings,
+	groq: groqSettings,
+
+	// open source models + providers (mixture of everything)
+	openRouter: openRouterSettings,
+	vLLM: vLLMSettings,
+	ollama: ollamaSettings,
+	openAICompatible: openaiCompatible,
+	mistral: mistralSettings,
+
+	liteLLM: liteLLMSettings,
+	lmStudio: lmStudioSettings,
+
+	pollinations: pollinationsSettings,
+	openCodeZen: openCodeZenSettings,
+	openCode: openCodeSettings,
+
+	googleVertex: googleVertexSettings,
+	microsoftAzure: microsoftAzureSettings,
+	awsBedrock: awsBedrockSettings,
+} as const
+
+
+// ---------------- exports ----------------
+
+// returns the capabilities and the adjusted modelName if it was a fallback
+export const getModelCapabilities = (
+	providerName: ProviderName,
+	modelName: string,
+	overridesOfModel: OverridesOfModel | undefined
+): VibeideStaticModelInfo & (
+	| { modelName: string; recognizedModelName: string; isUnrecognizedModel: false }
+	| { modelName: string; recognizedModelName?: undefined; isUnrecognizedModel: true }
+) => {
+	// Guard: Check if provider exists in modelSettingsOfProvider (handles "auto" and other invalid providers)
+	if (!(providerName in modelSettingsOfProvider) || !modelSettingsOfProvider[providerName]) {
+		// Return default capabilities for invalid provider names
+		return { modelName, ...defaultModelOptions, isUnrecognizedModel: true };
+	}
+
+	const lowercaseModelName = modelName.toLowerCase()
+
+	const { modelOptions, modelOptionsFallback } = modelSettingsOfProvider[providerName]
+
+	// Get any override settings for this model
+	const overrides = overridesOfModel?.[providerName]?.[modelName];
+
+	// search model options object directly first
+	for (const modelName_ in modelOptions) {
+		const lowercaseModelName_ = modelName_.toLowerCase()
+		if (lowercaseModelName === lowercaseModelName_) {
+			return { ...modelOptions[modelName], ...overrides, modelName, recognizedModelName: modelName, isUnrecognizedModel: false };
+		}
+	}
+
+	const result = modelOptionsFallback(modelName)
+	if (result) {
+		return { ...result, ...overrides, modelName: result.modelName, isUnrecognizedModel: false };
+	}
+
+	return { modelName, ...defaultModelOptions, ...overrides, isUnrecognizedModel: true };
+}
+
+// non-model settings
+export const getProviderCapabilities = (providerName: ProviderName) => {
+	const { providerReasoningIOSettings } = modelSettingsOfProvider[providerName]
+	return { providerReasoningIOSettings }
+}
+
+
+export type SendableReasoningInfo = {
+	type: 'budget_slider_value',
+	isReasoningEnabled: true,
+	reasoningBudget: number,
+} | {
+	type: 'effort_slider_value',
+	isReasoningEnabled: true,
+	reasoningEffort: string,
+} | null
+
+
+
+export const getIsReasoningEnabledState = (
+	featureName: FeatureName,
+	providerName: ProviderName,
+	modelName: string,
+	modelSelectionOptions: ModelSelectionOptions | undefined,
+	overridesOfModel: OverridesOfModel | undefined,
+) => {
+	const { supportsReasoning, canTurnOffReasoning } = getModelCapabilities(providerName, modelName, overridesOfModel).reasoningCapabilities || {}
+	if (!supportsReasoning) return false
+
+	// default to enabled if can't turn off, or if the featureName is Chat.
+	const defaultEnabledVal = featureName === 'Chat' || !canTurnOffReasoning
+
+	const isReasoningEnabled = modelSelectionOptions?.reasoningEnabled ?? defaultEnabledVal
+	return isReasoningEnabled
+}
+
+
+export const getReservedOutputTokenSpace = (providerName: ProviderName, modelName: string, opts: { isReasoningEnabled: boolean, overridesOfModel: OverridesOfModel | undefined }) => {
+	const {
+		reasoningCapabilities,
+		reservedOutputTokenSpace,
+	} = getModelCapabilities(providerName, modelName, opts.overridesOfModel)
+	return opts.isReasoningEnabled && reasoningCapabilities ? reasoningCapabilities.reasoningReservedOutputTokenSpace : reservedOutputTokenSpace
+}
+
+// used to force reasoning state (complex) into something simple we can just read from when sending a message
+export const getSendableReasoningInfo = (
+	featureName: FeatureName,
+	providerName: ProviderName,
+	modelName: string,
+	modelSelectionOptions: ModelSelectionOptions | undefined,
+	overridesOfModel: OverridesOfModel | undefined,
+): SendableReasoningInfo => {
+
+	const { reasoningSlider: reasoningBudgetSlider } = getModelCapabilities(providerName, modelName, overridesOfModel).reasoningCapabilities || {}
+	const isReasoningEnabled = getIsReasoningEnabledState(featureName, providerName, modelName, modelSelectionOptions, overridesOfModel)
+	if (!isReasoningEnabled) return null
+
+	// check for reasoning budget
+	const reasoningBudget = reasoningBudgetSlider?.type === 'budget_slider' ? modelSelectionOptions?.reasoningBudget ?? reasoningBudgetSlider?.default : undefined
+	if (reasoningBudget) {
+		return { type: 'budget_slider_value', isReasoningEnabled: isReasoningEnabled, reasoningBudget: reasoningBudget }
+	}
+
+	// check for reasoning effort
+	const reasoningEffort = reasoningBudgetSlider?.type === 'effort_slider' ? modelSelectionOptions?.reasoningEffort ?? reasoningBudgetSlider?.default : undefined
+	if (reasoningEffort) {
+		return { type: 'effort_slider_value', isReasoningEnabled: isReasoningEnabled, reasoningEffort: reasoningEffort }
+	}
+
+	return null
+}

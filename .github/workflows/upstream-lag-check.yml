@@ -1,0 +1,46 @@
+name: Upstream Lag Check
+
+on:
+  schedule:
+    # Every Monday at 09:00 UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+jobs:
+  check-upstream-lag:
+    name: Check VS Code upstream lag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/microsoft/vscode.git || true
+          git fetch upstream --depth=50
+
+      - name: Check lag
+        run: |
+          UPSTREAM_LATEST=$(git rev-parse upstream/main)
+          MERGE_BASE=$(git merge-base HEAD upstream/main 2>/dev/null || echo "unknown")
+          
+          if [ "$MERGE_BASE" = "unknown" ]; then
+            echo "⚠️ Cannot determine merge base with upstream"
+            exit 0
+          fi
+          
+          DAYS_BEHIND=$(git log --oneline "$MERGE_BASE..upstream/main" --format="%ad" --date=short | head -1 | xargs -I{} bash -c 'echo $(( ($(date +%s) - $(date -d "{}" +%s)) / 86400 ))')
+          COMMITS_BEHIND=$(git rev-list --count "$MERGE_BASE..upstream/main")
+          
+          echo "Commits behind upstream: $COMMITS_BEHIND"
+          echo "Days behind: $DAYS_BEHIND"
+          
+          if [ "$DAYS_BEHIND" -gt 14 ]; then
+            echo "🚨 BLOCKING: VibeIDE is $DAYS_BEHIND days behind VS Code upstream (threshold: 14 days)"
+            echo "Run: git fetch upstream && git checkout upstream-sync && git merge upstream/main"
+            exit 1
+          else
+            echo "✅ VibeIDE is $DAYS_BEHIND days behind VS Code upstream — within threshold"
+          fi

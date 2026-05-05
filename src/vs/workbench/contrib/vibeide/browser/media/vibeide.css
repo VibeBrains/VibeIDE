@@ -1,0 +1,541 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+:root {
+	/* Core surfaces */
+	--vibeide-surface-0: #010101;
+	--vibeide-surface-1: #040404;
+	--vibeide-surface-1-alt: #060606;
+	--vibeide-surface-2: #080808;
+	--vibeide-surface-2-alt: #0d0d0d;
+	--vibeide-surface-3: #101010;
+	--vibeide-surface-4: #151515;
+	--vibeide-overlay: rgba(0, 0, 0, 0.82);
+
+	/* Text */
+	--vibeide-text-strong: #f5f5f7;
+	--vibeide-text-base: #e2e3f0;
+	--vibeide-text-muted: #a5a7c4;
+	--vibeide-text-subtle: #6d708d;
+
+	/* Accents & roles */
+	--vibeide-brand: #7b5cff;
+	--vibeide-brand-soft: color-mix(in srgb, var(--vibeide-brand) 28%, transparent);
+	--vibeide-accent: var(--vibeide-brand);
+	--vibeide-success: #38b284;
+	--vibeide-warning: #f4c95d;
+	--vibeide-danger: #ff5c7a;
+
+	/* Borders + outlines */
+	--vibeide-border-weak: #161616;
+	--vibeide-border-strong: #1f1f1f;
+	--vibeide-ring-color: var(--vibeide-brand);
+
+	/* Typography */
+	--vibeide-font-title: 14px;
+	--vibeide-font-subtitle: 13px;
+	--vibeide-font-body: 12px;
+	--vibeide-font-label: 11px;
+	--vibeide-font-micro: 10px;
+
+	/* Spacing */
+	--vibeide-space-2xs: 2px;
+	--vibeide-space-xs: 4px;
+	--vibeide-space-sm: 8px;
+	--vibeide-space-md: 12px;
+	--vibeide-space-lg: 16px;
+	--vibeide-space-xl: 20px;
+	--vibeide-space-2xl: 24px;
+
+	/* Radii */
+	--vibeide-radius-xs: 3px;
+	--vibeide-radius-sm: 4px;
+	--vibeide-radius-md: 8px;
+	--vibeide-radius-lg: 12px;
+
+	/* Motion + depth */
+	--vibeide-transition-fast: 140ms ease;
+	--vibeide-transition-base: 200ms ease;
+	--vibeide-transition-slow: 280ms ease;
+	--vibeide-shadow-soft: 0 30px 80px rgba(0, 0, 0, 0.5);
+	--vibeide-shadow-hairline: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+	--vibeide-logo-url: url('../../../../browser/media/vibeide-icon.png');
+
+	/* Legacy aliases (avoid churn across existing components) */
+	--vibe-bg-1: var(--vibeide-surface-1);
+	--vibe-bg-1-alt: var(--vibeide-surface-1-alt);
+	--vibe-bg-2: var(--vibeide-surface-2);
+	--vibe-bg-2-alt: var(--vibeide-surface-2-alt);
+	--vibe-bg-2-hover: color-mix(in srgb, var(--vibeide-surface-2-alt) 85%, #1d2238 15%);
+	--vibe-bg-3: var(--vibeide-surface-3);
+
+	--vibe-fg-0: var(--vibeide-text-strong);
+	--vibe-fg-1: var(--vibeide-text-base);
+	--vibe-fg-2: var(--vibeide-text-muted);
+	--vibe-fg-3: var(--vibeide-text-subtle);
+	--vibe-fg-4: #4f5269;
+
+	--vibe-warning: var(--vibeide-warning);
+
+	--vibe-border-1: var(--vibeide-border-strong);
+	--vibe-border-2: #24273a;
+	--vibe-border-3: var(--vibeide-border-weak);
+	--vibe-border-4: #353a55;
+
+	--vibe-ring-color: var(--vibeide-ring-color);
+	--vibe-link-color: var(--vibeide-accent);
+
+	--vibe-space-1: var(--vibeide-space-2xs);
+	--vibe-space-2: var(--vibeide-space-xs);
+	--vibe-space-3: 6px;
+	--vibe-space-4: var(--vibeide-space-sm);
+	--vibe-space-5: var(--vibeide-space-md);
+	--vibe-space-6: var(--vibeide-space-lg);
+	--vibe-space-7: var(--vibeide-space-xl);
+	--vibe-space-8: var(--vibeide-space-2xl);
+
+	--vibe-radius-sm: var(--vibeide-radius-sm);
+	--vibe-radius-md: var(--vibeide-radius-md);
+	--vibe-radius-lg: var(--vibeide-radius-lg);
+	--vibe-radius-xl: calc(var(--vibeide-radius-lg) + 4px);
+
+	--vibe-transition-fast: var(--vibeide-transition-fast);
+	--vibe-transition-base: var(--vibeide-transition-base);
+	--vibe-transition-slow: var(--vibeide-transition-slow);
+}
+
+/* ----------------------------------------------------------------------------------------
+ * Workbench chrome & layout scaffolding
+ * Do NOT override body/part background and color or --vscode-* so the user's selected
+ * theme (e.g. Solarized Dark, Light+) applies. VibeIDE variables (--vibeide-*, --vibe-*)
+ * remain in :root for use inside VibeIDE-specific UI (e.g. .vibe-scope, chat panel).
+ * ------------------------------------------------------------------------------------- */
+body.monaco-workbench,
+.monaco-workbench {
+	font-size: var(--vibeide-font-body);
+}
+
+.monaco-workbench .part.titlebar,
+.monaco-workbench .part.statusbar {
+	backdrop-filter: blur(16px);
+	box-shadow: var(--vibeide-shadow-hairline);
+}
+
+/* On Windows, disable backdrop-filter on titlebar to avoid stacking context issues
+ * that prevent menubar dropdowns from appearing when appended to document.body */
+.monaco-workbench.windows .part.titlebar {
+	backdrop-filter: none;
+}
+
+.monaco-workbench .part.sidebar > .content .pane-header,
+.monaco-workbench .part.auxiliarybar > .content .pane-header {
+	padding: var(--vibeide-space-sm) var(--vibeide-space-md) !important;
+	min-height: 32px;
+}
+
+.monaco-workbench .part.sidebar > .content .pane-body,
+.monaco-workbench .part.auxiliarybar > .content .pane-body {
+	padding-bottom: var(--vibeide-space-sm);
+}
+
+.monaco-workbench .split-view-view {
+	background: transparent;
+}
+
+.monaco-workbench .part.editor>.content .editor-group-container {
+	border-color: color-mix(in srgb, var(--vibeide-border-strong) 65%, transparent);
+}
+
+.monaco-workbench .part.statusbar .statusbar-item {
+	font-size: var(--vibeide-font-label);
+	font-weight: 500;
+	letter-spacing: 0.01em;
+}
+
+.monaco-editor .vibe-sweepIdxBG {
+	background-color: var(--vscode-vibe-sweepIdxBG);
+}
+
+.vibe-sweepBG {
+	background-color: var(--vscode-vibe-sweepBG);
+}
+
+.vibe-highlightBG {
+	background-color: var(--vscode-vibe-highlightBG);
+}
+
+.vibe-greenBG {
+	background-color: var(--vscode-vibe-greenBG);
+}
+
+.vibe-redBG {
+	background-color: var(--vscode-vibe-redBG);
+}
+
+.vibe-diff-disabled {
+	opacity: 0.5;
+}
+
+
+/* Open-folder watermark button (formerly legacy watermark naming) */
+.vibe-openfolder-button {
+	padding: 8px 20px;
+	background-color: var(--vibeide-surface-3);
+	color: var(--vibeide-text-base);
+	border: 1px solid var(--vibeide-border-strong);
+	border-radius: 4px;
+	outline: none !important;
+	box-shadow: none !important;
+	cursor: pointer;
+	transition: background-color var(--vibeide-transition-fast);
+}
+.vibe-openfolder-button:hover,
+.vibe-openfolder-button:active {
+	background-color: var(--vibeide-surface-4);
+}
+
+/* Added for Open SSH button with slightly darker color */
+.vibe-openssh-button {
+	padding: 8px 20px;
+	background-color: var(--vibeide-surface-2);
+	color: var(--vibeide-text-base);
+	border: 1px solid var(--vibeide-border-strong);
+	border-radius: 4px;
+	outline: none !important;
+	box-shadow: none !important;
+	cursor: pointer;
+	transition: background-color var(--vibeide-transition-fast);
+}
+.vibe-openssh-button:hover,
+.vibe-openssh-button:active {
+	background-color: var(--vibeide-surface-3);
+}
+
+
+.vibe-settings-watermark-button {
+	margin: 8px 0;
+	padding: 8px 20px;
+	background-color: var(--vibeide-surface-2);
+	color: var(--vibeide-text-base);
+	border: 1px solid var(--vibeide-border-strong);
+	border-radius: 4px;
+	outline: none !important;
+	box-shadow: none !important;
+	cursor: pointer;
+	transition: background-color var(--vibeide-transition-fast);
+}
+
+.vibe-settings-watermark-button:hover,
+.vibe-settings-watermark-button:active {
+	background-color: var(--vibeide-surface-3);
+}
+
+.vibe-link {
+	color: var(--vibeide-text-base);
+	cursor: pointer;
+	transition: opacity var(--vibeide-transition-fast);
+}
+
+.vibe-link:hover {
+	opacity: 0.8;
+}
+
+/* ----------------------------------------------------------------------------------------
+ * Explorer / Search / Extensions surfaces
+ * ------------------------------------------------------------------------------------- */
+/* Sidebar, extensions, search: use user theme (no VibeIDE chrome overrides here) */
+
+/* ----------------------------------------------------------------------------------------
+ * Chat / message input experience - use user theme so chat panel respects selected theme
+ * ------------------------------------------------------------------------------------- */
+.monaco-workbench .interactive-session .chat-input-container {
+	background-color: var(--vscode-input-background) !important;
+	border: 1px solid var(--vscode-input-border) !important;
+	box-shadow: none !important;
+}
+
+.monaco-workbench .interactive-session .chat-input-container:focus-within {
+	border-color: var(--vscode-focusBorder) !important;
+	box-shadow: 0 0 0 1px var(--vscode-focusBorder) inset;
+}
+
+.monaco-workbench .interactive-session .chat-input-container .chat-editor-container .monaco-editor,
+.monaco-workbench .interactive-session .chat-input-container .chat-editor-container .monaco-editor .monaco-editor-background,
+.monaco-workbench .interactive-session .chat-input-container .chat-editor-container .monaco-editor .margin,
+.monaco-workbench .interactive-session .chat-input-container .chat-editor-container .monaco-editor .inputarea.ime-input {
+	background-color: var(--vscode-input-background) !important;
+	color: var(--vscode-input-foreground) !important;
+}
+
+.monaco-workbench .interactive-session .chat-input-container .chat-editor-container .monaco-editor .cursor {
+	border-color: var(--vscode-input-foreground) !important;
+}
+
+.monaco-workbench .interactive-session .chat-input-toolbars,
+.monaco-workbench .interactive-session .chat-input-toolbars .monaco-toolbar .action-item,
+.monaco-workbench .interactive-session .chat-modelPicker-item {
+	background-color: var(--vscode-input-background) !important;
+	color: var(--vscode-input-foreground, var(--vscode-sideBar-foreground)) !important;
+	border-color: var(--vscode-input-border, var(--vscode-widget-border, transparent)) !important;
+}
+
+/* Chat panel (auxiliary bar) + editor-hosted Vibe React (Settings, Quick Edit, widgets):
+ * map --vibe-* surfaces to input / list tokens so panels match the chat composer and theme
+ * (avoids legacy :root “ink black” #040404 on form fields). Onboarding keeps its own
+ * .vibe-onboarding-neon variables on the inner wrapper. */
+.monaco-workbench .part.auxiliarybar > .content,
+.monaco-workbench .vibe-scope.vibe-settings-scroll-root,
+.monaco-workbench .vibe-scope.vibe-react-input-surfaces {
+	--vibe-bg-1: var(--vscode-input-background);
+	--vibe-bg-1-alt: var(--vscode-input-background);
+	--vibe-bg-2: var(--vscode-input-background);
+	--vibe-bg-2-alt: var(--vscode-input-background);
+	--vibe-bg-2-hover: var(--vscode-list-hoverBackground, var(--vscode-input-background));
+	--vibe-bg-3: var(--vscode-dropdown-listBackground, var(--vscode-input-background));
+	--vibe-fg-0: var(--vscode-input-foreground, var(--vscode-sideBar-foreground));
+	--vibe-fg-1: var(--vscode-input-foreground, var(--vscode-sideBar-foreground));
+	--vibe-fg-2: var(--vscode-sideBar-foreground);
+	--vibe-fg-3: var(--vscode-descriptionForeground, var(--vscode-sideBar-foreground));
+	--vibe-fg-4: var(--vscode-descriptionForeground, var(--vscode-sideBar-foreground));
+	--vibe-border-1: var(--vscode-input-border, var(--vscode-widget-border, var(--vscode-focusBorder)));
+	--vibe-border-2: var(--vscode-input-border, var(--vscode-widget-border, var(--vscode-focusBorder)));
+	--vibe-border-3: var(--vscode-input-border, var(--vscode-widget-border, transparent));
+	--vibe-border-4: var(--vscode-input-border, var(--vscode-widget-border, transparent));
+}
+
+/* Chat / secondary sidebar: always show a visible edge vs editor (theme border is often imperceptible). */
+.monaco-workbench .part.auxiliarybar.right {
+	border-left: 1px solid var(--vscode-sideBar-border, var(--vscode-panel-border, var(--vscode-widget-border, color-mix(in srgb, var(--vscode-sideBar-foreground) 16%, transparent)))) !important;
+	border-right: none !important;
+}
+
+.monaco-workbench .part.auxiliarybar.left {
+	border-right: 1px solid var(--vscode-sideBar-border, var(--vscode-panel-border, var(--vscode-widget-border, color-mix(in srgb, var(--vscode-sideBar-foreground) 16%, transparent)))) !important;
+	border-left: none !important;
+}
+
+/* ----------------------------------------------------------------------------------------
+ * Settings experience: use user theme (no forced VibeIDE background/color overrides)
+ * ------------------------------------------------------------------------------------- */
+
+/* styles for VibeIDE-scoped containers */
+.vibe-scope {
+	--scrollbar-vertical-width: 4px;
+	--scrollbar-horizontal-height: 3px;
+}
+
+/* Target both vibe-scope and all its descendants with scrollbars */
+.vibe-scope,
+.vibe-scope * {
+	scrollbar-width: thin !important;
+	scrollbar-color: var(--vibe-bg-1) var(--vibe-bg-3) !important;
+	/* For Firefox */
+}
+
+.vibe-scope::-webkit-scrollbar,
+.vibe-scope *::-webkit-scrollbar {
+	width: var(--scrollbar-vertical-width) !important;
+	height: var(--scrollbar-horizontal-height) !important;
+	background-color: var(--vibe-bg-3) !important;
+}
+
+.vibe-scope::-webkit-scrollbar-thumb,
+.vibe-scope *::-webkit-scrollbar-thumb {
+	background-color: var(--vibe-bg-1) !important;
+	border-radius: 9999px !important;
+	border: none !important;
+	-webkit-box-shadow: none !important;
+	box-shadow: none !important;
+}
+
+.vibe-scope::-webkit-scrollbar-thumb:hover,
+.vibe-scope *::-webkit-scrollbar-thumb:hover {
+	background-color: var(--vibe-bg-1) !important;
+	filter: brightness(1.1) !important;
+}
+
+.vibe-scope::-webkit-scrollbar-thumb:active,
+.vibe-scope *::-webkit-scrollbar-thumb:active {
+	background-color: var(--vibe-bg-1) !important;
+	filter: brightness(1.2) !important;
+}
+
+.vibe-scope::-webkit-scrollbar-track,
+.vibe-scope *::-webkit-scrollbar-track {
+	background-color: var(--vibe-bg-3) !important;
+	border: none !important;
+}
+
+.vibe-scope::-webkit-scrollbar-corner,
+.vibe-scope *::-webkit-scrollbar-corner {
+	background-color: var(--vibe-bg-3) !important;
+}
+
+/* Match scroll styling for vibe-scrollable-element */
+.vibe-scrollable-element {
+	background-color: var(--vscode-editor-background);
+	--scrollbar-vertical-width: 7px;
+	--scrollbar-horizontal-height: 3px;
+	overflow: auto;
+	/* Ensure scrollbars are shown when needed */
+}
+
+.vibe-scrollable-element,
+.vibe-scrollable-element * {
+	scrollbar-width: thin !important;
+	/* For Firefox */
+	scrollbar-color: var(--vibe-bg-1) var(--vibe-bg-3) !important;
+	/* For Firefox */
+}
+
+.vibe-scrollable-element::-webkit-scrollbar,
+.vibe-scrollable-element *::-webkit-scrollbar {
+	width: var(--scrollbar-vertical-width) !important;
+	height: var(--scrollbar-horizontal-height) !important;
+	background-color: var(--vibe-bg-3) !important;
+}
+
+.vibe-scrollable-element::-webkit-scrollbar-thumb,
+.vibe-scrollable-element *::-webkit-scrollbar-thumb {
+	background-color: var(--vibe-bg-1) !important;
+	border-radius: 9999px !important;
+	border: none !important;
+	-webkit-box-shadow: none !important;
+	box-shadow: none !important;
+}
+
+.vibe-scrollable-element::-webkit-scrollbar-thumb:hover,
+.vibe-scrollable-element *::-webkit-scrollbar-thumb:hover {
+	background-color: var(--vibe-bg-1) !important;
+	filter: brightness(1.1) !important;
+}
+
+.vibe-scrollable-element::-webkit-scrollbar-thumb:active,
+.vibe-scrollable-element *::-webkit-scrollbar-thumb:active {
+	background-color: var(--vibe-bg-1) !important;
+	filter: brightness(1.2) !important;
+}
+
+.vibe-scrollable-element::-webkit-scrollbar-track,
+.vibe-scrollable-element *::-webkit-scrollbar-track {
+	background-color: var(--vibe-bg-3) !important;
+	border: none !important;
+}
+
+.vibe-scrollable-element::-webkit-scrollbar-corner,
+.vibe-scrollable-element *::-webkit-scrollbar-corner {
+	background-color: var(--vibe-bg-3) !important;
+}
+
+/* VibeIDE logo beside auxiliary-bar title when chat container is sibling */
+.monaco-workbench .auxiliarybar-part > .content > .composite#workbench.view.vibeide ~ .composite.title > .title-label h2::before,
+.monaco-workbench .auxiliarybar-part > .content > .composite.title > .title-label h2::before {
+	content: '';
+	display: inline-block;
+	width: 16px;
+	height: 16px;
+	margin-right: 12px;
+	vertical-align: middle;
+	background-image: var(--vibeide-logo-url);
+	background-size: contain;
+	background-repeat: no-repeat;
+	background-position: center;
+	border-radius: 50%;
+	-webkit-mask: none;
+	mask: none;
+}
+
+.monaco-workbench .editor-group-watermark .vibe-watermark-brand-icon {
+	border-radius: 50% !important;
+	background-color: transparent !important;
+	mask: none !important;
+	-webkit-mask: none !important;
+}
+
+/* Settings / preferences: use user theme (no extra Void/VibeIDE background overrides) */
+
+/* Neon glow toggle — Command Center (classic + sessions title bar) */
+.monaco-workbench .command-center .monaco-action-bar .actions-container > .action-item:has(.vibeide-neon-glow-command-center-item) {
+	margin-left: 16px;
+}
+
+/* Extra gap after the VibeIDE brain submenu so the Neon control does not touch the previous icon */
+.monaco-workbench .command-center .monaco-action-bar .actions-container > .action-item.menu-entry + .action-item:has(.vibeide-neon-glow-command-center-item) {
+	margin-left: 18px;
+}
+
+.monaco-workbench .command-center .vibeide-neon-glow-command-center-item {
+	display: flex;
+	align-items: center;
+	height: 100%;
+	padding: 0 4px;
+	box-sizing: border-box;
+}
+
+.monaco-workbench .command-center .vibeide-neon-glow-command-center-item > .monaco-custom-toggle {
+	float: none !important;
+	flex-shrink: 0;
+	margin-left: 0 !important;
+	margin-right: 0 !important;
+	/* Default toggle box is 20px; +30% leaves room for FA glyph in title bar */
+	width: 26px;
+	min-width: 26px;
+	box-sizing: border-box;
+}
+
+/* Workbench hovers (title bar, toolbars, trees): secondary-button chrome via theme tokens */
+.monaco-workbench .monaco-hover.workbench-hover {
+	background-color: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+	border-color: var(--vscode-button-secondaryBorder);
+	border-style: solid;
+	border-width: 1px;
+	border-radius: var(--vibeide-radius-sm);
+	box-shadow: var(--vscode-shadow-hover);
+	font-size: var(--vibeide-font-label);
+	font-weight: 500;
+	line-height: 1.35;
+}
+
+.monaco-workbench .monaco-hover.workbench-hover.with-pointer {
+	border-radius: var(--vibeide-radius-sm);
+}
+
+.monaco-workbench .monaco-hover.workbench-hover .hover-contents:not(.html-hover-contents),
+.monaco-workbench .monaco-hover.workbench-hover.compact .hover-contents {
+	padding: 6px 11px;
+}
+
+.monaco-workbench .workbench-hover-pointer:after {
+	background-color: var(--vscode-button-secondaryBackground);
+	border-right-color: var(--vscode-button-secondaryBorder);
+	border-bottom-color: var(--vscode-button-secondaryBorder);
+}
+
+.monaco-workbench .monaco-hover.workbench-hover.compact {
+	font-size: var(--vibeide-font-label);
+	line-height: 1.35;
+}
+
+.monaco-workbench .workbench-hover-container.locked .monaco-hover.workbench-hover {
+	outline-color: var(--vscode-button-secondaryBorder);
+}
+
+.monaco-workbench .workbench-hover-container:focus-within.locked .monaco-hover.workbench-hover {
+	outline-color: var(--vscode-focusBorder);
+}
+
+.monaco-workbench .workbench-hover-container:focus-within .workbench-hover-pointer:after {
+	border-right-color: var(--vscode-focusBorder);
+	border-bottom-color: var(--vscode-focusBorder);
+}
+
+/* Font Awesome 6 Solid — nominal weight 900 (see vibeideFontAwesomeSolid.ts). */
+.monaco-workbench .codicon-vibeide-command-center-brain::before,
+.monaco-workbench .codicon-vibeide-neon-editor-glow-on::before,
+.monaco-workbench .codicon-vibeide-neon-editor-glow-off::before {
+	font-weight: 900 !important;
+}

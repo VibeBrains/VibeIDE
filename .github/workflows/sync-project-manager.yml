@@ -1,0 +1,35 @@
+name: Sync Project Manager extension
+
+on:
+  schedule:
+    # Every Monday at 10:30 UTC
+    - cron: '30 10 * * 1'
+  workflow_dispatch:
+
+jobs:
+  check-upstream:
+    name: Check alefragnani/vscode-project-manager for new releases
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get current version
+        id: current
+        run: |
+          CURRENT=$(cat extensions/project-manager/package.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('version', 'unknown'))")
+          echo "version=$CURRENT" >> $GITHUB_OUTPUT
+
+      - name: Check Open VSX for latest version
+        id: latest
+        run: |
+          LATEST=$(curl -s "https://open-vsx.org/api/alefragnani/project-manager/latest" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('version', 'unknown'))" 2>/dev/null || echo "unknown")
+          echo "version=$LATEST" >> $GITHUB_OUTPUT
+          echo "Open VSX latest: $LATEST"
+
+      - name: Notify if new version
+        if: steps.current.outputs.version != steps.latest.outputs.version
+        run: |
+          echo "::notice::New Project Manager version on Open VSX: ${{ steps.latest.outputs.version }}"
+          echo "Current bundled: ${{ steps.current.outputs.version }}"
+          echo "To update: download new .vsix from Open VSX and update extensions/project-manager/"

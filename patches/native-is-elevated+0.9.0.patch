@@ -1,0 +1,14 @@
+diff --git a/node_modules/native-is-elevated/binding.gyp b/node_modules/native-is-elevated/binding.gyp
+index 2b8694e..0f6d044 100644
+--- a/node_modules/native-is-elevated/binding.gyp
++++ b/node_modules/native-is-elevated/binding.gyp
+@@ -12,9 +12,6 @@
+         "-O2",
+         "-fstack-protector-strong",
+       ],
+-      "msvs_configuration_attributes": {
+-        "SpectreMitigation": "Spectre"
+-      },
+       "msvs_settings": {
+         "VCCLCompilerTool": {
+           "AdditionalOptions": [

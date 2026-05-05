@@ -1,0 +1,38 @@
+name: Vibe Neon — upstream vendor sync
+
+on:
+  schedule:
+    # Every Monday at 10:00 UTC
+    - cron: '0 10 * * 1'
+  workflow_dispatch:
+
+jobs:
+  check-upstream:
+    name: Check vendor neon theme releases
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get current version
+        id: current
+        run: |
+          CURRENT=$(cat extensions/vibeide-neon/package.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('_upstream', {}).get('version', 'unknown'))")
+          echo "version=$CURRENT" >> $GITHUB_OUTPUT
+          echo "Current bundled vendor snapshot: $CURRENT"
+
+      - name: Get latest upstream release
+        id: latest
+        run: |
+          LATEST=$(curl -s https://api.github.com/repos/robb0wen/synthwave-vscode/releases/latest | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tag_name', 'unknown'))")
+          echo "version=$LATEST" >> $GITHUB_OUTPUT
+          echo "Latest vendor repo tag: $LATEST"
+
+      - name: Open PR if new version available
+        if: steps.current.outputs.version != steps.latest.outputs.version
+        run: |
+          echo "Upstream release newer than bundled snapshot: ${{ steps.latest.outputs.version }}"
+          echo "Bundled snapshot: ${{ steps.current.outputs.version }}"
+          echo "Manual step: Refresh extensions/vibeide-neon/upstream/vendor-neon-theme/, merge into themes/vibe-neon.json, refresh media/vibe-neon.css + media/vibe-neon-noglow.css — see extensions/vibeide-neon/UPSTREAM.md + SOURCE.md"
+          echo "Then run: npm run vibe:schema:templates to verify"
+          # In Phase 2: auto-PR with diff of theme files

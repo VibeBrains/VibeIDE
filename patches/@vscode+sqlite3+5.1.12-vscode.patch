@@ -1,0 +1,28 @@
+diff --git a/node_modules/@vscode/sqlite3/binding.gyp b/node_modules/@vscode/sqlite3/binding.gyp
+index 0250be8..fb9ae3a 100644
+--- a/node_modules/@vscode/sqlite3/binding.gyp
++++ b/node_modules/@vscode/sqlite3/binding.gyp
+@@ -20,9 +20,6 @@
+         "-fstack-protector-strong",
+         "-O2"
+       ],
+-      "msvs_configuration_attributes": {
+-        "SpectreMitigation": "Spectre"
+-      },
+       "msvs_settings": {
+         "VCCLCompilerTool": {
+           "AdditionalOptions": [
+diff --git a/node_modules/@vscode/sqlite3/deps/sqlite3.gyp b/node_modules/@vscode/sqlite3/deps/sqlite3.gyp
+index 4b84001..fbd5112 100644
+--- a/node_modules/@vscode/sqlite3/deps/sqlite3.gyp
++++ b/node_modules/@vscode/sqlite3/deps/sqlite3.gyp
+@@ -28,9 +28,6 @@
+         },
+       }
+     },
+-    'msvs_configuration_attributes': {
+-      'SpectreMitigation': 'Spectre'
+-    },
+     'msvs_settings': {
+       'VCCLCompilerTool': {
+         "AdditionalOptions": [

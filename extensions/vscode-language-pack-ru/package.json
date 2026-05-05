@@ -1,0 +1,36 @@
+{
+	"name": "vscode-language-pack-ru",
+	"displayName": "Russian Language Pack for Visual Studio Code",
+	"description": "Language pack extension for Russian (bundled in VibeIDE; upstream: https://github.com/microsoft/vscode-loc)",
+	"version": "1.118.1",
+	"publisher": "MS-CEINTL",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/microsoft/vscode-loc"
+	},
+	"engines": {
+		"vscode": "^1.118.0"
+	},
+	"categories": [
+		"Language Packs"
+	],
+	"keywords": [
+		"русский"
+	],
+	"contributes": {
+		"localizations": [
+			{
+				"languageId": "ru",
+				"languageName": "Russian",
+				"localizedLanguageName": "русский",
+				"translations": [
+					{
+						"id": "vscode",
+						"path": "./translations/main.i18n.json"
+					}
+				]
+			}
+		]
+	}
+}

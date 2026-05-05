@@ -1,0 +1,16 @@
+{
+	"name": "project-manager",
+	"displayName": "Project Manager",
+	"description": "Easily switch between projects (bundled in VibeIDE)",
+	"version": "13.1.0",
+	"publisher": "alefragnani",
+	"license": "GPL-3.0-only",
+	"engines": {
+		"vscode": "^1.118.0"
+	},
+	"_vibeide": {
+		"bundlingMethod": "pre-installed-vsix",
+		"vsixFile": "project-manager-13.1.0.vsix",
+		"note": "GPL-3.0 applies to this extension only. VibeIDE itself remains MIT licensed."
+	}
+}

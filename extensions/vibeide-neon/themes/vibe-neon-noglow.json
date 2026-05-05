@@ -1,0 +1,6 @@
+{
+	"$schema": "vscode://schemas/color-theme",
+	"name": "Vibe Neon (No editor glow)",
+	"type": "dark",
+	"include": "./vibe-neon.json"
+}

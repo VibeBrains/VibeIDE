@@ -1,0 +1,127 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
+ *--------------------------------------------------------------------------------------------*/
+
+import { URI } from '../../../../base/common/uri.js'
+import { RawMCPToolCall } from './mcpServiceTypes.js';
+import { builtinTools } from './prompt/prompts.js';
+import { RawToolParamsObj } from './sendLLMMessageTypes.js';
+
+
+
+export type TerminalResolveReason = { type: 'timeout' } | { type: 'done', exitCode: number }
+
+export type LintErrorItem = { code: string, message: string, startLineNumber: number, endLineNumber: number }
+
+// Partial of IFileStat
+export type ShallowDirectoryItem = {
+	uri: URI;
+	name: string;
+	isDirectory: boolean;
+	isSymbolicLink: boolean;
+}
+
+
+export const approvalTypeOfBuiltinToolName: Partial<{ [T in BuiltinToolName]?: 'edits' | 'terminal' | 'MCP tools' }> = {
+	'create_file_or_folder': 'edits',
+	'delete_file_or_folder': 'edits',
+	'rewrite_file': 'edits',
+	'edit_file': 'edits',
+	'run_command': 'terminal',
+	'run_nl_command': 'terminal',
+	'run_persistent_command': 'terminal',
+	'open_persistent_terminal': 'terminal',
+	'kill_persistent_terminal': 'terminal',
+}
+
+
+export type ToolApprovalType = NonNullable<(typeof approvalTypeOfBuiltinToolName)[keyof typeof approvalTypeOfBuiltinToolName]>;
+
+
+export const toolApprovalTypes = new Set<ToolApprovalType>([
+	...Object.values(approvalTypeOfBuiltinToolName),
+	'MCP tools',
+])
+
+
+
+
+// PARAMS OF TOOL CALL
+export type BuiltinToolCallParams = {
+	'read_file': { uri: URI, startLine: number | null, endLine: number | null, pageNumber: number },
+	'ls_dir': { uri: URI, pageNumber: number },
+	'get_dir_tree': { uri: URI },
+	'search_pathnames_only': { query: string, includePattern: string | null, pageNumber: number },
+	'search_for_files': { query: string, isRegex: boolean, searchInFolder: URI | null, pageNumber: number },
+	'search_in_file': { uri: URI, query: string, isRegex: boolean },
+	'read_lint_errors': { uri: URI },
+	'open_file': { uri: URI },
+	'go_to_definition': { uri: URI, line: number, column: number },
+	'find_references': { uri: URI, line: number, column: number },
+	'search_symbols': { query: string, uri: URI | null },
+	'automated_code_review': { uri: URI },
+	'generate_tests': { uri: URI, functionName?: string, testFramework?: string },
+	'rename_symbol': { uri: URI, line: number, column: number, newName: string },
+	'extract_function': { uri: URI, startLine: number, endLine: number, functionName: string },
+	// ---
+	'rewrite_file': { uri: URI, newContent: string },
+	'edit_file': { uri: URI, searchReplaceBlocks: string },
+	'create_file_or_folder': { uri: URI, isFolder: boolean },
+	'delete_file_or_folder': { uri: URI, isRecursive: boolean, isFolder: boolean },
+	// ---
+	'run_command': { command: string; cwd: string | null, terminalId: string },
+	'run_nl_command': { nlInput: string; cwd: string | null, terminalId: string },
+	'open_persistent_terminal': { cwd: string | null },
+	'run_persistent_command': { command: string; persistentTerminalId: string },
+	'kill_persistent_terminal': { persistentTerminalId: string },
+	// ---
+	'web_search': { query: string, k?: number, refresh?: boolean },
+	'browse_url': { url: string, refresh?: boolean },
+}
+
+// RESULT OF TOOL CALL
+export type BuiltinToolResultType = {
+	'read_file': { fileContents: string, totalFileLen: number, totalNumLines: number, hasNextPage: boolean },
+	'ls_dir': { children: ShallowDirectoryItem[] | null, hasNextPage: boolean, hasPrevPage: boolean, itemsRemaining: number },
+	'get_dir_tree': { str: string, },
+	'search_pathnames_only': { uris: URI[], hasNextPage: boolean },
+	'search_for_files': { uris: URI[], hasNextPage: boolean },
+	'search_in_file': { lines: number[]; },
+	'read_lint_errors': { lintErrors: LintErrorItem[] | null },
+	'open_file': {},
+	'go_to_definition': { locations: Array<{ uri: URI, startLine: number, startColumn: number, endLine: number, endColumn: number }> },
+	'find_references': { locations: Array<{ uri: URI, startLine: number, startColumn: number, endLine: number, endColumn: number }> },
+	'search_symbols': { symbols: Array<{ name: string, kind: string, uri: URI, startLine: number, startColumn: number, endLine: number, endColumn: number }> },
+	'automated_code_review': { issues: Array<{ severity: 'error' | 'warning' | 'info', message: string, line: number, column: number, suggestion?: string }> },
+	'generate_tests': { testCode: string, testFileUri: URI },
+	'rename_symbol': { changes: Array<{ uri: URI, oldText: string, newText: string, line: number, column: number }> },
+	'extract_function': { newFunctionCode: string, replacementCode: string, insertLine: number },
+	// ---
+	'rewrite_file': Promise<{ lintErrors: LintErrorItem[] | null }>,
+	'edit_file': Promise<{ lintErrors: LintErrorItem[] | null }>,
+	'create_file_or_folder': {},
+	'delete_file_or_folder': {},
+	// ---
+	'run_command': { result: string; resolveReason: TerminalResolveReason; },
+	'run_nl_command': { result: string; resolveReason: TerminalResolveReason; parsedCommand: string; explanation: string; },
+	'run_persistent_command': { result: string; resolveReason: TerminalResolveReason; },
+	'open_persistent_terminal': { persistentTerminalId: string },
+	'kill_persistent_terminal': {},
+	// ---
+	'web_search': { results: Array<{ title: string, snippet: string, url: string }> },
+	'browse_url': { content: string, title?: string, url: string, metadata?: { publishedDate?: string } },
+}
+
+
+export type ToolCallParams<T extends BuiltinToolName | (string & {})> = T extends BuiltinToolName ? BuiltinToolCallParams[T] : RawToolParamsObj
+export type ToolResult<T extends BuiltinToolName | (string & {})> = T extends BuiltinToolName ? BuiltinToolResultType[T] : RawMCPToolCall
+
+export type BuiltinToolName = keyof BuiltinToolResultType
+
+type BuiltinToolParamNameOfTool<T extends BuiltinToolName> = keyof (typeof builtinTools)[T]['params']
+export type BuiltinToolParamName = { [T in BuiltinToolName]: BuiltinToolParamNameOfTool<T> }[BuiltinToolName]
+
+
+export type ToolName = BuiltinToolName | (string & {})
+export type ToolParamName<T extends ToolName> = T extends BuiltinToolName ? BuiltinToolParamNameOfTool<T> : string

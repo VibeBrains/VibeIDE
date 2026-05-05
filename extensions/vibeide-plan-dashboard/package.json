@@ -1,0 +1,44 @@
+{
+	"name": "vibeide-plan-dashboard",
+	"displayName": "VibeIDE Plan Dashboard",
+	"description": "Built-in custom editor for persisted agent plans under .vibe/plans/*.plan.md.",
+	"version": "1.0.0",
+	"publisher": "vibeide",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.118.0"
+	},
+	"extensionKind": ["ui", "workspace"],
+	"activationEvents": ["onCustomEditor:vibeide.planDashboard"],
+	"main": "./extension.js",
+	"contributes": {
+		"customEditors": [
+			{
+				"viewType": "vibeide.planDashboard",
+				"displayName": "VibeIDE Plan",
+				"priority": "default",
+				"selector": [
+					{
+						"filenamePattern": "**/.vibe/plans/**/*.plan.md"
+					}
+				]
+			}
+		],
+		"commands": [
+			{
+				"command": "vibeide.planDashboard.openAsText",
+				"title": "VibeIDE Plan: Open as Raw Markdown",
+				"icon": "$(code)"
+			}
+		],
+		"menus": {
+			"editor/title": [
+				{
+					"command": "vibeide.planDashboard.openAsText",
+					"when": "activeCustomEditorId == 'vibeide.planDashboard'",
+					"group": "navigation@9"
+				}
+			]
+		}
+	}
+}

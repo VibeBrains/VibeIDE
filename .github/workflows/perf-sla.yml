@@ -1,0 +1,178 @@
+name: Performance SLA Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      measure_compile:
+        description: "Measure npm run compile time"
+        required: false
+        type: boolean
+        default: true
+  schedule:
+    # Every Monday at 03:00 UTC
+    - cron: '0 3 * * 1'
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/vs/workbench/contrib/vibeide/**'
+      - 'src/vs/platform/**'
+      - 'package.json'
+      - 'gulpfile.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf-sla-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile-time:
+    name: Compile Time SLA
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.measure_compile }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Measure compile time (cold)
+        id: compile
+        run: |
+          START=$(date +%s%N)
+          npm run compile
+          END=$(date +%s%N)
+          ELAPSED=$(( (END - START) / 1000000000 ))
+          echo "elapsed_seconds=${ELAPSED}" >> "$GITHUB_OUTPUT"
+          echo "Compile time: ${ELAPSED}s"
+
+          # SLA: target ≤ 300s, critical > 600s
+          if [ "$ELAPSED" -gt 600 ]; then
+            echo "sla_status=fail" >> "$GITHUB_OUTPUT"
+          elif [ "$ELAPSED" -gt 300 ]; then
+            echo "sla_status=warn" >> "$GITHUB_OUTPUT"
+          else
+            echo "sla_status=ok" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Incremental compile (hot)
+        id: compile_hot
+        run: |
+          # Touch a TS file to trigger incremental recompile
+          touch src/vs/workbench/contrib/vibeide/vibeide.contribution.ts
+          START=$(date +%s%N)
+          npm run compile
+          END=$(date +%s%N)
+          ELAPSED=$(( (END - START) / 1000000000 ))
+          echo "elapsed_seconds=${ELAPSED}" >> "$GITHUB_OUTPUT"
+          echo "Hot compile time: ${ELAPSED}s"
+
+      - name: Job Summary
+        run: |
+          COLD="${{ steps.compile.outputs.elapsed_seconds }}"
+          HOT="${{ steps.compile_hot.outputs.elapsed_seconds }}"
+          STATUS="${{ steps.compile.outputs.sla_status }}"
+
+          if [ "$STATUS" = "ok" ]; then ICON="✅"; elif [ "$STATUS" = "warn" ]; then ICON="⚠️"; else ICON="❌"; fi
+
+          cat >> "$GITHUB_STEP_SUMMARY" << EOF
+          ## VibeIDE Compile Time SLA
+
+          | Metric | Value | Target | Status |
+          |---|---|---|---|
+          | Cold compile | ${COLD}s | ≤ 300s | ${ICON} |
+          | Hot (incremental) | ${HOT}s | ≤ 30s | $([ "$HOT" -le 30 ] && echo "✅" || echo "⚠️") |
+
+          **Commit:** \`${{ github.sha }}\` · **Branch:** \`${{ github.ref_name }}\`
+          EOF
+
+      - name: Fail on SLA critical breach
+        if: steps.compile.outputs.sla_status == 'fail'
+        run: |
+          echo "❌ Compile time ${{ steps.compile.outputs.elapsed_seconds }}s exceeds critical threshold of 600s"
+          exit 1
+
+  memory-report:
+    name: Memory & Startup Report (manual / scheduled)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Print SLA targets and measurement guide
+        run: |
+          node scripts/vibe-perf-measure.js --help
+
+      - name: Report — memory and cold start require graphical environment
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" << 'EOF'
+          ## VibeIDE Memory & Cold Start SLA
+
+          > ⚠️ These metrics require a graphical environment and cannot be fully automated in headless CI.
+          > Please run measurements manually on developer hardware — see [`docs/v1/performance-sla.md`](docs/v1/performance-sla.md).
+
+          ### Targets
+
+          | Metric | Target | Critical |
+          |---|---|---|
+          | Cold start | ≤ 5 000 ms | > 8 000 ms |
+          | Memory idle (empty window) | ≤ 600 MB RSS | > 900 MB |
+          | Memory + project open | ≤ 600 MB RSS | > 1 024 MB |
+          | Time-to-interactive | ≤ 8 000 ms | > 15 000 ms |
+
+          ### Manual measurement commands
+
+          **Cold start (Windows):**
+          ```powershell
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          & ".\scripts\code.bat" --wait-for-window
+          $sw.Stop()
+          Write-Host "Cold start: $($sw.ElapsedMilliseconds) ms"
+          ```
+
+          **Memory (Linux):**
+          ```bash
+          sleep 15 && ps -o pid,rss,comm -p $(pgrep -f "vibeide.*renderer") | awk '{print $1, int($2/1024)"MB", $3}'
+          ```
+
+          ### Measurement script
+          ```bash
+          node scripts/vibe-perf-measure.js --all --output docs/v1/perf-results.json
+          ```
+          EOF
+
+      - name: Check perf-results.json exists (if previously committed)
+        run: |
+          if [ -f docs/v1/perf-results.json ]; then
+            echo "📄 Found perf-results.json:"
+            cat docs/v1/perf-results.json | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          sla = d.get('sla', {})
+          print(f'Timestamp: {d.get(\"timestamp\",\"?\")}')
+          for k, v in sla.items():
+              print(f'  {k}: {v}')
+          "
+          else
+            echo "ℹ️  No perf-results.json found — run locally and commit to track history."
+          fi

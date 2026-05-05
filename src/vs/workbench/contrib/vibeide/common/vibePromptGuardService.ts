@@ -1,0 +1,123 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright 2026 VibeIDE Team. All rights reserved.
+ *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
+
+export interface PromptGuardResult {
+	isSafe: boolean;
+	warnings: string[];
+	sanitized: string;
+}
+
+export const IVibePromptGuardService = createDecorator<IVibePromptGuardService>('vibePromptGuardService');
+
+export interface IVibePromptGuardService {
+	readonly _serviceBrand: undefined;
+
+	/**
+	 * Sanitize file content before including in LLM context.
+	 * Detects prompt injection patterns and context poisoning.
+	 */
+	sanitizeFileContent(content: string, filePath: string): PromptGuardResult;
+
+	/** Check if file is from an external/untrusted repository */
+	isExternalRepo(workspacePath: string): boolean;
+}
+
+/**
+ * VibeIDE Prompt Guard: basic sanitization of file content before LLM context.
+ *
+ * Detects:
+ * 1. Prompt injection patterns (IGNORE PREVIOUS INSTRUCTIONS, etc.)
+ * 2. Context poisoning (zero-width chars, Unicode Bidi overrides)
+ * 3. Invisible CSS in HTML files
+ */
+class VibePromptGuardService extends Disposable implements IVibePromptGuardService {
+	declare readonly _serviceBrand: undefined;
+
+	// Prompt injection patterns — common in adversarial repos
+	private readonly INJECTION_PATTERNS = [
+		/ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|context)/i,
+		/disregard\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|context)/i,
+		/forget\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|context)/i,
+		/\[SYSTEM\s*:/i,
+		/<\|system\|>/i,
+		/###\s*SYSTEM\s*###/i,
+		/you\s+are\s+now\s+(a\s+)?different/i,
+		/new\s+instructions?\s*:/i,
+		/override\s+(all\s+)?(previous|prior)\s+(instructions?|rules?)/i,
+	];
+
+	// Context poisoning patterns
+	// Zero-width chars: U+200B, U+200C, U+200D, U+FEFF, U+00AD
+	private readonly ZERO_WIDTH_PATTERN = /[\u200B\u200C\u200D\uFEFF\u00AD]/g;
+
+	// Unicode Bidi override chars: U+202A-U+202E, U+2066-U+2069, U+200E, U+200F
+	private readonly BIDI_OVERRIDE_PATTERN = /[\u202A-\u202E\u2066-\u2069\u200E\u200F]/g;
+
+	// Invisible CSS (data-uri or style with display:none that hides text for AI but not humans)
+	private readonly INVISIBLE_CSS_PATTERN = /<[^>]+style\s*=\s*["'][^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0|font-size\s*:\s*0)[^"']*["'][^>]*>/gi;
+
+	constructor(
+		@ILogService private readonly _logService: ILogService,
+	) {
+		super();
+	}
+
+	sanitizeFileContent(content: string, filePath: string): PromptGuardResult {
+		const warnings: string[] = [];
+		let sanitized = content;
+
+		// Check for prompt injection patterns
+		for (const pattern of this.INJECTION_PATTERNS) {
+			if (pattern.test(content)) {
+				warnings.push(`Potential prompt injection detected in ${filePath}: matches pattern ${pattern.source.substring(0, 40)}...`);
+			}
+		}
+
+		// Remove zero-width characters (context poisoning)
+		const zeroWidthMatches = content.match(this.ZERO_WIDTH_PATTERN);
+		if (zeroWidthMatches && zeroWidthMatches.length > 0) {
+			sanitized = sanitized.replace(this.ZERO_WIDTH_PATTERN, '');
+			warnings.push(`Context poisoning: ${zeroWidthMatches.length} zero-width characters removed from ${filePath}`);
+		}
+
+		// Remove Unicode Bidi override characters
+		const bidiMatches = content.match(this.BIDI_OVERRIDE_PATTERN);
+		if (bidiMatches && bidiMatches.length > 0) {
+			sanitized = sanitized.replace(this.BIDI_OVERRIDE_PATTERN, '');
+			warnings.push(`Context poisoning: ${bidiMatches.length} Unicode Bidi override characters removed from ${filePath}`);
+		}
+
+		// Check for invisible CSS in HTML/SVG files
+		if (/\.(html?|svg|xml)$/i.test(filePath)) {
+			const invisibleMatches = content.match(this.INVISIBLE_CSS_PATTERN);
+			if (invisibleMatches && invisibleMatches.length > 0) {
+				warnings.push(`Invisible CSS elements detected in ${filePath}: ${invisibleMatches.length} elements that may hide content from humans`);
+			}
+		}
+
+		if (warnings.length > 0) {
+			this._logService.warn(`[VibeIDE PromptGuard] ${warnings.length} issue(s) in ${filePath}:\n${warnings.join('\n')}`);
+		}
+
+		return {
+			isSafe: warnings.filter(w => w.includes('prompt injection')).length === 0,
+			warnings,
+			sanitized,
+		};
+	}
+
+	isExternalRepo(workspacePath: string): boolean {
+		// Heuristic: if workspace was recently cloned and has no git history from trusted sources
+		// For Phase 1: always return false (trust all workspaces) — Phase 2 will add git remote analysis
+		return false;
+	}
+}
+
+registerSingleton(IVibePromptGuardService, VibePromptGuardService, InstantiationType.Eager);

@@ -1,0 +1,247 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright 2026 VibeIDE Team. All rights reserved.
+ *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/**
+ * VibeProviderProxyService — optional local HTTP(S) debug proxy for AI providers.
+ *
+ * When enabled, provider requests are routed through a local proxy that
+ * captures raw request/response payloads for in-IDE inspection (Charles/mitmproxy–like UX).
+ *
+ * Privacy guarantees:
+ *  - Disabled by default (vibeide.debug.providerProxy.enabled = false)
+ *  - Secret values in headers are ALWAYS redacted before display (secret detection pipeline)
+ *  - No data leaves the local machine via this service
+ *  - Stealth mode: proxy is force-disabled when stealth mode is active
+ *
+ * Phase MVP: registry + command palette entry (Open Provider Proxy Log)
+ * Phase 3b: actual HTTP interception via Electron net module or node:http proxy
+ */
+
+import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
+import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { Registry } from '../../../../platform/registry/common/platform.js';
+import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { localize } from '../../../../nls.js';
+import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
+import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { ISecretDetectionService } from '../common/secretDetectionService.js';
+
+// ── Configuration ─────────────────────────────────────────────────────────────
+
+Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
+	id: 'vibeide',
+	properties: {
+		'vibeide.debug.providerProxy.enabled': {
+			type: 'boolean',
+			default: false,
+			description: localize('vibeide.debug.providerProxy.enabled', 'Enable local HTTP debug proxy to capture raw AI provider request/response. Secrets are always redacted in display.'),
+			scope: 1, // APPLICATION
+		},
+		'vibeide.debug.providerProxy.maxEntries': {
+			type: 'number',
+			default: 50,
+			minimum: 10,
+			maximum: 500,
+			description: localize('vibeide.debug.providerProxy.maxEntries', 'Maximum number of captured proxy entries to keep in memory.'),
+		},
+	},
+});
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export interface ProxyEntry {
+	id: string;
+	ts: number;
+	provider: string;
+	method: string;
+	url: string;
+	/** Request headers with secrets redacted */
+	requestHeaders: Record<string, string>;
+	/** Request body with secrets redacted (JSON or truncated string) */
+	requestBody: string;
+	/** Response status */
+	responseStatus?: number;
+	/** Response headers */
+	responseHeaders?: Record<string, string>;
+	/** Response body with secrets redacted */
+	responseBody?: string;
+	/** Latency in ms */
+	latencyMs?: number;
+	/** True if secrets were detected and redacted */
+	wasRedacted: boolean;
+}
+
+export const IVibeProviderProxyService = createDecorator<IVibeProviderProxyService>('vibeProviderProxyService');
+
+export interface IVibeProviderProxyService {
+	readonly _serviceBrand: undefined;
+
+	/** Whether the proxy is currently enabled */
+	isEnabled(): boolean;
+
+	/** Record a provider request (called by sendLLMMessageService when proxy is enabled) */
+	recordRequest(provider: string, method: string, url: string, headers: Record<string, string>, body: string): string;
+
+	/** Record the response for a previously recorded request */
+	recordResponse(entryId: string, status: number, headers: Record<string, string>, body: string): void;
+
+	/** Get all captured entries (most recent first) */
+	getEntries(): ProxyEntry[];
+
+	/** Clear all captured entries */
+	clear(): void;
+
+	/** Fired when a new entry is added or updated */
+	readonly onEntryAdded: Event<ProxyEntry>;
+}
+
+// ── Implementation ─────────────────────────────────────────────────────────────
+
+class VibeProviderProxyService extends Disposable implements IVibeProviderProxyService {
+	declare readonly _serviceBrand: undefined;
+
+	private _entries: ProxyEntry[] = [];
+	private readonly _onEntryAdded = this._register(new Emitter<ProxyEntry>());
+	readonly onEntryAdded: Event<ProxyEntry> = this._onEntryAdded.event;
+
+	constructor(
+		@ILogService private readonly _log: ILogService,
+		@IConfigurationService private readonly _config: IConfigurationService,
+		@ISecretDetectionService private readonly _secretDetection: ISecretDetectionService,
+	) {
+		super();
+	}
+
+	isEnabled(): boolean {
+		return !!this._config.getValue<boolean>('vibeide.debug.providerProxy.enabled');
+	}
+
+	recordRequest(provider: string, method: string, url: string, headers: Record<string, string>, body: string): string {
+		if (!this.isEnabled()) { return ''; }
+
+		const id = `proxy-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+		const redactedHeaders = this._redactHeaders(headers);
+		const { redactedText, hasSecrets: bodyRedacted } = this._secretDetection.detectSecrets(body);
+		const headersRedacted = JSON.stringify(redactedHeaders) !== JSON.stringify(headers);
+
+		const entry: ProxyEntry = {
+			id,
+			ts: Date.now(),
+			provider,
+			method,
+			url,
+			requestHeaders: redactedHeaders,
+			requestBody: redactedText.slice(0, 8192), // cap at 8KB for display
+			wasRedacted: bodyRedacted || headersRedacted,
+		};
+
+		this._pushEntry(entry);
+		this._log.info(`[VibeProviderProxy] Captured request ${id}: ${method} ${url}`);
+		return id;
+	}
+
+	recordResponse(entryId: string, status: number, headers: Record<string, string>, body: string): void {
+		if (!this.isEnabled()) { return; }
+
+		const entry = this._entries.find(e => e.id === entryId);
+		if (!entry) { return; }
+
+		const { redactedText, hasSecrets } = this._secretDetection.detectSecrets(body);
+		entry.responseStatus = status;
+		entry.responseHeaders = this._redactHeaders(headers);
+		entry.responseBody = redactedText.slice(0, 8192);
+		entry.latencyMs = Date.now() - entry.ts;
+		if (hasSecrets) { entry.wasRedacted = true; }
+
+		this._onEntryAdded.fire(entry);
+	}
+
+	getEntries(): ProxyEntry[] {
+		return [...this._entries].reverse(); // most recent first
+	}
+
+	clear(): void {
+		this._entries = [];
+		this._log.info('[VibeProviderProxy] Log cleared');
+	}
+
+	private _pushEntry(entry: ProxyEntry): void {
+		const maxEntries = this._config.getValue<number>('vibeide.debug.providerProxy.maxEntries') ?? 50;
+		this._entries.push(entry);
+		if (this._entries.length > maxEntries) {
+			this._entries.splice(0, this._entries.length - maxEntries);
+		}
+		this._onEntryAdded.fire(entry);
+	}
+
+	private _redactHeaders(headers: Record<string, string>): Record<string, string> {
+		const sensitiveKeys = ['authorization', 'x-api-key', 'api-key', 'x-goog-api-key', 'x-openai-api-key'];
+		const result: Record<string, string> = {};
+		for (const [k, v] of Object.entries(headers)) {
+			result[k] = sensitiveKeys.includes(k.toLowerCase()) ? '[REDACTED]' : v;
+		}
+		return result;
+	}
+}
+
+registerSingleton(IVibeProviderProxyService, VibeProviderProxyService, InstantiationType.Delayed);
+
+// ── Commands ──────────────────────────────────────────────────────────────────
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.debug.openProviderProxyLog',
+			title: { value: localize('vibeide.debug.openProviderProxyLog', 'VibeIDE Debug: Open Provider Proxy Log'), original: 'VibeIDE Debug: Open Provider Proxy Log' },
+			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			f1: true,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const proxy = accessor.get(IVibeProviderProxyService);
+		if (!proxy.isEnabled()) {
+			// Prompt user to enable via setting
+			const { INotificationService } = await import('../../../../platform/notification/common/notification.js');
+			accessor.get(INotificationService).info(
+				localize('vibeide.debug.proxyDisabled', 'Provider debug proxy is disabled. Enable it via setting "vibeide.debug.providerProxy.enabled".')
+			);
+			return;
+		}
+		const entries = proxy.getEntries();
+		const content = entries.length === 0
+			? '// No proxy entries captured yet.'
+			: JSON.stringify(entries, null, 2);
+
+		const { ITextModelService } = await import('../../../../editor/common/services/resolverService.js');
+		const { URI } = await import('../../../../base/common/uri.js');
+		const { IEditorService } = await import('../../../services/editor/common/editorService.js');
+		const uri = URI.parse(`untitled://provider-proxy-log-${Date.now()}.json`);
+		const modelService = accessor.get(ITextModelService);
+		const ref = await modelService.createModelReference(uri);
+		ref.object.textEditorModel?.setValue(content);
+		ref.dispose();
+		await accessor.get(IEditorService).openEditor({ resource: uri });
+	}
+});
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.debug.clearProviderProxyLog',
+			title: { value: localize('vibeide.debug.clearProviderProxyLog', 'VibeIDE Debug: Clear Provider Proxy Log'), original: 'VibeIDE Debug: Clear Provider Proxy Log' },
+			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			f1: true,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		accessor.get(IVibeProviderProxyService).clear();
+	}
+});

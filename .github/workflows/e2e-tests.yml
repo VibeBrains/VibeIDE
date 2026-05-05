@@ -1,0 +1,59 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    name: E2E tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Run vibe doctor (CI mode)
+        run: node scripts/vibe-doctor.js --ci --json
+
+      - name: Run vibe doctor (fast mode)
+        run: node scripts/vibe-doctor.js
+
+      # Phase 2: actual Playwright/Spectron E2E
+      # These tests will be added when full Electron build is available
+      - name: E2E placeholder
+        run: |
+          echo "E2E tests require Electron build (Phase 2)"
+          echo "When build is ready, tests will:"
+          echo "  1. Launch VibeIDE"
+          echo "  2. Open a test project with .vibe/ config"
+          echo "  3. Send an agent task"
+          echo "  4. Verify Apply was blocked by .vibe/constraints.json"
+          echo "  5. Verify audit log was written"
+          echo "  6. Verify Trust Score widget visible in statusbar"
+
+      - name: Unit test - vibe doctor
+        run: node scripts/vibe-doctor.js --json > /tmp/doctor.json && echo "Doctor passed"
+        shell: bash
+
+      - name: Unit test - checkpoint prune
+        run: node scripts/vibe-checkpoint-prune.js --dry-run --workspace .
+        shell: bash
+
+      - name: Unit test - vibe changelog
+        run: node scripts/vibe-changelog.js --format json | head -20
+        shell: bash

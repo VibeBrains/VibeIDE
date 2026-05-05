@@ -1,0 +1,57 @@
+name: Security Audit
+
+on:
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+  schedule:
+    # Every Monday at 09:00 UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+jobs:
+  npm-audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run npm audit
+        run: |
+          npm audit --audit-level=critical
+        # Fails on critical vulnerabilities only
+        # High/moderate are reported but don't block
+
+      - name: Run full audit report
+        if: always()
+        run: |
+          npm audit --json > audit-report.json || true
+          echo "## npm audit summary"
+          npm audit 2>&1 | tail -20 || true
+
+  electron-cve-check:
+    name: Electron CVE check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get Electron version
+        id: electron-version
+        run: |
+          ELECTRON_VERSION=$(cat package.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('devDependencies', {}).get('electron', d.get('dependencies', {}).get('electron', 'unknown')))" 2>/dev/null || echo "unknown")
+          echo "version=$ELECTRON_VERSION" >> $GITHUB_OUTPUT
+          echo "Electron version: $ELECTRON_VERSION"
+
+      - name: Check for known Electron CVEs
+        run: |
+          echo "Electron version from package.json: ${{ steps.electron-version.outputs.version }}"
+          echo "Manual check required: https://github.com/electron/electron/security/advisories"
+          echo "For automated scanning, integrate with: https://osv.dev/list?q=electron"

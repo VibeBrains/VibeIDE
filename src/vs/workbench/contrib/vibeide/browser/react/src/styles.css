@@ -1,0 +1,754 @@
+/*--------------------------------------------------------------------------------------
+ *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
+ *--------------------------------------------------------------------------------------*/
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.select-child-restyle select {
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	padding-right: 24px;
+}
+
+.vibe-force-child-placeholder-vibe-fg-1 ::placeholder {
+	color: var(--vibe-fg-3);
+}
+
+* {
+	outline: none !important;
+}
+
+.inherit-bg-all-restyle > * {
+	background-color: inherit !important;
+}
+
+
+.bg-editor-style-override {
+	--vscode-sideBar-background: var(--vscode-editor-background);
+}
+
+/* Sticky label for diff blocks in VibeIDE diff viewer */
+.vibe-diff-block-header {
+	position: sticky;
+	top: 0;
+	background: var(--vibe-bg-3);
+	border-bottom: 1px solid var(--vibe-border-4);
+}
+
+/* generic focus ring for keyboard users */
+.vibe-focus-ring:focus-visible {
+	outline: 1px solid var(--vibe-ring-color);
+	outline-offset: 1px;
+}
+
+/* density utilities */
+.vibe-density-tight { padding: var(--vibe-space-2) var(--vibe-space-2); }
+.vibe-density-comfortable { padding: var(--vibe-space-4) var(--vibe-space-4); }
+.vibe-density-spacious { padding: var(--vibe-space-6) var(--vibe-space-6); }
+
+/* smooth transitions utility */
+.vibe-transition {
+	transition: all var(--vibe-transition-base);
+}
+
+.vibe-transition-fast {
+	transition: all var(--vibe-transition-fast);
+}
+
+.vibe-transition-slow {
+	transition: all var(--vibe-transition-slow);
+}
+
+/* hover effects */
+.vibe-hover-lift {
+	transition: transform var(--vibe-transition-base), box-shadow var(--vibe-transition-base);
+}
+
+.vibe-hover-lift:hover {
+	transform: translateY(-1px);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* rounded corners utilities */
+.vibe-rounded-sm { border-radius: var(--vibe-radius-sm); }
+.vibe-rounded-md { border-radius: var(--vibe-radius-md); }
+.vibe-rounded-lg { border-radius: var(--vibe-radius-lg); }
+.vibe-rounded-xl { border-radius: var(--vibe-radius-xl); }
+
+/*
+ * Chat composer: do NOT use Tailwind border-[color:var(...)] — scope-tailwind rewrites var(→vibe-var( and borders become invalid (often white/currentColor).
+ * Same token chain as title bar Command Center (titlebarpart.css).
+ */
+.chat-composer-shell {
+	background-color: var(--vscode-input-background);
+	border: 1px solid var(
+		--vscode-commandCenter-border,
+		var(
+			--vscode-commandCenter-inactiveBorder,
+			var(--vscode-input-border, var(--vscode-widget-border, transparent))
+		)
+	);
+}
+.chat-composer-shell:focus-within {
+	border-color: var(--vscode-commandCenter-activeBorder, var(--vscode-focusBorder));
+}
+.chat-composer-shell:hover:not(:focus-within):not(.chat-composer-shell--drag) {
+	border-color: var(
+		--vscode-commandCenter-activeBorder,
+		var(
+			--vscode-commandCenter-border,
+			var(
+				--vscode-commandCenter-inactiveBorder,
+				var(--vscode-input-border, var(--vscode-widget-border, transparent))
+			)
+		)
+	);
+}
+.chat-composer-shell--drag {
+	border-color: var(--vscode-commandCenter-activeBorder, var(--vscode-focusBorder));
+	background-color: color-mix(
+		in srgb,
+		var(--vscode-commandCenter-activeBorder, var(--vscode-focusBorder)) 12%,
+		var(--vscode-input-background)
+	);
+}
+.chat-composer-toolbar-rule {
+	border-top: 1px solid var(
+		--vscode-commandCenter-border,
+		var(
+			--vscode-commandCenter-inactiveBorder,
+			var(--vscode-input-border, var(--vscode-widget-border, transparent))
+		)
+	);
+}
+
+/*
+ * Settings / workspace wells: same border + hover/focus chain as chat composer
+ * (--vscode-commandCenter-* → purple/pink accent in VibeIDE themes).
+ */
+.vibe-chat-like-shell {
+	box-sizing: border-box;
+	border-radius: 1rem;
+	background-color: var(--vscode-input-background);
+	border: 1px solid var(
+		--vscode-commandCenter-border,
+		var(
+			--vscode-commandCenter-inactiveBorder,
+			var(--vscode-input-border, var(--vscode-widget-border, transparent))
+		)
+	);
+	transition:
+		border-color 150ms ease-out,
+		box-shadow 150ms ease-out;
+}
+.vibe-chat-like-shell:focus-within {
+	border-color: var(--vscode-commandCenter-activeBorder, var(--vscode-focusBorder));
+}
+.vibe-chat-like-shell:hover:not(:focus-within) {
+	border-color: var(
+		--vscode-commandCenter-activeBorder,
+		var(
+			--vscode-commandCenter-border,
+			var(
+				--vscode-commandCenter-inactiveBorder,
+				var(--vscode-input-border, var(--vscode-widget-border, transparent))
+			)
+		)
+	);
+}
+
+textarea.vibe-chat-like-control,
+input.vibe-chat-like-control:not([type='checkbox']):not([type='radio']),
+select.vibe-chat-like-control {
+	box-sizing: border-box;
+	border-radius: 1rem;
+	background-color: var(--vscode-input-background);
+	color: var(--vscode-input-foreground, var(--vscode-sideBar-foreground));
+	border: 1px solid var(
+		--vscode-commandCenter-border,
+		var(
+			--vscode-commandCenter-inactiveBorder,
+			var(--vscode-input-border, var(--vscode-widget-border, transparent))
+		)
+	);
+	transition:
+		border-color 150ms ease-out,
+		box-shadow 150ms ease-out;
+}
+textarea.vibe-chat-like-control:focus,
+input.vibe-chat-like-control:not([type='checkbox']):not([type='radio']):focus,
+select.vibe-chat-like-control:focus {
+	outline: none;
+	border-color: var(--vscode-commandCenter-activeBorder, var(--vscode-focusBorder));
+}
+textarea.vibe-chat-like-control:hover:not(:focus):not(:disabled),
+input.vibe-chat-like-control:not([type='checkbox']):not([type='radio']):hover:not(:focus):not(:disabled),
+select.vibe-chat-like-control:hover:not(:focus):not(:disabled) {
+	border-color: var(
+		--vscode-commandCenter-activeBorder,
+		var(
+			--vscode-commandCenter-border,
+			var(
+				--vscode-commandCenter-inactiveBorder,
+				var(--vscode-input-border, var(--vscode-widget-border, transparent))
+			)
+		)
+	);
+}
+textarea.vibe-chat-like-control:disabled,
+input.vibe-chat-like-control:disabled,
+select.vibe-chat-like-control:disabled {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+/**
+ * Pill buttons: chat quick actions & settings sidebar nav.
+ * Uses VS Code theme tokens so light/dark and color themes apply correctly.
+ */
+.vibe-pill-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-start;
+	box-sizing: border-box;
+	padding: 0.375rem 0.75rem;
+	border-radius: 9999px;
+	font-size: 0.75rem;
+	line-height: 1rem;
+	background-color: var(--vscode-input-background);
+	border: 1px solid var(--vscode-input-border, rgba(255, 255, 255, 0.1));
+	color: var(--vscode-input-foreground, var(--vscode-sideBar-foreground));
+	box-shadow: var(--vscode-widget-shadow, 0 2px 8px rgba(0, 0, 0, 0.25));
+	transition:
+		background-color 150ms ease-out,
+		border-color 150ms ease-out,
+		color 150ms ease-out,
+		transform 150ms ease-out;
+}
+
+.vibe-pill-button:hover:not(:disabled) {
+	transform: translateY(-1px);
+}
+
+.vibe-pill-button:not(.vibe-pill-button--primary):not(.vibe-pill-button--secondary):hover:not(:disabled):not(.vibe-pill-button--active) {
+	background-color: var(--vscode-list-hoverBackground, var(--vscode-input-background));
+}
+
+.vibe-pill-button--primary {
+	background-color: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+	border-color: var(--vscode-button-border, var(--vscode-button-background));
+}
+
+.vibe-pill-button--primary:hover:not(:disabled) {
+	background-color: var(--vscode-button-hoverBackground, var(--vscode-button-background));
+}
+
+.vibe-pill-button--secondary {
+	background-color: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+	border-color: var(--vscode-button-border, var(--vscode-widget-border, transparent));
+}
+
+.vibe-pill-button--secondary:hover:not(:disabled) {
+	background-color: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground));
+}
+
+/**
+ * Provider rows in VibeIDE Settings: border matches secondary pill buttons (theme tokens, not vibe-border-*).
+ */
+.vibe-provider-settings-card {
+	border: 1px solid
+		var(
+			--vscode-button-border,
+			var(--vscode-widget-border, var(--vscode-input-border, rgba(255, 255, 255, 0.1)))
+		);
+}
+
+.vibe-pill-button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	transform: none;
+}
+
+.vibe-pill-button--active {
+	background-color: var(--vscode-list-activeSelectionBackground, var(--vscode-button-background));
+	color: var(--vscode-list-activeSelectionForeground, var(--vscode-button-foreground));
+	border-color: var(
+		--vscode-focusBorder,
+		var(--vscode-list-activeSelectionBackground, var(--vscode-input-border))
+	);
+}
+
+.vibe-pill-button--active:hover:not(:disabled) {
+	background-color: var(--vscode-list-activeSelectionBackground, var(--vscode-button-background));
+}
+
+/**
+ * Settings pane: visible scrollbar (track transparent, thumb aligns with pill borders / scrollbar tokens).
+ */
+.vibe-settings-scroll-root {
+	scrollbar-width: thin;
+	scrollbar-color: var(--vscode-scrollbarSlider-background, var(--vscode-input-border, rgba(255, 255, 255, 0.12))) transparent;
+}
+
+.vibe-settings-scroll-root::-webkit-scrollbar {
+	width: 5px;
+	height: 5px;
+}
+
+.vibe-settings-scroll-root::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.vibe-settings-scroll-root::-webkit-scrollbar-thumb {
+	border-radius: 9999px;
+	background: transparent;
+	border: 1px solid var(--vscode-scrollbarSlider-background, var(--vscode-input-border, rgba(255, 255, 255, 0.14)));
+	background-clip: padding-box;
+	min-height: 40px;
+	transition: border-color 120ms ease-out, background-color 120ms ease-out;
+}
+
+.vibe-settings-scroll-root::-webkit-scrollbar-thumb:hover {
+	border-color: var(
+		--vscode-scrollbarSlider-hoverBackground,
+		var(--vscode-commandCenter-activeBorder, var(--vscode-input-border))
+	);
+	background-color: color-mix(in srgb, var(--vscode-list-hoverBackground, var(--vscode-scrollbarSlider-hoverBackground)) 28%, transparent);
+	background-clip: padding-box;
+}
+
+.vibe-settings-scroll-root::-webkit-scrollbar-thumb:active {
+	border-color: var(--vscode-scrollbarSlider-activeBackground, var(--vscode-focusBorder));
+	background-color: color-mix(in srgb, var(--vscode-scrollbarSlider-activeBackground, var(--vscode-focusBorder)) 35%, transparent);
+	background-clip: padding-box;
+}
+
+/**
+ * VibeIDE onboarding: fixed neon palette aligned with logo (cyan / magenta), independent of workbench theme.
+ * Scoped under .vibe-onboarding-neon (inner wrapper in VibeOnboarding.tsx).
+ */
+.vibe-onboarding-neon {
+	--vibe-onboarding-neon-cyan: #00e5ff;
+	--vibe-onboarding-neon-magenta: #ff2fd8;
+
+	--vibe-bg-1: #0a0c14;
+	--vibe-bg-1-alt: #0d0f18;
+	--vibe-bg-2: #0f111c;
+	--vibe-bg-2-alt: #121528;
+	--vibe-bg-2-hover: color-mix(in srgb, #1a2038 78%, var(--vibe-onboarding-neon-cyan) 12%);
+	--vibe-bg-3: #14182a;
+
+	--vibe-fg-0: #f2f6ff;
+	--vibe-fg-1: #dde4f5;
+	--vibe-fg-2: #9db0d0;
+	--vibe-fg-3: #6b7fa3;
+	--vibe-fg-4: #5a8a9a;
+
+	--vibe-border-1: color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 38%, #12182a);
+	--vibe-border-2: color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 35%, transparent);
+	--vibe-border-3: color-mix(in srgb, var(--vibe-onboarding-neon-magenta) 22%, rgba(255, 255, 255, 0.07));
+	--vibe-border-4: color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 20%, rgba(255, 255, 255, 0.06));
+
+	--vibe-ring-color: var(--vibe-onboarding-neon-cyan);
+	--vibe-link-color: var(--vibe-onboarding-neon-cyan);
+}
+
+.vibe-onboarding-backdrop {
+	background-color: #04060c;
+	background-image:
+		radial-gradient(circle at 14% -8%, color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 20%, transparent), transparent 52%),
+		radial-gradient(circle at 92% 4%, color-mix(in srgb, var(--vibe-onboarding-neon-magenta) 16%, transparent), transparent 48%),
+		radial-gradient(circle at 48% 108%, color-mix(in srgb, var(--vibe-onboarding-neon-magenta) 10%, transparent), transparent 56%),
+		radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.04), transparent 45%);
+}
+
+.vibe-onboarding-neon .vibe-pill-button {
+	background-color: color-mix(in srgb, #000 55%, var(--vibe-bg-2));
+	border: 1px solid color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 40%, var(--vibe-onboarding-neon-magenta) 15%);
+	color: var(--vibe-fg-1);
+	box-shadow:
+		0 0 20px color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 8%, transparent),
+		var(--vscode-widget-shadow, 0 2px 8px rgba(0, 0, 0, 0.35));
+}
+
+.vibe-onboarding-neon .vibe-pill-button:not(.vibe-pill-button--primary):not(.vibe-pill-button--secondary):hover:not(:disabled):not(.vibe-pill-button--active) {
+	background-color: color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 12%, var(--vibe-bg-2));
+}
+
+.vibe-onboarding-neon .vibe-pill-button--primary {
+	background-color: color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 24%, var(--vibe-bg-2));
+	color: var(--vibe-fg-0);
+	border-color: color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 55%, var(--vibe-onboarding-neon-magenta) 28%);
+	box-shadow:
+		0 0 16px color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 14%, transparent),
+		var(--vscode-widget-shadow, 0 2px 8px rgba(0, 0, 0, 0.35));
+	text-shadow: none;
+}
+
+.vibe-onboarding-neon .vibe-pill-button--primary:hover:not(:disabled) {
+	filter: brightness(1.08);
+	background-color: color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 32%, var(--vibe-bg-2));
+}
+
+.vibe-onboarding-neon .vibe-pill-button--secondary {
+	background-color: color-mix(in srgb, #000 40%, var(--vibe-bg-2));
+	color: var(--vibe-fg-1);
+	border-color: color-mix(in srgb, var(--vibe-onboarding-neon-magenta) 38%, transparent);
+	box-shadow: 0 0 14px color-mix(in srgb, var(--vibe-onboarding-neon-magenta) 8%, transparent);
+}
+
+.vibe-onboarding-neon .vibe-pill-button--secondary:hover:not(:disabled) {
+	background-color: color-mix(in srgb, var(--vibe-onboarding-neon-magenta) 10%, var(--vibe-bg-3));
+}
+
+.vibe-onboarding-neon .vibe-pill-button--active {
+	background-color: color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 18%, rgba(0, 0, 0, 0.45));
+	color: var(--vibe-fg-0);
+	border-color: var(--vibe-onboarding-neon-cyan);
+	box-shadow: 0 0 20px color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 22%, transparent);
+}
+
+.vibe-onboarding-neon .vibe-pill-button--active:hover:not(:disabled) {
+	background-color: color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 24%, rgba(0, 0, 0, 0.45));
+}
+
+.vibe-onboarding-hero-logo {
+	border: 1px solid color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 55%, var(--vibe-onboarding-neon-magenta) 25%);
+	background: radial-gradient(
+		circle at 32% 22%,
+		color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 14%, #020308) 0%,
+		#03040a 65%
+	);
+	box-shadow:
+		0 0 36px color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 20%, transparent),
+		0 0 52px color-mix(in srgb, var(--vibe-onboarding-neon-magenta) 12%, transparent),
+		0 32px 90px rgba(0, 0, 0, 0.88),
+		inset 0 0 28px color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 6%, transparent);
+}
+
+/* Solid headline (gradient + background-clip caused multi-line overlap/clipping). */
+.vibe-onboarding-welcome-title {
+	color: var(--vibe-fg-0);
+	line-height: 1.2;
+}
+
+.vibe-onboarding-section-title {
+	color: var(--vibe-fg-0);
+	line-height: 1.2;
+}
+
+.vibe-onboarding-accent-link {
+	color: var(--vibe-onboarding-neon-cyan);
+	text-decoration: underline;
+	text-decoration-color: color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 45%, transparent);
+	text-underline-offset: 2px;
+}
+
+.vibe-onboarding-accent-link:hover {
+	color: color-mix(in srgb, var(--vibe-onboarding-neon-cyan) 85%, #fff);
+}
+
+/* Custom dropdown rows: Vibe palette (avoid vscode list blue). Steps must read on bg-vibe-bg-1 panel. */
+.vibe-dropdown-row {
+	color: var(--vibe-fg-1);
+}
+.vibe-dropdown-row:hover:not(.vibe-dropdown-row--selected) {
+	/* Visible vs surface-1; --vibe-bg-2/-3 are nearly identical steps on some themes */
+	background-color: color-mix(in srgb, var(--vibe-fg-2) 12%, var(--vibe-bg-1));
+	color: var(--vibe-fg-1);
+}
+.vibe-dropdown-row--selected {
+	background-color: color-mix(in srgb, var(--vibe-ring-color) 26%, var(--vibe-bg-2-alt));
+	color: var(--vibe-fg-0);
+	box-shadow: inset 3px 0 0 color-mix(in srgb, var(--vibe-ring-color) 70%, transparent);
+}
+.vibe-dropdown-row__detail {
+	color: var(--vibe-fg-3);
+}
+.vibe-dropdown-row:hover:not(.vibe-dropdown-row--selected) .vibe-dropdown-row__detail {
+	color: var(--vibe-fg-3);
+}
+.vibe-dropdown-row--selected .vibe-dropdown-row__detail {
+	color: var(--vibe-fg-2);
+}
+/* Hint "?" for mode description (tooltip title on hover) */
+.vibe-dropdown-row__hint {
+	color: var(--vibe-fg-3);
+}
+.vibe-dropdown-row:hover:not(.vibe-dropdown-row--selected) .vibe-dropdown-row__hint {
+	color: var(--vibe-fg-3);
+}
+.vibe-dropdown-row--selected .vibe-dropdown-row__hint {
+	color: var(--vibe-fg-2);
+}
+
+/* Code Review Decorations */
+.monaco-editor .code-review-error {
+	background-color: rgba(255, 0, 0, 0.1);
+	border-left: 3px solid var(--vscode-errorForeground);
+}
+
+.monaco-editor .code-review-warning {
+	background-color: rgba(255, 193, 7, 0.1);
+	border-left: 3px solid var(--vscode-editorWarning-foreground);
+}
+
+.monaco-editor .code-review-info {
+	background-color: rgba(0, 122, 204, 0.1);
+	border-left: 3px solid var(--vscode-editorInfo-foreground);
+}
+
+.monaco-editor .code-review-hint {
+	background-color: rgba(128, 128, 128, 0.1);
+	border-left: 3px solid var(--vscode-editorHint-foreground);
+}
+
+/* Glyph margin icons for code review */
+.monaco-editor .code-review-glyph-error::before {
+	content: '●';
+	color: var(--vscode-errorForeground);
+	font-size: 8px;
+}
+
+.monaco-editor .code-review-glyph-warning::before {
+	content: '●';
+	color: var(--vscode-editorWarning-foreground);
+	font-size: 8px;
+}
+
+.monaco-editor .code-review-glyph-info::before {
+	content: '●';
+	color: var(--vscode-editorInfo-foreground);
+	font-size: 8px;
+}
+
+.monaco-editor .code-review-glyph-hint::before {
+	content: '●';
+	color: var(--vscode-editorHint-foreground);
+	font-size: 8px;
+}
+
+/* Error Detection Decorations */
+.monaco-editor .error-detection-error {
+	background-color: color-mix(in srgb, var(--vscode-errorForeground) 10%, transparent);
+	border-left: 3px solid var(--vscode-errorForeground);
+}
+
+.monaco-editor .error-detection-warning {
+	background-color: color-mix(in srgb, var(--vscode-warningForeground) 10%, transparent);
+	border-left: 3px solid var(--vscode-warningForeground);
+}
+
+.monaco-editor .error-detection-glyph-error::before {
+	content: '❌';
+	font-size: 14px;
+	color: var(--vscode-errorForeground);
+}
+
+.monaco-editor .error-detection-glyph-warning::before {
+	content: '⚠️';
+	font-size: 14px;
+	color: var(--vscode-warningForeground);
+}
+
+/* Loading indicator animations - Claude-style pulsing dots */
+@keyframes loading-dot-pulse {
+	0%, 80%, 100% {
+		opacity: 0.3;
+		transform: scale(0.8);
+	}
+	40% {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+
+.loading-dot {
+	display: inline-block;
+	width: 0.4em;
+	height: 0.4em;
+	border-radius: 50%;
+	background-color: currentColor;
+	animation: loading-dot-pulse 1.4s ease-in-out infinite;
+}
+
+.loading-dot:nth-child(1) {
+	animation-delay: 0s;
+}
+
+.loading-dot:nth-child(2) {
+	animation-delay: 0.2s;
+}
+
+.loading-dot:nth-child(3) {
+	animation-delay: 0.4s;
+}
+
+/* Typing cursor animation - smooth blinking like Claude */
+@keyframes typing-cursor-blink {
+	0%, 50% {
+		opacity: 1;
+	}
+	51%, 100% {
+		opacity: 0.3;
+	}
+}
+
+.typing-cursor {
+	display: inline-block;
+	width: 2px;
+	height: 1em;
+	background-color: currentColor;
+	animation: typing-cursor-blink 1s step-end infinite;
+	margin-left: 2px;
+	vertical-align: baseline;
+	transition: opacity 0.15s ease-in-out;
+}
+
+/* Smooth fade-in for streaming content */
+@keyframes content-fade-in {
+	from {
+		opacity: 0;
+		transform: translateY(2px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.streaming-content-chunk {
+	animation: content-fade-in 0.2s ease-out;
+}
+
+/* Smooth transitions for loading states */
+.loading-state-transition {
+	transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+}
+
+.loading-state-enter {
+	opacity: 0;
+	transform: translateY(-4px);
+}
+
+.loading-state-enter-active {
+	opacity: 1;
+	transform: translateY(0);
+}
+
+/* Error display animations */
+@keyframes error-slide-in {
+	from {
+		opacity: 0;
+		transform: translateY(-8px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.error-display-enter {
+	animation: error-slide-in 0.3s ease-out;
+}
+
+/* Message fade-in animation */
+@keyframes message-fade-in {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.message-enter {
+	animation: message-fade-in 0.25s ease-out;
+}
+
+/* Button animations */
+@keyframes button-press {
+	0% {
+		transform: scale(1);
+	}
+	50% {
+		transform: scale(0.95);
+	}
+	100% {
+		transform: scale(1);
+	}
+}
+
+.button-press-animation {
+	transition: transform 0.1s ease-out, opacity 0.2s ease-out, background-color 0.2s ease-out;
+}
+
+.button-press-animation:active {
+	transform: scale(0.95);
+}
+
+.button-press-animation:hover:not(:disabled) {
+	transform: scale(1.05);
+	opacity: 0.9;
+}
+
+/* Token count pulse animation for updates */
+@keyframes token-count-pulse {
+	0%, 100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.7;
+	}
+}
+
+.token-count-update {
+	animation: token-count-pulse 0.3s ease-in-out;
+}
+
+/* html {
+	font-size: var(--vscode-font-size);
+}
+
+.btn {
+	@apply cursor-pointer transition-colors;
+
+	&.btn-primary {
+		@apply bg-vscode-button-bg text-vscode-button-fg;
+
+		&:not(:disabled) {
+			@apply hover:bg-vscode-button-hoverBg;
+		}
+	}
+
+	&.btn-sm {
+		@apply px-3 py-1 text-sm;
+	}
+
+	&.btn-secondary {
+		@apply bg-vscode-button-secondary-bg text-vscode-button-secondary-fg;
+
+		&:not(:disabled) {
+			@apply hover:bg-vscode-button-secondary-hoverBg;
+		}
+	}
+
+	&:disabled {
+		@apply opacity-75 cursor-not-allowed;
+	}
+}
+
+.input {
+	@apply bg-vscode-input-bg text-vscode-input-fg border-vscode-input-border focus:outline-vscode-focus-border;
+}
+
+.dropdown {
+	@apply bg-vscode-dropdown-bg text-vscode-dropdown-foreground border-vscode-dropdown-border focus:outline-vscode-focus-border;
+} */

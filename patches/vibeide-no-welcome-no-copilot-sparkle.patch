@@ -1,0 +1,121 @@
+diff --git a/src/vs/workbench/contrib/chat/browser/agentSessions/experiments/agentSessionsExperiments.contribution.ts b/src/vs/workbench/contrib/chat/browser/agentSessions/experiments/agentSessionsExperiments.contribution.ts
+index 3b2ef4ca300..d8db789d8b4 100644
+--- a/src/vs/workbench/contrib/chat/browser/agentSessions/experiments/agentSessionsExperiments.contribution.ts
++++ b/src/vs/workbench/contrib/chat/browser/agentSessions/experiments/agentSessionsExperiments.contribution.ts
+@@ -249,34 +249,39 @@ registerSingleton(IAgentTitleBarStatusService, AgentTitleBarStatusService, Insta
+ registerWorkbenchContribution2(AgentTitleBarStatusRendering.ID, AgentTitleBarStatusRendering, WorkbenchPhase.AfterRestored);
+ registerWorkbenchContribution2(AgentSessionReadyContribution.ID, AgentSessionReadyContribution, WorkbenchPhase.AfterRestored);
+ 
+-// Register Agent Status as a menu item in the command center (alongside the search box, not replacing it)
+-MenuRegistry.appendMenuItem(MenuId.CommandCenter, {
+-	submenu: MenuId.AgentsTitleBarControlMenu,
+-	title: localize('agentsControl', "Agents"),
+-	icon: Codicon.chatSparkle,
+-	when: ContextKeyExpr.and(
+-		ChatContextKeys.enabled,
+-		ContextKeyExpr.notEquals(`config.${ChatConfiguration.AgentStatusEnabled}`, 'hidden'),
+-		ContextKeyExpr.notEquals(`config.${ChatConfiguration.AgentStatusEnabled}`, false)
+-	),
+-	order: 10002 // to the right of the chat button
+-});
+-
+-// Add to the global title bar if command center is disabled
+-MenuRegistry.appendMenuItem(MenuId.TitleBar, {
+-	submenu: MenuId.ChatTitleBarMenu,
+-	title: localize('title4', "Chat"),
+-	group: 'navigation',
+-	icon: Codicon.chatSparkle,
+-	when: ContextKeyExpr.and(
+-		ChatContextKeys.supported,
+-		ContextKeyExpr.and(
+-			ChatContextKeys.Setup.hidden.negate(),
+-		),
+-		ContextKeyExpr.has('config.window.commandCenter').negate(),
+-	),
+-	order: 1
+-});
++// VibeIDE: built-in Copilot/Agents sparkle buttons are replaced by the VibeIDE CommandCenter menu.
++// Registrations below are intentionally disabled so the native chat sparkle does not appear
++// in the CommandCenter (title bar search area) or TitleBar fallback.
++// See: src/vs/workbench/contrib/vibeide/browser/vibeideCommandCenterMenu.ts
++
++// [VibeIDE disabled] CommandCenter sparkle:
++// MenuRegistry.appendMenuItem(MenuId.CommandCenter, {
++// 	submenu: MenuId.AgentsTitleBarControlMenu,
++// 	title: localize('agentsControl', "Agents"),
++// 	icon: Codicon.chatSparkle,
++// 	when: ContextKeyExpr.and(
++// 		ChatContextKeys.enabled,
++// 		ContextKeyExpr.notEquals(`config.${ChatConfiguration.AgentStatusEnabled}`, 'hidden'),
++// 		ContextKeyExpr.notEquals(`config.${ChatConfiguration.AgentStatusEnabled}`, false)
++// 	),
++// 	order: 10002
++// });
++
++// [VibeIDE disabled] TitleBar fallback sparkle (when command center is off):
++// MenuRegistry.appendMenuItem(MenuId.TitleBar, {
++// 	submenu: MenuId.ChatTitleBarMenu,
++// 	title: localize('title4', "Chat"),
++// 	group: 'navigation',
++// 	icon: Codicon.chatSparkle,
++// 	when: ContextKeyExpr.and(
++// 		ChatContextKeys.supported,
++// 		ContextKeyExpr.and(
++// 			ChatContextKeys.Setup.hidden.negate(),
++// 		),
++// 		ContextKeyExpr.has('config.window.commandCenter').negate(),
++// 	),
++// 	order: 1
++// });
+ 
+ // Register a placeholder action to the submenu so it appears (required for submenus)
+ MenuRegistry.appendMenuItem(MenuId.AgentsTitleBarControlMenu, {
+@@ -292,16 +297,4 @@ MenuRegistry.appendMenuItem(MenuId.AgentsTitleBarControlMenu, {
+ // Toggle for Agent Quick Input (Insiders only)
+ MenuRegistry.appendMenuItem(MenuId.AgentsTitleBarControlMenu, {
+ 	command: {
+-		id: `toggle.${ChatConfiguration.UnifiedAgentsBar}`,
+-		title: localize('toggleAgentQuickInput', "Agent Quick Input (Experimental)"),
+-		toggled: ContextKeyExpr.has(`config.${ChatConfiguration.UnifiedAgentsBar}`),
+-	},
+-	when: ContextKeyExpr.and(
+-		ChatContextKeys.enabled,
+-		ProductQualityContext.notEqualsTo('stable')
+-	),
+-	group: 'z_experimental',
+-	order: 10
+-});
+-
+-//#endregion
++		id: `toggle.${ChatConfiguration.UnifiedAgentsB
+\ No newline at end of file
+diff --git a/src/vs/workbench/contrib/welcomeGettingStarted/browser/gettingStarted.contribution.ts b/src/vs/workbench/contrib/welcomeGettingStarted/browser/gettingStarted.contribution.ts
+index 803f7721998..8691cb24c5f 100644
+--- a/src/vs/workbench/contrib/welcomeGettingStarted/browser/gettingStarted.contribution.ts
++++ b/src/vs/workbench/contrib/welcomeGettingStarted/browser/gettingStarted.contribution.ts
+@@ -327,7 +327,7 @@ configurationRegistry.registerConfiguration({
+ 				localize({ comment: ['This is the description for a setting. Values surrounded by single quotes are not to be translated.'], key: 'workbench.startupEditor.terminal' }, "Open a new terminal in the editor area."),
+ 				localize({ comment: ['This is the description for a setting. Values surrounded by single quotes are not to be translated.'], key: 'workbench.startupEditor.agentSessionsWelcomePage' }, "Open the Agent Sessions Welcome page. Will override the workbench secondary side bar visibility settings."),
+ 			],
+-			'default': 'welcomePage',
++			'default': 'none', // VibeIDE: disable VS Code welcome tab on startup
+ 			'description': localize('workbench.startupEditor', "Controls which editor is shown at startup, if none are restored from the previous session."),
+ 			'experiment': { mode: 'auto' }
+ 		},
+@@ -341,7 +341,7 @@ configurationRegistry.registerConfiguration({
+ 		'workbench.welcomePage.experimentalOnboarding': {
+ 			scope: ConfigurationScope.APPLICATION,
+ 			type: 'boolean',
+-			default: true,
++			default: false,
+ 			tags: ['experimental'],
+ 			description: localize('workbench.welcomePage.experimentalOnboarding', "When enabled, show the new onboarding experience instead of the classic walkthrough on first launch."),
+ 			experiment: {
+@@ -355,5 +355,4 @@ registerWorkbenchContribution2(WorkspacePlatformContribution.ID, WorkspacePlatfo
+ registerWorkbenchContribution2(StartupPageEditorResolverContribution.ID, StartupPageEditorResolverContribution, WorkbenchPhase.BlockRestore);
+ registerWorkbenchContribution2(StartupPageRunnerContribution.ID, StartupPageRunnerContribution, WorkbenchPhase.AfterRestored);
+ 
+-AccessibleViewRegistry.register(new GettingStartedAccessibleView());
+-
++AccessibleViewRegistry.regis
+\ No newline at end of file

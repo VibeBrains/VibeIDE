@@ -1,0 +1,262 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.1.0)'
+        required: true
+        default: 'v0.1.0'
+
+env:
+  VIBE_VERSION: ${{ github.ref_name || inputs.tag }}
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────
+  # Compile TypeScript (shared artifact for all platforms)
+  # ─────────────────────────────────────────────────────────────────
+  compile:
+    name: Compile TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Compile TypeScript
+        run: npm run compile-build
+        timeout-minutes: 30
+
+      - name: Compile extensions
+        run: npm run compile-extensions-build
+        timeout-minutes: 20
+
+      - name: Upload compiled output
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-output
+          path: |
+            out/
+            extensions/*/out/
+          retention-days: 1
+
+  # ─────────────────────────────────────────────────────────────────
+  # Windows — .exe installer (InnoSetup) + .zip portable
+  # ─────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows (${{ matrix.arch }})
+    runs-on: windows-latest
+    needs: compile
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Download compiled output
+        uses: actions/download-artifact@v4
+        with:
+          name: compiled-output
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Install InnoSetup
+        run: choco install innosetup -y
+        shell: powershell
+
+      - name: Build Windows app
+        run: node node_modules/gulp/bin/gulp.js vscode-win32-${{ matrix.arch }}
+        timeout-minutes: 45
+
+      - name: Build Windows installer (.exe)
+        run: node node_modules/gulp/bin/gulp.js vscode-win32-${{ matrix.arch }}-setup
+        timeout-minutes: 20
+
+      - name: Build Windows portable (.zip)
+        run: node node_modules/gulp/bin/gulp.js vscode-win32-${{ matrix.arch }}-archive
+        timeout-minutes: 10
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: |
+            .build/win32-${{ matrix.arch }}/system-setup/VibeIDESetup-*.exe
+            .build/win32-${{ matrix.arch }}/archive/VibeIDE-*.zip
+
+  # ─────────────────────────────────────────────────────────────────
+  # macOS — .dmg (Universal Binary: ARM + Intel)
+  # ─────────────────────────────────────────────────────────────────
+  build-macos:
+    name: Build macOS (Universal)
+    runs-on: macos-latest
+    needs: compile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Download compiled output
+        uses: actions/download-artifact@v4
+        with:
+          name: compiled-output
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Build macOS ARM64
+        run: node node_modules/gulp/bin/gulp.js vscode-darwin-arm64
+        timeout-minutes: 45
+
+      - name: Build macOS x64
+        run: node node_modules/gulp/bin/gulp.js vscode-darwin-x64
+        timeout-minutes: 45
+
+      - name: Create Universal Binary (.dmg)
+        run: |
+          # Combine ARM64 + x64 into Universal Binary
+          lipo -create \
+            ".build/darwin-arm64/VibeIDE.app/Contents/MacOS/Electron" \
+            ".build/darwin-x64/VibeIDE.app/Contents/MacOS/Electron" \
+            -output ".build/darwin-arm64/VibeIDE.app/Contents/MacOS/Electron"
+          node node_modules/gulp/bin/gulp.js vscode-darwin-arm64-dmg
+        timeout-minutes: 20
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal
+          path: .build/darwin-arm64/VibeIDE-*.dmg
+
+  # ─────────────────────────────────────────────────────────────────
+  # Linux — .deb, .rpm, .tar.gz + ARM64
+  # ─────────────────────────────────────────────────────────────────
+  build-linux:
+    name: Build Linux (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    needs: compile
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Download compiled output
+        uses: actions/download-artifact@v4
+        with:
+          name: compiled-output
+
+      - name: Install dependencies
+        run: |
+          npm install --ignore-scripts
+          sudo apt-get install -y rpm fakeroot
+
+      - name: Build Linux app
+        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}
+        timeout-minutes: 45
+
+      - name: Build .deb package
+        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-prepare-deb vscode-linux-${{ matrix.arch }}-build-deb
+        timeout-minutes: 15
+
+      - name: Build .rpm package
+        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-prepare-rpm vscode-linux-${{ matrix.arch }}-build-rpm
+        timeout-minutes: 15
+
+      - name: Build .tar.gz (portable)
+        run: node node_modules/gulp/bin/gulp.js vscode-linux-${{ matrix.arch }}-archive
+        timeout-minutes: 10
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: |
+            .build/linux-${{ matrix.arch }}/deb/*.deb
+            .build/linux-${{ matrix.arch }}/rpm/*.rpm
+            .build/linux-${{ matrix.arch }}/archive/*.tar.gz
+
+  # ─────────────────────────────────────────────────────────────────
+  # Create GitHub Release
+  # ─────────────────────────────────────────────────────────────────
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-macos, build-linux]
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts/
+
+      - name: Generate changelog
+        run: |
+          node scripts/vibe-changelog.js --since $(git describe --tags --abbrev=0 HEAD^) \
+            > RELEASE_NOTES.md || echo "## VibeIDE ${VIBE_VERSION}" > RELEASE_NOTES.md
+
+      - name: Generate transparency report
+        run: node scripts/vibe-transparency-dashboard.js --output transparency.json
+
+      - name: Generate SBOM
+        run: |
+          npm install --ignore-scripts --silent
+          node -e "
+            const pkg = require('./package.json');
+            const sbom = {
+              bomFormat: 'CycloneDX',
+              specVersion: '1.4',
+              version: '${VIBE_VERSION}',
+              metadata: { component: { name: 'vibeide', version: pkg.vibeVersion } },
+              components: []
+            };
+            require('fs').writeFileSync('sbom.json', JSON.stringify(sbom, null, 2));
+          "
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VIBE_VERSION }}
+          name: "VibeIDE ${{ env.VIBE_VERSION }}"
+          body_path: RELEASE_NOTES.md
+          draft: true
+          files: |
+            release-artifacts/windows-x64/**/*.exe
+            release-artifacts/windows-x64/**/*.zip
+            release-artifacts/windows-arm64/**/*.exe
+            release-artifacts/windows-arm64/**/*.zip
+            release-artifacts/macos-universal/**/*.dmg
+            release-artifacts/linux-x64/**/*.deb
+            release-artifacts/linux-x64/**/*.rpm
+            release-artifacts/linux-x64/**/*.tar.gz
+            release-artifacts/linux-arm64/**/*.deb
+            release-artifacts/linux-arm64/**/*.tar.gz
+            sbom.json
+            transparency.json

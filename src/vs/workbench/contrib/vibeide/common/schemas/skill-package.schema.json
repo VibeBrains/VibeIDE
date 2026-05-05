@@ -1,0 +1,55 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://vibeide.io/schemas/skill-package.schema.json",
+	"title": "VibeIDE SKILL.md YAML frontmatter (skill package)",
+	"description": "Machine-readable contract for Agent Skills. Human authoring uses YAML between --- delimiters at the top of SKILL.md.",
+	"type": "object",
+	"additionalProperties": true,
+	"required": ["name", "description", "vibeVersion"],
+	"properties": {
+		"name": {
+			"type": "string",
+			"minLength": 1,
+			"description": "Stable skill id for /skill:name (slash command)."
+		},
+		"description": {
+			"type": "string",
+			"minLength": 1,
+			"description": "When to apply this skill; used for discovery and implicit keyword retrieval."
+		},
+		"vibeVersion": {
+			"type": "string",
+			"minLength": 1,
+			"description": "Skill package format version for migrations (align with workspace .vibe/ vibeVersion policy)."
+		},
+		"version": {
+			"type": "string",
+			"description": "Optional semver of the skill content itself."
+		},
+		"disable-model-invocation": {
+			"type": "boolean",
+			"description": "When true, skill is explicit-only (/skill:) in GUIDELINES."
+		},
+		"license": { "type": "string" },
+		"locale": { "type": "string" },
+		"min-vibeide": { "type": "string" },
+		"tags": {
+			"type": "array",
+			"items": { "type": "string" }
+		},
+		"requires-tools": {
+			"type": "array",
+			"items": { "type": "string" }
+		},
+		"depends": {
+			"type": "array",
+			"items": { "type": "string", "minLength": 1 },
+			"description": "Other skill ids (/skill:name) loaded before this skill when expanding /skill: — DAG must be acyclic (validated by vibe skills validate)."
+		},
+		"precheck": {
+			"type": "string",
+			"minLength": 1,
+			"description": "Relative path under the skill folder for optional env/file validation (must stay inside the skill directory; execution hook backlog)."
+		}
+	}
+}

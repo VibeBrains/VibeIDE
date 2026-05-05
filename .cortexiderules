@@ -1,0 +1,16 @@
+This is a fork of the VS Code codebase shipping as **VibeIDE**.
+
+The primary product-specific layer lives in **`src/vs/workbench/contrib/vibeide`**.
+
+You often need to explore the full VS Code tree (platform, editor, terminal, workbench bootstrap). Prefer extending behavior through **`contrib/vibeide`**; small integrations in upstream files listed in **`FORK_CHANGES.md`** are intentional for this fork.
+
+In TypeScript, do NOT cast if unnecessary. NEVER lazily cast to **`any`** — narrow or use proper types first.
+
+Follow the prevailing style where you edit; use the smallest diff that achieves the requirement.
+
+Prefer keeping changes confined to **`src/vs/workbench/contrib/vibeide`** and **`FORK_CHANGES.md`-documented hooks**. Larger upstream edits deserve an explicit rationale in the reply or checklist.
+
+Naming: maps from domain A → B prefer **`bOfA`** names (for example **`toolNameOfToolId`**).
+
+Run validation builds/tests locally when feasible and report concise results (`npm run transpile-client` / `compile`).
+

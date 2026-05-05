@@ -1,0 +1,220 @@
+{
+	"name": "vibeide-neon",
+	"displayName": "Vibe Neon",
+	"description": "Default VibeIDE dark theme — vendored neon palette with separate settings ids so Marketplace color themes can replace it when installed.",
+	"version": "2.3.1",
+	"publisher": "vibeide",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.118.0"
+	},
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"main": "./extension.js",
+	"extensionKind": ["ui"],
+	"categories": ["Themes"],
+	"contributes": {
+		"configurationDefaults": {
+			"workbench.colorTheme": "vibe-neon",
+			"workbench.preferredDarkColorTheme": "vibe-neon"
+		},
+		"themes": [
+			{
+				"label": "Vibe Neon",
+				"id": "vibe-neon",
+				"uiTheme": "vs-dark",
+				"path": "./themes/vibe-neon.json"
+			},
+			{
+				"label": "Vibe Neon (No editor glow)",
+				"id": "vibe-neon-noglow",
+				"uiTheme": "vs-dark",
+				"path": "./themes/vibe-neon-noglow.json"
+			}
+		],
+		"commands": [
+			{
+				"command": "vibeide.trustScore.toggle",
+				"title": "VibeIDE: Toggle Trust Score (Manual → Supervised → Auto)"
+			},
+			{
+				"command": "vibeide.trustScore.setManual",
+				"title": "VibeIDE: Set Trust Score to Manual 🟢"
+			},
+			{
+				"command": "vibeide.trustScore.setSupervised",
+				"title": "VibeIDE: Set Trust Score to Supervised 🟡"
+			},
+			{
+				"command": "vibeide.trustScore.setAuto",
+				"title": "VibeIDE: Set Trust Score to Auto 🔴"
+			},
+			{
+				"command": "vibeide.explainLine",
+				"title": "VibeIDE: Explain This Line"
+			},
+			{
+				"command": "vibeide.freezeCode",
+				"title": "VibeIDE: Freeze This Code for Agent"
+			},
+			{
+				"command": "vibeide.agent.pauseAndExplain",
+				"title": "VibeIDE: Pause Agent and Ask What It's Doing"
+			},
+			{
+				"command": "vibeide.tokenBudget.reset",
+				"title": "VibeIDE: Reset Session Token Budget"
+			},
+			{
+				"command": "vibeide.doctor.run",
+				"title": "VibeIDE: Run Doctor (Diagnostics)"
+			},
+			{
+				"command": "vibeide.audit.export",
+				"title": "VibeIDE: Export Audit Log (GDPR)"
+			},
+			{
+				"command": "vibeide.audit.deleteAll",
+				"title": "VibeIDE: Delete All Audit Logs (GDPR Erasure)"
+			},
+			{
+				"command": "vibeide.transparency.show",
+				"title": "VibeIDE: Show Transparency Dashboard"
+			}
+		],
+		"keybindings": [
+			{
+				"command": "vibeide.trustScore.toggle",
+				"key": "ctrl+shift+t",
+				"mac": "cmd+shift+t"
+			},
+			{
+				"command": "vibeide.explainLine",
+				"key": "ctrl+.",
+				"mac": "cmd+."
+			},
+			{
+				"command": "vibeide.agent.pauseAndExplain",
+				"key": "ctrl+shift+p",
+				"when": "vibeide.agentRunning",
+				"mac": "cmd+shift+p"
+			},
+			{
+				"command": "vibeide.freezeCode",
+				"key": "ctrl+shift+f",
+				"when": "editorHasSelection",
+				"mac": "cmd+shift+f"
+			}
+		],
+		"configuration": {
+			"title": "VibeIDE",
+			"properties": {
+				"vibeide.trustScore.level": {
+					"type": "string",
+					"enum": ["manual", "supervised", "auto"],
+					"default": "manual",
+					"enumDescriptions": [
+						"Manual 🟢 — Every agent action requires confirmation",
+						"Supervised 🟡 — Notifications, auto-apply after timeout",
+						"Auto 🔴 — Agent works autonomously with budget limits"
+					],
+					"description": "Trust Score level for agent autonomy"
+				},
+				"vibeide.safety.sessionTokenLimit": {
+					"type": "number",
+					"default": 500000,
+					"minimum": 10000,
+					"description": "Maximum tokens per session. Default: 500,000 (~$20)"
+				},
+				"vibeide.safety.sessionTokenLimitEnabled": {
+					"type": "boolean",
+					"default": true,
+					"description": "Enable session token limit to prevent unexpected costs"
+				},
+				"vibeide.safety.taskQueueTokenSplitEnabled": {
+					"type": "boolean",
+					"default": false,
+					"description": "When two or more agent tasks are queued or running, approximate the session token limit across tasks (requires `startNextQueued`/runner to mark tasks running; usage is estimated per LLM round-trip)."
+				},
+				"vibeide.planEventsJournal.enable": {
+					"type": "boolean",
+					"default": true,
+					"description": "Append plan lifecycle JSON lines to `.vibe/plan-events.jsonl` (plan.created, plan.step.completed, …) for local automation."
+				},
+				"vibeide.skills.workspaceDiscoveryHint": {
+					"type": "boolean",
+					"default": true,
+					"description": "If the workspace loads Agent Skills from .vibe/skills/, show one info notification per window with sample ids and a button to open «Skills — select for session» (UX only; does not change rule precedence)."
+				},
+				"vibeide.agent.preferJsonToolArguments": {
+					"type": "boolean",
+					"default": false,
+					"description": "Add system-message guidance: tool calls must use strictly valid JSON arguments (reduces parse retries; not full provider-level JSON Schema mode)."
+				},
+				"vibeide.safety.deadMansSwitchMinutes": {
+					"type": "number",
+					"default": 5,
+					"minimum": 0,
+					"description": "Pause agent after N minutes without approval. 0 = disabled"
+				},
+				"vibeide.safety.loopDetectorThreshold": {
+					"type": "number",
+					"default": 3,
+					"minimum": 2,
+					"description": "Pause agent after N identical consecutive actions"
+				},
+				"vibeide.agent.terminalOutputAwareness": {
+					"type": "boolean",
+					"default": false,
+					"description": "Allow agent to see terminal output in real-time (opt-in)"
+				},
+				"vibeide.agent.thinkingOutLoud": {
+					"type": "boolean",
+					"default": false,
+					"description": "Stream agent reasoning to Thinking panel (Claude 3.7+, o-series)"
+				},
+				"vibeide.agent.runTestsAfterApply.enabled": {
+					"type": "boolean",
+					"default": false,
+					"description": "Run tests automatically after agent Apply"
+				},
+				"vibeide.agent.runTestsAfterApply.command": {
+					"type": "string",
+					"default": "npm test",
+					"description": "Test command to run after Apply (e.g. npm test, pytest, cargo test)"
+				},
+				"vibeide.context.warningThresholdPercent": {
+					"type": "number",
+					"default": 75,
+					"minimum": 50,
+					"maximum": 95,
+					"description": "Warn when context window is N% full"
+				},
+				"vibeide.context.criticalThresholdPercent": {
+					"type": "number",
+					"default": 90,
+					"minimum": 60,
+					"maximum": 99,
+					"description": "Show critical warning when context window is N% full"
+				},
+				"vibeide.output.structuredMode": {
+					"type": "boolean",
+					"default": false,
+					"description": "Output agent actions as NDJSON to stdout (for SIEM/Splunk integration)"
+				},
+				"vibeide.audit.encryptLogs": {
+					"type": "boolean",
+					"default": false,
+					"description": "Encrypt audit logs with user key (requires saving recovery phrase)"
+				}
+			}
+		}
+	},
+	"_upstream": {
+		"source": "https://github.com/robb0wen/synthwave-vscode",
+		"version": "0.1.20",
+		"license": "MIT",
+		"syncedAt": "2026-05-03"
+	}
+}
