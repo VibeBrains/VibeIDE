@@ -3,7 +3,6 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from '../../../base/common/path.js';
 import { relative } from '../../../base/common/path.js';
@@ -46,36 +45,47 @@ export class CSSDevelopmentService implements ICSSDevelopmentService {
 			return [];
 		}
 
-		const rg = await import('@vscode/ripgrep');
-		return await new Promise<string[]>((resolve) => {
+		const sw = StopWatch.create();
 
-			const sw = StopWatch.create();
+		// _VSCODE_FILE_ROOT = import.meta.dirname of bootstrap-esm.js which lives in out/,
+		// so FileAccess.asFileUri('').fsPath already resolves to the out/ directory.
+		// Do NOT append 'out' again -- that would produce the non-existent out/out/vs path.
+		const outDir = FileAccess.asFileUri('').fsPath;
+		const outVs = join(outDir, 'vs');
 
-			const chunks: Buffer[] = [];
-			// _VSCODE_FILE_ROOT = import.meta.dirname of bootstrap-esm.js which lives in out/,
-			// so FileAccess.asFileUri('').fsPath already resolves to the out/ directory.
-			// Do NOT append 'out' again — that would produce the non-existent out/out/vs path.
-			const outDir = FileAccess.asFileUri('').fsPath;
-			const outVs = join(outDir, 'vs');
+		if (!existsSync(outVs)) {
+			this.logService.warn('[CSS_DEV] out/vs not found -- run full compile (gulp copies CSS next to JS).');
+			return [];
+		}
 
-			// Paths must be relative to `out/` (e.g. vs/workbench/.../media/foo.css) so workbench.ts
-			// `new URL(cssModule, baseUrl)` matches ESM imports next to emitted .js under out/vs/.
-			// gulp compile-client runs copy-vs-css: src/vs/**/*.css -> out/vs/...
-			if (!existsSync(outVs)) {
-				this.logService.warn('[CSS_DEV] out/vs not found — run full compile (gulp copies CSS next to JS).');
-				resolve([]);
-				return;
-			}
+		// Use Node.js fs/promises instead of @vscode/ripgrep -- avoids binary availability
+		// issues on Windows where rg.exe may not be present after npm install.
+		try {
+			const { readdir } = await import('fs/promises');
+			const results: string[] = [];
 
-			const process = spawn(rg.rgPath, ['-g', '**/*.css', '--files', '--no-ignore', outVs], {});
+			const walk = async (dir: string): Promise<void> => {
+				const entries = await readdir(dir, { withFileTypes: true });
+				await Promise.all(entries.map(async entry => {
+					const fullPath = join(dir, entry.name);
+					if (entry.isDirectory()) {
+						await walk(fullPath);
+					} else if (entry.name.endsWith('.css')) {
+						const rel = relative(outDir, fullPath).replace(/\\/g, '/');
+						if (rel.startsWith('vs/')) {
+							results.push(rel);
+						}
+					}
+				}));
+			};
 
-			process.stdout.on('data', data => {
-				chunks.push(data);
-			});
-			process.on('error', err => {
-				this.logService.error('[CSS_DEV] FAILED to compute CSS data', err);
-				resolve([]);
-			});
-			process.on('close', () => {
-				const data = Buffer.concat(chunks).toString('utf8');
-				const result = data.split('\n').filter(Boolean).map(absPath => relative(outDir, absPath).replace(/\\/g,
+			await walk(outVs);
+			results.sort();
+			this.logService.info('[CSS_DEV] DONE, ' + results.length + ' css modules (' + Math.round(sw.elapsed()) + 'ms)');
+			return results;
+		} catch (err) {
+			this.logService.error('[CSS_DEV] FAILED to compute CSS data', err);
+			return [];
+		}
+	}
+}
