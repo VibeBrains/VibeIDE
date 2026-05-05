@@ -51,7 +51,7 @@ jobs:
         timeout-minutes: 30
 
       - name: Upload compiled output
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: compiled-output
           path: |
@@ -106,7 +106,7 @@ jobs:
         timeout-minutes: 10
 
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-${{ matrix.arch }}
           path: |
@@ -159,7 +159,7 @@ jobs:
         timeout-minutes: 20
 
       - name: Upload macOS artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-universal
           path: .build/darwin-arm64/VibeIDE-*.dmg
@@ -213,7 +213,7 @@ jobs:
         timeout-minutes: 10
 
       - name: Upload Linux artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.arch }}
           path: |
