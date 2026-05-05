@@ -6,9 +6,10 @@
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import Severity from '../../../../base/common/severity.js';
 import { ServicesAccessor } from '../../../../editor/browser/editorExtensions.js';
-import { localize2 } from '../../../../nls.js';
+import { localize, localize2 } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { INotificationActions, INotificationHandle, INotificationService } from '../../../../platform/notification/common/notification.js';
+import { IProgressService, ProgressLocation } from '../../../../platform/progress/common/progress.js';
 import { IMetricsService } from '../common/metricsService.js';
 import { IVibeideUpdateService } from '../common/vibeideUpdateService.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
@@ -20,7 +21,7 @@ import { IAction } from '../../../../base/common/actions.js';
 
 
 
-const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, notifService: INotificationService, updateService: IUpdateService): INotificationHandle => {
+const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, notifService: INotificationService, updateService: IUpdateService, vibeideUpdateService: IVibeideUpdateService, progressService: IProgressService): INotificationHandle => {
 	const message = res?.message || 'This is a very old version. Please download the latest VibeIDE!'
 
 	let actions: INotificationActions | undefined
@@ -30,21 +31,37 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 
 		if (res.action === 'reinstall') {
 			primary.push({
-				label: `Reinstall`,
+				label: localize('vibeide.update.actionReinstall', 'Reinstall'),
 				id: 'vibe.updater.reinstall',
 				enabled: true,
 				tooltip: '',
 				class: undefined,
-				run: () => {
-					const { window } = dom.getActiveWindow()
-					window.open('https://openvibeide.com')
+				run: async () => {
+					if (res.verifiedDownload) {
+						await progressService.withProgress({
+							location: ProgressLocation.Notification,
+							title: localize('vibeide.update.downloadInstallerProgress', 'Downloading VibeIDE installer…'),
+						}, async () => {
+							const r = await vibeideUpdateService.downloadVerifiedReleaseAsset(
+								res.verifiedDownload!.url,
+								res.verifiedDownload!.sha256,
+								res.verifiedDownload!.fileName,
+							);
+							if (!r.ok) {
+								notifService.notify({ severity: Severity.Error, message: r.message });
+							}
+						});
+					} else {
+						const { window } = dom.getActiveWindow();
+						window.open('https://openvibeide.com');
+					}
 				}
-			})
+			});
 		}
 
 		if (res.action === 'download') {
 			primary.push({
-				label: `Download`,
+				label: localize('vibeide.update.actionDownload', 'Download'),
 				id: 'vibe.updater.download',
 				enabled: true,
 				tooltip: '',
@@ -58,7 +75,7 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 
 		if (res.action === 'apply') {
 			primary.push({
-				label: `Apply`,
+				label: localize('vibeide.update.actionApply', 'Apply'),
 				id: 'vibe.updater.apply',
 				enabled: true,
 				tooltip: '',
@@ -71,7 +88,7 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 
 		if (res.action === 'restart') {
 			primary.push({
-				label: `Restart`,
+				label: localize('vibeide.update.actionRestart', 'Restart'),
 				id: 'vibe.updater.restart',
 				enabled: true,
 				tooltip: '',
@@ -85,7 +102,7 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 		primary.push({
 			id: 'vibe.updater.site',
 			enabled: true,
-			label: `VibeIDE Site`,
+			label: localize('vibeide.update.actionOpenSite', 'VibeIDE Site'),
 			tooltip: '',
 			class: undefined,
 			run: () => {
@@ -99,7 +116,7 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 			secondary: [{
 				id: 'vibe.updater.close',
 				enabled: true,
-				label: `Keep current version`,
+				label: localize('vibeide.update.actionKeepVersion', 'Keep current version'),
 				tooltip: '',
 				class: undefined,
 				run: () => {
@@ -143,6 +160,7 @@ const performVibeCheck = async (
 	vibeideUpdateService: IVibeideUpdateService,
 	metricsService: IMetricsService,
 	updateService: IUpdateService,
+	progressService: IProgressService,
 ): Promise<INotificationHandle | null> => {
 
 	const metricsTag = explicit ? 'Manual' : 'Auto'
@@ -156,9 +174,9 @@ const performVibeCheck = async (
 	}
 	else {
 		if (res.message) {
-			const notifController = notifyUpdate(res, notifService, updateService)
-			metricsService.capture(`VibeIDE Update ${metricsTag}: Yes`, { res })
-			return notifController
+			const notifController = notifyUpdate(res, notifService, updateService, vibeideUpdateService, progressService);
+			metricsService.capture(`VibeIDE Update ${metricsTag}: Yes`, { res });
+			return notifController;
 		}
 		else {
 			metricsService.capture(`VibeIDE Update ${metricsTag}: No`, { res })
@@ -181,14 +199,15 @@ registerAction2(class extends Action2 {
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
-		const vibeideUpdateService = accessor.get(IVibeideUpdateService)
-		const notifService = accessor.get(INotificationService)
-		const metricsService = accessor.get(IMetricsService)
-		const updateService = accessor.get(IUpdateService)
+		const vibeideUpdateService = accessor.get(IVibeideUpdateService);
+		const notifService = accessor.get(INotificationService);
+		const metricsService = accessor.get(IMetricsService);
+		const updateService = accessor.get(IUpdateService);
+		const progressService = accessor.get(IProgressService);
 
-		const currNotifController = lastNotifController
+		const currNotifController = lastNotifController;
 
-		const newController = await performVibeCheck(true, notifService, vibeideUpdateService, metricsService, updateService)
+		const newController = await performVibeCheck(true, notifService, vibeideUpdateService, metricsService, updateService, progressService);
 
 		if (newController) {
 			currNotifController?.close()
@@ -205,11 +224,12 @@ class VibeUpdateWorkbenchContribution extends Disposable implements IWorkbenchCo
 		@IMetricsService metricsService: IMetricsService,
 		@INotificationService notifService: INotificationService,
 		@IUpdateService updateService: IUpdateService,
+		@IProgressService progressService: IProgressService,
 	) {
 		super()
 
 		const autoCheck = () => {
-			performVibeCheck(false, notifService, vibeideUpdateService, metricsService, updateService)
+			performVibeCheck(false, notifService, vibeideUpdateService, metricsService, updateService, progressService)
 		}
 
 		// check once 5 seconds after mount

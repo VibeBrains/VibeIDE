@@ -14,6 +14,8 @@ import { VibeideCheckUpdateResponse } from './vibeideUpdateServiceTypes.js';
 export interface IVibeideUpdateService {
 	readonly _serviceBrand: undefined;
 	check: (explicit: boolean) => Promise<VibeideCheckUpdateResponse>;
+	/** Download release asset to temp, verify SHA-256, then reveal in system file manager. */
+	downloadVerifiedReleaseAsset: (assetUrl: string, expectedSha256Hex: string, fileName: string) => Promise<{ ok: true } | { ok: false; message: string }>;
 }
 
 
@@ -39,6 +41,10 @@ export class VibeideUpdateService implements IVibeideUpdateService {
 		const res = await this.vibeideUpdateService.check(explicit)
 		return res
 	}
+
+	downloadVerifiedReleaseAsset: IVibeideUpdateService['downloadVerifiedReleaseAsset'] = async (assetUrl, expectedSha256Hex, fileName) => {
+		return await this.vibeideUpdateService.downloadVerifiedReleaseAsset(assetUrl, expectedSha256Hex, fileName);
+	};
 }
 
 registerSingleton(IVibeideUpdateService, VibeideUpdateService, InstantiationType.Eager);
