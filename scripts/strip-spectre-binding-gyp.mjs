@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Removes msvs_configuration_attributes SpectreMitigation blocks from binding.gyp
- * in curated native deps. Idempotent (safe to run repeatedly).
+ * Removes or downgrades SpectreMitigation in binding.gyp for curated native deps so
+ * MSBuild does not require optional "Spectre-mitigated" MSVC libraries (MSB8040).
  *
  * Replacing patch-package diffs avoids Linux CI failures: npm ships these files
  * with CRLF; unified patches generated as LF often do not apply with GNU patch.
@@ -39,6 +39,25 @@ function stripSpectreBlocks(content) {
 	return out;
 }
 
+/**
+ * MSB8040 requires "Spectre-mitigated" MSVC libs when mitigation is on by default.
+ * Pinning false avoids needing optional VS components (same intent as stripping "Spectre").
+ * @param {string} content
+ * @returns {string}
+ */
+function ensureSpectreMitigationFalseOnWin(content) {
+	if (/SpectreMitigation\s*:\s*['"]false['"]/.test(content)) {
+		return content;
+	}
+	const inject =
+		'\n          "msvs_configuration_attributes": {\n            "SpectreMitigation": "false"\n          },';
+	const re = /(\['OS=="win"',\s*\{)/;
+	if (!re.test(content)) {
+		return content;
+	}
+	return content.replace(re, `$1${inject}`);
+}
+
 let changed = 0;
 for (const rel of TARGETS) {
 	const filePath = path.join(root, rel);
@@ -46,7 +65,7 @@ for (const rel of TARGETS) {
 		continue;
 	}
 	const before = fs.readFileSync(filePath, 'utf8');
-	const after = stripSpectreBlocks(before);
+	const after = ensureSpectreMitigationFalseOnWin(stripSpectreBlocks(before));
 	if (after !== before) {
 		fs.writeFileSync(filePath, after, 'utf8');
 		changed++;
