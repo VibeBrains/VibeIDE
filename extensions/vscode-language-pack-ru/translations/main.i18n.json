@@ -3924,7 +3924,7 @@
 			"sessionTypePicker.triggerAriaLabel": "Выбор типа сеанса, {0}"
 		},
 		"vs/sessions/contrib/chat/browser/sessionWorkspacePicker": {
-			"pickWorkspace": "ЧАТ",
+			"pickWorkspace": "рабочая область",
 			"workspacePicker.ariaLabel": "Средство выбора рабочей области",
 			"workspacePicker.browseSelectAction": "Выберите {0}...",
 			"workspacePicker.filter": "Поиск рабочих областей...",
@@ -6503,6 +6503,13 @@
 			"successFrom": "Путь к команде оболочки \"{0}\" успешно удален из PATH.",
 			"successIn": "Путь к команде оболочки \"{0}\" успешно установлен в PATH.",
 			"uninstall": "Удалить путь к команде \"{0}\" из PATH"
+		},
+		"vs/workbench/electron-browser/actions/openInAgentsAction": {
+			"openInAgents": "Открыть в приложении \"Агенты\"",
+			"openInAgentsEnabled": "Управляет отображением кнопки \"Открыть в приложении \"Агенты\" в заголовке окна.",
+			"openInAgentsLabel": "Открыть в приложении \"Агенты\"",
+			"toggle.openInAgents": "Открыть в приложении \"Агенты\"",
+			"toggle.openInAgentsDescription": "Переключить видимость кнопки \"Открыть в приложении \"Агенты\" в заголовке окна"
 		},
 		"vs/workbench/electron-browser/actions/windowActions": {
 			"close": "Закрыть окно",
@@ -10430,10 +10437,9 @@
 			"chat.sessionTarget.category.other": "Другое"
 		},
 		"vs/workbench/contrib/chat/browser/widget/input/workspacePickerActionItem": {
-			"chatEmptyWindowWorkspacePicker": "ЧАТ",
 			"openFolder": "Открыть папку...",
 			"openFolderTooltip": "Открыть папку...",
-			"selectWorkspace": "ЧАТ"
+			"selectWorkspace": "Рабочая область"
 		},
 		"vs/workbench/contrib/chat/browser/widgetHosts/chatQuick": {
 			"termsDisclaimer": "Продолжая работу с {0} Copilot, вы принимаете [условия]({2}) {1} и [заявление о конфиденциальности]({3})"
@@ -20530,353 +20536,6 @@
 			"no backups": "Папка локальных резервных копий не существует.",
 			"open": "Открыть папку"
 		},
-		"vs/workbench/contrib/vibeide/browser/sidebarActions": {
-			"vibeOpenSidebar": "VibeIDE: открыть чат",
-			"vibeNewChatPalette": "VibeIDE: новый чат",
-			"vibeCmdL": "VibeIDE: добавить выделение в чат",
-			"vibeSettingsSidebar": "Настройки VibeIDE",
-			"vibeWebSearch": "VibeIDE: поиск в интернете",
-			"vibeWebSearchPlaceholder": "Введите поисковый запрос…",
-			"vibeWebSearchPrompt": "Поиск информации в интернете",
-			"vibeBrowseUrl": "VibeIDE: открыть URL в режиме чтения",
-			"vibeBrowseUrlPlaceholder": "Введите URL (https://…)",
-			"vibeBrowseUrlPrompt": "Загрузить и извлечь содержимое по URL"
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeideCommandCenterMenu": {
-			"vibeideCommandCenterBrainIcon": "Значок меню VibeIDE в центре команд строки заголовка.",
-			"vibeideMenu": "VibeIDE",
-			"vibeideChatHistory": "VibeIDE: история чатов",
-			"vibeCategory": "VibeIDE",
-			"vibeHistoryEmptyChat": "(пустой чат)",
-			"vibeHistoryCurrent": "текущий",
-			"vibeHistoryDetail": "{0} сообщ. — {1}",
-			"vibeideChatHistoryPH": "Выберите прошлый чат для переключения",
-			"vibeideProviderDashboard": "VibeIDE: панель провайдеров",
-			"vibeideProviderDashboardErr": "Не удалось открыть панель провайдеров: {0}",
-			"vibeNewChat": "Новый чат",
-			"vibeideChatHistoryMenu": "История чатов",
-			"vibeideSettingsMenu": "Настройки VibeIDE",
-			"vibeideProviderDashboardMenu": "Панель провайдеров",
-			"vibeideSkillsFolder": "Открыть папку навыков",
-			"vibe_idePlansFolder": "Открыть папку планов",
-			"vibeideCodebaseSearch": "Поиск по кодовой базе (ИИ)"
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeideSettingsPane": {
-			"vibeSettingsInputsName": "Настройки VibeIDE",
-			"VibeideSettingsPane": "Панель настроек VibeIDE",
-			"vibeSettings": "VibeIDE: переключить настройки",
-			"vibeSettingsAction2": "VibeIDE: открыть настройки",
-			"vibeSettingsActionGear": "Настройки VibeIDE"
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeideStatusBar": {
-			"vibeide.model": "Модель VibeIDE",
-			"vibeide.model.auto": "Модель VibeIDE: автоматически{0}",
-			"vibeide.model.auto.tooltip": "Модель: автоматический выбор",
-			"vibeide.model.tooltip": "Модель: {0} ({1})",
-			"vibeide.model.selected": "Модель VibeIDE: {0} ({1}){2}",
-			"vibeide.model.tooltip.reason.offline": "Причина: офлайн — используется локальная модель",
-			"vibeide.model.tooltip.reason.auto": "Причина: модель выбрана автоматически по задаче",
-			"vibeide.model.tooltip.privacy.local": "Конфиденциальность: локальная модель — данные не покидают устройство",
-			"vibeide.model.tooltip.privacy.offline.fallback": "Примечание: нет сети — используется кэш или запасная модель",
-			"vibeide.model.tooltip.privacy.remote": "Конфиденциальность: облачная модель — данные отправляются провайдеру",
-			"vibeide.latency": "Задержка VibeIDE",
-			"vibeide.latency.idle": "Задержка VibeIDE: без активности",
-			"vibeide.latency.status": "Задержка VibeIDE: TTFS {0}, состояние: {1}",
-			"vibeide.latency.tooltip": "Время до первого токена: {0} мс\nВремя до начала потока: {1} мс{2}",
-			"vibeide.latency.speedLine": "Скорость: {0}",
-			"vibeide.privacy": "Конфиденциальность VibeIDE",
-			"vibeide.privacy.offline.local": "Конфиденциальность: офлайн и локальная модель\n\nДанные не покидают устройство и не отправляются на удалённые серверы.",
-			"vibeide.privacy.offline": "Конфиденциальность: нет сети\n\nПодключение к интернету недоступно.",
-			"vibeide.privacy.local": "Конфиденциальность: локальная модель\n\nДанные не покидают устройство и не отправляются на удалённые серверы.\n\nПочему эта модель: включён режим приватности или для задачи предпочтительна локальная модель.",
-			"vibeide.privacy.aria": "Конфиденциальность VibeIDE: {0}"
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeTrainingPolicyStatusBar": {
-			"vibeTrainNone": "без обучения",
-			"vibeTrainOptIn": "обучение по согласию",
-			"vibeTrainOptOut": "есть отказ от обучения",
-			"vibeTrainAlways": "возможно обучение",
-			"vibeTrainUnknown": "обучение ?",
-			"vibeTrainTooltipUnknown": "Политика использования данных для обучения для этой модели неизвестна (обновите каталог или см. документацию провайдера).",
-			"vibeTrainTipNone": "Провайдер указывает, что эта модель не обучается на ваших данных API (по каталогу VibeIDE).",
-			"vibeTrainTipOptIn": "Обучение на ваших данных требует явного согласия (по каталогу VibeIDE).",
-			"vibeTrainTipOptOut": "Провайдер может использовать данные для обучения; доступен отказ (opt-out) (по каталогу VibeIDE).",
-			"vibeTrainTipAlways": "Провайдер может использовать запросы для обучения по умолчанию (по каталогу VibeIDE).",
-			"vibeTrainingPolicy": "Политика обучения VibeIDE",
-			"vibeTrainNoModel": "Выберите модель чата, чтобы увидеть подсказку по обучению и использованию данных из каталога моделей VibeIDE.",
-			"vibeTrainCatalogHint": "Источник: registry.vibeide.io/models.json (кэш). Не юридическая консультация.",
-			"vibeTrainAriaNoModel": "Политика обучения: модель не выбрана",
-			"vibeTrainAriaModel": "Политика обучения для {0}: {1}"
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeContextWindowStatusBar": {
-			"vibeContextWindow": "Окно контекста VibeIDE",
-			"vibeContextWindowTooltip": "Контекст: {0}% ({1}/{2} токенов) | Бюджет сеанса: {3}%",
-			"vibeContextWindowAria": "Окно контекста: {0}%"
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeProviderStatusBar": {
-			"vibeProviderStatus": "Состояние провайдера VibeIDE",
-			"vibeProviderStatusTooltip": "Провайдер: {0} — статус: {1}. Нажмите для проверки.",
-			"vibeTokenCost": "Стоимость токенов VibeIDE",
-			"vibeTokenCostTooltip": "Прогноз стоимости токенов. Запустите задачу, чтобы увидеть оценку.",
-			"vibeProviderHealth.operational": "Работает",
-			"vibeProviderHealth.degraded": "Ограничения",
-			"vibeProviderHealth.outage": "Сбой",
-			"vibeProviderHealth.unknown": "Неизвестно",
-			"vibeProviderStatusAria": "Провайдер: {0} {1}",
-			"vibeTokenCostAria": "Прогноз стоимости токенов"
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeTrustScoreStatusBar": {
-			"vibeTrustScore": "Уровень доверия VibeIDE",
-			"vibeTrustScoreManual": "Уровень доверия: вручную — каждое действие требует подтверждения. Нажмите для переключения. (Ctrl+Shift+T)",
-			"vibeTrustScoreSupervised": "Уровень доверия: контроль — уведомления, автоприменение по таймауту. Нажмите для переключения. (Ctrl+Shift+T)",
-			"vibeTrustScoreAuto": "Уровень доверия: авто — агент работает автономно в лимитах бюджета. Нажмите для переключения. (Ctrl+Shift+T)",
-			"vibeTrustScoreAriaManual": "Уровень доверия: вручную",
-			"vibeTrustScoreAriaSupervised": "Уровень доверия: контроль",
-			"vibeTrustScoreAriaAuto": "Уровень доверия: авто"
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeMultiAgentObservationStatusBar": {
-			"vibeideMaObsSbName": "VibeIDE: агенты и рабочие деревья",
-			"vibeideMaObsSbAriaIdle": "Изолированные рабочие деревья агентов нет",
-			"vibeideMaObsSbTipIdle": "Изоляция: без активности. Здесь появятся счётчики мультиагентных сессий и git worktree; при активности — держатель mutex чекпоинта.",
-			"vibeideMaObsLock": "блокировка чекпоинта: {0}",
-			"vibeideMaObsNoLock": "блокировки чекпоинта нет",
-			"vibeideMaObsAria": "Агенты {0}, рабочие деревья агентов {1}. {2}",
-			"vibeideMaObsTip": "{0}; число агентов из изолированных рабочих деревьев."
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeFirstRunWizard": {
-			"vibeFirstRun": "Добро пожаловать в VibeIDE! 👋 Trust Score в режиме «Вручную» 🟢 — каждое действие агента требует подтверждения. Нажмите для настройки.",
-			"vibeFirstRunConfigure": "Настроить",
-			"vibeFirstRunSkip": "Оставить по умолчанию",
-			"vibeFirstRunDefaults": "По умолчанию в VibeIDE: 🟢 Trust Score — вручную, 💰 лимит токенов: 500 тыс. (~20 USD), 🔒 изоляция рабочей области: вкл. Измените в разделе Параметры → VibeIDE."
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeSkillsSessionStatusBar": {
-			"vibeideSkillsSessionSbName": "Навыки сеанса VibeIDE",
-			"vibeideSkillsSessionSbAriaIdle": "Фильтр навыков сеанса: выкл.",
-			"vibeideSkillsSessionSbTipIdle": "Фильтр навыков сеанса не задан. Выполните «VibeIDE: навыки — выбрать для сеанса», чтобы ограничить подсказки GUIDELINES.",
-			"vibeideSkillsSessionSbText": "навыки:{0}",
-			"vibeideSkillsSessionSbAria": "Фильтр навыков сеанса: {0} навыков",
-			"vibeideSkillsSessionSbTip": "Подсказки ограничены: {0}. Нажмите, чтобы выбрать снова; палитра: «VibeIDE: навыки — сбросить фильтр сеанса»."
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeSkillsWorkspaceDiscoveryContribution": {
-			"vibeideSkillsDiscoveryMore": " (ещё {0})",
-			"vibeideSkillsDiscoveryOpenPick": "Выбрать для сеанса…",
-			"vibeideSkillsDiscoveryMsg": "Навыки агента в этой рабочей области — всего {0}: {1}{2}. Введите слэш /skill:… или команду палитры «VibeIDE: навыки — выбрать для сеанса»."
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeSubagentStatusBarContribution": {
-			"vibeide.subagent.statusbar": "Субагенты: {0}",
-			"vibeide.subagent.statusbarName": "Субагенты VibeIDE"
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeOfflineUXContribution": {
-			"vibeOffline": "VibeIDE: офлайн-режим. Функции ИИ недоступны. Локальные модели Ollama продолжают работать.",
-			"vibeOnline": "VibeIDE: подключение восстановлено. Функции ИИ снова доступны.",
-			"vibeOfflineStatus": "VibeIDE офлайн",
-			"vibeOfflineTooltip": "VibeIDE в офлайне. Облачный ИИ недоступен. Ollama работает локально.",
-			"vibeOfflineStatusAria": "VibeIDE в офлайне"
-		},
-		"vs/workbench/contrib/vibeide/common/vibeideGlobalSettingsConfiguration": {
-			"vibeide.skills.title": "VibeIDE — навыки агента",
-			"vibeide.skills.globalPaths": "Абсолютные пути к дополнительным корням SKILL.md (аналог ~/.cursor/skills/). Папка `.vibe/skills/` в рабочей области переопределяет те же id навыков.",
-			"vibeide.skills.sessionActiveIds": "Идентификаторы навыков (`name` из YAML), ограничивающие подсказки GUIDELINES в этом сеансе. Пусто — все загруженные навыки. Палитра команд: «VibeIDE: навыки — выбрать для сеанса».",
-			"vibeide.skills.auditSkillSuggestions": "При включённом аудите (`vibeide.audit.enable`) добавлять локальные события для `/skill:` и неявных подсказок по ключевым словам (без облака).",
-			"vibeide.skills.notifyDiskDiff": "При изменении на диске файла навыка `.vibe/skills/**` показывать информационное уведомление с опциональным сравнением с предыдущим снимком в памяти.",
-			"vibeide.skills.communityCatalogUrl": "HTTPS URL JSON-каталога навыков сообщества (`vibe-community-skills-catalog-v1`). Значение по умолчанию для «Обзор каталога навыков сообщества». Оставьте пустым, чтобы вводить URL вручную.",
-			"vibeide.skills.discoveryDescriptionMaxChars": "Максимум символов в описании навыка в списке обнаружения GUIDELINES (контроль токенов и контекста). 0 = без ограничения.",
-			"vibeide.skills.implicitDescriptionMaxChars": "Максимум символов в описании навыка в блоке неявных подсказок по ключевым словам. 0 = без ограничения."
-		},
-		"vs/workbench/contrib/vibeide/browser/chatThreadService": {
-			"vibeide.planSecondOpinion": "Справочный разбор плана: {0}",
-			"vibeide.planExecutionLockBusy": "Другая сессия чата уже выполняет этот план (поток {0}). Остановите её, дождитесь истечения лизинга (~2 мин бездействия) или используйте панель планов, чтобы захватить устаревший запуск.",
-			"vibeide.planToolDriftStepError": "Пауза: инструмент «{0}» не входит в список инструментов шага плана. Обновите `.vibe/plans/*.plan.md` или продолжите.",
-			"vibeide.planToolDriftNotify": "План приостановлен: инструмент «{0}» не совпадает со списком инструментов шага.",
-			"vibeide.planMcpAllowlistStepError": "Пауза: инструмент MCP «{0}» на сервере «{1}» не в белом списке шага. Обновите `.vibe/plans/*.plan.md` или продолжите.",
-			"vibeide.planMcpAllowlistNotify": "План приостановлен: инструмент MCP «{0}» нарушает белый список шага.",
-			"vibeide.planSecondExecutorWarning": "План {0} уже привязан к другому чату ({1}). Параллельный запуск может рассинхронизировать выполнение; сначала приостановите один из исполнителей.",
-			"yolo.autoApplied": "Автоматически применено «{0}» к файлу {1}",
-			"yolo.undo": "Отменить",
-			"yolo.undoTooltip": "Отменить это изменение",
-			"yolo.undoFailed": "Не удалось отменить правку. Воспользуйтесь Ctrl+Z вручную.",
-			"agentStall.noFirstToken": "Агент ждёт ответ ИИ (>{0} с). Модель может быть медленной или соединение зависло.",
-			"agentStall.midStream": "Поток ответа ИИ без новых токенов уже >{0} с — возможно зависание."
-		},
-		"vs/workbench/contrib/vibeide/browser/codeReviewCommands": {
-			"vibeCodeReviewFile": "VibeIDE: обзор этого файла",
-			"vibeCodeReviewApplyFix": "VibeIDE: применить исправление"
-		},
-		"vs/workbench/contrib/vibeide/browser/codebaseQueryCommands": {
-			"vibeCodebaseQuery": "VibeIDE: запрос к кодовой базе",
-			"vibeCodebaseQueryPlaceholder": "Введите запрос на естественном языке для поиска по проекту…",
-			"vibeCodebaseQueryTitle": "Запрос к кодовой базе",
-			"vibeCodebaseQueryNoResults": "Ничего не найдено",
-			"vibeCodebaseQueryNoResultsDesc": "Попробуйте другую формулировку",
-			"vibeCodebaseQueryError": "Ошибка запроса к кодовой базе"
-		},
-		"vs/workbench/contrib/vibeide/browser/errorDetectionCommands": {
-			"vibeErrorDetectionDetectErrors": "VibeIDE: найти ошибки",
-			"vibeErrorDetectionApplyFix": "VibeIDE: применить исправление"
-		},
-		"vs/workbench/contrib/vibeide/browser/fileService": {
-			"vibeCopyPrompt": "VibeIDE: копировать запрос"
-		},
-		"vs/workbench/contrib/vibeide/browser/quickActions": {
-			"vibeExplainCode": "VibeIDE: объяснить код",
-			"vibeRefactorCode": "VibeIDE: рефакторинг кода",
-			"vibeAddTests": "VibeIDE: добавить тесты",
-			"vibeFixTests": "VibeIDE: починить падающие тесты",
-			"vibeWriteDocstring": "VibeIDE: написать документацию",
-			"vibeOptimizeCode": "VibeIDE: оптимизировать код",
-			"vibeDebugCode": "VibeIDE: отладка кода"
-		},
-		"vs/workbench/contrib/vibeide/browser/quickEditActions": {
-			"vibeQuickEditAction": "VibeIDE: быстрое редактирование",
-			"vibeInlineEditAction": "VibeIDE: правка в строке (ИИ)",
-			"vibeInlineEditPlaceholder": "Опишите желаемое изменение (например «добавь обработку ошибок», «переведи на async/await»)…",
-			"vibeInlineEditPrompt": "Инструкция для редактирования",
-			"vibeInlineEditProgress": "Генерируется правка…"
-		},
-		"vs/workbench/contrib/vibeide/browser/repoIndexerActions": {
-			"rebuildRepoIndex": "VibeIDE: пересоздать индекс репозитория",
-			"vibeide": "VibeIDE"
-		},
-		"vs/workbench/contrib/vibeide/browser/sidebarPane": {
-			"vibeContainer": "Чат",
-			"vibeChat": ""
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeCommands": {
-			"vibeideSkillsCommunityExpectObject": "Неверный JSON: ожидался объект.",
-			"vibeideSkillsCommunityBadManifestFmt": "Манифест JSON должен иметь формат «{0}».",
-			"vibeideSkillsCommunityBadSkillId": "Поле manifest.skillId обязательно.",
-			"vibeideSkillsCommunityBadBody": "Поле manifest.skillMarkdown обязательно.",
-			"vibeideSkillsCommunityBadCatalogFmt": "JSON каталога должен иметь формат «{0}».",
-			"vibeideSkillsCommunityBadEntries": "Поле catalog.entries должно быть массивом.",
-			"vibeideSkillsCommunityBadEntryId": "Поле entries[{0}].id обязательно.",
-			"vibeideSkillsCommunityBadEntryUrl": "Поле entries[{0}].manifestUrl обязательно.",
-			"vibeideSkillsCommunityHttpErr": "Ошибка HTTP {0} при загрузке URL.",
-			"vibeideSkillsCommunityNoWs": "Сначала откройте папку рабочей области.",
-			"vibeideSkillsCommunityInstalled": "Навык агента установлен в каталог `.vibe/skills/{0}/`",
-			"vibeideEmergencyStopDone": "Аварийная остановка: прервано активных потоков агента: {0}. Лизинги выполнения на диске не сброшены — при необходимости очистите устаревшие записи на панели планов.",
-			"vibeideSkillsShowFolderTitle": "VibeIDE: открыть папку навыков агента (.vibe/skills)",
-			"vibeideCategory": "VibeIDE",
-			"vibeideSkillsNoWs": "Сначала откройте папку рабочей области.",
-			"vibeideSkillsNewTemplateTitle": "VibeIDE: новый шаблон навыка агента (.vibe/skills)",
-			"vibeideSkillsTplNoWs": "Откройте папку рабочей области перед добавлением навыка.",
-			"vibeideSkillsPickSessionTitle": "VibeIDE: навыки — выбрать для сеанса",
-			"vibeideSkillsPickNoWs": "Сначала откройте папку рабочей области.",
-			"vibeideSkillsPickNone": "Навыки не загружены из `.vibe/skills` и глобальных путей.",
-			"vibeideSkillsPickPh": "Выберите навыки для подсказок GUIDELINES (пустой список = все навыки)",
-			"vibeideSkillsClearSessionTitle": "VibeIDE: навыки — сбросить фильтр сеанса",
-			"vibeidePlansNewInWorkspaceTitle": "VibeIDE: новый план в рабочей области (.vibe/plans)",
-			"vibeidePlansNoWs": "Откройте папку рабочей области перед созданием плана проекта.",
-			"vibeidePlansShowFolderTitle": "VibeIDE: открыть папку `.vibe/plans` в проводнике",
-			"vibeidePlansShowNoWs": "Сначала откройте папку рабочей области.",
-			"vibeidePlansExplainRiskTitle": "VibeIDE План: оценить риск по эвристике",
-			"vibeidePlansExplainRiskNeedPlan": "Сначала откройте файл `.plan.md` или вызовите **Оценка риска** на панели плана для активной вкладки.",
-			"vibeidePlansExplainRiskReadFail": "Не удалось прочитать файл плана.",
-			"vibeidePlansExplainRiskSummary": "Риск плана (эвристика — значения секретов скрыты): внешних URL ≈ {0}; упоминание git push: {1}; подсказки MCP: {2}; строк похожих на присвоение секретов ≈ {3}. Проверьте перед выполнением.",
-			"vibeideAffirmative": "да",
-			"vibeideNegative": "нет",
-			"vibeidePlansFindSimilarTitle": "VibeIDE План: поиск похожих завершённых планов (локально)",
-			"vibeidePlansFindSimilarNoWs": "Сначала откройте папку рабочей области.",
-			"vibeidePlansFindSimilarInputTitle": "Опишите искомый план",
-			"vibeidePlansFindSimilarPlaceholder": "например: рефакторинг авторизации, русская локаль, починить UI чекпоинта",
-			"vibeidePlansFindSimilarEmpty": "В `.vibe/plans/` пока нет файлов `.plan.md` или ничего не подошло.",
-			"vibeidePlansFindSimilarPick": "Открыть план",
-			"vibeideAttachApiSpecTitle": "VibeIDE: прикрепить OpenAPI или GraphQL схему к чату",
-			"vibeideAttachSpecNoWs": "Сначала откройте папку рабочей области.",
-			"vibeideAttachSpecDialogTitle": "Выберите OpenAPI (YAML/JSON) или схему GraphQL",
-			"vibeideAttachSpecOutsideWs": "Выберите файл внутри рабочей области.",
-			"vibeideAttachSpecDone": "Спецификация добавлена в контекст чата: {0}",
-			"vibeideSkillsImportCommunityUrlTitle": "VibeIDE: импорт навыка агента по URL (манифест сообщества или сырой SKILL.md)",
-			"vibeideSkillsCommunityUrlPrompt": "HTTPS URL манифеста навыка (JSON сообщества) или сырое содержимое SKILL.md",
-			"vibeideSkillsCommunityUrlRequired": "Введите URL.",
-			"vibeideSkillsCommunityShaPrompt": "Ожидаемый SHA-256 загруженного содержимого (необязательно)",
-			"vibeideSkillsCommunityShaMismatch": "Несовпадение SHA-256 (получено {0}).",
-			"vibeideSkillsCommunityNeither": "Ответ по URL не является манифестом сообщества и не SKILL.md с YAML frontmatter (---).",
-			"vibeideSkillsCommunityRawIdPrompt": "Идентификатор папки навыка (имя каталога в `.vibe/skills/`)",
-			"vibeideSkillsCommunityIdRequired": "Введите id навыка.",
-			"vibeideSkillsBrowseCommunityCatalogTitle": "VibeIDE: обзор каталога навыков сообщества агента",
-			"vibeideSkillsCommunityCatalogUrlPrompt": "HTTPS URL каталога JSON («{0}»)",
-			"vibeideSkillsCommunityCatalogUrlRequired": "Введите URL каталога или задайте параметр vibeide.skills.communityCatalogUrl.",
-			"vibeideSkillsCommunityCatalogEmpty": "В каталоге нет элементов.",
-			"vibeideSkillsCommunityPickEntry": "Выберите навык для установки",
-			"vibeideSkillsCommunityManifestShaMismatch": "Несовпадение SHA-256 манифеста для «{0}».",
-			"vibeideSkillsSaveAsFromChatTitle": "VibeIDE: сохранить последний ответ ассистента как навык агента",
-			"vibeideSkillsSaveChatNoWs": "Сначала откройте папку рабочей области.",
-			"vibeideSkillsSaveChatEmpty": "В текущей ветке не найдено сообщения ассистента с текстом.",
-			"vibeideSkillsSaveChatIdPrompt": "Id навыка (имя папки под `.vibe/skills/`)",
-			"vibeideSkillsSaveChatIdRequired": "Введите id навыка.",
-			"vibeideSkillsSaveChatDescPrompt": "Краткое описание (YAML frontmatter — когда применять этот навык)",
-			"vibeideSkillsSaveChatDescDefault": "Сохранено из чата — отредактируйте описание после установки.",
-			"vibeideSkillsSaveChatDescRequired": "Введите описание.",
-			"vibeideCopyIssueReportTitle": "VibeIDE: скопировать диагностический отчёт для issue",
-			"vibeideCopyIssueReportDone": "Диагностический отчёт скопирован в буфер обмена."
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeDeadMansSwitchNotification": {
-			"vibeAgentPaused": "Агент приостановлен: {0}"
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeNeonGlowTitleBar": {
-			"vibeideNeonGlowIconOn": "Неоновая подсветка редактора включена",
-			"vibeideNeonGlowIconOff": "Неоновая подсветка редактора выключена",
-			"vibeideThemeConfigurationTitle": "Тема VibeIDE",
-			"vibeide.theme.neonEditorGlowDescription": "Для темы Vibe Neon добавляет свечение к подсветке синтаксиса в редакторе.",
-			"vibeide.toggleNeonEditorGlowTooltip": "Переключить неоновое свечение текста в редакторе (тема Vibe Neon).",
-			"vibeide.toggleNeonEditorGlow": "Переключить неоновое свечение редактора Vibe Neon",
-			"vibeide.neonGlowEnabled": "Неоновое свечение включено"
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeProjectRulesService": {
-			"vibeide.projectRules.reload": "VibeIDE: перезагрузить правила проекта (принудительно)",
-			"vibeide.projectRules.reloaded": "Правила проекта перезагружены: источников {0}, символов {1}.",
-			"vibeide.projectRules.showSources": "VibeIDE: показать загруженные источники правил проекта"
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeSkillDiskDiffContribution": {
-			"vibeide.skillDiskDiff.updated": "Изменён файл навыка агента «{0}» (ориентировочно +{1} / −{2} несовпадающих строк)",
-			"vibeide.skillDiskDiff.openDiff": "Открыть сравнение",
-			"vibeide.skillDiskDiff.openDiffTooltip": "Сравнить предыдущий снимок с текущей версией файла",
-			"vibeide.skillDiskDiff.diffTitle": "{0} — предыдущая версия ↔ сохранено"
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeideCommandBarService": {
-			"vibeAcceptDiffAction": "VibeIDE: принять diff",
-			"vibeRejectDiffAction": "VibeIDE: отклонить diff",
-			"vibeGoToNextDiffAction": "VibeIDE: к следующему diff",
-			"vibeGoToPrevDiffAction": "VibeIDE: к предыдущему diff",
-			"vibeGoToNextUriAction": "VibeIDE: к следующему файлу с diff",
-			"vibeGoToPrevUriAction": "VibeIDE: к предыдущему файлу с diff",
-			"vibeAcceptFileAction": "VibeIDE: принять все diff в текущем файле",
-			"vibeRejectFileAction": "VibeIDE: отклонить все diff в текущем файле",
-			"vibeAcceptAllDiffsAction": "VibeIDE: принять все diff во всех файлах",
-			"vibeRejectAllDiffsAction": "VibeIDE: отклонить все diff во всех файлах"
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeideSCMService": {
-			"vibeFailedToGenerateCommitMessage": "Не удалось создать сообщение коммита.",
-			"vibeCommitMessagePrompt": "VibeIDE: создать сообщение коммита",
-			"vibeCommitMessagePromptTooltip": "VibeIDE: создать сообщение коммита",
-			"vibeCommitMessagePromptCancel": "VibeIDE: отменить генерацию сообщения коммита",
-			"vibeCommitMessagePromptCancelTooltip": "VibeIDE: отменить генерацию сообщения коммита"
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeideUpdateActions": {
-			"vibeCheckUpdate": "VibeIDE: проверить обновления"
-		},
-		"vs/workbench/contrib/vibeide/common/metricsService": {
-			"vibeMetricsDebug": "VibeIDE: журналировать отладочную информацию"
-		},
-		"vs/workbench/contrib/vibeide/common/vibeBackgroundJobService": {
-			"vibeide.backgroundJob.defaultMaxTokens": "Потолок токенов по умолчанию для фоновых задач агента. Отдельные задачи могут переопределять через maxTokens.",
-			"vibeide.backgroundJob.leaseTtlSeconds": "Секунды до признания лизинга задачи недействительным (например, после сбоя процесса).",
-			"vibeide.backgroundJob.supervisedOffTools": "Инструменты, разрешённые в безнадзорном режиме без явного одобрения на каждый вызов. Остальные требуют паузы и уведомления на рабочем столе."
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeDiagramContextContribution": {
-			"vibeide.context.diagram.allowBase64": "Разрешать встраивание диаграмм и изображений в контекст LLM как base64 (нужна модель с поддержкой vision). Если выключено, отправляется только текстовая заглушка.",
-			"vibeide.context.diagram.maxSizeBytes": "Максимальный размер изображения (байты) для встраивания base64 в контекст LLM. Для более крупных файлов отправляется заглушка.",
-			"vibeide.context.pickDiagram": "VibeIDE: выбрать диаграмму или изображение для контекста агента (@diagram)",
-			"vibeide.context.pickDiagram.scanning": "Поиск диаграмм в рабочей области…",
-			"vibeide.context.pickDiagram.none": "В рабочей области не найдено файлов диаграмм или изображений. Поддерживаются: png, svg, jpg, webp, drawio, excalidraw.",
-			"vibeide.context.pickDiagram.title": "Выберите диаграмму для вставки как @diagram:путь",
-			"vibeide.context.pickDiagram.copied": "Скопировано в буфер: {0} — вставьте в чат, чтобы добавить в контекст агента.",
-			"vibeide.context.pickDiagram.use": "Добавить в чат: {0}",
-			"vibeide.context.previewDiagram": "VibeIDE: предпросмотр блока контекста диаграммы",
-			"vibeide.context.previewDiagram.prompt": "Введите путь к диаграмме или URL для предпросмотра"
-		},
-		"vs/workbench/contrib/vibeide/browser/vibeSecondSessionAutoIsolationWarning": {
-			"vibeideSecondAutoNoWt": "Несколько сессий чата используют автоправки без изолированного git worktree. Записи могут конфликтовать в общих ветках; при параллельной работе агентов включайте режим изоляции (мультиагент / отдельные worktree)."
-		},
 		"vs/workbench/contrib/watermark/browser/watermark": {
 			"tips.enabled": "Если параметр включен, на подложке появляются советы, если нет открытых редакторов.",
 			"watermark.findInFiles": "Найти в файлах",
@@ -21332,7 +20991,7 @@
 			"onboarding.signIn.google": "Продолжить с Google",
 			"onboarding.signIn.heroSubtitle": "Войдите, чтобы продолжить разработку на базе искусственного интеллекта.",
 			"onboarding.signIn.heroTitle": "Добро пожаловать в VS Code",
-			"onboarding.step.agentSessions.subtitle.before": "В любое время начните новый чат с помощью ",
+			"onboarding.step.agentSessions.subtitle.before": "Открывайте чат в любое время с ",
 			"onboarding.step.aria": "Шаг {0} из {1}: {2}",
 			"onboarding.stepOf": "{0} из {1}",
 			"onboarding.theme.selected.alert": "Выбрана тема: {0}"
@@ -21348,7 +21007,7 @@
 			"onboarding.aiPref.codeFirst": "Я пишу код",
 			"onboarding.aiPref.codeFirst.desc": "ИИ помогает с предложениями и отвечает на задаваемые вами вопросы. Вы управляете каждой правкой.",
 			"onboarding.step.agentSessions": "Создавайте с помощью агентов ИИ",
-			"onboarding.step.agentSessions.subtitle": "В любое время начните новый чат с помощью {0}",
+			"onboarding.step.agentSessions.subtitle": "Открывайте чат в любое время с помощью {0}",
 			"onboarding.step.aiPreference": "Ваш стиль ИИ",
 			"onboarding.step.aiPreference.subtitle": "Выберите, насколько сотрудничество с ИИ подходит вашему рабочему процессу",
 			"onboarding.step.personalize": "Настройте под себя",
@@ -21980,7 +21639,7 @@
 			"checkAllTrustedPublishersTitle": "Вы доверяете издателю \"{0}\" и {1} другим?",
 			"checkTrustedPublisherTitle": "Вы доверяете издателю \"{0}\"?",
 			"checkTwoTrustedPublishersTitle": "Вы доверяете издателям \"{0}\" и \"{1}\"?",
-			"extension published by message": "Расширение {0} из маркетплейса опубликовано издателем {1}.",
+			"extension published by message": "Расширение {0} опубликовано {1}.",
 			"extensionInstallWorkspaceTrustButton": "Доверять рабочей области и установить",
 			"extensionInstallWorkspaceTrustContinueButton": "Установить",
 			"extensionInstallWorkspaceTrustManageButton": "Дополнительные сведения",
@@ -21997,7 +21656,7 @@
 			"limited support": "Функциональность \"{0}\" ограничена в {1}.",
 			"main.notFound": "Невозможно активировать, так как не удалось найти {0}",
 			"manifest is not found": "Манифест не найден",
-			"message1": "Расширение {0} из маркетплейса опубликовано издателем {1}. Это первое расширение, которое вы устанавливаете с этого издателя.",
+			"message1": "Расширение {0} опубликовано {1}. Это первое расширение, которое вы устанавливаете с этого издателя.",
 			"message2": "{0} не управляет поведением сторонних расширений, включая управление вашими персональными данными. Продолжить, только если вы доверяете издателю.",
 			"message3": "Установка этого расширения также приведет к установке [расширений]({0}), опубликованных {1} и {2}.",
 			"message4": "{0} не управляет поведением сторонних расширений, включая управление вашими персональными данными. Продолжить, только если вы доверяете издателям.",
@@ -22011,7 +21670,6 @@
 			"trust and install": "Доверять издателю и &&установить",
 			"trust publishers and install": "Доверять издателям и &&установить",
 			"twoDependentsError": "Не удается удалить расширение \"{0}\". От него зависят расширения \"{1}\" и \"{2}\".",
-			"unknownPublisher": "Неизвестный издатель",
 			"unverifiedPublisherWithName": "{0} [**not** verified]({1}).",
 			"unverifiedPublishers": "{0} и {1} [**не** проверены]({2}).",
 			"verifiedPublisherWithName": "{0} проверено право владения {1}."

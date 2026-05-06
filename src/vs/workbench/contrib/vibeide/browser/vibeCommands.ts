@@ -136,17 +136,22 @@ function findLastAssistantDisplayContent(messages: ChatMessage[]): string {
 	return '';
 }
 
+/** Resolved up-front: ServicesAccessor is invalid after the first `await` in command handlers (invokeFunction). */
+type InstallCommunitySkillServices = {
+	workspace: IWorkspaceContextService;
+	files: IFileService;
+	cmds: ICommandService;
+	notifications: INotificationService;
+	log: ILogService;
+};
+
 async function installCommunitySkillMarkdown(
-	accessor: ServicesAccessor,
+	services: InstallCommunitySkillServices,
 	skillIdRaw: string,
 	skillMarkdown: string,
 	logSuffix: string,
 ): Promise<void> {
-	const workspace = accessor.get(IWorkspaceContextService);
-	const files = accessor.get(IFileService);
-	const cmds = accessor.get(ICommandService);
-	const notifications = accessor.get(INotificationService);
-	const log = accessor.get(ILogService);
+	const { workspace, files, cmds, notifications, log } = services;
 	const roots = workspace.getWorkspace().folders;
 	if (!roots.length) {
 		notifications.notify({
@@ -177,10 +182,11 @@ async function installCommunitySkillMarkdown(
 // Trust Score commands
 CommandsRegistry.registerCommand('vibeide.trustScore.toggle', async (accessor: ServicesAccessor) => {
 	const config = accessor.get(IConfigurationService);
+	const log = accessor.get(ILogService);
 	const current = config.getValue<string>('vibeide.trustScore.level') || 'manual';
 	const next = current === 'manual' ? 'supervised' : current === 'supervised' ? 'auto' : 'manual';
 	await config.updateValue('vibeide.trustScore.level', next, ConfigurationTarget.USER);
-	accessor.get(ILogService).info(`[VibeIDE] Trust Score: ${current} → ${next}`);
+	log.info(`[VibeIDE] Trust Score: ${current} → ${next}`);
 });
 
 CommandsRegistry.registerCommand('vibeide.trustScore.setManual', (_accessor: ServicesAccessor) => {
@@ -210,8 +216,8 @@ CommandsRegistry.registerCommand('vibeide.tokenBudget.status', (accessor: Servic
 
 CommandsRegistry.registerCommand('vibeide.emergencyStopAllAgents', async (accessor: ServicesAccessor) => {
 	const chat = accessor.get(IChatThreadService);
-	const n = await chat.emergencyStopAllAgents();
 	const notifications = accessor.get(INotificationService);
+	const n = await chat.emergencyStopAllAgents();
 	notifications.notify({
 		severity: Severity.Info,
 		message: localize(
@@ -262,12 +268,12 @@ CommandsRegistry.registerCommand('vibeide.memory.persist', (accessor: ServicesAc
 // Semantic search
 CommandsRegistry.registerCommand('vibeide.search.semantic', async (accessor: ServicesAccessor, query: string) => {
 	const search = accessor.get(IVibeSemanticSearchService);
+	const log = accessor.get(ILogService);
 	if (!search.isReady()) {
-		accessor.get(ILogService).warn('[VibeIDE] Semantic search not ready. Enable RAG in settings.');
+		log.warn('[VibeIDE] Semantic search not ready. Enable RAG in settings.');
 		return;
 	}
 	const results = await search.search(query, 5);
-	const log = accessor.get(ILogService);
 	log.info(`[VibeIDE] Search results for "${query}":`);
 	results.forEach((r, i) => log.info(`  ${i + 1}. ${r.filePath} (score: ${r.score.toFixed(2)}): ${r.snippet.slice(0, 60)}`));
 });
@@ -784,6 +790,13 @@ registerAction2(class extends Action2 {
 	async run(accessor: ServicesAccessor): Promise<void> {
 		const qi = accessor.get(IQuickInputService);
 		const notifications = accessor.get(INotificationService);
+		const installSkillServices: InstallCommunitySkillServices = {
+			workspace: accessor.get(IWorkspaceContextService),
+			files: accessor.get(IFileService),
+			cmds: accessor.get(ICommandService),
+			notifications,
+			log: accessor.get(ILogService),
+		};
 		const urlRaw = await qi.input({
 			prompt: localize('vibeideSkillsCommunityUrlPrompt', 'HTTPS URL of a community skill manifest JSON or a raw SKILL.md file'),
 			placeHolder: 'https://…',
@@ -829,7 +842,7 @@ registerAction2(class extends Action2 {
 			(parsedJson as Record<string, unknown>).format === COMMUNITY_MANIFEST_FORMAT) {
 			try {
 				const m = parseCommunitySkillManifest(parsedJson);
-				await installCommunitySkillMarkdown(accessor, m.skillId, m.skillMarkdown, `manifest sha=${hex.slice(0, 12)}`);
+				await installCommunitySkillMarkdown(installSkillServices, m.skillId, m.skillMarkdown, `manifest sha=${hex.slice(0, 12)}`);
 			} catch (e) {
 				notifications.notify({ severity: Severity.Error, message: String(e) });
 			}
@@ -852,7 +865,7 @@ registerAction2(class extends Action2 {
 		if (skillIdRaw === undefined || !skillIdRaw.trim()) {
 			return;
 		}
-		await installCommunitySkillMarkdown(accessor, skillIdRaw.trim(), trimmed, `raw SKILL sha=${hex.slice(0, 12)}`);
+		await installCommunitySkillMarkdown(installSkillServices, skillIdRaw.trim(), trimmed, `raw SKILL sha=${hex.slice(0, 12)}`);
 	}
 });
 
@@ -870,6 +883,13 @@ registerAction2(class extends Action2 {
 		const qi = accessor.get(IQuickInputService);
 		const cfg = accessor.get(IConfigurationService);
 		const notifications = accessor.get(INotificationService);
+		const installSkillServices: InstallCommunitySkillServices = {
+			workspace: accessor.get(IWorkspaceContextService),
+			files: accessor.get(IFileService),
+			cmds: accessor.get(ICommandService),
+			notifications,
+			log: accessor.get(ILogService),
+		};
 		const defaultCatalog = (cfg.getValue<string>('vibeide.skills.communityCatalogUrl') ?? '').trim();
 		const catalogUrl = await qi.input({
 			prompt: localize('vibeideSkillsCommunityCatalogUrlPrompt', 'HTTPS URL of catalog JSON ({0})', COMMUNITY_CATALOG_FORMAT),
@@ -930,7 +950,7 @@ registerAction2(class extends Action2 {
 		}
 		try {
 			const m = parseCommunitySkillManifest(JSON.parse(manifestText));
-			await installCommunitySkillMarkdown(accessor, m.skillId, m.skillMarkdown, `catalog:${entry.id} sha=${hex.slice(0, 12)}`);
+			await installCommunitySkillMarkdown(installSkillServices, m.skillId, m.skillMarkdown, `catalog:${entry.id} sha=${hex.slice(0, 12)}`);
 		} catch (e) {
 			notifications.notify({ severity: Severity.Error, message: String(e) });
 		}
@@ -953,6 +973,13 @@ registerAction2(class extends Action2 {
 		const qi = accessor.get(IQuickInputService);
 		const notifications = accessor.get(INotificationService);
 		const workspace = accessor.get(IWorkspaceContextService);
+		const installSkillServices: InstallCommunitySkillServices = {
+			workspace,
+			files: accessor.get(IFileService),
+			cmds: accessor.get(ICommandService),
+			notifications,
+			log: accessor.get(ILogService),
+		};
 		const roots = workspace.getWorkspace().folders;
 		if (!roots.length) {
 			notifications.notify({
@@ -1004,7 +1031,7 @@ registerAction2(class extends Action2 {
 			redacted.trim(),
 			'',
 		].join('\n');
-		await installCommunitySkillMarkdown(accessor, nameForYaml, skillMarkdown, 'save-as-from-chat');
+		await installCommunitySkillMarkdown(installSkillServices, nameForYaml, skillMarkdown, 'save-as-from-chat');
 	}
 });
 

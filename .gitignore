@@ -68,7 +68,9 @@ CLAUDE.md
 .agents/
 .config/
 docs/
-/bin/
+# Root bin/: ignore local scratch by default; allow selected committed utilities (see script-save / knowledge.md)
+bin/*
+!bin/vibe-language-pack-nls.mjs
 # Note: do not add `.github/` here — CI, issue templates, and Copilot docs must remain committable.
 
 # Local IDE / OS noise (keep out of public tree)

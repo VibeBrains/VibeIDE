@@ -70,19 +70,14 @@ export class WorkspaceTrustEnablementService extends Disposable implements IWork
 
 	_serviceBrand: undefined;
 
-	constructor(
-		@IConfigurationService private readonly configurationService: IConfigurationService,
-		@IWorkbenchEnvironmentService private readonly environmentService: IWorkbenchEnvironmentService
-	) {
+	constructor() {
 		super();
 	}
 
 	isWorkspaceTrustEnabled(): boolean {
-		if (this.environmentService.disableWorkspaceTrust) {
-			return false;
-		}
-
-		return !!this.configurationService.getValue(WORKSPACE_TRUST_ENABLED);
+		// [VibeIDE] Workspace trust is always disabled — VibeIDE is a developer tool
+		// and restricted mode breaks AI features / webview panels.
+		return false;
 	}
 }
 

@@ -8,6 +8,7 @@ import { clearNode, addDisposableListener, EventType, EventHelper, $, isEventLik
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
+import { mnemonicButtonLabel } from '../../../../base/common/labels.js';
 import { ButtonBar, IButtonOptions } from '../../../../base/browser/ui/button/button.js';
 import { ActionBar } from '../../../../base/browser/ui/actionbar/actionbar.js';
 import { ActionRunner, IAction, IActionRunner, Separator, toAction } from '../../../../base/common/actions.js';
@@ -146,7 +147,7 @@ class NotificationMessageRenderer {
 
 		for (const node of message.linkedText.nodes) {
 			if (typeof node === 'string') {
-				messageContainer.appendChild(document.createTextNode(node));
+				messageContainer.appendChild(document.createTextNode(node.replace(/\(&&\w\)|&&/g, '')));
 			} else {
 				let title = node.title;
 
@@ -531,7 +532,7 @@ export class NotificationTemplateRenderer extends Disposable {
 					buttonToolbar.addButton(options)
 				);
 
-				button.label = action.label;
+				button.label = mnemonicButtonLabel(action.label, true);
 
 				this.inputDisposables.add(button.onDidClick(e => {
 					if (e) {
