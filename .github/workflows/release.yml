@@ -27,7 +27,9 @@ jobs:
   # ─────────────────────────────────────────────────────────────────
   compile:
     name: Compile TypeScript
-    runs-on: ubuntu-latest
+    # Self-hosted Windows runner handles compile (avoids GitHub-hosted RAM/CPU limits).
+    # Fallback: set USE_GITHUB_RUNNER=true in repo variables to use ubuntu-latest instead.
+    runs-on: ${{ vars.USE_GITHUB_RUNNER == 'true' && 'ubuntu-latest' || fromJSON('["self-hosted", "windows", "x64"]') }}
     steps:
       - uses: actions/checkout@v6
 
@@ -36,9 +38,9 @@ jobs:
           node-version-file: .nvmrc
           cache: 'npm'
 
-      # kerberos (node-gyp) needs krb5/GSSAPI headers on Linux;
-      # native-keymap needs libx11 + libxkbfile for pkg-config
+      # Linux prerequisites only when running on GitHub-hosted ubuntu runner
       - name: Install Linux native build prerequisites
+        if: vars.USE_GITHUB_RUNNER == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config libkrb5-dev libx11-dev libxkbfile-dev
@@ -51,11 +53,11 @@ jobs:
 
       - name: Compile TypeScript
         run: npm run compile-build
-        timeout-minutes: 45
+        timeout-minutes: 90
 
       - name: Compile extensions
         run: npm run compile-extensions-build
-        timeout-minutes: 30
+        timeout-minutes: 45
 
       - name: Upload compiled output
         uses: actions/upload-artifact@v7

@@ -205,6 +205,44 @@ RAG-индекс кодовой базы хранится **не** в `.vibeide/
 
 ---
 
+## Сборка релиза
+
+### Windows (локальная сборка)
+
+Скрипт `scripts/release-windows.ps1` компилирует исходники, собирает `.exe`-установщик и `.zip`-архив, создаёт git-тег и публикует GitHub Release.
+
+**Требования:** Node.js 20+, [gh CLI](https://cli.github.com/) (`winget install GitHub.cli`), [InnoSetup](https://jrsoftware.org/isinfo.php) (`choco install innosetup`).
+
+```powershell
+# Авто-бамп патча (0.1.2 → 0.1.3) + полная сборка + релиз
+.\scripts\release-windows.ps1
+
+# Пропустить компиляцию (исходники уже собраны)
+.\scripts\release-windows.ps1 -SkipCompile
+
+# Задать версию явно + создать как черновик
+.\scripts\release-windows.ps1 -Version v0.2.0 -Draft
+```
+
+Скрипт автоматически инкрементирует `vibeVersion` в `product.json`, коммитит изменение и пушит тег перед созданием релиза.
+
+### CI (все платформы)
+
+Релиз для Windows, macOS и Linux через GitHub Actions запускается при пуше тега `vX.Y.Z` или вручную через `workflow_dispatch` в `.github/workflows/release.yml`.
+
+Компиляция TypeScript по умолчанию выполняется на **self-hosted runner** (Windows-машина разработчика) — это обходит ограничения бесплатных GitHub-раннеров по памяти. Установка раннера:
+
+```cmd
+mkdir D:\github-runner && cd D:\github-runner
+# Токен и команду взять из: github.com/VibeIDETeam/VibeIDE → Settings → Actions → Runners → New runner
+.\config.cmd --url https://github.com/VibeIDETeam/VibeIDE --token <TOKEN>
+.\svc.ps1 install && .\svc.ps1 start
+```
+
+Чтобы принудительно использовать GitHub-раннер вместо self-hosted — добавьте переменную репозитория `USE_GITHUB_RUNNER=true` в Settings → Variables.
+
+---
+
 ## Участие в разработке
 
 Pull request'ы приветствуются. Перед началом значимой работы — откройте issue для обсуждения подхода.
