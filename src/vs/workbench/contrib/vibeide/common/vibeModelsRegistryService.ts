@@ -51,7 +51,8 @@ export interface IVibeModelsRegistryService {
 	getTrainingPolicyForSelection(providerName: string, modelName: string): ModelInfo['trainingPolicy'] | undefined;
 }
 
-const CDN_URL = 'https://registry.vibeide.io/models.json';
+// TODO: switch to https://registry.vibeide.io/models.json once DNS is live
+const CDN_URL = 'https://raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/resources/vibeide/models.json';
 const CACHE_KEY = 'vibeide.modelsRegistry.cache';
 const ETAG_KEY = 'vibeide.modelsRegistry.etag';
 

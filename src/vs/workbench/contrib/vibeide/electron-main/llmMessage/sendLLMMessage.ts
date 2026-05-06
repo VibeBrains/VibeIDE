@@ -76,13 +76,16 @@ export const sendLLMMessage = async ({
 		if (_didAbort) return
 		console.error('sendLLMMessage onError:', errorMessage)
 
-		// handle failed to fetch errors, which give 0 information by design
-		if (errorMessage === 'TypeError: fetch failed') {
+		// handle failed to fetch / connection errors, which give 0 information by design
+		const isConnectionError = errorMessage === 'TypeError: fetch failed'
+			|| errorMessage.includes('Connection error')
+			|| errorMessage.startsWith('APIConnectionError')
+		if (isConnectionError) {
 			// Skip "auto" - it's not a real provider
 			if (providerName !== 'auto') {
-				errorMessage = `Failed to fetch from ${displayInfoOfProviderName(providerName).title}. This likely means you specified the wrong endpoint in VibeIDE Settings, or your local model provider like Ollama is powered off.`
+				errorMessage = `Failed to connect to ${displayInfoOfProviderName(providerName).title}. This likely means you specified the wrong endpoint in VibeIDE Settings, or your local model provider like Ollama is powered off.`
 			} else {
-				errorMessage = `Failed to fetch. This likely means you specified the wrong endpoint in VibeIDE Settings, or your local model provider like Ollama is powered off.`
+				errorMessage = `Failed to connect. This likely means you specified the wrong endpoint in VibeIDE Settings, or your local model provider like Ollama is powered off.`
 			}
 		}
 

@@ -72,6 +72,7 @@ import { IVibeSkillsLibraryService } from '../common/vibeSkillsLibraryService.js
 import { IAuditLogService } from '../common/auditLogService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { VIBE_DOTVIBE_AGENT_PLAYBOOK } from '../common/vibeDotVibeAgentPlaybook.js';
+import { IVibeContextGuardService } from './vibeContextGuardService.js';
 
 export const EMPTY_MESSAGE = '(empty message)'
 
@@ -1264,6 +1265,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@IVibeSkillsLibraryService private readonly skillsLibraryService: IVibeSkillsLibraryService,
 		@IAuditLogService private readonly auditLogService: IAuditLogService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@IVibeContextGuardService private readonly contextGuardService: IVibeContextGuardService,
 	) {
 		super()
 	}
@@ -1757,6 +1759,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const budget = Math.max(256, Math.floor(effectiveContextWindow * budgetMultiplier) - rot)
 		const beforeTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
 
+		// Update status bar with real context usage before any truncation
+		try { this.contextGuardService.updateUsage(beforeTokens, contextWindow) } catch { }
+
 		if (beforeTokens > budget && llmMessages.length > 6) {
 			// Smart truncation: Keep recent messages + prioritize user messages with selections
 			const keepTailCount = 6
@@ -1785,7 +1790,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			systemMessage = (systemMessage || '') + summary
 			llmMessages = tail
 			const afterTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
-			try { this.notificationService.info(`Context: ~${beforeTokens} → ~${afterTokens} tokens (smart truncation)`) } catch { }
+			// Update status bar to reflect post-truncation size; suppress popup (user sees % in status bar)
+			try { this.contextGuardService.updateUsage(afterTokens, contextWindow) } catch { }
+			console.debug(`[VibeIDE] Context smart truncation: ~${beforeTokens} → ~${afterTokens} tokens`)
 		}
 
 		const { messages, separateSystemMessage } = prepareMessages({
