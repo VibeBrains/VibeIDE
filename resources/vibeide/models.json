@@ -1,0 +1,481 @@
+{
+  "version": "1.1.0",
+  "updatedAt": "2026-05-06",
+  "meta": {
+    "description": "VibeIDE Models Registry — training data policy and capabilities per model. Shown in the status bar (train ? indicator). Only models with a known policy need to be listed; unlisted models show 'train ?' in the UI.",
+    "howToUpdate": [
+      "1. Check the provider's privacy/data-use policy page (see policySourcesByProvider below).",
+      "2. Add or update the model entry in the 'models' array.",
+      "3. Set 'checkedAt' to today's date (YYYY-MM-DD).",
+      "4. Update the top-level 'updatedAt' field.",
+      "5. Open a PR — no code changes needed, just this file."
+    ],
+    "trainingPolicyValues": {
+      "none":               "Provider explicitly states API data is NOT used for model training.",
+      "opt-in":             "Training on your data requires explicit opt-in (off by default).",
+      "opt-out-available":  "Provider may train on data by default; an opt-out mechanism exists.",
+      "always":             "Provider trains on prompts under default terms; no opt-out (typical for free tiers)."
+    },
+    "policySourcesByProvider": {
+      "anthropic":    "https://www.anthropic.com/privacy — API usage is not used to train models",
+      "openai":       "https://openai.com/policies/api-data-usage-policies — API data not used for training by default since Mar 2023",
+      "gemini":       "https://ai.google.dev/gemini-api/terms — API data not used to train Google models",
+      "deepseek":     "https://www.deepseek.com/privacy — API data not used for model training",
+      "mistral":      "https://mistral.ai/terms — API inputs/outputs not used for training",
+      "groq":         "https://groq.com/privacy-policy — prompts not used for model training",
+      "xai":          "https://x.ai/legal/privacy-policy — review periodically, policy evolving",
+      "openrouter":   "https://openrouter.ai/privacy — OpenRouter itself doesn't train; underlying provider policy applies",
+      "openCodeZen":  "https://opencode.ai/docs/zen — free-tier models may be used for training",
+      "openCode":     "https://opencode.ai/docs/go — Go subscription; check current terms",
+      "pollinations": "https://pollinations.ai — free service, prompts may be used for improvement",
+      "azure":        "https://learn.microsoft.com/en-us/legal/cognitive-services/openai/data-privacy — not used by default",
+      "vertex":       "https://cloud.google.com/vertex-ai/generative-ai/docs/data-governance — not used for training",
+      "ollama":       "Local — no data leaves the machine",
+      "vLLM":         "Local — no data leaves the machine",
+      "lmStudio":     "Local — no data leaves the machine"
+    }
+  },
+  "models": [
+    {
+      "id": "claude-opus-4-5-20251101",
+      "name": "Claude Opus 4.5",
+      "provider": "anthropic",
+      "contextLength": 200000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "extendedThinking": true, "structuredOutput": true }
+    },
+    {
+      "id": "claude-sonnet-4-5-20250929",
+      "name": "Claude Sonnet 4.5",
+      "provider": "anthropic",
+      "contextLength": 200000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "extendedThinking": true, "structuredOutput": true }
+    },
+    {
+      "id": "claude-haiku-4-5-20251001",
+      "name": "Claude Haiku 4.5",
+      "provider": "anthropic",
+      "contextLength": 200000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "structuredOutput": true }
+    },
+    {
+      "id": "claude-opus-4-1-20250805",
+      "name": "Claude Opus 4.1",
+      "provider": "anthropic",
+      "contextLength": 200000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "extendedThinking": true, "structuredOutput": true }
+    },
+    {
+      "id": "claude-opus-4-20250514",
+      "name": "Claude Opus 4",
+      "provider": "anthropic",
+      "contextLength": 200000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "extendedThinking": true, "structuredOutput": true }
+    },
+    {
+      "id": "claude-sonnet-4-20250514",
+      "name": "Claude Sonnet 4",
+      "provider": "anthropic",
+      "contextLength": 200000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "extendedThinking": true, "structuredOutput": true }
+    },
+    {
+      "id": "claude-3-7-sonnet-20250219",
+      "name": "Claude 3.7 Sonnet",
+      "provider": "anthropic",
+      "contextLength": 200000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "extendedThinking": true, "structuredOutput": true }
+    },
+    {
+      "id": "claude-3-5-sonnet-20241022",
+      "name": "Claude 3.5 Sonnet",
+      "provider": "anthropic",
+      "contextLength": 200000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "structuredOutput": true }
+    },
+    {
+      "id": "claude-3-5-haiku-20241022",
+      "name": "Claude 3.5 Haiku",
+      "provider": "anthropic",
+      "contextLength": 200000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "structuredOutput": true }
+    },
+    {
+      "id": "gpt-4.1",
+      "name": "GPT-4.1",
+      "provider": "openai",
+      "contextLength": 1047576,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "structuredOutput": true }
+    },
+    {
+      "id": "gpt-4.1-mini",
+      "name": "GPT-4.1 Mini",
+      "provider": "openai",
+      "contextLength": 1047576,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "structuredOutput": true }
+    },
+    {
+      "id": "gpt-4.1-nano",
+      "name": "GPT-4.1 Nano",
+      "provider": "openai",
+      "contextLength": 1047576,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "structuredOutput": true }
+    },
+    {
+      "id": "gpt-4o",
+      "name": "GPT-4o",
+      "provider": "openai",
+      "contextLength": 128000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "structuredOutput": true }
+    },
+    {
+      "id": "gpt-4o-mini",
+      "name": "GPT-4o Mini",
+      "provider": "openai",
+      "contextLength": 128000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "structuredOutput": true }
+    },
+    {
+      "id": "o4-mini",
+      "name": "o4-mini",
+      "provider": "openai",
+      "contextLength": 200000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "streaming": true, "structuredOutput": true }
+    },
+    {
+      "id": "o3",
+      "name": "o3",
+      "provider": "openai",
+      "contextLength": 200000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "streaming": true, "structuredOutput": true }
+    },
+    {
+      "id": "o3-mini",
+      "name": "o3-mini",
+      "provider": "openai",
+      "contextLength": 200000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "streaming": true, "structuredOutput": true }
+    },
+    {
+      "id": "o3-pro",
+      "name": "o3-pro",
+      "provider": "openai",
+      "contextLength": 200000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "streaming": false, "structuredOutput": true }
+    },
+    {
+      "id": "o1",
+      "name": "o1",
+      "provider": "openai",
+      "contextLength": 200000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "structuredOutput": true }
+    },
+    {
+      "id": "o1-mini",
+      "name": "o1-mini",
+      "provider": "openai",
+      "contextLength": 128000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": false, "streaming": true }
+    },
+    {
+      "id": "gemini-2.5-pro",
+      "name": "Gemini 2.5 Pro",
+      "provider": "gemini",
+      "contextLength": 1048576,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "extendedThinking": true, "structuredOutput": true }
+    },
+    {
+      "id": "gemini-2.5-pro-preview-05-06",
+      "name": "Gemini 2.5 Pro Preview",
+      "provider": "gemini",
+      "contextLength": 1048576,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "extendedThinking": true, "structuredOutput": true }
+    },
+    {
+      "id": "gemini-2.5-flash-preview-04-17",
+      "name": "Gemini 2.5 Flash Preview",
+      "provider": "gemini",
+      "contextLength": 1048576,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "extendedThinking": true, "structuredOutput": true }
+    },
+    {
+      "id": "gemini-2.0-flash",
+      "name": "Gemini 2.0 Flash",
+      "provider": "gemini",
+      "contextLength": 1048576,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "structuredOutput": true }
+    },
+    {
+      "id": "gemini-1.5-pro",
+      "name": "Gemini 1.5 Pro",
+      "provider": "gemini",
+      "contextLength": 2097152,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "structuredOutput": true }
+    },
+    {
+      "id": "deepseek-reasoner",
+      "name": "DeepSeek R1",
+      "provider": "deepseek",
+      "contextLength": 128000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": false, "streaming": true, "extendedThinking": true }
+    },
+    {
+      "id": "deepseek-chat",
+      "name": "DeepSeek V3",
+      "provider": "deepseek",
+      "contextLength": 128000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "streaming": true }
+    },
+    {
+      "id": "mistral-large-latest",
+      "name": "Mistral Large",
+      "provider": "mistral",
+      "contextLength": 131072,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "streaming": true, "structuredOutput": true }
+    },
+    {
+      "id": "mistral-medium-latest",
+      "name": "Mistral Medium",
+      "provider": "mistral",
+      "contextLength": 131072,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "streaming": true, "structuredOutput": true }
+    },
+    {
+      "id": "mistral-small-latest",
+      "name": "Mistral Small",
+      "provider": "mistral",
+      "contextLength": 131072,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "streaming": true }
+    },
+    {
+      "id": "codestral-latest",
+      "name": "Codestral",
+      "provider": "mistral",
+      "contextLength": 256000,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "streaming": true }
+    },
+    {
+      "id": "llama-4-scout-17b-16e-instruct",
+      "name": "Llama 4 Scout (Groq)",
+      "provider": "groq",
+      "contextLength": 131072,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true }
+    },
+    {
+      "id": "llama-4-maverick-17b-128e-instruct",
+      "name": "Llama 4 Maverick (Groq)",
+      "provider": "groq",
+      "contextLength": 131072,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true }
+    },
+    {
+      "id": "llama-3.3-70b-versatile",
+      "name": "Llama 3.3 70B (Groq)",
+      "provider": "groq",
+      "contextLength": 131072,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "streaming": true }
+    },
+    {
+      "id": "qwen-qwq-32b",
+      "name": "Qwen QwQ 32B (Groq)",
+      "provider": "groq",
+      "contextLength": 131072,
+      "trainingPolicy": "none",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "streaming": true, "extendedThinking": true }
+    },
+    {
+      "id": "grok-3",
+      "name": "Grok 3",
+      "provider": "xai",
+      "contextLength": 131072,
+      "trainingPolicy": "opt-out-available",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true }
+    },
+    {
+      "id": "grok-3-mini",
+      "name": "Grok 3 Mini",
+      "provider": "xai",
+      "contextLength": 131072,
+      "trainingPolicy": "opt-out-available",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "streaming": true, "extendedThinking": true }
+    },
+    {
+      "id": "grok-2-1212",
+      "name": "Grok 2",
+      "provider": "xai",
+      "contextLength": 131072,
+      "trainingPolicy": "opt-out-available",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true }
+    },
+    {
+      "id": "meta-llama/llama-4-scout",
+      "name": "Llama 4 Scout",
+      "provider": "openrouter",
+      "contextLength": 131072,
+      "trainingPolicy": "opt-out-available",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true }
+    },
+    {
+      "id": "meta-llama/llama-4-maverick",
+      "name": "Llama 4 Maverick",
+      "provider": "openrouter",
+      "contextLength": 131072,
+      "trainingPolicy": "opt-out-available",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true }
+    },
+    {
+      "id": "qwen/qwen3-235b-a22b",
+      "name": "Qwen3 235B",
+      "provider": "openrouter",
+      "contextLength": 131072,
+      "trainingPolicy": "opt-out-available",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "streaming": true, "extendedThinking": true }
+    },
+    {
+      "id": "qwen/qwen3-30b-a3b",
+      "name": "Qwen3 30B",
+      "provider": "openrouter",
+      "contextLength": 131072,
+      "trainingPolicy": "opt-out-available",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "streaming": true, "extendedThinking": true }
+    },
+    {
+      "id": "deepseek/deepseek-r1",
+      "name": "DeepSeek R1 (OpenRouter)",
+      "provider": "openrouter",
+      "contextLength": 163840,
+      "trainingPolicy": "opt-out-available",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": false, "streaming": true, "extendedThinking": true }
+    },
+    {
+      "id": "deepseek/deepseek-chat-v3-0324",
+      "name": "DeepSeek V3 (OpenRouter)",
+      "provider": "openrouter",
+      "contextLength": 163840,
+      "trainingPolicy": "opt-out-available",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "streaming": true }
+    },
+    {
+      "id": "google/gemini-2.5-pro-preview",
+      "name": "Gemini 2.5 Pro (OpenRouter)",
+      "provider": "openrouter",
+      "contextLength": 1048576,
+      "trainingPolicy": "opt-out-available",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true, "extendedThinking": true }
+    },
+    {
+      "id": "minimax/minimax-m2-5-free",
+      "name": "MiniMax M2.5 Free",
+      "provider": "openCodeZen",
+      "contextLength": 40960,
+      "trainingPolicy": "always",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "vision": true, "streaming": true }
+    },
+    {
+      "id": "lingyi/ling-2-6-flash",
+      "name": "Ling 2.6 Flash",
+      "provider": "openCodeZen",
+      "contextLength": 32768,
+      "trainingPolicy": "always",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "streaming": true }
+    },
+    {
+      "id": "lingyi/ling-2-6-flash-free",
+      "name": "Ling 2.6 Flash Free",
+      "provider": "openCodeZen",
+      "contextLength": 32768,
+      "trainingPolicy": "always",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": true, "streaming": true }
+    },
+    {
+      "id": "openai",
+      "name": "Pollinations OpenAI",
+      "provider": "pollinations",
+      "contextLength": 128000,
+      "trainingPolicy": "always",
+      "checkedAt": "2026-05-06",
+      "capabilities": { "functionCalling": false, "vision": false, "streaming": true }
+    }
+  ]
+}

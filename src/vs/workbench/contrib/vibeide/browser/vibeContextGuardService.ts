@@ -37,6 +37,9 @@ export interface IVibeContextGuardService {
 	/** Get current status */
 	getStatus(): ContextLimitStatus;
 
+	/** Event fired on every updateUsage call (for live status bar refresh) */
+	readonly onUsageUpdated: Event<ContextLimitStatus>;
+
 	/** Event fired when context approaches limit (75% or 90%) */
 	readonly onContextLimitWarning: Event<ContextLimitEvent>;
 
@@ -51,6 +54,9 @@ export interface IVibeContextGuardService {
  */
 class VibeContextGuardService extends Disposable implements IVibeContextGuardService {
 	declare readonly _serviceBrand: undefined;
+
+	private readonly _onUsageUpdated = this._register(new Emitter<ContextLimitStatus>());
+	readonly onUsageUpdated = this._onUsageUpdated.event;
 
 	private readonly _onContextLimitWarning = this._register(new Emitter<ContextLimitEvent>());
 	readonly onContextLimitWarning = this._onContextLimitWarning.event;
@@ -86,6 +92,7 @@ class VibeContextGuardService extends Disposable implements IVibeContextGuardSer
 		this._maxTokens = maxTokens;
 
 		const status = this.getStatus();
+		this._onUsageUpdated.fire(status);
 		this._logService.debug(`[VibeIDE ContextGuard] ${status.percentUsed.toFixed(1)}% (${currentTokens.toLocaleString()}/${maxTokens.toLocaleString()} tokens)`);
 
 		if (status.isCritical && !this._criticalFired) {

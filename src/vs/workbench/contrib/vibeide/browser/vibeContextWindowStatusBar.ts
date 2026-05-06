@@ -33,6 +33,10 @@ export class VibeContextWindowStatusBarContribution extends Disposable implement
 			{ location: { id: 'status.editor.mode', priority: 180 }, alignment: StatusbarAlignment.RIGHT }
 		);
 
+		this._register(this._contextGuard.onUsageUpdated(() => {
+			this._entry?.update(this._getEntryProps());
+		}));
+
 		this._register(this._contextGuard.onContextLimitWarning(() => {
 			this._entry?.update(this._getEntryProps());
 		}));

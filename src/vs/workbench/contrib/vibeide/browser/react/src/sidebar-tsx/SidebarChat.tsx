@@ -22,7 +22,7 @@ import { ChatMode, displayInfoOfProviderName, FeatureName, isFeatureNameDisabled
 import { ICommandService } from '../../../../../../../platform/commands/common/commands.js';
 import { WarningBox } from '../vibe-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputTokenSpace } from '../../../../common/modelCapabilities.js';
-import { AlertTriangle, File, Ban, Check, ChevronRight, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Image as ImageIcon, FileText } from 'lucide-react';
+import { AlertTriangle, File, Ban, Check, ChevronRight, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Image as ImageIcon, FileText, LoaderCircle } from 'lucide-react';
 import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, PlanStep, StepStatus, PlanApprovalState } from '../../../../common/chatThreadServiceTypes.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
 import { CopyButton, EditToolAcceptRejectButtonsHTML, IconShell1, JumpToFileButton, JumpToTerminalButton, StatusIndicator, StatusIndicatorForApplyButton, useApplyStreamState, useEditToolStreamState } from '../markdown/ApplyBlockHoverButtons.js';
@@ -195,6 +195,15 @@ export const IconLoading = ({
 		</div>
 	);
 }
+
+// Spinner — rotating ring shown while model is generating (before first token arrives)
+export const Spinner = ({ className = '', size = 15 }: { className?: string; size?: number }) => (
+	<LoaderCircle
+		size={size}
+		className={`animate-spin flex-shrink-0 ${className}`}
+		aria-hidden="true"
+	/>
+)
 
 // Typing cursor component for inline use at end of streaming content
 export const TypingCursor = ({ className = '' }: { className?: string }) => {
@@ -4657,30 +4666,22 @@ export const SidebarChat = () => {
 		{(isRunning === 'LLM' || isRunning === 'preparing') && !displayContentSoFar && !reasoningSoFar ? (
 			<ProseWrapper>
 				<div
-					className="flex flex-col gap-1"
+					className="flex items-center gap-3 loading-state-transition"
 					role="status"
 					aria-live="polite"
 					aria-atomic="true"
 				>
-					<div className="flex items-center gap-2 text-sm opacity-70 loading-state-transition">
-						{isRunning === 'preparing' && currThreadStreamState?.llmInfo?.displayContentSoFar ? (
-							<>
-								<span className="text-vibe-fg-2" aria-hidden="false">{currThreadStreamState.llmInfo.displayContentSoFar}</span>
-								<IconLoading state="thinking" inline />
-							</>
-						) : isRunning === 'preparing' ? (
-							<>
-								<span className="text-vibe-fg-2" aria-hidden="false">Preparing request</span>
-								<IconLoading state="thinking" inline />
-							</>
-						) : (
-							<>
-								<span className="text-vibe-fg-2" aria-hidden="false">Generating response</span>
-								<IconLoading state="typing" inline />
-							</>
-						)}
+					<Spinner size={16} className="text-vibe-fg-2 opacity-70 flex-shrink-0" />
+					<div className="flex flex-col gap-0.5">
+						<span className="text-sm text-vibe-fg-2 opacity-80">
+							{isRunning === 'preparing' && currThreadStreamState?.llmInfo?.displayContentSoFar
+								? currThreadStreamState.llmInfo.displayContentSoFar
+								: isRunning === 'preparing'
+									? 'Preparing request…'
+									: 'Generating response…'}
+						</span>
+						<span className="text-[11px] text-vibe-fg-3 opacity-50">Press Escape to cancel</span>
 					</div>
-					<span className="text-xs text-vibe-fg-3 opacity-60">Press Escape to cancel</span>
 				</div>
 			</ProseWrapper>
 		) : null}
