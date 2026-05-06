@@ -258,7 +258,7 @@ Pull request'ы приветствуются. Перед началом знач
 **Discord** — самый быстрый способ задать вопрос по установке и использованию, обсудить идеи и поймать «плавающие» баги вместе с другими пользователями, пока вы ещё не уверены, что это стоит оформлять в тикет.
 
 <p>
-  <a href="https://discord.gg/NFc3EKPany" title="Приглашение в Discord VibeIDE">
+  <a href="https://discord.gg/kB8Gx56S" title="Приглашение в Discord VibeIDE">
     <img src="https://img.shields.io/badge/Discord-войти_на_сервер-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord — приглашение на сервер" />
   </a>
 </p>
