@@ -991,6 +991,10 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 				const rateLimitMessage = error.message || 'Rate limit exceeded. Please wait a moment before trying again.';
 				onError({ message: `Rate limit exceeded: ${rateLimitMessage}`, fullError: error });
 			}
+			else if (error instanceof OpenAI.APIConnectionError) {
+				// Connection error — provider is unreachable (Ollama off, wrong endpoint, etc.)
+				onError({ message: 'TypeError: fetch failed', fullError: error });
+			}
 			else {
 				onError({ message: error + '', fullError: error });
 			}

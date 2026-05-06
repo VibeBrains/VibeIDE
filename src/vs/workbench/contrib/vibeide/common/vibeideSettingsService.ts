@@ -600,6 +600,13 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 			// When Chat model changes, update synced features
 			this._onUpdate_syncApplyToChat()
 			this._onUpdate_syncSCMToChat()
+			// Propagate to Ctrl+K and Autocomplete if they have no model yet (first-time setup)
+			if (!this.state.modelSelectionOfFeature['Ctrl+K']) {
+				await this.setModelSelectionOfFeature('Ctrl+K', deepClone(this.state.modelSelectionOfFeature['Chat']))
+			}
+			if (!this.state.modelSelectionOfFeature['Autocomplete']) {
+				await this.setModelSelectionOfFeature('Autocomplete', deepClone(this.state.modelSelectionOfFeature['Chat']))
+			}
 		}
 	}
 
