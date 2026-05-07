@@ -282,6 +282,28 @@ body.monaco-workbench,
 	border-color: var(--vscode-input-border, var(--vscode-widget-border, transparent)) !important;
 }
 
+/* Chat editor pane (split tab) — remap --vibe-* surfaces to VS Code theme tokens so the
+ * panel background matches the active color theme (e.g. vibe-neon #262335) instead of the
+ * default :root ink-black #080808.  The selector targets the [data-vibeide-chat-group]
+ * attribute stamped on .editor-group-container by VibeChatEditorPane.createEditor(). */
+.monaco-workbench .part.editor>.content [data-vibeide-chat-group] {
+	--vibe-bg-1:     var(--vscode-editor-background);
+	--vibe-bg-1-alt: var(--vscode-editor-background);
+	--vibe-bg-2:     var(--vscode-editor-background);
+	--vibe-bg-2-alt: var(--vscode-editor-background);
+	--vibe-bg-2-hover: var(--vscode-list-hoverBackground, var(--vscode-editor-background));
+	--vibe-bg-3:     var(--vscode-sideBar-background, var(--vscode-editor-background));
+	--vibe-fg-0:     var(--vscode-editor-foreground);
+	--vibe-fg-1:     var(--vscode-editor-foreground);
+	--vibe-fg-2:     var(--vscode-sideBar-foreground, var(--vscode-editor-foreground));
+	--vibe-fg-3:     var(--vscode-descriptionForeground, var(--vscode-editor-foreground));
+	--vibe-fg-4:     var(--vscode-descriptionForeground, var(--vscode-editor-foreground));
+	--vibe-border-1: var(--vscode-widget-border, transparent);
+	--vibe-border-2: var(--vscode-widget-border, transparent);
+	--vibe-border-3: var(--vscode-widget-border, transparent);
+	--vibe-border-4: var(--vscode-widget-border, transparent);
+}
+
 /* Chat panel (auxiliary bar) + editor-hosted Vibe React (Settings, Quick Edit, widgets):
  * map --vibe-* surfaces to input / list tokens so panels match the chat composer and theme
  * (avoids legacy :root “ink black” #040404 on form fields). Onboarding keeps its own
@@ -531,6 +553,13 @@ body.monaco-workbench,
 .monaco-workbench .workbench-hover-container:focus-within .workbench-hover-pointer:after {
 	border-right-color: var(--vscode-focusBorder);
 	border-bottom-color: var(--vscode-focusBorder);
+}
+
+/* Floating popup panels and dropdowns: use editorWidget border token so the border
+ * stays visible in all theme contexts, including [data-vibeide-chat-group] where
+ * --vibe-border-* resolves to transparent (widget.border is often undefined). */
+.vibe-popup-panel {
+	border-color: var(--vscode-editorWidget-border, var(--vscode-input-border, var(--vscode-widget-border, rgba(255, 255, 255, 0.13)))) !important;
 }
 
 /* Font Awesome 6 Solid — nominal weight 900 (see vibeideFontAwesomeSolid.ts). */
