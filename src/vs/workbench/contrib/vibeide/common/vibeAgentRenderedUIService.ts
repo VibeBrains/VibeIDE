@@ -121,6 +121,43 @@ const MAX_TABLE_ROWS = 100;
 const MAX_CELL_CHARS = 500;
 const MAX_BUTTONS = 3;
 
+/**
+ * Positive allowlist of commands the agent is allowed to invoke from
+ * `action_buttons`. Mirrors `references/v1/a2ui-allowed-commands.md`. Adding a command
+ * here is a security decision — keep this constant in sync with the doc table and require
+ * a reviewer outside the original author for any change (label `a2ui-allowlist-change`).
+ *
+ * Explicitly NOT in the list:
+ *   - vibeide.commands.run.<id> (Project Commands shell exec — needs consent dialog)
+ *   - vibeide.skills.importCommunityUrl (writes content; consent is user-driven)
+ *   - vibeide.skills.saveAsFromChat (writes new files under .vibe/skills)
+ *   - vibeide.emergencyStopAllAgents (destructive; terminates running sessions)
+ *   - workbench.action.* / vscode.* (out of scope)
+ */
+export const A2UI_ALLOWED_COMMANDS: readonly string[] = Object.freeze([
+	'vibeide.openSettings',
+	'vibeide.context.attachApiSpec',
+	'vibeide.context.pickDiagram',
+	'vibeide.context.previewDiagram',
+	'vibeide.skills.pickSession',
+	'vibeide.skills.showFolder',
+	'vibeide.skills.newTemplate',
+	'vibeide.plans.newInWorkspace',
+	'vibeide.plans.showPlansFolder',
+	'vibeide.plans.bindingSnapshot',
+	'vibeide.plans.findSimilar',
+	'vibeide.plans.explainRisk',
+	'vibeide.copyIssueReport',
+	'vibeide.chat.cycleMode',
+]);
+
+/**
+ * Pure helper. Returns true iff `commandId` is in the A2UI positive allowlist.
+ */
+export function isA2UICommandAllowed(commandId: string | unknown): boolean {
+	return typeof commandId === 'string' && A2UI_ALLOWED_COMMANDS.includes(commandId);
+}
+
 class VibeAgentRenderedUIService extends Disposable implements IVibeAgentRenderedUIService {
 	declare readonly _serviceBrand: undefined;
 
@@ -219,10 +256,11 @@ class VibeAgentRenderedUIService extends Disposable implements IVibeAgentRendere
 				if (typeof b !== 'object' || b === null) { return null; }
 				const bRaw = b as Record<string, unknown>;
 				const label = this._sanitizeStr(bRaw['label'], 80);
-				// Command must be a known vibeide.* command — strip others
-				const command = typeof bRaw['command'] === 'string' && bRaw['command'].startsWith('vibeide.')
-					? bRaw['command'].slice(0, 100)
-					: '';
+				// Command must be in the A2UI positive allowlist — strip everything else.
+				// Prefix-only filter (vibeide.*) was insufficient: vibeide.commands.run.<id>
+				// would have routed the agent through Project Commands' shell exec without
+				// consent. See references/v1/a2ui-allowed-commands.md.
+				const command = isA2UICommandAllowed(bRaw['command']) ? bRaw['command'] as string : '';
 				if (!command) { return null; }
 				return { label, command };
 			}).filter(Boolean) as Array<{ label: string; command: string }>
