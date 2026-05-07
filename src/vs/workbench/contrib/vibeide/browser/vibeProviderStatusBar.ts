@@ -101,7 +101,7 @@ export class VibeProviderStatusBarContribution extends Disposable implements IWo
 			case 'operational': return localize('vibeProviderHealth.operational', 'Operational');
 			case 'degraded': return localize('vibeProviderHealth.degraded', 'Degraded');
 			case 'outage': return localize('vibeProviderHealth.outage', 'Outage');
-			default: return localize('vibeProviderHealth.unknown', 'Unknown');
+			default: return localize('vibeProviderHealth.notChecked', 'Not checked');
 		}
 	}
 }

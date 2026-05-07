@@ -8,10 +8,10 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
-import { IRequestService } from '../../../../platform/request/common/request.js';
-import { CancellationToken } from '../../../../base/common/cancellation.js';
 
 export type ProviderHealth = 'operational' | 'degraded' | 'outage' | 'unknown';
+
+export type RequestOutcome = 'success' | 'networkError' | 'authError' | 'serverError';
 
 export interface ProviderStatus {
 	providerName: string;
@@ -26,29 +26,25 @@ export const IVibeProviderStatusService = createDecorator<IVibeProviderStatusSer
 export interface IVibeProviderStatusService {
 	readonly _serviceBrand: undefined;
 
-	/** Get cached status for all configured providers */
+	/** Get cached status for all providers that have been observed */
 	getAllStatuses(): Map<string, ProviderStatus>;
 
-	/** Refresh status for all providers */
+	/** No-op kept for API compatibility — status updates come from reportRequestResult */
 	refresh(): Promise<void>;
 
-	/** Check if a specific provider is healthy */
+	/** True when no failure has been observed (default) or last outcome was success */
 	isHealthy(providerName: string): boolean;
+
+	/** Update provider health from the result of a real API call */
+	reportRequestResult(providerName: string, outcome: RequestOutcome, latencyMs?: number): void;
 
 	readonly onStatusChanged: Event<ProviderStatus>;
 }
 
-// Provider status page URLs
-const STATUS_URLS: Record<string, string> = {
-	'anthropic': 'https://status.anthropic.com/api/v2/status.json',
-	'openai': 'https://status.openai.com/api/v2/status.json',
-	'gemini': 'https://www.googleapis.com/discovery/v1/apis',
-};
-
 /**
- * VibeIDE Provider Status Widget.
- * Real-time health status for all configured LLM providers.
- * Shows: operational / degraded / outage based on status pages.
+ * VibeIDE Provider Status.
+ * Health is observed from real provider API calls reported via reportRequestResult.
+ * No external status-page polling — that hits CORS in the renderer and gives a stale signal anyway.
  */
 class VibeProviderStatusService extends Disposable implements IVibeProviderStatusService {
 	declare readonly _serviceBrand: undefined;
@@ -57,47 +53,40 @@ class VibeProviderStatusService extends Disposable implements IVibeProviderStatu
 	readonly onStatusChanged = this._onStatusChanged.event;
 
 	private readonly _statuses = new Map<string, ProviderStatus>();
-	private _refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 	constructor(
 		@ILogService private readonly _logService: ILogService,
-		@IRequestService private readonly _requestService: IRequestService,
 	) {
 		super();
-		// Refresh every 5 minutes
-		this._refreshTimer = setInterval(() => this.refresh(), 5 * 60 * 1000);
-		this.refresh().catch(() => {}); // Initial check (non-blocking)
 	}
 
 	getAllStatuses(): Map<string, ProviderStatus> {
 		return new Map(this._statuses);
 	}
 
+	async refresh(): Promise<void> {
+		// No-op: status is driven by reportRequestResult.
+	}
+
 	isHealthy(providerName: string): boolean {
 		const status = this._statuses.get(providerName.toLowerCase());
+		// Default to healthy when no observation yet — avoids a misleading warning state at startup.
 		return !status || status.health === 'operational';
 	}
 
-	async refresh(): Promise<void> {
-		for (const [provider, url] of Object.entries(STATUS_URLS)) {
-			await this._checkProvider(provider, url);
-		}
+	reportRequestResult(providerName: string, outcome: RequestOutcome, latencyMs?: number): void {
+		const health = this._outcomeToHealth(outcome);
+		this._updateStatus(providerName.toLowerCase(), health, latencyMs);
 	}
 
-	private async _checkProvider(providerName: string, statusUrl: string): Promise<void> {
-		const start = Date.now();
-		try {
-			const context = await this._requestService.request(
-				{ url: statusUrl, type: 'GET', callSite: 'vibeide-provider-status-check' },
-				CancellationToken.None
-			);
-
-			const latencyMs = Date.now() - start;
-			const health: ProviderHealth = context.res.statusCode === 200 ? 'operational' : 'degraded';
-
-			this._updateStatus(providerName, health, latencyMs);
-		} catch {
-			this._updateStatus(providerName, 'unknown');
+	private _outcomeToHealth(outcome: RequestOutcome): ProviderHealth {
+		switch (outcome) {
+			case 'success': return 'operational';
+			case 'authError': return 'outage';
+			case 'networkError':
+			case 'serverError':
+			default:
+				return 'degraded';
 		}
 	}
 
@@ -114,11 +103,6 @@ class VibeProviderStatusService extends Disposable implements IVibeProviderStatu
 		if (health !== 'operational') {
 			this._logService.warn(`[VibeIDE ProviderStatus] ${providerName}: ${health}`);
 		}
-	}
-
-	override dispose(): void {
-		if (this._refreshTimer) clearInterval(this._refreshTimer);
-		super.dispose();
 	}
 }
 
