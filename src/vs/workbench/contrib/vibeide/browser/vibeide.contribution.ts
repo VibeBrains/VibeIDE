@@ -281,6 +281,9 @@ import './vibeTrainingPolicyStatusBar.js'
 // VibeIDE: Session skill filter (status bar + palette)
 import './vibeSkillsSessionStatusBar.js'
 
+// VibeIDE: Chat mode switcher (status bar + cycle command)
+import './vibeChatModeStatusBar.js'
+
 // VibeIDE: Persisted plan resume (scan .vibe/plans/ on startup, offer to continue interrupted plans)
 import './vibePersistedPlanResumeContribution.js'
 import './vibePersistedPlanDiskEditContribution.js'
