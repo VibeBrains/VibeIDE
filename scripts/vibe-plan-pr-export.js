@@ -6,6 +6,12 @@
  *   node scripts/vibe-plan-pr-export.js --file .vibe/plans/agent-plan-xxxx.plan.md
  *   node scripts/vibe-plan-pr-export.js --latest
  *   node scripts/vibe-plan-pr-export.js path/to/x.plan.md
+ *
+ *   --include-annotations
+ *     For each step that carries an `annotation` (or `rationale`) field in the
+ *     machine JSON, emit a `> [!NOTE] AI rationale: …` block under the checklist
+ *     entry. Closes K.3 diff-annotations export item by routing per-step rationale
+ *     into the PR body without the user having to copy them by hand.
  */
 
 'use strict';
@@ -112,6 +118,7 @@ function main() {
 		`_Source: \`${path.relative(process.cwd(), fp) || fp}\` · \`planId=${planId}\`_`,
 		'',
 	];
+	const includeAnnotations = args.includes('--include-annotations');
 	for (const s of steps.sort((a, b) => (a.stepNumber || 0) - (b.stepNumber || 0))) {
 		const n = s.stepNumber ?? 0;
 		const anchor = `plan-step-${String(planId).slice(0, 8)}-${n}`;
@@ -124,6 +131,15 @@ function main() {
 		const done = String(s.status || '').toLowerCase() === 'done';
 		const box = done ? '[x]' : '[ ]';
 		lines.push(`- ${box} <!-- ${anchor} --> ${labeled}`);
+		if (includeAnnotations) {
+			const annotation = (typeof s.annotation === 'string' && s.annotation.trim())
+				|| (typeof s.rationale === 'string' && s.rationale.trim())
+				|| '';
+			if (annotation) {
+				const oneLine = annotation.replace(/\s+/g, ' ').trim();
+				lines.push(`  > [!NOTE] AI rationale: ${oneLine}`);
+			}
+		}
 	}
 	if (!steps.length) {
 		lines.push('_(no steps in machine JSON)_');
