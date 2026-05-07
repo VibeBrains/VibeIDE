@@ -287,6 +287,9 @@ import './vibeChatModeStatusBar.js'
 // VibeIDE: One-shot cortexide.* → vibeide.* settings migration
 import './vibeSettingsMigrationContribution.js'
 
+// VibeIDE: AI provenance marker setting + helper
+import '../common/vibeAiProvenanceConfiguration.js'
+
 // VibeIDE: Persisted plan resume (scan .vibe/plans/ on startup, offer to continue interrupted plans)
 import './vibePersistedPlanResumeContribution.js'
 import './vibePersistedPlanDiskEditContribution.js'
