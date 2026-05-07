@@ -49,6 +49,31 @@ export interface IVibeTokenBudgetService {
 }
 
 /**
+ * Pure helper. Compute a TokenBudgetStatus snapshot from the current `used` count,
+ * the configured `limit`, and whether the guard is `enabled`. When `enabled === false`,
+ * `isExceeded` and `isWarning` always return false even if the count is over the limit
+ * (the guard does not block when disabled).
+ */
+export function computeBudgetStatus(used: number, limit: number, enabled: boolean): TokenBudgetStatus {
+	const percentUsed = limit > 0 ? (used / limit) * 100 : 0;
+	return {
+		sessionTokensUsed: used,
+		sessionTokensLimit: limit,
+		percentUsed,
+		isExceeded: enabled && used >= limit,
+		isWarning: enabled && percentUsed >= 80,
+	};
+}
+
+/**
+ * Pure helper. Folds an LLM usage report into the running session counter, clamping
+ * negative values to zero. Returns the new running total.
+ */
+export function accumulateUsage(prev: number, inputTokens: number, outputTokens: number): number {
+	return prev + Math.max(0, inputTokens) + Math.max(0, outputTokens);
+}
+
+/**
  * VibeIDE: Session token budget enforcement.
  * Default limit: 500,000 tokens per session.
  * Prevents runaway agents from generating unexpected costs.
@@ -114,21 +139,13 @@ class VibeTokenBudgetService extends Disposable implements IVibeTokenBudgetServi
 	}
 
 	getStatus(): TokenBudgetStatus {
-		const percentUsed = this._sessionTokensLimit > 0
-			? (this._sessionTokensUsed / this._sessionTokensLimit) * 100
-			: 0;
-		return {
-			sessionTokensUsed: this._sessionTokensUsed,
-			sessionTokensLimit: this._sessionTokensLimit,
-			percentUsed,
-			isExceeded: this._enabled && this._sessionTokensUsed >= this._sessionTokensLimit,
-			isWarning: this._enabled && percentUsed >= 80,
-		};
+		return computeBudgetStatus(this._sessionTokensUsed, this._sessionTokensLimit, this._enabled);
 	}
 
 	recordUsage(inputTokens: number, outputTokens: number): void {
-		const total = Math.max(0, inputTokens) + Math.max(0, outputTokens);
-		this._sessionTokensUsed += total;
+		const previous = this._sessionTokensUsed;
+		this._sessionTokensUsed = accumulateUsage(previous, inputTokens, outputTokens);
+		const total = this._sessionTokensUsed - previous;
 
 		if (this._splitEnabled && this._activeQueueTaskId && total > 0) {
 			const id = this._activeQueueTaskId;

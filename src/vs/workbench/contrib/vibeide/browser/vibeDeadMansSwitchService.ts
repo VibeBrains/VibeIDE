@@ -38,6 +38,39 @@ export interface IVibeDeadMansSwitchService {
 	readonly onAgentResumed: Event<{ taskId: string }>;
 }
 
+export const DMS_DEFAULT_TIMEOUT_MINUTES = 5;
+export const DMS_MIN_TIMEOUT_MINUTES = 1;
+
+/**
+ * Pure helper. Convert a configured timeout (in minutes) to milliseconds, applying:
+ *   - 0 → 0 (DMS disabled),
+ *   - any value below DMS_MIN_TIMEOUT_MINUTES is clamped to DMS_MIN_TIMEOUT_MINUTES,
+ *   - the result is `clampedMinutes * 60_000`.
+ *
+ * Used by both the runtime service and unit tests.
+ */
+export function dmsTimeoutMs(minutes: number): number {
+	if (minutes === 0) {
+		return 0;
+	}
+	const clamped = Math.max(DMS_MIN_TIMEOUT_MINUTES, minutes);
+	return clamped * 60 * 1000;
+}
+
+/**
+ * Pure helper. DMS is enabled when the configured timeout is non-zero. Negative or NaN
+ * values are treated as the default — we still return true and let `dmsTimeoutMs` clamp.
+ */
+export function dmsEnabled(minutes: number | null | undefined): boolean {
+	if (minutes === null || minutes === undefined) {
+		return true; // default = enabled at default timeout
+	}
+	if (Number.isNaN(minutes)) {
+		return true;
+	}
+	return minutes !== 0;
+}
+
 /**
  * VibeIDE Dead Man's Switch: pauses agent if no explicit Approve action within N minutes.
  *
@@ -63,10 +96,6 @@ class VibeDeadMansSwitchService extends Disposable implements IVibeDeadMansSwitc
 	private _timeoutMs: number;
 	private _enabled: boolean;
 
-	// Default: 5 minutes. Minimum: 1 minute (N=0 = disable)
-	private static readonly DEFAULT_TIMEOUT_MINUTES = 5;
-	private static readonly MIN_TIMEOUT_MINUTES = 1;
-
 	constructor(
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@ILogService private readonly _logService: ILogService,
@@ -74,24 +103,18 @@ class VibeDeadMansSwitchService extends Disposable implements IVibeDeadMansSwitc
 		super();
 
 		const configMinutes = this._configurationService.getValue<number>('vibeide.safety.deadMansSwitchMinutes')
-			?? VibeDeadMansSwitchService.DEFAULT_TIMEOUT_MINUTES;
-		this._timeoutMs = this._getValidatedTimeoutMs(configMinutes);
-		this._enabled = configMinutes !== 0;
+			?? DMS_DEFAULT_TIMEOUT_MINUTES;
+		this._timeoutMs = dmsTimeoutMs(configMinutes);
+		this._enabled = dmsEnabled(configMinutes);
 
 		this._register(this._configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration('vibeide.safety.deadMansSwitchMinutes')) {
 				const minutes = this._configurationService.getValue<number>('vibeide.safety.deadMansSwitchMinutes')
-					?? VibeDeadMansSwitchService.DEFAULT_TIMEOUT_MINUTES;
-				this._enabled = minutes !== 0;
-				this._timeoutMs = this._getValidatedTimeoutMs(minutes);
+					?? DMS_DEFAULT_TIMEOUT_MINUTES;
+				this._enabled = dmsEnabled(minutes);
+				this._timeoutMs = dmsTimeoutMs(minutes);
 			}
 		}));
-	}
-
-	private _getValidatedTimeoutMs(minutes: number): number {
-		if (minutes === 0) return 0; // 0 = disable
-		const clamped = Math.max(VibeDeadMansSwitchService.MIN_TIMEOUT_MINUTES, minutes);
-		return clamped * 60 * 1000;
 	}
 
 	start(taskId: string): void {

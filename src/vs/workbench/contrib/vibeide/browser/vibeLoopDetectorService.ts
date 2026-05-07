@@ -36,6 +36,36 @@ export interface IVibeLoopDetectorService {
 }
 
 /**
+ * Pure helper. Returns true iff the trailing window of `history` is a loop:
+ *   - the last `threshold` actions are identical by (type, target), OR
+ *   - last three actions form an A → B → A pattern (only when history.length >= 3).
+ *
+ * Excluded actions (isRepairLoopStep / taskDecompositionStep) must already be filtered
+ * out by the caller. No DI dependencies — this is a pure function from history shape.
+ */
+export function detectLoopInHistory(history: AgentAction[], threshold: number): boolean {
+	if (history.length < threshold) {
+		return false;
+	}
+	const key = (a: AgentAction) => `${a.type}::${a.target}`;
+	const recent = history.slice(-threshold);
+	const firstKey = key(recent[0]);
+	const allIdentical = recent.every(a => key(a) === firstKey);
+	if (allIdentical) {
+		return true;
+	}
+	if (history.length >= 3) {
+		const last = history[history.length - 1];
+		const second = history[history.length - 2];
+		const third = history[history.length - 3];
+		if (key(last) === key(third) && key(second) !== key(last)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
  * VibeIDE Loop Detector: auto-pauses agent when 3+ identical actions in a row.
  *
  * Definition of "identical": (type + target) repeated consecutively.
@@ -104,28 +134,7 @@ class VibeLoopDetectorService extends Disposable implements IVibeLoopDetectorSer
 	}
 
 	private _checkForLoop(history: AgentAction[]): boolean {
-		if (history.length < this._threshold) return false;
-
-		const recent = history.slice(-this._threshold);
-
-		// Check 1: N+ consecutive identical actions (same type + target)
-		const key = (a: AgentAction) => `${a.type}::${a.target}`;
-		const firstKey = key(recent[0]);
-		const allIdentical = recent.every(a => key(a) === firstKey);
-		if (allIdentical) return true;
-
-		// Check 2: Repeating A→B→A pattern (minimum 3 actions needed)
-		if (history.length >= 3) {
-			const last = history[history.length - 1];
-			const thirdFromEnd = history[history.length - 3];
-			const secondFromEnd = history[history.length - 2];
-			if (key(last) === key(thirdFromEnd) && key(secondFromEnd) !== key(last)) {
-				// A→B→A pattern detected
-				return true;
-			}
-		}
-
-		return false;
+		return detectLoopInHistory(history, this._threshold);
 	}
 }
 
