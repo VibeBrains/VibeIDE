@@ -1,7 +1,41 @@
-<!-- Thank you for submitting a Pull Request. Please:
-* Read our Pull Request guidelines:
-  https://github.com/microsoft/vscode/wiki/How-to-Contribute#pull-requests
-* Associate an issue with the Pull Request.
-* Ensure that the code is up-to-date with the `main` branch.
-* Include a description of the proposed changes and how to test them.
+<!--
+Спасибо за PR! Перед мержем заполни секции ниже. Не удаляй разделы — оставь их пустыми
+(или прочеркни N/A), если не применимо.
 -->
+
+## Что изменилось
+
+<!-- 1–3 предложения: суть изменений и зачем. Если PR закрывает пункт roadmap — укажи. -->
+
+## Связанный пункт roadmap / issue
+
+<!--
+Например:
+- closes #123
+- closes roadmap пункт «Mode switcher в status bar» (`docs/roadmap.md` строка 919)
+-->
+
+## Тестирование
+
+<!--
+- какие команды запускал (`npm run compile-check-ts-native`, `scripts\test.bat --grep ...`),
+- какие сценарии проверены вручную,
+- скриншоты UI-изменений (если применимо).
+-->
+
+## Влияние на безопасность / приватность
+
+<!--
+- меняет ли PR поведение `permissions.json` / `constraints.json` / Trust Score?
+- появились ли новые outbound-вызовы (LLM, telemetry, update check)?
+- если нет влияния — напиши «нет».
+-->
+
+## Чеклист
+
+- [ ] `npm run compile-check-ts-native` зелёный.
+- [ ] Соответствующий пункт `docs/roadmap.md` обновлён (`- [ ]` → `- [x]` / `- [~]`).
+- [ ] При изменении публичных контрактов / форматов файлов — обновлён `FORK_CHANGES.md`.
+- [ ] Пользовательские строки локализованы через `localize()` / `localize2()`.
+- [ ] Нет новых hard-coded путей, секретов, имён хостов.
+- [ ] Нет `console.log` / отладочных принтов в production-коде.
