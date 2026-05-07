@@ -50,6 +50,49 @@ export interface IVibeAuditEncryptionService {
 }
 
 /**
+ * Word list used by `generateRecoveryPhraseFrom`. Exported for tests; runtime use should
+ * go through the service.
+ */
+export const RECOVERY_PHRASE_WORD_LIST: readonly string[] = [
+	'apple', 'brave', 'cloud', 'dream', 'eagle', 'flame', 'grace', 'heart',
+	'image', 'judge', 'knife', 'light', 'major', 'noble', 'ocean', 'proud',
+	'quiet', 'river', 'stone', 'truth', 'ultra', 'value', 'world', 'youth',
+	'zebra', 'amber', 'bloom', 'coral', 'delta', 'elbow', 'frost', 'glass',
+];
+
+export const RECOVERY_PHRASE_WORDS = 24;
+export const RECOVERY_PHRASE_MIN_WORDS = 12;
+
+/**
+ * Pure helper. Produces a 24-word recovery phrase using the supplied RNG.
+ * Default `rng` is `Math.random`; tests inject a deterministic generator.
+ */
+export function generateRecoveryPhraseFrom(
+	wordList: readonly string[] = RECOVERY_PHRASE_WORD_LIST,
+	rng: () => number = Math.random,
+): string {
+	const words: string[] = [];
+	for (let i = 0; i < RECOVERY_PHRASE_WORDS; i++) {
+		const idx = Math.floor(rng() * wordList.length);
+		words.push(wordList[idx]);
+	}
+	return words.join(' ');
+}
+
+/**
+ * Pure helper. Returns null on accept, otherwise the localizable error reason.
+ */
+export function validateRecoveryPhrase(phrase: string | null | undefined): string | null {
+	if (!phrase) {
+		return 'Recovery phrase must be saved before enabling encryption. Minimum 12 words required.';
+	}
+	if (phrase.split(' ').filter(Boolean).length < RECOVERY_PHRASE_MIN_WORDS) {
+		return 'Recovery phrase must be saved before enabling encryption. Minimum 12 words required.';
+	}
+	return null;
+}
+
+/**
  * VibeIDE Audit Log Encryption Service.
  * Opt-in encryption for audit logs (privacy-first).
  * MANDATORY: recovery phrase must be saved before enabling.
@@ -60,14 +103,6 @@ class VibeAuditEncryptionService extends Disposable implements IVibeAuditEncrypt
 
 	private readonly _onMigrationProgress = this._register(new Emitter<EncryptionMigrationStatus>());
 	readonly onMigrationProgress = this._onMigrationProgress.event;
-
-	// Wordlist subset for recovery phrase (BIP39-like, Phase 1: simple word list)
-	private readonly WORD_LIST = [
-		'apple', 'brave', 'cloud', 'dream', 'eagle', 'flame', 'grace', 'heart',
-		'image', 'judge', 'knife', 'light', 'major', 'noble', 'ocean', 'proud',
-		'quiet', 'river', 'stone', 'truth', 'ultra', 'value', 'world', 'youth',
-		'zebra', 'amber', 'bloom', 'coral', 'delta', 'elbow', 'frost', 'glass',
-	];
 
 	constructor(
 		@ILogService private readonly _logService: ILogService,
@@ -93,18 +128,13 @@ class VibeAuditEncryptionService extends Disposable implements IVibeAuditEncrypt
 	}
 
 	generateRecoveryPhrase(): string {
-		// Generate 24-word recovery phrase
-		const words: string[] = [];
-		for (let i = 0; i < 24; i++) {
-			const idx = Math.floor(Math.random() * this.WORD_LIST.length);
-			words.push(this.WORD_LIST[idx]);
-		}
-		return words.join(' ');
+		return generateRecoveryPhraseFrom();
 	}
 
 	async enableEncryption(recoveryPhrase: string): Promise<void> {
-		if (!recoveryPhrase || recoveryPhrase.split(' ').length < 12) {
-			throw new Error('Recovery phrase must be saved before enabling encryption. Minimum 12 words required.');
+		const reason = validateRecoveryPhrase(recoveryPhrase);
+		if (reason) {
+			throw new Error(reason);
 		}
 
 		this._logService.info('[VibeIDE AuditEncryption] Encryption enabled for future audit logs');
