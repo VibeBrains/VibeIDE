@@ -64,6 +64,61 @@ export class ConstraintViolationError extends Error {
 }
 
 /**
+ * Pure helper. Glob-like match with `*` (single segment), `**` (cross segment), `?` (single char).
+ * Anchored to path-segment boundaries via `(^|/)` ... `($|/)`. Returns false on invalid pattern
+ * instead of throwing.
+ */
+export function matchConstraintPattern(filePath: string, pattern: string): boolean {
+	const normalizedPath = filePath.replace(/\\/g, '/');
+	const normalizedPattern = pattern.replace(/\\/g, '/');
+	const regexStr = normalizedPattern
+		.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+		.replace(/\*\*/g, '§DOUBLESTAR§')
+		.replace(/\*/g, '[^/]*')
+		.replace(/\?/g, '[^/]')
+		.replace(/§DOUBLESTAR§/g, '.*');
+	try {
+		return new RegExp(`(^|/)${regexStr}($|/)`).test(normalizedPath);
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Pure helper. Returns the first deny rule that matches `filePath` for `kind`,
+ * or null if no rule denies. Caller is responsible for throwing.
+ */
+export function findDenyingConstraint(
+	filePath: string,
+	kind: 'deny_write' | 'deny_read',
+	rules: VibeConstraintRule[],
+): VibeConstraintRule | null {
+	const normalized = filePath.replace(/\\/g, '/');
+	for (const rule of rules) {
+		if (rule.type === kind && rule.pattern && matchConstraintPattern(normalized, rule.pattern)) {
+			return rule;
+		}
+	}
+	return null;
+}
+
+/**
+ * Pure helper. Returns whether `modelId` is in the workspace's allowed-models list.
+ * Empty list ⇒ all models allowed (the documented default). Match is case-insensitive
+ * and accepts substring (so "claude-3-5" matches "claude-3-5-sonnet-20241022").
+ */
+export function isModelAllowedByList(modelId: string, allowedModels: string[]): boolean {
+	if (!allowedModels || allowedModels.length === 0) {
+		return true;
+	}
+	const lower = modelId.toLowerCase();
+	return allowedModels.some(allowed => {
+		const a = allowed.toLowerCase();
+		return a === lower || lower.includes(a);
+	});
+}
+
+/**
  * VibeIDE Constraints Service: deterministic enforcement of .vibe/constraints.json.
  *
  * The agent CANNOT bypass these constraints — they are enforced at the IDE level,
@@ -149,59 +204,20 @@ class VibeConstraintsService extends Disposable implements IVibeConstraintsServi
 	}
 
 	isModelAllowed(modelId: string): boolean {
-		if (this._allowedModels.length === 0) return true; // empty whitelist = all allowed
-		return this._allowedModels.some(allowed =>
-			allowed.toLowerCase() === modelId.toLowerCase() ||
-			modelId.toLowerCase().includes(allowed.toLowerCase())
-		);
+		return isModelAllowedByList(modelId, this._allowedModels);
 	}
 
 	checkWriteAllowed(filePath: string): void {
-		const normalizedPath = filePath.replace(/\\/g, '/');
-
-		for (const rule of (this._constraints.rules ?? [])) {
-			if (rule.type === 'deny_write' && rule.pattern) {
-				if (this._matchesPattern(normalizedPath, rule.pattern)) {
-					throw new ConstraintViolationError(rule, filePath);
-				}
-			}
+		const denying = findDenyingConstraint(filePath, 'deny_write', this._constraints.rules ?? []);
+		if (denying) {
+			throw new ConstraintViolationError(denying, filePath);
 		}
 	}
 
 	checkReadAllowed(filePath: string): void {
-		for (const rule of (this._constraints.rules ?? [])) {
-			if (rule.type === 'deny_read' && rule.pattern) {
-				if (this._matchesPattern(filePath, rule.pattern)) {
-					throw new ConstraintViolationError(rule, filePath);
-				}
-			}
-		}
-	}
-
-	/**
-	 * Simple glob-like pattern matching.
-	 * Supports: * (any chars except /), ** (any chars including /), ? (single char)
-	 */
-	private _matchesPattern(filePath: string, pattern: string): boolean {
-		// Normalize separators
-		const normalizedPath = filePath.replace(/\\/g, '/');
-		const normalizedPattern = pattern.replace(/\\/g, '/');
-
-		// Convert glob to regex
-		const regexStr = normalizedPattern
-			.replace(/[.+^${}()|[\]\\]/g, '\\$&') // escape special regex chars (not * ? **)
-			.replace(/\*\*/g, '§DOUBLESTAR§')
-			.replace(/\*/g, '[^/]*')
-			.replace(/\?/g, '[^/]')
-			.replace(/§DOUBLESTAR§/g, '.*');
-
-		try {
-			const regex = new RegExp(`(^|/)${regexStr}($|/)`);
-			return regex.test(normalizedPath);
-		} catch {
-			// Invalid pattern — log and skip
-			this._logService.warn(`[VibeIDE Constraints] Invalid pattern: ${pattern}`);
-			return false;
+		const denying = findDenyingConstraint(filePath, 'deny_read', this._constraints.rules ?? []);
+		if (denying) {
+			throw new ConstraintViolationError(denying, filePath);
 		}
 	}
 }
