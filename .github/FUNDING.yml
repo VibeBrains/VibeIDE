@@ -1,0 +1,9 @@
+# GitHub Sponsors / Open Collective configuration.
+# When the corresponding accounts are opened (М-0 track), uncomment the relevant
+# lines so the "Sponsor" button appears on the repository.
+#
+# github: borodatych
+# open_collective: vibeide
+
+custom:
+  - "https://raw.githubusercontent.com/borodatych/VSCodeSyncFiles/main/media/QR-Code.jpg"
