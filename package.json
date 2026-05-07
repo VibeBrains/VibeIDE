@@ -21,7 +21,7 @@
     "test-build-scripts": "cd build && npm run test",
     "check-cyclic-dependencies": "node build/lib/checkCyclicDependencies.ts out",
     "preinstall": "node build/npm/preinstall.ts",
-    "postinstall": "node build/npm/postinstall.ts && patch-package && node scripts/strip-spectre-binding-gyp.mjs && node scripts/postinstall-windows-native-modules.mjs",
+    "postinstall": "node build/npm/postinstall.ts && patch-package --patch-dir patches-node-modules && node scripts/strip-spectre-binding-gyp.mjs && node scripts/postinstall-windows-native-modules.mjs",
     "repair:windows-native": "node scripts/postinstall-windows-native-modules.mjs",
     "compile": "npm run gulp compile",
     "compile-check-ts-native": "tsgo --project ./src/tsconfig.json --noEmit --skipLibCheck",
