@@ -24,6 +24,7 @@ import { IChatThreadService } from './chatThreadService.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { openVibeChatEditor } from './vibeideChatPane.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 
 // ---------- Register commands and keybindings ----------
 
@@ -77,7 +78,7 @@ registerAction2(class extends Action2 {
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
-		await openVibeChatEditor(accessor);
+		await openVibeChatEditor(accessor.get(IInstantiationService));
 		const chatThreadsService = accessor.get(IChatThreadService);
 		await chatThreadsService.focusCurrentChat();
 	}
@@ -118,7 +119,7 @@ registerAction2(class extends Action2 {
 		const model = editor?.getModel()
 
 		// open chat editor - always open even if no editor
-		await openVibeChatEditor(accessor);
+		await openVibeChatEditor(accessor.get(IInstantiationService));
 
 		// If there's a model, add selection to chat
 		if (model) {
@@ -177,30 +178,33 @@ registerAction2(class extends Action2 {
 		const metricsService = accessor.get(IMetricsService)
 		const chatThreadsService = accessor.get(IChatThreadService)
 		const editorService = accessor.get(ICodeEditorService)
-		await openVibeChatEditor(accessor);
-		metricsService.capture('Chat Navigation', { type: 'Start New Chat' })
+		// Capture instantiationService synchronously — the accessor is only valid until the first await below; we still need to launch services after the await.
+		const instantiationService = accessor.get(IInstantiationService)
 
-		// get current selections and value to transfer
+		// Capture current chat state BEFORE creating new tab — opening a new tab swaps the global currentThreadId.
+		// IMPORTANT: ChatThreadService's constructor calls openNewThread() which sets mountedInfo.whenMounted to a pending Promise. On a cold start (no chat tab opened yet) that Promise NEVER resolves — `await` here would hang forever and the new chat tab would never get created. Gate on mountedIsResolvedRef.current so we only await when React has actually mounted the UI.
 		const oldThreadId = chatThreadsService.state.currentThreadId
-		const oldThread = chatThreadsService.state.allThreads[oldThreadId]
-
-		const oldUI = await oldThread?.state.mountedInfo?.whenMounted
-
+		const oldThread = oldThreadId ? chatThreadsService.state.allThreads[oldThreadId] : undefined
+		const oldMount = oldThread?.state.mountedInfo
+		const oldUI = oldMount?.mountedIsResolvedRef.current ? await oldMount.whenMounted : undefined
 		const oldSelns = oldThread?.state.stagingSelections
 		const oldVal = oldUI?.textAreaRef?.current?.value
 
-		// open and focus new thread
-		chatThreadsService.openNewThread()
+		// Open a brand-new chat tab (subject to vibeide.chat.maxOpenTabs).
+		// openVibeChatEditor calls openNewThread() internally and routes the focus to the new tab.
+		await openVibeChatEditor(instantiationService, { newChat: true })
 		await chatThreadsService.focusCurrentChat()
+		metricsService.capture('Chat Navigation', { type: 'Start New Chat' })
 
-
-		// set new thread values
+		// Carry over staging selections and textarea value to the new tab so the user keeps their flow.
 		const newThreadId = chatThreadsService.state.currentThreadId
-		const newThread = chatThreadsService.state.allThreads[newThreadId]
-
-		const newUI = await newThread?.state.mountedInfo?.whenMounted
-		chatThreadsService.setCurrentThreadState({ stagingSelections: oldSelns, })
-		if (newUI?.textAreaRef?.current && oldVal) newUI.textAreaRef.current.value = oldVal
+		const newThread = newThreadId ? chatThreadsService.state.allThreads[newThreadId] : undefined
+		const newMount = newThread?.state.mountedInfo
+		const newUI = newMount?.mountedIsResolvedRef.current ? await newMount.whenMounted : undefined
+		if (newThreadId && newThreadId !== oldThreadId) {
+			chatThreadsService.setCurrentThreadState({ stagingSelections: oldSelns, })
+			if (newUI?.textAreaRef?.current && oldVal) newUI.textAreaRef.current.value = oldVal
+		}
 
 
 		// if has selection, add it

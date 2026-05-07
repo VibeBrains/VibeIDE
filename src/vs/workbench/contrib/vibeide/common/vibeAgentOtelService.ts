@@ -38,19 +38,19 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 		'vibeide.otel.enabled': {
 			type: 'boolean',
 			default: false,
-			description: localize('vibeide.otel.enabled', 'Enable OTLP trace export for the VibeIDE agent cycle. No data is sent externally unless an endpoint is configured.'),
+			description: localize('vibeide.otel.enabled', 'Включить OTLP-экспорт трейсов для цикла работы агента VibeIDE. Без настроенного endpoint данные наружу не уходят.'),
 		},
 		'vibeide.otel.endpoint': {
 			type: 'string',
 			default: '',
-			description: localize('vibeide.otel.endpoint', 'OTLP HTTP endpoint for span export (e.g. http://localhost:4318/v1/traces). Leave empty to only buffer locally.'),
+			description: localize('vibeide.otel.endpoint', 'OTLP HTTP-endpoint для экспорта span-ов (например, http://localhost:4318/v1/traces). Пусто — буферизация только локально.'),
 		},
 		'vibeide.otel.maxBufferSpans': {
 			type: 'number',
 			default: 1000,
 			minimum: 100,
 			maximum: 10000,
-			description: localize('vibeide.otel.maxBufferSpans', 'Maximum number of OTLP spans to keep in memory before oldest are evicted.'),
+			description: localize('vibeide.otel.maxBufferSpans', 'Максимум OTLP-span-ов, хранимых в памяти, перед вытеснением самых старых.'),
 		},
 	},
 });

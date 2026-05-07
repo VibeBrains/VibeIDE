@@ -53,13 +53,13 @@ export class VibeFirstRunWizardContribution extends Disposable implements IWorkb
 			severity: Severity.Info,
 			message: localize(
 				'vibeFirstRun',
-				'Welcome to VibeIDE! 👋 Trust Score is set to Manual 🟢 — every agent action requires confirmation. Click to configure.'
+				'Добро пожаловать в VibeIDE! 👋 Trust Score установлен в Manual 🟢 — каждое действие агента требует подтверждения. Нажмите, чтобы настроить.'
 			),
 			actions: {
 				primary: [
 					{
 						id: 'vibeide.firstRun.configure',
-						label: localize('vibeFirstRunConfigure', 'Configure'),
+						label: localize('vibeFirstRunConfigure', 'Настроить'),
 						tooltip: '',
 						class: undefined,
 						enabled: true,
@@ -68,7 +68,7 @@ export class VibeFirstRunWizardContribution extends Disposable implements IWorkb
 					},
 					{
 						id: 'vibeide.firstRun.skip',
-						label: localize('vibeFirstRunSkip', 'Keep defaults'),
+						label: localize('vibeFirstRunSkip', 'Оставить по умолчанию'),
 						tooltip: '',
 						class: undefined,
 						enabled: true,

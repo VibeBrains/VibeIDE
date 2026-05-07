@@ -7,7 +7,11 @@ import {
 	Connection, TextDocuments, InitializeParams, InitializeResult, ServerCapabilities, ConfigurationRequest, WorkspaceFolder, TextDocumentSyncKind, NotificationType, Disposable, TextDocumentIdentifier, Range, FormattingOptions, TextEdit, Diagnostic
 } from 'vscode-languageserver';
 import { URI } from 'vscode-uri';
-import { getCSSLanguageService, getSCSSLanguageService, getLESSLanguageService, LanguageSettings, LanguageService, Stylesheet, TextDocument, Position, CodeActionKind } from 'vscode-css-languageservice';
+import { getCSSLanguageService, getSCSSLanguageService, getLESSLanguageService, LanguageSettings, LanguageService, Stylesheet, TextDocument, Position } from 'vscode-css-languageservice';
+// Workaround: Node 22 ESM static-analysis fails on `CodeActionKind` (re-exported from vscode-languageserver-types through a UMD bundle).
+// Pull it via namespace-import + destructure so the named-import statement above (which Node can resolve) keeps working.
+import * as cssService from 'vscode-css-languageservice';
+const { CodeActionKind } = cssService;
 import { getLanguageModelCache } from './languageModelCache.js';
 import { runSafeAsync } from './utils/runner.js';
 import { DiagnosticsSupport, registerDiagnosticsPullSupport, registerDiagnosticsPushSupport } from './utils/validation.js';

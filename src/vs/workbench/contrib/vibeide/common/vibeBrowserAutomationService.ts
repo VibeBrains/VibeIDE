@@ -36,14 +36,14 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 		'vibeide.browserAutomation.enabled': {
 			type: 'boolean',
 			default: false,
-			description: localize('vibeide.browserAutomation.enabled', 'Allow the agent to propose Playwright browser automation runs. User consent is always required per run.'),
+			description: localize('vibeide.browserAutomation.enabled', 'Разрешить агенту предлагать запуски browser-автоматизации через Playwright. Подтверждение пользователя требуется на каждый запуск.'),
 		},
 		'vibeide.browserAutomation.maxRunMs': {
 			type: 'number',
 			default: 30000,
 			minimum: 5000,
 			maximum: 300000,
-			description: localize('vibeide.browserAutomation.maxRunMs', 'Maximum wall-clock time (ms) for a single browser automation run before forced termination.'),
+			description: localize('vibeide.browserAutomation.maxRunMs', 'Максимальное время (мс) одного запуска browser-автоматизации до принудительного завершения.'),
 		},
 	},
 });

@@ -46,14 +46,14 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			items: { type: 'string' },
 			default: [],
 			scope: 5, // WORKSPACE
-			description: localize('vibeide.projectRules.disabledSources', 'List of project rule file paths to exclude from AI context injection. Relative to workspace root (e.g. "AGENTS.md", ".vibe/rules.md").'),
+			description: localize('vibeide.projectRules.disabledSources', 'Список путей к файлам правил проекта, исключаемых из инъекции в AI-контекст. Относительно корня рабочей области (например, "AGENTS.md", ".vibe/rules.md").'),
 		},
 		'vibeide.projectRules.maxCombinedChars': {
 			type: 'number',
 			default: 20000,
 			minimum: 1000,
 			maximum: 200000,
-			description: localize('vibeide.projectRules.maxCombinedChars', 'Maximum total characters of combined project rules injected into AI system message. Larger files are truncated.'),
+			description: localize('vibeide.projectRules.maxCombinedChars', 'Максимум суммарных символов объединённых правил проекта, подставляемых в системное сообщение AI. Большие файлы обрезаются.'),
 		},
 	},
 });

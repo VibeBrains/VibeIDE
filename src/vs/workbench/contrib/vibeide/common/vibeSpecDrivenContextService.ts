@@ -38,12 +38,12 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: 102400, // 100 KB
 			minimum: 1024,
 			maximum: 1048576,
-			description: localize('vibeide.specContext.maxSizeBytes', 'Maximum size of an API spec file attached to agent context. Larger specs are truncated.'),
+			description: localize('vibeide.specContext.maxSizeBytes', 'Максимальный размер файла API-спеки, подключаемой в контекст агента. Большие спеки обрезаются.'),
 		},
 		'vibeide.specContext.breakingChangeWarning': {
 			type: 'boolean',
 			default: true,
-			description: localize('vibeide.specContext.breakingChangeWarning', 'Show a warning in plan generation when a spec has breaking changes relative to its previous version.'),
+			description: localize('vibeide.specContext.breakingChangeWarning', 'Показывать предупреждение при генерации плана, когда у спеки есть breaking-изменения относительно предыдущей версии.'),
 		},
 	},
 });

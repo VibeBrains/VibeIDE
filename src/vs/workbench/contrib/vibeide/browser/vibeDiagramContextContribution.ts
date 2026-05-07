@@ -48,14 +48,14 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 		'vibeide.context.diagram.allowBase64': {
 			type: 'boolean',
 			default: true,
-			description: localize('vibeide.context.diagram.allowBase64', 'Allow embedding diagram/image files as base64 in LLM context (requires vision-capable model). When disabled, only a text placeholder is sent.'),
+			description: localize('vibeide.context.diagram.allowBase64', 'Разрешить встраивание файлов диаграмм/изображений как base64 в контекст LLM (требуется vision-capable модель). Когда выключено — отправляется только текстовый плейсхолдер.'),
 		},
 		'vibeide.context.diagram.maxSizeBytes': {
 			type: 'number',
 			default: 204800, // 200KB — same as Large file policy
 			minimum: 1024,
 			maximum: 2097152,
-			description: localize('vibeide.context.diagram.maxSizeBytes', 'Maximum image file size (bytes) to embed as base64 in LLM context. Larger files get a text placeholder.'),
+			description: localize('vibeide.context.diagram.maxSizeBytes', 'Максимальный размер файла изображения (в байтах) для встраивания как base64 в контекст LLM. Большие файлы заменяются текстовым плейсхолдером.'),
 		},
 	},
 });

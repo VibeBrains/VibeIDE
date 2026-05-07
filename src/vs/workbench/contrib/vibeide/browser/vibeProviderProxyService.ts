@@ -40,7 +40,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 		'vibeide.debug.providerProxy.enabled': {
 			type: 'boolean',
 			default: false,
-			description: localize('vibeide.debug.providerProxy.enabled', 'Enable local HTTP debug proxy to capture raw AI provider request/response. Secrets are always redacted in display.'),
+			description: localize('vibeide.debug.providerProxy.enabled', 'Включить локальный HTTP debug-прокси для захвата сырых запросов/ответов AI-провайдера. Секреты всегда редактируются при отображении.'),
 			scope: 1, // APPLICATION
 		},
 		'vibeide.debug.providerProxy.maxEntries': {
@@ -48,7 +48,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: 50,
 			minimum: 10,
 			maximum: 500,
-			description: localize('vibeide.debug.providerProxy.maxEntries', 'Maximum number of captured proxy entries to keep in memory.'),
+			description: localize('vibeide.debug.providerProxy.maxEntries', 'Максимальное число захваченных прокси-записей, хранимых в памяти.'),
 		},
 	},
 });

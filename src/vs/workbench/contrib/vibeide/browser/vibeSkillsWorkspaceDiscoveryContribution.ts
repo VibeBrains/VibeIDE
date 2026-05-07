@@ -58,10 +58,10 @@ export class VibeSkillsWorkspaceDiscoveryContribution extends Disposable impleme
 			.slice(0, 4)
 			.map(s => s.skillId)
 			.join(', ');
-		const more = skills.length > 4 ? localize('vibeideSkillsDiscoveryMore', ' (+{0} more)', skills.length - 4) : '';		
+		const more = skills.length > 4 ? localize('vibeideSkillsDiscoveryMore', ' (и ещё {0})', skills.length - 4) : '';
 		const primary: IAction[] = [{
 			id: 'vibeide.skills.discovery.pick',
-			label: localize('vibeideSkillsDiscoveryOpenPick', 'Select for session…'),
+			label: localize('vibeideSkillsDiscoveryOpenPick', 'Выбрать для сессии…'),
 			tooltip: '',
 			class: undefined,
 			enabled: true,
@@ -71,7 +71,7 @@ export class VibeSkillsWorkspaceDiscoveryContribution extends Disposable impleme
 			severity: Severity.Info,
 			message: localize(
 				'vibeideSkillsDiscoveryMsg',
-				'This workspace loads {0} Agent Skill(s): {1}{2}. Use slash /skill:… or command «Skills — select for session».',
+				'В этом воркспейсе подключены навыки агента ({0} шт.): {1}{2}. Используйте /skill:… или команду «Навыки — выбрать для сессии».',
 				skills.length,
 				preview,
 				more,

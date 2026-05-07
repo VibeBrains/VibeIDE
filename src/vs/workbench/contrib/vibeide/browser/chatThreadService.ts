@@ -285,6 +285,8 @@ export interface IChatThreadService {
 
 	getCurrentThread(): ThreadType;
 	openNewThread(): void;
+	/** Always create a fresh thread (bypasses openNewThread's empty-thread reuse). Returns the new thread id. */
+	forceCreateNewThread(): string;
 	switchToThread(threadId: string): void;
 
 	// thread selector
@@ -5879,6 +5881,18 @@ We only need to do it for files that were edited since `from`, ie files between 
 		}
 		this._storeAllThreads(newThreads)
 		this._setState({ allThreads: newThreads, currentThreadId: newThread.id })
+	}
+
+	forceCreateNewThread(): string {
+		// Unconditionally create a new thread (no empty-thread reuse). Used by multi-chat-tab "+" so each click yields a new tab.
+		const newThread = newThreadObject()
+		const newThreads: ChatThreads = {
+			...this.state.allThreads,
+			[newThread.id]: newThread
+		}
+		this._storeAllThreads(newThreads)
+		this._setState({ allThreads: newThreads, currentThreadId: newThread.id })
+		return newThread.id
 	}
 
 

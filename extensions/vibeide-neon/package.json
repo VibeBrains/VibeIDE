@@ -36,51 +36,51 @@
 		"commands": [
 			{
 				"command": "vibeide.trustScore.toggle",
-				"title": "VibeIDE: Toggle Trust Score (Manual → Supervised → Auto)"
+				"title": "VibeIDE: Переключить Trust Score (Manual → Supervised → Auto)"
 			},
 			{
 				"command": "vibeide.trustScore.setManual",
-				"title": "VibeIDE: Set Trust Score to Manual 🟢"
+				"title": "VibeIDE: Установить Trust Score в Manual 🟢"
 			},
 			{
 				"command": "vibeide.trustScore.setSupervised",
-				"title": "VibeIDE: Set Trust Score to Supervised 🟡"
+				"title": "VibeIDE: Установить Trust Score в Supervised 🟡"
 			},
 			{
 				"command": "vibeide.trustScore.setAuto",
-				"title": "VibeIDE: Set Trust Score to Auto 🔴"
+				"title": "VibeIDE: Установить Trust Score в Auto 🔴"
 			},
 			{
 				"command": "vibeide.explainLine",
-				"title": "VibeIDE: Explain This Line"
+				"title": "VibeIDE: Объяснить эту строку"
 			},
 			{
 				"command": "vibeide.freezeCode",
-				"title": "VibeIDE: Freeze This Code for Agent"
+				"title": "VibeIDE: Заморозить этот код для агента"
 			},
 			{
 				"command": "vibeide.agent.pauseAndExplain",
-				"title": "VibeIDE: Pause Agent and Ask What It's Doing"
+				"title": "VibeIDE: Приостановить агента и спросить, что он делает"
 			},
 			{
 				"command": "vibeide.tokenBudget.reset",
-				"title": "VibeIDE: Reset Session Token Budget"
+				"title": "VibeIDE: Сбросить бюджет токенов сессии"
 			},
 			{
 				"command": "vibeide.doctor.run",
-				"title": "VibeIDE: Run Doctor (Diagnostics)"
+				"title": "VibeIDE: Запустить Doctor (диагностика)"
 			},
 			{
 				"command": "vibeide.audit.export",
-				"title": "VibeIDE: Export Audit Log (GDPR)"
+				"title": "VibeIDE: Экспортировать журнал аудита (GDPR)"
 			},
 			{
 				"command": "vibeide.audit.deleteAll",
-				"title": "VibeIDE: Delete All Audit Logs (GDPR Erasure)"
+				"title": "VibeIDE: Удалить весь журнал аудита (GDPR Erasure)"
 			},
 			{
 				"command": "vibeide.transparency.show",
-				"title": "VibeIDE: Show Transparency Dashboard"
+				"title": "VibeIDE: Показать Transparency Dashboard"
 			}
 		],
 		"keybindings": [
@@ -115,98 +115,98 @@
 					"enum": ["manual", "supervised", "auto"],
 					"default": "manual",
 					"enumDescriptions": [
-						"Manual 🟢 — Every agent action requires confirmation",
-						"Supervised 🟡 — Notifications, auto-apply after timeout",
-						"Auto 🔴 — Agent works autonomously with budget limits"
+						"Manual 🟢 — каждое действие агента требует подтверждения",
+						"Supervised 🟡 — уведомления, авто-применение по таймауту",
+						"Auto 🔴 — агент работает автономно в рамках бюджетных лимитов"
 					],
-					"description": "Trust Score level for agent autonomy"
+					"description": "Уровень Trust Score для автономии агента"
 				},
 				"vibeide.safety.sessionTokenLimit": {
 					"type": "number",
 					"default": 500000,
 					"minimum": 10000,
-					"description": "Maximum tokens per session. Default: 500,000 (~$20)"
+					"description": "Максимум токенов на сессию. По умолчанию: 500 000 (~$20)"
 				},
 				"vibeide.safety.sessionTokenLimitEnabled": {
 					"type": "boolean",
 					"default": true,
-					"description": "Enable session token limit to prevent unexpected costs"
+					"description": "Включить лимит токенов на сессию для защиты от непредвиденных расходов"
 				},
 				"vibeide.safety.taskQueueTokenSplitEnabled": {
 					"type": "boolean",
 					"default": false,
-					"description": "When two or more agent tasks are queued or running, approximate the session token limit across tasks (requires `startNextQueued`/runner to mark tasks running; usage is estimated per LLM round-trip)."
+					"description": "Когда две или более задач агента стоят в очереди или выполняются — распределять лимит токенов сессии между задачами (требует, чтобы `startNextQueued`/runner помечал задачи как running; расход оценивается по каждому LLM round-trip)."
 				},
 				"vibeide.planEventsJournal.enable": {
 					"type": "boolean",
 					"default": true,
-					"description": "Append plan lifecycle JSON lines to `.vibe/plan-events.jsonl` (plan.created, plan.step.completed, …) for local automation."
+					"description": "Записывать события жизненного цикла плана JSON-строками в `.vibe/plan-events.jsonl` (plan.created, plan.step.completed и т.д.) для локальной автоматизации."
 				},
 				"vibeide.skills.workspaceDiscoveryHint": {
 					"type": "boolean",
 					"default": true,
-					"description": "If the workspace loads Agent Skills from .vibe/skills/, show one info notification per window with sample ids and a button to open «Skills — select for session» (UX only; does not change rule precedence)."
+					"description": "Если рабочая область подгружает Agent Skills из .vibe/skills/ — показать одно info-уведомление на окно с примерами идентификаторов и кнопкой «Skills — select for session» (только UX; на приоритет правил не влияет)."
 				},
 				"vibeide.agent.preferJsonToolArguments": {
 					"type": "boolean",
 					"default": false,
-					"description": "Add system-message guidance: tool calls must use strictly valid JSON arguments (reduces parse retries; not full provider-level JSON Schema mode)."
+					"description": "Добавить в системное сообщение указание: вызовы инструментов должны использовать строго валидный JSON в аргументах (снижает количество повторов из-за ошибок парсинга; это не полноценный JSON Schema mode на уровне провайдера)."
 				},
 				"vibeide.safety.deadMansSwitchMinutes": {
 					"type": "number",
 					"default": 5,
 					"minimum": 0,
-					"description": "Pause agent after N minutes without approval. 0 = disabled"
+					"description": "Останавливать агент через N минут без подтверждения. 0 = отключено"
 				},
 				"vibeide.safety.loopDetectorThreshold": {
 					"type": "number",
 					"default": 3,
 					"minimum": 2,
-					"description": "Pause agent after N identical consecutive actions"
+					"description": "Останавливать агент после N одинаковых подряд идущих действий"
 				},
 				"vibeide.agent.terminalOutputAwareness": {
 					"type": "boolean",
 					"default": false,
-					"description": "Allow agent to see terminal output in real-time (opt-in)"
+					"description": "Разрешить агенту видеть вывод терминала в реальном времени (по согласию пользователя)"
 				},
 				"vibeide.agent.thinkingOutLoud": {
 					"type": "boolean",
 					"default": false,
-					"description": "Stream agent reasoning to Thinking panel (Claude 3.7+, o-series)"
+					"description": "Стримить рассуждения агента в панель Thinking (Claude 3.7+, o-series)"
 				},
 				"vibeide.agent.runTestsAfterApply.enabled": {
 					"type": "boolean",
 					"default": false,
-					"description": "Run tests automatically after agent Apply"
+					"description": "Автоматически запускать тесты после Apply агента"
 				},
 				"vibeide.agent.runTestsAfterApply.command": {
 					"type": "string",
 					"default": "npm test",
-					"description": "Test command to run after Apply (e.g. npm test, pytest, cargo test)"
+					"description": "Команда тестов для запуска после Apply (например npm test, pytest, cargo test)"
 				},
 				"vibeide.context.warningThresholdPercent": {
 					"type": "number",
 					"default": 75,
 					"minimum": 50,
 					"maximum": 95,
-					"description": "Warn when context window is N% full"
+					"description": "Предупреждать, когда окно контекста заполнено на N%"
 				},
 				"vibeide.context.criticalThresholdPercent": {
 					"type": "number",
 					"default": 90,
 					"minimum": 60,
 					"maximum": 99,
-					"description": "Show critical warning when context window is N% full"
+					"description": "Показывать критическое предупреждение, когда окно контекста заполнено на N%"
 				},
 				"vibeide.output.structuredMode": {
 					"type": "boolean",
 					"default": false,
-					"description": "Output agent actions as NDJSON to stdout (for SIEM/Splunk integration)"
+					"description": "Выводить действия агента в stdout как NDJSON (для интеграции с SIEM/Splunk)"
 				},
 				"vibeide.audit.encryptLogs": {
 					"type": "boolean",
 					"default": false,
-					"description": "Encrypt audit logs with user key (requires saving recovery phrase)"
+					"description": "Шифровать журнал аудита пользовательским ключом (требуется сохранить recovery phrase)"
 				}
 			}
 		}

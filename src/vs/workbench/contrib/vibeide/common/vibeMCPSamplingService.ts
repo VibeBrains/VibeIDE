@@ -44,23 +44,23 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 		'vibeide.mcp.sampling.enabled': {
 			type: 'boolean',
 			default: true,
-			description: localize('vibeide.mcp.sampling.enabled', 'Allow MCP servers to request LLM completions via the Sampling capability. User consent is always shown.'),
+			description: localize('vibeide.mcp.sampling.enabled', 'Разрешить MCP-серверам запрашивать LLM-completions через capability Sampling. Подтверждение пользователя показывается всегда.'),
 		},
 		'vibeide.mcp.sampling.requireApproval': {
 			type: 'string',
 			enum: ['always', 'first_per_server', 'never'],
 			enumDescriptions: [
-				localize('sampling.approval.always', 'Show approval dialog for every sampling request'),
-				localize('sampling.approval.first_per_server', 'Show approval dialog only on first request per MCP server per session'),
-				localize('sampling.approval.never', 'Auto-approve all sampling requests (not recommended)'),
+				localize('sampling.approval.always', 'Показывать диалог подтверждения для каждого sampling-запроса'),
+				localize('sampling.approval.first_per_server', 'Показывать диалог только на первый запрос с MCP-сервера за сессию'),
+				localize('sampling.approval.never', 'Авто-подтверждение всех sampling-запросов (не рекомендуется)'),
 			],
 			default: 'always',
-			description: localize('vibeide.mcp.sampling.requireApproval', 'When to show user approval for MCP sampling requests.'),
+			description: localize('vibeide.mcp.sampling.requireApproval', 'Когда показывать подтверждение пользователя для MCP sampling-запросов.'),
 		},
 		'vibeide.mcp.elicitation.enabled': {
 			type: 'boolean',
 			default: true,
-			description: localize('vibeide.mcp.elicitation.enabled', 'Allow MCP servers to request user input clarifications via the Elicitation capability.'),
+			description: localize('vibeide.mcp.elicitation.enabled', 'Разрешить MCP-серверам запрашивать у пользователя уточнения через capability Elicitation.'),
 		},
 	},
 });

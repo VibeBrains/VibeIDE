@@ -1560,7 +1560,7 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 			{isOpen && (
 				<div
 					ref={refs.setFloating}
-					className="z-[10000] min-w-max max-w-[min(90vw,24rem)] bg-vibe-bg-1 border vibe-popup-panel rounded-xl overflow-hidden shadow-lg flex flex-col"
+					className="z-[10000] min-w-max max-w-[min(90vw,24rem)] bg-vibe-bg-1 @@vibe-popup-panel rounded-xl overflow-hidden shadow-lg flex flex-col"
 					style={{
 						position: strategy,
 						top: y ?? 0,

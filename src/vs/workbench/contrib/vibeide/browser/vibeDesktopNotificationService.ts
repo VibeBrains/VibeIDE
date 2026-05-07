@@ -39,20 +39,20 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 		'vibeide.notifications.desktopApprovals.enabled': {
 			type: 'boolean',
 			default: true,
-			description: localize('vibeide.notifications.desktopApprovals.enabled', 'Show OS desktop notifications when the agent is waiting for your approval.'),
+			description: localize('vibeide.notifications.desktopApprovals.enabled', 'Показывать desktop-уведомления ОС, когда агент ждёт вашего подтверждения.'),
 		},
 		'vibeide.notifications.desktopApprovals.throttleMs': {
 			type: 'number',
 			default: 30000,
 			minimum: 5000,
 			maximum: 300000,
-			description: localize('vibeide.notifications.desktopApprovals.throttleMs', 'Minimum milliseconds between desktop approval notifications of the same type. Prevents spam.'),
+			description: localize('vibeide.notifications.desktopApprovals.throttleMs', 'Минимум миллисекунд между desktop-уведомлениями одного типа. Защищает от спама.'),
 		},
 		'vibeide.notifications.desktopApprovals.events': {
 			type: 'array',
 			items: { type: 'string', enum: ['tool_approval', 'pre_flight', 'dead_mans_switch', 'plan_consent', 'trust_score_critical'] },
 			default: ['tool_approval', 'pre_flight', 'dead_mans_switch', 'trust_score_critical'],
-			description: localize('vibeide.notifications.desktopApprovals.events', 'Which agent events trigger a desktop notification.'),
+			description: localize('vibeide.notifications.desktopApprovals.events', 'Какие события агента вызывают desktop-уведомление.'),
 		},
 	},
 });

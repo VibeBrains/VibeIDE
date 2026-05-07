@@ -46,13 +46,13 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			type: 'boolean',
 			default: false,
 			tags: ['experimental'],
-			description: localize('vibeide.agentUI.enabled', '[Experimental] Allow the agent to render structured UI components (tables, progress bars, buttons) in chat responses. Behind feature flag.'),
+			description: localize('vibeide.agentUI.enabled', '[Experimental] Разрешить агенту рендерить структурированные UI-компоненты (таблицы, прогресс-бары, кнопки) в ответах чата. Под feature flag.'),
 		},
 		'vibeide.agentUI.allowedComponents': {
 			type: 'array',
 			items: { type: 'string', enum: ['table', 'progress', 'summary', 'action_buttons'] },
 			default: ['table', 'progress', 'summary'],
-			description: localize('vibeide.agentUI.allowedComponents', 'Which structured UI component types the agent is allowed to render.'),
+			description: localize('vibeide.agentUI.allowedComponents', 'Какие типы структурированных UI-компонентов разрешено рендерить агенту.'),
 		},
 	},
 });

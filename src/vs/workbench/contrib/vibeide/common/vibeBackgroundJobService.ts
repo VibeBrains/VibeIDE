@@ -42,20 +42,20 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: 50000,
 			minimum: 1000,
 			maximum: 2000000,
-			description: localize('vibeide.backgroundJob.defaultMaxTokens', 'Default token ceiling for background agent jobs. Individual jobs can override via maxTokens in their descriptor.'),
+			description: localize('vibeide.backgroundJob.defaultMaxTokens', 'Лимит токенов по умолчанию для фоновых job-ов агента. Отдельные job-ы могут переопределить через поле maxTokens в дескрипторе.'),
 		},
 		'vibeide.backgroundJob.leaseTtlSeconds': {
 			type: 'number',
 			default: 120,
 			minimum: 30,
 			maximum: 600,
-			description: localize('vibeide.backgroundJob.leaseTtlSeconds', 'Seconds before a job lease is considered stale (used to detect crashed jobs).'),
+			description: localize('vibeide.backgroundJob.leaseTtlSeconds', 'Через сколько секунд lease job-а считается устаревшим (используется для обнаружения упавших job-ов).'),
 		},
 		'vibeide.backgroundJob.supervisedOffTools': {
 			type: 'array',
 			items: { type: 'string' },
 			default: ['read_file', 'list_dir', 'grep', 'glob', 'write_file', 'edit_file'],
-			description: localize('vibeide.backgroundJob.supervisedOffTools', 'Tools that are allowed in unattended mode without user approval per-call. All other tools require pause + desktop notification.'),
+			description: localize('vibeide.backgroundJob.supervisedOffTools', 'Инструменты, разрешённые в unattended-режиме без подтверждения на каждый вызов. Все остальные инструменты вызывают паузу + desktop-уведомление.'),
 		},
 	},
 });

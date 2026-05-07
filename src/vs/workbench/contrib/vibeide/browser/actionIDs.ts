@@ -34,3 +34,6 @@ export const VIBEIDE_REJECT_ALL_DIFFS_ACTION_ID = 'vibeide.rejectAllDiffs';
 
 /** Open the chat editor pane in the right split column. */
 export const VIBEIDE_OPEN_CHAT_EDITOR_CMD = 'vibeide.chat.open';
+
+/** Open a brand-new chat tab in the chat group (subject to `vibeide.chat.maxOpenTabs`). */
+export const VIBEIDE_NEW_CHAT_CMD = 'vibeide.chat.openNew';

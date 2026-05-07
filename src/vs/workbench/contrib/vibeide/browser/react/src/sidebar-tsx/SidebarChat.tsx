@@ -723,8 +723,8 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 			<div className='@@chat-composer-toolbar-rule flex flex-row items-center gap-2 mt-1 pt-2.5 min-w-0'>
 				{showModelDropdown && (
 					<div className='flex items-center flex-wrap gap-x-2 gap-y-1 text-nowrap flex-1 min-w-0'>
-						{featureName === 'Chat' && <ChatModeDropdown className='text-xs text-vibe-fg-3 bg-vibe-bg-1 border border-vibe-border-2 rounded-xl overflow-hidden py-0.5 px-1.5' />}
-						<ModelDropdown featureName={featureName} className='text-xs text-vibe-fg-3 bg-vibe-bg-1 rounded-xl overflow-hidden py-0.5 px-1.5' />
+						{featureName === 'Chat' && <ChatModeDropdown className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />}
+						<ModelDropdown featureName={featureName} className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />
 						{featureName === 'Chat' && <ChatTrainingPolicyBadge />}
 						{featureName === 'Chat' && <ChatAgentAutopilotToggle />}
 						<ReasoningOptionSlider featureName={featureName} />
@@ -737,7 +737,7 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 						</div>
 					) : null}
 					{featureName === 'Chat' && showChatHistoryControl !== false ? (
-						<ChatHistoryToolbarDropdown className='text-xs text-vibe-fg-3 bg-vibe-bg-1 border border-vibe-border-2 rounded-xl overflow-hidden py-0.5 px-1.5 h-4 items-center' />
+						<ChatHistoryToolbarDropdown className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5 h-4 items-center' />
 					) : null}
 				</div>
 			</div>

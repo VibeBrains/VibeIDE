@@ -69,10 +69,10 @@ const DateGroupSection = ({
 
 	return (
 		<div className="mb-1">
-			<div className="px-3 pt-3 pb-0.5 text-[10px] font-semibold uppercase tracking-widest text-vibe-fg-4 select-none">
+			<div className="px-2 pt-3 pb-0.5 text-[10px] font-semibold uppercase tracking-widest text-vibe-fg-4 select-none">
 				{label}
 			</div>
-			<div className="flex flex-col gap-1">
+			<div className="flex flex-col gap-1 px-2">
 				{threads.map((thread, i) => (
 					<PastThreadElement
 						key={thread.id}
@@ -149,14 +149,14 @@ const HistoryContent = () => {
 		<div className="flex flex-col h-full w-full overflow-hidden">
 			{/* Search */}
 			<div className="px-2 py-1.5 flex-shrink-0">
-				<div className="flex items-center gap-1.5 px-2 py-1 vibe-rounded-xl border bg-vibe-bg-3">
+				<div className="flex items-center gap-1.5 px-2 py-1 @@vibe-command-center-search">
 					<Search size={11} className="text-vibe-fg-4 shrink-0" />
 					<input
 						type="search"
 						value={filter}
 						onChange={e => setFilter(e.target.value)}
 						onKeyDown={e => e.stopPropagation()}
-						placeholder="Filter history…"
+						placeholder="Поиск"
 						className="flex-1 bg-transparent text-xs text-vibe-fg-2 outline-none placeholder:text-vibe-fg-4 min-w-0"
 					/>
 				</div>
@@ -174,7 +174,7 @@ const HistoryContent = () => {
 							No matches for &ldquo;{filter}&rdquo;
 						</div>
 					) : (
-						<div className="flex flex-col gap-1 px-1 py-2">
+						<div className="flex flex-col gap-1 px-2 py-2">
 							{filteredThreads.map((thread, i) => (
 								<PastThreadElement
 									key={thread.id}

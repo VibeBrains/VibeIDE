@@ -282,6 +282,17 @@ body.monaco-workbench,
 	border-color: var(--vscode-input-border, var(--vscode-widget-border, transparent)) !important;
 }
 
+/* Chat editor pane drag-over indicator: subtle tint overlay when an external file is being dragged over the chat group. */
+.monaco-workbench .editor-group-container[data-vibeide-chat-drag-over="true"]::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background-color: var(--vscode-editor-foreground, #fff);
+	opacity: 0.06;
+	pointer-events: none;
+	z-index: 100;
+}
+
 /* Chat editor pane (split tab) — remap --vibe-* surfaces to VS Code theme tokens so the
  * panel background matches the active color theme (e.g. vibe-neon #262335) instead of the
  * default :root ink-black #080808.  The selector targets the [data-vibeide-chat-group]
@@ -555,17 +566,37 @@ body.monaco-workbench,
 	border-bottom-color: var(--vscode-focusBorder);
 }
 
-/* Floating popup panels and dropdowns: use editorWidget border token so the border
- * stays visible in all theme contexts, including [data-vibeide-chat-group] where
- * --vibe-border-* resolves to transparent (widget.border is often undefined). */
-.vibe-popup-panel {
+/* Floating popup panels and dropdowns: .vibe-scope prefix raises specificity to 0,2,0 — beats Tailwind preflight .vibe-scope * (0,1,1). */
+.vibe-scope .vibe-popup-panel {
+	border-style: solid;
+	border-width: 1px;
 	border-color: var(
 		--vscode-commandCenter-border,
 		var(
-			--vscode-commandCenter-inactiveBorder,
-			var(--vscode-input-border, var(--vscode-widget-border, transparent))
+			--vscode-input-border,
+			var(--vscode-widget-border, var(--vscode-commandCenter-inactiveBorder, transparent))
 		)
-	) !important;
+	);
+}
+
+/* Toolbar trigger pills (chat mode / model / history dropdowns): bg from input pills, border from chat composer chain. */
+.vibe-scope .vibe-toolbar-pill {
+	background-color: var(--vscode-input-background);
+	border-style: solid;
+	border-width: 1px;
+	border-color: var(
+		--vscode-commandCenter-border,
+		var(--vscode-input-border, var(--vscode-widget-border, transparent))
+	);
+}
+
+/* Search inputs styled like the title-bar Command Center: same tokens, same medium corner radius. */
+.vibe-scope .vibe-command-center-search {
+	background-color: var(--vscode-commandCenter-background, var(--vscode-input-background));
+	border-style: solid;
+	border-width: 1px;
+	border-color: var(--vscode-commandCenter-border, var(--vscode-input-border, transparent));
+	border-radius: var(--vscode-cornerRadius-medium, 4px);
 }
 
 /* Font Awesome 6 Solid — nominal weight 900 (see vibeideFontAwesomeSolid.ts). */

@@ -45,12 +45,12 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: 2,
 			minimum: 0,
 			maximum: 5,
-			description: localize('vibeide.subagent.maxRetries', 'Maximum number of retries for a failed subagent step before it is automatically skipped.'),
+			description: localize('vibeide.subagent.maxRetries', 'Максимальное число повторов для упавшего шага субагента, после которого шаг автоматически пропускается.'),
 		},
 		'vibeide.subagent.autoSkipOnRetryExhausted': {
 			type: 'boolean',
 			default: true,
-			description: localize('vibeide.subagent.autoSkipOnRetryExhausted', 'Automatically skip a subagent step and continue to the next item when all retries are exhausted. If false, the roadmap agent pauses.'),
+			description: localize('vibeide.subagent.autoSkipOnRetryExhausted', 'Автоматически пропускать шаг субагента и переходить к следующему пункту, когда все повторы исчерпаны. Если выключено — roadmap-агент ставится на паузу.'),
 		},
 	},
 });

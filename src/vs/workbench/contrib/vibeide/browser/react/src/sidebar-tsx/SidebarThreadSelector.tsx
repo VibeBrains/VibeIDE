@@ -453,7 +453,7 @@ export const ChatHistoryToolbarDropdown: React.FC<{ className?: string }> = ({ c
 			{isOpen ? (
 				<div
 					ref={refs.setFloating}
-					className="z-[10000] bg-vibe-bg-1 border vibe-popup-panel rounded-xl shadow-lg overflow-hidden"
+					className="z-[10000] bg-vibe-bg-1 @@vibe-popup-panel rounded-xl shadow-lg overflow-hidden"
 					style={{ position: strategy, top: y ?? 0, left: x ?? 0 }}
 				>
 					<div className="px-2 py-1.5 border-b border-vibe-border-2 shrink-0">

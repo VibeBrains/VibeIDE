@@ -78,10 +78,11 @@
 .vibe-rounded-lg { border-radius: var(--vibe-radius-lg); }
 .vibe-rounded-xl { border-radius: var(--vibe-radius-xl); }
 
-/* scoped: theme-aware border-color for rounded-xl elements (avoids scope-tailwind var() rewrite) */
+/* scoped: theme-aware border for rounded-xl elements (avoids scope-tailwind var() rewrite) */
 .@@vibe-scope .vibe-rounded-xl {
 	border-radius: var(--vibe-radius-xl);
-	border-color: var(--vscode-input-border, rgba(255, 255, 255, 0.1));
+	background-color: var(--vscode-input-background);
+	border: 1px solid var(--vscode-commandCenter-border, var(--vscode-commandCenter-inactiveBorder, var(--vscode-input-border, var(--vscode-widget-border, transparent))));
 }
 
 /*

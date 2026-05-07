@@ -39,19 +39,19 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: 204800, // 200 KB (matches Large file policy)
 			minimum: 10240,
 			maximum: 10485760,
-			description: localize('vibeide.diffPreview.binaryPolicy.sizeLimitBytes', 'Files larger than this size (bytes) are shown truncated in diff preview. Binary files show a placeholder regardless of this setting.'),
+			description: localize('vibeide.diffPreview.binaryPolicy.sizeLimitBytes', 'Файлы больше указанного размера (в байтах) отображаются обрезанными в diff preview. Бинарные файлы показываются как плейсхолдер независимо от этой настройки.'),
 		},
 		'vibeide.diffPreview.binaryPolicy.previewLines': {
 			type: 'number',
 			default: 100,
 			minimum: 10,
 			maximum: 1000,
-			description: localize('vibeide.diffPreview.binaryPolicy.previewLines', 'Number of lines shown from large text files in diff preview before a truncation notice.'),
+			description: localize('vibeide.diffPreview.binaryPolicy.previewLines', 'Сколько строк показывать из больших текстовых файлов в diff preview перед уведомлением об обрезке.'),
 		},
 		'vibeide.diffPreview.binaryPolicy.imageVisionPassthrough': {
 			type: 'boolean',
 			default: true,
-			description: localize('vibeide.diffPreview.binaryPolicy.imageVisionPassthrough', 'Allow image files to be passed to the vision pipeline (imageQA) in diff preview, rather than treated as raw binary.'),
+			description: localize('vibeide.diffPreview.binaryPolicy.imageVisionPassthrough', 'Разрешить передачу изображений в vision-пайплайн (imageQA) в diff preview вместо обработки как сырого бинарника.'),
 		},
 	},
 });

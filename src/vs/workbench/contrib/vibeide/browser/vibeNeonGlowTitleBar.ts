@@ -40,13 +40,13 @@ const neonGlowToggleIconOff = registerVibeideFaSolidIcon('vibeide-neon-editor-gl
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'vibeideTheme',
 	order: 39,
-	title: localize('vibeideThemeConfigurationTitle', 'VibeIDE Theme'),
+	title: localize('vibeideThemeConfigurationTitle', 'VibeIDE — Тема'),
 	type: 'object',
 	properties: {
 		[CONFIG_NEON_EDITOR_GLOW]: {
 			type: 'boolean',
 			default: true,
-			description: localize('vibeide.theme.neonEditorGlowDescription', 'When using the Vibe Neon color theme, adds neon-style glow to syntax highlighting in the editor.'),
+			description: localize('vibeide.theme.neonEditorGlowDescription', 'При использовании цветовой темы Vibe Neon добавляет неоновое свечение к подсветке синтаксиса в редакторе.'),
 			scope: ConfigurationScope.WINDOW,
 		},
 	},

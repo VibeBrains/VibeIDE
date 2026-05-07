@@ -41,7 +41,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: 60,
 			minimum: 5,
 			maximum: 1440,
-			description: localize('vibeide.mcpOAuth.expiryWarningLeadMinutes', 'Minutes before an MCP OAuth token expires to show an expiry warning notification.'),
+			description: localize('vibeide.mcpOAuth.expiryWarningLeadMinutes', 'За сколько минут до истечения MCP OAuth-токена показывать уведомление о скором завершении срока действия.'),
 		},
 	},
 });

@@ -19,24 +19,24 @@ export class SecretDetectionConfigurationContribution extends Disposable impleme
 
 		registry.registerConfiguration({
 			id: 'vibeide.secretDetection',
-			title: localize('secretDetection.title', 'Secret Detection'),
+			title: localize('secretDetection.title', 'Обнаружение секретов'),
 			type: 'object',
 			properties: {
 				'vibeide.secretDetection.enabled': {
 					type: 'boolean',
 					default: true,
-					description: localize('secretDetection.enabled', 'Enable secret detection and redaction. When enabled, detected secrets will be redacted before sending to LLMs and tools, and masked in chat/markdown rendering.'),
+					description: localize('secretDetection.enabled', 'Включить обнаружение и редактирование секретов. Когда включено — обнаруженные секреты заменяются плейсхолдерами перед отправкой в LLM и инструменты, а также маскируются при отображении в чате и markdown.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 				'vibeide.secretDetection.mode': {
 					type: 'string',
 					enum: ['block', 'redact'],
 					enumDescriptions: [
-						localize('secretDetection.mode.block', 'Block sending messages containing secrets entirely.'),
-						localize('secretDetection.mode.redact', 'Allow sending messages but redact secrets with placeholders.'),
+						localize('secretDetection.mode.block', 'Полностью блокировать отправку сообщений, содержащих секреты.'),
+						localize('secretDetection.mode.redact', 'Разрешать отправку, но заменять секреты плейсхолдерами.'),
 					],
 					default: 'redact',
-					description: localize('secretDetection.mode.description', 'Strictness mode: "block" prevents sending secrets, "redact" allows sending with redacted placeholders.'),
+					description: localize('secretDetection.mode.description', 'Режим строгости: "block" — запрещает отправку секретов, "redact" — разрешает отправку с заменой на плейсхолдеры.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 				'vibeide.secretDetection.disabledPatternIds': {
@@ -45,7 +45,7 @@ export class SecretDetectionConfigurationContribution extends Disposable impleme
 						type: 'string',
 					},
 					default: [],
-					description: localize('secretDetection.disabledPatternIds', 'List of pattern IDs to disable. Available patterns: openai-key, anthropic-key, generic-api-key, jwt-token, bearer-token, aws-access-key, aws-secret-key, github-token, gitlab-token, google-api-key, stripe-key, password-pattern, private-key, generic-token.'),
+					description: localize('secretDetection.disabledPatternIds', 'Список идентификаторов паттернов для отключения. Доступные паттерны: openai-key, anthropic-key, generic-api-key, jwt-token, bearer-token, aws-access-key, aws-secret-key, github-token, gitlab-token, google-api-key, stripe-key, password-pattern, private-key, generic-token.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 				'vibeide.secretDetection.customPatterns': {
@@ -55,31 +55,31 @@ export class SecretDetectionConfigurationContribution extends Disposable impleme
 						properties: {
 							id: {
 								type: 'string',
-								description: localize('secretDetection.customPattern.id', 'Unique identifier for this pattern.'),
+								description: localize('secretDetection.customPattern.id', 'Уникальный идентификатор паттерна.'),
 							},
 							name: {
 								type: 'string',
-								description: localize('secretDetection.customPattern.name', 'Human-readable name for this pattern.'),
+								description: localize('secretDetection.customPattern.name', 'Понятное человеку имя паттерна.'),
 							},
 							pattern: {
 								type: 'string',
-								description: localize('secretDetection.customPattern.pattern', 'Regex pattern to detect secrets. Use JavaScript regex syntax.'),
+								description: localize('secretDetection.customPattern.pattern', 'Regex-паттерн для обнаружения секретов. Использовать синтаксис JavaScript regex.'),
 							},
 							enabled: {
 								type: 'boolean',
 								default: true,
-								description: localize('secretDetection.customPattern.enabled', 'Whether this pattern is enabled.'),
+								description: localize('secretDetection.customPattern.enabled', 'Включён ли этот паттерн.'),
 							},
 							priority: {
 								type: 'number',
 								default: 50,
-								description: localize('secretDetection.customPattern.priority', 'Priority (higher = checked first). Default patterns use 50-100.'),
+								description: localize('secretDetection.customPattern.priority', 'Приоритет (больше = проверяется раньше). Стандартные паттерны используют 50–100.'),
 							},
 						},
 						required: ['id', 'name', 'pattern'],
 					},
 					default: [],
-					description: localize('secretDetection.customPatterns', 'Custom secret detection patterns. Add regex patterns to detect additional secret formats.'),
+					description: localize('secretDetection.customPatterns', 'Пользовательские паттерны обнаружения секретов. Добавьте regex-паттерны для распознавания дополнительных форматов секретов.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 			},
