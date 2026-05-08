@@ -8,7 +8,7 @@ import { EditorInput } from '../../../common/editor/editorInput.js';
 import * as nls from '../../../../nls.js';
 import { EditorExtensions } from '../../../common/editor.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
-import { IEditorGroup, IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
+import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
@@ -129,8 +129,6 @@ registerAction2(class extends Action2 {
 
 	async run(accessor: ServicesAccessor): Promise<void> {
 		const editorService = accessor.get(IEditorService);
-		const editorGroupService = accessor.get(IEditorGroupsService);
-
 		const instantiationService = accessor.get(IInstantiationService);
 
 		// if is open, close it
@@ -141,7 +139,7 @@ registerAction2(class extends Action2 {
 			if (isCurrentlyOpen)
 				await editorService.closeEditors(openEditors)
 			else
-				await editorGroupService.activeGroup.openEditor(openEditor)
+				await editorService.openEditor(openEditor)
 			return;
 		}
 
@@ -149,7 +147,7 @@ registerAction2(class extends Action2 {
 		// else open it
 		const input = instantiationService.createInstance(VibeideSettingsInput);
 
-		await editorGroupService.activeGroup.openEditor(input);
+		await editorService.openEditor(input);
 	}
 })
 
