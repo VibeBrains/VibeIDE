@@ -181,13 +181,52 @@ class VibeProviderProxyService extends Disposable implements IVibeProviderProxyS
 	}
 
 	private _redactHeaders(headers: Record<string, string>): Record<string, string> {
-		const sensitiveKeys = ['authorization', 'x-api-key', 'api-key', 'x-goog-api-key', 'x-openai-api-key'];
-		const result: Record<string, string> = {};
-		for (const [k, v] of Object.entries(headers)) {
-			result[k] = sensitiveKeys.includes(k.toLowerCase()) ? '[REDACTED]' : v;
-		}
-		return result;
+		return redactAuthHeaders(headers);
 	}
+}
+
+/**
+ * Positive list of HTTP header names to redact in the provider proxy log. Match is
+ * case-insensitive (per RFC 7230 § 3.2 — header field names are case-insensitive).
+ *
+ * This list runs BEFORE the body's `ISecretDetectionService` pass, so that a token
+ * like `Authorization: Bearer eyJ…` does not need to match a body secret pattern to
+ * be removed. Add a new header here only with the same review process as
+ * `references/v1/a2ui-allowed-commands.md` — every entry is a security decision.
+ */
+export const PROXY_REDACT_HEADER_NAMES: readonly string[] = Object.freeze([
+	'authorization',
+	'proxy-authorization',
+	'x-api-key',
+	'api-key',
+	'apikey',
+	'x-goog-api-key',
+	'x-openai-api-key',
+	'anthropic-api-key',
+	'x-anthropic-api-key',
+	'x-amzn-bearer-token',
+	'x-aws-access-token',
+	'cookie',
+	'set-cookie',
+]);
+
+/**
+ * Pure helper. Returns a copy of `headers` with every entry whose name (case-insensitive)
+ * matches `PROXY_REDACT_HEADER_NAMES` replaced with `'[REDACTED]'`. Original header
+ * casing is preserved on output. Non-string values are coerced to a placeholder so the
+ * helper never propagates raw objects into the log.
+ */
+export function redactAuthHeaders(headers: Record<string, string>): Record<string, string> {
+	const sensitive = new Set(PROXY_REDACT_HEADER_NAMES.map(s => s.toLowerCase()));
+	const out: Record<string, string> = {};
+	for (const [k, v] of Object.entries(headers)) {
+		if (sensitive.has(k.toLowerCase())) {
+			out[k] = '[REDACTED]';
+			continue;
+		}
+		out[k] = typeof v === 'string' ? v : '[non-string-value]';
+	}
+	return out;
 }
 
 registerSingleton(IVibeProviderProxyService, VibeProviderProxyService, InstantiationType.Delayed);
