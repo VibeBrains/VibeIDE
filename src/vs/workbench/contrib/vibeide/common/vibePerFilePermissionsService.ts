@@ -9,7 +9,10 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { IFileService, FileOperationError, FileOperationResult } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
+import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
+import { parseConfigJsonOrDefaults } from './vibeConfigJsonParser.js';
 
 export interface VibePermissions {
 	vibeVersion?: string;
@@ -95,6 +98,7 @@ class VibePerFilePermissionsService extends Disposable implements IVibePerFilePe
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 		@ILogService private readonly _logService: ILogService,
+		@INotificationService private readonly _notificationService: INotificationService,
 	) {
 		super();
 		this.reload();
@@ -105,16 +109,44 @@ class VibePerFilePermissionsService extends Disposable implements IVibePerFilePe
 		if (folders.length === 0) return;
 
 		const uri = joinPath(folders[0].uri, '.vibe', 'permissions.json');
+		let raw: string | undefined;
 		try {
 			const content = await this._fileService.readFile(uri);
-			this._permissions = JSON.parse(content.value.toString()) as VibePermissions;
-			this._logService.debug('[VibeIDE Permissions] Loaded .vibe/permissions.json');
+			raw = content.value.toString();
 		} catch (e) {
 			if (!(e instanceof FileOperationError && e.fileOperationResult === FileOperationResult.FILE_NOT_FOUND)) {
-				this._logService.warn('[VibeIDE Permissions] Failed to parse .vibe/permissions.json:', e);
+				this._logService.warn('[VibeIDE Permissions] readFile failed for .vibe/permissions.json:', e);
 			}
 			this._permissions = {};
+			return;
 		}
+		this._permissions = parseConfigJsonOrDefaults<VibePermissions>(
+			raw,
+			{},
+			reason => this._reportCorruptPermissions(uri, reason),
+		);
+		this._logService.debug('[VibeIDE Permissions] Loaded .vibe/permissions.json');
+	}
+
+	private _reportCorruptPermissions(uri: URI, reason: string): void {
+		// Empty file = "no permissions saved yet" — a normal state, no banner.
+		if (reason === 'empty') return;
+		this._logService.warn(`[VibeIDE Permissions] .vibe/permissions.json corrupt (${reason}) — using safe defaults (allow all)`);
+		this._notificationService.notify({
+			severity: Severity.Warning,
+			message: `VibeIDE: .vibe/permissions.json повреждён (${reason}). Применены безопасные дефолты — откройте файл и исправьте JSON, иначе per-file ограничения не действуют.`,
+			source: 'VibeIDE Permissions',
+			actions: {
+				primary: [{
+					id: 'vibeide.openCorruptPermissions',
+					label: 'Открыть файл',
+					tooltip: '',
+					class: undefined,
+					enabled: true,
+					run: async () => { await this._fileService.resolve(uri); },
+				}],
+			},
+		});
 	}
 
 	canWrite(filePath: string): boolean {
