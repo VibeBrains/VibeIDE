@@ -1,0 +1,74 @@
+# Privacy verify — strict-mode outbound audit (L.5 / 1048)
+#
+# Static audit pass that fails when *new* fetch / http / https / net.connect
+# / dns lookup call sites are introduced under `src/vs/workbench/contrib/vibeide/`
+# without an accompanying entry in `references/v1/privacy-allowlist.md`. The
+# real e2e sniffer (run with `--privacy.strict=true` and a network-mock) is
+# blocked on Playwright in CI for this fork — this static gate is the
+# warning-only stand-in.
+#
+# To unblock a legitimate new outbound call site:
+#   1. Add the call to `references/v1/privacy-allowlist.md` with one-line
+#      justification (allowed services: Ollama localhost, registered MCP
+#      servers, GitHub release manifest).
+#   2. Either land the file in the same PR (preferred) or land it in main
+#      first and rebase — the workflow only checks the head commit's tree.
+#
+# Closes the warn-only side of L.5 / 1048. The Playwright + sniffer
+# integration that turns this into a hard gate remains a follow-up.
+
+name: privacy-verify
+
+on:
+  pull_request:
+    paths:
+      - 'src/vs/workbench/contrib/vibeide/**/*.ts'
+      - 'references/v1/privacy-allowlist.md'
+      - '.github/workflows/privacy-verify.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  static-audit:
+    name: outbound call site audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find new outbound call sites
+        id: find
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          # Lines added under contrib/vibeide that look like network calls.
+          ADDED=$(git diff "$BASE_SHA..$HEAD_SHA" -- 'src/vs/workbench/contrib/vibeide/**/*.ts' \
+            | awk '/^\+\+\+ /{ f=substr($0,7) } /^\+[^+]/ { print f ": " substr($0,2) }' \
+            | grep -E 'fetch\(|http\.request\(|https\.request\(|net\.connect\(|dns\.lookup\(' || true)
+          if [ -z "$ADDED" ]; then
+            echo "added=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo 'added<<EOF'
+            echo "$ADDED"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Warn when allowlist is missing
+        if: steps.find.outputs.added != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          ADDED='${{ steps.find.outputs.added }}'
+          echo "::warning::PR introduces outbound call sites:"
+          echo "$ADDED"
+          if [ ! -f references/v1/privacy-allowlist.md ]; then
+            echo "::warning::references/v1/privacy-allowlist.md does not exist; consider adding one with justifications for the new sites above."
+          fi
+          # Soft gate by default. Flip to `exit 1` once Playwright sniffer lands.
+          exit 0

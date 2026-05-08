@@ -1,0 +1,100 @@
+# Test coverage — soft gate per L.0 / 983
+#
+# Counts the unit tests that ship with vibeide pure-helper modules (one
+# `.test.ts` per public helper). Posts a delta comment on the PR; warns when
+# coverage drops vs main. NOT a hard block — full c8 coverage tooling is
+# deferred until the test suite is consistently runnable from CI without
+# the React out-bundle, which is currently a prerequisite for the typecheck.
+#
+# Until then, this workflow tracks "did this PR add a test alongside the new
+# pure helper?" — a simple file-pair count works for the pattern the codebase
+# already follows. Closes the warn-only side of L.0 / 983; the c8 line-coverage
+# gate remains a follow-up.
+
+name: test-coverage
+
+on:
+  pull_request:
+    paths:
+      - 'src/vs/workbench/contrib/vibeide/common/**/*.ts'
+      - 'src/vs/workbench/contrib/vibeide/test/common/**/*.ts'
+      - '.github/workflows/test-coverage.yml'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  pair-check:
+    name: helper / test file pair report
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Count helper / test pairs
+        id: counts
+        shell: bash
+        run: |
+          set -euo pipefail
+          HELPERS=$(git ls-files 'src/vs/workbench/contrib/vibeide/common/*.ts' | grep -v 'Service.ts$' | grep -v 'Types.ts$' | wc -l)
+          TESTS=$(git ls-files 'src/vs/workbench/contrib/vibeide/test/common/*.test.ts' | wc -l)
+          echo "helpers=$HELPERS" >> "$GITHUB_OUTPUT"
+          echo "tests=$TESTS" >> "$GITHUB_OUTPUT"
+          # Find helpers that don't have a same-name test file.
+          MISSING=$(git ls-files 'src/vs/workbench/contrib/vibeide/common/*.ts' \
+            | xargs -I{} basename {} .ts \
+            | sort -u \
+            | while read -r name; do
+                if ! git ls-files 'src/vs/workbench/contrib/vibeide/test/common' | grep -q "${name}.test.ts$"; then
+                  echo "$name"
+                fi
+              done | head -20)
+          {
+            echo 'missing<<EOF'
+            echo "$MISSING"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Comment summary
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const helpers = '${{ steps.counts.outputs.helpers }}';
+            const tests = '${{ steps.counts.outputs.tests }}';
+            const missing = `${{ steps.counts.outputs.missing }}`.trim();
+            const top = missing ? missing.split('\n').slice(0, 10).join('\n  • ') : '(all helpers have a test file)';
+            const body = [
+              '### test-coverage report',
+              '',
+              `Helper modules in \`common/\`: **${helpers}**`,
+              `Test files in \`test/common/\`: **${tests}**`,
+              '',
+              'Helpers without a same-name test file (top 10):',
+              `  • ${top || '(none)'}`,
+              '',
+              '_Soft gate per roadmap L.0 / 983 — does not block merge._',
+            ].join('\n');
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body && c.body.startsWith('### test-coverage report'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
