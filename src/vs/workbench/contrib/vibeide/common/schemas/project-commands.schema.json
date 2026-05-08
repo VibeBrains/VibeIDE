@@ -1,0 +1,96 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://vibeide.io/schemas/project-commands.schema.json",
+	"title": "VibeIDE Project Commands",
+	"description": "Workspace-first shell shortcuts for VibeIDE. Lives in .vibe/commands.json next to the workspace; multi-root workspaces hold one file per root and conflicts on `id` are resolved workspace-over-global.",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["vibeVersion", "commands"],
+	"properties": {
+		"vibeVersion": {
+			"type": "string",
+			"minLength": 1,
+			"description": "Schema version for migrations (vibe doctor --repair)."
+		},
+		"commands": {
+			"type": "array",
+			"items": { "$ref": "#/$defs/Command" }
+		}
+	},
+	"$defs": {
+		"Command": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["id", "name", "command"],
+			"properties": {
+				"id": {
+					"type": "string",
+					"pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+					"description": "Stable slug used for keybinding ids (vibeide.commands.run.<id>) and audit log."
+				},
+				"name": {
+					"type": "string",
+					"minLength": 1,
+					"description": "Display name (palette, top-bar tooltip)."
+				},
+				"description": {
+					"type": "string"
+				},
+				"icon": {
+					"type": "string",
+					"description": "Codicon id (e.g. 'rocket', 'play')."
+				},
+				"color": {
+					"type": "string",
+					"description": "CSS color token or theme variable for the top-bar icon."
+				},
+				"command": {
+					"type": "string",
+					"minLength": 1,
+					"description": "Shell command line (no shell expansion unless `shell: true`)."
+				},
+				"args": {
+					"type": "array",
+					"items": { "type": "string" }
+				},
+				"cwd": {
+					"type": "string",
+					"description": "Working dir, relative to workspace root. Absolute paths must stay within workspace (realpath check enforced at run time)."
+				},
+				"env": {
+					"type": "object",
+					"additionalProperties": { "type": "string" }
+				},
+				"terminal": {
+					"type": "string",
+					"enum": ["integrated", "external", "background"],
+					"default": "integrated"
+				},
+				"shell": {
+					"type": "boolean",
+					"default": false,
+					"description": "Allow shell metacharacters in args. Off by default."
+				},
+				"confirm": {
+					"type": "boolean",
+					"default": true
+				},
+				"singleton": {
+					"type": "boolean",
+					"default": false
+				},
+				"pinned": {
+					"type": "boolean",
+					"default": false
+				},
+				"order": {
+					"type": "integer"
+				},
+				"workflowId": {
+					"type": "string",
+					"description": "Optional VibeWorkflowService entry-point id."
+				}
+			}
+		}
+	}
+}
