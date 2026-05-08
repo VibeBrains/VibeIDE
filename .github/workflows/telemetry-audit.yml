@@ -1,0 +1,36 @@
+# Telemetry Audit
+#
+# This workflow audits the source for telemetry call sites; it does NOT transmit
+# anything anywhere. VibeIDE does not collect telemetry by default — see
+# references/v1/telemetry-policy.md. The audit exists so we notice if an upstream
+# merge or a careless PR re-introduces a /* __GDPR__ */ block we did not knowingly
+# add.
+#
+# If this job ever fails, treat it as "did the diff add telemetry on purpose?":
+#   - yes  → update references/v1/telemetry-policy.md to document the new call
+#            site (with reasoning + opt-in story) before merging.
+#   - no   → revert the offending change.
+#
+# This file was renamed from telemetry.yml on 2026-05-08 to make the intent
+# visible from the file name alone (closes L.9 telemetry-yml-audit item).
+name: 'Telemetry Audit'
+on: pull_request
+permissions: {}
+jobs:
+  check-metadata:
+    name: 'Check telemetry metadata'
+    runs-on: 'ubuntu-latest'
+
+    steps:
+      - uses: 'actions/checkout@v6'
+        with:
+          persist-credentials: false
+
+      - uses: 'actions/setup-node@v6'
+        with:
+          node-version: 'lts/*'
+
+      - name: 'Run vscode-telemetry-extractor (audit-only — no network egress)'
+        run: 'npx --package=@vscode/telemetry-extractor@1.14.0 --yes vscode-telemetry-extractor -s .'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
