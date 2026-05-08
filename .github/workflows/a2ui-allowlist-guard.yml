@@ -1,0 +1,63 @@
+# A2UI Allowlist Guard
+#
+# Watches PRs that touch the A2UI positive allowlist in
+# src/vs/workbench/contrib/vibeide/common/vibeAgentRenderedUIService.ts.
+#
+# Any change to the allowlist (additions, removals, reorderings) must:
+#   - carry the `a2ui-allowlist-change` label
+#   - have a reviewer outside the original author
+#
+# This is a label-required guard, not a unit test — the runtime allowlist
+# is already covered by vibeAgentRenderedUIServiceAllowlist.test.ts.
+# Closes roadmap L.7 / 1067 DoD for K.2.
+name: 'A2UI Allowlist Guard'
+on:
+  pull_request:
+    paths:
+      - 'src/vs/workbench/contrib/vibeide/common/vibeAgentRenderedUIService.ts'
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  guard:
+    name: 'Require label + diff visibility'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 'Inspect allowlist diff'
+        id: diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          FILE='src/vs/workbench/contrib/vibeide/common/vibeAgentRenderedUIService.ts'
+          DIFF=$(git diff "$BASE_SHA..$HEAD_SHA" -- "$FILE" || true)
+          # Touched the allowlist if any added/removed line falls inside the
+          # `A2UI_ALLOWED_COMMANDS = Object.freeze([ … ])` block.
+          if grep -E '^[+-][[:space:]]*'"'"'vibeide\.' <<< "$DIFF" > /dev/null; then
+            echo "touched=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::A2UI allowlist changed; see diff above."
+          else
+            echo "touched=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 'Require label when allowlist changed'
+        if: steps.diff.outputs.touched == 'true'
+        shell: bash
+        env:
+          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          if echo "$LABELS" | grep -q 'a2ui-allowlist-change'; then
+            echo "Allowlist change is properly labelled."
+          else
+            echo "::error::PR modifies A2UI_ALLOWED_COMMANDS without the 'a2ui-allowlist-change' label."
+            echo "Adding to / removing from the allowlist is a security decision that requires"
+            echo "an outside reviewer. Apply the 'a2ui-allowlist-change' label to acknowledge."
+            exit 1
+          fi
