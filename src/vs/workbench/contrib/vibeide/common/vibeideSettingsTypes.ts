@@ -554,6 +554,8 @@ export type GlobalSettings = {
 	chatAgentAutopilot?: boolean;
 	/** When true, `.vibe/README.md` is created on workspace init if missing (together with other `.vibe/` defaults). */
 	createVibeReadmeOnWorkspaceInit: boolean;
+	/** When true, render date/time under each chat message and next to checkpoints. Single switch for all chat timestamps. */
+	showChatTimestamps: boolean;
 }
 
 export const defaultGlobalSettings: GlobalSettings = {
@@ -611,6 +613,7 @@ export const defaultGlobalSettings: GlobalSettings = {
 	localFirstAI: false, // Local-First AI disabled by default (users can enable for privacy/performance)
 	chatAgentAutopilot: false,
 	createVibeReadmeOnWorkspaceInit: true,
+	showChatTimestamps: true,
 }
 
 export type GlobalSettingName = keyof GlobalSettings

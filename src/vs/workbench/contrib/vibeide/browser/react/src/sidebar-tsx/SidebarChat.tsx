@@ -24,6 +24,7 @@ import { WarningBox } from '../vibe-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputTokenSpace } from '../../../../common/modelCapabilities.js';
 import { AlertTriangle, File, Ban, Check, ChevronRight, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Image as ImageIcon, FileText, LoaderCircle } from 'lucide-react';
 import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, PlanStep, StepStatus, PlanApprovalState } from '../../../../common/chatThreadServiceTypes.js';
+import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER } from '../../../../common/chatTimestampFormatter.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
 import { CopyButton, EditToolAcceptRejectButtonsHTML, IconShell1, JumpToFileButton, JumpToTerminalButton, StatusIndicator, StatusIndicatorForApplyButton, useApplyStreamState, useEditToolStreamState } from '../markdown/ApplyBlockHoverButtons.js';
 import { IsRunningType } from '../../../chatThreadService.js';
@@ -65,6 +66,32 @@ export const IconX = ({ size, className = '', ...props }: { size: number, classN
 			/>
 		</svg>
 	);
+};
+
+// Theme-driven timestamp style — consumes neon-aware tokens declared in vibeide.css.
+// Outside the neon theme both vars resolve to inert defaults (no glow, fg-3 color).
+const NEON_TIMESTAMP_STYLE: React.CSSProperties = {
+	color: 'var(--vibe-neon-timestamp-fg)',
+	textShadow: 'var(--vibe-neon-timestamp-glow)',
+};
+
+const ChatTimestamp = ({ ts, align, streaming }: { ts: number | undefined; align: 'left' | 'right' | 'inline'; streaming?: boolean }) => {
+	const settingsState = useSettingsState();
+	if (settingsState.globalSettings.showChatTimestamps === false) return null;
+	const validTs = typeof ts === 'number' && Number.isFinite(ts);
+	// Streaming placeholder: occupies same width as a real timestamp so the surrounding
+	// layout does not shift when the first chunk arrives and `ts` becomes valid.
+	if (!validTs && !streaming) return null;
+	const text = validTs ? formatChatTimestamp(ts) : CHAT_TIMESTAMP_STREAMING_PLACEHOLDER;
+	const timeNode = validTs
+		? <time dateTime={chatTimestampToISO(ts)} title={formatChatTimestamp(ts, 'DD.MM.YYYY HH:mm:ss')} style={NEON_TIMESTAMP_STYLE}>{text}</time>
+		: <span aria-hidden='true' style={NEON_TIMESTAMP_STYLE}>{text}</span>;
+	if (align === 'inline') {
+		return <span className='text-[11px] select-none'><span className='mx-1 opacity-70'>·</span>{timeNode}</span>;
+	}
+	return <div className={`text-[11px] select-none mt-0.5 px-0.5 ${align === 'right' ? 'text-right' : 'text-left'}`}>
+		{timeNode}
+	</div>;
 };
 
 const IconArrowUp = ({ size, className = '' }: { size: number, className?: string }) => {
@@ -1569,7 +1596,7 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			{chatbubbleContents}
 		</div>
 
-
+		{mode === 'display' && <ChatTimestamp ts={chatMessage.createdAt} align='right' />}
 
 		<div
 			className="absolute -top-1 -right-1 translate-x-0 -translate-y-0 z-1"
@@ -1748,6 +1775,13 @@ const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, 
 				</ProseWrapper>
 			</div>
 		}
+
+		{/* timestamp shown once after the assistant message; placeholder while streaming, real value after first chunk commits */}
+		{(hasReasoning || chatMessage.displayContent) && (
+			isCommitted
+				? <ChatTimestamp ts={chatMessage.createdAt} align='left' />
+				: <ChatTimestamp ts={chatMessage.createdAt} align='left' streaming />
+		)}
 	</>
 
 }, (prev, next) => {
@@ -3085,7 +3119,7 @@ const Checkpoint = ({ message, threadId, messageIdx, isCheckpointGhost, threadIs
 				'data-tooltip-place': 'top',
 			} : {}}
 		>
-			Checkpoint
+			Checkpoint<ChatTimestamp ts={message.createdAt} align='inline' />
 		</div>
 	</div>
 }
@@ -4997,7 +5031,7 @@ export const SidebarChat = () => {
 
     const landingPageContent = <div
 		ref={sidebarRef}
-		className='w-full h-full max-h-full flex flex-col overflow-auto px-3'
+		className='@@vibe-chat-neon-scope w-full h-full max-h-full flex flex-col overflow-auto px-3'
 	>
 		<ErrorBoundary>
 			{landingPageInput}
@@ -5042,7 +5076,7 @@ export const SidebarChat = () => {
 	// </div>
 	const threadPageContent = <div
 		ref={sidebarRef}
-		className='w-full h-full flex flex-col overflow-hidden'
+		className='@@vibe-chat-neon-scope w-full h-full flex flex-col overflow-hidden'
 	>
 
 		<ErrorBoundary>

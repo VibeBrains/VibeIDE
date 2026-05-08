@@ -105,6 +105,21 @@
 	--vibe-transition-fast: var(--vibeide-transition-fast);
 	--vibe-transition-base: var(--vibeide-transition-base);
 	--vibe-transition-slow: var(--vibeide-transition-slow);
+
+	/* Neon-aware tokens for chat/history. Inert defaults — overridden only by neon themes
+	 * (extensions/vibeide-neon/media/vibe-neon*.css). When the active theme is not neon,
+	 * `text-shadow` stays `none` and timestamps fall back to a normal muted foreground. */
+	--vibe-neon-text-glow: none;
+	--vibe-neon-timestamp-fg: var(--vibe-fg-3);
+	--vibe-neon-timestamp-glow: none;
+}
+
+/* Apply the inheritable text-shadow once at the chat/history scope; descendants inherit it.
+ * In TSX the class MUST be written as `@@vibe-chat-neon-scope` — the `@@` prefix tells
+ * scope-tailwind not to re-prefix it (otherwise the rendered class becomes
+ * `vibe-vibe-chat-neon-scope` and this selector matches nothing). */
+.vibe-chat-neon-scope {
+	text-shadow: var(--vibe-neon-text-glow);
 }
 
 /* ----------------------------------------------------------------------------------------

@@ -1,3 +1,26 @@
+/* Neon-aware tokens for chat/history (consumed in src/vs/workbench/contrib/vibeide/browser/media/vibeide.css).
+ * The :root selector here augments the global tokens whenever this stylesheet is injected by
+ * VibeNeonThemeContribution (only while the active color theme is `vibe-neon`). */
+:root {
+  --vibe-neon-text-glow: 0 0 3px rgba(255,255,255,0.85), 0 0 6px rgba(255,255,255,0.55), 0 0 12px rgba(255,255,255,0.3);
+  --vibe-neon-timestamp-fg: #fff951;
+  --vibe-neon-timestamp-glow: 0 0 4px #fff951, 0 0 8px rgba(255,249,81,0.6);
+}
+
+/* Chat panel + thread history: repaint all body text white-neon (timestamps stay yellow as
+ * accent via inline style on <time>). Rebinds the --vibe-fg-* foreground tokens locally so
+ * Tailwind text-vibe-fg-* utilities inside the scope render in the same white as plain
+ * inheriting text. Higher specificity than the auxiliarybar / chat-editor rebinds in
+ * vibeide.css, so it wins. */
+.vibe-chat-neon-scope {
+  --vibe-fg-0: #ffffff;
+  --vibe-fg-1: #ffffff;
+  --vibe-fg-2: #ffffff;
+  --vibe-fg-3: #ffffff;
+  --vibe-fg-4: #ffffff;
+  color: #ffffff;
+}
+
 .mtk6 {
   color: #f92aad;
   text-shadow: 0 0 2px #100c0f, 0 0 5px #dc078e33, 0 0 10px #fff3;

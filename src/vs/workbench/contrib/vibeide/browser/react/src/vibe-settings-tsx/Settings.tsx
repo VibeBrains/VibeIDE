@@ -1889,6 +1889,25 @@ const FeatureOptionsSettingsBody = () => {
 
 
 			<FeatureOptionsSectionCard wide>
+				<h4 className={`text-base`}>{miscS.chatDisplayTitle}</h4>
+				<div className='text-sm text-vibe-fg-3 mt-1'>{miscS.chatDisplayDesc}</div>
+
+				<div className='my-2'>
+					{/* Show chat timestamps switch — single source of truth for all message/checkpoint timestamps */}
+					<ErrorBoundary>
+						<div className='flex items-center gap-x-2 my-2'>
+							<VibeSwitch
+								size='xs'
+								value={settingsState.globalSettings.showChatTimestamps !== false}
+								onChange={(newVal) => vibeideSettingsService.setGlobalSetting('showChatTimestamps', newVal)}
+							/>
+							<span className='text-vibe-fg-3 text-xs pointer-events-none'>{miscS.showChatTimestamps}</span>
+						</div>
+					</ErrorBoundary>
+				</div>
+			</FeatureOptionsSectionCard>
+
+			<FeatureOptionsSectionCard wide>
 				<h4 className={`text-base`}>{miscS.editorTitle}</h4>
 				<div className='text-sm text-vibe-fg-3 mt-1'>{miscS.editorDesc}</div>
 

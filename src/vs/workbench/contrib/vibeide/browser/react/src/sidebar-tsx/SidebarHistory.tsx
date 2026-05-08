@@ -210,7 +210,7 @@ export const SidebarHistory = () => {
 	const isDark = useIsDark();
 	return (
 		<div
-			className={`@@vibe-scope ${isDark ? 'dark' : ''}`}
+			className={`@@vibe-scope @@vibe-chat-neon-scope ${isDark ? 'dark' : ''}`}
 			style={{ width: '100%', height: '100%' }}
 		>
 			<div className="w-full h-full bg-vibe-bg-2 text-vibe-fg-1">

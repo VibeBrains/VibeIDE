@@ -5936,6 +5936,13 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const { allThreads } = this.state
 		const oldThread = allThreads[threadId]
 		if (!oldThread) return // should never happen
+		// stamp createdAt for the message variants that opt into it (user / assistant / checkpoint)
+		const stampedMessage: ChatMessage = (
+			(message.role === 'user' || message.role === 'assistant' || message.role === 'checkpoint')
+				&& (message as { createdAt?: number }).createdAt === undefined
+		)
+			? { ...message, createdAt: Date.now() } as ChatMessage
+			: message
 		// update state and store it
 		const newThreads = {
 			...allThreads,
@@ -5944,7 +5951,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 				lastModified: new Date().toISOString(),
 				messages: [
 					...oldThread.messages,
-					message
+					stampedMessage
 				],
 			}
 		}

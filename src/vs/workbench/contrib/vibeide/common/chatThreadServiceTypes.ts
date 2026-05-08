@@ -43,6 +43,7 @@ export type CheckpointEntry = {
 	userModifications: {
 		voidFileSnapshotOfURI: { [fsPath: string]: VibeideFileSnapshot | undefined };
 	};
+	createdAt?: number; // unix ms when checkpoint was created
 }
 
 
@@ -155,12 +156,14 @@ export type ChatMessage =
 			stagingSelections: StagingSelectionItem[];
 			isBeingEdited: boolean;
 		}
+		createdAt?: number; // unix ms when message was added to thread
 	} | {
 		role: 'assistant';
 		displayContent: string; // content received from LLM  - allowed to be '', will be replaced with (empty)
 		reasoning: string; // reasoning from the LLM, used for step-by-step thinking
 
 		anthropicReasoning: AnthropicReasoning[] | null; // anthropic reasoning
+		createdAt?: number; // unix ms when message was added to thread
 	}
 	| ToolMessage<ToolName>
 	| DecorativeCanceledTool

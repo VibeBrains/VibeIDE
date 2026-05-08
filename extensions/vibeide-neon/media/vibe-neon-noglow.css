@@ -1,3 +1,21 @@
+/* Neon-aware tokens for chat/history (consumed in src/vs/workbench/contrib/vibeide/browser/media/vibeide.css).
+ * No-glow variant: keep the neon palette color for timestamps but drop text-shadows. */
+:root {
+  --vibe-neon-text-glow: none;
+  --vibe-neon-timestamp-fg: #fff951;
+  --vibe-neon-timestamp-glow: none;
+}
+
+/* Chat panel + thread history: when neon glow is off, all text falls back to white.
+ * Mirrors the structure used in vibe-neon.css so the unlit state is consistent. */
+.vibe-chat-neon-scope {
+  --vibe-fg-0: #ffffff;
+  --vibe-fg-1: #ffffff;
+  --vibe-fg-2: #ffffff;
+  --vibe-fg-3: #ffffff;
+  --vibe-fg-4: #ffffff;
+  color: #ffffff;
+}
 
 .monaco-editor .margin, .monaco-editor .inputarea.ime-input {
   background: transparent;
