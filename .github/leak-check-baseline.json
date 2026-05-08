@@ -1,0 +1,488 @@
+[
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\autocompleteService.ts",
+    "line": 861,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\autocompleteService.ts",
+    "line": 1059,
+    "pattern": "setTimeout-naked",
+    "excerpt": "const timeoutId = setTimeout(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\chatThreadService.ts",
+    "line": 3858,
+    "pattern": "setTimeout-naked",
+    "excerpt": "const networkTimeout = setTimeout(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\chatThreadService.ts",
+    "line": 3878,
+    "pattern": "setTimeout-naked",
+    "excerpt": "let firstTokenStallTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => { notifyStall('noFirstToken') }, FIRST_TOKEN_STALL_MS)"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\chatThreadService.ts",
+    "line": 3909,
+    "pattern": "setTimeout-naked",
+    "excerpt": "midStreamStallTimer = setTimeout(() => { notifyStall('midStream') }, MID_STREAM_STALL_MS)"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\codebaseQueryCommands.ts",
+    "line": 102,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "disposables.add(quickPick.onDidChangeValue(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\codebaseQueryCommands.ts",
+    "line": 107,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "disposables.add(quickPick.onDidAccept(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\codebaseQueryCommands.ts",
+    "line": 123,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "disposables.add(quickPick.onDidHide(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\editCodeService.ts",
+    "line": 248,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "model.onDidChangeContent(e => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\editCodeService.ts",
+    "line": 449,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(() => textAreaRef.current?.focus(), 100)"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\editCodeService.ts",
+    "line": 1104,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(() => (overlappingCtrlKZone as CtrlKZone)._mountInfo?.textAreaRef.current?.focus(), 100)"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\editCodeService.ts",
+    "line": 2560,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\helperServices\\consistentItemService.ts",
+    "line": 66,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "editor.onDidChangeModel(e => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\helperServices\\consistentItemService.ts",
+    "line": 245,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "this._editorService.onCodeEditorAdd((editor) => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\helperServices\\consistentItemService.ts",
+    "line": 252,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "this._editorService.onCodeEditorRemove((editor) => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\helperServices\\consistentItemService.ts",
+    "line": 270,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "editor.onDidChangeModel((e) => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\helperServices\\consistentItemService.ts",
+    "line": 292,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "editor.onDidDispose(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\metricsPollService.ts",
+    "line": 39,
+    "pattern": "setInterval-naked",
+    "excerpt": "this.intervalID = window.setInterval(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\quickEditActions.ts",
+    "line": 289,
+    "pattern": "setTimeout-naked",
+    "excerpt": "const timeout = setTimeout(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\quickEditActions.ts",
+    "line": 298,
+    "pattern": "setInterval-naked",
+    "excerpt": "const checkInterval = setInterval(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\repoIndexerService.ts",
+    "line": 240,
+    "pattern": "setTimeout-naked",
+    "excerpt": "await new Promise(resolve => setTimeout(resolve, 50));"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\repoIndexerService.ts",
+    "line": 297,
+    "pattern": "setTimeout-naked",
+    "excerpt": "await new Promise(resolve => setTimeout(resolve, 0));"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\repoIndexerService.ts",
+    "line": 452,
+    "pattern": "setTimeout-naked",
+    "excerpt": "await new Promise(resolve => setTimeout(resolve, 0));"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\repoIndexerService.ts",
+    "line": 822,
+    "pattern": "setTimeout-naked",
+    "excerpt": "await new Promise(resolve => setTimeout(resolve, 0));"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\repoIndexerService.ts",
+    "line": 935,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(() => resolve({ timedOut: true }), RepoIndexerService.QUERY_TIMEOUT_MS);"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\repoIndexerService.ts",
+    "line": 1736,
+    "pattern": "fileservice-watch-naked",
+    "excerpt": "const watcher = this.fileService.watch(workspace, {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\terminalToolService.ts",
+    "line": 100,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "const d = terminal.onExit(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\terminalToolService.ts",
+    "line": 117,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "terminalService.onDidCreateInstance(terminal => { initializeTerminal(terminal) })"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\terminalToolService.ts",
+    "line": 269,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "terminal.capabilities.onDidAddCapability((e) => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\terminalToolService.ts",
+    "line": 326,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "const l = cmdCap.onCommandFinished(cmd => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\terminalToolService.ts",
+    "line": 343,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\terminalToolService.ts",
+    "line": 353,
+    "pattern": "setTimeout-naked",
+    "excerpt": "globalTimeoutId = setTimeout(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\terminalToolService.ts",
+    "line": 361,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "const dTimeout = terminal.onData(() => { resetTimer(); });"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\toolsService.ts",
+    "line": 1497,
+    "pattern": "setTimeout-naked",
+    "excerpt": "await new Promise(resolve => setTimeout(resolve, 500));"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibeAlternativesComparisonContribution.ts",
+    "line": 58,
+    "pattern": "setTimeout-naked",
+    "excerpt": "const timer = setTimeout(() => this._show(), 5000);"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibeDeadMansSwitchService.ts",
+    "line": 157,
+    "pattern": "setTimeout-naked",
+    "excerpt": "const timer = setTimeout(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibeFirstRunWizard.ts",
+    "line": 40,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(() => this._checkFirstRun(), 2000);"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibeFirstRunWizard.ts",
+    "line": 89,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibeideChatPane.ts",
+    "line": 84,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "_groupListenerDisposable = editorGroupsService.onDidRemoveGroup(group => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibeideChatPane.ts",
+    "line": 136,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "_chatGroupLockdownDisposable = group.onDidModelChange(e => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibeideCommandBarService.ts",
+    "line": 141,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "const d2 = editor.onDidChangeModel((e) => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibeideSCMService.ts",
+    "line": 123,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "this.onError(error)"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibeideStatusBar.ts",
+    "line": 62,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "this.updateDisposables.value = this.vibeideSettingsService.onDidChangeState(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibeideStatusBar.ts",
+    "line": 72,
+    "pattern": "setInterval-naked",
+    "excerpt": "const latencyUpdateInterval = setInterval(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibeideUpdateActions.ts",
+    "line": 239,
+    "pattern": "setTimeout-naked",
+    "excerpt": "const initId = window.setTimeout(() => autoCheck(), 5 * 1000)"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibeideUpdateActions.ts",
+    "line": 243,
+    "pattern": "setInterval-naked",
+    "excerpt": "const intervalId = window.setInterval(() => autoCheck(), 3 * 60 * 60 * 1000) // every 3 hrs"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibeMultiAgentObservationStatusBar.ts",
+    "line": 42,
+    "pattern": "setInterval-naked",
+    "excerpt": "const h = window.setInterval(() => this._refresh.schedule(), 4000);"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibeOllamaOnboarding.ts",
+    "line": 33,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(() => this._detectLocalModels(), 3000);"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibePersistedPlanResumeContribution.ts",
+    "line": 74,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(() => this._checkForInterruptedPlans(), 2500);"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibeSkillDiskDiffContribution.ts",
+    "line": 44,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(() => void this._seedBaselineFromDisk(), 400);"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibeSkillDiskDiffContribution.ts",
+    "line": 47,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(() => void this._seedBaselineFromDisk(), 1200);"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\vibeStartupHealthCheck.ts",
+    "line": 35,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(() => this._runHealthCheck(), 0);"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\browser\\_markerCheckService.ts",
+    "line": 101,
+    "pattern": "setInterval-naked",
+    "excerpt": "window.setInterval(check, 5000);"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\chatLatencyAudit.ts",
+    "line": 387,
+    "pattern": "setInterval-naked",
+    "excerpt": "this.renderFrameInterval = window.setInterval(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\codeReviewService.ts",
+    "line": 244,
+    "pattern": "setTimeout-naked",
+    "excerpt": "const timeout = setTimeout(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\codeReviewService.ts",
+    "line": 253,
+    "pattern": "setInterval-naked",
+    "excerpt": "const checkInterval = setInterval(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\errorDetectionService.ts",
+    "line": 355,
+    "pattern": "setTimeout-naked",
+    "excerpt": "await new Promise(resolve => setTimeout(resolve, 100));"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\mcpService.ts",
+    "line": 165,
+    "pattern": "fileservice-watch-naked",
+    "excerpt": "this.fileService.watch(mcpConfigUri)"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\nlShellParserService.ts",
+    "line": 139,
+    "pattern": "setTimeout-naked",
+    "excerpt": "await new Promise(resolve => setTimeout(resolve, 100));"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\pdfService.ts",
+    "line": 216,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(() => resolve(), 0);"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\pdfService.ts",
+    "line": 348,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(() => resolve(), 0);"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\performanceGuardrailsService.ts",
+    "line": 76,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\refreshModelService.ts",
+    "line": 113,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "vibeideSettingsService.onDidChangeState(() => { // we might want to debounce this"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\refreshModelService.ts",
+    "line": 143,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "vibeideSettingsService.onDidChangeState((type) => { if (typeof type === 'object' && type[1] === 'autoRefreshModels') initializeAutoPollingAndOnChange() })"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\refreshModelService.ts",
+    "line": 166,
+    "pattern": "setTimeout-naked",
+    "excerpt": "const timeoutId = setTimeout(() => this.startRefreshingModels(providerName, autoOptions), REFRESH_INTERVAL)"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\routing\\adaptiveRouter.ts",
+    "line": 46,
+    "pattern": "setInterval-naked",
+    "excerpt": "this.updateInterval = setInterval(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\secretDetectionService.ts",
+    "line": 44,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "this.configurationService.onDidChangeConfiguration((e) => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\startupAudit.ts",
+    "line": 174,
+    "pattern": "setInterval-naked",
+    "excerpt": "const interval = setInterval(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\telemetry\\telemetryService.ts",
+    "line": 249,
+    "pattern": "setInterval-naked",
+    "excerpt": "this.flushTimer = setInterval(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\vectorStore.ts",
+    "line": 457,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "this._configurationService.onDidChangeConfiguration(e => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\vibeBrowserAutomationService.ts",
+    "line": 199,
+    "pattern": "setTimeout-naked",
+    "excerpt": "await new Promise(r => setTimeout(r, Math.min(200, maxMs)));"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\vibeConstraintsService.ts",
+    "line": 151,
+    "pattern": "fileservice-watch-naked",
+    "excerpt": "const watcher = this._fileService.watch(constraintsUri);"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\vibeDependencyVulnService.ts",
+    "line": 77,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(async () => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\vibeideSettingsService.ts",
+    "line": 347,
+    "pattern": "event-subscribe-naked",
+    "excerpt": "this._configurationService.onDidChangeConfiguration(e => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\vibeMCPOAuthService.ts",
+    "line": 221,
+    "pattern": "setTimeout-naked",
+    "excerpt": "const timer = setTimeout(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\vibeSubagentService.ts",
+    "line": 287,
+    "pattern": "setTimeout-naked",
+    "excerpt": "wallClockTimer = setTimeout(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\vibeSubagentService.ts",
+    "line": 302,
+    "pattern": "setTimeout-naked",
+    "excerpt": "await new Promise(r => setTimeout(r, 50));"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\common\\vibeToolApprovalService.ts",
+    "line": 94,
+    "pattern": "setTimeout-naked",
+    "excerpt": "setTimeout(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\electron-main\\llmMessage\\sendLLMMessage.impl.ts",
+    "line": 415,
+    "pattern": "setTimeout-naked",
+    "excerpt": "const firstTokenTimeoutId = setTimeout(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\electron-main\\llmMessage\\sendLLMMessage.impl.ts",
+    "line": 658,
+    "pattern": "setTimeout-naked",
+    "excerpt": "overallTimeoutId = setTimeout(() => {"
+  },
+  {
+    "file": "src\\vs\\workbench\\contrib\\vibeide\\electron-main\\llmMessage\\sendLLMMessage.impl.ts",
+    "line": 689,
+    "pattern": "setTimeout-naked",
+    "excerpt": "firstTokenTimeoutId = setTimeout(() => {"
+  }
+]
