@@ -136,7 +136,7 @@ const DuplicateButton = ({ threadId }: { threadId: string }) => {
 
 }
 
-const TrashButton = ({ threadId }: { threadId: string }) => {
+const TrashButton = ({ threadId, onPressedChange }: { threadId: string; onPressedChange?: (pressed: boolean) => void }) => {
 
 	const accessor = useAccessor()
 	const chatThreadsService = accessor.get('IChatThreadService')
@@ -144,23 +144,28 @@ const TrashButton = ({ threadId }: { threadId: string }) => {
 
 	const [isTrashPressed, setIsTrashPressed] = useState(false)
 
+	const setPressed = (v: boolean) => {
+		setIsTrashPressed(v);
+		onPressedChange?.(v);
+	};
+
 	return (isTrashPressed ?
 		<div className='flex flex-nowrap text-nowrap gap-1'>
 			<IconShell1
 				Icon={X}
 				className='size-[11px]'
-				onClick={() => { setIsTrashPressed(false); }}
+				onClick={() => { setPressed(false); }}
 			/>
 			<IconShell1
 				Icon={Check}
 				className='size-[11px]'
-				onClick={() => { chatThreadsService.deleteThread(threadId); setIsTrashPressed(false); }}
+				onClick={() => { chatThreadsService.deleteThread(threadId); setPressed(false); }}
 			/>
 		</div>
 		: <IconShell1
 			Icon={Trash2}
 			className='size-[11px]'
-			onClick={() => { setIsTrashPressed(true); }}
+			onClick={() => { setPressed(true); }}
 		/>
 	)
 }
@@ -186,6 +191,8 @@ export const PastThreadElement = ({
 
 	const accessor = useAccessor()
 	const chatThreadsService = accessor.get('IChatThreadService')
+
+	const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
 
 	// const settingsState = useSettingsState()
 	// const convertService = accessor.get('IConvertToLLMMessageService')
@@ -225,9 +232,11 @@ export const PastThreadElement = ({
 	const numMessages = pastThread.messages.filter((msg) => msg.role === 'assistant' || msg.role === 'user').length;
 
 	const detailsHTML = (
-		<span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-vibe-bg-2 text-[10px] tracking-wide uppercase text-vibe-fg-3'>
-			<span>{numMessages}</span>
-			<span className='opacity-80'>{formatDate(new Date(pastThread.lastModified))}</span>
+		<span
+			className='px-2 py-0.5 rounded-full bg-vibe-bg-2 text-[10px] tracking-wide uppercase text-vibe-fg-3'
+			style={{ whiteSpace: 'nowrap', display: 'inline-block', flexShrink: 0 }}
+		>
+			{numMessages}<span className='opacity-50 mx-1'>·</span><span className='opacity-80'>{formatDate(new Date(pastThread.lastModified))}</span>
 		</span>
 	)
 
@@ -264,19 +273,21 @@ export const PastThreadElement = ({
 				{/* <span className='opacity-60'>{`(${numMessages})`}</span> */}
 			</span>
 
-			<div className="flex items-center gap-x-1 opacity-80 text-vibe-fg-3">
-				{idx === hoveredIdx ?
-					<>
-						{/* duplicate */}
-						<DuplicateButton threadId={pastThread.id} />
-
-						{/* trash icon */}
-						<TrashButton threadId={pastThread.id} />
-					</>
-					: <>
-						<div className="opacity-90">{detailsHTML}</div>
-					</>
-				}
+			<div className="relative flex items-center gap-x-1 opacity-80 text-vibe-fg-3 flex-shrink-0">
+				{/* badge: always rendered to lock right-column width */}
+				<div
+					className='transition-opacity duration-150'
+					style={{ opacity: idx === hoveredIdx ? 0 : 0.9, visibility: idx === hoveredIdx ? 'hidden' : 'visible' }}
+				>
+					{detailsHTML}
+				</div>
+				{/* action icons: absolute overlay, only visible on hover */}
+				{idx === hoveredIdx && (
+					<div className="absolute inset-y-0 right-0 flex items-center gap-x-1">
+						{!isConfirmingDelete && <DuplicateButton threadId={pastThread.id} />}
+						<TrashButton threadId={pastThread.id} onPressedChange={setIsConfirmingDelete} />
+					</div>
+				)}
 			</div>
 		</div>
 	</div>;
