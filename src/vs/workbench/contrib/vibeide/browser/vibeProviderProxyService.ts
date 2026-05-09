@@ -28,6 +28,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { localize } from '../../../../nls.js';
+import { IVibeOutboundRingBuffer } from '../common/vibeOutboundRingBuffer.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
@@ -114,6 +115,7 @@ class VibeProviderProxyService extends Disposable implements IVibeProviderProxyS
 		@ILogService private readonly _log: ILogService,
 		@IConfigurationService private readonly _config: IConfigurationService,
 		@ISecretDetectionService private readonly _secretDetection: ISecretDetectionService,
+		@IVibeOutboundRingBuffer private readonly _outboundBuffer: IVibeOutboundRingBuffer,
 	) {
 		super();
 	}
@@ -142,6 +144,17 @@ class VibeProviderProxyService extends Disposable implements IVibeProviderProxyS
 		};
 
 		this._pushEntry(entry);
+		// Privacy panel collector hookup (roadmap §1042) — push redacted record into
+		// the in-memory ring buffer so `vibeide.network.showOutbound` and
+		// `vibe doctor --network` can render it without persisting to disk.
+		this._outboundBuffer.record({
+			timestampMs: entry.ts,
+			url,
+			method,
+			source: 'provider',
+			context: provider,
+			bytesOut: body.length,
+		});
 		this._log.info(`[VibeProviderProxy] Captured request ${id}: ${method} ${url}`);
 		return id;
 	}

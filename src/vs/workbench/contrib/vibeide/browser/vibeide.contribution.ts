@@ -149,6 +149,9 @@ import '../common/modelWarmupService.js'
 // ollama installer service (main-process proxy) - eager import to register singleton before VibeOllamaOnboardingContribution
 import '../common/ollamaInstallerService.js'
 
+// outbound ring buffer (privacy panel + vibe doctor --network) — registers singleton
+import '../common/vibeOutboundRingBuffer.js'
+
 // repo indexer
 import './repoIndexerService.js'
 // repo indexer actions - lazy load (only needed when user invokes indexer actions)
