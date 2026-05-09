@@ -6,14 +6,14 @@
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
-import { IRequestService } from '../../../../platform/request/common/request.js';
-import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { localize } from '../../../../nls.js';
-import { asText } from '../../../../platform/request/common/request.js';
+import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { IOllamaInstallerService } from '../common/ollamaInstallerService.js';
 
-const OLLAMA_DETECTED_KEY = 'vibeide.ollamaDetected';
-const OLLAMA_URL = 'http://localhost:11434/api/tags';
+const OLLAMA_PROBED_KEY = 'vibeide.ollamaProbed';
+const OLLAMA_REDETECT_CMD = 'vibeide.ollama.redetect';
 
 /**
  * VibeIDE Ollama / LM Studio Onboarding.
@@ -25,7 +25,7 @@ export class VibeOllamaOnboardingContribution extends Disposable implements IWor
 
 	constructor(
 		@INotificationService private readonly _notificationService: INotificationService,
-		@IRequestService private readonly _requestService: IRequestService,
+		@IOllamaInstallerService private readonly _ollamaInstaller: IOllamaInstallerService,
 		@IStorageService private readonly _storageService: IStorageService,
 	) {
 		super();
@@ -34,47 +34,41 @@ export class VibeOllamaOnboardingContribution extends Disposable implements IWor
 	}
 
 	private async _detectLocalModels(): Promise<void> {
-		// Only notify once
-		if (this._storageService.get(OLLAMA_DETECTED_KEY, StorageScope.APPLICATION)) return;
+		// Probe at most once per profile.
+		if (this._storageService.get(OLLAMA_PROBED_KEY, StorageScope.APPLICATION)) return;
+
+		// Mark probed up-front so a crash mid-probe still prevents repeats.
+		this._storageService.store(OLLAMA_PROBED_KEY, 'true', StorageScope.APPLICATION, StorageTarget.MACHINE);
 
 		try {
-			const response = await this._requestService.request(
-				{ url: OLLAMA_URL, type: 'GET', callSite: 'vibeide-ollama-detect' },
-				CancellationToken.None
-			);
+			// Probe runs in main process via Node net.connect — no Chromium DevTools network log on failure.
+			const result = await this._ollamaInstaller.probe();
+			if (!result.running) return;
 
-			if (response.res.statusCode === 200) {
-				const text = await asText(response);
-				const data = text ? JSON.parse(text) : null;
-				const modelCount = data?.models?.length || 0;
-
-				this._storageService.store(OLLAMA_DETECTED_KEY, 'true', StorageScope.APPLICATION, StorageTarget.MACHINE);
-
-				this._notificationService.notify({
-					severity: Severity.Info,
-					message: localize(
-						'vibeOllamaDetected',
-						'🦙 Ollama detected with {0} model(s)! VibeIDE can use local models — no API key needed, complete privacy.',
-						modelCount
-					),
-					actions: {
-						primary: [{
-							id: 'vibeide.ollama.configure',
-							label: localize('vibeConfigure', 'Configure Ollama'),
-							tooltip: '',
-							class: undefined,
-							enabled: true,
-							checked: false,
-							run: () => {
-								// Open VibeIDE provider settings
-							},
-						}],
-						secondary: [],
-					}
-				});
-			}
+			this._notificationService.notify({
+				severity: Severity.Info,
+				message: localize(
+					'vibeOllamaDetected',
+					'🦙 Ollama detected with {0} model(s)! VibeIDE can use local models — no API key needed, complete privacy.',
+					result.modelCount
+				),
+				actions: {
+					primary: [{
+						id: 'vibeide.ollama.configure',
+						label: localize('vibeConfigure', 'Configure Ollama'),
+						tooltip: '',
+						class: undefined,
+						enabled: true,
+						checked: false,
+						run: () => {
+							// Open VibeIDE provider settings
+						},
+					}],
+					secondary: [],
+				}
+			});
 		} catch {
-			// Ollama not running — silently skip
+			// Probe failed — silently skip
 		}
 	}
 }
@@ -84,3 +78,11 @@ registerWorkbenchContribution2(
 	VibeOllamaOnboardingContribution,
 	WorkbenchPhase.AfterRestored
 );
+
+CommandsRegistry.registerCommand(OLLAMA_REDETECT_CMD, (accessor: ServicesAccessor) => {
+	accessor.get(IStorageService).remove(OLLAMA_PROBED_KEY, StorageScope.APPLICATION);
+	accessor.get(INotificationService).notify({
+		severity: Severity.Info,
+		message: localize('vibeOllamaRedetect', 'Ollama detection reset. Restart VibeIDE to re-probe local models.'),
+	});
+});

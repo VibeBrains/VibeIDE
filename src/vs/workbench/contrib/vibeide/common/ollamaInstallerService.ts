@@ -4,14 +4,17 @@
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
+import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 
 export interface InstallOptions { method: 'auto' | 'brew' | 'curl' | 'winget' | 'choco', modelTag?: string }
+export interface ProbeResult { running: boolean; modelCount: number }
 
 export interface IOllamaInstallerService {
   readonly _serviceBrand: undefined;
   onLog: Event<string>;
   onDone: Event<boolean>;
   install(options: InstallOptions): void;
+  probe(): Promise<ProbeResult>;
 }
 
 export const IOllamaInstallerService = createDecorator<IOllamaInstallerService>('OllamaInstallerService');
@@ -37,6 +40,13 @@ export class OllamaInstallerService implements IOllamaInstallerService {
     const channel = this.mainProcessService.getChannel('vibe-channel-ollamaInstaller');
     channel.call('install', options);
   }
+
+  async probe(): Promise<ProbeResult> {
+    const channel = this.mainProcessService.getChannel('vibe-channel-ollamaInstaller');
+    return channel.call('probe', undefined);
+  }
 }
+
+registerSingleton(IOllamaInstallerService, OllamaInstallerService, InstantiationType.Delayed);
 
 

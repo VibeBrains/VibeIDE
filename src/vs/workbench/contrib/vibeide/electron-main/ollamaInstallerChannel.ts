@@ -6,8 +6,15 @@ import { IServerChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { spawn } from 'node:child_process';
 import { platform } from 'node:os';
+import { connect } from 'node:net';
+import { request as httpRequest } from 'node:http';
 
 type InstallParams = { method: 'auto' | 'brew' | 'curl' | 'winget' | 'choco', modelTag?: string };
+export type ProbeResult = { running: boolean; modelCount: number };
+
+const OLLAMA_HOST = '127.0.0.1';
+const OLLAMA_PORT = 11434;
+const PROBE_TIMEOUT_MS = 1500;
 
 export class OllamaInstallerChannel implements IServerChannel {
 
@@ -25,7 +32,56 @@ export class OllamaInstallerChannel implements IServerChannel {
       this.install(params as InstallParams);
       return;
     }
+    if (command === 'probe') {
+      return this.probe();
+    }
     throw new Error(`Unknown command: ${command}`);
+  }
+
+  private probe(): Promise<ProbeResult> {
+    return new Promise<ProbeResult>(resolve => {
+      const socket = connect({ host: OLLAMA_HOST, port: OLLAMA_PORT });
+      let settled = false;
+      const finish = (result: ProbeResult) => {
+        if (settled) { return; }
+        settled = true;
+        socket.destroy();
+        resolve(result);
+      };
+      socket.setTimeout(PROBE_TIMEOUT_MS);
+      socket.once('connect', () => {
+        socket.destroy();
+        this.fetchTags().then(modelCount => finish({ running: true, modelCount }), () => finish({ running: true, modelCount: 0 }));
+      });
+      socket.once('error', () => finish({ running: false, modelCount: 0 }));
+      socket.once('timeout', () => finish({ running: false, modelCount: 0 }));
+    });
+  }
+
+  private fetchTags(): Promise<number> {
+    return new Promise<number>((resolve, reject) => {
+      const req = httpRequest({ host: OLLAMA_HOST, port: OLLAMA_PORT, path: '/api/tags', method: 'GET', timeout: PROBE_TIMEOUT_MS }, res => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          resolve(0);
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', chunk => chunks.push(chunk as Buffer));
+        res.on('end', () => {
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+            resolve(Array.isArray(body?.models) ? body.models.length : 0);
+          } catch {
+            resolve(0);
+          }
+        });
+        res.on('error', reject);
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+      req.end();
+    });
   }
 
   private log(line: string) {
