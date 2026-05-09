@@ -1,14 +1,12 @@
-# i18n lint — flag hardcoded user-facing strings in JSX / notify call sites
+# i18n lint — flag unwrapped user-facing strings in JSX / notify / palette sites.
 #
-# Custom lightweight scan: looks for string literals passed to JSX attributes
-# `title` / `placeholder` / `aria-label` and to INotificationService methods
-# `notify` / `info` / `warn` / `error` / `showInformationMessage` /
-# `showWarningMessage` / `showErrorMessage` without an enclosing `localize(...)`
-# call. Output as PR annotations, warning-only.
+# Single source of truth: src/vs/workbench/contrib/vibeide/common/i18nUnwrappedScanner.ts
+# CI runner duplicates the regex set in scripts/scan-vibeide-i18n.mjs (no TS
+# compile step required for the workflow). The unit tests on the .ts module
+# are the canonical regression coverage; the .mjs runner just walks the tree.
 #
-# This is intentionally simpler than ESLint with custom rules — we don't want a
-# rule package to maintain in the fork. Rewrite as an ESLint rule when the i18n
-# bundle pipeline is fully wired (K.4 backlog).
+# Output as PR annotations, warning-only — adoption of localize() across the
+# vibeide tree is gradual and tracked in roadmap §K.4 line 478.
 
 name: i18n-lint
 
@@ -17,6 +15,7 @@ on:
     paths:
       - 'src/vs/workbench/contrib/vibeide/**/*.ts'
       - 'src/vs/workbench/contrib/vibeide/**/*.tsx'
+      - 'scripts/scan-vibeide-i18n.mjs'
       - '.github/workflows/i18n-lint.yml'
 
 permissions:
@@ -34,24 +33,22 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Scan for hardcoded user strings
+      - name: Scan for unwrapped user-facing strings
         shell: bash
         run: |
           set -euo pipefail
-          ROOT='src/vs/workbench/contrib/vibeide'
-          PATTERN='(title|placeholder|aria-label)=["'"'"']([^"'"'"'$]{4,})["'"'"']|(notify|info|warn|showInformationMessage|showWarningMessage|showErrorMessage)\s*\(\s*["'"'"']([^"'"'"'$]{4,})["'"'"']'
-          findings=0
-          while IFS= read -r line; do
-            file=$(echo "$line" | cut -d: -f1)
-            lineno=$(echo "$line" | cut -d: -f2)
-            content=$(echo "$line" | cut -d: -f3-)
-            # Skip if a localize call appears nearby on the same line.
-            if echo "$content" | grep -qE 'localize2?\s*\('; then
-              continue
-            fi
-            echo "::warning file=$file,line=$lineno::Hardcoded user-facing string — wrap in localize()/localize2(): ${content:0:120}"
-            findings=$((findings + 1))
-          done < <(grep -nrE "$PATTERN" "$ROOT" --include='*.ts' --include='*.tsx' || true)
-          echo "i18n-lint findings: $findings"
-          # Warning-only: do not fail the job
+          node scripts/scan-vibeide-i18n.mjs --json > /tmp/i18n-scan.json
+          findings=$(node -e "console.log(JSON.parse(require('fs').readFileSync('/tmp/i18n-scan.json','utf8')).summary.totalFindings)")
+          echo "i18n-lint findings: ${findings}"
+          if [ "${findings}" -gt 0 ]; then
+            node -e "
+              const data = JSON.parse(require('fs').readFileSync('/tmp/i18n-scan.json','utf8'));
+              for (const { filePath, result } of data.perFile) {
+                for (const f of result.findings) {
+                  console.log('::warning file=' + filePath + ',line=' + f.line + ',col=' + f.column + '::Unwrapped user string (' + f.callsite + '): ' + f.snippet);
+                }
+              }
+            "
+          fi
+          # Warning-only: do not fail the job.
           exit 0
