@@ -10,7 +10,7 @@
 
 import { ChatImageAttachment } from '../common/chatThreadServiceTypes.js';
 import { imageQAPipeline, type ImageQAOptions, type QAResponse } from '../common/imageQA/index.js';
-import { ModelSelection } from '../common/vibeideSettingsTypes.js';
+import { ModelSelection, SettingsOfProvider } from '../common/vibeideSettingsTypes.js';
 
 export interface ImageQAPreprocessedMessage {
 	shouldUsePipeline: boolean;
@@ -19,15 +19,74 @@ export interface ImageQAPreprocessedMessage {
 	images?: ChatImageAttachment[]; // Original images if still needed
 }
 
-/**
- * Check if we should use the Image QA pipeline for this message
- */
-export function shouldUseImageQAPipeline(images: ChatImageAttachment[] | undefined): boolean {
-	if (!images || images.length === 0) return false;
+// Providers whose chat models accept images natively (no local OCR needed)
+const VISION_PROVIDERS = new Set(['anthropic', 'openAI', 'gemini', 'pollinations']);
+const OLLAMA_VISION_KEYWORDS = ['llava', 'bakllava', 'llama-vision', 'qwen-vl'];
 
-	// Use pipeline for text-heavy images (terminal, code, documents)
-	// For now, use for all images (can be refined with heuristics)
+/**
+ * Returns true if any vision-capable provider has a configured API key with at least one
+ * non-hidden model. Used to treat `auto` provider as vision-capable when the router can
+ * realistically resolve to Anthropic/OpenAI/Gemini.
+ */
+function hasAnyVisionProviderConfigured(settingsOfProvider?: SettingsOfProvider): boolean {
+	if (!settingsOfProvider) return false;
+	for (const name of VISION_PROVIDERS) {
+		const s = (settingsOfProvider as any)[name];
+		if (!s) continue;
+		if (typeof s.apiKey === 'string' && s.apiKey.length > 10) {
+			const hasEnabledModel = Array.isArray(s.models) && s.models.some((m: any) => !m.isHidden);
+			if (hasEnabledModel) return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Lightweight vision-capability heuristic for OCR pipeline gating.
+ * Skips the local OCR/QA preprocessing when the chosen LLM can read images itself.
+ */
+function isModelVisionCapable(modelSelection: ModelSelection | null, settingsOfProvider?: SettingsOfProvider): boolean {
+	if (!modelSelection) return false;
+	const { providerName, modelName } = modelSelection;
+	if (providerName === 'auto') {
+		// Router decides — if user has any vision-capable provider configured, trust it.
+		return hasAnyVisionProviderConfigured(settingsOfProvider);
+	}
+	if (VISION_PROVIDERS.has(providerName)) return true;
+	if (providerName === 'ollama') {
+		const lower = (modelName || '').toLowerCase();
+		return OLLAMA_VISION_KEYWORDS.some(k => lower.includes(k));
+	}
+	return false;
+}
+
+/**
+ * Check if we should use the Image QA pipeline for this message.
+ * Order: kill-switch → vision-capable model → has images.
+ */
+export function shouldUseImageQAPipeline(
+	images: ChatImageAttachment[] | undefined,
+	modelSelection?: ModelSelection | null,
+	pipelineEnabled?: boolean,
+	settingsOfProvider?: SettingsOfProvider
+): boolean {
+	if (!images || images.length === 0) return false;
+	// Master kill-switch: pipeline is opt-in. Default off — native vision is the primary path.
+	if (!pipelineEnabled) return false;
+	// Vision-capable models read images directly — local OCR/QA is wasted work and surfaces tesseract errors when the worker fails to load.
+	if (isModelVisionCapable(modelSelection ?? null, settingsOfProvider)) return false;
 	return true;
+}
+
+// Cached probe: is tesseract.js actually loadable in this bundle?
+// VS Code workbench is an ESM bundle; if the package isn't wired into the loader graph,
+// dynamic import('tesseract.js') throws "Failed to resolve module specifier" — running the
+// pipeline anyway just floods the console. We probe once and short-circuit thereafter.
+let _ocrAvailability: Promise<boolean> | null = null;
+function isOCRAvailable(): Promise<boolean> {
+	if (_ocrAvailability) return _ocrAvailability;
+	_ocrAvailability = import('tesseract.js').then(() => true).catch(() => false);
+	return _ocrAvailability;
 }
 
 /**
@@ -40,11 +99,29 @@ export async function preprocessImagesForQA(
 	modelSelection: ModelSelection | null,
 	devMode: boolean = false,
 	settings?: {
+		pipelineEnabled?: boolean;
 		allowRemoteModels?: boolean;
 		enableHybridMode?: boolean;
+		settingsOfProvider?: SettingsOfProvider;
 	}
 ): Promise<ImageQAPreprocessedMessage> {
-	if (!shouldUseImageQAPipeline(images)) {
+	const pipelineEnabled = settings?.pipelineEnabled ?? false;
+	const willUseOCR = shouldUseImageQAPipeline(images, modelSelection, pipelineEnabled, settings?.settingsOfProvider);
+	if (devMode || pipelineEnabled) {
+		// Diagnostic: surface the gate decision so users can see why OCR did or didn't run.
+		console.debug('[ImageQA gate]', {
+			provider: modelSelection?.providerName,
+			model: modelSelection?.modelName,
+			imageCount: images?.length ?? 0,
+			pipelineEnabled,
+			willUseOCR,
+		});
+	}
+	if (!willUseOCR) {
+		return { shouldUsePipeline: false, images };
+	}
+	// Skip the pipeline if OCR isn't loadable — running it would just throw on every send.
+	if (!(await isOCRAvailable())) {
 		return { shouldUsePipeline: false, images };
 	}
 

@@ -514,6 +514,8 @@ export type GlobalSettings = {
 	enableRepoIndexer?: boolean;
 	useHeadlessBrowsing?: boolean;
 	// Image QA Pipeline settings
+	/** Master switch for the local OCR/QA pipeline. When false (default), images go directly to vision-capable LLMs and Tesseract is never invoked. */
+	imageQAPipelineEnabled: boolean;
 	imageQAAllowRemoteModels: boolean;
 	imageQAEnableHybridMode: boolean;
 	imageQADevMode: boolean;
@@ -576,6 +578,7 @@ export const defaultGlobalSettings: GlobalSettings = {
 	enableRepoIndexer: true,
 	useHeadlessBrowsing: true, // Use headless BrowserWindow for better content extraction (default)
 	// Image QA Pipeline defaults
+	imageQAPipelineEnabled: false, // OFF by default — native vision in Anthropic/OpenAI/Gemini outperforms local Tesseract OCR; opt-in for local-only setups.
 	imageQAAllowRemoteModels: false, // Local-first by default
 	imageQAEnableHybridMode: true,
 	imageQADevMode: false,

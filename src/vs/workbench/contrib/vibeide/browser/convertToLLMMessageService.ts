@@ -200,28 +200,16 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 			// Prepare text content
 			let textContent = currMsg.content && currMsg.content.trim() ? currMsg.content : '';
 
-			// When images are present, always add explicit instruction to analyze them
-			// This ensures models prioritize image analysis even if the text is ambiguous
-			if (hasImages && currMsg.images) {
-				if (!textContent || textContent.trim().length === 0) {
-					// Better default prompt for software development context
-					textContent = 'Analyze the attached image(s). Describe what you see in detail. If this appears to be code, a UI, an error message, a diagram, or something related to software development, provide a detailed analysis and actionable insights.';
-				} else {
-					// Enhance user's question with context about image analysis
-					const imageContext = currMsg.images.length === 1
-						? ' (The user has attached an image with this message - analyze the image content in your response.)'
-						: ` (The user has attached ${currMsg.images.length} images with this message - analyze all images in your response.)`;
-					textContent = textContent + imageContext;
-				}
+			// Modern vision models infer intent from the user's text + image directly — verbose
+			// English fallback prompts collide with non-English questions and bias the model toward
+			// generic descriptions. We only add a minimal placeholder when the user supplied no text.
+			if (hasImages && (!textContent || textContent.trim().length === 0)) {
+				textContent = '[user attached image]';
 			}
 
 			// Add text content - for images, we always need a text part
 			if (textContent) {
 				contentParts.push({ type: 'text', text: textContent });
-			} else if (hasImages) {
-				// If we have images but no text, add default image analysis prompt
-				const imageAnalysisPrompt = 'Analyze the attached image(s). Describe what you see in detail. If this appears to be code, a UI, an error message, a diagram, or something related to software development, provide a detailed analysis and actionable insights.';
-				contentParts.push({ type: 'text', text: imageAnalysisPrompt });
 			}
 
 			// Add images if present (OpenAI format: data URL)
@@ -562,28 +550,14 @@ const prepareMessages_anthropic_tools = (messages: SimpleLLMMessage[], supportsA
 			// Prepare text content
 			let textContent = currMsg.content && currMsg.content.trim() ? currMsg.content : '';
 
-			// When images are present, always add explicit instruction to analyze them
-			// This ensures models prioritize image analysis even if the text is ambiguous
-			if (hasImages && currMsg.images) {
-				if (!textContent || textContent.trim().length === 0) {
-					// Better default prompt for software development context
-					textContent = 'Analyze the attached image(s). Describe what you see in detail. If this appears to be code, a UI, an error message, a diagram, or something related to software development, provide a detailed analysis and actionable insights.';
-				} else {
-					// Enhance user's question with context about image analysis
-					const imageContext = currMsg.images.length === 1
-						? ' (The user has attached an image with this message - analyze the image content in your response.)'
-						: ` (The user has attached ${currMsg.images.length} images with this message - analyze all images in your response.)`;
-					textContent = textContent + imageContext;
-				}
+			// Same minimal-text policy as OpenAI branch — no English boilerplate that fights the user's question.
+			if (hasImages && (!textContent || textContent.trim().length === 0)) {
+				textContent = '[user attached image]';
 			}
 
 			// Add text content - for images, we always need a text part
 			if (textContent) {
 				contentParts.push({ type: 'text', text: textContent });
-			} else if (hasImages) {
-				// If we have images but no text, add default image analysis prompt
-				const imageAnalysisPrompt = 'Analyze the attached image(s). Describe what you see in detail. If this appears to be code, a UI, an error message, a diagram, or something related to software development, provide a detailed analysis and actionable insights.';
-				contentParts.push({ type: 'text', text: imageAnalysisPrompt });
 			}
 
 			// Add images if present
@@ -680,28 +654,14 @@ const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthrop
 				// Prepare text content
 				let textContent = c.content && c.content.trim() ? c.content : '';
 
-				// When images are present, always add explicit instruction to analyze them
-				// This ensures models prioritize image analysis even if the text is ambiguous
-				if (hasImages && c.images) {
-					if (!textContent || textContent.trim().length === 0) {
-						// Better default prompt for software development context
-						textContent = 'Analyze the attached image(s). Describe what you see in detail. If this appears to be code, a UI, an error message, a diagram, or something related to software development, provide a detailed analysis and actionable insights.';
-					} else {
-						// Enhance user's question with context about image analysis
-						const imageContext = c.images.length === 1
-							? ' (The user has attached an image with this message - analyze the image content in your response.)'
-							: ` (The user has attached ${c.images.length} images with this message - analyze all images in your response.)`;
-						textContent = textContent + imageContext;
-					}
+				// Same minimal-text policy as elsewhere — let the user's question stand on its own.
+				if (hasImages && (!textContent || textContent.trim().length === 0)) {
+					textContent = '[user attached image]';
 				}
 
 				// Add text content - for images, we always need a text part
 				if (textContent) {
 					contentParts.push({ type: 'text', text: textContent });
-				} else if (hasImages && c.images) {
-					// If we have images but no text, add default image analysis prompt
-					const imageAnalysisPrompt = 'Analyze the attached image(s). Describe what you see in detail. If this appears to be code, a UI, an error message, a diagram, or something related to software development, provide a detailed analysis and actionable insights.';
-					contentParts.push({ type: 'text', text: imageAnalysisPrompt });
 				}
 
 				// Add images if present (only for user messages)
@@ -846,9 +806,10 @@ const prepareOpenAIOrAnthropicMessages = ({
 	// ================ system message ================
 	// A COMPLETE HACK: last message is system message for context purposes
 
+	// XML-tagged sections keep the model from confusing system context with user-attached content (e.g. images).
 	const sysMsgParts: string[] = []
-	if (aiInstructions) sysMsgParts.push(`GUIDELINES (from workspace .vibe/rules.md and/or AGENTS.md):\n${aiInstructions}`)
-	if (systemMessage) sysMsgParts.push(systemMessage)
+	if (aiInstructions) sysMsgParts.push(`<workspace_guidelines source=".vibe/rules.md, AGENTS.md">\n${aiInstructions}\n</workspace_guidelines>`)
+	if (systemMessage) sysMsgParts.push(`<assistant_instructions>\n${systemMessage}\n</assistant_instructions>`)
 	const combinedSystemMessage = sysMsgParts.join('\n\n')
 
 	messages.unshift({ role: 'system', content: combinedSystemMessage })
@@ -1094,21 +1055,17 @@ const prepareOpenAIOrAnthropicMessages = ({
 			// Check if we have images in the content array
 			const hasImagesInContent = currMsg.content.some(c => c.type === 'image' || c.type === 'image_url');
 
-			// For messages with images, we need a proper text part (not empty)
+			// For messages with images, we need a proper text part (not empty) — but no English boilerplate.
 			if (hasImagesInContent) {
-				// Find or create a proper text part for images
 				const textPartIndex = currMsg.content.findIndex(c => c.type === 'text');
-				const imageAnalysisPrompt = 'Analyze the attached image(s). Describe what you see in detail. If this appears to be code, a UI, an error message, a diagram, or something related to software development, provide a detailed analysis and actionable insights.';
+				const placeholder = '[user attached image]';
 
 				if (textPartIndex === -1) {
-					// No text part exists, add one at the beginning
-					currMsg.content.unshift({ type: 'text', text: imageAnalysisPrompt } as any);
+					currMsg.content.unshift({ type: 'text', text: placeholder } as any);
 				} else {
-					// Text part exists, ensure it's not empty
 					const textPart = currMsg.content[textPartIndex];
 					if (textPart.type === 'text' && (!textPart.text || textPart.text.trim() === '' || textPart.text === EMPTY_MESSAGE)) {
-						// Replace empty text with proper image analysis prompt
-						currMsg.content[textPartIndex] = { type: 'text', text: imageAnalysisPrompt } as any;
+						currMsg.content[textPartIndex] = { type: 'text', text: placeholder } as any;
 					}
 				}
 			} else {

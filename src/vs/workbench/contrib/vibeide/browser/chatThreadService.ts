@@ -68,7 +68,8 @@ const MAX_AGENT_LOOP_ITERATIONS = 20 // Maximum iterations to prevent infinite l
 const MAX_FILES_READ_PER_QUERY = 10 // Maximum files to read in a single query to prevent excessive reads
 
 // Stall detection: notify user if LLM stops producing tokens unexpectedly.
-// Thresholds are intentionally generous to avoid false positives on slow providers.
+// EARLY surfaces an inline banner only (no toast); FULL thresholds also raise a toast.
+const EARLY_STALL_MS       = 15_000 // 15s — soft signal: show inline "stalled" banner in chat
 const FIRST_TOKEN_STALL_MS = 30_000 // 30s — no first token received after sending request
 const MID_STREAM_STALL_MS  = 45_000 // 45s — no new token received during active streaming
 
@@ -205,6 +206,7 @@ export type ThreadStreamState = {
 		};
 		toolInfo?: undefined;
 		interrupt: Promise<() => void>; // calling this should have no effect on state - would be too confusing. it just cancels the tool
+		stallInfo?: { stalledAt: number }; // set when watchdog detects no new tokens; cleared on next token
 	} | { // a tool is being run
 		isRunning: 'tool';
 		error?: undefined;
@@ -325,6 +327,9 @@ export interface IChatThreadService {
 	abortRunning(threadId: string): Promise<void>;
 	dismissStreamError(threadId: string): void;
 
+	// Recover from a stalled stream: discard the partial assistant output and re-send the last user message.
+	retryStalledStream(threadId: string): Promise<void>;
+
 	// call to edit a message
 	editUserMessageAndStreamResponse({ userMessage, messageIdx, threadId }: { userMessage: string, messageIdx: number, threadId: string }): Promise<void>;
 
@@ -365,6 +370,10 @@ export interface IChatThreadService {
 }
 
 export const IChatThreadService = createDecorator<IChatThreadService>('vibeChatThreadService');
+
+// Sentinel placed in displayContentSoFar before the first model token arrives.
+// The UI matches this exact string to render an animated indicator instead of the raw text.
+export const WAITING_FOR_MODEL_RESPONSE_SENTINEL = 'Waiting for model response...';
 class ChatThreadService extends Disposable implements IChatThreadService {
 	_serviceBrand: undefined;
 
@@ -2361,6 +2370,44 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		this._setStreamState(threadId, undefined)
 	}
 
+	async retryStalledStream(threadId: string): Promise<void> {
+		const thread = this.state.allThreads[threadId]
+		if (!thread) return
+
+		// find last user message
+		let lastUserIdx = -1
+		for (let i = thread.messages.length - 1; i >= 0; i--) {
+			if (thread.messages[i].role === 'user') { lastUserIdx = i; break }
+		}
+		if (lastUserIdx === -1) return
+		const lastUserMsg = thread.messages[lastUserIdx]
+		if (lastUserMsg.role !== 'user') return // type narrow
+
+		// interrupt the current stream WITHOUT committing partial assistant content (unlike abortRunning)
+		const interrupt = await this.streamState[threadId]?.interrupt
+		if (typeof interrupt === 'function') interrupt()
+
+		// truncate thread back to before the user message — preserves the user msg itself, drops all later (incl. partial assistant)
+		this._setState({
+			allThreads: {
+				...this.state.allThreads,
+				[thread.id]: { ...thread, messages: thread.messages.slice(0, lastUserIdx) }
+			}
+		})
+
+		this._setStreamState(threadId, undefined)
+
+		// re-send with original content + attachments
+		await this._addUserMessageAndStreamResponse({
+			userMessage: lastUserMsg.content || lastUserMsg.displayContent,
+			_chatSelections: lastUserMsg.selections ?? undefined,
+			threadId,
+			images: lastUserMsg.images,
+			pdfs: lastUserMsg.pdfs,
+			displayContent: lastUserMsg.displayContent,
+		})
+	}
+
 	async emergencyStopAllAgents(): Promise<number> {
 		let n = 0;
 		for (const threadId of Object.keys(this.streamState)) {
@@ -3549,8 +3596,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						resolvedModelSelection,
 						settings.imageQADevMode,
 						{
+							pipelineEnabled: settings.imageQAPipelineEnabled,
 							allowRemoteModels: settings.imageQAAllowRemoteModels,
 							enableHybridMode: settings.imageQAEnableHybridMode,
+							settingsOfProvider: this._settingsService.state.settingsOfProvider,
 						}
 					);
 
@@ -3864,17 +3913,30 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				}, 30000)
 
 				// Stall watchdog: notify user if the LLM stops producing tokens unexpectedly.
+				// earlyStallTimer fires after EARLY_STALL_MS — sets inline banner only (no toast).
 				// firstTokenStallTimer fires once if no first token arrives within FIRST_TOKEN_STALL_MS.
 				// midStreamStallTimer is reset on every onText call; fires if streaming freezes mid-way.
 				let stallNotificationHandle: INotificationHandle | undefined
 				const clearStallNotification = () => { stallNotificationHandle?.close(); stallNotificationHandle = undefined; }
+				const setInlineStall = () => {
+					const cur = this.streamState[threadId]
+					if (cur?.isRunning !== 'LLM' || cur.stallInfo) return
+					this._setStreamState(threadId, { ...cur, stallInfo: { stalledAt: Date.now() } })
+				}
+				const clearInlineStall = () => {
+					const cur = this.streamState[threadId]
+					if (cur?.isRunning !== 'LLM' || !cur.stallInfo) return
+					this._setStreamState(threadId, { ...cur, stallInfo: undefined })
+				}
 				const notifyStall = (kind: 'noFirstToken' | 'midStream') => {
 					clearStallNotification()
+					setInlineStall()
 					const msg = kind === 'noFirstToken'
 						? localize('agentStall.noFirstToken', 'Agent is waiting for AI response (>{0}s). The model may be slow or the connection stalled.', FIRST_TOKEN_STALL_MS / 1000)
 						: localize('agentStall.midStream', 'AI response stream paused (>{0}s with no new tokens). The model may be stuck.', MID_STREAM_STALL_MS / 1000)
 					stallNotificationHandle = this._notificationService.notify({ severity: Severity.Warning, message: msg })
 				}
+				let earlyStallTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(setInlineStall, EARLY_STALL_MS)
 				let firstTokenStallTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => { notifyStall('noFirstToken') }, FIRST_TOKEN_STALL_MS)
 				let midStreamStallTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -3903,10 +3965,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						chatLatencyAudit.markFirstToken(finalRequestId)
 					}
 
-					// Stall watchdog: cancel first-token stall timer, reset mid-stream stall timer.
+					// Stall watchdog: cancel first-token stall timer, reset early + mid-stream stall timers, drop inline banner.
 					if (firstTokenStallTimer !== undefined) { clearTimeout(firstTokenStallTimer); firstTokenStallTimer = undefined; clearStallNotification() }
+					clearTimeout(earlyStallTimer); earlyStallTimer = setTimeout(setInlineStall, EARLY_STALL_MS)
 					clearTimeout(midStreamStallTimer)
 					midStreamStallTimer = setTimeout(() => { notifyStall('midStream') }, MID_STREAM_STALL_MS)
+					clearInlineStall()
 
 						// Batch token updates for smooth 60 FPS rendering
 						const context = chatLatencyAudit.getContext(finalRequestId);
@@ -3947,6 +4011,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					// Clear timeout
 					clearTimeout(networkTimeout)
 					// Clear stall watchdog timers
+					clearTimeout(earlyStallTimer); earlyStallTimer = undefined
 					clearTimeout(firstTokenStallTimer); firstTokenStallTimer = undefined
 					clearTimeout(midStreamStallTimer); midStreamStallTimer = undefined
 					clearStallNotification()
@@ -3998,6 +4063,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					// Clear timeout
 					clearTimeout(networkTimeout)
 					// Clear stall watchdog timers
+					clearTimeout(earlyStallTimer); earlyStallTimer = undefined
 					clearTimeout(firstTokenStallTimer); firstTokenStallTimer = undefined
 					clearTimeout(midStreamStallTimer); midStreamStallTimer = undefined
 					clearStallNotification()
@@ -4042,7 +4108,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				}
 
 				// Update status to show we're waiting for the model response
-				this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: 'Waiting for model response...', reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => this._llmMessageService.abort(llmCancelToken)) })
+				this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: WAITING_FOR_MODEL_RESPONSE_SENTINEL, reasoningSoFar: '', toolCallSoFar: null }, interrupt: Promise.resolve(() => this._llmMessageService.abort(llmCancelToken)) })
 				const llmRes = await messageIsDonePromise // wait for message to complete
 
 				// if something else started running in the meantime
