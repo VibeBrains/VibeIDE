@@ -117,6 +117,24 @@ $artifacts = @($exeFiles.FullName) + @($zipFiles.FullName)
 Write-Host "  Found:" -ForegroundColor DarkGray
 $artifacts | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
 
+# ── 3a. Code-sign installer (roadmap §888) ─────────────────────────────────────
+# Sign only when VIBE_WIN_CERT=1 and thumbprint configured. Otherwise we leave
+# the build unsigned with a clear warning — see references/v1/distribution-signing-runbook.md.
+Step "Code-sign Windows installer..."
+$signerScript = "$Root\scripts\sign-windows.ps1"
+if (Test-Path $signerScript) {
+    foreach ($exe in $exeFiles) {
+        & $signerScript -Path $exe.FullName -AllowUnsigned -Description "VibeIDE Installer $Version"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "[release-windows] sign-windows.ps1 returned $LASTEXITCODE for $($exe.Name)"
+            exit $LASTEXITCODE
+        }
+    }
+    OK "Installer signing step complete (signed if cert available, warning emitted otherwise)."
+} else {
+    Write-Warning "[release-windows] scripts\sign-windows.ps1 missing — installer left unsigned."
+}
+
 # ── 4. Git tag ────────────────────────────────────────────────────────────────
 Step "Creating git tag $Version..."
 $tagExists = git tag -l $Version

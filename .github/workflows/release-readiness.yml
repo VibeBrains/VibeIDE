@@ -1,0 +1,67 @@
+# release-readiness — surfaces signing/distribution gate state on every PR.
+#
+# Roadmap §888 (Distribution readiness gate). Pure decision lives in
+# src/vs/workbench/contrib/vibeide/common/distributionSigningPolicy.ts.
+# Runbook: references/v1/distribution-signing-runbook.md.
+#
+# Warn-only by design: until EV cert + Apple Developer creds are in CI
+# secrets, every release ships unsigned. This workflow tells the maintainer
+# (and reviewers) the current gate state without blocking PR merges.
+
+name: release-readiness
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/release-*.ps1'
+      - 'scripts/release-*.sh'
+      - 'scripts/sign-*.ps1'
+      - 'scripts/notarize-*.sh'
+      - 'src/vs/workbench/contrib/vibeide/common/distributionSigningPolicy.ts'
+      - '.github/workflows/release-readiness.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  gate:
+    name: Distribution readiness gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Report gate state (warn-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Translate CI secrets presence into the gate's credential shape.
+          win_cert='false'
+          [ -n "${VIBE_WIN_CERT_THUMBPRINT:-}" ] && win_cert='true'
+          mac_full='false'
+          if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${APPLE_APP_PASSWORD:-}" ]; then
+            mac_full='true'
+          fi
+
+          missing=()
+          [ "$win_cert" = 'false' ] && missing+=("Windows EV cert (VIBE_WIN_CERT_THUMBPRINT)")
+          [ "$mac_full" = 'false' ] && missing+=("Apple Developer creds (APPLE_ID / APPLE_TEAM_ID / APPLE_APP_PASSWORD)")
+
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo '::notice::Distribution gate: READY — all signing credentials configured.'
+          else
+            for m in "${missing[@]}"; do
+              echo "::warning::Distribution gate: MISSING $m — see references/v1/distribution-signing-runbook.md"
+            done
+          fi
+        env:
+          VIBE_WIN_CERT_THUMBPRINT: ${{ secrets.VIBE_WIN_CERT_THUMBPRINT }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
