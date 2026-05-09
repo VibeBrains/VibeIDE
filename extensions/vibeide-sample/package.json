@@ -5,13 +5,26 @@
 	"version": "0.1.0",
 	"publisher": "vibeide",
 	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/borodatych/VibeIDE.git",
+		"directory": "extensions/vibeide-sample"
+	},
+	"homepage": "https://github.com/borodatych/VibeIDE/tree/main/extensions/vibeide-sample#readme",
+	"bugs": {
+		"url": "https://github.com/borodatych/VibeIDE/issues"
+	},
+	"keywords": [
+		"vibeide",
+		"agent",
+		"skills",
+		"plans",
+		"sample"
+	],
 	"engines": {
 		"vscode": "^1.118.0",
 		"vibeide": ">=0.3.0"
 	},
-	"activationEvents": [
-		"onCommand:vibeideSample.show"
-	],
 	"main": "./extension.js",
 	"extensionKind": ["ui"],
 	"categories": ["Other"],

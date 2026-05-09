@@ -1,0 +1,128 @@
+# openvsx-publish — manual-dispatch workflow that publishes an extension to
+# Open VSX (https://open-vsx.org). Roadmap §1124.
+#
+# Pure validator: src/vs/workbench/contrib/vibeide/common/openVsxManifestValidator.ts
+# Runbook: references/v1/openvsx-publishing-runbook.md
+#
+# Warn-only by design:
+#   - Pre-publish manifest validation runs on every PR that touches an
+#     extensions/vibeide-*/package.json — fails fast on missing repository /
+#     license / SemVer / engines.vscode.
+#   - Actual publish is workflow_dispatch only (manual click), gated on the
+#     OPEN_VSX_TOKEN secret being set in repo settings.
+#
+# Until the maintainer creates an Open VSX namespace + Eclipse Foundation
+# account and adds OPEN_VSX_TOKEN to repo secrets, the dispatch step skips
+# with a clear remediation message.
+
+name: openvsx-publish
+
+on:
+  pull_request:
+    paths:
+      - 'extensions/vibeide-*/package.json'
+      - 'src/vs/workbench/contrib/vibeide/common/openVsxManifestValidator.ts'
+      - '.github/workflows/openvsx-publish.yml'
+  workflow_dispatch:
+    inputs:
+      extension:
+        description: 'Extension folder name under extensions/'
+        required: true
+        default: 'vibeide-sample'
+      dry_run:
+        description: 'Dry-run (validate + package, do not publish)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    name: Validate manifest
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run manifest validator on changed extensions
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Find all changed extension manifests in this PR.
+          changed=$(git diff --name-only origin/${{ github.base_ref }}..HEAD -- 'extensions/vibeide-*/package.json' | sort -u || true)
+          if [ -z "${changed}" ]; then
+            echo '::notice::No extension manifests changed in this PR.'
+            exit 0
+          fi
+          # Inline JS validator (mirrors openVsxManifestValidator.ts) so this
+          # workflow does not require a TS compile step.
+          for manifest in ${changed}; do
+            echo "::group::Validating ${manifest}"
+            node -e "
+              const fs = require('fs');
+              const m = JSON.parse(fs.readFileSync('${manifest}', 'utf8'));
+              const errors = [];
+              const warnings = [];
+              const req = (v, f) => { if (typeof v !== 'string' || !v.trim()) errors.push([f, f + ' is required']); };
+              req(m.name, 'name'); req(m.displayName, 'displayName'); req(m.publisher, 'publisher');
+              if (typeof m.description !== 'string' || !m.description.trim()) errors.push(['description', 'required']);
+              if (typeof m.version !== 'string' || !/^\\d+\\.\\d+\\.\\d+/.test(m.version)) errors.push(['version', 'must be SemVer']);
+              if (typeof m.license !== 'string') errors.push(['license', 'required SPDX identifier']);
+              const ev = m.engines && m.engines.vscode;
+              if (typeof ev !== 'string' || !/^[\\^~>=<]/.test(ev)) errors.push(['engines.vscode', 'required (e.g. ^1.118.0)']);
+              const repo = m.repository;
+              const isUrl = (v) => typeof v === 'string' && /^(https?:\\/\\/|git\\+|git@)/.test(v) || (v && typeof v === 'object' && typeof v.url === 'string');
+              if (!isUrl(repo)) errors.push(['repository', 'required for Open VSX']);
+              for (const [f, msg] of errors) console.log('::error file=${manifest},title=Open VSX manifest::' + f + ': ' + msg);
+              for (const [f, msg] of warnings) console.log('::warning file=${manifest},title=Open VSX manifest::' + f + ': ' + msg);
+              if (errors.length > 0) process.exit(1);
+            "
+            echo "::endgroup::"
+          done
+
+  publish:
+    name: Publish to Open VSX
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check OPEN_VSX_TOKEN
+        env:
+          OPEN_VSX_TOKEN: ${{ secrets.OPEN_VSX_TOKEN }}
+        run: |
+          if [ -z "${OPEN_VSX_TOKEN:-}" ]; then
+            echo '::error::OPEN_VSX_TOKEN secret missing. See references/v1/openvsx-publishing-runbook.md.'
+            exit 2
+          fi
+          echo '::notice::OPEN_VSX_TOKEN is configured.'
+
+      - name: Install ovsx CLI
+        run: npm install -g ovsx@latest
+
+      - name: Package extension
+        working-directory: extensions/${{ github.event.inputs.extension }}
+        run: npx --yes @vscode/vsce@latest package --no-git-tag-version --out ../../.build/openvsx/
+
+      - name: Publish (dry-run or real)
+        env:
+          OVSX_PAT: ${{ secrets.OPEN_VSX_TOKEN }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          vsix=$(ls .build/openvsx/*.vsix | head -1)
+          if [ "${DRY_RUN}" = 'true' ]; then
+            echo "[openvsx-publish] DRY-RUN: would 'ovsx publish ${vsix}'"
+          else
+            ovsx publish "${vsix}"
+          fi
