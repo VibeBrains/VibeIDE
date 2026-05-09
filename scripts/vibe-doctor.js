@@ -581,8 +581,23 @@ if (MODE.i18n) {
 	console.log('\n🌐 VibeIDE i18n coverage');
 	console.log('─'.repeat(40));
 	console.log(`Total source keys: ${report.totalKeys}`);
+
+	// Unwrapped user-facing literals (roadmap §478, §520) — printed even when
+	// no locale bundles exist, since this is the inventory bottleneck.
+	console.log('\n  Unwrapped user-facing literals:');
+	try {
+		const out = execSync('node scripts/scan-vibeide-i18n.mjs --json', { encoding: 'utf-8' });
+		const summary = JSON.parse(out).summary;
+		console.log(`    total findings:     ${summary.totalFindings} (across ${summary.totalFiles} files)`);
+		for (const [k, v] of Object.entries(summary.byCallsite)) {
+			if (v > 0) { console.log(`      ${k}: ${v}`); }
+		}
+	} catch (err) {
+		console.log(`    (scanner unavailable: ${err.message.split('\n')[0]})`);
+	}
+
 	if (report.locales.length === 0) {
-		console.log('No locale bundles found under out/nls/. Run `node scripts/vibe-i18n-migrate.js --apply` first.');
+		console.log('\nNo locale bundles found under out/nls/. Run `node scripts/vibe-i18n-migrate.js --apply` first.');
 		process.exit(0);
 	}
 	for (const l of report.locales) {
@@ -597,6 +612,7 @@ if (MODE.i18n) {
 			}
 		}
 	}
+
 	process.exit(0);
 }
 
