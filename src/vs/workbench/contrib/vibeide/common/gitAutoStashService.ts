@@ -14,12 +14,14 @@ import { localize } from '../../../../nls.js';
 import Severity from '../../../../base/common/severity.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { AutoStashSetting, decodeAutoStashSetting } from './autoStashPolicy.js';
 
 export const IGitAutoStashService = createDecorator<IGitAutoStashService>('gitAutoStashService');
 
 export interface IGitAutoStashService {
 	readonly _serviceBrand: undefined;
 	isEnabled(): boolean;
+	getMode(): AutoStashSetting;
 	createStash(operationId: string): Promise<string | undefined>;
 	restoreStash(stashRef: string): Promise<void>;
 	dropStash(stashRef: string): Promise<void>;
@@ -29,9 +31,11 @@ class GitAutoStashService extends Disposable implements IGitAutoStashService {
 	declare readonly _serviceBrand: undefined;
 
 	private _enabled = true;
-	// Note: _mode is reserved for future implementation when direct git API access is available
-	// Currently using commands which don't easily support dirty-only mode checking
+	private _mode: AutoStashSetting = 'dirty-only';
 	private _stashRefs = new Map<string, string>(); // operationId -> stashRef
+
+	/** Current auto-stash mode validated through `decodeAutoStashSetting` (roadmap §988). */
+	getMode(): AutoStashSetting { return this._mode; }
 
 	constructor(
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
@@ -52,12 +56,16 @@ class GitAutoStashService extends Disposable implements IGitAutoStashService {
 
 	private _updateConfiguration(): void {
 		this._enabled = this._configurationService.getValue<boolean>('vibeide.safety.autostash.enable') ?? true;
-		// Note: mode configuration is read but not yet implemented due to command-based approach
-		// const mode = this._configurationService.getValue<'always' | 'dirty-only'>('vibeide.safety.autostash.mode') ?? 'dirty-only';
+		// Mode validated through pure helper — typo or missing value falls back to 'dirty-only' safely.
+		const rawMode = this._configurationService.getValue<unknown>('vibeide.safety.autostash.mode');
+		this._mode = decodeAutoStashSetting(rawMode);
+		// 'never' overrides _enabled when not paired with agent-protected targets — runtime caller
+		// passes editTargets/perFilePermissions to decideAutoStash; service-level isEnabled stays
+		// true so the stash path remains hookable.
 	}
 
 	isEnabled(): boolean {
-		return this._enabled;
+		return this._enabled && this._mode !== 'never';
 	}
 
 	async createStash(operationId: string): Promise<string | undefined> {

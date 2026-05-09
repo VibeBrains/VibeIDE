@@ -91,6 +91,10 @@ class MockGitAutoStashService implements IGitAutoStashService {
 		return this.enabled;
 	}
 
+	getMode(): 'always' | 'dirty-only' | 'never' {
+		return 'dirty-only';
+	}
+
 	async createStash(operationId: string): Promise<string | undefined> {
 		const stashRef = `stash-${operationId}`;
 		this.stashes.set(stashRef, operationId);
