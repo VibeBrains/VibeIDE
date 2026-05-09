@@ -6,6 +6,7 @@
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
+import { deriveConfidenceColor } from './editRiskConfidenceMap.js';
 export type DiffConfidence = 'green' | 'yellow' | 'red';
 export type DiffAction = 'apply' | 'reject' | 'edit';
 
@@ -119,24 +120,34 @@ class VibeDiffPreviewService extends Disposable implements IVibeDiffPreviewServi
 	}
 
 	calculateConfidence(chunk: Pick<DiffChunk, 'filePath' | 'originalLines' | 'newLines'>): DiffConfidence {
+		// Adopt pure helper `deriveConfidenceColor` (roadmap §989) — single
+		// source of truth across diff preview, edit-risk scoring, and the
+		// LLM-as-judge pipeline. Decision order: heuristic flags > risk score
+		// > judge advisory; judge cannot upgrade to green.
 		const allNewContent = chunk.newLines.join('\n').toLowerCase();
 		const filePath = chunk.filePath.toLowerCase();
 
-		// 🔴 Red: critical keywords or critical zone files
-		if (RED_KEYWORDS.some(k => allNewContent.includes(k))) return 'red';
-		if (this.isCriticalZone(filePath)) return 'red';
+		const heuristicFlags: Array<'auth' | 'password' | 'delete' | 'crypto' | 'env'> = [];
+		if (RED_KEYWORDS.some(k => allNewContent.includes(k))) {
+			if (/auth|credential/.test(allNewContent)) { heuristicFlags.push('auth'); }
+			if (/password|secret|token|api_key/.test(allNewContent)) { heuristicFlags.push('password'); }
+			if (/delete from|drop table|truncate|rm -rf/.test(allNewContent)) { heuristicFlags.push('delete'); }
+			if (/eval\(|exec\(|__import__/.test(allNewContent)) { heuristicFlags.push('crypto'); }
+			if (heuristicFlags.length === 0) { heuristicFlags.push('auth'); } // fallback if regex sliced differently
+		}
+		if (this.isCriticalZone(filePath)) {
+			if (/auth|secret|password|credential|token|access/.test(filePath)) { heuristicFlags.push('auth'); }
+			else if (/env/.test(filePath)) { heuristicFlags.push('env'); }
+			else if (/crypto|encrypt|decrypt|security/.test(filePath)) { heuristicFlags.push('crypto'); }
+		}
 
-		// 🔴 Red: large deletion ratio
 		const deletionRatio = chunk.originalLines.length > 0
 			? (chunk.originalLines.length - chunk.newLines.length) / chunk.originalLines.length
 			: 0;
-		if (deletionRatio > 0.7) return 'red'; // >70% deleted
+		const sizeFactor = chunk.originalLines.length > 50 || chunk.newLines.length > 50 ? 0.5 : 0.2;
+		const riskScore = deletionRatio > 0.7 ? Math.min(0.95, 0.85 + deletionRatio * 0.1) : sizeFactor;
 
-		// 🟡 Yellow: moderate changes
-		if (chunk.originalLines.length > 50 || chunk.newLines.length > 50) return 'yellow';
-
-		// 🟢 Green: small, safe change
-		return 'green';
+		return deriveConfidenceColor({ riskScore, heuristicFlags });
 	}
 
 	isCriticalZone(filePath: string): boolean {
