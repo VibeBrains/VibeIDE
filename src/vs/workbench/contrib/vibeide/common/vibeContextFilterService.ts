@@ -26,6 +26,7 @@
  */
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
@@ -127,6 +128,14 @@ export interface IVibeContextFilterService {
 
 	/** Reset session stats (call at session start). */
 	resetSession(): void;
+
+	/**
+	 * Fires whenever `compact()` actually compacted something. Toast contribution
+	 * subscribes here, reads the user's `filterMode` setting and decides via
+	 * `decideContextFilterToast` whether to surface a notification (only when the
+	 * user picked `auto` and aggregation kicked in for the first time this session).
+	 */
+	readonly onDidCompact: Event<{ ctxPct: number; toolName: string }>;
 }
 
 // ── Compaction rules ──────────────────────────────────────────────────────────
@@ -186,6 +195,9 @@ class VibeContextFilterService extends Disposable implements IVibeContextFilterS
 	private _lastStats: FilterStats | null = null;
 	private _compactedThisSession = false;
 
+	private readonly _onDidCompact = this._register(new Emitter<{ ctxPct: number; toolName: string }>());
+	readonly onDidCompact: Event<{ ctxPct: number; toolName: string }> = this._onDidCompact.event;
+
 	constructor(
 		@ILogService private readonly _log: ILogService,
 		@IConfigurationService private readonly _config: IConfigurationService,
@@ -231,6 +243,8 @@ class VibeContextFilterService extends Disposable implements IVibeContextFilterS
 		if (wasCompacted) {
 			this._compactedThisSession = true;
 			this._log.info(`[VibeContextFilter] Compacted ${toolName}: ${result.length} → ${compacted.length} chars (ctx ${contextFillPct.toFixed(0)}%)`);
+			// Toast contribution decides whether to surface; we just announce the trigger.
+			this._onDidCompact.fire({ ctxPct: contextFillPct / 100, toolName });
 		}
 
 		this._lastStats = {

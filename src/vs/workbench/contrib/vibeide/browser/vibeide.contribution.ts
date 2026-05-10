@@ -371,6 +371,8 @@ import './vibeDiagramContextContribution.js'
 
 // VibeIDE: Dynamic context filtering — compaction of tool results (§ F / § G roadmap)
 import '../common/vibeContextFilterService.js'
+import './vibeContextFilterCommands.js'
+import './vibeContextFilterToastContribution.js'
 
 // VibeIDE: Checkpoint coordinator — register before rollback/worktree consumers
 import '../common/vibeCheckpointCoordinatorService.js'
