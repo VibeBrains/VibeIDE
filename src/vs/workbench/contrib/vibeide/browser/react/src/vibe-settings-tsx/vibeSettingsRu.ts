@@ -328,6 +328,8 @@ export const modelsS = {
 	tooltipCustomModel: 'Пользовательская модель',
 	tooltipAdvanced: 'Расширенные параметры',
 	tooltipDelete: 'Удалить',
+	tooltipBlockImagesEnable: 'Заблокировать вложения изображений для этой модели — полезно, если провайдер заявляет vision, но молча игнорирует картинку.',
+	tooltipBlockImagesDisable: 'Изображения сейчас заблокированы для этой модели. Кликните, чтобы снять блокировку и снова разрешить вложения.',
 	selectProvider: 'Выберите провайдера.',
 	enterModelName: 'Введите имя модели.',
 	modelExists: 'Такая модель уже есть.',

@@ -9,7 +9,7 @@ import { remoteCatalogCapableProviderNames } from '../../../../common/remoteCata
 import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js'
 import { VibeButtonBgDarken, VibeCustomDropdownBox, VibeInputBox2, VibeSimpleInputBox, VibeSwitch } from '../util/inputs.js'
 import { useAccessor, useIsDark, useIsOptedOut, useRefreshModelListener, useRefreshModelState, useSettingsState } from '../util/services.js'
-import { X, RefreshCw, Loader2, Check, Asterisk, Plus, ChevronRight, ChevronDown } from 'lucide-react'
+import { X, RefreshCw, Loader2, Check, Asterisk, Plus, ChevronRight, ChevronDown, ImageOff } from 'lucide-react'
 import { joinPath } from '../../../../../../../base/common/resources.js'
 import { ModelDropdown } from './ModelDropdown.js'
 import { VibeWorkspaceFormsPanel } from './VibeWorkspaceForms.js'
@@ -571,6 +571,23 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 		const overrides = settingsState.overridesOfModel?.[providerName]?.[modelName];
 		const hasOverrides = !!overrides;
 		const modality = typeof overrides?.modality === 'string' ? overrides.modality : undefined;
+		const imagesBlocked = overrides?.supportsVision === false;
+		const onToggleImagesBlocked = async () => {
+			const cur = settingsState.overridesOfModel?.[providerName]?.[modelName];
+			if (cur?.supportsVision === false) {
+				// Unblock: rebuild override without supportsVision; if nothing remains, clear it.
+				const next: Partial<ModelOverrides> = { ...cur };
+				delete (next as { supportsVision?: boolean }).supportsVision;
+				const stillHasFields = Object.keys(next).length > 0;
+				// Two-step: setOverridesOfModel merges, so clearing first is the only way to drop a key.
+				await settingsStateService.setOverridesOfModel(providerName, modelName, undefined);
+				if (stillHasFields) {
+					await settingsStateService.setOverridesOfModel(providerName, modelName, next);
+				}
+			} else {
+				await settingsStateService.setOverridesOfModel(providerName, modelName, { supportsVision: false });
+			}
+		};
 		return <div key={`${modelName}${providerName}`}
 			className={`flex items-center justify-between gap-4 hover:bg-[var(--vscode-list-hoverBackground)] py-1 px-3 rounded-xl overflow-hidden cursor-default truncate group`}
 		>
@@ -582,6 +599,17 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 				</>}
 			</div>
 			<div className="flex items-center gap-2 w-fit">
+				<div className="w-5 flex items-center justify-center">
+					<button
+						onClick={onToggleImagesBlocked}
+						data-tooltip-id='vibe-tooltip'
+						data-tooltip-place='right'
+						data-tooltip-content={imagesBlocked ? modelsS.tooltipBlockImagesDisable : modelsS.tooltipBlockImagesEnable}
+						className={`${imagesBlocked ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}
+					>
+						<ImageOff size={12} className={imagesBlocked ? 'text-[var(--vscode-errorForeground)]' : 'text-vibe-fg-3 opacity-50'} />
+					</button>
+				</div>
 				<div className="w-5 flex items-center justify-center">
 					<button
 						onClick={() => { setOpenSettingsModel({ modelName, providerName, type }) }}

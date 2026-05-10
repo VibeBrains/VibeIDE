@@ -16,6 +16,7 @@ import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj }
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isVisionByNameHeuristic } from '../common/modelVisionHeuristics.js';
+import { detectVisionDropResponse } from '../common/visionDropDetector.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { IToolsService } from './toolsService.js';
@@ -1695,6 +1696,56 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	// Plan execution tracking helpers - cached for performance
 	private _planCache: Map<string, { plan: PlanMessage, planIdx: number, lastChecked: number } | null> = new Map()
+
+	// Anti-spam: provider/model keys for which we've already shown the "image silently dropped"
+	// warning during this session — suppressed for the rest of the process lifetime so the user
+	// is not bombarded across multiple replies from the same broken provider.
+	private _visionDropNotified: Set<string> = new Set()
+
+	private _maybeShowVisionDropWarning(modelSelection: ModelSelection, replyText: string | undefined | null): void {
+		if (!modelSelection || modelSelection.providerName === 'auto' || modelSelection.modelName === 'auto') {
+			return;
+		}
+		const key = `${modelSelection.providerName}/${modelSelection.modelName}`;
+		if (this._visionDropNotified.has(key)) {
+			return;
+		}
+		if (!detectVisionDropResponse(replyText)) {
+			return;
+		}
+		this._visionDropNotified.add(key);
+		const handle = this._notificationService.notify({
+			severity: Severity.Warning,
+			message: localize('vibeide.visionDrop.suspect', 'Похоже, модель «{0}» не получила прикреплённое изображение — провайдер мог тихо его отбросить. Заблокировать изображения для этой модели?', key),
+			sticky: true,
+			actions: {
+				primary: [{
+					id: 'vibeide.visionDrop.block',
+					enabled: true,
+					label: localize('vibeide.visionDrop.blockAction', 'Заблокировать изображения'),
+					tooltip: '',
+					class: undefined,
+					run: async () => {
+						try {
+							await this._settingsService.setOverridesOfModel(modelSelection.providerName, modelSelection.modelName, { supportsVision: false });
+							this._notificationService.info(localize('vibeide.visionDrop.blocked', 'Изображения для «{0}» теперь блокируются. Снять блокировку можно в Настройках → Модели.', key));
+						} catch (err) {
+							console.error('[visionDrop] Failed to set supportsVision override', err);
+						} finally {
+							handle.close();
+						}
+					},
+				}, {
+					id: 'vibeide.visionDrop.dismiss',
+					enabled: true,
+					label: localize('vibeide.visionDrop.dismissAction', 'Игнорировать'),
+					tooltip: '',
+					class: undefined,
+					run: () => { handle.close(); },
+				}],
+			},
+		});
+	}
 	private readonly PLAN_CACHE_TTL = 100 // ms - invalidate cache after message changes
 
 	private _getCurrentPlan(threadId: string, forceRefresh = false): { plan: PlanMessage, planIdx: number } | undefined {
@@ -4071,6 +4122,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									ttfs: metrics?.ttfs,
 								},
 							});
+						}
+
+						// Vision-drop heuristic: if the user attached an image and the reply reads as
+						// an apology for not receiving one, the provider likely silently stripped the
+						// image despite advertising vision support. Offer a one-click block.
+						if (modelSelection && originalUserMessage && originalUserMessage.images && originalUserMessage.images.length > 0) {
+							this._maybeShowVisionDropWarning(modelSelection, fullText);
 						}
 
 						resMessageIsDonePromise({ type: 'llmDone', toolCall, info: { fullText, fullReasoning, anthropicReasoning } }) // resolve with tool calls
