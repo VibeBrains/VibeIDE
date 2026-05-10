@@ -16,6 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const projectCommandsAudit = require('./lib/project-commands-audit.cjs');
+const npmCliAlignment = require('./lib/npm-cli-alignment-check.cjs');
 
 const args = process.argv.slice(2);
 const MODE = {
@@ -25,6 +26,7 @@ const MODE = {
 	json: args.includes('--json'),
 	i18n: args.includes('--i18n'),
 	network: args.includes('--network'),
+	selfCheck: args.includes('--self-check'),
 };
 
 const results = [];
@@ -729,6 +731,30 @@ if (MODE.network) {
 	console.log('reached. The .github/workflows/privacy-verify.yml backlog item adds the runtime');
 	console.log('sniffer that actually confirms strict mode.');
 	process.exit(0);
+}
+
+if (MODE.selfCheck) {
+	// `vibe doctor --self-check` — static audit of npm scripts ↔ scripts/vibe.js
+	// alignment (roadmap L1136). Exits 1 on any violation so CI can gate.
+	let pkg;
+	try {
+		pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf-8'));
+	} catch (e) {
+		const message = e && e.message ? e.message : String(e);
+		if (MODE.json) {
+			console.log(JSON.stringify({ ok: false, error: `package.json read failed: ${message}` }));
+		} else {
+			console.error(`✗ package.json read failed: ${message}`);
+		}
+		process.exit(2);
+	}
+	const report = npmCliAlignment.checkNpmCliAlignment(pkg.scripts || {});
+	if (MODE.json) {
+		console.log(JSON.stringify(report, null, 2));
+	} else {
+		console.log(npmCliAlignment.renderAlignmentReport(report));
+	}
+	process.exit(report.violations.length === 0 ? 0 : 1);
 }
 
 // ──────────────────────────────────────────────────────────
