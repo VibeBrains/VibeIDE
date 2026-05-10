@@ -425,8 +425,9 @@ type InputBox2Props = {
 	onFocus?: (e: React.FocusEvent<HTMLTextAreaElement>) => void;
 	onBlur?: (e: React.FocusEvent<HTMLTextAreaElement>) => void;
 	onChangeHeight?: (newHeight: number) => void;
+	onPasteFiles?: (files: File[]) => void;
 }
-export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(function X({ initValue, placeholder, multiline, enableAtToMention, fnsRef, className = '', appearance = 'default', style, onKeyDown, onFocus, onBlur, onChangeText }, ref) {
+export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(function X({ initValue, placeholder, multiline, enableAtToMention, fnsRef, className = '', appearance = 'default', style, onKeyDown, onFocus, onBlur, onChangeText, onPasteFiles }, ref) {
 
 
 	// mirrors whatever is in ref
@@ -839,6 +840,22 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 
 			onFocus={onFocus}
 			onBlur={onBlur}
+
+			onPaste={useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+				if (!onPasteFiles) return
+				const items = Array.from(e.clipboardData?.items || [])
+				const files: File[] = []
+				for (const item of items) {
+					if (item.kind === 'file' && (item.type.startsWith('image/') || item.type === 'application/pdf')) {
+						const f = item.getAsFile()
+						if (f) files.push(f)
+					}
+				}
+				if (files.length > 0) {
+					e.preventDefault()
+					onPasteFiles(files)
+				}
+			}, [onPasteFiles])}
 
 			disabled={!isEnabled}
 
