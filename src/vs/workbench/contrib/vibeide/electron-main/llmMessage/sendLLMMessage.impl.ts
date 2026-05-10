@@ -246,8 +246,8 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 		return new OpenAI({ baseURL: `${thisConfig.endpoint}/v1`, apiKey: 'noop', ...commonPayloadOpts })
 	}
 	else if (providerName === 'lmRoute') {
-		// lmrouter.com uses /openai/v1 path prefix (not /v1), so endpoint is taken as-is.
-		// User enters the full baseURL incl. version segment, e.g. https://lmrouter.com/openai/v1
+		// LM Router (hosted: api.lmrouter.com) uses /openai/v1 path prefix (not /v1), so endpoint is taken as-is.
+		// User enters the full baseURL incl. version segment, e.g. https://api.lmrouter.com/openai/v1
 		const thisConfig = settingsOfProvider[providerName]
 		return new OpenAI({ baseURL: thisConfig.endpoint, apiKey: thisConfig.apiKey || 'noop', ...commonPayloadOpts })
 	}

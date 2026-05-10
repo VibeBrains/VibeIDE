@@ -7,6 +7,7 @@ import { Event } from '../../../../base/common/event.js';
 import { IServerChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import type { IHeaders } from '../../../../base/parts/request/common/request.js';
 import { IRequestService, asTextOrError } from '../../../../platform/request/common/request.js';
+import { GoogleAuth } from 'google-auth-library';
 
 /** Node-backed GET for remote model catalogs — bypasses Chromium CORS in the workbench renderer. */
 export class RemoteCatalogFetchChannel implements IServerChannel {
@@ -18,20 +19,30 @@ export class RemoteCatalogFetchChannel implements IServerChannel {
 	}
 
 	async call<T>(_ctx: unknown, command: string, args?: unknown): Promise<T> {
-		if (command !== 'get') {
-			throw new Error(`remoteCatalogFetchChannel: unknown command ${command}`);
+		if (command === 'get') {
+			const { url, headers } = args as { url: string; headers?: IHeaders };
+			const context = await this.requestService.request({
+				type: 'GET',
+				url,
+				headers: {
+					Accept: 'application/json',
+					...(headers ?? {}),
+				},
+				timeout: 55_000,
+				callSite: 'vibeideRemoteCatalogMain',
+			}, CancellationToken.None);
+			return (await asTextOrError(context)) as T;
 		}
-		const { url, headers } = args as { url: string; headers?: IHeaders };
-		const context = await this.requestService.request({
-			type: 'GET',
-			url,
-			headers: {
-				Accept: 'application/json',
-				...(headers ?? {}),
-			},
-			timeout: 55_000,
-			callSite: 'vibeideRemoteCatalogMain',
-		}, CancellationToken.None);
-		return (await asTextOrError(context)) as T;
+		if (command === 'getGoogleAccessToken') {
+			// Uses Application Default Credentials: gcloud auth application-default login,
+			// GOOGLE_APPLICATION_CREDENTIALS env, or workload identity.
+			const auth = new GoogleAuth({ scopes: 'https://www.googleapis.com/auth/cloud-platform' });
+			const token = await auth.getAccessToken();
+			if (!token) {
+				throw new Error('GoogleAuth returned an empty access token');
+			}
+			return token as T;
+		}
+		throw new Error(`remoteCatalogFetchChannel: unknown command ${command}`);
 	}
 }

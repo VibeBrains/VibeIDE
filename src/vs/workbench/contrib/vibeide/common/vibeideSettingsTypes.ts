@@ -140,7 +140,7 @@ export const subTextMdOfProviderName = (providerName: ProviderName): string => {
 	if (providerName === 'vLLM') return 'Про [конечные точки](https://docs.vllm.ai/en/latest/getting_started/quickstart.html#openai-compatible-server).'
 	if (providerName === 'lmStudio') return 'Про [конечные точки OpenAI](https://lmstudio.ai/docs/app/api/endpoints/openai).'
 	if (providerName === 'liteLLM') return '[Совместимые конечные точки](https://docs.litellm.ai/docs/providers/openai_compatible).'
-	if (providerName === 'lmRoute') return 'OpenAI-совместимый агрегатор. Hosted: `https://lmrouter.com/openai/v1`, либо self-hosted endpoint. [Исходники](https://github.com/LMRouter/lmrouter).'
+	if (providerName === 'lmRoute') return 'OpenAI-совместимый агрегатор. Hosted: `https://api.lmrouter.com/openai/v1`, либо self-hosted endpoint. [Исходники](https://github.com/LMRouter/lmrouter).'
 	if (providerName === 'pollinations') return '[Ключ API](https://enter.pollinations.ai/). [Документация API](https://enter.pollinations.ai/api/docs).'
 	if (providerName === 'openCodeZen') return 'Ключ на [opencode.ai/zen](https://opencode.ai/zen). Бесплатные модели: MiniMax M2.5 Free, Ling 2.6 Flash и др. ([документация Zen](https://opencode.ai/docs/zen)).'
 	if (providerName === 'openCode') return 'Подписка OpenCode Go — тот же аккаунт Zen. [Модели Go](https://dev.opencode.ai/docs/go) на opencode.ai/zen/go (Qwen, DeepSeek V4, …).'
@@ -199,7 +199,7 @@ export const displayInfoOfSettingName = (providerName: ProviderName, settingName
 					: providerName === 'openAICompatible' ? 'https://my-website.com/v1'
 						: providerName === 'lmStudio' ? defaultProviderSettings.lmStudio.endpoint
 							: providerName === 'liteLLM' ? 'http://localhost:4000'
-								: providerName === 'lmRoute' ? 'https://lmrouter.com/openai/v1'
+								: providerName === 'lmRoute' ? 'https://api.lmrouter.com/openai/v1'
 									: providerName === 'awsBedrock' ? 'http://localhost:4000/v1'
 										: '(нет)',
 

@@ -134,7 +134,7 @@ export const defaultModelsOfProvider = {
 	microsoftAzure: [],
 	awsBedrock: [],
 	liteLLM: [],
-	lmRoute: [], // OpenAI-compatible aggregator; models added manually until catalog schema is verified
+	lmRoute: [],
 	pollinations: [],
 	openCodeZen: [],
 	openCode: [],

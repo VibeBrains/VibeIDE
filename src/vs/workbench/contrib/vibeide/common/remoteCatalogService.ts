@@ -77,8 +77,15 @@ export const remoteCatalogCapableProviderNames: readonly ProviderName[] = [
 	'openCodeZen',
 	'openCode',
 	'liteLLM',
+	'lmRoute',
 	'openAICompatible',
 	'pollinations',
+	'ollama',
+	'vLLM',
+	'lmStudio',
+	'googleVertex',
+	'microsoftAzure',
+	'awsBedrock',
 ];
 
 export class RemoteCatalogService implements IRemoteCatalogService {
@@ -218,10 +225,19 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 		}
 
 		const apiKey = (settings as { apiKey?: string }).apiKey;
+		// Providers that don't authenticate via the apiKey field (local servers, OAuth-based,
+		// proxy-fronted) — each case below validates whatever it actually needs.
 		const allowsEmptyKey =
 			providerName === 'openCodeZen'
 			|| providerName === 'openCode'
-			|| providerName === 'openRouter';
+			|| providerName === 'openRouter'
+			|| providerName === 'lmRoute'
+			|| providerName === 'pollinations'
+			|| providerName === 'ollama'
+			|| providerName === 'vLLM'
+			|| providerName === 'lmStudio'
+			|| providerName === 'googleVertex'
+			|| providerName === 'awsBedrock';
 
 		if (!apiKey?.trim() && !allowsEmptyKey) {
 			return [];
@@ -269,8 +285,62 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 					const modelsUrl = base.endsWith('/v1') ? `${base}/models` : `${base}/v1/models`;
 					return await this.fetchOpenAICompatibleModelsCatalog(modelsUrl, s.apiKey || undefined);
 				}
+				case 'lmRoute': {
+					// LM Router: hosted at api.lmrouter.com/openai/v1 or self-hosted. The endpoint
+					// already contains the version segment (/v1 or /openai/v1), so just append /models.
+					const s = this.settingsService.state.settingsOfProvider.lmRoute;
+					const ep = (s.endpoint || '').trim();
+					if (!ep) {
+						return [];
+					}
+					const modelsUrl = `${ep.replace(/\/$/, '')}/models`;
+					return await this.fetchOpenAICompatibleModelsCatalog(modelsUrl, s.apiKey || undefined);
+				}
+				case 'vLLM': {
+					const s = this.settingsService.state.settingsOfProvider.vLLM;
+					const ep = (s.endpoint || '').trim();
+					if (!ep) {
+						return [];
+					}
+					const base = ep.replace(/\/$/, '');
+					const modelsUrl = base.endsWith('/v1') ? `${base}/models` : `${base}/v1/models`;
+					return await this.fetchOpenAICompatibleModelsCatalog(modelsUrl, undefined);
+				}
+				case 'lmStudio': {
+					const s = this.settingsService.state.settingsOfProvider.lmStudio;
+					const ep = (s.endpoint || '').trim();
+					if (!ep) {
+						return [];
+					}
+					const base = ep.replace(/\/$/, '');
+					const modelsUrl = base.endsWith('/v1') ? `${base}/models` : `${base}/v1/models`;
+					return await this.fetchOpenAICompatibleModelsCatalog(modelsUrl, undefined);
+				}
+				case 'ollama': {
+					const s = this.settingsService.state.settingsOfProvider.ollama;
+					const ep = (s.endpoint || '').trim();
+					if (!ep) {
+						return [];
+					}
+					return await this.fetchOllamaCatalog(ep);
+				}
+				case 'awsBedrock': {
+					// Bedrock is exposed via an OpenAI-compatible proxy (LiteLLM default
+					// http://localhost:4000/v1, or Bedrock-Access-Gateway). Native bedrock-runtime
+					// is NOT OpenAI-compatible, so we never hit it from here.
+					const s = this.settingsService.state.settingsOfProvider.awsBedrock;
+					let baseURL = (s.endpoint || 'http://localhost:4000/v1').trim();
+					if (!baseURL.endsWith('/v1')) {
+						baseURL = baseURL.replace(/\/+$/, '') + '/v1';
+					}
+					return await this.fetchOpenAICompatibleModelsCatalog(`${baseURL}/models`, s.apiKey || undefined);
+				}
+				case 'googleVertex':
+					return await this.fetchGoogleVertexCatalog();
+				case 'microsoftAzure':
+					return await this.fetchMicrosoftAzureCatalog();
 				case 'pollinations':
-					return [];
+					return await this.fetchPollinationsCatalog();
 				default:
 					return [];
 			}
@@ -384,6 +454,112 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 				beta: !!(model as { beta?: boolean }).beta,
 			};
 		}).filter(m => m.id.length > 0);
+	}
+
+	private async fetchOllamaCatalog(endpoint: string): Promise<RemoteModelInfo[]> {
+		// Ollama returns { models: [{ name, model, modified_at, size, details: {...} }, ...] }
+		const url = `${endpoint.replace(/\/$/, '')}/api/tags`;
+		const data = await this.getJson<{ models?: Array<{ name?: string; model?: string }> }>(url, {}, 'ollamaTags');
+		return (data.models || [])
+			.map(m => {
+				const id = String(m.name ?? m.model ?? '');
+				return id ? { id, name: id } : null;
+			})
+			.filter((m): m is RemoteModelInfo => m !== null);
+	}
+
+	private async fetchPollinationsCatalog(): Promise<RemoteModelInfo[]> {
+		// Pollinations exposes a public model list at https://text.pollinations.ai/models — JSON array.
+		// Shape varies between releases; we accept a couple of common envelopes.
+		try {
+			const data = await this.getJson<object>('https://text.pollinations.ai/models', {}, 'pollinationsModels');
+			const list: unknown[] = Array.isArray(data)
+				? data
+				: Array.isArray((data as { models?: unknown[] }).models)
+					? (data as { models: unknown[] }).models
+					: Array.isArray((data as { data?: unknown[] }).data)
+						? (data as { data: unknown[] }).data
+						: [];
+			return list
+				.map((m): RemoteModelInfo | null => {
+					if (typeof m === 'string') {
+						return { id: m, name: m };
+					}
+					if (m && typeof m === 'object') {
+						const id = String((m as { name?: string; id?: string }).name ?? (m as { id?: string }).id ?? '');
+						if (!id) {
+							return null;
+						}
+						const description = (m as { description?: string }).description;
+						return {
+							id,
+							name: id,
+							description: typeof description === 'string' ? description : undefined,
+						};
+					}
+					return null;
+				})
+				.filter((m): m is RemoteModelInfo => m !== null);
+		} catch {
+			return [];
+		}
+	}
+
+	private async fetchGoogleVertexCatalog(): Promise<RemoteModelInfo[]> {
+		const cfg = this.settingsService.state.settingsOfProvider.googleVertex;
+		const region = (cfg.region || '').trim();
+		const project = (cfg.project || '').trim();
+		if (!region || !project) {
+			return [];
+		}
+		// Get an OAuth2 access token from the main process (Application Default Credentials).
+		let token: string;
+		try {
+			const ipc = this.mainProcessService.getChannel('vibeide-channel-remoteCatalogFetch');
+			token = await ipc.call<string>('getGoogleAccessToken', undefined);
+		} catch {
+			return [];
+		}
+		// Vertex's OpenAI-compatible bridge mirrors /v1/models at the same baseURL used for chat
+		// (see sendLLMMessage.impl.ts → googleVertex case).
+		const url = `https://${region}-aiplatform.googleapis.com/v1/projects/${project}/locations/${region}/endpoints/openapi/models`;
+		try {
+			return await this.fetchOpenAICompatibleModelsCatalog(url, token);
+		} catch {
+			return [];
+		}
+	}
+
+	private async fetchMicrosoftAzureCatalog(): Promise<RemoteModelInfo[]> {
+		const cfg = this.settingsService.state.settingsOfProvider.microsoftAzure;
+		const resource = (cfg.project || '').trim(); // settings field is named `project` but holds the Azure resource name
+		const apiKey = (cfg.apiKey || '').trim();
+		const apiVersion = (cfg.azureApiVersion || '2024-04-01-preview').trim();
+		if (!resource || !apiKey) {
+			return [];
+		}
+		// Azure OpenAI lists *deployments* (user-deployed models) — that's what's actually callable.
+		// Returns { data: [{ id: deploymentId, model: underlyingModelId, ... }, ...] }.
+		const url = `https://${resource}.openai.azure.com/openai/deployments?api-version=${encodeURIComponent(apiVersion)}`;
+		const data = await this.getJson<{ data?: Array<{ id?: string; model?: string; status?: string }> }>(
+			url,
+			{ 'api-key': apiKey },
+			'azureDeployments',
+		);
+		const out: RemoteModelInfo[] = [];
+		for (const d of data.data || []) {
+			const id = String(d.id ?? '');
+			if (!id) {
+				continue;
+			}
+			const model = typeof d.model === 'string' ? d.model : undefined;
+			out.push({
+				id,
+				name: model ? `${id} (${model})` : id,
+				description: model,
+			});
+		}
+		return out;
 	}
 
 	async healthCheck(providerName: ProviderName, modelId: string): Promise<boolean> {
