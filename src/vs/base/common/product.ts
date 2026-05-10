@@ -66,6 +66,8 @@ export type ExtensionVirtualWorkspaceSupport = {
 
 export interface IProductConfiguration {
 	readonly version: string;
+	/** VibeIDE fork's own SemVer (separate from `version`, which is the underlying VS Code base). Sourced from product.json `vibeVersion`. */
+	readonly vibeVersion?: string;
 	readonly date?: string;
 	readonly quality?: string;
 	readonly commit?: string;
