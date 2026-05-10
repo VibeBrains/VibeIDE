@@ -79,6 +79,39 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 			},
 		});
 
+		// `vibeide.commands.*` — Project Commands settings (roadmap §K.4 L306, L322).
+		// Pure helpers landed in `projectCommandsGlobalPaths.ts` (decoder + workspace-wins
+		// merge) and `projectCommandsToolbar.ts` (position decoder + visibility predicate).
+		// Surfacing the keys here lets users pin them via Settings UI before the runtime
+		// `IVibeCustomCommandsService` lands (the helpers already handle the absent /
+		// malformed cases without throwing).
+		registry.registerConfiguration({
+			id: 'vibeide.commands',
+			title: localize('vibeide.commands.title.shared', 'VibeIDE — Project Commands'),
+			type: 'object',
+			properties: {
+				'vibeide.commands.globalPaths': {
+					type: 'array',
+					items: { type: 'string' },
+					default: [],
+					description: localize('vibeide.commands.globalPaths', 'Абсолютные пути дополнительных корней `.vibe/commands.json` (parity с `vibeide.skills.globalPaths`). Команды из workspace `.vibe/commands.json` перекрывают глобальные с тем же `id`; конфликтующие глобальные id попадают в `shadowedGlobalIds[]` для banner-уведомления.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.commands.toolbar.position': {
+					type: 'string',
+					enum: ['titlebar', 'statusbar', 'hidden'],
+					enumDescriptions: [
+						localize('vibeide.commands.toolbar.position.titlebar', 'Закреплённые команды отображаются в title-bar (по умолчанию).'),
+						localize('vibeide.commands.toolbar.position.statusbar', 'Закреплённые команды отображаются в статус-баре.'),
+						localize('vibeide.commands.toolbar.position.hidden', 'Кнопки скрыты; палитра, шорткаты и индикатор «▶ N» остаются доступны.'),
+					],
+					default: 'titlebar',
+					description: localize('vibeide.commands.toolbar.position', 'Где рендерить закреплённые команды Project Commands. `hidden` оставляет палитру / шорткаты / status-bar `▶ N` индикатор активными, но скрывает inline-кнопки.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+			},
+		});
+
 		// `vibeide.global.*` — user-wide preferences read from `vibeideSettingsService`.
 		// Source of truth: VS Code configuration; the in-memory `globalSettings.localFirstAI`
 		// mirrors this key via a config-change listener.
