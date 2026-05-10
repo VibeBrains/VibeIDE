@@ -25,19 +25,7 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_URL: ${{ github.event.pull_request.html_url }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-        run: |
-          set -euo pipefail
-          if [ ! -f FORK_CHANGES.md ]; then
-            echo "FORK_CHANGES.md not found at repo root; skipping."
-            exit 0
-          fi
-          DATE="$(date -u +%Y-%m-%d)"
-          ENTRY="- ${DATE} | PR #${PR_NUMBER} | ${PR_TITLE} | by @${PR_AUTHOR} | ${PR_URL}"
-          if grep -F "PR #${PR_NUMBER}" FORK_CHANGES.md >/dev/null 2>&1; then
-            echo "Entry for PR #${PR_NUMBER} already present; skipping."
-            exit 0
-          fi
-          printf '\n%s\n' "${ENTRY}" >> FORK_CHANGES.md
+        run: node scripts/append-fork-change.mjs
 
       - name: Commit and push
         run: |

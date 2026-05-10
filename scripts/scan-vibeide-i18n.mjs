@@ -33,11 +33,35 @@ const CALL_PATTERNS = [
 	{ regex: /\btooltip:\s*(['"`])([^'"`]+?)\1/g, kind: 'tooltip' },
 ];
 
+// MUST stay in sync with BRAND_ALLOWLIST in src/vs/workbench/contrib/vibeide/common/i18nUnwrappedScanner.ts
+const BRAND_ALLOWLIST = new Set([
+	'Anthropic',
+	'AWS Bedrock',
+	'DeepSeek',
+	'Gemini',
+	'Google Vertex AI',
+	'Grok (xAI)',
+	'Groq',
+	'LiteLLM',
+	'LM Router',
+	'LM Studio',
+	'Microsoft Azure OpenAI',
+	'Mistral',
+	'Ollama',
+	'OpenAI',
+	'OpenCode Go',
+	'OpenCode Zen',
+	'OpenRouter',
+	'Pollinations',
+	'vLLM',
+]);
+
 function isUserFacingLiteral(s) {
 	const trimmed = s.trim();
 	if (trimmed.length < 3) { return false; }
 	if (/^[a-zA-Z0-9_.-]+$/.test(trimmed)) { return false; }
 	if (/^(https?:\/\/|\.{0,2}\/|[a-zA-Z]:[\\/])/.test(trimmed)) { return false; }
+	if (BRAND_ALLOWLIST.has(trimmed)) { return false; }
 	return /\s/.test(trimmed) || /[^\x00-\x7f]/.test(trimmed);
 }
 

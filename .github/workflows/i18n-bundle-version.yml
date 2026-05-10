@@ -1,0 +1,49 @@
+# i18n bundle version sync — fail CI when a `vibeide-language-pack-*` VSIX
+# package.json drifts from `product.json:vibeVersion`.
+#
+# Single source of truth: src/vs/workbench/contrib/vibeide/common/i18nBundleVersionCheck.ts
+# (checkBundleVersionSync + describeBundleVersionVerdict). The CI runner duplicates that
+# logic in scripts/check-i18n-bundle-version.mjs (no TS compile step required), and the
+# 15 self-contained tests in scripts/check-i18n-bundle-version.test.mjs guard the dupe.
+#
+# When no language-pack bundles are present yet (current state of the tree) the script
+# skips with a friendly message and exits 0 — the workflow only kicks in once the VSIX
+# pipeline lands real bundles under `extensions/vibeide-language-pack-*/`.
+
+name: i18n-bundle-version
+
+on:
+  pull_request:
+    paths:
+      - 'product.json'
+      - 'extensions/vibeide-language-pack-*/package.json'
+      - 'scripts/check-i18n-bundle-version.mjs'
+      - 'scripts/check-i18n-bundle-version.test.mjs'
+      - '.github/workflows/i18n-bundle-version.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'product.json'
+      - 'extensions/vibeide-language-pack-*/package.json'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check:
+    name: bundle ↔ product.json:vibeVersion
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Self-test the duplicated helper
+        run: node scripts/check-i18n-bundle-version.test.mjs
+
+      - name: Check language-pack bundle versions against product.json
+        run: node scripts/check-i18n-bundle-version.mjs

@@ -15,6 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const projectCommandsAudit = require('./lib/project-commands-audit.cjs');
 
 const args = process.argv.slice(2);
 const MODE = {
@@ -85,6 +86,35 @@ if (MODE.repair) {
 	if (fixed.length && !MODE.json) {
 		console.log('\n🔧 Repair: added vibeVersion to skill frontmatter:\n' + fixed.map(x => `  - ${x}`).join('\n'));
 	}
+
+	// .vibe/commands.json — auto-repair `missing-vibe-version` only. All other audit
+	// issues (duplicate-id, missing-command, invalid-id-pattern) need a human review,
+	// so we never rewrite them silently.
+	//
+	// The decoder rejects files without `vibeVersion` outright (so the audit emits
+	// `file-decode-failed`, not `missing-vibe-version`). To keep auto-repair useful
+	// we sniff the raw shape directly — if it is a plain object but `vibeVersion`
+	// is absent/empty, hand it to the helper for an immutable insert.
+	const commandsPath = path.join(process.cwd(), '.vibe', 'commands.json');
+	if (fs.existsSync(commandsPath)) {
+		try {
+			const raw = JSON.parse(fs.readFileSync(commandsPath, 'utf-8'));
+			const needsVersion = raw !== null && typeof raw === 'object'
+				&& (typeof raw.vibeVersion !== 'string' || raw.vibeVersion.length === 0);
+			if (needsVersion) {
+				const repaired = projectCommandsAudit.repairProjectCommandsForDoctor(raw, '1.0.0');
+				if (repaired.repaired) {
+					fs.writeFileSync(commandsPath, JSON.stringify(repaired.nextRaw, null, 2) + '\n', 'utf-8');
+					if (!MODE.json) {
+						console.log('\n🔧 Repair: ' + repaired.notes.join(', ') + ' in .vibe/commands.json');
+					}
+				}
+			}
+		} catch {
+			// Audit-stage errors will surface through the regular `project-commands-schema`
+			// check; we do not throw from --repair so other repairs continue.
+		}
+	}
 }
 
 function check(name, fn, severity = 'error', mode = 'fast') {
@@ -143,6 +173,30 @@ check('vibe-schema-valid', () => {
 
 	if (errors.length > 0) throw new Error(errors.join('; '));
 	return '.vibe/ files are valid';
+});
+
+// 2a. .vibe/commands.json schema audit (Project Commands roadmap §"vibe doctor"); covers
+// duplicate-id / missing-command / invalid-id-pattern / missing-vibe-version. Audit-only
+// summary — never echoes `command` / `env` bodies into vibe-doctor output to avoid
+// leaking secret-substituted shell strings into CI logs.
+checkWarning('project-commands-schema', () => {
+	const filePath = path.join(process.cwd(), '.vibe', 'commands.json');
+	if (!fs.existsSync(filePath)) return '[skipped: no .vibe/commands.json]';
+	let raw;
+	try {
+		raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+	} catch (e) {
+		throw new Error(`.vibe/commands.json: invalid JSON — ${e.message}`);
+	}
+	const audit = projectCommandsAudit.auditProjectCommandsForDoctor(raw);
+	if (audit.issues.length > 0) {
+		throw new Error(
+			projectCommandsAudit.summariseAuditIssues(audit.issues)
+				+ '. Fix .vibe/commands.json or run `node scripts/vibe-doctor.js --repair` for auto-fixable items.',
+		);
+	}
+	const count = audit.file ? audit.file.commands.length : 0;
+	return `.vibe/commands.json — ${count} command(s), schema OK`;
 });
 
 // 3. Node.js version
