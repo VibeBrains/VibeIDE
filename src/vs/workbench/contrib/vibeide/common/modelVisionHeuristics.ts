@@ -18,9 +18,11 @@ export const VISION_NAME_SUBSTRINGS: readonly string[] = [
 	'claude-3', 'claude-4', 'claude-sonnet', 'claude-opus',
 	'gpt-4o', 'gpt-4.1', 'gpt-5', 'gemini',
 	'qwen2-vl', 'qwen2.5-vl', 'qwen3-vl',
-	// extended coverage for OpenCode / OpenRouter / openAICompatible catalogs that don't surface modality metadata
-	'omni',          // nvidia nemotron-*-omni, qwen3-omni — currently always multimodal
-	'multimodal',
+	// Extended coverage for OpenCode / OpenRouter / openAICompatible catalogs that don't surface modality metadata.
+	// IMPORTANT: only well-known *vision* markers. Do NOT add generic tokens like `omni` or `multimodal` —
+	// many "omni" models (e.g. nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free) advertise multimodality
+	// in OpenRouter's catalog but in practice do not accept image input on the free tier, leading to
+	// silent text-only execution and hallucinated descriptions of the system prompt.
 	'minimax-vl',
 	'glm-4v', 'glm-4.5v',
 	'kimi-vl',
