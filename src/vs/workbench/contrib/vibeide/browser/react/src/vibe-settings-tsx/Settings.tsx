@@ -658,14 +658,17 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 			const activeOnly = showOnlyActiveByProvider[providerName] === true;
 			const afterActive = activeOnly ? allModels.filter(m => !m.isHidden) : allModels;
 			const q = (modelSearchByProvider[providerName] ?? '').trim().toLowerCase();
-			const models = q.length === 0
+			// AND-tokenized search: split by whitespace, every token must match either model name
+			// or modality literal (e.g. "image free" → models that contain both `image` and `free`
+			// across name+modality, regardless of which field each token lands in).
+			const tokens = q.length === 0 ? [] : q.split(/\s+/).filter(t => t.length > 0);
+			const models = tokens.length === 0
 				? afterActive
 				: afterActive.filter(m => {
-					if (m.modelName.toLowerCase().includes(q)) return true;
-					// Modality from catalog override (e.g. "text+image->text") — matches "image", "audio", "video", "text".
+					const name = m.modelName.toLowerCase();
 					const modality = settingsState.overridesOfModel?.[providerName]?.[m.modelName]?.modality;
-					if (typeof modality === 'string' && modality.toLowerCase().includes(q)) return true;
-					return false;
+					const modalityLower = typeof modality === 'string' ? modality.toLowerCase() : '';
+					return tokens.every(t => name.includes(t) || modalityLower.includes(t));
 				});
 			const expanded = expandedByProvider[providerName] ?? false;
 			const providerTitle = displayInfoOfProviderName(providerName).title;
