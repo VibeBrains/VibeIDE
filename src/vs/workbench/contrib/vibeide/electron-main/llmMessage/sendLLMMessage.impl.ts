@@ -93,7 +93,7 @@ const buildOpenAICacheKey = (providerName: ProviderName, settingsOfProvider: Set
 		apiKey = settingsOfProvider[providerName]?.apiKey || ''
 	} else if (providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio') {
 		endpoint = settingsOfProvider[providerName]?.endpoint || ''
-	} else if (providerName === 'openAICompatible' || providerName === 'liteLLM') {
+	} else if (providerName === 'openAICompatible' || providerName === 'liteLLM' || providerName === 'lmRoute') {
 		endpoint = settingsOfProvider[providerName]?.endpoint || ''
 		apiKey = settingsOfProvider[providerName]?.apiKey || ''
 	}
@@ -110,7 +110,7 @@ const getOpenAICompatibleClient = async ({ settingsOfProvider, providerName, inc
 	// Detect if this is a local provider
 	const isExplicitLocalProvider = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio'
 	let isLocalhostEndpoint = false
-	if (providerName === 'openAICompatible' || providerName === 'liteLLM') {
+	if (providerName === 'openAICompatible' || providerName === 'liteLLM' || providerName === 'lmRoute') {
 		const endpoint = settingsOfProvider[providerName]?.endpoint || ''
 		if (endpoint) {
 			try {
@@ -203,7 +203,7 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 	// Detect local providers: explicit local providers + localhost endpoints
 	const isExplicitLocalProvider = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio'
 	let isLocalhostEndpoint = false
-	if (providerName === 'openAICompatible' || providerName === 'liteLLM') {
+	if (providerName === 'openAICompatible' || providerName === 'liteLLM' || providerName === 'lmRoute') {
 		const endpoint = settingsOfProvider[providerName]?.endpoint || ''
 		if (endpoint) {
 			try {
@@ -244,6 +244,12 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 	else if (providerName === 'liteLLM') {
 		const thisConfig = settingsOfProvider[providerName]
 		return new OpenAI({ baseURL: `${thisConfig.endpoint}/v1`, apiKey: 'noop', ...commonPayloadOpts })
+	}
+	else if (providerName === 'lmRoute') {
+		// lmrouter.com uses /openai/v1 path prefix (not /v1), so endpoint is taken as-is.
+		// User enters the full baseURL incl. version segment, e.g. https://lmrouter.com/openai/v1
+		const thisConfig = settingsOfProvider[providerName]
+		return new OpenAI({ baseURL: thisConfig.endpoint, apiKey: thisConfig.apiKey || 'noop', ...commonPayloadOpts })
 	}
 	else if (providerName === 'lmStudio') {
 		const thisConfig = settingsOfProvider[providerName]
@@ -353,7 +359,7 @@ const _sendOpenAICompatibleFIM = async ({ messages: { prefix, suffix, stopTokens
 	// Note: vLLM and lmStudio don't support FIM, so we only check for ollama here
 	const isExplicitLocalProvider = providerName === 'ollama'
 	let isLocalhostEndpoint = false
-	if (providerName === 'openAICompatible' || providerName === 'liteLLM') {
+	if (providerName === 'openAICompatible' || providerName === 'liteLLM' || providerName === 'lmRoute') {
 		const endpoint = settingsOfProvider[providerName]?.endpoint || ''
 		if (endpoint) {
 			try {
@@ -377,7 +383,7 @@ const _sendOpenAICompatibleFIM = async ({ messages: { prefix, suffix, stopTokens
 	// Note: mistral and ollama have their own FIM implementations (not this function)
 	// Note: OpenAI's official API does NOT support suffix parameter (except gpt-3.5-turbo-instruct)
 	// Note: vLLM and lmStudio do NOT support suffix parameter
-	const providersWithFIMSupport = ['openRouter', 'openAICompatible', 'liteLLM']
+	const providersWithFIMSupport = ['openRouter', 'openAICompatible', 'liteLLM', 'lmRoute']
 	const hasFIMSupport = providersWithFIMSupport.includes(providerName) || isLocalhostEndpoint
 
 	if (!supportsFIM && !hasFIMSupport) {
@@ -623,7 +629,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 	// Detect if this is a local provider for timeout optimization
 	const isExplicitLocalProviderChat = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio'
 	let isLocalhostEndpointChat = false
-	if (providerName === 'openAICompatible' || providerName === 'liteLLM') {
+	if (providerName === 'openAICompatible' || providerName === 'liteLLM' || providerName === 'lmRoute') {
 		const endpoint = settingsOfProvider[providerName]?.endpoint || ''
 		if (endpoint) {
 			try {
@@ -1604,6 +1610,11 @@ export const sendLLMMessageToProviderImplementation = {
 		list: (params) => _openaiCompatibleList(params),
 	},
 	liteLLM: {
+		sendChat: (params) => _sendOpenAICompatibleChat(params),
+		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
+		list: null,
+	},
+	lmRoute: {
 		sendChat: (params) => _sendOpenAICompatibleChat(params),
 		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
 		list: null,

@@ -25,10 +25,9 @@ import { FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName } fr
 
 // Key order controls Main Providers UI (see nonlocalProviderNames): OpenCode Zen + OpenCode + OpenRouter first, then free-tier-friendly, then by coding-model breadth/quality; locals last.
 export const defaultProviderSettings = {
+	// Featured aggregators block (shown first in Settings UI). Order is significant:
+	// `providerNames` is `Object.keys(defaultProviderSettings)`, which is what the UI iterates.
 	openCodeZen: {
-		apiKey: '',
-	},
-	openCode: {
 		apiKey: '',
 	},
 	openRouter: {
@@ -36,6 +35,18 @@ export const defaultProviderSettings = {
 		/** `'1'` = load model list from OpenRouter public API without an API key (inference still needs a key). */
 		publicCatalog: '0',
 	},
+	lmRoute: { // open-source aggregator, https://github.com/LMRouter/lmrouter — hosted at lmrouter.com or self-hosted
+		endpoint: '',
+		apiKey: '',
+	},
+	liteLLM: { // https://docs.litellm.ai/docs/providers/openai_compatible
+		endpoint: '',
+		apiKey: '',
+	},
+	openCode: {
+		apiKey: '',
+	},
+	// Cloud providers
 	gemini: {
 		apiKey: '',
 	},
@@ -65,10 +76,6 @@ export const defaultProviderSettings = {
 		apiKey: '',
 		headersJSON: '{}', // default to {}
 	},
-	liteLLM: { // https://docs.litellm.ai/docs/providers/openai_compatible
-		endpoint: '',
-		apiKey: '',
-	},
 	googleVertex: { // google https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library
 		region: 'us-west2',
 		project: '',
@@ -83,6 +90,7 @@ export const defaultProviderSettings = {
 		region: 'us-east-1', // add region setting
 		endpoint: '', // optionally allow overriding default
 	},
+	// Local providers
 	ollama: {
 		endpoint: 'http://127.0.0.1:11434',
 	},
@@ -126,6 +134,7 @@ export const defaultModelsOfProvider = {
 	microsoftAzure: [],
 	awsBedrock: [],
 	liteLLM: [],
+	lmRoute: [], // OpenAI-compatible aggregator; models added manually until catalog schema is verified
 	pollinations: [],
 	openCodeZen: [],
 	openCode: [],
@@ -1558,6 +1567,21 @@ const liteLLMSettings: VoidStaticProviderInfo = { // https://docs.litellm.ai/doc
 	},
 }
 
+const lmRouteSettings: VoidStaticProviderInfo = { // OpenAI-compatible aggregator (lmrouter.com / self-hosted)
+	modelOptionsFallback: (modelName) => {
+		const fallback = extensiveModelOptionsFallback(modelName, { downloadable: { sizeGb: 'not-known' } });
+		if (fallback && !fallback.specialToolFormat) {
+			fallback.specialToolFormat = 'openai-style';
+		}
+		return fallback;
+	},
+	modelOptions: {},
+	providerReasoningIOSettings: {
+		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
+		output: { nameOfFieldInDelta: 'reasoning_content' },
+	},
+}
+
 // ---------------- OPENCODE ZEN ----------------
 // Model ids: https://opencode.ai/zen/v1/models — sync via RemoteCatalogService (refresh catalog in settings).
 // Context limits: catalog entries may expose context_length in the future; until then, ids like gpt-5.1 / glm-5.1 match extensiveModelOptionsFallback; others use defaultModelOptions + user overrides.
@@ -1834,6 +1858,7 @@ const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProvi
 	mistral: mistralSettings,
 
 	liteLLM: liteLLMSettings,
+	lmRoute: lmRouteSettings,
 	lmStudio: lmStudioSettings,
 
 	pollinations: pollinationsSettings,
