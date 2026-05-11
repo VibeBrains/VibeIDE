@@ -22,7 +22,7 @@
  *  - Status-bar `▶ N` indicator + top-bar pinned-buttons widget.
  */
 
-import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
@@ -38,6 +38,7 @@ import { IVibeCustomCommandsService } from './vibeCustomCommandsService.js';
 import { PROJECT_COMMANDS_PALETTE_IDS } from '../common/projectCommandsServiceContract.js';
 import { serializeProjectCommandsInitTemplate } from '../common/projectCommandsInitTemplate.js';
 import { describeUnresolvedPlaceholders } from '../common/projectCommandSecretsResolver.js';
+import { commandIdToRegistryId } from '../common/projectCommandsRegistryId.js';
 
 CommandsRegistry.registerCommand({
 	id: PROJECT_COMMANDS_PALETTE_IDS.run,
@@ -141,13 +142,59 @@ CommandsRegistry.registerCommand({
 	},
 });
 
-/** Contribution exists only to ensure the file is imported and command handlers are registered. */
+/**
+ * Workbench contribution responsible for two side-effects:
+ *  1. Materialise the service so its FS-watcher starts (otherwise lazy Delayed
+ *     instantiation would defer until first palette open).
+ *  2. Maintain dynamic `vibeide.commands.run.<id>` registrations in
+ *     `CommandsRegistry` so users can bind keybindings via the standard
+ *     Keyboard Shortcuts UI.
+ */
 class VibeCustomCommandsContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.vibeCustomCommands';
-	constructor(@IVibeCustomCommandsService _commands: IVibeCustomCommandsService) {
+
+	/** registryId → CommandsRegistry disposable so we can dispose-and-rebind on FS change. */
+	private readonly _dynamicRegistrations = new Map<string, IDisposable>();
+	private readonly _registrationStore = this._register(new DisposableStore());
+
+	constructor(@IVibeCustomCommandsService private readonly _commands: IVibeCustomCommandsService) {
 		super();
-		// Service materialised here so it starts its FS-watcher on workbench restore.
 		void _commands.reload();
+
+		// Initial pass + listen for FS changes. The service emits `init` on the
+		// first reload — we wait for that, then re-bind on every subsequent
+		// `fs-change | global-paths-change | manual-reload` event.
+		this._rebindDynamicCommands(_commands.getCommands());
+		this._register(_commands.onDidChangeCommands(e => this._rebindDynamicCommands(e.commands)));
+	}
+
+	private _rebindDynamicCommands(commands: ReadonlyArray<{ id: string }>): void {
+		// Dispose previous registrations. CommandsRegistry doesn't expose an
+		// "unregister" API, but `registerCommand` returns an IDisposable that
+		// removes the entry; we tracked them by registryId.
+		for (const [, d] of this._dynamicRegistrations) {
+			d.dispose();
+		}
+		this._dynamicRegistrations.clear();
+
+		for (const c of commands) {
+			const registryId = commandIdToRegistryId(c.id);
+			if (registryId === null) {
+				continue;
+			}
+			const d = CommandsRegistry.registerCommand({
+				id: registryId,
+				handler: async () => {
+					await this._commands.run(c.id);
+				},
+			});
+			this._dynamicRegistrations.set(registryId, d);
+		}
+		// Ensure the parent store releases everything at shutdown even if we
+		// somehow lose a reference.
+		for (const d of this._dynamicRegistrations.values()) {
+			this._registrationStore.add(d);
+		}
 	}
 }
 
