@@ -78,6 +78,7 @@ import { classifyAndBuildToast } from '../common/agentErrorClassifier.js';
 import { decideResume, appendChunk, PartialResponse } from '../common/responseRetryCache.js';
 import { IVibeSessionMemoryService } from '../common/vibeSessionMemoryService.js';
 import { IVibeAgentTerritorialLockService } from './vibeAgentTerritorialLockService.js';
+import { resolveModelForPath, decodeRoutingRules } from '../common/modelRoutingByPath.js';
 
 // related to retrying when LLM message has error
 // Optimized retry logic: faster initial retry, exponential backoff
@@ -726,6 +727,31 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			? this._settingsService.state.optionsOfModelSelection[featureName][modelSelection.providerName]?.[modelSelection.modelName]
 			: undefined
 		return { modelSelection, modelSelectionOptions }
+	}
+
+	/** Resolve a routing-rule modelId ("provider/name" or plain "name") to a ModelSelection, or null if not found. */
+	private _findModelSelectionForId(modelId: string): ModelSelection | null {
+		const slashIdx = modelId.indexOf('/');
+		if (slashIdx > 0) {
+			const providerName = modelId.slice(0, slashIdx) as ProviderName;
+			const modelName = modelId.slice(slashIdx + 1);
+			const models = this._settingsService.state.settingsOfProvider[providerName]?.models ?? [];
+			if (models.some(m => m.modelName === modelName && !m.isHidden)) {
+				return { providerName, modelName };
+			}
+			return null;
+		}
+		// Plain model name: scan providers in preference order.
+		const providerOrder: ProviderName[] = ['anthropic', 'openAI', 'gemini', 'xAI', 'mistral', 'deepseek', 'groq', 'ollama', 'vLLM', 'lmStudio', 'openAICompatible', 'openRouter', 'liteLLM', 'pollinations', 'openCodeZen', 'openCode'];
+		for (const providerName of providerOrder) {
+			const settings = this._settingsService.state.settingsOfProvider[providerName];
+			if (!settings?._didFillInProviderSettings) continue;
+			const found = settings.models?.find(m => m.modelName === modelId && !m.isHidden);
+			if (found) {
+				return { providerName, modelName: modelId };
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -3340,6 +3366,30 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// Type assertion is safe because we've already resolved "auto" above
 		const resolvedProviderName = resolvedModelSelection.providerName as Exclude<typeof resolvedModelSelection.providerName, 'auto'>
 		resolvedModelSelectionOptions = this._settingsService.state.optionsOfModelSelection['Chat']?.[resolvedProviderName]?.[resolvedModelSelection.modelName]
+
+		// Per-file model routing (L928): if vibeide.model.routing rules are configured, override
+		// the resolved model when the primary staged file matches a pattern (first match wins).
+		{
+			const routingRaw = this._configurationService.getValue<unknown>('vibeide.model.routing');
+			const routingDecoded = decodeRoutingRules(routingRaw);
+			if (routingDecoded.ok && routingDecoded.value.length > 0) {
+				const thread = this.state.allThreads[threadId];
+				const fileItem = (thread?.state?.stagingSelections ?? []).find((s): s is StagingSelectionItem & { type: 'File' } => s.type === 'File');
+				if (fileItem) {
+					const filePath = fileItem.uri.fsPath.replace(/\\/g, '/');
+					const decision = resolveModelForPath(filePath, routingDecoded.value, resolvedModelSelection.modelName);
+					if (decision.source === 'rule') {
+						const routed = this._findModelSelectionForId(decision.resolvedModelId);
+						if (routed) {
+							resolvedModelSelection = routed;
+							const rp = routed.providerName as Exclude<ProviderName, 'auto'>;
+							resolvedModelSelectionOptions = this._settingsService.state.optionsOfModelSelection['Chat']?.[rp]?.[routed.modelName];
+							this._logService.info(`[VibeIDE] model-routing: ${filePath} → pattern=${decision.matchedPattern} → ${decision.resolvedModelId}`);
+						}
+					}
+				}
+			}
+		}
 
 		// Cost forecast confirm — gate before first LLM request.
 		{

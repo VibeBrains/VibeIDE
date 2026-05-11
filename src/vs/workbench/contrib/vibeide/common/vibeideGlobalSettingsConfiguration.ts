@@ -112,6 +112,30 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 			},
 		});
 
+		// `vibeide.model.*` — per-file model routing (roadmap §L928).
+		registry.registerConfiguration({
+			id: 'vibeide.model',
+			title: localize('vibeide.model.title', 'VibeIDE — Model Routing'),
+			type: 'object',
+			properties: {
+				'vibeide.model.routing': {
+					type: 'array',
+					items: {
+						type: 'object',
+						properties: {
+							pattern: { type: 'string' },
+							modelId: { type: 'string' },
+						},
+						required: ['pattern', 'modelId'],
+						additionalProperties: false,
+					},
+					default: [],
+					description: localize('vibeide.model.routing', 'Упорядоченный список правил { pattern, modelId } для маршрутизации модели по пути файла. Первое совпадение побеждает; при отсутствии совпадений — модель по умолчанию. modelId: "provider/modelName" или просто "modelName" (провайдер выбирается автоматически). Пример: [{ "pattern": "**/*.md", "modelId": "anthropic/claude-haiku-4-5" }, { "pattern": "src/**/*.spec.ts", "modelId": "sonnet" }].'),
+					scope: ConfigurationScope.RESOURCE,
+				},
+			},
+		});
+
 		// `vibeide.global.*` — user-wide preferences read from `vibeideSettingsService`.
 		// Source of truth: VS Code configuration; the in-memory `globalSettings.localFirstAI`
 		// mirrors this key via a config-change listener.
