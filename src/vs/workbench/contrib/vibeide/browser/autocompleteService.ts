@@ -31,6 +31,7 @@ import { getPerformanceHarness } from '../common/performanceHarness.js';
 import { isLocalProvider } from './convertToLLMMessageService.js';
 import { IModelWarmupService } from '../common/modelWarmupService.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { decideFIMProvider, describeFIMRouting, type FIMProvider } from '../common/fimProviderRouter.js';
 
 
 
@@ -938,6 +939,29 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 			console.warn('[VibeIDE Autocomplete] FIM request blocked: secrets detected in context. File may contain API keys or credentials.');
 			return [];
 		}
+
+		// VibeIDE: FIM provider routing via decideFIMProvider
+		const settingsState = this._settingsService.state;
+		const fimProviders: FIMProvider[] = Object.entries(settingsState.settingsOfProvider ?? {}).map(([id, _cfg]) => {
+			const isLocal = isLocalProvider(id as any, settingsState.settingsOfProvider);
+			const kind = id === 'ollama' ? 'local-ollama' : id === 'lmStudio' ? 'local-lmstudio' : 'cloud' as any;
+			const hasCoderModel = (settingsState.modelSelectionOfFeature?.['Autocomplete']?.modelName ?? '').toLowerCase().includes('coder');
+			return { id, kind, available: true, hasCoderModel: isLocal && hasCoderModel };
+		});
+		const fimDecision = decideFIMProvider({
+			pinnedModelId: modelSelection.modelName ?? '',
+			privacyStrict: !!(settingsState.globalSettings as any)?.privacyMode,
+			providers: fimProviders,
+			chatDefaultProviderId: modelSelection.providerName ?? '',
+		});
+		if (fimDecision.kind === 'no-provider-available') {
+			if (!this._hasShownNoModelWarning) {
+				this._hasShownNoModelWarning = true;
+				this._notificationService.warn(describeFIMRouting(fimDecision));
+			}
+			return [];
+		}
+		console.debug(`[VibeIDE Autocomplete] FIM routing: ${describeFIMRouting(fimDecision)}`);
 
 
 
