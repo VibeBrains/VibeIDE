@@ -33,6 +33,11 @@ import { IModelWarmupService } from '../common/modelWarmupService.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { decideFIMProvider, describeFIMRouting, type FIMProvider } from '../common/fimProviderRouter.js';
 import { CompletionCache, makeCompletionCacheKey, hashCompletionPrefix } from '../common/completionCache.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { VSBuffer } from '../../../../base/common/buffer.js';
+import { joinPath } from '../../../../base/common/resources.js';
+import { CompletionEvent } from '../common/completionOutcomeStats.js';
 
 
 
@@ -1206,6 +1211,8 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		@IModelWarmupService private readonly _modelWarmupService: IModelWarmupService,
 		@INotificationService private readonly _notificationService: INotificationService,
 		@ISecretDetectionService private readonly _secretDetectionService: ISecretDetectionService,
+		@IFileService private readonly _fileService: IFileService,
+		@IWorkspaceContextService private readonly _workspaceContext: IWorkspaceContextService,
 		// @IContextGatheringService private readonly _contextGatheringService: IContextGatheringService,
 	) {
 		super()
@@ -1250,6 +1257,18 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 						console.log('ACCEPT', autocompletion.id)
 						this._lastCompletionAccept = Date.now()
 
+						// L1021: record accept event for `vibe doctor --completion-stats`
+						const featureSel = this._settingsService.resolveAutoModelSelection(
+							this._settingsService.state.modelSelectionOfFeature['Autocomplete']
+						);
+						void this._appendCompletionEvent({
+							timestamp: this._lastCompletionAccept,
+							modelId: featureSel ? `${featureSel.providerName}:${featureSel.modelName}` : 'unknown',
+							outcome: 'accept',
+							suggestionLength: autocompletion.insertText.length,
+							latencyMs: autocompletion.endTime !== undefined ? autocompletion.endTime - autocompletion.startTime : undefined,
+						});
+
 						// Mark as finished before deleting to prevent abort in dispose callback
 						// The dispose callback only aborts if status is 'pending'
 						const wasPending = autocompletion.status === 'pending'
@@ -1273,6 +1292,25 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 	/** Expose CompletionCache stats for `vibe doctor --completion-stats`. */
 	completionCacheStats() {
 		return this._prefixCache.stats();
+	}
+
+	/** Append one CompletionEvent line to `.vibe/completion-events.jsonl` (L1021). */
+	private async _appendCompletionEvent(event: CompletionEvent): Promise<void> {
+		try {
+			const folders = this._workspaceContext.getWorkspace().folders;
+			if (folders.length === 0) return;
+			const fileUri = joinPath(folders[0].uri, '.vibe', 'completion-events.jsonl');
+			let existing = '';
+			try {
+				const buf = await this._fileService.readFile(fileUri);
+				existing = buf.value.toString();
+			} catch {
+				// File absent — first event.
+			}
+			await this._fileService.writeFile(fileUri, VSBuffer.fromString(existing + JSON.stringify(event) + '\n'));
+		} catch {
+			// Never throw from telemetry — logging is best-effort.
+		}
 	}
 
 	/**
