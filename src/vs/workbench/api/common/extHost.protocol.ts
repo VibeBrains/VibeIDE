@@ -2440,6 +2440,47 @@ export interface MainThreadAiEmbeddingVectorShape {
 	$unregisterAiEmbeddingVectorProvider(handle: number): void;
 }
 
+// VibeIDE proposed read-only API (see src/vscode-dts/vscode.proposed.vibeideReadonly.d.ts).
+export interface VibeIDEAgentStatusDTO {
+	readonly mode: 'manual' | 'supervised' | 'auto';
+	readonly running: boolean;
+	readonly vibeVersion: string;
+}
+
+export interface VibeIDESkillEntryDTO {
+	readonly id: string;
+	readonly path: string;
+	readonly name: string;
+	readonly description: string;
+	readonly vibeVersion?: string;
+	readonly origin: 'workspace' | 'global';
+}
+
+export type VibeIDEPlanEventDTO =
+	| { readonly type: 'plan.created'; readonly planId: string }
+	| { readonly type: 'plan.step.started'; readonly planId: string; readonly stepNumber: number }
+	| { readonly type: 'plan.step.completed'; readonly planId: string; readonly stepNumber: number }
+	| { readonly type: 'plan.step.failed'; readonly planId: string; readonly stepNumber: number; readonly reason: string }
+	| { readonly type: 'plan.completed'; readonly planId: string }
+	| { readonly type: 'plan.paused'; readonly planId: string; readonly reason: string };
+
+export interface VibeIDEConstraintQueryDTO {
+	readonly tool: string;
+	readonly target: string;
+}
+
+export interface MainThreadVibeIDEShape extends IDisposable {
+	$agentStatus(): Promise<VibeIDEAgentStatusDTO>;
+	$skillsList(): Promise<readonly VibeIDESkillEntryDTO[]>;
+	$plansSubscribe(): Promise<void>;
+	$plansUnsubscribe(): Promise<void>;
+	$constraintsQueryAllowed(query: VibeIDEConstraintQueryDTO): Promise<boolean>;
+}
+
+export interface ExtHostVibeIDEShape {
+	$onPlanEvent(event: VibeIDEPlanEventDTO): void;
+}
+
 export interface ExtHostSecretStateShape {
 	$onDidChangePassword(e: { extensionId: string; key: string }): Promise<void>;
 }
@@ -3896,6 +3937,7 @@ export const MainContext = {
 	MainThreadChatContext: createProxyIdentifier<MainThreadChatContextShape>('MainThreadChatContext'),
 	MainThreadChatDebug: createProxyIdentifier<MainThreadChatDebugShape>('MainThreadChatDebug'),
 	MainThreadBrowsers: createProxyIdentifier<MainThreadBrowsersShape>('MainThreadBrowsers'),
+	MainThreadVibeIDE: createProxyIdentifier<MainThreadVibeIDEShape>('MainThreadVibeIDE'),
 };
 
 export const ExtHostContext = {
@@ -3977,4 +4019,5 @@ export const ExtHostContext = {
 	ExtHostChatSessions: createProxyIdentifier<ExtHostChatSessionsShape>('ExtHostChatSessions'),
 	ExtHostGitExtension: createProxyIdentifier<ExtHostGitExtensionShape>('ExtHostGitExtension'),
 	ExtHostBrowsers: createProxyIdentifier<ExtHostBrowsersShape>('ExtHostBrowsers'),
+	ExtHostVibeIDE: createProxyIdentifier<ExtHostVibeIDEShape>('ExtHostVibeIDE'),
 };

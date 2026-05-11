@@ -4,13 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 // VibeIDE proposed API — read-only surface for third-party extensions.
-// Roadmap §M.3 / L1122. Ported from references/v1/extension-api-readonly-draft.md.
+// Roadmap §M.3 / L1122.
 //
 // Opt-in: { "enabledApiProposals": ["vibeideReadonly"] } in extension package.json.
 //
-// ExtHost wiring backlog: src/vs/workbench/api/common/extHost.api.impl.ts
-//   — ExtHostVibeIDE class (5 steps in extension-api-readonly-draft.md).
-//   Until that lands, these typings compile but are not wired to live services.
+// ExtHost wiring lives in src/vs/workbench/api/common/extHostVibeIDE.ts and is
+// bridged through MainThreadVibeIDE → workbench services
+// (IChatThreadService, IVibeSkillsLibraryService, IVibePlanEventJournalService,
+//  IVibeConstraintsService).
 
 declare module 'vscode' {
 

@@ -101,6 +101,7 @@ import './mainThreadDataChannels.js';
 import './mainThreadMeteredConnection.js';
 import './mainThreadGitExtensionService.js';
 import './mainThreadBrowsers.js';
+import './mainThreadVibeIDE.js';
 
 export class ExtensionPoints implements IWorkbenchContribution {
 

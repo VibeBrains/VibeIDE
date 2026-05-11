@@ -119,6 +119,7 @@ import { IExtHostPower } from './extHostPower.js';
 import { IExtHostWorkspace } from './extHostWorkspace.js';
 import { ExtHostChatContext } from './extHostChatContext.js';
 import { ExtHostChatDebug } from './extHostChatDebug.js';
+import { ExtHostVibeIDE } from './extHostVibeIDE.js';
 import { IExtHostMeteredConnection } from './extHostMeteredConnection.js';
 import { IExtHostGitExtensionService } from './extHostGitExtensionService.js';
 
@@ -249,6 +250,7 @@ export function createApiFactoryAndRegisterActors(accessor: ServicesAccessor): I
 	const extHostSpeech = rpcProtocol.set(ExtHostContext.ExtHostSpeech, new ExtHostSpeech(rpcProtocol));
 	const extHostEmbeddings = rpcProtocol.set(ExtHostContext.ExtHostEmbeddings, new ExtHostEmbeddings(rpcProtocol));
 	const extHostBrowsers = rpcProtocol.set(ExtHostContext.ExtHostBrowsers, new ExtHostBrowsers(rpcProtocol));
+	const extHostVibeIDE = rpcProtocol.set(ExtHostContext.ExtHostVibeIDE, new ExtHostVibeIDE(rpcProtocol));
 
 	rpcProtocol.set(ExtHostContext.ExtHostMcp, accessor.get(IExtHostMpcService));
 
@@ -1892,16 +1894,28 @@ export function createApiFactoryAndRegisterActors(accessor: ServicesAccessor): I
 			tests,
 			vibeide: {
 				agent: {
-					status: (): Thenable<vscode.vibeide.AgentStatusSnapshot> => Promise.reject(new Error('vibeide.agent.status: not yet wired — see references/v1/extension-api-readonly-draft.md')),
+					status: (): Thenable<vscode.vibeide.AgentStatusSnapshot> => {
+						checkProposedApiEnabled(extension, 'vibeideReadonly');
+						return extHostVibeIDE.agentStatus();
+					},
 				},
 				skills: {
-					list: (): Thenable<readonly vscode.vibeide.SkillEntry[]> => Promise.reject(new Error('vibeide.skills.list: not yet wired')),
+					list: (): Thenable<readonly vscode.vibeide.SkillEntry[]> => {
+						checkProposedApiEnabled(extension, 'vibeideReadonly');
+						return extHostVibeIDE.skillsList();
+					},
 				},
 				plans: {
-					subscribeToEvents: (_listener: (event: vscode.vibeide.PlanEvent) => void): vscode.Disposable => ({ dispose: () => { /* noop skeleton */ } }),
+					subscribeToEvents: (listener: (event: vscode.vibeide.PlanEvent) => void): vscode.Disposable => {
+						checkProposedApiEnabled(extension, 'vibeideReadonly');
+						return extHostVibeIDE.plansSubscribeToEvents(listener);
+					},
 				},
 				constraints: {
-					queryAllowed: (_query: vscode.vibeide.ConstraintQuery): Thenable<boolean> => Promise.reject(new Error('vibeide.constraints.queryAllowed: not yet wired')),
+					queryAllowed: (query: vscode.vibeide.ConstraintQuery): Thenable<boolean> => {
+						checkProposedApiEnabled(extension, 'vibeideReadonly');
+						return extHostVibeIDE.constraintsQueryAllowed(query);
+					},
 				},
 			} satisfies typeof vscode.vibeide,
 			window,

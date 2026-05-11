@@ -97,6 +97,28 @@ async function doSetupNLS(): Promise<INLSConfiguration | undefined> {
 
 	performance.mark('code/didLoadNls');
 
+	// Dev-only live-reload: when running unpacked (no VSCODE_DEV gate? — gate
+	// on env flag), re-read messagesFile on change and refresh the global
+	// _VSCODE_NLS_MESSAGES. UI surfaces that re-evaluate localize() at render
+	// time pick up the new strings; cached-at-import surfaces stay until the
+	// window is reloaded. See roadmap §L513.
+	if (messagesFile && process.env['VIBEIDE_NLS_HMR'] === '1') {
+		try {
+			const watcher = fs.watch(messagesFile, { persistent: false }, async (event) => {
+				if (event !== 'change' && event !== 'rename') { return; }
+				try {
+					globalThis._VSCODE_NLS_MESSAGES = JSON.parse((await fs.promises.readFile(messagesFile)).toString());
+					console.log(`[VibeNlsLiveReload] Reloaded NLS messages from ${messagesFile}`);
+				} catch (err) {
+					console.error(`[VibeNlsLiveReload] Reload failed: ${err}`);
+				}
+			});
+			process.on('exit', () => { try { watcher.close(); } catch { /* ignore */ } });
+		} catch (err) {
+			console.error(`[VibeNlsLiveReload] Failed to install watcher: ${err}`);
+		}
+	}
+
 	return nlsConfig;
 }
 
