@@ -471,6 +471,44 @@ function registerPinTogglePalette(targetPinned: boolean): void {
 registerPinTogglePalette(true);
 registerPinTogglePalette(false);
 
+// `VibeIDE: Revoke trust for project command` (roadmap K.2 L920).
+// Opens a Quick Pick of currently-trusted command ids, revokes the selected one,
+// and also prunes any orphaned / shape-changed entries as a side-effect.
+CommandsRegistry.registerCommand({
+	id: PROJECT_COMMANDS_PALETTE_IDS.revokeTrust,
+	handler: async (accessor: ServicesAccessor) => {
+		const commands = accessor.get(IVibeCustomCommandsService);
+		const quickInput = accessor.get(IQuickInputService);
+		const notifications = accessor.get(INotificationService);
+
+		const trusted = await commands.getTrustedCommandIds();
+		if (trusted.length === 0) {
+			notifications.notify({
+				severity: Severity.Info,
+				message: localize('vibeide.commands.revokeTrust.empty', 'Нет доверенных команд для отзыва.'),
+			});
+			return;
+		}
+
+		const allCommands = commands.getCommands();
+		const items = trusted.map(id => {
+			const cmd = allCommands.find(c => c.id === id);
+			return { label: cmd?.name ?? id, description: id, commandId: id };
+		});
+
+		const picked = await quickInput.pick(items, {
+			placeHolder: localize('vibeide.commands.revokeTrust.placeholder', 'Выберите команду для отзыва доверия'),
+		});
+		if (!picked) return;
+
+		await commands.revokeTrust(picked.commandId);
+		notifications.notify({
+			severity: Severity.Info,
+			message: localize('vibeide.commands.revokeTrust.done', 'Доверие к команде «{0}» отозвано. При следующем запуске потребуется подтверждение.', picked.label),
+		});
+	},
+});
+
 /**
  * Workbench contribution responsible for two side-effects:
  *  1. Materialise the service so its FS-watcher starts (otherwise lazy Delayed

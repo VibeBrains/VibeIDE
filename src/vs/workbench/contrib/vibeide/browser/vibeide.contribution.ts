@@ -566,3 +566,15 @@ import './vibeWorkspaceFormsService.js'
 
 // VibeIDE: Project rules settings — toggle per-source, stats preview, config watcher (§ H.1.2)
 import './vibeProjectRulesSettingsContribution.js'
+
+// VibeIDE: GDPR palette commands — export (DSAR) + delete (right to be forgotten) (§ N.2)
+import './vibeGdprPaletteContribution.js'
+
+// VibeIDE: Cost confirm settings — vibeide.cost.confirmThreshold / confirmTokenThreshold / alwaysConfirm (§ K.3)
+import '../common/costForecastConfiguration.js'
+
+// VibeIDE: MCP OAuth token rotation wrapper — periodic + server-removed revocation (§ K.2/919)
+import './vibeMCPTokenRotationContribution.js'
+
+// VibeIDE: Provider auto-failover — processOutcome FSM wired to VibeProviderStatusService (§ N.3/1184)
+import './vibeProviderFailoverContribution.js'

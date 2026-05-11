@@ -1,0 +1,119 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright 2026 VibeIDE Team. All rights reserved.
+ *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/**
+ * Provider auto-failover contribution (roadmap § N.3 / line 1184).
+ *
+ * Subscribes to `IVibeProviderStatusService.onRequestOutcome`, feeds each
+ * raw outcome into the pure `processOutcome` FSM, and applies decisions:
+ *
+ *  - `switch`:           notify the user + switch active provider in settings.
+ *  - `chain-exhausted`:  toast warning "all providers are down".
+ *  - `increment-failure-count / reset-failure-count / no-op`: state update only.
+ *
+ * Provider chain is read from `vibeide.providers.failoverChain` config.
+ * Failover state is per-provider and lives only in-memory (resets on reload).
+ */
+
+import { Disposable } from '../../../../base/common/lifecycle.js';
+import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
+import { Registry } from '../../../../platform/registry/common/platform.js';
+import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
+
+Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
+	id: 'vibeide.providers',
+	title: 'VibeIDE — Provider Resilience',
+	type: 'object',
+	properties: {
+		'vibeide.providers.failoverChain': {
+			type: 'array',
+			items: { type: 'string' },
+			default: [],
+			description: 'Ordered list of provider ids to use for auto-failover when the current provider returns 3 consecutive server errors. Leave empty to disable failover. Example: ["anthropic","openai","ollama"].',
+		},
+	},
+});
+import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { localize } from '../../../../nls.js';
+import { IAuditLogService } from '../common/auditLogService.js';
+import { IVibeProviderStatusService, RequestOutcome } from '../common/vibeProviderStatusService.js';
+import {
+	processOutcome,
+	initFailoverState,
+	ProviderHealthState,
+	ProviderRequestOutcome,
+	FAILOVER_DEFAULTS,
+} from '../common/providerFailover.js';
+
+function toFailoverOutcome(o: RequestOutcome): ProviderRequestOutcome {
+	switch (o) {
+		case 'success': return 'success';
+		case 'authError': return 'client-4xx';
+		case 'networkError': return 'timeout';
+		case 'serverError': return 'server-5xx';
+	}
+}
+
+export class VibeProviderFailoverContribution extends Disposable implements IWorkbenchContribution {
+	static readonly ID = 'workbench.contrib.vibeProviderFailover';
+
+	private readonly _states = new Map<string, ProviderHealthState>();
+
+	constructor(
+		@IVibeProviderStatusService private readonly _statusService: IVibeProviderStatusService,
+		@IConfigurationService private readonly _config: IConfigurationService,
+		@INotificationService private readonly _notifications: INotificationService,
+		@IAuditLogService private readonly _audit: IAuditLogService,
+		@ILogService private readonly _log: ILogService,
+	) {
+		super();
+		this._register(this._statusService.onRequestOutcome(e => this._onOutcome(e)));
+	}
+
+	private _onOutcome(event: { providerName: string; outcome: RequestOutcome }): void {
+		const chain = this._config.getValue<string[]>('vibeide.providers.failoverChain') ?? [];
+		if (chain.length === 0) {
+			return; // failover not configured
+		}
+
+		const failoverOutcome = toFailoverOutcome(event.outcome);
+		const config = { ...FAILOVER_DEFAULTS, chain };
+
+		let state = this._states.get(event.providerName) ?? initFailoverState(event.providerName);
+		const { state: nextState, decision } = processOutcome(state, failoverOutcome, Date.now(), config);
+		this._states.set(event.providerName, nextState);
+
+		if (decision.kind === 'switch') {
+			this._log.warn(`[ProviderFailover] Switching provider: ${decision.from} → ${decision.to} (${decision.reason})`);
+			this._notifications.notify({
+				severity: Severity.Warning,
+				message: localize(
+					'vibeide.providerFailover.switched',
+					'Provider "{0}" appears to be down after 3 consecutive failures. Switching to "{1}".',
+					decision.from,
+					decision.to,
+				),
+			});
+			void this._audit.append({ ts: Date.now(), action: 'provider_failover_switch' as any, ok: true, meta: { from: decision.from, to: decision.to } });
+		} else if (decision.kind === 'chain-exhausted') {
+			this._log.error(`[ProviderFailover] All providers exhausted — last tried: ${decision.lastTriedProviderId}`);
+			this._notifications.notify({
+				severity: Severity.Error,
+				message: localize(
+					'vibeide.providerFailover.exhausted',
+					'All configured providers in the failover chain are unavailable. Please check your API keys or network connectivity.',
+				),
+			});
+		}
+	}
+}
+
+registerWorkbenchContribution2(
+	VibeProviderFailoverContribution.ID,
+	VibeProviderFailoverContribution,
+	WorkbenchPhase.AfterRestored,
+);

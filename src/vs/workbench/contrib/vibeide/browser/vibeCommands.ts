@@ -32,6 +32,8 @@ import { IEditorService } from '../../../services/editor/common/editorService.js
 import { ITextResourceEditorInput } from '../../../../platform/editor/common/editor.js';
 import { IChatThreadService } from './chatThreadService.js';
 import { IVibePlanBindingRegistry } from './vibePlanBindingRegistry.js';
+import { IVibePersistedPlanService } from '../common/vibePersistedPlanService.js';
+import { decodeLease, selectAllForEmergencyStop, PlanExecutionLease } from '../common/planLeaseLifecycle.js';
 import { VIBEIDE_VIEW_CONTAINER_ID } from './sidebarPane.js';
 import type { ChatMessage } from '../common/chatThreadServiceTypes.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
@@ -217,13 +219,61 @@ CommandsRegistry.registerCommand('vibeide.tokenBudget.status', (accessor: Servic
 CommandsRegistry.registerCommand('vibeide.emergencyStopAllAgents', async (accessor: ServicesAccessor) => {
 	const chat = accessor.get(IChatThreadService);
 	const notifications = accessor.get(INotificationService);
+	const fileService = accessor.get(IFileService);
+	const workspace = accessor.get(IWorkspaceContextService);
+	const persistedPlans = accessor.get(IVibePersistedPlanService);
+	const log = accessor.get(ILogService);
+
 	const n = await chat.emergencyStopAllAgents();
+
+	// Clear all on-disk execution leases across every workspace folder.
+	let clearedLeases = 0;
+	for (const folder of workspace.getWorkspace().folders) {
+		try {
+			const leasesDir = joinPath(folder.uri, '.vibe', 'plans', '.leases');
+			let dir;
+			try {
+				dir = await fileService.resolve(leasesDir);
+			} catch {
+				continue;
+			}
+			if (!dir.children || dir.children.length === 0) {
+				continue;
+			}
+			const leases: PlanExecutionLease[] = [];
+			for (const child of dir.children) {
+				if (child.isDirectory || !child.name.endsWith('.json')) {
+					continue;
+				}
+				try {
+					const buf = await fileService.readFile(child.resource);
+					const decoded = decodeLease(JSON.parse(buf.value.toString()));
+					if (decoded.ok) {
+						leases.push(decoded.value);
+					}
+				} catch { /* skip unreadable */ }
+			}
+			const toStop = selectAllForEmergencyStop(leases);
+			for (const lease of toStop) {
+				try {
+					await persistedPlans.clearExecutionLease(folder.uri, lease.planId);
+					clearedLeases++;
+				} catch (e) {
+					log.warn(`[EmergencyStop] failed to clear lease ${lease.planId}: ${(e as Error).message}`);
+				}
+			}
+		} catch (e) {
+			log.warn(`[EmergencyStop] lease scan failed for ${folder.uri.toString()}: ${(e as Error).message}`);
+		}
+	}
+
 	notifications.notify({
 		severity: Severity.Info,
 		message: localize(
 			'vibeideEmergencyStopDone',
-			'Emergency stop: aborted {0} active agent thread(s). On-disk execution leases are unchanged — clear stale leases from the plan dashboard if needed.',
+			'Emergency stop: aborted {0} active agent thread(s) and cleared {1} on-disk execution lease(s).',
 			n,
+			clearedLeases,
 		),
 	});
 });

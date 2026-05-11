@@ -39,6 +39,8 @@ export interface IVibeProviderStatusService {
 	reportRequestResult(providerName: string, outcome: RequestOutcome, latencyMs?: number): void;
 
 	readonly onStatusChanged: Event<ProviderStatus>;
+	/** Fires with the raw outcome before health conversion — consumed by failover FSM. */
+	readonly onRequestOutcome: Event<{ providerName: string; outcome: RequestOutcome; latencyMs?: number }>;
 }
 
 /**
@@ -51,6 +53,9 @@ class VibeProviderStatusService extends Disposable implements IVibeProviderStatu
 
 	private readonly _onStatusChanged = this._register(new Emitter<ProviderStatus>());
 	readonly onStatusChanged = this._onStatusChanged.event;
+
+	private readonly _onRequestOutcome = this._register(new Emitter<{ providerName: string; outcome: RequestOutcome; latencyMs?: number }>());
+	readonly onRequestOutcome = this._onRequestOutcome.event;
 
 	private readonly _statuses = new Map<string, ProviderStatus>();
 
@@ -77,6 +82,7 @@ class VibeProviderStatusService extends Disposable implements IVibeProviderStatu
 	reportRequestResult(providerName: string, outcome: RequestOutcome, latencyMs?: number): void {
 		const health = this._outcomeToHealth(outcome);
 		this._updateStatus(providerName.toLowerCase(), health, latencyMs);
+		this._onRequestOutcome.fire({ providerName: providerName.toLowerCase(), outcome, latencyMs });
 	}
 
 	private _outcomeToHealth(outcome: RequestOutcome): ProviderHealth {

@@ -45,6 +45,8 @@ import { Range } from '../../../../editor/common/core/range.js'
 import { IVibeAgentTerritorialLockService } from './vibeAgentTerritorialLockService.js'
 import { IAuditLogService } from '../common/auditLogService.js'
 import { ILogService } from '../../../../platform/log/common/log.js'
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js'
+import { formatProvenanceMarker, shouldMarkProvenance } from '../common/vibeAiProvenanceConfiguration.js'
 
 // tool use for AI
 type ValidateBuiltinParams = { [T in BuiltinToolName]: (p: RawToolParamsObj) => BuiltinToolCallParams[T] }
@@ -236,6 +238,7 @@ export class ToolsService implements IToolsService {
 		@IVibeAgentTerritorialLockService private readonly _agentTerritorialLockService: IVibeAgentTerritorialLockService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 		@ILogService private readonly _logService: ILogService,
+		@IConfigurationService private readonly _configurationService: IConfigurationService,
 	) {
 		this._offlineGate = new OfflinePrivacyGate();
 		const queryBuilder = instantiationService.createInstance(QueryBuilder);
@@ -1112,7 +1115,16 @@ export class ToolsService implements IToolsService {
 				}
 				await this._checkAdvisoryTerritorialLocks(uri);
 				await editCodeService.callBeforeApplyOrEdit(uri)
-				editCodeService.instantlyRewriteFile({ uri, newContent })
+				// AI provenance marker (opt-in via vibeide.aiProvenance.markGeneratedCode).
+				let effectiveContent = newContent
+				if (shouldMarkProvenance(this._configurationService.getValue('vibeide.aiProvenance.markGeneratedCode'))) {
+					const ext = uri.path.split('.').pop() ?? ''
+					const marker = formatProvenanceMarker(ext, 'vibeide-agent', new Date().toISOString())
+					if (!effectiveContent.startsWith(marker)) {
+						effectiveContent = marker + '\n' + effectiveContent
+					}
+				}
+				editCodeService.instantlyRewriteFile({ uri, newContent: effectiveContent })
 				// at end, get lint errors
 				const lintErrorsPromise = Promise.resolve().then(async () => {
 					await timeout(2000)

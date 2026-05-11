@@ -59,6 +59,21 @@ import { IVibePlanBindingRegistry } from './vibePlanBindingRegistry.js';
 import { IVibeTaskDecompositionService } from '../common/vibeTaskDecompositionService.js';
 import { IVibeCheckpointCoordinator } from '../common/vibeCheckpointCoordinatorService.js';
 import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
+import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IVibeTokenCostForecastService } from '../common/vibeTokenCostForecastService.js';
+import {
+	CostForecast,
+	CostForecastConfig,
+	COST_FORECAST_DEFAULTS,
+	decideCostConfirm,
+	describeCostDecision,
+} from '../common/costForecastConfirm.js';
+import {
+	transitionWatchdog,
+	WatchdogState,
+	WatchdogSideEffect,
+} from '../common/streamingGapWatchdog.js';
 
 
 // related to retrying when LLM message has error
@@ -421,6 +436,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	/** Stable per-window-session nonce so lease heartbeats extend the same execution lease file. */
 	private _executionLeaseHolderNonce: string | undefined
 
+	/** Per-session cost-approval cache (provider+modelId → approvedUpToUSD). */
+	private _costSessionApprovals: Array<{ provider: string; modelId: string; approvedUpToUSD: number }> = []
+
 	// Throttle stream state updates during streaming to reduce React re-renders
 	// Use requestAnimationFrame to batch updates for better performance
 	private readonly _pendingStreamStateUpdates = new Map<string, ThreadStreamState[string]>()
@@ -470,6 +488,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeLLMJudgeService private readonly _llmJudgeService: IVibeLLMJudgeService,
 		@IWorkbenchEnvironmentService private readonly _environmentService: IWorkbenchEnvironmentService,
 		@IVibeCheckpointCoordinator private readonly _checkpointCoordinator: IVibeCheckpointCoordinator,
+		@IDialogService private readonly _dialogService: IDialogService,
+		@IConfigurationService private readonly _configurationService: IConfigurationService,
+		@IVibeTokenCostForecastService private readonly _costForecastService: IVibeTokenCostForecastService,
 	) {
 		super()
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string } // default state
@@ -3315,6 +3336,45 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		const resolvedProviderName = resolvedModelSelection.providerName as Exclude<typeof resolvedModelSelection.providerName, 'auto'>
 		resolvedModelSelectionOptions = this._settingsService.state.optionsOfModelSelection['Chat']?.[resolvedProviderName]?.[resolvedModelSelection.modelName]
 
+		// Cost forecast confirm — gate before first LLM request.
+		{
+			const thread = this.state.allThreads[threadId];
+			const inputText = (thread?.messages ?? [])
+				.map(m => (typeof (m as any).content === 'string' ? (m as any).content : (m as any).displayContent ?? ''))
+				.join(' ');
+			const tokenForecast = this._costForecastService.forecast(inputText, resolvedModelSelection.modelName);
+			const forecast: CostForecast = {
+				estimatedUSD: tokenForecast.worstCaseUsd,
+				estimatedTokens: tokenForecast.estimatedInputTokens + tokenForecast.estimatedOutputTokens,
+				provider: resolvedProviderName,
+				modelId: resolvedModelSelection.modelName,
+			};
+			const costConfig: CostForecastConfig = {
+				confirmUSDThreshold: this._configurationService.getValue<number>('vibeide.cost.confirmThreshold') ?? COST_FORECAST_DEFAULTS.confirmUSDThreshold,
+				confirmTokenThreshold: this._configurationService.getValue<number>('vibeide.cost.confirmTokenThreshold') ?? COST_FORECAST_DEFAULTS.confirmTokenThreshold,
+				alwaysConfirm: this._configurationService.getValue<boolean>('vibeide.cost.alwaysConfirm') ?? false,
+				sessionApprovals: this._costSessionApprovals,
+			};
+			const costDecision = decideCostConfirm(forecast, costConfig);
+			if (costDecision.kind === 'require-confirm') {
+				const body = describeCostDecision(forecast, costDecision);
+				const result = await this._dialogService.confirm({
+					message: localize('vibeide.cost.confirm.title', 'VibeIDE — cost confirmation'),
+					detail: body,
+					primaryButton: localize('vibeide.cost.confirm.primary', 'Send request'),
+				});
+				if (!result.confirmed) {
+					this._setStreamState(threadId, { isRunning: undefined });
+					return;
+				}
+				// Cache approval for this (provider, modelId) pair up to current estimate.
+				this._costSessionApprovals = [
+					...this._costSessionApprovals.filter(a => !(a.provider === forecast.provider && a.modelId === forecast.modelId)),
+					{ provider: forecast.provider, modelId: forecast.modelId, approvedUpToUSD: forecast.estimatedUSD },
+				];
+			}
+		}
+
 		// CRITICAL: Create a flag to stop execution immediately when plan is generated
 		// NOTE: This flag is reset when plan is approved/executing to allow execution to proceed
 		let planWasGenerated = false
@@ -3857,6 +3917,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			// Track previous model to detect switches
 			let previousModelKey: string | null = null
 
+			// Streaming gap watchdog: flag is set when the watchdog triggers an auto-retry so
+			// the llmAborted early-return is skipped and the while-loop can iterate again.
+			let watchdogRetry = false
+
 			while (shouldRetryLLM) {
 				shouldRetryLLM = false
 				nAttempts += 1
@@ -4007,6 +4071,34 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				let firstTokenStallTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => { notifyStall('noFirstToken') }, FIRST_TOKEN_STALL_MS)
 				let midStreamStallTimer: ReturnType<typeof setTimeout> | undefined
 
+				// Streaming-gap watchdog FSM (common/streamingGapWatchdog.ts).
+				let watchdogState: WatchdogState = { kind: 'idle' }
+				let watchdogAbortFn: (() => void) | undefined  // set after sendLLMMessage returns
+				const applyWatchdogEffects = (effects: readonly WatchdogSideEffect[]) => {
+					for (const fx of effects) {
+						if (fx.kind === 'show-waiting') {
+							setInlineStall()
+						} else if (fx.kind === 'show-retrying') {
+							this._notificationService.notify({ severity: Severity.Info, message: localize('vibeide.streamRetrying', 'Reconnecting to AI provider (attempt {0})…', fx.attempt) })
+						} else if (fx.kind === 'auto-retry-scheduled') {
+							watchdogRetry = true
+							shouldRetryLLM = true
+							watchdogAbortFn?.()
+						} else if (fx.kind === 'audit') {
+							void this._auditLogService.append({ ts: Date.now(), action: fx.event as any, ok: true })
+						}
+					}
+				}
+				let watchdogTickTimer: ReturnType<typeof setInterval> | undefined = setInterval(() => {
+					const { state, effects } = transitionWatchdog(watchdogState, { kind: 'tick', now: Date.now() })
+					watchdogState = state
+					applyWatchdogEffects(effects)
+				}, 5_000)
+				const clearWatchdogTimer = () => { if (watchdogTickTimer) { clearInterval(watchdogTickTimer); watchdogTickTimer = undefined } }
+				const { state: wds0, effects: wde0 } = transitionWatchdog(watchdogState, { kind: 'start', now: Date.now() })
+				watchdogState = wds0
+				applyWatchdogEffects(wde0)
+
 				const llmCancelToken = this._llmMessageService.sendLLMMessage({
 					messagesType: 'chatMessages',
 					chatMode,
@@ -4038,6 +4130,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					clearTimeout(midStreamStallTimer)
 					midStreamStallTimer = setTimeout(() => { notifyStall('midStream') }, MID_STREAM_STALL_MS)
 					clearInlineStall()
+
+						// Streaming gap watchdog: record incoming chunk.
+						{
+							const { state, effects } = transitionWatchdog(watchdogState, { kind: 'chunk', now: Date.now() })
+							watchdogState = state
+							applyWatchdogEffects(effects)
+						}
 
 						// Batch token updates for smooth 60 FPS rendering
 						const context = chatLatencyAudit.getContext(finalRequestId);
@@ -4082,6 +4181,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					clearTimeout(firstTokenStallTimer); firstTokenStallTimer = undefined
 					clearTimeout(midStreamStallTimer); midStreamStallTimer = undefined
 					clearStallNotification()
+					clearWatchdogTimer()
+					{
+						const { state, effects } = transitionWatchdog(watchdogState, { kind: 'complete', now: Date.now() })
+						watchdogState = state
+						applyWatchdogEffects(effects)
+					}
 						// Ensure network end and first token are tracked (fallback for non-streaming responses)
 						// If onText was never called, this is a non-streaming response - treat final message as first token
 						if (!firstTokenReceived) {
@@ -4141,6 +4246,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					clearTimeout(firstTokenStallTimer); firstTokenStallTimer = undefined
 					clearTimeout(midStreamStallTimer); midStreamStallTimer = undefined
 					clearStallNotification()
+					clearWatchdogTimer()
+					{
+						const { state, effects } = transitionWatchdog(watchdogState, { kind: 'provider-error', now: Date.now() })
+						watchdogState = state
+						applyWatchdogEffects(effects)
+					}
 					// Ensure network end is tracked even on error (idempotent - safe to call multiple times)
 						chatLatencyAudit.markNetworkEnd(finalRequestId)
 						// Mark stream as complete with 0 tokens on error
@@ -4170,10 +4281,17 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					},
 					onAbort: () => {
 						// stop the loop to free up the promise, but don't modify state (already handled by whatever stopped it)
+						clearWatchdogTimer()
+						const { state: _ws, effects: _we } = transitionWatchdog(watchdogState, { kind: 'cancel', now: Date.now() })
+						watchdogState = _ws
+						applyWatchdogEffects(_we)
 						resMessageIsDonePromise({ type: 'llmAborted' })
 						this._metricsService.capture('Agent Loop Done (Aborted)', { nMessagesSent, chatMode })
 					},
 				})
+
+				// Register abort fn for watchdog-triggered retry.
+				if (llmCancelToken) watchdogAbortFn = () => this._llmMessageService.abort(llmCancelToken)
 
 				// mark as streaming
 				if (!llmCancelToken) {
@@ -4193,6 +4311,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 				// llm res aborted
 				if (llmRes.type === 'llmAborted') {
+					if (watchdogRetry) {
+						// Watchdog triggered the abort for an auto-retry — let the while-loop iterate.
+						watchdogRetry = false
+						watchdogAbortFn = undefined
+						this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor })
+						continue
+					}
 					this._setStreamState(threadId, undefined)
 					return
 				}

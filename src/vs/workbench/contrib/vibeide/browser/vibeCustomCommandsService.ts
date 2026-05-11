@@ -71,6 +71,8 @@ import {
 import {
 	CommandTrustEntry,
 	decodeCommandTrustEntries,
+	decideTrustRevocations,
+	buildTrustRevokeAuditEntries,
 } from '../common/commandTrustRevoke.js';
 import {
 	decodeAuditFlags,
@@ -139,6 +141,15 @@ export interface IVibeCustomCommandsService {
 
 	/** Run a command by id. Returns once the spawned terminal process has exited. */
 	run(id: string): Promise<RunCommandOutcome>;
+
+	/** Return ids of all currently-trusted commands (from .vibe/commands.trust.json). */
+	getTrustedCommandIds(): Promise<readonly string[]>;
+
+	/**
+	 * Explicitly revoke trust for a command by id.
+	 * Also prunes orphaned / shape-changed entries as a side-effect.
+	 */
+	revokeTrust(id: string): Promise<void>;
 }
 
 class VibeCustomCommandsService extends Disposable implements IVibeCustomCommandsService {
@@ -216,6 +227,44 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		if (merged.shadowedGlobalIds.length > 0) {
 			this._log.info(`[VibeCustomCommands] ${merged.shadowedGlobalIds.length} global commands shadowed by workspace: ${merged.shadowedGlobalIds.join(', ')}`);
 		}
+		// Prune orphaned / shape-changed trust entries on every reload (roadmap K.2 L920).
+		void this._pruneTrustOnLoad();
+	}
+
+	async getTrustedCommandIds(): Promise<readonly string[]> {
+		const entries = await this._readTrustEntries();
+		return entries.map(e => e.id);
+	}
+
+	async revokeTrust(id: string): Promise<void> {
+		const trust = await this._readTrustEntries();
+		const commands = this._merged.map(c => ({ id: c.id, commandShapeHash: hashCommandShape(c) }));
+		const result = decideTrustRevocations({ trust, commands, explicitlyRevokedId: id });
+		await this._writeTrustEntries(result.keep);
+		for (const entry of buildTrustRevokeAuditEntries(result)) {
+			void this._audit.append({
+				ts: Date.now(),
+				action: 'command_trust_revoked',
+				meta: entry,
+			});
+		}
+	}
+
+	private async _pruneTrustOnLoad(): Promise<void> {
+		const trust = await this._readTrustEntries();
+		if (trust.length === 0) return;
+		const commands = this._merged.map(c => ({ id: c.id, commandShapeHash: hashCommandShape(c) }));
+		const result = decideTrustRevocations({ trust, commands });
+		if (result.revoke.length === 0) return;
+		await this._writeTrustEntries(result.keep);
+		for (const entry of buildTrustRevokeAuditEntries(result)) {
+			void this._audit.append({
+				ts: Date.now(),
+				action: 'command_trust_revoked',
+				meta: entry,
+			});
+		}
+		this._log.info(`[VibeCustomCommands] pruned ${result.revoke.length} stale trust entries`);
 	}
 
 	private async _loadWorkspaceCommands(): Promise<ProjectCommand[]> {
@@ -566,8 +615,6 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 	}
 
 	private async _upsertTrustEntry(entry: CommandTrustEntry): Promise<void> {
-		const uri = this._trustUri();
-		if (!uri) return;
 		const existing = await this._readTrustEntries();
 		const next: CommandTrustEntry[] = [];
 		let replaced = false;
@@ -582,8 +629,14 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		if (!replaced) {
 			next.push(entry);
 		}
+		await this._writeTrustEntries(next);
+	}
+
+	private async _writeTrustEntries(entries: readonly CommandTrustEntry[]): Promise<void> {
+		const uri = this._trustUri();
+		if (!uri) return;
 		try {
-			await this._fileService.writeFile(uri, VSBuffer.fromString(JSON.stringify(next, null, '\t') + '\n'));
+			await this._fileService.writeFile(uri, VSBuffer.fromString(JSON.stringify(entries, null, '\t') + '\n'));
 		} catch (e) {
 			this._log.error(`[VibeCustomCommands] failed to persist ${TRUST_FILE_NAME}: ${(e as Error).message}`);
 		}
