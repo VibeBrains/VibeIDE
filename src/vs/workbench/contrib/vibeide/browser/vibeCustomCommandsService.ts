@@ -83,6 +83,8 @@ import { decideWorkflowTrigger } from '../common/projectCommandsWorkflowTrigger.
 import { IVibeWorkflowService } from '../common/vibeWorkflowService.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
+import { ISecretStorageService } from '../../../../platform/secrets/common/secrets.js';
+import { PLACEHOLDER_RE } from '../common/projectCommandSecretsResolver.js';
 
 const COMMANDS_FILE_NAME = '.vibe/commands.json';
 const TRUST_FILE_NAME = '.vibe/commands.trust.json';
@@ -180,6 +182,7 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		@IDialogService private readonly _dialog: IDialogService,
 		@IAuditLogService private readonly _audit: IAuditLogService,
 		@IVibeWorkflowService private readonly _workflows: IVibeWorkflowService,
+		@ISecretStorageService private readonly _secrets: ISecretStorageService,
 	) {
 		super();
 
@@ -336,6 +339,27 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 			return { outcome: 'refused', reason: 'unknown-command-id', invocationId };
 		}
 
+		// Pre-fetch all ${secret:KEY} placeholders from ISecretStorageService (async).
+		// We collect unique keys first so each key is fetched at most once.
+		const secretKeys = new Set<string>();
+		const allStrings = [
+			cmd.command,
+			...(cmd.args ?? []),
+			cmd.cwd ?? '',
+			...Object.values(cmd.env ?? {}),
+		];
+		const scanRe = new RegExp(PLACEHOLDER_RE.source, 'g');
+		for (const s of allStrings) {
+			for (let m = scanRe.exec(s); m !== null; m = scanRe.exec(s)) {
+				if (m[1] === 'secret') secretKeys.add(m[2]);
+			}
+		}
+		const secretMap = new Map<string, string>();
+		for (const key of secretKeys) {
+			const val = await this._secrets.get(`vibeide.commands.secret.${key}`);
+			if (val !== undefined) secretMap.set(key, val);
+		}
+
 		// Resolve ${env:NAME} / ${secret:KEY} placeholders.
 		const resolveResult = resolveProjectCommandSecrets(
 			{
@@ -352,9 +376,7 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 						return undefined;
 					}
 				},
-				// Secrets via IEncryptionService — deferred (needs Phase 2 wiring).
-				// For now, unresolved secret: placeholders refuse the run with a clear reason.
-				secret: () => undefined,
+				secret: (key: string) => secretMap.get(key),
 			},
 		);
 
