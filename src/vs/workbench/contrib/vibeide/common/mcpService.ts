@@ -20,6 +20,7 @@ import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { InternalToolInfo } from './prompt/prompts.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { MCPUserStateOfName } from './vibeideSettingsTypes.js';
+import { IVibeOutboundRingBuffer } from './vibeOutboundRingBuffer.js';
 
 
 type MCPServiceState = {
@@ -87,6 +88,7 @@ class MCPService extends Disposable implements IMCPService {
 		@IEditorService private readonly editorService: IEditorService,
 		@IMainProcessService private readonly mainProcessService: IMainProcessService,
 		@IVibeideSettingsService private readonly vibeideSettingsService: IVibeideSettingsService,
+		@IVibeOutboundRingBuffer private readonly _outboundBuffer: IVibeOutboundRingBuffer,
 	) {
 		super();
 		this.channel = this.mainProcessService.getChannel('vibe-channel-mcp')
@@ -354,7 +356,17 @@ class MCPService extends Disposable implements IMCPService {
 
 
 	public async callMCPTool(toolData: MCPToolCallParams): Promise<{ result: RawMCPToolCall }> {
+		const t0 = Date.now();
 		const result = await this.channel.call<RawMCPToolCall>('callTool', toolData);
+		// Network panel collector (roadmap §1043) — record MCP tool call in ring buffer.
+		this._outboundBuffer.record({
+			timestampMs: t0,
+			url: `mcp://${toolData.serverName}/${toolData.toolName}`,
+			method: 'CALL',
+			statusCode: result.event === 'error' ? 500 : 200,
+			source: 'mcp',
+			context: toolData.serverName,
+		});
 		if (result.event === 'error') {
 			throw new Error(`Error: ${result.text}`)
 		}
