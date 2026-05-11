@@ -26,6 +26,10 @@ import { IVibeSubagentRegistryService } from '../common/vibeSubagentRegistryServ
 import { IVibeContextGuardService } from './vibeContextGuardService.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
+import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IVibeRoadmapAgentExecutor } from './vibeRoadmapAgentExecutor.js';
+import { RoadmapItem } from '../common/roadmapAgentLoop.js';
 
 // ── Commands ──────────────────────────────────────────────────────────────────
 
@@ -47,9 +51,9 @@ registerAction2(class extends Action2 {
 
 		// Step 1: pick the source-of-truth file
 		const sourceChoice = await quickInput.pick([
-			{ id: 'roadmap', label: 'docs/roadmap.md', description: 'Project roadmap ([ ] items)' },
-			{ id: 'plan', label: '.vibe/plans/*.plan.md', description: 'Persisted agent plan' },
-			{ id: 'custom', label: 'Custom path...', description: 'Enter file path manually' },
+			{ id: 'roadmap', label: 'docs/roadmap.md', description: localize('vibeide.roadmapAgent.source.roadmapDesc', 'Project roadmap ([ ] items)') },
+			{ id: 'plan', label: '.vibe/plans/*.plan.md', description: localize('vibeide.roadmapAgent.source.planDesc', 'Persisted agent plan') },
+			{ id: 'custom', label: localize('vibeide.roadmapAgent.source.customLabel', 'Custom path...'), description: localize('vibeide.roadmapAgent.source.customDesc', 'Enter file path manually') },
 		], {
 			title: localize('vibeide.roadmapAgent.source', 'Roadmap Agent: Choose source of truth'),
 		});
@@ -58,7 +62,7 @@ registerAction2(class extends Action2 {
 
 		let sourcePath = '';
 		if (sourceChoice.id === 'custom') {
-			const input = await quickInput.input({ prompt: 'Enter file path relative to workspace root' });
+			const input = await quickInput.input({ prompt: localize('vibeide.roadmapAgent.customPathPrompt', 'Enter file path relative to workspace root') });
 			if (!input) { return; }
 			sourcePath = input;
 		} else {
@@ -108,6 +112,74 @@ registerAction2(class extends Action2 {
 			severity: Severity.Info,
 			message: preview.slice(0, 800),
 		});
+	}
+});
+
+// L885 — delegate-to-subagent pipeline command. Drives IVibeRoadmapAgentExecutor
+// (FSM transitionLoop + decideSubagentIsolation + worker/fork spawn) over a list
+// of pasted roadmap items. Auto-approve is gated by config.
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.roadmapAgent.executeDelegation',
+			title: { value: localize('vibeide.roadmapAgent.executeDelegation', 'VibeIDE: Execute Roadmap Agent (real subagent delegation)'), original: 'VibeIDE: Execute Roadmap Agent (real subagent delegation)' },
+			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			f1: true,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const quickInput = accessor.get(IQuickInputService);
+		const dialog = accessor.get(IDialogService);
+		const config = accessor.get(IConfigurationService);
+		const executor = accessor.get(IVibeRoadmapAgentExecutor);
+		const notifications = accessor.get(INotificationService);
+
+		const itemsRaw = await quickInput.input({
+			prompt: localize('vibeide.roadmapAgent.executeItems', 'Paste pending roadmap items (one per line, prefix `- [ ]` optional)'),
+			placeHolder: localize('vibeide.roadmapAgent.executeItems.placeholder', "- [ ] Implement X\n- [ ] Add Y"),
+		});
+		if (!itemsRaw) { return; }
+
+		const items: RoadmapItem[] = itemsRaw.split('\n')
+			.map(l => l.replace(/^\s*-\s*\[\s*\]\s*/, '').trim())
+			.filter(l => l.length > 0)
+			.map((summary, i) => ({
+				id: `pasted-${i + 1}`,
+				summary,
+				bucket: 'must-finish' as const,
+				priority: 10 - Math.min(9, i),
+			}));
+
+		if (items.length === 0) {
+			notifications.notify({ severity: Severity.Warning, message: 'No items to delegate.' });
+			return;
+		}
+
+		const confirm = await dialog.confirm({
+			type: Severity.Info,
+			message: localize('vibeide.roadmapAgent.confirmExecute', 'Delegate {0} items to isolated subagents?', items.length),
+			detail: items.slice(0, 8).map(i => '• ' + i.summary).join('\n') + (items.length > 8 ? `\n…and ${items.length - 8} more` : ''),
+			primaryButton: localize('vibeide.roadmapAgent.confirmExecuteBtn', 'Delegate'),
+		});
+		if (!confirm.confirmed) { return; }
+
+		const autoApprove = config.getValue<boolean>('vibeide.roadmapAgent.autoApprove') === true;
+		const parentTokens = config.getValue<number>('vibeide.roadmapAgent.parentTokenBudget') ?? 50000;
+
+		try {
+			const report = await executor.execute(items, {
+				autoApprove,
+				parentRemainingTokens: parentTokens,
+			});
+			const lines = [
+				`Roadmap-agent finished: ${report.summary.closed} closed / ${report.summary.blocked} blocked / ${report.summary.skipped} skipped`,
+				...report.records.slice(0, 10).map(r => `• [${r.outcome}] ${r.itemId} (${r.durationMs}ms)`),
+			];
+			notifications.notify({ severity: Severity.Info, message: lines.join('\n') });
+		} catch (e) {
+			notifications.notify({ severity: Severity.Error, message: `Roadmap-agent failed: ${e instanceof Error ? e.message : String(e)}` });
+		}
 	}
 });
 
