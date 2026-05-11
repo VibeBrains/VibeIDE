@@ -74,9 +74,13 @@ export function classifyAgentError(input: ClassifyInput): AgentErrorClass {
 	if (input.errorCode === 'ETIMEDOUT' || input.errorCode === 'ECONNABORTED') {
 		return 'timeout';
 	}
+	if (input.errorCode === 'ECONNRESET' || input.errorCode === 'ENOTFOUND' || input.errorCode === 'EPIPE') {
+		return 'stream-broken';
+	}
 	const msg = (input.errorMessage ?? '').toLowerCase();
 	if (msg.includes('timed out') || msg.includes('timeout')) return 'timeout';
 	if (msg.includes('aborted by user')) return 'cancelled';
+	if (msg.includes('econnreset') || msg.includes('connection reset') || msg.includes('socket hang up')) return 'stream-broken';
 
 	return 'unknown';
 }

@@ -4274,11 +4274,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 						// Unified error toast via agentErrorClassifier (L294).
 						{
-							const httpStatus = (error?.fullError as any)?.statusCode ?? (error?.fullError as any)?.status;
+							const rawErr = error?.fullError as any;
+							const httpStatus = rawErr?.statusCode ?? rawErr?.status;
+							const errorCode = rawErr?.code ?? rawErr?.errorCode;
 							const { toast } = classifyAndBuildToast({
 								source: 'provider',
 								httpStatus: typeof httpStatus === 'number' ? httpStatus : undefined,
 								errorMessage: error?.message,
+								errorCode: typeof errorCode === 'string' ? errorCode : undefined,
 								requestId: finalRequestId,
 							});
 							if (toast.severity !== 'info') {
