@@ -5,6 +5,7 @@
 
 import * as assert from 'assert';
 import { detectSecrets, redactSecretsInObject, SecretDetectionConfig, DEFAULT_SECRET_PATTERNS } from '../../common/secretDetection.js';
+import { SECRET_CANARIES, findSecretCanaries } from './securityTestFixtures.js';
 
 suite('Secret Detection', () => {
 
@@ -33,10 +34,12 @@ suite('Secret Detection', () => {
 		});
 
 		test('should detect GitHub tokens', () => {
-			const text = 'ghp_1234567890abcdefghijklmnopqrstuvwxyzABCD';
+			const text = SECRET_CANARIES.githubPat;
 			const result = detectSecrets(text);
 			assert.strictEqual(result.hasSecrets, true);
 			assert.ok(result.matches.some(m => m.pattern.name === 'GitHub Token'));
+			// after redaction no canary must survive
+			assert.strictEqual(findSecretCanaries(result.redactedText).length, 0);
 		});
 
 		test('should detect AWS access keys', () => {

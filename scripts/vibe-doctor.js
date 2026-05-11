@@ -21,6 +21,7 @@ const knowledgeMdStaleness = require('./lib/knowledge-md-staleness.cjs');
 const perfGuardrails = require('./lib/perf-guardrails-aggregator.cjs');
 const snapshotIntegrity = require('./lib/snapshot-integrity-check.cjs');
 const memoryLayerRouter = require('./lib/memory-layer-router.cjs');
+const completionStats = require('./lib/completion-outcome-stats.cjs');
 
 const args = process.argv.slice(2);
 const MODE = {
@@ -34,6 +35,7 @@ const MODE = {
 	knowledge: args.includes('--knowledge'),
 	perf: args.includes('--perf'),
 	memory: args.includes('--memory'),
+	completionStats: args.includes('--completion-stats'),
 	quarantineSnapshots: args.includes('--quarantine-snapshots'),
 };
 
@@ -890,6 +892,36 @@ if (MODE.selfCheck) {
 		console.log(npmCliAlignment.renderAlignmentReport(report));
 	}
 	process.exit(report.violations.length === 0 ? 0 : 1);
+}
+
+if (MODE.completionStats) {
+	// `vibe doctor --completion-stats` — FIM completion leaderboard (roadmap L1021).
+	// Reads .vibe/completion-events.jsonl (one CompletionEvent JSON per line).
+	// When the file is absent, the dashboard reports 0 events and reminds the user
+	// that the IDE-side storage hook appends to this file on each accept/reject.
+	const eventsPath = path.join(process.cwd(), '.vibe', 'completion-events.jsonl');
+	const events = [];
+	if (fs.existsSync(eventsPath)) {
+		const raw = fs.readFileSync(eventsPath, 'utf-8');
+		for (const line of raw.split(/\r?\n/)) {
+			const trimmed = line.trim();
+			if (!trimmed) continue;
+			try { events.push(JSON.parse(trimmed)); } catch { /* skip malformed */ }
+		}
+	}
+	const now = Date.now();
+	const windowStart = now - 24 * 60 * 60 * 1000;
+	const summary = completionStats.aggregateCompletionEvents(events, windowStart, now);
+	if (MODE.json) {
+		console.log(JSON.stringify(summary, null, 2));
+	} else {
+		console.log(completionStats.renderCompletionStatsMd(summary));
+		if (!fs.existsSync(eventsPath)) {
+			console.log('\nNote: .vibe/completion-events.jsonl not present — runtime storage hook pending.');
+			console.log('The IDE autocomplete service will append CompletionEvent lines here when it ships.');
+		}
+	}
+	process.exit(0);
 }
 
 if (MODE.quarantineSnapshots) {
