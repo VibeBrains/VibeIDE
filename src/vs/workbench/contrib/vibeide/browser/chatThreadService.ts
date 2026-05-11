@@ -79,6 +79,8 @@ import { decideResume, appendChunk, PartialResponse } from '../common/responseRe
 import { IVibeSessionMemoryService } from '../common/vibeSessionMemoryService.js';
 import { IVibeAgentTerritorialLockService } from './vibeAgentTerritorialLockService.js';
 import { resolveModelForPath, decodeRoutingRules } from '../common/modelRoutingByPath.js';
+import { IVibeMentionService } from '../common/vibeMentionService.js';
+import { IVibeSearchContextService } from '../common/vibeSearchContextService.js';
 
 // related to retrying when LLM message has error
 // Optimized retry logic: faster initial retry, exponential backoff
@@ -502,6 +504,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeTokenCostForecastService private readonly _costForecastService: IVibeTokenCostForecastService,
 		@IVibeSessionMemoryService private readonly _sessionMemoryService: IVibeSessionMemoryService,
 		@IVibeAgentTerritorialLockService private readonly _agentTerritorialLockService: IVibeAgentTerritorialLockService,
+		@IVibeMentionService private readonly _mentionService: IVibeMentionService,
+		@IVibeSearchContextService private readonly _searchContextService: IVibeSearchContextService,
 	) {
 		super()
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string } // default state
@@ -5710,6 +5714,18 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const currSelns: StagingSelectionItem[] = _chatSelections ?? thread.state.stagingSelections
 
 		let userMessageContent = await chat_userMessageContent(instructions, currSelns, { directoryStrService: this._directoryStringService, fileService: this._fileService }) // user message + names of files (NOT content)
+
+		// @search mention dispatcher (roadmap §L932): resolve workspace literal-grep mentions before sending to LLM.
+		const searchMentions = this._mentionService.parseMentions(instructions).filter(m => m.type === 'search' && m.value);
+		if (searchMentions.length > 0) {
+			const searchFragments = await Promise.all(
+				searchMentions.map(m => this._searchContextService.searchAndRender(m.value).catch(() => ''))
+			);
+			const combined = searchFragments.filter(Boolean).join('\n\n');
+			if (combined) {
+				userMessageContent += '\n\n' + combined;
+			}
+		}
 
 		// Append PDF extracted text to message content for context
 		if (pdfs && pdfs.length > 0) {
