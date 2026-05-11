@@ -32,6 +32,7 @@ import { isLocalProvider } from './convertToLLMMessageService.js';
 import { IModelWarmupService } from '../common/modelWarmupService.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { decideFIMProvider, describeFIMRouting, type FIMProvider } from '../common/fimProviderRouter.js';
+import { CompletionCache, makeCompletionCacheKey, hashCompletionPrefix } from '../common/completionCache.js';
 
 
 
@@ -740,6 +741,8 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 	private _lastCompletionStart = 0
 	private _lastCompletionAccept = 0
 	private _hasShownNoModelWarning = false
+	/** Prefix-hash cache — fast O(1) hit check before the O(n) LRU scan. Exposes hit/miss/eviction stats for vibe doctor. */
+	private readonly _prefixCache = new CompletionCache<Autocompletion>({ maxEntries: 256, ttlMs: 5 * 60_000 })
 	// private _lastPrefix: string = ''
 
 	// used internally by vscode
@@ -799,15 +802,29 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		// this._autocompletionsOfDocument[docUriStr].items.forEach((a: Autocompletion) => { if (a.status === 'pending') _numPending += 1 })
 		// console.log('@numPending: ' + _numPending)
 
+		// Fast O(1) prefix-hash cache check via CompletionCache (stats-tracked)
+		const _now = Date.now();
+		const prefixHash = hashCompletionPrefix(prefix);
+		const cacheKey = makeCompletionCacheKey(docUriStr, position.lineNumber, position.column, prefixHash);
+		const prefixCacheHit = this._prefixCache.get(cacheKey, _now);
+
 		// get autocompletion from cache
-		let cachedAutocompletion: Autocompletion | undefined = undefined
+		let cachedAutocompletion: Autocompletion | undefined = prefixCacheHit
 		let autocompletionMatchup: AutocompletionMatchupBounds | undefined = undefined
-		for (const autocompletion of this._autocompletionsOfDocument[docUriStr].items.values()) {
-			// if the user's change matches with the autocompletion
-			autocompletionMatchup = getAutocompletionMatchup({ prefix, autocompletion })
-			if (autocompletionMatchup !== undefined) {
-				cachedAutocompletion = autocompletion
-				break;
+		if (cachedAutocompletion) {
+			autocompletionMatchup = getAutocompletionMatchup({ prefix, autocompletion: cachedAutocompletion });
+			if (!autocompletionMatchup) cachedAutocompletion = undefined; // hash collision — fall through
+		}
+		if (!cachedAutocompletion) {
+			for (const autocompletion of this._autocompletionsOfDocument[docUriStr].items.values()) {
+				// if the user's change matches with the autocompletion
+				autocompletionMatchup = getAutocompletionMatchup({ prefix, autocompletion })
+				if (autocompletionMatchup !== undefined) {
+					cachedAutocompletion = autocompletion
+					// Populate prefix cache for future fast lookups
+					this._prefixCache.set(cacheKey, autocompletion, _now);
+					break;
+				}
 			}
 		}
 
@@ -1193,6 +1210,11 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 	) {
 		super()
 
+		// Invalidate prefix cache entries when a model is removed (cache keys use fsPath).
+		this._register(this._modelService.onModelRemoved(model => {
+			this._prefixCache.invalidateForUri(model.uri.fsPath);
+		}));
+
 		this._register(this._langFeatureService.inlineCompletionsProvider.register('*', {
 			provideInlineCompletions: async (model, position, context, token) => {
 				const items = await this._provideInlineCompletionItems(model, position)
@@ -1246,6 +1268,11 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 
 			},
 		}))
+	}
+
+	/** Expose CompletionCache stats for `vibe doctor --completion-stats`. */
+	completionCacheStats() {
+		return this._prefixCache.stats();
 	}
 
 	/**

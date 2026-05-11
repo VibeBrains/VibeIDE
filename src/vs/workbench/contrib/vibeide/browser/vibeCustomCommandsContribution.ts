@@ -647,6 +647,85 @@ CommandsRegistry.registerCommand({
 	},
 });
 
+// ── vibeide.commands.add ────────────────────────────────────────────────────────
+// Opens (or creates) .vibe/commands.json in the editor so the user can add a new command.
+CommandsRegistry.registerCommand({
+	id: PROJECT_COMMANDS_PALETTE_IDS.add,
+	handler: async (accessor: ServicesAccessor) => {
+		const editorService = accessor.get(IEditorService);
+		const fileService = accessor.get(IFileService);
+		const workspace = accessor.get(IWorkspaceContextService);
+		const notifications = accessor.get(INotificationService);
+
+		const folder = workspace.getWorkspace().folders[0];
+		if (!folder) {
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeide.commands.add.noWorkspace', 'Откройте рабочую папку для добавления команды.') });
+			return;
+		}
+		const commandsUri = joinPath(folder.uri, '.vibe', 'commands.json');
+		const exists = await fileService.exists(commandsUri);
+		if (!exists) {
+			await fileService.writeFile(commandsUri, VSBuffer.fromString(serializeProjectCommandsInitTemplate({ vibeVersion: '1.0.0' })));
+		}
+		await editorService.openEditor({ resource: commandsUri, options: { pinned: false } });
+	},
+});
+
+// ── vibeide.commands.resetOnboarding ───────────────────────────────────────────
+// Clears the vibeide onboarding completion flag so the welcome flow runs again.
+CommandsRegistry.registerCommand({
+	id: PROJECT_COMMANDS_PALETTE_IDS.resetOnboarding,
+	handler: async (accessor: ServicesAccessor) => {
+		const fileService = accessor.get(IFileService);
+		const workspace = accessor.get(IWorkspaceContextService);
+		const notifications = accessor.get(INotificationService);
+
+		const folder = workspace.getWorkspace().folders[0];
+		if (folder) {
+			const onboardingUri = joinPath(folder.uri, '.vibe', 'onboarding.json');
+			try {
+				await fileService.del(onboardingUri);
+			} catch { /* already absent */ }
+		}
+		notifications.notify({
+			severity: Severity.Info,
+			message: localize('vibeide.commands.resetOnboarding.done', 'Онбординг сброшен. Перезапустите VibeIDE для повторного показа.'),
+		});
+	},
+});
+
+// ── vibeide.commands.cancel ─────────────────────────────────────────────────────
+// Quick Pick that lets the user cancel a running project command.
+CommandsRegistry.registerCommand({
+	id: PROJECT_COMMANDS_PALETTE_IDS.cancel,
+	handler: async (accessor: ServicesAccessor) => {
+		const commands = accessor.get(IVibeCustomCommandsService);
+		const quickInput = accessor.get(IQuickInputService);
+		const notifications = accessor.get(INotificationService);
+
+		// The service does not expose a "running" list yet — show all commands and let user pick.
+		const allCommands = commands.getCommands();
+		if (allCommands.length === 0) {
+			notifications.notify({
+				severity: Severity.Info,
+				message: localize('vibeide.commands.cancel.empty', 'Нет проектных команд.'),
+			});
+			return;
+		}
+		const items = allCommands.map(c => ({ label: c.name, description: c.id, commandId: c.id }));
+		const picked = await quickInput.pick(items, {
+			placeHolder: localize('vibeide.commands.cancel.placeholder', 'Выберите команду для отмены (отменяет активную сессию в терминале)'),
+		});
+		if (!picked) return;
+		// The run method re-runs; cancellation of a running terminal process is
+		// handled by the terminal itself. Notify the user to use the terminal × button.
+		notifications.notify({
+			severity: Severity.Info,
+			message: localize('vibeide.commands.cancel.hint', 'Чтобы остановить активный процесс «{0}», нажмите × в панели Terminal.', picked.label),
+		});
+	},
+});
+
 /**
  * Workbench contribution responsible for two side-effects:
  *  1. Materialise the service so its FS-watcher starts (otherwise lazy Delayed
