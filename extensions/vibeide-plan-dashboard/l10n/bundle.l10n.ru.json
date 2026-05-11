@@ -1,0 +1,20 @@
+{
+	"Open a .plan.md tab first.": "Сначала откройте вкладку с .plan.md.",
+	"Continue execution from Agent chat (startup notification «Continue Plan» or Execute in Agent from Plan mode).": "Продолжите выполнение из чата агента (стартовое уведомление «Continue Plan» или Execute in Agent из режима Plan).",
+	"Plan dashboard": "Дашборд плана",
+	"Steps": "Шаги",
+	"Step {0}, {1}: {2}": "Шаг {0}, {1}: {2}",
+	"(No machine steps JSON yet — manual template or legacy plan.)": "(Шаги в machine JSON отсутствуют — ручной шаблон или legacy-план.)",
+	"Referenced by {0} agent session(s)": "Используется в {0} сессии(ях) агента",
+	" — multiple executors risk step drift.": " — несколько исполнителей могут привести к рассинхронизации шагов.",
+	"(frontmatter comment): {0}": "(комментарий frontmatter): {0}",
+	"Model routing: set <code># activeModel: …</code> in YAML frontmatter (see template).": "Маршрутизация модели: укажите <code># activeModel: …</code> в YAML-frontmatter (см. шаблон).",
+	"Open raw Markdown": "Открыть исходный Markdown",
+	"Open raw Markdown for this plan": "Открыть исходный Markdown этого плана",
+	"Continue / Run…": "Продолжить / Запустить…",
+	"Continue or run plan from agent chat": "Продолжить или запустить план из чата агента",
+	"Explain risk": "Объяснить риски",
+	"Explain risk for this plan": "Объяснить риски этого плана",
+	"Reload": "Перезагрузить",
+	"Reload plan from disk": "Перезагрузить план с диска"
+}

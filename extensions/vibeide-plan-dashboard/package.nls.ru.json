@@ -1,0 +1,6 @@
+{
+	"displayName": "VibeIDE Plan Dashboard",
+	"description": "Встроенный custom-редактор для сохранённых планов агента в .vibe/plans/*.plan.md.",
+	"customEditor.planDashboard.displayName": "VibeIDE Plan",
+	"command.planDashboard.openAsText.title": "VibeIDE Plan: Открыть как обычный Markdown"
+}

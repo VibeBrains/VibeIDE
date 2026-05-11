@@ -1,6 +1,10 @@
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) VibeIDE contributors. MIT License.
  *  Built-in extension: custom editor chrome for .vibe/plans/*.plan.md (readonly dashboard + raw MD).
+ *
+ *  i18n: this file lives under extensions/, so per the L515 split decision
+ *  (references/v1/l10n-vs-nls-decision.md) user-facing strings use
+ *  vscode.l10n.t(). Bundle path is declared in package.json:l10n.
  *--------------------------------------------------------------------------------------------*/
 
 'use strict';
@@ -25,7 +29,7 @@ function activate(context) {
 		vscode.commands.registerCommand('vibeide.planDashboard.openAsText', async (uri) => {
 			const target = uri instanceof vscode.Uri ? uri : getActivePlanResourceUri();
 			if (!target) {
-				vscode.window.showWarningMessage('Open a .plan.md tab first.');
+				vscode.window.showWarningMessage(vscode.l10n.t('Open a .plan.md tab first.'));
 				return;
 			}
 			await vscode.commands.executeCommand('vscode.openWith', target, 'default', vscode.ViewColumn.Active);
@@ -109,7 +113,7 @@ class PlanDashboardProvider {
 			}
 			if (msg?.type === 'continueHint') {
 				await vscode.window.showInformationMessage(
-					'Continue execution from Agent chat (startup notification «Continue Plan» or Execute in Agent from Plan mode).',
+					vscode.l10n.t('Continue execution from Agent chat (startup notification «Continue Plan» or Execute in Agent from Plan mode).'),
 				);
 			}
 			if (msg?.type === 'explainRisk') {
@@ -206,11 +210,11 @@ function buildDashboardHtml(cspSource, text, uri, bindingSnap) {
 				const st = escapeHtml(stRaw);
 				const chk =
 					stRaw === 'done' ? '✓' : stRaw === 'skipped' ? '⊘' : stRaw === 'error' ? '✗' : stRaw === 'paused' ? '⏸' : '○';
-				const ariaStep = escapeHtml(`Step ${n}, ${stRaw}: ${(s.description ?? '').slice(0, 300)}`);
+				const ariaStep = escapeHtml(vscode.l10n.t('Step {0}, {1}: {2}', String(n), stRaw, (s.description ?? '').slice(0, 300)));
 				return `<li role="listitem" aria-label="${ariaStep}"><span class="chk" aria-hidden="true">${chk}</span> <strong>#${escapeHtml(String(n))}</strong> — ${d} <span class="st">${st}</span></li>`;
 			})
 			.join('')
-		: '<li class="muted" role="listitem">(No machine steps JSON yet — manual template or legacy plan.)</li>';
+		: `<li class="muted" role="listitem">${escapeHtml(vscode.l10n.t('(No machine steps JSON yet — manual template or legacy plan.)'))}</li>`;
 
 	const nonce = String(Date.now());
 
@@ -243,18 +247,18 @@ function buildDashboardHtml(cspSource, text, uri, bindingSnap) {
 </head>
 <body>
 	<main role="main" aria-labelledby="plan-dash-h1">
-	<h1 id="plan-dash-h1">Plan dashboard</h1>
+	<h1 id="plan-dash-h1">${escapeHtml(vscode.l10n.t('Plan dashboard'))}</h1>
 	<div><span class="badge">${escapeHtml(status)}</span></div>
 	<div class="meta">planId: ${escapeHtml(planId)}${boundThread ? ` · boundThreadId: ${escapeHtml(boundThread)}` : ''}<br/>
-	<span class="${boundSessions > 1 ? 'session-warn' : ''}">Referenced by ${boundSessions} agent session(s)</span>${boundSessions > 1 ? ' — multiple executors risk step drift.' : ''}<br/>${escapeHtml(uri.fsPath)}</div>
-	<h2 id="plan-steps-heading" style="font-size:13px;margin:16px 0 8px">Steps</h2>
+	<span class="${boundSessions > 1 ? 'session-warn' : ''}">${escapeHtml(vscode.l10n.t('Referenced by {0} agent session(s)', String(boundSessions)))}</span>${boundSessions > 1 ? escapeHtml(vscode.l10n.t(' — multiple executors risk step drift.')) : ''}<br/>${escapeHtml(uri.fsPath)}</div>
+	<h2 id="plan-steps-heading" style="font-size:13px;margin:16px 0 8px">${escapeHtml(vscode.l10n.t('Steps'))}</h2>
 	<ul role="list" aria-labelledby="plan-steps-heading">${stepRows}</ul>
-	${activeModelLine ? `<div class="model"><strong>activeModel</strong> (frontmatter comment): ${escapeHtml(activeModelLine)}</div>` : `<div class="model muted">Model routing: set <code># activeModel: …</code> in YAML frontmatter (see template).</div>`}
+	${activeModelLine ? `<div class="model"><strong>activeModel</strong> ${escapeHtml(vscode.l10n.t('(frontmatter comment): {0}', activeModelLine))}</div>` : `<div class="model muted">${vscode.l10n.t('Model routing: set <code># activeModel: …</code> in YAML frontmatter (see template).')}</div>`}
 	<div class="row">
-		<button type="button" id="raw" aria-label="Open raw Markdown for this plan">Open raw Markdown</button>
-		<button type="button" id="cont" class="secondary" aria-label="Continue or run plan from agent chat">Continue / Run…</button>
-		<button type="button" id="risk" class="secondary" aria-label="Explain risk for this plan">Explain risk</button>
-		<button type="button" id="reload" class="secondary" aria-label="Reload plan from disk">Reload</button>
+		<button type="button" id="raw" aria-label="${escapeHtml(vscode.l10n.t('Open raw Markdown for this plan'))}">${escapeHtml(vscode.l10n.t('Open raw Markdown'))}</button>
+		<button type="button" id="cont" class="secondary" aria-label="${escapeHtml(vscode.l10n.t('Continue or run plan from agent chat'))}">${escapeHtml(vscode.l10n.t('Continue / Run…'))}</button>
+		<button type="button" id="risk" class="secondary" aria-label="${escapeHtml(vscode.l10n.t('Explain risk for this plan'))}">${escapeHtml(vscode.l10n.t('Explain risk'))}</button>
+		<button type="button" id="reload" class="secondary" aria-label="${escapeHtml(vscode.l10n.t('Reload plan from disk'))}">${escapeHtml(vscode.l10n.t('Reload'))}</button>
 	</div>
 	<script nonce="${nonce}">
 		const vscode = acquireVsCodeApi();

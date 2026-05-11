@@ -1,0 +1,20 @@
+{
+	"Open a .plan.md tab first.": "Open a .plan.md tab first.",
+	"Continue execution from Agent chat (startup notification «Continue Plan» or Execute in Agent from Plan mode).": "Continue execution from Agent chat (startup notification «Continue Plan» or Execute in Agent from Plan mode).",
+	"Plan dashboard": "Plan dashboard",
+	"Steps": "Steps",
+	"Step {0}, {1}: {2}": "Step {0}, {1}: {2}",
+	"(No machine steps JSON yet — manual template or legacy plan.)": "(No machine steps JSON yet — manual template or legacy plan.)",
+	"Referenced by {0} agent session(s)": "Referenced by {0} agent session(s)",
+	" — multiple executors risk step drift.": " — multiple executors risk step drift.",
+	"(frontmatter comment): {0}": "(frontmatter comment): {0}",
+	"Model routing: set <code># activeModel: …</code> in YAML frontmatter (see template).": "Model routing: set <code># activeModel: …</code> in YAML frontmatter (see template).",
+	"Open raw Markdown": "Open raw Markdown",
+	"Open raw Markdown for this plan": "Open raw Markdown for this plan",
+	"Continue / Run…": "Continue / Run…",
+	"Continue or run plan from agent chat": "Continue or run plan from agent chat",
+	"Explain risk": "Explain risk",
+	"Explain risk for this plan": "Explain risk for this plan",
+	"Reload": "Reload",
+	"Reload plan from disk": "Reload plan from disk"
+}
