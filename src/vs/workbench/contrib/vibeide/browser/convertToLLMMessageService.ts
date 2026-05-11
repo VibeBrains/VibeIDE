@@ -72,6 +72,7 @@ import { IAuditLogService } from '../common/auditLogService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { VIBE_DOTVIBE_AGENT_PLAYBOOK } from '../common/vibeDotVibeAgentPlaybook.js';
 import { IVibeContextGuardService } from './vibeContextGuardService.js';
+import { buildResponseLanguageDirective } from '../common/vibeAgentResponseLanguageConfiguration.js';
 
 export const EMPTY_MESSAGE = '(empty message)'
 
@@ -1638,7 +1639,11 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				}).catch(() => { });
 			}
 		}
-		const aiInstructions = [this._getCombinedAIInstructions(), skillsDiscovery, implicitSkills].filter(s => s.trim().length > 0).join('\n\n');
+		const responseLangSetting = this.configurationService.getValue<string>('vibeide.agent.responseLanguage') ?? 'auto';
+		const lastUserForLang = [...chatMessages].reverse().find(m => m.role === 'user');
+		const lastUserTextForLang = typeof lastUserForLang?.content === 'string' ? lastUserForLang.content : '';
+		const langDirective = buildResponseLanguageDirective(responseLangSetting, lastUserTextForLang);
+		const aiInstructions = [this._getCombinedAIInstructions(), skillsDiscovery, implicitSkills, langDirective].filter(s => s.trim().length > 0).join('\n\n');
 		const isReasoningEnabled = getIsReasoningEnabledState('Chat', validProviderName, modelName, modelSelectionOptions, overridesOfModel)
 		const reservedOutputTokenSpace = getReservedOutputTokenSpace(validProviderName, modelName, { isReasoningEnabled, overridesOfModel })
 		let llmMessages = this._chatMessagesToSimpleMessages(chatMessages)
