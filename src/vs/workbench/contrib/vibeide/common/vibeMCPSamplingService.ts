@@ -35,6 +35,8 @@ import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { localize } from '../../../../nls.js';
 import { IAuditLogService } from './auditLogService.js';
+import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
+import { decideSamplingConsent, SamplingRequest } from './mcpSamplingEnvelope.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -150,13 +152,13 @@ class VibeMCPSamplingService extends Disposable implements IVibeMCPSamplingServi
 	/** Track servers that have been approved this session (for first_per_server policy) */
 	private readonly _sessionApprovedServers = new Set<string>();
 
-	private readonly _pendingSampling = new Map<string, { resolve: (r: MCPSamplingResult) => void }>();
 	private readonly _pendingElicitation = new Map<string, { resolve: (r: MCPElicitationResult) => void }>();
 
 	constructor(
 		@ILogService private readonly _log: ILogService,
 		@IConfigurationService private readonly _config: IConfigurationService,
 		@IAuditLogService private readonly _audit: IAuditLogService,
+		@IDialogService private readonly _dialog: IDialogService,
 	) {
 		super();
 	}
@@ -178,20 +180,37 @@ class VibeMCPSamplingService extends Disposable implements IVibeMCPSamplingServi
 		this._audit.append({ ts: Date.now(), action: 'mcp_sampling_request', ok: true, meta: { requestId: request.requestId, mcpServerId: request.mcpServerId } });
 
 		const approvalPolicy = this._config.getValue<string>('vibeide.mcp.sampling.requireApproval') ?? 'always';
-		const needsApproval = this._needsApproval(approvalPolicy, request.mcpServerId);
+		const samplingRequest: SamplingRequest = {
+			messages: request.messages.map(m => ({ role: m.role, content: { type: 'text', text: m.content } })),
+			systemPrompt: request.systemPrompt,
+			maxTokens: request.maxTokens,
+			stopSequences: request.stopSequences,
+		};
+		const consentDecision = decideSamplingConsent({
+			request: samplingRequest,
+			serverTrustState: approvalPolicy === 'never' ? 'trusted' : 'unknown',
+			perServerSamplingApproved: this._sessionApprovedServers.has(request.mcpServerId),
+		});
 
-		if (!needsApproval) {
-			// Auto-approved (never policy or already approved this session)
+		if (consentDecision.kind === 'auto-allow') {
 			this._sessionApprovedServers.add(request.mcpServerId);
 			return this._executeSampling(request);
 		}
 
-		// Fire event for consent UI to subscribe and call approveSampling / rejectSampling
-		this._onSamplingRequest.fire(request);
-
-		return new Promise<MCPSamplingResult>(resolve => {
-			this._pendingSampling.set(request.requestId, { resolve });
+		const confirmed = await this._dialog.confirm({
+			message: localize('mcp.sampling.consent.title', 'MCP-сервер запрашивает LLM completion'),
+			detail: localize('mcp.sampling.consent.detail', 'Сервер «{0}» хочет выполнить запрос к языковой модели от вашего имени.\n\nЗапрос: {1}', request.mcpServerId, request.messages.at(-1)?.content?.slice(0, 200) ?? ''),
+			primaryButton: localize('mcp.sampling.consent.allow', 'Разрешить'),
 		});
+
+		if (!confirmed.confirmed) {
+			this._audit.append({ ts: Date.now(), action: 'mcp_sampling_request', ok: false, meta: { requestId: request.requestId, reason: 'user_rejected' } });
+			return { requestId: request.requestId, status: 'rejected', reason: 'User rejected MCP sampling request.' };
+		}
+
+		this._sessionApprovedServers.add(request.mcpServerId);
+		this._onSamplingRequest.fire(request);
+		return this._executeSampling(request);
 	}
 
 	async handleElicitationRequest(request: MCPElicitationRequest): Promise<MCPElicitationResult> {
@@ -205,12 +224,6 @@ class VibeMCPSamplingService extends Disposable implements IVibeMCPSamplingServi
 		return new Promise<MCPElicitationResult>(resolve => {
 			this._pendingElicitation.set(request.requestId, { resolve });
 		});
-	}
-
-	private _needsApproval(policy: string, mcpServerId: string): boolean {
-		if (policy === 'never') { return false; }
-		if (policy === 'first_per_server') { return !this._sessionApprovedServers.has(mcpServerId); }
-		return true; // 'always'
 	}
 
 	private async _executeSampling(request: MCPSamplingRequest): Promise<MCPSamplingResult> {
