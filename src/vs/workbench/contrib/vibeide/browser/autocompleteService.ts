@@ -38,6 +38,9 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { CompletionEvent } from '../common/completionOutcomeStats.js';
+import { IVibeFimContextCollector } from './vibeFimContextCollector.js';
+import { reportFIMBudget, FIM_BUDGET_DEFAULTS } from '../common/fimContextContract.js';
+import { localize } from '../../../../nls.js';
 
 
 
@@ -941,7 +944,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 			// Only show notification once per session to avoid spam
 			if (!this._hasShownNoModelWarning) {
 				this._hasShownNoModelWarning = true
-				this._notificationService.warn('Autocomplete requires a model with FIM (Fill-In-the-Middle) support. Please select a model in VibeIDE Settings > Feature Options > Autocomplete. Cloud options: Mistral codestral-latest. Local options: Ollama qwen2.5-coder.')
+				this._notificationService.warn(localize('vibeide.autocomplete.requiresFimModel', 'Autocomplete requires a model with FIM (Fill-In-the-Middle) support. Please select a model in VibeIDE Settings > Feature Options > Autocomplete. Cloud options: Mistral codestral-latest. Local options: Ollama qwen2.5-coder.'))
 			}
 			return []
 		}
@@ -984,6 +987,23 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 			return [];
 		}
 		console.debug(`[VibeIDE Autocomplete] FIM routing: ${describeFIMRouting(fimDecision)}`);
+
+		// L1016: assemble structured FIM context and run budget enforcer before
+		// dispatching the request. Logs trimmed sections at debug level so
+		// `vibe doctor --completion-stats` can correlate context-overflow with
+		// model latency. Best-effort: collector may return null for non-code
+		// editors — fall through to legacy prefix/suffix-only path.
+		try {
+			const fimContext = this._fimContextCollector.collect();
+			if (fimContext) {
+				const budget = reportFIMBudget(fimContext, FIM_BUDGET_DEFAULTS);
+				if (budget.trimmed.length > 0) {
+					console.debug(`[VibeIDE Autocomplete] FIM budget: ${budget.totalChars}/${FIM_BUDGET_DEFAULTS.maxContextChars} chars, trimmed=${budget.trimmed.join(',')}`);
+				}
+			}
+		} catch (e) {
+			console.debug('[VibeIDE Autocomplete] FIM budget report skipped:', e);
+		}
 
 
 
@@ -1187,7 +1207,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 			if (!errorMessage.includes('Timeout') && !errorMessage.includes('Aborted')) {
 				// Only show error notification occasionally to avoid spam
 				if (Math.random() < 0.1) { // 10% chance to show notification
-					this._notificationService.warn(`Autocomplete error: ${errorMessage}. Check console for details.`)
+					this._notificationService.warn(localize('vibeide.autocomplete.error', 'Autocomplete error: {0}. Check console for details.', errorMessage))
 				}
 			}
 
@@ -1213,6 +1233,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		@ISecretDetectionService private readonly _secretDetectionService: ISecretDetectionService,
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContext: IWorkspaceContextService,
+		@IVibeFimContextCollector private readonly _fimContextCollector: IVibeFimContextCollector,
 		// @IContextGatheringService private readonly _contextGatheringService: IContextGatheringService,
 	) {
 		super()
