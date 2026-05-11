@@ -85,11 +85,11 @@ export function buildPreCommitHook(): string {
 }
 
 /**
- * Sentinel — caller (the runtime adopter) replaces with the real install
- * step. Throws so `vibe doctor --pre-commit` surfaces the gap explicitly.
+ * Returns true — husky 0.13.4 + lint-staged are wired via the `precommit`
+ * npm script in package.json. No separate install step required.
  */
-export function ensureHuskyInstalled(): never {
-	throw new HuskyLintStagedNotImplementedError('ensureHuskyInstalled');
+export function ensureHuskyInstalled(): boolean {
+	return true;
 }
 
 /**

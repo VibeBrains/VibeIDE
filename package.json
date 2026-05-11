@@ -40,6 +40,7 @@
     "kill-watch-clientd": "deemon --kill npm run watch-client",
     "transpile-client": "node build/next/index.ts transpile",
     "nls-extract": "npx tsx scripts/vibe-nls-extract.ts",
+    "nls-extract:vibeide": "npx tsx scripts/vibe-nls-extract.ts --vibeide-only",
     "sync-language-pack-ru": "node scripts/sync-vscode-loc-ru.mjs",
     "restore-branding": "python bin/restore-vibeide-branding.py",
     "watch-client-transpile": "node build/next/index.ts transpile --watch",
@@ -48,7 +49,7 @@
     "watch-extensions": "npm run gulp watch-extensions watch-extension-media",
     "watch-extensionsd": "deemon npm run watch-extensions",
     "kill-watch-extensionsd": "deemon --kill npm run watch-extensions",
-    "precommit": "node --experimental-strip-types build/hygiene.ts",
+    "precommit": "node --experimental-strip-types build/hygiene.ts && npx lint-staged",
     "gulp": "node --max-old-space-size=8192 ./node_modules/gulp/bin/gulp.js",
     "electron": "node build/lib/electron.ts",
     "7z": "7z",
@@ -129,7 +130,8 @@
     "vibe:migration:guide": "node scripts/vibe.js migration-guide",
     "vibe:transparency:dashboard": "node scripts/vibe.js transparency-dashboard --markdown",
     "vibe:schema:templates": "node scripts/vibe.js schema-templates",
-    "vibe:schema:list": "node scripts/vibe.js schema-templates --list"
+    "vibe:schema:list": "node scripts/vibe.js schema-templates --list",
+    "build-language-packs": "node bin/vibe-language-pack-build.mjs --locale ru"
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.49",
@@ -200,6 +202,7 @@
     "yazl": "^2.4.3"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
     "@floating-ui/react": "^0.27.19",
     "@fortawesome/fontawesome-free": "^6.7.2",
     "@playwright/cli": "^0.1.1",
@@ -238,6 +241,7 @@
     "@vscode/test-electron": "^2.4.0",
     "@vscode/test-web": "^0.0.76",
     "@vscode/v8-heap-parser": "^0.1.0",
+    "@vscode/vsce": "^3.9.1",
     "@vscode/vscode-perf": "^0.0.19",
     "@webgpu/types": "^0.1.66",
     "agent-browser": "^0.16.3",
@@ -255,6 +259,7 @@
     "event-stream": "3.3.4",
     "fancy-log": "^1.3.3",
     "glob": "^5.0.13",
+    "graphql": "^16.14.0",
     "gulp": "^4.0.0",
     "gulp-azure-storage": "^0.12.1",
     "gulp-bom": "^3.0.0",
@@ -269,7 +274,7 @@
     "gulp-replace": "^0.5.4",
     "gulp-sourcemaps": "^3.0.0",
     "gulp-svgmin": "^4.1.0",
-    "husky": "^0.13.1",
+    "husky": "^0.13.4",
     "innosetup": "^6.4.1",
     "istanbul-lib-coverage": "^3.2.0",
     "istanbul-lib-instrument": "^6.0.1",
@@ -277,6 +282,7 @@
     "istanbul-lib-source-maps": "^4.0.1",
     "istanbul-reports": "^3.1.5",
     "lazy.js": "^0.4.2",
+    "lint-staged": "^16.4.0",
     "lucide-react": "^1.14.0",
     "marked": "^18.0.3",
     "merge-options": "^1.0.1",
@@ -291,6 +297,7 @@
     "p-all": "^1.0.0",
     "patch-package": "^8.0.1",
     "path-browserify": "^1.0.1",
+    "playwright": "^1.59.1",
     "pump": "^1.0.1",
     "rcedit": "^1.1.0",
     "react": "^19.2.5",
@@ -333,5 +340,19 @@
   },
   "optionalDependencies": {
     "windows-foreground-love": "0.6.1"
+  },
+  "lint-staged": {
+    "src/vs/workbench/contrib/vibeide/**/*.{ts,tsx,js}": [
+      "npm run eslint -- --fix"
+    ],
+    "extensions/vibeide-*/**/*.{ts,js}": [
+      "npm run eslint -- --fix"
+    ],
+    "**/*.md": [
+      "echo \"[lint-staged] markdown changes detected — link check at PR-time\""
+    ],
+    ".vibe/skills/**/SKILL.md": [
+      "node scripts/vibe-skills-validate.js --staged"
+    ]
   }
 }

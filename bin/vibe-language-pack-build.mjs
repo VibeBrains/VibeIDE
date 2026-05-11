@@ -31,6 +31,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -144,20 +147,27 @@ function readVibeVersion() {
 	}
 }
 
-function buildVsix(stageDir) {
-	throw new LanguagePackBuildError(
-		'zip',
-		`actual VSIX zip step not implemented — install @vscode/vsce (or archiver) and ` +
-		`replace the throw at bin/vibe-language-pack-build.mjs::buildVsix(). Stage is at ${stageDir}.`,
-	);
+async function buildVsix(stageDir, locale, vibeVersion) {
+	const { createVSIX } = require('@vscode/vsce');
+	const outFile = path.join(ROOT, '.build', 'language-packs', `vibeide-language-pack-${locale}-${vibeVersion}.vsix`);
+	await createVSIX({
+		cwd: stageDir,
+		packagePath: outFile,
+		skipLicense: true,
+		allowMissingRepository: true,
+		allowStarActivation: true,
+	});
+	console.log(`[vibe-language-pack-build] VSIX created: ${path.relative(ROOT, outFile)}`);
+	return outFile;
 }
 
-function main() {
+async function main() {
 	const args = parseArgs(process.argv);
 	if (args.help) { printHelp(); return; }
 
 	const locale = validateLocale(args.locale);
-	console.log(`[vibe-language-pack-build] locale=${locale}`);
+	const vibeVersion = readVibeVersion();
+	console.log(`[vibe-language-pack-build] locale=${locale} version=${vibeVersion}`);
 
 	const translations = resolveTranslationSources(locale);
 	const contribution = composeContribution(locale, translations);
@@ -169,12 +179,10 @@ function main() {
 		return;
 	}
 
-	buildVsix(stageDir);
+	await buildVsix(stageDir, locale, vibeVersion);
 }
 
-try {
-	main();
-} catch (err) {
+main().catch(err => {
 	console.error(err instanceof Error ? err.message : err);
 	process.exit(1);
-}
+});

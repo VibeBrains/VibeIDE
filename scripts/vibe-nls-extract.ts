@@ -42,6 +42,10 @@ function getArgValue(name: string): string | undefined {
 
 const OUT_DIR = path.join(REPO_ROOT, getArgValue('--out') ?? 'out');
 
+// When --vibeide-only is set, scan only contrib/vibeide/** and write vibeide.nls.metadata.json.
+const VIBEIDE_ONLY = process.argv.includes('--vibeide-only');
+const VIBEIDE_PREFIX = 'vs/workbench/contrib/vibeide/';
+
 // ---------------------------------------------------------------------------
 // tsconfig.json exclude (relative to src/) — must match compilation inputs
 // ---------------------------------------------------------------------------
@@ -165,6 +169,7 @@ async function main(): Promise<void> {
 	const sortedAbsPaths = rawRel
 		.map(r => r.replace(/\\/g, '/'))
 		.filter(r => !shouldSkipTsSource(r))
+		.filter(r => !VIBEIDE_ONLY || r.startsWith(VIBEIDE_PREFIX))
 		.map(rel => path.join(SRC_DIR, rel))
 		.sort((a, b) => a.localeCompare(b));
 
@@ -201,12 +206,28 @@ async function main(): Promise<void> {
 		}
 	}
 
-	await writeNLSFilesFromOrderedModules(nlsKeysJson, allMessages, OUT_DIR);
+	if (VIBEIDE_ONLY) {
+		// Write vibeide-specific metadata only — does not overwrite main nls.*.json files.
+		const vibeideMetadata: Record<string, { keys: string[]; messages: string[] }> = {};
+		let sliceAt = 0;
+		for (const [moduleId, keys] of nlsKeysJson) {
+			vibeideMetadata[moduleId] = { keys, messages: allMessages.slice(sliceAt, sliceAt + keys.length) };
+			sliceAt += keys.length;
+		}
+		const outPath = path.join(OUT_DIR, 'vibeide.nls.metadata.json');
+		await fs.promises.mkdir(OUT_DIR, { recursive: true });
+		await fs.promises.writeFile(outPath, JSON.stringify(vibeideMetadata, null, '\t'), 'utf-8');
+		console.log(`[vibe-nls] vibeide-only: ${entryCount} entries written to ${outPath}`);
+	} else {
+		await writeNLSFilesFromOrderedModules(nlsKeysJson, allMessages, OUT_DIR);
+	}
 
 	const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
 	console.log(`[vibe-nls] Done: ${entryCount} NLS entries in ${elapsed}s`);
-	console.log(`[vibe-nls]   → ${path.join(OUT_DIR, 'nls.keys.json')}`);
-	console.log(`[vibe-nls]   → ${path.join(OUT_DIR, 'nls.messages.json')}`);
+	if (!VIBEIDE_ONLY) {
+		console.log(`[vibe-nls]   → ${path.join(OUT_DIR, 'nls.keys.json')}`);
+		console.log(`[vibe-nls]   → ${path.join(OUT_DIR, 'nls.messages.json')}`);
+	}
 }
 
 main().catch(err => {
