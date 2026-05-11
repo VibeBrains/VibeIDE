@@ -24,6 +24,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { diffOpenApi, diffGraphql, diffSpecHeuristic } from './specDrivenContextSkeleton.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { localize } from '../../../../nls.js';
@@ -200,25 +201,28 @@ class VibeSpecDrivenContextService extends Disposable implements IVibeSpecDriven
 	}
 
 	detectBreakingChanges(previousContent: string, currentContent: string, specType: SpecType): { hasBreakingChanges: boolean; summary: string } {
-		// Phase 3b: full parser (swagger-parser, graphql-js, etc.)
-		// MVP: heuristic — check for removal of top-level paths/types keywords
-		const removedKeywords: string[] = [];
-		const breakingIndicators = ['/paths/', '/components/', 'type:', 'mutation', 'Query {', 'schema {'];
-
-		if (previousContent) {
-			for (const kw of breakingIndicators) {
-				if (previousContent.includes(kw) && !currentContent.includes(kw)) {
-					removedKeywords.push(kw.trim());
-				}
-			}
+		if (!previousContent) {
+			return { hasBreakingChanges: false, summary: 'No previous version to compare against.' };
 		}
 
-		const hasBreakingChanges = removedKeywords.length > 0;
-		const summary = hasBreakingChanges
-			? `Potential breaking change: removed indicators [${removedKeywords.join(', ')}]`
-			: 'No obvious breaking changes detected (heuristic only — use Phase 3b parser diff for certainty)';
+		let result;
+		try {
+			if (specType === 'openapi') {
+				result = diffOpenApi({ oldSpec: previousContent, newSpec: currentContent });
+			} else if (specType === 'graphql') {
+				result = diffGraphql({ oldSpec: previousContent, newSpec: currentContent });
+			} else {
+				result = diffSpecHeuristic({ kind: 'openapi', oldText: previousContent, newText: currentContent });
+			}
+		} catch {
+			result = diffSpecHeuristic({ kind: 'openapi', oldText: previousContent, newText: currentContent });
+		}
 
-		return { hasBreakingChanges, summary };
+		const summary = result.entries.length === 0
+			? 'No breaking changes detected.'
+			: result.entries.map(e => e.summary).join('; ');
+
+		return { hasBreakingChanges: result.hasBreaking, summary };
 	}
 
 	private _detectSpecType(path: string, content: string): SpecType {
