@@ -84,6 +84,9 @@ import { IVibeWorkflowService } from '../common/vibeWorkflowService.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
 import { ISecretStorageService } from '../../../../platform/secrets/common/secrets.js';
+import { decideProjectCommandLaunch, detectLaunchOS } from '../common/projectCommandsTerminalPolicy.js';
+import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import Severity from '../../../../base/common/severity.js';
 import { PLACEHOLDER_RE } from '../common/projectCommandSecretsResolver.js';
 
 const COMMANDS_FILE_NAME = '.vibe/commands.json';
@@ -159,6 +162,8 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 
 	private _merged: ProjectCommand[] = [];
 	private _initialised = false;
+	/** Tracks running singleton command ids to enforce the singleton constraint. */
+	private readonly _runningSingletonIds = new Set<string>();
 
 	private readonly _onDidChangeCommands = this._register(new Emitter<DidChangeCommandsEvent>());
 	readonly onDidChangeCommands: Event<DidChangeCommandsEvent> = this._onDidChangeCommands.event;
@@ -183,6 +188,7 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		@IAuditLogService private readonly _audit: IAuditLogService,
 		@IVibeWorkflowService private readonly _workflows: IVibeWorkflowService,
 		@ISecretStorageService private readonly _secrets: ISecretStorageService,
+		@INotificationService private readonly _notification: INotificationService,
 	) {
 		super();
 
@@ -474,93 +480,119 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 			});
 		}
 
-		// Phase scope: integrated terminal only. external / background are deferred.
-		const terminalKind = cmd.terminal ?? 'integrated';
-		if (terminalKind !== 'integrated') {
-			this._log.warn(`[VibeCustomCommands] refused ${id}: terminal=${terminalKind} not yet supported (Phase 2)`);
+		// Routing via decideProjectCommandLaunch (roadmap §L327).
+		const os = detectLaunchOS(typeof process !== 'undefined' ? process.platform : 'unknown');
+		const launchPlan = decideProjectCommandLaunch({
+			command: cmd,
+			os,
+			isRunning: this._runningSingletonIds.has(cmd.id),
+		});
+
+		if (launchPlan.kind === 'refused') {
+			const reason = launchPlan.reason;
+			if (reason === 'singleton-already-running') {
+				this._notification.notify({
+					severity: Severity.Warning,
+					message: localize('vibeide.commands.singleton.running', 'Команда «{0}» уже выполняется (singleton).', cmd.name),
+				});
+			}
 			const endedAtMs = Date.now();
-			this._onDidEndCommand.fire({
-				id: cmd.id, name: cmd.name, invocationId, endedAtMs,
-				durationMs: endedAtMs - startedAtMs, outcome: 'failure',
-			});
-			return { outcome: 'refused', reason: `terminal-kind-not-supported:${terminalKind}`, invocationId };
+			this._onDidEndCommand.fire({ id: cmd.id, name: cmd.name, invocationId, endedAtMs, durationMs: endedAtMs - startedAtMs, outcome: 'failure' });
+			return { outcome: 'refused', reason, invocationId };
 		}
+
+		if (cmd.singleton) { this._runningSingletonIds.add(cmd.id); }
+
+		const _fireEnd = (exitCode: number | undefined, err?: string) => {
+			if (cmd.singleton) { this._runningSingletonIds.delete(cmd.id); }
+			const endedAtMs = Date.now();
+			const outcome: DidEndCommandEvent['outcome'] = !err && exitCode === 0 ? 'success' : 'failure';
+			this._onDidEndCommand.fire({ id: cmd.id, name: cmd.name, invocationId, endedAtMs, durationMs: endedAtMs - startedAtMs, outcome, exitCode });
+			const auditEnd = redactCommandForAudit({
+				id: cmd.id, name: cmd.name,
+				command: resolveResult.redactedForAudit.command,
+				args: resolveResult.redactedForAudit.args,
+				cwd: resolveResult.redactedForAudit.cwd,
+				env: resolveResult.redactedForAudit.env,
+				exitCode, durationMs: endedAtMs - startedAtMs,
+			}, auditFlags);
+			if (auditEnd !== null) {
+				void this._audit.append({ ts: endedAtMs, action: 'project_command:complete', ok: outcome === 'success', meta: { invocationId, outcome, ...auditEnd } });
+			}
+		};
 
 		try {
 			const cwdUri = this._resolveCwd(cmd.cwd);
 			const fullCommand = this._buildShellLine(resolveResult.resolved.command, resolveResult.resolved.args);
+			const terminalName = `Vibe: ${cmd.name}`;
+			const envRecord = { ...resolveResult.resolved.env };
+
+			if (launchPlan.kind === 'spawn-background') {
+				// Background: create a quiet terminal — do not bring to front.
+				const terminal = await this._terminal.createTerminal({
+					cwd: cwdUri,
+					location: TerminalLocation.Panel,
+					config: { name: terminalName, env: envRecord },
+					skipContributedProfileCheck: true,
+				});
+				await terminal.sendText(fullCommand, true);
+				const onExitDispose = terminal.onExit((exitInfo) => {
+					try {
+						const exitCode = typeof exitInfo === 'object' && exitInfo !== null && 'code' in exitInfo
+							? (exitInfo as { code?: number }).code
+							: typeof exitInfo === 'number' ? exitInfo : undefined;
+						_fireEnd(exitCode);
+					} finally { onExitDispose.dispose(); }
+				});
+				return { outcome: 'success', invocationId };
+			}
+
+			if (launchPlan.kind === 'spawn-external') {
+				// External: wrap user command with the OS-specific launcher and send through integrated terminal.
+				// The integrated terminal exits quickly once the external window is spawned.
+				const externalCmd = [launchPlan.externalCommand, ...launchPlan.externalArgs, fullCommand].join(' ');
+				const terminal = await this._terminal.createTerminal({
+					cwd: cwdUri,
+					location: TerminalLocation.Panel,
+					config: { name: terminalName, env: envRecord },
+					skipContributedProfileCheck: true,
+				});
+				await this._terminal.setActiveInstance(terminal);
+				await this._terminal.focusActiveInstance();
+				await terminal.sendText(externalCmd, true);
+				const onExitDispose = terminal.onExit((exitInfo) => {
+					try {
+						const exitCode = typeof exitInfo === 'object' && exitInfo !== null && 'code' in exitInfo
+							? (exitInfo as { code?: number }).code
+							: typeof exitInfo === 'number' ? exitInfo : undefined;
+						_fireEnd(exitCode);
+					} finally { onExitDispose.dispose(); }
+				});
+				return { outcome: 'success', invocationId };
+			}
+
+			// kind === 'open-integrated' (default path).
 			const terminal = await this._terminal.createTerminal({
 				cwd: cwdUri,
 				location: TerminalLocation.Panel,
-				config: {
-					name: `Vibe: ${cmd.name}`,
-					forceShellIntegration: true,
-					env: { ...resolveResult.resolved.env },
-				},
+				config: { name: terminalName, forceShellIntegration: true, env: envRecord },
 				skipContributedProfileCheck: true,
 			});
-
-			// Bring the terminal forward and send the command line.
 			await this._terminal.setActiveInstance(terminal);
 			await this._terminal.focusActiveInstance();
-			await terminal.sendText(fullCommand, /* shouldExecute */ true);
-
-			// Listen for exit to fire DidEndCommandEvent. Best-effort; if the user closes
-			// the terminal manually before exit, the listener still fires with exitCode=undefined.
+			await terminal.sendText(fullCommand, true);
 			const onExitDispose = terminal.onExit((exitInfo) => {
 				try {
-					const endedAtMs = Date.now();
 					const exitCode = typeof exitInfo === 'object' && exitInfo !== null && 'code' in exitInfo
 						? (exitInfo as { code?: number }).code
-						: typeof exitInfo === 'number'
-							? exitInfo
-							: undefined;
-					const outcome: DidEndCommandEvent['outcome'] = exitCode === 0 ? 'success' : 'failure';
-					this._onDidEndCommand.fire({
-						id: cmd.id,
-						name: cmd.name,
-						invocationId,
-						endedAtMs,
-						durationMs: endedAtMs - startedAtMs,
-						outcome,
-						exitCode,
-					});
-					// Audit log: complete (no stdout capture from sendText path — keep
-					// the shape so dashboards can correlate with the start event).
-					const auditEnd = redactCommandForAudit(
-						{
-							id: cmd.id,
-							name: cmd.name,
-							command: resolveResult.redactedForAudit.command,
-							args: resolveResult.redactedForAudit.args,
-							cwd: resolveResult.redactedForAudit.cwd,
-							env: resolveResult.redactedForAudit.env,
-							exitCode,
-							durationMs: endedAtMs - startedAtMs,
-						},
-						auditFlags,
-					);
-					if (auditEnd !== null) {
-						void this._audit.append({
-							ts: endedAtMs,
-							action: 'project_command:complete',
-							ok: outcome === 'success',
-							meta: { invocationId, outcome, ...auditEnd },
-						});
-					}
-				} finally {
-					onExitDispose.dispose();
-				}
+						: typeof exitInfo === 'number' ? exitInfo : undefined;
+					_fireEnd(exitCode);
+				} finally { onExitDispose.dispose(); }
 			});
-
 			return { outcome: 'success', invocationId };
 		} catch (e) {
 			this._log.error(`[VibeCustomCommands] failed to spawn ${id}: ${(e as Error).message}`);
-			const endedAtMs = Date.now();
-			this._onDidEndCommand.fire({
-				id: cmd.id, name: cmd.name, invocationId, endedAtMs,
-				durationMs: endedAtMs - startedAtMs, outcome: 'failure',
-			});
+			_fireEnd(undefined, (e as Error).message);
 			return { outcome: 'failure', reason: (e as Error).message, invocationId };
 		}
 	}
