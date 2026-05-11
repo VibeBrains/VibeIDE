@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { localize } from '../../../../nls.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -17,34 +18,34 @@ export interface VibeKeyboardShortcut {
 
 export const VIBE_KEYBOARD_SHORTCUTS: VibeKeyboardShortcut[] = [
 	// Trust Score
-	{ command: 'vibeide.trustScore.toggle', key: 'ctrl+shift+t', description: 'Toggle Trust Score level' },
-	{ command: 'vibeide.trustScore.setManual', key: 'ctrl+shift+1', description: 'Set Trust Score to Manual 🟢' },
-	{ command: 'vibeide.trustScore.setSupervised', key: 'ctrl+shift+2', description: 'Set Trust Score to Supervised 🟡' },
-	{ command: 'vibeide.trustScore.setAuto', key: 'ctrl+shift+3', description: 'Set Trust Score to Auto 🔴' },
+	{ command: 'vibeide.trustScore.toggle', key: 'ctrl+shift+t', description: localize('vibeide.keyboard.trustScore.toggle', 'Toggle Trust Score level') },
+	{ command: 'vibeide.trustScore.setManual', key: 'ctrl+shift+1', description: localize('vibeide.keyboard.trustScore.setManual', 'Set Trust Score to Manual 🟢') },
+	{ command: 'vibeide.trustScore.setSupervised', key: 'ctrl+shift+2', description: localize('vibeide.keyboard.trustScore.setSupervised', 'Set Trust Score to Supervised 🟡') },
+	{ command: 'vibeide.trustScore.setAuto', key: 'ctrl+shift+3', description: localize('vibeide.keyboard.trustScore.setAuto', 'Set Trust Score to Auto 🔴') },
 
 	// Tool approval
-	{ command: 'vibeide.toolApproval.approve', key: 'enter', when: 'vibeide.toolApprovalPending', description: 'Approve pending tool use' },
-	{ command: 'vibeide.toolApproval.reject', key: 'escape', when: 'vibeide.toolApprovalPending', description: 'Reject pending tool use' },
+	{ command: 'vibeide.toolApproval.approve', key: 'enter', when: 'vibeide.toolApprovalPending', description: localize('vibeide.keyboard.toolApproval.approve', 'Approve pending tool use') },
+	{ command: 'vibeide.toolApproval.reject', key: 'escape', when: 'vibeide.toolApprovalPending', description: localize('vibeide.keyboard.toolApproval.reject', 'Reject pending tool use') },
 
 	// Diff review
-	{ command: 'vibeide.diff.apply', key: 'ctrl+enter', when: 'vibeide.diffPreviewOpen', description: 'Apply diff' },
-	{ command: 'vibeide.diff.reject', key: 'ctrl+backspace', when: 'vibeide.diffPreviewOpen', description: 'Reject diff' },
-	{ command: 'vibeide.diff.edit', key: 'ctrl+shift+e', when: 'vibeide.diffPreviewOpen', description: 'Edit before applying' },
+	{ command: 'vibeide.diff.apply', key: 'ctrl+enter', when: 'vibeide.diffPreviewOpen', description: localize('vibeide.keyboard.diff.apply', 'Apply diff') },
+	{ command: 'vibeide.diff.reject', key: 'ctrl+backspace', when: 'vibeide.diffPreviewOpen', description: localize('vibeide.keyboard.diff.reject', 'Reject diff') },
+	{ command: 'vibeide.diff.edit', key: 'ctrl+shift+e', when: 'vibeide.diffPreviewOpen', description: localize('vibeide.keyboard.diff.edit', 'Edit before applying') },
 
 	// Agent control
-	{ command: 'vibeide.agent.pauseAndExplain', key: 'ctrl+shift+p', when: 'vibeide.agentRunning', description: 'Pause agent and ask what it\'s doing' },
-	{ command: 'vibeide.agent.cancel', key: 'ctrl+shift+c', when: 'vibeide.agentRunning', description: 'Cancel agent task' },
+	{ command: 'vibeide.agent.pauseAndExplain', key: 'ctrl+shift+p', when: 'vibeide.agentRunning', description: localize('vibeide.keyboard.agent.pauseAndExplain', 'Pause agent and ask what it\'s doing') },
+	{ command: 'vibeide.agent.cancel', key: 'ctrl+shift+c', when: 'vibeide.agentRunning', description: localize('vibeide.keyboard.agent.cancel', 'Cancel agent task') },
 
 	// Editor shortcuts
-	{ command: 'vibeide.explainLine', key: 'ctrl+.', description: 'Explain current line (inline)' },
-	{ command: 'vibeide.freezeCode', key: 'ctrl+shift+f', when: 'editorHasSelection', description: 'Freeze selected code for agent' },
+	{ command: 'vibeide.explainLine', key: 'ctrl+.', description: localize('vibeide.keyboard.explainLine', 'Explain current line (inline)') },
+	{ command: 'vibeide.freezeCode', key: 'ctrl+shift+f', when: 'editorHasSelection', description: localize('vibeide.keyboard.freezeCode', 'Freeze selected code for agent') },
 
 	// Pre-flight plan
-	{ command: 'vibeide.preFlight.approve', key: 'enter', when: 'vibeide.preFlightPlanOpen', description: 'Approve pre-flight plan' },
-	{ command: 'vibeide.preFlight.cancel', key: 'escape', when: 'vibeide.preFlightPlanOpen', description: 'Cancel pre-flight plan' },
+	{ command: 'vibeide.preFlight.approve', key: 'enter', when: 'vibeide.preFlightPlanOpen', description: localize('vibeide.keyboard.preFlight.approve', 'Approve pre-flight plan') },
+	{ command: 'vibeide.preFlight.cancel', key: 'escape', when: 'vibeide.preFlightPlanOpen', description: localize('vibeide.keyboard.preFlight.cancel', 'Cancel pre-flight plan') },
 
 	// Plan Mode
-	{ command: 'vibeide.chatMode.plan', key: 'ctrl+shift+alt+p', description: 'Switch chat to Plan mode — explore & plan, no mutations' },
+	{ command: 'vibeide.chatMode.plan', key: 'ctrl+shift+alt+p', description: localize('vibeide.keyboard.chatMode.plan', 'Switch chat to Plan mode — explore & plan, no mutations') },
 ];
 
 export const IVibeKeyboardShortcutsService = createDecorator<IVibeKeyboardShortcutsService>('vibeKeyboardShortcutsService');
