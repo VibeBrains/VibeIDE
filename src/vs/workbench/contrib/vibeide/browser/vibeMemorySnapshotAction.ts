@@ -36,7 +36,7 @@ function ensureChannel(): void {
 	if (!reg.getChannel(CHANNEL_ID)) {
 		reg.registerChannel({
 			id: CHANNEL_ID,
-			label: 'VibeIDE — Memory Snapshot',
+			label: localize('vibeide.memorySnapshot.channel', 'VibeIDE — Memory Snapshot'),
 			log: false,
 		});
 	}

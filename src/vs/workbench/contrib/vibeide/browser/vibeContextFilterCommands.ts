@@ -21,7 +21,7 @@ function ensureChannel(): void {
 	if (!reg.getChannel(VIBE_CONTEXT_FILTER_CHANNEL_ID)) {
 		reg.registerChannel({
 			id: VIBE_CONTEXT_FILTER_CHANNEL_ID,
-			label: 'VibeIDE — Context Filter',
+			label: localize('vibeide.contextFilter.channel', 'VibeIDE — Context Filter'),
 			log: false,
 		});
 	}

@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { localize } from '../../../../nls.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -44,7 +45,7 @@ class VibeAgentActivityLogService extends Disposable implements IVibeAgentActivi
 		if (!reg.getChannel(VIBE_AGENT_ACTIVITY_CHANNEL_ID)) {
 			reg.registerChannel({
 				id: VIBE_AGENT_ACTIVITY_CHANNEL_ID,
-				label: 'VibeIDE Agent Activity',
+				label: localize('vibeide.agentActivity.channel', 'VibeIDE Agent Activity'),
 				log: false,
 			});
 		}
