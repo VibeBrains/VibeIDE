@@ -192,23 +192,15 @@ class VibeBrowserAutomationService extends Disposable implements IVibeBrowserAut
 		this._onRunStatusChanged.fire({ runId: entry.runId, status: 'running' });
 		const start = Date.now();
 
-		// Phase 3b: launch Playwright via node child_process in a temp dir.
-		// MVP: simulate success after short delay so UI flow is exercisable.
 		try {
 			const maxMs = this._config.getValue<number>('vibeide.browserAutomation.maxRunMs') ?? 30000;
-			await new Promise(r => setTimeout(r, Math.min(200, maxMs)));
-
-			const result: BrowserRunResult = {
-				runId: entry.runId,
-				status: 'completed',
-				consoleOutput: '[MVP stub] Playwright runner not yet connected. Phase 3b: real run via child_process.',
-				elapsedMs: Date.now() - start,
-			};
+			const result = await this._spawnPlaywrightRunner(entry.request, maxMs);
+			result.runId = entry.runId;
 			entry.result = result;
-			entry.status = 'completed';
-			this._onRunStatusChanged.fire({ runId: entry.runId, status: 'completed' });
+			entry.status = result.status as BrowserRunStatus;
+			this._onRunStatusChanged.fire({ runId: entry.runId, status: entry.status });
 			entry.resolve?.(result);
-			this._audit.append({ ts: Date.now(), action: 'browser_run_proposed', ok: true, meta: { runId: entry.runId, status: 'completed', elapsedMs: result.elapsedMs } });
+			this._audit.append({ ts: Date.now(), action: 'browser_run_proposed', ok: result.status === 'completed', meta: { runId: entry.runId, status: result.status, elapsedMs: result.elapsedMs } });
 		} catch (err) {
 			const result: BrowserRunResult = { runId: entry.runId, status: 'failed', message: String(err), elapsedMs: Date.now() - start };
 			entry.result = result;
@@ -216,6 +208,46 @@ class VibeBrowserAutomationService extends Disposable implements IVibeBrowserAut
 			this._onRunStatusChanged.fire({ runId: entry.runId, status: 'failed' });
 			entry.resolve?.(result);
 		}
+	}
+
+	private async _spawnPlaywrightRunner(request: BrowserRunRequest, maxMs: number): Promise<BrowserRunResult> {
+		// Dynamic import so common/ stays vscode-free at import time; Electron desktop has Node.js.
+		const { spawn } = await import('child_process' as any);
+		const path = await import('path' as any);
+		const { fileURLToPath } = await import('url' as any);
+
+		const runnerScript = path.join(
+			path.dirname(fileURLToPath(import.meta.url)),
+			'../../../../../../scripts/vibe-playwright-runner.mjs'
+		);
+
+		return new Promise<BrowserRunResult>((resolve) => {
+			const payload = JSON.stringify({ script: null, startUrl: request.startUrl, maxMs });
+			const child = spawn(process.execPath, ['--experimental-vm-modules', runnerScript], {
+				stdio: ['pipe', 'pipe', 'pipe'],
+			});
+
+			let stdout = '';
+			let stderr = '';
+			child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+			child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+			child.stdin.write(payload);
+			child.stdin.end();
+
+			child.on('close', () => {
+				try {
+					const lastLine = stdout.trim().split('\n').pop() ?? '';
+					const parsed = JSON.parse(lastLine) as BrowserRunResult;
+					resolve(parsed);
+				} catch {
+					resolve({ runId: '', status: 'failed', message: `runner parse error. stderr: ${stderr.slice(0, 500)}` });
+				}
+			});
+
+			child.on('error', (err: Error) => {
+				resolve({ runId: '', status: 'failed', message: `spawn error: ${err.message}` });
+			});
+		});
 	}
 }
 
