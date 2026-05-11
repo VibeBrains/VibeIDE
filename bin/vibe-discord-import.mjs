@@ -46,10 +46,11 @@ const PII_PATTERNS = [
 ];
 
 function parseArgs(argv) {
-	const args = { dryRun: false, help: false, fixturesPath: null };
+	const args = { dryRun: false, help: false, fixturesPath: null, autoAppend: false };
 	for (let i = 2; i < argv.length; i++) {
 		const a = argv[i];
 		if (a === '--dry-run') { args.dryRun = true; continue; }
+		if (a === '--auto-append') { args.autoAppend = true; continue; }
 		if (a === '--help' || a === '-h') { args.help = true; continue; }
 		if (a === '--fixtures' && argv[i + 1]) { args.fixturesPath = argv[++i]; continue; }
 	}
@@ -69,6 +70,8 @@ Optional:
 
 Flags:
   --dry-run             Print verdicts but do not append to docs/roadmap.md.
+  --auto-append         Append new items to docs/roadmap.md automatically.
+                        Always review with "git diff docs/roadmap.md" before committing.
   --fixtures <path>     Read fake Discord messages from a JSON file instead of
                         making the live REST call. Useful for local dev.
 
@@ -129,7 +132,8 @@ async function fetchDiscordMessages(token, channelId) {
 	if (!res.ok) {
 		throw new Error(`Discord API ${res.status}: ${await res.text().catch(() => '<no body>')}`);
 	}
-	return res.json();
+	const messages = await res.json();
+	return messages.map(m => ({ ...m, channelId: channelId }));
 }
 
 async function fetchGithubIssues(repo, token) {
@@ -199,16 +203,35 @@ async function main() {
 		if (v.kind === 'new') {
 			console.log('');
 			console.log(v.markdown);
+		} else if (v.kind === 'malformed') {
+			console.log(`[discord-import] malformed (${v.reason}): "${(v.source.content || '').slice(0, 60)}"`);
 		}
 	}
 
 	if (args.dryRun) {
 		console.log('');
 		console.log('[discord-import] --dry-run: not appending to docs/roadmap.md.');
+	} else if (args.autoAppend && counts.new > 0) {
+		const roadmapPath = path.join(ROOT, 'docs', 'roadmap.md');
+		const newBlocks = verdicts
+			.filter(v => v.kind === 'new')
+			.map(v => v.markdown)
+			.join('\n');
+		const section = '\n\n## Discord bugs\n\n' + newBlocks + '\n';
+		const existing = fs.existsSync(roadmapPath) ? fs.readFileSync(roadmapPath, 'utf8') : '';
+		if (existing.includes('## Discord bugs')) {
+			// Append to existing section
+			fs.writeFileSync(roadmapPath, existing.replace(/## Discord bugs\n/, `## Discord bugs\n${newBlocks}\n`), 'utf8');
+		} else {
+			fs.appendFileSync(roadmapPath, section, 'utf8');
+		}
+		console.log('');
+		console.log(`[discord-import] --auto-append: ${counts.new} new item(s) written to docs/roadmap.md.`);
+		console.log('[discord-import] Review before committing: git diff docs/roadmap.md');
 	} else if (counts.new > 0) {
 		console.log('');
 		console.log('[discord-import] To append: copy the new blocks above into docs/roadmap.md under "## Discord bugs".');
-		console.log('[discord-import] (Auto-append disabled by design — operator review pass before commit.)');
+		console.log('[discord-import] Or rerun with --auto-append to write automatically (then review with git diff).');
 	}
 }
 
