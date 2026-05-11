@@ -23,6 +23,7 @@ import { separateOutFirstLine } from '../../../../common/helpers/util.js'
 import { BlockCode } from '../util/inputs.js'
 import { CodespanLocationLink } from '../../../../common/chatThreadServiceTypes.js'
 import { getBasename, getRelative, voidOpenFileFn } from '../sidebar-tsx/SidebarChat.js'
+import { chatMarkdownRenderS } from '../vibe-settings-tsx/vibeSettingsRu.js'
 
 
 export type ChatMessageLocation = {
@@ -584,7 +585,7 @@ const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ..
 	// default
 	return (
 		<div className='bg-orange-50 rounded-sm overflow-hidden p-2'>
-			<span className='text-sm text-orange-500'>Unknown token rendered...</span>
+			<span className='text-sm text-orange-500'>{chatMarkdownRenderS.unknownToken}</span>
 		</div>
 	)
 }

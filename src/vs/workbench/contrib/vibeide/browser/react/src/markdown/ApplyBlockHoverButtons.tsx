@@ -12,12 +12,18 @@ import { FileSymlink, LucideIcon, RotateCw, Terminal } from 'lucide-react'
 import { Check, X, Square, Copy, Play, } from 'lucide-react'
 import { getBasename, ListableToolItem, voidOpenFileFn, ToolChildrenWrapper } from '../sidebar-tsx/SidebarChat.js'
 import { PlacesType, VariantType } from 'react-tooltip'
+import { markdownApplyS } from '../vibe-settings-tsx/vibeSettingsRu.js'
 
 enum CopyButtonText {
-	Idle = 'Copy',
-	Copied = 'Copied!',
-	Error = 'Could not copy',
+	Idle = 'idle',
+	Copied = 'copied',
+	Error = 'error',
 }
+
+const copyButtonLabel = (s: CopyButtonText): string =>
+	s === CopyButtonText.Copied ? markdownApplyS.copyDone :
+	s === CopyButtonText.Error ? markdownApplyS.copyError :
+	markdownApplyS.copyIdle;
 
 
 type IconButtonProps = {
@@ -111,7 +117,7 @@ export const JumpToFileButton = ({ uri, ...props }: { uri: URI | 'current' } & R
 			onClick={() => {
 				voidOpenFileFn(uri, accessor)
 			}}
-			{...tooltipPropsForApplyBlock({ tooltipName: 'Go to file' })}
+			{...tooltipPropsForApplyBlock({ tooltipName: markdownApplyS.goToFile })}
 			{...props}
 		/>
 	)
@@ -223,9 +229,9 @@ export const StatusIndicatorForApplyButton = ({ applyBoxId, uri }: { applyBoxId:
 	)
 
 	const tooltipName = (
-		currStreamState === 'idle-no-changes' ? 'Done' :
-			currStreamState === 'streaming' ? 'Applying' :
-				currStreamState === 'idle-has-changes' ? 'Done' : // also 'Done'? 'Applied' looked bad
+		currStreamState === 'idle-no-changes' ? markdownApplyS.done :
+			currStreamState === 'streaming' ? markdownApplyS.applying :
+				currStreamState === 'idle-has-changes' ? markdownApplyS.done :
 					''
 	)
 
@@ -300,7 +306,7 @@ const ApplyButtonsForTerminal = ({
 					interruptToolRef.current?.();
 					setIsShellRunning(false);
 				}}
-				{...tooltipPropsForApplyBlock({ tooltipName: 'Stop' })}
+				{...tooltipPropsForApplyBlock({ tooltipName: markdownApplyS.stop })}
 			/>
 		);
 	}
@@ -310,7 +316,7 @@ const ApplyButtonsForTerminal = ({
 	return <IconShell1
 		Icon={Play}
 		onClick={onClickSubmit}
-		{...tooltipPropsForApplyBlock({ tooltipName: 'Apply' })}
+		{...tooltipPropsForApplyBlock({ tooltipName: markdownApplyS.apply })}
 	/>
 }
 
@@ -351,14 +357,14 @@ const ApplyButtonsForEdit = ({
 		setApplying(newApplyingUri)
 
 		if (!applyDonePromise) {
-				notificationService.info(`VibeIDE Error: We couldn't run Apply here. ${uri === 'current' ? 'This Apply block wants to run on the current file, but you might not have a file open.' : `This Apply block wants to run on ${uri.fsPath}, but it might not exist.`}`)
+				notificationService.info(uri === 'current' ? markdownApplyS.applyErrorNoFile : markdownApplyS.applyErrorFile(uri.fsPath))
 		}
 
 		// catch any errors by interrupting the stream
 		applyDonePromise?.catch(e => {
 			const uri = getUriBeingApplied(applyBoxId)
 			if (uri) editCodeService.interruptURIStreaming({ uri: uri })
-			notificationService.info(`VibeIDE Error: There was a problem running Apply: ${e}.`)
+			notificationService.info(markdownApplyS.applyErrorRuntime(`${e}`))
 
 		})
 		metricsService.capture('Apply Code', { length: codeStr.length }) // capture the length only
@@ -390,7 +396,7 @@ const ApplyButtonsForEdit = ({
 		return <IconShell1
 			Icon={Square}
 			onClick={onClickStop}
-			{...tooltipPropsForApplyBlock({ tooltipName: 'Stop' })}
+			{...tooltipPropsForApplyBlock({ tooltipName: markdownApplyS.stop })}
 		/>
 	}
 	if (isDisabled) {
@@ -400,7 +406,7 @@ const ApplyButtonsForEdit = ({
 		return <IconShell1
 			Icon={Play}
 			onClick={onClickSubmit}
-			{...tooltipPropsForApplyBlock({ tooltipName: 'Apply' })}
+			{...tooltipPropsForApplyBlock({ tooltipName: markdownApplyS.apply })}
 		/>
 	}
 	if (currStreamState === 'idle-has-changes') {
@@ -408,12 +414,12 @@ const ApplyButtonsForEdit = ({
 			<IconShell1
 				Icon={X}
 				onClick={onReject}
-				{...tooltipPropsForApplyBlock({ tooltipName: 'Remove' })}
+				{...tooltipPropsForApplyBlock({ tooltipName: markdownApplyS.remove })}
 			/>
 			<IconShell1
 				Icon={Check}
 				onClick={onAccept}
-				{...tooltipPropsForApplyBlock({ tooltipName: 'Keep' })}
+				{...tooltipPropsForApplyBlock({ tooltipName: markdownApplyS.keep })}
 			/>
 		</Fragment>
 	}
@@ -492,12 +498,12 @@ export const EditToolAcceptRejectButtonsHTML = ({
 			<IconShell1
 				Icon={X}
 				onClick={onReject}
-				{...tooltipPropsForApplyBlock({ tooltipName: 'Remove' })}
+				{...tooltipPropsForApplyBlock({ tooltipName: markdownApplyS.remove })}
 			/>
 			<IconShell1
 				Icon={Check}
 				onClick={onAccept}
-				{...tooltipPropsForApplyBlock({ tooltipName: 'Keep' })}
+				{...tooltipPropsForApplyBlock({ tooltipName: markdownApplyS.keep })}
 			/>
 		</>
 	}
@@ -546,7 +552,7 @@ export const BlockCodeApplyWrapper = ({
 			</div>
 			<div className={`${canApply ? '' : 'hidden'} flex items-center gap-1`}>
 				<JumpToFileButton uri={uri} />
-				{currStreamState === 'idle-no-changes' && <CopyButton codeStr={codeStr} toolTipName='Copy' />}
+				{currStreamState === 'idle-no-changes' && <CopyButton codeStr={codeStr} toolTipName={markdownApplyS.copyIdle} />}
 				<ApplyButtonsHTML uri={uri} applyBoxId={applyBoxId} codeStr={codeStr} language={language} />
 			</div>
 		</div>
