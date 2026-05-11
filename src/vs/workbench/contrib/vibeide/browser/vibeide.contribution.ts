@@ -427,6 +427,9 @@ import './vibeProviderStatusBar.js'
 // VibeIDE: Gutter decorations (agent-written lines)
 import './vibeGutterDecorations.js'
 
+// VibeIDE: Inline AI explanation hover provider (L929)
+import './vibeInlineAiExplanationHoverProvider.js'
+
 // VibeIDE: Context window visualizer statusbar
 import './vibeContextWindowStatusBar.js'
 
