@@ -5,6 +5,7 @@
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
+import { localize } from '../../../../nls.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -78,7 +79,7 @@ class VibeRunTestsAfterApplyService extends Disposable implements IVibeRunTestsA
 		try {
 			// Create or reuse terminal and run command
 			const terminal = await this._terminalService.createTerminal({
-				config: { name: 'VibeIDE Tests' },
+				config: { name: localize('vibeRunTestsAfterApply.terminalName', 'VibeIDE Tests') },
 			});
 			await terminal.sendText(command, true);
 

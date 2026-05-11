@@ -63,7 +63,7 @@ export class VibeOfflineUXContribution extends Disposable implements IWorkbenchC
 	private _showOfflineIndicator(): void {
 		const props: IStatusbarEntry = {
 			name: localize('vibeOfflineStatus', 'VibeIDE Offline'),
-			text: '$(cloud-offline) Offline',
+			text: localize('vibeOfflineStatusText', '$(cloud-offline) Offline'),
 			tooltip: localize('vibeOfflineTooltip', 'VibeIDE is offline. Cloud AI unavailable. Ollama works locally.'),
 			ariaLabel: localize('vibeOfflineStatusAria', 'VibeIDE is offline'),
 		};

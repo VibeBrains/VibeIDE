@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { localize } from '../../../../nls.js';
+
 /**
  * AI «thinking» indicator — pure label formatter
  * (roadmap §"Индикация ИИ думает (не вглухую отвал)" + K.4 «runtime таймаут
@@ -65,34 +67,34 @@ export function buildThinkingIndicator(input: ThinkingIndicatorInput): ThinkingI
 		case 'thinking':
 			return {
 				visible: true,
-				text: '$(loading~spin) Думает…',
+				text: localize('vibeide.aiThinking.thinking', "$(loading~spin) Думает…"),
 				severity: 'info',
 				...(maybeHint(input.lastChunkAgoMs)),
 			};
 		case 'waiting':
 			return {
 				visible: true,
-				text: '$(loading~spin) Ожидание ответа…',
+				text: localize('vibeide.aiThinking.waiting', "$(loading~spin) Ожидание ответа…"),
 				severity: 'warn',
 				...(maybeHint(input.lastChunkAgoMs)),
 			};
 		case 'retrying-1':
 			return {
 				visible: true,
-				text: '$(sync~spin) Переподключение… (попытка 1/2)',
+				text: localize('vibeide.aiThinking.retrying1', "$(sync~spin) Переподключение… (попытка 1/2)"),
 				severity: 'warn',
 			};
 		case 'retrying-2':
 			return {
 				visible: true,
-				text: '$(sync~spin) Переподключение… (попытка 2/2)',
+				text: localize('vibeide.aiThinking.retrying2', "$(sync~spin) Переподключение… (попытка 2/2)"),
 				severity: 'warn',
 			};
 		case 'failed': {
 			const reason = input.failedReason ?? 'gap-timeout';
 			return {
 				visible: true,
-				text: '$(error) Соединение прервано',
+				text: localize('vibeide.aiThinking.failed', "$(error) Соединение прервано"),
 				hint: failedHint(reason),
 				severity: 'error',
 			};
