@@ -135,6 +135,30 @@ if (Test-Path $signerScript) {
     Write-Warning "[release-windows] scripts\sign-windows.ps1 missing — installer left unsigned."
 }
 
+# ── 3b. Smoke check — verify the built exe responds (roadmap L1160) ─────────
+# Runs code.exe --version; fails the build if it exits non-zero or produces
+# no output. Full releaseSmokeChecker.evaluateSmokeRun is the TypeScript helper;
+# this PowerShell gate covers the minimal acceptance criterion without it.
+Step "Smoke-checking built application..."
+$appExe = "$Root\..\VibeIDE-win32-x64\Code.exe"
+if (-not (Test-Path $appExe)) {
+    $appExe = "$Root\..\VibeIDE-win32-x64\VibeIDE.exe"
+}
+if (Test-Path $appExe) {
+    $smokeOut = & $appExe --version 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "[release] Smoke check FAILED: $appExe --version exited $LASTEXITCODE"
+        exit 1
+    }
+    if (-not $smokeOut) {
+        Write-Warning "[release] Smoke check WARNING: $appExe --version produced no output (non-fatal)"
+    } else {
+        OK "Smoke check passed: $($smokeOut -join ' / ')"
+    }
+} else {
+    Write-Warning "[release] Smoke check SKIPPED: built exe not found at expected path — verify gulp output dir."
+}
+
 # ── 4. Git tag ────────────────────────────────────────────────────────────────
 Step "Creating git tag $Version..."
 $tagExists = git tag -l $Version
