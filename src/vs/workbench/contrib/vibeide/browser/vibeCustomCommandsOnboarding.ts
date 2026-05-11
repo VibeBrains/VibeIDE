@@ -99,10 +99,7 @@ export class VibeCustomCommandsOnboardingContribution extends Disposable impleme
 						class: undefined,
 						run: async () => {
 							this._userHasInteractedWithPin = true;
-							// Pin handler not yet implemented — open commands.json so the
-							// user can flip `"pinned": true` by hand. Replace with the
-							// real pin command once it lands.
-							await this._commandService.executeCommand(PROJECT_COMMANDS_PALETTE_IDS.openJson);
+							await this._commandService.executeCommand(PROJECT_COMMANDS_PALETTE_IDS.pin);
 						},
 					},
 				],

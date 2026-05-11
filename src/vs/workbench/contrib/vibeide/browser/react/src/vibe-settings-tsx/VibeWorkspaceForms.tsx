@@ -8,6 +8,27 @@ import { useAccessor } from '../util/services.js';
 import { VibeButtonBgDarken } from '../util/inputs.js';
 import { joinPath } from '../../../../../../../base/common/resources.js';
 import { URI } from '../../../../../../../base/common/uri.js';
+import { VSBuffer } from '../../../../../../../base/common/buffer.js';
+import {
+	ADD_COMMAND_DRAFT_EMPTY,
+	ADD_COMMAND_ERROR,
+	AddCommandDraft,
+	appendCommandToFile,
+	buildProjectCommandFromDraft,
+	previewProjectCommandJson,
+	removeCommandFromFile,
+	setPinnedInFile,
+	validateAddCommandDraft,
+} from '../../../../common/projectCommandsAddFormPolicy.js';
+import {
+	decodeProjectCommandsFile,
+	ProjectCommand,
+	ProjectCommandsFile,
+	ProjectCommandTerminal,
+	sortProjectCommandsForDisplay,
+} from '../../../../common/projectCommandsTypes.js';
+import { serializeProjectCommandsInitTemplate } from '../../../../common/projectCommandsInitTemplate.js';
+import { safeParseConfigJson } from '../../../../common/vibeConfigJsonParser.js';
 import { ChatMarkdownRender } from '../markdown/ChatMarkdownRender.js';
 import {
 	MAX_VIBE_RULES_FORM_BYTES,
@@ -51,6 +72,7 @@ type WorkspaceFormsSubTab =
 	| 'prompts'
 	| 'workflows'
 	| 'skills'
+	| 'projectCommands'
 	| 'vibeStructure'
 	| `${typeof RJ_JSON_TAB}${string}`;
 
@@ -688,6 +710,18 @@ export const VibeWorkspaceFormsPanel = () => {
 		[rootListing],
 	);
 
+	// Split editable vs runtime-managed files. Runtime files (dot-prefix: `.window-lock.json`,
+	// `.session-state.json`, …) are pinned/heartbeat/state — editing them by hand corrupts
+	// IDE state. Rendered in a separate read-only block with explicit warning.
+	const editableJsonBasenames = useMemo(
+		() => jsonBasenamesSorted.filter(n => !n.startsWith('.')),
+		[jsonBasenamesSorted],
+	);
+	const runtimeJsonBasenames = useMemo(
+		() => jsonBasenamesSorted.filter(n => n.startsWith('.')),
+		[jsonBasenamesSorted],
+	);
+
 	useEffect(() => {
 		if (!isRjTab(subTab)) {
 			return;
@@ -929,6 +963,7 @@ export const VibeWorkspaceFormsPanel = () => {
 		{ id: 'prompts', label: workspaceS.pillPrompts },
 		{ id: 'workflows', label: workspaceS.pillWorkflows },
 		{ id: 'skills', label: workspaceS.pillSkills },
+		{ id: 'projectCommands', label: workspaceS.pillProjectCommands },
 	];
 
 	return (
@@ -981,15 +1016,34 @@ export const VibeWorkspaceFormsPanel = () => {
 						>{t.label}</button>
 					))}
 				</div>
-				{jsonBasenamesSorted.length ? (
+				{editableJsonBasenames.length ? (
 					<div className='flex flex-wrap gap-2 items-center'>
-						{jsonBasenamesSorted.map(jn => {
+						{editableJsonBasenames.map(jn => {
 							const id = `${RJ_JSON_TAB}${jn}` satisfies WorkspaceFormsSubTab;
 							return (
 								<button
 									key={jn}
 									type='button'
 									className={`@@vibe-pill-button text-xs px-2 py-1 font-mono ${subTab === id ? '@@vibe-pill-button--active' : ''}`}
+									onClick={() => trySwitchSubTab(id)}
+								>
+									{jn}
+								</button>
+							);
+						})}
+					</div>
+				) : null}
+				{runtimeJsonBasenames.length ? (
+					<div className='flex flex-wrap gap-2 items-center pt-1 border-t border-vibe-border-1 mt-1'>
+						<span className='text-[10px] text-vibe-fg-3 uppercase tracking-wide mr-1'>{workspaceS.runtimeJsonGroupLabel}</span>
+						{runtimeJsonBasenames.map(jn => {
+							const id = `${RJ_JSON_TAB}${jn}` satisfies WorkspaceFormsSubTab;
+							return (
+								<button
+									key={jn}
+									type='button'
+									title={workspaceS.runtimeJsonTooltip}
+									className={`@@vibe-pill-button text-xs px-2 py-1 font-mono opacity-70 ${subTab === id ? '@@vibe-pill-button--active' : ''}`}
 									onClick={() => trySwitchSubTab(id)}
 								>
 									{jn}
@@ -1228,6 +1282,10 @@ export const VibeWorkspaceFormsPanel = () => {
 				</div>
 			)}
 
+			{subTab === 'projectCommands' && (
+				<ProjectCommandsPanel />
+			)}
+
 			{subTab === 'vibeStructure' && (
 				<div className='flex flex-col gap-3'>
 					<p className='text-xs text-vibe-fg-3'>{workspaceS.vibeStructureHint}</p>
@@ -1331,6 +1389,523 @@ export const VibeWorkspaceFormsPanel = () => {
 				</div>
 			) : null}
 
+		</div>
+	);
+};
+
+/**
+ * Project Commands — Settings group (roadmap §C "Surface" — Прогон 3 full UI).
+ *
+ * Surfaces the workspace-first shell shortcuts loaded by
+ * `IVibeCustomCommandsService` directly inside Settings → Workspace, so the
+ * user does not have to bounce through the Command Palette for the common
+ * day-to-day actions:
+ *
+ *   - **Toolbar position** radio (`vibeide.commands.toolbar.position`):
+ *     titlebar / statusbar / hidden. Live config update.
+ *   - **Top action row**: Open .vibe/commands.json · Import tasks.json · Import URL ·
+ *     Reload · Open palette. Each dispatches the canonical palette command id —
+ *     the actual behaviour lives in `vibeCustomCommandsContribution.ts`, so this
+ *     panel is a thin "control surface" rather than a re-implementation.
+ *   - **Filter** input — substring match against id / name / command.
+ *   - **Commands table** — display-sorted (by `order`, then `name`). Each row:
+ *     id, name, command summary, pinned indicator, order, and per-row actions
+ *     (Run / Copy / Pin/Unpin / Edit-in-JSON / Delete). Pin/Delete mutate
+ *     `.vibe/commands.json` directly via `IFileService` + the pure helpers in
+ *     `projectCommandsAddFormPolicy.ts` (writes go through `commands.reload()`
+ *     so the snapshot and top-bar update).
+ *   - **Inline Add form** — collapsible. Validates every keystroke against
+ *     `validateAddCommandDraft` (id pattern + duplicate, name + command
+ *     required, cwd not absolute / no `..`, order integer). Shows a live JSON
+ *     preview built by `previewProjectCommandJson`. Save writes via
+ *     `appendCommandToFile` (creates the file from the init template when
+ *     missing).
+ *
+ * The "counter" line («Загружено команд: N · закреплено: M») reads live from
+ * `IVibeCustomCommandsService.getCommands()` and re-renders on
+ * `onDidChangeCommands` (FS-watch / manual reload / globalPaths change).
+ */
+const ProjectCommandsPanel: React.FC = () => {
+	const accessor = useAccessor();
+	const commands = accessor.get('IVibeCustomCommandsService');
+	const config = accessor.get('IConfigurationService');
+	const commandService = accessor.get('ICommandService');
+	const fileService = accessor.get('IFileService');
+	const workspace = accessor.get('IWorkspaceContextService');
+	const clipboard = accessor.get('IClipboardService');
+	const notifications = accessor.get('INotificationService');
+
+	const [snapshot, setSnapshot] = useState(() => commands.getCommands());
+	const [position, setPosition] = useState<string>(() => {
+		const raw = config.getValue('vibeide.commands.toolbar.position');
+		return typeof raw === 'string' ? raw : 'titlebar';
+	});
+	const [filter, setFilter] = useState('');
+	const [addOpen, setAddOpen] = useState(false);
+	const [draft, setDraft] = useState<AddCommandDraft>(ADD_COMMAND_DRAFT_EMPTY);
+	const [saveBusy, setSaveBusy] = useState(false);
+
+	useEffect(() => {
+		const d = commands.onDidChangeCommands(e => setSnapshot(e.commands));
+		return () => d.dispose();
+	}, [commands]);
+
+	useEffect(() => {
+		const d = config.onDidChangeConfiguration(e => {
+			if (!e.affectsConfiguration('vibeide.commands.toolbar.position')) return;
+			const raw = config.getValue('vibeide.commands.toolbar.position');
+			setPosition(typeof raw === 'string' ? raw : 'titlebar');
+		});
+		return () => d.dispose();
+	}, [config]);
+
+	const pinnedCount = useMemo(() => snapshot.filter(c => c.pinned === true).length, [snapshot]);
+
+	const onPositionChange = useCallback(async (next: string) => {
+		try {
+			await config.updateValue('vibeide.commands.toolbar.position', next);
+		} catch {
+			// Surface errors via existing config notifications — no extra toast needed.
+		}
+	}, [config]);
+
+	const radio = (val: 'titlebar' | 'statusbar' | 'hidden', label: string) => (
+		<label className='flex items-center gap-2 cursor-pointer select-none my-1'>
+			<input
+				type='radio'
+				name='vibeide-pc-toolbar-position'
+				checked={position === val}
+				onChange={() => void onPositionChange(val)}
+			/>
+			<span className='text-xs text-vibe-fg-2'>{label}</span>
+		</label>
+	);
+
+	// Display-sorted + filtered table view.
+	const displaySorted = useMemo(() => sortProjectCommandsForDisplay(snapshot), [snapshot]);
+	const filtered = useMemo(() => {
+		const q = filter.trim().toLowerCase();
+		if (!q) return displaySorted;
+		return displaySorted.filter(c => {
+			const argsLine = (c.args ?? []).join(' ').toLowerCase();
+			return c.id.toLowerCase().includes(q)
+				|| c.name.toLowerCase().includes(q)
+				|| c.command.toLowerCase().includes(q)
+				|| argsLine.includes(q);
+		});
+	}, [displaySorted, filter]);
+
+	const existingIds = useMemo(() => new Set(snapshot.map(c => c.id)), [snapshot]);
+	const validation = useMemo(() => validateAddCommandDraft(draft, existingIds), [draft, existingIds]);
+	const previewCommand = useMemo<ProjectCommand | null>(() => {
+		// Build a preview even when the draft is incomplete — gives the user a
+		// "what will land in JSON" hint that updates as they type. We only need
+		// id+name+command to be non-empty for the preview to be meaningful.
+		if (!draft.id.trim() || !draft.name.trim() || !draft.command.trim()) return null;
+		try {
+			return buildProjectCommandFromDraft(draft);
+		} catch {
+			return null;
+		}
+	}, [draft]);
+
+	const fieldErrorLabel = useCallback((code: string | null): string | null => {
+		switch (code) {
+			case ADD_COMMAND_ERROR.idMissing: return workspaceS.pcErrIdMissing;
+			case ADD_COMMAND_ERROR.idPattern: return workspaceS.pcErrIdPattern;
+			case ADD_COMMAND_ERROR.idDuplicate: return workspaceS.pcErrIdDuplicate;
+			case ADD_COMMAND_ERROR.nameMissing: return workspaceS.pcErrNameMissing;
+			case ADD_COMMAND_ERROR.commandMissing: return workspaceS.pcErrCommandMissing;
+			case ADD_COMMAND_ERROR.cwdAbsolute: return workspaceS.pcErrCwdAbsolute;
+			case ADD_COMMAND_ERROR.cwdTraversal: return workspaceS.pcErrCwdTraversal;
+			case ADD_COMMAND_ERROR.orderNotNumber: return workspaceS.pcErrOrderNotNumber;
+			default: return null;
+		}
+	}, []);
+
+	const firstWorkspaceFolder = useCallback((): URI | null => {
+		const folder = workspace.getWorkspace().folders[0];
+		return folder ? folder.uri : null;
+	}, [workspace]);
+
+	/**
+	 * Load + decode `.vibe/commands.json` for the first workspace folder.
+	 * Returns `null` when the file is missing, malformed, or the user is in a
+	 * folder-less window — caller decides whether to fall back to the init
+	 * template or surface a notification.
+	 */
+	const readCommandsFile = useCallback(async (uri: URI): Promise<ProjectCommandsFile | null> => {
+		try {
+			const buf = await fileService.readFile(uri);
+			const parsed = safeParseConfigJson(buf.value.toString());
+			if (!parsed.ok) return null;
+			const decoded = decodeProjectCommandsFile(parsed.value);
+			return decoded.ok ? decoded.value : null;
+		} catch {
+			return null;
+		}
+	}, [fileService]);
+
+	const onRunRow = useCallback(async (cmd: ProjectCommand) => {
+		const outcome = await commands.run(cmd.id);
+		if (outcome.outcome === 'refused') {
+			notifications.notify({ severity: 2 /* Warning */, message: workspaceS.pcRowRunRefused(outcome.reason ?? 'unknown') });
+		} else if (outcome.outcome === 'failure') {
+			notifications.notify({ severity: 1 /* Error */, message: workspaceS.pcRowRunFailure(outcome.reason ?? 'unknown') });
+		}
+	}, [commands, notifications]);
+
+	const onCopyRow = useCallback(async (cmd: ProjectCommand) => {
+		const argSuffix = (cmd.args && cmd.args.length > 0) ? ' ' + cmd.args.join(' ') : '';
+		await clipboard.writeText(`${cmd.command}${argSuffix}`);
+		notifications.notify({ severity: 3 /* Info */, message: workspaceS.pcRowCopyDone });
+	}, [clipboard, notifications]);
+
+	const onPinToggleRow = useCallback(async (cmd: ProjectCommand) => {
+		const folderUri = firstWorkspaceFolder();
+		if (!folderUri) return;
+		const uri = joinPath(folderUri, '.vibe', 'commands.json');
+		const file = await readCommandsFile(uri);
+		if (!file) {
+			notifications.notify({ severity: 2, message: workspaceS.pcRowGlobalOnly });
+			return;
+		}
+		const next = setPinnedInFile(file, cmd.id, !(cmd.pinned === true));
+		if (!next) {
+			notifications.notify({ severity: 2, message: workspaceS.pcRowGlobalOnly });
+			return;
+		}
+		await fileService.writeFile(uri, VSBuffer.fromString(next.serialized));
+		await commands.reload();
+	}, [firstWorkspaceFolder, readCommandsFile, fileService, commands, notifications]);
+
+	const onDeleteRow = useCallback(async (cmd: ProjectCommand) => {
+		// Use native confirm — settings panel already lives inside the editor
+		// surface and we want a synchronous yes/no without spinning up dialog
+		// service plumbing (which would require an extra `IDialogService` import).
+		// eslint-disable-next-line no-restricted-globals
+		const confirmed = typeof window !== 'undefined' ? window.confirm(workspaceS.pcRowDeleteConfirm(cmd.name)) : false;
+		if (!confirmed) return;
+		const folderUri = firstWorkspaceFolder();
+		if (!folderUri) return;
+		const uri = joinPath(folderUri, '.vibe', 'commands.json');
+		const file = await readCommandsFile(uri);
+		if (!file) {
+			notifications.notify({ severity: 2, message: workspaceS.pcRowGlobalOnly });
+			return;
+		}
+		const next = removeCommandFromFile(file, cmd.id);
+		if (!next) {
+			notifications.notify({ severity: 2, message: workspaceS.pcRowGlobalOnly });
+			return;
+		}
+		await fileService.writeFile(uri, VSBuffer.fromString(next.serialized));
+		await commands.reload();
+	}, [firstWorkspaceFolder, readCommandsFile, fileService, commands, notifications]);
+
+	const onSaveAdd = useCallback(async () => {
+		if (!validation.isValid || saveBusy) return;
+		setSaveBusy(true);
+		try {
+			const folderUri = firstWorkspaceFolder();
+			if (!folderUri) {
+				notifications.notify({ severity: 2, message: workspaceS.pcAddNoWorkspace });
+				return;
+			}
+			const uri = joinPath(folderUri, '.vibe', 'commands.json');
+			let file = await readCommandsFile(uri);
+			if (!file) {
+				// File missing or unparsable — bootstrap from the canonical init template.
+				const exists = await fileService.exists(uri);
+				if (!exists) {
+					await fileService.writeFile(uri, VSBuffer.fromString(serializeProjectCommandsInitTemplate({ vibeVersion: '1.0.0' })));
+					file = await readCommandsFile(uri);
+				}
+			}
+			if (!file) {
+				notifications.notify({ severity: 1, message: workspaceS.pcAddSaveError('cannot-read-or-init') });
+				return;
+			}
+			const built = buildProjectCommandFromDraft(draft);
+			const { serialized } = appendCommandToFile(file, built);
+			await fileService.writeFile(uri, VSBuffer.fromString(serialized));
+			await commands.reload();
+			notifications.notify({ severity: 3, message: workspaceS.pcAddSaveSuccess(built.id) });
+			setDraft(ADD_COMMAND_DRAFT_EMPTY);
+			setAddOpen(false);
+		} catch (e) {
+			notifications.notify({ severity: 1, message: workspaceS.pcAddSaveError((e as Error).message ?? String(e)) });
+		} finally {
+			setSaveBusy(false);
+		}
+	}, [validation.isValid, saveBusy, draft, firstWorkspaceFolder, readCommandsFile, fileService, commands, notifications]);
+
+	const inputCls = 'w-full @@vibe-chat-like-shell text-xs px-2 py-1';
+	const labelCls = 'flex flex-col gap-1';
+	const labelTitleCls = 'text-[11px] text-vibe-fg-2 font-medium';
+	const hintCls = 'text-[10px] text-vibe-fg-3';
+	const errCls = 'text-[10px] text-red-400';
+
+	return (
+		<div className='flex flex-col gap-3'>
+			<p className='text-xs text-vibe-fg-3'>{workspaceS.pcGroupIntro}</p>
+
+			<div className='text-xs text-vibe-fg-2'>
+				{workspaceS.pcCountLabel(snapshot.length)}
+				<span className='text-vibe-fg-1 font-medium'>{workspaceS.pcPinnedCount(pinnedCount)}</span>
+			</div>
+
+			<div className='@@vibe-chat-like-shell px-3 py-2 flex flex-col gap-1'>
+				<span className='text-xs text-vibe-fg-3'>{workspaceS.pcToolbarPositionLabel}</span>
+				{radio('titlebar', workspaceS.pcToolbarPositionTitlebar)}
+				{radio('statusbar', workspaceS.pcToolbarPositionStatusbar)}
+				{radio('hidden', workspaceS.pcToolbarPositionHidden)}
+			</div>
+
+			<div className='flex flex-wrap gap-2'>
+				<VibeButtonBgDarken className='px-3 py-1 text-xs' onClick={() => void commandService.executeCommand('vibeide.commands.openConfigFile')}>
+					{workspaceS.pcOpenJson}
+				</VibeButtonBgDarken>
+				<VibeButtonBgDarken className='px-3 py-1 text-xs' onClick={() => void commandService.executeCommand('vibeide.commands.importTasksJson')}>
+					{workspaceS.pcImportTasks}
+				</VibeButtonBgDarken>
+				<VibeButtonBgDarken className='px-3 py-1 text-xs' onClick={() => void commandService.executeCommand('vibeide.commands.importFromUrl')}>
+					{workspaceS.pcImportUrl}
+				</VibeButtonBgDarken>
+				<VibeButtonBgDarken className='px-3 py-1 text-xs' onClick={() => void commandService.executeCommand('vibeide.commands.reload')}>
+					{workspaceS.pcReload}
+				</VibeButtonBgDarken>
+				<VibeButtonBgDarken className='px-3 py-1 text-xs' onClick={() => void commandService.executeCommand('vibeide.commands.runFromPalette')}>
+					{workspaceS.pcOpenPalette}
+				</VibeButtonBgDarken>
+				<VibeButtonBgDarken className='px-3 py-1 text-xs' onClick={() => setAddOpen(o => !o)}>
+					{addOpen ? workspaceS.pcAddFormToggleOpen : workspaceS.pcAddFormToggleClosed}
+				</VibeButtonBgDarken>
+			</div>
+
+			{/* Add form (collapsible) */}
+			{addOpen && (
+				<div className='@@vibe-chat-like-shell px-3 py-3 flex flex-col gap-2'>
+					<div className='text-xs text-vibe-fg-1 font-medium'>{workspaceS.pcAddFormTitle}</div>
+					<div className='grid grid-cols-1 md:grid-cols-2 gap-3'>
+						<label className={labelCls}>
+							<span className={labelTitleCls}>{workspaceS.pcAddFieldId}</span>
+							<input
+								className={inputCls}
+								value={draft.id}
+								onChange={e => setDraft(d => ({ ...d, id: e.target.value }))}
+								placeholder='lint'
+								autoComplete='off'
+								spellCheck={false}
+							/>
+							{validation.errors.id
+								? <span className={errCls}>{fieldErrorLabel(validation.errors.id)}</span>
+								: <span className={hintCls}>{workspaceS.pcAddFieldIdHint}</span>}
+						</label>
+						<label className={labelCls}>
+							<span className={labelTitleCls}>{workspaceS.pcAddFieldName}</span>
+							<input
+								className={inputCls}
+								value={draft.name}
+								onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
+								placeholder='Run lint'
+							/>
+							{validation.errors.name
+								? <span className={errCls}>{fieldErrorLabel(validation.errors.name)}</span>
+								: <span className={hintCls}>{workspaceS.pcAddFieldNameHint}</span>}
+						</label>
+						<label className={`${labelCls} md:col-span-2`}>
+							<span className={labelTitleCls}>{workspaceS.pcAddFieldDescription}</span>
+							<input
+								className={inputCls}
+								value={draft.description}
+								onChange={e => setDraft(d => ({ ...d, description: e.target.value }))}
+								placeholder='Запустить ESLint на проекте'
+							/>
+						</label>
+						<label className={labelCls}>
+							<span className={labelTitleCls}>{workspaceS.pcAddFieldCommand}</span>
+							<input
+								className={inputCls}
+								value={draft.command}
+								onChange={e => setDraft(d => ({ ...d, command: e.target.value }))}
+								placeholder='npm'
+								autoComplete='off'
+								spellCheck={false}
+							/>
+							{validation.errors.command
+								? <span className={errCls}>{fieldErrorLabel(validation.errors.command)}</span>
+								: <span className={hintCls}>{workspaceS.pcAddFieldCommandHint}</span>}
+						</label>
+						<label className={labelCls}>
+							<span className={labelTitleCls}>{workspaceS.pcAddFieldCwd}</span>
+							<input
+								className={inputCls}
+								value={draft.cwd}
+								onChange={e => setDraft(d => ({ ...d, cwd: e.target.value }))}
+								placeholder='scripts'
+								autoComplete='off'
+								spellCheck={false}
+							/>
+							{validation.errors.cwd
+								? <span className={errCls}>{fieldErrorLabel(validation.errors.cwd)}</span>
+								: <span className={hintCls}>{workspaceS.pcAddFieldCwdHint}</span>}
+						</label>
+						<label className={`${labelCls} md:col-span-2`}>
+							<span className={labelTitleCls}>{workspaceS.pcAddFieldArgs}</span>
+							<textarea
+								className={`${inputCls} font-mono min-h-[64px]`}
+								value={draft.argsText}
+								onChange={e => setDraft(d => ({ ...d, argsText: e.target.value }))}
+								placeholder={'run\nlint'}
+								spellCheck={false}
+							/>
+							<span className={hintCls}>{workspaceS.pcAddFieldArgsHint}</span>
+						</label>
+						<label className={labelCls}>
+							<span className={labelTitleCls}>{workspaceS.pcAddFieldTerminal}</span>
+							<select
+								className={inputCls}
+								value={draft.terminal}
+								onChange={e => setDraft(d => ({ ...d, terminal: e.target.value as ProjectCommandTerminal | '' }))}
+							>
+								<option value=''>{workspaceS.pcAddTerminalDefault}</option>
+								<option value='integrated'>{workspaceS.pcAddTerminalIntegrated}</option>
+								<option value='external'>{workspaceS.pcAddTerminalExternal}</option>
+								<option value='background'>{workspaceS.pcAddTerminalBackground}</option>
+							</select>
+						</label>
+						<label className={labelCls}>
+							<span className={labelTitleCls}>{workspaceS.pcAddFieldOrder}</span>
+							<input
+								className={inputCls}
+								value={draft.orderText}
+								onChange={e => setDraft(d => ({ ...d, orderText: e.target.value }))}
+								placeholder='10'
+								inputMode='numeric'
+							/>
+							{validation.errors.order
+								? <span className={errCls}>{fieldErrorLabel(validation.errors.order)}</span>
+								: <span className={hintCls}>{workspaceS.pcAddFieldOrderHint}</span>}
+						</label>
+						<label className='flex items-center gap-2 cursor-pointer select-none md:col-span-2'>
+							<input
+								type='checkbox'
+								checked={draft.pinned}
+								onChange={e => setDraft(d => ({ ...d, pinned: e.target.checked }))}
+							/>
+							<span className='text-xs text-vibe-fg-2'>{workspaceS.pcAddFieldPinned}</span>
+						</label>
+					</div>
+
+					{/* Live JSON preview */}
+					<div className='flex flex-col gap-1'>
+						<span className={labelTitleCls}>{workspaceS.pcAddPreviewTitle}</span>
+						<pre
+							className='@@vibe-chat-like-shell font-mono text-[11px] p-2 whitespace-pre overflow-x-auto text-vibe-fg-2'
+							style={{ maxHeight: 200 }}
+						>
+							{previewCommand ? previewProjectCommandJson(previewCommand) : '// заполните id, name и команду…'}
+						</pre>
+					</div>
+
+					<div className='flex gap-2'>
+						<VibeButtonBgDarken
+							className={`px-3 py-1 text-xs ${(!validation.isValid || saveBusy) ? 'opacity-50 cursor-not-allowed' : ''}`}
+							disabled={!validation.isValid || saveBusy}
+							onClick={() => void onSaveAdd()}
+						>
+							{workspaceS.pcAddSave}
+						</VibeButtonBgDarken>
+						<VibeButtonBgDarken
+							className='px-3 py-1 text-xs'
+							onClick={() => { setDraft(ADD_COMMAND_DRAFT_EMPTY); setAddOpen(false); }}
+						>
+							{workspaceS.pcAddCancel}
+						</VibeButtonBgDarken>
+					</div>
+				</div>
+			)}
+
+			{/* Filter + table */}
+			<div className='flex flex-col gap-2'>
+				<div className='flex items-center justify-between gap-2'>
+					<span className='text-xs text-vibe-fg-1 font-medium'>{workspaceS.pcTableTitle}</span>
+					<input
+						className={`${inputCls} max-w-xs`}
+						value={filter}
+						onChange={e => setFilter(e.target.value)}
+						placeholder={workspaceS.pcTableFilterPlaceholder}
+					/>
+				</div>
+				{snapshot.length === 0 ? (
+					<p className='text-xs text-vibe-fg-3'>{workspaceS.pcTableEmpty}</p>
+				) : filtered.length === 0 ? (
+					<p className='text-xs text-vibe-fg-3'>{workspaceS.pcTableEmptyFiltered}</p>
+				) : (
+					<div className='@@vibe-chat-like-shell overflow-x-auto'>
+						<table className='w-full text-xs text-vibe-fg-2'>
+							<thead>
+								<tr className='text-[11px] text-vibe-fg-3 uppercase tracking-wide'>
+									<th className='text-left px-2 py-1'>{workspaceS.pcTableColId}</th>
+									<th className='text-left px-2 py-1'>{workspaceS.pcTableColName}</th>
+									<th className='text-left px-2 py-1'>{workspaceS.pcTableColCommand}</th>
+									<th className='text-left px-2 py-1'>{workspaceS.pcTableColPinned}</th>
+									<th className='text-left px-2 py-1'>{workspaceS.pcTableColOrder}</th>
+									<th className='text-right px-2 py-1'>{workspaceS.pcTableColActions}</th>
+								</tr>
+							</thead>
+							<tbody>
+								{filtered.map(c => {
+									const argSuffix = (c.args && c.args.length > 0) ? ' ' + c.args.join(' ') : '';
+									const line = `${c.command}${argSuffix}`;
+									return (
+										<tr key={c.id} className='border-t border-vibe-border-1 hover:bg-vibe-bg-2/30'>
+											<td className='px-2 py-1 font-mono'>{c.id}</td>
+											<td className='px-2 py-1'>{c.name}</td>
+											<td className='px-2 py-1 font-mono truncate' style={{ maxWidth: 280 }} title={line}>{line}</td>
+											<td className='px-2 py-1'>{c.pinned === true ? '📌' : ''}</td>
+											<td className='px-2 py-1'>{typeof c.order === 'number' ? c.order : ''}</td>
+											<td className='px-2 py-1'>
+												<div className='flex justify-end gap-1 flex-wrap'>
+													<button
+														type='button'
+														className='@@vibe-pill-button px-2 py-0.5 text-[11px]'
+														title={workspaceS.pcRowRunTip}
+														onClick={() => void onRunRow(c)}
+													>{workspaceS.pcRowRun}</button>
+													<button
+														type='button'
+														className='@@vibe-pill-button px-2 py-0.5 text-[11px]'
+														title={workspaceS.pcRowCopyTip}
+														onClick={() => void onCopyRow(c)}
+													>{workspaceS.pcRowCopy}</button>
+													<button
+														type='button'
+														className='@@vibe-pill-button px-2 py-0.5 text-[11px]'
+														onClick={() => void onPinToggleRow(c)}
+													>{c.pinned === true ? workspaceS.pcRowUnpin : workspaceS.pcRowPin}</button>
+													<button
+														type='button'
+														className='@@vibe-pill-button px-2 py-0.5 text-[11px]'
+														title={workspaceS.pcRowEditTip}
+														onClick={() => void commandService.executeCommand('vibeide.commands.openConfigFile')}
+													>{workspaceS.pcRowEdit}</button>
+													<button
+														type='button'
+														className='@@vibe-pill-button px-2 py-0.5 text-[11px] text-red-400'
+														onClick={() => void onDeleteRow(c)}
+													>{workspaceS.pcRowDelete}</button>
+												</div>
+											</td>
+										</tr>
+									);
+								})}
+							</tbody>
+						</table>
+					</div>
+				)}
+			</div>
 		</div>
 	);
 };

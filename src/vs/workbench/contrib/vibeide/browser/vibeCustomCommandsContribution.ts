@@ -733,6 +733,58 @@ CommandsRegistry.registerCommand({
 	},
 });
 
+// ── vibeide.commands.list ───────────────────────────────────────────────────────
+// Quick Pick listing every loaded project command with id, name, pin state, and
+// the resolved shell line. Selecting an entry runs the command (parity with
+// `vibeide.commands.runFromPalette` but with a richer detail line so the user
+// can browse what's defined without opening JSON).
+CommandsRegistry.registerCommand({
+	id: 'vibeide.commands.list',
+	handler: async (accessor: ServicesAccessor) => {
+		const commands = accessor.get(IVibeCustomCommandsService);
+		const quickInput = accessor.get(IQuickInputService);
+		const notifications = accessor.get(INotificationService);
+
+		const list = commands.getCommands();
+		if (list.length === 0) {
+			notifications.notify({
+				severity: Severity.Info,
+				message: localize(
+					'vibeide.commands.list.empty',
+					'Команд нет. Используйте «VibeIDE: Open .vibe/commands.json» чтобы добавить первую.',
+				),
+			});
+			return;
+		}
+
+		const items = list.map(c => {
+			const argSuffix = (c.args && c.args.length > 0) ? ' ' + c.args.join(' ') : '';
+			return {
+				label: c.pinned ? `$(pin) ${c.name}` : c.name,
+				description: c.id,
+				detail: `${c.command}${argSuffix}${c.cwd ? `  ·  cwd: ${c.cwd}` : ''}`,
+				commandId: c.id,
+			};
+		});
+
+		const picked = await quickInput.pick(items, {
+			placeHolder: localize('vibeide.commands.list.placeholder', 'Project Commands — {0} шт.', list.length),
+			matchOnDescription: true,
+			matchOnDetail: true,
+		});
+		if (!picked) {
+			return;
+		}
+		const outcome = await commands.run(picked.commandId);
+		if (outcome.outcome === 'refused' || outcome.outcome === 'failure') {
+			notifications.notify({
+				severity: outcome.outcome === 'refused' ? Severity.Warning : Severity.Error,
+				message: localize('vibeide.commands.list.failed', 'Команда «{0}»: {1}', picked.label, outcome.reason ?? 'unknown'),
+			});
+		}
+	},
+});
+
 // ── vibeide.commands.resetOnboarding ───────────────────────────────────────────
 // Clears the vibeide onboarding completion flag so the welcome flow runs again.
 CommandsRegistry.registerCommand({

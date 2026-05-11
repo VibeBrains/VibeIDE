@@ -1,0 +1,27 @@
+name: Settings TOC coverage
+
+on:
+  pull_request:
+    paths:
+      - 'src/vs/workbench/contrib/vibeide/**'
+      - 'src/vs/workbench/contrib/preferences/browser/settingsLayout.ts'
+      - 'scripts/vibe-settings-toc-coverage.mjs'
+      - '.github/workflows/settings-toc-coverage.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/vs/workbench/contrib/vibeide/**'
+      - 'src/vs/workbench/contrib/preferences/browser/settingsLayout.ts'
+      - 'scripts/vibe-settings-toc-coverage.mjs'
+
+jobs:
+  toc-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify every `vibeide.*` setting is reachable from settingsLayout.ts
+        run: node scripts/vibe-settings-toc-coverage.mjs

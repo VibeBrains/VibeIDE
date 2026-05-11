@@ -53,12 +53,14 @@ import { getWindow } from '../../../../base/browser/dom.js';
 
 const MAX_TOP_BAR_BUTTONS = 6;
 const ENTRY_ID_PREFIX = 'vibeide.topbar.';
+const ANCHOR_ENTRY_ID = 'vibeide.topbar.__anchor';
 
 export class VibeProjectCommandsTopBarContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.vibeProjectCommandsTopBar';
 
 	private readonly _entries = new Map<string, IStatusbarEntryAccessor>();
 	private readonly _entryDisposables = this._register(new DisposableStore());
+	private _anchorEntry: IStatusbarEntryAccessor | undefined;
 	private _position: ProjectCommandsToolbarPosition;
 	private _contextMenuListener = this._register(new DisposableStore());
 
@@ -96,6 +98,8 @@ export class VibeProjectCommandsTopBarContribution extends Disposable implements
 			entry.dispose();
 		}
 		this._entries.clear();
+		this._anchorEntry?.dispose();
+		this._anchorEntry = undefined;
 	}
 
 	private _refresh(): void {
@@ -108,6 +112,11 @@ export class VibeProjectCommandsTopBarContribution extends Disposable implements
 		const all = this._commands.getCommands();
 		const sorted = sortProjectCommandsForDisplay(all);
 		const { pinned } = pickTopBarPinned(sorted, MAX_TOP_BAR_BUTTONS);
+
+		// Anchor entry: surfaces Project Commands even when nothing is pinned —
+		// otherwise users without `pinned:true` saw no UI at all and assumed the
+		// feature was missing.
+		this._refreshAnchor(pinned.length === 0, alignment);
 
 		const pinnedIds = new Set(pinned.map(c => c.id));
 		for (const [id, entry] of this._entries) {
@@ -152,6 +161,28 @@ export class VibeProjectCommandsTopBarContribution extends Disposable implements
 		}
 	}
 
+	private _refreshAnchor(show: boolean, alignment: StatusbarAlignment): void {
+		if (!show) {
+			this._anchorEntry?.dispose();
+			this._anchorEntry = undefined;
+			return;
+		}
+		const props: IStatusbarEntry = {
+			name: localize('vibeide.topbar.anchor.name', 'VibeIDE: Project Commands'),
+			text: `$(terminal) ${localize('vibeide.topbar.anchor.text', 'Vibe Commands')}`,
+			ariaLabel: localize('vibeide.topbar.anchor.aria', 'Открыть палитру Project Commands'),
+			tooltip: localize('vibeide.topbar.anchor.tooltip', 'Закреплённых команд нет. Кликните, чтобы открыть палитру Project Commands (можно добавить и закрепить новую).'),
+			command: PROJECT_COMMANDS_PALETTE_IDS.run,
+		};
+		if (this._anchorEntry) {
+			this._anchorEntry.update(props);
+		} else {
+			// Priority 101 — sits just before the first pinned slot (100), so when
+			// the user adds their first pinned command the anchor stays adjacent.
+			this._anchorEntry = this._statusbar.addEntry(props, ANCHOR_ENTRY_ID, alignment, 101);
+		}
+	}
+
 	/**
 	 * L323: capture-phase document listener that intercepts right-clicks on our
 	 * status-bar entries (id prefix `vibeide.topbar.`) and pops an
@@ -168,6 +199,8 @@ export class VibeProjectCommandsTopBarContribution extends Disposable implements
 			if (!item) return;
 			const entryId = item.id;
 			if (!entryId.startsWith(ENTRY_ID_PREFIX)) return;
+			// Anchor entry has no backing ProjectCommand; let default right-click pass.
+			if (entryId === ANCHOR_ENTRY_ID) return;
 			const commandId = entryId.slice(ENTRY_ID_PREFIX.length);
 			const cmd = this._commands.getCommand(commandId);
 			if (!cmd) return;

@@ -440,6 +440,113 @@ export const tocData: ITOCEntry<string> = {
 					settings: ['security.workspace.*']
 				}
 			]
+		},
+		// VibeIDE fork groups its own configuration namespace (`vibeide.*`) so the
+		// upstream-style TOC surfaces it under a single top-level section. Mirrors
+		// the categorisation used by VibeIDE Settings UI; matchers are glob-style
+		// strings the preferences renderer expands.
+		{
+			id: 'vibeide',
+			label: localize('vibeide', "VibeIDE"),
+			settings: ['vibeide.*'],
+			children: [
+				{
+					id: 'vibeide/agent',
+					label: localize('vibeide.agent', "Agent & Chat"),
+					settings: [
+						'vibeide.agent.*',
+						'vibeide.agentUI.*',
+						'vibeide.ambientAgent.*',
+						'vibeide.backgroundAgent.*',
+						'vibeide.chat.*',
+						'vibeide.roadmapAgent.*',
+						'vibeide.subagent.*',
+						'vibeide.aiProvenance.*',
+					]
+				},
+				{
+					id: 'vibeide/safety',
+					label: localize('vibeide.safety', "Safety & Audit"),
+					settings: [
+						'vibeide.safety.*',
+						'vibeide.audit.*',
+						'vibeide.secretDetection.*',
+						'vibeide.stealthMode.*',
+					]
+				},
+				{
+					id: 'vibeide/context',
+					label: localize('vibeide.context', "Context & RAG"),
+					settings: [
+						'vibeide.context.*',
+						'vibeide.rag.*',
+						'vibeide.specContext.*',
+						'vibeide.projectRules.*',
+						'vibeide.autocomplete.*',
+					]
+				},
+				{
+					id: 'vibeide/providers',
+					label: localize('vibeide.providers', "Providers & MCP"),
+					settings: [
+						'vibeide.mcp.*',
+						'vibeide.mcpOAuth.*',
+						'vibeide.providers.*',
+						'vibeide.cost.*',
+					]
+				},
+				{
+					id: 'vibeide/observability',
+					label: localize('vibeide.observability', "Observability"),
+					settings: [
+						'vibeide.otel.*',
+						'vibeide.planEventsJournal.*',
+						'vibeide.debug.*',
+						'vibeide.output.*',
+					]
+				},
+				{
+					id: 'vibeide/tools',
+					label: localize('vibeide.tools', "Tools & Commands"),
+					settings: [
+						'vibeide.commands.*',
+						'vibeide.browserAutomation.*',
+						'vibeide.backgroundJob.*',
+						'vibeide.diffPreview.*',
+						'vibeide.notifications.*',
+						'vibeide.statusBar.*',
+						'vibeide.voice.*',
+					]
+				},
+				{
+					id: 'vibeide/appearance',
+					label: localize('vibeide.appearance', "Appearance & Locale"),
+					settings: [
+						'vibeide.theme.*',
+						'vibeide.locale',
+						'vibeide.cloud.*',
+					]
+				},
+				{
+					id: 'vibeide/other',
+					label: localize('vibeide.other', "Other"),
+					settings: ['vibeide.*']
+				}
+			]
+		},
+		// Bundled chat extensions registered by Copilot Chat / Anthropic chat fork
+		// land under `chat.*` (and a handful of cross-cutting `accessibility.signals.chat*`
+		// and `imageCarousel.*` keys). Keep them as a separate top-level so they don't
+		// pollute the `vibeide.*` tree while still appearing in the TOC.
+		{
+			id: 'chat-extensions',
+			label: localize('chatExtensions', "Chat (Extensions)"),
+			settings: [
+				'chat.*',
+				'github.copilot.chat.*',
+				'imageCarousel.*',
+				'accessibility.signals.chat*',
+			]
 		}
 	]
 };

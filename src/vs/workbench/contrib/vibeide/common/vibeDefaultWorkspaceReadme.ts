@@ -57,15 +57,29 @@ export function getDefaultVibeReadmeMarkdown(): string {
 
 **В корне репозитория (не внутри каталога .vibe):** может лежать **AGENTS.md** — инструкции для агентов; текст попадает в тот же блок GUIDELINES после **.vibe/rules.md**. В чате можно набрать **@agent**, чтобы прикрепить **AGENTS.md** и **.vibe/rules.md** (если есть).
 
+### Редактируемые (вы или команда)
+
 | Файл | Назначение |
 |------|------------|
 | **README.md** | Эта карта (для людей). |
-| **constraints.json** | Жёсткие ограничения IDE до вызова инструментов агента. |
+| **rules.md** | Проектные правила для ИИ в **.vibe/** → блок GUIDELINES. |
+| **goals.md** | Цели периода; по умолчанию агент может править по запросу; можно запретить через **constraints.json**. |
+| **ignore** | Исключения из контекста/индексации для агента. |
+| **constraints.json** | Жёсткие ограничения IDE до вызова инструментов агента (deny_write по glob). |
 | **allowed-models.json** | Whitelist моделей; пустой **models** — разрешены все. |
 | **pinned.json** | Закреплённые файлы/символы (задел под контекст; дублируйте важное через @ в чате). |
-| **rules.md** | Проектные правила для ИИ в **.vibe/** → блок GUIDELINES. |
-| **ignore** | Исключения из контекста/индексации для агента. |
-| **goals.md** | Цели периода; по умолчанию агент может править по запросу; можно запретить через **constraints.json**. |
+| **commands.json** | Проектные команды (терминал/скрипты) — кнопка в статус-баре + палитра + хоткеи; см. справку в Settings → Workspace. |
+| **agent-locks.json** | Консультативные блокировки записи по glob (workspace-level «человек ведёт рефакторинг, агент не трогает»). |
+| **permissions.json** | Точечные allow/deny исключения по путям (по умолчанию в **.gitignore** — локальные). |
+| **persona.json** | Стиль ответа агента (verbosity, ask_before_assume, tone). |
+
+### Runtime (пишутся VibeIDE автоматически — не редактировать)
+
+| Файл | Назначение |
+|------|------------|
+| **.window-lock.json** | Координатор окон при многооконной работе на одном workspace (heartbeat + PID, TTL 60с). В **.gitignore**. |
+| **commands.trust.json** | Локальный trust-state для \`commands.json\` (FNV-1a хеши одобренных команд). В **.gitignore**. |
+| **onboarding.json** | Состояние пройденных onboarding-шагов и toasts. Обычно в **.gitignore**. |
 
 ## Подпапки
 
@@ -77,12 +91,14 @@ export function getDefaultVibeReadmeMarkdown(): string {
 | **plans/** | Планы в markdown для команды. |
 | **skills/** | **Agent Skills**: **SKILL.md** (YAML frontmatter: name, description) → **/skill:name**; discovery в **GUIDELINES**. |
 | **profiles/** | Профили VibeIDE (если включены). |
+| **personas/** | Именованные пресеты persona, переключаются палитрой. |
 
-## Другие файлы (появляются при использовании фич)
+## Динамические артефакты (появляются при работе)
 
-- **permissions.json** — точечные allow/deny записи.
 - **context.md** — Project Brain (автообновление памяти между сессиями).
-- **persona.json** — стиль ответа агента.
+- **completion-events.jsonl** — журнал событий автодополнения (опт-ин телеметрия).
+- **plan-events.jsonl** — журнал событий планировщика.
+- **perf-guardrails-events.jsonl** — журнал срабатываний perf-guardrails.
 
 ## Полезно помнить
 
