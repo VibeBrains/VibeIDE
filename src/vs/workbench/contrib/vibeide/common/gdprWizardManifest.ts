@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { localize } from '../../../../nls.js';
+
 /**
  * GDPR DSAR / Right-to-be-Forgotten — pure manifest helper.
  *
@@ -59,40 +61,40 @@ export function buildGDPRExportManifest(): readonly GDPRItem[] {
 	return [
 		{
 			category: 'audit-log',
-			label: 'Audit log (журнал действий агента)',
+			label: localize('vibeide.gdpr.label.auditLog', "Audit log (журнал действий агента)"),
 			location: '<userdata>/audit-log/*.jsonl',
 			included: true,
 		},
 		{
 			category: 'settings',
-			label: 'Настройки VibeIDE и профили',
+			label: localize('vibeide.gdpr.label.settings', "Настройки VibeIDE и профили"),
 			location: '<userdata>/User/settings.json + .vibe/*.json',
 			included: true,
 		},
 		{
 			category: 'vibe-artifacts',
-			label: 'Артефакты .vibe/ (планы, snapshots, agent-locks)',
+			label: localize('vibeide.gdpr.label.vibeArtifacts', "Артефакты .vibe/ (планы, snapshots, agent-locks)"),
 			location: '<workspace>/.vibe/**',
 			included: true,
 		},
 		{
 			category: 'chat-history',
-			label: 'История чатов и треды агента',
+			label: localize('vibeide.gdpr.label.chatHistory', "История чатов и треды агента"),
 			location: '<userdata>/vibeide-chat-threads.json',
 			included: true,
 		},
 		{
 			category: 'byok-keys',
-			label: 'BYOK API-ключи (зашифрованные)',
+			label: localize('vibeide.gdpr.label.byokKeys', "BYOK API-ключи (зашифрованные)"),
 			location: '<userdata>/secrets — IEncryptionService',
 			included: true,
 		},
 		{
 			category: 'workspace-code',
-			label: 'Исходный код проекта',
+			label: localize('vibeide.gdpr.label.workspaceCode', "Исходный код проекта"),
 			location: '<workspace>/**',
 			included: false,
-			excludedReason: 'не относится к GDPR personal data — это твой код, не твои данные',
+			excludedReason: localize('vibeide.gdpr.excludedReason.workspaceCode', "не относится к GDPR personal data — это твой код, не твои данные"),
 		},
 	];
 }
@@ -105,45 +107,45 @@ export function buildGDPRDeleteManifest(): readonly GDPRDeleteItem[] {
 	return [
 		{
 			category: 'audit-log',
-			label: 'Audit log (журнал действий агента)',
+			label: localize('vibeide.gdpr.label.auditLog', "Audit log (журнал действий агента)"),
 			location: '<userdata>/audit-log/*.jsonl',
 			included: true,
 			irreversible: true,
 		},
 		{
 			category: 'settings',
-			label: 'Настройки VibeIDE и профили',
+			label: localize('vibeide.gdpr.label.settings', "Настройки VibeIDE и профили"),
 			location: '<userdata>/User/settings.json + .vibe/*.json',
 			included: true,
 			irreversible: false,
 		},
 		{
 			category: 'vibe-artifacts',
-			label: 'Артефакты .vibe/ (планы, snapshots, agent-locks)',
+			label: localize('vibeide.gdpr.label.vibeArtifacts', "Артефакты .vibe/ (планы, snapshots, agent-locks)"),
 			location: '<workspace>/.vibe/**',
 			included: true,
 			irreversible: true,
 		},
 		{
 			category: 'chat-history',
-			label: 'История чатов и треды агента',
+			label: localize('vibeide.gdpr.label.chatHistory', "История чатов и треды агента"),
 			location: '<userdata>/vibeide-chat-threads.json',
 			included: true,
 			irreversible: true,
 		},
 		{
 			category: 'byok-keys',
-			label: 'BYOK API-ключи (зашифрованные)',
+			label: localize('vibeide.gdpr.label.byokKeys', "BYOK API-ключи (зашифрованные)"),
 			location: '<userdata>/secrets — IEncryptionService',
 			included: true,
 			irreversible: true,
 		},
 		{
 			category: 'workspace-code',
-			label: 'Исходный код проекта',
+			label: localize('vibeide.gdpr.label.workspaceCode', "Исходный код проекта"),
 			location: '<workspace>/**',
 			included: false,
-			excludedReason: 'удаление workspace кода не входит в RTBF — это область пользователя',
+			excludedReason: localize('vibeide.gdpr.excludedReason.workspaceCodeRtbf', "удаление workspace кода не входит в RTBF — это область пользователя"),
 			irreversible: false,
 		},
 	];

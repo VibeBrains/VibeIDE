@@ -49,7 +49,7 @@ CommandsRegistry.registerCommand({
 
 		const t = await terminal.createTerminal({
 			location: TerminalLocation.Panel,
-			config: { name: 'VibeIDE GDPR Export' },
+			config: { name: localize('vibeide.gdpr.export.terminalName', 'VibeIDE GDPR Export') },
 		});
 		await terminal.setActiveInstance(t);
 		await terminal.focusActiveInstance();
@@ -98,7 +98,7 @@ CommandsRegistry.registerCommand({
 
 		const t = await terminal.createTerminal({
 			location: TerminalLocation.Panel,
-			config: { name: 'VibeIDE GDPR Delete' },
+			config: { name: localize('vibeide.gdpr.delete.terminalName', 'VibeIDE GDPR Delete') },
 		});
 		await terminal.setActiveInstance(t);
 		await terminal.focusActiveInstance();
