@@ -48,6 +48,9 @@ import { IAuditLogService } from '../common/auditLogService.js'
 import { ILogService } from '../../../../platform/log/common/log.js'
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js'
 import { formatProvenanceMarker, shouldMarkProvenance } from '../common/vibeAiProvenanceConfiguration.js'
+import { IGitAutoStashService } from '../common/gitAutoStashService.js'
+import { decideAutoStash } from '../common/autoStashPolicy.js'
+import { ITextFileService } from '../../../services/textfile/common/textfiles.js'
 
 // tool use for AI
 type ValidateBuiltinParams = { [T in BuiltinToolName]: (p: RawToolParamsObj) => BuiltinToolCallParams[T] }
@@ -241,6 +244,8 @@ export class ToolsService implements IToolsService {
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 		@ILogService private readonly _logService: ILogService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
+		@IGitAutoStashService private readonly _gitAutoStashService: IGitAutoStashService,
+		@ITextFileService private readonly _textFileService: ITextFileService,
 	) {
 		this._offlineGate = new OfflinePrivacyGate();
 		const queryBuilder = instantiationService.createInstance(QueryBuilder);
@@ -1116,6 +1121,15 @@ export class ToolsService implements IToolsService {
 					throw new Error(`[VibeIDE] Write blocked by .vibe/permissions.json: ${uri.fsPath} is not in allow_write list`);
 				}
 				await this._checkAdvisoryTerritorialLocks(uri);
+				// Auto-stash before rewrite (roadmap §L988): preserve dirty working tree before agent overwrites.
+				const _stashDecisionRw = decideAutoStash({
+					setting: this._gitAutoStashService.getMode(),
+					dirtyFiles: this._textFileService.isDirty(uri) ? [uri.fsPath] : [],
+					editTargets: [uri.fsPath],
+				});
+				if (_stashDecisionRw.kind === 'stash') {
+					await this._gitAutoStashService.createStash(uri.fsPath);
+				}
 				await editCodeService.callBeforeApplyOrEdit(uri)
 				// AI provenance marker (opt-in via vibeide.aiProvenance.markGeneratedCode).
 				let effectiveContent = newContent
@@ -1152,6 +1166,15 @@ export class ToolsService implements IToolsService {
 				if (streamState === 'streaming') {
 					// Only block if actually streaming to the same file - allow if streaming to different file
 					throw new Error(`Cannot edit file ${uri.fsPath}: Another operation is currently streaming changes to this file. Please wait for it to complete or cancel it first.`)
+				}
+				// Auto-stash before edit (roadmap §L988): preserve dirty working tree before agent applies search-replace.
+				const _stashDecisionEd = decideAutoStash({
+					setting: this._gitAutoStashService.getMode(),
+					dirtyFiles: this._textFileService.isDirty(uri) ? [uri.fsPath] : [],
+					editTargets: [uri.fsPath],
+				});
+				if (_stashDecisionEd.kind === 'stash') {
+					await this._gitAutoStashService.createStash(uri.fsPath);
 				}
 				await editCodeService.callBeforeApplyOrEdit(uri)
 				editCodeService.instantlyApplySearchReplaceBlocks({ uri, searchReplaceBlocks })

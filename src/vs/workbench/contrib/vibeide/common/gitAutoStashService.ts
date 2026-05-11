@@ -103,6 +103,10 @@ class GitAutoStashService extends Disposable implements IGitAutoStashService {
 		if (!this._enabled) {
 			return undefined;
 		}
+		// Dedup: if already stashed for this operationId, return the existing ref.
+		if (this._stashRefs.has(operationId)) {
+			return this._stashRefs.get(operationId);
+		}
 
 		try {
 			// Check if git extension is available
