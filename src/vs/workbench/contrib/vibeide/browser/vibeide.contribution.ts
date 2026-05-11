@@ -525,9 +525,6 @@ import '../common/vibeSpeculativeExplorationService.js'
 // VibeIDE: Autocomplete explainability (hover → why suggested)
 import '../common/vibeAutocompleteExplainService.js'
 
-// VibeIDE: AI debugging integration (Phase 3b)
-import '../common/vibeAIDebuggingService.js'
-
 // VibeIDE: Voice input (Whisper.cpp / Web Speech, Phase 3b)
 import '../common/vibeVoiceInputService.js'
 

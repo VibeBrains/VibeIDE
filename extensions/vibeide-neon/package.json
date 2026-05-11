@@ -51,18 +51,6 @@
 				"title": "%command.trustScore.setAuto.title%"
 			},
 			{
-				"command": "vibeide.explainLine",
-				"title": "%command.explainLine.title%"
-			},
-			{
-				"command": "vibeide.freezeCode",
-				"title": "%command.freezeCode.title%"
-			},
-			{
-				"command": "vibeide.agent.pauseAndExplain",
-				"title": "%command.agent.pauseAndExplain.title%"
-			},
-			{
 				"command": "vibeide.tokenBudget.reset",
 				"title": "%command.tokenBudget.reset.title%"
 			},
@@ -121,92 +109,10 @@
 					],
 					"description": "%configuration.trustScore.level.description%"
 				},
-				"vibeide.safety.sessionTokenLimit": {
-					"type": "number",
-					"default": 500000,
-					"minimum": 10000,
-					"description": "%configuration.safety.sessionTokenLimit.description%"
-				},
-				"vibeide.safety.sessionTokenLimitEnabled": {
-					"type": "boolean",
-					"default": true,
-					"description": "%configuration.safety.sessionTokenLimitEnabled.description%"
-				},
-				"vibeide.safety.taskQueueTokenSplitEnabled": {
-					"type": "boolean",
-					"default": false,
-					"description": "%configuration.safety.taskQueueTokenSplitEnabled.description%"
-				},
-				"vibeide.planEventsJournal.enable": {
-					"type": "boolean",
-					"default": true,
-					"description": "%configuration.planEventsJournal.enable.description%"
-				},
 				"vibeide.skills.workspaceDiscoveryHint": {
 					"type": "boolean",
 					"default": true,
 					"description": "%configuration.skills.workspaceDiscoveryHint.description%"
-				},
-				"vibeide.agent.preferJsonToolArguments": {
-					"type": "boolean",
-					"default": false,
-					"description": "%configuration.agent.preferJsonToolArguments.description%"
-				},
-				"vibeide.safety.deadMansSwitchMinutes": {
-					"type": "number",
-					"default": 5,
-					"minimum": 0,
-					"description": "%configuration.safety.deadMansSwitchMinutes.description%"
-				},
-				"vibeide.safety.loopDetectorThreshold": {
-					"type": "number",
-					"default": 3,
-					"minimum": 2,
-					"description": "%configuration.safety.loopDetectorThreshold.description%"
-				},
-				"vibeide.agent.terminalOutputAwareness": {
-					"type": "boolean",
-					"default": false,
-					"description": "%configuration.agent.terminalOutputAwareness.description%"
-				},
-				"vibeide.agent.thinkingOutLoud": {
-					"type": "boolean",
-					"default": false,
-					"description": "%configuration.agent.thinkingOutLoud.description%"
-				},
-				"vibeide.agent.runTestsAfterApply.enabled": {
-					"type": "boolean",
-					"default": false,
-					"description": "%configuration.agent.runTestsAfterApply.enabled.description%"
-				},
-				"vibeide.agent.runTestsAfterApply.command": {
-					"type": "string",
-					"default": "npm test",
-					"description": "%configuration.agent.runTestsAfterApply.command.description%"
-				},
-				"vibeide.context.warningThresholdPercent": {
-					"type": "number",
-					"default": 75,
-					"minimum": 50,
-					"maximum": 95,
-					"description": "%configuration.context.warningThresholdPercent.description%"
-				},
-				"vibeide.context.criticalThresholdPercent": {
-					"type": "number",
-					"default": 90,
-					"minimum": 60,
-					"maximum": 99,
-					"description": "%configuration.context.criticalThresholdPercent.description%"
-				},
-				"vibeide.output.structuredMode": {
-					"type": "boolean",
-					"default": false,
-					"description": "%configuration.output.structuredMode.description%"
-				},
-				"vibeide.audit.encryptLogs": {
-					"type": "boolean",
-					"default": false,
-					"description": "%configuration.audit.encryptLogs.description%"
 				}
 			}
 		}
