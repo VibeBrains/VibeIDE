@@ -91,7 +91,7 @@ export class VibeFirstRunWizardContribution extends Disposable implements IWorkb
 				severity: Severity.Info,
 				message: localize(
 					'vibeFirstRunDefaults',
-					'VibeIDE defaults: 🟢 Trust Score Manual, 💰 Token limit: 500k (~$20), 🔒 Workspace isolation: ON. Adjust in Settings → VibeIDE.'
+					'Параметры по умолчанию VibeIDE: 🟢 Trust Score «Manual», 💰 лимит токенов 500k (~$20), 🔒 изоляция воркспейса включена. Изменить — в «Настройки → VibeIDE».'
 				),
 			});
 		}, 500);
