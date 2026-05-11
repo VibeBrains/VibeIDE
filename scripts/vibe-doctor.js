@@ -20,6 +20,7 @@ const npmCliAlignment = require('./lib/npm-cli-alignment-check.cjs');
 const knowledgeMdStaleness = require('./lib/knowledge-md-staleness.cjs');
 const perfGuardrails = require('./lib/perf-guardrails-aggregator.cjs');
 const snapshotIntegrity = require('./lib/snapshot-integrity-check.cjs');
+const memoryLayerRouter = require('./lib/memory-layer-router.cjs');
 
 const args = process.argv.slice(2);
 const MODE = {
@@ -32,6 +33,7 @@ const MODE = {
 	selfCheck: args.includes('--self-check'),
 	knowledge: args.includes('--knowledge'),
 	perf: args.includes('--perf'),
+	memory: args.includes('--memory'),
 	quarantineSnapshots: args.includes('--quarantine-snapshots'),
 };
 
@@ -767,6 +769,47 @@ if (MODE.perf) {
 			console.log('When the IDE-side guardrails service ships, every trip will append a JSONL line.');
 		}
 	}
+	process.exit(0);
+}
+
+if (MODE.memory) {
+	// `vibe doctor --memory` — audit memory layer health (roadmap §L1057).
+	// Reads .vibe/memories.json (long-term layer) and checks for cross-layer
+	// invariant violations via auditMemoryLayers. Runtime short-term memory
+	// (vibeide.sessionMemory.v1 in WorkspaceStorage) is not accessible from CLI.
+	const MEMORY_FILE = path.join(process.cwd(), '.vibe', 'memories.json');
+
+	console.log('\n🧠 VibeIDE Memory Audit\n' + '─'.repeat(40));
+	console.log('Memory layer contract: references/v1/memory-layers-contract.md');
+	console.log('Layers: explicit | long-term (WorkspaceStorage) | short-term (SessionStorage)\n');
+
+	if (!fs.existsSync(MEMORY_FILE)) {
+		console.log('ℹ️  .vibe/memories.json not found — long-term memory is empty or stored in IDE workspace state.');
+		console.log('   This is normal for a fresh workspace.');
+	} else {
+		let records = [];
+		try {
+			const raw = JSON.parse(fs.readFileSync(MEMORY_FILE, 'utf-8'));
+			records = Array.isArray(raw) ? raw : (raw.memories ?? []);
+			console.log(`Found ${records.length} long-term memory record(s).`);
+		} catch (err) {
+			console.error(`❌ Failed to parse ${MEMORY_FILE}: ${err.message}`);
+		}
+
+		if (records.length > 0) {
+			const warnings = memoryLayerRouter.auditMemoryLayers(records);
+			if (warnings.length === 0) {
+				console.log('✅ No cross-layer invariant violations found.');
+			} else {
+				console.warn(`⚠️  ${warnings.length} layer invariant violation(s):`);
+				for (const w of warnings.slice(0, 10)) {
+					console.warn(`   [${w.kind}] ${w.key}: ${w.detail}`);
+				}
+			}
+		}
+	}
+
+	console.log('\nNote: Short-term memory (session) is only accessible from a running IDE instance.');
 	process.exit(0);
 }
 
