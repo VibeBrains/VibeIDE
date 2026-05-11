@@ -382,6 +382,10 @@ import './vibeMultiWindowCoordinatorContribution.js'
 // VibeIDE: Extension host crash UX — EH disconnect → pause/resume/discard notification (L1033)
 import './vibeEHCrashRecoveryContribution.js'
 
+// VibeIDE: Unified status-bar service + contribution (L896)
+import '../common/vibeUnifiedStatusBarService.js'
+import './vibeUnifiedStatusBarContribution.js'
+
 // VibeIDE: Memory snapshot Action2 (dev-only)
 import './vibeMemorySnapshotAction.js'
 
