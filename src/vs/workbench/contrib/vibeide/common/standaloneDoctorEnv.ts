@@ -14,6 +14,10 @@
  *
  * Pure: no `fs`/`child_process` imports. Caller injects probes via the
  * `EnvProbes` interface. Decisions / formatting live here so they're testable.
+ *
+ * @i18n-scan-skip-file — output goes to terminal / CI logs only (English).
+ * Localising these `title` literals would force `nls.js` into a module that
+ * is intentionally vscode-free for standalone-CLI packaging.
  */
 
 export interface EnvProbes {

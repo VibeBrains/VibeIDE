@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { localize } from '../../../../nls.js';
 import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 
 
@@ -229,7 +230,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibe.historyAction',
-			title: 'View Past Chats',
+			title: localize('vibeide.history.openPanel', 'View Past Chats'),
 			icon: { id: 'history' },
 		});
 	}

@@ -72,7 +72,7 @@ registerAction2(class extends Action2 {
 		// Step 3: parse items from source (Phase MVP: ask user for items directly)
 		const itemsRaw = await quickInput.input({
 			prompt: localize('vibeide.roadmapAgent.items', 'Paste pending items (one per line, or leave empty to read from file in Phase 3b)'),
-			placeHolder: '- [ ] Implement X\n- [ ] Add Y',
+			placeHolder: localize('vibeide.roadmapAgent.itemsPlaceholder', '- [ ] Implement X\n- [ ] Add Y'),
 		});
 
 		const items = (itemsRaw ?? '').split('\n').map(l => l.trim()).filter(l => l.startsWith('- [ ]') || l.startsWith('[ ]'));

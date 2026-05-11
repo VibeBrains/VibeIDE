@@ -70,6 +70,13 @@ export const BRAND_ALLOWLIST: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Files with this directive in a top-level comment are skipped entirely.
+ * Intended for `vscode`-free pure helpers whose strings are CLI/test labels
+ * never rendered through `nls`. Example: `common/standaloneDoctorEnv.ts`.
+ */
+export const I18N_SCAN_SKIP_DIRECTIVE = '@i18n-scan-skip-file';
+
+/**
  * Scan TypeScript / TSX source for user-facing literal arguments that should
  * be localized but are passed as raw strings (no `localize()` / `l10n.t()` wrap).
  *
@@ -77,9 +84,17 @@ export const BRAND_ALLOWLIST: ReadonlySet<string> = new Set([
  *  - Skip empty strings and one-character punctuation.
  *  - Skip strings that contain only ASCII identifiers + dots (likely IDs / keys).
  *  - Skip if the literal is the second argument of a `localize`/`localize2`/`l10n.t` call.
+ *  - Skip the whole file when its header contains `@i18n-scan-skip-file`.
  */
 export function scanUnwrappedLiterals(source: string): ScanResult {
 	if (typeof source !== 'string' || source.length === 0) {
+		return { findings: [], visitedSites: 0 };
+	}
+
+	// File-level opt-out: only honor the directive when it appears in the first
+	// 2000 characters (header comment region) — keeps inline mentions in code
+	// bodies from accidentally disabling the scan.
+	if (source.slice(0, 2000).includes(I18N_SCAN_SKIP_DIRECTIVE)) {
 		return { findings: [], visitedSites: 0 };
 	}
 

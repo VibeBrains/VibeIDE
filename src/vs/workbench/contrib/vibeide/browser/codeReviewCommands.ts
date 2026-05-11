@@ -10,7 +10,7 @@ import { ICodeReviewService, CodeReviewAnnotation } from '../common/codeReviewSe
 import { CodeReviewEditorContribution } from './codeReviewEditorContribution.js';
 import { IProgressService, ProgressLocation, IProgress, IProgressStep } from '../../../../platform/progress/common/progress.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
-import { localize2 } from '../../../../nls.js';
+import { localize, localize2 } from '../../../../nls.js';
 import { KeyMod, KeyCode } from '../../../../base/common/keyCodes.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
@@ -63,7 +63,7 @@ registerAction2(class extends Action2 {
 		await progressService.withProgress(
 			{
 				location: ProgressLocation.Notification,
-				title: `Reviewing ${fileName}...`,
+				title: localize('vibeide.codeReview.progress', 'Code review: {0}…', fileName),
 				cancellable: true,
 			},
 			async (progress: IProgress<IProgressStep>) => {

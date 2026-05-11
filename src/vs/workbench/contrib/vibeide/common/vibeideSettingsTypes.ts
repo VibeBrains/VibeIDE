@@ -4,6 +4,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { localize } from '../../../../nls.js';
 import { defaultModelsOfProvider, defaultProviderSettings, ModelOverrides } from './modelCapabilities.js';
 import { ToolApprovalType } from './toolsServiceTypes.js';
 import { VibeideSettingsState } from './vibeideSettingsService.js'
@@ -83,7 +84,7 @@ export const displayInfoOfProviderName = (providerName: ProviderName): DisplayIn
 		return { title: 'LM Studio', }
 	}
 	else if (providerName === 'openAICompatible') {
-		return { title: 'Совместимо с OpenAI API', }
+		return { title: localize('vibeide.provider.openAICompatible', 'Совместимо с OpenAI API'), }
 	}
 	else if (providerName === 'gemini') {
 		return { title: 'Gemini', }
@@ -156,7 +157,7 @@ type DisplayInfo = {
 export const displayInfoOfSettingName = (providerName: ProviderName, settingName: SettingName): DisplayInfo => {
 	if (settingName === 'apiKey') {
 		return {
-			title: 'Ключ API',
+			title: localize('vibeide.settings.apiKey', 'Ключ API'),
 
 			// **Please follow this convention**:
 			// The word "key..." here is a placeholder for the hash. For example, sk-ant-key... means the key will look like sk-ant-abcdefg123...
@@ -207,12 +208,12 @@ export const displayInfoOfSettingName = (providerName: ProviderName, settingName
 		}
 	}
 	else if (settingName === 'headersJSON') {
-		return { title: 'Произвольные заголовки', placeholder: '{ "X-Request-Id": "..." }' }
+		return { title: localize('vibeide.settings.customHeaders', 'Произвольные заголовки'), placeholder: '{ "X-Request-Id": "..." }' }
 	}
 	else if (settingName === 'region') {
 		// vertex only
 		return {
-			title: 'Регион',
+			title: localize('vibeide.settings.region', 'Регион'),
 			placeholder: providerName === 'googleVertex' ? defaultProviderSettings.googleVertex.region
 				: providerName === 'awsBedrock'
 					? defaultProviderSettings.awsBedrock.region
@@ -222,7 +223,7 @@ export const displayInfoOfSettingName = (providerName: ProviderName, settingName
 	else if (settingName === 'azureApiVersion') {
 		// azure only
 		return {
-			title: 'Версия API',
+			title: localize('vibeide.settings.azureApiVersion', 'Версия API'),
 			placeholder: providerName === 'microsoftAzure' ? defaultProviderSettings.microsoftAzure.azureApiVersion
 				: ''
 		}
@@ -241,20 +242,20 @@ export const displayInfoOfSettingName = (providerName: ProviderName, settingName
 	}
 	else if (settingName === 'publicCatalog') {
 		return {
-			title: 'Публичный каталог',
+			title: localize('vibeide.settings.publicCatalog', 'Публичный каталог'),
 			placeholder: '',
 		};
 	}
 	else if (settingName === '_didFillInProviderSettings') {
 		return {
-			title: '(нет)',
-			placeholder: '(нет)',
+			title: localize('vibeide.settings.notApplicable', '(нет)'),
+			placeholder: localize('vibeide.settings.notApplicable', '(нет)'),
 		}
 	}
 	else if (settingName === 'models') {
 		return {
-			title: '(нет)',
-			placeholder: '(нет)',
+			title: localize('vibeide.settings.notApplicable', '(нет)'),
+			placeholder: localize('vibeide.settings.notApplicable', '(нет)'),
 		}
 	}
 

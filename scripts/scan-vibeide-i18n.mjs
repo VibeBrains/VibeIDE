@@ -94,8 +94,15 @@ function trimSnippet(s) {
 	return collapsed.length > 80 ? collapsed.slice(0, 77) + '...' : collapsed;
 }
 
+// MUST stay in sync with I18N_SCAN_SKIP_DIRECTIVE in i18nUnwrappedScanner.ts.
+const I18N_SCAN_SKIP_DIRECTIVE = '@i18n-scan-skip-file';
+
 function scanUnwrappedLiterals(source) {
 	if (typeof source !== 'string' || source.length === 0) {
+		return { findings: [], visitedSites: 0 };
+	}
+	// File-level opt-out: honor directive only in the first 2000 chars (header).
+	if (source.slice(0, 2000).includes(I18N_SCAN_SKIP_DIRECTIVE)) {
 		return { findings: [], visitedSites: 0 };
 	}
 	const lineStarts = computeLineStarts(source);

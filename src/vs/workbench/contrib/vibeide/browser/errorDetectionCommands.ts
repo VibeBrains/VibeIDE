@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
-import { localize2 } from '../../../../nls.js';
+import { localize, localize2 } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
@@ -53,7 +53,7 @@ registerAction2(class extends Action2 {
 		await progressService.withProgress(
 			{
 				location: ProgressLocation.Notification,
-				title: `Detecting errors in ${fileName}...`,
+				title: localize('vibeide.errorDetection.progress', 'Detecting errors in {0}…', fileName),
 				cancellable: true,
 			},
 			async (progress: IProgress<IProgressStep>) => {

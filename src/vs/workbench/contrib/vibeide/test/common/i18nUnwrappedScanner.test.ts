@@ -125,4 +125,27 @@ suite('i18nUnwrappedScanner', () => {
 		assert.strictEqual(r.findings.length, 1);
 		assert.match(r.findings[0].snippet, /Ключ API/);
 	});
+
+	test('@i18n-scan-skip-file directive in header skips the whole file', () => {
+		const src = `/**
+ * Pure helper — CLI labels only.
+ *
+ * @i18n-scan-skip-file — output is terminal-only English text.
+ */
+
+const checks = [
+    { title: 'Node.js version', severity: 'ok' },
+    { title: 'git on PATH', severity: 'warn' },
+];
+`;
+		const r = scanUnwrappedLiterals(src);
+		assert.strictEqual(r.findings.length, 0, 'skip-file directive must short-circuit the scan');
+	});
+
+	test('@i18n-scan-skip-file mentioned outside header (line 100+) still triggers normal scan', () => {
+		const padding = Array.from({ length: 60 }, () => '// filler line for byte budget budget budget budget').join('\n');
+		const src = `${padding}\n${padding}\n// @i18n-scan-skip-file (too late — outside header window)\ntitle: 'Ключ API'`;
+		const r = scanUnwrappedLiterals(src);
+		assert.strictEqual(r.findings.length, 1, 'directive past 2000-byte header window must NOT skip');
+	});
 });

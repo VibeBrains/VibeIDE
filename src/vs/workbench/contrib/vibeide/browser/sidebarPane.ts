@@ -234,7 +234,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_OPEN_SIDEBAR_ACTION_ID,
-			title: 'Open VibeIDE Sidebar',
+			title: nls.localize('vibeide.openSidebar.title', 'Open VibeIDE Sidebar'),
 		});
 	}
 	run(accessor: ServicesAccessor): void {
