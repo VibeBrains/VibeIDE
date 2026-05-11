@@ -96,7 +96,7 @@ registerAction2(class extends Action2 {
 
 		const quickInputSvc = accessor.get(IQuickInputService);
 		const jobId = await quickInputSvc.input({
-			prompt: 'Enter job ID to create a checkpoint for',
+			prompt: localize('vibeide.backgroundJob.checkpointPrompt', 'Enter job ID to create a checkpoint for'),
 			placeHolder: 'job-1234567890',
 		});
 		if (!jobId) { return; }
