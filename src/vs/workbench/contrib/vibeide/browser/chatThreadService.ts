@@ -74,7 +74,8 @@ import {
 	WatchdogState,
 	WatchdogSideEffect,
 } from '../common/streamingGapWatchdog.js';
-
+import { classifyAndBuildToast } from '../common/agentErrorClassifier.js';
+import { decideResume, appendChunk, PartialResponse } from '../common/responseRetryCache.js';
 
 // related to retrying when LLM message has error
 // Optimized retry logic: faster initial retry, exponential backoff
@@ -3902,6 +3903,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			let firstTokenReceived = false
 			// Track models we've tried (for auto mode fallback)
 			const triedModels: Set<string> = new Set()
+			// Retry cache: accumulates streamed text so a retry can resume rather than restart.
+			let _retryPartial: PartialResponse | undefined = undefined
+			let _retryLastTextLen = 0
 			// Store original routing decision for fallback chain (only in auto mode)
 			let originalRoutingDecision: RoutingDecision | null = null
 			// Track if we're in auto mode (user selected "auto")
@@ -4124,6 +4128,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						chatLatencyAudit.markFirstToken(finalRequestId)
 					}
 
+					// Accumulate streamed text into the retry cache so a stream-error retry
+					// can resume from where the previous attempt left off (L1185).
+					if (fullText.length > _retryLastTextLen) {
+						const delta = fullText.slice(_retryLastTextLen)
+						_retryPartial = appendChunk(_retryPartial, finalRequestId, delta, Date.now())
+						_retryLastTextLen = fullText.length
+					}
+
 					// Stall watchdog: cancel first-token stall timer, reset early + mid-stream stall timers, drop inline banner.
 					if (firstTokenStallTimer !== undefined) { clearTimeout(firstTokenStallTimer); firstTokenStallTimer = undefined; clearStallNotification() }
 					clearTimeout(earlyStallTimer); earlyStallTimer = setTimeout(setInlineStall, EARLY_STALL_MS)
@@ -4259,6 +4271,23 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 						// Clear stream state immediately so submit button becomes active (avoids stuck "Waiting for model response..." if audit or resolve fails)
 						this._setStreamState(threadId, { isRunning: undefined, error })
+
+						// Unified error toast via agentErrorClassifier (L294).
+						{
+							const httpStatus = (error?.fullError as any)?.statusCode ?? (error?.fullError as any)?.status;
+							const { toast } = classifyAndBuildToast({
+								source: 'provider',
+								httpStatus: typeof httpStatus === 'number' ? httpStatus : undefined,
+								errorMessage: error?.message,
+								requestId: finalRequestId,
+							});
+							if (toast.severity !== 'info') {
+								this._notificationService.notify({
+									severity: toast.severity === 'error' ? Severity.Error : Severity.Warning,
+									message: `${toast.headline}${toast.body ? ': ' + toast.body : ''}`,
+								});
+							}
+						}
 
 						try {
 							// Audit log: record error
@@ -4488,6 +4517,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					// For non-rate-limit errors in non-auto mode, or if we're in auto mode but no fallback was found:
 					// Retry the same model if we haven't exceeded retry limit (only for non-auto mode or if no fallback available)
 					if (!isAutoMode && nAttempts < CHAT_RETRIES) {
+						// Compute resume strategy before the delay so any prefill/skip info is
+						// ready when the while-loop iterates. Anthropic prefill injection would
+						// require provider-API support; for now we log the decision (L1185).
+						const resumeDecision = decideResume(_retryPartial, false, Date.now())
+						if (resumeDecision.kind === 'resume-replay') {
+							console.log(`[ChatThreadService] Retry ${nAttempts}: resume-replay, skip ${resumeDecision.alreadyRenderedChars} chars`)
+						} else if (resumeDecision.kind === 'expired-partial') {
+							console.log(`[ChatThreadService] Retry ${nAttempts}: partial expired (${resumeDecision.previousChars} chars), restarting`)
+						}
 						shouldRetryLLM = true
 						this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor })
 						// Faster retries for local models (they fail fast if not available)

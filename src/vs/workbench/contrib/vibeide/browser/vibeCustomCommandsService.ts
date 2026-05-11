@@ -244,7 +244,8 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		for (const entry of buildTrustRevokeAuditEntries(result)) {
 			void this._audit.append({
 				ts: Date.now(),
-				action: 'command_trust_revoked',
+				action: 'project_command:trust_revoked',
+				ok: true,
 				meta: entry,
 			});
 		}
@@ -260,7 +261,8 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		for (const entry of buildTrustRevokeAuditEntries(result)) {
 			void this._audit.append({
 				ts: Date.now(),
-				action: 'command_trust_revoked',
+				action: 'project_command:trust_revoked',
+				ok: true,
 				meta: entry,
 			});
 		}

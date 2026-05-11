@@ -19,6 +19,7 @@ const projectCommandsAudit = require('./lib/project-commands-audit.cjs');
 const npmCliAlignment = require('./lib/npm-cli-alignment-check.cjs');
 const knowledgeMdStaleness = require('./lib/knowledge-md-staleness.cjs');
 const perfGuardrails = require('./lib/perf-guardrails-aggregator.cjs');
+const snapshotIntegrity = require('./lib/snapshot-integrity-check.cjs');
 
 const args = process.argv.slice(2);
 const MODE = {
@@ -31,6 +32,7 @@ const MODE = {
 	selfCheck: args.includes('--self-check'),
 	knowledge: args.includes('--knowledge'),
 	perf: args.includes('--perf'),
+	quarantineSnapshots: args.includes('--quarantine-snapshots'),
 };
 
 const results = [];
@@ -845,6 +847,56 @@ if (MODE.selfCheck) {
 		console.log(npmCliAlignment.renderAlignmentReport(report));
 	}
 	process.exit(report.violations.length === 0 ? 0 : 1);
+}
+
+if (MODE.quarantineSnapshots) {
+	// `vibe doctor --quarantine-snapshots` — snapshot integrity check (roadmap L1034).
+	// Reads .vibe/snapshots/*.json, checks each via snapshotIntegrity.checkSnapshotsIntegrity,
+	// and if --repair is also passed, moves corrupt files to .vibe/snapshots/.quarantine/.
+	const snapshotsDir = path.join(process.cwd(), '.vibe', 'snapshots');
+	if (!fs.existsSync(snapshotsDir)) {
+		if (MODE.json) { console.log(JSON.stringify({ ok: [], corrupt: [], note: 'no-snapshots-dir' })); }
+		else { console.log('No .vibe/snapshots/ directory — nothing to check.'); }
+		process.exit(0);
+	}
+	const entries = [];
+	for (const file of fs.readdirSync(snapshotsDir)) {
+		if (!file.endsWith('.json') || file.startsWith('.')) continue;
+		const id = file.replace(/\.json$/, '');
+		const fullPath = path.join(snapshotsDir, file);
+		let raw = null;
+		let rawSize;
+		try {
+			const text = fs.readFileSync(fullPath, 'utf-8');
+			rawSize = Buffer.byteLength(text, 'utf-8');
+			raw = JSON.parse(text);
+		} catch { raw = null; }
+		entries.push({ id, raw, rawSize });
+	}
+	const result = snapshotIntegrity.checkSnapshotsIntegrity(entries);
+	if (MODE.json) {
+		console.log(JSON.stringify(result, null, 2));
+		process.exit(result.corrupt.length > 0 ? 1 : 0);
+	}
+	if (result.corrupt.length === 0) {
+		console.log(`✅ .vibe/snapshots/: ${result.ok.length} OK, 0 corrupt.`);
+		process.exit(0);
+	}
+	console.log(snapshotIntegrity.renderCorruptSnapshotReport(result.corrupt));
+	if (MODE.repair) {
+		const quarantineDir = path.join(snapshotsDir, '.quarantine');
+		fs.mkdirSync(quarantineDir, { recursive: true });
+		for (const bad of result.corrupt) {
+			const src = path.join(snapshotsDir, bad.id + '.json');
+			const dst = path.join(quarantineDir, bad.id + '.json');
+			if (fs.existsSync(src)) {
+				fs.renameSync(src, dst);
+				console.log(`  moved: ${bad.id}.json → .quarantine/`);
+			}
+		}
+		console.log(`Quarantined ${result.corrupt.length} corrupt file(s). Healthy snapshots: ${result.ok.length}.`);
+	}
+	process.exit(result.corrupt.length > 0 ? 1 : 0);
 }
 
 // ──────────────────────────────────────────────────────────

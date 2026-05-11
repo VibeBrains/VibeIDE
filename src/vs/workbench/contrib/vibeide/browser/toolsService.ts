@@ -37,6 +37,7 @@ import { LRUCache } from '../../../../base/common/map.js'
 import { OfflinePrivacyGate } from '../common/offlinePrivacyGate.js'
 import { INLShellParserService } from '../common/nlShellParserService.js'
 import { ISecretDetectionService } from '../common/secretDetectionService.js'
+import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js'
 import { IEditorService } from '../../../services/editor/common/editorService.js'
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js'
 import { Position } from '../../../../editor/common/core/position.js'
@@ -230,6 +231,7 @@ export class ToolsService implements IToolsService {
 		@IRepoIndexerService private readonly repoIndexerService: IRepoIndexerService,
 		@INLShellParserService private readonly nlShellParserService: INLShellParserService,
 		@ISecretDetectionService private readonly secretDetectionService: ISecretDetectionService,
+		@IDialogService private readonly dialogService: IDialogService,
 		@IEditorService private readonly editorService: IEditorService,
 		@ILanguageFeaturesService private readonly languageFeaturesService: ILanguageFeaturesService,
 		@IVibeConstraintsService private readonly vibeConstraintsService: IVibeConstraintsService,
@@ -1176,20 +1178,35 @@ export class ToolsService implements IToolsService {
 				return { result: resPromise, interruptTool: interrupt }
 			},
 			run_nl_command: async ({ nlInput, cwd, terminalId }) => {
-				// Parse natural language to shell command
+				// Parse natural language to shell command.
 				const parsed = await this.nlShellParserService.parseNLToShell(nlInput, cwd, CancellationToken.None);
 
-				// Check for dangerous commands using existing detection
-				const dangerLevel = this._detectCommandDanger(parsed.command);
-
-				// Only show warnings for high/medium risk commands, not preview notifications
-				if (dangerLevel === 'high') {
-					this.notificationService.warn(`⚠️ High-risk command detected: ${parsed.command}\nThis command may cause data loss or system changes. Please review carefully.`);
-				} else if (dangerLevel === 'medium') {
-					this.notificationService.info(`⚠️ Potentially risky command: ${parsed.command}\nReview before execution.`);
+				// Safety gate per nl-shell-safety-contract.md / L990:
+				//   high (destructive) → block and require explicit confirm.
+				//   medium (ambiguous) → warn only; execute.
+				if (parsed.estimatedRisk === 'high') {
+					const { confirmed } = await this.dialogService.confirm({
+						type: 'warning',
+						message: `Destructive command detected`,
+						detail: `"${parsed.command}"\n\nThis command may cause irreversible data loss. Proceed only if you are sure.`,
+						primaryButton: 'Run anyway',
+					});
+					if (!confirmed) {
+						const abortMsg = '[Aborted by user: destructive command not confirmed]';
+						return {
+							result: Promise.resolve({
+								result: abortMsg,
+								resolveReason: { type: 'done' as const, exitCode: 1 },
+								parsedCommand: parsed.command,
+								explanation: parsed.explanation,
+							}),
+						};
+					}
+				} else if (parsed.estimatedRisk === 'medium') {
+					this.notificationService.info(`⚠️ Potentially risky command: ${parsed.command} — review before relying on output.`);
 				}
 
-				// Execute the parsed command
+				// Execute the parsed command.
 				const { resPromise, interrupt } = await this.terminalToolService.runCommand(parsed.command, { type: 'temporary', cwd, terminalId });
 
 				// Wrap result to include parsed command info and mask secrets

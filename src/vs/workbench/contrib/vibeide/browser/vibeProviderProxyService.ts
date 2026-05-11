@@ -29,6 +29,7 @@ import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { localize } from '../../../../nls.js';
 import { IVibeOutboundRingBuffer } from '../common/vibeOutboundRingBuffer.js';
+import { evaluateOutbound, buildDefaultAllowlist } from '../common/outboundAllowlist.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
@@ -126,6 +127,16 @@ class VibeProviderProxyService extends Disposable implements IVibeProviderProxyS
 
 	recordRequest(provider: string, method: string, url: string, headers: Record<string, string>, body: string): string {
 		if (!this.isEnabled()) { return ''; }
+
+		// Privacy strict-mode gate (L1044): warn when an outbound URL would be blocked.
+		const privacyStrict = !!this._config.getValue<boolean>('vibeide.privacy.strict');
+		if (privacyStrict) {
+			const allowlist = buildDefaultAllowlist();
+			const decision = evaluateOutbound({ url, privacyStrict, allowlist });
+			if (decision.kind === 'block') {
+				this._log.warn(`[VibeProviderProxy] strict-mode: blocking ${url} (${decision.reason})`);
+			}
+		}
 
 		const id = `proxy-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 		const redactedHeaders = this._redactHeaders(headers);

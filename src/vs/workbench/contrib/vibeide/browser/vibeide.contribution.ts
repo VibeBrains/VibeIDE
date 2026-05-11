@@ -578,3 +578,6 @@ import './vibeMCPTokenRotationContribution.js'
 
 // VibeIDE: Provider auto-failover — processOutcome FSM wired to VibeProviderStatusService (§ N.3/1184)
 import './vibeProviderFailoverContribution.js'
+
+// VibeIDE: Network outbound panel — vibeide.network.showOutbound palette → ring buffer → Output channel (§ N.5/1043)
+import './vibeNetworkContribution.js'

@@ -1,11 +1,12 @@
-# i18n coverage — soft gate per K.4
+# i18n coverage — grace-period gate per K.4 / L939
 #
-# Walks the VibeIDE source for localize() / localize2() calls, counts how many of
-# them have translations in out/nls/vibeide.nls.<locale>.json, and posts a comment
-# on the PR with the coverage delta. Warning-only by design (K.4 decision):
-# blocking merges on coverage would punish ordinary feature work for translation
-# debt. Old translations falling out (existing key disappeared from <locale>.json)
-# should be handled by scripts/i18n-sync.js which is its own backlog item.
+# Policy (mirrors i18nGracePeriodPolicy.ts):
+#   FAIL  — existing translation disappeared (regression).
+#   WARN  — new untranslated keys or coverage below 95% floor (merge still allowed).
+#   OK    — nothing to complain about.
+#
+# The CJS gate helper at scripts/lib/i18n-grace-period-policy.cjs is a
+# zero-dep mirror of the TS source. Update both files together.
 
 name: i18n-coverage
 
@@ -17,6 +18,7 @@ on:
       - 'extensions/vibeide-*/**/package.json'
       - 'out/nls/vibeide.nls.*.json'
       - '.github/workflows/i18n-coverage.yml'
+      - 'scripts/lib/i18n-grace-period-policy.cjs'
 
 permissions:
   contents: read
@@ -24,36 +26,135 @@ permissions:
 
 jobs:
   coverage:
-    name: i18n coverage report
+    name: i18n grace-period gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # need full history for base ref checkout
 
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Run vibe doctor --i18n
-        id: report
+      # ── Gather metadata keys from source via vibe-doctor ─────────────────────
+      - name: Gather i18n metadata (head)
+        id: head_report
         run: |
           set -euo pipefail
           mkdir -p out/nls
-          # i18n bundles may not exist yet on a fresh clone; report what is there.
-          node scripts/vibe-doctor.js --i18n --json > /tmp/i18n.json || true
-          {
-            echo '## 🌐 i18n coverage'
-            echo ''
-            if [ ! -s /tmp/i18n.json ]; then
-              echo '_(no report produced)_'
-            else
-              node -e "const r=require('/tmp/i18n.json');console.log('Total source keys: '+r.totalKeys);if(!r.locales||r.locales.length===0){console.log('No locale bundles under out/nls/.');return}for(const l of r.locales){console.log('- **'+l.locale+'**: '+l.coveragePercent+'% ('+l.translated+'/'+l.totalKeys+'); needs: '+l.needsTranslation+'; missing: '+l.missing)}"
-            fi
-            echo ''
-            echo '_Soft gate per K.4 — this report does not block merges._'
-          } > /tmp/comment.md
+          node scripts/vibe-doctor.js --i18n --json > /tmp/i18n-head.json || true
+
+      # ── Collect HEAD NLS snapshots ────────────────────────────────────────────
+      - name: Collect HEAD NLS bundles
+        id: head_bundles
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/nls-head
+          for f in out/nls/vibeide.nls.*.json; do
+            [ -f "$f" ] && cp "$f" /tmp/nls-head/ || true
+          done
+          ls /tmp/nls-head/ || echo "(none)"
+
+      # ── Collect BASE NLS snapshots ────────────────────────────────────────────
+      - name: Collect BASE NLS bundles
+        id: base_bundles
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/nls-base
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          git show "${BASE_SHA}:out/nls" 2>/dev/null | grep 'vibeide.nls.' | while read -r name; do
+            git show "${BASE_SHA}:out/nls/${name}" > "/tmp/nls-base/${name}" 2>/dev/null || true
+          done || true
+          ls /tmp/nls-base/ || echo "(none)"
+
+      # ── Run grace-period gate ─────────────────────────────────────────────────
+      - name: Run i18n grace-period gate
+        id: gate
+        run: |
+          set -euo pipefail
+          node - <<'EOF'
+          const fs = require('fs');
+          const path = require('path');
+          const policy = require('./scripts/lib/i18n-grace-period-policy.cjs');
+
+          const headDir = '/tmp/nls-head';
+          const baseDir = '/tmp/nls-base';
+
+          // Discover locale names from head bundles.
+          const locales = fs.readdirSync(headDir)
+            .filter(f => f.match(/^vibeide\.nls\.\w+\.json$/))
+            .map(f => f.replace('vibeide.nls.', '').replace('.json', ''));
+
+          if (locales.length === 0) {
+            fs.writeFileSync('/tmp/gate-comment.md', '## 🌐 i18n coverage\n\n_(no NLS bundles found — skipping gate)_\n\n_Soft gate per K.4 — no bundles, no verdict._');
+            process.exit(0);
+          }
+
+          // Source metadata keys: from vibe-doctor --i18n --json if available.
+          let metadataKeys = new Set();
+          try {
+            const raw = JSON.parse(fs.readFileSync('/tmp/i18n-head.json', 'utf8'));
+            if (Array.isArray(raw.keys)) {
+              metadataKeys = new Set(raw.keys);
+            } else if (typeof raw.totalKeys === 'number') {
+              // Fallback: no key list, use head bundle keys as proxy.
+              const firstLocale = locales[0];
+              const bundle = JSON.parse(fs.readFileSync(path.join(headDir, `vibeide.nls.${firstLocale}.json`), 'utf8'));
+              metadataKeys = new Set(Object.keys(bundle));
+            }
+          } catch (_) {
+            // vibe-doctor not available or no output; use head bundle keys.
+            const firstLocale = locales[0];
+            try {
+              const bundle = JSON.parse(fs.readFileSync(path.join(headDir, `vibeide.nls.${firstLocale}.json`), 'utf8'));
+              metadataKeys = new Set(Object.keys(bundle));
+            } catch (_2) { /* nothing */ }
+          }
+
+          const comments = [];
+          let worstVerdict = 'ok';
+
+          for (const locale of locales) {
+            let headBundle = {};
+            let baseBundle = null;
+            try { headBundle = JSON.parse(fs.readFileSync(path.join(headDir, `vibeide.nls.${locale}.json`), 'utf8')); } catch (_) {}
+            try { baseBundle = JSON.parse(fs.readFileSync(path.join(baseDir, `vibeide.nls.${locale}.json`), 'utf8')); } catch (_) {}
+
+            const headSnapshot = policy.snapshotFromNlsBundle(headBundle);
+            const baseSnapshot = baseBundle !== null ? policy.snapshotFromNlsBundle(baseBundle) : null;
+
+            const decision = policy.decideI18nGate({ metadataKeys, baseSnapshot, headSnapshot, coverageFloor: 0.95 });
+            comments.push(policy.describeI18nGate(decision, locale));
+
+            if (decision.verdict === 'fail') worstVerdict = 'fail';
+            else if (decision.verdict === 'warn' && worstVerdict !== 'fail') worstVerdict = 'warn';
+          }
+
+          const header = worstVerdict === 'fail'
+            ? '## ❌ i18n coverage — regression detected (blocks merge)'
+            : worstVerdict === 'warn'
+              ? '## ⚠️ i18n coverage — new untranslated keys'
+              : '## ✅ i18n coverage — OK';
+
+          const body = [header, '', ...comments, '', '_Gate per K.4/L939. FAIL = existing translations regressed; WARN = new keys only (merge allowed)._'].join('\n');
+          fs.writeFileSync('/tmp/gate-comment.md', body);
+
+          // Signal verdict for the next step.
+          fs.writeFileSync('/tmp/gate-verdict.txt', worstVerdict);
+          EOF
 
       - name: Comment on PR
         uses: peter-evans/create-or-update-comment@v4
         with:
           issue-number: ${{ github.event.pull_request.number }}
-          body-path: /tmp/comment.md
+          body-path: /tmp/gate-comment.md
+
+      - name: Fail on regression
+        run: |
+          verdict=$(cat /tmp/gate-verdict.txt 2>/dev/null || echo 'ok')
+          if [ "$verdict" = "fail" ]; then
+            echo "::error::i18n regression detected — existing translations disappeared. Fix before merging."
+            exit 1
+          fi
+          echo "i18n gate verdict: $verdict"
