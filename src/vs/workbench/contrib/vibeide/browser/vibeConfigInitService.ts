@@ -14,6 +14,7 @@ import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IVibeideModelService } from '../common/vibeideModelService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { getDefaultVibeReadmeMarkdown, VIBE_WORKSPACE_FORMAT_VERSION } from '../common/vibeDefaultWorkspaceReadme.js';
+import { serializeProjectCommandsInitTemplate } from '../common/projectCommandsInitTemplate.js';
 
 const VIBE_VERSION = VIBE_WORKSPACE_FORMAT_VERSION;
 
@@ -194,6 +195,12 @@ export class VibeConfigInitContribution extends Disposable implements IWorkbench
 
 			// Plans live under .vibe/plans/ (project convention)
 			await this._fileService.createFolder(joinPath(vibeDir, 'plans'));
+
+			// Create .vibe/commands.json with starter template (roadmap L355)
+			await this._createIfMissing(
+				joinPath(vibeDir, 'commands.json'),
+				serializeProjectCommandsInitTemplate({ vibeVersion: VIBE_VERSION })
+			);
 
 			// Create .vibe/skills/ — Agent Skills (SKILL.md + /skill:id + GUIDELINES discovery)
 			const skillsDir = joinPath(vibeDir, 'skills');
