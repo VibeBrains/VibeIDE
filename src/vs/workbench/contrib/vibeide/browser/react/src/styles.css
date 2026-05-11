@@ -10,7 +10,7 @@
 .select-child-restyle select {
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	padding-right: 24px;
+	padding-inline-end: 24px;
 }
 
 .vibe-force-child-placeholder-vibe-fg-1 ::placeholder {
@@ -497,22 +497,22 @@ select.vibe-chat-like-control:disabled {
 /* Code Review Decorations */
 .monaco-editor .code-review-error {
 	background-color: rgba(255, 0, 0, 0.1);
-	border-left: 3px solid var(--vscode-errorForeground);
+	border-inline-start: 3px solid var(--vscode-errorForeground);
 }
 
 .monaco-editor .code-review-warning {
 	background-color: rgba(255, 193, 7, 0.1);
-	border-left: 3px solid var(--vscode-editorWarning-foreground);
+	border-inline-start: 3px solid var(--vscode-editorWarning-foreground);
 }
 
 .monaco-editor .code-review-info {
 	background-color: rgba(0, 122, 204, 0.1);
-	border-left: 3px solid var(--vscode-editorInfo-foreground);
+	border-inline-start: 3px solid var(--vscode-editorInfo-foreground);
 }
 
 .monaco-editor .code-review-hint {
 	background-color: rgba(128, 128, 128, 0.1);
-	border-left: 3px solid var(--vscode-editorHint-foreground);
+	border-inline-start: 3px solid var(--vscode-editorHint-foreground);
 }
 
 /* Glyph margin icons for code review */
@@ -543,12 +543,12 @@ select.vibe-chat-like-control:disabled {
 /* Error Detection Decorations */
 .monaco-editor .error-detection-error {
 	background-color: color-mix(in srgb, var(--vscode-errorForeground) 10%, transparent);
-	border-left: 3px solid var(--vscode-errorForeground);
+	border-inline-start: 3px solid var(--vscode-errorForeground);
 }
 
 .monaco-editor .error-detection-warning {
 	background-color: color-mix(in srgb, var(--vscode-warningForeground) 10%, transparent);
-	border-left: 3px solid var(--vscode-warningForeground);
+	border-inline-start: 3px solid var(--vscode-warningForeground);
 }
 
 .monaco-editor .error-detection-glyph-error::before {
@@ -561,6 +561,13 @@ select.vibe-chat-like-control:disabled {
 	content: '⚠️';
 	font-size: 14px;
 	color: var(--vscode-warningForeground);
+}
+
+/* AI provenance block — gutter strip beside @ai-generated blocks (roadmap §L1179) */
+.monaco-editor .vibe-ai-provenance-gutter {
+	background-color: color-mix(in srgb, var(--vscode-editorInfo-foreground) 50%, transparent);
+	width: 3px !important;
+	margin-inline-start: 4px;
 }
 
 /* Loading indicator — single cycling glyph driven by React state.
@@ -593,7 +600,7 @@ select.vibe-chat-like-control:disabled {
 	height: 1em;
 	background-color: currentColor;
 	animation: typing-cursor-blink 1s step-end infinite;
-	margin-left: 2px;
+	margin-inline-start: 2px;
 	vertical-align: baseline;
 	transition: opacity 0.15s ease-in-out;
 }

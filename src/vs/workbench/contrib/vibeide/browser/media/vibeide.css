@@ -413,13 +413,13 @@ body.monaco-workbench,
 
 /* Chat / secondary sidebar: always show a visible edge vs editor (theme border is often imperceptible). */
 .monaco-workbench .part.auxiliarybar.right {
-	border-left: 1px solid var(--vscode-sideBar-border, var(--vscode-panel-border, var(--vscode-widget-border, color-mix(in srgb, var(--vscode-sideBar-foreground) 16%, transparent)))) !important;
-	border-right: none !important;
+	border-inline-start: 1px solid var(--vscode-sideBar-border, var(--vscode-panel-border, var(--vscode-widget-border, color-mix(in srgb, var(--vscode-sideBar-foreground) 16%, transparent)))) !important;
+	border-inline-end: none !important;
 }
 
 .monaco-workbench .part.auxiliarybar.left {
-	border-right: 1px solid var(--vscode-sideBar-border, var(--vscode-panel-border, var(--vscode-widget-border, color-mix(in srgb, var(--vscode-sideBar-foreground) 16%, transparent)))) !important;
-	border-left: none !important;
+	border-inline-end: 1px solid var(--vscode-sideBar-border, var(--vscode-panel-border, var(--vscode-widget-border, color-mix(in srgb, var(--vscode-sideBar-foreground) 16%, transparent)))) !important;
+	border-inline-start: none !important;
 }
 
 /* ----------------------------------------------------------------------------------------
@@ -542,7 +542,7 @@ body.monaco-workbench,
 	display: inline-block;
 	width: 16px;
 	height: 16px;
-	margin-right: 12px;
+	margin-inline-end: 12px;
 	vertical-align: middle;
 	background-image: var(--vibeide-logo-url);
 	background-size: contain;
@@ -564,12 +564,12 @@ body.monaco-workbench,
 
 /* Neon glow toggle — Command Center (classic + sessions title bar) */
 .monaco-workbench .command-center .monaco-action-bar .actions-container > .action-item:has(.vibeide-neon-glow-command-center-item) {
-	margin-left: 16px;
+	margin-inline-start: 16px;
 }
 
 /* Extra gap after the VibeIDE brain submenu so the Neon control does not touch the previous icon */
 .monaco-workbench .command-center .monaco-action-bar .actions-container > .action-item.menu-entry + .action-item:has(.vibeide-neon-glow-command-center-item) {
-	margin-left: 18px;
+	margin-inline-start: 18px;
 }
 
 .monaco-workbench .command-center .vibeide-neon-glow-command-center-item {
@@ -583,8 +583,8 @@ body.monaco-workbench,
 .monaco-workbench .command-center .vibeide-neon-glow-command-center-item > .monaco-custom-toggle {
 	float: none !important;
 	flex-shrink: 0;
-	margin-left: 0 !important;
-	margin-right: 0 !important;
+	margin-inline-start: 0 !important;
+	margin-inline-end: 0 !important;
 	/* Default toggle box is 20px; +30% leaves room for FA glyph in title bar */
 	width: 26px;
 	min-width: 26px;
@@ -616,7 +616,7 @@ body.monaco-workbench,
 
 .monaco-workbench .workbench-hover-pointer:after {
 	background-color: var(--vscode-button-secondaryBackground);
-	border-right-color: var(--vscode-button-secondaryBorder);
+	border-inline-end-color: var(--vscode-button-secondaryBorder);
 	border-bottom-color: var(--vscode-button-secondaryBorder);
 }
 
@@ -634,7 +634,7 @@ body.monaco-workbench,
 }
 
 .monaco-workbench .workbench-hover-container:focus-within .workbench-hover-pointer:after {
-	border-right-color: var(--vscode-focusBorder);
+	border-inline-end-color: var(--vscode-focusBorder);
 	border-bottom-color: var(--vscode-focusBorder);
 }
 
