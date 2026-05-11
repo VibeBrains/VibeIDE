@@ -376,6 +376,9 @@ import './vibeAiThinkingStatusBar.js'
 // VibeIDE: Plan-lease periodic janitor (.vibe/plans/.leases TTL cleanup)
 import './vibePlanLeaseJanitorContribution.js'
 
+// VibeIDE: Multi-window coordinator — .vibe/.window-lock.json ownership + heartbeat (L1032)
+import './vibeMultiWindowCoordinatorContribution.js'
+
 // VibeIDE: Memory snapshot Action2 (dev-only)
 import './vibeMemorySnapshotAction.js'
 
