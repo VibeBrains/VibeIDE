@@ -372,6 +372,9 @@ import './vibeCustomCommandsContribution.js'
 import './vibeCustomCommandsStatusBar.js'
 import './vibeCustomCommandsOnboarding.js'
 
+// VibeIDE: Plan-lease periodic janitor (.vibe/plans/.leases TTL cleanup)
+import './vibePlanLeaseJanitorContribution.js'
+
 // VibeIDE: @search context service (workspace literal grep, no LLM)
 import '../common/vibeSearchContextService.js'
 
