@@ -77,6 +77,8 @@ import {
 	redactCommandForAudit,
 } from '../common/commandsAuditPrivacy.js';
 import { IAuditLogService } from '../common/auditLogService.js';
+import { decideWorkflowTrigger } from '../common/projectCommandsWorkflowTrigger.js';
+import { IVibeWorkflowService } from '../common/vibeWorkflowService.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
 
@@ -166,6 +168,7 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		@ITerminalService private readonly _terminal: ITerminalService,
 		@IDialogService private readonly _dialog: IDialogService,
 		@IAuditLogService private readonly _audit: IAuditLogService,
+		@IVibeWorkflowService private readonly _workflows: IVibeWorkflowService,
 	) {
 		super();
 
@@ -312,6 +315,32 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 				unresolvedPlaceholders: resolveResult.unresolved.map(u => ({ kind: u.kind, name: u.name })),
 				invocationId,
 			};
+		}
+
+		// ── Workflow trigger gate (roadmap L344) ─────────────────────────────
+		// If the command points to a workflow, validate the id + existence and
+		// refuse early. Without a runtime workflow-runner API (workflows are
+		// surfaced via chat `/workflow:name`), we refuse with a clear reason
+		// asking the user to invoke the workflow through chat instead.
+		if (cmd.workflowId !== undefined) {
+			const workflows = await this._workflows.getWorkflows();
+			const known = new Set(workflows.map(w => w.name));
+			const decision = decideWorkflowTrigger({ command: cmd, knownWorkflowIds: known });
+			if (decision.kind === 'refused') {
+				this._log.warn(`[VibeCustomCommands] refused ${id}: workflow ${decision.reason}`);
+				return { outcome: 'refused', reason: `workflow-${decision.reason}`, invocationId };
+			}
+			if (decision.kind === 'launch-workflow') {
+				// Runtime workflow-runner API is not yet exposed (workflows go through
+				// chat `/workflow:name`). Refuse with a friendly hint until the runner
+				// lands; surfaces in the palette as a warning toast.
+				return {
+					outcome: 'refused',
+					reason: `workflow-runner-not-yet-implemented (try /workflow:${decision.workflowId} в чате)`,
+					invocationId,
+				};
+			}
+			// kind === 'launch-shell' → fall through to normal terminal path
 		}
 
 		// ── Trust confirm gate (roadmap L331) ────────────────────────────────

@@ -39,6 +39,8 @@ import { PROJECT_COMMANDS_PALETTE_IDS } from '../common/projectCommandsServiceCo
 import { serializeProjectCommandsInitTemplate } from '../common/projectCommandsInitTemplate.js';
 import { describeUnresolvedPlaceholders } from '../common/projectCommandSecretsResolver.js';
 import { commandIdToRegistryId } from '../common/projectCommandsRegistryId.js';
+import { importTasksJson } from '../common/vscodeTasksJsonImporter.js';
+import { decodeProjectCommandsFile, ProjectCommandsFile } from '../common/projectCommandsTypes.js';
 
 CommandsRegistry.registerCommand({
 	id: PROJECT_COMMANDS_PALETTE_IDS.run,
@@ -139,6 +141,113 @@ CommandsRegistry.registerCommand({
 			await fileService.writeFile(uri, VSBuffer.fromString(serialized));
 		}
 		await editorService.openEditor({ resource: uri });
+	},
+});
+
+// `VibeIDE: Import commands from .vscode/tasks.json` (roadmap L317).
+// Reads `.vscode/tasks.json` from the first workspace folder, maps via the
+// pure `importTasksJson` helper, presents a Quick Pick of importable tasks
+// + skipped reasons, and on confirmation merges into `.vibe/commands.json`.
+CommandsRegistry.registerCommand({
+	id: 'vibeide.commands.importTasksJson',
+	handler: async (accessor: ServicesAccessor) => {
+		const workspace = accessor.get(IWorkspaceContextService);
+		const fileService = accessor.get(IFileService);
+		const quickInput = accessor.get(IQuickInputService);
+		const notifications = accessor.get(INotificationService);
+		const commands = accessor.get(IVibeCustomCommandsService);
+
+		const folder = workspace.getWorkspace().folders[0];
+		if (!folder) {
+			notifications.notify({
+				severity: Severity.Warning,
+				message: localize('vibeide.commands.importTasksJson.noWorkspace', 'Откройте папку, чтобы импортировать tasks.json.'),
+			});
+			return;
+		}
+		const tasksUri = joinPath(folder.uri, '.vscode', 'tasks.json');
+		let tasksBuf;
+		try {
+			tasksBuf = await fileService.readFile(tasksUri);
+		} catch {
+			notifications.notify({
+				severity: Severity.Info,
+				message: localize('vibeide.commands.importTasksJson.missing', 'Файл .vscode/tasks.json не найден.'),
+			});
+			return;
+		}
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(tasksBuf.value.toString());
+		} catch (e) {
+			notifications.notify({
+				severity: Severity.Error,
+				message: localize('vibeide.commands.importTasksJson.parseFailed', 'tasks.json: ошибка JSON: {0}', (e as Error).message),
+			});
+			return;
+		}
+
+		const preview = importTasksJson(parsed);
+		if (preview.imported.length === 0) {
+			notifications.notify({
+				severity: Severity.Warning,
+				message: localize(
+					'vibeide.commands.importTasksJson.empty',
+					'В tasks.json не найдено команд для импорта. Пропущено: {0}.',
+					preview.skipped.length,
+				),
+			});
+			return;
+		}
+
+		// Quick Pick lets user de-select tasks they don't want.
+		const items = preview.imported.map(({ command, sourceLabel }) => ({
+			label: command.name,
+			description: command.id,
+			detail: `${command.command}${command.args && command.args.length > 0 ? ` ${command.args.join(' ')}` : ''}`,
+			picked: true,
+			source: sourceLabel,
+			command,
+		}));
+		const picked = await quickInput.pick(items, {
+			placeHolder: localize('vibeide.commands.importTasksJson.pick', 'Выберите команды для импорта (Space — toggle)'),
+			canPickMany: true,
+		});
+		if (!picked || (Array.isArray(picked) && picked.length === 0)) {
+			return;
+		}
+		const selected = (Array.isArray(picked) ? picked : [picked]) as ReadonlyArray<typeof items[number]>;
+
+		const commandsUri = joinPath(folder.uri, '.vibe', 'commands.json');
+		let existing: ProjectCommandsFile | null = null;
+		try {
+			const buf = await fileService.readFile(commandsUri);
+			const decoded = decodeProjectCommandsFile(JSON.parse(buf.value.toString()));
+			if (decoded.ok) {
+				existing = decoded.value;
+			}
+		} catch {
+			// missing or corrupt → treated as empty file (we overwrite from template).
+		}
+
+		const merged: ProjectCommandsFile = {
+			vibeVersion: existing?.vibeVersion ?? '1.0.0',
+			commands: [...(existing?.commands ?? []), ...selected.map(s => s.command)],
+		};
+		await fileService.writeFile(commandsUri, VSBuffer.fromString(JSON.stringify(merged, null, '\t') + '\n'));
+		await commands.reload();
+
+		const skippedSummary = preview.skipped.length > 0
+			? localize('vibeide.commands.importTasksJson.skipped', ' Пропущено: {0}.', preview.skipped.length)
+			: '';
+		notifications.notify({
+			severity: Severity.Info,
+			message: localize(
+				'vibeide.commands.importTasksJson.done',
+				'Импортировано команд: {0}.{1}',
+				selected.length, skippedSummary,
+			),
+		});
 	},
 });
 
