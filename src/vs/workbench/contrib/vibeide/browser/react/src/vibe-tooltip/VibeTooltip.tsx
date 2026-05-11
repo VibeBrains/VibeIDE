@@ -7,6 +7,7 @@ import '../styles.css'
 import { Tooltip } from 'react-tooltip';
 import 'react-tooltip/dist/react-tooltip.css';
 import { useIsDark } from '../util/services.js';
+import { tooltipS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 
 /**
  * Creates a configured global tooltip component with consistent styling
@@ -110,18 +111,18 @@ export const VibeTooltip = () => {
 			>
 				<div style={{ padding: '8px 10px' }}>
 					<div style={{ opacity: 0.8, textAlign: 'center', fontWeight: 'bold', marginBottom: 8 }}>
-						Good starter models
+						{tooltipS.starterModelsTitle}
 					</div>
 					<div style={{ marginBottom: 4 }}>
-						<span style={{ opacity: 0.8 }}>For chat:{` `}</span>
+						<span style={{ opacity: 0.8 }}>{tooltipS.forChat}{` `}</span>
 						<span style={{ opacity: 0.8, fontWeight: 'bold' }}>gemma3</span>
 					</div>
 					<div style={{ marginBottom: 4 }}>
-						<span style={{ opacity: 0.8 }}>For autocomplete:{` `}</span>
+						<span style={{ opacity: 0.8 }}>{tooltipS.forAutocomplete}{` `}</span>
 						<span style={{ opacity: 0.8, fontWeight: 'bold' }}>qwen2.5-coder</span>
 					</div>
 					<div style={{ marginBottom: 0 }}>
-						<span style={{ opacity: 0.8 }}>Use the largest version of these you can!</span>
+						<span style={{ opacity: 0.8 }}>{tooltipS.useLargest}</span>
 					</div>
 				</div>
 			</Tooltip>
