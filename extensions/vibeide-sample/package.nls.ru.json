@@ -1,0 +1,5 @@
+{
+	"displayName": "VibeIDE Sample Extension",
+	"description": "Подтверждение работоспособности предложенного API VibeIDE. Вызывает по одному read-only аксессору из каждого namespace (agent / skills / plans / constraints) и показывает уведомление.",
+	"command.vibeideSample.show.title": "VibeIDE Sample: Показать статус"
+}

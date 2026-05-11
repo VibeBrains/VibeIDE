@@ -1,10 +1,14 @@
 // VibeIDE sample extension — calls one accessor from each VibeIDE proposed namespace
 // and surfaces a notification with the result. Acceptance proof for the
-// `vibeideReadonly` proposal in references/v1/extension-api-readonly-draft.md.
+// `vibeideReadonly` proposal in src/vscode-dts/vscode.proposed.vibeideReadonly.d.ts.
 //
-// Until the proposed typings land in src/vscode-dts/, we cast through `any` to call
-// the VibeIDE namespace. When the typings exist, the cast disappears and the file
-// becomes a five-line tutorial (see docs/v1/extension-development.md).
+// JS-only sample: we cast through `any` so this file can be loaded without
+// any typings shim. TypeScript consumers should add the proposed dts to
+// `enabledApiProposals` and access vscode.vibeide directly.
+//
+// i18n: this file lives under extensions/, so per the L515 split decision
+// (references/v1/l10n-vs-nls-decision.md) user-facing strings use
+// vscode.l10n.t(). Bundle path is declared in package.json:l10n.
 
 'use strict';
 
@@ -16,8 +20,7 @@ function activate(context) {
 		const vibeide = /** @type {any} */ (vscode).vibeide;
 		if (!vibeide) {
 			await vscode.window.showWarningMessage(
-				'VibeIDE proposed API not present. Run inside VibeIDE 0.3.0 or later, ' +
-				'and add "vibeideReadonly" to enabledApiProposals in your manifest.'
+				vscode.l10n.t('VibeIDE proposed API not present. Run inside VibeIDE 0.3.0 or later, and add "vibeideReadonly" to enabledApiProposals in your manifest.'),
 			);
 			return;
 		}
@@ -28,19 +31,19 @@ function activate(context) {
 			const folder = vscode.workspace.workspaceFolders?.[0];
 			const target = folder ? folder.uri.fsPath : '';
 			const allowed = target
-				? await vibeide.constraints.queryAllowed({ tool: 'edit_file', target })
+				? await vibeide.constraints.queryAllowed({ tool: 'write', target })
 				: null;
 
 			const lines = [
-				`Mode: ${status.mode}`,
-				`Running: ${status.running}`,
-				`Skills: ${skills.length}`,
-				`Edit allowed at workspace root: ${allowed === null ? 'no workspace' : allowed ? 'yes' : 'no'}`,
+				vscode.l10n.t('Mode: {0}', status.mode),
+				vscode.l10n.t('Running: {0}', String(status.running)),
+				vscode.l10n.t('Skills: {0}', String(skills.length)),
+				vscode.l10n.t('Edit allowed at workspace root: {0}', allowed === null ? vscode.l10n.t('no workspace') : allowed ? vscode.l10n.t('yes') : vscode.l10n.t('no')),
 			];
 			await vscode.window.showInformationMessage(lines.join(' · '));
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
-			await vscode.window.showErrorMessage('VibeIDE sample: ' + message);
+			await vscode.window.showErrorMessage(vscode.l10n.t('VibeIDE sample: {0}', message));
 		}
 	});
 

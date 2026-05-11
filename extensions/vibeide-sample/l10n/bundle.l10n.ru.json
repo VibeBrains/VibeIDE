@@ -1,0 +1,11 @@
+{
+	"VibeIDE proposed API not present. Run inside VibeIDE 0.3.0 or later, and add \"vibeideReadonly\" to enabledApiProposals in your manifest.": "Proposed API VibeIDE недоступен. Запустите в VibeIDE 0.3.0 или новее и добавьте «vibeideReadonly» в enabledApiProposals вашего манифеста.",
+	"Mode: {0}": "Режим: {0}",
+	"Running: {0}": "Работает: {0}",
+	"Skills: {0}": "Скиллов: {0}",
+	"Edit allowed at workspace root: {0}": "Правка в корне workspace разрешена: {0}",
+	"no workspace": "нет workspace",
+	"yes": "да",
+	"no": "нет",
+	"VibeIDE sample: {0}": "VibeIDE sample: {0}"
+}

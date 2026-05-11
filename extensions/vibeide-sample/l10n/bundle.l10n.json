@@ -1,0 +1,11 @@
+{
+	"VibeIDE proposed API not present. Run inside VibeIDE 0.3.0 or later, and add \"vibeideReadonly\" to enabledApiProposals in your manifest.": "VibeIDE proposed API not present. Run inside VibeIDE 0.3.0 or later, and add \"vibeideReadonly\" to enabledApiProposals in your manifest.",
+	"Mode: {0}": "Mode: {0}",
+	"Running: {0}": "Running: {0}",
+	"Skills: {0}": "Skills: {0}",
+	"Edit allowed at workspace root: {0}": "Edit allowed at workspace root: {0}",
+	"no workspace": "no workspace",
+	"yes": "yes",
+	"no": "no",
+	"VibeIDE sample: {0}": "VibeIDE sample: {0}"
+}

@@ -1,0 +1,5 @@
+{
+	"displayName": "VibeIDE Sample Extension",
+	"description": "Acceptance proof for the VibeIDE proposed-API surface. Calls one read-only accessor from each namespace (agent / skills / plans / constraints) and shows a notification.",
+	"command.vibeideSample.show.title": "VibeIDE Sample: Show status"
+}

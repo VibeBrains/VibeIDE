@@ -1,7 +1,7 @@
 {
 	"name": "vibeide-sample",
-	"displayName": "VibeIDE Sample Extension",
-	"description": "Acceptance proof for the VibeIDE proposed-API surface. Calls one read-only accessor from each namespace (agent / skills / plans / constraints) and shows a notification.",
+	"displayName": "%displayName%",
+	"description": "%description%",
 	"version": "0.1.0",
 	"publisher": "vibeide",
 	"license": "MIT",
@@ -26,13 +26,15 @@
 		"vibeide": ">=0.3.0"
 	},
 	"main": "./extension.js",
+	"l10n": "./l10n",
 	"extensionKind": ["ui"],
 	"categories": ["Other"],
+	"enabledApiProposals": ["vibeideReadonly"],
 	"contributes": {
 		"commands": [
 			{
 				"command": "vibeideSample.show",
-				"title": "VibeIDE Sample: Show status"
+				"title": "%command.vibeideSample.show.title%"
 			}
 		]
 	}
