@@ -121,6 +121,57 @@ suite('Project Commands — CLI argv decoder + doctor audit/repair', () => {
 			repairProjectCommandsForDoctor(input, '1.0.0');
 			assert.strictEqual('vibeVersion' in input, false);
 		});
+
+		test('migrates legacy $id → id (single command)', () => {
+			const r = repairProjectCommandsForDoctor({
+				vibeVersion: '1.0.0',
+				commands: [{ $id: 'build-react', name: 'Build', command: 'npm' }],
+			}, '1.0.0');
+			assert.strictEqual(r.repaired, true);
+			const cmd = (r.nextRaw as { commands: Record<string, unknown>[] }).commands[0];
+			assert.strictEqual(cmd.id, 'build-react');
+			assert.strictEqual('$id' in cmd, false);
+			assert.ok(r.notes.some(n => n.includes('migrated 1')));
+		});
+
+		test('migrates legacy $id → id (mixed)', () => {
+			const r = repairProjectCommandsForDoctor({
+				vibeVersion: '1.0.0',
+				commands: [
+					{ $id: 'one', name: 'One', command: 'echo' },
+					{ id: 'two', name: 'Two', command: 'echo' },
+					{ $id: 'three', name: 'Three', command: 'echo' },
+				],
+			}, '1.0.0');
+			assert.strictEqual(r.repaired, true);
+			const cmds = (r.nextRaw as { commands: Record<string, unknown>[] }).commands;
+			assert.deepStrictEqual(cmds.map(c => c.id), ['one', 'two', 'three']);
+			assert.ok(cmds.every(c => !('$id' in c)));
+			assert.ok(r.notes.some(n => n.includes('migrated 2')));
+		});
+
+		test('drops $id when both $id and id present, keeps id', () => {
+			const r = repairProjectCommandsForDoctor({
+				vibeVersion: '1.0.0',
+				commands: [{ $id: 'legacy', id: 'modern', name: 'X', command: 'x' }],
+			}, '1.0.0');
+			assert.strictEqual(r.repaired, true);
+			const cmd = (r.nextRaw as { commands: Record<string, unknown>[] }).commands[0];
+			assert.strictEqual(cmd.id, 'modern');
+			assert.strictEqual('$id' in cmd, false);
+		});
+	});
+
+	suite('auditProjectCommandsForDoctor — legacy $id', () => {
+		test('reports legacy-dollar-id issue per command', () => {
+			const result = auditProjectCommandsForDoctor({
+				vibeVersion: '1.0.0',
+				commands: [{ $id: 'legacy-cmd', name: 'X', command: 'x' }],
+			});
+			const codes = result.issues.map(i => i.code);
+			assert.ok(codes.includes('legacy-dollar-id'));
+			assert.strictEqual(result.file, null);
+		});
 	});
 
 	suite('buildCliListJsonPayload', () => {

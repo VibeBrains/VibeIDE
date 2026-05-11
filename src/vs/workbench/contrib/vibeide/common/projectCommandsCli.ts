@@ -89,7 +89,8 @@ export type DoctorIssueCode =
 	| 'duplicate-id'
 	| 'missing-command'
 	| 'invalid-id-pattern'
-	| 'missing-vibe-version';
+	| 'missing-vibe-version'
+	| 'legacy-dollar-id';
 
 export interface DoctorIssue {
 	readonly code: DoctorIssueCode;
@@ -124,8 +125,27 @@ export interface DoctorRepairResult {
  * the per-command checks need a typed payload to walk over.
  */
 export function auditProjectCommandsForDoctor(raw: unknown): DoctorAuditResult {
-	const decoded = decodeProjectCommandsFile(raw);
 	const issues: DoctorIssue[] = [];
+
+	// L305: peek for legacy `$id` keys — older `.vibe/commands.json` files used
+	// JSON-Schema-style `$id`. The strict decoder treats them as missing `id`
+	// (decode fails). Surface a per-command issue so `--repair` can migrate.
+	const legacyIds = collectLegacyDollarIds(raw);
+	for (const legacyId of legacyIds) {
+		issues.push({
+			code: 'legacy-dollar-id',
+			id: legacyId,
+			message: `command uses legacy "$id" key — run \`vibe doctor --repair\` to rename to "id"`,
+		});
+	}
+	if (legacyIds.length > 0) {
+		// Decoder will reject these — but report only the legacy-id issue (not
+		// a confusing file-decode-failed on top). The repaired output reruns
+		// audit and surfaces any remaining real issues.
+		return { issues, file: null };
+	}
+
+	const decoded = decodeProjectCommandsFile(raw);
 
 	if (!decoded.ok) {
 		issues.push({
@@ -179,10 +199,64 @@ export function repairProjectCommandsForDoctor(raw: unknown, vibeVersion: string
 		next.vibeVersion = vibeVersion;
 		notes.push(`inserted vibeVersion=${vibeVersion}`);
 	}
+	// L305: migrate legacy `$id` → `id` for each command entry. Older docs used
+	// JSON-Schema-style `$id`; the strict decoder requires plain `id`. Skip
+	// entries that already carry a non-empty `id` to avoid clobbering manual
+	// fixes during a mixed-shape rollout.
+	if (Array.isArray(next.commands)) {
+		const migrated: unknown[] = [];
+		let migratedCount = 0;
+		for (const item of next.commands) {
+			if (item && typeof item === 'object' && !Array.isArray(item)) {
+				const cmdObj = { ...(item as Record<string, unknown>) };
+				const legacy = cmdObj['$id'];
+				const current = cmdObj['id'];
+				if (typeof legacy === 'string' && legacy.length > 0
+					&& (typeof current !== 'string' || (current as string).length === 0)) {
+					cmdObj['id'] = legacy;
+					delete cmdObj['$id'];
+					migratedCount++;
+				} else if (typeof legacy === 'string' && legacy.length > 0) {
+					// Both `$id` and `id` present — drop `$id` to clean up; keep `id`.
+					delete cmdObj['$id'];
+					migratedCount++;
+				}
+				migrated.push(cmdObj);
+			} else {
+				migrated.push(item);
+			}
+		}
+		if (migratedCount > 0) {
+			next.commands = migrated;
+			notes.push(`migrated ${migratedCount} command(s) from legacy "$id" to "id"`);
+		}
+	}
 	if (notes.length === 0) {
 		return { repaired: false, nextRaw: raw, notes: ['no auto-repairable issues'] };
 	}
 	return { repaired: true, nextRaw: next, notes };
+}
+
+/**
+ * Pure: collect ids of commands using legacy `$id`. Returns the value of
+ * each `$id` as the id-for-reporting (since the decoder won't see `id`).
+ */
+function collectLegacyDollarIds(raw: unknown): string[] {
+	if (raw === null || typeof raw !== 'object') return [];
+	const commands = (raw as Record<string, unknown>).commands;
+	if (!Array.isArray(commands)) return [];
+	const out: string[] = [];
+	for (const item of commands) {
+		if (item && typeof item === 'object' && !Array.isArray(item)) {
+			const legacy = (item as Record<string, unknown>)['$id'];
+			const current = (item as Record<string, unknown>)['id'];
+			if (typeof legacy === 'string' && legacy.length > 0
+				&& (typeof current !== 'string' || (current as string).length === 0)) {
+				out.push(legacy);
+			}
+		}
+	}
+	return out;
 }
 
 /**

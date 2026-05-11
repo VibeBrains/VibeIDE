@@ -44,6 +44,8 @@ import { allocateDefaultChords } from '../common/projectCommandsKeybindings.js';
 import { importTasksJson } from '../common/vscodeTasksJsonImporter.js';
 import { sanitizeProjectCommand, describeIssue } from '../common/projectCommandsSanitizer.js';
 import { decodeProjectCommandsFile, ProjectCommandsFile, ProjectCommand } from '../common/projectCommandsTypes.js';
+import { safeParseConfigJson } from '../common/vibeConfigJsonParser.js';
+import { findSuspiciousLiteralSecrets } from '../common/projectCommandSecretsResolver.js';
 import { KeybindingsRegistry, KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { KeyMod, KeyCode } from '../../../../base/common/keyCodes.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
@@ -186,18 +188,17 @@ CommandsRegistry.registerCommand({
 			});
 			return;
 		}
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(tasksBuf.value.toString());
-		} catch (e) {
+		// L304: JSONC-tolerant parse — VS Code tasks.json carries `//` comments by convention.
+		const tasksParse = safeParseConfigJson(tasksBuf.value.toString());
+		if (!tasksParse.ok) {
 			notifications.notify({
 				severity: Severity.Error,
-				message: localize('vibeide.commands.importTasksJson.parseFailed', 'tasks.json: ошибка JSON: {0}', (e as Error).message),
+				message: localize('vibeide.commands.importTasksJson.parseFailed', 'tasks.json: ошибка JSON: {0}', tasksParse.reason),
 			});
 			return;
 		}
 
-		const preview = importTasksJson(parsed);
+		const preview = importTasksJson(tasksParse.value);
 		if (preview.imported.length === 0) {
 			notifications.notify({
 				severity: Severity.Warning,
@@ -210,14 +211,31 @@ CommandsRegistry.registerCommand({
 			return;
 		}
 
-		// L332 sanitiser gate: refuse imports with zero-width / Bidi / control /
-		// shell-metachar issues before they reach the Quick Pick. User sees a
-		// warn-notification listing each unsafe command + its first issue.
+		// L332 sanitiser gate + L914 secret-aware filter: refuse imports with
+		// zero-width / Bidi / control / shell-metachar issues OR plaintext-looking
+		// secrets in command/args/env before they reach the Quick Pick.
 		const unsafe: { name: string; reason: string }[] = [];
 		const safeImports = preview.imported.filter(({ command }) => {
 			const sanResult = sanitizeProjectCommand(command);
 			if (!sanResult.ok) {
 				unsafe.push({ name: command.name, reason: describeIssue(sanResult.issues[0]) });
+				return false;
+			}
+			const suspects = findSuspiciousLiteralSecrets({
+				command: command.command,
+				args: command.args,
+				cwd: command.cwd,
+				env: command.env,
+			});
+			if (suspects.length > 0) {
+				unsafe.push({
+					name: command.name,
+					reason: localize(
+						'vibeide.commands.importTasksJson.secretSuspect',
+						'подозрение на plaintext-секрет в {0} — используйте ${secret:KEY}',
+						suspects[0].pathHint,
+					),
+				});
 				return false;
 			}
 			return true;
@@ -259,9 +277,12 @@ CommandsRegistry.registerCommand({
 		let existing: ProjectCommandsFile | null = null;
 		try {
 			const buf = await fileService.readFile(commandsUri);
-			const decoded = decodeProjectCommandsFile(JSON.parse(buf.value.toString()));
-			if (decoded.ok) {
-				existing = decoded.value;
+			const parsed = safeParseConfigJson(buf.value.toString());
+			if (parsed.ok) {
+				const decoded = decodeProjectCommandsFile(parsed.value);
+				if (decoded.ok) {
+					existing = decoded.value;
+				}
 			}
 		} catch {
 			// missing or corrupt → treated as empty file (we overwrite from template).
@@ -349,8 +370,11 @@ CommandsRegistry.registerCommand({
 		let raw: ProjectCommandsFile | null = null;
 		try {
 			const buf = await fileService.readFile(commandsUri);
-			const decoded = decodeProjectCommandsFile(JSON.parse(buf.value.toString()));
-			if (decoded.ok) raw = decoded.value;
+			const parsed = safeParseConfigJson(buf.value.toString());
+			if (parsed.ok) {
+				const decoded = decodeProjectCommandsFile(parsed.value);
+				if (decoded.ok) raw = decoded.value;
+			}
 		} catch { /* fall through */ }
 		if (raw === null) {
 			notifications.notify({
@@ -453,8 +477,11 @@ function registerPinTogglePalette(targetPinned: boolean): void {
 			let raw: ProjectCommandsFile | null = null;
 			try {
 				const buf = await fileService.readFile(commandsUri);
-				const decoded = decodeProjectCommandsFile(JSON.parse(buf.value.toString()));
-				if (decoded.ok) raw = decoded.value;
+				const parsed = safeParseConfigJson(buf.value.toString());
+				if (parsed.ok) {
+					const decoded = decodeProjectCommandsFile(parsed.value);
+					if (decoded.ok) raw = decoded.value;
+				}
 			} catch { /* fallthrough */ }
 			if (raw === null) {
 				notifications.notify({
@@ -579,18 +606,16 @@ CommandsRegistry.registerCommand({
 		const incomingFull: ProjectCommand[] = [];
 		const skippedUnsafe: string[] = [];
 		for (const entry of envelopeResult.value.entries) {
-			let parsed: unknown;
-			try {
-				parsed = JSON.parse(entry.content);
-			} catch (e) {
-				notifications.notify({ severity: Severity.Error, message: localize('vibeide.commands.importFromUrl.contentParseError', 'Ошибка парсинга команды {0}: {1}', entry.id, (e as Error).message) });
+			const parsed = safeParseConfigJson(entry.content);
+			if (!parsed.ok) {
+				notifications.notify({ severity: Severity.Error, message: localize('vibeide.commands.importFromUrl.contentParseError', 'Ошибка парсинга команды {0}: {1}', entry.id, parsed.reason) });
 				return;
 			}
-			if (!parsed || typeof (parsed as Record<string, unknown>).command !== 'string') {
+			if (!parsed.value || typeof (parsed.value as Record<string, unknown>).command !== 'string') {
 				notifications.notify({ severity: Severity.Error, message: localize('vibeide.commands.importFromUrl.contentInvalid', 'Команда {0} в pack имеет неверный формат.', entry.id) });
 				return;
 			}
-			const c = parsed as ProjectCommand;
+			const c = parsed.value as ProjectCommand;
 
 			// L332: VibePromptGuardService — sanitize command/args before import.
 			const sanitizeResult = sanitizeProjectCommand(c);
@@ -600,6 +625,21 @@ CommandsRegistry.registerCommand({
 				notifications.notify({
 					severity: Severity.Warning,
 					message: localize('vibeide.commands.importFromUrl.unsafeSkipped', 'Команда {0} пропущена: {1}', entry.id, firstIssue),
+				});
+				continue;
+			}
+
+			// L914: refuse import of commands carrying plaintext-looking secrets.
+			const suspects = findSuspiciousLiteralSecrets({ command: c.command, args: c.args, cwd: c.cwd, env: c.env });
+			if (suspects.length > 0) {
+				skippedUnsafe.push(entry.id);
+				notifications.notify({
+					severity: Severity.Warning,
+					message: localize(
+						'vibeide.commands.importFromUrl.secretSuspect',
+						'Команда {0} пропущена — подозрение на plaintext-секрет в {1}. Используйте ${secret:KEY}.',
+						entry.id, suspects[0].pathHint,
+					),
 				});
 				continue;
 			}
@@ -652,8 +692,11 @@ CommandsRegistry.registerCommand({
 		let existing: ProjectCommandsFile | null = null;
 		try {
 			const buf = await fileService.readFile(commandsUri);
-			const dec = decodeProjectCommandsFile(JSON.parse(buf.value.toString()));
-			if (dec.ok) existing = dec.value;
+			const parsed = safeParseConfigJson(buf.value.toString());
+			if (parsed.ok) {
+				const dec = decodeProjectCommandsFile(parsed.value);
+				if (dec.ok) existing = dec.value;
+			}
 		} catch { /* missing → treated as empty */ }
 
 		const merged: ProjectCommandsFile = { vibeVersion: existing?.vibeVersion ?? '1.0.0', commands: incomingFull };

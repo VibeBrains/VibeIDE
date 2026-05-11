@@ -87,11 +87,24 @@ import { ISecretStorageService } from '../../../../platform/secrets/common/secre
 import { decideProjectCommandLaunch, detectLaunchOS } from '../common/projectCommandsTerminalPolicy.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import Severity from '../../../../base/common/severity.js';
-import { PLACEHOLDER_RE } from '../common/projectCommandSecretsResolver.js';
+import { PLACEHOLDER_RE, findSuspiciousLiteralSecrets } from '../common/projectCommandSecretsResolver.js';
+import { safeParseConfigJson } from '../common/vibeConfigJsonParser.js';
+import { IVibeConstraintsService } from '../common/vibeConstraintsService.js';
+import {
+	checkCommandConstraints,
+	checkCwdTraversal,
+	describeIssue,
+	sanitizeProjectCommand,
+} from '../common/projectCommandsSanitizer.js';
 
 const COMMANDS_FILE_NAME = '.vibe/commands.json';
 const TRUST_FILE_NAME = '.vibe/commands.trust.json';
 const WATCHER_DEBOUNCE_MS = 250;
+/**
+ * Notify only when the suspect-id set changes between reloads — otherwise
+ * a single committed leak would re-warn on every editor save. Kept on the
+ * instance (see `_lastSuspectIds`).
+ */
 
 /**
  * Cheap stable hash of the parts of a ProjectCommand that affect trust.
@@ -166,6 +179,8 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 	private readonly _runningSingletonIds = new Set<string>();
 	/** Dynamic watchers for `vibeide.commands.globalPaths` files (L306). Replaced on config change. */
 	private readonly _globalPathWatcherStore = this._register(new DisposableStore());
+	/** Last reload's suspect-secret command ids — used to suppress repeat warnings (L914). */
+	private _lastSuspectIds: ReadonlySet<string> = new Set();
 
 	private readonly _onDidChangeCommands = this._register(new Emitter<DidChangeCommandsEvent>());
 	readonly onDidChangeCommands: Event<DidChangeCommandsEvent> = this._onDidChangeCommands.event;
@@ -191,6 +206,7 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		@IVibeWorkflowService private readonly _workflows: IVibeWorkflowService,
 		@ISecretStorageService private readonly _secrets: ISecretStorageService,
 		@INotificationService private readonly _notification: INotificationService,
+		@IVibeConstraintsService private readonly _constraints: IVibeConstraintsService,
 	) {
 		super();
 
@@ -242,6 +258,50 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		this._updateGlobalPathWatchers();
 		// Prune orphaned / shape-changed trust entries on every reload (roadmap K.2 L920).
 		void this._pruneTrustOnLoad();
+		// L914: scan the freshly-loaded commands for plaintext-looking secrets.
+		// Catches direct edits of `.vibe/commands.json` (which bypass the React form
+		// editor / Tasks-json import / community-import gates).
+		this._notifySuspectSecrets();
+	}
+
+	/**
+	 * L914 — emit a single Warning toast when a new command appears with a
+	 * plaintext-looking literal secret. Only fires when the set of suspect ids
+	 * changed since the previous reload, so a single uncorrected leak doesn't
+	 * spam the user on every editor save.
+	 */
+	private _notifySuspectSecrets(): void {
+		const suspectsByCmd: { id: string; name: string; pathHint: string }[] = [];
+		for (const cmd of this._merged) {
+			const hits = findSuspiciousLiteralSecrets({
+				command: cmd.command,
+				args: cmd.args,
+				cwd: cmd.cwd,
+				env: cmd.env,
+			});
+			if (hits.length > 0) {
+				suspectsByCmd.push({ id: cmd.id, name: cmd.name, pathHint: hits[0].pathHint });
+			}
+		}
+		const nextIds = new Set(suspectsByCmd.map(s => s.id));
+		const newOnes = suspectsByCmd.filter(s => !this._lastSuspectIds.has(s.id));
+		this._lastSuspectIds = nextIds;
+		if (newOnes.length === 0) return;
+		const first = newOnes[0];
+		this._notification.notify({
+			severity: Severity.Warning,
+			message: newOnes.length === 1
+				? localize(
+					'vibeide.commands.secretSuspect.single',
+					'«{0}»: подозрение на plaintext-секрет в {1}. Используйте ${secret:KEY} вместо инлайнового значения.',
+					first.name, first.pathHint,
+				)
+				: localize(
+					'vibeide.commands.secretSuspect.many',
+					'Обнаружены подозрения на plaintext-секреты в {0} командах (первая: «{1}» в {2}). Используйте ${secret:KEY}.',
+					newOnes.length, first.name, first.pathHint,
+				),
+		});
 	}
 
 	/** Watch every file listed in `vibeide.commands.globalPaths` so on-disk edits trigger a reload. */
@@ -338,14 +398,16 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 			// Missing file is the common case — no commands defined yet.
 			return undefined;
 		}
-		let raw: unknown;
-		try {
-			raw = JSON.parse(buf.value.toString());
-		} catch (e) {
-			this._log.warn(`[VibeCustomCommands] invalid JSON in ${uri.toString()}: ${(e as Error).message}`);
+		// L304: JSONC-tolerant parse — `.vibe/commands.json` may carry `//` comments
+		// after the user's hand-edits. Empty / corrupt files fall back to "no commands".
+		const parseResult = safeParseConfigJson(buf.value.toString());
+		if (!parseResult.ok) {
+			if (parseResult.reason !== 'empty') {
+				this._log.warn(`[VibeCustomCommands] ${uri.toString()} parse failed: ${parseResult.reason}`);
+			}
 			return undefined;
 		}
-		const decoded = decodeProjectCommandsFile(raw);
+		const decoded = decodeProjectCommandsFile(parseResult.value);
 		if (!decoded.ok) {
 			this._log.warn(`[VibeCustomCommands] ${uri.toString()} decode failed: ${decoded.reason}`);
 			return undefined;
@@ -410,6 +472,44 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 				outcome: 'refused',
 				reason: 'unresolved-placeholders',
 				unresolvedPlaceholders: resolveResult.unresolved.map(u => ({ kind: u.kind, name: u.name })),
+				invocationId,
+			};
+		}
+
+		// L333: pre-launch sanitizer + constraints gate.
+		// Re-run the static sanitizer on the *resolved* command (placeholder
+		// substitution may have introduced shell-metachar or zero-width chars
+		// from process.env). Then ask IVibeConstraintsService whether the cwd
+		// (resolved relative to workspace root) is denied by .vibe/constraints.json.
+		const resolvedForSan: ProjectCommand = {
+			...cmd,
+			command: resolveResult.resolved.command,
+			args: resolveResult.resolved.args,
+			cwd: resolveResult.resolved.cwd,
+			env: resolveResult.resolved.env,
+		};
+		const traversalIssue = resolvedForSan.cwd ? checkCwdTraversal(resolvedForSan.cwd) : null;
+		const sanResult = sanitizeProjectCommand(resolvedForSan);
+		const constraintIssues = checkCommandConstraints(resolvedForSan, this._constraints);
+		const allIssues = [
+			...(traversalIssue ? [traversalIssue] : []),
+			...sanResult.issues,
+			...constraintIssues,
+		];
+		if (allIssues.length > 0) {
+			const first = describeIssue(allIssues[0]);
+			this._log.warn(`[VibeCustomCommands] refused ${id}: sanitizer: ${first}`);
+			this._notification.notify({
+				severity: Severity.Warning,
+				message: localize(
+					'vibeide.commands.sanitizer.refused',
+					'Команда «{0}» отклонена санитайзером: {1}',
+					cmd.name, first,
+				),
+			});
+			return {
+				outcome: 'refused',
+				reason: `sanitizer:${allIssues[0].kind}`,
 				invocationId,
 			};
 		}
@@ -674,14 +774,15 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		} catch {
 			return [];
 		}
-		let raw: unknown;
-		try {
-			raw = JSON.parse(buf.value.toString());
-		} catch (e) {
-			this._log.warn(`[VibeCustomCommands] ${TRUST_FILE_NAME} JSON parse failed: ${(e as Error).message}`);
+		// L304: tolerate JSONC + corruption — empty/invalid trust file = "no trust yet".
+		const parseResult = safeParseConfigJson(buf.value.toString());
+		if (!parseResult.ok) {
+			if (parseResult.reason !== 'empty') {
+				this._log.warn(`[VibeCustomCommands] ${TRUST_FILE_NAME} parse failed: ${parseResult.reason}`);
+			}
 			return [];
 		}
-		const decoded = decodeCommandTrustEntries(raw);
+		const decoded = decodeCommandTrustEntries(parseResult.value);
 		if (decoded === null) {
 			this._log.warn(`[VibeCustomCommands] ${TRUST_FILE_NAME} shape invalid; ignoring`);
 			return [];
