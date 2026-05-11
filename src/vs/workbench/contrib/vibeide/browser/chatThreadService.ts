@@ -2458,11 +2458,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				})
 
 				if (!llmCancelToken) {
-					this._setStreamState(threadId, { isRunning: undefined, error: { message: 'Failed to generate plan', fullError: null } })
+					this._setStreamState(threadId, { isRunning: undefined, error: { message: localize('vibeide.chatThread.plan.failedToGenerate', 'Failed to generate plan'), fullError: null } })
 					reject(new Error('Failed to start plan generation'))
 				}
 			} catch (error) {
-				this._setStreamState(threadId, { isRunning: undefined, error: { message: 'Error generating plan', fullError: error instanceof Error ? error : null } })
+				this._setStreamState(threadId, { isRunning: undefined, error: { message: localize('vibeide.chatThread.plan.errorGenerating', 'Error generating plan'), fullError: error instanceof Error ? error : null } })
 				reject(error)
 			}
 		})
@@ -4396,7 +4396,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 				// mark as streaming
 				if (!llmCancelToken) {
-					this._setStreamState(threadId, { isRunning: undefined, error: { message: 'There was an unexpected error when sending your chat message.', fullError: null } })
+					this._setStreamState(threadId, { isRunning: undefined, error: { message: localize('vibeide.chatThread.send.unexpectedError', 'There was an unexpected error when sending your chat message.'), fullError: null } })
 					break
 				}
 
@@ -5660,14 +5660,14 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 			this._notificationService.notify({
 				severity: error ? Severity.Warning : Severity.Info,
-				message: error ? `Error: ${error} ` : `A new Chat result is ready.`,
+				message: error ? localize('vibeide.chatThread.notify.errorPrefix', 'Error: {0} ', error) : localize('vibeide.chatThread.notify.resultReady', 'A new Chat result is ready.'),
 				source: messageContent,
 				sticky: true,
 				actions: {
 					primary: [{
 						id: 'vibe.goToChat',
 						enabled: true,
-						label: `Jump to Chat`,
+						label: localize('vibeide.chatThread.notify.jumpToChat', 'Jump to Chat'),
 						tooltip: '',
 						class: undefined,
 						run: () => {
