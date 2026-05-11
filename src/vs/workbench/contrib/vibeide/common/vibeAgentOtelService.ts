@@ -29,6 +29,9 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { localize } from '../../../../nls.js';
+import { IRequestService } from '../../../../platform/request/common/request.js';
+import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { resolveOtlpUrl, buildOtlpHeaders } from './otelHttpEnvelope.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -135,6 +138,7 @@ class VibeAgentOtelService extends Disposable implements IVibeAgentOtelService {
 	constructor(
 		@ILogService private readonly _log: ILogService,
 		@IConfigurationService private readonly _config: IConfigurationService,
+		@IRequestService private readonly _request: IRequestService,
 	) {
 		super();
 	}
@@ -265,17 +269,30 @@ class VibeAgentOtelService extends Disposable implements IVibeAgentOtelService {
 			return 0;
 		}
 
+		const urlResult = resolveOtlpUrl({ endpoint }, 'traces');
+		if (!urlResult.ok) {
+			this._log.warn(`[VibeAgentOtel] Invalid endpoint: ${urlResult.reason}`);
+			return 0;
+		}
+
+		const { headers } = buildOtlpHeaders({ endpoint });
 		const json = this.exportAsOtlpJson();
 		const count = this._spans.length;
+
 		try {
-			// Phase 3b: use Electron net module for true non-browser HTTP.
-			const resp = await fetch(endpoint, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: json,
-			});
-			if (!resp.ok) { throw new Error(`HTTP ${resp.status}`); }
-			this._log.info(`[VibeAgentOtel] Flushed ${count} spans to ${endpoint}`);
+			const ctx = await this._request.request({
+				type: 'POST',
+				url: urlResult.url,
+				data: json,
+				headers,
+				callSite: 'VibeAgentOtelService.flush',
+			}, CancellationToken.None);
+
+			if (ctx.res.statusCode && ctx.res.statusCode >= 400) {
+				throw new Error(`HTTP ${ctx.res.statusCode}`);
+			}
+
+			this._log.info(`[VibeAgentOtel] Flushed ${count} spans to ${urlResult.url}`);
 			this._spans.length = 0;
 			return count;
 		} catch (err) {
