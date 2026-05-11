@@ -18,7 +18,7 @@
 
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
-import { IStatusbarEntry, IStatusbarEntryAccessor, IStatusbarService, StatusbarAlignment } from '../../../services/statusbar/browser/statusbar.js';
+import { IStatusbarEntry, IStatusbarEntryAccessor, IStatusbarService, ITooltipWithCommands, StatusbarAlignment } from '../../../services/statusbar/browser/statusbar.js';
 import { IVibeCustomCommandsService } from './vibeCustomCommandsService.js';
 import { pickTopBarPinned, PROJECT_COMMANDS_PALETTE_IDS } from '../common/projectCommandsServiceContract.js';
 import { sortProjectCommandsForDisplay } from '../common/projectCommandsTypes.js';
@@ -59,11 +59,24 @@ export class VibeProjectCommandsTopBarContribution extends Disposable implements
 		for (let i = 0; i < pinned.length; i++) {
 			const cmd = pinned[i];
 			const label = cmd.icon ? `$(${cmd.icon}) ${cmd.name}` : cmd.name;
+			const tooltipContent = cmd.description ?? cmd.name;
+			// L323: context-menu actions exposed as tooltip commands (hover footer area).
+			// DOM-level right-click dispatch blocked on custom widget — use hover menu as equivalent.
+			const contextTooltip: ITooltipWithCommands = {
+				content: tooltipContent,
+				commands: [
+					{ id: PROJECT_COMMANDS_PALETTE_IDS.run, title: localize('vibeide.topbar.ctx.run', 'Run') },
+					{ id: PROJECT_COMMANDS_PALETTE_IDS.edit, title: localize('vibeide.topbar.ctx.edit', 'Edit') },
+					{ id: PROJECT_COMMANDS_PALETTE_IDS.pin, title: localize('vibeide.topbar.ctx.pin', 'Pin') },
+					{ id: PROJECT_COMMANDS_PALETTE_IDS.unpin, title: localize('vibeide.topbar.ctx.unpin', 'Unpin') },
+					{ id: PROJECT_COMMANDS_PALETTE_IDS.delete, title: localize('vibeide.topbar.ctx.delete', 'Delete') },
+				],
+			};
 			const props: IStatusbarEntry = {
 				name: localize('vibeide.topbar.cmd', 'VibeIDE: {0}', cmd.name),
 				text: label,
 				ariaLabel: cmd.name,
-				tooltip: cmd.description ?? cmd.name,
+				tooltip: contextTooltip,
 				// Open the Quick Pick palette; per-command execution requires dynamic command registration (deferred).
 				command: PROJECT_COMMANDS_PALETTE_IDS.run,
 			};

@@ -300,6 +300,11 @@ export interface IChatThreadService {
 	onDidChangeStreamState: Event<{ threadId: string }>
 	/** Fired after a thread is deleted. Consumers (tab-binding contribution) use this to close/unbind tabs. */
 	readonly onDidDeleteThread: Event<string>;
+	/**
+	 * Alias for `onDidDeleteThread` — fires when a thread session is disposed (closed/deleted).
+	 * Roadmap L904/L933: agent-lock holder-disposed cleanup and session-memory releaseThread.
+	 */
+	readonly onDidDisposeThread: Event<string>;
 	/** Fired when UI should open the anchored chat-history popover (toolbar). */
 	readonly onDidRequestChatHistoryPopover: Event<void>;
 	/** Open sidebar history popover instead of workspace quick pick. */
@@ -411,6 +416,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	private readonly _onDidDeleteThread = new Emitter<string>();
 	readonly onDidDeleteThread: Event<string> = this._onDidDeleteThread.event;
+	readonly onDidDisposeThread: Event<string> = this._onDidDeleteThread.event;
 
 	private _pendingChatHistoryPopover = false;
 	private readonly _onDidRequestChatHistoryPopover = new Emitter<void>();

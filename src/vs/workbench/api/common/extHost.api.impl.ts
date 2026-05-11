@@ -1890,6 +1890,20 @@ export function createApiFactoryAndRegisterActors(accessor: ServicesAccessor): I
 			speech,
 			tasks,
 			tests,
+			vibeide: {
+				agent: {
+					status: (): Thenable<vscode.vibeide.AgentStatusSnapshot> => Promise.reject(new Error('vibeide.agent.status: not yet wired — see references/v1/extension-api-readonly-draft.md')),
+				},
+				skills: {
+					list: (): Thenable<readonly vscode.vibeide.SkillEntry[]> => Promise.reject(new Error('vibeide.skills.list: not yet wired')),
+				},
+				plans: {
+					subscribeToEvents: (_listener: (event: vscode.vibeide.PlanEvent) => void): vscode.Disposable => ({ dispose: () => { /* noop skeleton */ } }),
+				},
+				constraints: {
+					queryAllowed: (_query: vscode.vibeide.ConstraintQuery): Thenable<boolean> => Promise.reject(new Error('vibeide.constraints.queryAllowed: not yet wired')),
+				},
+			} satisfies typeof vscode.vibeide,
 			window,
 			workspace,
 			// types

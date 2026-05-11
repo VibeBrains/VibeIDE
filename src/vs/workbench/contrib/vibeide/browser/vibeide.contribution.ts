@@ -208,6 +208,9 @@ import './vibeTerminalOutputService.js'
 // VibeIDE: Gutter indicators (agent-written lines)
 import './vibeGutterIndicatorService.js'
 
+// VibeIDE: AI debugging context adapter (roadmap §L881)
+import './vibeAIDebuggingContribution.js'
+
 // VibeIDE: Dependency vulnerability scanner
 import '../common/vibeDependencyVulnService.js'
 
@@ -225,6 +228,7 @@ import '../common/vibeMemoryDecayService.js'
 
 // VibeIDE: Agent persona (.vibe/persona.json)
 import '../common/vibePersonaService.js'
+import './vibePersonasPaletteContribution.js'
 
 // VibeIDE: Prompt library service (.vibe/prompts/)
 import '../common/vibePromptLibraryService.js'
@@ -267,6 +271,7 @@ import '../common/vibeAgentTaskQueueService.js'
 
 // VibeIDE: Workflow service (.vibe/workflows/)
 import '../common/vibeWorkflowService.js'
+import './vibeWorkflowChatDispatchContribution.js'
 
 // VibeIDE: Agent Skills library (.vibe/skills/**/SKILL.md)
 import '../common/vibeSkillsLibraryService.js'
@@ -475,6 +480,9 @@ import '../common/vibeProjectHealthService.js'
 
 // VibeIDE: Next-edit prediction (Tab completion with task context)
 import '../common/vibeNextEditPredictionService.js'
+
+// VibeIDE: FIM runtime context-collection pipeline (prefix/suffix/tabs/edits)
+import './vibeFimContextCollector.js'
 
 // VibeIDE: Git worktree isolation
 import '../common/vibeGitWorktreeService.js'

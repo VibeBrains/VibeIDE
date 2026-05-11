@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -28,6 +29,15 @@ export interface VibeWorkflow {
 
 export const IVibeWorkflowService = createDecorator<IVibeWorkflowService>('vibeWorkflowService');
 
+export interface WorkflowRunResult {
+	/** Workflow name that was dispatched */
+	workflowName: string;
+	/** Chat message injected into the active thread, or null if no thread was available */
+	chatMessage: string | null;
+	/** Whether the workflow was successfully dispatched to chat */
+	dispatched: boolean;
+}
+
 export interface IVibeWorkflowService {
 	readonly _serviceBrand: undefined;
 
@@ -36,6 +46,19 @@ export interface IVibeWorkflowService {
 
 	/** Get a specific workflow by name */
 	getWorkflow(name: string): Promise<VibeWorkflow | null>;
+
+	/**
+	 * Fired when run() is called. Browser contributions listen and dispatch to chat.
+	 * payload: the /workflow:name string ready to be injected into the chat input.
+	 */
+	readonly onWorkflowRunRequested: Event<{ workflowName: string; chatCommand: string }>;
+
+	/**
+	 * Dispatch a workflow by name via /workflow:<name> into chat.
+	 * Phase 3b: real IPC executor. Currently emits onWorkflowRunRequested so a
+	 * browser contribution can open the chat editor and inject the command.
+	 */
+	run(name: string): Promise<WorkflowRunResult>;
 }
 
 /**
@@ -47,10 +70,13 @@ export interface IVibeWorkflowService {
 class VibeWorkflowService extends Disposable implements IVibeWorkflowService {
 	declare readonly _serviceBrand: undefined;
 
+	private readonly _onWorkflowRunRequested = this._register(new Emitter<{ workflowName: string; chatCommand: string }>());
+	readonly onWorkflowRunRequested: Event<{ workflowName: string; chatCommand: string }> = this._onWorkflowRunRequested.event;
+
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService _logService: ILogService,
+		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -84,6 +110,19 @@ class VibeWorkflowService extends Disposable implements IVibeWorkflowService {
 	async getWorkflow(name: string): Promise<VibeWorkflow | null> {
 		const workflows = await this.getWorkflows();
 		return workflows.find(w => w.name === name) ?? null;
+	}
+
+	async run(name: string): Promise<WorkflowRunResult> {
+		const workflow = await this.getWorkflow(name);
+		if (!workflow) {
+			this._logService.warn(`[VibeWorkflow] run(): workflow "${name}" not found in .vibe/workflows/`);
+			return { workflowName: name, chatMessage: null, dispatched: false };
+		}
+
+		const chatCommand = `/workflow:${name}`;
+		this._onWorkflowRunRequested.fire({ workflowName: name, chatCommand });
+		this._logService.info(`[VibeWorkflow] run(): dispatched "${chatCommand}" via event`);
+		return { workflowName: name, chatMessage: chatCommand, dispatched: true };
 	}
 }
 

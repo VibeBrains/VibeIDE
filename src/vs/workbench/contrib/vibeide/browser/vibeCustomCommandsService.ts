@@ -428,14 +428,15 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 				return { outcome: 'refused', reason: `workflow-${decision.reason}`, invocationId };
 			}
 			if (decision.kind === 'launch-workflow') {
-				// Runtime workflow-runner API is not yet exposed (workflows go through
-				// chat `/workflow:name`). Refuse with a friendly hint until the runner
-				// lands; surfaces in the palette as a warning toast.
-				return {
-					outcome: 'refused',
-					reason: `workflow-runner-not-yet-implemented (try /workflow:${decision.workflowId} в чате)`,
-					invocationId,
-				};
+				const runResult = await this._workflows.run(decision.workflowId);
+				if (!runResult.dispatched) {
+					return {
+						outcome: 'refused',
+						reason: `workflow-not-found:${decision.workflowId}`,
+						invocationId,
+					};
+				}
+				return { outcome: 'success', invocationId };
 			}
 			// kind === 'launch-shell' → fall through to normal terminal path
 		}

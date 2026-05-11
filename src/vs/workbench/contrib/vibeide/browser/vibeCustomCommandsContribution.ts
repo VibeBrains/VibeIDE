@@ -577,6 +577,7 @@ CommandsRegistry.registerCommand({
 
 		const incomingCommandsByPackId = new Map<string, ProjectCommandLite>();
 		const incomingFull: ProjectCommand[] = [];
+		const skippedUnsafe: string[] = [];
 		for (const entry of envelopeResult.value.entries) {
 			let parsed: unknown;
 			try {
@@ -590,8 +591,26 @@ CommandsRegistry.registerCommand({
 				return;
 			}
 			const c = parsed as ProjectCommand;
+
+			// L332: VibePromptGuardService — sanitize command/args before import.
+			const sanitizeResult = sanitizeProjectCommand(c);
+			if (!sanitizeResult.ok) {
+				const firstIssue = describeIssue(sanitizeResult.issues[0]);
+				skippedUnsafe.push(entry.id);
+				notifications.notify({
+					severity: Severity.Warning,
+					message: localize('vibeide.commands.importFromUrl.unsafeSkipped', 'Команда {0} пропущена: {1}', entry.id, firstIssue),
+				});
+				continue;
+			}
+
 			incomingCommandsByPackId.set(entry.id, { id: entry.id, name: c.name, command: c.command, args: c.args, env: c.env, cwd: c.cwd });
 			incomingFull.push({ ...c, id: entry.id });
+		}
+
+		if (incomingFull.length === 0 && skippedUnsafe.length > 0) {
+			notifications.notify({ severity: Severity.Error, message: localize('vibeide.commands.importFromUrl.allUnsafe', 'Все команды из pack пропущены из-за проблем безопасности.') });
+			return;
 		}
 
 		const currentLite: ProjectCommandLite[] = commands.getCommands().map(c => ({ id: c.id, name: c.name, command: c.command, args: c.args, env: c.env, cwd: c.cwd }));
