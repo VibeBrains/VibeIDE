@@ -34,7 +34,7 @@
  * `.vibe/commands.json` are handled by the FS-watcher debounce.
  */
 
-import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { joinPath } from '../../../../base/common/resources.js';
@@ -164,6 +164,8 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 	private _initialised = false;
 	/** Tracks running singleton command ids to enforce the singleton constraint. */
 	private readonly _runningSingletonIds = new Set<string>();
+	/** Dynamic watchers for `vibeide.commands.globalPaths` files (L306). Replaced on config change. */
+	private readonly _globalPathWatcherStore = this._register(new DisposableStore());
 
 	private readonly _onDidChangeCommands = this._register(new Emitter<DidChangeCommandsEvent>());
 	readonly onDidChangeCommands: Event<DidChangeCommandsEvent> = this._onDidChangeCommands.event;
@@ -236,8 +238,24 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		if (merged.shadowedGlobalIds.length > 0) {
 			this._log.info(`[VibeCustomCommands] ${merged.shadowedGlobalIds.length} global commands shadowed by workspace: ${merged.shadowedGlobalIds.join(', ')}`);
 		}
+		// L306: keep FS watchers in sync with current globalPaths setting.
+		this._updateGlobalPathWatchers();
 		// Prune orphaned / shape-changed trust entries on every reload (roadmap K.2 L920).
 		void this._pruneTrustOnLoad();
+	}
+
+	/** Watch every file listed in `vibeide.commands.globalPaths` so on-disk edits trigger a reload. */
+	private _updateGlobalPathWatchers(): void {
+		this._globalPathWatcherStore.clear();
+		const raw = this._config.getValue('vibeide.commands.globalPaths');
+		const decoded = decodeProjectCommandsGlobalPaths(raw);
+		for (const p of decoded.entries) {
+			try {
+				this._globalPathWatcherStore.add(this._fileService.watch(URI.file(p)));
+			} catch {
+				// Non-existent paths can't be watched — they'll be loaded on next reload.
+			}
+		}
 	}
 
 	async getTrustedCommandIds(): Promise<readonly string[]> {
