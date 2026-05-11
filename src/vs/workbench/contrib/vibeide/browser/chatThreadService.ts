@@ -296,6 +296,8 @@ export interface IChatThreadService {
 
 	onDidChangeCurrentThread: Event<void>;
 	onDidChangeStreamState: Event<{ threadId: string }>
+	/** Fired after a thread is deleted. Consumers (tab-binding contribution) use this to close/unbind tabs. */
+	readonly onDidDeleteThread: Event<string>;
 	/** Fired when UI should open the anchored chat-history popover (toolbar). */
 	readonly onDidRequestChatHistoryPopover: Event<void>;
 	/** Open sidebar history popover instead of workspace quick pick. */
@@ -404,6 +406,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	private readonly _onDidChangeStreamState = new Emitter<{ threadId: string }>();
 	readonly onDidChangeStreamState: Event<{ threadId: string }> = this._onDidChangeStreamState.event;
+
+	private readonly _onDidDeleteThread = new Emitter<string>();
+	readonly onDidDeleteThread: Event<string> = this._onDidDeleteThread.event;
 
 	private _pendingChatHistoryPopover = false;
 	private readonly _onDidRequestChatHistoryPopover = new Emitter<void>();
@@ -6273,7 +6278,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 		// store the updated threads
 		this._storeAllThreads(newThreads);
-		this._setState({ ...this.state, allThreads: newThreads })
+		this._setState({ ...this.state, allThreads: newThreads });
+		this._onDidDeleteThread.fire(threadId);
 	}
 
 	duplicateThread(threadId: string) {

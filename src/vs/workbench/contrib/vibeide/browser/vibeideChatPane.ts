@@ -21,7 +21,7 @@ import { Action2, registerAction2 } from '../../../../platform/actions/common/ac
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { URI } from '../../../../base/common/uri.js';
 import { Codicon } from '../../../../base/common/codicons.js';
-import { IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { VIBEIDE_NEW_CHAT_CMD, VIBEIDE_OPEN_CHAT_EDITOR_CMD } from './actionIDs.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 
@@ -38,6 +38,8 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IEditorOpenContext } from '../../../common/editor.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { decideOpenNewTab, ChatTabSnapshot } from '../common/chatTabLruEviction.js';
+import { decideOnThreadDeletion, decideOnZombieTab, OpenChatTab, ThreadDeletePolicy } from '../common/chatTabBindingPolicy.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -72,6 +74,8 @@ export const VIBEIDE_HAS_CHAT_GROUP_CTX = new RawContextKey<boolean>('vibeide.ha
 // In-session fast path — resets on window reload.
 let _chatEditorGroupId: number | undefined;
 let _hasChatGroupCtxKey: IContextKey<boolean> | undefined;
+/** Tracks the last time each chat tab (keyed by chatId) was focused. Used for LRU eviction. */
+const _chatTabFocusAt = new Map<string, number>();
 // Keeps the onDidRemoveGroup listener alive for the entire renderer session.
 let _groupListenerDisposable: IDisposable | undefined;
 // Per-chat-group lockdown listener: bounces foreign editors out of the chat group.
@@ -181,10 +185,6 @@ function findExistingChatGroup(
 	return undefined;
 }
 
-function countChatTabs(group: IEditorGroup): number {
-	return group.editors.reduce((acc, e) => acc + (e instanceof VibeChatEditorInput ? 1 : 0), 0);
-}
-
 async function openOrFocusChatInGroup(
 	group: IEditorGroup,
 	options: OpenChatOptions,
@@ -207,10 +207,26 @@ async function openOrFocusChatInGroup(
 	// "New chat" requested.
 	if (options.newChat) {
 		const max = getMaxOpenChatTabs(configurationService);
-		if (countChatTabs(group) >= max) {
+		const chatEditors = group.editors.filter((e): e is VibeChatEditorInput => e instanceof VibeChatEditorInput);
+		// LRU eviction (roadmap §L946): evict least-recently-used tab instead of blocking.
+		const snapshots: ChatTabSnapshot[] = chatEditors.map(e => {
+			const st = chatThreadService.streamState[e.chatId];
+			return {
+				id: e.chatId,
+				lastFocusedAt: _chatTabFocusAt.get(e.chatId) ?? 0,
+				isFocused: group.activeEditor === e,
+				isStreaming: st?.isRunning === 'LLM' || st?.isRunning === 'tool',
+			};
+		});
+		const eviction = decideOpenNewTab(snapshots, max);
+		if (eviction.kind === 'evict') {
+			const victimEditor = chatEditors.find(e => e.chatId === eviction.tabId);
+			if (victimEditor) {
+				await group.closeEditor(victimEditor);
+			}
+		} else if (eviction.kind === 'block') {
 			notificationService.warn(nls.localize('vibeide.chat.maxOpenTabs.reached', "Достигнут лимит чат-вкладок ({0}/{0}). Увеличьте «vibeide.chat.maxOpenTabs» в настройках, чтобы открывать больше.", max));
-			// Focus active chat (or any chat) so the user lands somewhere reasonable.
-			const fallback = (group.activeEditor instanceof VibeChatEditorInput ? group.activeEditor : group.editors.find(e => e instanceof VibeChatEditorInput)) as VibeChatEditorInput | undefined;
+			const fallback = (group.activeEditor instanceof VibeChatEditorInput ? group.activeEditor : chatEditors[0]) as VibeChatEditorInput | undefined;
 			if (fallback) { await group.openEditor(fallback); }
 			return;
 		}
@@ -626,6 +642,108 @@ registerAction2(class extends Action2 {
 		await openVibeChatEditor(accessor.get(IInstantiationService), { newChat: true });
 	}
 });
+
+// ---------------------------------------------------------------------------
+// Chat tab binding contribution (roadmap §L945 / §L946)
+// ---------------------------------------------------------------------------
+
+const CHAT_TAB_BINDING_POLICY_CONFIG_KEY = 'vibeide.chat.tabBindingPolicy';
+Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
+	id: 'vibeide',
+	properties: {
+		[CHAT_TAB_BINDING_POLICY_CONFIG_KEY]: {
+			type: 'string',
+			enum: ['strict', 'rebindable'],
+			enumDescriptions: [
+				nls.localize('vibeide.chat.tabBindingPolicy.strict', 'Закрыть вкладку при удалении потока (предупреждение при наличии черновика).'),
+				nls.localize('vibeide.chat.tabBindingPolicy.rebindable', 'Отвязать вкладку и предложить новый поток при удалении (рекомендуется).'),
+			],
+			default: 'rebindable',
+			description: nls.localize('vibeide.chat.tabBindingPolicy', 'Поведение чат-вкладки при удалении связанного потока.'),
+		},
+	},
+});
+
+class VibeChatTabBindingContribution extends Disposable implements IWorkbenchContribution {
+	static readonly ID = 'workbench.contrib.vibeChatTabBinding';
+
+	constructor(
+		@IChatThreadService private readonly _chatThreadService: IChatThreadService,
+		@IEditorGroupsService private readonly _editorGroupsService: IEditorGroupsService,
+		@IStorageService private readonly _storageService: IStorageService,
+		@IConfigurationService private readonly _configurationService: IConfigurationService,
+		@INotificationService private readonly _notificationService: INotificationService,
+	) {
+		super();
+		// Subscribe to thread deletion (L945).
+		this._register(this._chatThreadService.onDidDeleteThread(threadId => this._onThreadDeleted(threadId)));
+		// Track focus time for LRU eviction (L946).
+		this._register(this._editorGroupsService.onDidActivateGroup(() => this._onActiveEditorChange()));
+		for (const group of this._editorGroupsService.groups) {
+			this._register(group.onDidActiveEditorChange(() => this._onActiveEditorChange()));
+		}
+		this._register(this._editorGroupsService.onDidAddGroup(g => {
+			this._register(g.onDidActiveEditorChange(() => this._onActiveEditorChange()));
+		}));
+		// Zombie tab cleanup on startup (L945).
+		this._cleanupZombieTabs();
+	}
+
+	private _getPolicy(): ThreadDeletePolicy {
+		const v = this._configurationService.getValue<string>(CHAT_TAB_BINDING_POLICY_CONFIG_KEY);
+		return v === 'strict' ? 'strict' : 'rebindable';
+	}
+
+	private async _onThreadDeleted(threadId: string): Promise<void> {
+		const group = findExistingChatGroup(this._editorGroupsService, this._storageService);
+		if (!group) { return; }
+		const chatEditors = group.editors.filter((e): e is VibeChatEditorInput => e instanceof VibeChatEditorInput);
+		const openTabs: OpenChatTab[] = chatEditors.map(e => ({
+			tabId: e.chatId,
+			boundThreadId: e.chatId,
+			isFocused: group.activeEditor === e,
+		}));
+		const actions = decideOnThreadDeletion({ policy: this._getPolicy(), deletedThreadId: threadId, openTabs });
+		for (const action of actions) {
+			if (action.kind === 'close-tab') {
+				const editor = chatEditors.find(e => e.chatId === action.tabId);
+				if (editor) { await group.closeEditor(editor); }
+			} else if (action.kind === 'warn-close-blocked') {
+				this._notificationService.warn(nls.localize('vibeide.chat.tab.unsent', 'Поток удалён, но вкладка содержит черновик. Сохраните или отправьте его перед закрытием.'));
+			}
+			// 'unbind-tab': VS Code will show an empty pane — acceptable for rebindable policy.
+		}
+	}
+
+	private async _cleanupZombieTabs(): Promise<void> {
+		const group = findExistingChatGroup(this._editorGroupsService, this._storageService);
+		if (!group) { return; }
+		const knownIds = new Set(Object.keys(this._chatThreadService.state.allThreads));
+		const chatEditors = group.editors.filter((e): e is VibeChatEditorInput => e instanceof VibeChatEditorInput);
+		for (const editor of chatEditors) {
+			const tab: OpenChatTab = { tabId: editor.chatId, boundThreadId: editor.chatId, isFocused: group.activeEditor === editor };
+			const action = decideOnZombieTab(tab, knownIds, this._getPolicy());
+			if (action.kind === 'close-tab') {
+				await group.closeEditor(editor);
+			}
+		}
+	}
+
+	private _onActiveEditorChange(): void {
+		for (const group of this._editorGroupsService.groups) {
+			const active = group.activeEditor;
+			if (active instanceof VibeChatEditorInput) {
+				_chatTabFocusAt.set(active.chatId, Date.now());
+			}
+		}
+	}
+}
+
+registerWorkbenchContribution2(
+	VibeChatTabBindingContribution.ID,
+	VibeChatTabBindingContribution,
+	WorkbenchPhase.AfterRestored,
+);
 
 // ---------------------------------------------------------------------------
 // Chat composer fullscreen modes (toggle via icons in the chat input field):
