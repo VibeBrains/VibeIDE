@@ -143,12 +143,12 @@ if (-not $zipFiles)  { Write-Error "No .zip found in $archiveDir"; exit 1 }
 # Language-pack VSIXes (roadmap §L490): glob both gulp + bin output dirs.
 $langPackVsixGulp = Get-ChildItem "$Root\out\language-packs\vibeide-language-pack-*.vsix" -ErrorAction SilentlyContinue
 $langPackVsixBin  = Get-ChildItem "$Root\.build\language-packs\vibeide-language-pack-*.vsix" -ErrorAction SilentlyContinue
-$langPackVsixes   = @($langPackVsixGulp) + @($langPackVsixBin) | Where-Object { $_ -ne $null }
+$langPackVsixes   = @(@($langPackVsixGulp) + @($langPackVsixBin) | Where-Object { $_ -ne $null })
 
 $artifacts = @($exeFiles.FullName) + @($zipFiles.FullName)
-if ($langPackVsixes.Count -gt 0) {
+if ($langPackVsixes.Length -gt 0) {
     $artifacts += @($langPackVsixes.FullName)
-    OK "Including $($langPackVsixes.Count) language-pack VSIX(es) in release."
+    OK "Including $($langPackVsixes.Length) language-pack VSIX(es) in release."
 }
 Write-Host "  Found:" -ForegroundColor DarkGray
 $artifacts | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
