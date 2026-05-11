@@ -378,6 +378,9 @@ import './vibePlanLeaseJanitorContribution.js'
 // VibeIDE: Memory snapshot Action2 (dev-only)
 import './vibeMemorySnapshotAction.js'
 
+// VibeIDE: Memory dispatcher — routes writes via memoryLayerRouter pure helper
+import './vibeMemoryDispatcherService.js'
+
 // VibeIDE: @search context service (workspace literal grep, no LLM)
 import '../common/vibeSearchContextService.js'
 
