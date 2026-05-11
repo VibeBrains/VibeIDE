@@ -37,7 +37,7 @@ import {
  * Call `VibeSettingSourceRegistry.stamp(...)` from any module that registers
  * vibeide configuration, ideally immediately after `registerConfiguration`.
  */
-export const VibeSettingSourceRegistry = new class {
+class VibeSettingSourceRegistryImpl {
 	private readonly _stamps: SettingMetadataStamp[] = [];
 	private _index: ReadonlyMap<string, SettingMetadataStamp> | undefined;
 
@@ -60,7 +60,9 @@ export const VibeSettingSourceRegistry = new class {
 
 	/** Exposed for tests. */
 	get size(): number { return this._stamps.length; }
-}();
+}
+
+export const VibeSettingSourceRegistry = new VibeSettingSourceRegistryImpl();
 
 // ── Command ────────────────────────────────────────────────────────────────────
 
