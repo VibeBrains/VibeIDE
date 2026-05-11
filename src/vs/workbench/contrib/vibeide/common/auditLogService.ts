@@ -69,7 +69,8 @@ export interface AuditEvent {
 		| 'mcp_sampling_request'
 		| 'background_job_budget_exceeded'
 		| 'job_pr_creation'
-		| 'run_tests:start' | 'run_tests:complete';
+		| 'run_tests:start' | 'run_tests:complete'
+		| 'project_command:start' | 'project_command:complete' | 'project_command:trust_granted' | 'project_command:trust_revoked';
 	files?: string[];
 	diffStats?: { linesAdded: number; linesRemoved: number; hunks: number };
 	model?: string;

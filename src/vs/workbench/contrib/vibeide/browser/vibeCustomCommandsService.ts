@@ -39,12 +39,14 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
+import { VSBuffer } from '../../../../base/common/buffer.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { ITerminalService } from '../../../contrib/terminal/browser/terminal.js';
 import { TerminalLocation } from '../../../../platform/terminal/common/terminal.js';
 import {
@@ -61,10 +63,51 @@ import {
 	DidStartCommandEvent,
 } from '../common/projectCommandsServiceContract.js';
 import { resolveProjectCommandSecrets } from '../common/projectCommandSecretsResolver.js';
+import {
+	decideRunConfirm,
+	describeConfirmReason,
+	buildTrustEntryAfterApproval,
+} from '../common/projectCommandsTrustConfirm.js';
+import {
+	CommandTrustEntry,
+	decodeCommandTrustEntries,
+} from '../common/commandTrustRevoke.js';
+import {
+	decodeAuditFlags,
+	redactCommandForAudit,
+} from '../common/commandsAuditPrivacy.js';
+import { IAuditLogService } from '../common/auditLogService.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
+import { localize } from '../../../../nls.js';
 
 const COMMANDS_FILE_NAME = '.vibe/commands.json';
+const TRUST_FILE_NAME = '.vibe/commands.trust.json';
 const WATCHER_DEBOUNCE_MS = 250;
+
+/**
+ * Cheap stable hash of the parts of a ProjectCommand that affect trust.
+ * Re-runs require re-approval when any of these change. Args + env order is
+ * preserved (Object.entries already returns insertion order in modern V8).
+ * Avoids crypto deps for a workbench-side trust file.
+ */
+function hashCommandShape(c: Pick<ProjectCommand, 'command' | 'args' | 'cwd' | 'env' | 'shell'>): string {
+	const parts = [
+		c.command,
+		(c.args ?? []).join('\x1f'),
+		c.cwd ?? '',
+		Object.entries(c.env ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join('\x1f'),
+		c.shell ? '1' : '0',
+	];
+	const s = parts.join('\x1e');
+	// FNV-1a 32-bit — fast, no crypto. The trust file is local-only; collision
+	// resistance against an adversarial attacker isn't a threat model here.
+	let h = 0x811c9dc5;
+	for (let i = 0; i < s.length; i++) {
+		h ^= s.charCodeAt(i);
+		h = Math.imul(h, 0x01000193);
+	}
+	return (h >>> 0).toString(16).padStart(8, '0');
+}
 
 export const IVibeCustomCommandsService = createDecorator<IVibeCustomCommandsService>('vibeCustomCommandsService');
 
@@ -121,6 +164,8 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		@IConfigurationService private readonly _config: IConfigurationService,
 		@ILogService private readonly _log: ILogService,
 		@ITerminalService private readonly _terminal: ITerminalService,
+		@IDialogService private readonly _dialog: IDialogService,
+		@IAuditLogService private readonly _audit: IAuditLogService,
 	) {
 		super();
 
@@ -269,8 +314,63 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 			};
 		}
 
+		// ── Trust confirm gate (roadmap L331) ────────────────────────────────
+		const currentHash = hashCommandShape(cmd);
+		const trustEntries = await this._readTrustEntries();
+		const trustEntry = trustEntries.find(t => t.id === cmd.id);
+		const confirmDecision = decideRunConfirm({ command: cmd, currentHash, trustEntry });
+		if (confirmDecision.kind === 'require-confirm') {
+			const body = describeConfirmReason(confirmDecision.reason, cmd.name);
+			const confirmed = await this._dialog.confirm({
+				message: localize('vibeide.commands.runConfirm.title', 'Project Commands — подтверждение запуска'),
+				detail: body,
+				primaryButton: localize('vibeide.commands.runConfirm.primary', 'Запустить'),
+				type: confirmDecision.reason === 'shape-changed-since-trust' ? 'warning' : 'info',
+			});
+			if (!confirmed.confirmed) {
+				return { outcome: 'cancelled', reason: 'user-rejected-confirm', invocationId };
+			}
+			// On approval, persist trust entry (only if not `always-confirm`, which is opt-in re-prompt).
+			if (confirmDecision.reason !== 'always-confirm') {
+				const next = buildTrustEntryAfterApproval(cmd, currentHash, Date.now());
+				await this._upsertTrustEntry(next);
+				await this._audit.append({
+					ts: Date.now(),
+					action: 'project_command:trust_granted',
+					ok: true,
+					meta: { id: cmd.id, hash: currentHash.slice(0, 8) },
+				});
+			}
+		}
+
 		const startedAtMs = Date.now();
 		this._onDidStartCommand.fire({ id: cmd.id, name: cmd.name, invocationId, startedAtMs });
+
+		// ── Audit log: start ───────────────────────────────────────────────────
+		const auditFlags = decodeAuditFlags({
+			enabled: this._config.getValue<boolean>('vibeide.audit.enable') === true
+				&& this._config.getValue<boolean>('vibeide.commands.audit') === true,
+			includeStdout: this._config.getValue<boolean>('vibeide.commands.auditStdout') === true,
+		});
+		const auditStart = redactCommandForAudit(
+			{
+				id: cmd.id,
+				name: cmd.name,
+				command: resolveResult.redactedForAudit.command,
+				args: resolveResult.redactedForAudit.args,
+				cwd: resolveResult.redactedForAudit.cwd,
+				env: resolveResult.redactedForAudit.env,
+			},
+			auditFlags,
+		);
+		if (auditStart !== null) {
+			void this._audit.append({
+				ts: startedAtMs,
+				action: 'project_command:start',
+				ok: true,
+				meta: { invocationId, ...auditStart },
+			});
+		}
 
 		// Phase scope: integrated terminal only. external / background are deferred.
 		const terminalKind = cmd.terminal ?? 'integrated';
@@ -313,15 +413,39 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 						: typeof exitInfo === 'number'
 							? exitInfo
 							: undefined;
+					const outcome: DidEndCommandEvent['outcome'] = exitCode === 0 ? 'success' : 'failure';
 					this._onDidEndCommand.fire({
 						id: cmd.id,
 						name: cmd.name,
 						invocationId,
 						endedAtMs,
 						durationMs: endedAtMs - startedAtMs,
-						outcome: exitCode === 0 ? 'success' : 'failure',
+						outcome,
 						exitCode,
 					});
+					// Audit log: complete (no stdout capture from sendText path — keep
+					// the shape so dashboards can correlate with the start event).
+					const auditEnd = redactCommandForAudit(
+						{
+							id: cmd.id,
+							name: cmd.name,
+							command: resolveResult.redactedForAudit.command,
+							args: resolveResult.redactedForAudit.args,
+							cwd: resolveResult.redactedForAudit.cwd,
+							env: resolveResult.redactedForAudit.env,
+							exitCode,
+							durationMs: endedAtMs - startedAtMs,
+						},
+						auditFlags,
+					);
+					if (auditEnd !== null) {
+						void this._audit.append({
+							ts: endedAtMs,
+							action: 'project_command:complete',
+							ok: outcome === 'success',
+							meta: { invocationId, outcome, ...auditEnd },
+						});
+					}
 				} finally {
 					onExitDispose.dispose();
 				}
@@ -375,6 +499,65 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		}
 		// Wrap in single quotes; escape embedded single quotes.
 		return `'${arg.replace(/'/g, `'\\''`)}'`;
+	}
+
+	// ── Trust file I/O (workspace-scoped) ────────────────────────────────────
+	// .vibe/commands.trust.json lives next to commands.json. Missing file is
+	// treated as "no trust entries yet"; malformed file is logged + ignored so
+	// the IDE doesn't refuse to spawn anything on a single corrupt write.
+
+	private _trustUri(): URI | undefined {
+		const folder = this._workspace.getWorkspace().folders[0];
+		if (!folder) return undefined;
+		return joinPath(folder.uri, ...TRUST_FILE_NAME.split('/'));
+	}
+
+	private async _readTrustEntries(): Promise<readonly CommandTrustEntry[]> {
+		const uri = this._trustUri();
+		if (!uri) return [];
+		let buf;
+		try {
+			buf = await this._fileService.readFile(uri);
+		} catch {
+			return [];
+		}
+		let raw: unknown;
+		try {
+			raw = JSON.parse(buf.value.toString());
+		} catch (e) {
+			this._log.warn(`[VibeCustomCommands] ${TRUST_FILE_NAME} JSON parse failed: ${(e as Error).message}`);
+			return [];
+		}
+		const decoded = decodeCommandTrustEntries(raw);
+		if (decoded === null) {
+			this._log.warn(`[VibeCustomCommands] ${TRUST_FILE_NAME} shape invalid; ignoring`);
+			return [];
+		}
+		return decoded;
+	}
+
+	private async _upsertTrustEntry(entry: CommandTrustEntry): Promise<void> {
+		const uri = this._trustUri();
+		if (!uri) return;
+		const existing = await this._readTrustEntries();
+		const next: CommandTrustEntry[] = [];
+		let replaced = false;
+		for (const e of existing) {
+			if (e.id === entry.id) {
+				next.push(entry);
+				replaced = true;
+			} else {
+				next.push(e);
+			}
+		}
+		if (!replaced) {
+			next.push(entry);
+		}
+		try {
+			await this._fileService.writeFile(uri, VSBuffer.fromString(JSON.stringify(next, null, '\t') + '\n'));
+		} catch (e) {
+			this._log.error(`[VibeCustomCommands] failed to persist ${TRUST_FILE_NAME}: ${(e as Error).message}`);
+		}
 	}
 }
 
