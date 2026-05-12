@@ -40,6 +40,7 @@ const DYNAMIC_RUN_PREFIX = 'vibeide.commands.menubarRun.';
 const DYNAMIC_EDIT_PREFIX = 'vibeide.commands.menubarEdit.';
 const DYNAMIC_DELETE_PREFIX = 'vibeide.commands.menubarDelete.';
 const DYNAMIC_SUBMENU_PREFIX = 'vibeProjectCommandItem.';
+const EMPTY_PLACEHOLDER_CMD_ID = 'vibeide.commands.menubarEmptyPlaceholder';
 
 /** Static `+ Добавить команду…` entry. Registered once at module load. */
 MenuRegistry.appendMenuItem(MenuId.MenubarVibeProjectCommandsMenu, {
@@ -48,6 +49,31 @@ MenuRegistry.appendMenuItem(MenuId.MenubarVibeProjectCommandsMenu, {
 	command: {
 		id: PROJECT_COMMANDS_PALETTE_IDS.add,
 		title: localize({ key: 'vibeide.menubar.commands.add', comment: ['&& denotes a mnemonic'] }, "&&+ Добавить команду…"),
+	},
+});
+
+/** Static `↻ Восстановить демо-команду` — seeds `.vibe/commands.json` with the
+ *  canonical example. Visible always (even when the demo already exists; the
+ *  handler is a no-op in that case + Info notification). */
+MenuRegistry.appendMenuItem(MenuId.MenubarVibeProjectCommandsMenu, {
+	group: '1_add',
+	order: 2,
+	command: {
+		id: 'vibeide.commands.seedDemo',
+		title: localize('vibeide.menubar.commands.seedDemo', "↻ Восстановить демо-команду"),
+	},
+});
+
+/** Placeholder for empty-list state — surfaces a clickable "no commands"
+ *  item under the divider so the menu doesn't look broken on a fresh
+ *  workspace (or after the user deletes everything). Clicking it seeds the
+ *  demo, identical to the `1_add` "↻ Восстановить демо-команду" entry, but
+ *  positioned where the list normally renders. */
+CommandsRegistry.registerCommand({
+	id: EMPTY_PLACEHOLDER_CMD_ID,
+	handler: async (accessor) => {
+		const commandService = accessor.get(ICommandService);
+		await commandService.executeCommand('vibeide.commands.seedDemo');
 	},
 });
 
@@ -70,6 +96,23 @@ export class VibeProjectCommandsMenubarContribution extends Disposable implement
 		this._dynamicEntries.clear();
 
 		const list = sortProjectCommandsForDisplay(this._commands.getCommands());
+
+		if (list.length === 0) {
+			// Show a clickable "no commands — click to seed demo" placeholder so
+			// the menu isn't visually empty on a fresh workspace. Selecting it
+			// invokes `vibeide.commands.seedDemo`.
+			const placeholderDisp: IDisposable = MenuRegistry.appendMenuItem(MenuId.MenubarVibeProjectCommandsMenu, {
+				group: '2_list',
+				order: 0,
+				command: {
+					id: EMPTY_PLACEHOLDER_CMD_ID,
+					title: localize('vibeide.menubar.commands.emptyPlaceholder', "(нет команд — клик создаёт демо)"),
+				},
+			});
+			this._dynamicEntries.add(toDisposable(() => placeholderDisp.dispose()));
+			return;
+		}
+
 		for (let i = 0; i < list.length; i++) {
 			const cmd = list[i];
 			const runId = DYNAMIC_RUN_PREFIX + cmd.id;

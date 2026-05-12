@@ -162,18 +162,15 @@ export const VibeProjectCommandForm: React.FC<VibeProjectCommandFormProps> = (pr
 		setDraft(d => ({ ...d, [key]: value }));
 	};
 
-	const labelCls = 'text-xs text-vibe-fg-2';
-	const hintCls = 'text-[10px] text-vibe-fg-3';
-	const errCls = 'text-[10px] text-red-400';
-	// Command-center search style: shared shell sets bg / border / corner radius
-	// from VS Code design tokens; inner <input> is transparent so the wrapper
-	// owns the look. Inner sizing keeps the chat-search rhythm: px-2 py-1, text-xs.
-	const fieldShellCls = 'flex items-center gap-1.5 px-2 py-1 @@vibe-command-center-search';
-	const fieldInputCls = 'flex-1 bg-transparent text-xs text-vibe-fg-2 outline-none placeholder:text-vibe-fg-4 min-w-0';
+	// IMPORTANT — scope-tailwind only rewrites class strings that live directly
+	// inside JSX `className=...` attributes. Pulling them into `const fieldCls =
+	// '...';` skips the rewrite, so `@@vibe-command-center-search` does NOT
+	// resolve to the styled `vibe-command-center-search` class. Every utility
+	// must be inline in the JSX below.
 
 	// Field row factory — keeps the markup uniform: label on its own line, then
-	// the wrapped input, then either an error or a hint. Each row is a top-level
-	// child of the main column, so the form is strictly vertical.
+	// the wrapped input, then either an error or a hint. All classNames must be
+	// inline (scope-tailwind doesn't rewrite them when stored in variables).
 	const renderField = (
 		key: keyof AddCommandDraft,
 		label: string,
@@ -190,13 +187,13 @@ export const VibeProjectCommandForm: React.FC<VibeProjectCommandFormProps> = (pr
 		const value = (draft as any)[key] as string;
 		const errMsg = errLabel(opts.err ?? null);
 		return (
-			<div className='flex flex-col gap-1'>
-				<label htmlFor={id} className={labelCls}>{label}{opts.required ? ' *' : ''}</label>
-				<div className={fieldShellCls}>
+			<div className='flex flex-col gap-1.5'>
+				<label htmlFor={id} className='text-xs text-vibe-fg-2'>{label}{opts.required ? ' *' : ''}</label>
+				<div className='flex items-center gap-1.5 px-2 py-1.5 @@vibe-command-center-search'>
 					{opts.textarea ? (
 						<textarea
 							id={id}
-							className={`${fieldInputCls} min-h-[64px] font-mono resize-y`}
+							className='flex-1 bg-transparent text-xs text-vibe-fg-2 outline-none placeholder:text-vibe-fg-4 min-w-0 min-h-[64px] font-mono resize-y'
 							value={value}
 							disabled={opts.disabled}
 							placeholder={opts.placeholder}
@@ -207,7 +204,7 @@ export const VibeProjectCommandForm: React.FC<VibeProjectCommandFormProps> = (pr
 						<input
 							id={id}
 							type='text'
-							className={fieldInputCls}
+							className='flex-1 bg-transparent text-xs text-vibe-fg-2 outline-none placeholder:text-vibe-fg-4 min-w-0'
 							value={value}
 							disabled={opts.disabled}
 							placeholder={opts.placeholder}
@@ -215,25 +212,25 @@ export const VibeProjectCommandForm: React.FC<VibeProjectCommandFormProps> = (pr
 						/>
 					)}
 				</div>
-				{errMsg ? <span className={errCls}>{errMsg}</span> : opts.hint ? <span className={hintCls}>{opts.hint}</span> : null}
+				{errMsg ? <span className='text-[11px] text-red-400'>{errMsg}</span> : opts.hint ? <span className='text-[11px] text-vibe-fg-3'>{opts.hint}</span> : null}
 			</div>
 		);
 	};
 
 	return (
-		<div className='@@vibe-scope flex flex-col gap-3 max-w-2xl mx-auto px-6 py-5'>
+		<div className='@@vibe-scope flex flex-col gap-4 max-w-2xl mx-auto px-6 py-5'>
 			<div className='flex items-center justify-between'>
 				<h2 className='text-base text-vibe-fg-1 font-medium'>
 					{isEdit ? workspaceS.pcFormEditTitle(commandIdForEdit ?? '') : workspaceS.pcFormAddTitle}
 				</h2>
 				<button
 					type='button'
-					className='text-xs text-vibe-fg-3 hover:brightness-110 px-2 py-1 rounded @@vibe-command-center-search'
+					className='text-xs text-vibe-fg-3 hover:brightness-110 px-2 py-1 @@vibe-command-center-search'
 					onClick={() => { void closeEditor(); }}
 				>{workspaceS.pcFormCancel}</button>
 			</div>
 
-			<p className='text-xs text-vibe-fg-3'>{workspaceS.pcFormIntro}</p>
+			<p className='text-xs text-vibe-fg-3 leading-relaxed'>{workspaceS.pcFormIntro}</p>
 
 			{renderField('id', workspaceS.pcFieldId, {
 				required: true,
@@ -266,11 +263,11 @@ export const VibeProjectCommandForm: React.FC<VibeProjectCommandFormProps> = (pr
 				err: validation.errors.cwd,
 			})}
 
-			<div className='flex flex-col gap-1'>
-				<label className={labelCls}>{workspaceS.pcFieldTerminal}</label>
-				<div className={fieldShellCls}>
+			<div className='flex flex-col gap-1.5'>
+				<label className='text-xs text-vibe-fg-2'>{workspaceS.pcFieldTerminal}</label>
+				<div className='flex items-center gap-1.5 px-2 py-1.5 @@vibe-command-center-search'>
 					<select
-						className={`${fieldInputCls} appearance-none cursor-pointer`}
+						className='flex-1 bg-transparent text-xs text-vibe-fg-2 outline-none min-w-0 appearance-none cursor-pointer'
 						value={draft.terminal ?? ''}
 						onChange={e => updateField('terminal', e.target.value as ProjectCommandTerminal | '')}
 					>
@@ -320,7 +317,7 @@ export const VibeProjectCommandForm: React.FC<VibeProjectCommandFormProps> = (pr
 					onClick={() => { void closeEditor(); }}
 					disabled={saveBusy}
 				>{workspaceS.pcFormCancel}</button>
-				{!validation.isValid ? <span className='text-[10px] text-amber-400'>{workspaceS.pcFormHasErrors}</span> : null}
+				{!validation.isValid ? <span className='text-[11px] text-amber-400'>{workspaceS.pcFormHasErrors}</span> : null}
 			</div>
 		</div>
 	);

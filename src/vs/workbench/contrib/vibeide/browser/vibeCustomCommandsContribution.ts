@@ -37,7 +37,7 @@ import { VSBuffer } from '../../../../base/common/buffer.js';
 import { localize } from '../../../../nls.js';
 import { IVibeCustomCommandsService } from './vibeCustomCommandsService.js';
 import { PROJECT_COMMANDS_PALETTE_IDS } from '../common/projectCommandsServiceContract.js';
-import { serializeProjectCommandsInitTemplate } from '../common/projectCommandsInitTemplate.js';
+import { buildProjectCommandsInitTemplate, PROJECT_COMMANDS_INIT_EXAMPLE_ID, serializeProjectCommandsInitTemplate } from '../common/projectCommandsInitTemplate.js';
 import { describeUnresolvedPlaceholders } from '../common/projectCommandSecretsResolver.js';
 import { commandIdToRegistryId, formatProjectCommandKeybindingLabel } from '../common/projectCommandsRegistryId.js';
 import { allocateDefaultChords } from '../common/projectCommandsKeybindings.js';
@@ -950,6 +950,88 @@ CommandsRegistry.registerCommand({
 			severity: Severity.Info,
 			message: localize('vibeide.commands.delete.done', 'Команда «{0}» удалена.', cmd.name),
 		});
+	},
+});
+
+// ── vibeide.commands.seedDemo ─────────────────────────────────────────────────
+// Seeds `.vibe/commands.json` with the canonical example command (the one
+// `vibeConfigInitService` writes on first workspace open). Useful when the
+// file already exists from a prior session, the user emptied the array, or
+// the demo was deleted — without this they can't "see what a Project Command
+// looks like" without reading docs.
+//
+// Behaviour:
+//   - file missing  → write init template verbatim.
+//   - file exists, no `example` id → append the example entry.
+//   - file exists, has `example` id → no-op + info notification.
+CommandsRegistry.registerCommand({
+	id: 'vibeide.commands.seedDemo',
+	handler: async (accessor: ServicesAccessor) => {
+		const fileService = accessor.get(IFileService);
+		const workspace = accessor.get(IWorkspaceContextService);
+		const notifications = accessor.get(INotificationService);
+		const commands = accessor.get(IVibeCustomCommandsService);
+
+		const folder = workspace.getWorkspace().folders[0];
+		if (!folder) {
+			notifications.notify({
+				severity: Severity.Warning,
+				message: localize('vibeide.commands.seedDemo.noWorkspace', 'Откройте папку, чтобы создать демо-команду.'),
+			});
+			return;
+		}
+
+		const commandsUri = joinPath(folder.uri, '.vibe', 'commands.json');
+		let existing: ProjectCommandsFile | null = null;
+		try {
+			const buf = await fileService.readFile(commandsUri);
+			const parsed = safeParseConfigJson(buf.value.toString());
+			if (parsed.ok) {
+				const decoded = decodeProjectCommandsFile(parsed.value);
+				if (decoded.ok) existing = decoded.value;
+			}
+		} catch { /* missing — handled below */ }
+
+		const template = buildProjectCommandsInitTemplate({ vibeVersion: VIBE_WORKSPACE_FORMAT_VERSION });
+		const example = template.commands[0];
+
+		if (!existing) {
+			// Use the full RU-commented init template when the file is missing —
+			// keeps the on-disk shape identical to fresh `vibeConfigInitService` runs.
+			try {
+				await fileService.writeFile(commandsUri, VSBuffer.fromString(serializeProjectCommandsInitTemplate({ vibeVersion: VIBE_WORKSPACE_FORMAT_VERSION })));
+			} catch (e) {
+				notifications.notify({
+					severity: Severity.Error,
+					message: localize('vibeide.commands.seedDemo.writeFailed', 'Не удалось создать .vibe/commands.json: {0}', String((e as Error)?.message ?? e)),
+				});
+				return;
+			}
+			await commands.reload();
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.commands.seedDemo.created', 'Создан .vibe/commands.json с демо-командой «{0}».', example.name) });
+			return;
+		}
+
+		if (existing.commands.some(c => c.id === PROJECT_COMMANDS_INIT_EXAMPLE_ID)) {
+			notifications.notify({
+				severity: Severity.Info,
+				message: localize('vibeide.commands.seedDemo.alreadyExists', 'Демо-команда «{0}» уже есть в .vibe/commands.json.', example.name),
+			});
+			return;
+		}
+
+		const { serialized } = appendCommandToFile(existing, example);
+		try {
+			await fileService.writeFile(commandsUri, VSBuffer.fromString(serialized));
+		} catch (e) {
+			notifications.notify({
+				severity: Severity.Error,
+				message: localize('vibeide.commands.seedDemo.writeFailed', 'Не удалось записать .vibe/commands.json: {0}', String((e as Error)?.message ?? e)),
+			});
+			return;
+		}
+		await commands.reload();
+		notifications.notify({ severity: Severity.Info, message: localize('vibeide.commands.seedDemo.appended', 'Демо-команда «{0}» добавлена в .vibe/commands.json.', example.name) });
 	},
 });
 
