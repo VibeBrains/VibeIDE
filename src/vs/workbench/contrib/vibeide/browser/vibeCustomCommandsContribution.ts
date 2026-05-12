@@ -43,7 +43,16 @@ import { commandIdToRegistryId, formatProjectCommandKeybindingLabel } from '../c
 import { allocateDefaultChords } from '../common/projectCommandsKeybindings.js';
 import { importTasksJson } from '../common/vscodeTasksJsonImporter.js';
 import { sanitizeProjectCommand, describeIssue } from '../common/projectCommandsSanitizer.js';
-import { decodeProjectCommandsFile, ProjectCommandsFile, ProjectCommand } from '../common/projectCommandsTypes.js';
+import { decodeProjectCommandsFile, ProjectCommandsFile, ProjectCommand, PROJECT_COMMAND_ID_PATTERN } from '../common/projectCommandsTypes.js';
+import {
+	ADD_COMMAND_DRAFT_EMPTY,
+	AddCommandDraft,
+	appendCommandToFile,
+	buildProjectCommandFromDraft,
+	validateAddCommandDraft,
+	ADD_COMMAND_ERROR,
+} from '../common/projectCommandsAddFormPolicy.js';
+import { VIBE_WORKSPACE_FORMAT_VERSION } from '../common/vibeDefaultWorkspaceReadme.js';
 import { safeParseConfigJson } from '../common/vibeConfigJsonParser.js';
 import { findSuspiciousLiteralSecrets } from '../common/projectCommandSecretsResolver.js';
 import { KeybindingsRegistry, KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
@@ -782,6 +791,241 @@ CommandsRegistry.registerCommand({
 				message: localize('vibeide.commands.list.failed', 'Команда «{0}»: {1}', picked.label, outcome.reason ?? 'unknown'),
 			});
 		}
+	},
+});
+
+// ── vibeide.commands.add ───────────────────────────────────────────────────────
+// Multi-step QuickInput chain that fills an `AddCommandDraft`, validates against
+// `projectCommandsAddFormPolicy`, writes the new entry to `.vibe/commands.json`
+// (creating the file from scratch when it doesn't exist), and triggers a reload.
+// Used by the Project Commands menubar entry; mirrors the in-form path in
+// `ProjectCommandsPanel`.
+CommandsRegistry.registerCommand({
+	id: PROJECT_COMMANDS_PALETTE_IDS.add,
+	handler: async (accessor: ServicesAccessor) => {
+		const quickInput = accessor.get(IQuickInputService);
+		const notifications = accessor.get(INotificationService);
+		const fileService = accessor.get(IFileService);
+		const workspace = accessor.get(IWorkspaceContextService);
+		const commands = accessor.get(IVibeCustomCommandsService);
+
+		const folder = workspace.getWorkspace().folders[0];
+		if (!folder) {
+			notifications.notify({
+				severity: Severity.Warning,
+				message: localize('vibeide.commands.add.noWorkspace', 'Откройте папку, чтобы добавить проектную команду.'),
+			});
+			return;
+		}
+
+		const existingIds = new Set(commands.getCommands().map(c => c.id));
+
+		// Prompt-with-validation helper. `validate` is called per-keystroke; non-null
+		// return value disables `accept`. Cancel via Esc returns undefined.
+		const ask = async (
+			value: string,
+			placeholder: string,
+			prompt: string,
+			step: number,
+			totalSteps: number,
+			validate?: (v: string) => string | null,
+		): Promise<string | undefined> => {
+			const box = quickInput.createInputBox();
+			box.title = localize('vibeide.commands.add.title', 'Новая команда .vibe/commands.json');
+			box.step = step;
+			box.totalSteps = totalSteps;
+			box.value = value;
+			box.placeholder = placeholder;
+			box.prompt = prompt;
+			box.ignoreFocusOut = true;
+			if (validate) {
+				const err = validate(value);
+				box.validationMessage = err ?? undefined;
+				box.onDidChangeValue(v => {
+					box.validationMessage = validate(v) ?? undefined;
+				});
+			}
+			try {
+				return await new Promise<string | undefined>(resolve => {
+					box.onDidAccept(() => {
+						if (validate) {
+							const err = validate(box.value);
+							if (err) { box.validationMessage = err; return; }
+						}
+						resolve(box.value);
+					});
+					box.onDidHide(() => resolve(undefined));
+					box.show();
+				});
+			} finally {
+				box.dispose();
+			}
+		};
+
+		const askPick = async <T>(
+			items: { label: string; description?: string; value: T }[],
+			placeholder: string,
+			_step: number,
+			_totalSteps: number,
+		): Promise<T | undefined> => {
+			// `quickInput.pick` returns the picked item itself (or undefined on Esc);
+			// `ignoreFocusLost` is the option name on the multi-overload signature.
+			const picked = await quickInput.pick(items, { placeHolder: placeholder, ignoreFocusLost: true });
+			return picked ? picked.value : undefined;
+		};
+
+		const TOTAL = 8;
+		const draft: { -readonly [K in keyof AddCommandDraft]: AddCommandDraft[K] } = { ...ADD_COMMAND_DRAFT_EMPTY };
+
+		const idErrLabel = (code: string | null): string | null => {
+			switch (code) {
+				case ADD_COMMAND_ERROR.idMissing: return localize('vibeide.commands.add.err.idMissing', 'id обязателен');
+				case ADD_COMMAND_ERROR.idPattern: return localize('vibeide.commands.add.err.idPattern', 'id: только латиница в нижнем регистре, цифры и дефисы; начинается с буквы/цифры; до 64 символов');
+				case ADD_COMMAND_ERROR.idDuplicate: return localize('vibeide.commands.add.err.idDuplicate', 'команда с таким id уже существует');
+				case ADD_COMMAND_ERROR.cwdAbsolute: return localize('vibeide.commands.add.err.cwdAbsolute', 'cwd должен быть относительным путём от корня workspace');
+				case ADD_COMMAND_ERROR.cwdTraversal: return localize('vibeide.commands.add.err.cwdTraversal', 'cwd не должен содержать «..»');
+				case ADD_COMMAND_ERROR.orderNotNumber: return localize('vibeide.commands.add.err.orderNotNumber', 'order должен быть целым числом');
+				default: return null;
+			}
+		};
+
+		// Step 1: id
+		const id = await ask(
+			'', 'lint, deploy-dev, run-tests…',
+			localize('vibeide.commands.add.idPrompt', 'Уникальный id команды (латиница, цифры, дефисы; ≤64).'),
+			1, TOTAL,
+			v => {
+				const trimmed = v.trim();
+				if (!trimmed) return idErrLabel(ADD_COMMAND_ERROR.idMissing);
+				if (!PROJECT_COMMAND_ID_PATTERN.test(trimmed)) return idErrLabel(ADD_COMMAND_ERROR.idPattern);
+				if (existingIds.has(trimmed)) return idErrLabel(ADD_COMMAND_ERROR.idDuplicate);
+				return null;
+			},
+		);
+		if (id === undefined) return;
+		draft.id = id.trim();
+
+		// Step 2: name
+		const name = await ask(
+			'', 'Run lint, Deploy dev, …',
+			localize('vibeide.commands.add.namePrompt', 'Отображаемое имя — будет видно в палитре и на кнопке статус-бара.'),
+			2, TOTAL,
+			v => v.trim() ? null : localize('vibeide.commands.add.err.nameMissing', 'Имя обязательно'),
+		);
+		if (name === undefined) return;
+		draft.name = name.trim();
+
+		// Step 3: description
+		const description = await ask(
+			'', localize('vibeide.commands.add.descPlaceholder', 'Опционально (для тултипа)'),
+			localize('vibeide.commands.add.descPrompt', 'Краткое описание команды.'),
+			3, TOTAL,
+		);
+		if (description === undefined) return;
+		draft.description = description;
+
+		// Step 4: command
+		const command = await ask(
+			'', 'npm, docker, python, …',
+			localize('vibeide.commands.add.commandPrompt', 'Исполняемый файл (без аргументов).'),
+			4, TOTAL,
+			v => v.trim() ? null : localize('vibeide.commands.add.err.commandMissing', 'Команда обязательна'),
+		);
+		if (command === undefined) return;
+		draft.command = command.trim();
+
+		// Step 5: args — single-line, comma-or-space separated, converted to newline-separated for the draft.
+		const argsLine = await ask(
+			'', 'run lint  (через пробел или запятую)',
+			localize('vibeide.commands.add.argsPrompt', 'Аргументы (через пробел или запятую). Пустое поле — без аргументов.'),
+			5, TOTAL,
+		);
+		if (argsLine === undefined) return;
+		draft.argsText = argsLine
+			.split(/[,\s]+/)
+			.map(s => s.trim())
+			.filter(s => s.length > 0)
+			.join('\n');
+
+		// Step 6: cwd
+		const cwd = await ask(
+			'', localize('vibeide.commands.add.cwdPlaceholder', 'Относительно корня workspace; пусто — корень.'),
+			localize('vibeide.commands.add.cwdPrompt', 'Рабочая папка (cwd).'),
+			6, TOTAL,
+			v => {
+				const trimmed = v.trim();
+				if (!trimmed) return null;
+				if (trimmed.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(trimmed)) return idErrLabel(ADD_COMMAND_ERROR.cwdAbsolute);
+				if (trimmed.split(/[\\/]+/).some(s => s === '..')) return idErrLabel(ADD_COMMAND_ERROR.cwdTraversal);
+				return null;
+			},
+		);
+		if (cwd === undefined) return;
+		draft.cwd = cwd;
+
+		// Step 7: terminal — quickPick
+		const terminal = await askPick<'integrated' | 'external' | 'background' | ''>(
+			[
+				{ label: localize('vibeide.commands.add.term.integrated', 'Встроенный терминал'), description: 'integrated', value: 'integrated' },
+				{ label: localize('vibeide.commands.add.term.external', 'Внешняя консоль'), description: 'external', value: 'external' },
+				{ label: localize('vibeide.commands.add.term.background', 'Фоновый процесс'), description: 'background', value: 'background' },
+			],
+			localize('vibeide.commands.add.terminalPrompt', 'Шаг 7/8: где запускать команду'),
+			7, TOTAL,
+		);
+		if (terminal === undefined) return;
+		draft.terminal = terminal;
+
+		// Step 8: pinned — quickPick
+		const pinned = await askPick<boolean>(
+			[
+				{ label: localize('vibeide.commands.add.pin.no', 'Не закреплять'), description: localize('vibeide.commands.add.pin.noHint', 'Доступно через палитру и из menubar'), value: false },
+				{ label: localize('vibeide.commands.add.pin.yes', 'Закрепить в статус-баре'), description: localize('vibeide.commands.add.pin.yesHint', 'Кнопка в статус-баре (с учётом лимита maxPinned)'), value: true },
+			],
+			localize('vibeide.commands.add.pinPrompt', 'Шаг 8/8: закрепление'),
+			8, TOTAL,
+		);
+		if (pinned === undefined) return;
+		draft.pinned = pinned;
+
+		const validation = validateAddCommandDraft(draft, existingIds);
+		if (!validation.isValid) {
+			notifications.notify({
+				severity: Severity.Warning,
+				message: localize('vibeide.commands.add.invalid', 'Не сохранено — проверьте поля и попробуйте снова.'),
+			});
+			return;
+		}
+
+		const newCmd = buildProjectCommandFromDraft(draft);
+		const commandsUri = joinPath(folder.uri, '.vibe', 'commands.json');
+		let existing: ProjectCommandsFile = { vibeVersion: VIBE_WORKSPACE_FORMAT_VERSION, commands: [] };
+		try {
+			const buf = await fileService.readFile(commandsUri);
+			const parsed = safeParseConfigJson(buf.value.toString());
+			if (parsed.ok) {
+				const decoded = decodeProjectCommandsFile(parsed.value);
+				if (decoded.ok) existing = decoded.value;
+			}
+		} catch {
+			// File missing — start fresh.
+		}
+
+		const { serialized } = appendCommandToFile(existing, newCmd);
+		try {
+			await fileService.writeFile(commandsUri, VSBuffer.fromString(serialized));
+		} catch (e) {
+			notifications.notify({
+				severity: Severity.Error,
+				message: localize('vibeide.commands.add.writeFailed', 'Не удалось записать .vibe/commands.json: {0}', String((e as Error)?.message ?? e)),
+			});
+			return;
+		}
+		await commands.reload();
+		notifications.notify({
+			severity: Severity.Info,
+			message: localize('vibeide.commands.add.done', 'Команда «{0}» добавлена в .vibe/commands.json.', newCmd.name),
+		});
 	},
 });
 

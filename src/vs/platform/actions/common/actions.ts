@@ -136,6 +136,9 @@ export class MenuId {
 	static readonly MenubarTerminalSuggestStatusMenu = new MenuId('MenubarTerminalSuggestStatusMenu');
 	static readonly MenubarViewMenu = new MenuId('MenubarViewMenu');
 	static readonly MenubarHomeMenu = new MenuId('MenubarHomeMenu');
+	// VibeIDE-specific top-level menu surfaced to the right of `Help` in the title-bar.
+	// Hosts `+ Add Command…` plus the dynamic list of Project Commands from `.vibe/commands.json`.
+	static readonly MenubarVibeProjectCommandsMenu = new MenuId('MenubarVibeProjectCommandsMenu');
 	static readonly OpenEditorsContext = new MenuId('OpenEditorsContext');
 	static readonly OpenEditorsContextShare = new MenuId('OpenEditorsContextShare');
 	static readonly ProblemsPanelContext = new MenuId('ProblemsPanelContext');

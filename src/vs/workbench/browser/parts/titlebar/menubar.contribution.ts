@@ -77,6 +77,18 @@ MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
 	order: 8
 });
 
+// VibeIDE: top-level Project Commands menu — right of Help. Contributed contents
+// live in `vibeProjectCommandsMenubarContribution.ts`.
+MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
+	submenu: MenuId.MenubarVibeProjectCommandsMenu,
+	title: {
+		value: 'Project Commands',
+		original: 'Project Commands',
+		mnemonicTitle: localize({ key: 'mVibeProjectCommands', comment: ['&& denotes a mnemonic'] }, "&&Project Commands")
+	},
+	order: 9
+});
+
 MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
 	submenu: MenuId.MenubarPreferencesMenu,
 	title: {
@@ -85,5 +97,5 @@ MenuRegistry.appendMenuItem(MenuId.MenubarMainMenu, {
 		mnemonicTitle: localize({ key: 'mPreferences', comment: ['&& denotes a mnemonic'] }, "&&Preferences")
 	},
 	when: IsMacNativeContext,
-	order: 9
+	order: 10
 });
