@@ -162,99 +162,115 @@ export const VibeProjectCommandForm: React.FC<VibeProjectCommandFormProps> = (pr
 		setDraft(d => ({ ...d, [key]: value }));
 	};
 
-	const labelCls = 'text-xs text-vibe-fg-2 font-medium';
+	const labelCls = 'text-xs text-vibe-fg-2';
 	const hintCls = 'text-[10px] text-vibe-fg-3';
 	const errCls = 'text-[10px] text-red-400';
-	const inputCls = '@@vibe-chat-like-control w-full text-xs px-2 py-1 text-vibe-fg-2 font-mono';
+	// Command-center search style: shared shell sets bg / border / corner radius
+	// from VS Code design tokens; inner <input> is transparent so the wrapper
+	// owns the look. Inner sizing keeps the chat-search rhythm: px-2 py-1, text-xs.
+	const fieldShellCls = 'flex items-center gap-1.5 px-2 py-1 @@vibe-command-center-search';
+	const fieldInputCls = 'flex-1 bg-transparent text-xs text-vibe-fg-2 outline-none placeholder:text-vibe-fg-4 min-w-0';
+
+	// Field row factory — keeps the markup uniform: label on its own line, then
+	// the wrapped input, then either an error or a hint. Each row is a top-level
+	// child of the main column, so the form is strictly vertical.
+	const renderField = (
+		key: keyof AddCommandDraft,
+		label: string,
+		opts: {
+			required?: boolean;
+			placeholder?: string;
+			disabled?: boolean;
+			hint?: string;
+			err?: string | null;
+			textarea?: boolean;
+		},
+	) => {
+		const id = `vibeide-pc-form-${String(key)}`;
+		const value = (draft as any)[key] as string;
+		const errMsg = errLabel(opts.err ?? null);
+		return (
+			<div className='flex flex-col gap-1'>
+				<label htmlFor={id} className={labelCls}>{label}{opts.required ? ' *' : ''}</label>
+				<div className={fieldShellCls}>
+					{opts.textarea ? (
+						<textarea
+							id={id}
+							className={`${fieldInputCls} min-h-[64px] font-mono resize-y`}
+							value={value}
+							disabled={opts.disabled}
+							placeholder={opts.placeholder}
+							onChange={e => updateField(key, e.target.value as AddCommandDraft[typeof key])}
+							spellCheck={false}
+						/>
+					) : (
+						<input
+							id={id}
+							type='text'
+							className={fieldInputCls}
+							value={value}
+							disabled={opts.disabled}
+							placeholder={opts.placeholder}
+							onChange={e => updateField(key, e.target.value as AddCommandDraft[typeof key])}
+						/>
+					)}
+				</div>
+				{errMsg ? <span className={errCls}>{errMsg}</span> : opts.hint ? <span className={hintCls}>{opts.hint}</span> : null}
+			</div>
+		);
+	};
 
 	return (
-		<div className='@@vibe-scope flex flex-col gap-4 max-w-2xl mx-auto p-6'>
+		<div className='@@vibe-scope flex flex-col gap-3 max-w-2xl mx-auto px-6 py-5'>
 			<div className='flex items-center justify-between'>
-				<h2 className='text-lg text-vibe-fg-1 font-medium'>
+				<h2 className='text-base text-vibe-fg-1 font-medium'>
 					{isEdit ? workspaceS.pcFormEditTitle(commandIdForEdit ?? '') : workspaceS.pcFormAddTitle}
 				</h2>
 				<button
 					type='button'
-					className='text-xs text-vibe-fg-3 hover:brightness-110 px-2 py-1 border border-vibe-border-1 rounded'
+					className='text-xs text-vibe-fg-3 hover:brightness-110 px-2 py-1 rounded @@vibe-command-center-search'
 					onClick={() => { void closeEditor(); }}
 				>{workspaceS.pcFormCancel}</button>
 			</div>
 
 			<p className='text-xs text-vibe-fg-3'>{workspaceS.pcFormIntro}</p>
 
-			<div className='grid grid-cols-1 md:grid-cols-2 gap-3'>
-				<div className='flex flex-col gap-1'>
-					<label className={labelCls}>{workspaceS.pcFieldId} *</label>
-					<input
-						className={inputCls}
-						value={draft.id}
-						disabled={isEdit /* id is immutable once committed */}
-						placeholder='lint, deploy-dev'
-						onChange={e => updateField('id', e.target.value)}
-					/>
-					{validation.errors.id ? <span className={errCls}>{errLabel(validation.errors.id)}</span> : <span className={hintCls}>{workspaceS.pcFieldIdHint}</span>}
-				</div>
-				<div className='flex flex-col gap-1'>
-					<label className={labelCls}>{workspaceS.pcFieldName} *</label>
-					<input
-						className={inputCls}
-						value={draft.name}
-						placeholder='Run lint'
-						onChange={e => updateField('name', e.target.value)}
-					/>
-					{validation.errors.name ? <span className={errCls}>{errLabel(validation.errors.name)}</span> : null}
-				</div>
-			</div>
+			{renderField('id', workspaceS.pcFieldId, {
+				required: true,
+				placeholder: 'lint, deploy-dev',
+				disabled: isEdit,
+				hint: workspaceS.pcFieldIdHint,
+				err: validation.errors.id,
+			})}
+			{renderField('name', workspaceS.pcFieldName, {
+				required: true,
+				placeholder: 'Run lint',
+				err: validation.errors.name,
+			})}
+			{renderField('description', workspaceS.pcFieldDescription, {
+				placeholder: workspaceS.pcFieldDescriptionPlaceholder,
+			})}
+			{renderField('command', workspaceS.pcFieldCommand, {
+				required: true,
+				placeholder: 'npm',
+				err: validation.errors.command,
+			})}
+			{renderField('argsText', workspaceS.pcFieldArgs, {
+				placeholder: 'run\nlint',
+				hint: workspaceS.pcFieldArgsHint,
+				textarea: true,
+			})}
+			{renderField('cwd', workspaceS.pcFieldCwd, {
+				placeholder: workspaceS.pcFieldCwdPlaceholder,
+				hint: workspaceS.pcFieldCwdHint,
+				err: validation.errors.cwd,
+			})}
 
 			<div className='flex flex-col gap-1'>
-				<label className={labelCls}>{workspaceS.pcFieldDescription}</label>
-				<input
-					className={inputCls}
-					value={draft.description}
-					placeholder={workspaceS.pcFieldDescriptionPlaceholder}
-					onChange={e => updateField('description', e.target.value)}
-				/>
-			</div>
-
-			<div className='grid grid-cols-1 md:grid-cols-3 gap-3'>
-				<div className='flex flex-col gap-1 md:col-span-1'>
-					<label className={labelCls}>{workspaceS.pcFieldCommand} *</label>
-					<input
-						className={inputCls}
-						value={draft.command}
-						placeholder='npm'
-						onChange={e => updateField('command', e.target.value)}
-					/>
-					{validation.errors.command ? <span className={errCls}>{errLabel(validation.errors.command)}</span> : null}
-				</div>
-				<div className='flex flex-col gap-1 md:col-span-2'>
-					<label className={labelCls}>{workspaceS.pcFieldArgs}</label>
-					<textarea
-						className={`${inputCls} min-h-[72px]`}
-						value={draft.argsText}
-						placeholder={'run\nlint'}
-						onChange={e => updateField('argsText', e.target.value)}
-						spellCheck={false}
-					/>
-					<span className={hintCls}>{workspaceS.pcFieldArgsHint}</span>
-				</div>
-			</div>
-
-			<div className='grid grid-cols-1 md:grid-cols-2 gap-3'>
-				<div className='flex flex-col gap-1'>
-					<label className={labelCls}>{workspaceS.pcFieldCwd}</label>
-					<input
-						className={inputCls}
-						value={draft.cwd}
-						placeholder={workspaceS.pcFieldCwdPlaceholder}
-						onChange={e => updateField('cwd', e.target.value)}
-					/>
-					{validation.errors.cwd ? <span className={errCls}>{errLabel(validation.errors.cwd)}</span> : <span className={hintCls}>{workspaceS.pcFieldCwdHint}</span>}
-				</div>
-				<div className='flex flex-col gap-1'>
-					<label className={labelCls}>{workspaceS.pcFieldTerminal}</label>
+				<label className={labelCls}>{workspaceS.pcFieldTerminal}</label>
+				<div className={fieldShellCls}>
 					<select
-						className={inputCls}
+						className={`${fieldInputCls} appearance-none cursor-pointer`}
 						value={draft.terminal ?? ''}
 						onChange={e => updateField('terminal', e.target.value as ProjectCommandTerminal | '')}
 					>
@@ -266,26 +282,20 @@ export const VibeProjectCommandForm: React.FC<VibeProjectCommandFormProps> = (pr
 				</div>
 			</div>
 
-			<div className='grid grid-cols-1 md:grid-cols-2 gap-3'>
-				<label className='flex items-center gap-2 cursor-pointer select-none'>
-					<input
-						type='checkbox'
-						checked={draft.pinned}
-						onChange={e => updateField('pinned', e.target.checked)}
-					/>
-					<span className='text-xs text-vibe-fg-2'>{workspaceS.pcFieldPinned}</span>
-				</label>
-				<div className='flex flex-col gap-1'>
-					<label className={labelCls}>{workspaceS.pcFieldOrder}</label>
-					<input
-						className={inputCls}
-						value={draft.orderText}
-						placeholder='0'
-						onChange={e => updateField('orderText', e.target.value)}
-					/>
-					{validation.errors.order ? <span className={errCls}>{errLabel(validation.errors.order)}</span> : <span className={hintCls}>{workspaceS.pcFieldOrderHint}</span>}
-				</div>
-			</div>
+			<label className='flex items-center gap-2 cursor-pointer select-none text-xs text-vibe-fg-2 py-1'>
+				<input
+					type='checkbox'
+					checked={draft.pinned}
+					onChange={e => updateField('pinned', e.target.checked)}
+				/>
+				<span>{workspaceS.pcFieldPinned}</span>
+			</label>
+
+			{renderField('orderText', workspaceS.pcFieldOrder, {
+				placeholder: '0',
+				hint: workspaceS.pcFieldOrderHint,
+				err: validation.errors.order,
+			})}
 
 			{previewCommand ? (
 				<details className='@@vibe-chat-like-shell px-3 py-2 text-xs'>
