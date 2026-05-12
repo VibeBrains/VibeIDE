@@ -1,0 +1,27 @@
+name: i18n duplicate keys
+
+on:
+  pull_request:
+    paths:
+      - 'src/vs/workbench/contrib/vibeide/browser/react/src/vibe-settings-tsx/vibeSettingsRu.ts'
+      - 'scripts/vibe-i18n-dupes.mjs'
+      - '.github/workflows/i18n-dupes.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/vs/workbench/contrib/vibeide/browser/react/src/vibe-settings-tsx/vibeSettingsRu.ts'
+      - 'scripts/vibe-i18n-dupes.mjs'
+
+jobs:
+  i18n-dupes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install only the typescript dev-dep needed by the scanner
+        run: npm install typescript --no-save --no-audit --no-fund --legacy-peer-deps
+      - name: Fail on duplicate keys in vibeSettingsRu / EN bundles
+        run: node scripts/vibe-i18n-dupes.mjs
