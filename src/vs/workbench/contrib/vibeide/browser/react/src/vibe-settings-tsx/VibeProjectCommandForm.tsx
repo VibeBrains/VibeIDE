@@ -212,20 +212,20 @@ export const VibeProjectCommandForm: React.FC<VibeProjectCommandFormProps> = (pr
 						/>
 					)}
 				</div>
-				{errMsg ? <span className='text-[11px] text-red-400'>{errMsg}</span> : opts.hint ? <span className='text-[11px] text-vibe-fg-3'>{opts.hint}</span> : null}
+				{errMsg ? <span className='text-[11px] text-[var(--vscode-errorForeground)]'>{errMsg}</span> : opts.hint ? <span className='text-[11px] text-vibe-fg-3'>{opts.hint}</span> : null}
 			</div>
 		);
 	};
 
 	return (
-		<div className='@@vibe-scope flex flex-col gap-4 max-w-2xl mx-auto px-6 py-5'>
+		<div className='@@vibe-scope flex flex-col gap-4 max-w-xl mx-auto p-5'>
 			<div className='flex items-center justify-between'>
 				<h2 className='text-base text-vibe-fg-1 font-medium'>
 					{isEdit ? workspaceS.pcFormEditTitle(commandIdForEdit ?? '') : workspaceS.pcFormAddTitle}
 				</h2>
 				<button
 					type='button'
-					className='text-xs text-vibe-fg-3 hover:brightness-110 px-2 py-1 @@vibe-command-center-search'
+					className='@@vibe-pill-button text-xs px-2 py-1'
 					onClick={() => { void closeEditor(); }}
 				>{workspaceS.pcFormCancel}</button>
 			</div>
@@ -301,7 +301,7 @@ export const VibeProjectCommandForm: React.FC<VibeProjectCommandFormProps> = (pr
 				</details>
 			) : null}
 
-			<div className='flex items-center gap-2 mt-2 border-t border-vibe-border-1 pt-3'>
+			<div className='flex items-center gap-2 mt-2 border-t border-vibe-border-1 pt-4'>
 				<VibeButtonBgDarken
 					className='px-4 py-1.5 text-xs'
 					onClick={() => { void onSave(); }}
@@ -313,11 +313,11 @@ export const VibeProjectCommandForm: React.FC<VibeProjectCommandFormProps> = (pr
 				</VibeButtonBgDarken>
 				<button
 					type='button'
-					className='text-xs text-vibe-fg-3 hover:brightness-110 px-3 py-1.5'
+					className='@@vibe-pill-button text-xs px-3 py-1.5'
 					onClick={() => { void closeEditor(); }}
 					disabled={saveBusy}
 				>{workspaceS.pcFormCancel}</button>
-				{!validation.isValid ? <span className='text-[11px] text-amber-400'>{workspaceS.pcFormHasErrors}</span> : null}
+				{!validation.isValid ? <span className='text-[11px] text-[var(--vscode-editorWarning-foreground)]'>{workspaceS.pcFormHasErrors}</span> : null}
 			</div>
 		</div>
 	);
