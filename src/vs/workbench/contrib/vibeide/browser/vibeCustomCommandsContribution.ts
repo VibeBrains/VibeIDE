@@ -23,7 +23,7 @@
  */
 
 import { Disposable, DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
-import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
@@ -950,6 +950,74 @@ CommandsRegistry.registerCommand({
 			severity: Severity.Info,
 			message: localize('vibeide.commands.delete.done', 'Команда «{0}» удалена.', cmd.name),
 		});
+	},
+});
+
+// ── vibeide.commands.editPick / deletePick ────────────────────────────────────
+// Quick Pick over the merged command snapshot — selected id dispatches to
+// `editById` / `deleteById` respectively. Used as the menubar entry-point
+// because flat MenuItems (no submenu) can't expose two actions per row.
+CommandsRegistry.registerCommand({
+	id: 'vibeide.commands.editPick',
+	handler: async (accessor: ServicesAccessor) => {
+		const commands = accessor.get(IVibeCustomCommandsService);
+		const quickInput = accessor.get(IQuickInputService);
+		const notifications = accessor.get(INotificationService);
+		const commandService = accessor.get(ICommandService);
+
+		const list = commands.getCommands();
+		if (list.length === 0) {
+			notifications.notify({
+				severity: Severity.Info,
+				message: localize('vibeide.commands.editPick.empty', 'Нет команд для редактирования. Используйте «+ Добавить команду…» или «↻ Восстановить демо-команду».'),
+			});
+			return;
+		}
+		const items = list.map(c => ({
+			label: c.pinned ? `$(pin) ${c.name}` : c.name,
+			description: c.id,
+			detail: (c.args && c.args.length) ? `${c.command} ${c.args.join(' ')}` : c.command,
+			commandId: c.id,
+		}));
+		const picked = await quickInput.pick(items, {
+			placeHolder: localize('vibeide.commands.editPick.placeholder', 'Выберите команду для редактирования'),
+			matchOnDescription: true,
+			matchOnDetail: true,
+		});
+		if (!picked) return;
+		await commandService.executeCommand('vibeide.commands.editById', picked.commandId);
+	},
+});
+
+CommandsRegistry.registerCommand({
+	id: 'vibeide.commands.deletePick',
+	handler: async (accessor: ServicesAccessor) => {
+		const commands = accessor.get(IVibeCustomCommandsService);
+		const quickInput = accessor.get(IQuickInputService);
+		const notifications = accessor.get(INotificationService);
+		const commandService = accessor.get(ICommandService);
+
+		const list = commands.getCommands();
+		if (list.length === 0) {
+			notifications.notify({
+				severity: Severity.Info,
+				message: localize('vibeide.commands.deletePick.empty', 'Нет команд для удаления.'),
+			});
+			return;
+		}
+		const items = list.map(c => ({
+			label: c.pinned ? `$(pin) ${c.name}` : c.name,
+			description: c.id,
+			detail: (c.args && c.args.length) ? `${c.command} ${c.args.join(' ')}` : c.command,
+			commandId: c.id,
+		}));
+		const picked = await quickInput.pick(items, {
+			placeHolder: localize('vibeide.commands.deletePick.placeholder', 'Выберите команду для удаления'),
+			matchOnDescription: true,
+			matchOnDetail: true,
+		});
+		if (!picked) return;
+		await commandService.executeCommand('vibeide.commands.deleteById', picked.commandId);
 	},
 });
 
