@@ -74,7 +74,17 @@ export class VibeProjectCommandsPopupContribution extends Disposable implements 
 			const button = target.closest<HTMLElement>('.menubar-menu-button');
 			if (!button) return;
 			const ariaLabel = button.getAttribute('aria-label') ?? '';
-			if (!TARGET_ARIA_LABELS.has(ariaLabel)) return;
+			if (!TARGET_ARIA_LABELS.has(ariaLabel)) {
+				// Click landed on a different menubar button. VS Code's Menubar widget
+				// stops propagation on its own button mousedowns before IContextView's
+				// outside-click handler sees them, so our popup would stay open and
+				// overlap the freshly-opened native dropdown. Close it explicitly.
+				if (this._openHandle) {
+					this._openHandle.close();
+					this._openHandle = undefined;
+				}
+				return;
+			}
 			// Only intercept left mouse button — context menus stay native.
 			if (e.button !== 0) return;
 			e.preventDefault();
