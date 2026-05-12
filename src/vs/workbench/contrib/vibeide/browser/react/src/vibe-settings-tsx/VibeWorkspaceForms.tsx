@@ -28,6 +28,7 @@ import {
 	sortProjectCommandsForDisplay,
 } from '../../../../common/projectCommandsTypes.js';
 import { serializeProjectCommandsInitTemplate } from '../../../../common/projectCommandsInitTemplate.js';
+import { PROJECT_COMMANDS_PALETTE_IDS } from '../../../../common/projectCommandsServiceContract.js';
 import { safeParseConfigJson } from '../../../../common/vibeConfigJsonParser.js';
 import { ChatMarkdownRender } from '../markdown/ChatMarkdownRender.js';
 import {
@@ -166,6 +167,11 @@ export const VibeWorkspaceFormsPanel = () => {
 	const rootUri = folders[folderIndex]?.uri;
 
 	const [subTab, setSubTab] = useState<WorkspaceFormsSubTab>('rules');
+	// Monotonic tick incremented every time the user requests "open Add form" from
+	// outside `ProjectCommandsPanel` (e.g. the commands.json action-row deep-link).
+	// `ProjectCommandsPanel` watches the tick via `useEffect` and flips local
+	// `addOpen` state — works for repeated clicks without a callback round-trip.
+	const [pcOpenAddTick, setPcOpenAddTick] = useState(0);
 	/** README preview: separate entry via button above the tab pills. */
 	const [workspaceAuxView, setWorkspaceAuxView] = useState<'forms' | 'readme'>('forms');
 
@@ -1283,7 +1289,7 @@ export const VibeWorkspaceFormsPanel = () => {
 			)}
 
 			{subTab === 'projectCommands' && (
-				<ProjectCommandsPanel />
+				<ProjectCommandsPanel openAddTick={pcOpenAddTick} />
 			)}
 
 			{subTab === 'vibeStructure' && (
@@ -1356,6 +1362,35 @@ export const VibeWorkspaceFormsPanel = () => {
 			{isRjTab(subTab) && selRootJsonName ? (
 				<div className='flex flex-col gap-2'>
 					<p className='text-xs text-vibe-fg-3'>{workspaceS.rootJsonHint(selRootJsonName)}</p>
+					{selRootJsonName === 'commands.json' ? (
+						<div className='flex flex-wrap gap-2 items-center'>
+							<span className='text-[10px] text-vibe-fg-3 uppercase tracking-wide'>{workspaceS.pcJsonActionsLabel}</span>
+							<button
+								type='button'
+								className='text-xs text-vibe-fg-2 border border-vibe-border-1 rounded px-2 py-1 hover:brightness-110'
+								title={workspaceS.pcJsonOpenFormTip}
+								onClick={() => { setSubTab('projectCommands'); setPcOpenAddTick(t => t + 1); }}
+							>{workspaceS.pcJsonOpenForm}</button>
+							<button
+								type='button'
+								className='text-xs text-vibe-fg-3 border border-vibe-border-1 rounded px-2 py-1 hover:brightness-110'
+								title={workspaceS.pcJsonOpenTableTip}
+								onClick={() => { setSubTab('projectCommands'); }}
+							>{workspaceS.pcJsonOpenTable}</button>
+							<button
+								type='button'
+								className='text-xs text-vibe-fg-3 border border-vibe-border-1 rounded px-2 py-1 hover:brightness-110'
+								title={workspaceS.pcJsonOpenPaletteTip}
+								onClick={() => { void commandService.executeCommand(PROJECT_COMMANDS_PALETTE_IDS.run); }}
+							>{workspaceS.pcJsonOpenPalette}</button>
+							<button
+								type='button'
+								className='text-xs text-vibe-fg-3 border border-vibe-border-1 rounded px-2 py-1 hover:brightness-110'
+								title={workspaceS.pcJsonReloadTip}
+								onClick={() => { void commandService.executeCommand('vibeide.commands.reload'); }}
+							>{workspaceS.pcJsonReload}</button>
+						</div>
+					) : null}
 					<details open className='text-xs @@vibe-chat-like-shell px-2 py-1'>
 						<summary className='cursor-pointer text-vibe-fg-2 select-none mb-2'>{workspaceS.rootJsonDocFold}</summary>
 						<div className='text-xs text-vibe-fg-3 border-t border-vibe-border-1 pt-2 max-h-[22rem] overflow-y-auto prose prose-sm prose-p:my-1 prose-ul:my-1 prose-ul:list-disc prose-ul:pl-4 prose-code:before:content-none prose-code:after:content-none select-text'>
@@ -1425,7 +1460,7 @@ export const VibeWorkspaceFormsPanel = () => {
  * `IVibeCustomCommandsService.getCommands()` and re-renders on
  * `onDidChangeCommands` (FS-watch / manual reload / globalPaths change).
  */
-const ProjectCommandsPanel: React.FC = () => {
+const ProjectCommandsPanel: React.FC<{ openAddTick?: number }> = ({ openAddTick = 0 }) => {
 	const accessor = useAccessor();
 	const commands = accessor.get('IVibeCustomCommandsService');
 	const config = accessor.get('IConfigurationService');
@@ -1449,6 +1484,15 @@ const ProjectCommandsPanel: React.FC = () => {
 		const d = commands.onDidChangeCommands(e => setSnapshot(e.commands));
 		return () => d.dispose();
 	}, [commands]);
+
+	// Deep-link from outside the panel (commands.json action-row) — each tick > 0
+	// opens the Add form. We skip the initial 0 so just navigating to the tab
+	// doesn't auto-expand the form.
+	useEffect(() => {
+		if (openAddTick > 0) {
+			setAddOpen(true);
+		}
+	}, [openAddTick]);
 
 	useEffect(() => {
 		const d = config.onDidChangeConfiguration(e => {
