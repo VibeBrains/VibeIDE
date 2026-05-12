@@ -1100,7 +1100,6 @@ export const workspaceS = {
 	pcTerminalIntegrated: 'Встроенный терминал',
 	pcTerminalExternal: 'Внешняя консоль',
 	pcTerminalBackground: 'Фоновый процесс (без UI)',
-	pcAddNoWorkspace: 'Откройте папку, чтобы добавить проектную команду.',
 	pcEditMissing: 'Не найдено: возможно, команда удалена внешним инструментом.',
 	pcAddDone: (name: string) => `Команда «${name}» добавлена в .vibe/commands.json.`,
 	pcEditDone: (name: string) => `Команда «${name}» обновлена в .vibe/commands.json.`,
