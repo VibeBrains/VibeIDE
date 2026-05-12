@@ -51,9 +51,24 @@ import { Action, IAction } from '../../../../base/common/actions.js';
 import { StandardMouseEvent } from '../../../../base/browser/mouseEvent.js';
 import { getWindow } from '../../../../base/browser/dom.js';
 
-const MAX_TOP_BAR_BUTTONS = 6;
+// Hard ceiling (schema also enforces this). Beyond ~20 buttons the status-bar
+// loses the rest to the overflow chevron, so widening the cap would hide
+// commands instead of showing them.
+const MAX_TOP_BAR_BUTTONS_DEFAULT = 6;
+const MAX_TOP_BAR_BUTTONS_HARD_CEILING = 20;
 const ENTRY_ID_PREFIX = 'vibeide.topbar.';
 const ANCHOR_ENTRY_ID = 'vibeide.topbar.__anchor';
+
+/** Parse `vibeide.commands.toolbar.maxPinned` into a sane integer in [1, 20]. */
+function decodeMaxPinned(raw: unknown): number {
+	if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+		return MAX_TOP_BAR_BUTTONS_DEFAULT;
+	}
+	const n = Math.floor(raw);
+	if (n < 1) return 1;
+	if (n > MAX_TOP_BAR_BUTTONS_HARD_CEILING) return MAX_TOP_BAR_BUTTONS_HARD_CEILING;
+	return n;
+}
 
 export class VibeProjectCommandsTopBarContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.vibeProjectCommandsTopBar';
@@ -62,6 +77,7 @@ export class VibeProjectCommandsTopBarContribution extends Disposable implements
 	private readonly _entryDisposables = this._register(new DisposableStore());
 	private _anchorEntry: IStatusbarEntryAccessor | undefined;
 	private _position: ProjectCommandsToolbarPosition;
+	private _maxPinned: number;
 	private _contextMenuListener = this._register(new DisposableStore());
 
 	constructor(
@@ -75,10 +91,13 @@ export class VibeProjectCommandsTopBarContribution extends Disposable implements
 		this._position = decodeProjectCommandsToolbarPosition(
 			this._config.getValue('vibeide.commands.toolbar.position'),
 		);
+		this._maxPinned = decodeMaxPinned(this._config.getValue('vibeide.commands.toolbar.maxPinned'));
 		this._installContextMenuListener();
 		this._refresh();
 		this._register(this._commands.onDidChangeCommands(() => this._refresh()));
-		// L322: react to position changes — re-render with new alignment + hide if `hidden`.
+		// React to settings changes — both rename position and lift/lower the cap
+		// trigger a single re-render. The cap path drops nothing (just trims/grows
+		// the rendered slice), so we don't `_clearEntries()` like the position path.
 		this._register(this._config.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration('vibeide.commands.toolbar.position')) {
 				const next = decodeProjectCommandsToolbarPosition(
@@ -87,6 +106,13 @@ export class VibeProjectCommandsTopBarContribution extends Disposable implements
 				if (next !== this._position) {
 					this._position = next;
 					this._clearEntries();
+					this._refresh();
+				}
+			}
+			if (e.affectsConfiguration('vibeide.commands.toolbar.maxPinned')) {
+				const next = decodeMaxPinned(this._config.getValue('vibeide.commands.toolbar.maxPinned'));
+				if (next !== this._maxPinned) {
+					this._maxPinned = next;
 					this._refresh();
 				}
 			}
@@ -111,7 +137,7 @@ export class VibeProjectCommandsTopBarContribution extends Disposable implements
 		const alignment = this._position === 'statusbar' ? StatusbarAlignment.RIGHT : StatusbarAlignment.LEFT;
 		const all = this._commands.getCommands();
 		const sorted = sortProjectCommandsForDisplay(all);
-		const { pinned } = pickTopBarPinned(sorted, MAX_TOP_BAR_BUTTONS);
+		const { pinned } = pickTopBarPinned(sorted, this._maxPinned);
 
 		// Anchor entry: surfaces Project Commands even when nothing is pinned —
 		// otherwise users without `pinned:true` saw no UI at all and assumed the

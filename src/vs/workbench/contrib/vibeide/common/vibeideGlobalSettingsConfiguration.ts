@@ -109,6 +109,14 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.commands.toolbar.position', 'Где рендерить закреплённые команды Project Commands. `hidden` оставляет палитру / шорткаты / status-bar `▶ N` индикатор активными, но скрывает inline-кнопки.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.commands.toolbar.maxPinned': {
+					type: 'integer',
+					minimum: 1,
+					maximum: 20,
+					default: 6,
+					description: localize('vibeide.commands.toolbar.maxPinned', 'Максимальное число закреплённых команд (`pinned: true`), которые рендерятся в статус-баре. Остальные доступны через палитру `VibeIDE: Run Project Command`. Диапазон 1–20; визуально комфортный предел — 6–8.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 			},
 		});
 

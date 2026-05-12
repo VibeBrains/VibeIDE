@@ -1069,6 +1069,8 @@ export const workspaceS = {
 	pcToolbarPositionTitlebar: 'В title-bar (слева)',
 	pcToolbarPositionStatusbar: 'В статус-баре (справа)',
 	pcToolbarPositionHidden: 'Скрыто (только палитра/шорткаты)',
+	pcMaxPinnedLabel: 'Макс. кнопок в баре:',
+	pcMaxPinnedHint: 'диапазон 1–20; остальные команды доступны из палитры',
 	pcOpenJson: 'Открыть .vibe/commands.json',
 	pcImportTasks: 'Импорт из .vscode/tasks.json',
 	pcImportUrl: 'Импорт из URL',

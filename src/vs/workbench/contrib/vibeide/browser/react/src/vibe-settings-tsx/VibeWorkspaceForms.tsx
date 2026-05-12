@@ -1475,6 +1475,11 @@ const ProjectCommandsPanel: React.FC<{ openAddTick?: number }> = ({ openAddTick 
 		const raw = config.getValue('vibeide.commands.toolbar.position');
 		return typeof raw === 'string' ? raw : 'titlebar';
 	});
+	const [maxPinned, setMaxPinned] = useState<number>(() => {
+		const raw = config.getValue('vibeide.commands.toolbar.maxPinned');
+		return typeof raw === 'number' && Number.isFinite(raw) ? Math.max(1, Math.min(20, Math.floor(raw))) : 6;
+	});
+	const [maxPinnedDraft, setMaxPinnedDraft] = useState<string>(() => String(maxPinned));
 	const [filter, setFilter] = useState('');
 	const [addOpen, setAddOpen] = useState(false);
 	const [draft, setDraft] = useState<AddCommandDraft>(ADD_COMMAND_DRAFT_EMPTY);
@@ -1496,9 +1501,16 @@ const ProjectCommandsPanel: React.FC<{ openAddTick?: number }> = ({ openAddTick 
 
 	useEffect(() => {
 		const d = config.onDidChangeConfiguration(e => {
-			if (!e.affectsConfiguration('vibeide.commands.toolbar.position')) return;
-			const raw = config.getValue('vibeide.commands.toolbar.position');
-			setPosition(typeof raw === 'string' ? raw : 'titlebar');
+			if (e.affectsConfiguration('vibeide.commands.toolbar.position')) {
+				const raw = config.getValue('vibeide.commands.toolbar.position');
+				setPosition(typeof raw === 'string' ? raw : 'titlebar');
+			}
+			if (e.affectsConfiguration('vibeide.commands.toolbar.maxPinned')) {
+				const raw = config.getValue('vibeide.commands.toolbar.maxPinned');
+				const n = typeof raw === 'number' && Number.isFinite(raw) ? Math.max(1, Math.min(20, Math.floor(raw))) : 6;
+				setMaxPinned(n);
+				setMaxPinnedDraft(String(n));
+			}
 		});
 		return () => d.dispose();
 	}, [config]);
@@ -1512,6 +1524,25 @@ const ProjectCommandsPanel: React.FC<{ openAddTick?: number }> = ({ openAddTick 
 			// Surface errors via existing config notifications — no extra toast needed.
 		}
 	}, [config]);
+
+	// Commit `maxPinned` only when the user finishes editing (blur or Enter) and
+	// the parsed value is a valid integer in [1, 20]. Intermediate keystrokes
+	// (e.g. empty string while clearing) are kept in `maxPinnedDraft` only.
+	const commitMaxPinned = useCallback(async () => {
+		const parsed = Number(maxPinnedDraft.trim());
+		if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+			setMaxPinnedDraft(String(maxPinned));
+			return;
+		}
+		const clamped = Math.max(1, Math.min(20, parsed));
+		if (clamped !== parsed) setMaxPinnedDraft(String(clamped));
+		if (clamped === maxPinned) return;
+		try {
+			await config.updateValue('vibeide.commands.toolbar.maxPinned', clamped);
+		} catch {
+			setMaxPinnedDraft(String(maxPinned));
+		}
+	}, [config, maxPinned, maxPinnedDraft]);
 
 	const radio = (val: 'titlebar' | 'statusbar' | 'hidden', label: string) => (
 		<label className='flex items-center gap-2 cursor-pointer select-none my-1'>
@@ -1704,6 +1735,23 @@ const ProjectCommandsPanel: React.FC<{ openAddTick?: number }> = ({ openAddTick 
 				{radio('titlebar', workspaceS.pcToolbarPositionTitlebar)}
 				{radio('statusbar', workspaceS.pcToolbarPositionStatusbar)}
 				{radio('hidden', workspaceS.pcToolbarPositionHidden)}
+				<div className='flex items-center gap-2 mt-2 pt-2 border-t border-vibe-border-1'>
+					<label htmlFor='vibeide-pc-max-pinned' className='text-xs text-vibe-fg-2'>{workspaceS.pcMaxPinnedLabel}</label>
+					<input
+						id='vibeide-pc-max-pinned'
+						type='number'
+						min={1}
+						max={20}
+						step={1}
+						className='@@vibe-chat-like-control text-xs px-2 py-0.5 text-vibe-fg-2 w-16'
+						value={maxPinnedDraft}
+						disabled={position === 'hidden'}
+						onChange={e => setMaxPinnedDraft(e.target.value)}
+						onBlur={() => { void commitMaxPinned(); }}
+						onKeyDown={e => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); } }}
+					/>
+					<span className='text-[10px] text-vibe-fg-3'>{workspaceS.pcMaxPinnedHint}</span>
+				</div>
 			</div>
 
 			<div className='flex flex-wrap gap-2'>
