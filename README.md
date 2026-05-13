@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
-  <a href="https://github.com/VibeIDETeam/VibeIDE/releases"><img src="https://img.shields.io/badge/версия-0.7.5-green.svg" alt="Версия" /></a>
+  <a href="https://github.com/VibeIDETeam/VibeIDE/releases"><img src="https://img.shields.io/badge/версия-0.7.6-green.svg" alt="Версия" /></a>
   <a href="https://github.com/VibeIDETeam/VibeIDE/issues"><img src="https://img.shields.io/github/issues/VibeIDETeam/VibeIDE.svg" alt="Issues" /></a>
   <a href="https://open-vsx.org"><img src="https://img.shields.io/badge/extensions-Open%20VSX-purple.svg" alt="Open VSX" /></a>
 </p>
