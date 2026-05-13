@@ -2000,9 +2000,14 @@ const getTitle = (toolMessage: Pick<ChatMessage & { role: 'tool' }, 'name' | 'ty
 	// built-in title
 	else {
 		const toolName = t.name as BuiltinToolName
-		if (t.type === 'success') return titleOfBuiltinToolName[toolName].done
-		if (t.type === 'running_now') return titleOfBuiltinToolName[toolName].running
-		return titleOfBuiltinToolName[toolName].proposed
+		const titles = titleOfBuiltinToolName[toolName]
+		// titleOfBuiltinToolName can lag behind BuiltinToolName when tools are
+		// added to the type but not to the title map — fall back to the raw
+		// name instead of crashing the React tree.
+		if (!titles) return t.name
+		if (t.type === 'success') return titles.done
+		if (t.type === 'running_now') return titles.running
+		return titles.proposed
 	}
 }
 
@@ -4228,7 +4233,7 @@ const EditToolSoFar = ({ toolCallSoFar, }: { toolCallSoFar: RawToolCallObj }) =>
 
 	const uri = toolCallSoFar.rawParams.uri ? URI.file(toolCallSoFar.rawParams.uri) : undefined
 
-	const title = titleOfBuiltinToolName[toolCallSoFar.name].proposed
+	const title = titleOfBuiltinToolName[toolCallSoFar.name]?.proposed ?? toolCallSoFar.name
 
 	const uriDone = toolCallSoFar.doneParams.includes('uri')
 	const desc1 = <span className='flex items-center gap-1'>
@@ -4732,10 +4737,18 @@ export const SidebarChat = () => {
 	const previousMessagesHTML = useMemo(() => {
 		// const lastMessageIdx = previousMessages.findLastIndex(v => v.role !== 'checkpoint')
 		// tool request shows up as Editing... if in progress
-		// Use stable keys based on message ID or index for better React reconciliation
+		// Use stable keys based on message ID or index for better React reconciliation.
+		// Defensive: thread state can occasionally produce two messages with the
+		// same id (e.g. a tool message duplicated by a retry/resume path). React
+		// requires globally unique keys per list, so we suffix repeats with #N.
+		// The first occurrence keeps the bare id, preserving stable reconciliation
+		// for the common (unique) case.
+		const seen = new Map<string, number>()
 		return previousMessages.map((message, i) => {
-			// Use message ID if available, otherwise fall back to index
-			const messageKey = (message as any).id || `msg-${i}`
+			const baseKey = (message as any).id || `msg-${i}`
+			const count = seen.get(baseKey) ?? 0
+			seen.set(baseKey, count + 1)
+			const messageKey = count === 0 ? baseKey : `${baseKey}#${count}`
 			return <ChatBubble
 				key={messageKey}
 				currCheckpointIdx={currCheckpointIdx}
