@@ -48,6 +48,14 @@ const NATIVE_ARTIFACTS = [
 		artifact: path.join(nm, '@vscode', 'windows-registry', 'build', 'Release', 'winregistry.node'),
 	},
 	{
+		// Optional dependency of @vscode/proxy-agent. Without crypt32.node Node-fetch
+		// (undici) falls back to the embedded Mozilla CA bundle and cannot validate
+		// any TLS chain rooted in a Windows-only or corporate CA — every cloud
+		// LLM provider call then fails with APIConnectionError on locked-down networks.
+		id: '@vscode/windows-ca-certs',
+		artifact: path.join(nm, '@vscode', 'windows-ca-certs', 'build', 'Release', 'crypt32.node'),
+	},
+	{
 		id: '@vscode/vsce-sign',
 		artifact: path.join(nm, '@vscode', 'vsce-sign', 'bin', 'vsce-sign.exe'),
 	},

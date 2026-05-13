@@ -20,6 +20,11 @@ const TARGETS = [
 	'node_modules/@vscode/spdlog/binding.gyp',
 	'node_modules/@vscode/windows-mutex/binding.gyp',
 	'node_modules/native-keymap/binding.gyp',
+	// Required so `npm rebuild @vscode/windows-ca-certs` does not hit MSB8040
+	// (Spectre-mitigated MSVC libs are an optional VS component, often absent).
+	// Without crypt32.node, @vscode/proxy-agent cannot load Windows CA roots
+	// and undici-fetch fails any TLS handshake on locked-down corp networks.
+	'node_modules/@vscode/windows-ca-certs/binding.gyp',
 ];
 
 /**
