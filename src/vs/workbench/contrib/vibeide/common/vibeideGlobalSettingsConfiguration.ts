@@ -144,6 +144,42 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 			},
 		});
 
+		// `vibeide.llm.*` — LLM provider runtime knobs that experienced users may want to tune
+		// without rebuilding. Defaults are conservative and chosen for typical reasoning/streaming
+		// loads; bump them if your provider takes longer to deliver the first byte (large context,
+		// slow upstream behind a proxy aggregator, etc.). Values are in milliseconds.
+		registry.registerConfiguration({
+			id: 'vibeide.llm',
+			title: localize('vibeide.llm.title', 'VibeIDE — LLM Runtime'),
+			type: 'object',
+			properties: {
+				'vibeide.llm.timeoutMs.local': {
+					type: 'integer',
+					minimum: 1000,
+					maximum: 600_000,
+					default: 30_000,
+					description: localize('vibeide.llm.timeoutMs.local', 'Таймаут запроса к локальному LLM-провайдеру (Ollama, vLLM, LM Studio, любой openAICompatible с эндпоинтом на localhost). Миллисекунды. По умолчанию 30000 — локальные модели должны отвечать быстро; долгое ожидание обычно означает, что сервис не запущен или перегружен.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.llm.timeoutMs.cloud': {
+					type: 'integer',
+					minimum: 1000,
+					maximum: 600_000,
+					default: 90_000,
+					description: localize('vibeide.llm.timeoutMs.cloud', 'Таймаут запроса к прямому облачному провайдеру (OpenAI, Anthropic, Gemini, Mistral, xAI, Groq, DeepSeek, Qwen, Azure, Vertex). Миллисекунды. По умолчанию 90000 — покрывает reasoning-модели (Claude Opus thinking, GPT-5 high reasoning, etc.) при умеренном контексте.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.llm.timeoutMs.aggregator': {
+					type: 'integer',
+					minimum: 1000,
+					maximum: 600_000,
+					default: 180_000,
+					description: localize('vibeide.llm.timeoutMs.aggregator', 'Таймаут запроса к провайдеру-агрегатору (OpenRouter, OpenCode Zen, OpenCode Go, LM Router, LiteLLM). Миллисекунды. По умолчанию 180000 — у агрегаторов двойной hop (клиент → агрегатор → upstream), что добавляет латентности; на больших контекстах + reasoning-моделях первый байт может приходить через 2–3 минуты.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+			},
+		});
+
 		// `vibeide.global.*` — user-wide preferences read from `vibeideSettingsService`.
 		// Source of truth: VS Code configuration; the in-memory `globalSettings.localFirstAI`
 		// mirrors this key via a config-change listener.

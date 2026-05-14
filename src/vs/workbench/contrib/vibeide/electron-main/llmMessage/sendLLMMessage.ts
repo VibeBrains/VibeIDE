@@ -24,6 +24,7 @@ export const sendLLMMessage = async ({
 	chatMode,
 	separateSystemMessage,
 	mcpTools,
+	runtimeOptions,
 }: SendLLMMessageParams,
 
 	metricsService: IMetricsService
@@ -134,7 +135,7 @@ export const sendLLMMessage = async ({
 		}
 		const { sendFIM, sendChat } = implementation
 		if (messagesType === 'chatMessages') {
-			await sendChat({ messages: messages_, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, overridesOfModel, modelName, _setAborter, providerName, separateSystemMessage, chatMode, mcpTools })
+			await sendChat({ messages: messages_, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, overridesOfModel, modelName, _setAborter, providerName, separateSystemMessage, chatMode, mcpTools, runtimeOptions })
 			return
 		}
 		if (messagesType === 'FIMMessage') {
@@ -142,7 +143,7 @@ export const sendLLMMessage = async ({
 				// Infer featureName from loggingName for max_tokens optimization
 				// "Autocomplete" -> 'Autocomplete', others default to undefined (safe default)
 				const inferredFeatureName: FeatureName | undefined = loggingName === 'Autocomplete' ? 'Autocomplete' : undefined
-				await sendFIM({ messages: messages_, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, overridesOfModel, modelName, _setAborter, providerName, separateSystemMessage, featureName: inferredFeatureName })
+				await sendFIM({ messages: messages_, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, overridesOfModel, modelName, _setAborter, providerName, separateSystemMessage, featureName: inferredFeatureName, runtimeOptions })
 				return
 			}
 			onError({ message: `Error running Autocomplete with ${providerName} - ${modelName}.`, fullError: null })

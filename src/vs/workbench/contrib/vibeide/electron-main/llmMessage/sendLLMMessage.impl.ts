@@ -14,7 +14,7 @@ import { Tool as GeminiTool, FunctionDeclaration, GoogleGenAI, ThinkingConfig, S
 import { GoogleAuth } from 'google-auth-library'
 /* eslint-enable */
 
-import { GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
+import { GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, LLMRuntimeOptions, ModelListParams, OllamaModelResponse, OnError, OnFinalMessage, OnText, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
@@ -43,6 +43,7 @@ type InternalCommonMessageParams = {
 	overridesOfModel: OverridesOfModel | undefined;
 	modelName: string;
 	_setAborter: (aborter: () => void) => void;
+	runtimeOptions?: LLMRuntimeOptions;
 }
 
 type SendChatParams_Internal = InternalCommonMessageParams & {
@@ -130,7 +131,7 @@ const buildOpenAICacheKey = (providerName: ProviderName, settingsOfProvider: Set
  * For local providers (ollama, vLLM, lmStudio, localhost openAICompatible/liteLLM),
  * we cache clients to reuse connections. Cloud providers always get new instances.
  */
-const getOpenAICompatibleClient = async ({ settingsOfProvider, providerName, includeInPayload }: { settingsOfProvider: SettingsOfProvider, providerName: ProviderName, includeInPayload?: { [s: string]: any } }): Promise<OpenAI> => {
+const getOpenAICompatibleClient = async ({ settingsOfProvider, providerName, includeInPayload, runtimeOptions }: { settingsOfProvider: SettingsOfProvider, providerName: ProviderName, includeInPayload?: { [s: string]: any }, runtimeOptions?: LLMRuntimeOptions }): Promise<OpenAI> => {
 	// Detect if this is a local provider
 	const isExplicitLocalProvider = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio'
 	let isLocalhostEndpoint = false
@@ -157,8 +158,10 @@ const getOpenAICompatibleClient = async ({ settingsOfProvider, providerName, inc
 		}
 	}
 
-	// Create new client (will cache if local)
-	const client = await newOpenAICompatibleSDK({ settingsOfProvider, providerName, includeInPayload })
+	// Create new client (will cache if local). runtimeOptions only affects timeout — local
+	// clients are cached, so cache hits use the timeout from the FIRST call's runtimeOptions.
+	// Acceptable: tunable timeouts mostly matter for cloud/aggregator (we don't cache those).
+	const client = await newOpenAICompatibleSDK({ settingsOfProvider, providerName, includeInPayload, runtimeOptions })
 
 	// Cache if local provider
 	if (isLocalProvider) {
@@ -219,7 +222,7 @@ const computeMaxTokensForLocalProvider = (isLocalProvider: boolean, featureName:
 	return 300
 }
 
-const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includeInPayload }: { settingsOfProvider: SettingsOfProvider, providerName: ProviderName, includeInPayload?: { [s: string]: any } }) => {
+const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includeInPayload, runtimeOptions }: { settingsOfProvider: SettingsOfProvider, providerName: ProviderName, includeInPayload?: { [s: string]: any }, runtimeOptions?: LLMRuntimeOptions }) => {
 	// Pre-flight: reject API keys with non-Latin-1 chars before they reach undici as a header.
 	const providerCfg = (settingsOfProvider as any)[providerName] ?? {}
 	if (typeof providerCfg.apiKey === 'string') {
@@ -228,7 +231,6 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 
 	// Network optimizations: timeouts and connection reuse
 	// The OpenAI SDK handles HTTP keep-alive and connection pooling internally
-	// Use shorter timeout for local models (they're on localhost, should be fast)
 
 	// Detect local providers: explicit local providers + localhost endpoints
 	const isExplicitLocalProvider = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio'
@@ -248,8 +250,22 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 		}
 	}
 	const isLocalProvider = isExplicitLocalProvider || isLocalhostEndpoint
+	// Aggregator providers: extra hop client→aggregator→upstream adds latency,
+	// reasoning models on big context can take 2–3 minutes to first byte.
+	const isAggregatorProvider = providerName === 'openCode'
+		|| providerName === 'openCodeZen'
+		|| providerName === 'openRouter'
+		|| providerName === 'lmRoute'
+		|| providerName === 'liteLLM'
+		|| providerName === 'openAICompatible' // user-configured aggregator endpoint
 
-	const timeoutMs = isLocalProvider ? 30_000 : 60_000 // 30s for local, 60s for remote
+	// Tunable timeouts (vibeide.llm.timeoutMs.*) with defensive fallbacks.
+	const tcfg = runtimeOptions?.timeoutMs
+	const timeoutMs = isLocalProvider
+		? (tcfg?.local ?? 30_000)
+		: isAggregatorProvider && !isLocalhostEndpoint
+			? (tcfg?.aggregator ?? 180_000)
+			: (tcfg?.cloud ?? 90_000)
 	// Install a system-CA-aware undici dispatcher (idempotent). Required for
 	// corporate environments with TLS interception — Node's bundled Mozilla CA
 	// list does not include corporate root CAs, so handshake fails with
@@ -393,7 +409,7 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 }
 
 
-const _sendOpenAICompatibleFIM = async ({ messages: { prefix, suffix, stopTokens }, onFinalMessage, onError, settingsOfProvider, modelName: modelName_, _setAborter, providerName, overridesOfModel, onText, featureName }: SendFIMParams_Internal) => {
+const _sendOpenAICompatibleFIM = async ({ messages: { prefix, suffix, stopTokens }, onFinalMessage, onError, settingsOfProvider, modelName: modelName_, _setAborter, providerName, overridesOfModel, onText, featureName, runtimeOptions }: SendFIMParams_Internal) => {
 
 	const {
 		modelName,
@@ -440,7 +456,7 @@ const _sendOpenAICompatibleFIM = async ({ messages: { prefix, suffix, stopTokens
 		return
 	}
 
-	const openai = await getOpenAICompatibleClient({ providerName, settingsOfProvider, includeInPayload: additionalOpenAIPayload })
+	const openai = await getOpenAICompatibleClient({ providerName, settingsOfProvider, includeInPayload: additionalOpenAIPayload, runtimeOptions })
 
 	// Compute max_tokens based on feature and provider type
 	const maxTokensForThisCall = computeMaxTokensForLocalProvider(isLocalProvider, featureName)
@@ -670,7 +686,7 @@ const serializeConnectionError = (err: Error): object => {
 	return { name: err.name, message: err.message, causeChain }
 }
 
-const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, modelName: modelName_, _setAborter, providerName, chatMode, separateSystemMessage, overridesOfModel, mcpTools }: SendChatParams_Internal) => {
+const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, modelName: modelName_, _setAborter, providerName, chatMode, separateSystemMessage, overridesOfModel, mcpTools, runtimeOptions }: SendChatParams_Internal) => {
 	const {
 		modelName,
 		specialToolFormat,
@@ -699,7 +715,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 		: {}
 
 	// instance
-	const openai: OpenAI = await getOpenAICompatibleClient({ providerName, settingsOfProvider, includeInPayload })
+	const openai: OpenAI = await getOpenAICompatibleClient({ providerName, settingsOfProvider, includeInPayload, runtimeOptions })
 	if (providerName === 'microsoftAzure') {
 		// Required to select the model
 		(openai as AzureOpenAI).deploymentName = modelName;
@@ -1188,7 +1204,7 @@ const anthropicTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] 
 
 
 // ------------ ANTHROPIC ------------
-const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, overridesOfModel, modelName: modelName_, _setAborter, separateSystemMessage, chatMode, mcpTools }: SendChatParams_Internal) => {
+const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, overridesOfModel, modelName: modelName_, _setAborter, separateSystemMessage, chatMode, mcpTools, runtimeOptions }: SendChatParams_Internal) => {
 	const {
 		modelName,
 		specialToolFormat,
@@ -1216,7 +1232,7 @@ const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessag
 	const anthropic = new Anthropic({
 		apiKey: thisConfig.apiKey,
 		dangerouslyAllowBrowser: true,
-		timeout: 60_000, // 60s timeout
+		timeout: runtimeOptions?.timeoutMs?.cloud ?? 90_000, // tunable via vibeide.llm.timeoutMs.cloud
 		maxRetries: 2, // Fast retries for transient errors
 		// Trust corporate root CAs from OS store (TLS interception fix)
 		fetchOptions: { dispatcher: ensureSystemCADispatcher() } as any,

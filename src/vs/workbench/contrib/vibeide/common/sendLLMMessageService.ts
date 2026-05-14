@@ -18,6 +18,7 @@ import { IMCPService } from './mcpService.js';
 import { ISecretDetectionService } from './secretDetectionService.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 
 // calls channel to implement features
 export const ILLMMessageService = createDecorator<ILLMMessageService>('llmMessageService');
@@ -70,6 +71,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		@ISecretDetectionService private readonly secretDetectionService: ISecretDetectionService,
 		@ILogService private readonly logService: ILogService,
 		@IVibeTokenBudgetService private readonly tokenBudgetService: IVibeTokenBudgetService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
 	) {
 		super()
 
@@ -249,6 +251,16 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		this.llmMessageHooks.onError[requestId] = onError
 		this.llmMessageHooks.onAbort[requestId] = onAbort // used internally only
 
+		// Pull tunable timeouts from VS Code config (registered in vibeideGlobalSettingsConfiguration).
+		// Reading per-call is cheap and lets users change the values without restart.
+		const runtimeOptions = {
+			timeoutMs: {
+				local: this.configurationService.getValue<number>('vibeide.llm.timeoutMs.local'),
+				cloud: this.configurationService.getValue<number>('vibeide.llm.timeoutMs.cloud'),
+				aggregator: this.configurationService.getValue<number>('vibeide.llm.timeoutMs.aggregator'),
+			},
+		};
+
 		// params will be stripped of all its functions over the IPC channel
 		this.channel.call('sendLLMMessage', {
 			...proxyParams,
@@ -256,6 +268,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			settingsOfProvider,
 			modelSelection,
 			mcpTools,
+			runtimeOptions,
 		} satisfies MainSendLLMMessageParams);
 
 		return requestId

@@ -126,6 +126,20 @@ export type ServiceSendLLMMessageParams = {
 	onAbort: OnAbort;
 } & SendLLMType;
 
+/**
+ * Tunable runtime knobs gathered from VS Code configuration on the renderer side
+ * and passed through IPC. All fields optional — impl falls back to its own defaults
+ * if a value is missing (defensive: lets us add more knobs without breaking older
+ * IPC payloads).
+ */
+export type LLMRuntimeOptions = {
+	timeoutMs?: {
+		local?: number;
+		cloud?: number;
+		aggregator?: number;
+	};
+}
+
 // params to the true sendLLMMessage function
 export type SendLLMMessageParams = {
 	onText: OnText;
@@ -140,6 +154,7 @@ export type SendLLMMessageParams = {
 
 	settingsOfProvider: SettingsOfProvider;
 	mcpTools: InternalToolInfo[] | undefined;
+	runtimeOptions?: LLMRuntimeOptions;
 } & SendLLMType
 
 
