@@ -234,17 +234,19 @@ const PARAM_ALIASES_BY_TOOL: { [canonicalToolName: string]: { [alias: string]: s
 }
 
 /**
- * Outer wrapper tags used by some models to frame a list of tool invocations:
- *   - Gemini: <tool_code>
- *   - Anthropic: <function_calls>
- *   - generic: <tool_use>, <tools>
- *   - vendor-namespaced: <minimax:tool_call>, <claude:tool_call>,
- *     <mistral:tool_use>, <openai:tool_call>, etc.
- * We strip them — the actual tool call lives inside as <invoke name=...>.
- * The vendor:tool_call / vendor:tool_use forms are matched generically so
- * any new namespace from a future model is picked up automatically.
+ * Outer wrapper tags used by some models to frame a list of tool invocations.
+ * Detected by SHAPE rather than by enumerated vendor list:
+ *   - Fixed canonicals: <tool_code> (Gemini), <function_calls> (Anthropic),
+ *     <tool_use>, <tools>.
+ *   - Vendor-namespaced: any <vendor:suffix> where the suffix carries a
+ *     "tool" or "function" semantic — covers <minimax:tool_call>,
+ *     <claude:tool_use>, <mistral:function_call>, <openai:invoke>, plus
+ *     any future vendor that follows the same convention.
+ *
+ * The actual tool call lives inside as <invoke name=...>. Wrappers are
+ * stripped first; whatever remains is fed to the invoke-pattern normalizer.
  */
-const STRIP_WRAPPERS_RE = /<\/?(?:tool_code|function_calls|tool_use|tools|[a-z][\w-]*:tool_call|[a-z][\w-]*:tool_use)>/gi
+const STRIP_WRAPPERS_RE = /<\/?(?:tool_code|function_calls|tool_use|tools|[a-z][\w-]*:(?:tool_call|tool_use|function_call|function_calls|invoke|tools))\s*>/gi
 
 /**
  * Resolve a tool name as it appears inside <invoke name="X"> to a canonical
@@ -285,7 +287,9 @@ const resolveInvokeParamName = (rawParamName: string, canonicalToolName: string)
  */
 const normalizeAlternativeToolSyntax = (text: string): string => {
 	// Fast path: no alternative-syntax markers present at all.
-	if (!text.includes('<invoke') && !text.includes('<tool_code') && !text.includes('<function_calls') && !text.includes('<tool_use') && !text.includes(':tool_call') && !text.includes(':tool_use')) {
+	// Cheap substring sniffs first — if any plausibly-namespaced or invoke
+	// pattern is present, fall through to the regex pipeline.
+	if (!text.includes('<invoke') && !text.includes('<tool_code') && !text.includes('<function_calls') && !text.includes('<tool_use') && !text.includes(':tool_call') && !text.includes(':tool_use') && !text.includes(':function_call') && !text.includes(':invoke')) {
 		return text
 	}
 	let result = text.replace(STRIP_WRAPPERS_RE, '')
@@ -306,11 +310,34 @@ const normalizeAlternativeToolSyntax = (text: string): string => {
 	return result
 }
 
+/**
+ * Regex patterns that identify in-progress alt-syntax tool calls at the end
+ * of the buffer. Used as additional partial-tag hints so half-written wrapper
+ * or invoke openings are held in `openToolTagBuffer` instead of leaking into
+ * chat. Each pattern must be anchored with `$` so it only matches at end.
+ *
+ * Detection by SHAPE — no enumerated vendor list:
+ *   - `<vendor:partial`  → any `<word_chars:partial_chars` ending with no `>`
+ *   - `<invoke …` → any `<invoke` followed by anything not yet containing `>`
+ *   - `</vendor:partial` → closing form of the above
+ */
+const ALT_PARTIAL_REGEXES: RegExp[] = [
+	/<\/?[a-z][\w-]*:[\w_-]*$/i,
+	/<invoke\b[^>]*$/i,
+	/<\/invoke\b[^>]*$/i,
+]
+
 const findPartiallyWrittenToolTagAtEnd = (fullText: string, toolTags: string[]) => {
 	for (const toolTag of toolTags) {
 		const foundPrefix = endsWithAnyPrefixOf(fullText, toolTag)
 		if (foundPrefix) {
 			return [foundPrefix, toolTag] as const
+		}
+	}
+	for (const re of ALT_PARTIAL_REGEXES) {
+		const m = fullText.match(re)
+		if (m && m.index !== undefined && m.index + m[0].length === fullText.length) {
+			return [m[0], '<alt-syntax>'] as const
 		}
 	}
 	return false
@@ -486,23 +513,10 @@ export const extractXMLToolsWrapper = (
 		return canonicalTagSet.has(target) && !canonicalTagSet.has(alias)
 	})
 	const toolOpenTags = [...tools.map(t => `<${t.name}>`), ...aliasTagsForActiveTools.map(a => `<${a}>`)]
-	// Extra prefixes for partial-tag detection. Anthropic-trained / Gemini-style
-	// models emit <invoke name="X">, <tool_code>, <function_calls> as wrappers.
-	// Holding these in the openToolTagBuffer keeps the half-written XML out of
-	// the chat until normalizeAlternativeToolSyntax() can collapse the full block
-	// into our canonical <X>...</X> form.
-	const altSyntaxPartialHints = [
-		'<invoke ', '<tool_code>', '<function_calls>', '<tool_use>',
-		// Vendor-namespaced wrappers — `endsWithAnyPrefixOf` matches any leading
-		// substring, so the partial `<minimax:tool_ca` etc. is held in buffer.
-		'<minimax:tool_call>', '<minimax:tool_use>',
-		'<claude:tool_call>', '<claude:tool_use>',
-		'<mistral:tool_call>', '<mistral:tool_use>',
-		'<openai:tool_call>', '<openai:tool_use>',
-		'<gemini:tool_call>', '<gemini:tool_use>',
-		'<llama:tool_call>', '<qwen:tool_call>',
-	]
-	const partialDetectionTags = [...toolOpenTags, ...altSyntaxPartialHints]
+	// Alt-syntax partial detection (vendor wrappers, <invoke name=...>, etc.)
+	// is now handled by ALT_PARTIAL_REGEXES inside findPartiallyWrittenToolTagAtEnd
+	// — shape-based, no enumerated vendor list.
+	const partialDetectionTags = toolOpenTags
 
 	const toolId = generateUuid()
 
