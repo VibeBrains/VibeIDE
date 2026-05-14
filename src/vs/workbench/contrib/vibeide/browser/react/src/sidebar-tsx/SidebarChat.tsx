@@ -167,10 +167,12 @@ const formatTokenCount = (count: number): string => {
 	return count.toString();
 }
 
-// Frames are drawn as inline SVG (not characters) so all three glyphs share the same
-// 24×24 coordinate system: the dot at (12,12) is exactly the center of the plus, and the
-// 8-point star (plus + diagonals) extends outward from the same pivot — perfect alignment
-// regardless of host font. Using `currentColor` keeps them themed by the parent.
+// Frames are drawn as inline SVG (not characters) so all four glyphs share the same
+// 24×24 coordinate system: the dot at (12,12) is exactly the center of the plus, the
+// small star adds short diagonals at the same pivot, and the large 8-point star extends
+// further out — perfect alignment regardless of host font. Using `currentColor` keeps
+// them themed by the parent. Animation flow: dot → plus → small star → large star → loop,
+// reading as "growing energy" of the pending operation.
 const LOADING_GLYPH_FRAMES: ReadonlyArray<React.ReactNode> = [
 	<svg key="dot" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true">
 		<circle cx="12" cy="12" r="2.5" fill="currentColor" />
@@ -178,6 +180,12 @@ const LOADING_GLYPH_FRAMES: ReadonlyArray<React.ReactNode> = [
 	<svg key="plus" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true">
 		<line x1="3" y1="12" x2="21" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
 		<line x1="12" y1="3" x2="12" y2="21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+	</svg>,
+	<svg key="small-star" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true">
+		<line x1="6" y1="12" x2="18" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+		<line x1="12" y1="6" x2="12" y2="18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+		<line x1="7.8" y1="7.8" x2="16.2" y2="16.2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+		<line x1="16.2" y1="7.8" x2="7.8" y2="16.2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
 	</svg>,
 	<svg key="star" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true">
 		<line x1="3" y1="12" x2="21" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -214,20 +222,22 @@ export const IconLoading = ({
 		? ` (${formatTokenCount(showTokenCount)} tokens)`
 		: '';
 
-	// Cycle period (ms) per state — divided across the three frames
-	const cyclePeriodMs = state === 'thinking' ? 800 : state === 'processing' ? 600 : 700;
+	// Cycle period (ms) per state — divided across the four frames (dot → plus → small-star → star)
+	const cyclePeriodMs = state === 'thinking' ? 1000 : state === 'processing' ? 800 : 900;
 	const frameDurationMs = Math.round(cyclePeriodMs / LOADING_GLYPH_FRAMES.length);
 
 	const [frameIdx, setFrameIdx] = useState(0);
 	useEffect(() => {
-		// Honor reduced-motion preference: stay on the first frame, no interval
+		// Honor reduced-motion preference by *slowing* the cycle, not freezing it.
+		// A frozen progress indicator reads as "stuck" — worse UX than gentle motion.
+		// reduce-motion targets decorative animations (parallax, slide-ins), not status.
 		const reduceMotion = typeof window !== 'undefined'
 			&& typeof window.matchMedia === 'function'
 			&& window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-		if (reduceMotion) return;
+		const intervalMs = reduceMotion ? Math.max(frameDurationMs * 4, 1000) : frameDurationMs;
 		const id = window.setInterval(() => {
 			setFrameIdx(i => (i + 1) % LOADING_GLYPH_FRAMES.length);
-		}, frameDurationMs);
+		}, intervalMs);
 		return () => window.clearInterval(id);
 	}, [frameDurationMs]);
 
@@ -4849,7 +4859,9 @@ export const SidebarChat = () => {
 					aria-live="polite"
 					aria-atomic="true"
 				>
-					<Spinner size={16} className="text-vibe-fg-2 opacity-70 flex-shrink-0" />
+					<span className="text-vibe-fg-2 opacity-70 flex-shrink-0 text-base leading-none">
+						<IconLoading state={isRunning === 'preparing' ? 'thinking' : 'processing'} />
+					</span>
 					<div className="flex flex-col gap-0.5">
 						<span className="text-sm text-vibe-fg-2 opacity-80">
 							{isRunning === 'preparing' && currThreadStreamState?.llmInfo?.displayContentSoFar
