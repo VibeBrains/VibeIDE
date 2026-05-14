@@ -138,6 +138,10 @@ export type LLMRuntimeOptions = {
 		cloud?: number;
 		aggregator?: number;
 	};
+	/** When false, force XML-in-prompt mode for aggregator-provider unknown models
+	 * (overrides the synthesized `specialToolFormat='openai-style'` default).
+	 * Default true. See `vibeide.llm.assumeNativeTools` setting. */
+	assumeNativeTools?: boolean;
 }
 
 // params to the true sendLLMMessage function

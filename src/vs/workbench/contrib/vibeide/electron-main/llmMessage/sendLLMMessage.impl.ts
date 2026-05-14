@@ -687,12 +687,20 @@ const serializeConnectionError = (err: Error): object => {
 }
 
 const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, modelName: modelName_, _setAborter, providerName, chatMode, separateSystemMessage, overridesOfModel, mcpTools, runtimeOptions }: SendChatParams_Internal) => {
+	const caps = getModelCapabilities(providerName, modelName_, overridesOfModel)
 	const {
 		modelName,
-		specialToolFormat,
 		reasoningCapabilities,
 		additionalOpenAIPayload,
-	} = getModelCapabilities(providerName, modelName_, overridesOfModel)
+	} = caps
+	// Honor the `vibeide.llm.assumeNativeTools` kill-switch: when explicitly false,
+	// strip the synthesized 'openai-style' that aggregatorOpenAIFallback applies to
+	// unknown models, forcing them back to XML-in-prompt mode. Known models (with a
+	// real recognizedModelName) keep their declared format regardless of this flag.
+	const isAggregatorSynthesized = caps.recognizedModelName === '__aggregator_unknown__'
+	const specialToolFormat = (runtimeOptions?.assumeNativeTools === false && isAggregatorSynthesized)
+		? undefined
+		: caps.specialToolFormat
 
 	// APIs like Vertex/Pollinations require non-empty content except for the optional final assistant message
 	const messagesToSend = sanitizeOpenAIMessagesForEmptyContent(messages)

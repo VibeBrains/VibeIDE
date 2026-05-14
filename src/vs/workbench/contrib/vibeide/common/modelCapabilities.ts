@@ -1541,15 +1541,46 @@ const ollamaSettings: VoidStaticProviderInfo = {
 	},
 }
 
+/**
+ * Universal modelOptionsFallback for OpenAI-compatible aggregator providers
+ * (openCode, openCodeZen, openRouter, liteLLM, lmRoute, openAICompatible,
+ * pollinations). Aggregators proxy any model behind an OpenAI-compatible
+ * `/chat/completions` endpoint and almost universally support OpenAI tools
+ * format — so unrecognized models (yesterday's minimax, tomorrow's maximax)
+ * should default to native function-calling, not XML-in-prompt.
+ *
+ * Returns a synthesized fallback for completely unknown models so that
+ * `specialToolFormat='openai-style'` is set even when the model id matches
+ * none of `extensiveModelOptionsFallback`'s known families. Without this
+ * helper, unknown models fell through to `defaultModelOptions` which has
+ * no `specialToolFormat`, forcing the model into XML-in-prompt mode where
+ * it routinely hallucinates tag formats (<bash>, <invoke>, <workspace_read>,
+ * <minimax:tool_call>, etc.) that we then have to chase in the parser.
+ *
+ * Set `vibeide.llm.assumeNativeTools=false` to opt out (forces XML-in-prompt
+ * for misbehaving aggregators where native tools fail with HTTP 4xx).
+ */
+const aggregatorOpenAIFallback: VoidStaticProviderInfo['modelOptionsFallback'] = (modelName, fallbackKnownValues) => {
+	const fromExtensive = extensiveModelOptionsFallback(modelName, fallbackKnownValues);
+	if (fromExtensive) {
+		if (!fromExtensive.specialToolFormat) fromExtensive.specialToolFormat = 'openai-style';
+		return fromExtensive;
+	}
+	// Unknown model on an OpenAI-compatible aggregator — synthesize a generic
+	// fallback that opts into native tools by default. Vendor-locked fields
+	// (cost, downloadable) come from defaultModelOptions; the synthesized
+	// recognizedModelName makes it visible in logs that this is a guess.
+	return {
+		recognizedModelName: '__aggregator_unknown__',
+		modelName,
+		...defaultModelOptions,
+		specialToolFormat: 'openai-style',
+		...(fallbackKnownValues ?? {}),
+	};
+};
+
 const openaiCompatible: VoidStaticProviderInfo = {
-	modelOptionsFallback: (modelName) => {
-		const fallback = extensiveModelOptionsFallback(modelName);
-		// OpenAI-compatible providers should support tool calling via OpenAI-style format
-		if (fallback && !fallback.specialToolFormat) {
-			fallback.specialToolFormat = 'openai-style';
-		}
-		return fallback;
-	},
+	modelOptionsFallback: aggregatorOpenAIFallback,
 	modelOptions: {},
 	providerReasoningIOSettings: {
 		// reasoning: we have no idea what endpoint they used, so we can't consistently parse out reasoning
@@ -1559,14 +1590,7 @@ const openaiCompatible: VoidStaticProviderInfo = {
 }
 
 const liteLLMSettings: VoidStaticProviderInfo = { // https://docs.litellm.ai/docs/reasoning_content
-	modelOptionsFallback: (modelName) => {
-		const fallback = extensiveModelOptionsFallback(modelName, { downloadable: { sizeGb: 'not-known' } });
-		// LiteLLM is OpenAI-compatible, so all models should support tool calling via OpenAI-style format
-		if (fallback && !fallback.specialToolFormat) {
-			fallback.specialToolFormat = 'openai-style';
-		}
-		return fallback;
-	},
+	modelOptionsFallback: (modelName) => aggregatorOpenAIFallback(modelName, { downloadable: { sizeGb: 'not-known' } }),
 	modelOptions: {},
 	providerReasoningIOSettings: {
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
@@ -1575,13 +1599,7 @@ const liteLLMSettings: VoidStaticProviderInfo = { // https://docs.litellm.ai/doc
 }
 
 const lmRouteSettings: VoidStaticProviderInfo = { // OpenAI-compatible aggregator (lmrouter.com / self-hosted)
-	modelOptionsFallback: (modelName) => {
-		const fallback = extensiveModelOptionsFallback(modelName, { downloadable: { sizeGb: 'not-known' } });
-		if (fallback && !fallback.specialToolFormat) {
-			fallback.specialToolFormat = 'openai-style';
-		}
-		return fallback;
-	},
+	modelOptionsFallback: (modelName) => aggregatorOpenAIFallback(modelName, { downloadable: { sizeGb: 'not-known' } }),
 	modelOptions: {},
 	providerReasoningIOSettings: {
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
@@ -1591,15 +1609,9 @@ const lmRouteSettings: VoidStaticProviderInfo = { // OpenAI-compatible aggregato
 
 // ---------------- OPENCODE ZEN ----------------
 // Model ids: https://opencode.ai/zen/v1/models — sync via RemoteCatalogService (refresh catalog in settings).
-// Context limits: catalog entries may expose context_length in the future; until then, ids like gpt-5.1 / glm-5.1 match extensiveModelOptionsFallback; others use defaultModelOptions + user overrides.
+// Context limits: catalog entries may expose context_length in the future; until then, ids like gpt-5.1 / glm-5.1 match extensiveModelOptionsFallback; others use aggregator fallback (assumes openai-style tools).
 const openCodeZenSettings: VoidStaticProviderInfo = {
-	modelOptionsFallback: (modelName) => {
-		const fallback = extensiveModelOptionsFallback(modelName);
-		if (fallback && !fallback.specialToolFormat) {
-			fallback.specialToolFormat = 'openai-style';
-		}
-		return fallback;
-	},
+	modelOptionsFallback: aggregatorOpenAIFallback,
 	modelOptions: {},
 	providerReasoningIOSettings: {
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
@@ -1609,13 +1621,7 @@ const openCodeZenSettings: VoidStaticProviderInfo = {
 
 // ---------------- OPENCODE (GO) ----------------
 const openCodeSettings: VoidStaticProviderInfo = {
-	modelOptionsFallback: (modelName) => {
-		const fallback = extensiveModelOptionsFallback(modelName);
-		if (fallback && !fallback.specialToolFormat) {
-			fallback.specialToolFormat = 'openai-style';
-		}
-		return fallback;
-	},
+	modelOptionsFallback: aggregatorOpenAIFallback,
 	modelOptions: {},
 	providerReasoningIOSettings: {
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
@@ -1625,13 +1631,7 @@ const openCodeSettings: VoidStaticProviderInfo = {
 
 // ---------------- POLLINATIONS ----------------
 const pollinationsSettings: VoidStaticProviderInfo = {
-	modelOptionsFallback: (modelName) => {
-		const fallback = extensiveModelOptionsFallback(modelName);
-		if (fallback && !fallback.specialToolFormat) {
-			fallback.specialToolFormat = 'openai-style';
-		}
-		return fallback;
-	},
+	modelOptionsFallback: aggregatorOpenAIFallback,
 	modelOptions: {},
 	providerReasoningIOSettings: {
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
@@ -1808,7 +1808,7 @@ const openRouterModelOptions_assumingOpenAICompat = {
 const openRouterSettings: VoidStaticProviderInfo = {
 	modelOptions: openRouterModelOptions_assumingOpenAICompat,
 	modelOptionsFallback: (modelName) => {
-		const res = extensiveModelOptionsFallback(modelName)
+		const res = aggregatorOpenAIFallback(modelName)
 		// openRouter does not support gemini-style, use openai-style instead
 		if (res?.specialToolFormat === 'gemini-style') {
 			res.specialToolFormat = 'openai-style'

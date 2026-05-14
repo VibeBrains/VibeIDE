@@ -259,6 +259,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 				cloud: this.configurationService.getValue<number>('vibeide.llm.timeoutMs.cloud'),
 				aggregator: this.configurationService.getValue<number>('vibeide.llm.timeoutMs.aggregator'),
 			},
+			assumeNativeTools: this.configurationService.getValue<boolean>('vibeide.llm.assumeNativeTools'),
 		};
 
 		// params will be stripped of all its functions over the IPC channel

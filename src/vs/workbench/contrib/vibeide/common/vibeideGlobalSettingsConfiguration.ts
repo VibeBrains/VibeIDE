@@ -177,6 +177,12 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.llm.timeoutMs.aggregator', 'Таймаут запроса к провайдеру-агрегатору (OpenRouter, OpenCode Zen, OpenCode Go, LM Router, LiteLLM). Миллисекунды. По умолчанию 180000 — у агрегаторов двойной hop (клиент → агрегатор → upstream), что добавляет латентности; на больших контекстах + reasoning-моделях первый байт может приходить через 2–3 минуты.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.llm.assumeNativeTools': {
+					type: 'boolean',
+					default: true,
+					description: localize('vibeide.llm.assumeNativeTools', 'Для неизвестных моделей через OpenAI-compatible агрегаторов (OpenRouter, OpenCode Zen/Go, LM Router, LiteLLM, openAICompatible, Pollinations) — по умолчанию использовать native function-calling (`tools: [...]` в payload), а не XML-описание тулов в system prompt. On (по умолчанию) — большинство моделей корректно вызывают тулы без галлюцинаций формата (<bash>, <invoke>, <minimax:tool_call> и т.п.). Off — fallback на XML-в-промпте, на случай если конкретный провайдер падает с HTTP 4xx на native tools. Известные модели (Claude/GPT/Gemini/Grok/DeepSeek/Llama/Qwen и пр.) этой настройкой не затрагиваются — их формат явно прописан в каталоге.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 			},
 		});
 
