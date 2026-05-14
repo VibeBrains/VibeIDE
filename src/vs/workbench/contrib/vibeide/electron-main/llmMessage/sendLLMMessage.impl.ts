@@ -604,6 +604,64 @@ const sanitizeOpenAIMessagesForEmptyContent = (messages: LLMChatMessage[]): LLMC
 	return result as LLMChatMessage[]
 }
 
+/**
+ * Walk an Error.cause chain and collect Node/undici diagnostic fields
+ * (code, errno, syscall, address, port, hostname). Returns a one-line
+ * descriptor like "<message> [code=ECONNRESET host=opencode.ai:443]".
+ *
+ * OpenAI.APIConnectionError wraps the underlying fetch failure in `cause`
+ * (often itself a TypeError whose `cause` is the real undici error). The
+ * SDK's default message is just "Connection error.", so without unwrapping
+ * we lose every actionable bit (DNS vs TLS vs RST vs proxy vs timeout).
+ */
+const describeConnectionError = (err: Error): string => {
+	const parts: string[] = []
+	let host: string | undefined
+	let port: number | undefined
+	let cur: any = err
+	let depth = 0
+	while (cur && depth < 6) {
+		if (cur.code && !parts.some(p => p.startsWith('code='))) parts.push(`code=${cur.code}`)
+		if (cur.errno !== undefined && !parts.some(p => p.startsWith('errno='))) parts.push(`errno=${cur.errno}`)
+		if (cur.syscall && !parts.some(p => p.startsWith('syscall='))) parts.push(`syscall=${cur.syscall}`)
+		if (cur.address && !parts.some(p => p.startsWith('address='))) parts.push(`address=${cur.address}`)
+		if (typeof cur.port === 'number' && port === undefined) port = cur.port
+		if (typeof cur.hostname === 'string' && !host) host = cur.hostname
+		cur = cur.cause
+		depth++
+	}
+	if (host || port !== undefined) parts.push(`host=${host ?? '?'}${port !== undefined ? `:${port}` : ''}`)
+	const baseMsg = (err as any).message || String(err)
+	return parts.length ? `${baseMsg} [${parts.join(' ')}]` : baseMsg
+}
+
+/**
+ * Serialize an APIConnectionError (and its cause chain) into a plain object
+ * that survives structured-clone over IPC. Native Error survives only by name;
+ * non-enumerable fields like cause.code/errno are exactly what we need on the
+ * renderer side to diagnose the failure.
+ */
+const serializeConnectionError = (err: Error): object => {
+	const causeChain: any[] = []
+	let cur: any = (err as any).cause
+	let depth = 0
+	while (cur && depth < 6) {
+		causeChain.push({
+			name: cur.name,
+			message: cur.message,
+			code: cur.code,
+			errno: cur.errno,
+			syscall: cur.syscall,
+			address: cur.address,
+			port: cur.port,
+			hostname: cur.hostname,
+		})
+		cur = cur.cause
+		depth++
+	}
+	return { name: err.name, message: err.message, causeChain }
+}
+
 const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, modelName: modelName_, _setAborter, providerName, chatMode, separateSystemMessage, overridesOfModel, mcpTools }: SendChatParams_Internal) => {
 	const {
 		modelName,
@@ -1040,8 +1098,13 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 				onError({ message: `Rate limit exceeded: ${rateLimitMessage}`, fullError: error });
 			}
 			else if (error instanceof OpenAI.APIConnectionError) {
-				// Connection error — provider is unreachable (Ollama off, wrong endpoint, etc.)
-				onError({ message: 'TypeError: fetch failed', fullError: error });
+				// Connection error — preserve the underlying undici/Node diagnostic
+				// (code/errno/host) instead of collapsing every cause to a single label.
+				// The upper layer in sendLLMMessage.ts wraps this in a friendly preamble
+				// and appends the bracketed details for diagnosis.
+				const diag = describeConnectionError(error)
+				console.warn(`[VibeIDE] APIConnectionError ${providerName}/${modelName}:`, diag, serializeConnectionError(error))
+				onError({ message: `APIConnectionError: ${diag}`, fullError: error });
 			}
 			else {
 				onError({ message: error + '', fullError: error });

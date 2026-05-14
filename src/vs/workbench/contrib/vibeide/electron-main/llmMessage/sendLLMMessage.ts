@@ -81,11 +81,17 @@ export const sendLLMMessage = async ({
 			|| errorMessage.includes('Connection error')
 			|| errorMessage.startsWith('APIConnectionError')
 		if (isConnectionError) {
+			// Preserve the undici/Node diagnostic suffix produced by the impl layer
+			// (e.g. "APIConnectionError: Connection error. [code=ECONNRESET host=opencode.ai:443]")
+			// so the user-visible toast still tells us *why* we couldn't connect.
+			const technical = errorMessage.startsWith('APIConnectionError:')
+				? ` (${errorMessage.replace(/^APIConnectionError:\s*/, '').trim()})`
+				: ''
 			// Skip "auto" - it's not a real provider
 			if (providerName !== 'auto') {
-				errorMessage = `Failed to connect to ${displayInfoOfProviderName(providerName).title}. This likely means you specified the wrong endpoint in VibeIDE Settings, or your local model provider like Ollama is powered off.`
+				errorMessage = `Failed to connect to ${displayInfoOfProviderName(providerName).title}. This likely means you specified the wrong endpoint in VibeIDE Settings, or your local model provider like Ollama is powered off.${technical}`
 			} else {
-				errorMessage = `Failed to connect. This likely means you specified the wrong endpoint in VibeIDE Settings, or your local model provider like Ollama is powered off.`
+				errorMessage = `Failed to connect. This likely means you specified the wrong endpoint in VibeIDE Settings, or your local model provider like Ollama is powered off.${technical}`
 			}
 		}
 
