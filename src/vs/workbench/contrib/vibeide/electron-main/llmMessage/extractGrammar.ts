@@ -233,6 +233,49 @@ const PARAM_ALIASES_BY_TOOL: { [canonicalToolName: string]: { [alias: string]: s
 	},
 }
 
+/**
+ * Outer wrapper tags used by some models (Gemini's <tool_code>, Anthropic's
+ * <function_calls>, generic <tool_use>) to frame a list of tool invocations.
+ * We strip them — the actual tool call lives inside as <invoke name=...>.
+ */
+const ALT_WRAPPER_TAGS = ['tool_code', 'function_calls', 'tool_use', 'tools']
+const STRIP_WRAPPERS_RE = new RegExp(`</?(?:${ALT_WRAPPER_TAGS.join('|')})>`, 'g')
+
+/**
+ * Convert Anthropic-style <invoke name="X"><arg name="Y">V</arg></invoke>
+ * (and <parameter name=...> variant) into our canonical <X><Y>V</Y></X>
+ * format BEFORE the regular parser sees it. Tool name and param name go
+ * through the same alias resolution as the canonical-tag path, so the model
+ * can mix syntaxes freely (e.g. <invoke name="bash"> still maps to run_command).
+ *
+ * Conversion only fires once the full invoke block (including </invoke>) is
+ * present in the buffer. Until then the partial-tag detector holds the
+ * characters in `openToolTagBuffer` so they don't leak into the chat as text.
+ */
+const normalizeAlternativeToolSyntax = (text: string): string => {
+	// Fast path: no alternative-syntax markers present at all.
+	if (!text.includes('<invoke') && !text.includes('<tool_code') && !text.includes('<function_calls') && !text.includes('<tool_use')) {
+		return text
+	}
+	let result = text.replace(STRIP_WRAPPERS_RE, '')
+	result = result.replace(
+		/<invoke\s+name=["']([^"']+)["']\s*>([\s\S]*?)<\/invoke>/g,
+		(_match: string, rawToolName: string, body: string) => {
+			const canonical = TOOL_NAME_ALIASES[rawToolName] ?? rawToolName
+			const paramAliasMap = PARAM_ALIASES_BY_TOOL[canonical] ?? {}
+			const transformedBody = body.replace(
+				/<(?:arg|parameter)\s+name=["']([^"']+)["']\s*>([\s\S]*?)<\/(?:arg|parameter)>/g,
+				(_m: string, rawParamName: string, value: string) => {
+					const canonicalParam = paramAliasMap[rawParamName] ?? rawParamName
+					return `<${canonicalParam}>${value}</${canonicalParam}>`
+				}
+			)
+			return `<${canonical}>${transformedBody}</${canonical}>`
+		}
+	)
+	return result
+}
+
 const findPartiallyWrittenToolTagAtEnd = (fullText: string, toolTags: string[]) => {
 	for (const toolTag of toolTags) {
 		const foundPrefix = endsWithAnyPrefixOf(fullText, toolTag)
@@ -413,6 +456,13 @@ export const extractXMLToolsWrapper = (
 		return canonicalTagSet.has(target) && !canonicalTagSet.has(alias)
 	})
 	const toolOpenTags = [...tools.map(t => `<${t.name}>`), ...aliasTagsForActiveTools.map(a => `<${a}>`)]
+	// Extra prefixes for partial-tag detection. Anthropic-trained / Gemini-style
+	// models emit <invoke name="X">, <tool_code>, <function_calls> as wrappers.
+	// Holding these in the openToolTagBuffer keeps the half-written XML out of
+	// the chat until normalizeAlternativeToolSyntax() can collapse the full block
+	// into our canonical <X>...</X> form.
+	const altSyntaxPartialHints = ['<invoke ', '<tool_code>', '<function_calls>', '<tool_use>']
+	const partialDetectionTags = [...toolOpenTags, ...altSyntaxPartialHints]
 
 	const toolId = generateUuid()
 
@@ -424,21 +474,26 @@ export const extractXMLToolsWrapper = (
 	let foundOpenTag: { idx: number, toolName: ToolName } | null = null
 	let openToolTagBuffer = '' // the characters we've seen so far that come after a < with no space afterwards, not yet added to fullText
 
-	let prevFullTextLen = 0
+	let prevNormalizedLen = 0
 	const newOnText: OnText = (params) => {
-		const newText = params.fullText.substring(prevFullTextLen)
-		prevFullTextLen = params.fullText.length
-		trueFullText = params.fullText
-
-		// console.log('NEWTEXT', JSON.stringify(newText))
-
+		// Normalize alternative tool-call syntaxes (<invoke name=...>, <tool_code>, etc.)
+		// into our canonical <tool><param>...</param></tool> form. Until a closing
+		// </invoke> arrives, the buffer is unchanged and the partial-tag hints below
+		// hold the in-progress XML out of the user-visible chat.
+		const normalizedFullText = normalizeAlternativeToolSyntax(params.fullText)
+		// Length is non-monotonic: when </invoke> finally lands, the whole block
+		// collapses to its shorter canonical form. Clamp so substring() stays valid.
+		if (prevNormalizedLen > normalizedFullText.length) prevNormalizedLen = normalizedFullText.length
+		const newText = normalizedFullText.substring(prevNormalizedLen)
+		prevNormalizedLen = normalizedFullText.length
+		trueFullText = normalizedFullText
 
 		if (foundOpenTag === null) {
 			const newFullText = openToolTagBuffer + newText
 			// ensure the code below doesn't run if only half a tag has been written
-			const isPartial = findPartiallyWrittenToolTagAtEnd(newFullText, toolOpenTags)
+			// (canonical or alt-syntax wrapper like <invoke ...> still streaming)
+			const isPartial = findPartiallyWrittenToolTagAtEnd(newFullText, partialDetectionTags)
 			if (isPartial) {
-				// console.log('--- partial!!!')
 				openToolTagBuffer += newText
 			}
 			// if no tooltag is partially written at the end, attempt to get the index
@@ -448,18 +503,17 @@ export const extractXMLToolsWrapper = (
 				openToolTagBuffer = ''
 				fullText += newText
 
-				const i = findIndexOfAny(fullText, toolOpenTags)
+				// search the full normalized stream — alt-syntax blocks may be
+				// earlier than the current incremental add (the block collapsed).
+				const i = findIndexOfAny(trueFullText, toolOpenTags)
 				if (i !== null) {
 					const [idx, toolTag] = i
 					const toolName = toolTag.substring(1, toolTag.length - 1) as ToolName
-					// console.log('found ', toolName)
 					foundOpenTag = { idx, toolName }
 
-					// do not count anything at or after i in fullText
-					fullText = fullText.substring(0, idx)
+					// trim displayed text to just before the tool tag
+					fullText = trueFullText.substring(0, idx)
 				}
-
-
 			}
 		}
 
