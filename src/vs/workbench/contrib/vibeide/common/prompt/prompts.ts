@@ -597,7 +597,28 @@ const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] |
     </search_replace_blocks>
     </edit_file>
 
-    REMEMBER: When user asks you to DO something, start with a tool call immediately. DO NOT explain what you're going to do - JUST DO IT using tools.`)
+    REMEMBER: When user asks you to DO something, start with a tool call immediately. DO NOT explain what you're going to do - JUST DO IT using tools.
+
+    ⚠️ TOOL NAMING — USE THE EXACT NAMES LISTED ABOVE. Some models trained on other systems
+    invent tool names like <bash>, <shell>, <view>, <str_replace_editor>, <create_file>,
+    <list_files>, <find>, <search>, <write_file>, <delete>, etc. — these are NOT VibeIDE tools.
+    The correct mapping is:
+      • shell command         → <run_command><command>...</command></run_command>   (NEVER <bash>)
+      • read a file           → <read_file><uri>...</uri></read_file>                (NEVER <view> / <cat>)
+      • edit existing file    → <edit_file><uri>...</uri><search_replace_blocks>...</search_replace_blocks></edit_file>   (NEVER <str_replace_editor>)
+      • write entire file     → <rewrite_file><uri>...</uri><new_content>...</new_content></rewrite_file>
+      • create file/folder    → <create_file_or_folder><uri>...</uri></create_file_or_folder>
+      • delete file/folder    → <delete_file_or_folder><uri>...</uri></delete_file_or_folder>
+      • list folder contents  → <ls_dir><uri>...</uri></ls_dir>                       (NEVER <list_files>)
+      • find by file name     → <glob><pattern>...</pattern></glob>                   (NEVER <find>)
+      • content search        → <grep><pattern>...</pattern></grep>                   (NEVER <search>)
+
+    PARAM NAMING — use <uri> for file paths (NOT <path>, <file_path>, <file>). VibeIDE will
+    accept the alternate names as a safety net but the canonical name is <uri>.
+
+    PLATFORM — when emitting shell commands, match the user's OS (shown in <system_info>):
+    PowerShell on Windows (e.g. \`Get-ChildItem\`, \`Remove-Item\`), bash on Linux/macOS.
+    For reading files use <read_file>, NOT \`Get-Content\` / \`type\` / \`cat\` inside <run_command>.`)
 
 	return `\
     ${toolXMLDefinitions}

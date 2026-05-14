@@ -141,7 +141,97 @@ export const extractReasoningWrapper = (
 
 // =============== tools (XML) ===============
 
+/**
+ * Common tool name aliases used by other AI ecosystems. Models trained on
+ * Anthropic-style tool definitions (Claude bash_tool / view / str_replace_editor)
+ * or OpenAI-style assistants frequently emit those names instead of ours,
+ * causing the call to leak into chat as plain text. We translate them here
+ * so the model still gets work done even when it picks the "wrong" tag.
+ *
+ * One-direction: alias → canonical VibeIDE tool name. Canonical names are
+ * always recognized first; aliases only kick in when no exact match exists.
+ */
+const TOOL_NAME_ALIASES: { [alias: string]: string } = {
+	// Anthropic / generic shell aliases
+	'bash': 'run_command',
+	'shell': 'run_command',
+	'cmd': 'run_command',
+	'powershell': 'run_command',
+	'pwsh': 'run_command',
+	'execute_command': 'run_command',
+	'execute': 'run_command',
+	'terminal': 'run_command',
+	// Anthropic file-view / OpenAI variants
+	'view': 'read_file',
+	'view_file': 'read_file',
+	'cat': 'read_file',
+	'open': 'read_file', // careful: VibeIDE has open_file; if we ever want both, drop this row
+	// Anthropic str_replace editor / generic edit
+	'str_replace_editor': 'edit_file',
+	'str_replace': 'edit_file',
+	'editor': 'edit_file',
+	// directory listing
+	'list_files': 'ls_dir',
+	'list_dir': 'ls_dir',
+	'list_directory': 'ls_dir',
+	'ls': 'ls_dir',
+	'dir': 'ls_dir',
+	// pattern / content search
+	'find': 'glob',
+	'glob_files': 'glob',
+	'search': 'grep',
+	'ripgrep': 'grep',
+	'rg': 'grep',
+	// create / write / delete
+	'create': 'create_file_or_folder',
+	'create_file': 'create_file_or_folder',
+	'mkdir': 'create_file_or_folder',
+	'write_file': 'rewrite_file',
+	'write': 'rewrite_file',
+	'delete': 'delete_file_or_folder',
+	'rm': 'delete_file_or_folder',
+	'remove': 'delete_file_or_folder',
+}
 
+/**
+ * Per-tool param-name aliases. Same pattern: aliases come from common
+ * neighboring schemas (Anthropic's `path`/`old_str`/`new_str`, etc.).
+ * Aliases get rewritten to the canonical param name before validation.
+ */
+const PARAM_ALIASES_BY_TOOL: { [canonicalToolName: string]: { [alias: string]: string } } = {
+	read_file: { path: 'uri', file_path: 'uri', file: 'uri', filename: 'uri' },
+	edit_file: {
+		path: 'uri', file_path: 'uri', file: 'uri',
+		old_str: 'search_replace_blocks', old_string: 'search_replace_blocks',
+		// Note: edit_file expects a single SEARCH/REPLACE blob, not separate old/new fields.
+		// If a model passes old_str + new_str separately, only old_str is captured here;
+		// the SEARCH/REPLACE format must still be assembled by the model. The prompt is
+		// tightened to make this explicit.
+	},
+	rewrite_file: { path: 'uri', file_path: 'uri', file: 'uri', content: 'new_content', code: 'new_content', text: 'new_content', body: 'new_content' },
+	create_file_or_folder: { path: 'uri', file_path: 'uri', file: 'uri', dir: 'uri', folder: 'uri' },
+	delete_file_or_folder: { path: 'uri', file_path: 'uri', file: 'uri', recursive: 'is_recursive' },
+	ls_dir: { path: 'uri', directory: 'uri', folder: 'uri', dir: 'uri' },
+	get_dir_tree: { path: 'uri', directory: 'uri', folder: 'uri', dir: 'uri' },
+	glob: { glob: 'pattern', glob_pattern: 'pattern', pattern_glob: 'pattern' },
+	grep: { query: 'pattern', regex: 'pattern', search: 'pattern' },
+	search_for_files: { pattern: 'query', search: 'query' },
+	search_pathnames_only: { pattern: 'query', search: 'query', filename: 'query' },
+	open_file: { path: 'uri', file_path: 'uri', file: 'uri' },
+	run_command: {
+		// most models use `command` already — just normalize a few stragglers
+		cmd: 'command',
+		shell_command: 'command',
+		bash_command: 'command',
+		ps_command: 'command',
+		working_directory: 'cwd',
+		dir: 'cwd',
+		path: 'cwd',
+		timeout: 'timeout_ms',
+		background: 'run_in_background',
+		detach: 'run_in_background',
+	},
+}
 
 const findPartiallyWrittenToolTagAtEnd = (fullText: string, toolTags: string[]) => {
 	for (const toolTag of toolTags) {
@@ -165,7 +255,26 @@ const findIndexOfAny = (fullText: string, matches: string[]) => {
 
 
 type ToolOfToolName = { [toolName: string]: InternalToolInfo | undefined }
-const parseXMLPrefixToToolCall = <T extends ToolName,>(toolName: T, toolId: string, str: string, toolOfToolName: ToolOfToolName): RawToolCallObj => {
+
+/**
+ * Resolve an open-tag name (which may be an alias from another AI ecosystem)
+ * to a canonical VibeIDE tool. Returns null if neither the original nor any
+ * alias maps to a known tool.
+ */
+const resolveCanonicalToolName = (rawName: string, toolOfToolName: ToolOfToolName): string | null => {
+	if (toolOfToolName[rawName]) return rawName
+	const aliasTarget = TOOL_NAME_ALIASES[rawName]
+	if (aliasTarget && toolOfToolName[aliasTarget]) return aliasTarget
+	return null
+}
+
+const parseXMLPrefixToToolCall = <T extends ToolName,>(rawToolName: T, toolId: string, str: string, toolOfToolName: ToolOfToolName): RawToolCallObj => {
+	// Resolve alias → canonical (e.g. <bash> → run_command). The raw name was used
+	// to find the open tag in the stream; from here on we operate against the
+	// canonical tool's allowed params. Closing tag still matches the raw name.
+	const canonicalToolName = (resolveCanonicalToolName(rawToolName, toolOfToolName) ?? rawToolName) as T
+	const paramAliasMap = PARAM_ALIASES_BY_TOOL[canonicalToolName] ?? {}
+
 	const paramsObj: RawToolParamsObj = {}
 	const doneParams: ToolParamName<T>[] = []
 	let isDone = false
@@ -181,7 +290,7 @@ const parseXMLPrefixToToolCall = <T extends ToolName,>(toolName: T, toolId: stri
 
 		// return tool call
 		const ans: RawToolCallObj = {
-			name: toolName,
+			name: canonicalToolName,
 			rawParams: paramsObj,
 			doneParams: doneParams,
 			isDone: isDone,
@@ -190,11 +299,11 @@ const parseXMLPrefixToToolCall = <T extends ToolName,>(toolName: T, toolId: stri
 		return ans
 	}
 
-	// find first toolName tag
-	const openToolTag = `<${toolName}>`
+	// find first open tag (use the raw name the model actually emitted)
+	const openToolTag = `<${rawToolName}>`
 	let i = str.indexOf(openToolTag)
 	if (i === -1) return getAnswer()
-	let j = str.lastIndexOf(`</${toolName}>`)
+	let j = str.lastIndexOf(`</${rawToolName}>`)
 	if (j === -1) j = Infinity
 	else isDone = true
 
@@ -203,20 +312,35 @@ const parseXMLPrefixToToolCall = <T extends ToolName,>(toolName: T, toolId: stri
 
 	const pm = new SurroundingsRemover(str)
 
-	const allowedParams = Object.keys(toolOfToolName[toolName]?.params ?? {}) as ToolParamName<T>[]
-	if (allowedParams.length === 0) return getAnswer()
+	const canonicalParams = Object.keys(toolOfToolName[canonicalToolName]?.params ?? {}) as ToolParamName<T>[]
+	if (canonicalParams.length === 0) return getAnswer()
+	// Build the full set of param-tag spellings we'll try in priority order:
+	// first the canonical names (tightest match), then any aliases (only if no
+	// canonical name conflicts). Map each spelling back to its canonical name.
+	const paramSpellingToCanonical: { [spelling: string]: ToolParamName<T> } = {}
+	for (const p of canonicalParams) paramSpellingToCanonical[p] = p
+	for (const [aliasSpelling, canonicalTarget] of Object.entries(paramAliasMap)) {
+		if (paramSpellingToCanonical[aliasSpelling]) continue // never override a real param name
+		if (canonicalParams.includes(canonicalTarget as ToolParamName<T>)) {
+			paramSpellingToCanonical[aliasSpelling] = canonicalTarget as ToolParamName<T>
+		}
+	}
+	const allParamSpellings = Object.keys(paramSpellingToCanonical)
 	let latestMatchedOpenParam: null | ToolParamName<T> = null
+	let latestMatchedSpelling: string | null = null
 	let n = 0
 	while (true) {
 		n += 1
-		if (n > 10) return getAnswer() // just for good measure as this code is early
+		if (n > 20) return getAnswer() // bumped to 20 — alias map can need more attempts on noisy streams
 
-		// find the param name opening tag
+		// find the param name opening tag (canonical or alias)
 		let matchedOpenParam: null | ToolParamName<T> = null
-		for (const paramName of allowedParams) {
-			const removed = pm.removeFromStartUntilFullMatch(`<${paramName}>`, true)
+		let matchedSpelling: string | null = null
+		for (const spelling of allParamSpellings) {
+			const removed = pm.removeFromStartUntilFullMatch(`<${spelling}>`, true)
 			if (removed) {
-				matchedOpenParam = paramName
+				matchedOpenParam = paramSpellingToCanonical[spelling]
+				matchedSpelling = spelling
 				break
 			}
 		}
@@ -229,16 +353,22 @@ const parseXMLPrefixToToolCall = <T extends ToolName,>(toolName: T, toolId: stri
 		}
 		else {
 			latestMatchedOpenParam = matchedOpenParam
+			latestMatchedSpelling = matchedSpelling
 		}
 
-		paramsObj[latestMatchedOpenParam] = ''
+		if (paramsObj[latestMatchedOpenParam] === undefined) paramsObj[latestMatchedOpenParam] = ''
 
-		// find the param name closing tag
+		// find the matching close tag — try the spelling we opened with first,
+		// then fall back to any other valid spelling for the same canonical param
+		// (model may close with the canonical even if it opened with an alias).
 		let matchedCloseParam: boolean = false
 		let paramContents = ''
-		for (const paramName of allowedParams) {
+		const closeSpellingsToTry = latestMatchedSpelling
+			? [latestMatchedSpelling, ...allParamSpellings.filter(s => s !== latestMatchedSpelling && paramSpellingToCanonical[s] === latestMatchedOpenParam)]
+			: allParamSpellings
+		for (const spelling of closeSpellingsToTry) {
 			const i = pm.i
-			const closeTag = `</${paramName}>`
+			const closeTag = `</${spelling}>`
 			const removed = pm.removeFromStartUntilFullMatch(closeTag, true)
 			if (removed) {
 				const i2 = pm.i
@@ -253,7 +383,7 @@ const parseXMLPrefixToToolCall = <T extends ToolName,>(toolName: T, toolId: stri
 			return getAnswer()
 		}
 		else {
-			doneParams.push(latestMatchedOpenParam)
+			if (!doneParams.includes(latestMatchedOpenParam)) doneParams.push(latestMatchedOpenParam)
 		}
 
 		paramsObj[latestMatchedOpenParam] += paramContents
@@ -272,8 +402,17 @@ export const extractXMLToolsWrapper = (
 	if (!tools) return { newOnText: onText, newOnFinalMessage: onFinalMessage }
 
 	const toolOfToolName: ToolOfToolName = {}
-	const toolOpenTags = tools.map(t => `<${t.name}>`)
 	for (const t of tools) { toolOfToolName[t.name] = t }
+	// Recognize both canonical names and known cross-ecosystem aliases
+	// (e.g. <bash> from Anthropic-trained models → run_command).
+	const canonicalTagSet = new Set(tools.map(t => t.name))
+	const aliasTagsForActiveTools = Object.keys(TOOL_NAME_ALIASES).filter(alias => {
+		const target = TOOL_NAME_ALIASES[alias]
+		// only enable an alias if its canonical target is actually exposed in this chat mode
+		// AND the alias isn't already a real tool name (avoid clobbering)
+		return canonicalTagSet.has(target) && !canonicalTagSet.has(alias)
+	})
+	const toolOpenTags = [...tools.map(t => `<${t.name}>`), ...aliasTagsForActiveTools.map(a => `<${a}>`)]
 
 	const toolId = generateUuid()
 
