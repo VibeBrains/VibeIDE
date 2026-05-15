@@ -75,6 +75,14 @@ import { addUNCHostToAllowlist, getUNCHost } from '../../base/node/unc.js';
 import { ThemeMainService } from '../../platform/theme/electron-main/themeMainServiceImpl.js';
 import { LINUX_SYSTEM_POLICY_FILE_PATH } from '../../base/common/policy.js';
 
+// VibeIDE: swallow EPIPE on stdout/stderr. In packaged Windows builds the
+// parent pipe can be closed (install hooks, detached launches) before the
+// main process writes its first console line; without these listeners the
+// very next console.* raises "Uncaught Exception: EPIPE: broken pipe, write"
+// and Electron pops a fatal error dialog.
+process.stdout?.on('error', () => { });
+process.stderr?.on('error', () => { });
+
 /**
  * The main VS Code entry point.
  *

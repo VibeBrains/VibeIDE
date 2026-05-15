@@ -38,7 +38,6 @@ const buildDispatcher = (): Agent => {
 	}
 	const ca = [...tls.rootCertificates, ...systemCAs]
 	const agent = new Agent({ connect: { ca } })
-	console.log(`[VibeIDE] LLM HTTP dispatcher initialized: ${tls.rootCertificates.length} bundled + ${systemCAs.length} system CAs`)
 	return agent
 }
 
