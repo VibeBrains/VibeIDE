@@ -11,7 +11,9 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../platfo
 import { URI } from '../../../../base/common/uri.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
-import { builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
+import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
+import { TOOL_NAME_ALIASES, applyParamAliases } from '../common/prompt/toolAliases.js';
+import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
 import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
@@ -90,8 +92,69 @@ const INITIAL_RETRY_DELAY = 1000 // Start with 1s for faster recovery
 const MAX_RETRY_DELAY = 5000 // Cap at 5s
 const DEFAULT_MAX_AGENT_LOOP_ITERATIONS = 30 // Default cap; overridable via `vibeide.agent.maxLoopIterations`. 0 in the setting disables the cap.
 const MAX_AGENT_LOOP_ITERATIONS_UPPER_BOUND = 200 // Hard ceiling for user-supplied values to avoid runaway loops via accidental large input.
-const MAX_CONSECUTIVE_TOOL_ERRORS = 5 // Abort agent loop after this many back-to-back tool_error / invalid_params results. Models with baked-in numeric-tool-name quirks (minimax/qwen) otherwise burn tokens on infinite retries.
+const MAX_CONSECUTIVE_TOOL_ERRORS = 15 // Circuit-breaker: abort agent loop after this many back-to-back tool failures. opencode CLI has no breaker — model just keeps iterating until it succeeds. 15 gives breathing room (some models recover after 5-10 attempts before finding the right tool format) while still preventing infinite loops on truly broken combos.
+const AUTO_DOWNGRADE_THRESHOLD = 3 // After this many consecutive tool failures per-(provider×model), automatically write an `_autoDetected` override switching the model to XML-fallback mode. Counter resets on `success` or after AUTO_DOWNGRADE_TRIGGER fires (giving the XML path a fresh slate). See roadmap O.2.
 const MAX_FILES_READ_PER_QUERY = 10 // Maximum files to read in a single query to prevent excessive reads
+
+// Classify the last tool failure into a coarse reason code stored as
+// `_reason` on auto-detected overrides (roadmap O.7). Drives toast wording and
+// future selectivity rules (e.g. only downgrade on `numeric-tool-name`).
+//   - `numeric-tool-name`: tool name is purely digits ("0", "1", "5") — the
+//      classic minimax/qwen training-set quirk (training data used numbered
+//      tool lists; model emits the index instead of the identifier).
+//   - `missing-required-field`: validator complained that a required param
+//      came in as `undefined` — schema doesn't enforce required at the SDK
+//      layer for this model, so the model emitted an empty `{}`.
+//   - `wrong-tool-name`: tool name is non-numeric but not in our registry
+//      and not resolvable via TOOL_NAME_ALIASES — hallucination or cross-
+//      ecosystem name (`view`, `cat`, etc., minus the ones aliased).
+//   - `other`: anything else.
+const classifyToolErrorReason = (toolName: string, content: string): AutoDowngradeReason => {
+	if (/^\d+$/.test(toolName)) return 'numeric-tool-name'
+	if (/must be a string, but it's a\(n\) undefined/i.test(content)) return 'missing-required-field'
+	if (/must be a string, but its type is "undefined"/i.test(content)) return 'missing-required-field'
+	if (/Unknown tool name "([^"]+)"/.test(content)) return 'wrong-tool-name'
+	return 'other'
+}
+
+// Build a concrete schema hint for an `invalid_params` error message. Models
+// (especially via aggregators that mangle system prompts) often see only the
+// validator's terse "X must be a string, but it's a(n) undefined" and don't
+// know which fields the tool expects or in what shape. This helper produces:
+//
+//   The tool "read_file" expects these parameters:
+//     - uri (required): The FULL path to the file.
+//     - start_line (optional): 1-based. ...
+//     ...
+//   Example XML call: <read_file><uri>VALUE</uri></read_file>
+//
+// Required vs optional is detected via the same heuristic used by the AI SDK
+// schema builder (description starts with "Optional." → optional).
+const buildToolSchemaHint = (canonicalToolName: string): string => {
+	if (!isABuiltinToolName(canonicalToolName)) return ''
+	const def = (builtinTools as Record<string, { params: Record<string, { description: string }> }>)[canonicalToolName]
+	if (!def?.params) return ''
+	const entries = Object.entries(def.params)
+	if (entries.length === 0) return ''
+	const requiredEntries: Array<[string, { description: string }]> = []
+	const optionalEntries: Array<[string, { description: string }]> = []
+	for (const [k, v] of entries) {
+		const desc = v.description ?? ''
+		if (desc.trimStart().toLowerCase().startsWith('optional')) optionalEntries.push([k, v])
+		else requiredEntries.push([k, v])
+	}
+	const lines: string[] = []
+	lines.push(`The tool "${canonicalToolName}" expects these parameters:`)
+	for (const [k, v] of requiredEntries) lines.push(`  - ${k} (required): ${v.description}`)
+	for (const [k, v] of optionalEntries) lines.push(`  - ${k} (optional): ${v.description}`)
+	// Intentionally NO format example. The model is on whichever channel its SDK
+	// adapter uses (Anthropic tool_use blocks, OpenAI tool_calls, or XML for
+	// the legacy fallback). Showing an XML example used to mislead models on
+	// the native FC path — they'd start emitting `<tool><param>...</param></tool>`
+	// in plaintext instead of proper tool_use blocks, and our adapter wouldn't
+	// parse it. Trust the SDK channel; the model already knows its own protocol.
+	return lines.join('\n')
+}
 
 // Stall detection: notify user if LLM stops producing tokens unexpectedly.
 // EARLY surfaces an inline banner only (no toast); FULL thresholds also raise a toast.
@@ -3049,10 +3112,36 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			});
 			return {};
 		}
+		// Resolve raw tool name to canonical VibeIDE name via aliases. Stages:
+		//   1. Exact match (`isABuiltinToolName(raw)`) — already a real name.
+		//   2. Lowercase match (`Read_File` → `read_file`).
+		//   3. Cross-ecosystem alias (`read` → `read_file`, `bash` → `run_command`,
+		//      Kilo's `apply_patch` → `edit_file`, etc.) via TOOL_NAME_ALIASES.
+		// Same map is applied at AI SDK repair (aiSdkAdapter.ts) and XML extraction
+		// (extractGrammar.ts) — single source of truth in common/prompt/toolAliases.
+		// Bound to a `const` so downstream TypeScript narrowing via type guards is
+		// preserved (a `let` parameter breaks `isABuiltinToolName(toolName)` flow).
 		const loweredRequested = (requestedToolName as string).toLowerCase();
-		const toolName: ToolName = (loweredRequested !== requestedToolName && isABuiltinToolName(loweredRequested))
-			? loweredRequested as ToolName
-			: requestedToolName;
+		const toolName: ToolName = (
+			isABuiltinToolName(requestedToolName) ? requestedToolName :
+				isABuiltinToolName(loweredRequested) ? loweredRequested as ToolName :
+					(TOOL_NAME_ALIASES[loweredRequested] && isABuiltinToolName(TOOL_NAME_ALIASES[loweredRequested]))
+						? TOOL_NAME_ALIASES[loweredRequested] as ToolName
+						: requestedToolName
+		);
+
+		// Param-name aliases (`{path: ...}` → `{uri: ...}`, `{filePath: ...}` →
+		// `{uri: ...}`, Kilo's `{offset, limit}` → `{start_line, line_limit}`).
+		// Applied here for AI SDK native function-calling and legacy native
+		// channels — XML extraction already applies it via resolveInvokeParamName.
+		// Without this, minimax/qwen reading a file with `{path: ...}` fails
+		// validation with "Provided uri must be a string, but it's a(n) undefined".
+		const aliasedParams = applyParamAliases(toolName as string, opts.unvalidatedToolParams) as RawToolParamsObj;
+		if (aliasedParams !== opts.unvalidatedToolParams) {
+			opts = opts.preapproved
+				? { ...opts, unvalidatedToolParams: aliasedParams }
+				: { ...opts, unvalidatedToolParams: aliasedParams };
+		}
 
 		// compute these below
 		let toolParams: ToolCallParams<ToolName>
@@ -3075,12 +3164,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			}
 			catch (error) {
 				const errorMessage = getErrorMessage(error)
-				// Wrap raw validator output with an explicit retry hint. Otherwise
-				// the model sees a bare line like "Provided uri must be a string,
-				// but it's a(n) undefined" and doesn't realize it should re-issue
-				// the call with corrected types — it just emits another invalid
-				// variant, sometimes with a different (also bad) tool name.
-				const content = `The tool "${toolName}" was called with invalid arguments: ${errorMessage} Re-issue the call with correct parameter types — every field should match the type described in the tool's schema in the system prompt.`
+				// Wrap raw validator output with a CONCRETE schema hint. Otherwise the
+				// model sees just "Provided uri must be a string, but it's a(n) undefined"
+				// and doesn't know which field name is required or in what XML shape.
+				// We inject the tool's full parameter list (required first, then optional)
+				// with descriptions and an example XML call. This is the difference
+				// between "fix something" and "fix uri specifically — example below".
+				const schemaHint = buildToolSchemaHint(toolName as string)
+				const content = schemaHint
+					? `The tool "${toolName}" was called with invalid arguments: ${errorMessage}\n\n${schemaHint}\n\nRe-issue the call with all required parameters present and correctly typed.`
+					: `The tool "${toolName}" was called with invalid arguments: ${errorMessage} Re-issue the call with all required parameters present.`
 				this._addMessageToThread(threadId, { role: 'tool', type: 'invalid_params', rawParams: opts.unvalidatedToolParams, result: null, name: toolName, content, id: toolId, mcpServerName })
 				return {}
 			}
@@ -3292,18 +3385,38 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				const mcpTools = this._mcpService.getMCPTools()
 				const mcpTool = mcpTools?.find(t => t.name === toolName)
 				if (!mcpTool) {
+					// Positional fallback BEFORE giving up: some models (minimax-m2.x,
+					// qwen variants) emit numeric tool names that index into the tool
+					// array we sent. Map `"5"` → 5-th tool in availableTools order
+					// (matches what the model saw in our request body). Same logic
+					// as aiSdkAdapter's repair-hook stage 3 — duplicated here for
+					// the XML/legacy path which bypasses AI SDK's repair entirely.
+					if (/^\d+$/.test(String(toolName))) {
+						const idx = parseInt(String(toolName), 10);
+						const currentChatMode = this._settingsService.state.globalSettings.chatMode;
+						const allTools = availableTools(currentChatMode, mcpTools) ?? [];
+						if (idx >= 0 && idx < allTools.length) {
+							const positionalToolName = allTools[idx].name as ToolName;
+							// Re-dispatch by recursing with the resolved name. Same
+							// opts (preapproved status, params) — model's params should
+							// match the intended tool since it identified the tool by
+							// description in our array before formatting as index.
+							return this._runToolCall(threadId, positionalToolName, toolId, mcpServerName, opts);
+						}
+					}
+
 					// Unknown tool name on legacy channels (XML fallback, Anthropic
 					// native, Gemini native, OpenAI native) — emit a soft tool_error,
-					// no throw. Include the available-tools inventory: empirically
-					// (0.9.0) models that recovered did so after reading this list;
-					// minimax/qwen variants need real names to escape their numeric-
-					// naming training quirk. The earlier (0.9.2) attempt to drop
-					// the list per a name-vs-index hypothesis was wrong — the quirk
-					// is baked in, the list helps recovery rather than causing it.
+					// no throw. Format note: numeric tool names that DIDN'T resolve
+					// positionally (index out of range) drop here with the inventory
+					// hint so the model has a chance to swap to a real identifier.
 					resolveInterruptor(() => { });
 					const builtinList = builtinToolNames.join(', ');
 					const mcpList = (mcpTools ?? []).map(t => t.name).join(', ') || '(none)';
-					const message = `The arguments provided to the tool are invalid: Unknown tool name "${toolName}". Available built-in tools: ${builtinList}. Available MCP tools: ${mcpList}.`;
+					const isNumericQuirk = /^\d+$/.test(String(toolName));
+					const message = isNumericQuirk
+						? `Tool name "${toolName}" is invalid. Tool names must be lowercase snake_case identifiers, NEVER numeric indices. Pick one of the available tools by its exact name. Examples: read_file (read file contents), ls_dir (list directory), run_command (run shell command), edit_file (modify file via SEARCH/REPLACE blocks). Full list: ${builtinList}. MCP tools: ${mcpList}.`
+						: `The arguments provided to the tool are invalid: Unknown tool name "${toolName}". Available built-in tools: ${builtinList}. Available MCP tools: ${mcpList}.`;
 					this._agentActivityLog.logError(`${toolActivityLabel}: ${message}`);
 					this._updateLatestTool(threadId, {
 						role: 'tool',
@@ -3823,10 +3936,25 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		let fileReadLimitExceeded = false
 		// Track tools executed in this request to detect incomplete workflows
 		let toolsExecutedInRequest: string[] = []
-		// Circuit-breaker: count back-to-back tool failures (tool_error / invalid_params).
-		// Reset on `success`. Aborts the loop at MAX_CONSECUTIVE_TOOL_ERRORS to escape
-		// minimax/qwen models stuck in baked-in numeric-name quirk loops.
-		let consecutiveToolErrors = 0
+		// Per-(provider×model) consecutive tool failure counter (tool_error / invalid_params).
+		// Reset on `success` per key. Triggers two thresholds:
+		//   - AUTO_DOWNGRADE_THRESHOLD (3) → write `specialToolFormat: undefined` override
+		//     for that model and continue loop with XML-fallback path. Only fires once per
+		//     model per session (downgradedModelsThisSession). See roadmap O.1/O.2.
+		//   - MAX_CONSECUTIVE_TOOL_ERRORS (5) → abort agent loop with hard message. Last
+		//     resort safety net even after downgrade. See roadmap O.3 (circuit-breaker).
+		const consecutiveToolErrorsByModel = new Map<string, number>()
+		const downgradedModelsThisSession = new Set<string>()
+		// O.9 — Periodic re-probe: for models in downgrade mode, count successful tool
+		// calls. After RE_PROBE_AFTER_SUCCESSES successes, mark the model for a probe
+		// on the next LLM iteration (force native FC for that single call by stripping
+		// the auto-detected override from effectiveOverrides passed to sendLLMMessage).
+		// If the probe call's first tool returns `success` → clear the persistent
+		// override entirely (model has recovered). If it returns `tool_error` →
+		// keep override, reset counter, try again later in the session.
+		const RE_PROBE_AFTER_SUCCESSES = 20
+		const successCountForDowngradedModel = new Map<string, number>()
+		const probeRequestedForModel = new Set<string>()
 
 		// Resolve max iterations once per run. Reading on every iteration would let a mid-run
 		// settings tweak chop off an in-flight loop unexpectedly.
@@ -4129,6 +4257,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			// the llmAborted early-return is skipped and the while-loop can iterate again.
 			let watchdogRetry = false
 
+			// O.9 — per-call probe state. Set when the LLM call for this iteration
+			// strips the auto-detected override (one-shot native-FC retry); cleared
+			// after the outcome is processed in the post-tool-call block.
+			let probeActiveThisCall: string | undefined = undefined
 			while (shouldRetryLLM) {
 				shouldRetryLLM = false
 				nAttempts += 1
@@ -4307,13 +4439,35 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				watchdogState = wds0
 				applyWatchdogEffects(wde0)
 
+				// O.6 + O.9: read overrides fresh per iteration (auto-downgrade may have
+				// written a new override mid-loop, the captured `overridesOfModel` from
+				// _runChatAgent setup would be stale). For probe iterations (O.9), strip
+				// the auto-detected override so this single LLM call uses native FC.
+				const iterationModelKey = `${modelSelection.providerName}:${modelSelection.modelName}`
+				let effectiveOverridesForCall = this._settingsService.state.overridesOfModel
+				probeActiveThisCall = undefined
+				if (probeRequestedForModel.has(iterationModelKey)) {
+					const providerOverrides = effectiveOverridesForCall?.[modelSelection.providerName as Exclude<typeof modelSelection.providerName, 'auto'>]
+					const existing = providerOverrides?.[modelSelection.modelName]
+					if (existing?._autoDetected) {
+						effectiveOverridesForCall = { ...effectiveOverridesForCall }
+						effectiveOverridesForCall[modelSelection.providerName as Exclude<typeof modelSelection.providerName, 'auto'>] = {
+							...providerOverrides,
+						}
+						delete effectiveOverridesForCall[modelSelection.providerName as Exclude<typeof modelSelection.providerName, 'auto'>]![modelSelection.modelName]
+						probeActiveThisCall = iterationModelKey
+						probeRequestedForModel.delete(iterationModelKey) // one-shot — consumed
+						this._agentActivityLog.logStarted(`Re-probe: ${iterationModelKey} → native FC attempt`)
+					}
+				}
+
 				const llmCancelToken = this._llmMessageService.sendLLMMessage({
 					messagesType: 'chatMessages',
 					chatMode,
 					messages: messages,
 					modelSelection,
 					modelSelectionOptions,
-					overridesOfModel,
+					overridesOfModel: effectiveOverridesForCall,
 					logging: { loggingName: `Chat - ${chatMode}`, loggingExtras: { threadId, nMessagesSent, chatMode, requestId: finalRequestId } },
 					separateSystemMessage: separateSystemMessage,
 				onText: ({ fullText, fullReasoning, toolCall }) => {
@@ -5168,21 +5322,125 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 					const { awaitingUserApproval, interrupted } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams })
 
-					// Circuit-breaker: inspect the message _runToolCall just added.
-					// tool_error / invalid_params → increment; success → reset.
-					// tool_request (awaiting approval) and other types — leave alone.
+					// Tool-call resilience post-dispatch logic (roadmap O.1–O.7):
+					//   - Increment per-(provider×model) counter on tool_error/invalid_params,
+					//     reset on success.
+					//   - On AUTO_DOWNGRADE_THRESHOLD: classify reason, write `_autoDetected`
+					//     override switching the model to XML-fallback mode, notify user, reset
+					//     counter so the XML path gets a fair shot. Fires once per model per
+					//     session (downgradedModelsThisSession set).
+					//   - On MAX_CONSECUTIVE_TOOL_ERRORS: abort agent loop with hard message —
+					//     last-resort safety net if even XML-fallback can't recover.
 					{
+						const modelKey = `${resolvedModelSelection.providerName}:${resolvedModelSelection.modelName}`
 						const thread = this.state.allThreads[threadId]
 						const lastMsg = thread?.messages[thread.messages.length - 1]
+						let curCount = consecutiveToolErrorsByModel.get(modelKey) ?? 0
 						if (lastMsg?.role === 'tool') {
 							if (lastMsg.type === 'tool_error' || lastMsg.type === 'invalid_params') {
-								consecutiveToolErrors += 1
+								curCount += 1
+								consecutiveToolErrorsByModel.set(modelKey, curCount)
 							} else if (lastMsg.type === 'success') {
-								consecutiveToolErrors = 0
+								curCount = 0
+								consecutiveToolErrorsByModel.set(modelKey, 0)
 							}
 						}
-						if (consecutiveToolErrors >= MAX_CONSECUTIVE_TOOL_ERRORS) {
-							const abortMsg = `Agent loop aborted: ${MAX_CONSECUTIVE_TOOL_ERRORS} consecutive tool failures. Common causes: the model emits numeric tool names like "0", "1", "5" (minimax/qwen training quirk) or repeatedly passes wrong argument types. Switch to a different model (Claude, GPT, Gemini, DeepSeek) or simplify the request.`
+
+						// O.9 — Re-probe outcome handling.
+						// Two flows:
+						//   (a) This iteration WAS a probe (probeActiveThisCall === modelKey):
+						//       outcome determines whether to clear the persistent override.
+						//       Success → clear override (model recovered native FC).
+						//       Error → keep override, reset success counter (start fresh).
+						//   (b) Normal downgraded-mode run + tool succeeded: increment success
+						//       counter; at RE_PROBE_AFTER_SUCCESSES, queue probe for next iter.
+						if (probeActiveThisCall === modelKey && lastMsg?.role === 'tool') {
+							if (lastMsg.type === 'success') {
+								try {
+									const providerForOverride = resolvedModelSelection.providerName as Exclude<typeof resolvedModelSelection.providerName, 'auto'>
+									await this._settingsService.setOverridesOfModel(providerForOverride, resolvedModelSelection.modelName, undefined)
+									downgradedModelsThisSession.delete(modelKey)
+									successCountForDowngradedModel.delete(modelKey)
+									probeActiveThisCall = undefined
+									this._notificationService.info(
+										`Модель ${resolvedModelSelection.modelName} (${resolvedModelSelection.providerName}) успешно прошла re-probe на native function-calling. Auto-detected override снят, модель возвращена в native режим.`
+									)
+									this._agentActivityLog.logFinished(`Re-probe success: ${modelKey} → native restored`)
+								} catch (e) {
+									this._agentActivityLog.logError(`Re-probe override-clear failed for ${modelKey}: ${getErrorMessage(e)}`)
+									probeActiveThisCall = undefined
+								}
+							} else if (lastMsg.type === 'tool_error' || lastMsg.type === 'invalid_params') {
+								successCountForDowngradedModel.set(modelKey, 0)
+								probeActiveThisCall = undefined
+								this._agentActivityLog.logError(`Re-probe failed: ${modelKey} → keeping XML override`)
+							}
+						} else if (
+							lastMsg?.role === 'tool'
+							&& lastMsg.type === 'success'
+							&& downgradedModelsThisSession.has(modelKey)
+						) {
+							// Normal downgraded-mode success — count toward next re-probe.
+							const successCur = (successCountForDowngradedModel.get(modelKey) ?? 0) + 1
+							if (successCur >= RE_PROBE_AFTER_SUCCESSES) {
+								probeRequestedForModel.add(modelKey)
+								successCountForDowngradedModel.set(modelKey, 0)
+								this._agentActivityLog.logStarted(`Re-probe queued: ${modelKey} reached ${RE_PROBE_AFTER_SUCCESSES} successes on XML; next iteration will retry native FC`)
+							} else {
+								successCountForDowngradedModel.set(modelKey, successCur)
+							}
+						}
+
+						// Stage 1: auto-downgrade trigger
+						if (
+							curCount >= AUTO_DOWNGRADE_THRESHOLD
+							&& !downgradedModelsThisSession.has(modelKey)
+							&& lastMsg?.role === 'tool'
+							&& (lastMsg.type === 'tool_error' || lastMsg.type === 'invalid_params')
+						) {
+							const reason = classifyToolErrorReason(String(lastMsg.name), String(lastMsg.content ?? ''))
+							const reasonHuman = (() => {
+								switch (reason) {
+									case 'numeric-tool-name': return 'эмитит численные имена тулов (например "0", "1", "5") — типичный quirk минимакс/qwen-моделей через aggregator'
+									case 'missing-required-field': return 'не передаёт обязательные параметры тула'
+									case 'wrong-tool-name': return 'эмитит несуществующие имена тулов'
+									case 'other': return 'повторно ломается на tool-call'
+								}
+							})()
+							try {
+								// providerName is narrowed at resolve time (line ~3505), but
+								// the type still admits 'auto'. Cast away because we know we're
+								// past the resolveAutoModelSelection step.
+								const providerForOverride = resolvedModelSelection.providerName as Exclude<typeof resolvedModelSelection.providerName, 'auto'>
+								await this._settingsService.setOverridesOfModel(
+									providerForOverride,
+									resolvedModelSelection.modelName,
+									{
+										specialToolFormat: undefined,
+										_autoDetected: true,
+										_detectedAt: Date.now(),
+										_reason: reason,
+									}
+								)
+								downgradedModelsThisSession.add(modelKey)
+								consecutiveToolErrorsByModel.set(modelKey, 0)
+								this._notificationService.warn(
+									`Модель ${resolvedModelSelection.modelName} (${resolvedModelSelection.providerName}) ${reasonHuman}. Переключили её на XML-формат тулов (медленнее, но совместимее). Откат: Settings → Models → Overrides → этот провайдер/модель → сбросить specialToolFormat.`
+								)
+								this._agentActivityLog.logFinished(`Auto-downgrade: ${modelKey} → XML (${reason})`)
+								// Don't return — continue loop. Next LLM call picks up the override
+								// via getModelCapabilities and routes through XML-fallback path.
+							} catch (e) {
+								// Setting write failed (rare). Fall through to circuit-breaker if
+								// errors keep coming; don't mark this model as downgraded so a
+								// later attempt may try again.
+								this._agentActivityLog.logError(`Auto-downgrade write failed for ${modelKey}: ${getErrorMessage(e)}`)
+							}
+						}
+
+						// Stage 2: circuit-breaker (last resort)
+						if (curCount >= MAX_CONSECUTIVE_TOOL_ERRORS) {
+							const abortMsg = `Agent loop aborted: ${MAX_CONSECUTIVE_TOOL_ERRORS} consecutive tool failures on ${resolvedModelSelection.modelName} (${resolvedModelSelection.providerName}). Even after auto-downgrade to XML-fallback the model couldn't recover. Switch to a different model (Claude, GPT, Gemini, DeepSeek) or simplify the request.`
 							this._notificationService.warn(abortMsg)
 							this._addMessageToThread(threadId, {
 								role: 'tool',

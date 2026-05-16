@@ -204,10 +204,31 @@ export const modelOverrideKeys = [
 	'additionalOpenAIPayload'
 ] as const
 
+// Reasons recognised by the runtime auto-downgrade pipeline (chatThreadService).
+// See roadmap O.7 (Tool-call resilience). Stored in `ModelOverrides._reason`
+// when an override is written automatically.
+export type AutoDowngradeReason =
+	| 'numeric-tool-name'
+	| 'missing-required-field'
+	| 'wrong-tool-name'
+	| 'other';
+
+// Auto-downgrade override TTL. After this many ms, an `_autoDetected` override
+// is ignored by getModelCapabilities (the model gets a fresh chance on native
+// FC, in case the aggregator/upstream fixed the quirk). Manual user overrides
+// have no TTL. See roadmap O.4 (reset mechanism).
+export const AUTO_DOWNGRADE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
 export type ModelOverrides = Pick<
 	VibeideStaticModelInfo,
 	(typeof modelOverrideKeys)[number]
->
+> & {
+	// Auto-downgrade metadata (see roadmap O.5). Underscore prefix marks these
+	// as system fields, distinct from user-facing override keys.
+	_autoDetected?: boolean;
+	_detectedAt?: number;
+	_reason?: AutoDowngradeReason;
+}
 
 
 // Heuristic free-tier detection — programmatic signals only, no network.
@@ -1561,6 +1582,11 @@ const ollamaSettings: VoidStaticProviderInfo = {
  * for misbehaving aggregators where native tools fail with HTTP 4xx).
  */
 const aggregatorOpenAIFallback: VoidStaticProviderInfo['modelOptionsFallback'] = (modelName, fallbackKnownValues) => {
+	// No hardcoded substring-detection here. Model-quirks (numeric tool names,
+	// missing required fields) are handled at runtime by per-(provider×model)
+	// auto-downgrade in chatThreadService.runMessageLoop — see roadmap O.0–O.7
+	// (Tool-call resilience). Default for unknown aggregator model: opt into
+	// native function-calling, then downgrade based on observed behaviour.
 	const fromExtensive = extensiveModelOptionsFallback(modelName, fallbackKnownValues);
 	if (fromExtensive) {
 		if (!fromExtensive.specialToolFormat) fromExtensive.specialToolFormat = 'openai-style';
@@ -1899,8 +1925,15 @@ export const getModelCapabilities = (
 
 	const { modelOptions, modelOptionsFallback } = modelSettingsOfProvider[providerName]
 
-	// Get any override settings for this model
-	const overrides = overridesOfModel?.[providerName]?.[modelName];
+	// Get any override settings for this model. Auto-detected overrides expire
+	// after AUTO_DOWNGRADE_TTL_MS — past that point the model gets a fresh
+	// chance on whatever default specialToolFormat was, in case the upstream
+	// quirk got fixed. Manual user overrides (no `_autoDetected` flag) never
+	// expire. See roadmap O.4 (reset mechanism).
+	const rawOverrides = overridesOfModel?.[providerName]?.[modelName];
+	const overrides = (rawOverrides?._autoDetected && typeof rawOverrides._detectedAt === 'number')
+		? (Date.now() - rawOverrides._detectedAt < AUTO_DOWNGRADE_TTL_MS ? rawOverrides : undefined)
+		: rawOverrides;
 
 	// search model options object directly first
 	for (const modelName_ in modelOptions) {

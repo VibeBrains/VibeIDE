@@ -6,6 +6,7 @@
 import { generateUuid } from '../../../../../base/common/uuid.js'
 import { endsWithAnyPrefixOf, SurroundingsRemover } from '../../common/helpers/extractCodeFromResult.js'
 import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js'
+import { TOOL_NAME_ALIASES, PARAM_ALIASES_BY_TOOL } from '../../common/prompt/toolAliases.js'
 import { OnFinalMessage, OnText, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js'
 import { ToolName, ToolParamName } from '../../common/toolsServiceTypes.js'
 import { ChatMode } from '../../common/vibeideSettingsTypes.js'
@@ -141,97 +142,13 @@ export const extractReasoningWrapper = (
 
 // =============== tools (XML) ===============
 
-/**
- * Common tool name aliases used by other AI ecosystems. Models trained on
- * Anthropic-style tool definitions (Claude bash_tool / view / str_replace_editor)
- * or OpenAI-style assistants frequently emit those names instead of ours,
- * causing the call to leak into chat as plain text. We translate them here
- * so the model still gets work done even when it picks the "wrong" tag.
- *
- * One-direction: alias → canonical VibeIDE tool name. Canonical names are
- * always recognized first; aliases only kick in when no exact match exists.
- */
-const TOOL_NAME_ALIASES: { [alias: string]: string } = {
-	// Anthropic / generic shell aliases
-	'bash': 'run_command',
-	'shell': 'run_command',
-	'cmd': 'run_command',
-	'powershell': 'run_command',
-	'pwsh': 'run_command',
-	'execute_command': 'run_command',
-	'execute': 'run_command',
-	'terminal': 'run_command',
-	// Anthropic file-view / OpenAI variants
-	'view': 'read_file',
-	'view_file': 'read_file',
-	'cat': 'read_file',
-	'open': 'read_file', // careful: VibeIDE has open_file; if we ever want both, drop this row
-	// Anthropic str_replace editor / generic edit
-	'str_replace_editor': 'edit_file',
-	'str_replace': 'edit_file',
-	'editor': 'edit_file',
-	// directory listing
-	'list_files': 'ls_dir',
-	'list_dir': 'ls_dir',
-	'list_directory': 'ls_dir',
-	'ls': 'ls_dir',
-	'dir': 'ls_dir',
-	// pattern / content search
-	'find': 'glob',
-	'glob_files': 'glob',
-	'search': 'grep',
-	'ripgrep': 'grep',
-	'rg': 'grep',
-	// create / write / delete
-	'create': 'create_file_or_folder',
-	'create_file': 'create_file_or_folder',
-	'mkdir': 'create_file_or_folder',
-	'write_file': 'rewrite_file',
-	'write': 'rewrite_file',
-	'delete': 'delete_file_or_folder',
-	'rm': 'delete_file_or_folder',
-	'remove': 'delete_file_or_folder',
-}
-
-/**
- * Per-tool param-name aliases. Same pattern: aliases come from common
- * neighboring schemas (Anthropic's `path`/`old_str`/`new_str`, etc.).
- * Aliases get rewritten to the canonical param name before validation.
- */
-const PARAM_ALIASES_BY_TOOL: { [canonicalToolName: string]: { [alias: string]: string } } = {
-	read_file: { path: 'uri', file_path: 'uri', file: 'uri', filename: 'uri' },
-	edit_file: {
-		path: 'uri', file_path: 'uri', file: 'uri',
-		old_str: 'search_replace_blocks', old_string: 'search_replace_blocks',
-		// Note: edit_file expects a single SEARCH/REPLACE blob, not separate old/new fields.
-		// If a model passes old_str + new_str separately, only old_str is captured here;
-		// the SEARCH/REPLACE format must still be assembled by the model. The prompt is
-		// tightened to make this explicit.
-	},
-	rewrite_file: { path: 'uri', file_path: 'uri', file: 'uri', content: 'new_content', code: 'new_content', text: 'new_content', body: 'new_content' },
-	create_file_or_folder: { path: 'uri', file_path: 'uri', file: 'uri', dir: 'uri', folder: 'uri' },
-	delete_file_or_folder: { path: 'uri', file_path: 'uri', file: 'uri', recursive: 'is_recursive' },
-	ls_dir: { path: 'uri', directory: 'uri', folder: 'uri', dir: 'uri' },
-	get_dir_tree: { path: 'uri', directory: 'uri', folder: 'uri', dir: 'uri' },
-	glob: { glob: 'pattern', glob_pattern: 'pattern', pattern_glob: 'pattern' },
-	grep: { query: 'pattern', regex: 'pattern', search: 'pattern' },
-	search_for_files: { pattern: 'query', search: 'query' },
-	search_pathnames_only: { pattern: 'query', search: 'query', filename: 'query' },
-	open_file: { path: 'uri', file_path: 'uri', file: 'uri' },
-	run_command: {
-		// most models use `command` already — just normalize a few stragglers
-		cmd: 'command',
-		shell_command: 'command',
-		bash_command: 'command',
-		ps_command: 'command',
-		working_directory: 'cwd',
-		dir: 'cwd',
-		path: 'cwd',
-		timeout: 'timeout_ms',
-		background: 'run_in_background',
-		detach: 'run_in_background',
-	},
-}
+// Tool name + per-tool param-name aliases moved to common/prompt/toolAliases.ts
+// so the dispatcher (chatThreadService._runToolCall) and the AI SDK repair
+// hook (aiSdkAdapter.ts) can apply the same map. Previously these were
+// XML-only, which left AI SDK native function-calling and legacy native
+// channels with no recovery for cross-ecosystem name/field differences
+// (e.g. minimax/qwen emitting `{path: ...}` for read_file → undefined uri).
+// See: TOOL_NAME_ALIASES and PARAM_ALIASES_BY_TOOL imports above.
 
 /**
  * Outer wrapper tags used by some models to frame a list of tool invocations.

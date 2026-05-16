@@ -324,8 +324,15 @@ ${truncatedDirStr}
 	// Shorter code block instruction
 	details.push(`Code: Include language, file path if known. Today: ${new Date().toDateString()}.`)
 
+	// Bullets, NOT numbers. Numbered instructions that mention tool names
+	// (`4. ... Use read_file, edit_file, search_for_files, run_command`) make
+	// training-quirky models like minimax interpret tools as a numbered list
+	// and emit tool calls with names "1", "2", "5" — the exact pattern we
+	// chase elsewhere. Same rule already applied to toolCallDefinitionsXMLString
+	// (see docs/knowledge/architecture/tool-calling.md). Don't reintroduce
+	// numbering anywhere near tool name mentions in the system prompt.
 	const importantDetails = (`Important notes:
-${details.map((d, i) => `${i + 1}. ${d}`).join('\n\n')}`)
+${details.map((d) => `- ${d}`).join('\n\n')}`)
 
 	// Add project memories if available
 	const memoriesSection = relevantMemories ? (`<project_memories>

@@ -282,13 +282,38 @@ export class ToolsService implements IToolsService {
 			ls_dir: (params: RawToolParamsObj) => {
 				const { uri: uriStr, page_number: pageNumberUnknown } = params
 
-				const uri = validateURI(uriStr, workspaceContextService, true)
+				// Tool description marks `uri` as Optional ("Leave this as empty or
+				// '' to search all folders"). If the model omits it, default to the
+				// first workspace folder rather than fail validation — otherwise
+				// minimax-style models that take the "leave empty" wording literally
+				// get stuck in a retry loop. Empty string treated the same.
+				let uri: URI
+				if (uriStr === undefined || uriStr === '') {
+					const folders = workspaceContextService?.getWorkspace().folders
+					if (!folders?.length) {
+						throw new Error('Cannot default `ls_dir` to workspace root: no workspace folder open.')
+					}
+					uri = folders[0].uri
+				} else {
+					uri = validateURI(uriStr, workspaceContextService, true)
+				}
 				const pageNumber = validatePageNum(pageNumberUnknown)
 				return { uri, pageNumber }
 			},
 			get_dir_tree: (params: RawToolParamsObj) => {
 				const { uri: uriStr, } = params
-				const uri = validateURI(uriStr, workspaceContextService, true)
+				// Same default-to-workspace-root policy as ls_dir — `uri` is
+				// documented as optional for top-level overviews.
+				let uri: URI
+				if (uriStr === undefined || uriStr === '') {
+					const folders = workspaceContextService?.getWorkspace().folders
+					if (!folders?.length) {
+						throw new Error('Cannot default `get_dir_tree` to workspace root: no workspace folder open.')
+					}
+					uri = folders[0].uri
+				} else {
+					uri = validateURI(uriStr, workspaceContextService, true)
+				}
 				return { uri }
 			},
 			search_pathnames_only: (params: RawToolParamsObj) => {

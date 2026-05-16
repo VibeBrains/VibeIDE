@@ -140,6 +140,7 @@
     "privacy:check:json": "node scripts/privacy-ci-check.mjs --json"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.78",
     "@ai-sdk/openai-compatible": "^2.0.47",
     "@anthropic-ai/sandbox-runtime": "0.0.49",
     "@anthropic-ai/sdk": "^0.92.0",

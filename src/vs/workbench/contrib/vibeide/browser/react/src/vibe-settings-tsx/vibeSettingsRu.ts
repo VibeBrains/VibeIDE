@@ -686,6 +686,26 @@ export const safetyS = {
 	ageHours: (n: number) => `${n} ч`,
 	ageDays: (n: number) => `${n} дн`,
 	modelsCountTotal: (n: number) => `${n} всего`,
+
+	// O.10 — AutoDowngradeOverridesPanel (Tool-call resilience)
+	autoDowngradeTitle: 'Auto-detected tool-call overrides',
+	autoDowngradeIntro: 'Модели, автоматически переведённые на XML-формат тулов из-за повторных quirk-ошибок (например, эмиссия численных имён тулов "0"/"1"/"5" или пропуск обязательных полей). Действует TTL 7 дней — после этого override снимется и модели снова дадут native function-calling.',
+	autoDowngradeEmpty: 'Сейчас все модели работают на дефолтном формате tool-call. Если модель начнёт повторно ломаться на quirks, она автоматически появится здесь.',
+	autoDowngradeColProvider: 'Провайдер',
+	autoDowngradeColModel: 'Модель',
+	autoDowngradeColReason: 'Причина',
+	autoDowngradeColAge: 'Обнаружено',
+	autoDowngradeColTTL: 'TTL осталось',
+	autoDowngradeColActions: 'Действия',
+	autoDowngradeRevert: 'Снять',
+	autoDowngradePin: 'Закрепить',
+	autoDowngradeRevertHint: 'Удалить override полностью — модель попробует native FC на следующем запросе. Если quirk остался, override автоматически вернётся.',
+	autoDowngradePinHint: 'Конвертировать auto-detected в manual override — он не истечёт по TTL. Используйте если знаете, что модель навсегда сломана на native FC.',
+	autoDowngradeTTLExpired: 'истекло',
+	autoDowngradeReasonNumeric: 'Численные имена тулов (minimax/qwen quirk)',
+	autoDowngradeReasonMissingField: 'Пропущенные обязательные параметры',
+	autoDowngradeReasonWrongName: 'Несуществующие имена тулов',
+	autoDowngradeReasonOther: 'Прочие повторные ошибки tool-call',
 } as const;
 
 export const modelsS = {

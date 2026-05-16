@@ -138,10 +138,17 @@ export type LLMRuntimeOptions = {
 		cloud?: number;
 		aggregator?: number;
 	};
-	/** When false, force XML-in-prompt mode for aggregator-provider unknown models
-	 * (overrides the synthesized `specialToolFormat='openai-style'` default).
-	 * Default true. See `vibeide.llm.assumeNativeTools` setting. */
+	/** DEPRECATED in favor of `toolFallbackMode`. When false, force XML-in-prompt
+	 * mode for aggregator-provider unknown models (overrides the synthesized
+	 * `specialToolFormat='openai-style'` default). See `vibeide.llm.assumeNativeTools`. */
 	assumeNativeTools?: boolean;
+	/** Strategy for tool-call format on aggregator-routed unknown models.
+	 * `auto` — start native, runtime auto-downgrade to XML on quirks.
+	 * `native` — always force native FC, ignore any auto-detected overrides.
+	 * `xml` — always force XML-in-prompt.
+	 * Maps from `vibeide.llm.toolFallbackMode` setting (with backward-compat
+	 * migration from `assumeNativeTools`). See roadmap O.8. */
+	toolFallbackMode?: 'auto' | 'native' | 'xml';
 }
 
 // params to the true sendLLMMessage function

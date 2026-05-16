@@ -465,15 +465,25 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 			continue
 		}
 
-		// edit previous assistant message to have called the tool
-		// Check the last message in newMessages (not messages[i-1] since arrays might have different lengths)
-		const lastMsg = newMessages.length > 0 ? newMessages[newMessages.length - 1] : undefined
-		if (lastMsg?.role === 'assistant') {
-			// Add tool_calls to the assistant message if not already present
-			if (!lastMsg.tool_calls) {
-				lastMsg.tool_calls = []
+		// Append tool_call to the NEAREST preceding assistant message — not just
+		// the immediately previous one. OpenAI tools format permits multiple
+		// tool result messages in a row when each tool_call_id resolves to a
+		// tool_call in some earlier assistant.tool_calls; the assistant doesn't
+		// need to be adjacent. Previously we required adjacency and skipped
+		// tool results otherwise, which dropped them from the next LLM request
+		// and caused minimax-style models to loop (they kept retrying because
+		// they never saw their previous tool results).
+		let nearestAssistant: OpenAILLMChatMessage | undefined = undefined
+		for (let j = newMessages.length - 1; j >= 0; j--) {
+			const m = newMessages[j]
+			if (m.role === 'assistant') { nearestAssistant = m; break }
+			if (m.role === 'user') { break } // user message ends the assistant→tools group
+		}
+		if (nearestAssistant) {
+			if (!nearestAssistant.tool_calls) {
+				nearestAssistant.tool_calls = []
 			}
-			lastMsg.tool_calls.push({
+			nearestAssistant.tool_calls.push({
 				type: 'function',
 				id: currMsg.id,
 				function: {
@@ -482,10 +492,22 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 				}
 			})
 		} else {
-			// Tool message without preceding assistant message - this violates OpenAI API requirements
-			// Skip this tool message to avoid API errors
-			console.warn(`Skipping tool message ${currMsg.name} (id: ${currMsg.id}) because it doesn't follow an assistant message. Last message role: ${lastMsg?.role || 'none'}`)
-			continue
+			// Genuinely orphan tool result (no preceding assistant in the same
+			// turn group). Synthesize a minimal assistant stub holding the
+			// tool_call so the tool_result can still be sent. Without this the
+			// LLM never sees the result, the model loops, and the agent stalls.
+			newMessages.push({
+				role: 'assistant',
+				content: '',
+				tool_calls: [{
+					type: 'function',
+					id: currMsg.id,
+					function: {
+						name: currMsg.name,
+						arguments: JSON.stringify(currMsg.rawParams)
+					}
+				}]
+			} as OpenAILLMChatMessage)
 		}
 
 		// add the tool

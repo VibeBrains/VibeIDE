@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Disposable, IDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
 import { localize } from '../../../../nls.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IFileService, FileChangesEvent } from '../../../../platform/files/common/files.js';
@@ -24,6 +24,10 @@ export class VibePersistedPlanDiskEditContribution extends Disposable implements
 	static readonly ID = 'workbench.contrib.vibePersistedPlanDiskEdit';
 
 	private readonly _debouncers = new Map<string, IDisposable>();
+	// Owns timeouts created in `_schedulePlanFileHint`. `disposableTimeout` with
+	// a store auto-leaks (cleans) the disposable when the timer fires; without
+	// the store the wrapper lingered until GC and tripped the leak tracker.
+	private readonly _debouncerStore = this._register(new DisposableStore());
 
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
@@ -78,7 +82,7 @@ export class VibePersistedPlanDiskEditContribution extends Disposable implements
 			disposableTimeout(() => {
 				this._debouncers.delete(key);
 				void this._maybeNotifyExecutingMismatch(uri);
-			}, 800),
+			}, 800, this._debouncerStore),
 		);
 	}
 

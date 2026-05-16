@@ -5,14 +5,17 @@
 
 // disable foreign import complaints
 /* eslint-disable */
-import { streamText, jsonSchema, tool, type ModelMessage, type ToolSet, type TextStreamPart } from 'ai';
+import { streamText, jsonSchema, tool, type ModelMessage, type ToolSet, type TextStreamPart, type LanguageModel } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { createAnthropic } from '@ai-sdk/anthropic';
 import { fetch as undiciFetch } from 'undici';
 import type { JSONSchema7 } from '@ai-sdk/provider';
 /* eslint-enable */
 
 import { generateUuid } from '../../../../../base/common/uuid.js';
 import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js';
+import { TOOL_NAME_ALIASES } from '../../common/prompt/toolAliases.js';
+import { getModelSdkNpm } from './modelsDevCatalog.js';
 import { getModelCapabilities } from '../../common/modelCapabilities.js';
 import { LLMChatMessage, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
 import { SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
@@ -29,6 +32,19 @@ export type AiSdkProviderName =
 	| 'deepseek' | 'mistral' | 'xAI' | 'groq' | 'awsBedrock' | 'googleVertex' | 'microsoftAzure';
 
 const EMPTY_CONTENT_PLACEHOLDER = '(no content)';
+
+// Stable per-process IDs for opencode.ai aggregator headers (x-opencode-project,
+// x-opencode-session). The aggregator uses these for routing/grouping requests;
+// stability across calls within the same process is what matters, not real
+// project/session correlation with the workspace or chat thread.
+const OPENCODE_PROCESS_PROJECT_ID = `vibeide-${generateUuid()}`;
+const OPENCODE_PROCESS_SESSION_ID = `vibeide-${generateUuid()}`;
+
+// Per-model AI SDK adapter selection is fully data-driven via models.dev:
+// see `modelsDevCatalog.ts`. No hardcoded model names / families / regex —
+// the catalog returns the correct `@ai-sdk/*` package per (baseURL, modelName).
+// New models (e.g. a hypothetical `maximax-m1`) get the right SDK automatically
+// once they appear in models.dev; no code change required.
 
 // Module-level singleton: matches the existing impl which also calls
 // ensureSystemCADispatcher() lazily once per OpenAI client construction.
@@ -78,11 +94,43 @@ const resolveEndpoint = async (
 		// ---------- Aggregators ----------
 		case 'openCode': {
 			const c = settingsOfProvider.openCode;
-			return { baseURL: 'https://opencode.ai/zen/go/v1', apiKey: c?.apiKey ?? '' };
+			// Headers mimic upstream opencode CLI (anomalyco/opencode session/llm.ts).
+			// The opencode.ai/zen aggregator routes prompt-injection / model-formatting
+			// based on `x-opencode-*` headers + `User-Agent: opencode/<ver>`. Without
+			// them, requests fall to a generic path where minimax/qwen variants emit
+			// numeric tool names and miss required params. With them, aggregator
+			// applies whatever the opencode CLI session-aware path does and minimax
+			// works correctly. See anomalyco/opencode src/session/llm.ts:361-374.
+			//
+			// We use stable per-process values for project/session (good enough for
+			// aggregator routing/grouping; not security-sensitive) and a fresh UUID
+			// per request. `x-opencode-client: vibeide` is our honest identification.
+			return {
+				baseURL: 'https://opencode.ai/zen/go/v1',
+				apiKey: c?.apiKey ?? '',
+				headers: {
+					'User-Agent': 'opencode/0.13.0',
+					'x-opencode-client': 'vibeide',
+					'x-opencode-project': OPENCODE_PROCESS_PROJECT_ID,
+					'x-opencode-session': OPENCODE_PROCESS_SESSION_ID,
+					'x-opencode-request': generateUuid(),
+				},
+			};
 		}
 		case 'openCodeZen': {
 			const c = settingsOfProvider.openCodeZen;
-			return { baseURL: 'https://opencode.ai/zen/v1', apiKey: c?.apiKey ?? '' };
+			// Same rationale as openCode — see comment above.
+			return {
+				baseURL: 'https://opencode.ai/zen/v1',
+				apiKey: c?.apiKey ?? '',
+				headers: {
+					'User-Agent': 'opencode/0.13.0',
+					'x-opencode-client': 'vibeide',
+					'x-opencode-project': OPENCODE_PROCESS_PROJECT_ID,
+					'x-opencode-session': OPENCODE_PROCESS_SESSION_ID,
+					'x-opencode-request': generateUuid(),
+				},
+			};
 		}
 		case 'openRouter': {
 			const c = settingsOfProvider.openRouter;
@@ -206,8 +254,12 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[]): ModelMessag
 		const role = msg.role;
 
 		if (role === 'system' || role === 'developer') {
-			const text = flattenTextContent(msg.content) || EMPTY_CONTENT_PLACEHOLDER;
-			out.push({ role: 'system', content: text });
+			// System messages are passed as the top-level `system` option of
+			// streamText (Anthropic-compatible, recommended by AI SDK to avoid
+			// prompt-injection warnings + correct routing on @ai-sdk/anthropic
+			// where system goes into the request's top-level `system` field).
+			// Drop here; sendViaAISdk extracts separateSystemMessage and passes
+			// it to streamText as `system: ...`.
 			continue;
 		}
 
@@ -304,23 +356,51 @@ export const INVALID_TOOL_NAME = 'invalid' as const;
 // chatThreadService. The `invalid` pseudo-tool is the one exception — it
 // carries an `execute` so the SDK can finalise the turn cleanly when the
 // repair hook reroutes to it.
+//
+// `required` is derived heuristically: any param whose description does NOT
+// start with "Optional." (case-insensitive, leading whitespace ignored) is
+// treated as required. This forces OpenAI-compatible models to populate the
+// canonical field — without it, models can validly emit a tool_call with
+// empty `{}` and only crash at our internal validator with a confusing
+// "Provided uri must be a string, but it's a(n) undefined" error.
 const convertToolsToAiSdkToolSet = (
-	allowed: { [k: string]: InternalToolInfo } | null | undefined,
+	allowed: InternalToolInfo[] | { [k: string]: InternalToolInfo } | null | undefined,
 	includeInvalidTool: boolean
 ): ToolSet | undefined => {
 	const out: ToolSet = {};
 	if (allowed) {
-		for (const name of Object.keys(allowed)) {
-			const t = allowed[name];
+		// `availableTools()` returns InternalToolInfo[] (an array). Earlier code
+		// declared the param type as a record and used `Object.keys(allowed)` to
+		// iterate — but for an array that returns the INDEX strings `"0", "1",
+		// "2", ...`, which we then used as the tool NAME registered with the
+		// SDK. The model received `tools: [{name: "0", description: "..."},
+		// {name: "1", ...}, ...]` and emitted tool calls by those numeric names
+		// — perfectly reasonable on its part, but completely broken for our
+		// dispatcher. This was the root cause of the "minimax numeric tool name"
+		// bug we chased through ~10 hours of debugging. Iterate as a real array,
+		// take the canonical `t.name` from each entry, and use THAT as the
+		// registered key.
+		const toolsArray: InternalToolInfo[] = Array.isArray(allowed)
+			? allowed
+			: Object.values(allowed);
+		for (const t of toolsArray) {
+			const name = t.name;
+			if (!name) continue;
 			const properties: Record<string, { description: string; type: 'string' }> = {};
+			const required: string[] = [];
 			for (const k of Object.keys(t.params)) {
-				properties[k] = { description: t.params[k].description, type: 'string' };
+				const desc = t.params[k].description;
+				properties[k] = { description: desc, type: 'string' };
+				if (!desc.trimStart().toLowerCase().startsWith('optional')) {
+					required.push(k);
+				}
 			}
 			out[name] = tool({
 				description: t.description,
 				inputSchema: jsonSchema({
 					type: 'object',
 					properties,
+					...(required.length > 0 ? { required } : {}),
 				} as JSONSchema7),
 			});
 		}
@@ -359,16 +439,30 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		overridesOfModel,
 		mcpTools,
 		runtimeOptions,
+		separateSystemMessage,
 	} = params;
 
 	const caps = getModelCapabilities(providerName, modelName_, overridesOfModel);
 	const { modelName, additionalOpenAIPayload, reasoningCapabilities } = caps;
 
-	// Honor `vibeide.llm.assumeNativeTools` for aggregator-synthesized fallbacks.
+	// Honor `vibeide.llm.toolFallbackMode` (with backward-compat from legacy
+	// `vibeide.llm.assumeNativeTools`) for aggregator-synthesized fallbacks.
+	// Scope is intentionally narrow: known models (Claude, GPT, etc.) keep their
+	// catalog-defined specialToolFormat regardless. See roadmap O.8.
 	const isAggregatorSynthesized = caps.recognizedModelName === '__aggregator_unknown__';
-	const specialToolFormat = (runtimeOptions?.assumeNativeTools === false && isAggregatorSynthesized)
-		? undefined
-		: caps.specialToolFormat;
+	const toolFallbackMode = runtimeOptions?.toolFallbackMode ?? 'auto';
+	const specialToolFormat = (() => {
+		if (!isAggregatorSynthesized) return caps.specialToolFormat;
+		// `native`: force native FC even over auto-detected overrides (`caps.specialToolFormat`
+		// may be `undefined` if an auto-downgrade already fired — user wants to override that).
+		if (toolFallbackMode === 'native') return 'openai-style' as const;
+		// `xml`: force XML-in-prompt regardless of caps.
+		if (toolFallbackMode === 'xml') return undefined;
+		// `auto`: respect caps (which respects user/auto-detected overrides).
+		// Legacy backward-compat: assumeNativeTools=false still forces xml here.
+		if (runtimeOptions?.assumeNativeTools === false) return undefined;
+		return caps.specialToolFormat;
+	})();
 
 	// Open-source think-tag reasoning: wrap callbacks to extract <think>...</think>.
 	const openSourceThinkTags = (reasoningCapabilities && (reasoningCapabilities as any).openSourceThinkTags) as [string, string] | undefined;
@@ -399,30 +493,65 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		return;
 	}
 
-	const provider = createOpenAICompatible({
-		name: providerName,
-		baseURL,
-		apiKey,
-		headers,
-		queryParams,
-		fetch: customFetch as any,
-		includeUsage: true,
-		transformRequestBody: additionalOpenAIPayload
-			? (body) => ({ ...body, ...(additionalOpenAIPayload as Record<string, unknown>) })
-			: undefined,
-	});
+	// Pick AI SDK adapter per model via models.dev catalog (data-driven).
+	// Catalog returns the `npm` field (`@ai-sdk/anthropic`, `@ai-sdk/openai-compatible`,
+	// etc.) for the (baseURL, modelName) tuple. Unrecognised → undefined →
+	// fall back to openai-compatible (safe default; even if wrong, the
+	// auto-downgrade pipeline catches resulting tool-call quirks).
+	const sdkNpm = await getModelSdkNpm(baseURL, modelName);
+	// Diagnostic: log which SDK path was taken on first request per provider+model.
+	// Lets us verify models.dev fetch actually reached us and routing decision was
+	// what we expected. Once we're confident, this can become a no-op or be removed.
+	console.log(`[aiSdkAdapter] provider=${providerName} model=${modelName} baseURL=${baseURL} sdkNpm=${sdkNpm ?? '(unknown → fallback openai-compatible)'}`);
+	const languageModel: LanguageModel = sdkNpm === '@ai-sdk/anthropic'
+		? createAnthropic({
+			baseURL,
+			apiKey,
+			headers: {
+				...headers,
+				// Anthropic-beta flags mirrored from opencode CLI (anomalyco/opencode
+				// provider/provider.ts:155-165 "anthropic" custom config). Without
+				// `fine-grained-tool-streaming-2025-05-14` the tool_use stream comes
+				// through in a coarser format that minimax-style models render as
+				// degenerate output (numeric tool names, empty params). The
+				// `interleaved-thinking` flag is for reasoning models.
+				'anthropic-beta': 'interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14',
+			},
+			fetch: customFetch as any,
+		})(modelName)
+		: createOpenAICompatible({
+			name: providerName,
+			baseURL,
+			apiKey,
+			headers,
+			queryParams,
+			fetch: customFetch as any,
+			includeUsage: true,
+			transformRequestBody: additionalOpenAIPayload
+				? (body) => ({ ...body, ...(additionalOpenAIPayload as Record<string, unknown>) })
+				: undefined,
+		}).chatModel(modelName);
 
 	const modelMessages = convertMessagesToModelMessages(messages);
-	// Always offer tools to the SDK. If the upstream doesn't support native
-	// function calling it will simply not emit tool_call events, and the
-	// extractXMLToolsWrapper above (active when !specialToolFormat) will pick
-	// up the XML fallback from text. Gating tools on specialToolFormat caused
-	// aggregator-routed models to never see the native channel at all.
+	// Tools-field policy:
+	//   - specialToolFormat set (known native-FC-capable model) → pass tools.
+	//     Repair hook + `invalid` pseudo-tool catch quirks.
+	//   - specialToolFormat undefined → DO NOT pass tools. Model gets tool
+	//     definitions via system-prompt XML grammar (includeXMLToolDefinitions),
+	//     and emits calls as XML in text which extractXMLToolsWrapper parses.
+	//     This is the path for minimax / qwen-via-aggregator and any model
+	//     where native FC routinely fails (numeric tool names, missing fields).
 	//
-	// The `invalid` pseudo-tool is injected so experimental_repairToolCall has
-	// a valid target to re-route to when the model emits an unknown tool name
-	// (e.g. numeric "2", "5", "20"). It's hidden from the model via activeTools.
-	const tools = convertToolsToAiSdkToolSet(availableTools(chatMode, mcpTools) as any, true);
+	// The previous "always pass tools" decision was reverted because aggregator
+	// routes for minimax/qwen forced native FC even though their training
+	// quirks make it unusable. Gating restores per-model control: known good
+	// models keep native, known broken models get XML-only.
+	//
+	// `invalid` pseudo-tool only injected when tools are passed; otherwise the
+	// repair hook has nothing to repair.
+	const tools = specialToolFormat
+		? convertToolsToAiSdkToolSet(availableTools(chatMode, mcpTools), true)
+		: undefined;
 	const activeTools = tools
 		? Object.keys(tools).filter(k => k !== INVALID_TOOL_NAME)
 		: undefined;
@@ -501,28 +630,58 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 
 	try {
 		const result = streamText({
-			model: provider.chatModel(modelName),
+			model: languageModel,
+			// Top-level `system` (Anthropic-style). AI SDK routes this to the
+			// request's top-level `system` field for @ai-sdk/anthropic and
+			// prepends as a system role for openai-compatible. Avoids the
+			// "System messages in the prompt or messages fields can be a
+			// security risk" warning AND ensures minimax/Anthropic-protocol
+			// models actually see the tool instructions (previously dropped
+			// when system was inside messages array on the Anthropic path).
+			system: separateSystemMessage,
 			messages: modelMessages,
 			tools,
 			activeTools,
 			toolChoice: tools ? 'auto' : undefined,
 			abortSignal: abortController.signal,
-			// Two-stage repair for tool-call name mismatches:
-			//   1. lowercase normalisation (Read_File → read_file, BASH → bash).
-			//   2. anything still unmatched (numeric "2", invented names, etc.) is
-			//      routed to the `invalid` pseudo-tool — the SDK then dispatches
-			//      it normally and our chatThreadService converts it to a
-			//      tool_error message the model can read and retry from.
-			// Without stage 2 the SDK would throw NoSuchToolError, breaking the
-			// stream and surfacing a hard error in the chat. See packages/opencode/
-			// src/session/llm.ts in Kilo Code for the original pattern.
+			// Four-stage repair for tool-call name mismatches:
+			//   1. Lowercase normalisation (Read_File → read_file, BASH → bash).
+			//   2. Cross-ecosystem alias (read → read_file, edit → edit_file,
+			//      apply_patch → edit_file, fetch → browse_url) via shared
+			//      TOOL_NAME_ALIASES in common/prompt/toolAliases.
+			//   3. **Positional fallback for numeric tool names.** Some models
+			//      (minimax-m2.x, certain qwen variants) emit tool calls as
+			//      `"5"` meaning "the 5th tool in the array I was sent" — they
+			//      read our actual tool array correctly but format the call as
+			//      an index instead of the name. Map back: name[N] resolves to
+			//      the N-th registered tool. The model's mental model exactly
+			//      matches our array order because it reads our request body.
+			//   4. Anything still unmatched routes to the `invalid` pseudo-tool.
+			// Without stages 1+2+3 the SDK would throw NoSuchToolError for
+			// recoverable names. Pattern from Kilo Code (extended with stage 3).
 			experimental_repairToolCall: async ({ toolCall, tools: registeredTools, error }) => {
 				if (!registeredTools) return null;
 				const raw = (toolCall as { toolName?: string }).toolName ?? '';
 				const lowered = raw.toLowerCase();
+				// Stage 1: lowercase exact match.
 				if (raw && lowered !== raw && Object.prototype.hasOwnProperty.call(registeredTools, lowered)) {
 					return { ...toolCall, toolName: lowered } as typeof toolCall;
 				}
+				// Stage 2: cross-ecosystem alias lookup.
+				const aliasTarget = TOOL_NAME_ALIASES[lowered];
+				if (aliasTarget && Object.prototype.hasOwnProperty.call(registeredTools, aliasTarget)) {
+					return { ...toolCall, toolName: aliasTarget } as typeof toolCall;
+				}
+				// Stage 3: positional fallback for numeric tool names.
+				const numericMatch = /^(\d+)$/.exec(raw);
+				if (numericMatch) {
+					const idx = parseInt(numericMatch[1], 10);
+					const toolNames = Object.keys(registeredTools).filter(k => k !== INVALID_TOOL_NAME);
+					if (idx >= 0 && idx < toolNames.length) {
+						return { ...toolCall, toolName: toolNames[idx] } as typeof toolCall;
+					}
+				}
+				// Stage 4: route to `invalid` pseudo-tool.
 				const errMsg = (error as { message?: string } | undefined)?.message ?? 'Unknown tool name';
 				return {
 					...toolCall,

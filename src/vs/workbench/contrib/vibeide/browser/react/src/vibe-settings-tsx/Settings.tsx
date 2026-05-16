@@ -2226,6 +2226,152 @@ const SessionMemoryPanel = () => {
 	)
 }
 
+// O.10 — Auto-detected tool-call overrides diagnostics panel.
+// Lists models that the runtime auto-downgrade pipeline (chatThreadService
+// agent loop, roadmap O.1–O.7) has flipped to XML-fallback mode after
+// detecting repeated tool-call quirks. User actions:
+//   - Revert: clears the override entirely (next call retries native FC).
+//   - Pin:    strips `_autoDetected`/`_detectedAt` metadata, converting
+//             to a manual override (immune to TTL, never auto-expires).
+const AutoDowngradeOverridesPanel = () => {
+	const accessor = useAccessor()
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
+	const notificationService = accessor.get('INotificationService')
+	const settingsState = useSettingsState()
+
+	// AUTO_DOWNGRADE_TTL_MS lives in modelCapabilities; duplicate the constant
+	// here (synchronisation risk is low — it changes ~never).
+	const AUTO_DOWNGRADE_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
+	type Row = {
+		providerName: string
+		modelName: string
+		reason: 'numeric-tool-name' | 'missing-required-field' | 'wrong-tool-name' | 'other'
+		detectedAt: number
+	}
+
+	const rows: Row[] = []
+	const overrides = settingsState.overridesOfModel
+	if (overrides) {
+		for (const providerName of Object.keys(overrides) as (keyof typeof overrides)[]) {
+			const byModel = overrides[providerName]
+			if (!byModel) continue
+			for (const modelName of Object.keys(byModel)) {
+				const o = byModel[modelName] as { _autoDetected?: boolean; _detectedAt?: number; _reason?: Row['reason'] } | undefined
+				if (!o || !o._autoDetected) continue
+				rows.push({
+					providerName: providerName as string,
+					modelName,
+					reason: o._reason ?? 'other',
+					detectedAt: typeof o._detectedAt === 'number' ? o._detectedAt : 0,
+				})
+			}
+		}
+	}
+	rows.sort((a, b) => b.detectedAt - a.detectedAt)
+
+	const reasonText = (r: Row['reason']): string => {
+		switch (r) {
+			case 'numeric-tool-name': return safetyS.autoDowngradeReasonNumeric
+			case 'missing-required-field': return safetyS.autoDowngradeReasonMissingField
+			case 'wrong-tool-name': return safetyS.autoDowngradeReasonWrongName
+			case 'other': return safetyS.autoDowngradeReasonOther
+		}
+	}
+
+	const formatAge = (ts: number): string => {
+		if (!ts) return '—'
+		const ageMs = Date.now() - ts
+		const mins = Math.floor(ageMs / 60_000)
+		if (mins < 1) return safetyS.ageLessThanMin
+		if (mins < 60) return safetyS.ageMinutes(mins)
+		const hours = Math.floor(mins / 60)
+		if (hours < 24) return safetyS.ageHours(hours)
+		return safetyS.ageDays(Math.floor(hours / 24))
+	}
+	const formatTTL = (ts: number): string => {
+		if (!ts) return '—'
+		const remainingMs = ts + AUTO_DOWNGRADE_TTL_MS - Date.now()
+		if (remainingMs <= 0) return safetyS.autoDowngradeTTLExpired
+		const mins = Math.floor(remainingMs / 60_000)
+		if (mins < 60) return safetyS.ageMinutes(mins)
+		const hours = Math.floor(mins / 60)
+		if (hours < 24) return safetyS.ageHours(hours)
+		return safetyS.ageDays(Math.floor(hours / 24))
+	}
+
+	const onRevert = useCallback(async (providerName: string, modelName: string) => {
+		try {
+			await vibeideSettingsService.setOverridesOfModel(providerName as any, modelName, undefined)
+		} catch (e: any) {
+			notificationService.notify({ severity: Severity.Error, message: `Revert failed: ${e?.message ?? e}` })
+		}
+	}, [vibeideSettingsService, notificationService])
+
+	const onPin = useCallback(async (providerName: string, modelName: string) => {
+		try {
+			// Pin: keep specialToolFormat=undefined but strip metadata so TTL doesn't apply.
+			// setOverridesOfModel merges shallow — we need to clear first then write fresh.
+			await vibeideSettingsService.setOverridesOfModel(providerName as any, modelName, undefined)
+			await vibeideSettingsService.setOverridesOfModel(providerName as any, modelName, { specialToolFormat: undefined })
+		} catch (e: any) {
+			notificationService.notify({ severity: Severity.Error, message: `Pin failed: ${e?.message ?? e}` })
+		}
+	}, [vibeideSettingsService, notificationService])
+
+	return (
+		<div className='max-w-[900px]'>
+			<h2 className='text-xl mb-2'>{safetyS.autoDowngradeTitle}</h2>
+			<h4 className='text-vibe-fg-3 mb-4'>{safetyS.autoDowngradeIntro}</h4>
+			{rows.length === 0 ? (
+				<div className='text-vibe-fg-3 text-sm'>{safetyS.autoDowngradeEmpty}</div>
+			) : (
+				<table className='text-vibe-fg-1 text-sm w-full border-collapse'>
+					<thead>
+						<tr className='text-left text-vibe-fg-3'>
+							<th className='px-2 py-1'>{safetyS.autoDowngradeColProvider}</th>
+							<th className='px-2 py-1'>{safetyS.autoDowngradeColModel}</th>
+							<th className='px-2 py-1'>{safetyS.autoDowngradeColReason}</th>
+							<th className='px-2 py-1'>{safetyS.autoDowngradeColAge}</th>
+							<th className='px-2 py-1'>{safetyS.autoDowngradeColTTL}</th>
+							<th className='px-2 py-1'>{safetyS.autoDowngradeColActions}</th>
+						</tr>
+					</thead>
+					<tbody>
+						{rows.map(r => (
+							<tr key={`${r.providerName}:${r.modelName}`}>
+								<td className='px-2 py-1 align-top'>{r.providerName}</td>
+								<td className='px-2 py-1 align-top break-all'>{r.modelName}</td>
+								<td className='px-2 py-1 align-top'>{reasonText(r.reason)}</td>
+								<td className='px-2 py-1 align-top whitespace-nowrap'>{formatAge(r.detectedAt)}</td>
+								<td className='px-2 py-1 align-top whitespace-nowrap'>{formatTTL(r.detectedAt)}</td>
+								<td className='px-2 py-1 align-top'>
+									<div className='flex gap-2'>
+										<VibeButtonBgDarken
+											className='px-2 py-0.5 text-xs'
+											onClick={() => { void onRevert(r.providerName, r.modelName) }}
+											title={safetyS.autoDowngradeRevertHint}
+										>
+											{safetyS.autoDowngradeRevert}
+										</VibeButtonBgDarken>
+										<VibeButtonBgDarken
+											className='px-2 py-0.5 text-xs'
+											onClick={() => { void onPin(r.providerName, r.modelName) }}
+											title={safetyS.autoDowngradePinHint}
+										>
+											{safetyS.autoDowngradePin}
+										</VibeButtonBgDarken>
+									</div>
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			)}
+		</div>
+	)
+}
+
 const SafetyPanel = () => {
 	const accessor = useAccessor()
 	const configService = accessor.get('IConfigurationService')
@@ -2306,6 +2452,10 @@ const SafetyPanel = () => {
 
 			<ErrorBoundary>
 				<SessionMemoryPanel />
+			</ErrorBoundary>
+
+			<ErrorBoundary>
+				<AutoDowngradeOverridesPanel />
 			</ErrorBoundary>
 		</div>
 	);

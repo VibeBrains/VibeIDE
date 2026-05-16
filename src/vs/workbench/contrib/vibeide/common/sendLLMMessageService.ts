@@ -253,13 +253,25 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 
 		// Pull tunable timeouts from VS Code config (registered in vibeideGlobalSettingsConfiguration).
 		// Reading per-call is cheap and lets users change the values without restart.
+		// Backward-compat: if user has legacy `assumeNativeTools=false` and hasn't
+		// touched the new `toolFallbackMode`, synthesize `'xml'` so existing
+		// settings keep working. New setting wins if both are set.
+		const newMode = this.configurationService.getValue<'auto' | 'native' | 'xml' | undefined>('vibeide.llm.toolFallbackMode');
+		const oldAssumeNative = this.configurationService.getValue<boolean | undefined>('vibeide.llm.assumeNativeTools');
+		const toolFallbackMode: 'auto' | 'native' | 'xml' = (() => {
+			if (newMode === 'native' || newMode === 'xml') return newMode;
+			// newMode is 'auto' or undefined → check legacy boolean for backward compat
+			if (oldAssumeNative === false) return 'xml';
+			return 'auto';
+		})();
 		const runtimeOptions = {
 			timeoutMs: {
 				local: this.configurationService.getValue<number>('vibeide.llm.timeoutMs.local'),
 				cloud: this.configurationService.getValue<number>('vibeide.llm.timeoutMs.cloud'),
 				aggregator: this.configurationService.getValue<number>('vibeide.llm.timeoutMs.aggregator'),
 			},
-			assumeNativeTools: this.configurationService.getValue<boolean>('vibeide.llm.assumeNativeTools'),
+			assumeNativeTools: oldAssumeNative, // kept for legacy code paths
+			toolFallbackMode,
 		};
 
 		// params will be stripped of all its functions over the IPC channel

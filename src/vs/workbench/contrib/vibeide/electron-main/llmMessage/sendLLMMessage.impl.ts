@@ -643,14 +643,18 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 		reasoningCapabilities,
 		additionalOpenAIPayload,
 	} = caps
-	// Honor the `vibeide.llm.assumeNativeTools` kill-switch: when explicitly false,
-	// strip the synthesized 'openai-style' that aggregatorOpenAIFallback applies to
-	// unknown models, forcing them back to XML-in-prompt mode. Known models (with a
-	// real recognizedModelName) keep their declared format regardless of this flag.
+	// Honor `vibeide.llm.toolFallbackMode` (with backward-compat from legacy
+	// `vibeide.llm.assumeNativeTools`) for aggregator-synthesized fallbacks.
+	// Same semantics as in aiSdkAdapter; see roadmap O.8.
 	const isAggregatorSynthesized = caps.recognizedModelName === '__aggregator_unknown__'
-	const specialToolFormat = (runtimeOptions?.assumeNativeTools === false && isAggregatorSynthesized)
-		? undefined
-		: caps.specialToolFormat
+	const toolFallbackMode = runtimeOptions?.toolFallbackMode ?? 'auto'
+	const specialToolFormat = (() => {
+		if (!isAggregatorSynthesized) return caps.specialToolFormat
+		if (toolFallbackMode === 'native') return 'openai-style' as const
+		if (toolFallbackMode === 'xml') return undefined
+		if (runtimeOptions?.assumeNativeTools === false) return undefined
+		return caps.specialToolFormat
+	})()
 
 	// APIs like Vertex/Pollinations require non-empty content except for the optional final assistant message
 	const messagesToSend = sanitizeOpenAIMessagesForEmptyContent(messages)

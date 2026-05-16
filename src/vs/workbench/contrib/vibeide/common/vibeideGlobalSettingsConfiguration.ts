@@ -180,7 +180,19 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 				'vibeide.llm.assumeNativeTools': {
 					type: 'boolean',
 					default: true,
-					description: localize('vibeide.llm.assumeNativeTools', 'Для неизвестных моделей через OpenAI-compatible агрегаторов (OpenRouter, OpenCode Zen/Go, LM Router, LiteLLM, openAICompatible, Pollinations) — по умолчанию использовать native function-calling (`tools: [...]` в payload), а не XML-описание тулов в system prompt. On (по умолчанию) — большинство моделей корректно вызывают тулы без галлюцинаций формата (<bash>, <invoke>, <minimax:tool_call> и т.п.). Off — fallback на XML-в-промпте, на случай если конкретный провайдер падает с HTTP 4xx на native tools. Известные модели (Claude/GPT/Gemini/Grok/DeepSeek/Llama/Qwen и пр.) этой настройкой не затрагиваются — их формат явно прописан в каталоге.'),
+					description: localize('vibeide.llm.assumeNativeTools', '**DEPRECATED**, используйте `vibeide.llm.toolFallbackMode` вместо. Для неизвестных моделей через OpenAI-compatible агрегаторов (OpenRouter, OpenCode Zen/Go, LM Router, LiteLLM, openAICompatible, Pollinations) — по умолчанию использовать native function-calling (`tools: [...]` в payload), а не XML-описание тулов в system prompt. On — большинство моделей корректно вызывают тулы. Off — fallback на XML-в-промпте.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.llm.toolFallbackMode': {
+					type: 'string',
+					enum: ['auto', 'native', 'xml'],
+					enumDescriptions: [
+						localize('vibeide.llm.toolFallbackMode.auto', 'Auto: использовать native function-calling по умолчанию, runtime detect / auto-downgrade переключает на XML при повторных quirk-ошибках (`numeric tool names`, missing required fields). Рекомендуется в большинстве случаев.'),
+						localize('vibeide.llm.toolFallbackMode.native', 'Native: всегда форсить native function-calling для неизвестных моделей через aggregator. Игнорирует auto-detected override\'ы. Используйте если уверены, что ваша модель корректно работает с native FC, и auto-downgrade ошибочно срабатывает.'),
+						localize('vibeide.llm.toolFallbackMode.xml', 'XML: всегда форсить XML-в-промпте для неизвестных моделей через aggregator. Используйте если знаете, что все ваши aggregator-модели имеют quirks с native FC (медленнее, но совместимее).'),
+					],
+					default: 'auto',
+					description: localize('vibeide.llm.toolFallbackMode.description', 'Стратегия выбора tool-call формата для неизвестных моделей через OpenAI-compatible aggregator (OpenRouter, OpenCode Zen/Go, LM Router, LiteLLM, openAICompatible, Pollinations). **auto** — стартовать с native, авто-переключение на XML при quirk-ошибках. **native** — всегда native, игнор авто-override\'ов. **xml** — всегда XML. Известные модели (Claude/GPT/Gemini/Grok/DeepSeek/Llama/Qwen и пр.) — не затрагиваются (используют формат из каталога). Заменяет `vibeide.llm.assumeNativeTools` (deprecated: true=auto, false=xml).'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 			},
