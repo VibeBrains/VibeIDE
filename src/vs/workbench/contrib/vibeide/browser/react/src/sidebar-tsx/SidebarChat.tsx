@@ -4969,9 +4969,12 @@ export const SidebarChat = () => {
 	const [skillAnchorRect, setSkillAnchorRect] = useState<{ left: number; bottom: number; width: number } | null>(null)
 
 	// Load skills list once on mount; refresh if it goes stale (TODO: subscribe to file events).
+	// Both services are guarded — if either isn't registered in useAccessor for some build
+	// the autocomplete just stays empty rather than crashing the entire SidebarChat tree.
 	useEffect(() => {
 		const slashSvc = accessor.get('IVibeSlashCommandService')
 		const skillsSvc = accessor.get('IVibeSkillsLibraryService')
+		if (!slashSvc || !skillsSvc) return
 		let cancelled = false
 		slashSvc.getCommands().then(cmds => {
 			if (cancelled) return

@@ -63,6 +63,8 @@ import { IVibePerfGuardrailsService } from '../../../vibePerfGuardrailsService.j
 import { IVibeCustomCommandsService } from '../../../vibeCustomCommandsService.js'
 import { IVibeTokenBudgetService } from '../../../../common/vibeTokenBudgetService.js'
 import { IVibeContextGuardService } from '../../../vibeContextGuardService.js'
+import { IVibeSlashCommandService } from '../../../../common/vibeSlashCommandService.js'
+import { IVibeSkillsLibraryService } from '../../../../common/vibeSkillsLibraryService.js'
 
 
 // normally to do this you'd use a useEffect that calls .onDidChangeState(), but useEffect mounts too late and misses initial state changes
@@ -259,6 +261,9 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 
 			IVibeTokenBudgetService: accessor.get(IVibeTokenBudgetService),
 			IVibeContextGuardService: accessor.get(IVibeContextGuardService),
+
+			IVibeSlashCommandService: accessor.get(IVibeSlashCommandService),
+			IVibeSkillsLibraryService: accessor.get(IVibeSkillsLibraryService),
 
 		} as const
 		return reactAccessor
