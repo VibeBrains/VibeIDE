@@ -4966,7 +4966,11 @@ export const SidebarChat = () => {
 	const [skillMenuOpen, setSkillMenuOpen] = useState(false)
 	const [skillFilter, setSkillFilter] = useState('')
 	const [skillIdx, setSkillIdx] = useState(0)
-	const [skillAnchorRect, setSkillAnchorRect] = useState<{ left: number; bottom: number; width: number } | null>(null)
+	// Anchor rect captured at trigger time. Stored as full top/bottom so we can pick
+	// the dropdown side (above/below textarea) based on available viewport space.
+	const [skillAnchorRect, setSkillAnchorRect] = useState<{ left: number; top: number; bottom: number; width: number } | null>(null)
+	// Refs for keyboard scroll-into-view: array of item DIVs keyed by index.
+	const skillItemRefs = useRef<Array<HTMLDivElement | null>>([])
 
 	// Load skills list once on mount; refresh if it goes stale (TODO: subscribe to file events).
 	// Both services are guarded — if either isn't registered in useAccessor for some build
@@ -4991,6 +4995,14 @@ export const SidebarChat = () => {
 		}).catch(() => { /* skills service not ready or no skills — leave list empty */ })
 		return () => { cancelled = true }
 	}, [accessor])
+
+	// Keep the highlighted dropdown item visible when the user navigates with arrows.
+	// Without this, ArrowDown past the visible window leaves the highlight off-screen.
+	useEffect(() => {
+		if (!skillMenuOpen) return
+		const el = skillItemRefs.current[skillIdx]
+		el?.scrollIntoView({ block: 'nearest' })
+	}, [skillIdx, skillMenuOpen])
 
 	// Filtered list shown in dropdown.
 	const filteredSkillCmds = useMemo(() => {
@@ -5034,7 +5046,7 @@ export const SidebarChat = () => {
 			setSkillIdx(0)
 			setSkillMenuOpen(true)
 			const rect = ta.getBoundingClientRect()
-			setSkillAnchorRect({ left: rect.left, bottom: rect.top, width: rect.width })
+			setSkillAnchorRect({ left: rect.left, top: rect.top, bottom: rect.bottom, width: rect.width })
 		} else {
 			setSkillMenuOpen(false)
 		}
@@ -5079,13 +5091,41 @@ export const SidebarChat = () => {
 	const estimateTokens = useCallback((s: string) => Math.ceil((s || '').length / 4), [])
 	const modelSel = settingsState.modelSelectionOfFeature['Chat']
 
+	// Provider-reported usage from the last finished assistant turn in this thread.
+	// AI SDK exposes input/output/total via `finish` parts; chatThreadService persists
+	// them on `state.lastUsage` in onFinalMessage. When present this is the authoritative
+	// input-token count and replaces all heuristic paths.
+	const lastUsage = currentThread?.state?.lastUsage
+
+	// Live "full prompt" estimate from IVibeContextGuardService.
+	// `convertToLLMMessageService.prepareLLMChatMessages` calls `updateUsage(beforeTokens, contextWindow)`
+	// where beforeTokens = approximateTotalTokens(messages, systemMessage, aiInstructions) —
+	// i.e. the heuristic accounts for the FULL prompt (system + skill expansion + tools
+	// schema + history), not just user/assistant content. That's why the right-side
+	// "Контекст: X / Y" panel and the bottom status bar show realistic numbers while our
+	// own previousMessages.reduce(length/4) under-counted by 10-50×. We subscribe to
+	// onUsageUpdated so the chat-pane indicator stays in sync with the same source.
+	const contextGuardService = accessor.get('IVibeContextGuardService')
+	const [guardCurrentTokens, setGuardCurrentTokens] = useState(() => contextGuardService?.getStatus().currentTokens ?? 0)
+	useEffect(() => {
+		if (!contextGuardService) return
+		const d = contextGuardService.onUsageUpdated(s => setGuardCurrentTokens(s.currentTokens))
+		// Seed from current status in case an update fired before mount.
+		setGuardCurrentTokens(contextGuardService.getStatus().currentTokens ?? 0)
+		return () => d.dispose()
+	}, [contextGuardService])
+
 	// Memoize context budget and messages tokens (only recalculate when messages or model changes)
 	const { contextBudget, messagesTokens } = useMemo(() => {
 		let budget = 0
 		let tokens = 0
 		if (modelSel && isValidProviderModelSelection(modelSel)) {
 			const { providerName, modelName } = modelSel
-			const caps = getModelCapabilities(providerName, modelName, settingsState.overridesOfModel)
+			// Pull catalog hint (provider-reported contextWindow / supportsVision) so the
+			// UI counter uses the same authoritative numbers as the request pipeline.
+			const catalogSvc = accessor.get('IRemoteCatalogService')
+			const catalogInfo = catalogSvc?.getCachedModelInfo(providerName, modelName)
+			const caps = getModelCapabilities(providerName, modelName, settingsState.overridesOfModel, catalogInfo)
 			const contextWindow = caps.contextWindow
 			const msOpts = settingsState.optionsOfModelSelection['Chat'][providerName]?.[modelName]
 			const isReasoningEnabled2 = getIsReasoningEnabledState('Chat', providerName, modelName, msOpts, settingsState.overridesOfModel)
@@ -5102,7 +5142,19 @@ export const SidebarChat = () => {
 
 	// Calculate draft tokens and total on each render (draft changes frequently)
 	const draftTokens = estimateTokens(textAreaRef.current?.value || '')
-	const contextTotal = messagesTokens + draftTokens
+	// Token count source priority (most accurate first):
+	//   1. lastUsage from provider (real input+output for the previous turn).
+	//   2. contextGuardService.currentTokens — heuristic but over the FULL prompt
+	//      (matches the right-side "Контекст" panel and bottom status bar).
+	//   3. messagesTokens — history-only heuristic (degenerate fallback before the
+	//      first request is built).
+	// Draft tokens are added on top via heuristic for live-update while typing.
+	const realBaseTokens = (typeof lastUsage?.promptTokens === 'number' ? lastUsage.promptTokens : 0)
+		+ (typeof lastUsage?.completionTokens === 'number' ? lastUsage.completionTokens : 0)
+	const hasRealUsage = realBaseTokens > 0
+	const baseTokens = hasRealUsage ? realBaseTokens
+		: (guardCurrentTokens > 0 ? guardCurrentTokens : messagesTokens)
+	const contextTotal = baseTokens + draftTokens
 	const contextPct = contextBudget > 0 ? contextTotal / contextBudget : 0
 
 	useEffect(() => {
@@ -5241,37 +5293,66 @@ export const SidebarChat = () => {
 			}}
 		/>
 
-		{/* /skill: autocomplete overlay — fixed-positioned above the textarea, max 8 visible
-		    rows with internal scroll, recent skills first. Click-outside / Escape / blur close it. */}
-		{skillMenuOpen && filteredSkillCmds.length > 0 && skillAnchorRect && (
-			<div
-				className='fixed z-50 bg-vibe-bg-1 border border-vibe-border-3 rounded-lg shadow-xl overflow-hidden'
-				style={{
-					left: skillAnchorRect.left,
-					width: Math.min(420, skillAnchorRect.width),
-					bottom: window.innerHeight - skillAnchorRect.bottom + 4,
-					maxHeight: 280,
-				}}
-				onMouseDown={(e) => { e.preventDefault() /* keep textarea focus */ }}
-			>
-				<div className='px-3 py-1.5 text-[11px] text-vibe-fg-3 border-b border-vibe-border-3 bg-vibe-bg-2'>
-					Доступные скиллы — ↑↓ выбор, Enter/Tab вставить, Esc закрыть
+		{/* /skill: autocomplete overlay — Cursor-style: section heading + 2-line items
+		    (name + truncated sanitized description). Opens above the textarea by default,
+		    flips below if more space is available there (e.g. chat pane docked near the
+		    top of the window). */}
+		{skillMenuOpen && filteredSkillCmds.length > 0 && skillAnchorRect && (() => {
+			const GAP = 4
+			const MAX_DROPDOWN_H = 320
+			const spaceAbove = skillAnchorRect.top
+			const spaceBelow = window.innerHeight - skillAnchorRect.bottom
+			// Open upward if there's at least 160px above OR more space above than below.
+			const openUpward = spaceAbove >= 160 || spaceAbove >= spaceBelow
+			const availableH = openUpward ? spaceAbove - GAP : spaceBelow - GAP
+			const dropdownH = Math.min(MAX_DROPDOWN_H, Math.max(140, availableH))
+			const positionStyle: React.CSSProperties = openUpward
+				? { bottom: window.innerHeight - skillAnchorRect.top + GAP }
+				: { top: skillAnchorRect.bottom + GAP }
+			const HEADER_H = 24
+			// Sanitize description: strip YAML folded-scalar markers (`>-`, `>+`, `>`,
+			// `|-`, `|+`, `|`, `-` list bullet), collapse newlines and runs of whitespace,
+			// trim, truncate. Without this we render literal YAML noise as the subtitle.
+			const sanitizeDesc = (raw: string | undefined): string => {
+				if (!raw) return ''
+				let s = raw.replace(/^\s*[>|][+-]?\s*/g, '').replace(/\s+/g, ' ').trim()
+				if (s.length > 120) s = s.slice(0, 117) + '…'
+				return s
+			}
+			return (
+				<div
+					className='fixed z-50 @@skill-menu-dropdown rounded-2xl shadow-xl overflow-hidden'
+					style={{
+						left: skillAnchorRect.left,
+						width: Math.min(420, skillAnchorRect.width),
+						maxHeight: dropdownH,
+						...positionStyle,
+					}}
+					onMouseDown={(e) => { e.preventDefault() /* keep textarea focus */ }}
+				>
+					<div className='px-3 py-1 text-[10px] uppercase tracking-wide text-vibe-fg-3 border-b border-vibe-border-1'>
+						Skills:
+					</div>
+					<div className='overflow-y-auto' style={{ maxHeight: dropdownH - HEADER_H }}>
+						{filteredSkillCmds.map((cmd, i) => {
+							const desc = sanitizeDesc(cmd.description)
+							return (
+								<div
+									key={cmd.name}
+									ref={(el) => { skillItemRefs.current[i] = el }}
+									className={`px-3 py-1.5 cursor-pointer ${i === skillIdx ? 'bg-vibe-bg-3' : 'hover:bg-vibe-bg-2'}`}
+									onMouseEnter={() => setSkillIdx(i)}
+									onClick={() => insertSelectedSkill(cmd)}
+								>
+									<div className='text-vibe-fg-1 text-[13px] font-semibold truncate'>/{cmd.name}</div>
+									{desc && <div className='text-vibe-fg-3 text-[11px] truncate mt-0.5'>{desc}</div>}
+								</div>
+							)
+						})}
+					</div>
 				</div>
-				<div className='overflow-y-auto' style={{ maxHeight: 240 }}>
-					{filteredSkillCmds.map((cmd, i) => (
-						<div
-							key={cmd.name}
-							className={`px-3 py-2 cursor-pointer ${i === skillIdx ? 'bg-vibe-bg-3' : 'hover:bg-vibe-bg-2'}`}
-							onMouseEnter={() => setSkillIdx(i)}
-							onClick={() => insertSelectedSkill(cmd)}
-						>
-							<div className='text-vibe-fg-1 text-sm font-mono'>/{cmd.name}</div>
-							{cmd.description && <div className='text-vibe-fg-3 text-xs truncate mt-0.5'>{cmd.description}</div>}
-						</div>
-					))}
-				</div>
-			</div>
-		)}
+			)
+		})()}
 
 		{/* Context chips for current selections */}
 		{selections.length > 0 && (
@@ -5352,7 +5433,7 @@ export const SidebarChat = () => {
 					const color = contextPct >= 1 ? 'text-red-500' : contextPct > 0.8 ? 'text-amber-500' : 'text-vibe-fg-3'
 					const barColor = contextPct >= 1 ? 'bg-red-500' : contextPct > 0.8 ? 'bg-amber-500' : 'bg-vibe-fg-3/60'
 					return <div className='mt-1'>
-						<div className={`text-[10px] ${color}`}>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}</div>
+						<div className={`text-[10px] ${color}`}>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}</div>
 						<div className='h-[3px] w-full bg-vibe-border-3 rounded mt-0.5'>
 							<div className={`h-[3px] ${barColor} rounded`} style={{ width: `${pctNum}%` }} aria-label={chatS.contextUsageAria(pctNum)} />
 						</div>
@@ -5371,7 +5452,7 @@ export const SidebarChat = () => {
 					const color = contextPct >= 1 ? 'text-red-500' : contextPct > 0.8 ? 'text-amber-500' : 'text-vibe-fg-3'
 					const barColor = contextPct >= 1 ? 'bg-red-500' : contextPct > 0.8 ? 'bg-amber-500' : 'bg-vibe-fg-3/60'
 					return <div className='mt-1 px-2'>
-						<div className={`text-[10px] ${color}`}>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}</div>
+						<div className={`text-[10px] ${color}`}>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}</div>
 						<div className='h-[3px] w-full bg-vibe-border-3 rounded mt-0.5'>
 							<div className={`h-[3px] ${barColor} rounded`} style={{ width: `${pctNum}%` }} aria-label={chatS.contextUsageAria(pctNum)} />
 						</div>

@@ -243,9 +243,20 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		const requestId = generateUuid();
 		this.llmMessageHooks.onText[requestId] = onText
 		this.llmMessageHooks.onFinalMessage[requestId] = (p) => {
-			const outChars = (p.fullText?.length ?? 0) + (p.fullReasoning?.length ?? 0);
-			const approxOut = Math.max(1, Math.ceil(outChars / 4));
-			this.tokenBudgetService.recordUsage(approxInputTokens, approxOut);
+			// Prefer real provider usage when available (AI SDK exposes promptTokens /
+			// completionTokens via `finish` parts). Fall back to length/4 heuristic
+			// when usage is missing (early-timeout, non-AI-SDK paths).
+			const realIn = p.usage?.promptTokens;
+			const realOut = p.usage?.completionTokens;
+			const inForBudget = typeof realIn === 'number' && realIn > 0 ? realIn : approxInputTokens;
+			let outForBudget: number;
+			if (typeof realOut === 'number' && realOut > 0) {
+				outForBudget = realOut;
+			} else {
+				const outChars = (p.fullText?.length ?? 0) + (p.fullReasoning?.length ?? 0);
+				outForBudget = Math.max(1, Math.ceil(outChars / 4));
+			}
+			this.tokenBudgetService.recordUsage(inForBudget, outForBudget);
 			onFinalMessage(p);
 		}
 		this.llmMessageHooks.onError[requestId] = onError

@@ -56,6 +56,19 @@ export interface IRemoteCatalogService {
 	fetchCatalog(providerName: ProviderName, forceRefresh?: boolean): Promise<RemoteModelInfo[]>;
 
 	/**
+	 * Synchronous lookup against the already-cached catalog entries.
+	 * Does NOT hit the network — returns `undefined` if no fetch has happened yet
+	 * for this provider, or if the model id has no entry. Intended for hot paths
+	 * (capability resolution at request prep time) where awaiting a fetch would
+	 * stall the UI. The catalog is filled by `fetchCatalog` triggered from
+	 * Settings UI / `refreshModelService` / first-run validation.
+	 *
+	 * Match strategy: case-insensitive against `id`, then `name`. Returns the
+	 * first hit. No fuzzy/regex matching — keep this predictable.
+	 */
+	getCachedModelInfo(providerName: ProviderName, modelId: string): RemoteModelInfo | undefined;
+
+	/**
 	 * Health check a specific model
 	 */
 	healthCheck(providerName: ProviderName, modelId: string): Promise<boolean>;
@@ -151,6 +164,22 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 			throw new Error('Invalid JSON from catalog endpoint');
 		}
 		return parsed;
+	}
+
+	getCachedModelInfo(providerName: ProviderName, modelId: string): RemoteModelInfo | undefined {
+		const cached = this.cache.get(providerName);
+		if (!cached) return undefined;
+		// Allow lookups even after the TTL expires — capability resolution should
+		// keep working between refreshes. The Settings UI is responsible for
+		// triggering re-fetches; here we just expose what we have.
+		const lc = modelId.toLowerCase();
+		for (const m of cached.models) {
+			if (typeof m.id === 'string' && m.id.toLowerCase() === lc) return m;
+		}
+		for (const m of cached.models) {
+			if (typeof m.name === 'string' && m.name.toLowerCase() === lc) return m;
+		}
+		return undefined;
 	}
 
 	async fetchCatalog(providerName: ProviderName, forceRefresh: boolean = false): Promise<RemoteModelInfo[]> {

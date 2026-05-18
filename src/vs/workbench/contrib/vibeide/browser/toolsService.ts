@@ -2014,6 +2014,18 @@ export class ToolsService implements IToolsService {
 
 		const nextPageStr = (hasNextPage: boolean) => hasNextPage ? '\n\n(more on next page...)' : ''
 
+		// Cap individual search-tool outputs so a single greedy result (e.g. `grep "**/*"`
+		// matching 700+ files) can't blow up the LLM context and crash aggregator-proxied
+		// models. Cap is read fresh per-call so a config change applies immediately.
+		// Uses head+tail truncation: model sees the start and the end with a `[truncated]`
+		// marker in the middle, which preserves enough signal to refine the next call.
+		const truncateSearchOutput = (s: string): string => {
+			const cap = Math.max(1000, Math.min(50000,
+				this._configurationService.getValue<number>('vibeide.tools.searchMaxChars') ?? 8000
+			));
+			return truncateHeadTail(s, cap);
+		};
+
 		const stringifyLintErrors = (lintErrors: LintErrorItem[]) => {
 			return lintErrors
 				.map((e, i) => `Error ${i + 1}:\nLines Affected: ${e.startLineNumber}-${e.endLineNumber}\nError message:${e.message}`)
@@ -2037,38 +2049,38 @@ export class ToolsService implements IToolsService {
 			},
 			ls_dir: (params, result) => {
 				const dirTreeStr = stringifyDirectoryTree1Deep(params, result)
-				return dirTreeStr // + nextPageStr(result.hasNextPage) // already handles num results remaining
+				return truncateSearchOutput(dirTreeStr) // + nextPageStr(result.hasNextPage) // already handles num results remaining
 			},
 			get_dir_tree: (params, result) => {
-				return result.str
+				return truncateSearchOutput(result.str)
 			},
 			search_pathnames_only: (params, result) => {
-				return result.uris.map(uri => uri.fsPath).join('\n') + nextPageStr(result.hasNextPage)
+				return truncateSearchOutput(result.uris.map(uri => uri.fsPath).join('\n') + nextPageStr(result.hasNextPage))
 			},
 			search_for_files: (params, result) => {
-				return result.uris.map(uri => uri.fsPath).join('\n') + nextPageStr(result.hasNextPage)
+				return truncateSearchOutput(result.uris.map(uri => uri.fsPath).join('\n') + nextPageStr(result.hasNextPage))
 			},
 			glob: (params, result) => {
 				if (result.uris.length === 0) {
 					return `No files match pattern "${params.pattern}".`
 				}
 				const header = `Matched ${result.totalMatches} file${result.totalMatches === 1 ? '' : 's'} for "${params.pattern}":\n`
-				return header + result.uris.map(uri => uri.fsPath).join('\n') + nextPageStr(result.hasNextPage)
+				return truncateSearchOutput(header + result.uris.map(uri => uri.fsPath).join('\n') + nextPageStr(result.hasNextPage))
 			},
 			grep: (params, result) => {
 				if (result.totalMatches === 0) {
 					return `No matches for "${params.pattern}".`
 				}
 				if (result.mode === 'files_with_matches') {
-					return `${result.totalMatches} match${result.totalMatches === 1 ? '' : 'es'} across ${result.files.length} file${result.files.length === 1 ? '' : 's'}:\n` +
-						result.files.map(f => f.uri.fsPath).join('\n') + nextPageStr(result.hasNextPage)
+					return truncateSearchOutput(`${result.totalMatches} match${result.totalMatches === 1 ? '' : 'es'} across ${result.files.length} file${result.files.length === 1 ? '' : 's'}:\n` +
+						result.files.map(f => f.uri.fsPath).join('\n') + nextPageStr(result.hasNextPage))
 				}
 				if (result.mode === 'count') {
-					return `${result.totalMatches} match${result.totalMatches === 1 ? '' : 'es'} across ${result.files.length} file${result.files.length === 1 ? '' : 's'}:\n` +
-						result.files.map(f => `${f.uri.fsPath}: ${f.count ?? 0}`).join('\n') + nextPageStr(result.hasNextPage)
+					return truncateSearchOutput(`${result.totalMatches} match${result.totalMatches === 1 ? '' : 'es'} across ${result.files.length} file${result.files.length === 1 ? '' : 's'}:\n` +
+						result.files.map(f => `${f.uri.fsPath}: ${f.count ?? 0}`).join('\n') + nextPageStr(result.hasNextPage))
 				}
-				return `${result.totalMatches} match${result.totalMatches === 1 ? '' : 'es'}:\n` +
-					result.matches.map(m => `${m.uri.fsPath}:${m.line}:${m.column}\n${m.preview}`).join('\n\n') + nextPageStr(result.hasNextPage)
+				return truncateSearchOutput(`${result.totalMatches} match${result.totalMatches === 1 ? '' : 'es'}:\n` +
+					result.matches.map(m => `${m.uri.fsPath}:${m.line}:${m.column}\n${m.preview}`).join('\n\n') + nextPageStr(result.hasNextPage))
 			},
 			search_in_file: (params, result) => {
 				const { model } = vibeideModelService.getModel(params.uri)

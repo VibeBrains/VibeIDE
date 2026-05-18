@@ -240,6 +240,41 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.chat.streamHardStallSeconds', 'Порог hard-stall авто-abort в секундах. Reset на каждый новый токен. По умолчанию 120 (2 минуты) — достаточно для reasoning-моделей (o1/Claude reasoning могут думать до 60s перед первым токеном) + запас на нестабильные провайдеры. Минимум 30 (≥ FIRST_TOKEN_STALL_MS=30s), максимум 1800 (30 минут — sanity cap).'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.chat.compactToolResultsAfterTurns': {
+					type: 'number',
+					default: 3,
+					minimum: 0,
+					maximum: 50,
+					description: localize('vibeide.chat.compactToolResultsAfterTurns', 'Сжимать tool-results старше указанного числа user-turns (отсчёт от текущего сообщения). Старые tool-outputs заменяются на short summary с пометкой `[summarized: N tokens]`, что предотвращает линейный рост входного prompt при долгих агентских циклах (главная причина AI_RetryError у openCode/minimax-m2.7 на больших проектах). 0 — отключить сжатие; 3 — баланс между сохранением свежего контекста и контролем токенов.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+			},
+		});
+
+		// `vibeide.tools.*` — runtime behavior of built-in agent tools. Primary motivation:
+		// large search-tool outputs (grep / glob / search_for_files matching hundreds of
+		// files) blow up the LLM input prompt and cause aggregator-proxied models
+		// (openCode/minimax-m2.7) to return empty responses → AI_RetryError. Truncation
+		// here caps any single tool result so one runaway search can't sink the request.
+		registry.registerConfiguration({
+			id: 'vibeide.tools',
+			title: localize('vibeide.tools.title', 'VibeIDE — Tool I/O'),
+			type: 'object',
+			properties: {
+				'vibeide.tools.searchMaxChars': {
+					type: 'number',
+					default: 8000,
+					minimum: 1000,
+					maximum: 50000,
+					description: localize('vibeide.tools.searchMaxChars', 'Максимум символов в одном tool-output для поисковых тулзов (`grep`, `glob`, `search_for_files`, `search_pathnames_only`, `ls_dir`, `get_dir_tree`). Сверх этого порога — head+tail truncation с маркером `[truncated]`, модель видит начало + конец результата. Защищает от того, что один `grep "**/*"` на большом репо забивает весь context window. 8000 ≈ ~2K токенов — достаточно для понимания результата, но не разрушает контекст.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.tools.disableExpensiveSearchInNonAgentModes': {
+					type: 'boolean',
+					default: false,
+					description: localize('vibeide.tools.disableExpensiveSearchInNonAgentModes', 'Отключать «дорогие» поисковые тулзы (`grep`, `glob`, `search_for_files`, `get_dir_tree`) в чат-режимах кроме Agent (`gather`/`plan`). Read/navigation тулзы (`read_file`, `ls_dir`, `go_to_definition`, `find_references`) остаются доступны. Off-by-default; включите если ваш провайдер сильно лимитирован по токенам и вы используете не-агентские режимы только для точечных вопросов.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 			},
 		});
 	}

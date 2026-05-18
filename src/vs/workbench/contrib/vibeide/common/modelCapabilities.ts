@@ -278,19 +278,31 @@ const openSourceModelOptions_assumingOAICompat = {
 		supportsFIM: false,
 		supportsSystemMessage: false,
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
-		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+		// https://api-docs.deepseek.com/quick_start/pricing — 64K context.
+		contextWindow: 64_000, reservedOutputTokenSpace: 8_000,
+	},
+	// Latest DeepSeek family (V4, V4-pro, …). New default when no explicit version is given.
+	// Catalog wins for known aggregators (openCode/openRouter) — this is only the fallback
+	// for self-hosted / unknown endpoints that don't return context_length in /v1/models.
+	'deepseekV4': {
+		supportsFIM: false,
+		supportsSystemMessage: false, // aggregator behaviour varies; safer default
+		reasoningCapabilities: false,
+		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
 	},
 	'deepseekCoderV3': {
 		supportsFIM: false,
 		supportsSystemMessage: false, // unstable
 		reasoningCapabilities: false,
-		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+		// V3 spec is 128K through every modern aggregator path (openCode/openRouter).
+		// Self-hosted Ollama variants may be smaller, but those usually override via catalog.
+		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
 	},
 	'deepseekCoderV2': {
 		supportsFIM: false,
 		supportsSystemMessage: false, // unstable
 		reasoningCapabilities: false,
-		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
 	},
 	'codestral': {
 		supportsFIM: true,
@@ -319,11 +331,11 @@ const openSourceModelOptions_assumingOAICompat = {
 		contextWindow: 16_000, reservedOutputTokenSpace: 4_096,
 	},
 
-	'gemma': { // https://news.ycombinator.com/item?id=43451406
+	'gemma': { // Gemma 3+ has 128K context (Gemma 1/2 had 8K, but 3 superseded those).
 		supportsFIM: false,
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: false,
-		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
 	},
 	// llama 4 https://ai.meta.com/blog/llama-4-multimodal-intelligence/
 	'llama4-scout': {
@@ -350,26 +362,28 @@ const openSourceModelOptions_assumingOAICompat = {
 		supportsFIM: false,
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: false,
-		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+		// Llama 3.1+ all support 128K context per Meta's spec.
+		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
 	},
 	'llama3.2': {
 		supportsFIM: false,
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: false,
-		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
 	},
 	'llama3.3': {
 		supportsFIM: false,
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: false,
-		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
 	},
 	// qwen
 	'qwen2.5coder': {
 		supportsFIM: true,
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: false,
-		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
+		// Qwen2.5-Coder native context: 128K.
+		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
 	},
 	'qwq': {
 		supportsFIM: false, // no FIM, yes reasoning
@@ -381,7 +395,8 @@ const openSourceModelOptions_assumingOAICompat = {
 		supportsFIM: false, // replaces QwQ
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
-		contextWindow: 32_768, reservedOutputTokenSpace: 8_192,
+		// Qwen3 series (including Qwen3-Coder) supports 128K out of the box.
+		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
 	},
 	// FIM only
 	'starcoder2': {
@@ -466,7 +481,13 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 
 	if (lower.includes('deepseek-r1') || lower.includes('deepseek-reasoner')) return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekR1')
 	if (lower.includes('deepseek') && lower.includes('v2')) return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekCoderV2')
-	if (lower.includes('deepseek')) return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekCoderV3')
+	if (lower.includes('deepseek') && lower.includes('v3')) return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekCoderV3')
+	// `deepseek-v4*` and any unrecognised `deepseek-*` default to V4 (current generation,
+	// 128K context). Before the catalog-based capabilities layer, this fallback was V3
+	// with a stale 32K window — caused `deepseek-v4-pro` users to see 81% context fill
+	// when the real prompt was 17K tokens. See model-stalls #001-#004.
+	if (lower.includes('deepseek-v4') || lower.includes('deepseek4')) return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekV4')
+	if (lower.includes('deepseek')) return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekV4')
 
 	if (lower.includes('llama3')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3')
 	if (lower.includes('llama3.1')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.1')
@@ -1907,18 +1928,37 @@ const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProvi
 // ---------------- exports ----------------
 
 // returns the capabilities and the adjusted modelName if it was a fallback
+/**
+ * Subset of RemoteModelInfo (from IRemoteCatalogService) that getModelCapabilities
+ * can actually use to override hardcoded defaults. Kept as a structural type here
+ * to avoid pulling the full catalog module into common (no circular dep risk).
+ *
+ * The catalog is the *authoritative* source for `contextWindow` and `supportsVision`
+ * — it's what the provider itself returned via /v1/models. Hardcoded fallbacks
+ * are kept ONLY for fields the catalog never exposes (specialToolFormat,
+ * supportsSystemMessage, reasoningCapabilities, supportsFIM).
+ */
+export type CatalogModelHint = {
+	contextWindow?: number;
+	supportsVision?: boolean;
+	modality?: string;
+	cost?: { input: number; output: number };
+}
+
 export const getModelCapabilities = (
 	providerName: ProviderName,
 	modelName: string,
-	overridesOfModel: OverridesOfModel | undefined
+	overridesOfModel: OverridesOfModel | undefined,
+	catalogInfo?: CatalogModelHint | undefined,
 ): VibeideStaticModelInfo & (
 	| { modelName: string; recognizedModelName: string; isUnrecognizedModel: false }
 	| { modelName: string; recognizedModelName?: undefined; isUnrecognizedModel: true }
 ) => {
 	// Guard: Check if provider exists in modelSettingsOfProvider (handles "auto" and other invalid providers)
 	if (!(providerName in modelSettingsOfProvider) || !modelSettingsOfProvider[providerName]) {
-		// Return default capabilities for invalid provider names
-		return { modelName, ...defaultModelOptions, isUnrecognizedModel: true };
+		// Return default capabilities for invalid provider names — still let catalog
+		// fill contextWindow if available.
+		return { modelName, ...defaultModelOptions, ...catalogFields(catalogInfo), isUnrecognizedModel: true };
 	}
 
 	const lowercaseModelName = modelName.toLowerCase()
@@ -1935,20 +1975,47 @@ export const getModelCapabilities = (
 		? (Date.now() - rawOverrides._detectedAt < AUTO_DOWNGRADE_TTL_MS ? rawOverrides : undefined)
 		: rawOverrides;
 
+	// Source priority (later wins via spread):
+	//   1) hardcoded modelOptions / fallback (baseline + provider-specific fields
+	//      that catalogs don't carry: specialToolFormat, supportsSystemMessage,
+	//      reasoningCapabilities, supportsFIM)
+	//   2) catalog hint (authoritative for contextWindow / supportsVision —
+	//      these come straight from the provider's /v1/models response)
+	//   3) user / auto-detected overrides (manual user adjustments and TTL'd
+	//      auto-downgrade overrides win over everything else)
+
 	// search model options object directly first
 	for (const modelName_ in modelOptions) {
 		const lowercaseModelName_ = modelName_.toLowerCase()
 		if (lowercaseModelName === lowercaseModelName_) {
-			return { ...modelOptions[modelName], ...overrides, modelName, recognizedModelName: modelName, isUnrecognizedModel: false };
+			return { ...modelOptions[modelName], ...catalogFields(catalogInfo), ...overrides, modelName, recognizedModelName: modelName, isUnrecognizedModel: false };
 		}
 	}
 
 	const result = modelOptionsFallback(modelName)
 	if (result) {
-		return { ...result, ...overrides, modelName: result.modelName, isUnrecognizedModel: false };
+		return { ...result, ...catalogFields(catalogInfo), ...overrides, modelName: result.modelName, isUnrecognizedModel: false };
 	}
 
-	return { modelName, ...defaultModelOptions, ...overrides, isUnrecognizedModel: true };
+	return { modelName, ...defaultModelOptions, ...catalogFields(catalogInfo), ...overrides, isUnrecognizedModel: true };
+}
+
+/**
+ * Extracts ONLY the catalog-authoritative fields (contextWindow, supportsVision,
+ * modality, cost). We don't take everything from the catalog — provider-specific
+ * routing fields (specialToolFormat etc.) stay in the hardcoded fallback because
+ * /v1/models doesn't expose them reliably. Undefined catalog → empty object.
+ */
+const catalogFields = (info: CatalogModelHint | undefined): Partial<VibeideStaticModelInfo> => {
+	if (!info) return {};
+	const out: Partial<VibeideStaticModelInfo> = {};
+	if (typeof info.contextWindow === 'number' && info.contextWindow > 0) out.contextWindow = info.contextWindow;
+	if (typeof info.supportsVision === 'boolean') out.supportsVision = info.supportsVision;
+	if (typeof info.modality === 'string' && info.modality.length > 0) out.modality = info.modality;
+	if (info.cost && typeof info.cost.input === 'number' && typeof info.cost.output === 'number') {
+		out.cost = { input: info.cost.input, output: info.cost.output };
+	}
+	return out;
 }
 
 // non-model settings

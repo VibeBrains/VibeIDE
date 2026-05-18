@@ -74,6 +74,7 @@ import { IAuditLogService } from '../common/auditLogService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { VIBE_DOTVIBE_AGENT_PLAYBOOK } from '../common/vibeDotVibeAgentPlaybook.js';
 import { IVibeContextGuardService } from './vibeContextGuardService.js';
+import { IRemoteCatalogService } from '../common/remoteCatalogService.js';
 import { buildResponseLanguageDirective } from '../common/vibeAgentResponseLanguageConfiguration.js';
 
 export const EMPTY_MESSAGE = '(empty message)'
@@ -107,6 +108,15 @@ type SimpleLLMMessage = {
 	role: 'assistant';
 	content: string;
 	anthropicReasoning: AnthropicReasoning[] | null;
+	/** Free-form reasoning string captured from prior assistant turn. For
+	 *  OpenAI-compatible providers that surface `reasoning_content` on response
+	 *  delta (DeepSeek thinking, openCode/zen-proxied reasoning models, vLLM,
+	 *  liteLLM) — must be sent back in the next request's assistant message
+	 *  as `reasoning_content`, otherwise the provider rejects multi-turn with
+	 *  HTTP 400 "reasoning_content must be passed back". Distinct from
+	 *  `anthropicReasoning` (Anthropic-only structured blocks). Optional and
+	 *  empty when the model didn't produce reasoning. */
+	reasoning?: string;
 }
 
 
@@ -462,7 +472,19 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 		}
 
 		if (currMsg.role !== 'tool') {
-			newMessages.push(currMsg as OpenAILLMChatMessage)
+			// For thinking-models surfaced via OpenAI-compatible aggregators (DeepSeek
+			// thinking through openCode/zen, vLLM, liteLLM), the prior assistant's
+			// `reasoning_content` MUST be roundtripped in subsequent requests or the
+			// provider rejects multi-turn with HTTP 400. Tunnel it through as a custom
+			// field on the assistant message — plain OpenAI/GPT ignore unknown fields,
+			// so this is safe to send unconditionally. (Anthropic uses anthropicReasoning
+			// via prepareMessages_anthropic_tools, not this path.)
+			if (currMsg.role === 'assistant' && currMsg.reasoning && currMsg.reasoning.trim().length > 0) {
+				const withReasoning = { ...currMsg, reasoning_content: currMsg.reasoning } as unknown as OpenAILLMChatMessage
+				newMessages.push(withReasoning)
+			} else {
+				newMessages.push(currMsg as OpenAILLMChatMessage)
+			}
 			continue
 		}
 
@@ -861,8 +883,23 @@ const prepareOpenAIOrAnthropicMessages = ({
 
 	// the higher the weight, the higher the desire to truncate - TRIM HIGHEST WEIGHT MESSAGES
 	const alreadyTrimmedIdxes = new Set<number>()
+	// Pin-protect: system messages containing explicit skill expansions or workspace
+	// guidelines must NEVER be truncated. If the body is too long for the budget we
+	// would rather drop older user/tool messages than silently strip the skill content
+	// the user explicitly invoked with `/skill:NAME`. Without this guard a long thread
+	// could send the user's `/skill:` command but lose the SKILL.md body to the trimmer,
+	// causing the model to hallucinate (it sees the invocation but not the procedure).
+	const isPinnedSystem = (message: MesType): boolean => {
+		if (message.role !== 'system') return false
+		const c = typeof message.content === 'string' ? message.content : ''
+		return c.includes('Explicitly invoked Agent Skills') || c.includes('<workspace_guidelines')
+	}
 	const weight = (message: MesType, messages: MesType[], idx: number) => {
 		const base = message.content.length
+
+		// Hard pin: system message carrying skill expansion / workspace guidelines.
+		// Return 0 so `_findLargestByWeight` never picks it for trimming.
+		if (isPinnedSystem(message)) return 0
 
 		let multiplier: number
 		multiplier = 1 + (messages.length - 1 - idx) / messages.length // slow rampdown from 2 to 1 as index increases
@@ -1078,9 +1115,23 @@ const prepareOpenAIOrAnthropicMessages = ({
 
 		if (currMsg.role === 'tool') continue
 
+		// Detect tool-call-only assistant turn: text payload is empty, but a tool_result
+		// follows (or this very message contains tool_use blocks). Per OpenAI spec the
+		// assistant.content field may be empty in that case — the model's "output" is the
+		// tool_calls array, not text. Some aggregator-proxied models (openCode/minimax-m2.7)
+		// reject continuations where prior assistant turns had a placeholder text like
+		// "(empty message)" — they treat it as required model output and refuse next turn.
+		// So: for tool-call-only turns we keep content as an empty string (valid spec),
+		// and only fall back to EMPTY_MESSAGE for true empty text turns (no tool_calls).
+		const isToolCallOnlyTurn = nextMsg?.role === 'tool'
+			|| (Array.isArray(currMsg.content) && currMsg.content.some(c => c.type === 'tool_result' || c.type === 'tool_use'))
+
 		// if content is a string, replace string with empty msg
 		if (typeof currMsg.content === 'string') {
-			currMsg.content = currMsg.content || EMPTY_MESSAGE
+			if (!currMsg.content && !isToolCallOnlyTurn) {
+				currMsg.content = EMPTY_MESSAGE
+			}
+			// else: leave empty string as-is for tool-call-only turns, or keep actual text
 		}
 		else {
 			// allowed to be empty if has a tool in it or following it
@@ -1260,6 +1311,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@IAuditLogService private readonly auditLogService: IAuditLogService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IVibeContextGuardService private readonly contextGuardService: IVibeContextGuardService,
+		@IRemoteCatalogService private readonly remoteCatalogService: IRemoteCatalogService,
 	) {
 		super()
 	}
@@ -1405,6 +1457,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 					role: m.role,
 					content: m.displayContent,
 					anthropicReasoning: m.anthropicReasoning,
+					reasoning: m.reasoning || undefined,
 				})
 			}
 			else if (m.role === 'tool') {
@@ -1437,11 +1490,12 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		if (providerName === 'auto' && modelName === 'auto') {
 			throw new Error('Cannot prepare messages for "auto" model selection - must resolve to a real model first')
 		}
+		const catalogInfo = this.remoteCatalogService.getCachedModelInfo(providerName, modelName);
 		const {
 			specialToolFormat,
 			contextWindow,
 			supportsSystemMessage,
-		} = getModelCapabilities(providerName, modelName, overridesOfModel)
+		} = getModelCapabilities(providerName, modelName, overridesOfModel, catalogInfo)
 
 		const modelSelectionOptions = this.vibeideSettingsService.state.optionsOfModelSelection[featureName][modelSelection.providerName]?.[modelSelection.modelName]
 
@@ -1516,11 +1570,12 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		}
 		// At this point, TypeScript knows providerName is not "auto", but we need to assert it for the type system
 		const validProviderName = providerName as Exclude<typeof providerName, 'auto'>
+		const catalogInfo = this.remoteCatalogService.getCachedModelInfo(validProviderName, modelName);
 		const {
 			specialToolFormat,
 			contextWindow,
 			supportsSystemMessage,
-		} = getModelCapabilities(validProviderName, modelName, overridesOfModel)
+		} = getModelCapabilities(validProviderName, modelName, overridesOfModel, catalogInfo)
 
 		const { disableSystemMessage } = this.vibeideSettingsService.state.globalSettings;
 
@@ -1665,31 +1720,58 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const implicitSkills = await this.skillsLibraryService.getImplicitSkillRetrievalHints(lastUserTextForSkills, chatMode);
 
 		// Explicit `/skill:NAME` invocations — expand the full SKILL.md body via
-		// IVibeSlashCommandService and inject it as an extra context block. Without this,
-		// the model only sees the GUIDELINES list of names+descriptions but never the
-		// actual skill body, so it can't follow the skill's instructions (and previously
-		// tried to fetch the file with `ls_dir`, hitting workspace guardrails).
-		// Done up to 3 unique skills per message to keep tokens bounded.
-		let explicitSkillsContext = '';
+		// IVibeSlashCommandService. The expanded body is injected as a `<skill_invocation>`
+		// block PREPENDED to the last user message (not buried in the system prompt).
+		// Rationale (model-stalls.md #002): models routinely ignore skill bodies placed
+		// inside <workspace_guidelines> in the system prompt — they treat that as
+		// "static project rules" and don't associate it with the user's `/skill:` command.
+		// Placing the body in the user turn itself gives the model an unambiguous
+		// "this is what you should follow for THIS request" signal. Pattern matches
+		// Cursor/Kilo/Claude Code behaviour. Up to 3 unique skills per message.
 		const explicitSkillIdsForExpand = Array.from(new Set(
 			[...lastUserTextForSkills.matchAll(/\/skill:\s*([\w.-]+)/gi)].map(m => m[1])
 		)).slice(0, 3);
+		// eslint-disable-next-line no-console
+		console.warn('[VibeIDE/Skill] expand intercept', { lastUserSnippet: lastUserTextForSkills.slice(0, 100), foundIds: explicitSkillIdsForExpand });
+		const explicitSkillBodies: Array<{ id: string; body: string }> = [];
 		if (explicitSkillIdsForExpand.length > 0) {
-			const expansions: string[] = [];
 			for (const skillId of explicitSkillIdsForExpand) {
 				try {
 					const expanded = await this.slashCommandService.expand(`/skill:${skillId}`);
+					// eslint-disable-next-line no-console
+					console.warn('[VibeIDE/Skill] expand result', { skillId, isNull: expanded === null, isEmpty: expanded === '', bodyLen: expanded?.length ?? 0, headSnippet: expanded?.slice(0, 120) ?? null });
 					if (expanded) {
-						expansions.push(expanded);
+						explicitSkillBodies.push({ id: skillId, body: expanded });
 						// Bump MRU so this skill ranks higher in autocomplete next time.
 						this.skillsLibraryService.trackSkillUse?.(skillId);
 					}
-				} catch { /* best-effort: skip on failure, model still sees the literal /skill:NAME */ }
+				} catch (err) {
+					// eslint-disable-next-line no-console
+					console.warn('[VibeIDE/Skill] expand threw', { skillId, err: String(err) });
+				}
 			}
-			if (expansions.length > 0) {
-				explicitSkillsContext = '## Explicitly invoked Agent Skills (full SKILL.md content)\n\nThe user invoked these skills with `/skill:NAME`. Their full content is provided below — follow these instructions as authoritative procedural guidance for this turn.\n\n' + expansions.join('\n\n---\n\n');
-			}
+			// eslint-disable-next-line no-console
+			console.warn('[VibeIDE/Skill] final context built', { expansionsCount: explicitSkillBodies.length, totalBodyChars: explicitSkillBodies.reduce((a, b) => a + b.body.length, 0) });
 		}
+		// Build the user-message prefix once; we prepend it after `_chatMessagesToSimpleMessages`
+		// converts to the canonical wire format.
+		const explicitSkillsUserPrefix = explicitSkillBodies.length === 0 ? '' : (() => {
+			const blocks = explicitSkillBodies
+				.map(({ id, body }) => `<skill_invocation name="${id}">\n${body}\n</skill_invocation>`)
+				.join('\n\n');
+			const intro = explicitSkillBodies.length === 1
+				? `The user invoked /skill:${explicitSkillBodies[0].id}. Follow the procedure in the skill body below as authoritative guidance for this request.`
+				: `The user invoked ${explicitSkillBodies.length} skills. Follow the procedures in the skill bodies below as authoritative guidance for this request.`;
+			// Closing contract: prevents "dump-style" replies where the model echoes the
+			// skill body or referenced file contents verbatim back to the user (see
+			// model-stalls.md #003 — nemotron-3-super-free verbatim-dumped process.md
+			// and stalled mid-stream). Imitation-prone models (nemotron / minimax /
+			// qwen variants) need this explicit boundary between "input directive" and
+			// "expected output". Strict, short, and placed AFTER the skill body so it's
+			// the last thing the model reads before the actual user request.
+			const closing = 'Important: act on the procedure above silently. Do NOT echo the skill body or referenced file contents back to the user verbatim. Summarize only what is needed for the next step.';
+			return `${intro}\n\n${blocks}\n\n${closing}`;
+		})();
 
 		const auditSkills = this.configurationService.getValue<boolean>('vibeide.skills.auditSkillSuggestions') ?? false;
 		if (auditSkills && this.auditLogService.isEnabled()) {
@@ -1717,10 +1799,27 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const lastUserForLang = [...chatMessages].reverse().find(m => m.role === 'user');
 		const lastUserTextForLang = typeof lastUserForLang?.content === 'string' ? lastUserForLang.content : '';
 		const langDirective = buildResponseLanguageDirective(responseLangSetting, lastUserTextForLang);
-		const aiInstructions = [this._getCombinedAIInstructions(), skillsDiscovery, implicitSkills, explicitSkillsContext, langDirective].filter(s => s.trim().length > 0).join('\n\n');
+		// NOTE: explicitSkillBodies are NOT added to system prompt — they get prepended
+		// to the last user message below. See model-stalls.md #002 for why.
+		const aiInstructions = [this._getCombinedAIInstructions(), skillsDiscovery, implicitSkills, langDirective].filter(s => s.trim().length > 0).join('\n\n');
 		const isReasoningEnabled = getIsReasoningEnabledState('Chat', validProviderName, modelName, modelSelectionOptions, overridesOfModel)
 		const reservedOutputTokenSpace = getReservedOutputTokenSpace(validProviderName, modelName, { isReasoningEnabled, overridesOfModel })
 		let llmMessages = this._chatMessagesToSimpleMessages(chatMessages)
+
+		// Prepend explicit-skill bodies into the last user message's content.
+		// This is the load-bearing step that makes /skill:NAME actually take effect:
+		// the skill body lives in the same turn as the user's invocation, so the
+		// model reads them together and binds the procedure to the current request.
+		if (explicitSkillsUserPrefix.length > 0) {
+			for (let i = llmMessages.length - 1; i >= 0; i--) {
+				const m = llmMessages[i];
+				if (m.role === 'user') {
+					const original = typeof m.content === 'string' ? m.content : '';
+					(m as { content: string }).content = `${explicitSkillsUserPrefix}\n\n${original}`;
+					break;
+				}
+			}
+		}
 
 		// Smart context truncation: Prioritize recent messages and user selections
 		const estimateTokens = (text: string) => Math.ceil(text.length / 4)
@@ -1837,6 +1936,43 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const TOOL_RESULT_TOKEN_THRESHOLD = 5000
 		let currentTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
 
+		// Step A.5 (proactive) — compact tool-results older than the last N user turns,
+		// regardless of overflow status. Aggregator-proxied models (openCode/minimax-m2.7)
+		// crash with empty responses long before hardCap is hit, because the *cumulative*
+		// growth of accumulated tool outputs across many agentic hops blows their internal
+		// budget. We replace stale tool message contents with a short stub so newer turns
+		// keep full fidelity. The tool can always be re-called if the model still needs it.
+		const compactAfterTurns = Math.max(0, Math.min(50,
+			this.configurationService.getValue<number>('vibeide.chat.compactToolResultsAfterTurns') ?? 3
+		))
+		if (compactAfterTurns > 0) {
+			let userTurnsSeen = 0
+			let keepFromIdx = 0
+			for (let i = llmMessages.length - 1; i >= 0; i--) {
+				if (llmMessages[i].role === 'user') {
+					userTurnsSeen++
+					if (userTurnsSeen === compactAfterTurns) { keepFromIdx = i; break }
+				}
+			}
+			if (keepFromIdx > 0) {
+				let compacted = 0
+				let savedTokens = 0
+				llmMessages = llmMessages.map((m, i) => {
+					if (i < keepFromIdx && m.role === 'tool' && m.content.length > 300) {
+						const tokensBefore = estimateTokens(m.content)
+						compacted++
+						savedTokens += tokensBefore
+						return { ...m, content: `[summarized: ${tokensBefore.toLocaleString()} tokens of older tool output. Re-call the tool if this result is needed again.]` }
+					}
+					return m
+				})
+				if (compacted > 0) {
+					currentTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
+					console.debug(`[VibeIDE ContextGuard] Step A.5 compacted ${compacted} old tool-results (kept last ${compactAfterTurns} user turns): ~${savedTokens.toLocaleString()} tokens summarized → currentTokens ~${currentTokens.toLocaleString()}`)
+				}
+			}
+		}
+
 		if (currentTokens > hardCap) {
 			// Step A — elide oversized tool / assistant outputs in remaining tail
 			llmMessages = llmMessages.map(m => {
@@ -1888,6 +2024,103 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			reservedOutputTokenSpace,
 			providerName: validProviderName,
 		})
+
+		// Diagnostic dump of the final prompt that will be sent to the provider.
+		// Confirms whether the explicit-skill body actually survives the pipeline
+		// (workspace_guidelines section, smart truncation, safetyTrim). Look for
+		// `skillBodyPresent: true` AND a non-zero skillBodyHeadIdx in the section
+		// where you expect it. Logs once per request via console.warn so it shows
+		// up in DevTools alongside the [VibeIDE/Skill] expand traces.
+		try {
+			// LLMChatMessage is a discriminated union; user/assistant `content` can be either
+			// a plain string OR an array of parts (text/image_url for OpenAI multimodal,
+			// tool_use/tool_result for Anthropic). For models WHERE supportsSystemMessage===false,
+			// the system prompt gets folded into the first user message's content as
+			// `<SYSTEM_MESSAGE>...</SYSTEM_MESSAGE>` prefix — i.e. it ends up inside a
+			// text-part of an array. Extracting a flat string requires walking that array.
+			const extractText = (content: unknown): string => {
+				if (typeof content === 'string') return content;
+				if (Array.isArray(content)) {
+					let out = '';
+					for (const p of content as Array<{ type?: string; text?: unknown }>) {
+						if (p && p.type === 'text' && typeof p.text === 'string') out += p.text;
+					}
+					return out;
+				}
+				return '';
+			};
+			const lenOf = (m: LLMChatMessage): number => {
+				const anyM = m as { content?: unknown; parts?: unknown };
+				if (typeof anyM.content === 'string') return anyM.content.length;
+				if (Array.isArray(anyM.content)) return extractText(anyM.content).length;
+				if (Array.isArray(anyM.parts)) {
+					// Gemini parts shape: { text } or { functionCall }
+					let out = 0;
+					for (const p of anyM.parts as Array<{ text?: unknown }>) {
+						if (p && typeof p.text === 'string') out += p.text.length;
+					}
+					return out;
+				}
+				return -1;
+			};
+			// Locate where the system prompt actually lives. Three cases:
+			//   1) Separate system message — provider supports `system` field (Anthropic style).
+			//   2) First message has role 'system' — supportsSystemMessage='system-role'|'developer-role'.
+			//   3) Folded into first user message via <SYSTEM_MESSAGE> prefix — supportsSystemMessage===false.
+			let sysContent = '';
+			let sysLocation: 'separate' | 'role-system' | 'folded-into-user' | 'unknown' = 'unknown';
+			if (typeof separateSystemMessage === 'string' && separateSystemMessage.length > 0) {
+				sysContent = separateSystemMessage;
+				sysLocation = 'separate';
+			} else if (messages[0]) {
+				const firstText = extractText((messages[0] as { content?: unknown }).content);
+				if (messages[0].role === 'system') {
+					sysContent = firstText;
+					sysLocation = 'role-system';
+				} else if (messages[0].role === 'user' && firstText.includes('<SYSTEM_MESSAGE>')) {
+					sysContent = firstText;
+					sysLocation = 'folded-into-user';
+				}
+			}
+			const wgTagNeedle = '<workspace_guidelines';
+			const skillInvocationTag = '<skill_invocation';
+			const sysHasWGTag = sysContent.includes(wgTagNeedle);
+			// Find the last user-role message text (walking array if needed) and check
+			// for skill_invocation marker — this is where /skill:NAME body now lives
+			// after the model-stalls #002 fix.
+			let lastUserContent = '';
+			for (let i = messages.length - 1; i >= 0; i--) {
+				if (messages[i].role === 'user') {
+					lastUserContent = extractText((messages[i] as { content?: unknown }).content);
+					break;
+				}
+			}
+			const lastUserHasSkillInvocation = lastUserContent.includes(skillInvocationTag);
+			const skillBodyHeadIdx = lastUserContent.indexOf(skillInvocationTag);
+			// eslint-disable-next-line no-console
+			console.warn('[VibeIDE/promptDump] final prompt summary', {
+				provider: validProviderName,
+				model: modelName,
+				supportsSystemMessage,
+				sysLocation,
+				systemLen: sysContent.length,
+				systemSnippetHead: sysContent.slice(0, 180),
+				wgTagPresent: sysHasWGTag,
+				lastUserMsgLen: lastUserContent.length,
+				lastUserHasSkillInvocation,
+				skillBodyHeadIdx,
+				skillBodyHeadSnippet: skillBodyHeadIdx >= 0 ? lastUserContent.slice(skillBodyHeadIdx, skillBodyHeadIdx + 220) : null,
+				explicitSkillsBodiesCount: explicitSkillBodies.length,
+				explicitSkillsTotalBodyChars: explicitSkillBodies.reduce((a, b) => a + b.body.length, 0),
+				aiInstructionsLen: aiInstructions.length,
+				messagesCount: messages.length,
+				messagesLens: messages.map(m => ({ role: m.role, len: lenOf(m) })),
+			});
+		} catch (e) {
+			// eslint-disable-next-line no-console
+			console.warn('[VibeIDE/promptDump] dump failed', { err: String(e) });
+		}
+
 		return { messages, separateSystemMessage };
 	}
 

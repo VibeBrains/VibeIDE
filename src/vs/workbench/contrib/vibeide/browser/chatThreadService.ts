@@ -14,7 +14,7 @@ import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases } from '../common/prompt/toolAliases.js';
 import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
-import { AnthropicReasoning, getErrorMessage, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
+import { AnthropicReasoning, getErrorMessage, LLMTokenUsage, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isVisionByNameHeuristic } from '../common/modelVisionHeuristics.js';
@@ -259,6 +259,10 @@ export type ThreadType = {
 			mountedIsResolvedRef: { current: boolean };
 		}
 
+		// Last provider-reported token usage in this thread. Set in onFinalMessage when
+		// the AI SDK surfaces a `usage` block on `finish`. Used by the UI context-usage
+		// indicator as the authoritative base instead of relying on length/4 heuristics.
+		lastUsage?: LLMTokenUsage;
 
 	};
 }
@@ -3265,6 +3269,24 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			}
 			catch (error) {
 				const errorMessage = getErrorMessage(error)
+				// Diagnostic dump of the exact tool-call shape that failed validation.
+				// Logs the validator's complaint + the raw JSON the model emitted. Lets us
+				// see at a glance whether the model hallucinated a path (e.g. C:\Repo\...
+				// instead of d:\Projects\...), missed a required field, sent wrong types,
+				// or wrapped the params in some unexpected envelope. Without this we only
+				// see the UI's "Invalid parameters" badge and have to guess.
+				try {
+					// eslint-disable-next-line no-console
+					console.warn('[VibeIDE/Tool] invalid params', {
+						toolName,
+						errorMessage,
+						rawParams: opts.unvalidatedToolParams,
+						rawParamsJson: (() => { try { return JSON.stringify(opts.unvalidatedToolParams); } catch { return '<unserializable>'; } })(),
+						rawParamsKeys: opts.unvalidatedToolParams && typeof opts.unvalidatedToolParams === 'object'
+							? Object.keys(opts.unvalidatedToolParams as Record<string, unknown>)
+							: null,
+					});
+				} catch { /* logging must never throw — swallow */ }
 				// Wrap raw validator output with a CONCRETE schema hint. Otherwise the
 				// model sees just "Provided uri must be a string, but it's a(n) undefined"
 				// and doesn't know which field name is required or in what XML shape.
@@ -4672,9 +4694,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: fullText, reasoningSoFar: fullReasoning, toolCallSoFar: toolCall ?? null }, interrupt: Promise.resolve(() => { if (llmCancelToken) this._llmMessageService.abort(llmCancelToken) }) })
 						})
 					},
-				onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, }) => {
+				onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage }) => {
 					// Mark message as done to prevent late onText updates
 					messageIsDone = true
+
+					// Persist provider-reported token usage on the thread so the UI
+					// context-usage indicator can show real numbers instead of length/4
+					// estimates. `usage` is undefined on early-timeout / non-AI-SDK paths.
+					if (usage && (typeof usage.promptTokens === 'number' || typeof usage.completionTokens === 'number' || typeof usage.totalTokens === 'number')) {
+						this._setThreadState(threadId, { lastUsage: usage })
+					}
 
 					// Clear timeout
 					clearTimeout(networkTimeout)
@@ -4728,6 +4757,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									requestId: finalRequestId,
 									outputTokens,
 									ttfs: metrics?.ttfs,
+									// Real provider-reported usage when available (AI SDK `finish` part).
+									// Lets downstream stats distinguish heuristic from authoritative counts.
+									...(usage ? {
+										promptTokens: usage.promptTokens,
+										completionTokens: usage.completionTokens,
+										totalTokens: usage.totalTokens,
+									} : {}),
 								},
 							});
 						}

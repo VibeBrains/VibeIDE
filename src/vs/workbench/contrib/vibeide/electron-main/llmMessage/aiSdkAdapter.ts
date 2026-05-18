@@ -17,7 +17,7 @@ import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js
 import { TOOL_NAME_ALIASES } from '../../common/prompt/toolAliases.js';
 import { getModelSdkNpm } from './modelsDevCatalog.js';
 import { getModelCapabilities } from '../../common/modelCapabilities.js';
-import { LLMChatMessage, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
+import { LLMChatMessage, LLMTokenUsage, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
 import { SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { ensureSystemCADispatcher } from './systemCAFetch.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
@@ -289,6 +289,17 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[]): ModelMessag
 		if (role === 'assistant') {
 			const parts: any[] = [];
 			const content = msg.content;
+			// AI SDK 4.x supports `{ type: 'reasoning', text }` parts inside assistant
+			// messages. Providers that natively understand thinking-mode roundtrip
+			// (DeepSeek via openai-compatible, openCode/zen-proxied reasoning models)
+			// require the previous assistant's `reasoning_content` to be sent back —
+			// without it the provider rejects continuation with HTTP 400 "must be
+			// passed back". Surface it FIRST (before text/tool-call parts) so the SDK
+			// emits it in the right slot.
+			const reasoningPayload: string | undefined = (msg as any).reasoning_content || (msg as any).reasoning;
+			if (typeof reasoningPayload === 'string' && reasoningPayload.length > 0) {
+				parts.push({ type: 'reasoning', text: reasoningPayload });
+			}
 			if (typeof content === 'string' && content.length > 0) {
 				parts.push({ type: 'text', text: content });
 			} else if (Array.isArray(content)) {
@@ -574,6 +585,10 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	let firstTokenTimeoutId: ReturnType<typeof setTimeout> | null = null;
 	let overallTimeoutId: ReturnType<typeof setTimeout> | null = null;
 	let lastFinishReason: string | null = null;
+	// Last `usage` block emitted by the AI SDK on `finish-step` / `finish` parts.
+	// We surface this in onFinalMessage so the UI can display real prompt/completion
+	// token counts from the provider instead of relying on length/4 heuristics.
+	let lastUsage: LLMTokenUsage | undefined;
 
 	const clearAllTimers = () => {
 		if (firstTokenTimeoutId) { clearTimeout(firstTokenTimeoutId); firstTokenTimeoutId = null; }
@@ -621,6 +636,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				fullReasoning: fullReasoningSoFar,
 				anthropicReasoning: null,
 				...(tc ? { toolCall: tc } : {}),
+				...(lastUsage ? { usage: lastUsage } : {}),
 			});
 		} else {
 			onError({ message: 'Request timed out.', fullError: null });
@@ -644,6 +660,14 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			activeTools,
 			toolChoice: tools ? 'auto' : undefined,
 			abortSignal: abortController.signal,
+			// AI SDK default maxRetries=2 (3 attempts total) is too aggressive for
+			// aggregator-proxied models (openCode/zen → DeepSeek-thinking, BigPickle,
+			// minimax-m2.7) — those upstreams throttle on bursts of agentic steps and
+			// 3 attempts hit the same rate-limit window. 5 retries = 6 attempts with
+			// AI SDK's exp backoff (2^n: 0s / 2s / 4s / 8s / 16s / 32s ≈ ~60s spread),
+			// giving the upstream window time to reset. Doesn't affect non-throttled
+			// cases — successful first attempt skips backoff entirely.
+			maxRetries: 5,
 			// Four-stage repair for tool-call name mismatches:
 			//   1. Lowercase normalisation (Read_File → read_file, BASH → bash).
 			//   2. Cross-ecosystem alias (read → read_file, edit → edit_file,
@@ -741,6 +765,40 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				case 'finish-step':
 				case 'finish': {
 					lastFinishReason = (part as any).finishReason ?? lastFinishReason;
+					// AI SDK v5+ (we are on `ai: ^6.0.182`) renamed `promptTokens`→`inputTokens`
+					// and `completionTokens`→`outputTokens`. Old field names are kept as
+					// fallback for any provider/path still on v4 shape. `finish-step` fires
+					// per step (multi-step agentic loops), `finish` fires once at end — the
+					// latter wins for totals; keep last seen on this combined branch.
+					// Also try `totalUsage` (some SDK versions surface aggregate on `finish`
+					// under a separate field).
+					const u = ((part as any).usage ?? (part as any).totalUsage) as {
+						inputTokens?: number; outputTokens?: number; totalTokens?: number;
+						promptTokens?: number; completionTokens?: number;
+					} | undefined;
+					if (u) {
+						const inTok = typeof u.inputTokens === 'number' ? u.inputTokens
+							: typeof u.promptTokens === 'number' ? u.promptTokens : undefined;
+						const outTok = typeof u.outputTokens === 'number' ? u.outputTokens
+							: typeof u.completionTokens === 'number' ? u.completionTokens : undefined;
+						const totTok = typeof u.totalTokens === 'number' ? u.totalTokens : undefined;
+						if (typeof inTok === 'number' || typeof outTok === 'number' || typeof totTok === 'number') {
+							lastUsage = {
+								promptTokens: typeof inTok === 'number' ? inTok : lastUsage?.promptTokens,
+								completionTokens: typeof outTok === 'number' ? outTok : lastUsage?.completionTokens,
+								totalTokens: typeof totTok === 'number' ? totTok : lastUsage?.totalTokens,
+							};
+						}
+						// One-time debug log: surface the exact shape returned by the
+						// provider on the very first usage we see. Helps confirm field
+						// names per provider without re-reading the SDK source. Cleared
+						// once `lastUsage` is set so we don't spam.
+						else {
+							console.warn('[VibeIDE/usage] received but unrecognized shape', {
+								part: part.type, keys: Object.keys(u), raw: u,
+							});
+						}
+					}
 					break;
 				}
 				case 'error': {
@@ -766,6 +824,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			fullReasoning: fullReasoningSoFar,
 			anthropicReasoning: null,
 			...(tc ? { toolCall: tc } : {}),
+			...(lastUsage ? { usage: lastUsage } : {}),
 		});
 	} catch (error: any) {
 		clearAllTimers();

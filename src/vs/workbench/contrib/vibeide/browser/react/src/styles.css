@@ -142,6 +142,21 @@
 }
 
 /*
+ * /skill: autocomplete dropdown — same background + border token chain as `.chat-composer-shell`,
+ * so the menu visually matches the chat input it floats over.
+ */
+.skill-menu-dropdown {
+	background-color: var(--vscode-input-background);
+	border: 1px solid var(
+		--vscode-commandCenter-border,
+		var(
+			--vscode-commandCenter-inactiveBorder,
+			var(--vscode-input-border, var(--vscode-widget-border, transparent))
+		)
+	);
+}
+
+/*
  * Settings / workspace wells: same border + hover/focus chain as chat composer
  * (--vscode-commandCenter-* → purple/pink accent in VibeIDE themes).
  */
@@ -677,7 +692,21 @@ select.vibe-chat-like-control:disabled {
 	height: 1em;
 	line-height: 1;
 	vertical-align: middle;
-	color: currentColor;
+	/* Match Segoe UI Emoji ➕ tone. Cascade with multiple theme tokens because not
+	   every VS Code theme defines `chart.green` — fall through to git/terminal
+	   green tokens, and finally to hardcoded #89D185 (VS Code Dark+ chart green).
+	   `!important` ensures the parent text color (e.g. `text-vibe-fg-2`) doesn't
+	   keep the spinner neutral when the cascade upstream is more specific. */
+	color: var(
+		--vscode-charts-green,
+		var(
+			--vscode-gitDecoration-addedResourceForeground,
+			var(
+				--vscode-terminal-ansiBrightGreen,
+				var(--vscode-terminal-ansiGreen, #89D185)
+			)
+		)
+	) !important;
 }
 
 /* Typing cursor animation - smooth blinking like Claude */

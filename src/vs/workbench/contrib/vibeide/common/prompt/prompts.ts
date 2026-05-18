@@ -136,7 +136,19 @@ export const isABuiltinToolName = (toolName: string): toolName is BuiltinToolNam
 
 
 
-export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined) => {
+// Tools considered "expensive" by token-cost: their outputs can balloon to
+// thousands of paths on large repos. Opt-in `disableExpensiveSearchInNonAgent`
+// removes them from non-agent chat modes (gather/plan) so the user can do
+// targeted Q&A without burning the context budget on accidental wildcard scans.
+// Truncation of any single call's output is handled separately by
+// `vibeide.tools.searchMaxChars` in toolsService.ts.
+const EXPENSIVE_SEARCH_TOOLS = new Set<string>(['grep', 'glob', 'search_for_files', 'get_dir_tree'])
+
+export const availableTools = (
+	chatMode: ChatMode | null,
+	mcpTools: InternalToolInfo[] | undefined,
+	opts?: { disableExpensiveSearchInNonAgent?: boolean },
+) => {
 
 	const builtinToolNames: BuiltinToolName[] | undefined = chatMode === 'normal' ? undefined
 		: chatMode === 'gather' || chatMode === 'plan' ? (Object.keys(builtinTools) as BuiltinToolName[]).filter(toolName => !(toolName in approvalTypeOfBuiltinToolName))
@@ -147,11 +159,15 @@ export const availableTools = (chatMode: ChatMode | null, mcpTools: InternalTool
 	// plan mode: no MCP tools (read-only, no side-effects from external services)
 	const effectiveMCPTools = chatMode === 'agent' ? mcpTools : undefined
 
-	const tools: InternalToolInfo[] | undefined = !(builtinToolNames || mcpTools) ? undefined
+	let tools: InternalToolInfo[] | undefined = !(builtinToolNames || mcpTools) ? undefined
 		: [
 			...effectiveBuiltinTools ?? [],
 			...effectiveMCPTools ?? [],
 		]
+
+	if (opts?.disableExpensiveSearchInNonAgent && (chatMode === 'gather' || chatMode === 'plan') && tools) {
+		tools = tools.filter(t => !EXPENSIVE_SEARCH_TOOLS.has(t.name))
+	}
 
 	return tools
 }

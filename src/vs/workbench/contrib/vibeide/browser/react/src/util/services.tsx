@@ -63,6 +63,7 @@ import { IVibePerfGuardrailsService } from '../../../vibePerfGuardrailsService.j
 import { IVibeCustomCommandsService } from '../../../vibeCustomCommandsService.js'
 import { IVibeTokenBudgetService } from '../../../../common/vibeTokenBudgetService.js'
 import { IVibeContextGuardService } from '../../../vibeContextGuardService.js'
+import { IRemoteCatalogService } from '../../../../common/remoteCatalogService.js'
 import { IVibeSlashCommandService } from '../../../../common/vibeSlashCommandService.js'
 import { IVibeSkillsLibraryService } from '../../../../common/vibeSkillsLibraryService.js'
 
@@ -261,6 +262,7 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 
 			IVibeTokenBudgetService: accessor.get(IVibeTokenBudgetService),
 			IVibeContextGuardService: accessor.get(IVibeContextGuardService),
+			IRemoteCatalogService: accessor.get(IRemoteCatalogService),
 
 			IVibeSlashCommandService: accessor.get(IVibeSlashCommandService),
 			IVibeSkillsLibraryService: accessor.get(IVibeSkillsLibraryService),

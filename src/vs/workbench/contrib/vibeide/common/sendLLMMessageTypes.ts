@@ -96,8 +96,14 @@ export type RawToolCallObj = {
 
 export type AnthropicReasoning = ({ type: 'thinking'; thinking: any; signature: string; } | { type: 'redacted_thinking', data: any })
 
+// Provider-normalized token usage from the LLM response. AI SDK exposes these as
+// promptTokens / completionTokens / totalTokens; legacy OpenAI / Anthropic shapes
+// map to the same fields when surfaced through `@ai-sdk/*` adapters. Optional —
+// not every termination path (e.g. early timeout, abort) yields usage.
+export type LLMTokenUsage = { promptTokens?: number; completionTokens?: number; totalTokens?: number }
+
 export type OnText = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj }) => void
-export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null }) => void // id is tool_use_id
+export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; usage?: LLMTokenUsage }) => void // id is tool_use_id
 export type OnError = (p: { message: string; fullError: Error | null }) => void
 export type OnAbort = () => void
 export type AbortRef = { current: (() => void) | null }
