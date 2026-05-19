@@ -1497,11 +1497,12 @@ const SimplifiedToolHeader = ({
 };
 
 
-// Highlights slash-commands like `/skill-name` or `/skill:name` inline. Matches only
-// when the slash starts the message or follows whitespace — avoids false positives on
-// regex hits inside paths (`/usr/bin`), URLs, or code fragments. Returns alternating
-// plain-string and pill spans; rendered text is identical to input verbatim.
-const SLASH_COMMAND_RE = /(^|\s)(\/(?:skill:)?[\w.-]+)/g;
+// Highlights `/skill:name` inline. Matches only when the slash starts the message or
+// follows whitespace — avoids false positives on paths (`/usr/bin`), URLs, or code
+// fragments. Backend (convertToLLMMessageService) only expands `/skill:NAME`, so plain
+// `/foo` is intentionally NOT highlighted to avoid promising behavior that won't fire.
+// Returns alternating plain-string and pill spans; rendered text is identical to input.
+const SLASH_COMMAND_RE = /(^|\s)(\/skill:[\w.-]+)/g;
 // Inline fallback for builds where vibeide.css hasn't been re-bundled. Inline wins
 // specificity and matches what util/inputs.tsx ships for the input overlay.
 // Geometry-neutral outline: same shape as the overlay version, no border/padding so

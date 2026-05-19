@@ -947,7 +947,9 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 	};
 	const renderOverlayChildren = (text: string): React.ReactNode => {
 		if (!text) return null;
-		const re = /(^|\s)(\/(?:skill:)?[\w.-]+)/g;
+		// Only `/skill:NAME` — backend expands no other slash form, so highlighting
+		// generic `/foo` would lie about behavior (and pill paths like `/var/lib`).
+		const re = /(^|\s)(\/skill:[\w.-]+)/g;
 		const out: React.ReactNode[] = [];
 		let lastIdx = 0;
 		let m: RegExpExecArray | null;

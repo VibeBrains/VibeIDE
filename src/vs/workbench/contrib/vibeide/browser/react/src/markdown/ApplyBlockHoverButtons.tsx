@@ -10,7 +10,7 @@ import { isFeatureNameDisabled } from '../../../../common/vibeideSettingsTypes.j
 import { URI } from '../../../../../../../base/common/uri.js'
 import { FileSymlink, LucideIcon, RotateCw, Terminal } from 'lucide-react'
 import { Check, X, Square, Copy, Play, } from 'lucide-react'
-import { getBasename, ListableToolItem, voidOpenFileFn, ToolChildrenWrapper } from '../sidebar-tsx/SidebarChat.js'
+import { getBasename, ListableToolItem, voidOpenFileFn } from '../sidebar-tsx/SidebarChat.js'
 import { PlacesType, VariantType } from 'react-tooltip'
 import { markdownApplyS } from '../vibe-settings-tsx/vibeSettingsRu.js'
 
@@ -557,10 +557,12 @@ export const BlockCodeApplyWrapper = ({
 			</div>
 		</div>
 
-		{/* contents */}
-		<ToolChildrenWrapper>
-			{children}
-		</ToolChildrenWrapper>
+		{/* contents — must remain selectable; ToolChildrenWrapper's select-none is for tool-invocation cards, not code */}
+		<div className='cursor-text select-text'>
+			<div className='min-w-full overflow-hidden'>
+				{children}
+			</div>
+		</div>
 	</div>
 
 }

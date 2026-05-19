@@ -5162,12 +5162,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					const isActionRequest = actionWords.some(word => userRequest.includes(word))
 
 					if (isActionRequest) {
-						// User is trying to do something that requires tools, but we're in normal mode
+						// User is trying to do something that requires tools, but we're in normal mode.
+						// Preserve reasoning captured from the model stream so subsequent turns
+						// don't break the thinking-mode contract (DeepSeek et al. require
+						// reasoning_content roundtrip on every prior assistant turn).
 						this._addMessageToThread(threadId, {
 							role: 'assistant',
 							displayContent: `I understand you want to ${originalUserMessage.displayContent}, but I'm currently in **Normal** mode which doesn't allow file operations.\n\nTo perform file edits, create files, or run commands, please switch to **Agent** mode using the dropdown in the chat interface.\n\n**Normal mode**: Chat only, no file operations\n**Explore mode**: Search and read the codebase with tools; can't edit files or run commands\n**Agent mode**: Full access to edit files, create files, and run commands`,
-							reasoning: '',
-							anthropicReasoning: null
+							reasoning: info.fullReasoning || '',
+							anthropicReasoning: info.anthropicReasoning ?? null
 						})
 						this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
 						await this._addUserCheckpoint({ threadId })
@@ -5245,11 +5248,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								} else if (toolName === 'browse_url') {
 									actionMessage = 'fetching the web page'
 								}
+								// Preserve reasoning captured from the model stream — thinking-mode
+								// providers (DeepSeek via openCode/zen, vLLM, liteLLM) reject
+								// continuations when reasoning_content is absent on any prior turn.
 								this._addMessageToThread(threadId, {
 									role: 'assistant',
 									displayContent: `I'll help you with that. Let me start by ${actionMessage}...`,
-									reasoning: '',
-									anthropicReasoning: null
+									reasoning: info.fullReasoning || '',
+									anthropicReasoning: info.anthropicReasoning ?? null
 								})
 								toolSynthesizedAndMessageAdded = true
 								// Mark that we've synthesized tools for this request (prevents infinite loops)
@@ -5346,12 +5352,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							const { toolName, toolParams } = synthesizedToolCall
 							const toolId = generateUuid()
 
-							// Add assistant message explaining we're continuing the search
+							// Add assistant message explaining we're continuing the search.
+							// Preserve reasoning captured from the model stream — thinking-mode
+							// providers (DeepSeek via openCode/zen, vLLM, liteLLM) reject
+							// continuations when reasoning_content is absent on any prior turn.
 							this._addMessageToThread(threadId, {
 								role: 'assistant',
 								displayContent: `I'll search for files to answer your question.`,
-								reasoning: '',
-								anthropicReasoning: null
+								reasoning: info.fullReasoning || '',
+								anthropicReasoning: info.anthropicReasoning ?? null
 							})
 
 							// Execute the synthesized tool
