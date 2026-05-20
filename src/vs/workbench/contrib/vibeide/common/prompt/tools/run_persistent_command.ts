@@ -14,4 +14,5 @@ export const RUN_PERSISTENT_COMMAND_TOOL: ToolDef<'run_persistent_command'> = {
 		persistent_terminal_id: { description: 'The ID of the terminal created using open_persistent_terminal.' },
 		timeout_ms: { description: `Optional. Wall-clock cap before returning partial output, in milliseconds. Default ${MAX_TERMINAL_BG_COMMAND_TIME * 1000}, min 1000, max 600000.` },
 	},
+	approvalType: 'terminal',
 };

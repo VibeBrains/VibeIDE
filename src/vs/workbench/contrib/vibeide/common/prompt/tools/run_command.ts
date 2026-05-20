@@ -15,4 +15,5 @@ export const RUN_COMMAND_TOOL: ToolDef<'run_command'> = {
 		timeout_ms: { description: `Optional. Inactivity timeout in milliseconds. Default ${MAX_TERMINAL_INACTIVE_TIME * 1000}, min 1000, max 600000.` },
 		run_in_background: { description: 'Optional. Default false. When true, the command runs detached and returns a background_id immediately. Use this for dev servers, watchers, or anything that does not terminate. Poll output with read_background_output, stop with kill_background_command.' },
 	},
+	approvalType: 'terminal',
 };

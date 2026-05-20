@@ -20,7 +20,8 @@ import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderN
 import { isVisionByNameHeuristic } from '../common/modelVisionHeuristics.js';
 import { detectVisionDropResponse } from '../common/visionDropDetector.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
-import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
+import { BuiltinToolCallParams, BuiltinToolResultType, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
+import { approvalTypeOfBuiltinToolName } from '../common/prompt/tools/index.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';

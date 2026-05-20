@@ -23,28 +23,23 @@ export type ShallowDirectoryItem = {
 }
 
 
-export const approvalTypeOfBuiltinToolName: Partial<{ [T in BuiltinToolName]?: 'edits' | 'terminal' | 'MCP tools' }> = {
-	'create_file_or_folder': 'edits',
-	'delete_file_or_folder': 'edits',
-	'rewrite_file': 'edits',
-	'edit_file': 'edits',
-	'run_command': 'terminal',
-	'run_nl_command': 'terminal',
-	'run_persistent_command': 'terminal',
-	'open_persistent_terminal': 'terminal',
-	'kill_persistent_terminal': 'terminal',
-	'kill_background_command': 'terminal',
-	'read_background_output': 'terminal',
-}
+/**
+ * Categories of user-approval required for a tool. `'MCP tools'` is the
+ * generic bucket for external MCP servers — built-in tools never use it
+ * (their categories are 'edits' / 'terminal').
+ *
+ * The mapping `(builtin tool name) → ToolApprovalType` is no longer hand-
+ * curated here — each per-tool module under `prompt/tools/*` declares its
+ * own `approvalType` field on its `ToolDef`, and the consolidated Record
+ * `approvalTypeOfBuiltinToolName` is DERIVED from `builtinToolDefs` in
+ * `prompt/tools/index.ts`. Single source of truth = each tool's module.
+ *
+ * Consumers that need the runtime Record import it from prompt/tools:
+ *   import { approvalTypeOfBuiltinToolName } from '../common/prompt/tools/index.js'
+ */
+export type ToolApprovalType = 'edits' | 'terminal' | 'MCP tools';
 
-
-export type ToolApprovalType = NonNullable<(typeof approvalTypeOfBuiltinToolName)[keyof typeof approvalTypeOfBuiltinToolName]>;
-
-
-export const toolApprovalTypes = new Set<ToolApprovalType>([
-	...Object.values(approvalTypeOfBuiltinToolName),
-	'MCP tools',
-])
+export const toolApprovalTypes = new Set<ToolApprovalType>(['edits', 'terminal', 'MCP tools']);
 
 
 

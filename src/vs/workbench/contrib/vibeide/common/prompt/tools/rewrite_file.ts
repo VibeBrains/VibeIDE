@@ -12,4 +12,5 @@ export const REWRITE_FILE_TOOL: ToolDef<'rewrite_file'> = {
 		...uriParam('file'),
 		new_content: { description: `The new contents of the file. Must be a string.` },
 	},
+	approvalType: 'edits',
 };

@@ -11,4 +11,5 @@ export const KILL_PERSISTENT_TERMINAL_TOOL: ToolDef<'kill_persistent_terminal'> 
 	params: {
 		persistent_terminal_id: { description: `The ID of the persistent terminal.` },
 	},
+	approvalType: 'terminal',
 };

@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------*/
 
 import { searchReplaceBlockTemplate } from './_constants.js';
-import { BuiltinToolCallParams, BuiltinToolName } from '../../toolsServiceTypes.js';
+import { BuiltinToolCallParams, BuiltinToolName, ToolApprovalType } from '../../toolsServiceTypes.js';
 import { SnakeCaseKeys } from '../snakeCase.js';
 
 /**
@@ -12,11 +12,20 @@ import { SnakeCaseKeys } from '../snakeCase.js';
  * identifier the model emits; `params` mirrors the snake-cased BuiltinToolCallParams
  * keys so the aggregator's `satisfies` clause catches drift between the tool's
  * call params and its prompt-facing param descriptions.
+ *
+ * `approvalType` declares whether the tool has user-visible side effects, and
+ * if so what category. Absent / undefined = read-only (no approval required;
+ * also exempt from plan-step `tools` allowlist drift checks). Side-effect
+ * tools must declare 'edits' (filesystem writes) or 'terminal' (process /
+ * shell). The derived `approvalTypeOfBuiltinToolName` Record in
+ * `prompt/tools/index.ts` is computed from this field — single source of
+ * truth, no parallel hand-curated list to drift.
  */
 export type ToolDef<T extends BuiltinToolName> = {
 	readonly name: T;
 	readonly description: string;
 	readonly params: Partial<{ readonly [paramName in keyof SnakeCaseKeys<BuiltinToolCallParams[T]>]: { readonly description: string } }>;
+	readonly approvalType?: ToolApprovalType;
 };
 
 // Shared parameter snippets and prose helpers for built-in tool descriptions.

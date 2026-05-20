@@ -11,4 +11,5 @@ export const OPEN_PERSISTENT_TERMINAL_TOOL: ToolDef<'open_persistent_terminal'> 
 	params: {
 		cwd: { description: cwdHelper },
 	},
+	approvalType: 'terminal',
 };

@@ -12,4 +12,5 @@ export const EDIT_FILE_TOOL: ToolDef<'edit_file'> = {
 		...uriParam('file'),
 		search_replace_blocks: { description: replaceTool_description },
 	},
+	approvalType: 'edits',
 };

@@ -12,4 +12,5 @@ export const RUN_NL_COMMAND_TOOL: ToolDef<'run_nl_command'> = {
 		nl_input: { description: 'Natural language description of the command to run (e.g., "list git branches", "run npm tests", "check current directory").' },
 		cwd: { description: cwdHelper },
 	},
+	approvalType: 'terminal',
 };

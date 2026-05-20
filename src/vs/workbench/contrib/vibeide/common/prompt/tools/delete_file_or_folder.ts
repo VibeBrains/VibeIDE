@@ -12,4 +12,5 @@ export const DELETE_FILE_OR_FOLDER_TOOL: ToolDef<'delete_file_or_folder'> = {
 		...uriParam('file or folder'),
 		is_recursive: { description: 'Optional. Return true to delete recursively.' },
 	},
+	approvalType: 'edits',
 };

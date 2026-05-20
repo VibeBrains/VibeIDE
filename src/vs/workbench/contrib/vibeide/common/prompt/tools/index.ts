@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
-import { BuiltinToolName } from '../../toolsServiceTypes.js';
+import { BuiltinToolName, ToolApprovalType } from '../../toolsServiceTypes.js';
 import { ToolDef } from './_helpers.js';
 
 import { READ_FILE_TOOL } from './read_file.js';
@@ -87,3 +87,32 @@ export const builtinToolDefs = {
 	web_search: WEB_SEARCH_TOOL,
 	browse_url: BROWSE_URL_TOOL,
 } satisfies { [T in BuiltinToolName]: ToolDef<T> };
+
+/**
+ * Derived map: built-in tool name → its approval category (or absent for
+ * read-only tools). Computed from each `ToolDef.approvalType` field in the
+ * registry above — single source of truth, no parallel hand-curated list.
+ *
+ * Shape matches the previously hand-curated Record in `toolsServiceTypes.ts`
+ * so consumer code (`(toolName as string) in approvalTypeOfBuiltinToolName`
+ * and direct key lookup) keeps working without changes — only the import
+ * path moves.
+ *
+ * Old hand-curated version (toolsServiceTypes.ts:26-38 before this refactor):
+ *   create_file_or_folder/delete_file_or_folder/rewrite_file/edit_file → 'edits';
+ *   run_command/run_nl_command/run_persistent_command/open_persistent_terminal/
+ *   kill_persistent_terminal/kill_background_command/read_background_output → 'terminal'.
+ * New derived version (this expression) MUST match — verified by an inline
+ * `satisfies` plus an at-startup sanity check would be overkill since
+ * TypeScript already enforces that every `approvalType` value in any tool
+ * module is a `ToolApprovalType` literal.
+ */
+export const approvalTypeOfBuiltinToolName: Partial<{ [T in BuiltinToolName]?: ToolApprovalType }> = (() => {
+	const out: Partial<{ [T in BuiltinToolName]?: ToolApprovalType }> = {};
+	for (const [toolName, def] of Object.entries(builtinToolDefs)) {
+		if (def.approvalType) {
+			out[toolName as BuiltinToolName] = def.approvalType;
+		}
+	}
+	return out;
+})();

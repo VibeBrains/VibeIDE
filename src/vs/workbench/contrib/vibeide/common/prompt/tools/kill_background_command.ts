@@ -11,4 +11,5 @@ export const KILL_BACKGROUND_COMMAND_TOOL: ToolDef<'kill_background_command'> = 
 	params: {
 		background_id: { description: 'The background_id returned by run_command when run_in_background=true.' },
 	},
+	approvalType: 'terminal',
 };

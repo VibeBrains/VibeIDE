@@ -11,4 +11,5 @@ export const CREATE_FILE_OR_FOLDER_TOOL: ToolDef<'create_file_or_folder'> = {
 	params: {
 		...uriParam('file or folder'),
 	},
+	approvalType: 'edits',
 };
