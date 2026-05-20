@@ -2380,6 +2380,20 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		if (!hints?.length) {
 			return true;
 		}
+		// Read-only built-in tools (those NOT in approvalTypeOfBuiltinToolName,
+		// which is the data-driven authoritative source of "tools with side
+		// effects") are ALWAYS allowed regardless of the step's `tools` hint.
+		// Rationale: planners reliably list write/exec tools (create_file_or_folder,
+		// run_command, edit_file) but rarely enumerate read tools (read_file,
+		// ls_dir, get_dir_tree, grep, glob) that the model legitimately uses to
+		// orient itself before performing the write. Hard-blocking on read-only
+		// drift produced false positives where the step paused on an exploration
+		// call that had zero side effects. Side-effect tools still subject to
+		// the strict hint check.
+		const isSideEffectTool = (toolName as string) in approvalTypeOfBuiltinToolName;
+		if (!isSideEffectTool) {
+			return true;
+		}
 		const tn = String(toolName).toLowerCase();
 		return hints.some(h => {
 			const raw = (h ?? '').toLowerCase().trim();
