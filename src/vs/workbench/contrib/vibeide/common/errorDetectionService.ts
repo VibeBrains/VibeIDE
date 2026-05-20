@@ -17,7 +17,7 @@ import { ILLMMessageService } from './sendLLMMessageService.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { ITextModel } from '../../../../editor/common/model.js';
 import { TextEdit } from '../../../../editor/common/languages.js';
-import { isValidProviderModelSelection } from './vibeideSettingsTypes.js';
+import { autoModelFallbackProviderOrder, isValidProviderModelSelection } from './vibeideSettingsTypes.js';
 
 export const IErrorDetectionService = createDecorator<IErrorDetectionService>('errorDetectionService');
 
@@ -301,10 +301,7 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 
 			// Resolve auto model selection
 			if (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') {
-				const providerNames: Array<'anthropic' | 'openAI' | 'gemini' | 'xAI' | 'mistral' | 'deepseek' | 'groq' | 'ollama' | 'vLLM' | 'lmStudio' | 'openAICompatible' | 'openRouter' | 'liteLLM' | 'pollinations' | 'openCodeZen' | 'openCode'> =
-					['anthropic', 'openAI', 'gemini', 'xAI', 'mistral', 'deepseek', 'groq', 'ollama', 'vLLM', 'lmStudio', 'openAICompatible', 'openRouter', 'liteLLM', 'pollinations', 'openCodeZen', 'openCode'];
-
-				for (const providerName of providerNames) {
+				for (const providerName of autoModelFallbackProviderOrder) {
 					const providerSettings = settings.settingsOfProvider[providerName];
 					if (providerSettings && providerSettings._didFillInProviderSettings) {
 						const models = providerSettings.models || [];

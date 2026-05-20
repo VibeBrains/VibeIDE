@@ -14,7 +14,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IMetricsService } from './metricsService.js';
 import { defaultProviderSettings, getModelCapabilities, ModelOverrides } from './modelCapabilities.js';
 import { VOID_SETTINGS_STORAGE_KEY } from './storageKeys.js';
-import { defaultSettingsOfProvider, FeatureName, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, ModelSelection, modelSelectionsEqual, featureNames, VibeideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState } from './vibeideSettingsTypes.js';
+import { autoModelFallbackProviderOrder, defaultSettingsOfProvider, FeatureName, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, ModelSelection, modelSelectionsEqual, featureNames, VibeideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState } from './vibeideSettingsTypes.js';
 
 
 // name is the name in the dropdown
@@ -838,9 +838,7 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 		}
 
 		// Try to find the first available configured model (prefer online models first, then local)
-		const providerNames: ProviderName[] = ['anthropic', 'openAI', 'gemini', 'xAI', 'mistral', 'deepseek', 'groq', 'ollama', 'vLLM', 'lmStudio', 'openAICompatible', 'openRouter', 'liteLLM', 'pollinations', 'openCodeZen', 'openCode']
-
-		for (const providerName of providerNames) {
+		for (const providerName of autoModelFallbackProviderOrder) {
 			const providerSettings = this.state.settingsOfProvider[providerName]
 			if (providerSettings && providerSettings._didFillInProviderSettings) {
 				const models = providerSettings.models || []

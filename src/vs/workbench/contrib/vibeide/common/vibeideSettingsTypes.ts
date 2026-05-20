@@ -20,6 +20,26 @@ export const providerNames = Object.keys(defaultProviderSettings) as ProviderNam
 export const localProviderNames = ['ollama', 'vLLM', 'lmStudio'] satisfies ProviderName[] // all local names
 export const nonlocalProviderNames = providerNames.filter((name) => !(localProviderNames as string[]).includes(name)) // all non-local names
 
+/**
+ * Preference order for "Auto" model resolution — when user picks
+ * `providerName: 'auto', modelName: 'auto'`, we walk this list and pick the
+ * first provider that has `_didFillInProviderSettings === true` and at least
+ * one non-hidden configured model. Order is hand-curated: cloud-flagship
+ * providers first (Anthropic / OpenAI / Gemini), then alternative clouds
+ * (xAI / Mistral / DeepSeek / Groq), then local (Ollama / vLLM / LMStudio),
+ * then generic aggregators (OpenAI-compatible / OpenRouter / LiteLLM /
+ * Pollinations), then VibeIDE-aligned aggregators (OpenCode Zen / Go).
+ *
+ * SINGLE SOURCE OF TRUTH — used by chatThreadService._findModelSelectionForId,
+ * vibeideSettingsService.resolveAutoModelSelection, errorDetectionService and
+ * nlShellParserService for their respective auto-fallback resolutions. Used to
+ * be hand-copy-pasted 4× before this const was added. `satisfies ProviderName[]`
+ * forces TS to fail-loud if a value isn't in `ProviderName`. Adding a new
+ * provider = add the name HERE (and to defaultProviderSettings); the four
+ * callers automatically pick it up.
+ */
+export const autoModelFallbackProviderOrder = ['anthropic', 'openAI', 'gemini', 'xAI', 'mistral', 'deepseek', 'groq', 'ollama', 'vLLM', 'lmStudio', 'openAICompatible', 'openRouter', 'liteLLM', 'pollinations', 'openCodeZen', 'openCode'] satisfies ProviderName[];
+
 type CustomSettingName = UnionOfKeys<typeof defaultProviderSettings[ProviderName]>
 type CustomProviderSettings<providerName extends ProviderName> = {
 	[k in CustomSettingName]: k extends keyof typeof defaultProviderSettings[providerName] ? string : undefined

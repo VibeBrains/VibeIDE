@@ -16,7 +16,7 @@ import { TOOL_NAME_ALIASES, applyParamAliases } from '../common/prompt/toolAlias
 import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
 import { AnthropicReasoning, getErrorMessage, LLMTokenUsage, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
-import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
+import { autoModelFallbackProviderOrder, ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isVisionByNameHeuristic } from '../common/modelVisionHeuristics.js';
 import { detectVisionDropResponse } from '../common/visionDropDetector.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
@@ -920,8 +920,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			return null;
 		}
 		// Plain model name: scan providers in preference order.
-		const providerOrder: ProviderName[] = ['anthropic', 'openAI', 'gemini', 'xAI', 'mistral', 'deepseek', 'groq', 'ollama', 'vLLM', 'lmStudio', 'openAICompatible', 'openRouter', 'liteLLM', 'pollinations', 'openCodeZen', 'openCode'];
-		for (const providerName of providerOrder) {
+		for (const providerName of autoModelFallbackProviderOrder) {
 			const settings = this._settingsService.state.settingsOfProvider[providerName];
 			if (!settings?._didFillInProviderSettings) continue;
 			const found = settings.models?.find(m => m.modelName === modelId && !m.isHidden);

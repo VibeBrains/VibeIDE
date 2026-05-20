@@ -7,7 +7,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { ILLMMessageService } from './sendLLMMessageService.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
-import { isValidProviderModelSelection } from './vibeideSettingsTypes.js';
+import { autoModelFallbackProviderOrder, isValidProviderModelSelection } from './vibeideSettingsTypes.js';
 import { analyzeNLShellSafety } from './nlShellSafetyAnalyzer.js';
 
 export const INLShellParserService = createDecorator<INLShellParserService>('nlShellParserService');
@@ -70,11 +70,9 @@ class NLShellParserService implements INLShellParserService {
 		// If auto is selected, try to find a fallback model
 		if (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') {
 			// Try to find the first available configured model (prefer online models first, then local)
-			const providerNames: Array<'anthropic' | 'openAI' | 'gemini' | 'xAI' | 'mistral' | 'deepseek' | 'groq' | 'ollama' | 'vLLM' | 'lmStudio' | 'openAICompatible' | 'openRouter' | 'liteLLM' | 'pollinations' | 'openCodeZen' | 'openCode'> =
-				['anthropic', 'openAI', 'gemini', 'xAI', 'mistral', 'deepseek', 'groq', 'ollama', 'vLLM', 'lmStudio', 'openAICompatible', 'openRouter', 'liteLLM', 'pollinations', 'openCodeZen', 'openCode'];
 			let fallbackModel: { providerName: string; modelName: string } | null = null;
 
-			for (const providerName of providerNames) {
+			for (const providerName of autoModelFallbackProviderOrder) {
 				const providerSettings = settings.settingsOfProvider[providerName];
 				if (providerSettings && providerSettings._didFillInProviderSettings) {
 					const models = providerSettings.models || [];
