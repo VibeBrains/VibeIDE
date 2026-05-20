@@ -369,16 +369,27 @@ const SimpleModelSettingsDialog = ({
 	// Sentinel `''` = "use default (no override)". On save the dropdown value
 	// is merged into `cleaned` LAST so it wins over any stale value the user
 	// may have left in the JSON textarea.
-	const [apiProtocolSelected, setApiProtocolSelected] = useState<ApiProtocolOverride | ''>(
-		() => (currentOverrides?.apiProtocol as ApiProtocolOverride | undefined) ?? ''
-	);
+	// Defensive: stored `apiProtocol` MAY contain a stale/malformed value
+	// (older code, hand-edited settings.json) that isn't in API_PROTOCOL_VALUES
+	// anymore. Filter to the valid set; an unrecognised stored value shows
+	// "(default)" in the dropdown and gets cleared on first save — better than
+	// showing garbage in a select control or saving an invalid string.
+	const apiProtocolFromOverrides = (() => {
+		const v = currentOverrides?.apiProtocol as string | undefined;
+		return v && (API_PROTOCOL_VALUES as readonly string[]).includes(v) ? v as ApiProtocolOverride : '';
+	})();
+	const [apiProtocolSelected, setApiProtocolSelected] = useState<ApiProtocolOverride | ''>(() => apiProtocolFromOverrides);
 
 	// reset when dialog toggles
 	useEffect(() => {
 		if (!isOpen) return;
 		const cur = settingsState.overridesOfModel?.[providerName]?.[modelName];
+		const storedApi = cur?.apiProtocol as string | undefined;
+		const validApi: ApiProtocolOverride | '' = storedApi && (API_PROTOCOL_VALUES as readonly string[]).includes(storedApi)
+			? storedApi as ApiProtocolOverride
+			: '';
 		setOverrideEnabled(!!cur);
-		setApiProtocolSelected((cur?.apiProtocol as ApiProtocolOverride | undefined) ?? '');
+		setApiProtocolSelected(validApi);
 		setErrorMsg(null);
 	}, [isOpen, providerName, modelName, settingsState.overridesOfModel, placeholder]);
 
