@@ -364,11 +364,21 @@ const SimpleModelSettingsDialog = ({
 
 	const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
 
+	// First-class form control for `apiProtocol` — small enum, dropdown fits
+	// the UX much better than asking the user to type "anthropic" into JSON.
+	// Sentinel `''` = "use default (no override)". On save the dropdown value
+	// is merged into `cleaned` LAST so it wins over any stale value the user
+	// may have left in the JSON textarea.
+	const [apiProtocolSelected, setApiProtocolSelected] = useState<ApiProtocolOverride | ''>(
+		() => (currentOverrides?.apiProtocol as ApiProtocolOverride | undefined) ?? ''
+	);
+
 	// reset when dialog toggles
 	useEffect(() => {
 		if (!isOpen) return;
 		const cur = settingsState.overridesOfModel?.[providerName]?.[modelName];
 		setOverrideEnabled(!!cur);
+		setApiProtocolSelected((cur?.apiProtocol as ApiProtocolOverride | undefined) ?? '');
 		setErrorMsg(null);
 	}, [isOpen, providerName, modelName, settingsState.overridesOfModel, placeholder]);
 
@@ -405,10 +415,10 @@ const SimpleModelSettingsDialog = ({
 				cleaned[k] = parsedInput[k] as any;
 			}
 		}
-		// `apiProtocol` is a meta-override (extension on ModelOverrides, not part
-		// of modelOverrideKeys which only covers VibeideStaticModelInfo fields).
-		// Accepted values come from `API_PROTOCOL_VALUES` — single source of truth
-		// shared with aiSdkAdapter, so adding a new protocol works everywhere.
+		// `apiProtocol` from JSON textarea — still accept it for power users who
+		// prefer JSON, but the dropdown below is the primary control. We accept
+		// JSON value FIRST, then let dropdown override (dropdown last write wins,
+		// because the dialog is intentional "what I see in dropdown is what I save").
 		if ('apiProtocol' in parsedInput) {
 			const v = parsedInput.apiProtocol;
 			if (typeof v === 'string' && (API_PROTOCOL_VALUES as readonly string[]).includes(v)) {
@@ -417,6 +427,13 @@ const SimpleModelSettingsDialog = ({
 				setErrorMsg(`apiProtocol must be one of ${API_PROTOCOL_VALUES.map(p => `"${p}"`).join(', ')}; got: ${JSON.stringify(v)}`);
 				return;
 			}
+		}
+		// Dropdown takes precedence: if user picked a value, that wins; if they
+		// chose "(default)" (empty sentinel), strip apiProtocol entirely.
+		if (apiProtocolSelected) {
+			cleaned.apiProtocol = apiProtocolSelected;
+		} else {
+			cleaned.apiProtocol = undefined;
 		}
 		// User explicitly took control via the override dialog — clear any
 		// `_autoDetected` metadata from a prior auto-downgrade so the manual
@@ -486,13 +503,28 @@ const SimpleModelSettingsDialog = ({
 					<ChatMarkdownRender string={modelsS.sourcecodeRef(sourcecodeOverridesLink)} chatMessageLocation={undefined} />
 				</div>}
 
-				{/* apiProtocol hint — not in modelOverrideKeys, surfaced separately so the user discovers it.
-				    Allowed values pulled from the same const that drives validation, so the hint can't drift. */}
-				{overrideEnabled && <div className="text-xs text-vibe-fg-3 mb-3 opacity-80">
-					<code>"apiProtocol"</code>: {API_PROTOCOL_VALUES.map((p, i) => (
-						<span key={p}>{i > 0 ? ', ' : ''}<code>{`"${p}"`}</code></span>
-					))} — force a specific AI SDK adapter, bypassing the models.dev catalog. Use when a model is mis-classified or not in the catalog at all.
-				</div>}
+				{/* apiProtocol first-class control. Dropdown is the primary way to set
+				    this override; JSON textarea below still accepts the key for power
+				    users, with dropdown winning on save. Options derive from
+				    API_PROTOCOL_VALUES — single source of truth shared with the
+				    aiSdkAdapter router and the JSON validator. */}
+				{overrideEnabled && (
+					<div className="mb-3">
+						<label className="text-xs text-vibe-fg-3 mb-1 block">
+							<code>apiProtocol</code> — force a specific AI SDK adapter (bypass models.dev catalog)
+						</label>
+						<select
+							className="@@vibe-chat-like-control text-sm px-2 py-1"
+							value={apiProtocolSelected}
+							onChange={e => setApiProtocolSelected(e.target.value as ApiProtocolOverride | '')}
+						>
+							<option value=''>(default — use models.dev catalog)</option>
+							{API_PROTOCOL_VALUES.map(p => (
+								<option key={p} value={p}>{p}</option>
+							))}
+						</select>
+					</div>
+				)}
 
 				<textarea
 					key={overrideEnabled + ''}
