@@ -219,10 +219,32 @@ export type AutoDowngradeReason =
 // have no TTL. See roadmap O.4 (reset mechanism).
 export const AUTO_DOWNGRADE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+/**
+ * Manual override for the AI SDK adapter VibeIDE will use for this specific
+ * model. Bypasses the models.dev catalog lookup in `aiSdkAdapter.ts`. Use when:
+ *   - models.dev mis-classifies a model (e.g. lists Anthropic protocol but
+ *     the aggregator actually serves it via OpenAI chat-completions),
+ *   - you're testing a new model not yet in models.dev,
+ *   - corporate-network strips the models.dev fetch and the default fallback
+ *     to openai-compatible is wrong for a model that needs Anthropic format.
+ *
+ * Two values matter today (matches what aiSdkAdapter.ts actually wires):
+ *   - 'openai-compat' → forces `@ai-sdk/openai-compatible` (chat-completions wire format)
+ *   - 'anthropic'     → forces `@ai-sdk/anthropic` (Messages wire format)
+ *
+ * Future additions ('openai', 'google') will require corresponding adapter
+ * registration in aiSdkAdapter.ts; until then those values are reserved and
+ * the type is intentionally a string union, not free-form.
+ */
+export type ApiProtocolOverride = 'openai-compat' | 'anthropic';
+
 export type ModelOverrides = Pick<
 	VibeideStaticModelInfo,
 	(typeof modelOverrideKeys)[number]
 > & {
+	/** Manual SDK-adapter selection. See {@link ApiProtocolOverride}. */
+	apiProtocol?: ApiProtocolOverride;
+
 	// Auto-downgrade metadata (see roadmap O.5). Underscore prefix marks these
 	// as system fields, distinct from user-facing override keys.
 	_autoDetected?: boolean;

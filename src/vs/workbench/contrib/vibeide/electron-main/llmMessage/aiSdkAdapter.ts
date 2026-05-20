@@ -594,16 +594,28 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		return;
 	}
 
-	// Pick AI SDK adapter per model via models.dev catalog (data-driven).
-	// Catalog returns the `npm` field (`@ai-sdk/anthropic`, `@ai-sdk/openai-compatible`,
-	// etc.) for the (baseURL, modelName) tuple. Unrecognised → undefined →
-	// fall back to openai-compatible (safe default; even if wrong, the
-	// auto-downgrade pipeline catches resulting tool-call quirks).
-	const sdkNpm = await getModelSdkNpm(baseURL, modelName);
+	// Pick AI SDK adapter per model. Priority order:
+	//   1. User-set `apiProtocol` override in ModelOverrides — bypasses
+	//      everything below. Required when models.dev mis-classifies a model
+	//      or when a model isn't in the catalog at all (e.g. new aggregator
+	//      additions, corporate-network blocking models.dev fetch).
+	//   2. models.dev catalog (data-driven) — returns the `npm` field
+	//      (`@ai-sdk/anthropic`, `@ai-sdk/openai-compatible`, etc.) for the
+	//      (baseURL, modelName) tuple.
+	//   3. Fallback: openai-compatible (safe default; even if wrong, the
+	//      auto-downgrade pipeline catches resulting tool-call quirks).
+	const apiProtocolOverride = (overridesOfModel?.[providerName as Exclude<typeof providerName, 'auto'>]?.[modelName_] as { apiProtocol?: 'openai-compat' | 'anthropic' } | undefined)?.apiProtocol;
+	const sdkNpmFromOverride: string | undefined = apiProtocolOverride === 'anthropic'
+		? '@ai-sdk/anthropic'
+		: apiProtocolOverride === 'openai-compat'
+			? '@ai-sdk/openai-compatible'
+			: undefined;
+	const sdkNpm = sdkNpmFromOverride ?? await getModelSdkNpm(baseURL, modelName);
 	// Diagnostic: log which SDK path was taken on first request per provider+model.
 	// Lets us verify models.dev fetch actually reached us and routing decision was
 	// what we expected. Once we're confident, this can become a no-op or be removed.
-	console.log(`[aiSdkAdapter] provider=${providerName} model=${modelName} baseURL=${baseURL} sdkNpm=${sdkNpm ?? '(unknown → fallback openai-compatible)'}`);
+	const sdkSource = sdkNpmFromOverride ? 'override' : (sdkNpm ? 'models.dev' : 'fallback');
+	console.log(`[aiSdkAdapter] provider=${providerName} model=${modelName} baseURL=${baseURL} sdkNpm=${sdkNpm ?? '(unknown → fallback openai-compatible)'} source=${sdkSource}`);
 	const languageModel: LanguageModel = sdkNpm === '@ai-sdk/anthropic'
 		? createAnthropic({
 			baseURL,
