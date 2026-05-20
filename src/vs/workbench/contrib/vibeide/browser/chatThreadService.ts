@@ -441,9 +441,15 @@ export interface IChatThreadService {
 	 *     when the thread has been "running" for longer than the submit-stall
 	 *     threshold and a new send arrives;
 	 *   - the inline "Сбросить состояние чата" button shown when the chat UI
-	 *     detects a recoverable: 'forceReset' error in the streamState.
+	 *     detects a recoverable: 'forceReset' error in the streamState;
+	 *   - the `vibeide.chat.forceResetChatState` Command Palette action.
+	 *
+	 * Returns `true` if something was actually cleared (running state / watchdog
+	 * timer / age tracker had data); `false` if the thread was already idle and
+	 * the call was a no-op. Lets callers tailor user feedback and avoid
+	 * metric-event noise when nothing actually happened.
 	 */
-	forceResetChatState(threadId: string): void;
+	forceResetChatState(threadId: string): boolean;
 
 	// call to edit a message
 	editUserMessageAndStreamResponse({ userMessage, messageIdx, threadId }: { userMessage: string, messageIdx: number, threadId: string }): Promise<void>;
@@ -2756,11 +2762,22 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		this._setStreamState(threadId, undefined)
 	}
 
-	forceResetChatState(threadId: string): void {
-		// Snapshot the pre-reset state for the metrics event — gives downstream
-		// stats a count of "from what state are users having to force-reset".
-		const priorStateBeforeReset = this.streamState[threadId]?.isRunning ?? 'undefined'
+	forceResetChatState(threadId: string): boolean {
+		// Snapshot the pre-reset state for both the metrics event and the
+		// "did anything actually happen" return signal. A thread is "clean"
+		// (no-op reset) when ALL four trackers are empty:
+		//   - streamState entry missing or isRunning === undefined
+		//   - no submit watchdog timer pending
+		//   - no age tracker entry
+		//   - no pending RAF batch update queued
+		// If any one of those has data, the call is a real reset.
+		const priorIsRunning = this.streamState[threadId]?.isRunning
+		const priorStateBeforeReset = priorIsRunning ?? 'undefined'
 		const priorAgeMs = this._streamStateSetAt.has(threadId) ? Date.now() - this._streamStateSetAt.get(threadId)! : 0
+		const hadWatchdog = this._submitWatchdogByThread.has(threadId)
+		const hadPendingRaf = this._pendingStreamStateUpdates.has(threadId)
+		const actuallyResetSomething = priorIsRunning !== undefined || hadWatchdog || hadPendingRaf || this._streamStateSetAt.has(threadId)
+
 		// Drop pending RAF batch updates for this thread so a delayed
 		// onDidChangeStreamState doesn't resurrect a stale state.
 		this._pendingStreamStateUpdates.delete(threadId)
@@ -2775,11 +2792,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// Final: flip streamState to undefined. _setStreamState fires
 		// onDidChangeStreamState so the UI's error block disappears.
 		this._setStreamState(threadId, undefined)
-		console.warn(`[VibeIDE chatThread] forceResetChatState(${threadId}) — state, watchdog, RAF, and age tracker all cleared.`)
-		this._metricsService.capture('Chat Force Reset', {
-			priorState: priorStateBeforeReset,
-			priorAgeSec: Math.floor(priorAgeMs / 1000),
-		})
+
+		if (actuallyResetSomething) {
+			console.warn(`[VibeIDE chatThread] forceResetChatState(${threadId}) — state, watchdog, RAF, and age tracker all cleared.`)
+			this._metricsService.capture('Chat Force Reset', {
+				priorState: priorStateBeforeReset,
+				priorAgeSec: Math.floor(priorAgeMs / 1000),
+			})
+		}
+		return actuallyResetSomething
 	}
 
 	async retryStalledStream(threadId: string): Promise<void> {

@@ -50,10 +50,12 @@ registerAction2(class ForceResetChatStateAction extends Action2 {
 			return;
 		}
 
-		chatThreadService.forceResetChatState(threadId);
+		const didReset = chatThreadService.forceResetChatState(threadId);
 		notificationService.notify({
 			severity: Severity.Info,
-			message: localize('vibeide.chat.forceResetChatState.done', 'Состояние чата сброшено: stream state, watchdog, RAF, age tracker — всё очищено. Теперь можно отправлять сообщения.'),
+			message: didReset
+				? localize('vibeide.chat.forceResetChatState.done', 'Состояние чата сброшено: stream state, watchdog, RAF, age tracker — всё очищено. Теперь можно отправлять сообщения.')
+				: localize('vibeide.chat.forceResetChatState.noop', 'Чат уже в idle-состоянии — сбрасывать нечего.'),
 		});
 	}
 });
