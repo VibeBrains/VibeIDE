@@ -6983,6 +6983,19 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 
 
+	// Hard cap on messages per thread. Independent from convertToLLMMessageService's
+	// payload-level summarization (which only affects what we SEND to the LLM):
+	// this bounds the JSON we keep in renderer memory and persist to disk. Long
+	// agent sessions, especially retry/loop storms, used to grow unbounded and
+	// OOM the Electron renderer (~thousand+ messages of accumulated tool errors
+	// + assistant retries). When `messages.length` exceeds MAX_MESSAGES_PER_THREAD
+	// after an append, we drop the oldest messages back down to TRIM_TARGET and
+	// insert a single synthetic assistant marker at the new head documenting the
+	// trim. orphaned tool-result references in the surviving tail are handled
+	// transparently by aiSdkAdapter's source-level orphan guard.
+	private static readonly MAX_MESSAGES_PER_THREAD = 500;
+	private static readonly TRIM_TARGET = 400;
+
 	private _addMessageToThread(threadId: string, message: ChatMessage) {
 		// Invalidate plan cache when plan messages are added
 		if (message.role === 'plan') {
@@ -6998,16 +7011,27 @@ We only need to do it for files that were edited since `from`, ie files between 
 		)
 			? { ...message, createdAt: Date.now() } as ChatMessage
 			: message
+		// Compute new messages array, applying the hard cap if exceeded.
+		let nextMessages: ChatMessage[] = [...oldThread.messages, stampedMessage]
+		if (nextMessages.length > ChatThreadService.MAX_MESSAGES_PER_THREAD) {
+			const dropCount = nextMessages.length - ChatThreadService.TRIM_TARGET
+			const trimMarker: ChatMessage = {
+				role: 'assistant',
+				displayContent: `_(${dropCount} earlier message${dropCount === 1 ? '' : 's'} trimmed from thread to keep memory bounded. Convert pipeline still summarises older context into each LLM request.)_`,
+				reasoning: '',
+				anthropicReasoning: null,
+				createdAt: Date.now(),
+			}
+			nextMessages = [trimMarker, ...nextMessages.slice(dropCount)]
+			console.warn(`[VibeIDE] Trimmed ${dropCount} oldest messages from thread ${threadId} (cap=${ChatThreadService.MAX_MESSAGES_PER_THREAD}, target=${ChatThreadService.TRIM_TARGET})`)
+		}
 		// update state and store it
 		const newThreads = {
 			...allThreads,
 			[oldThread.id]: {
 				...oldThread,
 				lastModified: new Date().toISOString(),
-				messages: [
-					...oldThread.messages,
-					stampedMessage
-				],
+				messages: nextMessages,
 			}
 		}
 		this._storeAllThreads(newThreads)
