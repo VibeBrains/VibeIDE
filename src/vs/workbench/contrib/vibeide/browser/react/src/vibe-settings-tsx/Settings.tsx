@@ -350,7 +350,10 @@ const SimpleModelSettingsDialog = ({
 	const currentOverrides = settingsState.overridesOfModel?.[providerName]?.[modelName] ?? undefined;
 	const { recognizedModelName, isUnrecognizedModel } = defaultModelCapabilities
 
-	// Create the placeholder with the default values for allowed keys
+	// Create the placeholder with the default values for allowed keys.
+	// `apiProtocol` is a meta-override (not a VibeideStaticModelInfo field), so
+	// it isn't in `modelOverrideKeys`. Surface it explicitly below the JSON
+	// example as a separate hint — users discover the field without grepping.
 	const partialDefaults: Partial<ModelOverrides> = {};
 	for (const k of modelOverrideKeys) { if (defaultModelCapabilities[k]) partialDefaults[k] = defaultModelCapabilities[k] as any; }
 	const placeholder = JSON.stringify(partialDefaults, null, 2);
@@ -400,6 +403,20 @@ const SimpleModelSettingsDialog = ({
 			const isEmpty = parsedInput[k] === '' || parsedInput[k] === null || parsedInput[k] === undefined;
 			if (!isEmpty) {
 				cleaned[k] = parsedInput[k] as any;
+			}
+		}
+		// `apiProtocol` is a meta-override (extension on ModelOverrides, not part
+		// of modelOverrideKeys which only covers VibeideStaticModelInfo fields).
+		// Accept it explicitly with a string-value validation — only 'openai-compat'
+		// or 'anthropic' do anything in aiSdkAdapter; other values pass through
+		// silently and the backend falls through to models.dev / openai-compatible.
+		if ('apiProtocol' in parsedInput) {
+			const v = parsedInput.apiProtocol;
+			if (v === 'openai-compat' || v === 'anthropic') {
+				cleaned.apiProtocol = v;
+			} else if (v !== '' && v !== null && v !== undefined) {
+				setErrorMsg(`apiProtocol must be "openai-compat" or "anthropic", got: ${JSON.stringify(v)}`);
+				return;
 			}
 		}
 		await settingsStateService.setOverridesOfModel(providerName, modelName, cleaned);
@@ -460,6 +477,12 @@ const SimpleModelSettingsDialog = ({
 				{/* Informational link */}
 				{overrideEnabled && <div className="text-sm text-vibe-fg-3 mb-4">
 					<ChatMarkdownRender string={modelsS.sourcecodeRef(sourcecodeOverridesLink)} chatMessageLocation={undefined} />
+				</div>}
+
+				{/* apiProtocol hint — not in modelOverrideKeys, surfaced separately so the user discovers it.
+				    Two accepted values match what aiSdkAdapter actually wires; other strings get a save-time error. */}
+				{overrideEnabled && <div className="text-xs text-vibe-fg-3 mb-3 opacity-80">
+					<code>"apiProtocol"</code>: <code>"openai-compat"</code> or <code>"anthropic"</code> — force a specific AI SDK adapter, bypassing the models.dev catalog. Use when a model is mis-classified or not in the catalog at all.
 				</div>}
 
 				<textarea
