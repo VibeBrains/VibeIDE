@@ -9,6 +9,8 @@ import { streamText, jsonSchema, tool, type ModelMessage, type ToolSet, type Tex
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { API_PROTOCOL_TO_SDK_NPM, ApiProtocolOverride } from '../../common/modelCapabilities.js';
 import { fetch as undiciFetch } from 'undici';
 import type { JSONSchema7 } from '@ai-sdk/provider';
 /* eslint-enable */
@@ -605,14 +607,12 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	//      (baseURL, modelName) tuple.
 	//   3. Fallback: openai-compatible (safe default; even if wrong, the
 	//      auto-downgrade pipeline catches resulting tool-call quirks).
-	const apiProtocolOverride = (overridesOfModel?.[providerName as Exclude<typeof providerName, 'auto'>]?.[modelName_] as { apiProtocol?: 'openai-compat' | 'anthropic' | 'openai' } | undefined)?.apiProtocol;
-	const sdkNpmFromOverride: string | undefined = apiProtocolOverride === 'anthropic'
-		? '@ai-sdk/anthropic'
-		: apiProtocolOverride === 'openai-compat'
-			? '@ai-sdk/openai-compatible'
-			: apiProtocolOverride === 'openai'
-				? '@ai-sdk/openai'
-				: undefined;
+	const apiProtocolOverride = (overridesOfModel?.[providerName as Exclude<typeof providerName, 'auto'>]?.[modelName_] as { apiProtocol?: ApiProtocolOverride } | undefined)?.apiProtocol;
+	// Map override → SDK npm via the shared const in modelCapabilities (single
+	// source of truth — adding a new protocol there propagates here automatically).
+	const sdkNpmFromOverride: string | undefined = apiProtocolOverride
+		? API_PROTOCOL_TO_SDK_NPM[apiProtocolOverride]
+		: undefined;
 	const sdkNpm = sdkNpmFromOverride ?? await getModelSdkNpm(baseURL, modelName);
 	// Diagnostic: log which SDK path was taken on first request per provider+model.
 	// Lets us verify models.dev fetch actually reached us and routing decision was
@@ -648,18 +648,35 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				headers,
 				fetch: customFetch as any,
 			}).chat(modelName)
-			: createOpenAICompatible({
-				name: providerName,
-				baseURL,
-				apiKey,
-				headers,
-				queryParams,
-				fetch: customFetch as any,
-				includeUsage: true,
-				transformRequestBody: additionalOpenAIPayload
-					? (body) => ({ ...body, ...(additionalOpenAIPayload as Record<string, unknown>) })
-					: undefined,
-			}).chatModel(modelName);
+			: sdkNpm === '@ai-sdk/google'
+				? // Native Google Generative AI (Gemini). Activated when models.dev
+				// catalog returns this SDK for the (baseURL, modelName) pair, or
+				// when user sets apiProtocol="google" override. NOTE: the standalone
+				// `gemini` VibeIDE provider still uses its own `sendGeminiChat` path
+				// — that's a separate codepath and is NOT touched here. This branch
+				// only kicks in for Gemini models served via aggregator
+				// (openCode/zen with Gemini, openRouter with Gemini, etc.) where
+				// the request flows through sendViaAISdk. Tool-call format is
+				// functionDeclarations / functionCall — different from OpenAI shape
+				// — but @ai-sdk/google handles that conversion internally.
+				createGoogleGenerativeAI({
+					baseURL,
+					apiKey,
+					headers,
+					fetch: customFetch as any,
+				})(modelName)
+				: createOpenAICompatible({
+					name: providerName,
+					baseURL,
+					apiKey,
+					headers,
+					queryParams,
+					fetch: customFetch as any,
+					includeUsage: true,
+					transformRequestBody: additionalOpenAIPayload
+						? (body) => ({ ...body, ...(additionalOpenAIPayload as Record<string, unknown>) })
+						: undefined,
+				}).chatModel(modelName);
 
 	const modelMessages = convertMessagesToModelMessages(messages);
 	// Tools-field policy:

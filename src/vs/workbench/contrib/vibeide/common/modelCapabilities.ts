@@ -228,16 +228,38 @@ export const AUTO_DOWNGRADE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
  *   - corporate-network strips the models.dev fetch and the default fallback
  *     to openai-compatible is wrong for a model that needs Anthropic format.
  *
- * Three values supported today (matches what aiSdkAdapter.ts actually wires):
- *   - 'openai-compat' → forces `@ai-sdk/openai-compatible` (generic chat-completions, default fallback)
- *   - 'openai'        → forces `@ai-sdk/openai` (native OpenAI, preserves provider-specific fields)
- *   - 'anthropic'     → forces `@ai-sdk/anthropic` (Messages wire format)
+ * Each value corresponds to a registered AI SDK adapter in `aiSdkAdapter.ts`.
+ * Single source of truth — `API_PROTOCOL_VALUES` below feeds the type union,
+ * the Settings UI validator, and (indirectly via `API_PROTOCOL_TO_SDK_NPM`)
+ * the SDK routing in aiSdkAdapter. Add a new protocol in ONE place to enable
+ * the override everywhere.
  *
- * `@ai-sdk/google` for Gemini is wired in too but doesn't have an override
- * value yet — Gemini direct provider still uses its own `sendGeminiChat` path.
- * Future: add 'google' here when we migrate that path.
+ *   - 'openai-compat' → @ai-sdk/openai-compatible (generic chat-completions, default fallback)
+ *   - 'openai'        → @ai-sdk/openai (native OpenAI, preserves provider-specific fields)
+ *   - 'anthropic'     → @ai-sdk/anthropic (Messages wire format)
+ *   - 'google'        → @ai-sdk/google (Gemini native — used when aggregator serves Gemini)
+ *
+ * NOTE: setting `apiProtocol: 'google'` only takes effect for models that flow
+ * through `sendViaAISdk` (e.g. Gemini-through-aggregator). The standalone
+ * `gemini` provider still uses its own `sendGeminiChat` path and ignores this
+ * override — separate migration.
  */
-export type ApiProtocolOverride = 'openai-compat' | 'openai' | 'anthropic';
+export const API_PROTOCOL_VALUES = ['openai-compat', 'openai', 'anthropic', 'google'] as const;
+export type ApiProtocolOverride = typeof API_PROTOCOL_VALUES[number];
+
+/**
+ * Maps each {@link ApiProtocolOverride} value to the AI SDK npm package name
+ * that aiSdkAdapter's selection ternary checks against. Keep in sync with
+ * `API_PROTOCOL_VALUES` — TypeScript will fail-loud if a new protocol is
+ * added without an entry here, because the `Record<ApiProtocolOverride, ...>`
+ * mapped type forbids missing keys.
+ */
+export const API_PROTOCOL_TO_SDK_NPM: Record<ApiProtocolOverride, string> = {
+	'openai-compat': '@ai-sdk/openai-compatible',
+	'openai': '@ai-sdk/openai',
+	'anthropic': '@ai-sdk/anthropic',
+	'google': '@ai-sdk/google',
+};
 
 export type ModelOverrides = Pick<
 	VibeideStaticModelInfo,

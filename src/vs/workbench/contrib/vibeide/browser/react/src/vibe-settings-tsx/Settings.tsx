@@ -19,7 +19,7 @@ import { os } from '../../../../common/helpers/systemInfo.js'
 import { IconLoading } from '../sidebar-tsx/SidebarChat.js'
 import { ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js'
 import Severity from '../../../../../../../base/common/severity.js'
-import { getModelCapabilities, isFreeModel, modelOverrideKeys, ModelOverrides } from '../../../../common/modelCapabilities.js';
+import { API_PROTOCOL_VALUES, ApiProtocolOverride, getModelCapabilities, isFreeModel, modelOverrideKeys, ModelOverrides } from '../../../../common/modelCapabilities.js';
 import { TransferEditorType, TransferFilesInfo } from '../../../extensionTransferTypes.js';
 import { MCPServer } from '../../../../common/mcpServiceTypes.js';
 import { useMCPServiceState } from '../util/services.js';
@@ -407,15 +407,14 @@ const SimpleModelSettingsDialog = ({
 		}
 		// `apiProtocol` is a meta-override (extension on ModelOverrides, not part
 		// of modelOverrideKeys which only covers VibeideStaticModelInfo fields).
-		// Accept it explicitly with a string-value validation — three values do
-		// something in aiSdkAdapter ('openai-compat' / 'openai' / 'anthropic');
-		// other values are rejected at save time with a clear error.
+		// Accepted values come from `API_PROTOCOL_VALUES` — single source of truth
+		// shared with aiSdkAdapter, so adding a new protocol works everywhere.
 		if ('apiProtocol' in parsedInput) {
 			const v = parsedInput.apiProtocol;
-			if (v === 'openai-compat' || v === 'openai' || v === 'anthropic') {
-				cleaned.apiProtocol = v;
+			if (typeof v === 'string' && (API_PROTOCOL_VALUES as readonly string[]).includes(v)) {
+				cleaned.apiProtocol = v as ApiProtocolOverride;
 			} else if (v !== '' && v !== null && v !== undefined) {
-				setErrorMsg(`apiProtocol must be "openai-compat", "openai", or "anthropic", got: ${JSON.stringify(v)}`);
+				setErrorMsg(`apiProtocol must be one of ${API_PROTOCOL_VALUES.map(p => `"${p}"`).join(', ')}; got: ${JSON.stringify(v)}`);
 				return;
 			}
 		}
@@ -480,9 +479,11 @@ const SimpleModelSettingsDialog = ({
 				</div>}
 
 				{/* apiProtocol hint — not in modelOverrideKeys, surfaced separately so the user discovers it.
-				    Three accepted values match what aiSdkAdapter actually wires; other strings get a save-time error. */}
+				    Allowed values pulled from the same const that drives validation, so the hint can't drift. */}
 				{overrideEnabled && <div className="text-xs text-vibe-fg-3 mb-3 opacity-80">
-					<code>"apiProtocol"</code>: <code>"openai-compat"</code>, <code>"openai"</code>, or <code>"anthropic"</code> — force a specific AI SDK adapter, bypassing the models.dev catalog. Use when a model is mis-classified or not in the catalog at all.
+					<code>"apiProtocol"</code>: {API_PROTOCOL_VALUES.map((p, i) => (
+						<span key={p}>{i > 0 ? ', ' : ''}<code>{`"${p}"`}</code></span>
+					))} — force a specific AI SDK adapter, bypassing the models.dev catalog. Use when a model is mis-classified or not in the catalog at all.
 				</div>}
 
 				<textarea
