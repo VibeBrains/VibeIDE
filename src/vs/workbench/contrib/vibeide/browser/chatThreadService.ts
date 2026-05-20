@@ -2757,6 +2757,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 	}
 
 	forceResetChatState(threadId: string): void {
+		// Snapshot the pre-reset state for the metrics event — gives downstream
+		// stats a count of "from what state are users having to force-reset".
+		const priorStateBeforeReset = this.streamState[threadId]?.isRunning ?? 'undefined'
+		const priorAgeMs = this._streamStateSetAt.has(threadId) ? Date.now() - this._streamStateSetAt.get(threadId)! : 0
 		// Drop pending RAF batch updates for this thread so a delayed
 		// onDidChangeStreamState doesn't resurrect a stale state.
 		this._pendingStreamStateUpdates.delete(threadId)
@@ -2772,6 +2776,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// onDidChangeStreamState so the UI's error block disappears.
 		this._setStreamState(threadId, undefined)
 		console.warn(`[VibeIDE chatThread] forceResetChatState(${threadId}) — state, watchdog, RAF, and age tracker all cleared.`)
+		this._metricsService.capture('Chat Force Reset', {
+			priorState: priorStateBeforeReset,
+			priorAgeSec: Math.floor(priorAgeMs / 1000),
+		})
 	}
 
 	async retryStalledStream(threadId: string): Promise<void> {
@@ -3403,6 +3411,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			const keysLabel = currentParamKeysSig || '(без параметров)';
 			const breakerMsg = `Прервано: модель ${invalidParamsBreakerLimit + 1} раз подряд вызвала "${toolName}" с одной и той же неверной формой параметров (${keysLabel}). Похоже на петлю — переключитесь на другую модель или начните новый чат.`;
 			console.warn('[VibeIDE/Tool] circuit breaker tripped', { toolName, keys: currentParamKeysSig });
+			this._metricsService.capture('Circuit Breaker Tripped — Tool Invalid Params', {
+				toolName,
+				paramKeysSig: currentParamKeysSig,
+				breakerLimit: invalidParamsBreakerLimit,
+			});
 			this._addMessageToThread(threadId, {
 				role: 'tool',
 				type: 'tool_error',
@@ -5001,6 +5014,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									recoverable: 'switchModel',
 								}
 								console.warn(`[VibeIDE chatThread] Empty-response circuit breaker tripped: ${errProvider}/${errModel} × ${streak} (threadId=${threadId}).`)
+								this._metricsService.capture('Circuit Breaker Tripped — Empty Response', {
+									providerName: errProvider,
+									modelName: errModel,
+									streak,
+									breakerLimit: threshold,
+								})
 							}
 						}
 
@@ -7222,6 +7241,11 @@ We only need to do it for files that were edited since `from`, ie files between 
 			}
 			nextMessages = [trimMarker, ...nextMessages.slice(dropCount)]
 			console.warn(`[VibeIDE] Trimmed ${dropCount} oldest messages from thread ${threadId} (cap=${cap}, target=${target})`)
+			this._metricsService.capture('Thread Messages Trimmed', {
+				dropCount,
+				cap,
+				target,
+			})
 		}
 		// update state and store it
 		const newThreads = {
