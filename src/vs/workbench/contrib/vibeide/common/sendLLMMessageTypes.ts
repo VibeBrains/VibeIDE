@@ -27,6 +27,33 @@ export const getErrorMessage: (error: unknown) => string = (error) => {
 	return error + ''
 }
 
+/**
+ * Canonical "Empty response from provider/model" error message. Used by every
+ * site that surfaces an empty-stream condition (`_sendOpenAICompatibleChat`,
+ * `sendViaAISdk`, non-streaming paths) so the consumer in `chatThreadService`
+ * (empty-response circuit breaker, Stage K) can parse provider/model out of
+ * the string without inline regexes drifting per call-site.
+ *
+ * Keep the format STABLE — `parseEmptyResponseError` below depends on it.
+ * Adding fields = append, never reorder.
+ */
+export const buildEmptyResponseError = (providerName: string, modelName: string, reason: string): string =>
+	`VibeIDE: Empty response from ${providerName}/${modelName} (reason: ${reason}).`
+
+/**
+ * Inverse of `buildEmptyResponseError`. Returns parsed (providerName, modelName)
+ * if the message matches the template, else null. Used by the circuit breaker
+ * to identify the failing combo without hardcoded provider/model names.
+ *
+ * Provider/model character class allows anything except `/` and whitespace —
+ * matches what `buildEmptyResponseError` produces for any allowed provider id.
+ */
+export const parseEmptyResponseError = (message: string): { providerName: string; modelName: string } | null => {
+	const m = message.match(/^VibeIDE: Empty response from ([^/\s]+)\/([^/\s]+) \(/)
+	if (!m) return null
+	return { providerName: m[1], modelName: m[2] }
+}
+
 
 
 export type AnthropicLLMChatMessage = {

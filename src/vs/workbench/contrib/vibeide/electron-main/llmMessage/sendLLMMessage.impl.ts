@@ -13,7 +13,7 @@ import { fimComplete } from '@mistralai/mistralai/funcs/fimComplete.js';
 import { Tool as GeminiTool, FunctionDeclaration, GoogleGenAI, ThinkingConfig, Schema, Type } from '@google/genai';
 /* eslint-enable */
 
-import { GeminiLLMChatMessage, LLMChatMessage, LLMRuntimeOptions, OllamaModelResponse, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
+import { buildEmptyResponseError, GeminiLLMChatMessage, LLMChatMessage, LLMRuntimeOptions, OllamaModelResponse, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, ProviderName, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
@@ -877,7 +877,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 			// on final (skip if timeout already fired and committed partial)
 			if (timeoutFired) return
 			if (!fullTextSoFar && !fullReasoningSoFar && !toolName) {
-				onError({ message: `VibeIDE: Empty response from ${providerName}/${modelName} (reason: ${lastFinishReason ?? 'unknown'}).`, fullError: null })
+				onError({ message: buildEmptyResponseError(providerName, modelName, lastFinishReason ?? 'unknown'), fullError: null })
 			}
 			else {
 				const toolCall = rawToolCallObjOfParamsStr(toolName, toolParamsStr, toolId)
@@ -896,7 +896,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 	const processNonStreamingResponse = async (response: any) => {
 		const choice = response.choices?.[0]
 		if (!choice) {
-			onError({ message: `VibeIDE: Empty response from ${providerName}/${modelName} (reason: no_choices).`, fullError: null })
+			onError({ message: buildEmptyResponseError(providerName, modelName, 'no_choices'), fullError: null })
 			return
 		}
 
@@ -1561,7 +1561,7 @@ const sendGeminiChat = async ({
 			// on final
 			if (!fullTextSoFar && !fullReasoningSoFar && !toolName) {
 				const reason = promptBlockReason ? `blocked:${promptBlockReason}` : (lastFinishReason ?? 'unknown')
-				onError({ message: `VibeIDE: Empty response from ${providerName}/${modelName} (reason: ${reason}).`, fullError: null })
+				onError({ message: buildEmptyResponseError(providerName, modelName, reason), fullError: null })
 			} else {
 				if (!toolId) toolId = generateUuid() // ids are empty, but other providers might expect an id
 				const toolCall = rawToolCallObjOfParamsStr(toolName, toolParamsStr, toolId)

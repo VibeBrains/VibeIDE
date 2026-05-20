@@ -26,7 +26,7 @@ import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js
 import { TOOL_NAME_ALIASES } from '../../common/prompt/toolAliases.js';
 import { getModelSdkNpm } from './modelsDevCatalog.js';
 import { getModelCapabilities } from '../../common/modelCapabilities.js';
-import { LLMChatMessage, LLMTokenUsage, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
+import { buildEmptyResponseError, LLMChatMessage, LLMTokenUsage, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
 import { SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { ensureSystemCADispatcher } from './systemCAFetch.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
@@ -960,7 +960,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 
 		if (!fullTextSoFar && !fullReasoningSoFar && !toolName) {
 			onError({
-				message: `VibeIDE: Empty response from ${providerName}/${modelName} (reason: ${lastFinishReason ?? 'unknown'}).`,
+				message: buildEmptyResponseError(providerName, modelName, lastFinishReason ?? 'unknown'),
 				fullError: null,
 			});
 			return;

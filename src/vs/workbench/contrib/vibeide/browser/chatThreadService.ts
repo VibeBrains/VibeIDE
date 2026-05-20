@@ -14,7 +14,7 @@ import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases } from '../common/prompt/toolAliases.js';
 import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
-import { AnthropicReasoning, getErrorMessage, LLMTokenUsage, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
+import { AnthropicReasoning, getErrorMessage, LLMTokenUsage, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isVisionByNameHeuristic } from '../common/modelVisionHeuristics.js';
@@ -4991,9 +4991,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						// onError contract) doesn't expose that field.
 						type StreamError = { message: string; fullError: Error | null; recoverable?: 'dismissPlan' | 'forceReset' | 'switchModel' }
 						let effectiveError: StreamError | undefined = error as StreamError | undefined
-						const emptyMatch = error?.message?.match(/^VibeIDE: Empty response from ([^/\s]+)\/([^/\s]+) \(/)
+						// Parse via shared helper — single source of truth with the four
+						// emission sites that build the message via `buildEmptyResponseError`.
+						// If anyone changes the template, only sendLLMMessageTypes.ts needs
+						// touching; this consumer stays correct.
+						const emptyMatch = error?.message ? parseEmptyResponseError(error.message) : null
 						if (emptyMatch) {
-							const [, errProvider, errModel] = emptyMatch
+							const { providerName: errProvider, modelName: errModel } = emptyMatch
 							const key = `${threadId}:${errProvider}:${errModel}`
 							const streak = (this._emptyResponseStreak.get(key) ?? 0) + 1
 							this._emptyResponseStreak.set(key, streak)
@@ -7164,6 +7168,30 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 		// Release advisory territorial locks whose holder matches this thread (roadmap §904).
 		void this._agentTerritorialLockService.releaseHolderLocks(threadId);
+
+		// Clear all per-thread Maps and ad-hoc state owned by this service.
+		// Without this, deleted threads leave orphan entries that accumulate over
+		// a long session (multiple new-chat clicks) and — worse — `streamState`
+		// + `_submitWatchdogByThread` orphans can fire timers / callbacks against
+		// a no-longer-existing thread. Centralised here so future per-thread
+		// maps only need ONE addition (not a sweep through every map every time).
+		const pendingWatchdog = this._submitWatchdogByThread.get(threadId)
+		if (pendingWatchdog !== undefined) {
+			clearTimeout(pendingWatchdog)
+			this._submitWatchdogByThread.delete(threadId)
+		}
+		this._pendingStreamStateUpdates.delete(threadId)
+		this._streamStateSetAt.delete(threadId)
+		this._planCache.delete(threadId)
+		delete this._suppressPlanOnceByThread[threadId]
+		delete this.streamState[threadId]
+		// `_emptyResponseStreak` is keyed by `${threadId}:provider:model` — need
+		// to scan keys, not a single delete. Done as a pass over Map keys.
+		for (const key of this._emptyResponseStreak.keys()) {
+			if (key.startsWith(`${threadId}:`)) {
+				this._emptyResponseStreak.delete(key)
+			}
+		}
 
 		const { allThreads: currentThreads } = this.state
 
