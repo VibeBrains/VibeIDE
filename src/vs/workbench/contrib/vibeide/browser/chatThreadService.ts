@@ -288,7 +288,7 @@ export type IsRunningType =
 export type ThreadStreamState = {
 	[threadId: string]: undefined | {
 		isRunning: undefined;
-		error?: { message: string, fullError: Error | null, recoverable?: 'dismissPlan' };
+		error?: { message: string, fullError: Error | null, recoverable?: 'dismissPlan' | 'forceReset' };
 		llmInfo?: undefined;
 		toolInfo?: undefined;
 		interrupt?: undefined;
@@ -433,6 +433,18 @@ export interface IChatThreadService {
 	// Recover from a stalled stream: discard the partial assistant output and re-send the last user message.
 	retryStalledStream(threadId: string): Promise<void>;
 
+	/**
+	 * Hard-reset a thread's stream state. Unlike abortRunning(), this does NOT
+	 * await any pending interrupt promise — it just clears all the local timers,
+	 * pending RAF updates, and the streamState entry itself. Used by:
+	 *   - the stuck-state recovery path in _addUserMessageAndStreamResponse,
+	 *     when the thread has been "running" for longer than the submit-stall
+	 *     threshold and a new send arrives;
+	 *   - the inline "Сбросить состояние чата" button shown when the chat UI
+	 *     detects a recoverable: 'forceReset' error in the streamState.
+	 */
+	forceResetChatState(threadId: string): void;
+
 	// call to edit a message
 	editUserMessageAndStreamResponse({ userMessage, messageIdx, threadId }: { userMessage: string, messageIdx: number, threadId: string }): Promise<void>;
 
@@ -534,6 +546,12 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	// Use requestAnimationFrame to batch updates for better performance
 	private readonly _pendingStreamStateUpdates = new Map<string, ThreadStreamState[string]>()
 	private _streamStateRafId: number | undefined
+
+	// Timestamp (unix ms) when streamState[threadId] last transitioned to a non-idle
+	// running state. Used by the stuck-state detection in _addUserMessageAndStreamResponse
+	// and the diagnostic surface — if a thread has been "running" for an implausibly
+	// long time, we forcibly recover instead of hanging the chat indefinitely.
+	private readonly _streamStateSetAt = new Map<string, number>()
 
 	// Submit-level watchdog: started in _addUserMessageAndStreamResponse, cleared in
 	// _setStreamState when the stream actually transitions to an active state
@@ -798,6 +816,22 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	private _setStreamState(threadId: string, state: ThreadStreamState[string]) {
 		this.streamState[threadId] = state
+
+		// Track the wall-clock moment a thread entered any running state, so the
+		// stuck-state recovery in _addUserMessageAndStreamResponse can decide
+		// whether to wait or force-clear. Cleared when state goes back to
+		// undefined or idle (terminal states from the user's perspective).
+		const isActive = state?.isRunning === 'preparing'
+			|| state?.isRunning === 'LLM'
+			|| state?.isRunning === 'tool'
+			|| state?.isRunning === 'awaiting_user'
+		if (isActive) {
+			if (!this._streamStateSetAt.has(threadId)) {
+				this._streamStateSetAt.set(threadId, Date.now())
+			}
+		} else {
+			this._streamStateSetAt.delete(threadId)
+		}
 
 		// Clear the submit-level watchdog only when the stream has truly reached the
 		// network call — i.e. transitioned past 'preparing' to LLM/tool/awaiting_user/idle.
@@ -2686,13 +2720,48 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 		await this._addUserCheckpoint({ threadId })
 
-		// interrupt any effects
-		const interrupt = await this.streamState[threadId]?.interrupt
-		if (typeof interrupt === 'function')
-			interrupt()
-
+		// interrupt any effects — hard-timeout the await. If the stream-state's
+		// `interrupt` Promise never resolves (observed in the wild: stuck
+		// 'preparing' state from a previous _runChatAgent that errored without
+		// resolving its interruptor), the whole abortRunning() hangs and the
+		// caller (_addUserMessageAndStreamResponse) waits forever — user sees
+		// "send did nothing" with no toast, no error, no feedback. Capping the
+		// wait at 2s lets us still call the interruptor when it's available
+		// quickly, but never blocks a new send for more than that.
+		const interruptPromise = this.streamState[threadId]?.interrupt
+		if (interruptPromise) {
+			const HANG_MS = 2_000
+			let timedOut = false
+			const winner = await Promise.race([
+				interruptPromise,
+				new Promise<'__timeout__'>(resolve => setTimeout(() => { timedOut = true; resolve('__timeout__') }, HANG_MS)),
+			])
+			if (timedOut) {
+				console.warn(`[VibeIDE chatThread] abortRunning timeout: interrupt Promise did not resolve within ${HANG_MS}ms (threadId=${threadId}). Forcibly clearing state.`)
+			} else if (typeof winner === 'function') {
+				try { winner() } catch (e) { console.warn('[VibeIDE chatThread] interrupt() threw:', e) }
+			}
+		}
 
 		this._setStreamState(threadId, undefined)
+	}
+
+	forceResetChatState(threadId: string): void {
+		// Drop pending RAF batch updates for this thread so a delayed
+		// onDidChangeStreamState doesn't resurrect a stale state.
+		this._pendingStreamStateUpdates.delete(threadId)
+		// Clear the submit-level watchdog timer if one is still pending.
+		const submitTimer = this._submitWatchdogByThread.get(threadId)
+		if (submitTimer !== undefined) {
+			clearTimeout(submitTimer)
+			this._submitWatchdogByThread.delete(threadId)
+		}
+		// Clear the age tracker so the next send doesn't see this thread as "stuck".
+		this._streamStateSetAt.delete(threadId)
+		// Final: flip streamState to undefined. _setStreamState fires
+		// onDidChangeStreamState so the UI's error block disappears.
+		this._setStreamState(threadId, undefined)
+		console.warn(`[VibeIDE chatThread] forceResetChatState(${threadId}) — state, watchdog, RAF, and age tracker all cleared.`)
 	}
 
 	async retryStalledStream(threadId: string): Promise<void> {
@@ -6363,20 +6432,55 @@ We only need to do it for files that were edited since `from`, ie files between 
 			if (prev !== undefined) clearTimeout(prev)
 			const timer = setTimeout(() => {
 				this._submitWatchdogByThread.delete(threadId)
-				if (this.streamState[threadId]?.isRunning !== undefined) return
+				const currentState = this.streamState[threadId]
+				// Two flavours of stuck:
+				//  (A) isRunning is undefined — preparation pipeline died silently before
+				//      setting any state. The old behaviour: just surface a hard-stall error.
+				//  (B) isRunning is STILL in a running state ('preparing'/'LLM'/'tool'/
+				//      'awaiting_user') after the full timeout — pipeline hung inside that
+				//      stage and the normal post-preparation clear never fired. Previously
+				//      we bailed silently here, leaving the chat locked. Now we ALSO surface
+				//      an error with `recoverable: 'forceReset'` so the UI can offer a
+				//      one-click recovery button instead of forcing an IDE restart.
+				if (currentState?.isRunning === undefined) {
+					this._setStreamState(threadId, {
+						isRunning: undefined,
+						error: {
+							message: localize('vibeide.chatThread.submitHardStall', 'Submit timed out — preparation stage did not finish within {0}s (no progress to "Preparing request..."). Likely a hung file read, model router, or prompt-prep step. Try retrying, switching the model, or removing attached files / context.', String(submitWatchdogSeconds)),
+							fullError: null,
+						},
+					})
+					return
+				}
+				console.warn(`[VibeIDE chatThread] Submit watchdog fired with isRunning=${currentState.isRunning} (threadId=${threadId}, after ${submitWatchdogSeconds}s). Surfacing forceReset error.`)
 				this._setStreamState(threadId, {
 					isRunning: undefined,
 					error: {
-						message: localize('vibeide.chatThread.submitHardStall', 'Submit timed out — preparation stage did not finish within {0}s (no progress to "Preparing request..."). Likely a hung file read, model router, or prompt-prep step. Try retrying, switching the model, or removing attached files / context.', String(submitWatchdogSeconds)),
+						message: localize('vibeide.chatThread.submitHardStallStuck', 'Чат завис на этапе подготовки ({0}) дольше {1}с — нормально это не должно занимать столько. Состояние можно сбросить кнопкой ниже и попробовать снова.', String(currentState.isRunning), String(submitWatchdogSeconds)),
 						fullError: null,
+						recoverable: 'forceReset',
 					},
 				})
 			}, submitWatchdogSeconds * 1000)
 			this._submitWatchdogByThread.set(threadId, timer)
 		}
 
-		// interrupt existing stream
-		if (this.streamState[threadId]?.isRunning) {
+		// interrupt existing stream. If we detect the thread has been "running"
+		// for an implausibly long time (e.g. previous send hung in 'preparing'
+		// because the LLM call never resolved AND the interruptor never fired),
+		// don't even attempt abortRunning — go straight to forceResetChatState.
+		// abortRunning has its own 2s timeout on interrupt, but it also does
+		// work like committing partial assistant content which can itself hang
+		// against bad state. Threshold matches the submitWatchdog default (120s)
+		// — long enough that a legit slow request isn't killed, short enough
+		// that a hung thread doesn't permanently lock the chat.
+		const STUCK_THRESHOLD_MS = 120_000
+		const setAt = this._streamStateSetAt.get(threadId)
+		const ageMs = setAt !== undefined ? Date.now() - setAt : 0
+		if (this.streamState[threadId]?.isRunning && ageMs > STUCK_THRESHOLD_MS) {
+			console.warn(`[VibeIDE chatThread] Detected stuck running state on send (age=${Math.floor(ageMs / 1000)}s, isRunning=${this.streamState[threadId]?.isRunning}). Force-resetting instead of awaiting abortRunning.`)
+			this.forceResetChatState(threadId)
+		} else if (this.streamState[threadId]?.isRunning) {
 			await this.abortRunning(threadId)
 		}
 
