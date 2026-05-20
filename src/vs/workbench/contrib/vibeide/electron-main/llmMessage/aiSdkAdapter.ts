@@ -8,6 +8,7 @@
 import { streamText, jsonSchema, tool, type ModelMessage, type ToolSet, type TextStreamPart, type LanguageModel } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createAnthropic } from '@ai-sdk/anthropic';
+import { createOpenAI } from '@ai-sdk/openai';
 import { fetch as undiciFetch } from 'undici';
 import type { JSONSchema7 } from '@ai-sdk/provider';
 /* eslint-enable */
@@ -604,12 +605,14 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	//      (baseURL, modelName) tuple.
 	//   3. Fallback: openai-compatible (safe default; even if wrong, the
 	//      auto-downgrade pipeline catches resulting tool-call quirks).
-	const apiProtocolOverride = (overridesOfModel?.[providerName as Exclude<typeof providerName, 'auto'>]?.[modelName_] as { apiProtocol?: 'openai-compat' | 'anthropic' } | undefined)?.apiProtocol;
+	const apiProtocolOverride = (overridesOfModel?.[providerName as Exclude<typeof providerName, 'auto'>]?.[modelName_] as { apiProtocol?: 'openai-compat' | 'anthropic' | 'openai' } | undefined)?.apiProtocol;
 	const sdkNpmFromOverride: string | undefined = apiProtocolOverride === 'anthropic'
 		? '@ai-sdk/anthropic'
 		: apiProtocolOverride === 'openai-compat'
 			? '@ai-sdk/openai-compatible'
-			: undefined;
+			: apiProtocolOverride === 'openai'
+				? '@ai-sdk/openai'
+				: undefined;
 	const sdkNpm = sdkNpmFromOverride ?? await getModelSdkNpm(baseURL, modelName);
 	// Diagnostic: log which SDK path was taken on first request per provider+model.
 	// Lets us verify models.dev fetch actually reached us and routing decision was
@@ -632,18 +635,31 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			},
 			fetch: customFetch as any,
 		})(modelName)
-		: createOpenAICompatible({
-			name: providerName,
-			baseURL,
-			apiKey,
-			headers,
-			queryParams,
-			fetch: customFetch as any,
-			includeUsage: true,
-			transformRequestBody: additionalOpenAIPayload
-				? (body) => ({ ...body, ...(additionalOpenAIPayload as Record<string, unknown>) })
-				: undefined,
-		}).chatModel(modelName);
+		: sdkNpm === '@ai-sdk/openai'
+			? // Native OpenAI SDK. Default `.chat()` shape — chat-completions endpoint
+			// (NOT the new Responses API; that'd be `.responses()` and requires
+			// downstream payload changes we haven't done). Functionally equivalent
+			// to openai-compatible for our use-case, but uses the native serializer
+			// which preserves OpenAI-specific fields (logprobs, parallel_tool_calls,
+			// etc.) without the openai-compatible "unknown field" stripping.
+			createOpenAI({
+				baseURL,
+				apiKey,
+				headers,
+				fetch: customFetch as any,
+			}).chat(modelName)
+			: createOpenAICompatible({
+				name: providerName,
+				baseURL,
+				apiKey,
+				headers,
+				queryParams,
+				fetch: customFetch as any,
+				includeUsage: true,
+				transformRequestBody: additionalOpenAIPayload
+					? (body) => ({ ...body, ...(additionalOpenAIPayload as Record<string, unknown>) })
+					: undefined,
+			}).chatModel(modelName);
 
 	const modelMessages = convertMessagesToModelMessages(messages);
 	// Tools-field policy:

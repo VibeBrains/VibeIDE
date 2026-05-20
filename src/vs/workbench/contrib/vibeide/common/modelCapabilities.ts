@@ -228,15 +228,16 @@ export const AUTO_DOWNGRADE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
  *   - corporate-network strips the models.dev fetch and the default fallback
  *     to openai-compatible is wrong for a model that needs Anthropic format.
  *
- * Two values matter today (matches what aiSdkAdapter.ts actually wires):
- *   - 'openai-compat' → forces `@ai-sdk/openai-compatible` (chat-completions wire format)
+ * Three values supported today (matches what aiSdkAdapter.ts actually wires):
+ *   - 'openai-compat' → forces `@ai-sdk/openai-compatible` (generic chat-completions, default fallback)
+ *   - 'openai'        → forces `@ai-sdk/openai` (native OpenAI, preserves provider-specific fields)
  *   - 'anthropic'     → forces `@ai-sdk/anthropic` (Messages wire format)
  *
- * Future additions ('openai', 'google') will require corresponding adapter
- * registration in aiSdkAdapter.ts; until then those values are reserved and
- * the type is intentionally a string union, not free-form.
+ * `@ai-sdk/google` for Gemini is wired in too but doesn't have an override
+ * value yet — Gemini direct provider still uses its own `sendGeminiChat` path.
+ * Future: add 'google' here when we migrate that path.
  */
-export type ApiProtocolOverride = 'openai-compat' | 'anthropic';
+export type ApiProtocolOverride = 'openai-compat' | 'openai' | 'anthropic';
 
 export type ModelOverrides = Pick<
 	VibeideStaticModelInfo,

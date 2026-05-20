@@ -407,15 +407,15 @@ const SimpleModelSettingsDialog = ({
 		}
 		// `apiProtocol` is a meta-override (extension on ModelOverrides, not part
 		// of modelOverrideKeys which only covers VibeideStaticModelInfo fields).
-		// Accept it explicitly with a string-value validation — only 'openai-compat'
-		// or 'anthropic' do anything in aiSdkAdapter; other values pass through
-		// silently and the backend falls through to models.dev / openai-compatible.
+		// Accept it explicitly with a string-value validation — three values do
+		// something in aiSdkAdapter ('openai-compat' / 'openai' / 'anthropic');
+		// other values are rejected at save time with a clear error.
 		if ('apiProtocol' in parsedInput) {
 			const v = parsedInput.apiProtocol;
-			if (v === 'openai-compat' || v === 'anthropic') {
+			if (v === 'openai-compat' || v === 'openai' || v === 'anthropic') {
 				cleaned.apiProtocol = v;
 			} else if (v !== '' && v !== null && v !== undefined) {
-				setErrorMsg(`apiProtocol must be "openai-compat" or "anthropic", got: ${JSON.stringify(v)}`);
+				setErrorMsg(`apiProtocol must be "openai-compat", "openai", or "anthropic", got: ${JSON.stringify(v)}`);
 				return;
 			}
 		}
@@ -480,9 +480,9 @@ const SimpleModelSettingsDialog = ({
 				</div>}
 
 				{/* apiProtocol hint — not in modelOverrideKeys, surfaced separately so the user discovers it.
-				    Two accepted values match what aiSdkAdapter actually wires; other strings get a save-time error. */}
+				    Three accepted values match what aiSdkAdapter actually wires; other strings get a save-time error. */}
 				{overrideEnabled && <div className="text-xs text-vibe-fg-3 mb-3 opacity-80">
-					<code>"apiProtocol"</code>: <code>"openai-compat"</code> or <code>"anthropic"</code> — force a specific AI SDK adapter, bypassing the models.dev catalog. Use when a model is mis-classified or not in the catalog at all.
+					<code>"apiProtocol"</code>: <code>"openai-compat"</code>, <code>"openai"</code>, or <code>"anthropic"</code> — force a specific AI SDK adapter, bypassing the models.dev catalog. Use when a model is mis-classified or not in the catalog at all.
 				</div>}
 
 				<textarea
