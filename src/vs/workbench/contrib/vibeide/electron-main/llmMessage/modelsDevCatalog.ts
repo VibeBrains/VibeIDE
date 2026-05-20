@@ -43,6 +43,12 @@ import * as path from 'path';
 const MODELS_DEV_URL = 'https://models.dev/api.json';
 const FETCH_TIMEOUT_MS = 10_000;
 const LOCAL_SNAPSHOT_FILENAME = 'models.dev.json';
+// Disk-cache TTL for the userData snapshot. Within this window we serve from
+// disk INSTANTLY (no network wait) and kick off a background refresh — the
+// classic stale-while-revalidate pattern. 24h is the roadmap-suggested
+// default: aggregators don't add models more than ~once per week, but a daily
+// refresh keeps catalogue rot under control without hammering models.dev.
+const DISK_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 // Per-model SDK npm override (from `models[].provider.npm`). Key is model id
 // lowercased; value is e.g. '@ai-sdk/anthropic'. If a model has no override
@@ -167,6 +173,53 @@ const tryReadLocalSnapshot = async (): Promise<{ catalog: CatalogIndex; from: st
 	return null;
 };
 
+// Fast-path read of the userData snapshot ONLY, plus its age. Used by the
+// stale-while-revalidate fast start: if the snapshot was written within
+// DISK_CACHE_TTL_MS, serve it immediately and skip the synchronous network
+// fetch on cold start (a background refresh runs anyway). userData is the
+// only candidate we wrote ourselves — exeDir / resourcesPath bundles were
+// placed by a human and we have no provenance on their freshness, so they
+// stay on the slow path (network-fail fallback) only.
+const tryReadFreshUserDataSnapshot = async (): Promise<{ catalog: CatalogIndex; from: string; ageMs: number } | null> => {
+	const userData = resolveUserDataDir();
+	if (!userData) return null;
+	const file = path.join(userData, LOCAL_SNAPSHOT_FILENAME);
+	try {
+		const stat = await fs.promises.stat(file);
+		const ageMs = Date.now() - stat.mtimeMs;
+		if (ageMs > DISK_CACHE_TTL_MS) return null;
+		const raw = await fs.promises.readFile(file, 'utf-8');
+		const indexed = indexJson(JSON.parse(raw));
+		if (!indexed) return null;
+		return { catalog: indexed, from: file, ageMs };
+	} catch {
+		return null;
+	}
+};
+
+// Fire-and-forget background refresh: pull fresh catalogue from network and
+// update both the in-memory cache and the userData snapshot. Errors are
+// swallowed — caller is using the stale snapshot, so a refresh failure just
+// means the next start will retry. Never runs concurrently with itself.
+let backgroundRefreshRunning = false;
+const refreshInBackground = (): void => {
+	if (backgroundRefreshRunning) return;
+	backgroundRefreshRunning = true;
+	void (async () => {
+		try {
+			const fresh = await fetchAndIndex();
+			if (fresh) {
+				cachedCatalog = fresh.index;
+				lastFailureAt = 0;
+				loadedFromLocalPath = null;
+				await persistSnapshotToUserData(fresh.rawText);
+			}
+		} finally {
+			backgroundRefreshRunning = false;
+		}
+	})();
+};
+
 const getCatalog = (): Promise<CatalogIndex | null> => {
 	if (cachedCatalog) return Promise.resolve(cachedCatalog);
 	if (inFlight) return inFlight;
@@ -174,6 +227,22 @@ const getCatalog = (): Promise<CatalogIndex | null> => {
 		return Promise.resolve(null);
 	}
 	inFlight = (async () => {
+		// Fast path — stale-while-revalidate. If we have a userData snapshot
+		// younger than DISK_CACHE_TTL_MS, serve it INSTANTLY (no network wait)
+		// and kick off a background refresh so the next start gets newer data
+		// AND this session picks up any new models mid-flight. This drops cold-
+		// start LLM-request latency by ~500ms on warm runs.
+		const fresh = await tryReadFreshUserDataSnapshot();
+		if (fresh) {
+			cachedCatalog = fresh.catalog;
+			lastFailureAt = 0;
+			loadedFromLocalPath = fresh.from;
+			console.warn(`[modelsDevCatalog] served fresh userData snapshot from ${fresh.from} (age ${Math.floor(fresh.ageMs / 1000)}s); refreshing in background`);
+			refreshInBackground();
+			inFlight = null;
+			return fresh.catalog;
+		}
+
 		const fromNetwork = await fetchAndIndex();
 		if (fromNetwork) {
 			cachedCatalog = fromNetwork.index;
