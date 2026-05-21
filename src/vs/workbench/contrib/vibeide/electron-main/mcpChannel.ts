@@ -130,34 +130,38 @@ export class MCPChannel implements IServerChannel {
 			...updatedServerNames.map(n => ({ serverName: n, type: 'updated' }) as const),
 		]
 
-		await Promise.all(
+		// Per-server try/finally ensures `_refreshingServerNames` is cleaned even if any
+		// _createClient / _closeClient rejects (Promise.all otherwise short-circuits and
+		// the outer cleanup never runs, leaking the Set forever on a single failed server).
+		// Also use Promise.allSettled so one bad server doesn't kill refresh of the others.
+		await Promise.allSettled(
 			allChanges.map(async ({ serverName, type }) => {
 
 				// check if already refreshing
 				if (this._refreshingServerNames.has(serverName)) return
 				this._refreshingServerNames.add(serverName)
 
-				const prevServer = this.infoOfClientId[serverName]?.mcpServer;
+				try {
+					const prevServer = this.infoOfClientId[serverName]?.mcpServer;
 
-				// close and delete the old client
-				if (type === 'removed' || type === 'updated') {
-					await this._closeClient(serverName)
-					delete this.infoOfClientId[serverName]
-					this.mcpEmitters.serverEvent.onDelete.fire({ response: { prevServer, name: serverName, } })
-				}
+					// close and delete the old client
+					if (type === 'removed' || type === 'updated') {
+						await this._closeClient(serverName)
+						delete this.infoOfClientId[serverName]
+						this.mcpEmitters.serverEvent.onDelete.fire({ response: { prevServer, name: serverName, } })
+					}
 
-				// create a new client
-				if (type === 'added' || type === 'updated') {
-					const clientInfo = await this._createClient(mcpServersJSON[serverName], serverName, userStateOfName[serverName]?.isOn)
-					this.infoOfClientId[serverName] = clientInfo
-					this.mcpEmitters.serverEvent.onAdd.fire({ response: { newServer: clientInfo.mcpServer, name: serverName, } })
+					// create a new client
+					if (type === 'added' || type === 'updated') {
+						const clientInfo = await this._createClient(mcpServersJSON[serverName], serverName, userStateOfName[serverName]?.isOn)
+						this.infoOfClientId[serverName] = clientInfo
+						this.mcpEmitters.serverEvent.onAdd.fire({ response: { newServer: clientInfo.mcpServer, name: serverName, } })
+					}
+				} finally {
+					this._refreshingServerNames.delete(serverName)
 				}
 			})
 		)
-
-		allChanges.forEach(({ serverName, type }) => {
-			this._refreshingServerNames.delete(serverName)
-		})
 
 	}
 
@@ -398,7 +402,14 @@ export class MCPChannel implements IServerChannel {
 		else {
 			// this.mcpEmitters.serverEvent.onChangeLoading.fire(getLoadingServerObject(serverName, isOn))
 			this._closeClient(serverName);
-			delete this.infoOfClientId[serverName]._client;
+			// Guard: infoOfClientId[serverName] may be undefined if a toggle race fired
+			// while the server entry was being torn down by _refreshMCPServers. Without
+			// this guard the property access on undefined throws TypeError and crashes
+			// the channel.
+			const info = this.infoOfClientId[serverName];
+			if (info) {
+				delete (info as { _client?: unknown })._client;
+			}
 
 			this.mcpEmitters.serverEvent.onUpdate.fire({
 				response: {

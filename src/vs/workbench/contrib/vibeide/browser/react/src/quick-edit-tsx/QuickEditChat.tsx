@@ -12,6 +12,7 @@ import { VIBEIDE_CTRL_K_ACTION_ID } from '../../../actionIDs.js';
 import { useRefState } from '../util/helpers.js';
 import { isFeatureNameDisabled } from '../../../../../../../workbench/contrib/vibeide/common/vibeideSettingsTypes.js';
 import { quickEditS } from '../vibe-settings-tsx/vibeSettingsRu.js';
+import { expandQuickEditSlashCommand, quickEditSlashHintNames } from '../../../../common/quickEditTemplates.js';
 
 
 
@@ -64,6 +65,15 @@ export const QuickEditChat = ({
 	const onSubmit = useCallback(async () => {
 		if (isDisabled) return
 		if (isStreamingRef.current) return
+
+		// Slash-command expansion (R.1): rewrite the textarea value to the full
+		// template before the existing startApplying pipeline reads it.
+		const currentValue = textAreaRef.current?.value ?? ''
+		const expansion = expandQuickEditSlashCommand(currentValue)
+		if (expansion.matched) {
+			textAreaFnsRef.current?.setValue(expansion.expanded)
+		}
+
 		textAreaFnsRef.current?.disable()
 
 		const opts = {
@@ -79,6 +89,12 @@ export const QuickEditChat = ({
 
 
 	}, [isStreamingRef, isDisabled, editCodeService, diffareaid])
+
+	const onClickSlashChip = useCallback((cmdName: string) => {
+		if (isStreamingRef.current) return
+		textAreaFnsRef.current?.setValue(`${cmdName} `)
+		textAreaRef.current?.focus()
+	}, [isStreamingRef])
 
 	const onInterrupt = useCallback(() => {
 		if (!isStreamingRef.current) return
@@ -107,9 +123,26 @@ export const QuickEditChat = ({
 			isDisabled={isDisabled}
 			onClickAnywhere={() => { textAreaRef.current?.focus() }}
 		>
+			{instructionsAreEmpty && (
+				<div className='flex flex-wrap items-center gap-1 px-1 pb-1 text-[10px] text-vibe-fg-3 select-none'>
+					<span className='opacity-70 mr-0.5'>{quickEditS.slashHintRow}</span>
+					{quickEditSlashHintNames(5).map(cmd => (
+						<button
+							key={cmd}
+							type='button'
+							className='px-1.5 py-0.5 rounded border border-vibe-border-1 hover:bg-vibe-bg-3 hover:text-vibe-fg-1 transition-colors font-mono'
+							onClick={() => onClickSlashChip(cmd)}
+							title={`Insert ${cmd}`}
+						>
+							{cmd}
+						</button>
+					))}
+				</div>
+			)}
 			<VibeInputBox2
 				className='px-1'
 				initValue={initText}
+				highlightSlashCommands={true}
 				ref={useCallback((r: HTMLTextAreaElement | null) => {
 					textAreaRef.current = r
 					textAreaRef_(r)

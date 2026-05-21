@@ -115,13 +115,22 @@ const fetchAndIndex = async (): Promise<{ index: CatalogIndex; rawText: string }
 		const res = await undiciFetch(MODELS_DEV_URL, {
 			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
 		});
-		if (!res.ok) return null;
+		if (!res.ok) {
+			console.warn(`[modelsDevCatalog] fetch returned HTTP ${res.status} ${res.statusText} — falling back to local snapshot if available`);
+			return null;
+		}
 		// Read as text first so we can both parse AND persist verbatim. Avoids a
 		// re-stringify (which would reformat / lose unknown fields).
 		const rawText = await res.text();
 		const index = indexJson(JSON.parse(rawText));
-		return index ? { index, rawText } : null;
-	} catch {
+		if (!index) {
+			console.warn('[modelsDevCatalog] fetched JSON did not contain any indexable providers — falling back to local snapshot if available');
+			return null;
+		}
+		return { index, rawText };
+	} catch (e) {
+		const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+		console.warn(`[modelsDevCatalog] fetch/parse failed: ${msg} — falling back to local snapshot if available`);
 		return null;
 	}
 };

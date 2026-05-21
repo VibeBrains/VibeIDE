@@ -41,6 +41,7 @@ import { CompletionEvent } from '../common/completionOutcomeStats.js';
 import { IVibeFimContextCollector } from './vibeFimContextCollector.js';
 import { reportFIMBudget, FIM_BUDGET_DEFAULTS } from '../common/fimContextContract.js';
 import { localize } from '../../../../nls.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
 
 
 
@@ -608,8 +609,7 @@ const getAutocompletionMatchup = ({ prefix, autocompletion }: { prefix: string; 
 		trimmedCompletionPrefix.split(_ln).length;
 
 	if (lineStart < 0) {
-		// console.log('@undefined3')
-		console.warn('[Autocomplete] Matchup calculation failed: No line found. This may occur if the prefix changed significantly.');
+		// Prefix changed during typing — caller handles undefined as cancellation. Silent by design.
 		return undefined;
 	}
 	const currentPrefixLine = getLastLine(trimmedCurrentPrefix)
@@ -623,8 +623,7 @@ const getAutocompletionMatchup = ({ prefix, autocompletion }: { prefix: string; 
 
 	const charMatchIdx = fullCompletionLine.indexOf(currentPrefixLine)
 	if (charMatchIdx < 0) {
-		// console.log('@undefined4', charMatchIdx)
-		console.warn('[Autocomplete] Matchup calculation failed: Character match not found. Prefix may have changed significantly.');
+		// Prefix diverged from cached completion — caller handles undefined as cancellation. Silent by design.
 		return undefined
 	}
 
@@ -865,7 +864,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 				} catch (e) {
 					this._autocompletionsOfDocument[docUriStr].delete(cachedAutocompletion.id)
 					const errorMessage = e instanceof Error ? e.message : String(e)
-					console.error('[Autocomplete] Error with cached autocompletion:', errorMessage)
+					this._logService.error('[VibeIDE Autocomplete] cached autocompletion error:', errorMessage)
 					// Don't show notification for cached completion errors (less critical)
 				}
 
@@ -961,7 +960,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		// VibeIDE: Block FIM requests that contain secrets in prefix or suffix
 		const secretCheckText = llmPrefix + '\n' + llmSuffix;
 		if (this._secretDetectionService.detectSecrets(secretCheckText).hasSecrets) {
-			console.warn('[VibeIDE Autocomplete] FIM request blocked: secrets detected in context. File may contain API keys or credentials.');
+			this._logService.warn('[VibeIDE Autocomplete] FIM request blocked: secrets detected in context. File may contain API keys or credentials.');
 			return [];
 		}
 
@@ -1024,7 +1023,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 			_newlineCount: 0,
 		}
 
-		console.log('starting autocomplete...', predictionType)
+		this._logService.trace('[VibeIDE Autocomplete] starting autocomplete:', predictionType)
 
 		const overridesOfModel = this._settingsService.state.overridesOfModel
 		// Model selection is already resolved above, so we can safely access options
@@ -1201,7 +1200,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		} catch (e) {
 			this._autocompletionsOfDocument[docUriStr].delete(newAutocompletion.id)
 			const errorMessage = e instanceof Error ? e.message : String(e)
-			console.error('[Autocomplete] Error creating autocompletion:', errorMessage)
+			this._logService.error('[VibeIDE Autocomplete] error creating autocompletion:', errorMessage)
 
 			// Show user-friendly error for persistent failures (not timeouts or aborts)
 			if (!errorMessage.includes('Timeout') && !errorMessage.includes('Aborted')) {
@@ -1234,6 +1233,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContext: IWorkspaceContextService,
 		@IVibeFimContextCollector private readonly _fimContextCollector: IVibeFimContextCollector,
+		@ILogService private readonly _logService: ILogService,
 		// @IContextGatheringService private readonly _contextGatheringService: IContextGatheringService,
 	) {
 		super()
@@ -1275,7 +1275,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 					const matchup = removeAllWhitespace(prefix) === removeAllWhitespace(autocompletion.prefix + autocompletion.insertText)
 
 					if (matchup) {
-						console.log('ACCEPT', autocompletion.id)
+						this._logService.trace('[VibeIDE Autocomplete] ACCEPT', autocompletion.id)
 						this._lastCompletionAccept = Date.now()
 
 						// L1021: record accept event for `vibe doctor --completion-stats`

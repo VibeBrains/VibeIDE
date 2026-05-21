@@ -198,7 +198,8 @@ export const tooltipS = {
 
 /** Russian UI strings for QuickEditChat (quick-edit-tsx/QuickEditChat.tsx). */
 export const quickEditS = {
-	placeholder: 'Введите инструкции…',
+	placeholder: 'Инструкция или / для шаблона…',
+	slashHintRow: 'Шаблоны:',
 } as const;
 
 const _pluralRu = (n: number, one: string, few: string, many: string): string => {

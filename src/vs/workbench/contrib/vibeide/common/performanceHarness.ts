@@ -136,7 +136,11 @@ export class PerformanceHarness {
 	private readonly indexerMetrics: RingBuffer<IndexerMetric>;
 	private readonly routerMetrics: RingBuffer<RouterMetric>;
 
-	// Chat request tracking
+	// Chat request tracking. Map preserves insertion order; we treat it as an LRU and
+	// evict oldest entries when size exceeds MAX_TRACKED_CHAT_REQUESTS. Without the cap
+	// the Map grew unbounded across the session (entries only released in `clear()` on
+	// dispose) — measurable hold on long agentic flows.
+	private static readonly MAX_TRACKED_CHAT_REQUESTS = 500;
 	private readonly chatRequests: Map<string, {
 		onPrompt?: number;
 		modelStart?: number;
@@ -188,6 +192,15 @@ export class PerformanceHarness {
 		// Update request state
 		request[checkpoint] = now;
 		this.chatRequests.set(requestId, request);
+
+		// LRU eviction: if we just pushed the entry past the cap, drop the oldest one.
+		// Map preserves insertion order; reassigning an existing key does NOT change order,
+		// so an active updating request stays at its original position — that's fine since
+		// total churn is bounded by MAX_TRACKED_CHAT_REQUESTS.
+		if (this.chatRequests.size > PerformanceHarness.MAX_TRACKED_CHAT_REQUESTS) {
+			const oldestKey = this.chatRequests.keys().next().value;
+			if (oldestKey !== undefined) this.chatRequests.delete(oldestKey);
+		}
 
 		// Calculate elapsed time from onPrompt
 		const elapsedMs = request.onPrompt ? now - request.onPrompt : 0;

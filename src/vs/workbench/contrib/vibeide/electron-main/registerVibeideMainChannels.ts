@@ -9,6 +9,7 @@ import { Server as ElectronIPCServer } from '../../../../base/parts/ipc/electron
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IEnvironmentMainService } from '../../../../platform/environment/electron-main/environmentMainService.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
 import { IRequestService } from '../../../../platform/request/common/request.js';
 import { IApplicationStorageMainService } from '../../../../platform/storage/electron-main/storageMainService.js';
@@ -38,6 +39,7 @@ export function registerVibeideMainProcessChannels(
 		accessor.get(IProductService),
 		accessor.get(IEnvironmentMainService),
 		applicationStorage,
+		accessor.get(ILogService),
 	));
 
 	mainProcessElectronServer.registerChannel('vibe-channel-metrics', ProxyChannel.fromService(metricsMainService, disposables));

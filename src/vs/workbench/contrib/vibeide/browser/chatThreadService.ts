@@ -160,11 +160,29 @@ const buildToolSchemaHint = (canonicalToolName: string): string => {
 // Stall detection: notify user if LLM stops producing tokens unexpectedly.
 // EARLY surfaces an inline banner only (no toast); FULL thresholds also raise a toast.
 // HARD goes further: auto-abort the stream so `isRunning` doesn't latch forever and
-// block subsequent submits. Read from `vibeide.chat.streamHardStallSeconds` at runtime.
-const EARLY_STALL_MS                = 15_000 // 15s — soft signal: show inline "stalled" banner in chat
-const FIRST_TOKEN_STALL_MS          = 30_000 // 30s — no first token received after sending request
-const MID_STREAM_STALL_MS           = 45_000 // 45s — no new token received during active streaming
-const DEFAULT_HARD_STALL_SECONDS    = 120     // 120s — default auto-abort threshold (overridable via config)
+// block subsequent submits. All four thresholds are user-overridable via
+// `vibeide.chat.stream*StallSeconds` settings; the defaults below match the registered
+// `default` field in `vibeideGlobalSettingsConfiguration.ts` and are used only when
+// config returns NaN/undefined (transient race during settings reload).
+const DEFAULT_EARLY_STALL_SECONDS      = 15      // soft signal: show inline "stalled" banner in chat
+const DEFAULT_FIRST_TOKEN_STALL_SECONDS = 30     // no first token received after sending request
+const DEFAULT_MID_STREAM_STALL_SECONDS = 45      // no new token received during active streaming
+const DEFAULT_HARD_STALL_SECONDS       = 120     // 120s — default auto-abort threshold
+
+// Read a numeric setting with NaN-guard. Math.max/min propagate NaN, which then
+// becomes setTimeout(NaN * 1000) — a no-op timer that silently disables stall
+// detection. Validate up front: if non-finite, fall back to the supplied default.
+const readClampedNumberSetting = (
+	configService: { getValue<T>(key: string): T | undefined },
+	key: string,
+	fallback: number,
+	min: number,
+	max: number,
+): number => {
+	const raw = configService.getValue<number>(key);
+	const candidate = typeof raw === 'number' && Number.isFinite(raw) ? raw : fallback;
+	return Math.max(min, Math.min(max, candidate));
+};
 
 
 const findStagingSelectionIndex = (currentSelections: StagingSelectionItem[] | undefined, newSelection: StagingSelectionItem): number | null => {
@@ -1858,7 +1876,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	}
 
 	async pauseAgentExecution(opts: { threadId: string }): Promise<void> {
-		// TODO: Implement pause logic - freeze current step, save state
+		// Pause = abort current LLM stream + mark the running plan step as 'paused' so the
+		// PlanCard UI can render the resume affordance. Resuming is a separate user action.
 		await this.abortRunning(opts.threadId)
 		const thread = this.state.allThreads[opts.threadId]
 		if (!thread) return
@@ -4727,9 +4746,17 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				}, 30000)
 
 				// Stall watchdog: notify user if the LLM stops producing tokens unexpectedly.
-				// earlyStallTimer fires after EARLY_STALL_MS — sets inline banner only (no toast).
-				// firstTokenStallTimer fires once if no first token arrives within FIRST_TOKEN_STALL_MS.
+				// earlyStallTimer fires after `earlyStallMs` — sets inline banner only (no toast).
+				// firstTokenStallTimer fires once if no first token arrives within `firstTokenStallMs`.
 				// midStreamStallTimer is reset on every onText call; fires if streaming freezes mid-way.
+				// All thresholds read fresh from settings per agent run (S.2 — closed in this session).
+				const earlyStallSeconds = readClampedNumberSetting(this._configurationService, 'vibeide.chat.streamEarlyStallSeconds', DEFAULT_EARLY_STALL_SECONDS, 5, 120)
+				const firstTokenStallSeconds = readClampedNumberSetting(this._configurationService, 'vibeide.chat.streamFirstTokenStallSeconds', DEFAULT_FIRST_TOKEN_STALL_SECONDS, 10, 300)
+				const midStreamStallSeconds = readClampedNumberSetting(this._configurationService, 'vibeide.chat.streamMidStreamStallSeconds', DEFAULT_MID_STREAM_STALL_SECONDS, 15, 600)
+				const earlyStallMs = earlyStallSeconds * 1000
+				const firstTokenStallMs = firstTokenStallSeconds * 1000
+				const midStreamStallMs = midStreamStallSeconds * 1000
+
 				let stallNotificationHandle: INotificationHandle | undefined
 				const clearStallNotification = () => { stallNotificationHandle?.close(); stallNotificationHandle = undefined; }
 				const setInlineStall = () => {
@@ -4746,12 +4773,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					clearStallNotification()
 					setInlineStall()
 					const msg = kind === 'noFirstToken'
-						? localize('agentStall.noFirstToken', 'Agent is waiting for AI response (>{0}s). The model may be slow or the connection stalled.', FIRST_TOKEN_STALL_MS / 1000)
-						: localize('agentStall.midStream', 'AI response stream paused (>{0}s with no new tokens). The model may be stuck.', MID_STREAM_STALL_MS / 1000)
+						? localize('agentStall.noFirstToken', 'Agent is waiting for AI response (>{0}s). The model may be slow or the connection stalled.', firstTokenStallSeconds)
+						: localize('agentStall.midStream', 'AI response stream paused (>{0}s with no new tokens). The model may be stuck.', midStreamStallSeconds)
 					stallNotificationHandle = this._notificationService.notify({ severity: Severity.Warning, message: msg })
 				}
-				let earlyStallTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(setInlineStall, EARLY_STALL_MS)
-				let firstTokenStallTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => { notifyStall('noFirstToken') }, FIRST_TOKEN_STALL_MS)
+				let earlyStallTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(setInlineStall, earlyStallMs)
+				let firstTokenStallTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => { notifyStall('noFirstToken') }, firstTokenStallMs)
 				let midStreamStallTimer: ReturnType<typeof setTimeout> | undefined
 
 				// Hard-stall watchdog: auto-abort the stream if no new tokens arrive within the
@@ -4761,7 +4788,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// `llmCancelToken` is assigned right below (just before sendLLMMessage); the timer
 				// fires seconds later, so the captured ref is always populated by then.
 				const hardStallEnabled = this._configurationService.getValue<boolean>('vibeide.chat.streamHardStallEnabled') ?? true
-				const hardStallSeconds = Math.max(30, Math.min(1800, this._configurationService.getValue<number>('vibeide.chat.streamHardStallSeconds') ?? DEFAULT_HARD_STALL_SECONDS))
+				const hardStallSeconds = readClampedNumberSetting(this._configurationService, 'vibeide.chat.streamHardStallSeconds', DEFAULT_HARD_STALL_SECONDS, 30, 1800)
 				let hardStallTimer: ReturnType<typeof setTimeout> | undefined
 				const onHardStall = () => {
 					// No partial content commit: hardStall resets on every token, so reaching it
@@ -4868,9 +4895,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 					// Stall watchdog: cancel first-token stall timer, reset early + mid-stream + hard-stall timers, drop inline banner.
 					if (firstTokenStallTimer !== undefined) { clearTimeout(firstTokenStallTimer); firstTokenStallTimer = undefined; clearStallNotification() }
-					clearTimeout(earlyStallTimer); earlyStallTimer = setTimeout(setInlineStall, EARLY_STALL_MS)
+					clearTimeout(earlyStallTimer); earlyStallTimer = setTimeout(setInlineStall, earlyStallMs)
 					clearTimeout(midStreamStallTimer)
-					midStreamStallTimer = setTimeout(() => { notifyStall('midStream') }, MID_STREAM_STALL_MS)
+					midStreamStallTimer = setTimeout(() => { notifyStall('midStream') }, midStreamStallMs)
 					if (hardStallTimer !== undefined) { clearTimeout(hardStallTimer); hardStallTimer = setTimeout(onHardStall, hardStallSeconds * 1000) }
 					clearInlineStall()
 
@@ -7227,6 +7254,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 		this._pendingStreamStateUpdates.delete(threadId)
 		this._streamStateSetAt.delete(threadId)
 		this._planCache.delete(threadId)
+		this._fileReadCache.delete(threadId)
+		this._fileReadCacheLRU.delete(threadId)
 		delete this._suppressPlanOnceByThread[threadId]
 		delete this.streamState[threadId]
 		// `_emptyResponseStreak` is keyed by `${threadId}:provider:model` — need
