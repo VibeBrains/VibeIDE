@@ -54,6 +54,73 @@ export const parseEmptyResponseError = (message: string): { providerName: string
 	return { providerName: m[1], modelName: m[2] }
 }
 
+/**
+ * Context-overflow signature patterns ported from opencode upstream
+ * (`packages/opencode/src/provider/error.ts:11-31`). When an error message OR
+ * a stream's reason field matches one of these, the actual cause is "input
+ * exceeded the model's context window", not a generic "unknown" failure.
+ *
+ * Each pattern is annotated with the provider/model family that emits it —
+ * the regex itself is intentionally permissive (case-insensitive substring),
+ * so the same pattern matches across SDK adapters / aggregators.
+ *
+ * If a new pattern surfaces in the wild, add it here AND update the comment.
+ */
+export const OVERFLOW_PATTERNS: readonly RegExp[] = [
+	/prompt is too long/i,                                  // Anthropic
+	/input is too long for requested model/i,               // Amazon Bedrock
+	/exceeds the context window/i,                          // OpenAI (Completions + Responses API message text)
+	/input token count.*exceeds the maximum/i,              // Google (Gemini)
+	/maximum prompt length is \d+/i,                        // xAI (Grok)
+	/reduce the length of the messages/i,                   // Groq
+	/maximum context length is \d+ tokens/i,                // OpenRouter, DeepSeek, vLLM
+	/exceeds the limit of \d+/i,                            // GitHub Copilot
+	/exceeds the available context size/i,                  // llama.cpp server
+	/greater than the context length/i,                     // LM Studio
+	/context window exceeds limit/i,                        // MiniMax
+	/exceeded model token limit/i,                          // Kimi For Coding, Moonshot
+	/context[_ ]length[_ ]exceeded/i,                       // Generic fallback
+	/request entity too large/i,                            // HTTP 413
+	/context length is only \d+ tokens/i,                   // vLLM
+	/input length.*exceeds.*context length/i,               // vLLM
+	/prompt too long; exceeded (?:max )?context length/i,   // Ollama explicit overflow error
+	/too large for model with \d+ maximum context length/i, // Mistral
+	/model_context_window_exceeded/i,                       // z.ai non-standard finish_reason surfaced as error text
+];
+
+/**
+ * True if the provided text matches any known context-overflow signature.
+ * Use on either an error.message string OR a finishReason / response-body
+ * snippet. Returns false for empty / undefined input.
+ */
+export const isContextOverflow = (text: string | null | undefined): boolean => {
+	if (!text) return false
+	return OVERFLOW_PATTERNS.some((p) => p.test(text))
+}
+
+/**
+ * Specialized error message for context-window overflow. Distinct from
+ * `buildEmptyResponseError` so the UI can show a "compact history" CTA
+ * instead of a generic "try again" hint.
+ *
+ * Format is STABLE — `parseContextOverflowError` below depends on it.
+ */
+export const buildContextOverflowError = (providerName: string, modelName: string, detail?: string): string => {
+	const tail = detail ? ` — ${detail}` : ''
+	return `VibeIDE: Context overflow on ${providerName}/${modelName}${tail}. The chat exceeded the model's context window — compact the history or switch to a higher-context model.`
+}
+
+/**
+ * Inverse of `buildContextOverflowError`. Returns parsed (providerName, modelName)
+ * if the message matches the template, else null. Lets `chatThreadService` and
+ * UI surface model-specific guidance without inline regex drift.
+ */
+export const parseContextOverflowError = (message: string): { providerName: string; modelName: string } | null => {
+	const m = message.match(/^VibeIDE: Context overflow on ([^/\s]+)\/([^/\s]+)/)
+	if (!m) return null
+	return { providerName: m[1], modelName: m[2] }
+}
+
 
 
 export type AnthropicLLMChatMessage = {

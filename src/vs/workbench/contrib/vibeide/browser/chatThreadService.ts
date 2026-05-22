@@ -14,7 +14,7 @@ import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases } from '../common/prompt/toolAliases.js';
 import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
-import { AnthropicReasoning, getErrorMessage, LLMTokenUsage, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
+import { AnthropicReasoning, getErrorMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { autoModelFallbackProviderOrder, ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isVisionByNameHeuristic } from '../common/modelVisionHeuristics.js';
@@ -5066,7 +5066,34 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						// emission sites that build the message via `buildEmptyResponseError`.
 						// If anyone changes the template, only sendLLMMessageTypes.ts needs
 						// touching; this consumer stays correct.
-						const emptyMatch = error?.message ? parseEmptyResponseError(error.message) : null
+						// Context-overflow classification — distinct from generic "empty response".
+						// Emitted by the LLM layer when an upstream finishReason / error body
+						// matches the OVERFLOW_PATTERNS catalogue (see sendLLMMessageTypes.ts).
+						// Surface as a sticky inline error immediately (no streak counter):
+						// the next attempt will overflow again until the user actually
+						// compacts the chat or switches model, so escalating right away is
+						// strictly better UX than N toasts in a row.
+						const overflowMatch = error?.message ? parseContextOverflowError(error.message) : null
+						if (overflowMatch) {
+							const { providerName: overflowProvider, modelName: overflowModel } = overflowMatch
+							effectiveError = {
+								message: localize(
+									'vibeide.chatThread.contextOverflow',
+									'Контекст превысил окно модели {0} через {1}. Сожмите историю чата (Compact) или переключитесь на модель с большим контекстным окном — следующая попытка без действий упрётся в тот же лимит.',
+									overflowModel,
+									overflowProvider,
+								),
+								fullError: error?.fullError ?? null,
+								recoverable: 'switchModel',
+							}
+							console.warn(`[VibeIDE chatThread] Context overflow: ${overflowProvider}/${overflowModel} (threadId=${threadId}).`)
+							this._metricsService.capture('Context Overflow', {
+								providerName: overflowProvider,
+								modelName: overflowModel,
+							})
+						}
+
+						const emptyMatch = !overflowMatch && error?.message ? parseEmptyResponseError(error.message) : null
 						if (emptyMatch) {
 							const { providerName: errProvider, modelName: errModel } = emptyMatch
 							const key = `${threadId}:${errProvider}:${errModel}`

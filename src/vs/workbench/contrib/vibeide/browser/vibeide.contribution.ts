@@ -530,9 +530,6 @@ import './vibeDiffVirtualizationService.js'
 // VibeIDE: Provider dashboard (cost history)
 import './vibeProviderDashboard.js'
 
-// VibeIDE: Extension security scanner (socket.dev)
-import './vibeExtensionSecurityScanner.js'
-
 // VibeIDE: Speculative parallel exploration (Phase 3b)
 import '../common/vibeSpeculativeExplorationService.js'
 

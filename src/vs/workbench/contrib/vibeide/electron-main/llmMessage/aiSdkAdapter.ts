@@ -21,12 +21,13 @@ import { fetch as undiciFetch } from 'undici';
 import type { JSONSchema7 } from '@ai-sdk/provider';
 /* eslint-enable */
 
+import { createHash } from 'crypto';
 import { generateUuid } from '../../../../../base/common/uuid.js';
 import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES } from '../../common/prompt/toolAliases.js';
 import { getModelSdkNpm } from './modelsDevCatalog.js';
 import { getModelCapabilities } from '../../common/modelCapabilities.js';
-import { buildEmptyResponseError, LLMChatMessage, LLMTokenUsage, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
+import { buildContextOverflowError, buildEmptyResponseError, isContextOverflow, LLMChatMessage, LLMTokenUsage, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
 import { SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { ensureSystemCADispatcher } from './systemCAFetch.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
@@ -42,12 +43,96 @@ export type AiSdkProviderName =
 
 const EMPTY_CONTENT_PLACEHOLDER = '(no content)';
 
-// Stable per-process IDs for opencode.ai aggregator headers (x-opencode-project,
-// x-opencode-session). The aggregator uses these for routing/grouping requests;
-// stability across calls within the same process is what matters, not real
-// project/session correlation with the workspace or chat thread.
-const OPENCODE_PROCESS_PROJECT_ID = `vibeide-${generateUuid()}`;
+// IDs for opencode.ai aggregator headers. opencode CLI computes
+// `x-opencode-project` from a workspace-stable source (`InstanceState.context.project.id`)
+// and `x-opencode-session` per chat-session. We approximate:
+//   - project: SHA-256 of `__dirname` of this module (= the VibeIDE install root).
+//     Stable across IDE restarts on the same install, so the aggregator's
+//     project-scoped cache / quota survives reopens. Different installs / portable
+//     copies get different IDs — that's the intended grain.
+//   - session: per-process UUID (= "new IDE launch = new aggregator session"),
+//     close enough to the per-chat-session grain at upstream without plumbing
+//     chat-thread IDs through the main-process adapter layer.
+// Note: `x-opencode-request` is generated per `resolveEndpoint()` call (one
+// per streamText invocation) — see the openCode branch below.
+const OPENCODE_PROCESS_PROJECT_ID = `vibeide-${createHash('sha256').update(__dirname).digest('hex').slice(0, 16)}`;
 const OPENCODE_PROCESS_SESSION_ID = `vibeide-${generateUuid()}`;
+
+// ────────────────────────────────────────────────────────────────────
+// Model-family helpers ported from opencode upstream
+// (anomalyco/opencode src/provider/transform.ts).
+// ────────────────────────────────────────────────────────────────────
+
+/**
+ * Empirically-tuned generation params per model family. Source:
+ * `packages/opencode/src/provider/transform.ts:478-510` (temperature, topP, topK
+ * functions). These values are not in models.dev — they come from opencode CLI
+ * field testing of which combos avoid the "empty response", "infinite reasoning
+ * loop", and "degenerate output" pathologies on free/aggregated routes.
+ *
+ * Applied only when user has NOT explicitly set the param in
+ * `modelSelectionOptions` — user override always wins.
+ *
+ * If a model id matches multiple branches (unlikely with current taxonomy), the
+ * first match wins. Adding a new family: append a branch keyed on a substring
+ * unique enough to not collide with existing ids.
+ */
+const getModelParamPresets = (modelId: string): { temperature?: number; topP?: number; topK?: number } => {
+	const id = modelId.toLowerCase();
+	// kimi-k2 family — old k2 vs. newer thinking/k2.5/k2p/k2-5 split.
+	if (id.includes('kimi-k2')) {
+		const isNewer = ['thinking', 'k2.', 'k2p', 'k2-5'].some((s) => id.includes(s));
+		return isNewer
+			? { temperature: 1.0, topP: 0.95 }
+			: { temperature: 0.6 };
+	}
+	// minimax-m2 family — m2.x / m25 / m21 needs higher topK.
+	if (id.includes('minimax-m2')) {
+		const isHighTopK = ['m2.', 'm25', 'm21'].some((s) => id.includes(s));
+		return { temperature: 1.0, topP: 0.95, topK: isHighTopK ? 40 : 20 };
+	}
+	// Gemini family (when routed via aggregator — see comments in openCode branch).
+	if (id.includes('gemini')) {
+		return { temperature: 1.0, topP: 0.95, topK: 64 };
+	}
+	// GLM 4.6 / 4.7 — z.ai upstream.
+	if (id.includes('glm-4.6') || id.includes('glm-4.7')) {
+		return { temperature: 1.0 };
+	}
+	// Qwen — opencode sets topP=1, temperature=0.55. We mirror only topP because
+	// Qwen-coder variants in practice need higher temperature; user-level control
+	// remains via modelSelectionOptions.
+	if (id.includes('qwen')) {
+		return { topP: 1.0 };
+	}
+	return {};
+};
+
+/**
+ * True for any DeepSeek-family model (deepseek-chat, deepseek-reasoner, deepseek-r1,
+ * deepseek-v3, deepseek-v4-pro, etc.). DeepSeek's API rejects assistant turns that
+ * lack a `reasoning` block on continuation — `convertMessagesToModelMessages` uses
+ * this to force an empty placeholder.
+ *
+ * Source: `opencode/src/provider/transform.ts:286` — same substring check.
+ */
+const isDeepseekFamily = (modelId: string): boolean => modelId.toLowerCase().includes('deepseek');
+
+/**
+ * Models that need reasoning text mirrored on a top-level message field
+ * (`providerOptions.openaiCompatible.reasoning_content`) IN ADDITION to the
+ * AI SDK `{ type: 'reasoning' }` part inside content. opencode marks this as
+ * `model.capabilities.interleaved` in their catalog; we don't have that field
+ * in models.dev today, so we hardcode the families known to require it.
+ *
+ * Source: `opencode/src/provider/transform.ts:303-336` — "Always set the field
+ * even when empty — some providers (e.g. DeepSeek) may return empty
+ * reasoning_content which still needs to be sent back in subsequent requests".
+ */
+const hasInterleavedReasoning = (modelId: string): boolean => {
+	const id = modelId.toLowerCase();
+	return id.includes('deepseek') || id.includes('minimax-m2') || id.includes('kimi-k2-thinking');
+};
 
 // Per-model AI SDK adapter selection is fully data-driven via models.dev:
 // see `modelsDevCatalog.ts`. No hardcoded model names / families / regex —
@@ -143,38 +228,64 @@ const resolveEndpoint = async (
 		}
 		case 'openRouter': {
 			const c = settingsOfProvider.openRouter;
+			// `x-session-affinity` is the non-opencode-namespaced sibling of
+			// `x-opencode-session` — opencode upstream sends it on every aggregator
+			// path that's NOT their own (see request.ts:178-181). Sticky-session
+			// routing hint for the aggregator's edge: same-session requests go to
+			// the same backend pod, preserving in-flight context / KV-cache.
 			return {
 				baseURL: 'https://openrouter.ai/api/v1',
 				apiKey: c?.apiKey ?? '',
-				headers: { 'HTTP-Referer': 'https://vibeide.com', 'X-Title': 'VibeIDE' },
+				headers: {
+					'HTTP-Referer': 'https://vibeide.com',
+					'X-Title': 'VibeIDE',
+					'x-session-affinity': OPENCODE_PROCESS_SESSION_ID,
+				},
 			};
 		}
 		case 'openAICompatible': {
 			const c = settingsOfProvider.openAICompatible;
-			const headers = parseHeadersJSON(c?.headersJSON);
-			if (headers) {
-				for (const [hName, hValue] of Object.entries(headers)) {
-					assertHttpHeaderSafe(`OpenAI-Compatible custom header name "${hName}"`, hName);
-					if (typeof hValue === 'string') {
-						assertHttpHeaderSafe(`OpenAI-Compatible custom header "${hName}" value`, hValue);
-					}
+			const headers = parseHeadersJSON(c?.headersJSON) ?? {};
+			for (const [hName, hValue] of Object.entries(headers)) {
+				assertHttpHeaderSafe(`OpenAI-Compatible custom header name "${hName}"`, hName);
+				if (typeof hValue === 'string') {
+					assertHttpHeaderSafe(`OpenAI-Compatible custom header "${hName}" value`, hValue);
 				}
 			}
-			return { baseURL: c?.endpoint ?? '', apiKey: c?.apiKey ?? '', headers };
+			// Inject session affinity for aggregator routes. User-supplied headers
+			// win on collision (Object.assign order below) — they may already set
+			// their own affinity key for a private gateway.
+			return {
+				baseURL: c?.endpoint ?? '',
+				apiKey: c?.apiKey ?? '',
+				headers: { 'x-session-affinity': OPENCODE_PROCESS_SESSION_ID, ...headers },
+			};
 		}
 		case 'liteLLM': {
 			const c = settingsOfProvider.liteLLM;
 			const endpoint = (c?.endpoint ?? '').replace(/\/+$/, '');
-			return { baseURL: `${endpoint}/v1`, apiKey: c?.apiKey || 'noop' };
+			return {
+				baseURL: `${endpoint}/v1`,
+				apiKey: c?.apiKey || 'noop',
+				headers: { 'x-session-affinity': OPENCODE_PROCESS_SESSION_ID },
+			};
 		}
 		case 'lmRoute': {
 			const c = settingsOfProvider.lmRoute;
 			// Endpoint includes the version segment as-is (e.g. .../openai/v1).
-			return { baseURL: c?.endpoint ?? '', apiKey: c?.apiKey || 'noop' };
+			return {
+				baseURL: c?.endpoint ?? '',
+				apiKey: c?.apiKey || 'noop',
+				headers: { 'x-session-affinity': OPENCODE_PROCESS_SESSION_ID },
+			};
 		}
 		case 'pollinations': {
 			const c = settingsOfProvider.pollinations;
-			return { baseURL: 'https://gen.pollinations.ai/v1', apiKey: c?.apiKey ?? '' };
+			return {
+				baseURL: 'https://gen.pollinations.ai/v1',
+				apiKey: c?.apiKey ?? '',
+				headers: { 'x-session-affinity': OPENCODE_PROCESS_SESSION_ID },
+			};
 		}
 		// ---------- Direct cloud OpenAI-compat ----------
 		case 'deepseek': {
@@ -252,10 +363,26 @@ const flattenTextContent = (c: any): string => {
 
 // LLMChatMessage[] -> AI SDK ModelMessage[]. Reasoning blocks (Anthropic-style)
 // are intentionally dropped here: aggregators do not accept them on input.
-const convertMessagesToModelMessages = (messages: LLMChatMessage[]): ModelMessage[] => {
+//
+// `modelName` is consulted for family-specific normalization:
+//   - DeepSeek: force an empty `{ type: 'reasoning', text: '' }` placeholder on
+//     every assistant turn that lacks one. DeepSeek's API rejects continuations
+//     where any past assistant message is missing the reasoning slot (HTTP 400
+//     "reasoning_content must be passed back"). opencode CLI does the same —
+//     `provider/transform.ts:286-301`.
+//   - Interleaved reasoning families (DeepSeek, MiniMax-m2, Kimi-k2-thinking):
+//     additionally mirror the combined reasoning text onto
+//     `providerOptions.openaiCompatible.reasoning_content` at the message level.
+//     AI SDK's openai-compatible adapter serializes per-message providerOptions
+//     into the request body; without this mirror, the upstream sees content[]
+//     reasoning parts but not the top-level `reasoning_content` field that
+//     these providers actually read. `transform.ts:303-336`.
+const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: string): ModelMessage[] => {
 	const toolNameLookup = buildToolNameLookup(messages);
 	const lastIdx = messages.length - 1;
 	const out: ModelMessage[] = [];
+	const isDeepseek = isDeepseekFamily(modelName);
+	const needsInterleavedMirror = hasInterleavedReasoning(modelName);
 
 	for (let i = 0; i < messages.length; i++) {
 		const msg = messages[i] as any;
@@ -306,8 +433,17 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[]): ModelMessag
 			// passed back". Surface it FIRST (before text/tool-call parts) so the SDK
 			// emits it in the right slot.
 			const reasoningPayload: string | undefined = (msg as any).reasoning_content || (msg as any).reasoning;
+			let reasoningText = '';
 			if (typeof reasoningPayload === 'string' && reasoningPayload.length > 0) {
 				parts.push({ type: 'reasoning', text: reasoningPayload });
+				reasoningText = reasoningPayload;
+			} else if (isDeepseek) {
+				// DeepSeek family hard requirement: every assistant turn must carry a
+				// reasoning slot, even empty. Without it the provider returns HTTP 400
+				// or — worse — closes the stream with an empty body that surfaces here
+				// as "Empty response (reason: unknown)". Mirrors opencode upstream
+				// behavior at provider/transform.ts:286-301.
+				parts.push({ type: 'reasoning', text: '' });
 			}
 			if (typeof content === 'string' && content.length > 0) {
 				parts.push({ type: 'text', text: content });
@@ -335,7 +471,23 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[]): ModelMessag
 			if (parts.length === 0) {
 				out.push({ role: 'assistant', content: isLastAndAssistant ? '' : EMPTY_CONTENT_PLACEHOLDER });
 			} else {
-				out.push({ role: 'assistant', content: parts });
+				// Interleaved-reasoning families need the reasoning text mirrored to
+				// `providerOptions.openaiCompatible.reasoning_content` at the message
+				// level — the AI SDK serializer routes that into the top-level
+				// per-message JSON field these providers actually consume. Always
+				// emit the field for the right family (even empty string) — DeepSeek
+				// rejects continuations where the key is absent entirely.
+				if (needsInterleavedMirror) {
+					out.push({
+						role: 'assistant',
+						content: parts,
+						providerOptions: {
+							openaiCompatible: { reasoning_content: reasoningText },
+						},
+					} as any);
+				} else {
+					out.push({ role: 'assistant', content: parts });
+				}
 			}
 			continue;
 		}
@@ -395,15 +547,24 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[]): ModelMessag
 			// field is absent entirely), then replace the tool's content with an explicit
 			// "result was discarded by summary" message so the model knows not to retry.
 			if (!hasMatchingInSource) {
-				out.push({
+				const orphanReasoningText = '(reasoning omitted during conversation summarization)';
+				const orphanAssistant: any = {
 					role: 'assistant',
 					content: [
 						// Non-empty placeholder satisfies DeepSeek's "reasoning_content must
 						// be passed back" check. Content is intentionally short and explicit.
-						{ type: 'reasoning', text: '(reasoning omitted during conversation summarization)' },
+						{ type: 'reasoning', text: orphanReasoningText },
 						{ type: 'tool-call', toolCallId: callId, toolName, input: {} },
 					],
-				});
+				};
+				if (needsInterleavedMirror) {
+					// Mirror reasoning to top-level message field for interleaved families
+					// — same rationale as the regular assistant branch above.
+					orphanAssistant.providerOptions = {
+						openaiCompatible: { reasoning_content: orphanReasoningText },
+					};
+				}
+				out.push(orphanAssistant);
 				out.push({
 					role: 'tool',
 					content: [{
@@ -691,7 +852,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 						: undefined,
 				}).chatModel(modelName);
 
-	const modelMessages = convertMessagesToModelMessages(messages);
+	const modelMessages = convertMessagesToModelMessages(messages, modelName);
 	// Tools-field policy:
 	//   - specialToolFormat set (known native-FC-capable model) → pass tools.
 	//     Repair hook + `invalid` pseudo-tool catch quirks.
@@ -793,6 +954,13 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	}, timeoutMs);
 
 	try {
+		// Model-family generation params (kimi/minimax/glm/gemini/qwen). See
+		// `getModelParamPresets` doc above. `ModelSelectionOptions` does not
+		// currently surface temperature/topP/topK, so these presets are not
+		// shadowed by per-call user settings — they apply unconditionally for
+		// the matched families and are a no-op for everything else.
+		const modelParams = getModelParamPresets(modelName);
+
 		const result = streamText({
 			model: languageModel,
 			// Top-level `system` (Anthropic-style). AI SDK routes this to the
@@ -808,6 +976,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			activeTools,
 			toolChoice: tools ? 'auto' : undefined,
 			abortSignal: abortController.signal,
+			...modelParams,
 			// AI SDK default maxRetries=2 (3 attempts total) is too aggressive for
 			// aggregator-proxied models (openCode/zen → DeepSeek-thinking, BigPickle,
 			// minimax-m2.7) — those upstreams throttle on bursts of agentic steps and
@@ -959,10 +1128,22 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		clearAllTimers();
 
 		if (!fullTextSoFar && !fullReasoningSoFar && !toolName) {
-			onError({
-				message: buildEmptyResponseError(providerName, modelName, lastFinishReason ?? 'unknown'),
-				fullError: null,
-			});
+			// Context-overflow signals can surface in `lastFinishReason` (e.g. z.ai
+			// emits `model_context_window_exceeded` as the reason) or stay invisible
+			// on the stream-empty path. Detect the former here so the UI gets a
+			// targeted "compact history" hint instead of a generic "unknown" toast.
+			const reason = lastFinishReason ?? 'unknown';
+			if (isContextOverflow(reason)) {
+				onError({
+					message: buildContextOverflowError(providerName, modelName, `finishReason: ${reason}`),
+					fullError: null,
+				});
+			} else {
+				onError({
+					message: buildEmptyResponseError(providerName, modelName, reason),
+					fullError: null,
+				});
+			}
 			return;
 		}
 
@@ -982,14 +1163,23 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			return;
 		}
 		const status = error?.statusCode ?? error?.status;
-		if (status === 401) {
+		const errMsg: string = error?.message ?? String(error);
+		const errBody: string = typeof error?.responseBody === 'string' ? error.responseBody : '';
+		// Detect context-overflow first — same regex catalogue used downstream,
+		// applied here BEFORE generic status mapping so a 413 or a 400 with a
+		// known overflow body gets the specialized message.
+		if (status === 413 || isContextOverflow(errMsg) || isContextOverflow(errBody)) {
+			onError({
+				message: buildContextOverflowError(providerName, modelName, errMsg.slice(0, 200)),
+				fullError: error instanceof Error ? error : null,
+			});
+		} else if (status === 401) {
 			onError({ message: `Invalid ${providerName} API key.`, fullError: error instanceof Error ? error : null });
 		} else if (status === 429) {
 			const msg = error?.message ?? 'Rate limit exceeded. Please wait a moment before trying again.';
 			onError({ message: `Rate limit exceeded: ${msg}`, fullError: error instanceof Error ? error : null });
 		} else {
-			const msg = error?.message ?? String(error);
-			onError({ message: msg, fullError: error instanceof Error ? error : null });
+			onError({ message: errMsg, fullError: error instanceof Error ? error : null });
 		}
 	}
 };
