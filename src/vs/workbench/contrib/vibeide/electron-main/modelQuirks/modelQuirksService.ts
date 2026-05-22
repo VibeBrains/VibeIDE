@@ -214,14 +214,28 @@ export function initModelQuirksService(userDataPath: string): void {
  * Synchronous quirks lookup. Safe to call before `initModelQuirksService()` —
  * returns EMPTY_QUIRKS instead of throwing, and aiSdkAdapter degrades to
  * provider defaults gracefully.
+ *
+ * `providerName` enables per-provider matching in the catalog: rules with a
+ * `provider` field only apply when their substring matches the given provider.
+ * Without it (or with empty string), provider-scoped rules are skipped — callers
+ * that don't track provider context fall through to unscoped rules.
+ *
+ * User override lookup also tries `${providerName}/${modelId}` first so users can
+ * scope overrides per-route ("openCode/qwen3.6-plus") in their settings.
  */
-export function getModelQuirks(modelId: string): ResolvedModelQuirks {
+export function getModelQuirks(modelId: string, providerName?: string): ResolvedModelQuirks {
 	if (!_catalog) return EMPTY_QUIRKS
-	const matched = matchQuirks(_catalog.rules, modelId)
+	const matched = matchQuirks(_catalog.rules, modelId, providerName)
 
-	// User override is keyed by exact modelId OR lowercase modelId — most users
-	// will type the id as-is from the model picker, but a few will lowercase it.
-	const override = _userOverride[modelId] ?? _userOverride[modelId.toLowerCase()]
+	// User override lookup priority:
+	//   1. `${providerName}/${modelId}` — most specific
+	//   2. `${modelId}` exact — common case
+	//   3. `${modelId}` lowercased — defensive for typos
+	const providerKey = providerName ? `${providerName}/${modelId}` : ''
+	const override =
+		(providerKey && _userOverride[providerKey]) ??
+		_userOverride[modelId] ??
+		_userOverride[modelId.toLowerCase()]
 
 	if (!matched && !override) return EMPTY_QUIRKS
 	return applyUserOverride(matched ?? EMPTY_QUIRKS, override)

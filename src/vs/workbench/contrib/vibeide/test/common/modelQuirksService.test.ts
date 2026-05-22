@@ -65,6 +65,47 @@ suite('ModelQuirks — matchQuirks', () => {
 	});
 });
 
+suite('ModelQuirks — matchQuirks per-provider', () => {
+
+	const rules: ModelQuirksRule[] = [
+		// Provider-scoped rule for kimi via openCode goes BEFORE unscoped kimi rule.
+		{ match: 'kimi', provider: 'openCode', forceToolCallFormat: 'xml', temperature: 1.0 },
+		{ match: 'kimi', temperature: 0.6 },
+	];
+
+	test('provider-scoped rule wins when provider matches', () => {
+		const q = matchQuirks(rules, 'kimi-k2.6', 'openCode');
+		assert.strictEqual(q?.forceToolCallFormat, 'xml');
+		assert.strictEqual(q?.temperature, 1.0);
+	});
+
+	test('unscoped rule wins when provider differs', () => {
+		const q = matchQuirks(rules, 'kimi-k2.6', 'directMoonshot');
+		assert.strictEqual(q?.forceToolCallFormat, undefined);
+		assert.strictEqual(q?.temperature, 0.6);
+	});
+
+	test('unscoped rule wins when providerName omitted (backward compat)', () => {
+		const q = matchQuirks(rules, 'kimi-k2.6');
+		// First rule is provider-scoped — skipped because no providerName given.
+		// Falls through to unscoped rule.
+		assert.strictEqual(q?.temperature, 0.6);
+	});
+
+	test('provider match is case-insensitive substring', () => {
+		const q1 = matchQuirks(rules, 'kimi-k2.6', 'OPENCODE');
+		const q2 = matchQuirks(rules, 'kimi-k2.6', 'opencode-zen');
+		assert.strictEqual(q1?.forceToolCallFormat, 'xml');
+		assert.strictEqual(q2?.forceToolCallFormat, 'xml');  // 'openCode' is substring of 'opencode-zen' (case-insensitive)
+	});
+
+	test('provider field stripped from returned quirks', () => {
+		const q = matchQuirks(rules, 'kimi-k2.6', 'openCode');
+		assert.ok(q);
+		assert.ok(!('provider' in q));
+	});
+});
+
 suite('ModelQuirks — validateCatalog', () => {
 
 	test('valid catalog parses', () => {

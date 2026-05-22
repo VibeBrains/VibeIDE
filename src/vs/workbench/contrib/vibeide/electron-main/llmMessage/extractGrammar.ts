@@ -5,7 +5,7 @@
 
 import { generateUuid } from '../../../../../base/common/uuid.js'
 import { endsWithAnyPrefixOf, SurroundingsRemover } from '../../common/helpers/extractCodeFromResult.js'
-import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js'
+import { availableTools, builtinToolNames, InternalToolInfo } from '../../common/prompt/prompts.js'
 import { TOOL_NAME_ALIASES, PARAM_ALIASES_BY_TOOL } from '../../common/prompt/toolAliases.js'
 import { OnFinalMessage, OnText, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js'
 import { ToolName, ToolParamName } from '../../common/toolsServiceTypes.js'
@@ -427,6 +427,39 @@ const parseXMLPrefixToToolCall = <T extends ToolName,>(rawToolName: T, toolId: s
 	}
 }
 
+/**
+ * Safety net: strip any complete `<canonical_tool_name>...</canonical_tool_name>`
+ * pattern from chat text when the main XML parser didn't claim it. Common cases:
+ *   - Model emits a tool tag that isn't enabled in the current chat mode (e.g.
+ *     `<get_dir_tree>` in a mode where get_dir_tree wasn't passed). The parser's
+ *     `toolOpenTags` list is mode-filtered, so the tag never matched.
+ *   - Multiple tool-call attempts in one turn — parser only handles the first;
+ *     subsequent attempts would have leaked raw before this pass.
+ *
+ * Restrictions to avoid stripping legitimate user/code text:
+ *   - Only canonical builtin tool names (`builtinToolNames`) are stripped; aliases
+ *     like `<read>` are NOT — those are common English words.
+ *   - The pattern must be a balanced open+close pair on the same logical block.
+ *   - We replace with a polite italic placeholder rather than emptying — user sees
+ *     "something happened here" without raw XML clutter.
+ */
+const UNCLAIMED_TOOL_TAG_PLACEHOLDER = '\n*[tool call — formatted incorrectly by model, hidden]*\n'
+
+const stripUnclaimedToolTags = (text: string): string => {
+	if (!text || text.indexOf('<') === -1) return text
+	let out = text
+	for (const toolName of builtinToolNames) {
+		// `<name>...</name>` non-greedy across newlines. `[\s\S]` instead of `.` because
+		// `.` doesn't cross newlines without flag, and we want to span multiline param
+		// values like a file path with embedded backslashes.
+		const re = new RegExp(`<${toolName}>[\\s\\S]*?<\\/${toolName}>`, 'g')
+		if (re.test(out)) {
+			out = out.replace(re, UNCLAIMED_TOOL_TAG_PLACEHOLDER)
+		}
+	}
+	return out
+}
+
 export const extractXMLToolsWrapper = (
 	onText: OnText,
 	onFinalMessage: OnFinalMessage,
@@ -520,7 +553,11 @@ export const extractXMLToolsWrapper = (
 
 		onText({
 			...params,
-			fullText,
+			// Safety net: even if a tool tag slipped past the main parser (e.g. tool
+			// not in current chatMode, or multi-tool emission past the first), don't
+			// leak the raw `<read_file>...</read_file>` into user-visible chat. The
+			// placeholder is non-disruptive markdown italic.
+			fullText: stripUnclaimedToolTags(fullText),
 			toolCall: latestToolCall,
 		});
 	};
@@ -538,7 +575,7 @@ export const extractXMLToolsWrapper = (
 		// console.log('----- tools ----\n', JSON.stringify(firstToolCallRef.current, null, 2))
 		// console.log('----- toolCall ----\n', JSON.stringify(toolCall, null, 2))
 
-		onFinalMessage({ ...params, fullText, toolCall: toolCall })
+		onFinalMessage({ ...params, fullText: stripUnclaimedToolTags(fullText), toolCall: toolCall })
 	}
 	return { newOnText, newOnFinalMessage };
 }

@@ -15,6 +15,7 @@ import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent
 import { TOOL_NAME_ALIASES, applyParamAliases } from '../common/prompt/toolAliases.js';
 import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
 import { AnthropicReasoning, getErrorMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
+import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS } from '../common/modelHealthTracker.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { autoModelFallbackProviderOrder, ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isVisionByNameHeuristic } from '../common/modelVisionHeuristics.js';
@@ -587,6 +588,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	// are parsed at runtime from the VibeIDE-emitted error template via regex.
 	// Key shape: `${threadId}:${providerName}:${modelName}`.
 	private readonly _emptyResponseStreak = new Map<string, number>()
+
+	// Cross-thread health tracker per (provider, model) combo. Counts failures
+	// (empty-response, overflow, invalid-params) in a rolling 10-min window. When
+	// the threshold is crossed, surface a one-time toast suggesting model switch —
+	// even if the per-thread streak hasn't tripped (e.g. user spread the failures
+	// across multiple chats but it's the same broken aggregator route). Ephemeral;
+	// not persisted across IDE restarts.
+	private readonly _modelHealthTracker = new ModelHealthTracker()
 
 	// Submit-level watchdog: started in _addUserMessageAndStreamResponse, cleared in
 	// _setStreamState when the stream actually transitions to an active state
@@ -4949,6 +4958,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					// CONSECUTIVE empties; one good reply means the model is alive again.
 					if (modelSelection) {
 						this._emptyResponseStreak.delete(`${threadId}:${modelSelection.providerName}:${modelSelection.modelName}`)
+						// Also reset the cross-thread health tracker for this combo. One good
+						// response means the aggregator route is healthy again; next failure
+						// cycle starts fresh.
+						this._modelHealthTracker.recordSuccess(modelSelection.providerName, modelSelection.modelName)
 					}
 
 					// Persist provider-reported token usage on the thread so the UI
@@ -5076,6 +5089,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						const overflowMatch = error?.message ? parseContextOverflowError(error.message) : null
 						if (overflowMatch) {
 							const { providerName: overflowProvider, modelName: overflowModel } = overflowMatch
+							this._modelHealthTracker.recordFailure(overflowProvider, overflowModel, 'context-overflow')
 							effectiveError = {
 								message: localize(
 									'vibeide.chatThread.contextOverflow',
@@ -5096,6 +5110,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						const emptyMatch = !overflowMatch && error?.message ? parseEmptyResponseError(error.message) : null
 						if (emptyMatch) {
 							const { providerName: errProvider, modelName: errModel } = emptyMatch
+							this._modelHealthTracker.recordFailure(errProvider, errModel, 'empty-response')
 							const key = `${threadId}:${errProvider}:${errModel}`
 							const streak = (this._emptyResponseStreak.get(key) ?? 0) + 1
 							this._emptyResponseStreak.set(key, streak)
@@ -5123,6 +5138,36 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									breakerLimit: threshold,
 								})
 							}
+						}
+
+						// Cross-thread health notification — fires once per (provider,model) every
+						// SUPPRESSION_WINDOW_MS when failures cross HEALTH_FAILURE_THRESHOLD within
+						// HEALTH_WINDOW_MS. Catches the case where user spread failures across multiple
+						// chats but it's the same broken route. Doesn't suppress the inline error in
+						// effectiveError (different concern — that's per-thread escalation).
+						const healthMatch = overflowMatch ?? emptyMatch
+						if (healthMatch && this._modelHealthTracker.shouldNotify(healthMatch.providerName, healthMatch.modelName)) {
+							const count = this._modelHealthTracker.getFailureCount(healthMatch.providerName, healthMatch.modelName)
+							const windowMin = Math.round(HEALTH_WINDOW_MS / 60_000)
+							this._notificationService.notify({
+								severity: Severity.Warning,
+								message: localize(
+									'vibeide.chatThread.modelHealthDegraded',
+									'Модель {0} через {1} дала {2} ошибок за последние {3} минут. Возможен временный сбой aggregator-роута — рекомендуем переключиться на другую модель или подождать ~{3} минут.',
+									healthMatch.modelName,
+									healthMatch.providerName,
+									String(count),
+									String(windowMin),
+								),
+							})
+							this._metricsService.capture('Model Health Degraded', {
+								providerName: healthMatch.providerName,
+								modelName: healthMatch.modelName,
+								failureCount: count,
+								windowMs: HEALTH_WINDOW_MS,
+								threshold: HEALTH_FAILURE_THRESHOLD,
+							})
+							console.warn(`[VibeIDE chatThread] Model health degraded: ${healthMatch.providerName}/${healthMatch.modelName} (${count} failures in ${windowMin} min).`)
 						}
 
 						// Clear stream state immediately so submit button becomes active (avoids stuck "Waiting for model response..." if audit or resolve fails)

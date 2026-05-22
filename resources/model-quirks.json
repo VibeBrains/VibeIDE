@@ -19,8 +19,13 @@
 		{ "match": "minimax", "temperature": 1.0, "topP": 0.95, "topK": 40,
 		  "note": "Future minimax versions — defaults to higher topK" },
 
+		{ "match": "kimi", "provider": "openCode", "temperature": 1.0, "topP": 0.95, "forceToolCallFormat": "xml",
+		  "note": "kimi via openCode aggregator — native FC unreliable (auto-downgrade fires repeatedly on tool-call errors). Force XML up front to skip warmup. Direct Moonshot API users get the regular kimi-* family rules below without XML forcing." },
+		{ "match": "deepseek", "provider": "openCode", "forceEmptyReasoning": true, "mirrorReasoningContent": true, "forceToolCallFormat": "xml",
+		  "note": "DeepSeek via openCode aggregator — native FC confuses tool names with cross-tool args (e.g. names a tool 'read_file' but sends search_for_files-shaped args). Force XML. Direct DeepSeek API works correctly with native FC — falls through to the unscoped deepseek rule below." },
+
 		{ "match": "deepseek", "forceEmptyReasoning": true, "mirrorReasoningContent": true,
-		  "note": "DeepSeek family — every assistant message must carry a reasoning slot (HTTP 400 otherwise); reasoning text must be mirrored on top-level message field" },
+		  "note": "DeepSeek family (all providers) — every assistant message must carry a reasoning slot (HTTP 400 otherwise); reasoning text must be mirrored on top-level message field. Native FC is left enabled here for direct API users; the openCode-scoped rule above forces XML for that aggregator." },
 
 		{ "match": "qwen", "temperature": 0.55, "topP": 1.0, "forceToolCallFormat": "xml",
 		  "note": "Qwen-family — native FC unreliable (hallucinates param names like 'path_pattern' instead of 'pattern'). Forcing XML mode routes the output through extractXMLToolsWrapper which handles the naked-tag <grep><pattern>...</pattern></grep> format the model naturally emits." },

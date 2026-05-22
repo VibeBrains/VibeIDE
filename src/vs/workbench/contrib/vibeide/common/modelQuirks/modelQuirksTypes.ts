@@ -18,15 +18,28 @@
 export type ToolCallFormat = 'native' | 'xml' | 'auto'
 
 /**
- * One quirks rule.`match` is a case-insensitive substring of the model id (in lowercase).
- * Order in the catalog = priority: first match wins (Array#find semantics). Place more
- * specific patterns above broader family patterns.
+ * One quirks rule.
+ *
+ * Matcher rules:
+ * - `match`: case-insensitive substring of the model id (lowercased on both sides). Required.
+ * - `provider` (optional): case-insensitive substring of the provider name. When
+ *   present, rule applies ONLY to that provider. When absent, rule applies across
+ *   all providers (broad behaviour). Lets us force XML for `kimi` via `openCode`
+ *   while preserving native FC on direct Moonshot API where it works correctly.
+ *
+ * Order in the catalog = priority: first match wins (Array#find semantics). Place
+ * more specific patterns above broader family patterns. Provider-scoped rules
+ * should typically go ABOVE the same-model unscoped rule so the scoped variant
+ * wins when its provider matches.
  *
  * All fields except `match` are optional — undefined = fall through to provider defaults.
  */
 export interface ModelQuirksRule {
 	/** Lowercase substring matched against modelId (also lowercased). */
 	readonly match: string
+
+	/** Optional case-insensitive provider-name substring. When set, rule applies only to that provider. */
+	readonly provider?: string
 
 	// ---------- Generation parameters ----------
 	/** `temperature` for streamText / completion. Range typically 0..2. */
@@ -87,21 +100,42 @@ export type ResolvedModelQuirks = Omit<ModelQuirksRule, 'match' | 'note'>
 export const EMPTY_QUIRKS: ResolvedModelQuirks = Object.freeze({})
 
 /**
- * Match a model id against catalog rules. Returns resolved quirks (without
- * `match` / `note` fields) or null if no rule matched.
+ * Match a model id (and optional provider name) against catalog rules. Returns
+ * resolved quirks (without `match` / `provider` / `note` fields) or null if no
+ * rule matched.
  *
- * Match policy: case-insensitive substring. Both sides lowercased before
- * `includes()`. First match in array order wins.
+ * Match policy:
+ * - `rule.match` must be a case-insensitive substring of `modelId`.
+ * - When `rule.provider` is present, it must ALSO be a case-insensitive
+ *   substring of `providerName`. When `rule.provider` is absent, the rule
+ *   applies to all providers (legacy behaviour, backward-compatible with
+ *   pre-per-provider catalogs).
+ * - First match in array order wins. Provider-scoped rules should be listed
+ *   above same-model unscoped rules so the scoped variant wins when its
+ *   provider matches.
+ *
+ * Passing `providerName = ''` (or omitting it) skips provider matching — useful
+ * for tests or when caller doesn't track provider context. Provider-scoped
+ * rules are not considered in that case.
  */
-export function matchQuirks(rules: readonly ModelQuirksRule[], modelId: string): ResolvedModelQuirks | null {
-	const needle = (modelId ?? '').toLowerCase()
-	if (!needle) return null
+export function matchQuirks(
+	rules: readonly ModelQuirksRule[],
+	modelId: string,
+	providerName?: string,
+): ResolvedModelQuirks | null {
+	const modelNeedle = (modelId ?? '').toLowerCase()
+	if (!modelNeedle) return null
+	const providerNeedle = (providerName ?? '').toLowerCase()
 	for (const rule of rules) {
-		const pat = (rule.match ?? '').toLowerCase()
-		if (pat && needle.includes(pat)) {
-			const { match: _m, note: _n, ...rest } = rule
-			return rest
+		const modelPat = (rule.match ?? '').toLowerCase()
+		if (!modelPat || !modelNeedle.includes(modelPat)) continue
+		// Provider-scoped rule: only apply when provider also matches.
+		if (rule.provider) {
+			const providerPat = rule.provider.toLowerCase()
+			if (!providerNeedle.includes(providerPat)) continue
 		}
+		const { match: _m, provider: _p, note: _n, ...rest } = rule
+		return rest
 	}
 	return null
 }
@@ -142,13 +176,14 @@ export function validateCatalog(raw: unknown): ModelQuirksCatalog {
 		if (typeof match !== 'string' || match.length === 0) continue
 		const rule: ModelQuirksRule = {
 			match,
+			...readString(rr, 'provider'),
 			...readNumber(rr, 'temperature', 0, 2),
 			...readNumber(rr, 'topP', 0, 1),
 			...readIntPositive(rr, 'topK'),
 			...readBool(rr, 'forceEmptyReasoning'),
 			...readBool(rr, 'mirrorReasoningContent'),
 			...readEnum(rr, 'forceToolCallFormat', ['native', 'xml', 'auto']),
-				...readString(rr, 'note'),
+			...readString(rr, 'note'),
 		}
 		rules.push(rule)
 	}

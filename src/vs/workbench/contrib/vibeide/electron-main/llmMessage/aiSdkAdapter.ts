@@ -311,14 +311,14 @@ const flattenTextContent = (c: any): string => {
 //     into the request body; without this mirror, the upstream sees content[]
 //     reasoning parts but not the top-level `reasoning_content` field that
 //     these providers actually read. `transform.ts:303-336`.
-const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: string): ModelMessage[] => {
+const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: string, providerName: string): ModelMessage[] => {
 	const toolNameLookup = buildToolNameLookup(messages);
 	const lastIdx = messages.length - 1;
 	const out: ModelMessage[] = [];
 	// Family-specific normalization comes from the model-quirks catalog (was hardcoded
 	// before v0.13.6). Empty quirks → both flags `false` → no special handling, same as
 	// for a model with no known quirks.
-	const quirks = getModelQuirks(modelName);
+	const quirks = getModelQuirks(modelName, providerName);
 	const isDeepseek = quirks.forceEmptyReasoning === true;
 	const needsInterleavedMirror = quirks.mirrorReasoningContent === true;
 
@@ -666,7 +666,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	//      known-broken combinations (e.g. qwen-* needs XML on naked-tag grammar).
 	//   2. User runtime `toolFallbackMode` ("native" / "xml") — global per-session knob.
 	//   3. Catalog `specialToolFormat` from getModelCapabilities + auto-downgrade.
-	const quirks = getModelQuirks(modelName);
+	const quirks = getModelQuirks(modelName, providerName);
 	const isAggregatorSynthesized = caps.recognizedModelName === '__aggregator_unknown__';
 	const toolFallbackMode = runtimeOptions?.toolFallbackMode ?? 'auto';
 	const specialToolFormat = (() => {
@@ -799,7 +799,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 						: undefined,
 				}).chatModel(modelName);
 
-	const modelMessages = convertMessagesToModelMessages(messages, modelName);
+	const modelMessages = convertMessagesToModelMessages(messages, modelName, providerName);
 	// Tools-field policy:
 	//   - specialToolFormat set (known native-FC-capable model) → pass tools.
 	//     Repair hook + `invalid` pseudo-tool catch quirks.
