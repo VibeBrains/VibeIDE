@@ -50,8 +50,17 @@ export const resolveInvokeParamName = (rawParamName: string, canonicalToolName: 
  * Strip wrapper tags that envelope the actual `<invoke>` block in some vendor
  * formats. Includes the bare `<tool_code>` / `<tool_calls>` / `<function_calls>`
  * wraps and the namespaced `<vendor:tool_call>` form.
+ *
+ * **Tolerant close (v0.13.11):** trailing `>` is OPTIONAL. Real-world observed
+ * deepseek-v4-pro output omits `>` on wrapper tags:
+ *   `<tool_calls<invoke name="...">…</invoke</tool_calls`
+ * Pre-v0.13.11 the strict `\s*>` requirement made these orphan wrappers leak
+ * into chat verbatim. The relaxed pattern matches `<wrapper>`, `</wrapper>`,
+ * `<wrapper<nextOpenTag` (direct adjacency to next tag), and `<wrapper$` (at
+ * end of text). Lookahead `(?=>|<|$)` keeps it conservative — won't gobble
+ * arbitrary text after the wrapper name.
  */
-export const STRIP_WRAPPERS_RE = /<\/?(?:tool_code|function_calls|tool_calls|tool_use|tools|[a-z][\w-]*:(?:tool_call|tool_calls|tool_use|function_call|function_calls|invoke|tools))\s*>/gi
+export const STRIP_WRAPPERS_RE = /<\/?(?:tool_code|function_calls|tool_calls|tool_use|tools|[a-z][\w-]*:(?:tool_call|tool_calls|tool_use|function_call|function_calls|invoke|tools))\b\s*(?:>|(?=<|$))/gi
 
 /**
  * DSML-style fullwidth-pipe markers (v0.13.10).
@@ -69,6 +78,16 @@ export const STRIP_WRAPPERS_RE = /<\/?(?:tool_code|function_calls|tool_calls|too
 export const DSML_MARKER_STRIP_RE = /[｜|]{1,4}[A-Za-z][A-Za-z0-9_-]*[｜|]{1,4}/g
 
 /**
+ * Escape regex metacharacters in tool-name literals before joining them into
+ * an alternation. Defense in depth — current canonical names and aliases are
+ * all `[a-z_]+` (no special chars), but a future addition like `foo.bar` or
+ * `tool+v2` would silently break the alternation without escaping. Cheap.
+ */
+function escapeRegexLiteral(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
  * Self-closing tool-call regex (v0.13.10).
  *
  * Matches `<tool_name attr="v1" attr2="v2" />` for any canonical or aliased
@@ -76,7 +95,12 @@ export const DSML_MARKER_STRIP_RE = /[｜|]{1,4}[A-Za-z][A-Za-z0-9_-]*[｜|]{1,4
  * arbitrary HTML self-closing (`<br />`, `<img />`, `<hr />`, `<input />`).
  *
  * Sorted longer-first so `read_file` matches before `read` when both are in
- * the pool (prefix safety).
+ * the pool (prefix safety — JS alternation IS left-to-right but backtracking
+ * handles short-first; longest-first is faster + clearer intent).
+ *
+ * Note: includes aliases (`<read attr="v" />` → canonical) deliberately. The
+ * paired-form safety net `stripUnclaimedToolTags` does NOT include aliases —
+ * see asymmetry rationale in this file's header comment. Roadmap X.0.3.
  */
 export const SELF_CLOSING_TOOL_RE = (() => {
 	const names = [
@@ -84,7 +108,8 @@ export const SELF_CLOSING_TOOL_RE = (() => {
 		...Object.keys(TOOL_NAME_ALIASES),
 	]
 	names.sort((a, b) => b.length - a.length)
-	return new RegExp(`<(${names.join('|')})\\s+([^>]*?)\\s*\\/>`, 'gi')
+	const escaped = names.map(escapeRegexLiteral)
+	return new RegExp(`<(${escaped.join('|')})\\s+([^>]*?)\\s*\\/>`, 'gi')
 })()
 
 /**
@@ -100,7 +125,8 @@ export const SELF_CLOSING_PARTIAL_RE = (() => {
 		...Object.keys(TOOL_NAME_ALIASES),
 	]
 	names.sort((a, b) => b.length - a.length)
-	return new RegExp(`<(${names.join('|')})\\s+[^>]*$`, 'i')
+	const escaped = names.map(escapeRegexLiteral)
+	return new RegExp(`<(${escaped.join('|')})\\s+[^>]*$`, 'i')
 })()
 
 /**
@@ -148,11 +174,19 @@ export const normalizeAlternativeToolSyntax = (text: string): string => {
 		// `[^>]*` after `name="X"` tolerates additional attributes (some models
 		// emit `<parameter name="filePath" string="true">` — pre-fix the trailing
 		// attribute made the regex skip the match entirely).
-		/<invoke\s+name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/invoke>/gi,
+		//
+		// **Tolerant close (v0.13.11):** `</invoke\s*(?:>|(?=<|$))` matches close
+		// tag with OR without the trailing `>`. Observed deepseek-v4-pro emits
+		// `</invoke</tool_calls` (no `>` on either) — pre-v0.13.11 the strict
+		// `</invoke>` requirement made the entire invoke block fail to match,
+		// leaking raw XML verbatim into chat.
+		/<invoke\s+name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/invoke\s*(?:>|(?=<|$))/gi,
 		(_match: string, rawToolName: string, body: string) => {
 			const canonical = resolveInvokeToolName(rawToolName)
 			const transformedBody = body.replace(
-				/<(?:arg|parameter)\s+name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/(?:arg|parameter)>/gi,
+				// Tolerant close on `</parameter>` too (v0.13.11) — same rationale as
+				// invoke close: deepseek-v4-pro observed omitting `>` on chained close tags.
+				/<(?:arg|parameter)\s+name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/(?:arg|parameter)\s*(?:>|(?=<|$))/gi,
 				(_m: string, rawParamName: string, value: string) => {
 					const canonicalParam = resolveInvokeParamName(rawParamName, canonical)
 					return `<${canonicalParam}>${value}</${canonicalParam}>`

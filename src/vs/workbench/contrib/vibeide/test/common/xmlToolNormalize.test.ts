@@ -184,6 +184,51 @@ suite('XML tool normalization (v0.13.10)', () => {
 		});
 	});
 
+	suite('normalizeAlternativeToolSyntax — malformed close tags (v0.13.11)', () => {
+
+		test('malformed `<tool_calls<invoke ...>` — no `>` on tool_calls open', () => {
+			// Real-world from deepseek-v4-pro 2026-05-23: model emits `<tool_calls<invoke ...>`
+			// (no `>` after tool_calls). Pre-v0.13.11 the STRIP_WRAPPERS_RE required
+			// `\s*>` and skipped the orphan `<tool_calls` open → leaked into chat.
+			const input = '<tool_calls<invoke name="write_file_text"><parameter name="contents">data</parameter></invoke></tool_calls>';
+			const out = normalizeAlternativeToolSyntax(input);
+			assert.doesNotMatch(out, /<tool_calls/);
+			assert.match(out, /<write_file_text>/);
+			assert.match(out, /<contents>data<\/contents>/);
+		});
+
+		test('malformed `</invoke</tool_calls` — no `>` on either close', () => {
+			// Most pathological observed case: BOTH invoke and tool_calls close miss `>`.
+			const input = '<tool_calls<invoke name="read_file"><parameter name="path">/foo</parameter></invoke</tool_calls';
+			const out = normalizeAlternativeToolSyntax(input);
+			assert.match(out, /<read_file>/);
+			assert.doesNotMatch(out, /tool_calls/);
+			assert.doesNotMatch(out, /<invoke/);
+		});
+
+		test('malformed `</parameter` (no `>`) followed by next `<parameter>`', () => {
+			const input = '<invoke name="write_file_text"><parameter name="contents">data</parameter<parameter name="uri">/foo</parameter></invoke>';
+			const out = normalizeAlternativeToolSyntax(input);
+			assert.match(out, /<write_file_text>/);
+			assert.match(out, /<contents>data<\/contents>/);
+			assert.match(out, /\/foo/);
+		});
+
+		test('user 2026-05-23 ru.json screenshot — full malformed deepseek-v4-pro output', () => {
+			// Verbatim shape from the user's chat: model wrote a large JSON file via
+			// write_file_text, but the wrapper opens/closes missed all `>`. JSON body
+			// is shortened here for test readability — the regex doesn't care about
+			// content length.
+			const input = '<tool_calls<invoke name="write_file_text"><parameter name="contents" string="true">{ "FIELD_REQUIRED": "Это поле обязательно" }</parameter><parameter name="uri" string="true">d:\\Projects\\BuzzBang\\ru.json</parameter> </invoke</tool_calls';
+			const out = normalizeAlternativeToolSyntax(input);
+			assert.match(out, /<write_file_text>/);
+			assert.match(out, /ru\.json/);
+			assert.match(out, /FIELD_REQUIRED/);
+			assert.doesNotMatch(out, /<tool_calls/);
+			assert.doesNotMatch(out, /<\/tool_calls/);
+		});
+	});
+
 	suite('stripUnclaimedToolTags — safety net', () => {
 
 		test('paired form not claimed by parser gets placeholder', () => {
