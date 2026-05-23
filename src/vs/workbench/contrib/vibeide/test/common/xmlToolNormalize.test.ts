@@ -58,6 +58,14 @@ suite('XML tool normalization (v0.13.10)', () => {
 			const input = 'The value is 5 < 10 and 10 > 5.';
 			assert.strictEqual(normalizeAlternativeToolSyntax(input), input);
 		});
+
+		test('empty / nullish input does not throw (defensive guard)', () => {
+			assert.strictEqual(normalizeAlternativeToolSyntax(''), '');
+			// Type-system says string, but runtime may pass undefined/null from
+			// optional-chained sources. Cast for the test only.
+			assert.strictEqual(normalizeAlternativeToolSyntax(undefined as unknown as string), undefined as unknown as string);
+			assert.strictEqual(normalizeAlternativeToolSyntax(null as unknown as string), null as unknown as string);
+		});
 	});
 
 	suite('normalizeAlternativeToolSyntax — Anthropic invoke form', () => {
@@ -291,14 +299,18 @@ suite('XML tool normalization (v0.13.10)', () => {
 			const input = 'Here is something <read_file><path>foo</path></read_file> done.';
 			const out = stripUnclaimedToolTags(input);
 			assert.doesNotMatch(out, /<read_file>/);
-			assert.match(out, /tool call — formatted incorrectly/);
+			// Structural check (placeholder shape `\n*[localized text]*\n`) — robust
+// against future translations. Don't assert specific language.
+assert.match(out, /\*\[.+\]\*/);
 		});
 
 		test('self-closing form not claimed by parser gets placeholder (v0.13.10)', () => {
 			const input = 'Here is <read_file path="x" /> done.';
 			const out = stripUnclaimedToolTags(input);
 			assert.doesNotMatch(out, /<read_file[^>]*\/>/);
-			assert.match(out, /tool call — formatted incorrectly/);
+			// Structural check (placeholder shape `\n*[localized text]*\n`) — robust
+// against future translations. Don't assert specific language.
+assert.match(out, /\*\[.+\]\*/);
 		});
 
 		test('canonical block AND self-closing in same text — both stripped', () => {

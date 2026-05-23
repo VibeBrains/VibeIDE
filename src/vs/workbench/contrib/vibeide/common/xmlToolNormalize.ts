@@ -211,6 +211,10 @@ export const SELF_CLOSING_PARTIAL_RE = (() => {
  * @returns text with all vendor formats rewritten to canonical block form.
  */
 export const normalizeAlternativeToolSyntax = (text: string): string => {
+	// Defensive guard: TS types say `string` but runtime may pass undefined
+	// (e.g. an upstream optional-chained field that resolved nullish). Pre-fix
+	// `text.includes(...)` would throw TypeError. Cheap.
+	if (!text) return text
 	// Fast path: no alternative-syntax markers present at all. Loop terminates
 	// at the first hit — for clean prose without any tool markers (the common
 	// case) we do at most ~16 substring scans before bailing.
@@ -288,13 +292,19 @@ const unclaimedToolTagPlaceholder = (): string =>
  * iterates the precomputed array.
  */
 interface StripPattern { readonly paired: RegExp; readonly selfClosing: RegExp }
-const STRIP_PATTERNS: readonly StripPattern[] = builtinToolNames.map(toolName => ({
-	paired: new RegExp(`<${toolName}>[\\s\\S]*?<\\/${toolName}>`, 'g'),
-	// Self-closing form with tolerant close (v0.13.11): `<tag attrs />` AND
-	// `<tag attrs /` (no trailing `>`). Symmetric with the tolerant invoke/wrapper
-	// closes in `normalizeAlternativeToolSyntax`.
-	selfClosing: new RegExp(`<${toolName}\\s+[^>]*\\/(?:>|(?=<|$|\\s))`, 'g'),
-}))
+const STRIP_PATTERNS: readonly StripPattern[] = builtinToolNames.map(toolName => {
+	// Defense in depth: escape regex metacharacters in the tool name. Current
+	// canonical names are all `[a-z_]+` (no special chars), but a future
+	// addition like `foo.bar` would silently produce broken regex without escape.
+	const escaped = escapeRegexLiteral(toolName)
+	return {
+		paired: new RegExp(`<${escaped}>[\\s\\S]*?<\\/${escaped}>`, 'g'),
+		// Self-closing form with tolerant close (v0.13.11): `<tag attrs />` AND
+		// `<tag attrs /` (no trailing `>`). Symmetric with the tolerant invoke/wrapper
+		// closes in `normalizeAlternativeToolSyntax`.
+		selfClosing: new RegExp(`<${escaped}\\s+[^>]*\\/(?:>|(?=<|$|\\s))`, 'g'),
+	}
+})
 
 /**
  * Last-resort scrub. If a tool tag in canonical form OR self-closing form
