@@ -3,10 +3,13 @@ name: Component Fixture Tests
 on:
   push:
     branches: [main]
+    paths-ignore: ['docs/**']
   pull_request:
     branches:
       - main
       - 'release/*'
+    # Skip docs-only PRs (Y.2 audit, 2026-05-23) — fixtures test code, not markdown.
+    paths-ignore: ['docs/**']
 
 permissions:
   contents: read

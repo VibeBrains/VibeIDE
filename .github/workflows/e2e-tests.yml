@@ -3,8 +3,11 @@ name: E2E Tests
 on:
   push:
     branches: [main]
+    paths-ignore: ['docs/**']
   pull_request:
     branches: [main]
+    # Skip docs-only PRs (Y.2 audit, 2026-05-23) — E2E doesn't validate markdown.
+    paths-ignore: ['docs/**']
   workflow_dispatch:
 
 jobs:

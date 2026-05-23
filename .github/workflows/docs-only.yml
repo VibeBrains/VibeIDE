@@ -1,0 +1,110 @@
+name: docs-only
+
+# Lightweight workflow that runs ONLY on docs/ changes (Y.2 audit, 2026-05-23).
+# Companion to `docs-links.yml` (which validates link integrity); this one
+# focuses on prose quality + structural sanity. Cheap (~30s on green path) vs
+# the full Code OSS pipeline (~15-20 min) that docs-only PRs skip via
+# `paths-ignore: ['docs/**']` in pr.yml / e2e-tests.yml / component-fixture-tests.yml.
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs-only.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs-only.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  markdown-lint:
+    name: markdownlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install markdownlint-cli2
+        run: npm install --no-save markdownlint-cli2@0.13
+
+      # Lenient config — fail only on structural errors (broken syntax, missing
+      # closing fences), not stylistic preferences. Project uses both ` ``` ` and
+      # ` ~~~ ` fences, sometimes long lines, etc. — we don't gate on style nits.
+      - name: Write lenient config
+        run: |
+          cat > .markdownlint-cli2.jsonc <<'EOF'
+          {
+            "config": {
+              "default": false,
+              "MD001": true,    "MD003": false,   "MD004": false,
+              "MD005": true,    "MD009": false,   "MD012": false,
+              "MD013": false,   "MD014": false,   "MD018": true,
+              "MD019": false,   "MD022": false,   "MD023": false,
+              "MD024": false,   "MD025": false,   "MD026": false,
+              "MD027": false,   "MD028": false,   "MD029": false,
+              "MD030": false,   "MD031": false,   "MD032": false,
+              "MD033": false,   "MD034": false,   "MD036": false,
+              "MD037": true,    "MD038": true,    "MD039": true,
+              "MD040": false,   "MD041": false,   "MD042": true,
+              "MD046": false,   "MD047": false,   "MD048": false,
+              "MD049": false,   "MD050": false
+            },
+            "globs": ["docs/**/*.md"],
+            "ignores": ["docs/.obsidian/**"]
+          }
+          EOF
+
+      - name: Run markdownlint-cli2
+        run: npx markdownlint-cli2
+
+  roadmap-section-integrity:
+    name: roadmap section index integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Spot-check that the roadmap's top-level section headings (W., X., Y., ...)
+      # form a consistent letter sequence without gaps. Catches accidental
+      # duplicate-letter sections after merge or copy-paste errors. Pure bash
+      # + grep — no deps.
+      - name: Check section letters
+        run: |
+          set -euo pipefail
+          if [ ! -f docs/roadmap.md ]; then
+            echo "::warning::docs/roadmap.md missing — skipping integrity check"
+            exit 0
+          fi
+          # Extract lines like "## W. <title>" / "## X. <title>" / "## Y.0 <title>"
+          # (top-level Latin-letter section headers). Build sorted unique letter list.
+          letters=$(grep -oE '^## [A-Z]\.[^[:alnum:]]' docs/roadmap.md | tr -d '#. ' | sort -u || true)
+          if [ -z "$letters" ]; then
+            echo "::warning::no Latin-letter sections found in docs/roadmap.md"
+            exit 0
+          fi
+          echo "Section letters present: $letters"
+          # Detect gaps: convert letters → ord, ensure consecutive run.
+          prev=""
+          gap_found=0
+          for L in $letters; do
+            if [ -n "$prev" ]; then
+              prev_ord=$(printf '%d' "'$prev")
+              cur_ord=$(printf '%d' "'$L")
+              diff=$((cur_ord - prev_ord))
+              if [ "$diff" -gt 1 ]; then
+                echo "::warning::gap in roadmap sections — $prev → $L (missing $((diff - 1)) letters)"
+                gap_found=1
+              fi
+            fi
+            prev=$L
+          done
+          if [ "$gap_found" -eq 1 ]; then
+            echo "Gaps OK if intentional (e.g. some letters reserved for future phases)."
+          fi

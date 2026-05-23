@@ -5,6 +5,11 @@ on:
     branches:
       - main
       - 'release/*'
+    # docs-only PRs skip the full test matrix (Y.2 audit, 2026-05-23).
+    # Markdown linting and link checks run via `docs-links.yml` / `docs-only.yml`.
+    # `paths-ignore` is logical-OR — mixed PRs (docs + src) still get full CI.
+    paths-ignore:
+      - 'docs/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
