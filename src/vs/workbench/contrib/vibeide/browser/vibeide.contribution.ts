@@ -403,6 +403,25 @@ import './vibePlanLeaseJanitorContribution.js'
 // VibeIDE: Multi-window coordinator — .vibe/.window-lock.json ownership + heartbeat (L1032)
 import './vibeMultiWindowCoordinatorContribution.js'
 
+// VibeIDE: Idle Watchdog — renderer-side memory sampler + IPC proxy (roadmap W.1)
+import '../common/vibeIdleWatchdogProxy.js'
+import './vibeIdleWatchdogRendererContribution.js'
+
+// VibeIDE: Idle Watchdog — pre-flight previous-crash notification (roadmap W.14)
+import './vibeIdleWatchdogPreFlightContribution.js'
+
+// VibeIDE: Idle Watchdog — bundle crash report Action2 (roadmap W.11)
+import './vibeIdleWatchdogBundleAction.js'
+
+// VibeIDE: Idle Watchdog — status bar widget (roadmap W.6/W.29)
+import './vibeIdleWatchdogStatusBar.js'
+
+// VibeIDE: Idle Watchdog — Timeline viewer Action2 (roadmap W.7/W.28)
+import './vibeIdleWatchdogTimelineCommand.js'
+
+// VibeIDE: Idle Watchdog — AI diagnosis Action2 (roadmap W.36)
+import './vibeIdleWatchdogAiDiagnosisAction.js'
+
 // VibeIDE: Extension host crash UX — EH disconnect → pause/resume/discard notification (L1033)
 import './vibeEHCrashRecoveryContribution.js'
 

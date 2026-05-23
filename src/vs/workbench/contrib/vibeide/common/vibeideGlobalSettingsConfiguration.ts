@@ -154,7 +154,113 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					default: 3,
 					minimum: 1,
 					maximum: 90,
-					description: localize('vibeide.diagnostics.idleWatchdog.retentionDays', 'Сколько дней хранить файлы снимков. Старые удаляются при каждом старте IDE. По умолчанию 3 — достаточно для разбора недавнего инцидента; увеличить, если ловите редкий баг. Изменение требует перезапуска IDE.'),
+					description: localize('vibeide.diagnostics.idleWatchdog.retentionDays', 'Сколько дней хранить файлы снимков. Старые удаляются при старте IDE и при пересечении полуночи (UTC). По умолчанию 3 — достаточно для разбора недавнего инцидента; увеличить, если ловите редкий баг.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				// Roadmap W.13 — opt-in detailed `process.report.getReport()` subset on every Nth tick.
+				'vibeide.diagnostics.idleWatchdog.includeProcessReport': {
+					type: 'boolean',
+					default: false,
+					description: localize('vibeide.diagnostics.idleWatchdog.includeProcessReport', 'Каждый 10-й тик дописывать урезанный `process.report.getReport()` (типы libuv-хэндлов, top-5 native stack frames, maxRss) в `.jsonl`. Помогает локализовать утечки file-descriptor и socket. Объём — ~2 КБ на тик, поэтому off по умолчанию.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				// Roadmap W.4 — heap-snapshot trigger when rss crosses threshold.
+				'vibeide.diagnostics.idleWatchdog.heapSnapshotOnHighRss': {
+					type: 'boolean',
+					default: false,
+					description: localize('vibeide.diagnostics.idleWatchdog.heapSnapshotOnHighRss', 'Снимать V8 heap snapshot процесса, когда rss превышает порог. Файл сохраняется в `logs/vibe-idle-watchdog/snapshots/`, ротируется до 3 последних. Off по умолчанию — снапшоты занимают 50-500 МБ.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.diagnostics.idleWatchdog.heapSnapshotThresholdMB': {
+					type: 'number',
+					default: 2000,
+					minimum: 100,
+					maximum: 16000,
+					description: localize('vibeide.diagnostics.idleWatchdog.heapSnapshotThresholdMB', 'Порог rss (в МБ) для автоматического heap snapshot. Имеет смысл только если `heapSnapshotOnHighRss=true`.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.diagnostics.idleWatchdog.snapshotCooldownMinutes': {
+					type: 'number',
+					default: 30,
+					minimum: 5,
+					maximum: 1440,
+					description: localize('vibeide.diagnostics.idleWatchdog.snapshotCooldownMinutes', 'Минимальный интервал между двумя heap snapshot одного и того же процесса. Защищает диск от спама при длительной нагрузке.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				// Roadmap W.5 — proactive notification on sustained memory growth.
+				'vibeide.diagnostics.idleWatchdog.growthAlertMBPerMin': {
+					type: 'number',
+					default: 5,
+					minimum: 1,
+					maximum: 200,
+					description: localize('vibeide.diagnostics.idleWatchdog.growthAlertMBPerMin', 'Порог роста rss (МБ/мин) на последних 12 тиках, при котором показать proactive-уведомление о возможной утечке. Один раз на (процесс, окно, pid) за сессию.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				// Roadmap W.22 — snapshot retention + child-process filter.
+				'vibeide.diagnostics.idleWatchdog.maxSnapshotsRetained': {
+					type: 'number',
+					default: 3,
+					minimum: 1,
+					maximum: 20,
+					description: localize('vibeide.diagnostics.idleWatchdog.maxSnapshotsRetained', 'Сколько последних heap snapshot файлов хранить в `logs/vibe-idle-watchdog/snapshots/`. Старые ротируются по mtime после каждого нового snapshot.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.diagnostics.idleWatchdog.includeChildProcessTypes': {
+					type: 'array',
+					items: {
+						type: 'string',
+						enum: ['Utility', 'GPU', 'Zygote', 'Sandbox helper', 'Pepper Plugin', 'Pepper Broker'],
+					},
+					default: ['Utility', 'GPU'],
+					description: localize('vibeide.diagnostics.idleWatchdog.includeChildProcessTypes', 'Какие типы дочерних Electron-процессов сэмплировать через `app.getAppMetrics()`. Renderer (`Tab`) всегда покрыт отдельной renderer-side контрибуцией — здесь не нужен. Default: extension hosts (`Utility`) + GPU.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				// Roadmap W.26 — total disk budget for diagnostic logs.
+				'vibeide.diagnostics.idleWatchdog.maxLogsTotalMB': {
+					type: 'number', default: 500, minimum: 50, maximum: 10000,
+					description: localize('vibeide.diagnostics.idleWatchdog.maxLogsTotalMB', 'Лимит общего размера `logs/vibe-idle-watchdog/` (`.jsonl` + snapshots). При превышении — prune oldest snapshots → oldest .jsonl.gz → oldest .jsonl (сегодняшний всегда сохраняется).'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				// Roadmap W.42 — pre-OOM heap-ratio detector.
+				'vibeide.diagnostics.idleWatchdog.preOomHeapRatio': {
+					type: 'number', default: 0.85, minimum: 0.5, maximum: 0.99,
+					description: localize('vibeide.diagnostics.idleWatchdog.preOomHeapRatio', 'Порог `heapUsed / heapLimit`, при котором показывается pre-OOM нотификация. Default 0.85 — за минуты до V8 OOM aborts.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				// Roadmap W.46 — opt-in graceful auto-restart before V8 OOM.
+				'vibeide.diagnostics.idleWatchdog.autoRestartOnPreOom': {
+					type: 'boolean', default: false,
+					description: localize('vibeide.diagnostics.idleWatchdog.autoRestartOnPreOom', 'Когда pre-OOM threshold пересечён И пользователь не среагировал на нотификацию в течение 5 минут — автоматически перезапустить IDE (clean restart лучше crash). Off по умолчанию — intrusive feature.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				// Roadmap W.30 — gzip compression for old `.jsonl`.
+				'vibeide.diagnostics.idleWatchdog.compressOldJsonl': {
+					type: 'boolean', default: true,
+					description: localize('vibeide.diagnostics.idleWatchdog.compressOldJsonl', 'Сжимать `.jsonl` файлы прошлых дней в `.jsonl.gz` при старте IDE. Экономит ~10× места на диске. Сегодняшний файл всегда без сжатия (active write).'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				// Roadmap W.50 — adaptive sampling.
+				'vibeide.diagnostics.idleWatchdog.adaptiveSampling': {
+					type: 'boolean', default: false,
+					description: localize('vibeide.diagnostics.idleWatchdog.adaptiveSampling', 'Снижать частоту семплирования в 6 раз когда IDE idle > 1 часа (нет активности пользователя). Экономит disk I/O в ночные idle-периоды. Resume normal rate при первом keystroke.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				// Roadmap W.33 — statistical outlier detection mode.
+				'vibeide.diagnostics.idleWatchdog.statisticalOutlier': {
+					type: 'boolean', default: false,
+					description: localize('vibeide.diagnostics.idleWatchdog.statisticalOutlier', 'Использовать 3-sigma outlier detection вместо фиксированного порога `growthAlertMBPerMin`. Подходит для машин с высоким baseline noise (нагруженные серверы, dev-builds).'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				// Roadmap W.6/W.29 — status bar widget.
+				'vibeide.diagnostics.idleWatchdog.showStatusBar': {
+					type: 'boolean', default: false,
+					description: localize('vibeide.diagnostics.idleWatchdog.showStatusBar', 'Показывать мини-виджет «🧠 main / renderer / ext» в status bar с обновлением раз в 60s. Click → open Timeline viewer.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				// Roadmap W.17 — DevTools auto-open on pre-OOM.
+				'vibeide.diagnostics.idleWatchdog.autoOpenDevToolsOnPreOom': {
+					type: 'boolean', default: false,
+					description: localize('vibeide.diagnostics.idleWatchdog.autoOpenDevToolsOnPreOom', 'При pre-OOM alert (W.42) автоматически открыть DevTools в текущем окне — пользователь может вручную снять heap snapshot до V8 abort. Off по умолчанию (intrusive).'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 			},

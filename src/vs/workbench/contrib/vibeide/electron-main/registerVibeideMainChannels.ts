@@ -23,6 +23,8 @@ import { MetricsMainService } from './metricsMainService.js';
 import { OllamaInstallerChannel } from './ollamaInstallerChannel.js';
 import { RemoteCatalogFetchChannel } from './remoteCatalogFetchChannel.js';
 import { ModelsDevCatalogStatusMainService } from './modelsDevCatalogStatusMainService.js';
+import { VibeIdleWatchdogChannelService } from './vibeIdleWatchdogChannel.js';
+import { VIBE_IDLE_WATCHDOG_CHANNEL } from '../common/vibeIdleWatchdogTypes.js';
 
 /**
  * Registers IPC channels expected by workbench contrib/vibeide (renderer).
@@ -75,5 +77,15 @@ export function registerVibeideMainProcessChannels(
 	mainProcessElectronServer.registerChannel(
 		'vibeide-channel-modelsDevCatalogStatus',
 		ProxyChannel.fromService(modelsDevCatalogStatusService, disposables),
+	);
+
+	// Idle Watchdog — IPC channel for renderer / ext-host samples (roadmap W.1/W.2).
+	// The channel service is a thin shim; actual writes go through the main-process
+	// singleton instance started in `src/main.ts` via `startVibeIdleWatchdog()`.
+	// Also bridges main-side slope-detector to a renderer-listenable Event (W.5).
+	const idleWatchdogChannelService = disposables.add(new VibeIdleWatchdogChannelService());
+	mainProcessElectronServer.registerChannel(
+		VIBE_IDLE_WATCHDOG_CHANNEL,
+		ProxyChannel.fromService(idleWatchdogChannelService, disposables),
 	);
 }

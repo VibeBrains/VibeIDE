@@ -1,0 +1,57 @@
+name: Idle Memory Regression (Nightly)
+
+# Roadmap W.12 — Nightly memory-regression test.
+#
+# Launches a headless VibeIDE build with a fixed test workspace and lets it
+# idle for IDLE_DURATION_SEC seconds. Reads the watchdog `.jsonl` and fails
+# the run if `rss(end) - rss(stable_start)` exceeds IDLE_RSS_GROWTH_THRESHOLD_MB.
+#
+# Stable_start = 5 minutes after launch (warm-up complete, baseline established).
+#
+# Trigger: nightly cron + manual `workflow_dispatch`. Not on every PR — 2 hours
+# of CI time is expensive; the smoke check belongs in a faster pre-merge job.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+env:
+  IDLE_DURATION_SEC: 7200
+  IDLE_RSS_GROWTH_THRESHOLD_MB: 50
+  WARMUP_SEC: 300
+
+jobs:
+  idle-memory-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install deps
+        run: npm ci --ignore-scripts
+      - name: Compile
+        run: npm run compile-build
+      - name: Launch VibeIDE headless and idle
+        # Launch background, wait IDLE_DURATION_SEC, then kill cleanly so the
+        # write-queue drain (W.44) flushes pending samples.
+        run: |
+          ./scripts/code.sh --no-sandbox --headless --user-data-dir=/tmp/vibeide-ci &
+          PID=$!
+          sleep $IDLE_DURATION_SEC
+          kill -SIGTERM $PID
+          wait $PID || true
+      - name: Analyse watchdog .jsonl
+        run: node scripts/vibe-watchdog-regression-check.mjs /tmp/vibeide-ci/logs/vibe-idle-watchdog
+        env:
+          WARMUP_SEC: ${{ env.WARMUP_SEC }}
+          IDLE_RSS_GROWTH_THRESHOLD_MB: ${{ env.IDLE_RSS_GROWTH_THRESHOLD_MB }}
+      - name: Upload watchdog logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibeide-watchdog-${{ github.run_id }}
+          path: /tmp/vibeide-ci/logs/vibe-idle-watchdog/
+          retention-days: 14

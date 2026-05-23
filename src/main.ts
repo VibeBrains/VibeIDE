@@ -14,7 +14,7 @@ import minimist from 'minimist';
 import { product } from './bootstrap-meta.js';
 import { parse } from './vs/base/common/jsonc.js';
 import { getUserDataPath } from './vs/platform/environment/node/userDataPath.js';
-import { startVibeIdleWatchdog } from './vs/workbench/contrib/vibeide/electron-main/vibeIdleWatchdogService.js';
+import { startVibeIdleWatchdog, getVibeIdleWatchdog } from './vs/workbench/contrib/vibeide/electron-main/vibeIdleWatchdogService.js';
 import { initModelQuirksService } from './vs/workbench/contrib/vibeide/electron-main/modelQuirks/modelQuirksService.js';
 import * as perf from './vs/base/common/performance.js';
 import { resolveNLSConfiguration } from './vs/base/node/nls.js';
@@ -631,6 +631,35 @@ function parseCLIArgs(): NativeParsedArgs {
 }
 
 function registerListeners(): void {
+
+	/**
+	 * VibeIDE Idle Watchdog — cross-process crash correlation (roadmap W.3).
+	 * When the renderer dies (V8 OOM, crash, kill), main observes the event and
+	 * records a correlated entry into the same `.jsonl` as the watchdog samples,
+	 * with `lastTickRef` pointing at the last known sample of that window. One
+	 * file = one full picture of an incident.
+	 */
+	app.on('render-process-gone', (_event, webContents, details) => {
+		const watchdog = getVibeIdleWatchdog();
+		if (!watchdog) return;
+		watchdog.recordCrash({
+			proc: 'renderer',
+			pid: webContents.getOSProcessId(),
+			reason: details.reason,
+			exitCode: details.exitCode,
+		});
+	});
+	app.on('child-process-gone', (_event, details) => {
+		const watchdog = getVibeIdleWatchdog();
+		if (!watchdog) return;
+		// `type` ∈ {'Tab','Utility','Zygote','Sandbox helper','GPU','Pepper Plugin',...}.
+		const procClass = details.type === 'GPU' ? 'gpu' : 'utility';
+		watchdog.recordCrash({
+			proc: procClass,
+			reason: details.reason,
+			exitCode: details.exitCode,
+		});
+	});
 
 	/**
 	 * macOS: when someone drops a file to the not-yet running VSCode, the open-file event fires even before
