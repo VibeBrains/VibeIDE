@@ -120,7 +120,7 @@ git commit -m "fix(llm): <pattern> <one-line root cause>"
 
 ## Связано
 
-- [[xml-tool-normalization]] — architecture overview
-- [[xml-tool-format-incidents]] — catalog of observed formats
-- `roadmap.md` секция X.17 — recurring patterns meta-observation (источник этого checklist)
-- `roadmap.md` секция X.20 — audit-pass terminal condition (когда запускать новый pass)
+- [xml-tool-normalization.md](../architecture/xml-tool-normalization.md) — architecture overview
+- [xml-tool-format-incidents.md](../runtime-quirks/xml-tool-format-incidents.md) — catalog of observed formats
+- [`docs/roadmap.md`](../../roadmap.md) секция X.17 — recurring patterns meta-observation (источник этого checklist)
+- [`docs/roadmap.md`](../../roadmap.md) секция X.20 — audit-pass terminal condition (когда запускать новый pass)

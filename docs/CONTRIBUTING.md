@@ -37,14 +37,16 @@ VibeIDE — open-source IDE на базе VS Code. Любые правки в к
 ### 2. Виды PR
 
 **Code-change PR:**
-- Запустить `npm run compile-check-ts-native` перед коммитом — **обязательно**. Без этого full CI упадёт.
+- Запустить `npm run compile-check-ts-native` перед коммитом — **обязательно для code-изменений**. Без этого full CI упадёт.
 - Если добавляешь новую функциональность — unit test в `test/common/` (если функция pure) или интеграционный (если требует workbench).
 - Conventional Commit message: `feat(area):`, `fix(area):`, `refactor(area):`, `docs(area):` (см. `git log` для примеров).
 
 **Doc-only PR:**
 - Изменения только в `docs/` или `*.md` → CI skip heavy jobs, runs только `docs-only.yml` + `docs-links.yml` (~30s).
+- `compile-check-ts-native` **не нужен** — нет TypeScript изменений.
 - Markdownlint lenient — fail только на structural errors.
 - Roadmap section integrity — auto-check.
+- Link integrity — `docs-links.yml` проверяет relative + external links (templates `_template-*.md` excluded — содержат placeholder paths).
 
 **Knowledge entry PR:**
 - Шаблон — `docs/knowledge/_template-knowledge-entry.md`. Скопировать в подходящий topic, заполнить.

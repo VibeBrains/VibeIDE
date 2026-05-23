@@ -88,6 +88,7 @@ docs/
 
 ## См. также
 
+- [CONTRIBUTING.md](CONTRIBUTING.md) — workflow contribution'а в docs/, code, knowledge entries.
 - `CLAUDE.md` — тон, протокол, версионирование (root репо, не в docs/).
 - `AGENTS.md` — поведение Codex/других CLI агентов в проекте.
 - `.vibe/rules/` — workflow rules для агентов VibeIDE.

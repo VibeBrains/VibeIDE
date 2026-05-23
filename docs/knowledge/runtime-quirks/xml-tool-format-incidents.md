@@ -10,8 +10,8 @@ Living document. Каждый новый incident с XML tool-call format'ом, 
 
 ## [архитектура] См. также
 
-- [[xml-tool-normalization]] — pipeline overview (`docs/knowledge/architecture/`)
-- `roadmap.md` секция X — все audit passes / fix iterations
+- [xml-tool-normalization.md](../architecture/xml-tool-normalization.md) — pipeline overview
+- [`docs/roadmap.md`](../../roadmap.md) секция X — все audit passes / fix iterations
 - `src/vs/workbench/contrib/vibeide/common/xmlToolNormalize.ts` — реализация
 - `src/vs/workbench/contrib/vibeide/test/common/xmlToolNormalize.test.ts` — fixtures
 

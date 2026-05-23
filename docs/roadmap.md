@@ -2615,6 +2615,19 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 - [x] `docs/CONTRIBUTING.md` создан. Покрывает: repo structure, PR workflow (code / doc-only / knowledge entry / roadmap update), CI ожидания, knowledge entry quality bar (8-point checklist), tone & format conventions, locale rules, license, контакты.
 
+### Y.9 Round-6 post-rebrand audit pass (commit 55680099 → forthcoming, 2026-05-23)
+
+> Аудит сразу после commit'а с rebrand + 7 closures. 4 findings, все fix'нуты inline.
+
+- [x] **Y.9.1 `[[wikilink]]` syntax не функциональный** в 3 моих новых knowledge файлах (`xml-tool-normalization.md`, `xml-tool-format-incidents.md`, `xml-normalize-audit-checklist.md`). Markdown не понимает wikilinks. Outside reader получает dead text. **Fix:** заменены на proper relative markdown links. Templates оставлены с `[[wikilink]]` как опциональный pattern для будущей Y.6 функциональности (graph generator) — они excluded из link-check.
+- [x] **Y.9.2 Templates link-check будут fail'ить** на placeholder paths (`[file.ts:42](../../../src/.../file.ts#L42)`). **Fix:** в `.github/workflows/docs-links.yml` исключены файлы matching `/_template-` prefix.
+- [x] **Y.9.3 `docs/README.md` не ссылался на `docs/CONTRIBUTING.md`** — orphan navigation. **Fix:** добавлена ссылка в "См. также" секцию.
+- [x] **Y.9.4 CONTRIBUTING.md misleading про compile-check** — говорил «обязательно перед коммитом». Но docs-only PR не требует. **Fix:** clarified «обязательно для code-изменений» + explicit «не нужен» в Doc-only section.
+
+### Y.10 H1 ↔ filename mismatch в shortened comparison file (backlog)
+
+- [ ] `VibeIDE-Model-Support-Comparison.md` H1 still reads «VibeIDE Model Support & Code Editing Capabilities Comparison». Длинная фраза в H1, короткая в filename. Trivial — либо подровнять H1 под filename («VibeIDE Model Support Comparison»), либо переименовать обратно в полное. **Эффорт:** 1 строка.
+
 ### Y.8 Search index для docs/
 
 - [ ] Когда docs/ вырастет до 200+ файлов, GitHub'ский full-text search станет медленным/неэффективным. **Idea:** генерировать lightweight Lunr.js / FlexSearch index, заиспользовать в будущем docs site (если будет VibeIDE docs website отдельный).

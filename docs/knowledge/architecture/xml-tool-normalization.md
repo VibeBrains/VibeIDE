@@ -123,7 +123,7 @@ const VENDOR_WRAPPER_NAMES: readonly string[] = [
 
 ## Связано
 
-- [[xml-tool-format-incidents]] — catalog observed-в-production format'ов с датой/моделью/fix-commit'ом
-- [[tool-calling]] — общая архитектура tool dispatch
-- [[model-quirks]] — какие модели идут через XML pipeline (force-XML quirks)
-- `agent-collaboration/xml-normalize-audit-checklist.md` — pre-merge gate для new XML transforms
+- [xml-tool-format-incidents.md](../runtime-quirks/xml-tool-format-incidents.md) — catalog observed-в-production format'ов с датой/моделью/fix-commit'ом
+- [tool-calling.md](./tool-calling.md) — общая архитектура tool dispatch
+- [model-quirks.md](./model-quirks.md) — какие модели идут через XML pipeline (force-XML quirks)
+- [xml-normalize-audit-checklist.md](../agent-collaboration/xml-normalize-audit-checklist.md) — pre-merge gate для new XML transforms

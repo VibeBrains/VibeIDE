@@ -52,7 +52,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t FILES < <(git ls-files '*.md')
+          # Skip skeleton template files — they contain placeholder paths like
+          # `[file.ts:42](../../../src/.../file.ts#L42)` that won't resolve.
+          # Templates are meant to be copied + filled, link-check post-copy.
+          mapfile -t FILES < <(git ls-files '*.md' | grep -v '/_template-')
           if [ ${#FILES[@]} -eq 0 ]; then
             echo "No tracked markdown files; skipping."
             exit 0
