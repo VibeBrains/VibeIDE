@@ -2553,6 +2553,75 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
   - Перед каждым крупным релизом (e.g. v0.14.0)
   - НЕ как automatic background task
 
+---
+
+## Y. docs/ knowledge base — post-tracking audit (2026-05-23, commit 4fa021cc → 9e3ba182)
+
+> docs/ переехал в git tracking ([commit 4fa021cc](.)). Post-commit audit нашёл 6 findings — 3 inline в `9e3ba182`, 3 в backlog.
+
+### Y.0 Fixes inline (commit 9e3ba182)
+
+- [x] **Y.0.1 Personal paths leaked** — `docs/knowledge/git-and-tools/git-flow.md` had `C:\Users\borod\.git-hooks\` × 3 occurrences. Anonymized to `%USERPROFILE%\.git-hooks\` — portable env-var pattern + privacy.
+- [x] **Y.0.2 Stale MEMORY.md hook** — auto-memory index сказал «docs/ в .gitignore, локально-только» — теперь неверно. Updated с reference на commit 4fa021cc.
+- [x] **Y.0.3 No top-level docs/README.md** — outside reader видел 16 subdir'ов без orientation. Created with tree map, recording conventions, routing, roadmap navigation, policy history.
+
+### Y.1 Strategic/business content в public repo
+
+- [ ] **Audit:** `docs/idea.md`, `docs/v1/monetization.md`, `docs/v1/vision/{market,north-star,narrative}.md`, `docs/CortexIDE-vs-Other-AI-Editors.md`, `docs/CortexIDE-Model-Support-Code-Editing-Comparison.md` — strategic / business content. В public repo навсегда после push. Может содержать:
+  - Будущие фичи которые планируется не reveal'ить до launch
+  - Competitive analysis с потенциально outdated/inaccurate claims о других продуктах
+  - Pricing/monetization thoughts которые могут связать руки
+- [ ] **Decision needed:** оставить как есть (transparency-first), вычистить sensitive sections, или переехать в отдельный private repo `VibeIDETeam/VibeIDE-strategy`.
+- [ ] **Эффорт:** review ~30 min с автором. Trade-off: open dev vs strategic flexibility.
+
+### Y.2 CI workflows триггерятся на любое docs/ изменение
+
+- [ ] **Контекст:** теперь правка `docs/knowledge/foo.md` (например, фикс typo) запускает полный TypeScript compile + tests pipeline. Wasted CI minutes + slow PR-feedback loop для пользователей помогающих с docs.
+- [ ] **Fix:** в `.github/workflows/*.yml` добавить `paths-ignore: ['docs/**']` для heavy jobs (compile, tests). Создать отдельный лёгкий `docs-only.yml` который запускается на docs/-only PRs и делает:
+  - Markdown lint (`markdownlint-cli` или подобное)
+  - Broken-link check (`lychee` / `markdown-link-check`)
+  - Verify roadmap section index integrity (W/X/Y consistent)
+- [ ] **Acceptance:** docs-only PR finishes CI в <2 минуты vs текущие 15-20.
+
+### Y.3 `docs/release-notes-v0.3.0.md` одинокий
+
+- [ ] Только один файл архивных release notes — почему именно v0.3.0? Все последующие release notes идут через GitHub Releases (via `gh release create --notes-file ...`), не commit'ятся в repo. Несогласованность.
+- [ ] **Decision:** либо переехать ВСЕ важные релизы в `docs/releases/v*.md` (historical archive в repo), либо удалить v0.3.0 как остаток ad-hoc note. **Recommend:** `docs/releases/README.md` ссылается на GitHub Releases как canonical, ad-hoc файл удалить.
+
+### Y.4 docs/ link integrity не проверяется
+
+- [ ] Файлы взаимоссылаются через relative paths (`[Knowledge Index](../README.md)`, etc). Если файл переименован → broken link. Сейчас не валидируется.
+- [ ] **Fix:** добавить в Y.2 CI workflow `markdown-link-check` или `lychee` который ловит broken относительные ссылки + 404 в external links.
+- [ ] **ROI:** предотвращает silent doc rot.
+
+### Y.5 docs/ topic templates
+
+- [ ] При добавлении новой записи в `knowledge/<topic>/`, легко забыть формат «Контекст/Суть/Применение». **Fix:** `docs/knowledge/_template-knowledge-entry.md` skeleton с placeholder'ами секций + комментарием объясняющим назначение.
+- [ ] Бонус: `docs/knowledge/_template-incident.md` под incident retrospective с extra полями (date / model+provider / repro / root cause / fix commit / regression test).
+
+### Y.6 Knowledge graph (`[[wikilinks]]`)
+
+- [ ] Auto-memory rule говорит «link related memories with `[[name]]`». Для knowledge файлов это **не** реализовано — там обычные markdown `[text](path.md)` ссылки.
+- [ ] **Idea:** скрипт `scripts/vibe-knowledge-graph.mjs` сканирует `docs/knowledge/**/*.md`, строит граф по `[[file]]` маркерам, выдаёт:
+  - Mermaid graph diagram (insert в docs/knowledge/README.md)
+  - Orphan files (нет входящих ссылок)
+  - Dead links (`[[name]]` без существующего файла)
+- [ ] **Эффорт:** ~100 строк Node.
+
+### Y.7 `docs/CONTRIBUTING.md` — как outsider может добавить knowledge
+
+- [ ] Сейчас формат записи описан в `docs/README.md`, но workflow contribution'а (fork → PR → review checklist) — нет. Outsider видя open-source repo с docs/ может захотеть исправить typo или add an incident — нет точки входа.
+- [ ] **Fix:** `docs/CONTRIBUTING.md` с simple flow:
+  - Найти подходящий topic dir (или предложить новый)
+  - Использовать template (Y.5)
+  - PR с одной знанием записью без bundling
+  - Reviewer checks: формат верный, не дублирует existing entry, не leak'ает personal info.
+
+### Y.8 Search index для docs/
+
+- [ ] Когда docs/ вырастет до 200+ файлов, GitHub'ский full-text search станет медленным/неэффективным. **Idea:** генерировать lightweight Lunr.js / FlexSearch index, заиспользовать в будущем docs site (если будет VibeIDE docs website отдельный).
+- [ ] **Deferred:** релевантно только когда docs/ × больше. Сейчас ~120 файлов, GitHub search OK.
+
 > Внешние проекты и подходы, которые стоит изучить и решить — что подсмотреть, что игнорировать. Не задачи, а сырьё для будущих фаз. Без статус-маркеров: пункт переезжает в конкретную фазу с разбивкой, когда дозревает.
 
 ### GSD 2 — autonomous agent CLI (2026-05-11)
