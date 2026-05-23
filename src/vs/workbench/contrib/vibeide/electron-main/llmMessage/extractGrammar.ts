@@ -163,7 +163,24 @@ export const extractReasoningWrapper = (
  * The actual tool call lives inside as <invoke name=...>. Wrappers are
  * stripped first; whatever remains is fed to the invoke-pattern normalizer.
  */
-const STRIP_WRAPPERS_RE = /<\/?(?:tool_code|function_calls|tool_use|tools|[a-z][\w-]*:(?:tool_call|tool_use|function_call|function_calls|invoke|tools))\s*>/gi
+const STRIP_WRAPPERS_RE = /<\/?(?:tool_code|function_calls|tool_calls|tool_use|tools|[a-z][\w-]*:(?:tool_call|tool_calls|tool_use|function_call|function_calls|invoke|tools))\s*>/gi
+
+/**
+ * DSML-style fullwidth-pipe markers (v0.13.10).
+ *
+ * Some Chinese-ecosystem models (Qwen, observed deepseek-v4-pro via certain
+ * aggregators) emit tool calls wrapped with fullwidth-pipe DSML markers:
+ *   `<｜｜DSML｜｜tool_calls> <｜｜DSML｜｜invoke name="read_file"> …`
+ *
+ * The `｜` glyph is U+FF5C (FULLWIDTH VERTICAL LINE), NOT the ASCII `|`. Existing
+ * `<invoke` / `STRIP_WRAPPERS_RE` regexes look for literal `<invoke` or
+ * `<word:tool_call>` — they don't reach inside the fullwidth-pipe wrapper.
+ *
+ * Strip pattern: pipe(s) + ASCII identifier + pipe(s). Permissive on number of
+ * pipes and identifier shape so future vendor variants are caught structurally
+ * (no hardcoded "DSML" literal — works for `｜｜FOO｜｜`, `｜FOO｜`, `|BAR|`, etc).
+ */
+const DSML_MARKER_STRIP_RE = /[｜|]{1,4}[A-Za-z][A-Za-z0-9_-]*[｜|]{1,4}/g
 
 /**
  * Resolve a tool name as it appears inside <invoke name="X"> to a canonical
@@ -206,27 +223,36 @@ const normalizeAlternativeToolSyntax = (text: string): string => {
 	// Fast path: no alternative-syntax markers present at all.
 	// Cheap substring sniffs first — if any plausibly-namespaced or invoke
 	// pattern is present, fall through to the regex pipeline. `/>` covers the
-	// self-closing form added in v0.13.10 (deepseek-v4-pro and similar).
+	// self-closing form (v0.13.10); `｜` covers DSML fullwidth-pipe wrapper
+	// (Qwen/DeepSeek via certain aggregators).
 	if (
 		!text.includes('<invoke')
 		&& !text.includes('<tool_code')
 		&& !text.includes('<function_calls')
+		&& !text.includes('<tool_calls')
 		&& !text.includes('<tool_use')
 		&& !text.includes(':tool_call')
 		&& !text.includes(':tool_use')
 		&& !text.includes(':function_call')
 		&& !text.includes(':invoke')
 		&& !text.includes('/>')
+		&& !text.includes('｜')
 	) {
 		return text
 	}
-	let result = text.replace(STRIP_WRAPPERS_RE, '')
+	// Strip DSML fullwidth-pipe markers FIRST so the downstream regexes (which
+	// look for literal `<invoke`, `<parameter`, etc.) see canonical tag names.
+	let result = text.replace(DSML_MARKER_STRIP_RE, '')
+	result = result.replace(STRIP_WRAPPERS_RE, '')
 	result = result.replace(
-		/<invoke\s+name=["']([^"']+)["']\s*>([\s\S]*?)<\/invoke>/gi,
+		// `[^>]*` after `name="X"` tolerates additional attributes (some models
+		// emit `<parameter name="filePath" string="true">` — pre-fix the trailing
+		// attribute made the regex skip the match entirely).
+		/<invoke\s+name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/invoke>/gi,
 		(_match: string, rawToolName: string, body: string) => {
 			const canonical = resolveInvokeToolName(rawToolName)
 			const transformedBody = body.replace(
-				/<(?:arg|parameter)\s+name=["']([^"']+)["']\s*>([\s\S]*?)<\/(?:arg|parameter)>/gi,
+				/<(?:arg|parameter)\s+name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/(?:arg|parameter)>/gi,
 				(_m: string, rawParamName: string, value: string) => {
 					const canonicalParam = resolveInvokeParamName(rawParamName, canonical)
 					return `<${canonicalParam}>${value}</${canonicalParam}>`
@@ -241,12 +267,11 @@ const normalizeAlternativeToolSyntax = (text: string): string => {
 	// parser ignored these (toolOpenTags has `<read_file>`, not `<read_file `) and
 	// the safety net regex required matching close-tags, so the raw XML leaked
 	// into chat (see screenshots / release v0.13.9 incident).
-	// Restricted to canonical builtin tool names to avoid matching arbitrary HTML
-	// self-closing tags (`<br />`, `<img />`) which models do produce in markdown.
+	// Restricted to canonical builtin tool names + known cross-ecosystem aliases
+	// (`<read path="..." />` from Kilo-trained models) to avoid matching arbitrary
+	// HTML self-closing tags (`<br />`, `<img />`) which models do produce in markdown.
 	if (result.includes('/>')) {
-		const builtinAlt = builtinToolNames.join('|')
-		const selfClosingToolRe = new RegExp(`<(${builtinAlt})\\s+([^>]*?)\\s*\\/>`, 'gi')
-		result = result.replace(selfClosingToolRe, (_match: string, rawTool: string, attrsStr: string) => {
+		result = result.replace(SELF_CLOSING_TOOL_RE, (_match: string, rawTool: string, attrsStr: string) => {
 			const canonical = resolveInvokeToolName(rawTool)
 			const attrRe = /([a-zA-Z_][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g
 			let attrMatch: RegExpExecArray | null
@@ -264,6 +289,23 @@ const normalizeAlternativeToolSyntax = (text: string): string => {
 }
 
 /**
+ * Pre-computed regex for self-closing tool-call normalization (v0.13.10).
+ * Covers canonical builtin names AND known aliases (`read`, `bash`, `edit`, …)
+ * so models trained on other ecosystems are caught too. Module-level so it's
+ * compiled once, not per `normalizeAlternativeToolSyntax` call.
+ */
+const SELF_CLOSING_TOOL_RE = (() => {
+	const names = [
+		...builtinToolNames,
+		...Object.keys(TOOL_NAME_ALIASES),
+	]
+	// Sort longer first to prefer the more-specific name when one is a prefix of
+	// another (e.g. `read_file` vs `read` — match `read_file` first).
+	names.sort((a, b) => b.length - a.length)
+	return new RegExp(`<(${names.join('|')})\\s+([^>]*?)\\s*\\/>`, 'gi')
+})()
+
+/**
  * Regex patterns that identify in-progress alt-syntax tool calls at the end
  * of the buffer. Used as additional partial-tag hints so half-written wrapper
  * or invoke openings are held in `openToolTagBuffer` instead of leaking into
@@ -274,10 +316,35 @@ const normalizeAlternativeToolSyntax = (text: string): string => {
  *   - `<invoke …` → any `<invoke` followed by anything not yet containing `>`
  *   - `</vendor:partial` → closing form of the above
  */
+/**
+ * Partial open-tag for self-closing form (v0.13.10).
+ *
+ * Mid-stream the buffer can end with `<read_file path="d:\Project` — no `/>`
+ * yet but the model has clearly started a self-closing tool call. Without
+ * this regex, the partial-tag detector would let the chunk through as text,
+ * the canonical parser would ignore it (no closing `>`), and the user would
+ * see raw XML flash on screen until `/>` arrives 50-300ms later in the next
+ * chunk. With this regex, the partial holds in `openToolTagBuffer` until
+ * `/>` lands, then normalization converts to block form, then parser
+ * executes the tool. Zero flicker.
+ *
+ * Pattern: `<` + (any builtin canonical OR known alias) + `\b` (word
+ * boundary) + space + any non-`>` characters to end of string.
+ */
+const SELF_CLOSING_PARTIAL_RE = (() => {
+	const names = [
+		...builtinToolNames,
+		...Object.keys(TOOL_NAME_ALIASES),
+	]
+	names.sort((a, b) => b.length - a.length)
+	return new RegExp(`<(${names.join('|')})\\s+[^>]*$`, 'i')
+})()
+
 const ALT_PARTIAL_REGEXES: RegExp[] = [
 	/<\/?[a-z][\w-]*:[\w_-]*$/i,
 	/<invoke\b[^>]*$/i,
 	/<\/invoke\b[^>]*$/i,
+	SELF_CLOSING_PARTIAL_RE,
 ]
 
 const findPartiallyWrittenToolTagAtEnd = (fullText: string, toolTags: string[]) => {
