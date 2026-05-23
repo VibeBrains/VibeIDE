@@ -24,6 +24,7 @@
  * testable from `test/common/`.
  */
 
+import { localize } from '../../../../nls.js'
 import { builtinToolNames } from './prompt/prompts.js'
 import { PARAM_ALIASES_BY_TOOL, TOOL_NAME_ALIASES } from './prompt/toolAliases.js'
 
@@ -47,6 +48,42 @@ export const resolveInvokeParamName = (rawParamName: string, canonicalToolName: 
 }
 
 /**
+ * Vendor-specific bare wrapper names that envelope `<invoke>` blocks.
+ *
+ * Adding a new vendor: just append the name here. STRIP_WRAPPERS_RE and the
+ * fast-path substring sniff list both derive from this array — single source
+ * of truth eliminates the maintenance hazard of keeping them in sync.
+ *
+ * Origins:
+ *   - tool_code       Gemini
+ *   - function_calls  Anthropic (older)
+ *   - tool_calls      DeepSeek / Anthropic (newer)
+ *   - tool_use        Anthropic
+ *   - tools           Generic
+ */
+const VENDOR_WRAPPER_NAMES: readonly string[] = [
+	'tool_code',
+	'function_calls',
+	'tool_calls',
+	'tool_use',
+	'tools',
+]
+
+/**
+ * Namespaced suffix patterns: `<vendor:tool_call>`, `<minimax:invoke>`, etc.
+ * Each entry is the part AFTER the colon. Vendor prefix is `[a-z][\w-]*`.
+ */
+const VENDOR_NAMESPACED_SUFFIXES: readonly string[] = [
+	'tool_call',
+	'tool_calls',
+	'tool_use',
+	'function_call',
+	'function_calls',
+	'invoke',
+	'tools',
+]
+
+/**
  * Strip wrapper tags that envelope the actual `<invoke>` block in some vendor
  * formats. Includes the bare `<tool_code>` / `<tool_calls>` / `<function_calls>`
  * wraps and the namespaced `<vendor:tool_call>` form.
@@ -59,8 +96,34 @@ export const resolveInvokeParamName = (rawParamName: string, canonicalToolName: 
  * `<wrapper<nextOpenTag` (direct adjacency to next tag), and `<wrapper$` (at
  * end of text). Lookahead `(?=>|<|$)` keeps it conservative — won't gobble
  * arbitrary text after the wrapper name.
+ *
+ * Built from `VENDOR_WRAPPER_NAMES` + `VENDOR_NAMESPACED_SUFFIXES` const arrays
+ * (v0.13.11 audit pass) — adding a new wrapper name to either array updates
+ * both this regex AND the fast-path substring sniffs in lockstep.
  */
-export const STRIP_WRAPPERS_RE = /<\/?(?:tool_code|function_calls|tool_calls|tool_use|tools|[a-z][\w-]*:(?:tool_call|tool_calls|tool_use|function_call|function_calls|invoke|tools))\b\s*(?:>|(?=<|$))/gi
+export const STRIP_WRAPPERS_RE = new RegExp(
+	`<\\/?(?:${VENDOR_WRAPPER_NAMES.join('|')}|[a-z][\\w-]*:(?:${VENDOR_NAMESPACED_SUFFIXES.join('|')}))\\b\\s*(?:>|(?=<|$))`,
+	'gi',
+)
+
+/**
+ * Fast-path substring sniffs — if NONE of these markers are present in `text`,
+ * `normalizeAlternativeToolSyntax` short-circuits and returns input unchanged.
+ *
+ * Derived from `VENDOR_WRAPPER_NAMES` + `VENDOR_NAMESPACED_SUFFIXES` + a couple
+ * of constants (`<invoke`, `/>`, `｜`). **Audit-pass fix (2026-05-23):** before
+ * extraction, these sniffs were hardcoded inline in `normalizeAlternativeToolSyntax`,
+ * mirroring `STRIP_WRAPPERS_RE` content. Adding a new wrapper to STRIP_WRAPPERS_RE
+ * without updating the sniff list would silently disable the wrapper detection
+ * for that vendor. Now both come from the same const arrays.
+ */
+const FAST_PATH_SNIFFS: readonly string[] = [
+	'<invoke',
+	...VENDOR_WRAPPER_NAMES.map(name => `<${name}`),
+	...VENDOR_NAMESPACED_SUFFIXES.map(suffix => `:${suffix}`),
+	'/>',           // self-closing tool tag (v0.13.10)
+	'｜',          // U+FF5C — DSML fullwidth-pipe wrapper (v0.13.10)
+]
 
 /**
  * DSML-style fullwidth-pipe markers (v0.13.10).
@@ -148,24 +211,14 @@ export const SELF_CLOSING_PARTIAL_RE = (() => {
  * @returns text with all vendor formats rewritten to canonical block form.
  */
 export const normalizeAlternativeToolSyntax = (text: string): string => {
-	// Fast path: no alternative-syntax markers present at all. Cheap substring
-	// sniffs first — if any plausibly-vendor pattern is present, fall through
-	// to the regex pipeline.
-	if (
-		!text.includes('<invoke')
-		&& !text.includes('<tool_code')
-		&& !text.includes('<function_calls')
-		&& !text.includes('<tool_calls')
-		&& !text.includes('<tool_use')
-		&& !text.includes(':tool_call')
-		&& !text.includes(':tool_use')
-		&& !text.includes(':function_call')
-		&& !text.includes(':invoke')
-		&& !text.includes('/>')
-		&& !text.includes('｜')
-	) {
-		return text
+	// Fast path: no alternative-syntax markers present at all. Loop terminates
+	// at the first hit — for clean prose without any tool markers (the common
+	// case) we do at most ~16 substring scans before bailing.
+	let needsFullPath = false
+	for (const sniff of FAST_PATH_SNIFFS) {
+		if (text.includes(sniff)) { needsFullPath = true; break }
 	}
+	if (!needsFullPath) return text
 	// Strip DSML fullwidth-pipe markers FIRST so the downstream regexes (which
 	// look for literal `<invoke`, `<parameter`, etc.) see canonical tag names.
 	let result = text.replace(DSML_MARKER_STRIP_RE, '')
@@ -213,8 +266,35 @@ export const normalizeAlternativeToolSyntax = (text: string): string => {
 	return result
 }
 
-/** UX safety-net placeholder for raw XML that escaped the canonical parser. */
-const UNCLAIMED_TOOL_TAG_PLACEHOLDER = '\n*[tool call — formatted incorrectly by model, hidden]*\n'
+/**
+ * UX safety-net placeholder for raw XML that escaped the canonical parser.
+ *
+ * **Localized (v0.13.11 audit pass):** previously hardcoded English. Russian
+ * users now see Russian text. `localize()` is lazy: the placeholder string is
+ * resolved on each call, after the NLS bundle has loaded. Acceptable cost
+ * given this hot-path runs at most once per tool-tag occurrence per render.
+ */
+const unclaimedToolTagPlaceholder = (): string =>
+	'\n*' + localize('vibeide.xml.unclaimedToolTag', '[вызов инструмента — некорректный формат от модели, скрыто]') + '*\n'
+
+/**
+ * Pre-compiled regex pair per canonical tool name (v0.13.11 audit pass).
+ *
+ * Before extraction, `stripUnclaimedToolTags` built two new `RegExp` objects
+ * per tool per call (2 × N regex allocations on every streaming tick). For
+ * N ≈ 25 tools at 10 ticks/sec that's 500 RegExp allocations/sec.
+ *
+ * Now each regex pair is built **once** at module init. The strip loop just
+ * iterates the precomputed array.
+ */
+interface StripPattern { readonly paired: RegExp; readonly selfClosing: RegExp }
+const STRIP_PATTERNS: readonly StripPattern[] = builtinToolNames.map(toolName => ({
+	paired: new RegExp(`<${toolName}>[\\s\\S]*?<\\/${toolName}>`, 'g'),
+	// Self-closing form with tolerant close (v0.13.11): `<tag attrs />` AND
+	// `<tag attrs /` (no trailing `>`). Symmetric with the tolerant invoke/wrapper
+	// closes in `normalizeAlternativeToolSyntax`.
+	selfClosing: new RegExp(`<${toolName}\\s+[^>]*\\/(?:>|(?=<|$|\\s))`, 'g'),
+}))
 
 /**
  * Last-resort scrub. If a tool tag in canonical form OR self-closing form
@@ -229,18 +309,15 @@ const UNCLAIMED_TOOL_TAG_PLACEHOLDER = '\n*[tool call — formatted incorrectly 
 export const stripUnclaimedToolTags = (text: string): string => {
 	if (!text || text.indexOf('<') === -1) return text
 	let out = text
-	for (const toolName of builtinToolNames) {
-		const re = new RegExp(`<${toolName}>[\\s\\S]*?<\\/${toolName}>`, 'g')
-		if (re.test(out)) {
-			out = out.replace(re, UNCLAIMED_TOOL_TAG_PLACEHOLDER)
+	let placeholder: string | null = null
+	for (const { paired, selfClosing } of STRIP_PATTERNS) {
+		if (paired.test(out)) {
+			placeholder ??= unclaimedToolTagPlaceholder()
+			out = out.replace(paired, placeholder)
 		}
-		// Self-closing form with tolerant close (v0.13.11): `<tag attrs />` AND
-		// `<tag attrs /` (no trailing `>`). Symmetric with the tolerant invoke/wrapper
-		// closes in `normalizeAlternativeToolSyntax`. Without the `(?=<|$)` lookahead
-		// branch, model output like `<read_file path="x" /\nNext step` would leak.
-		const selfRe = new RegExp(`<${toolName}\\s+[^>]*\\/(?:>|(?=<|$|\\s))`, 'g')
-		if (selfRe.test(out)) {
-			out = out.replace(selfRe, UNCLAIMED_TOOL_TAG_PLACEHOLDER)
+		if (selfClosing.test(out)) {
+			placeholder ??= unclaimedToolTagPlaceholder()
+			out = out.replace(selfClosing, placeholder)
 		}
 	}
 	return out
