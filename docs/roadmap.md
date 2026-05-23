@@ -2330,15 +2330,9 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 - [ ] Колонки: vendor, model family, провайдер (direct vs aggregator), наблюдённая форма (canonical / invoke / self-closing / DSML / прочее), test fixture, дата observation.
 - [ ] Открыть как `docs/knowledge/architecture/xml-tool-format-matrix.md`. При появлении нового вендорного формата — добавлять строку + test fixture.
 
-### X.2 Knowledge doc для XML pipeline architecture
+### X.2 Knowledge doc для XML pipeline architecture — ✅ closed
 
-- [ ] `docs/knowledge/architecture/xml-tool-normalization.md`. Описывает:
-  - Двухслойная защита: structural normalize → safety net fallback
-  - Decision tree: какой формат → какой regex применяется
-  - Asymmetry rationale (aliases в normalize vs только canonical в safety net)
-  - Streaming state machine (`openToolTagBuffer`, partial detection)
-  - Известные limitations (mid-DSML flicker, param value с `>`)
-- [ ] Сейчас knowledge сидит в inline comments + commit messages. Doc даёт single source.
+- [x] `docs/knowledge/architecture/xml-tool-normalization.md` создан. Покрывает: двухслойная защита (Layer 1 normalize / Layer 2 parser / Layer 3 safety net), supported format'ы матрица, decision tree, single-source-of-truth для wrapper lists через const arrays, asymmetry rationale (aliases в normalize / canonical-only в safety net), symmetry checklist для new transforms. Cross-links на [[xml-tool-format-incidents]] + audit checklist.
 
 ### X.3 Fuzz testing для нормализатора
 
@@ -2472,7 +2466,7 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 - [ ] **X.13.5 Self-closing invoke `<invoke name="X" param="v" />`** — combination format (attribute on open + self-close). Не наблюдался, но conceptually possible. **Fix:** новый regex specifically для `<invoke name="..." [attrs] />` рядом с self-closing matcher. **Эффорт:** 10 строк + 2 теста.
 - [ ] **X.13.6 Paired form with attribute on open + body** — `<read_file mode="binary"><path>/foo</path></read_file>`. Canonical парсер ищет `<read_file>` literal, не `<read_file ` (с space). Если модель эмитит attribute on open — парсер пропускает. **Fix:** добавить normalize transform `<tool attrs>body</tool>` → `<tool><attr1>v1</attr1>body</tool>` (merge attrs в body). Не наблюдалось.
 - [ ] **X.13.7 Diagnostic schema-hint smart-suggest** — когда `invalid_params` fires и `rawParamsKeys` хорошо matches another tool's required params, schema hint должна suggest «возможно ты хотел вызвать `<other_tool>`?». Конкретный кейс: `read_file({nl_input: ...})` — `nl_input` это param `run_nl_command` тула. Поможет recovery после cross-tool-args confusion (X.11 minimax bug). **Implementation:** в `chatThreadService._runToolCall` invalid_params catch — пробежаться по всем tools, посчитать `rawParamsKeys ∩ tool.requiredParams` для каждого, если best match имеет ratio > 0.7 → add suggestion в schema hint. **Эффорт:** 30 строк + tests + перевод hint'а.
-- [ ] **X.13.8 Knowledge doc — XML format incident catalog** — `docs/knowledge/runtime-quirks/xml-tool-format-incidents.md`. Сейчас каждый раз когда модель ломает XML в новый способ, я открываю extractGrammar.ts и trace'ю. Catalog: vendor / model / date observed / format pattern / fix commit. Living document, append на каждый новый incident. Эффорт: создать с initial entries по X.0-X.13.
+- [x] **X.13.8 Knowledge doc — XML format incident catalog** — ✅ closed. `docs/knowledge/runtime-quirks/xml-tool-format-incidents.md` создан с 4 initial entries (self-closing, DSML fullwidth-pipe, malformed close, minimax-m2.7 cross-tool args). Living document — формат таблицы для append'а новых incident'ов с datestamp / model / fix commit / regression test ссылкой.
 
 ### X.14 (планировка) минимакс-m2.7 native FC investigation — продолжение X.11
 
@@ -2579,7 +2573,7 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
   - Hiding strategy docs противоречит transparency-first brand.
   - Competitive analysis with factual claims нормально для open-source projects (см. как Zed, Helix, Neovim делают).
   - Strategic flexibility from hiding doc — illusion: competitors infer plans из PR patterns / commits anyway.
-- [ ] **Follow-up (минимальное):** CortexIDE comparison файлы дополнить disclaimer'ом «as of YYYY-MM-DD, see PR for updates» чтобы не воспринимались как live truth. Backlog Y.1.1.
+- [x] **Y.1.1 — disclaimer на CortexIDE comparison files** — ✅ closed. Добавлен snapshot disclaimer + «Why CortexIDE name» (historical from upstream fork pre-rebrand) в оба файла. Источник truth для current model coverage указан как `resources/model-quirks.json`.
 
 ### Y.2 CI workflows path filters — ✅ DONE (2026-05-23, commit forthcoming)
 
@@ -2595,21 +2589,18 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 - [x] **Existing `.github/workflows/docs-links.yml`** уже purpose-built под markdown link check — дополняет docs-only.yml.
 - [x] **Acceptance:** docs-only PR теперь скипает full CI (~15-20 min) → runs docs-only.yml + docs-links.yml (~30s).
 
-### Y.3 `docs/release-notes-v0.3.0.md` одинокий
+### Y.3 `docs/release-notes-v0.3.0.md` одинокий — ✅ closed (deleted)
 
-- [ ] Только один файл архивных release notes — почему именно v0.3.0? Все последующие release notes идут через GitHub Releases (via `gh release create --notes-file ...`), не commit'ятся в repo. Несогласованность.
-- [ ] **Decision:** либо переехать ВСЕ важные релизы в `docs/releases/v*.md` (historical archive в repo), либо удалить v0.3.0 как остаток ad-hoc note. **Recommend:** `docs/releases/README.md` ссылается на GitHub Releases как canonical, ad-hoc файл удалить.
+- [x] Файл удалён. Canonical source для release notes — GitHub Releases (`/releases/tag/vX.Y.Z`). Один orphan archived file не worth поддержания.
 
-### Y.4 docs/ link integrity не проверяется
+### Y.4 docs/ link integrity не проверяется — ✅ closed (existing workflow covers it)
 
-- [ ] Файлы взаимоссылаются через relative paths (`[Knowledge Index](../README.md)`, etc). Если файл переименован → broken link. Сейчас не валидируется.
-- [ ] **Fix:** добавить в Y.2 CI workflow `markdown-link-check` или `lychee` который ловит broken относительные ссылки + 404 в external links.
-- [ ] **ROI:** предотвращает silent doc rot.
+- [x] Существующий `.github/workflows/docs-links.yml` (audit нашёл pre-existing) уже делает `markdown-link-check` на каждом PR с `**/*.md` paths. Покрывает relative + external links с retry/timeout/aliveStatusCodes config. Дублирование не нужно.
 
-### Y.5 docs/ topic templates
+### Y.5 docs/ topic templates — ✅ closed
 
-- [ ] При добавлении новой записи в `knowledge/<topic>/`, легко забыть формат «Контекст/Суть/Применение». **Fix:** `docs/knowledge/_template-knowledge-entry.md` skeleton с placeholder'ами секций + комментарием объясняющим назначение.
-- [ ] Бонус: `docs/knowledge/_template-incident.md` под incident retrospective с extra полями (date / model+provider / repro / root cause / fix commit / regression test).
+- [x] `docs/knowledge/_template-knowledge-entry.md` — generic template с «Контекст/Суть/Применение» + role tags + convention reminders.
+- [x] `docs/knowledge/_template-incident.md` — incident-specific template с structured sections (Подтверждённое / Исключённое / Под подозрением / Root cause / Fix / Lessons).
 
 ### Y.6 Knowledge graph (`[[wikilinks]]`)
 
@@ -2620,14 +2611,9 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
   - Dead links (`[[name]]` без существующего файла)
 - [ ] **Эффорт:** ~100 строк Node.
 
-### Y.7 `docs/CONTRIBUTING.md` — как outsider может добавить knowledge
+### Y.7 `docs/CONTRIBUTING.md` — ✅ closed
 
-- [ ] Сейчас формат записи описан в `docs/README.md`, но workflow contribution'а (fork → PR → review checklist) — нет. Outsider видя open-source repo с docs/ может захотеть исправить typo или add an incident — нет точки входа.
-- [ ] **Fix:** `docs/CONTRIBUTING.md` с simple flow:
-  - Найти подходящий topic dir (или предложить новый)
-  - Использовать template (Y.5)
-  - PR с одной знанием записью без bundling
-  - Reviewer checks: формат верный, не дублирует existing entry, не leak'ает personal info.
+- [x] `docs/CONTRIBUTING.md` создан. Покрывает: repo structure, PR workflow (code / doc-only / knowledge entry / roadmap update), CI ожидания, knowledge entry quality bar (8-point checklist), tone & format conventions, locale rules, license, контакты.
 
 ### Y.8 Search index для docs/
 

@@ -1,8 +1,10 @@
-# CortexIDE Model Support & Code Editing Capabilities Comparison
+# VibeIDE Model Support & Code Editing Capabilities Comparison
+
+> ⚠️ **Snapshot disclaimer:** Factual snapshot на момент последнего git-commit'а этого файла. Model support и provider integrations меняются каждые недели — этот документ может отставать. Source-of-truth для current model coverage: `resources/model-quirks.json` + actual provider implementations в `src/vs/workbench/contrib/vibeide/electron-main/`.
 
 ## Table 1: Model Support
 
-| Capability / Model | CortexIDE | Cursor | Windsurf | Continue.dev | Void | Code Proof (for CortexIDE) | Notes |
+| Capability / Model | VibeIDE | Cursor | Windsurf | Continue.dev | Void | Code Proof (for VibeIDE) | Notes |
 |-------------------|-----------|--------|----------|--------------|------|----------------------------|-------|
 | **Local Ollama** | ✅ Yes | ⚠️ Limited | ❌ No | ✅ Yes | ⚠️ Limited | `modelCapabilities.ts:1174-1309`, `sendLLMMessage.impl.ts:1403-1407` | Full support with auto-detection, model listing, FIM support. Ollama is OpenAI-compatible. |
 | **Local vLLM** | ✅ Yes | ❌ No | ❌ No | ❓ Unknown | ❌ No | `modelCapabilities.ts:1261-1276`, `sendLLMMessage.impl.ts:1418-1422` | OpenAI-compatible endpoint support with reasoning content parsing. |
@@ -15,8 +17,8 @@
 | **MCP tools** | ✅ Yes | ✅ Yes | ❓ Unknown | ❓ Unknown | ⚠️ Limited | `mcpChannel.ts:48-455`, `mcpService.ts:42-118`, `chatThreadService.ts:2118-2443` | Full MCP server support with stdio, HTTP, and SSE transports. Tool calling integrated in chat. |
 | **Custom endpoints** | ✅ Yes | ⚠️ Limited | ❓ Unknown | ⚠️ Limited | ❌ No | `modelCapabilities.ts:1311-1326` | OpenAI-compatible endpoint support with custom headers. |
 | **Model routing engine** | ✅ Yes | ⚠️ Limited | ❓ Unknown | ❓ Unknown | ❌ No | `modelRouter.ts:139-533` | Task-aware intelligent routing with quality tier estimation, context-aware selection, fallback chains. |
-| **Local-first mode** | ✅ Yes | ❌ No | ❌ No | ⚠️ Limited | ❌ No | `modelRouter.ts:193-197`, `cortexideGlobalSettingsConfiguration.ts:25-30` | Setting to prefer local models with cloud fallback. Heavy bias toward local models in scoring. |
-| **Privacy mode** | ✅ Yes | ❌ No | ❌ No | ❌ No | ❌ No | `modelRouter.ts:173-190`, `cortexideStatusBar.ts:190-230` | Routes only to local models when privacy required (e.g., images/PDFs). Offline detection and status indicator. |
+| **Local-first mode** | ✅ Yes | ❌ No | ❌ No | ⚠️ Limited | ❌ No | `modelRouter.ts:193-197`, `vibeideGlobalSettingsConfiguration.ts:25-30` | Setting to prefer local models with cloud fallback. Heavy bias toward local models in scoring. |
+| **Privacy mode** | ✅ Yes | ❌ No | ❌ No | ❌ No | ❌ No | `modelRouter.ts:173-190`, `vibeideStatusBar.ts:190-230` | Routes only to local models when privacy required (e.g., images/PDFs). Offline detection and status indicator. |
 | **Warm-up system** | ✅ Yes | ❌ No | ❌ No | ❌ No | ❌ No | `modelWarmupService.ts:33-141`, `editCodeService.ts:1441-1450` | Background warm-up for local models (90s cooldown). Reduces first-request latency for Ctrl+K/Apply. |
 | **SDK pooling / connection reuse** | ✅ Yes | ❓ Unknown | ❓ Unknown | ❓ Unknown | ❌ No | `sendLLMMessage.impl.ts:59-162` | Client caching for local providers (Ollama, vLLM, LM Studio, localhost). HTTP keep-alive and connection pooling. |
 | **Streaming for Chat** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes | ⚠️ Limited | `sendLLMMessage.impl.ts:582-632`, `chatThreadService.ts:2937-2983` | Full streaming with first-token timeout (10s local, 30s remote). Partial results on timeout. |
@@ -27,14 +29,14 @@
 
 ## Table 2: Code-Editing Capabilities
 
-| Capability / Model | CortexIDE | Cursor | Windsurf | Continue.dev | Void | Code Proof (for CortexIDE) | Notes |
+| Capability / Model | VibeIDE | Cursor | Windsurf | Continue.dev | Void | Code Proof (for VibeIDE) | Notes |
 |-------------------|-----------|--------|----------|--------------|------|----------------------------|-------|
 | **Ctrl+K quick edit** | ✅ Yes | ✅ Yes | ✅ Yes | ❓ Unknown | ⚠️ Limited | `quickEditActions.ts:45-84`, `editCodeService.ts:1465-1489` | Inline edit with FIM. Supports prefix/suffix context. Local model optimizations. |
 | **Apply (rewrite)** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes | ⚠️ Limited | `editCodeService.ts:1176-1201`, `prompts.ts:737-761` | Full file rewrite with local model code pruning. Supports fast apply (search/replace) for large files. |
 | **Multi-file composer** | ✅ Yes | ✅ Yes | ✅ Yes | ❓ Unknown | ❌ No | `composerPanel.ts:56-1670`, `editCodeService.ts:186-802` | Multi-file editing with scope management. Auto-discovery in agent mode. |
-| **Agent mode** | ✅ Yes | ✅ Yes | ❓ Unknown | ❓ Unknown | ⚠️ Limited | `chatThreadService.ts:2448-3419`, `cortexideSettingsTypes.ts:455` | Plan generation, tool orchestration, step-by-step execution. Maximum iteration limits to prevent loops. |
+| **Agent mode** | ✅ Yes | ✅ Yes | ❓ Unknown | ❓ Unknown | ⚠️ Limited | `chatThreadService.ts:2448-3419`, `vibeideSettingsTypes.ts:455` | Plan generation, tool orchestration, step-by-step execution. Maximum iteration limits to prevent loops. |
 | **Search & replace AI** | ✅ Yes | ✅ Yes | ❓ Unknown | ❓ Unknown | ❌ No | `quickEditActions.ts:215-231`, `prompts.ts:909-960` | AI-powered search/replace with minimal patch generation. Supports fuzzy matching. |
-| **Git commit message AI** | ✅ Yes | ⚠️ Limited | ❓ Unknown | ❓ Unknown | ❌ No | `cortexideSCMService.ts:72-125`, `prompts.ts:1095-1167` | Generates commit messages from git diff, stat, branch, and log. Local model optimizations. |
+| **Git commit message AI** | ✅ Yes | ⚠️ Limited | ❓ Unknown | ❓ Unknown | ❌ No | `vibeideSCMService.ts:72-125`, `prompts.ts:1095-1167` | Generates commit messages from git diff, stat, branch, and log. Local model optimizations. |
 | **Inline autocomplete (FIM)** | ✅ Yes | ✅ Yes | ✅ Yes | ❓ Unknown | ⚠️ Limited | `autocompleteService.ts:278-1014`, `convertToLLMMessageService.ts:1737-1813` | Fill-in-middle with streaming. Token caps for local models (1,000 tokens). Smart prefix/suffix truncation. |
 | **Code diff viewer** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes | ⚠️ Limited | `editCodeService.ts:2223-2289`, `codeBlockPart.ts:553-887` | Diff visualization with accept/reject. Multi-diff editor support. |
 | **Chat → Plan → Diff → Apply pipeline** | ✅ Yes | ✅ Yes | ❓ Unknown | ❓ Unknown | ⚠️ Limited | `chatThreadService.ts:2448-3419`, `composerPanel.ts:1420-1560` | Complete workflow: agent generates plan, creates diffs, user reviews, applies with rollback. |
@@ -49,8 +51,8 @@
 | **Timeout logic** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes | ⚠️ Limited | `sendLLMMessage.impl.ts:586-628`, `editCodeService.ts:277-303` | First-token timeout (10s local, 30s remote). Overall timeout (20s local, 120s remote). Feature-specific timeouts. |
 | **Local-model edit acceleration** | ✅ Yes | ❌ No | ❌ No | ❌ No | ❌ No | `editCodeService.ts:1441-1450`, `modelWarmupService.ts:61-92` | Warm-up system reduces first-request latency. Code pruning and minimal prompts. Connection pooling. |
 | **File-scoped reasoning** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes | ⚠️ Limited | `editCodeService.ts:1392-1634` | Full file context in Apply. Prefix/suffix context in Ctrl+K. Smart context selection. |
-| **Multi-model selection per feature** | ✅ Yes | ⚠️ Limited | ❓ Unknown | ⚠️ Limited | ❌ No | `cortexideSettingsTypes.ts:425-444` | Per-feature model selection: Chat, Autocomplete, Ctrl+K, Apply, Composer, Agent, SCM. Independent routing. |
-| **Settings-based routing (local-first, privacy, etc.)** | ✅ Yes | ❌ No | ❌ No | ⚠️ Limited | ❌ No | `modelRouter.ts:173-197`, `cortexideGlobalSettingsConfiguration.ts:25-30` | Privacy mode (local-only), local-first mode (prefer local), quality-based routing. Context-aware selection. |
+| **Multi-model selection per feature** | ✅ Yes | ⚠️ Limited | ❓ Unknown | ⚠️ Limited | ❌ No | `vibeideSettingsTypes.ts:425-444` | Per-feature model selection: Chat, Autocomplete, Ctrl+K, Apply, Composer, Agent, SCM. Independent routing. |
+| **Settings-based routing (local-first, privacy, etc.)** | ✅ Yes | ❌ No | ❌ No | ⚠️ Limited | ❌ No | `modelRouter.ts:173-197`, `vibeideGlobalSettingsConfiguration.ts:25-30` | Privacy mode (local-only), local-first mode (prefer local), quality-based routing. Context-aware selection. |
 
 ## Legend
 
@@ -62,13 +64,13 @@
 ## Key Differentiators
 
 ### Model Support
-1. **Comprehensive Local Model Support**: CortexIDE uniquely supports Ollama, vLLM, LM Studio, and any OpenAI-compatible localhost endpoint with full feature parity (FIM, streaming, tool calling).
-2. **Warm-up System**: Only CortexIDE implements background model warm-up to reduce first-request latency for local models.
+1. **Comprehensive Local Model Support**: VibeIDE uniquely supports Ollama, vLLM, LM Studio, and any OpenAI-compatible localhost endpoint with full feature parity (FIM, streaming, tool calling).
+2. **Warm-up System**: Only VibeIDE implements background model warm-up to reduce first-request latency for local models.
 3. **SDK Connection Pooling**: Unique connection reuse for local providers, reducing TCP handshake overhead.
 4. **Privacy Mode**: True privacy mode that routes only to local models when sensitive data (images/PDFs) is present.
 
 ### Code Editing
-1. **Tree-sitter RAG**: Only CortexIDE uses tree-sitter AST parsing for semantic code indexing, enabling better code understanding.
+1. **Tree-sitter RAG**: Only VibeIDE uses tree-sitter AST parsing for semantic code indexing, enabling better code understanding.
 2. **Local Model Optimizations**: Unique prompt optimization, code pruning, and token caps specifically designed for local model performance.
 3. **Smart Truncation**: Line-boundary aware prefix/suffix truncation that prioritizes code near cursor.
 4. **Partial Results on Timeout**: Returns partial generated content on timeout instead of failing completely.
