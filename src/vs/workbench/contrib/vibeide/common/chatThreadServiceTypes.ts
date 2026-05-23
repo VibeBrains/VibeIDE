@@ -14,6 +14,7 @@ export type ToolMessage<T extends ToolName> = {
 	id: string;
 	rawParams: RawToolParamsObj;
 	mcpServerName: string | undefined; // the server name at the time of the call
+	pinned?: boolean; // survives compaction in convertToLLMMessageService
 } & (
 		// in order of events:
 		| { type: 'invalid_params', result: null, name: T, }
@@ -144,6 +145,8 @@ export type ChatPDFAttachment = {
 };
 
 // WARNING: changing this format is a big deal!!!!!! need to migrate old format to new format on users' computers so people don't get errors.
+// `pinned?: boolean` is optional — set by the pin-context UI (compaction skips
+// pinned items even when older than the user-turn threshold).
 export type ChatMessage =
 	| {
 		role: 'user';
@@ -152,6 +155,7 @@ export type ChatMessage =
 		selections: StagingSelectionItem[] | null; // the user's selection
 		images?: ChatImageAttachment[]; // image attachments
 		pdfs?: ChatPDFAttachment[]; // PDF attachments
+		pinned?: boolean; // survives compaction
 		state: {
 			stagingSelections: StagingSelectionItem[];
 			isBeingEdited: boolean;
@@ -161,6 +165,7 @@ export type ChatMessage =
 		role: 'assistant';
 		displayContent: string; // content received from LLM  - allowed to be '', will be replaced with (empty)
 		reasoning: string; // reasoning from the LLM, used for step-by-step thinking
+		pinned?: boolean; // survives compaction
 
 		anthropicReasoning: AnthropicReasoning[] | null; // anthropic reasoning
 		createdAt?: number; // unix ms when message was added to thread

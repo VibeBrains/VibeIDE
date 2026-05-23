@@ -214,6 +214,14 @@ zone.js/dist/**
 @xterm/xterm-addon-*/out/**
 @xterm/xterm-addon-*/out-test/**
 
+# X.12 — new flat-naming xterm addons (post-rename): strip dev artifacts,
+# keep `lib/` (prod entry point). Mirrors the legacy `@xterm/xterm-addon-*`
+# rules above so the new packages don't ship src/test cruft.
+@xterm/addon-*/src/**
+@xterm/addon-*/fixtures/**
+@xterm/addon-*/out/**
+@xterm/addon-*/out-test/**
+
 # @github/copilot - strip unneeded binaries and files
 @github/copilot/sdk/index.js
 @github/copilot/prebuilds/**

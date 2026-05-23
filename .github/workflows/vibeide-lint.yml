@@ -1,0 +1,67 @@
+name: VibeIDE Lint Audits
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 'release/*'
+    paths:
+      - 'src/vs/workbench/contrib/vibeide/**'
+      - 'scripts/vibe-settings-orphans.mjs'
+      - 'scripts/vibe-promise-all-audit.mjs'
+      - 'scripts/vibe-test-placeholders.mjs'
+      - '.github/workflows/vibeide-lint.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  settings-orphans:
+    name: Settings orphans / dead registrations (V.0)
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with: { node-version-file: .nvmrc }
+      - name: Audit settings registry
+        run: node scripts/vibe-settings-orphans.mjs
+
+  promise-all-audit:
+    name: Promise.all side-effects audit (V.1)
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with: { node-version-file: .nvmrc }
+      - name: Audit Promise.all callbacks
+        run: node scripts/vibe-promise-all-audit.mjs
+
+  settings-naming:
+    name: Settings naming canonical style
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with: { node-version-file: .nvmrc }
+      - name: Audit canonical naming
+        run: node scripts/vibe-settings-naming-audit.mjs
+
+  test-placeholders:
+    name: Test placeholder detector (V.4)
+    runs-on: ubuntu-22.04
+    # Hard gate — fake-pass tests are an active production hazard.
+    # Currently passing; if existing test files trip it, promote to soft gate.
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with: { node-version-file: .nvmrc }
+      - name: Detect placeholder-only tests
+        run: node scripts/vibe-test-placeholders.mjs

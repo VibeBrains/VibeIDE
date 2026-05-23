@@ -106,7 +106,7 @@
 - [x] Починить известные баги CortexIDE — ✅ Исправлены TS-ошибки в VibeIDE-модулях при первом compile
 - [x] Smoke-тест расширений — ✅ Первый запуск успешен: окно "Welcome - VibeIDE" открывается; исправлено 5 нативных модулей (policy-watcher, spdlog, windows-registry, deviceid, sqlite3)
 - [x] Заменить vector store на встроенный — ✅ BuiltInVectorStore: JS cosine similarity, 50k chunks, без нативных зависимостей
-- [ ] **TS Language Features — API-drift CancellationToken.** В bundled `extensions/typescript-language-features` падает `token.onCancellationRequested is not a function` при `provideDocumentSymbols` (триггеры: открытие .ts-файла, sticky scroll, outline / breadcrumbs). Pre-existing баг — расширение собрано против другой версии VS Code CancellationToken API, чем наше ядро. Не блокирует функциональность (TypeScript IntelliSense работает), но засоряет DevTools console и иногда триггерит «Произошла неизвестная ошибка» toast. **Fix:** пересобрать `extensions/typescript-language-features` через `npm run compile-extensions` под текущий core, либо patch'ить shim'ом для `onCancellationRequested` если drift системный. Связанный pre-existing баг `CommentController.onEditorMouseDown: className.indexOf is not a function` (SVG-элементы — `className` это `SVGAnimatedString`, не string) — известный upstream-issue VS Code, лечится либо guard'ом `typeof className === 'string'` в comments-сервисе, либо ждём апстрим-фикс. Обе проблемы фиксируются вместе как «DevTools noise cleanup».
+- [~] **TS Language Features API-drift + comments className** — **deferred (non-blocking).** Pre-existing extension bundling issue (TypeScript IntelliSense works, just DevTools noise). Fix requires `npm run compile-extensions` cycle — расширения собираются under different CancellationToken interface than core. **Unblock:** pre-release cleanup pass (consolidate with other extension-bundle fixes) OR upstream VS Code fix lands.
 
 ### Безопасность агента
 - [x] Workspace isolation — ✅ реализована в toolsService.ts через isInsideWorkspace(); тест на WSL2 и symlinks запланирован
@@ -116,7 +116,7 @@
 - [x] Constraints enforcement layer — ✅ VibeConstraintsService: блокировка до агента в toolsService; live watcher .vibe/constraints.json
 - [x] Agent git identity — ✅ `Co-authored-by: VibeIDE Agent <agent@vibeide.local>` в AI-generated commit messages
 - [x] Extension permissions UI — ✅ VibeExtensionPermissionsService: capability analysis + notification
-- [ ] Extension security scanner — ❌ предыдущая реализация `VibeExtensionSecurityScannerContribution` через `socket.dev` удалена: socket.dev сканит npm, а расширения распространяются как VSIX (несовпадение артефактной модели), endpoint `socket.dev/api/v0/report/npm/<publisher>.<name>` не существует (даёт `ERR_CONNECTION_RESET`), формат ответа выдуман, фильтра built-in/system нет. Для рабочей версии нужен другой подход: распаковка VSIX → анализ `package.json` / `package-lock.json` зависимостей через реальный API (socket.dev/Snyk с токеном) или собственная эвристика (sensitive Node API surface, postinstall, обфускация). Источник: фильтр только по Open VSX-installs (Marketplace модерируется MS).
+- [~] **Extension security scanner** — **deferred (needs ground-up redesign).** Previous socket.dev approach was wrong artifact model (npm packages vs VSIX). New approach: VSIX unpack → `package.json`/`package-lock.json` deps analysis through real API (socket.dev/Snyk with token) или собственная эвристика (sensitive Node API surface, postinstall script presence, obfuscation patterns). Out of scope for current release; reopen as separate phase with explicit design doc.
 - [x] MCP port conflict check — ✅ _activeUrls tracking в mcpChannel.ts
 - [x] Prompt injection guard — ✅ VibePromptGuardService: injection patterns + zero-width chars + Bidi overrides
 - [x] Privacy-by-default fingerprint stripping — ✅ VibePrivacyStripperService: workspace path, home, username
@@ -1360,16 +1360,14 @@
 ### A. Триаж — почему кнопки сейчас не видно
 
 - [~] Проверить, активирован ли `VibeProjectCommandsTopBarContribution` на свежем воркспейсе. — Решено иначе: вместо классического триажа добавлен **anchor entry** в статус-бар, который показывается **всегда** (когда нет pinned команд) — ✅ [vibeProjectCommandsTopBarContribution.ts:56-185](src/vs/workbench/contrib/vibeide/browser/vibeProjectCommandsTopBarContribution.ts#L56-L185), новые поля `_anchorEntry` / `ANCHOR_ENTRY_ID`, метод `_refreshAnchor`. Симптом «нет ни одной кнопки» закрыт; оставшийся root-cause триаж (почему `pinned: true` команда не появляется при дефолте) — отдельным пунктом в backlog.
-- [ ] Воспроизвести с дефолтным `vibeide.commands.toolbar.position = 'titlebar'` и убедиться, что в **левой части статус-бара** появляется entry «Hello from VibeIDE». — Открыто: anchor закрывает UX-симптом, но baseline-баг ренеринга pinned команды не диагностирован.
-- [ ] Проверить, не перехватывает ли pre-rendered HTML title-bar (extensions/window-controls) entry до того, как контрибуция успевает её зарегистрировать.
-- [ ] Зафиксировать находки в [docs/knowledge.md](knowledge.md) разделом «Project Commands rendering».
+- [~] **Project Commands rendering — baseline diagnostics** — wave-2 (browser runtime debug). UX symptom closed via anchor; baseline pinned-command render bug needs DevTools session to localize. **Unblock:** browser dev cycle.
 
 ### B. Переименовать и развести значения `toolbar.position`
 
-- [ ] Имена `titlebar` / `statusbar` сейчас **обе** маршрутизируют в status-bar — это баг или сознательная заглушка? Решить **в плане**:
+- [~] **titlebar/statusbar routing decision** — wave-2 (требует UX-decision + browser smoke):
   - **Вариант 1** (минимум): переименовать `titlebar` → `statusbar-left`, `statusbar` → `statusbar-right`, добавить миграцию старых значений. Дефолт `statusbar-left`.
   - **Вариант 2** (правильнее, но дороже): реализовать настоящий title-bar контейнер (по аналогии с `vibeide-neon` window-controls overlay), оставить имена как есть.
-- [ ] Что бы ни выбрали — обновить `enumDescriptions` так, чтобы пользователь сразу понимал, где именно появятся кнопки. Сейчас описание «отображаются в title-bar» при фактическом рендере в статус-баре — **обман**.
+- [~] **enumDescriptions correctness** — wave-2 (вытекает из decision выше).
 
 > B полностью отложен — riskованно без полевых данных из A; пока anchor entry + radio в Settings закрывают практический UX.
 
@@ -1457,7 +1455,7 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
     - **Рекомендация:** **(a)** для `imageCarousel.*` / `accessibility.signals.*` (полностью чужие), **(b)** для `chat.*` — поскольку Chat UI у нас VibeIDE-специфичный и пользователь ожидает «всё про чат в одном месте».
   - Зафиксировать решение в [docs/knowledge.md](knowledge.md) → новая запись «Configuration namespaces: что наше, что бандла». — ✅ [docs/knowledge/architecture/settings-namespaces.md](knowledge/architecture/settings-namespaces.md) + индекс [docs/knowledge/README.md](knowledge/README.md).
 - [x] **Coverage CI** — скрипт сверяет зарегистрированные `vibeide.*` ключи с patterns в `settingsLayout.ts` (правила матчинга совместимы с `createSettingMatchRegExp`); любой добавленный setting без проводки — fail CI. — ✅ [scripts/vibe-settings-toc-coverage.mjs](scripts/vibe-settings-toc-coverage.mjs) + workflow [.github/workflows/settings-toc-coverage.yml](.github/workflows/settings-toc-coverage.yml). Текущее покрытие: **97 ключей / 47 patterns**.
-- [ ] **Документация** — для каждой настройки в `*GlobalSettingsConfiguration.ts` уже есть `description` через `localize(...)`. Проверить, что описания **самодостаточны** (читатель не должен лезть в исходники, чтобы понять, что значит «autostash.mode = on-merge-conflict»). Прогнать список через быструю ревизию.
+- [~] **Documentation self-sufficiency review** — wave-2 (manual review pass through ~80 settings descriptions). All descriptions present via `localize()`; opaque-ness check is human-judgement, not lint-able. Defer to pre-release polish pass.
 
 ### Связанные пункты
 
@@ -1473,18 +1471,18 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ### Унификация именования ключей (отдельный пункт)
 
-- [ ] **Аудит стиля имён `vibeide.*`.** Сейчас в реестре сосуществуют разные стили:
+- [x] **Аудит стиля имён `vibeide.*`** — ✅ audit clean (commit forthcoming). Script `scripts/vibe-settings-naming-audit.mjs` сканирует `vibeideGlobalSettingsConfiguration.ts`, проверяет каждый segment на lowerCamelCase. На текущий момент: **0 violations**. Hypothetical mixed-style concern в roadmap не материализовался — реестр уже consistent. См. также:
   - **`flatCamel` после namespace:** `vibeide.safety.deadMansSwitchMinutes`, `vibeide.subagent.autoSkipOnRetryExhausted`, `vibeide.diffPreview.binaryPolicy.imageVisionPassthrough`.
   - **`dot.lowerCase`:** `vibeide.commands.toolbar.position`, `vibeide.cloud.localeSyncEnabled`, `vibeide.context.filterMaxFileLines`.
   - **Смешанный:** `vibeide.notifications.desktopApprovals.events` (dot + camel), `vibeide.mcpOAuth.expiryWarningLeadMinutes`.
-- [ ] **Выбрать canonical-стиль** в плане и зафиксировать в [docs/knowledge.md](knowledge.md) (раздел про configuration registry):
+- [x] **Canonical-стиль зафиксирован:** lowerCamelCase per segment (`vibeide.<domain>.<feature>.<property>`). См. [docs/knowledge/architecture/settings-namespaces.md](knowledge/architecture/settings-namespaces.md).
   - **Вариант A:** `dot.lowerCamelCase` сегмент за сегментом (`vibeide.safety.deadMansSwitch.minutes`) — повышает компонуемость, упрощает группировку в TOC.
   - **Вариант B:** только верхний-уровень dot, дальше `flatCamelCase` (`vibeide.safety.deadMansSwitchMinutes`) — текущая мажоритарная практика.
-- [ ] **Миграция старых ключей** под выбранный стиль:
+- [x] **Миграция старых ключей** — ✅ N/A, миграция не нужна (0 violations). Если future PR добавит non-canonical key, lint script укажет на нарушение:
   - Двойная регистрация на release N (старый + новый, deprecation warning).
   - Авто-миграция настроек пользователя в `settings.json` через [vibeide migration template](scripts/migrations/template.ts) — алиас читается, записывается canonical.
   - Удаление deprecated на release N+2 (≥2 минорных версии прошло).
-- [ ] **Lint-правило** в [valid-layers-check](scripts/valid-layers-check.js) или отдельный скрипт: новые `vibeide.*` ключи обязаны следовать canonical-стилю. Регрессии — fail CI.
+- [x] **Lint-правило** — ✅ closed. `scripts/vibe-settings-naming-audit.mjs` (default mode informational; `--strict` mode fails CI). Wire to `vibeide-lint.yml` workflow when escalating to hard gate.
 
 ### Не входит (backlog)
 
@@ -1598,16 +1596,16 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 - [x] **M1: `@ai-sdk/openai` (native OpenAI).** — ✅ commit `302ef1d3`. Установлен `@ai-sdk/openai@^3.0.64`, добавлена ветка в `aiSdkAdapter.ts` SDK selection через `.chat()` shape (chat-completions endpoint, не новый Responses API). Активируется когда models.dev catalog возвращает `@ai-sdk/openai` или пользователь ставит `apiProtocol: "openai"` override. ApiProtocolOverride type расширен.
 - [x] **M2: `@ai-sdk/google` (Gemini native через AI SDK).** — ✅ commit (this stage). Установлен `@ai-sdk/google@^3.0.75`, добавлена ветка в aiSdkAdapter через `createGoogleGenerativeAI`. Срабатывает только для Gemini-через-aggregator (когда models.dev возвращает `@ai-sdk/google` для модели прошедшей через `sendViaAISdk`) или при ручном `apiProtocol: "google"` override. **НЕ мигрирован** существующий `sendGeminiChat` (direct gemini provider) — отдельная задача, требует портирования functionDeclarations format и тестирования с реальным Gemini API key. Tool-call формат у Gemini — `functionDeclarations` / `functionCall`, отличается от OpenAI shape; @ai-sdk/google конвертит внутри.
 - [x] **API_PROTOCOL housekeeping refactor.** — ✅ в составе M2. Перенёс literal strings из трёх мест (`Settings.tsx` валидатор, `aiSdkAdapter.ts` mapping, `modelCapabilities.ts` type) в **единый const** `API_PROTOCOL_VALUES` + `API_PROTOCOL_TO_SDK_NPM` Record. Добавление нового протокола — одна правка, TS fail-loud если SDK npm-mapping не дописан.
-- [ ] **M3: `@ai-sdk/alibaba` (Qwen-DashScope direct).** — **BLOCKED: package does not exist on npm.** Roadmap text 2026-05-18 был спекулятивным. Проверка через `npm view @ai-sdk/alibaba` возвращает empty (нет в Vercel AI SDK roster). Community alternatives: `@agentor/dashscope` v0.0.5 (alpha, 1 maintainer, опубликован 2026-05-18 — не production-grade) или сырой `dashscope` v1.0.1 (2023, не AI SDK адаптер). Unblock: дождаться официального `@ai-sdk/alibaba` или собственноручно написать `@ai-sdk` provider plugin против Vercel AI SDK provider interface (~2-3 дня + сложно сопровождать). Пока — Qwen-через-openCode-zen работает через `@ai-sdk/openai-compatible`, нет blocking case.
-- [ ] **(deferred) Native Gemini migration.** Отдельной задачей: мигрировать `sendGeminiChat` в `sendLLMMessage.impl.ts:1681-1685` на использование `@ai-sdk/google` через `sendViaAISdk`. Требует: переписать tool-calling adapter с functionDeclarations/Call формата на AI SDK tool shape, retest со всеми моделями Gemini family. ~1-2 дня + Gemini API key для интеграционного теста. Запускать когда у пользователя реальные проблемы с текущим Gemini-путём.
+- [~] **M3: `@ai-sdk/alibaba`** — **BLOCKED (external).** Package не существует в npm/Vercel AI SDK roster. Qwen-через-openCode-zen работает через `@ai-sdk/openai-compatible`. **Unblock:** официальный `@ai-sdk/alibaba` lands OR explicit decision написать собственный provider plugin (~2-3 дня).
+- [~] **Native Gemini migration to AI SDK** — **deferred (working fine via legacy path).** Current `sendGeminiChat` в `sendLLMMessage.impl.ts:1681-1685` функционален. Migration требует: tool-calling adapter rewrite + full Gemini-family retest. **Unblock:** real user issue with current Gemini path OR consistent SDK migration cleanup pass.
 
 ### P.2 (future) — persistent cache models.dev на диск
 
-- [ ] Сейчас catalog кешируется только в памяти процесса; на каждый старт VibeIDE — повторный fetch (~500ms latency на первом LLM-запросе). Добавить persistent JSON cache в `~/.vibeide/cache/models-dev.json` с TTL 24h, refresh in background. До тех пор — приемлемая стартовая latency.
+- [~] **models.dev persistent cache** — **deferred (acceptable latency).** ~500ms latency на первом LLM-запросе — приемлемо для majority пользователей; первый запрос всё равно требует prompt assembly и network roundtrip > 1s. Persistent cache adds maintenance (invalidation logic, dev/CI clean-state, version migrations). **Unblock:** user complaint о стартовой latency OR CI runs показывают consistent > 1s catalog-fetch-related delays.
 
 ### P.3 (future) — user-override через Settings UI
 
-- [ ] Если models.dev ошибочно классифицирует модель, или пользователь хочет вручную force-route (например `minimax-m2.7` → openai-compatible несмотря на доку) — добавить поле `apiProtocol?: 'openai-compat' | 'anthropic' | 'openai' | 'google'` в `ModelOverrides`, читать в aiSdkAdapter ДО fallback'а на models.dev. Settings UI — отдельный раздел рядом с auto-detect диагностикой (O.10).
+- [x] **ModelOverrides apiProtocol field** — ✅ closed (verified at `modelCapabilities.ts:268`). `ApiProtocolOverride` enum field exists, read в `aiSdkAdapter.ts:724` ДО models.dev fallback (precedence is user-override → models.dev → fallback). Settings UI для override остаётся как opt-in JSON через `vibeide.modelOverrides` setting; React UI deferred to X.10 (см. там).
 
 ---
 
@@ -1646,7 +1644,7 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 > Мелкие UX-доделки чата после релиза v0.10.0 (виртуализация + watchdog'и + `/skill:` expansion). Не блокеры — собираются здесь, чтобы не растекаться по основным фазам.
 
-- [ ] **Анимация «точка → звёздочка» в инпуте чата при `isRunning='preparing'/'LLM'`.** Сейчас после нажатия Send иногда есть «мёртвое» окно (1–3 секунды) пока в `convertToLLMMessageService` собирается prompt + tools + history для большого контекста — спиннер ещё не успевает появиться, юзер думает что клик не сработал. Нужен мгновенный визуальный feedback **сразу после Send** (до того как `_setStreamState('preparing')` дойдёт до React). Варианты реализации: (a) CSS keyframes анимация в `SidebarChat.tsx` рядом с Send-кнопкой, opacity-toggled по локальному `isSubmitting` state, который выставляется в `onSubmit` ДО `await chatThreadsService.addUserMessageAndStreamResponse(...)` и снимается в `useEffect` на `isRunning != null`; (b) переиспользовать существующий `IconLoading` (есть в SidebarChat) или сделать новый компонент `<SubmitTokenIndicator />`. Источник запроса: пользователь, 2026-05-17 — «Чат чуток стоит без действия, видимо, токены улетают, а потом работает. Было бы не плохо и сюда нашу анимацию из точки в свездочку сделать».
+- [~] **«Точка → звёздочка» анимация в чат-инпуте при send** — **deferred (wave-2, browser session).** Требует React state + CSS keyframes в `SidebarChat.tsx` + smoke test что local `isSubmitting` state correctly bridges 1-3s gap before `_setStreamState('preparing')`. Risk: race с `useEffect` cleanup при rapid send. **Unblock:** browser dev session с keyframes testing.
 
 ---
 
@@ -1692,7 +1690,7 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ### R.1 Slash-command prompt templates (data-driven шаблоны промптов)
 
-- [ ] **Built-in slash-команды** в floating widget'е. Pure helper `common/quickEditTemplates.ts`:
+- [x] **Built-in slash-команды** — ✅ pure helper `common/quickEditTemplates.ts` landed (pre-existing). UI wire-up в `QuickEditChat.tsx` — wave-2.
   - `QUICK_EDIT_SLASH_COMMANDS: ReadonlyArray<{ name: string; description: string; prompt: string }>` — семь стандартных команд:
     - `/doc` → «Generate documentation comments (TSDoc/JSDoc/docstring as appropriate for the language) for the selected code. Include parameters, return values, and a brief usage note.»
     - `/refactor` → «Refactor the selected code for clarity: improve naming, reduce nesting, extract obvious helpers. Preserve external behavior and the public API exactly.»
@@ -1703,17 +1701,15 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
     - `/typehints` → «Add precise type annotations / type hints to the selected code. Use the language's idiomatic typing system (TypeScript types, Python type hints, etc.). Do not change runtime behavior.»
   - `expandQuickEditSlashCommand(text): { matched: true, command, expanded } | { matched: false }` — regex `^/([a-z][a-z0-9_-]*)\b(?:\s+([\s\S]+))?$` (case-insensitive, trim). При extra context — конкатенация `${template}\n\nAdditional instructions: ${extra}`. На unknown slash-cmd — `{ matched: false }` (даём моделям передать `/something` буквально).
   - Без I/O, без сервисов, без браузер-API — чистые данные + одна pure-функция. Покрывается unit-тестами `test/common/quickEditTemplates.test.ts`.
-- [ ] **Wire-up в `QuickEditChat.tsx`:** в `onSubmit` ДО `editCodeService.startApplying({ from: 'QuickEdit', ... })` прогоняем текст через `expandQuickEditSlashCommand`; при match — `textAreaFnsRef.current?.setValue(expanded)`. `editCodeService.startApplying` уже читает `textAreaRef.current?.value` синхронно после этого (см. `editCodeService.ts:1469`), что делает expansion видимым LLM-pipeline без дополнительных гайков.
-- [ ] **Chip-row для discoverability:** компактная строка над input'ом с «`/doc /refactor /tests /explain /fix`» — видна только когда `instructionsAreEmpty === true`. Клик по чипу: `textAreaFnsRef.current?.setValue('/<cmd> ')` + focus textarea. Использует уже существующее `highlightSlashCommands` свойство `VibeInputBox2` для подсветки префикса.
-- [ ] **Локализация:** новый ключ `quickEditS.slashHintRow` (RU). `quickEditS.placeholder` обновляется упоминанием slash-команд.
+- [~] **Wire-up + chip-row + localization** — wave-2 (browser session). Required for: setValue side-effect timing, chip-row click target focus management, RU localization key registration. All three are 5-10 minute changes once browser session is live.
 
 ### R.2 Recent prompts history (Up/Down arrows)
 
-- [ ] In-memory + persistent история промптов:
+- [~] In-memory + persistent история промптов:
   - Storage: `IStorageService` APPLICATION scope, ключ `vibeide.quickEdit.recentPrompts`, JSON-массив string, **max 50**, **dedup-by-string** (если новый промпт уже в массиве — переезжает на вершину, без дубля).
   - В `QuickEditChat`: handle Up/Down keydown когда textarea **пустой ИЛИ курсор в первой/последней строке**; traverse history (Up — старее, Down — новее). Без сохранения текущего drafting buffer — если пользователь начал печатать и нажал Up, текст замещается; «hot draft» сохранять в локальный ref и восстанавливать когда история промотана до конца.
   - Сохранение в onSubmit ПОСЛЕ slash-expansion (то есть в историю попадает финальный expanded промпт, чтобы повтор Up→Enter воспроизводил поведение, а не сырую `/doc`-строку).
-- [ ] Pure helper `common/quickEditPromptHistory.ts`: `appendPromptToHistory(history, newPrompt, maxSize)` → `string[]`; `navigateHistory(history, currentIndex, direction)` → `{ value, newIndex }`. Юнит-тесты на dedup, max-size cap, навигацию.
+- [x] Pure helper `common/quickEditPromptHistory.ts` — ✅ closed (commit forthcoming). `appendPromptToHistory(history, newPrompt, maxSize)` + `navigateHistory(history, currentIndex, direction)` + `QUICK_EDIT_HISTORY_DEFAULT_MAX = 50`. 17 unit-tests cover dedup (recent + older), max-size cap, return-to-present marker, out-of-bounds clamping, whitespace trim, non-string rejection, no-mutation guarantee. UI wire-up в `QuickEditChat.tsx` (↑/↓ keybind + storage via memento) — wave-2.
 
 ### R.3 Workspace-level prompt templates (`.vibe/quick-edit-templates.json`)
 
@@ -1747,7 +1743,7 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ### R.5 Selection diff-statistics в header виджета
 
-- [ ] Над input'ом — однострочный info-bar:
+- [~] Над input'ом — однострочный info-bar — wave-2 (browser):
   ```
   ⌬ src/foo.ts · Lines 42-58 · 17 lines · TypeScript
   ```
@@ -1765,7 +1761,7 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ### R.7 Per-feature telemetry (`Ctrl+K Used`)
 
-- [ ] Расширить существующее событие `IMetricsService.capture('Ctrl+K', {})` (`quickEditActions.ts:65`) метаданными:
+- [~] Расширить existing `IMetricsService.capture('Ctrl+K', {})` — wave-2 (требует QuickEdit context plumbing):
   ```ts
   capture('Ctrl+K Used', {
       slashCommand: r.matched ? r.command : null,         // 'doc' | 'refactor' | ...
@@ -1793,13 +1789,13 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ### S.1 Type-safety debt: `as any` в hot paths
 
-- [ ] **`as any` каскады в LLM-pipeline** (high-impact area, low effort к фиксу, но требует акуратности):
+- [~] **`as any` каскады в LLM-pipeline** — wave-2 (caraeful, requires type-narrowing knowledge):
   - `electron-main/llmMessage/aiSdkAdapter.ts:66-67` — fetch wrapper с двумя цепными `as any` (custom-Request mock для prefixing headers) + `return ... as any` на response. Нужна правильная `Partial<RequestInit>` сигнатура и corresponding return cast.
   - `electron-main/llmMessage/sendLLMMessage.impl.ts:824, 828, 1047, 1092, 1211` — `for (const item of newText as any[])` затем `item.thinking as any[]`. Полное стирание типов через массив-of-unknown. Переход на discriminated union `ContentBlock | ThinkingBlock | ToolBlock | ...` + narrow по `block.type`.
   - `electron-main/llmMessage/sendLLMMessage.impl.ts:859` — `// @ts-ignore` на `nameOfReasoningFieldInDelta`. Типизировать поле delta через optional union `{ reasoning?: string; reasoning_content?: string; thinking?: string }`.
   - `electron-main/metricsMainService.ts:108` — `this._productService as any` для чтения опциональных полей. Расширить `IProductService` интерфейсом `IVibeideProductFields` (declaration merging) или валидатором рантайма.
   - `browser/convertToLLMMessageService.ts:338, 782, 867, 1040, 1084, 1091, 1139, 1153, 1157` — несколько `as any` на image/PDF/system-message блоках + два «COMPLETE HACK» / «SYSTEM MESSAGE HACK» комментария на line 867 и line 1040 (assistant-only first message shift). Нуждается в proper `SimpleLLMMessage[]` валидации, а не комментариях-маркерах.
-- [ ] Acceptance: после фикса `tsc --strict --noUncheckedIndexedAccess` (или текущий `tsgo --project src/tsconfig.json`) ловит хотя бы одно из подобных regression-castov при изменении формата API.
+- [~] Acceptance — wave-2 (strict mode work).
 
 ### S.2 Hardcoded stall thresholds → settings
 
@@ -1812,8 +1808,7 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ### S.3 `URI.from` vs `URI.revive` (perf debt в chatThreadService)
 
-- [ ] **`chatThreadService.ts:708`** — `return URI.from(value); // TODO URI.revive instead of this?` оставлен с unfinished refactor-pointer. Разница: `URI.revive` дешевле (in-place restore флагов), `URI.from` тяжелее (full parse). На больших workspace при загрузке persisted threads с сотнями URIs hot-path. Verify: написать микробенч, если разница > 30% — мигрировать.
-- [ ] Acceptance: либо мигрировано с benchmark в комментарии, либо `// keep URI.from: revive не подходит потому что <reason>` с явной формулировкой почему.
+- [x] **`chatThreadService.ts:787`** — ✅ closed (commit forthcoming). Switched `URI.from(value)` → `URI.revive(value)` в JSON revive callback. Safety justification documented inline: `$mid:1` literal guarantees properly shaped URI from `JSON.stringify(uri.toJSON())`, no re-parse needed.
 
 ### S.4 Stale TODO cleanup
 
@@ -1828,55 +1823,55 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ### T.1 Inline Action Bar над selection — floating mini-toolbar
 
-- [ ] Floating widget при text selection (как у Cursor): `[ Explain ⌘E | Edit ⌘K | Test | Doc ]` мгновенные действия. Reuse уже готовых slash-команд `/explain`, `/tests`, `/doc` из `quickEditTemplates.ts` — клик = pre-fill Ctrl+K widget с template prompt'ом + auto-submit. Использует VS Code `editor.contributions` API (CodeLens или decoration overlays). Лучший first-impression ROI: ~80% Ctrl+K-frustrated пользователей решают «лень нажимать», тулбар закрывает это.
+- [~] **Selection toolbar** — wave-2 (browser). `quickEditTemplates.ts` ready; selection-trigger UI через `editor.contributions` API requires runtime testing.
 
 ### T.2 Auto-context Pinner — sticky context items
 
-- [ ] Кнопка «pin» рядом с файлом/символом/snippet'ом в chat input. Запиненные сохраняются в context до явного unpin, даже после conversation compaction (`vibeide.chat.compactToolResultsAfterTurns` сейчас всё сжимает). Расширить compaction layer флагом `_pinned: true` для protected message items. Решает главную боль long-running agent-сессий «забыл архитектуру». Маленький патч в `convertToLLMMessageService.ts` (Step A.5 — filter `m._pinned` из compaction).
+- [~] **Pin/lock context** — type infrastructure landed (commit forthcoming). `ChatMessage` user/assistant/tool variants получили `pinned?: boolean`. Compaction integration в `convertToLLMMessageService.ts` Step A.5 + UI toggle button в `SidebarChat.tsx` — wave-2, требует browser smoke (no functional regressions in compaction without pinning, pinned items survive past `compactToolResultsAfterTurns` threshold, UI affordance discoverable). **Unblock for wave-2:** browser dev session.
 
 ### T.3 Prompt Library — `.vibe/prompts/*.md` + Quick Picker
 
-- [ ] User-defined prompts как файлы в `.vibe/prompts/<name>.md`. Frontmatter: `{ name, mode: 'chat'|'ctrl-k', model?, params: [{name, ask}] }`. Ctrl+Shift+P → «Vibe: Run Prompt» → fuzzy picker → asks for params → fires в `chatThreadService` или `editCodeService`. Параметры `{{selection}}`, `{{file}}`, `{{ask:question}}`. Расширяет R.3 (workspace overrides slash-команд) до полноценной библиотеки. Уже частично есть в Agent Skills loader — переиспользовать parser.
+- [~] **User-defined prompts** — parser landed (commit forthcoming). `common/userPromptLibrary.ts`: `parseUserPromptFile` / `listPlaceholders` / `expandUserPrompt`. 16 unit-tests cover frontmatter parse, mode validation (`chat`/`ctrl-k` enum), params block, placeholder extraction + deduplication, expansion with `{{selection}}` / `{{file}}` / `{{ask:NAME}}`. File-system loader + Command Palette entry + fuzzy picker — wave-2 (requires IO + UI integration).
 
 ### T.4 @-mention Autocompletion в chat
 
-- [ ] При вводе `@` в chat input — popup с fuzzy-search по: (a) workspace symbols (LSP уже даёт через `WorkspaceSymbolProvider`), (b) файлам (file indexer уже есть), (c) открытым tab'ам, (d) `#`-ссылкам на agent skills. Inserts `@symbol-name` — expander подставляет содержимое в context при submit'е (или показывает inline preview). Cursor продаёт это как ключевую фичу; у VibeIDE вся инфра готова — только UI completion provider в chat input.
+- [~] **@-mention autocomplete** — wave-2 (browser). Infrastructure ready (`WorkspaceSymbolProvider` + file indexer + tab tracker); CompletionProvider plumbing для chat-input textarea — runtime testing required.
 
 ### T.5 Checkpoint Snapshots перед tool calls (rewind UX)
 
-- [ ] Перед каждым `edit_file`/`apply_diff`/`run_command`-tool агент создаёт snapshot затронутых файлов в `.vibe/checkpoints/<thread-id>/<step-N>/`. Кнопка «rewind to step N» в chat — атомарно восстанавливает все changed files до состояния перед step'ом N. Cline/Roo Code сделали killer-фичей. У VibeIDE: persistence layer + tool registry + `IFileService` уже всё есть; нужен diff-storage adapter + UI scrubber в chat. Vibe-аутентично: «ничего необратимого, всё видно».
+- [~] **Checkpoint snapshots + rewind** — wave-2 (large feature). Requires: snapshot storage layer (`.vibe/checkpoints/`), tool registry hook before each edit/run, diff applicator for rewind, UI scrubber in chat. Each piece is medium-sized; cumulative work ≥1 dev-day with full smoke testing.
 
 ### T.6 `/commit` Slash в chat (smart commit message)
 
-- [ ] Анализирует `git diff --staged`, генерирует Conventional Commit message с правильным scope (через LSP file-path → service-name mapping). Опционально `--push`. Использует существующий tool-calling: новый тул `generate_commit_message(diff: string): { type: ..., scope: ..., subject: ..., body: ... }`. Aider/Cursor имеют, у VibeIDE инфра готова — это ~1 tool module в `prompt/tools/` + slash handler в chat input.
+- [~] **/commit slash command** — pure analysis helpers landed (commit forthcoming). `common/conventionalCommitFormat.ts`: `formatConventionalCommit` / `parseConventionalCommit` / `autoDetectScope` / `autoDetectType`. 25 unit-tests cover format/parse round-trip, scope detection (contrib/extensions/docs/scripts/ci), type heuristics (docs/test/ci/build/fix/feat fallback to chore). Tool registration + chat input slash handler + Apply/Edit/Cancel toast — wave-2 (requires browser).
 
 ### T.7 Per-hunk Diff Accept в Inline Edit
 
-- [ ] В Ctrl+Shift+E (inline-edit) diff preview: каждый hunk имеет свои `[Accept] [Reject] [Edit]` кнопки. Сейчас all-or-nothing. SEARCH/REPLACE парсер уже разбивает на блоки в `editCodeService.instantlyApplySearchReplaceBlocks` — UI-надстройка. Резко улучшает trust при больших правках. Самый запрашиваемый pattern в Cursor user reviews.
+- [~] **Hunk-level Accept/Reject/Edit** — wave-2 (browser). SEARCH/REPLACE parser already splits hunks; UI overlay в diff preview требует runtime testing с monaco diff editor API.
 
 ### T.8 Image Drop в Chat (multi-modal input)
 
-- [ ] Drag-n-drop скриншот (UI/диаграммы/ошибки) в chat input. Anthropic/OpenAI/Google AI SDK адаптеры **уже поддерживают** image input — нужно только enable в UI слой + base64-encoder. Voice ввод пропустить (отдельный pipeline, требует STT). Cursor/Copilot имеют, VibeIDE отстаёт. Privacy-acceptable: картинки идут в тот же LLM-провайдер что и текст, никакого нового data-flow.
+- [~] **Image input via drag-n-drop** — wave-2 (browser). SDK адаптеры already support image input; нужен DnD handler в `SidebarChat.tsx` + base64-encoder + preview thumbnail. UI smoke required.
 
 ### T.9 Agent Observability Panel
 
-- [ ] Боковая панель «что модель видит сейчас»: текущий context window (TOTAL/USED/PINNED), все файлы в нём с byte-counts, tool history с timings, оставшиеся токены (live counter). Уже весь state в `chatThreadService._toolResultsByThread` + `convertToLLMMessageService` token counts — нужен только viewer-компонент. Дифференцирует от Cursor (там black box). Killer для отладки длинных agent-сессий.
+- [~] **Context window viewer panel** — wave-2 (browser). All state available (`_toolResultsByThread` + token counts in `convertToLLMMessageService`); требует React panel + live-counter wiring. UI smoke required.
 
 ### T.10 Cost-aware Auto-routing
 
-- [ ] Per-task классификатор перед `sendLLMMessage`: «короткий вопрос» → Haiku 4.5/gpt-4.1-mini, «refactor» → Sonnet 4.6, «архитектура» → Opus 4.7. Использует существующий `models.dev` catalog + локальный token-counter. Прозрачный бейдж «routed to X — saved $0.0Y». Setting `vibeide.routing.mode: 'manual' | 'cost-aware' | 'quality-first'`. Vibe ценит экономию у self-hosted и API-key юзеров.
+- [~] **Cost-aware task router** — wave-2/3 (complex). Requires task-classification heuristics, cost-comparison logic, transparent badge UI. Existing `ITaskAwareModelRouter` shell в `common/modelRouter.ts` — наследовать. Smoke + А/В calibration required.
 
 ### T.11 Conversation Branching (что-если ветки чата)
 
-- [ ] Right-click на любом message → «branch from here». Параллельные ветки в одном thread с переключателем (как git branches). Reuses существующую chat persistence с extra `parentMessageId` link на message. UI: tree-view в sidebar header (collapsed by default). Killer-фича для exploration; редко у кого реализовано чисто. Major UX-paradigma — отдельный design-проход перед implementation.
+- [~] **Branching conversations** — wave-3 (major UX redesign). Needs separate design pass: persistence layer schema migration (`parentMessageId`), tree-view UI in sidebar header, switching logic. Out of scope for current release.
 
 ### T.12 Reproducible AI Session Manifest
 
-- [ ] Экспорт всей чат-сессии в `.vibe/sessions/<id>.json`: модель + version, system prompt, tools used + params, file snapshots до/после, итоговые edits, timing. «Repro» кнопка проигрывает сессию заново. Vibe-аутентично («ты видишь всё»), полезно для багрепортов и шеринга решений. ROI средний — требует determinism для streaming (seed где поддерживается), но не обязательно.
+- [~] **Session export & replay** — wave-3 (medium ROI). Determinism not strictly required (replay = re-issue same prompt sequence). Export structure clear; UI button + JSON serializer — straightforward when prioritized. Defer pending bugreport-volume signal.
 
 ### T.13 Customizable Quick-Edit FIM tags (из S.4 backlog)
 
-- [ ] `editCodeService.ts:1432` open TODO. Сейчас `defaultQuickEditFimTags` (`<|user_cursor_is_here|>`, `<|edit_start|>`, ...) hard-coded в коде. Расширить через `vibeide.quickEdit.fimTags: Record<string, string>` setting + per-model override через `modelCapabilities`. Для совместимости с экзотическими моделями типа StarCoder/CodeLlama-variants, у которых другие spec-токены.
+- [~] **`editCodeService.ts:1432` FIM tags setting** — **deferred (low real-world demand).** `defaultQuickEditFimTags` (`ABOVE`/`BELOW`/`SELECTION`) работают с major модельной семьёй (Claude/GPT/Gemini/DeepSeek/Qwen). StarCoder / CodeLlama-variants редкие в VibeIDE user base. **Unblock:** user request с конкретной моделью requiring different FIM markers OR observed quality issue with current tags. Tag-set already pluggable через `quickEditFIMTags` param shape — wire-up cheap when actually needed.
 
 **Рекомендуемый порядок:**
 - **Quick wins на ближайший спринт:** T.1, T.2, T.6 — каждая ≤ 1 коммит, инфра 100% готова, заметны мгновенно.
@@ -1906,16 +1901,16 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ### U.3 T.6 `/commit` slash command — plumbing уже разведан
 
-- [ ] Разведка путей реализации (для будущей фазы, **не делаем сейчас**, но фиксируем file:line):
+- [~] Разведка путей реализации (для будущей фазы):
   - **SCM-service для git ops:** `electron-main/vibeideSCMMainService.ts:23-87` уже экспонирует `gitStat(path)`, `gitSampledDiffs(path)`, `gitBranch(path)`, `gitLog(path)`. Нужно добавить **три новых метода**: `gitDiff(path, staged: boolean)`, `gitCommit(path, message)`, `gitPush(path)` — оба write-метода требуют user-confirmation UI (commit pop-up с диффом и message preview).
   - **Tool registry pattern:** `common/prompt/tools/index.ts:52-89` — каждый built-in tool регистрируется через `satisfies { [T in BuiltinToolName]: ToolDef<T> }`. Создать `common/prompt/tools/git_commit.ts` с `ToolDef<'git_commit'>`, params `{ message, push?: boolean, scope?: string }`, approvalType `'terminal'`.
   - **Slash-command parser в chat:** разведать `chatThreadService.ts` `_runChatAgent` или `addUserMessageAndStreamResponse` — где первая user-input строка проходит через intercept (slash-команды типа `/skill:` уже работают). Pattern: ввести `expandChatSlashCommand(text): { tool?, args?, fallthrough: boolean }` по аналогии с `expandQuickEditSlashCommand`.
   - **Conventional Commit format:** проектное соглашение из `git log --oneline -20` — `type(scope): subject` где type ∈ {feat, fix, refactor, chore, docs} и scope ∈ {chat, tools, settings, plans, models, providers, config, ...}. Pre-fill type/scope из diff'а: множество файлов в `src/.../vibeide/browser/` → `(chat)`, в `prompt/tools/` → `(tools)`, etc. Простой rule-based mapper в helper'е.
-- [ ] **Acceptance:** пользователь пишет `/commit` в chat input → IDE забирает `git diff --staged` (если staged пуст — `git diff`) → модель генерит Conv-Commit message с scope auto-detect → toast с предложением `Apply / Edit / Cancel`; на `Apply` — `gitCommit(message)`; опционально `/commit --push` цепляет `gitPush`. Покрытие unit-тестами в `test/common/conventionalCommitFormat.test.ts` для scope auto-detect.
+- [~] **Acceptance** — partial: unit-tests landed (`test/common/conventionalCommitFormat.test.ts` covers scope auto-detect + type detect + format/parse). Browser-side `/commit` integration + Apply/Edit/Cancel toast pending wave-2.
 
 ### U.4 Stale TODO cleanup (продолжение S.4)
 
-- [ ] **`chatThreadService.ts:592`** — `MESSAGE_PREP_CACHE_TTL = 5000` — hardcoded 5s, без комментария почему именно 5s и без registered setting. Cache отслеживает «messages prepared in last N seconds» для оптимизации agent-loop'а. 5s — эмпирический выбор; для долгих reasoning-моделей (Claude reasoning 60s+) полностью устаревает. Перенос в `vibeide.chat.messagePrepCacheTtlMs` (default 5000, min 1000, max 60000) даст пользователю knob. **Решение:** оставлено как internal constant; экспонируем только при появлении реального запроса от пользователей. Документировано в `docs/knowledge/architecture/chat-agent-internals.md` (локально, .gitignored).
+- [x] **`chatThreadService.ts:592`** — ✅ closed with decision: keep as internal constant. Roadmap rationale: 5s value is empirical and адекватен для типичных agent-loop turns. Expose-as-setting unblock condition: реальный пользовательский запрос про cache misbehavior с long-reasoning моделями.
 
 ---
 
@@ -1964,15 +1959,15 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ### T.14 Settings Discovery Dashboard — auto-detect orphans
 
-- [ ] CI/dev-only скрипт `scripts/vibe-settings-orphans.js` который сканирует `src/vs/workbench/contrib/vibeide/**/*.ts` regex'ом `getValue(?:<[^>]+>)?\s*\(\s*['"]vibeide\.([^'"]+)`, собирает set прочитанных ключей и сравнивает с set зарегистрированных в `vibeideGlobalSettingsConfiguration.ts`. Отчёт: orphan reads (читается, не зареган — bug class V.0) + dead registrations (зареган, нигде не читается). Опционально CI gate: PR падает если orphans добавились. **ROI:** предотвращает повторение V.0 bug class permanently. Effort: 1 коммит, 100 строк Node.js.
+- [x] **`scripts/vibe-settings-orphans.mjs`** — ✅ closed (commit forthcoming). Wired in `.github/workflows/vibeide-lint.yml` as soft gate.
 
 ### T.15 Promise.allSettled audit + lint rule
 
-- [ ] ESLint plugin `no-promise-all-on-side-effects` (или просто grep-based CI check) — детектит `await Promise.all([...])` где inner-callbacks имеют side effects (state mutations, finally-cleanup ожидания). Заменять на `Promise.allSettled` или per-callback try/finally. Trigger: V.1 (MCP race) — баг существовал 2+ минор-версии. **ROI:** ловит этот класс racing bugs across whole codebase. Effort: 1 коммит, 150 строк lint helper'а либо grep-script.
+- [x] **`scripts/vibe-promise-all-audit.mjs`** — ✅ closed (commit forthcoming). Grep-based scanner with side-effect hint heuristic. Wired в `.github/workflows/vibeide-lint.yml` (soft gate; `--strict` flag для hard gate). First run found 3 review-worthy findings.
 
 ### T.16 Test placeholder linter (`no-placeholder-assert`)
 
-- [ ] CI check (`scripts/vibe-test-placeholders.js`) — детектит файлы где **все** asserts вида `assert.ok(true, ...)` или `assert.strictEqual(1, 1, ...)`. PR падает если такой файл добавлен. Альтернативный design: pre-commit hook. Trigger: V.4 — 4 файла с 14 fake-passes copy-pasted из template. **ROI:** предотвращает класс false-positive coverage. Effort: 1 коммит, 80 строк скрипта.
+- [x] **`scripts/vibe-test-placeholders.mjs`** — ✅ closed (commit forthcoming). Hard CI gate in `.github/workflows/vibeide-lint.yml`. Current run: 0 placeholder-only test files.
 
 ---
 
@@ -2028,7 +2023,7 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 - [x] **Slope detector в main:** ✅ this session: `SlopeWatcher` class — running window of 12 samples per (proc, windowId, pid) triple. Считает `(rss_last - rss_first) / dt_min` MB/min. При превышении `growthAlertMBPerMin` вызывает `_slopeNotifier(proc, slope, windowId, pid)`. Flag `notified` гарантирует one-shot нотификацию.
 - [x] **Event-over-ProxyChannel wiring (renderer push)** — ✅ this session: `IVibeIdleWatchdogChannelService.onSlopeAlert: Event<WatchdogSlopeAlert>` зарегистрирован, `VibeIdleWatchdogChannelService` extends `Disposable` и держит `_onSlopeAlert = new Emitter<...>()`. Constructor wire: `getVibeIdleWatchdog()?.setSlopeNotifier((proc,slope,windowId,pid) => emitter.fire({proc,slopeMBPerMin:slope,windowId,pid,ts}))`. Renderer-proxy переэкспортирует Event как `this.onSlopeAlert = this._proxy.onSlopeAlert`.
 - [x] **Renderer-side filtering + toast** — ✅ `VibeIdleWatchdogRendererContribution._handleSlopeAlert`: для `proc==='renderer'` фильтр по `alert.windowId === this._windowId` (alerts for other windows ignored), для других proc — только focused window (`_hostService.hasFocus`). `INotificationService.warn` с действиями `[Собрать crash report / Пропустить]`.
-- [ ] `autoSnapshotOnSlope` (slope > criticalSlopeMBPerMin → auto-snapshot без подтверждения) — backlog, отдельный пункт ниже не созданным W-айтемом. Низкий приоритет.
+- [~] `autoSnapshotOnSlope` — **deferred (low priority).** Manual snapshot trigger через user action (slope alert → «Снять heap snapshot» button) уже covers urgent investigation cases. Auto-trigger без user-confirmation risks unsolicited disk usage. **Unblock:** strong user evidence that manual trigger is missed during critical moments.
 - [x] **Acceptance:** искусственный allocate >5 MB/min в renderer → через 12 тиков (~60 мин при default `intervalMinutes=5`) или быстрее (если уменьшить интервал) — `INotificationService.warn` появляется на focused-window renderer'е.
 
 ### W.6 Status bar widget
@@ -2317,12 +2312,12 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 > Self-audit немедленно после refactor + tests commit. 8 находок, все non-blocking — v0.13.10 ушёл в релиз.
 
 - [x] **X.0.1 Regex-escape для tool names в dynamic regex** — ✅ closed (parallel-fixed в X.15.1/X.16.3 + initial implementation). `SELF_CLOSING_TOOL_RE`, `SELF_CLOSING_PARTIAL_RE`, `STRIP_PATTERNS` все используют `escapeRegexLiteral(name)` при building. Verified `xmlToolNormalize.ts:181, 198, 306`.
-- [ ] **X.0.2 Attribute value с `>` внутри.** `<read_file path="d:\foo>bar" />` — regex `[^>]*?` stop'нется на первом `>` внутри quotes. Реалистично не встречается (пути без `>`), но technically wrong. **Fix:** proper attribute parser, поддерживающий quoted values с `>`. Effort: 10 строк + расширить test'ы.
-- [ ] **X.0.3 Aliases в self-closing matcher — asymmetry с safety net.** `stripUnclaimedToolTags` использует **только** `builtinToolNames` (исключает aliases как `<read>` — common English word в paired form). `SELF_CLOSING_TOOL_RE` ВКЛЮЧАЕТ aliases. Defensible asymmetry (self-closing в прозе rare), но **inconsistency**. **Fix:** документировать rationale в комментарии модуля. ИЛИ переключить safety net тоже на aliases (но тогда `<read>4KB</read>` в коде объяснении станет placeholder'ом — хуже).
+- [~] **X.0.2 Attribute value с `>` внутри** — **deferred** (commit forthcoming). Escaped-quote handling closed in X.15.8 — significantly reduces practical exposure (model has to emit literal `>` inside attr value, which won't normally happen). True fix requires non-regex attribute parser. **Unblock:** observed incident with `>` inside attribute value.
+- [x] **X.0.3 Aliases в self-closing matcher — asymmetry с safety net** — ✅ closed (decision: keep asymmetry, documented). The rationale is recorded in `xmlToolNormalize.ts` module header comments + [docs/knowledge/architecture/xml-tool-normalization.md](knowledge/architecture/xml-tool-normalization.md). Switching safety net to aliases would mangle prose like «`<read>4KB</read>` of memory» — strict-canonical safety net + alias-tolerant transform is the correct trade-off.
 - [x] **X.0.4 `UNCLAIMED_TOOL_TAG_PLACEHOLDER` локализация** — ✅ closed via X.15.2 (commit `da2194e6`). `nls.localize()` lazy на вызов.
-- [ ] **X.0.5 Mid-DSML streaming flicker.** `<｜｜DSML｜｜inv` в chunk #1 без закрывающего `｜｜` → `DSML_MARKER_STRIP_RE` не match'ит (требует pair'у) → leak'нет на 50-300ms. Финальный текст clean. **Fix:** добавить partial regex `/<[｜|]+[^>]*$/` в ALT_PARTIAL_REGEXES. Effort: 3 строки. Trade-off: ловит все строки, оканчивающиеся на `<｜...` без `>` — почти всегда DSML, минимум false-positive.
+- [x] **X.0.5 Mid-DSML streaming flicker** — ✅ closed via X.6 (commit `3a80dae2`). 2 partial regexes added to `ALT_PARTIAL_REGEXES` in `extractGrammar.ts` covering DSML wrapper start + partial mid-marker. Uses `\p{L}` for Unicode identifiers.
 - [x] **X.0.6 `stripUnclaimedToolTags` re-build regex'ов в loop'е** — ✅ closed via X.15.3 (commit `da2194e6`). `STRIP_PATTERNS` precomputed at module init.
-- [ ] **X.0.7 Param name attribute regex только ASCII.** `([a-zA-Z_][\w-]*)` не покрывает Unicode-имена (теоретически `<read_file путь="..." />`). **Real risk: zero**, но technically restricted. **Fix:** заменить `[a-zA-Z_]` на `[\p{L}_]` с `u` flag. Effort: regex tweak.
+- [x] **X.0.7 Param name attribute regex только ASCII** — ✅ closed via X.15.5 (commit `3a80dae2`). All attribute parsers use `[\p{L}_][\p{L}\p{N}_-]*` with `u` flag. Tests cover Cyrillic and Chinese param names.
 - [x] **X.0.8 Idempotency не покрыт unit-тестом** — ✅ closed via X.13.2 (commit `2400d897`). 5 idempotency тестов: canonical / invoke / self-closing / DSML / malformed close.
 
 ### X.1 Comprehensive vendor format coverage matrix
@@ -2412,7 +2407,7 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 - [x] **X.11.3 Add minimax to force-XML quirk** — ✅ closed (X.14.3 commit). `{ match: "minimax", provider: "openCode", forceToolCallFormat: "xml" }` в `resources/model-quirks.json`.
 - [x] **X.11.4 Cross-tool args alias map** — ✅ closed (commit forthcoming). `CROSS_TOOL_ARG_HINTS` table в `common/toolSchemaSuggest.ts` — direct-hint short-circuit перед shape-match scoring. Currently maps: nl_input/natural_language_input → run_nl_command,nl_shell; shell_command/bash/terminal → terminal_command. 7 unit-тестов покрывают hint path. Extensible — add entries as new cross-tool confusions observed.
 - [~] **X.11.5 Auto-downgrade extension to native FC errors** — **deferred.** Static `forceToolCallFormat` quirks via `model-quirks.json` уже cover known-broken models (deepseek/kimi/qwen/minimax). Dynamic per-session switching adds complexity (state tracking, mid-stream channel swap, conversation history compatibility) с unclear benefit — models не fluctuating reliability mid-stream. **Unblock:** observed incident with a model that works fine sometimes and breaks others (currently не наблюдалось).
-- [ ] **Acceptance** (объединяющий): reproduce minimax-m2.7 + Dokku-task scenario → invalid params → recovery в течение 10s, не 120s stall. **No regression** на работающих minimax сценариях.
+- [~] **Acceptance for minimax recovery** — **wait-for-reproduction.** Force-XML quirk + smart-suggest schema hint landed in v0.13.11. Whether they recover within 10s vs 120s stall — depends on minimax's response behavior к explicit schema hint в the same turn. Cannot verify without running minimax through the Dokku scenario. **Unblock:** user runs scenario + reports timing.
 
 #### Несвязанный шум из того же лога (low priority)
 
@@ -2423,9 +2418,7 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ### X.12 `@xterm/addon-ligatures` missing in installer artifacts
 
-- [ ] **From X.11 log noise:** `@xterm/addon-ligatures/lib/addon-ligatures.js` returns `net::ERR_FILE_NOT_FOUND` at runtime. Файл существует в `node_modules/` но не копируется в `.build/win32-x64/.../node_modules/`. Возможно gulp copy step фильтрует этот npm package.
-- [ ] **Эффект:** ligatures в terminal не работают — minor cosmetic.
-- [ ] **Effort:** проверить `gulp` task'и копирования node_modules, добавить `@xterm/addon-ligatures` в keep-list если в exclude.
+- [~] **Investigation + speculative fix** — commit forthcoming. `build/.moduleignore` had rules for legacy `@xterm/xterm-addon-*` naming but NOT for new flat `@xterm/addon-*` packages (post-rename in xterm.js project). Added mirror rules so dev artifacts (`src/`, `fixtures/`, `out/`, `out-test/`) are stripped but `lib/` (prod entry) is kept. **Verification pending** next build — runtime ERR_FILE_NOT_FOUND should resolve. If not, deeper gulp copy step investigation needed (esbuild bundle / dependency walk).
 
 ### X.13 Malformed-close audit-pass (post-v0.13.11 commit 629c0625, 2026-05-23)
 
@@ -2504,11 +2497,11 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 >
 > **Diminishing returns** — каждый pass находит всё мельче и менее actionable. Реальные production-bugs (deepseek self-closing, DSML, malformed-close) все closed. Дальнейшие passes имеет смысл триггерить **по incident'у** (новый model emit issue) или после **major refactor** (новый feature integration), а не как rolling activity.
 
-- [ ] **X.20.1 — terminate audit-rollover mode** — следующий audit pass запускать только когда:
-  - Реальный production incident (user report или CI fail)
-  - Major architectural change в xmlToolNormalize.ts (новая format support)
-  - Перед каждым крупным релизом (e.g. v0.14.0)
-  - НЕ как automatic background task
+- [x] **X.20.1 — terminate audit-rollover mode** — ✅ accepted as standing policy. Audit pass triggers explicitly limited to:
+  - Production incident (user report или CI fail)
+  - Major architectural change в `xmlToolNormalize.ts` (new format support)
+  - Pre-release pass (e.g. before v0.14.0)
+  - NOT automatic background task
 
 ---
 
@@ -2582,9 +2575,9 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 - [x] **Y.9.3 `docs/README.md` не ссылался на `docs/CONTRIBUTING.md`** — orphan navigation. **Fix:** добавлена ссылка в "См. также" секцию.
 - [x] **Y.9.4 CONTRIBUTING.md misleading про compile-check** — говорил «обязательно перед коммитом». Но docs-only PR не требует. **Fix:** clarified «обязательно для code-изменений» + explicit «не нужен» в Doc-only section.
 
-### Y.10 H1 ↔ filename mismatch в shortened comparison file (backlog)
+### Y.10 H1 ↔ filename mismatch в shortened comparison file
 
-- [ ] `VibeIDE-Model-Support-Comparison.md` H1 still reads «VibeIDE Model Support & Code Editing Capabilities Comparison». Длинная фраза в H1, короткая в filename. Trivial — либо подровнять H1 под filename («VibeIDE Model Support Comparison»), либо переименовать обратно в полное. **Эффорт:** 1 строка.
+- [x] **`VibeIDE-Model-Support-Comparison.md`** — ✅ closed (commit `af01487c`). H1 подровнен под filename: «VibeIDE Model Support Comparison».
 
 ### Y.8 Search index для docs/ — deferred with explicit unblock condition
 

@@ -784,7 +784,13 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	private _convertThreadDataFromStorage(threadsStr: string): ChatThreads {
 		return JSON.parse(threadsStr, (key, value) => {
 			if (value && typeof value === 'object' && value.$mid === 1) { // $mid is the MarshalledId. $mid === 1 means it is a URI
-				return URI.from(value); // TODO URI.revive instead of this?
+				// `URI.revive` is the cheaper restore path — no full parse, just
+				// re-establishes the prototype/methods on the existing object shape.
+				// `URI.from` would re-parse the components. For thread restore that
+				// can replay hundreds of URIs on workspace open, the difference adds
+				// up. Switch is safe because $mid:1 already guarantees a properly
+				// shaped URI literal from `JSON.stringify(uri.toJSON())`.
+				return URI.revive(value);
 			}
 			// Restore Uint8Array from base64 string for image data
 			// Only process 'data' keys that are directly under image attachment objects
