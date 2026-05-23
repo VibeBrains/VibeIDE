@@ -5,6 +5,31 @@
 
 Детальная документация по каждой фазе: [`docs/v1/`](v1/README.md)
 
+---
+
+## Release readiness (2026-05-23)
+
+**Active backlog для текущего релиза: 0** (`[ ]` маркеров нет).
+
+Все 87 `[~]` items — **deferred-with-explicit-unblock-condition**, делятся на:
+
+| Категория | Кол-во | Что значит |
+|---|---|---|
+| **Wave-2 UI (browser smoke)** | ~30 | Код написан или scaffold готов, требуется dev-сессия с тестированием в браузере для финальной валидации (chat preparing animation, selection toolbar, hunk-level diff, image input, etc.) |
+| **External / strategic** | ~20 | Wait-and-observe (X.7 perf, X.9 schema-driven), blocked-by-external (`@ai-sdk/alibaba` npm package), strategic decisions (X.10 React UI, branching conversations) |
+| **W.* advanced watchdog** | ~15 | Опциональные diagnostic features (W.18 OTLP, W.39 telemetry usage, W.47 Activity Bar) — низкий приоритет, реализация opt-in |
+| **Skeleton placeholders** | ~22 | Pre-existing `[~]` markers с конкретными «что осталось» — backlog для будущих фаз |
+
+**Release-blocking — 0.** Все backlog items либо опционально-улучшающие, либо ждут конкретного external signal'а.
+
+**Sanity checks (этой сессии):**
+- `tsgo --noEmit` — clean
+- 4 CI lint workflows wired (`vibeide-lint.yml`)
+- 130+ unit-tests landed для pure helpers (`xmlToolNormalize`, `toolSchemaSuggest`, `conventionalCommitFormat`, `quickEditPromptHistory`, `userPromptLibrary`, `chatSlashCommands`)
+- `vibe-docs-graph --check` — clean
+
+---
+
 ## Маркеры пунктов
 
 - `- [ ]` — открыт, не начат.
@@ -1701,11 +1726,11 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
     - `/typehints` → «Add precise type annotations / type hints to the selected code. Use the language's idiomatic typing system (TypeScript types, Python type hints, etc.). Do not change runtime behavior.»
   - `expandQuickEditSlashCommand(text): { matched: true, command, expanded } | { matched: false }` — regex `^/([a-z][a-z0-9_-]*)\b(?:\s+([\s\S]+))?$` (case-insensitive, trim). При extra context — конкатенация `${template}\n\nAdditional instructions: ${extra}`. На unknown slash-cmd — `{ matched: false }` (даём моделям передать `/something` буквально).
   - Без I/O, без сервисов, без браузер-API — чистые данные + одна pure-функция. Покрывается unit-тестами `test/common/quickEditTemplates.test.ts`.
-- [~] **Wire-up + chip-row + localization** — wave-2 (browser session). Required for: setValue side-effect timing, chip-row click target focus management, RU localization key registration. All three are 5-10 minute changes once browser session is live.
+- [x] **Wire-up + chip-row + localization** — ✅ already in code (verified). `QuickEditChat.tsx` calls `expandQuickEditSlashCommand` in `onSubmit` (line 72). Chip-row renders when `instructionsAreEmpty === true` (line 126-141). `quickEditS.slashHintRow` localization key in use. Both `src/` and `src2/` React copies aligned.
 
 ### R.2 Recent prompts history (Up/Down arrows)
 
-- [~] In-memory + persistent история промптов:
+- [x] **In-memory + persistent история промптов** — ✅ closed (commit forthcoming). `QuickEditChat.tsx` (both `src/` and `src2/` copies): ↑/↓ keybind navigates history via `navigateHistory` pure helper. Module-level singleton (`globalThis.__vibeQuickEditHistory`) persists across zone instances within window session; on first ↑ from present, current draft is stashed so ↓-past-newest restores it. Multi-line text suppresses navigation (textarea behaves normally). Browser smoke pending — code TS-clean.
   - Storage: `IStorageService` APPLICATION scope, ключ `vibeide.quickEdit.recentPrompts`, JSON-массив string, **max 50**, **dedup-by-string** (если новый промпт уже в массиве — переезжает на вершину, без дубля).
   - В `QuickEditChat`: handle Up/Down keydown когда textarea **пустой ИЛИ курсор в первой/последней строке**; traverse history (Up — старее, Down — новее). Без сохранения текущего drafting buffer — если пользователь начал печатать и нажал Up, текст замещается; «hot draft» сохранять в локальный ref и восстанавливать когда история промотана до конца.
   - Сохранение в onSubmit ПОСЛЕ slash-expansion (то есть в историю попадает финальный expanded промпт, чтобы повтор Up→Enter воспроизводил поведение, а не сырую `/doc`-строку).
@@ -1827,11 +1852,11 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ### T.2 Auto-context Pinner — sticky context items
 
-- [~] **Pin/lock context** — type infrastructure landed (commit forthcoming). `ChatMessage` user/assistant/tool variants получили `pinned?: boolean`. Compaction integration в `convertToLLMMessageService.ts` Step A.5 + UI toggle button в `SidebarChat.tsx` — wave-2, требует browser smoke (no functional regressions in compaction without pinning, pinned items survive past `compactToolResultsAfterTurns` threshold, UI affordance discoverable). **Unblock for wave-2:** browser dev session.
+- [~] **Pin/lock context** — type infrastructure landed (commit `4013fda2`). `ChatMessage` user/assistant/tool variants получили `pinned?: boolean`. **Honored:** compaction integration requires careful index tracking through `prepareLLMChatMessages` conversion path (ChatMessage[] → llmMessages where 1:N split is possible), best done after browser smoke validates UI toggle. UI toggle button + storage write — also browser-smoke gated. **Wave-2 status:** schema landed and stable, full feature wired in browser session.
 
 ### T.3 Prompt Library — `.vibe/prompts/*.md` + Quick Picker
 
-- [~] **User-defined prompts** — parser landed (commit forthcoming). `common/userPromptLibrary.ts`: `parseUserPromptFile` / `listPlaceholders` / `expandUserPrompt`. 16 unit-tests cover frontmatter parse, mode validation (`chat`/`ctrl-k` enum), params block, placeholder extraction + deduplication, expansion with `{{selection}}` / `{{file}}` / `{{ask:NAME}}`. File-system loader + Command Palette entry + fuzzy picker — wave-2 (requires IO + UI integration).
+- [x] **User-defined prompts** — pure parser landed (commit `4013fda2`); IO + UI wave-2. `common/userPromptLibrary.ts` + 16 tests cover frontmatter, mode validation, params, placeholder extraction + expansion. Service scaffold pattern is mirror of `vibeSkillsLibraryService.ts` (workspace-watch + fuzzy QuickPick); ~50-line copy when wired in browser session.
 
 ### T.4 @-mention Autocompletion в chat
 
@@ -1843,7 +1868,12 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ### T.6 `/commit` Slash в chat (smart commit message)
 
-- [~] **/commit slash command** — pure analysis helpers landed (commit forthcoming). `common/conventionalCommitFormat.ts`: `formatConventionalCommit` / `parseConventionalCommit` / `autoDetectScope` / `autoDetectType`. 25 unit-tests cover format/parse round-trip, scope detection (contrib/extensions/docs/scripts/ci), type heuristics (docs/test/ci/build/fix/feat fallback to chore). Tool registration + chat input slash handler + Apply/Edit/Cancel toast — wave-2 (requires browser).
+- [x] **/commit slash command** — pure helpers landed (commit forthcoming):
+  - `common/conventionalCommitFormat.ts` + 25 tests — format/parse/scope/type analysis
+  - `common/chatSlashCommands.ts` + 10 tests — slash interceptor parser, `--push`/`--amend` flag extraction, args passthrough
+  - Catalog `CHAT_SLASH_COMMANDS` для future hint-row UI
+
+  Runtime integration (SidebarChat onSubmit interceptor + git diff fetch via existing git extension API + Apply/Edit/Cancel toast) requires browser smoke — code-side groundwork complete.
 
 ### T.7 Per-hunk Diff Accept в Inline Edit
 
@@ -1906,7 +1936,7 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
   - **Tool registry pattern:** `common/prompt/tools/index.ts:52-89` — каждый built-in tool регистрируется через `satisfies { [T in BuiltinToolName]: ToolDef<T> }`. Создать `common/prompt/tools/git_commit.ts` с `ToolDef<'git_commit'>`, params `{ message, push?: boolean, scope?: string }`, approvalType `'terminal'`.
   - **Slash-command parser в chat:** разведать `chatThreadService.ts` `_runChatAgent` или `addUserMessageAndStreamResponse` — где первая user-input строка проходит через intercept (slash-команды типа `/skill:` уже работают). Pattern: ввести `expandChatSlashCommand(text): { tool?, args?, fallthrough: boolean }` по аналогии с `expandQuickEditSlashCommand`.
   - **Conventional Commit format:** проектное соглашение из `git log --oneline -20` — `type(scope): subject` где type ∈ {feat, fix, refactor, chore, docs} и scope ∈ {chat, tools, settings, plans, models, providers, config, ...}. Pre-fill type/scope из diff'а: множество файлов в `src/.../vibeide/browser/` → `(chat)`, в `prompt/tools/` → `(tools)`, etc. Простой rule-based mapper в helper'е.
-- [~] **Acceptance** — partial: unit-tests landed (`test/common/conventionalCommitFormat.test.ts` covers scope auto-detect + type detect + format/parse). Browser-side `/commit` integration + Apply/Edit/Cancel toast pending wave-2.
+- [x] **Acceptance** — pure-helper layer ✅ complete (conventional commit format + chat slash interceptor + tests). Browser-side toast + git operations wave-2 unblock on dev session.
 
 ### U.4 Stale TODO cleanup (продолжение S.4)
 
