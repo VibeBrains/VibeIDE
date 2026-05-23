@@ -24,6 +24,9 @@
 		{ "match": "deepseek", "provider": "openCode", "forceEmptyReasoning": true, "mirrorReasoningContent": true, "forceToolCallFormat": "xml",
 		  "note": "DeepSeek via openCode aggregator — native FC confuses tool names with cross-tool args (e.g. names a tool 'read_file' but sends search_for_files-shaped args). Force XML. Direct DeepSeek API works correctly with native FC — falls through to the unscoped deepseek rule below." },
 
+		{ "match": "minimax", "provider": "openCode", "temperature": 1.0, "topP": 0.95, "topK": 40, "forceToolCallFormat": "xml",
+		  "note": "minimax via openCode aggregator — native FC has same cross-tool args confusion as deepseek (observed 2026-05-23: model calls 'read_file' with {nl_input: 'check apps'} — nl_input is run_nl_command's param, not read_file's). Stream stalls 120s on invalid_params no-retry. Force XML up front. Direct minimax API works fine — falls through to unscoped minimax rules below for temperature/topK only." },
+
 		{ "match": "deepseek", "forceEmptyReasoning": true, "mirrorReasoningContent": true,
 		  "note": "DeepSeek family (all providers) — every assistant message must carry a reasoning slot (HTTP 400 otherwise); reasoning text must be mirrored on top-level message field. Native FC is left enabled here for direct API users; the openCode-scoped rule above forces XML for that aggregator." },
 

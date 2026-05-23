@@ -132,23 +132,92 @@ const classifyToolErrorReason = (toolName: string, content: string): AutoDowngra
 //
 // Required vs optional is detected via the same heuristic used by the AI SDK
 // schema builder (description starts with "Optional." → optional).
-const buildToolSchemaHint = (canonicalToolName: string): string => {
-	if (!isABuiltinToolName(canonicalToolName)) return ''
+/**
+ * Classify a tool's params into (required, optional). Reused by both
+ * `buildToolSchemaHint` (for the SPECIFIC tool the model failed at) and
+ * `suggestAlternateTool` (cross-tool matching for confused calls).
+ */
+const classifyParams = (canonicalToolName: string): { required: string[]; optional: string[] } | null => {
+	if (!isABuiltinToolName(canonicalToolName)) return null
+	const def = (builtinTools as Record<string, { params?: Record<string, { description: string }> }>)[canonicalToolName]
+	if (!def?.params) return null
+	const required: string[] = []
+	const optional: string[] = []
+	for (const [k, v] of Object.entries(def.params)) {
+		const desc = v.description ?? ''
+		if (desc.trimStart().toLowerCase().startsWith('optional')) optional.push(k)
+		else required.push(k)
+	}
+	return { required, optional }
+}
+
+/**
+ * X.11.4 / X.13.7 smart-suggest: when the model calls `read_file` with args
+ * shaped like `{nl_input: ...}` (observed minimax-m2.7 incident 2026-05-23),
+ * we can recognize that `nl_input` is `run_nl_command`'s required param and
+ * suggest the model meant that tool. Recovery is faster than blind retry.
+ *
+ * Heuristic: score each candidate tool by `|rawKeys ∩ candidateRequired| /
+ * |candidateRequired|`. A perfect match (every required param present in
+ * rawKeys) → score 1.0. Return the best candidate if its score >= 0.6 AND
+ * it's strictly better than the called tool's score against itself (avoids
+ * suggesting the same tool back when 1 of N required params is wrong).
+ *
+ * Returns null if no plausible suggestion — most invalid_params are genuine
+ * one-field bugs in the same tool, not cross-tool confusion.
+ */
+const suggestAlternateTool = (calledTool: string, rawParamKeys: readonly string[]): string | null => {
+	if (rawParamKeys.length === 0) return null
+	const calledClassified = classifyParams(calledTool)
+	if (!calledClassified) return null
+	const calledScore = scoreToolMatch(calledClassified.required, rawParamKeys)
+	let best: { tool: string; score: number } | null = null
+	for (const candidate of Object.keys(builtinTools)) {
+		if (candidate === calledTool) continue
+		const classified = classifyParams(candidate)
+		if (!classified || classified.required.length === 0) continue
+		const score = scoreToolMatch(classified.required, rawParamKeys)
+		if (score < 0.6) continue
+		if (score <= calledScore) continue   // not strictly better than called tool
+		if (!best || score > best.score) best = { tool: candidate, score }
+	}
+	return best?.tool ?? null
+}
+
+/**
+ * Score a candidate tool: fraction of its required params present in rawKeys.
+ * Case-insensitive; also runs each rawKey through canonical aliasing for the
+ * candidate tool so `{filePath: ...}` matches read_file's `{uri}` requirement
+ * (filePath → uri via PARAM_ALIASES_BY_TOOL).
+ */
+const scoreToolMatch = (requiredParams: readonly string[], rawKeys: readonly string[]): number => {
+	if (requiredParams.length === 0) return 0
+	const rawSet = new Set(rawKeys.map(k => k.toLowerCase()))
+	let hits = 0
+	for (const required of requiredParams) {
+		if (rawSet.has(required.toLowerCase())) hits += 1
+	}
+	return hits / requiredParams.length
+}
+
+const buildToolSchemaHint = (canonicalToolName: string, rawParamKeys: readonly string[] = []): string => {
+	const classified = classifyParams(canonicalToolName)
+	if (!classified) return ''
 	const def = (builtinTools as Record<string, { params: Record<string, { description: string }> }>)[canonicalToolName]
 	if (!def?.params) return ''
-	const entries = Object.entries(def.params)
-	if (entries.length === 0) return ''
-	const requiredEntries: Array<[string, { description: string }]> = []
-	const optionalEntries: Array<[string, { description: string }]> = []
-	for (const [k, v] of entries) {
-		const desc = v.description ?? ''
-		if (desc.trimStart().toLowerCase().startsWith('optional')) optionalEntries.push([k, v])
-		else requiredEntries.push([k, v])
-	}
 	const lines: string[] = []
 	lines.push(`The tool "${canonicalToolName}" expects these parameters:`)
-	for (const [k, v] of requiredEntries) lines.push(`  - ${k} (required): ${v.description}`)
-	for (const [k, v] of optionalEntries) lines.push(`  - ${k} (optional): ${v.description}`)
+	for (const k of classified.required) lines.push(`  - ${k} (required): ${def.params[k].description}`)
+	for (const k of classified.optional) lines.push(`  - ${k} (optional): ${def.params[k].description}`)
+	// X.11.4 — smart suggest. If the rawParams shape better matches a DIFFERENT
+	// tool's required params (e.g. minimax called read_file with {nl_input} —
+	// nl_input is run_nl_command's required arg), append a one-line suggestion.
+	// The model may have intended the alternate tool all along.
+	const alternate = suggestAlternateTool(canonicalToolName, rawParamKeys)
+	if (alternate) {
+		lines.push('')
+		lines.push(`Note: your argument shape (${rawParamKeys.join(', ')}) matches the "${alternate}" tool better than "${canonicalToolName}". If you meant to call "${alternate}", do so now with its expected params.`)
+	}
 	// Intentionally NO format example. The model is on whichever channel its SDK
 	// adapter uses (Anthropic tool_use blocks, OpenAI tool_calls, or XML for
 	// the legacy fallback). Showing an XML example used to mislead models on
@@ -3543,7 +3612,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// We inject the tool's full parameter list (required first, then optional)
 				// with descriptions and an example XML call. This is the difference
 				// between "fix something" and "fix uri specifically — example below".
-				const schemaHint = buildToolSchemaHint(toolName as string)
+				// Extract param keys from rawParams for smart-suggest (X.11.4 / X.13.7).
+				const rawKeysForHint = opts.unvalidatedToolParams && typeof opts.unvalidatedToolParams === 'object'
+					? Object.keys(opts.unvalidatedToolParams as Record<string, unknown>)
+					: []
+				const schemaHint = buildToolSchemaHint(toolName as string, rawKeysForHint)
 				const content = schemaHint
 					? `The tool "${toolName}" was called with invalid arguments: ${errorMessage}\n\n${schemaHint}\n\nRe-issue the call with all required parameters present and correctly typed.`
 					: `The tool "${toolName}" was called with invalid arguments: ${errorMessage} Re-issue the call with all required parameters present.`
