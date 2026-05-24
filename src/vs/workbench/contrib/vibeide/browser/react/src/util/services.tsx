@@ -286,6 +286,15 @@ const _registerAccessor = (accessor: ServicesAccessor) => {
 	reactAccessor_ = reactAccessor
 }
 
+/**
+ * Used by `mountFnGeneratorNoRegister` to skip re-running `_registerServices`
+ * when the global accessor has already been wired by an earlier mount. See
+ * the "this should only be called ONCE!" warning at the top of this file —
+ * subsequent registrations accumulate duplicate listeners on global
+ * emitters and starve the renderer on heavy events.
+ */
+export const _isAccessorRegistered = (): boolean => reactAccessor_ !== null;
+
 // -- services --
 export const useAccessor = () => {
 	if (!reactAccessor_) {

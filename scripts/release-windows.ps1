@@ -2,14 +2,19 @@
 # Usage:
 #   .\scripts\release-windows.ps1                  # uses version from product.json
 #   .\scripts\release-windows.ps1 -Version v0.2.0  # override version
-#   .\scripts\release-windows.ps1 -SkipCompile      # skip npm run compile-build (if already compiled)
-#   .\scripts\release-windows.ps1 -Draft            # create release as draft
+#   .\scripts\release-windows.ps1 -SkipCompile     # skip npm run compile-build (if already compiled)
+#   .\scripts\release-windows.ps1 -Draft           # create release as draft
+#   .\scripts\release-windows.ps1 -SkipPublish     # build artifacts only — no version bump,
+#                                                  # no tag, no `gh release create`. For manual
+#                                                  # smoke-test before committing to a real release.
+#                                                  # Re-run without the flag to publish.
 # Requires: Node.js, gh CLI (winget install GitHub.cli), InnoSetup (choco install innosetup)
 
 param(
     [string]$Version = "",
     [switch]$SkipCompile,
-    [switch]$Draft
+    [switch]$Draft,
+    [switch]$SkipPublish
 )
 
 Set-StrictMode -Version Latest
@@ -27,21 +32,31 @@ $productPath = "$Root\product.json"
 $product = Get-Content $productPath -Raw | ConvertFrom-Json
 
 if (-not $Version) {
-    # Auto-bump patch (maintenance) in product.json
-    $parts = $product.vibeVersion -split '\.'
-    $parts[2] = [string]([int]$parts[2] + 1)
-    $newVibe = $parts -join '.'
-    $Version = "v$newVibe"
+    if ($SkipPublish) {
+        # Test build — don't bump or commit. Build at the current product.json
+        # version so the user can repeatedly rebuild and smoke-test without
+        # wasting version numbers. Real publish run (without -SkipPublish)
+        # will auto-bump as usual.
+        $newVibe = $product.vibeVersion
+        $Version = "v$newVibe"
+        OK "Test build at current vibeVersion: $newVibe (no auto-bump, -SkipPublish)"
+    } else {
+        # Auto-bump patch (maintenance) in product.json
+        $parts = $product.vibeVersion -split '\.'
+        $parts[2] = [string]([int]$parts[2] + 1)
+        $newVibe = $parts -join '.'
+        $Version = "v$newVibe"
 
-    # Write back to product.json (preserve formatting)
-    $raw = Get-Content $productPath -Raw
-    $raw = $raw -replace '"vibeVersion"\s*:\s*"[^"]*"', """vibeVersion"": ""$newVibe"""
-    Set-Content $productPath $raw -NoNewline
-    OK "Bumped vibeVersion: $($product.vibeVersion) → $newVibe (product.json updated)"
+        # Write back to product.json (preserve formatting)
+        $raw = Get-Content $productPath -Raw
+        $raw = $raw -replace '"vibeVersion"\s*:\s*"[^"]*"', """vibeVersion"": ""$newVibe"""
+        Set-Content $productPath $raw -NoNewline
+        OK "Bumped vibeVersion: $($product.vibeVersion) → $newVibe (product.json updated)"
 
-    git add $productPath
-    git commit -m "chore: bump version to $newVibe"
-    git push
+        git add $productPath
+        git commit -m "chore: bump version to $newVibe"
+        git push
+    }
 } else {
     # Explicit version provided — sync product.json to match
     if ($Version -notmatch '^v(\d+\.\d+\.\d+)$') {
@@ -189,6 +204,18 @@ if (Test-Path $appExe) {
     }
 } else {
     Write-Warning "[release] Smoke check SKIPPED: built exe not found at expected path — verify gulp output dir."
+}
+
+if ($SkipPublish) {
+    OK "Test build complete (-SkipPublish): tag + GitHub release SKIPPED."
+    Write-Host "`n📦 Artifacts ready for manual smoke-test:" -ForegroundColor Cyan
+    foreach ($artifact in $artifacts) {
+        Write-Host "   $artifact" -ForegroundColor Gray
+    }
+    Write-Host "`n   To publish:" -ForegroundColor Cyan
+    Write-Host "     - If artifacts look good: re-run without -SkipPublish (will auto-bump + publish)." -ForegroundColor Gray
+    Write-Host "     - If something needs a fix: edit code, then re-run with -SkipPublish again`n        (version stays the same — no wasted version numbers).`n" -ForegroundColor Gray
+    exit 0
 }
 
 # ── 4. Git tag ────────────────────────────────────────────────────────────────

@@ -2772,6 +2772,41 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
   - **Параллель X.20.1** (XML normalize): то же правило установлено для XML pipeline'а в 2026-05-23.
 - [x] **Любой audit-by-request** (когда пользователь просит «пробегись еще раз») — ОК делать, но честно warning'нуть про diminishing returns и сразу указать что найдено реальных issues (vs cosmetic). Эта запись — formal acknowledgment паттерна.
 
+### Z.12 Post-release regression: workbench freeze (v0.13.14 deleted, 2026-05-24)
+
+> **Incident.** User reported that v0.13.14 froze the IDE — at work (no network) immediately at startup, at home (network OK) after the first chat prompt. Symptom: «ни одна кнопка не нажимается, меню не работает». Tag + GitHub release deleted; description archived to `docs/release-notes-v0.13.14-saved.md` for reuse.
+>
+> **Three root causes identified (multi-factor regression).**
+
+#### Z.12.1 — `loaded_from_local` модал блокирует workbench at startup
+
+- [x] **Root cause.** В Z.1 audit я перевёл info-toast → блокирующий модал «чтобы пользователь не пропустил». Но `loaded_from_local` срабатывает **на каждом cold-start'е на work-машине** (нет network — fast-path всегда читает локальный snapshot). Модал → `inert` на workbench-siblings → menus/sidebar/buttons frozen. Если модал по visual-load-order причине не виден сразу — пользователь в trap'е без visual cue.
+- [x] **Fix (commit forthcoming).** Reverted `loaded_from_local` обратно на `INotificationService.notify(Severity.Info)` toast. Не блокирует, dismissable, два action: «Скопировать URL», «Перепроверить» (вызывает `vibeide.modelsDevCatalog.recheck`). `failed` state остаётся модалом (no snapshot = action required).
+- [x] **Lesson learned.** Модал ≠ универсальная замена toast'у. Критерий выбора:
+  - **Модал**: action required (without user input, IDE не может продолжить)
+  - **Toast**: info-only (notification, можно игнорировать)
+  - Z.1 audit applied modals too aggressively to `loaded_from_local` — paradoxically created worse UX than the original toast it «improved».
+
+#### Z.12.2 — `_registerServices` double-subscription leak
+
+- [x] **Root cause.** `services.tsx` documented at line 100: «this should only be called ONCE!». Existing mounts (Sidebar, QuickEdit, etc.) уже calling it via shared `mountFnGenerator`. Когда я добавил `VibeModalRootContribution`, его mount также шёл через `mountFnGenerator` → второй `_registerServices` call → **double-subscription на каждом global emitter'е** (`onDidChangeStreamState`, `onDidChangeCurrentThread`, etc.). Каждое stream-update событие при chat'е fires duplicate listeners → React setState накачивается → renderer thread starvation после первого тяжёлого emitter-burst'а. Это объясняет «дома работает первый prompt, потом freeze».
+- [x] **Fix (commit forthcoming).** Новый `mountFnGeneratorNoRegister.tsx` — variant который пропускает `_registerServices` если accessor уже зарегистрирован (`_isAccessorRegistered()` getter добавлен в `services.tsx`). `mountVibeModalRoot` переключён на эту версию: workbench-portal mount теперь reuse'ит existing accessor instead of double-subscribing.
+- [x] **Долг.** Существующие повторные mounts (`mountSidebar`, `mountSidebarHistory`, `mountQuickEdit`, `mountVibeSettings`, `mountVibeTooltip`, `mountVibeOnboarding`, `mountVibeEditorWidgets`, `mountDiff`) **тоже** нарушают single-call invariant. Z.12.3 deferred for separate cleanup pass — не блокер для текущего hotfix'а (они стабильно работали до моего изменения).
+
+#### Z.12.3 — Recheck loading modal trap
+
+- [x] **Root cause.** Recheck-action's loading-модал был `dismissible: false` + `loading: true` → ESC + backdrop + onBeforeDismiss все rejected. Если main-process IPC `recheck()` зависнет (corporate firewall + slow timeout + flaky retry), модал остался бы открытым forever, workbench inert, пользователь в trap'е.
+- [x] **Fix (commit forthcoming).**
+  - `dismissible: true` + Cancel button — пользователь может ESC out.
+  - 30s `RECHECK_TIMEOUT_MS` через `Promise.race` против sentinel. По истечению — close loading + show error modal «Перепроверка зависла».
+  - Catch error path также инвалидирует timer (нет dangling setTimeout).
+- [x] **Diagnostic logging** в `VibeModalContainer` — `console.warn` на каждый inert apply/restore (видно в DevTools); `console.error` с force-unblock JavaScript snippet если cleanup throws. Если пользователь снова freeze'ится — F12 → видим инструкцию → unblock в одну строчку.
+
+#### Z.12 acceptance
+
+- [x] Test build (`-SkipPublish` flag добавлен в `release-windows.ps1`) — позволяет smoke-test installer без публикации tag'а / release'а. Если plain build OK → re-run без флага для publish. Иначе fix + bump + re-test.
+- [x] Roadmap Z.10 (audit-rollover terminate) **не предотвратило** этот regression — `loaded_from_local` модал-переход был принят в Z.1 (single design decision), не в audit-roll. Lesson: audit-rollover ≠ единственный источник regressions. UX-changes требуют user-test validation независимо от audit-policy.
+
 ### Z.11 Deferred wave-5 (audit round 4 → roadmap)
 
 - [~] **`body` как `string | ReactNode`** — full React support в body. Сейчас plain string + `pre-wrap`. Unlock'нет formatted body, embedded links, code blocks без markdown renderer. Type-narrowing + render branching. **Unblock:** конкретный flow требующий formatted body (`/commit` preview, error stack trace и т.п.).

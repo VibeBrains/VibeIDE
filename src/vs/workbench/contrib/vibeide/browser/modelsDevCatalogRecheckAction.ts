@@ -17,6 +17,13 @@ import { IVibeModalService } from '../common/vibeModalService.js';
  *  is enough to read the one-line message but doesn't interrupt workflow. */
 const SUCCESS_AUTO_DISMISS_MS = 4000;
 
+/** Safety net for the recheck IPC call. If main-process hangs (corporate
+ *  firewall + slow network + buggy retry), we don't want the loading modal
+ *  trapping the user forever. 30s is generous — `getCatalog()` has a 10s
+ *  network timeout internally, so 30s covers TWO network attempts + fast-path
+ *  fs.stat with margin. */
+const RECHECK_TIMEOUT_MS = 30_000;
+
 /**
  * Command Palette entry «VibeIDE: Перепроверить каталог models.dev».
  *
@@ -48,24 +55,51 @@ class ModelsDevCatalogRecheckAction extends Action2 {
 		const clipboard = accessor.get(IClipboardService);
 
 		// Loading modal — kept for the duration of the recheck (typically <1s,
-		// but a network fetch can take up to FETCH_TIMEOUT_MS ≈10s). We
-		// `closeHead()` programmatically instead of `resolveHead('ok')` —
-		// avoids the fragile "fake button id" pattern, bypasses the
-		// `dismissible: false` guard cleanly.
-		const showLoading = modalSvc.showModal<'ok'>({
+		// but a network fetch can take up to FETCH_TIMEOUT_MS ≈10s).
+		//
+		// Z.12 fix: `dismissible: true` + Cancel button — pre-fix value was
+		// `false` AND `loading: true`, which made ESC + backdrop + onBeforeDismiss
+		// all reject. A hung IPC call would TRAP the user in the modal with a
+		// frozen workbench (inert + no exit path). Now user can ESC out.
+		const showLoading = modalSvc.showModal<'cancel'>({
 			title: localize('vibeide.modelsDev.recheck.title', 'Перепроверка каталога models.dev'),
 			body: localize('vibeide.modelsDev.recheck.body', 'Идёт повторная проверка источников каталога…'),
 			icon: 'sync',
-			dismissible: false,
 			loading: true,
 			size: 'small',
-			buttons: [{ id: 'ok', label: 'OK', role: 'primary' }],
+			buttons: [{ id: 'cancel', label: localize('vibeide.modal.cancel', 'Отмена'), role: 'secondary' }],
+		});
+
+		// Race the IPC recheck against a hard timeout — main-process should
+		// finish within 30s (10s network × 2 attempts + fs.stat margin); past
+		// that we surface an error rather than hang the modal forever.
+		const timeoutSentinel = Symbol('recheckTimeout');
+		let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+		const timeoutPromise = new Promise<typeof timeoutSentinel>(resolve => {
+			timeoutHandle = setTimeout(() => resolve(timeoutSentinel), RECHECK_TIMEOUT_MS);
 		});
 
 		let status: ModelsDevCatalogStatus;
 		try {
-			status = await statusSvc.recheck();
+			const result = await Promise.race([statusSvc.recheck(), timeoutPromise]);
+			if (timeoutHandle !== null) clearTimeout(timeoutHandle);
+			if (result === timeoutSentinel) {
+				modalSvc.closeHead();
+				await showLoading;
+				void modalSvc.errorModal({
+					title: localize('vibeide.modelsDev.recheck.timeout.title', 'Перепроверка зависла'),
+					body: localize(
+						'vibeide.modelsDev.recheck.timeout.body',
+						'Recheck не завершился за {0} секунд. Попробуйте позже или перезапустите VibeIDE.',
+						RECHECK_TIMEOUT_MS / 1000,
+					),
+					size: 'small',
+				});
+				return;
+			}
+			status = result;
 		} catch (e) {
+			if (timeoutHandle !== null) clearTimeout(timeoutHandle);
 			modalSvc.closeHead();
 			await showLoading;
 			void modalSvc.errorModal({
@@ -76,6 +110,8 @@ class ModelsDevCatalogRecheckAction extends Action2 {
 			return;
 		}
 
+		// If user clicked Cancel in the loading modal, the queue head is already gone.
+		// `closeHead()` is then a no-op on empty queue; safe.
 		modalSvc.closeHead();
 		await showLoading;
 

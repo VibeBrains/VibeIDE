@@ -9,6 +9,8 @@ import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
+import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IModelsDevCatalogStatusService, ModelsDevCatalogStatus } from '../common/modelsDevCatalogStatusService.js';
 import { labelOfSource, MODELS_DEV_URL } from '../common/modelsDevCatalogConstants.js';
 import { IVibeModalService } from '../common/vibeModalService.js';
@@ -20,10 +22,13 @@ import { localize } from '../../../../nls.js';
  * is ready before the user sends their first chat message.
  *
  * Notifies the user only in degraded states:
- *   - 'loaded_from_local': VibeModal (was INFO toast pre-A) — important info that users
- *     used to dismiss accidentally. Semantic source label («рядом с VibeIDE.exe» /
- *     «встроенный снимок» / «из пользовательских данных») replaces raw path display.
- *   - 'failed': VibeModal with copy-URL button + path list + open-URL action. Sticky.
+ *   - 'loaded_from_local': lightweight INFO toast (was modal in audit Z.1 — reverted in
+ *     Z.12 because the modal applied `inert` to the entire workbench at startup, blocking
+ *     menu/sidebar/buttons; on offline work-machines this turned every cold-start into a
+ *     full-IDE freeze). Toast is non-blocking + dismissable; user can hit «Перепроверить»
+ *     for the recheck command, or simply ignore — IDE remains fully interactive.
+ *   - 'failed': VibeModal stays (no snapshot at all is a real action-required state —
+ *     user must download models.dev/api.json before LLM calls work).
  *
  * Why the registration-time fetch: aiSdkAdapter calls getCatalog() lazily on the first LLM
  * request. Without this prefetch, the failure modal would only fire after the user already
@@ -39,11 +44,13 @@ export class ModelsDevCatalogStatusContribution extends Disposable implements IW
 		@IVibeModalService modalService: IVibeModalService,
 		@IOpenerService openerService: IOpenerService,
 		@IClipboardService clipboardService: IClipboardService,
+		@INotificationService notificationService: INotificationService,
+		@ICommandService commandService: ICommandService,
 		@IConfigurationService configurationService: IConfigurationService,
 	) {
 		super();
 		// Fire-and-forget. Status check failure (IPC down etc) is non-critical.
-		void this._check(statusService, modalService, openerService, clipboardService);
+		void this._check(statusService, modalService, openerService, clipboardService, notificationService, commandService);
 
 		// Push the user's `modelsDevCacheTtlHours` setting to main-process at
 		// startup, then re-push whenever it changes. Without this, the setting
@@ -64,6 +71,8 @@ export class ModelsDevCatalogStatusContribution extends Disposable implements IW
 		modalService: IVibeModalService,
 		openerService: IOpenerService,
 		clipboardService: IClipboardService,
+		notificationService: INotificationService,
+		commandService: ICommandService,
 	): Promise<void> {
 		let status: ModelsDevCatalogStatus;
 		try {
@@ -77,25 +86,38 @@ export class ModelsDevCatalogStatusContribution extends Disposable implements IW
 		if (status.state === 'loaded_from_network' || status.state === 'unloaded') return;
 
 		if (status.state === 'loaded_from_local') {
+			// Z.12 revert: was a modal, now a toast — modals applied `inert` to the
+			// entire workbench at startup, freezing menu/sidebar/buttons on offline
+			// machines (corporate work setups always hit loaded_from_local). Toast
+			// is non-blocking; user can ignore or click "Перепроверить" / "URL".
 			const sourceLabel = labelOfSource(status.source);
-			const body = localize(
-				'vibeide.modelsDev.offlineMode.body',
-				'Каталог моделей models.dev недоступен по сети.\n\nЗагружен {0}.\n\nAggregator-провайдеры (openCode, openCodeZen) продолжат работать.\n\nЧтобы обновить каталог — скачайте {1} при наличии сети и положите рядом с VibeIDE.exe (файл с именем models.dev.json).',
-				sourceLabel,
-				MODELS_DEV_URL,
-			);
-			void modalService.showModal<'ok' | 'copyUrl'>({
-				title: localize('vibeide.modelsDev.offlineMode.title', 'Каталог моделей: офлайн режим'),
-				body,
-				icon: 'info',
-				buttons: [
-					{ id: 'copyUrl', label: localize('vibeide.modal.copyUrl', 'Скопировать URL'), role: 'secondary' },
-					{ id: 'ok', label: localize('vibeide.modal.gotIt', 'Понятно'), role: 'primary' },
-				],
-			}).then(async result => {
-				if (result.buttonId === 'copyUrl') {
-					await clipboardService.writeText(MODELS_DEV_URL);
-				}
+			notificationService.notify({
+				severity: Severity.Info,
+				message: localize(
+					'vibeide.modelsDev.offlineMode.toast',
+					'VibeIDE: каталог моделей models.dev offline — {0}. Aggregator-провайдеры работают; для обновления используйте «Перепроверить каталог models.dev» (Command Palette) после восстановления сети.',
+					sourceLabel,
+				),
+				actions: {
+					primary: [
+						{
+							id: 'vibeide.modelsDev.notif.copyUrl',
+							label: localize('vibeide.modal.copyUrl', 'Скопировать URL'),
+							tooltip: MODELS_DEV_URL,
+							class: undefined,
+							enabled: true,
+							run: async () => { await clipboardService.writeText(MODELS_DEV_URL); },
+						},
+						{
+							id: 'vibeide.modelsDev.notif.recheck',
+							label: localize('vibeide.modelsDev.notif.recheck', 'Перепроверить'),
+							tooltip: localize('vibeide.modelsDev.notif.recheck.tip', 'Force re-probe the candidate chain without restarting VibeIDE.'),
+							class: undefined,
+							enabled: true,
+							run: async () => { await commandService.executeCommand('vibeide.modelsDevCatalog.recheck'); },
+						},
+					],
+				},
 			});
 			return;
 		}

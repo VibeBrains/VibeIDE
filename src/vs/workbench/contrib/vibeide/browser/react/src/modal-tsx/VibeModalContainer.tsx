@@ -67,23 +67,40 @@ export const VibeModalContainer: React.FC = () => {
 		const workbench = portal?.parentElement ?? document.body;
 		if (!workbench) return;
 		const restores: Array<{ el: HTMLElement; inert: string | null; ariaHidden: string | null }> = [];
-		for (const child of Array.from(workbench.children)) {
-			if (child === portal) continue;
-			if (!(child instanceof HTMLElement)) continue;
-			restores.push({
-				el: child,
-				inert: child.getAttribute('inert'),
-				ariaHidden: child.getAttribute('aria-hidden'),
-			});
-			child.setAttribute('inert', '');
-			child.setAttribute('aria-hidden', 'true');
+		try {
+			for (const child of Array.from(workbench.children)) {
+				if (child === portal) continue;
+				if (!(child instanceof HTMLElement)) continue;
+				restores.push({
+					el: child,
+					inert: child.getAttribute('inert'),
+					ariaHidden: child.getAttribute('aria-hidden'),
+				});
+				child.setAttribute('inert', '');
+				child.setAttribute('aria-hidden', 'true');
+			}
+			console.warn(`[VibeModalContainer] inert applied to ${restores.length} workbench siblings for modal id=${head.id}`);
+		} catch (e) {
+			// If anything in the apply loop throws, we still register the cleanup
+			// so partially-inerted siblings get restored — better than leaving
+			// the workbench locked.
+			console.warn('[VibeModalContainer] inert apply threw — partial restore on cleanup', e);
 		}
 		return () => {
-			for (const { el, inert, ariaHidden } of restores) {
-				if (inert === null) el.removeAttribute('inert');
-				else el.setAttribute('inert', inert);
-				if (ariaHidden === null) el.removeAttribute('aria-hidden');
-				else el.setAttribute('aria-hidden', ariaHidden);
+			try {
+				for (const { el, inert, ariaHidden } of restores) {
+					if (inert === null) el.removeAttribute('inert');
+					else el.setAttribute('inert', inert);
+					if (ariaHidden === null) el.removeAttribute('aria-hidden');
+					else el.setAttribute('aria-hidden', ariaHidden);
+				}
+				console.warn(`[VibeModalContainer] inert restored for ${restores.length} siblings (modal id=${head.id} closed)`);
+			} catch (e) {
+				// Cleanup MUST NOT silently fail — log loudly so we can diagnose
+				// if the workbench gets stuck inert. If any element couldn't be
+				// restored, surface it; user can then F12 → see the warning →
+				// force-restore via DevTools while we ship a real fix.
+				console.error('[VibeModalContainer] inert restore FAILED — workbench may be stuck. To force-unblock: document.querySelectorAll(".monaco-workbench > *").forEach(el => { el.removeAttribute("inert"); el.removeAttribute("aria-hidden"); });', e);
 			}
 		};
 	}, [head]);
