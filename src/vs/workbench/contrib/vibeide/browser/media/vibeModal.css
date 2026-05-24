@@ -233,6 +233,14 @@
 	filter: brightness(1.1);
 }
 
+/* Hotkey hint when the label doesn't contain the shortcut character —
+   small parenthetical suffix in a muted tone so primary label stays clear. */
+.vibeide-modal-button-hotkey-hint {
+	opacity: 0.7;
+	font-size: calc(var(--vscode-font-size) - 2px);
+	margin-left: 4px;
+}
+
 /* Loading state — overlay with spinner. Buttons + input disabled via React
    state, this layer just dims content and shows the activity indicator. */
 .vibeide-modal-loading-overlay {

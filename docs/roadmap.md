@@ -2683,6 +2683,35 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 - [~] **Resize handle на углу** для multi-line input'а (commit messages, prompts library editor). **Unblock:** wave-2 UI cycle для /commit.
 - [~] **«Recheck on file-watcher event»** — `fs.watch` на trio путей (exeDir/bundled/userData) → auto-recheck при появлении/изменении файла. Не нужно даже Command Palette нажимать. **Unblock:** evidence что пользователи кладут файл и забывают вызвать recheck.
 
+### Z.4 Audit round 2 (commit forthcoming)
+
+> Второй self-audit pass после Z.0-Z.3 ship. 6 inline-фиксов + 4 фичи. Никаких production-breaking багов, но накопились legacy patterns и hardcodes которые лучше срезать сразу.
+
+- [x] **`labelOfSource(source)` дублирован** в `modelsDevCatalogStatusContribution.ts` и `modelsDevCatalogRecheckAction.ts` (одна и та же switch-таблица). ✅ closed — вынесен в `common/modelsDevCatalogConstants.ts` рядом с URL/FILENAME. Single source of truth для wording.
+- [x] **`closeHead(buttonId?)` метод** в `IVibeModalService` — programmatic close bypass'ит `dismissible: false` AND `onBeforeDismiss` veto. Recheck-action раньше хакал через `resolveHead('ok')` (фейковый button id для resolve loading-modal'а) — теперь чище через `closeHead()`.
+- [x] **`status.catalogUrl` vs `MODELS_DEV_URL`** — два источника одной строки. ✅ closed: везде `MODELS_DEV_URL` константа из common.
+- [x] **a11y: `aria-hidden="true"` + `inert`** на siblings портал-div'а когда модал активен — screen reader + assistive-tech не могут перепрыгнуть к workbench-элементам за backdrop'ом. Cleanup на unmount гарантирует восстановление.
+- [x] **`_refreshCatalogForTests` consolidated в `recheckCatalog`** — раньше две функции делали идентичное, две точки именования сбивали с толку. Теперь один `recheckCatalog()` для production + tests.
+- [x] **Hardcoded Russian strings обёрнуты в `localize()`** — `modelsDevCatalogStatusContribution.ts` + `modelsDevCatalogRecheckAction.ts` (~20 callsite'ов). Готово к future language pack overrides per AGENTS.md policy.
+
+### Z.5 Feature wave-2 (commit forthcoming)
+
+- [x] **`autoDismissAfterMs: number`** опция — таймер автозакрытия после N миллисекунд. Pause при `loading`, pause при hover/focus внутри модала (active reading should not be timed out). Resolves с `__dismiss__` если пользователь сам не нажал кнопку. Используется в recheck-action для success-модала «Каталог обновлён» (4s).
+- [x] **`hotkey?: string`** на кнопках — bind одной буквы (case-insensitive) → нажатие активирует кнопку без focus'а. Игнорируется когда input в фокусе или modifier-клавиши (Ctrl/Alt/Meta) удерживаются. Label рендерится с подчёркнутой буквой hotkey'я (если есть в label) ИЛИ с suffix-hint`(K)` если буквы нет.
+- [x] **`onBeforeDismiss?: () => boolean | Promise<boolean>`** veto-callback — async callback может заблокировать ESC/backdrop/auto-dismiss. Returns false → dismiss блокируется. Throws → blocks (defensive — don't lose user state). Не invoke'ится button-click'ом или `closeHead()` — те deliberate caller intent. Доступ через `dismissHeadWithVeto(): Promise<boolean>` API.
+- [x] **`showImportantInfoModal(args): Promise<void>`** shorthand — single «OK» button + auto-info icon + small size. Default `okLabel: 'Понятно'`. Используется для acknowledge-only flows когда choice не нужен.
+
+### Z.6 Wave-3 deferred (post-release polish)
+
+- [~] **Stack indicator «N из M»** в title bar когда несколько модалов в queue — пользователь видит сколько ещё впереди. ROI: power users; обычным пользователям достаточно того что модалы appear по очереди. **Unblock:** observed UX confusion с queue.
+- [~] **Copy-on-click для path/URL в body** — кликабельные кодовые токены копируют в clipboard, маленький inline tooltip «Скопировано!». Сейчас отдельная кнопка «Скопировать URL» — clutter. **Unblock:** дизайн-проход на token-syntax (`` `path` `` или markdown link шаблон).
+- [~] **`IDialogService` migration shim** — backward-compat layer routing `dialogService.confirm()` через VibeModal. В vibeide-коде ~6 callsite'ов с native `IDialogService` (`vibeCustomCommandsService.ts:551` и др.) — replace для UX-консистентности. **Unblock:** отдельный pass с UI smoke по каждому callsite.
+- [~] **VibeModalService DevTools panel** — диагностическая webview-панель показывающая queue + history + replay для debugging modal-flow'ов. **Unblock:** реальный debug-кейс с залипшим модалом.
+- [~] **Markdown body renderer** (~50 LOC pure helper) — `**bold** / *italic* / `code` / [link](url)`. Дополняет copy-on-click и заменяет current pre-wrap-only режим. **Unblock:** Z.6.2 (copy-on-click) определит token-сторону.
+- [~] **«Не показывать снова»** persistence через `IStorageService` — checkbox в footer + `dontShowAgainKey` storage. **Unblock:** реальный «раздражающий» модал в product use.
+- [~] **Modal stacking** вместо FIFO queue — nested modals для confirmation внутри form-modal'а. Сейчас они queue'ются — UX-confusing. **Unblock:** flow требующий nested confirmation (например `/commit` modal с «Discard unsaved?» внутри).
+- [~] **Vibe Neon branded overrides** для `editorWidget.*` keys в `vibe-neon-color-theme.json` — neon glow на borders. **Unblock:** дизайн-выбор glow-цвета/интенсивности.
+
 ---
 
 ## Ссылки

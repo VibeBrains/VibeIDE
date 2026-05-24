@@ -355,23 +355,22 @@ export const getModelSdkNpm = async (baseURL: string, modelName: string): Promis
  * Force-refresh the catalog. Useful for tests; in production the lazy
  * process-lifetime cache is sufficient.
  */
-export const _refreshCatalogForTests = (): void => {
+/**
+ * Drops in-memory cache and forces the next `getCatalog()` call to re-probe
+ * (exeDir → bundled → userData → network). Used by:
+ *  - Test suite via `recheckCatalog()` between cases to reset state.
+ *  - «Recheck» Command Palette entry so users can test a freshly-placed
+ *    snapshot without restarting the IDE.
+ *
+ * (Previously this was duplicated as `_refreshCatalogForTests` + `recheckCatalog`
+ * — same behaviour, two names, source of confusion. Consolidated.)
+ */
+export const recheckCatalog = (): void => {
 	cachedCatalog = null;
 	inFlight = null;
 	lastFailureAt = 0;
 	loadedFromLocalPath = null;
 	loadedFromLocalSource = null;
-};
-
-/**
- * Public — drops in-memory cache and forces the next `getCatalog()` call to
- * re-probe (exeDir → bundled → userData → network). Used by the «Recheck»
- * Command Palette entry so users can test a freshly-placed snapshot without
- * restarting the IDE. Same effect as `_refreshCatalogForTests`, but the name
- * documents production intent.
- */
-export const recheckCatalog = (): void => {
-	_refreshCatalogForTests();
 };
 
 // Where the in-memory catalog actually came from. Set when getCatalog() resolves.

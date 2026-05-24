@@ -8,6 +8,27 @@ import { useAccessor } from '../util/services.js';
 import { VibeModalButton, VibeModalQueueEntry } from '../../../../common/vibeModalTypes.js';
 
 /**
+ * Renders the button label with the hotkey character underlined (first
+ * case-insensitive occurrence). Falls back to plain text if no hotkey or no
+ * match in the label.
+ */
+const renderButtonLabel = (label: string, hotkey?: string): React.ReactNode => {
+	if (!hotkey || hotkey.length === 0) return label;
+	const idx = label.toLowerCase().indexOf(hotkey.toLowerCase());
+	if (idx === -1) {
+		// Show hotkey hint at end for accessibility: «Apply (Y)».
+		return <>{label}<span className="vibeide-modal-button-hotkey-hint"> ({hotkey.toUpperCase()})</span></>;
+	}
+	return (
+		<>
+			{label.slice(0, idx)}
+			<u>{label[idx]}</u>
+			{label.slice(idx + 1)}
+		</>
+	);
+};
+
+/**
  * Renders a single modal — the head of the queue. Container handles fade-in
  * animation via `.is-active` class on the root element (set by parent).
  *
@@ -59,18 +80,81 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry; isActive: boolean
 		firstBtn?.focus();
 	}, [isActive, entry.id, options.loading]);
 
-	// ESC handler (only when dismissible !== false AND not loading).
+	// ESC + hotkey handler. ESC honors dismissible + loading + onBeforeDismiss.
+	// Hotkeys (per-button single-char shortcut) activate buttons without click.
 	useEffect(() => {
 		if (!isActive) return;
+		const hotkeyMap = new Map<string, VibeModalButton>();
+		for (const btn of options.buttons) {
+			if (btn.hotkey && btn.hotkey.length > 0) {
+				hotkeyMap.set(btn.hotkey.toLowerCase(), btn);
+			}
+		}
 		const onKey = (e: KeyboardEvent) => {
 			if (e.key === 'Escape' && options.dismissible !== false && !options.loading) {
 				e.preventDefault();
-				modalService.dismissHead();
+				void modalService.dismissHeadWithVeto();
+				return;
 			}
+			// Hotkey activation — skip when modifier keys held or input is focused.
+			if (e.ctrlKey || e.altKey || e.metaKey || options.loading) return;
+			const targetIsInput = (e.target instanceof HTMLElement)
+				&& (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
+			if (targetIsInput) return;
+			const btn = hotkeyMap.get(e.key.toLowerCase());
+			if (!btn || btn.disabled) return;
+			if (btn.role === 'primary' && validationError) return;
+			e.preventDefault();
+			modalService.resolveHead(btn.id, options.input ? inputValue : undefined);
 		};
 		window.addEventListener('keydown', onKey);
 		return () => window.removeEventListener('keydown', onKey);
-	}, [isActive, options.dismissible, options.loading, modalService]);
+	}, [isActive, options.dismissible, options.loading, options.buttons, options.input, validationError, inputValue, modalService]);
+
+	// autoDismissAfterMs — timer that fires dismiss after the given duration.
+	// Paused while loading (no auto-close during async work). Also paused on
+	// hover/focus inside the modal — active reading should not be timed out.
+	useEffect(() => {
+		const ms = options.autoDismissAfterMs;
+		if (!isActive || !ms || ms <= 0) return;
+		if (options.loading) return; // paused during async
+		if (options.dismissible === false) return; // can't dismiss anyway
+		let cancelled = false;
+		let pausedByHover = false;
+		let remaining = ms;
+		let startedAt = Date.now();
+		let timerId: ReturnType<typeof setTimeout> | null = null;
+		const start = () => {
+			startedAt = Date.now();
+			timerId = setTimeout(() => {
+				if (cancelled) return;
+				void modalService.dismissHeadWithVeto();
+			}, remaining);
+		};
+		const pause = () => {
+			if (timerId === null) return;
+			clearTimeout(timerId);
+			timerId = null;
+			remaining -= Date.now() - startedAt;
+			if (remaining < 50) remaining = 50;
+		};
+		const onEnter = () => { pausedByHover = true; pause(); };
+		const onLeave = () => { if (pausedByHover) { pausedByHover = false; start(); } };
+		const el = modalRef.current;
+		el?.addEventListener('mouseenter', onEnter);
+		el?.addEventListener('mouseleave', onLeave);
+		el?.addEventListener('focusin', onEnter);
+		el?.addEventListener('focusout', onLeave);
+		start();
+		return () => {
+			cancelled = true;
+			if (timerId !== null) clearTimeout(timerId);
+			el?.removeEventListener('mouseenter', onEnter);
+			el?.removeEventListener('mouseleave', onLeave);
+			el?.removeEventListener('focusin', onEnter);
+			el?.removeEventListener('focusout', onLeave);
+		};
+	}, [isActive, options.autoDismissAfterMs, options.loading, options.dismissible, entry.id, modalService]);
 
 	const onButtonClick = useCallback((btn: VibeModalButton) => {
 		if (btn.disabled) return;
@@ -82,7 +166,7 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry; isActive: boolean
 	const onBackdropClick = useCallback(() => {
 		if (options.dismissible === false) return;
 		if (options.loading) return;
-		modalService.dismissHead();
+		void modalService.dismissHeadWithVeto();
 	}, [modalService, options.dismissible, options.loading]);
 
 	const onInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -192,8 +276,9 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry; isActive: boolean
 								className={`vibeide-modal-button role-${role}`}
 								disabled={disabled}
 								onClick={() => onButtonClick(btn)}
+								title={btn.hotkey ? `${btn.label} (${btn.hotkey.toUpperCase()})` : undefined}
 							>
-								{btn.label}
+								{renderButtonLabel(btn.label, btn.hotkey)}
 							</button>
 						);
 					})}

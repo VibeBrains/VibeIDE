@@ -51,6 +51,41 @@ export const VibeModalContainer: React.FC = () => {
 
 	const head = queue[0];
 
+	// a11y — when a modal is active, mark the rest of the workbench as inert
+	// + aria-hidden so screen readers + keyboard nav can't escape the modal
+	// via assistive-tech jump commands (e.g. screen reader heading navigation).
+	// Standard pattern is `inert` attribute on siblings of the portal root.
+	useEffect(() => {
+		const portal = document.getElementById('vibeide-modal-portal');
+		const workbench = portal?.parentElement ?? document.body;
+		if (!workbench) return;
+		// Apply to every direct child of workbench EXCEPT our portal.
+		const targets: HTMLElement[] = [];
+		for (const child of Array.from(workbench.children)) {
+			if (child === portal) continue;
+			if (!(child instanceof HTMLElement)) continue;
+			targets.push(child);
+		}
+		if (head) {
+			for (const el of targets) {
+				el.setAttribute('inert', '');
+				el.setAttribute('aria-hidden', 'true');
+			}
+		} else {
+			for (const el of targets) {
+				el.removeAttribute('inert');
+				el.removeAttribute('aria-hidden');
+			}
+		}
+		return () => {
+			// Cleanup if container unmounts while modal active — restore inert state.
+			for (const el of targets) {
+				el.removeAttribute('inert');
+				el.removeAttribute('aria-hidden');
+			}
+		};
+	}, [head]);
+
 	return (
 		<div className={`vibeide-modal-root${head ? ' is-active' : ''}`} aria-hidden={head ? undefined : true}>
 			{head && <VibeModal entry={head} isActive={true} />}

@@ -10,8 +10,9 @@ import { URI } from '../../../../base/common/uri.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
 import { IModelsDevCatalogStatusService, ModelsDevCatalogStatus } from '../common/modelsDevCatalogStatusService.js';
-import { MODELS_DEV_URL } from '../common/modelsDevCatalogConstants.js';
+import { labelOfSource, MODELS_DEV_URL } from '../common/modelsDevCatalogConstants.js';
 import { IVibeModalService } from '../common/vibeModalService.js';
+import { localize } from '../../../../nls.js';
 
 /**
  * On startup, asks main-process whether the models.dev catalog loaded successfully.
@@ -76,19 +77,20 @@ export class ModelsDevCatalogStatusContribution extends Disposable implements IW
 		if (status.state === 'loaded_from_network' || status.state === 'unloaded') return;
 
 		if (status.state === 'loaded_from_local') {
-			const sourceLabel = labelOf(status.source);
-			const body =
-				`Каталог моделей models.dev недоступен по сети.\n\n` +
-				`Загружен ${sourceLabel}.\n\n` +
-				`Aggregator-провайдеры (openCode, openCodeZen) продолжат работать.\n\n` +
-				`Чтобы обновить каталог — скачайте ${MODELS_DEV_URL} при наличии сети и положите рядом с VibeIDE.exe (файл с именем models.dev.json).`;
+			const sourceLabel = labelOfSource(status.source);
+			const body = localize(
+				'vibeide.modelsDev.offlineMode.body',
+				'Каталог моделей models.dev недоступен по сети.\n\nЗагружен {0}.\n\nAggregator-провайдеры (openCode, openCodeZen) продолжат работать.\n\nЧтобы обновить каталог — скачайте {1} при наличии сети и положите рядом с VibeIDE.exe (файл с именем models.dev.json).',
+				sourceLabel,
+				MODELS_DEV_URL,
+			);
 			void modalService.showModal<'ok' | 'copyUrl'>({
-				title: 'Каталог моделей: офлайн режим',
+				title: localize('vibeide.modelsDev.offlineMode.title', 'Каталог моделей: офлайн режим'),
 				body,
 				icon: 'info',
 				buttons: [
-					{ id: 'copyUrl', label: 'Скопировать URL', role: 'secondary' },
-					{ id: 'ok', label: 'Понятно', role: 'primary' },
+					{ id: 'copyUrl', label: localize('vibeide.modal.copyUrl', 'Скопировать URL'), role: 'secondary' },
+					{ id: 'ok', label: localize('vibeide.modal.gotIt', 'Понятно'), role: 'primary' },
 				],
 			}).then(async result => {
 				if (result.buttonId === 'copyUrl') {
@@ -101,37 +103,31 @@ export class ModelsDevCatalogStatusContribution extends Disposable implements IW
 		// state === 'failed'
 		const pathsText = status.candidatePaths.length > 0
 			? status.candidatePaths.map(p => `  • ${p}`).join('\n')
-			: '  (нет доступных путей)';
-		const body =
-			`Каталог моделей models.dev недоступен по сети, локальный снимок не найден.\n\n` +
-			`Модели minimax/qwen через openCode/openCodeZen могут возвращать пустые ответы.\n\n` +
-			`Скачайте каталог с ${status.catalogUrl} и сохраните как «models.dev.json» по одному из путей (приоритет сверху вниз):\n${pathsText}`;
+			: localize('vibeide.modelsDev.noPaths', '  (нет доступных путей)');
+		const body = localize(
+			'vibeide.modelsDev.failed.body',
+			'Каталог моделей models.dev недоступен по сети, локальный снимок не найден.\n\nМодели minimax/qwen через openCode/openCodeZen могут возвращать пустые ответы.\n\nСкачайте каталог с {0} и сохраните как «models.dev.json» по одному из путей (приоритет сверху вниз):\n{1}',
+			MODELS_DEV_URL,
+			pathsText,
+		);
 		void modalService.showModal<'openUrl' | 'copyUrl' | 'close'>({
-			title: 'Каталог моделей: ошибка загрузки',
+			title: localize('vibeide.modelsDev.failed.title', 'Каталог моделей: ошибка загрузки'),
 			body,
 			icon: 'warning',
 			buttons: [
-				{ id: 'close', label: 'Закрыть', role: 'secondary' },
-				{ id: 'copyUrl', label: 'Скопировать URL', role: 'secondary' },
-				{ id: 'openUrl', label: 'Открыть models.dev/api.json', role: 'primary' },
+				{ id: 'close', label: localize('vibeide.modal.close', 'Закрыть'), role: 'secondary' },
+				{ id: 'copyUrl', label: localize('vibeide.modal.copyUrl', 'Скопировать URL'), role: 'secondary' },
+				{ id: 'openUrl', label: localize('vibeide.modelsDev.openUrl', 'Открыть models.dev/api.json'), role: 'primary' },
 			],
 		}).then(async result => {
 			if (result.buttonId === 'openUrl') {
-				await openerService.open(URI.parse(status.catalogUrl));
+				await openerService.open(URI.parse(MODELS_DEV_URL));
 			} else if (result.buttonId === 'copyUrl') {
-				await clipboardService.writeText(status.catalogUrl);
+				await clipboardService.writeText(MODELS_DEV_URL);
 			}
 		});
 	}
 }
-
-const labelOf = (source: 'exeDir' | 'bundled' | 'userData'): string => {
-	switch (source) {
-		case 'exeDir':   return 'снимок, который вы положили рядом с VibeIDE.exe';
-		case 'bundled':  return 'встроенный снимок (из ресурсов установки)';
-		case 'userData': return 'кэшированный снимок из пользовательских данных';
-	}
-};
 
 registerWorkbenchContribution2(
 	ModelsDevCatalogStatusContribution.ID,

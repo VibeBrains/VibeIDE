@@ -8,9 +8,9 @@ import { ServicesAccessor } from '../../../../platform/instantiation/common/inst
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { URI } from '../../../../base/common/uri.js';
-import { localize2 } from '../../../../nls.js';
+import { localize, localize2 } from '../../../../nls.js';
 import { IModelsDevCatalogStatusService, ModelsDevCatalogStatus } from '../common/modelsDevCatalogStatusService.js';
-import { MODELS_DEV_URL } from '../common/modelsDevCatalogConstants.js';
+import { labelOfSource, MODELS_DEV_URL } from '../common/modelsDevCatalogConstants.js';
 import { IVibeModalService } from '../common/vibeModalService.js';
 
 /**
@@ -44,10 +44,13 @@ class ModelsDevCatalogRecheckAction extends Action2 {
 		const clipboard = accessor.get(IClipboardService);
 
 		// Loading modal — kept for the duration of the recheck (typically <1s,
-		// but a network fetch can take up to FETCH_TIMEOUT_MS ≈10s).
+		// but a network fetch can take up to FETCH_TIMEOUT_MS ≈10s). We
+		// `closeHead()` programmatically instead of `resolveHead('ok')` —
+		// avoids the fragile "fake button id" pattern, bypasses the
+		// `dismissible: false` guard cleanly.
 		const showLoading = modalSvc.showModal<'ok'>({
-			title: 'Перепроверка каталога models.dev',
-			body: 'Идёт повторная проверка источников каталога…',
+			title: localize('vibeide.modelsDev.recheck.title', 'Перепроверка каталога models.dev'),
+			body: localize('vibeide.modelsDev.recheck.body', 'Идёт повторная проверка источников каталога…'),
 			icon: 'sync',
 			dismissible: false,
 			loading: true,
@@ -59,44 +62,48 @@ class ModelsDevCatalogRecheckAction extends Action2 {
 		try {
 			status = await statusSvc.recheck();
 		} catch (e) {
-			modalSvc.resolveHead('ok');
+			modalSvc.closeHead();
 			await showLoading;
 			void modalSvc.showModal<'ok'>({
-				title: 'Перепроверка не удалась',
-				body: `Ошибка IPC: ${e instanceof Error ? e.message : String(e)}`,
+				title: localize('vibeide.modelsDev.recheck.failed.title', 'Перепроверка не удалась'),
+				body: localize('vibeide.modelsDev.recheck.failed.body', 'Ошибка IPC: {0}', e instanceof Error ? e.message : String(e)),
 				icon: 'error',
 				size: 'small',
-				buttons: [{ id: 'ok', label: 'Понятно', role: 'primary' }],
+				buttons: [{ id: 'ok', label: localize('vibeide.modal.gotIt', 'Понятно'), role: 'primary' }],
 			});
 			return;
 		}
 
-		modalSvc.resolveHead('ok');
+		modalSvc.closeHead();
 		await showLoading;
 
 		if (status.state === 'loaded_from_network') {
 			void modalSvc.showModal<'ok'>({
-				title: 'Каталог models.dev обновлён',
-				body: 'Загружена свежая версия с сети. Aggregator-провайдеры используют актуальные данные.',
+				title: localize('vibeide.modelsDev.recheck.network.title', 'Каталог models.dev обновлён'),
+				body: localize('vibeide.modelsDev.recheck.network.body', 'Загружена свежая версия с сети. Aggregator-провайдеры используют актуальные данные.'),
 				icon: 'check',
 				size: 'small',
-				buttons: [{ id: 'ok', label: 'Отлично', role: 'primary' }],
+				autoDismissAfterMs: 4000,
+				buttons: [{ id: 'ok', label: localize('vibeide.modal.great', 'Отлично'), role: 'primary' }],
 			});
 			return;
 		}
 
 		if (status.state === 'loaded_from_local') {
-			const sourceLabel = labelOf(status.source);
+			const sourceLabel = labelOfSource(status.source);
 			void modalSvc.showModal<'ok' | 'copyUrl'>({
-				title: 'Каталог models.dev: офлайн режим',
-				body:
-					`Сеть недоступна. Загружен ${sourceLabel}.\n\n` +
-					`Чтобы обновить — скачайте ${MODELS_DEV_URL} и положите рядом с VibeIDE.exe.`,
+				title: localize('vibeide.modelsDev.recheck.offline.title', 'Каталог models.dev: офлайн режим'),
+				body: localize(
+					'vibeide.modelsDev.recheck.offline.body',
+					'Сеть недоступна. Загружен {0}.\n\nЧтобы обновить — скачайте {1} и положите рядом с VibeIDE.exe.',
+					sourceLabel,
+					MODELS_DEV_URL,
+				),
 				icon: 'info',
 				size: 'medium',
 				buttons: [
-					{ id: 'copyUrl', label: 'Скопировать URL', role: 'secondary' },
-					{ id: 'ok', label: 'Понятно', role: 'primary' },
+					{ id: 'copyUrl', label: localize('vibeide.modal.copyUrl', 'Скопировать URL'), role: 'secondary' },
+					{ id: 'ok', label: localize('vibeide.modal.gotIt', 'Понятно'), role: 'primary' },
 				],
 			}).then(async r => {
 				if (r.buttonId === 'copyUrl') await clipboard.writeText(MODELS_DEV_URL);
@@ -107,43 +114,38 @@ class ModelsDevCatalogRecheckAction extends Action2 {
 		if (status.state === 'failed') {
 			const pathsText = status.candidatePaths.length > 0
 				? status.candidatePaths.map(p => `  • ${p}`).join('\n')
-				: '  (нет доступных путей)';
+				: localize('vibeide.modelsDev.noPaths', '  (нет доступных путей)');
 			void modalSvc.showModal<'openUrl' | 'copyUrl' | 'close'>({
-				title: 'Каталог models.dev: не найден',
-				body:
-					`Сеть недоступна и локальный снимок не найден.\n\n` +
-					`Скачайте каталог с ${status.catalogUrl} и сохраните как «models.dev.json» по одному из путей (приоритет сверху вниз):\n${pathsText}`,
+				title: localize('vibeide.modelsDev.recheck.notFound.title', 'Каталог models.dev: не найден'),
+				body: localize(
+					'vibeide.modelsDev.recheck.notFound.body',
+					'Сеть недоступна и локальный снимок не найден.\n\nСкачайте каталог с {0} и сохраните как «models.dev.json» по одному из путей (приоритет сверху вниз):\n{1}',
+					MODELS_DEV_URL,
+					pathsText,
+				),
 				icon: 'warning',
 				size: 'large',
 				buttons: [
-					{ id: 'close', label: 'Закрыть', role: 'secondary' },
-					{ id: 'copyUrl', label: 'Скопировать URL', role: 'secondary' },
-					{ id: 'openUrl', label: 'Открыть models.dev/api.json', role: 'primary' },
+					{ id: 'close', label: localize('vibeide.modal.close', 'Закрыть'), role: 'secondary' },
+					{ id: 'copyUrl', label: localize('vibeide.modal.copyUrl', 'Скопировать URL'), role: 'secondary' },
+					{ id: 'openUrl', label: localize('vibeide.modelsDev.openUrl', 'Открыть models.dev/api.json'), role: 'primary' },
 				],
 			}).then(async r => {
-				if (r.buttonId === 'openUrl') await opener.open(URI.parse(status.catalogUrl));
-				else if (r.buttonId === 'copyUrl') await clipboard.writeText(status.catalogUrl);
+				if (r.buttonId === 'openUrl') await opener.open(URI.parse(MODELS_DEV_URL));
+				else if (r.buttonId === 'copyUrl') await clipboard.writeText(MODELS_DEV_URL);
 			});
 			return;
 		}
 
 		// state === 'unloaded' — should not happen post-recheck, but handle anyway.
 		void modalSvc.showModal<'ok'>({
-			title: 'Каталог models.dev: не инициализирован',
-			body: 'После перепроверки каталог так и не загрузился. Попробуйте перезапустить VibeIDE.',
+			title: localize('vibeide.modelsDev.recheck.unloaded.title', 'Каталог models.dev: не инициализирован'),
+			body: localize('vibeide.modelsDev.recheck.unloaded.body', 'После перепроверки каталог так и не загрузился. Попробуйте перезапустить VibeIDE.'),
 			icon: 'warning',
 			size: 'small',
-			buttons: [{ id: 'ok', label: 'Понятно', role: 'primary' }],
+			buttons: [{ id: 'ok', label: localize('vibeide.modal.gotIt', 'Понятно'), role: 'primary' }],
 		});
 	}
 }
-
-const labelOf = (source: 'exeDir' | 'bundled' | 'userData'): string => {
-	switch (source) {
-		case 'exeDir':   return 'снимок, который вы положили рядом с VibeIDE.exe';
-		case 'bundled':  return 'встроенный снимок (из ресурсов установки)';
-		case 'userData': return 'кэшированный снимок из пользовательских данных';
-	}
-};
 
 registerAction2(ModelsDevCatalogRecheckAction);

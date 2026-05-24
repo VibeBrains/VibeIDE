@@ -27,6 +27,16 @@ export interface VibeModalButton<TId extends string = string> {
 	readonly label: string;
 	readonly role?: VibeModalButtonRole;
 	readonly disabled?: boolean;
+	/**
+	 * Optional keyboard shortcut — a single character (case-insensitive).
+	 * Pressing this character anywhere inside the modal (with the input NOT
+	 * focused, to avoid stealing typing) activates this button as if clicked.
+	 * Useful for «Y/N» style confirmations: `[ {id:'ok', hotkey:'Y'}, {id:'no', hotkey:'N'} ]`.
+	 *
+	 * Note: ESC is reserved for dismiss; Enter is reserved for the primary
+	 * button. Use any other single character (A-Z, 0-9, simple punctuation).
+	 */
+	readonly hotkey?: string;
 }
 
 export interface VibeModalInputSpec {
@@ -69,6 +79,28 @@ export interface VibeModalOptions<TButtonId extends string = string> {
 	 * via `updateHeadLoading(true|false)` on the service.
 	 */
 	readonly loading?: boolean;
+	/**
+	 * If set, the modal auto-dismisses after the given duration (milliseconds).
+	 * Resolves with `__dismiss__` unless the user clicked a button first.
+	 * Implementation pauses the timer while the modal is `loading` (auto-close
+	 * during async work would be a footgun). Hover/focus pauses the timer too —
+	 * users actively reading should not be timed out.
+	 *
+	 * Use for transient success messages (e.g. «Saved», «Catalog updated»).
+	 * Don't use for anything requiring an action.
+	 */
+	readonly autoDismissAfterMs?: number;
+	/**
+	 * Optional pre-dismiss veto callback. Runs on ESC, backdrop click, AND
+	 * auto-dismiss. Returns `true` to allow dismiss, `false` to block it.
+	 * Use case: «Unsaved changes — really close?» style confirmations.
+	 * Errors are treated as a block (defensive — don't lose user state on
+	 * a thrown callback).
+	 *
+	 * NOT invoked by the explicit button-click path, `resolveHead()`, or
+	 * `closeHead()` — those are deliberate caller intent.
+	 */
+	readonly onBeforeDismiss?: () => boolean | Promise<boolean>;
 }
 
 /**

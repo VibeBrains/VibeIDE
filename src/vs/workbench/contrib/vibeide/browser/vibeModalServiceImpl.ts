@@ -76,6 +76,40 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 		this._onDidChangeQueue.fire();
 	}
 
+	async dismissHeadWithVeto(): Promise<boolean> {
+		const head = this._queue[0];
+		if (!head) return false;
+		if (head.options.dismissible === false) return false;
+		const veto = head.options.onBeforeDismiss;
+		if (veto) {
+			try {
+				const allow = await veto();
+				if (!allow) return false;
+			} catch (e) {
+				// Defensive — a throwing callback BLOCKS dismiss (user-state preservation).
+				console.warn('[VibeModalService] onBeforeDismiss threw; blocking dismiss', e);
+				return false;
+			}
+			// Head might have been resolved during the async callback wait.
+			if (this._queue[0] !== head) return false;
+		}
+		this._queue.shift();
+		head.resolve({ buttonId: VIBE_MODAL_DISMISS_ID });
+		this._onDidChangeQueue.fire();
+		return true;
+	}
+
+	closeHead(buttonId?: string, inputValue?: string): void {
+		const head = this._queue.shift();
+		if (!head) return;
+		const finalId = buttonId ?? VIBE_MODAL_DISMISS_ID;
+		const result = inputValue !== undefined
+			? { buttonId: finalId, inputValue }
+			: { buttonId: finalId };
+		head.resolve(result);
+		this._onDidChangeQueue.fire();
+	}
+
 	updateHeadLoading(loading: boolean): void {
 		const head = this._queue[0];
 		if (!head) return;
@@ -103,6 +137,24 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 				{ id: 'ok', label: args.okLabel ?? 'OK', role: args.danger ? 'danger' : 'primary' },
 			],
 		}).then(result => result.buttonId === 'ok');
+	}
+
+	showImportantInfoModal(args: {
+		readonly title: string;
+		readonly body: string;
+		readonly icon?: string;
+		readonly okLabel?: string;
+		readonly size?: VibeModalSize;
+		readonly autoDismissAfterMs?: number;
+	}): Promise<void> {
+		return this.showModal<'ok'>({
+			title: args.title,
+			body: args.body,
+			icon: args.icon ?? 'info',
+			size: args.size ?? 'small',
+			autoDismissAfterMs: args.autoDismissAfterMs,
+			buttons: [{ id: 'ok', label: args.okLabel ?? 'Понятно', role: 'primary' }],
+		}).then(() => undefined);
 	}
 }
 

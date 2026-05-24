@@ -254,4 +254,168 @@ suite('VibeModalService', () => {
 		assert.strictEqual(buttons[0].label, 'Не сохранять');
 		assert.strictEqual(buttons[1].label, 'Сохранить');
 	});
+
+	test('closeHead with explicit buttonId resolves accordingly', async () => {
+		const svc = new VibeModalService();
+		const p = svc.showModal({
+			title: 'T',
+			buttons: [{ id: 'ok', label: 'OK' }],
+			dismissible: false, // even non-dismissible can be closed programmatically
+		});
+		svc.closeHead('ok');
+		const result = await p;
+		assert.strictEqual(result.buttonId, 'ok');
+	});
+
+	test('closeHead without buttonId resolves as __dismiss__', async () => {
+		const svc = new VibeModalService();
+		const p = svc.showModal({
+			title: 'T',
+			buttons: [{ id: 'ok', label: 'OK' }],
+			dismissible: false,
+		});
+		svc.closeHead();
+		const result = await p;
+		assert.strictEqual(result.buttonId, VIBE_MODAL_DISMISS_ID);
+	});
+
+	test('closeHead with inputValue passes it through', async () => {
+		const svc = new VibeModalService();
+		const p = svc.showModal({ title: 'T', buttons: [{ id: 'ok', label: 'OK' }], input: { placeholder: 'x' } });
+		svc.closeHead('ok', 'value');
+		const result = await p;
+		assert.strictEqual(result.inputValue, 'value');
+	});
+
+	test('closeHead no-op on empty queue', () => {
+		const svc = new VibeModalService();
+		svc.closeHead('ok'); // should not throw
+		assert.strictEqual(svc.getQueue().length, 0);
+	});
+
+	suite('dismissHeadWithVeto', () => {
+
+		test('no veto callback → behaves like dismissHead', async () => {
+			const svc = new VibeModalService();
+			const p = svc.showModal({ title: 'T', buttons: [{ id: 'ok', label: 'OK' }] });
+			const ok = await svc.dismissHeadWithVeto();
+			assert.strictEqual(ok, true);
+			const r = await p;
+			assert.strictEqual(r.buttonId, VIBE_MODAL_DISMISS_ID);
+		});
+
+		test('non-dismissible → returns false, modal stays', async () => {
+			const svc = new VibeModalService();
+			void svc.showModal({ title: 'T', buttons: [{ id: 'ok', label: 'OK' }], dismissible: false });
+			const ok = await svc.dismissHeadWithVeto();
+			assert.strictEqual(ok, false);
+			assert.strictEqual(svc.getQueue().length, 1);
+		});
+
+		test('callback returning false vetoes dismiss', async () => {
+			const svc = new VibeModalService();
+			let called = 0;
+			void svc.showModal({
+				title: 'T',
+				buttons: [{ id: 'ok', label: 'OK' }],
+				onBeforeDismiss: () => { called += 1; return false; },
+			});
+			const ok = await svc.dismissHeadWithVeto();
+			assert.strictEqual(ok, false);
+			assert.strictEqual(called, 1);
+			assert.strictEqual(svc.getQueue().length, 1);
+		});
+
+		test('callback returning true allows dismiss', async () => {
+			const svc = new VibeModalService();
+			const p = svc.showModal({
+				title: 'T',
+				buttons: [{ id: 'ok', label: 'OK' }],
+				onBeforeDismiss: () => true,
+			});
+			const ok = await svc.dismissHeadWithVeto();
+			assert.strictEqual(ok, true);
+			const r = await p;
+			assert.strictEqual(r.buttonId, VIBE_MODAL_DISMISS_ID);
+		});
+
+		test('async callback returning false vetoes dismiss', async () => {
+			const svc = new VibeModalService();
+			void svc.showModal({
+				title: 'T',
+				buttons: [{ id: 'ok', label: 'OK' }],
+				onBeforeDismiss: async () => { await new Promise(r => setTimeout(r, 5)); return false; },
+			});
+			const ok = await svc.dismissHeadWithVeto();
+			assert.strictEqual(ok, false);
+			assert.strictEqual(svc.getQueue().length, 1);
+		});
+
+		test('throwing callback blocks dismiss (defensive)', async () => {
+			const svc = new VibeModalService();
+			void svc.showModal({
+				title: 'T',
+				buttons: [{ id: 'ok', label: 'OK' }],
+				onBeforeDismiss: () => { throw new Error('boom'); },
+			});
+			const ok = await svc.dismissHeadWithVeto();
+			assert.strictEqual(ok, false);
+			assert.strictEqual(svc.getQueue().length, 1, 'thrown error should NOT pop modal');
+		});
+
+		test('head changed during async callback → original dismiss is no-op', async () => {
+			const svc = new VibeModalService();
+			let release: () => void = () => { };
+			const blocker = new Promise<boolean>(r => { release = () => r(true); });
+			const p1 = svc.showModal({
+				title: 'A',
+				buttons: [{ id: 'ok', label: 'OK' }],
+				onBeforeDismiss: () => blocker,
+			});
+			const dismissPromise = svc.dismissHeadWithVeto();
+			// While the veto is awaiting, externally resolve A and push B.
+			svc.resolveHead('ok');
+			await p1;
+			void svc.showModal({ title: 'B', buttons: [{ id: 'ok', label: 'OK' }] });
+			release();
+			const ok = await dismissPromise;
+			assert.strictEqual(ok, false, 'dismiss should not affect B which replaced A');
+			assert.strictEqual(svc.getQueue()[0].options.title, 'B');
+		});
+	});
+
+	test('showImportantInfoModal — single OK button + auto-dismiss spec', async () => {
+		const svc = new VibeModalService();
+		const p = svc.showImportantInfoModal({
+			title: 'Saved',
+			body: 'Your file was saved.',
+			autoDismissAfterMs: 1000,
+		});
+		const entry = svc.getQueue()[0];
+		assert.ok(entry);
+		assert.strictEqual(entry.options.buttons.length, 1);
+		assert.strictEqual(entry.options.buttons[0].id, 'ok');
+		assert.strictEqual(entry.options.icon, 'info');
+		assert.strictEqual(entry.options.size, 'small');
+		assert.strictEqual(entry.options.autoDismissAfterMs, 1000);
+		svc.resolveHead('ok');
+		await p; // resolves to undefined
+	});
+
+	suite('hotkey on buttons (option shape)', () => {
+
+		test('hotkey field is captured on button', () => {
+			const svc = new VibeModalService();
+			void svc.showModal({
+				title: 'Confirm',
+				buttons: [
+					{ id: 'yes', label: 'Yes', role: 'primary', hotkey: 'Y' },
+					{ id: 'no', label: 'No', role: 'secondary', hotkey: 'N' },
+				],
+			});
+			const buttons = svc.getQueue()[0].options.buttons;
+			assert.strictEqual(buttons[0].hotkey, 'Y');
+			assert.strictEqual(buttons[1].hotkey, 'N');
+		});
+	});
 });

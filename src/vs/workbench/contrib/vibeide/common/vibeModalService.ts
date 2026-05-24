@@ -72,8 +72,28 @@ export interface IVibeModalService {
 	/**
 	 * Dismiss the head modal (equivalent to ESC). Only succeeds if the
 	 * modal has `dismissible !== false`. No-op otherwise.
+	 *
+	 * Note: this is the SYNCHRONOUS path — bypasses `onBeforeDismiss`. Use
+	 * `dismissHeadWithVeto()` when you want the veto callback respected.
 	 */
 	dismissHead(): void;
+
+	/**
+	 * Async dismiss path that honors `onBeforeDismiss`. Returns `true` if
+	 * the dismiss went through, `false` if the callback vetoed it or the
+	 * modal is not dismissible. Errors in the callback are treated as a
+	 * block (defensive — don't lose user state on a thrown callback).
+	 */
+	dismissHeadWithVeto(): Promise<boolean>;
+
+	/**
+	 * Programmatic close — bypasses `dismissible: false` AND any
+	 * `onBeforeDismiss` veto. For internal callers (e.g. a Command that
+	 * opened a loading-modal and now finished its async work). Resolves with
+	 * the supplied buttonId if any matches a button in the head's options,
+	 * otherwise with `__dismiss__`.
+	 */
+	closeHead(buttonId?: string, inputValue?: string): void;
 
 	/**
 	 * Toggle the head modal's `loading` flag. Used by async callers that need
@@ -102,4 +122,21 @@ export interface IVibeModalService {
 		readonly danger?: boolean;
 		readonly size?: import('./vibeModalTypes.js').VibeModalSize;
 	}): Promise<boolean>;
+
+	/**
+	 * Shorthand for «info» pattern: title + body + one «Понятно» button.
+	 * Used for important non-actionable info that should be shown as a modal
+	 * (not toast) but doesn't need user choice — only acknowledgement.
+	 *
+	 * Returns when the user dismissed/clicked OK. Auto-dismiss timing is
+	 * optional; default infinite (user must explicitly close).
+	 */
+	showImportantInfoModal(args: {
+		readonly title: string;
+		readonly body: string;
+		readonly icon?: string;
+		readonly okLabel?: string;
+		readonly size?: import('./vibeModalTypes.js').VibeModalSize;
+		readonly autoDismissAfterMs?: number;
+	}): Promise<void>;
 }
