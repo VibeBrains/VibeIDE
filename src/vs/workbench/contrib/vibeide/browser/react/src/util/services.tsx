@@ -99,12 +99,31 @@ const mcpListeners: Set<() => void> = new Set()
 
 
 // must call this before you can use any of the hooks below
-// this should only be called ONCE! this is the only place you don't need to dispose onDidChange. If you use state.onDidChange anywhere else, make sure to dispose it!
+// SAFE to call multiple times: subsequent calls early-return without
+// re-subscribing to global emitters. The accessor singleton is refreshed
+// each call (cheap), but state listeners are wired exactly once per session.
+//
+// Pre-Z.12 this was documented «only call ONCE!» but in practice multiple
+// mountFn invocations (sidebar + quick-edit + modal portal + settings panel)
+// all called it, accumulating duplicate listeners on every global emitter.
+// Each chat-state change fired all duplicates, multiplying React re-renders
+// and starving the renderer thread (root cause of the v0.13.14 freeze).
+let _registerServicesCalledOnce = false;
+
 export const _registerServices = (accessor: ServicesAccessor) => {
 
 	const disposables: IDisposable[] = []
 
 	_registerAccessor(accessor)
+
+	// Idempotency guard — Z.12.2 root-cause fix. After the first call, all the
+	// global state vars + onDidChange wiring below have already been done.
+	// Subsequent calls just need to refresh the accessor (above) so React
+	// components mounted later use the current ServicesAccessor.
+	if (_registerServicesCalledOnce) {
+		return disposables;
+	}
+	_registerServicesCalledOnce = true;
 
 	const stateServices = {
 		chatThreadsStateService: accessor.get(IChatThreadService),
@@ -286,14 +305,6 @@ const _registerAccessor = (accessor: ServicesAccessor) => {
 	reactAccessor_ = reactAccessor
 }
 
-/**
- * Used by `mountFnGeneratorNoRegister` to skip re-running `_registerServices`
- * when the global accessor has already been wired by an earlier mount. See
- * the "this should only be called ONCE!" warning at the top of this file —
- * subsequent registrations accumulate duplicate listeners on global
- * emitters and starve the renderer on heavy events.
- */
-export const _isAccessorRegistered = (): boolean => reactAccessor_ !== null;
 
 // -- services --
 export const useAccessor = () => {

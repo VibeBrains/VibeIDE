@@ -3,12 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------*/
 
-import { mountFnGeneratorNoRegister } from '../util/mountFnGeneratorNoRegister.js';
+import { mountFnGenerator } from '../util/mountFnGenerator.js';
 import { VibeModalContainer } from './VibeModalContainer.js';
 
-// We use the `NoRegister` variant — VibeModal portal mounts at workbench
-// level which fires AFTER the chat sidebar mount has already wired services.
-// Re-running `_registerServices` would double-subscribe every onDidChange*
-// emitter and starve the renderer on heavy chat events (root cause of the
-// «freezes after first prompt» regression that motivated Z.12).
-export const mountVibeModalRoot = mountFnGeneratorNoRegister(VibeModalContainer);
+// `_registerServices` (called inside the mount) is idempotent as of Z.12.2,
+// so this can use the standard generator without causing duplicate global
+// listeners. The Z.12.2 NoRegister variant is removed.
+export const mountVibeModalRoot = mountFnGenerator(VibeModalContainer);

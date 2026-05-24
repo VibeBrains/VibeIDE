@@ -6,40 +6,56 @@
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
+import { IVibeModalService } from '../common/vibeModalService.js';
 import { mountVibeModalRoot } from './react/out/modal-tsx/index.js';
 
 /**
- * Mounts the workbench-level VibeModal portal once the workbench is up.
+ * Mounts the workbench-level VibeModal portal **lazily** — only when the
+ * first modal actually enters the queue.
  *
- * Why a separate contribution: VibeModal needs to overlay the entire
- * workbench (above sidebar / aux bar / editor groups), so the React root
- * must attach to `.monaco-workbench` or `document.body` — neither of which
- * is a Pane / Composite. This contribution finds the workbench root in
- * `WorkbenchPhase.Eventually` (after layout settles), appends a portal div,
- * and mounts the React tree.
+ * Why lazy: pre-Z.12 this mounted React at `WorkbenchPhase.Eventually`
+ * unconditionally. That registered the global services accessor + emitter
+ * subscriptions early, which (combined with later sidebar mount also
+ * registering) accumulated duplicate listeners and froze the renderer
+ * after the first heavy emitter burst.
  *
- * Lifecycle: on dispose (window close), unmount React + remove the portal
- * div. The CSS lives in `media/vibeModal.css` and is loaded via
- * `vibeide.contribution.ts` standard CSS import path.
+ * After the Z.12.2 idempotency fix in `_registerServices`, that
+ * particular path is safe; but lazy-mounting is still better — sessions
+ * that never show a modal pay zero React-bundle cost. At home, where the
+ * catalog loads from network, no modal is shown so the React tree never
+ * mounts at all.
+ *
+ * On the first `onDidChangeQueue` event with a non-empty queue, we mount
+ * the React tree, then dispose the lazy-mount subscription (further
+ * queue changes are handled inside the React component itself).
  */
 export class VibeModalRootContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.vibeModalRoot';
 
 	private _portalEl: HTMLDivElement | null = null;
+	private _mounted = false;
 
 	constructor(
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
+		@IVibeModalService private readonly _modalService: IVibeModalService,
 	) {
 		super();
-		this._tryMount();
+
+		// Lazy: wait until a modal actually shows up.
+		const lazyMountSub = this._register(this._modalService.onDidChangeQueue(() => {
+			if (this._mounted) return;
+			if (this._modalService.getQueue().length === 0) return;
+			this._mounted = true;
+			lazyMountSub.dispose();
+			console.warn('[VibeModalRoot] mounting React tree (first modal triggered lazy mount)');
+			this._tryMount();
+		}));
 	}
 
 	private _tryMount(): void {
 		const workbench = document.querySelector<HTMLElement>('.monaco-workbench')
 			?? document.body;
 		if (!workbench) {
-			// No DOM root yet — extremely unlikely at WorkbenchPhase.Eventually,
-			// but bail safely without crashing the workbench.
 			console.warn('[VibeModalRoot] no .monaco-workbench root found; modal portal not mounted');
 			return;
 		}
