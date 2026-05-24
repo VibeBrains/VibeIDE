@@ -290,7 +290,22 @@ export async function openVibeChatEditor(instantiationService: IInstantiationSer
 		return;
 	}
 
-	// No chat group — open via IEditorService.openEditor(..., SIDE_GROUP). This is the canonical VS Code path: it creates the group, lays it out, activates it, and focuses the new editor in one atomic step. Manual addGroup + openEditor leaves the new group unactivated when the click originates from the auxiliary bar (sidebar "+"), which made the chat tab invisible on a cold start.
+	// Long-task observer — diagnostic for v0.13.14 freeze investigation. Logs any
+	// synchronous JS task taking > 50ms in the renderer. Auto-removes after 30s.
+	try {
+		const PO = (globalThis as { PerformanceObserver?: typeof PerformanceObserver }).PerformanceObserver;
+		if (PO) {
+			const obs = new PO((entries) => {
+				for (const e of entries.getEntries()) {
+					console.warn(`[long-task] ${e.duration.toFixed(0)}ms — ${e.name}`);
+				}
+			});
+			obs.observe({ entryTypes: ['longtask'] });
+			setTimeout(() => obs.disconnect(), 30_000);
+		}
+	} catch { /* PerformanceObserver entryType 'longtask' unsupported — silent skip */ }
+
+	console.warn('[VibeChat] openVibeChatEditor: ENTER');
 	let input: VibeChatEditorInput;
 	if (options.chatId) {
 		input = new VibeChatEditorInput(options.chatId);
@@ -302,7 +317,9 @@ export async function openVibeChatEditor(instantiationService: IInstantiationSer
 		if (!chatId) { chatId = chatThreadService.forceCreateNewThread(); }
 		input = new VibeChatEditorInput(chatId);
 	}
+	console.warn('[VibeChat] openVibeChatEditor: await openEditor() — start');
 	const pane = await editorService.openEditor(input, { pinned: true }, SIDE_GROUP);
+	console.warn('[VibeChat] openVibeChatEditor: await openEditor() — done, pane=', !!pane);
 	const newGroup = pane?.group;
 	if (newGroup) {
 		_chatEditorGroupId = newGroup.id;
@@ -475,18 +492,27 @@ class VibeChatEditorPane extends EditorPane {
 		chatElt.style.width = '100%';
 		parent.appendChild(chatElt);
 
+		console.warn('[VibeChat] createEditor: about to mountSidebar');
 		this.instantiationService.invokeFunction(accessor => {
+			const t0 = performance.now();
 			const disposeFn = mountSidebar(chatElt, accessor)?.dispose;
+			console.warn(`[VibeChat] createEditor: mountSidebar() returned in ${(performance.now() - t0).toFixed(0)}ms`);
 			this._register(toDisposable(() => disposeFn?.()));
 		});
 	}
 
 	override async setInput(input: EditorInput, options: IEditorOptions | undefined, context: IEditorOpenContext, token: CancellationToken): Promise<void> {
+		console.warn('[VibeChat] setInput: ENTER');
+		const t0 = performance.now();
 		await super.setInput(input, options, context, token);
+		console.warn(`[VibeChat] setInput: super.setInput returned in ${(performance.now() - t0).toFixed(0)}ms`);
 		// Each chat tab carries its own threadId via chatId; switching tabs flips the global "current thread" so the React UI re-renders for the active chat.
 		if (input instanceof VibeChatEditorInput) {
+			const t1 = performance.now();
 			this.chatThreadService.switchToThread(input.chatId);
+			console.warn(`[VibeChat] setInput: switchToThread returned in ${(performance.now() - t1).toFixed(0)}ms`);
 		}
+		console.warn('[VibeChat] setInput: EXIT');
 	}
 
 	layout(_dimension: Dimension): void { /* handled by flex/percent CSS */ }
