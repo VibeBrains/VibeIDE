@@ -492,11 +492,18 @@ class VibeChatEditorPane extends EditorPane {
 	}
 
 	override async setInput(input: EditorInput, options: IEditorOptions | undefined, context: IEditorOpenContext, token: CancellationToken): Promise<void> {
+		console.warn('[VibeChat] setInput: about to call super.setInput()');
+		const t0 = performance.now();
 		await super.setInput(input, options, context, token);
+		console.warn(`[VibeChat] setInput: super.setInput() returned in ${(performance.now() - t0).toFixed(1)}ms`);
 		// Each chat tab carries its own threadId via chatId; switching tabs flips the global "current thread" so the React UI re-renders for the active chat.
 		if (input instanceof VibeChatEditorInput) {
+			console.warn('[VibeChat] setInput: switchToThread() — start', input.chatId);
+			const t1 = performance.now();
 			this.chatThreadService.switchToThread(input.chatId);
+			console.warn(`[VibeChat] setInput: switchToThread() returned in ${(performance.now() - t1).toFixed(1)}ms`);
 		}
+		console.warn('[VibeChat] setInput: exit');
 	}
 
 	layout(_dimension: Dimension): void { /* handled by flex/percent CSS */ }

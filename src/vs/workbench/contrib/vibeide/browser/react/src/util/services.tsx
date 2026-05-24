@@ -108,7 +108,16 @@ const mcpListeners: Set<() => void> = new Set()
 // all called it, accumulating duplicate listeners on every global emitter.
 // Each chat-state change fired all duplicates, multiplying React re-renders
 // and starving the renderer thread (root cause of the v0.13.14 freeze).
-let _registerServicesCalledOnce = false;
+//
+// CRITICAL: tsup bundles each entry separately, so a module-scoped `let` would
+// give each React bundle its own copy of the guard (sidebar-tsx, modal-tsx,
+// quick-edit-tsx etc all have independent copies). Empirical test of the
+// per-module approach showed 3 startup mounts each registering disposables=9
+// (== first call in their bundle). To make the guard work CROSS-BUNDLE, it
+// lives on `globalThis` — a shared object across all bundles in the same
+// JavaScript context.
+const VIBE_REGISTER_GUARD_KEY = '__vibeRegisterServicesCalledOnce__';
+const _g = globalThis as Record<string, unknown>;
 
 export const _registerServices = (accessor: ServicesAccessor) => {
 
@@ -120,10 +129,10 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 	// global state vars + onDidChange wiring below have already been done.
 	// Subsequent calls just need to refresh the accessor (above) so React
 	// components mounted later use the current ServicesAccessor.
-	if (_registerServicesCalledOnce) {
+	if (_g[VIBE_REGISTER_GUARD_KEY] === true) {
 		return disposables;
 	}
-	_registerServicesCalledOnce = true;
+	_g[VIBE_REGISTER_GUARD_KEY] = true;
 
 	const stateServices = {
 		chatThreadsStateService: accessor.get(IChatThreadService),
