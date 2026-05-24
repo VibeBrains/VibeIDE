@@ -32,14 +32,19 @@ export const VibeModalContainer: React.FC = () => {
 	}, [modalService]);
 
 	// Track the element that had focus before the modal opened so we can
-	// restore it when the modal closes.
+	// restore it when the modal closes. `isConnected` guard handles the case
+	// where the trigger element was removed from DOM while the modal was open
+	// (e.g. parent component unmounted) — without the guard, `.focus()` on
+	// a detached element silently no-ops but leaks the reference.
 	const [restoreFocusEl, setRestoreFocusEl] = useState<HTMLElement | null>(null);
 	useEffect(() => {
 		if (queue.length > 0 && !restoreFocusEl) {
 			const active = document.activeElement;
 			if (active instanceof HTMLElement) setRestoreFocusEl(active);
 		} else if (queue.length === 0 && restoreFocusEl) {
-			restoreFocusEl.focus?.();
+			if (restoreFocusEl.isConnected) {
+				restoreFocusEl.focus?.();
+			}
 			setRestoreFocusEl(null);
 		}
 	}, [queue.length, restoreFocusEl]);

@@ -427,6 +427,9 @@ import './vibeIdleWatchdogAiDiagnosisAction.js'
 import './vibeModalServiceImpl.js'
 import './vibeModalRootContribution.js'
 
+// VibeIDE: models.dev catalog — recheck Command Palette entry
+import './modelsDevCatalogRecheckAction.js'
+
 // VibeIDE: Extension host crash UX — EH disconnect → pause/resume/discard notification (L1033)
 import './vibeEHCrashRecoveryContribution.js'
 

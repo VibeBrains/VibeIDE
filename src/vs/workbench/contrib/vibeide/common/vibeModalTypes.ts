@@ -42,6 +42,12 @@ export interface VibeModalInputSpec {
 }
 
 /**
+ * Modal size variant — drives max-width via CSS class (`size-{small,medium,large}`).
+ * Default `medium` (560px). Use `small` for confirmations, `large` for diff/preview.
+ */
+export type VibeModalSize = 'small' | 'medium' | 'large';
+
+/**
  * Static body — markdown-shaped plain string (no HTML for v1).
  * Future: support React node body once the input shape is settled.
  */
@@ -54,6 +60,15 @@ export interface VibeModalOptions<TButtonId extends string = string> {
 	readonly dismissible?: boolean;
 	/** Optional codicon name (e.g. `info`, `warning`, `error`). */
 	readonly icon?: string;
+	/** Default `medium`. Controls modal max-width via CSS class. */
+	readonly size?: VibeModalSize;
+	/**
+	 * When true, the modal renders a loading overlay (spinner) on top of
+	 * content and all buttons are disabled. Useful for showing async progress
+	 * inside the modal (e.g. «Saving...») without dismounting. Caller toggles
+	 * via `updateHeadLoading(true|false)` on the service.
+	 */
+	readonly loading?: boolean;
 }
 
 /**

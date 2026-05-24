@@ -2640,6 +2640,51 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ---
 
+## Z. VibeModal framework — кастомные модальные окна (2026-05-24)
+
+> **Контекст:** на work-машине (`roman.troshkov`) пользователь получил toast с упоминанием Roaming-пути для каталога моделей. Toast был некорректно проигнорирован (часто закрываются «не глядя»), и в нём показывалась информация противоречащая нашей политике «положи файл рядом с exe». Решили: важная информация должна быть модалом, а не toast'ом. И — раз у нас есть кастомные команды и menu, давайте сделаем кастомный модал-фреймворк, темизированный через VS Code tokens чтобы любая тема работала.
+
+### Z.0 B — VibeModal framework (commit `3c944a55` + audit `forthcoming`)
+
+- [x] **Common types** (`common/vibeModalTypes.ts`): `VibeModalButton` с ролью (`primary`/`secondary`/`danger`), `VibeModalInputSpec` с валидатором, `VibeModalOptions` с size/loading/icon/dismissible, `VibeModalResult` с типизированным `buttonId` + `__dismiss__` сентинелом.
+- [x] **Service** (`common/vibeModalService.ts` + `browser/vibeModalServiceImpl.ts`): `showModal<T>` Promise-API + FIFO очередь + `onDidChangeQueue` event. Audit-fix: `dispose()` resolve'ит pending modals с `__dismiss__` (был leak ожидающих promise'ов).
+- [x] **React-компоненты** (`react/src/modal-tsx/`): focus-trap, ESC dismiss, Enter commits primary, multiline textarea с Ctrl/Cmd+Enter, валидация инпута блокирует primary-кнопку, focus return на тригер при закрытии (с `isConnected` guard).
+- [x] **Theming** (`media/vibeModal.css`): **только** `var(--vscode-*)` tokens — Default Dark+/Light+/High Contrast/Vibe Neon работают без overrides. Z-index `2500` (выше editor hover widgets, ниже context menus). `max-width: min(560px, 90vw)` — narrow VS Code windows не ломаются. `overflow-wrap: anywhere` — длинные пути не разрывают вёрстку.
+- [x] **Workbench mount** (`browser/vibeModalRootContribution.ts`): `WorkbenchPhase.Eventually` находит `.monaco-workbench` root, append portal div, mount React tree. Disposes cleanly.
+- [x] **Build pipeline**: добавлено `./src2/modal-tsx/index.tsx` в `tsup.config.js`. `npm run buildreact` создаёт `react/out/modal-tsx/index.js` (gitignored — регенерируется на каждом билде).
+- [x] **Tests** (`test/common/vibeModalService.test.ts`): 21 unit-тест — push/resolve/result, dismiss (включая `dismissible: false`), FIFO ordering, change events, loading toggle, confirmModal helper (primary/cancel/dismiss/danger/custom labels), dispose pending resolution.
+
+### Z.1 A — models.dev: reorder + переход на VibeModal (commit `3c944a55` + audit `forthcoming`)
+
+- [x] **Priority reorder** в `localSnapshotCandidates()`: `exeDir → resourcesPath (bundled) → userData (Roaming)`. Соответствует policy «положи рядом с exe» — user-curated файл больше не игнорируется в пользу stale Roaming-копии.
+- [x] **`source: 'exeDir'|'bundled'|'userData'` discriminator** в `ModelsDevCatalogStatus` IPC контракте (common + main + browser синхронизированы).
+- [x] **Audit-fix fast-path**: pre-audit fast-path читал ТОЛЬКО userData — это противоречило новой priority (если пользователь положил файл рядом с exe, fast-path всё равно отдавал Roaming-snapshot). Теперь fast-path обходит exeDir/bundled безусловно, userData — с TTL gate.
+- [x] **Toast → VibeModal** для `loaded_from_local` и `failed` — важная информация больше не закрывается случайно. Семантический лейбл источника («снимок, который вы положили рядом с VibeIDE.exe» / «встроенный снимок» / «кэшированный снимок из пользовательских данных») вместо raw-пути.
+- [x] **`MODELS_DEV_URL` + `LOCAL_SNAPSHOT_FILENAME`** — single source of truth в `common/modelsDevCatalogConstants.ts` (был duplicate в main + browser).
+
+### Z.2 Feature wave-1 (commit `forthcoming`)
+
+- [x] **`size: 'small' | 'medium' | 'large'`** option — CSS class modifier `size-*`. Default `medium`. `small` для confirmation, `large` для diff/preview.
+- [x] **`loading: boolean`** state + spinner overlay — buttons + input disabled, ESC/backdrop тоже блокируются. Service method `updateHeadLoading(bool)` для async toggle во время работы.
+- [x] **`confirmModal(args): Promise<boolean>`** shorthand — primary возвращает `true`, secondary/dismiss → `false`. `danger: true` помечает OK-кнопку как danger.
+- [x] **`aria-describedby`** на body + `aria-busy` для loading state — screen reader озвучивает body вслед за title, объявляет «busy» во время async.
+- [x] **Initial focus fallback** — если нет ни input'а, ни primary-кнопки, фокус идёт на первую non-disabled кнопку (вместо «никуда»).
+- [x] **«VibeIDE: Перепроверить каталог models.dev»** Command Palette entry (`modelsDevCatalogRecheckAction.ts`) — сбрасывает in-memory кэш + перепроверяет priority chain БЕЗ рестарта IDE. Loading-модал во время probe → результат-модал с актуальным статусом. Реально полезно: положил файл рядом с exe → Ctrl+Shift+P → готово.
+
+### Z.3 Wave-2 deferred (requires browser smoke + design)
+
+- [~] **Markdown body rendering** — lightweight renderer для `**bold**` / `*italic*` / `` `code` `` / `[link](url)` в body. **Unblock:** дизайн-проход на размер кода (avoid full marked dep — ~50 строк pure helper достаточно для базового набора). **ROI:** richer messages, особенно в `loaded_from_local` где много путей и URL.
+- [~] **«Не показывать снова»** persistence через `IStorageService` — `dontShowAgainKey?: string` option, при наличии storage-bit модал не открывается. Нужен второй checkbox в UI «больше не показывать» + storage key registry. **Unblock:** реальный кейс с раздражающим модалом.
+- [~] **Modal stacking вместо FIFO queue** — позволит модалу открывать вложенный модал (например confirm внутри settings-форм-модала). Сейчас они queue'ются: внутренний дождётся закрытия внешнего, что UX-конфузно. **Unblock:** конкретный flow требующий nested confirmation.
+- [~] **Vibe Neon branded overrides** для `editorWidget.*` keys в `vibe-neon-color-theme.json` — neon glow на borders, без поломки других тем. **Unblock:** дизайн-выбор glow-цветов и интенсивности.
+- [~] **`/commit` chat flow → VibeModal** — preview commit message в модале с edit-input + Apply/Edit/Cancel вместо chat-side toast. Все pure helpers (`conventionalCommitFormat.ts`) уже готовы — нужна wire-up в SidebarChat onSubmit + git diff fetch + commit/push actions.
+- [~] **Pre-OOM alerts через VibeModal** (W.42) — заменить notification на модал с heap snapshot details + actions «Снять snapshot / Собрать crash report / Пропустить». Текущий notification часто пропускается; pre-OOM ситуация — важная.
+- [~] **Drag-to-reposition** title bar — для случаев когда модал перекрывает важный editor content. **Unblock:** реальный user-complaint.
+- [~] **Resize handle на углу** для multi-line input'а (commit messages, prompts library editor). **Unblock:** wave-2 UI cycle для /commit.
+- [~] **«Recheck on file-watcher event»** — `fs.watch` на trio путей (exeDir/bundled/userData) → auto-recheck при появлении/изменении файла. Не нужно даже Command Palette нажимать. **Unblock:** evidence что пользователи кладут файл и забывают вызвать recheck.
+
+---
+
 ## Ссылки
 
 | Документ | Описание |

@@ -28,6 +28,13 @@ export interface IModelsDevCatalogStatusService {
 	readonly _serviceBrand: undefined;
 	getStatus(): Promise<ModelsDevCatalogStatus>;
 	setDiskCacheTtlHours(hours: number): Promise<void>;
+	/**
+	 * Force a fresh catalog probe — drops in-memory cache and re-runs the
+	 * candidate priority chain. Returns the new status. Used by the «Recheck»
+	 * Command Palette entry so users can test a freshly-placed snapshot
+	 * without restarting the IDE.
+	 */
+	recheck(): Promise<ModelsDevCatalogStatus>;
 }
 
 export const IModelsDevCatalogStatusService =
@@ -49,6 +56,10 @@ export class ModelsDevCatalogStatusService implements IModelsDevCatalogStatusSer
 
 	setDiskCacheTtlHours(hours: number): Promise<void> {
 		return this.proxy.setDiskCacheTtlHours(hours);
+	}
+
+	recheck(): Promise<ModelsDevCatalogStatus> {
+		return this.proxy.recheck();
 	}
 }
 

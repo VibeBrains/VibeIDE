@@ -33,7 +33,10 @@
 .vibeide-modal-root {
 	position: fixed;
 	inset: 0;
-	z-index: 2000;
+	/* 2500 — above editor hover widgets (≈2000) and most workbench overlays,
+	   below VS Code context menus (≈3000) so they can still appear on top.
+	   Modal IS the "primary attention" surface but not blocking action menus. */
+	z-index: 2500;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -58,8 +61,11 @@
 
 .vibeide-modal {
 	position: relative;
-	min-width: 360px;
-	max-width: 560px;
+	/* `min(560px, 90vw)` clamps width for narrow VS Code windows (split panes,
+	   small monitors) — without it the modal could exceed viewport and clip
+	   buttons off-screen. */
+	min-width: min(360px, 88vw);
+	max-width: min(560px, 90vw);
 	max-height: 80vh;
 	display: flex;
 	flex-direction: column;
@@ -74,6 +80,12 @@
 	opacity: 0;
 	transition: transform 140ms ease-out, opacity 140ms ease-out;
 }
+
+/* Size variants (feature: VibeModalOptions.size). Width clamped by viewport
+   in all variants so narrow windows degrade gracefully. */
+.vibeide-modal.size-small  { max-width: min(360px, 90vw); }
+.vibeide-modal.size-medium { max-width: min(560px, 90vw); }
+.vibeide-modal.size-large  { max-width: min(800px, 92vw); }
 
 .vibeide-modal-root.is-active .vibeide-modal {
 	transform: scale(1);
@@ -111,6 +123,12 @@
 	overflow-y: auto;
 	color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
 	white-space: pre-wrap;
+	/* `overflow-wrap: anywhere` + `word-break: break-word` ensure long
+	   unbroken tokens (file paths like `C:\Users\very-long-name\AppData...`
+	   or URLs) don't overflow horizontally and clip behind the modal's
+	   border. Without these, a 200-char path would force horizontal scroll. */
+	overflow-wrap: anywhere;
+	word-break: break-word;
 	line-height: 1.5;
 }
 
@@ -213,4 +231,31 @@
 }
 .vibeide-modal-button.role-danger:hover:not(:disabled) {
 	filter: brightness(1.1);
+}
+
+/* Loading state — overlay with spinner. Buttons + input disabled via React
+   state, this layer just dims content and shows the activity indicator. */
+.vibeide-modal-loading-overlay {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background-color: var(--vscode-editorWidget-background);
+	opacity: 0.7;
+	border-radius: 6px;
+	z-index: 1;
+}
+
+.vibeide-modal-loading-spinner {
+	width: 28px;
+	height: 28px;
+	border: 3px solid var(--vscode-progressBar-background, var(--vscode-focusBorder));
+	border-top-color: transparent;
+	border-radius: 50%;
+	animation: vibeide-modal-spin 700ms linear infinite;
+}
+
+@keyframes vibeide-modal-spin {
+	to { transform: rotate(360deg); }
 }

@@ -47,36 +47,43 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry; isActive: boolean
 
 	const primaryButton = useMemo(() => options.buttons.find(b => b.role === 'primary'), [options.buttons]);
 
-	// Initial focus: input if present, otherwise first primary button, otherwise first button.
+	// Initial focus: input → first primary button → ANY first button (audit
+	// fallback for modals with only secondary/danger buttons and no input).
 	useEffect(() => {
 		if (!isActive) return;
-		const target = inputRef.current ?? firstFocusableRef.current;
-		target?.focus();
-	}, [isActive, entry.id]);
+		if (options.loading) return; // don't grab focus while loading; buttons are disabled
+		if (inputRef.current) { inputRef.current.focus(); return; }
+		if (firstFocusableRef.current) { firstFocusableRef.current.focus(); return; }
+		// Fallback — focus the first interactive element we can find inside modal.
+		const firstBtn = modalRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+		firstBtn?.focus();
+	}, [isActive, entry.id, options.loading]);
 
-	// ESC handler (only when dismissible !== false).
+	// ESC handler (only when dismissible !== false AND not loading).
 	useEffect(() => {
 		if (!isActive) return;
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key === 'Escape' && options.dismissible !== false) {
+			if (e.key === 'Escape' && options.dismissible !== false && !options.loading) {
 				e.preventDefault();
 				modalService.dismissHead();
 			}
 		};
 		window.addEventListener('keydown', onKey);
 		return () => window.removeEventListener('keydown', onKey);
-	}, [isActive, options.dismissible, modalService]);
+	}, [isActive, options.dismissible, options.loading, modalService]);
 
 	const onButtonClick = useCallback((btn: VibeModalButton) => {
 		if (btn.disabled) return;
+		if (options.loading) return;
 		if (btn.role === 'primary' && validationError) return;
 		modalService.resolveHead(btn.id, options.input ? inputValue : undefined);
-	}, [modalService, options.input, inputValue, validationError]);
+	}, [modalService, options.input, options.loading, inputValue, validationError]);
 
 	const onBackdropClick = useCallback(() => {
 		if (options.dismissible === false) return;
+		if (options.loading) return;
 		modalService.dismissHead();
-	}, [modalService, options.dismissible]);
+	}, [modalService, options.dismissible, options.loading]);
 
 	const onInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
 		// Enter on single-line input commits the primary button. On multiline
@@ -111,6 +118,8 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry; isActive: boolean
 	}, []);
 
 	const titleId = `vibeide-modal-title-${entry.id}`;
+	const bodyId = `vibeide-modal-body-${entry.id}`;
+	const sizeClass = `size-${options.size ?? 'medium'}`;
 	let assignedPrimary = false;
 
 	return (
@@ -118,10 +127,12 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry; isActive: boolean
 			<div className="vibeide-modal-backdrop" onClick={onBackdropClick} />
 			<div
 				ref={modalRef}
-				className="vibeide-modal"
+				className={`vibeide-modal ${sizeClass}`}
 				role="dialog"
 				aria-modal="true"
 				aria-labelledby={titleId}
+				aria-describedby={options.body ? bodyId : undefined}
+				aria-busy={options.loading ? true : undefined}
 				onKeyDown={onTrapKeyDown}
 			>
 				<div className="vibeide-modal-header">
@@ -132,7 +143,7 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry; isActive: boolean
 				</div>
 
 				{options.body && (
-					<div className="vibeide-modal-body">{options.body}</div>
+					<div id={bodyId} className="vibeide-modal-body">{options.body}</div>
 				)}
 
 				{options.input && (
@@ -168,7 +179,9 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry; isActive: boolean
 				<div className="vibeide-modal-buttons">
 					{options.buttons.map(btn => {
 						const role = btn.role ?? 'secondary';
-						const disabled = !!btn.disabled || (role === 'primary' && !!validationError);
+						const disabled = !!btn.disabled
+							|| !!options.loading
+							|| (role === 'primary' && !!validationError);
 						const ref = !assignedPrimary && role === 'primary' ? firstFocusableRef : null;
 						if (ref) assignedPrimary = true;
 						return (
@@ -185,6 +198,12 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry; isActive: boolean
 						);
 					})}
 				</div>
+
+				{options.loading && (
+					<div className="vibeide-modal-loading-overlay" aria-hidden="true">
+						<div className="vibeide-modal-loading-spinner" />
+					</div>
+				)}
 			</div>
 		</>
 	);

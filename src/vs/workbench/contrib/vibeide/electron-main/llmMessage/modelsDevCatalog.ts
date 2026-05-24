@@ -39,10 +39,9 @@
 import { fetch as undiciFetch } from 'undici';
 import * as fs from 'fs';
 import * as path from 'path';
+import { LOCAL_SNAPSHOT_FILENAME, MODELS_DEV_URL } from '../../common/modelsDevCatalogConstants.js';
 
-const MODELS_DEV_URL = 'https://models.dev/api.json';
 const FETCH_TIMEOUT_MS = 10_000;
-const LOCAL_SNAPSHOT_FILENAME = 'models.dev.json';
 // Disk-cache TTL for the userData snapshot. Within this window we serve from
 // disk INSTANTLY (no network wait) and kick off a background refresh — the
 // classic stale-while-revalidate pattern. Default 24h: aggregators don't add
@@ -205,28 +204,42 @@ const tryReadLocalSnapshot = async (): Promise<{ catalog: CatalogIndex; from: st
 	return null;
 };
 
-// Fast-path read of the userData snapshot ONLY, plus its age. Used by the
-// stale-while-revalidate fast start: if the snapshot was written within the
-// configured TTL, serve it immediately and skip the synchronous network fetch
-// on cold start (a background refresh runs anyway). userData is the only
-// candidate we wrote ourselves — exeDir / resourcesPath bundles were placed
-// by a human and we have no provenance on their freshness, so they stay on
-// the slow path (network-fail fallback) only.
-const tryReadFreshUserDataSnapshot = async (): Promise<{ catalog: CatalogIndex; from: string; ageMs: number } | null> => {
-	const userData = resolveUserDataDir();
-	if (!userData) return null;
-	const file = path.join(userData, LOCAL_SNAPSHOT_FILENAME);
-	try {
-		const stat = await fs.promises.stat(file);
-		const ageMs = Date.now() - stat.mtimeMs;
-		if (ageMs > resolveDiskCacheTtlMs()) return null;
-		const raw = await fs.promises.readFile(file, 'utf-8');
-		const indexed = indexJson(JSON.parse(raw));
-		if (!indexed) return null;
-		return { catalog: indexed, from: file, ageMs };
-	} catch {
-		return null;
+// Fast-path read for cold-start: serve a local snapshot immediately and skip
+// the network round-trip when possible. Honors the candidate priority:
+//
+//   1. exeDir — user-curated; ALWAYS served instantly (no TTL — the user
+//      explicitly placed the file, freshness is their responsibility).
+//   2. bundled (resourcesPath) — shipped with the install; ALWAYS served
+//      instantly (release artifact, freshness is the maintainer's job).
+//   3. userData — auto-written cache from a previous network success;
+//      served instantly ONLY when within the configured TTL window
+//      (default 24h). Stale userData falls through to the slow path so
+//      we attempt network refresh.
+//
+// AUDIT-FIX (post-A): the previous version only checked userData,
+// which meant a user dropping a freshly downloaded file next to
+// VibeIDE.exe could still get a stale Roaming snapshot served on cold
+// start. Now exeDir/bundled win unconditionally during fast-path.
+const tryReadFastPathSnapshot = async (): Promise<{ catalog: CatalogIndex; from: string; source: 'exeDir' | 'bundled' | 'userData'; ageMs?: number } | null> => {
+	for (const { path: p, source } of localSnapshotCandidates()) {
+		try {
+			if (source === 'userData') {
+				// TTL gate only applies to auto-written userData.
+				const stat = await fs.promises.stat(p);
+				const ageMs = Date.now() - stat.mtimeMs;
+				if (ageMs > resolveDiskCacheTtlMs()) return null;
+				const raw = await fs.promises.readFile(p, 'utf-8');
+				const indexed = indexJson(JSON.parse(raw));
+				if (!indexed) return null;
+				return { catalog: indexed, from: p, source, ageMs };
+			}
+			// exeDir / bundled — served unconditionally if readable.
+			const raw = await fs.promises.readFile(p, 'utf-8');
+			const indexed = indexJson(JSON.parse(raw));
+			if (indexed) return { catalog: indexed, from: p, source };
+		} catch { /* missing / invalid — try next candidate */ }
 	}
+	return null;
 };
 
 // Fire-and-forget background refresh: pull fresh catalogue from network and
@@ -266,13 +279,14 @@ const getCatalog = (): Promise<CatalogIndex | null> => {
 		// so the next start gets newer data AND this session picks up any new
 		// models mid-flight. This drops cold-start LLM-request latency by ~500ms
 		// on warm runs.
-		const fresh = await tryReadFreshUserDataSnapshot();
+		const fresh = await tryReadFastPathSnapshot();
 		if (fresh) {
 			cachedCatalog = fresh.catalog;
 			lastFailureAt = 0;
 			loadedFromLocalPath = fresh.from;
-			loadedFromLocalSource = 'userData';
-			console.warn(`[modelsDevCatalog] served fresh userData snapshot from ${fresh.from} (age ${Math.floor(fresh.ageMs / 1000)}s); refreshing in background`);
+			loadedFromLocalSource = fresh.source;
+			const ageNote = fresh.ageMs !== undefined ? ` (age ${Math.floor(fresh.ageMs / 1000)}s)` : '';
+			console.warn(`[modelsDevCatalog] fast-path served ${fresh.source} snapshot from ${fresh.from}${ageNote}; refreshing in background`);
 			refreshInBackground();
 			inFlight = null;
 			return fresh.catalog;
@@ -347,6 +361,17 @@ export const _refreshCatalogForTests = (): void => {
 	lastFailureAt = 0;
 	loadedFromLocalPath = null;
 	loadedFromLocalSource = null;
+};
+
+/**
+ * Public — drops in-memory cache and forces the next `getCatalog()` call to
+ * re-probe (exeDir → bundled → userData → network). Used by the «Recheck»
+ * Command Palette entry so users can test a freshly-placed snapshot without
+ * restarting the IDE. Same effect as `_refreshCatalogForTests`, but the name
+ * documents production intent.
+ */
+export const recheckCatalog = (): void => {
+	_refreshCatalogForTests();
 };
 
 // Where the in-memory catalog actually came from. Set when getCatalog() resolves.

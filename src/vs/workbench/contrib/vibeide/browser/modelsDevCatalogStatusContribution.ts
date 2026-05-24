@@ -10,6 +10,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
 import { IModelsDevCatalogStatusService, ModelsDevCatalogStatus } from '../common/modelsDevCatalogStatusService.js';
+import { MODELS_DEV_URL } from '../common/modelsDevCatalogConstants.js';
 import { IVibeModalService } from '../common/vibeModalService.js';
 
 /**
@@ -123,8 +124,6 @@ export class ModelsDevCatalogStatusContribution extends Disposable implements IW
 		});
 	}
 }
-
-const MODELS_DEV_URL = 'https://models.dev/api.json';
 
 const labelOf = (source: 'exeDir' | 'bundled' | 'userData'): string => {
 	switch (source) {

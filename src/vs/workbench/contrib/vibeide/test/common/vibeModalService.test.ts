@@ -165,4 +165,93 @@ suite('VibeModalService', () => {
 		// `result.buttonId === 'apply'` is a valid comparison; assert it at runtime.
 		assert.strictEqual(result.buttonId, 'apply');
 	});
+
+	test('dispose resolves all pending modals with __dismiss__', async () => {
+		const svc = new VibeModalService();
+		const p1 = svc.showModal({ title: 'A', buttons: [{ id: 'ok', label: 'OK' }] });
+		const p2 = svc.showModal({ title: 'B', buttons: [{ id: 'ok', label: 'OK' }], dismissible: false });
+		assert.strictEqual(svc.getQueue().length, 2);
+		svc.dispose();
+		const [r1, r2] = await Promise.all([p1, p2]);
+		// Even `dismissible: false` modal is resolved on dispose — service teardown
+		// is unconditional; callers should branch on `__dismiss__` instead of
+		// expecting it to mean "user dismissed".
+		assert.strictEqual(r1.buttonId, VIBE_MODAL_DISMISS_ID);
+		assert.strictEqual(r2.buttonId, VIBE_MODAL_DISMISS_ID);
+		assert.strictEqual(svc.getQueue().length, 0);
+	});
+
+	test('updateHeadLoading toggles loading + fires change event', () => {
+		const svc = new VibeModalService();
+		let fired = 0;
+		svc.onDidChangeQueue(() => { fired += 1; });
+		void svc.showModal({ title: 'T', buttons: [{ id: 'ok', label: 'OK' }] });
+		assert.strictEqual(fired, 1);
+
+		svc.updateHeadLoading(true);
+		assert.strictEqual(fired, 2);
+		assert.strictEqual(svc.getQueue()[0].options.loading, true);
+
+		// Setting the same value is no-op (no event fired).
+		svc.updateHeadLoading(true);
+		assert.strictEqual(fired, 2);
+
+		svc.updateHeadLoading(false);
+		assert.strictEqual(fired, 3);
+		assert.strictEqual(svc.getQueue()[0].options.loading, false);
+	});
+
+	test('updateHeadLoading no-op on empty queue', () => {
+		const svc = new VibeModalService();
+		svc.updateHeadLoading(true); // should not throw
+		assert.strictEqual(svc.getQueue().length, 0);
+	});
+
+	test('confirmModal — primary returns true', async () => {
+		const svc = new VibeModalService();
+		const p = svc.confirmModal({ title: 'Delete?', body: 'Are you sure?' });
+		// Inspect queue: should be one entry with 'cancel' and 'ok' buttons.
+		const entry = svc.getQueue()[0];
+		assert.ok(entry);
+		assert.strictEqual(entry.options.buttons.length, 2);
+		assert.strictEqual(entry.options.buttons[0].id, 'cancel');
+		assert.strictEqual(entry.options.buttons[1].id, 'ok');
+		assert.strictEqual(entry.options.buttons[1].role, 'primary');
+		svc.resolveHead('ok');
+		assert.strictEqual(await p, true);
+	});
+
+	test('confirmModal — cancel returns false', async () => {
+		const svc = new VibeModalService();
+		const p = svc.confirmModal({ title: 'Delete?' });
+		svc.resolveHead('cancel');
+		assert.strictEqual(await p, false);
+	});
+
+	test('confirmModal — dismiss returns false', async () => {
+		const svc = new VibeModalService();
+		const p = svc.confirmModal({ title: 'Delete?' });
+		svc.dismissHead();
+		assert.strictEqual(await p, false);
+	});
+
+	test('confirmModal danger:true marks OK as danger role', () => {
+		const svc = new VibeModalService();
+		void svc.confirmModal({ title: 'Delete?', danger: true });
+		const okButton = svc.getQueue()[0].options.buttons[1];
+		assert.strictEqual(okButton.id, 'ok');
+		assert.strictEqual(okButton.role, 'danger');
+	});
+
+	test('confirmModal custom labels', () => {
+		const svc = new VibeModalService();
+		void svc.confirmModal({
+			title: 'Save?',
+			okLabel: 'Сохранить',
+			cancelLabel: 'Не сохранять',
+		});
+		const buttons = svc.getQueue()[0].options.buttons;
+		assert.strictEqual(buttons[0].label, 'Не сохранять');
+		assert.strictEqual(buttons[1].label, 'Сохранить');
+	});
 });

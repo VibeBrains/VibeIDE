@@ -74,4 +74,32 @@ export interface IVibeModalService {
 	 * modal has `dismissible !== false`. No-op otherwise.
 	 */
 	dismissHead(): void;
+
+	/**
+	 * Toggle the head modal's `loading` flag. Used by async callers that need
+	 * to show a spinner inside the modal while a background operation (save,
+	 * git commit, network fetch) runs. No-op if no modal is active.
+	 *
+	 * Example:
+	 *   const p = svc.showModal({...});
+	 *   // user clicked "Save" — switch to loading
+	 *   svc.updateHeadLoading(true);
+	 *   await doAsyncWork();
+	 *   svc.resolveHead('saved');
+	 */
+	updateHeadLoading(loading: boolean): void;
+
+	/**
+	 * Shorthand for the common confirm pattern. Returns `true` on the primary
+	 * button, `false` on secondary OR dismiss. Saves callers ~10 lines per use.
+	 */
+	confirmModal(args: {
+		readonly title: string;
+		readonly body?: string;
+		readonly icon?: string;
+		readonly okLabel?: string;
+		readonly cancelLabel?: string;
+		readonly danger?: boolean;
+		readonly size?: import('./vibeModalTypes.js').VibeModalSize;
+	}): Promise<boolean>;
 }
