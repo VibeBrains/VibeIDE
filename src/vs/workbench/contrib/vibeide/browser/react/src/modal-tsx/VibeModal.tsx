@@ -11,6 +11,10 @@ import { VIBE_MODAL_MIN_AUTO_DISMISS_MS, VibeModalButton, VibeModalQueueEntry } 
  *  timer values after rapid hover-in/out cycles. */
 const MIN_REMAINING_MS_AFTER_PAUSE = 50;
 
+/** Session-scoped dedupe for autoDismiss clamp warnings — log once, not on
+ *  every modal that uses a too-small value. */
+let _autoDismissClampWarned = false;
+
 /**
  * Renders the button label with the hotkey character underlined (first
  * case-insensitive occurrence). Falls back to plain text if no hotkey or no
@@ -86,6 +90,17 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
 		firstBtn?.focus();
 	}, [entry.id, options.loading]);
 
+	// onMount lifecycle — fire once per modal instance, after first focus is set.
+	// Errors swallowed so a buggy hook can't break the modal flow.
+	useEffect(() => {
+		if (!options.onMount) return;
+		try { options.onMount(); }
+		catch (e) { console.warn('[VibeModal] onMount threw', e); }
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally
+		// only fires on entry.id change; options.onMount changes shouldn't refire
+		// (caller expectation: «mount» = once per showModal call).
+	}, [entry.id]);
+
 	// ESC + hotkey handler. ESC honors dismissible + loading + onBeforeDismiss.
 	// Hotkeys (per-button single-char shortcut) activate buttons without click.
 	useEffect(() => {
@@ -126,6 +141,10 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
 		if (options.dismissible === false) return; // can't dismiss anyway
 		// Clamp to a sensible minimum — anything shorter is a visual flash.
 		const ms = Math.max(VIBE_MODAL_MIN_AUTO_DISMISS_MS, rawMs);
+		if (rawMs < VIBE_MODAL_MIN_AUTO_DISMISS_MS && !_autoDismissClampWarned) {
+			_autoDismissClampWarned = true;
+			console.warn(`[VibeModal] autoDismissAfterMs=${rawMs}ms is below the floor (${VIBE_MODAL_MIN_AUTO_DISMISS_MS}ms); clamped. Anything shorter is a visual flash — pick >= ${VIBE_MODAL_MIN_AUTO_DISMISS_MS}ms.`);
+		}
 		let cancelled = false;
 		let pausedByHover = false;
 		let remaining = ms;
@@ -341,6 +360,11 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
  * Build the keyboard-hint footer parts from button hotkeys + dismissibility.
  * Returns ordered list `[{key, action}, ...]` rendered by `<kbd>` chips.
  * Empty array → footer hidden entirely.
+ *
+ * Multiline input behaviour: when the modal has a multiline textarea, Enter
+ * inserts a newline (default browser behaviour) and Ctrl/Cmd+Enter commits
+ * the primary button — so the hint shows the actual commit shortcut, not a
+ * lie that misleads the user. Single-line input keeps Enter = commit.
  */
 const buildKeyboardHint = (options: VibeModalQueueEntry['options']): Array<{ key: string; action: string }> => {
 	const parts: Array<{ key: string; action: string }> = [];
@@ -349,12 +373,22 @@ const buildKeyboardHint = (options: VibeModalQueueEntry['options']): Array<{ key
 	}
 	const primary = options.buttons.find(b => b.role === 'primary');
 	if (primary && !primary.disabled && !options.loading) {
-		parts.push({ key: 'Enter', action: primary.label.toLowerCase() });
+		const isMultilineInput = options.input?.multiline === true;
+		const commitKey = isMultilineInput ? (isMacLike() ? '⌘+Enter' : 'Ctrl+Enter') : 'Enter';
+		parts.push({ key: commitKey, action: primary.label.toLowerCase() });
 	}
-	const hotkeyButtons = options.buttons.filter(b => b.hotkey && !b.disabled);
-	if (hotkeyButtons.length > 0 && !options.loading) {
-		const hotkeyList = hotkeyButtons.map(b => b.hotkey!.toUpperCase()).join('/');
-		parts.push({ key: hotkeyList, action: 'hotkeys' });
+	if (!options.loading) {
+		for (const b of options.buttons) {
+			if (!b.hotkey || b.disabled) continue;
+			// Skip duplicate of primary if Enter already covers it AND there's no
+			// separate hotkey-binding intent (same action twice in the hint is noise).
+			parts.push({ key: b.hotkey.toUpperCase(), action: b.label.toLowerCase() });
+		}
 	}
 	return parts;
+};
+
+const isMacLike = (): boolean => {
+	if (typeof navigator === 'undefined') return false;
+	return /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
 };

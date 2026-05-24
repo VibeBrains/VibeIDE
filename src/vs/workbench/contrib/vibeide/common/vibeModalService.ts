@@ -152,4 +152,14 @@ export interface IVibeModalService {
 		readonly size?: import('./vibeModalTypes.js').VibeModalSize;
 		readonly autoDismissAfterMs?: number;
 	}): Promise<void>;
+
+	/**
+	 * Severity-specific presets — pre-configured icon + sensible defaults for
+	 * the three common notification flavours. Save callers from constructing
+	 * the option object manually. `autoDismissAfterMs` opt-in (success uses
+	 * it by default since it's transient; error/warn don't — user must ack).
+	 */
+	successModal(args: { readonly title: string; readonly body: string; readonly autoDismissAfterMs?: number; readonly size?: import('./vibeModalTypes.js').VibeModalSize }): Promise<void>;
+	errorModal(args: { readonly title: string; readonly body: string; readonly size?: import('./vibeModalTypes.js').VibeModalSize }): Promise<void>;
+	warnModal(args: { readonly title: string; readonly body: string; readonly size?: import('./vibeModalTypes.js').VibeModalSize }): Promise<void>;
 }

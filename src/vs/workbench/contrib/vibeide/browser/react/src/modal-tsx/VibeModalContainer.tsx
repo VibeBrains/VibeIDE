@@ -55,33 +55,35 @@ export const VibeModalContainer: React.FC = () => {
 	// + aria-hidden so screen readers + keyboard nav can't escape the modal
 	// via assistive-tech jump commands (e.g. screen reader heading navigation).
 	// Standard pattern is `inert` attribute on siblings of the portal root.
+	//
+	// AUDIT-FIX: we save EACH element's ORIGINAL attribute values before
+	// mutating, so cleanup restores rather than clobbers. Without this,
+	// `removeAttribute('aria-hidden')` on a child that VS Code had set
+	// aria-hidden=true on (collapsed sidebar, etc) would corrupt a11y
+	// state once the modal closes.
 	useEffect(() => {
+		if (!head) return; // Effect only meaningful while a modal is active.
 		const portal = document.getElementById('vibeide-modal-portal');
 		const workbench = portal?.parentElement ?? document.body;
 		if (!workbench) return;
-		// Apply to every direct child of workbench EXCEPT our portal.
-		const targets: HTMLElement[] = [];
+		const restores: Array<{ el: HTMLElement; inert: string | null; ariaHidden: string | null }> = [];
 		for (const child of Array.from(workbench.children)) {
 			if (child === portal) continue;
 			if (!(child instanceof HTMLElement)) continue;
-			targets.push(child);
-		}
-		if (head) {
-			for (const el of targets) {
-				el.setAttribute('inert', '');
-				el.setAttribute('aria-hidden', 'true');
-			}
-		} else {
-			for (const el of targets) {
-				el.removeAttribute('inert');
-				el.removeAttribute('aria-hidden');
-			}
+			restores.push({
+				el: child,
+				inert: child.getAttribute('inert'),
+				ariaHidden: child.getAttribute('aria-hidden'),
+			});
+			child.setAttribute('inert', '');
+			child.setAttribute('aria-hidden', 'true');
 		}
 		return () => {
-			// Cleanup if container unmounts while modal active — restore inert state.
-			for (const el of targets) {
-				el.removeAttribute('inert');
-				el.removeAttribute('aria-hidden');
+			for (const { el, inert, ariaHidden } of restores) {
+				if (inert === null) el.removeAttribute('inert');
+				else el.setAttribute('inert', inert);
+				if (ariaHidden === null) el.removeAttribute('aria-hidden');
+				else el.setAttribute('aria-hidden', ariaHidden);
 			}
 		};
 	}, [head]);

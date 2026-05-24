@@ -138,6 +138,24 @@ export interface VibeModalOptions<TButtonId extends string = string> {
 	 * responsibility for the callback completing).
 	 */
 	readonly onBeforeDismissTimeoutMs?: number;
+	/**
+	 * Lifecycle hook fired on first mount (DOM attached, initial focus set).
+	 * Fires AT MOST once per `showModal()` call. Use for telemetry / analytics
+	 * pipelines that need to know «modal is now visible». Errors swallowed
+	 * with `console.warn` — a buggy hook MUST NOT break the modal flow.
+	 */
+	readonly onMount?: () => void;
+	/**
+	 * Lifecycle hook fired AFTER the modal is resolved/dismissed (queue head
+	 * advanced). Receives the same shape as `showModal()` resolves with.
+	 * Synchronous; runs before the next queued modal mounts.
+	 *
+	 * Distinct from `await showModal()` — use this for fire-and-forget callers
+	 * (notification pipelines, side-channel observers) that don't track the
+	 * returned promise but still want a hook on close. Errors swallowed with
+	 * `console.warn`.
+	 */
+	readonly onClose?: (result: { buttonId: string; inputValue?: string }) => void;
 }
 
 /** Lower bound for `autoDismissAfterMs` — anything shorter is a visual flash. */

@@ -22,6 +22,19 @@ interface InternalQueueEntry<TButtonId extends string> {
 	readonly resolve: (result: VibeModalResult<TButtonId>) => void;
 }
 
+/**
+ * Invoke `options.onClose` defensively — a buggy caller hook must not break
+ * the modal flow. Called from every code path that resolves a queue entry.
+ */
+function safeOnClose(options: VibeModalOptions, result: { buttonId: string; inputValue?: string }): void {
+	if (!options.onClose) return;
+	try {
+		options.onClose(result);
+	} catch (e) {
+		console.warn('[VibeModalService] onClose threw', e);
+	}
+}
+
 export class VibeModalService extends Disposable implements IVibeModalService {
 	declare readonly _serviceBrand: undefined;
 
@@ -41,7 +54,9 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 			dispose: () => {
 				while (this._queue.length > 0) {
 					const head = this._queue.shift()!;
-					head.resolve({ buttonId: VIBE_MODAL_DISMISS_ID });
+					const result = { buttonId: VIBE_MODAL_DISMISS_ID };
+					head.resolve(result);
+					safeOnClose(head.options, result);
 				}
 			},
 		});
@@ -70,6 +85,7 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 			? { buttonId, inputValue }
 			: { buttonId };
 		head.resolve(result);
+		safeOnClose(head.options, result);
 		this._onDidChangeQueue.fire();
 	}
 
@@ -79,7 +95,9 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 		// `dismissible` defaults to true. Reject dismiss only when explicitly false.
 		if (head.options.dismissible === false) return;
 		this._queue.shift();
-		head.resolve({ buttonId: VIBE_MODAL_DISMISS_ID });
+		const result = { buttonId: VIBE_MODAL_DISMISS_ID };
+		head.resolve(result);
+		safeOnClose(head.options, result);
 		this._onDidChangeQueue.fire();
 	}
 
@@ -125,7 +143,9 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 			if (this._queue[0] !== head) return false;
 		}
 		this._queue.shift();
-		head.resolve({ buttonId: VIBE_MODAL_DISMISS_ID });
+		const result = { buttonId: VIBE_MODAL_DISMISS_ID };
+		head.resolve(result);
+		safeOnClose(head.options, result);
 		this._onDidChangeQueue.fire();
 		return true;
 	}
@@ -138,6 +158,7 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 			? { buttonId: finalId, inputValue }
 			: { buttonId: finalId };
 		head.resolve(result);
+		safeOnClose(head.options, result);
 		this._onDidChangeQueue.fire();
 	}
 
@@ -202,6 +223,38 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 			autoDismissAfterMs: args.autoDismissAfterMs,
 			buttons: [{ id: 'ok', label: args.okLabel ?? 'Понятно', role: 'primary' }],
 		}).then(() => undefined);
+	}
+
+	successModal(args: { readonly title: string; readonly body: string; readonly autoDismissAfterMs?: number; readonly size?: VibeModalSize }): Promise<void> {
+		return this.showImportantInfoModal({
+			title: args.title,
+			body: args.body,
+			icon: 'check',
+			size: args.size ?? 'small',
+			// Success is transient — default 4s auto-dismiss matches the
+			// "Catalog updated" pattern from modelsDevCatalogRecheckAction.
+			autoDismissAfterMs: args.autoDismissAfterMs ?? 4000,
+			okLabel: 'Отлично',
+		});
+	}
+
+	errorModal(args: { readonly title: string; readonly body: string; readonly size?: VibeModalSize }): Promise<void> {
+		return this.showImportantInfoModal({
+			title: args.title,
+			body: args.body,
+			icon: 'error',
+			size: args.size ?? 'medium',
+			// Errors require explicit acknowledgement — no auto-dismiss.
+		});
+	}
+
+	warnModal(args: { readonly title: string; readonly body: string; readonly size?: VibeModalSize }): Promise<void> {
+		return this.showImportantInfoModal({
+			title: args.title,
+			body: args.body,
+			icon: 'warning',
+			size: args.size ?? 'medium',
+		});
 	}
 }
 

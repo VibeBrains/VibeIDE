@@ -2737,6 +2737,47 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 - [~] **Animated state-icons** — pulsing для `warning` icon, rotating для `sync`. Сейчас static codicons (VS Code's `codicon-modifier-spin` доступен но не используется автоматически). **Unblock:** дизайн-выбор интенсивности анимации.
 - [~] **JSDOM integration tests** — для runtime behaviour: hotkey activation, autoDismiss timer firing, aria-live announce. Сейчас только service-state-machine покрыт. **Unblock:** JSDOM setup в `test/browser/` (other VibeIDE tests тоже unit-only currently).
 
+### Z.9 Audit round 4 (commit forthcoming)
+
+> **4-й self-audit pass подряд** на VibeModal/models.dev. Diminishing returns в полной мере: 4 настоящих fix + 2 honest-value features. Все дальнейшие audits на этой поверхности должны идти **только по триггеру** (см. Z.10).
+
+#### Z.9.1 — Real fixes
+
+- [x] **`aria-hidden` restore bug** — `VibeModalContainer` cleanup безусловно стирал `aria-hidden` с workbench-siblings. Если у элемента БЫЛО `aria-hidden=true` до открытия модала (collapsed sidebar и т.п.), cleanup ломал VS Code a11y. ✅ closed: сохраняем `restores: Array<{el, inert: original, ariaHidden: original}>` снапшот при apply, restoring per-element value (null → removeAttribute, иначе setAttribute с оригиналом).
+- [x] **Multiline Enter hint** — keyboard-hint показывал «Enter [primary]» даже для multiline textarea-модалов, но Enter там вставляет newline, commit = Ctrl/Cmd+Enter. ✅ closed: hint детектит `options.input?.multiline === true` и показывает корректный shortcut + platform-aware `⌘+Enter` на Mac.
+- [x] **Per-button hotkey hints** — генерик «Y/N hotkeys» объединял несколько кнопок в одну. ✅ closed: iterate per-button, action = button.label (lowercase). Каждый hotkey — отдельный `<kbd>` chip с собственным action label.
+- [x] **`autoDismissAfterMs` clamp warn** — clamp срабатывал silently. ✅ closed: `console.warn` once-per-session когда rawMs < `VIBE_MODAL_MIN_AUTO_DISMISS_MS`. Devx hint для caller'а.
+
+#### Z.9.2 — Honest-value features
+
+- [x] **`successModal` / `errorModal` / `warnModal` presets** — pre-configured shorthand'ы (icon + size + sensible defaults):
+  - `successModal` — icon `check`, size `small`, default 4s auto-dismiss («Отлично» label)
+  - `errorModal` — icon `error`, size `medium`, NO auto-dismiss (user must ack)
+  - `warnModal` — icon `warning`, size `medium`, NO auto-dismiss
+  - `modelsDevCatalogRecheckAction.ts` refactor'ен на presets: 3 нативных showModal call'а → 3 preset call'а (~30 строк → ~10).
+- [x] **`onMount` + `onClose` lifecycle callbacks** — caller-side hooks для telemetry / analytics / state-machines:
+  - `onMount?: () => void` fires в React `useEffect` (entry.id dep), at most once per modal instance
+  - `onClose?: (result) => void` fires во всех resolve-путях сервиса (resolveHead, dismissHead, closeHead, dismissHeadWithVeto, dispose drain)
+  - Обе обёрнуты в `safeOnClose` / try-catch: throwing hook НЕ ломает modal flow, только console.warn
+
+### Z.10 Audit-pass roll mode terminates (meta rule)
+
+> После 4 audit-pass'ов подряд (Z.4 → Z.5 → Z.7 → Z.9) на одной поверхности (VibeModal + models.dev) findings становятся всё мельче и менее actionable. **Pattern**: каждый pass находит 4-6 «issues» и 4-2 «features». Realistically, последние passes — это рефакторинг ради рефакторинга (`isActive` prop удалить, magic numbers перевести в const'ы).
+
+- [x] **Terminate audit-rollover mode** — следующие audit passes на VibeModal/models.dev surface разрешены **только** по триггеру:
+  - **Production incident** — user report о реальном баге в модал-flow'е
+  - **Major refactor** — заметный change в `VibeModal.tsx` / `VibeModalService.ts` (новый layer, новый pattern)
+  - **Pre-release pass** — перед минорным релизом (`v0.14.x`) — однократный sanity-check
+  - **Параллель X.20.1** (XML normalize): то же правило установлено для XML pipeline'а в 2026-05-23.
+- [x] **Любой audit-by-request** (когда пользователь просит «пробегись еще раз») — ОК делать, но честно warning'нуть про diminishing returns и сразу указать что найдено реальных issues (vs cosmetic). Эта запись — formal acknowledgment паттерна.
+
+### Z.11 Deferred wave-5 (audit round 4 → roadmap)
+
+- [~] **`body` как `string | ReactNode`** — full React support в body. Сейчас plain string + `pre-wrap`. Unlock'нет formatted body, embedded links, code blocks без markdown renderer. Type-narrowing + render branching. **Unblock:** конкретный flow требующий formatted body (`/commit` preview, error stack trace и т.п.).
+- [~] **Modal history / reopen-last** — store last N dismissed modals в service; allow reopening via `reopenLast()` если пользователь dismiss'нул случайно. **Unblock:** user complaint о потерянной info.
+- [~] **Custom icon support** — `icon: codicon-string | ReactNode`. Сейчас только codicon name. **Unblock:** дизайн-кейс с custom illustration в модале.
+- [~] **JSDOM integration tests** — для hotkey timing, autoDismiss firing, aria-live, onMount/onClose lifecycle. Сейчас только service state-machine. **Unblock:** JSDOM setup в `test/browser/` (parity с другими VibeIDE test surfaces).
+
 ---
 
 ## Ссылки

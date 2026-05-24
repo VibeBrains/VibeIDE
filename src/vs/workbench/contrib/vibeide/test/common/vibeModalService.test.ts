@@ -514,4 +514,95 @@ suite('VibeModalService', () => {
 			assert.strictEqual(svc.getQueue().length, 1);
 		});
 	});
+
+	suite('onClose lifecycle callback', () => {
+
+		test('fires with result on resolveHead', async () => {
+			const svc = new VibeModalService();
+			let captured: { buttonId: string; inputValue?: string } | null = null;
+			const p = svc.showModal({
+				title: 'T',
+				buttons: [{ id: 'ok', label: 'OK' }],
+				onClose: r => { captured = r; },
+			});
+			svc.resolveHead('ok', 'value');
+			await p;
+			assert.deepStrictEqual(captured, { buttonId: 'ok', inputValue: 'value' });
+		});
+
+		test('fires with __dismiss__ on dismissHead', async () => {
+			const svc = new VibeModalService();
+			let buttonId: string | null = null;
+			const p = svc.showModal({
+				title: 'T',
+				buttons: [{ id: 'ok', label: 'OK' }],
+				onClose: r => { buttonId = r.buttonId; },
+			});
+			svc.dismissHead();
+			await p;
+			assert.strictEqual(buttonId, VIBE_MODAL_DISMISS_ID);
+		});
+
+		test('fires on dispose drain', async () => {
+			const svc = new VibeModalService();
+			let fired = 0;
+			const p = svc.showModal({
+				title: 'T',
+				buttons: [{ id: 'ok', label: 'OK' }],
+				onClose: () => { fired += 1; },
+			});
+			svc.dispose();
+			await p;
+			assert.strictEqual(fired, 1);
+		});
+
+		test('throwing onClose does not break the resolve flow', async () => {
+			const svc = new VibeModalService();
+			const p = svc.showModal({
+				title: 'T',
+				buttons: [{ id: 'ok', label: 'OK' }],
+				onClose: () => { throw new Error('boom'); },
+			});
+			svc.resolveHead('ok');
+			// Should resolve normally even though hook threw.
+			const r = await p;
+			assert.strictEqual(r.buttonId, 'ok');
+		});
+	});
+
+	suite('severity presets', () => {
+
+		test('successModal — check icon + auto-dismiss', () => {
+			const svc = new VibeModalService();
+			void svc.successModal({ title: 'T', body: 'B' });
+			const opts = svc.getQueue()[0].options;
+			assert.strictEqual(opts.icon, 'check');
+			assert.strictEqual(opts.autoDismissAfterMs, 4000);
+			assert.strictEqual(opts.size, 'small');
+			assert.strictEqual(opts.buttons.length, 1);
+		});
+
+		test('errorModal — error icon + no auto-dismiss', () => {
+			const svc = new VibeModalService();
+			void svc.errorModal({ title: 'T', body: 'B' });
+			const opts = svc.getQueue()[0].options;
+			assert.strictEqual(opts.icon, 'error');
+			assert.strictEqual(opts.autoDismissAfterMs, undefined);
+			assert.strictEqual(opts.size, 'medium');
+		});
+
+		test('warnModal — warning icon + no auto-dismiss', () => {
+			const svc = new VibeModalService();
+			void svc.warnModal({ title: 'T', body: 'B' });
+			const opts = svc.getQueue()[0].options;
+			assert.strictEqual(opts.icon, 'warning');
+			assert.strictEqual(opts.autoDismissAfterMs, undefined);
+		});
+
+		test('size override propagates', () => {
+			const svc = new VibeModalService();
+			void svc.successModal({ title: 'T', body: 'B', size: 'large' });
+			assert.strictEqual(svc.getQueue()[0].options.size, 'large');
+		});
+	});
 });

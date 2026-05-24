@@ -68,12 +68,10 @@ class ModelsDevCatalogRecheckAction extends Action2 {
 		} catch (e) {
 			modalSvc.closeHead();
 			await showLoading;
-			void modalSvc.showModal<'ok'>({
+			void modalSvc.errorModal({
 				title: localize('vibeide.modelsDev.recheck.failed.title', 'Перепроверка не удалась'),
 				body: localize('vibeide.modelsDev.recheck.failed.body', 'Ошибка IPC: {0}', e instanceof Error ? e.message : String(e)),
-				icon: 'error',
 				size: 'small',
-				buttons: [{ id: 'ok', label: localize('vibeide.modal.gotIt', 'Понятно'), role: 'primary' }],
 			});
 			return;
 		}
@@ -82,13 +80,10 @@ class ModelsDevCatalogRecheckAction extends Action2 {
 		await showLoading;
 
 		if (status.state === 'loaded_from_network') {
-			void modalSvc.showModal<'ok'>({
+			void modalSvc.successModal({
 				title: localize('vibeide.modelsDev.recheck.network.title', 'Каталог models.dev обновлён'),
 				body: localize('vibeide.modelsDev.recheck.network.body', 'Загружена свежая версия с сети. Aggregator-провайдеры используют актуальные данные.'),
-				icon: 'check',
-				size: 'small',
 				autoDismissAfterMs: SUCCESS_AUTO_DISMISS_MS,
-				buttons: [{ id: 'ok', label: localize('vibeide.modal.great', 'Отлично'), role: 'primary' }],
 			});
 			return;
 		}
@@ -142,12 +137,10 @@ class ModelsDevCatalogRecheckAction extends Action2 {
 		}
 
 		// state === 'unloaded' — should not happen post-recheck, but handle anyway.
-		void modalSvc.showModal<'ok'>({
+		void modalSvc.warnModal({
 			title: localize('vibeide.modelsDev.recheck.unloaded.title', 'Каталог models.dev: не инициализирован'),
 			body: localize('vibeide.modelsDev.recheck.unloaded.body', 'После перепроверки каталог так и не загрузился. Попробуйте перезапустить VibeIDE.'),
-			icon: 'warning',
 			size: 'small',
-			buttons: [{ id: 'ok', label: localize('vibeide.modal.gotIt', 'Понятно'), role: 'primary' }],
 		});
 	}
 }
