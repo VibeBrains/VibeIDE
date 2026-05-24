@@ -1,0 +1,216 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright 2026 VibeIDE Team. All rights reserved.
+ *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * VibeModal styles.
+ *
+ * THEMING POLICY: every visual property goes through `var(--vscode-*)` tokens.
+ * No hardcoded colors, no `vibe-*` tailwind classes. This guarantees a custom
+ * theme switch (Vibe Neon → Default Dark+ → Light+ → High Contrast) makes the
+ * modal blend in immediately — no theme-specific overrides needed.
+ *
+ * Token map (all standard VS Code theme keys):
+ *   backdrop fill          — none (rgba black overlay, theme-independent)
+ *   modal background       — editorWidget.background
+ *   modal border           — editorWidget.border (with focusBorder fallback)
+ *   modal text             — editorWidget.foreground
+ *   drop shadow            — widget.shadow
+ *   title                  — foreground (general)
+ *   icon                   — descriptionForeground
+ *   input bg/fg/border     — input.background / input.foreground / input.border
+ *   input focus            — focusBorder (outline)
+ *   input validation err   — inputValidation.errorBorder + .errorForeground
+ *   primary button         — button.background / button.foreground
+ *   primary hover          — button.hoverBackground
+ *   secondary button       — button.secondaryBackground / button.secondaryForeground
+ *   secondary hover        — button.secondaryHoverBackground
+ *   danger button          — inputValidation.errorBackground + errorForeground
+ *   button focus ring      — focusBorder
+ */
+
+.vibeide-modal-root {
+	position: fixed;
+	inset: 0;
+	z-index: 2000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	pointer-events: none;
+}
+
+.vibeide-modal-root.is-active {
+	pointer-events: auto;
+}
+
+.vibeide-modal-backdrop {
+	position: absolute;
+	inset: 0;
+	background-color: rgba(0, 0, 0, 0.45);
+	opacity: 0;
+	transition: opacity 120ms ease-out;
+}
+
+.vibeide-modal-root.is-active .vibeide-modal-backdrop {
+	opacity: 1;
+}
+
+.vibeide-modal {
+	position: relative;
+	min-width: 360px;
+	max-width: 560px;
+	max-height: 80vh;
+	display: flex;
+	flex-direction: column;
+	background-color: var(--vscode-editorWidget-background);
+	color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+	border: 1px solid var(--vscode-editorWidget-border, var(--vscode-focusBorder));
+	border-radius: 6px;
+	box-shadow: 0 8px 24px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.4));
+	font-family: var(--vscode-font-family);
+	font-size: var(--vscode-font-size);
+	transform: scale(0.96);
+	opacity: 0;
+	transition: transform 140ms ease-out, opacity 140ms ease-out;
+}
+
+.vibeide-modal-root.is-active .vibeide-modal {
+	transform: scale(1);
+	opacity: 1;
+}
+
+.vibeide-modal-header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 14px 16px 10px;
+	border-bottom: 1px solid var(--vscode-editorWidget-border, transparent);
+}
+
+.vibeide-modal-icon {
+	flex: 0 0 auto;
+	color: var(--vscode-descriptionForeground);
+	font-size: 18px;
+	line-height: 1;
+}
+
+.vibeide-modal-title {
+	flex: 1 1 auto;
+	margin: 0;
+	font-weight: 600;
+	font-size: calc(var(--vscode-font-size) + 1px);
+	color: var(--vscode-foreground);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.vibeide-modal-body {
+	padding: 12px 16px;
+	overflow-y: auto;
+	color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+	white-space: pre-wrap;
+	line-height: 1.5;
+}
+
+.vibeide-modal-body:empty {
+	display: none;
+}
+
+.vibeide-modal-input-wrap {
+	padding: 0 16px 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.vibeide-modal-input,
+.vibeide-modal-textarea {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 6px 8px;
+	background-color: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+	border: 1px solid var(--vscode-input-border, transparent);
+	border-radius: 2px;
+	font-family: inherit;
+	font-size: inherit;
+	outline: none;
+}
+
+.vibeide-modal-textarea {
+	min-height: 80px;
+	resize: vertical;
+}
+
+.vibeide-modal-input:focus,
+.vibeide-modal-textarea:focus {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
+.vibeide-modal-input.is-invalid,
+.vibeide-modal-textarea.is-invalid {
+	border-color: var(--vscode-inputValidation-errorBorder);
+}
+
+.vibeide-modal-validation {
+	color: var(--vscode-inputValidation-errorForeground, var(--vscode-errorForeground));
+	font-size: calc(var(--vscode-font-size) - 1px);
+	min-height: 1em;
+}
+
+.vibeide-modal-buttons {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	padding: 8px 16px 14px;
+}
+
+.vibeide-modal-button {
+	min-width: 80px;
+	padding: 6px 14px;
+	border: 1px solid transparent;
+	border-radius: 2px;
+	font-family: inherit;
+	font-size: inherit;
+	cursor: pointer;
+	transition: background-color 80ms ease-out;
+}
+
+.vibeide-modal-button:focus {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+.vibeide-modal-button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.vibeide-modal-button.role-primary {
+	background-color: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+.vibeide-modal-button.role-primary:hover:not(:disabled) {
+	background-color: var(--vscode-button-hoverBackground);
+}
+
+.vibeide-modal-button.role-secondary {
+	background-color: var(--vscode-button-secondaryBackground, transparent);
+	color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+	border-color: var(--vscode-button-border, var(--vscode-editorWidget-border));
+}
+.vibeide-modal-button.role-secondary:hover:not(:disabled) {
+	background-color: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground));
+}
+
+.vibeide-modal-button.role-danger {
+	background-color: var(--vscode-inputValidation-errorBackground, var(--vscode-button-background));
+	color: var(--vscode-inputValidation-errorForeground, var(--vscode-button-foreground));
+	border-color: var(--vscode-inputValidation-errorBorder, transparent);
+}
+.vibeide-modal-button.role-danger:hover:not(:disabled) {
+	filter: brightness(1.1);
+}

@@ -165,32 +165,41 @@ const resolveUserDataDir = (): string | null => {
 	return null;
 };
 
-const localSnapshotCandidates = (): string[] => {
-	const out: string[] = [];
-	const userData = resolveUserDataDir();
-	if (userData) out.push(path.join(userData, LOCAL_SNAPSHOT_FILENAME));
+/**
+ * Snapshot candidate priority (user policy: "drop next to exe"):
+ *   1. exeDir/models.dev.json       — explicit user override next to VibeIDE.exe
+ *   2. resourcesPath/app/resources/vibeide/models.dev.json — bundled snapshot
+ *   3. resourcesPath/vibeide/models.dev.json — alt bundled layout
+ *   4. userData/models.dev.json     — auto-written by successful network fetch
+ *
+ * Order matters: a user dropping a freshly downloaded `models.dev/api.json`
+ * next to `VibeIDE.exe` overrides ALL other sources (including a stale
+ * auto-written copy in Roaming). The auto-written copy is now a fallback,
+ * not the primary path — which used to confuse corporate users who saw a
+ * "loaded from Roaming/..." message and didn't know what that file was.
+ */
+const localSnapshotCandidates = (): { path: string; source: 'exeDir' | 'bundled' | 'userData' }[] => {
+	const out: { path: string; source: 'exeDir' | 'bundled' | 'userData' }[] = [];
 	try {
 		const exeDir = path.dirname(process.execPath);
-		if (exeDir) out.push(path.join(exeDir, LOCAL_SNAPSHOT_FILENAME));
+		if (exeDir) out.push({ path: path.join(exeDir, LOCAL_SNAPSHOT_FILENAME), source: 'exeDir' });
 	} catch { /* process.execPath unavailable — skip */ }
-	// Bundled snapshot inside the Electron resources dir. Two candidate layouts
-	// because VS Code-style builds keep app code under `resources/app/...` while
-	// vanilla Electron apps put assets directly under `resources/...`. We try
-	// both — first match wins, missing is harmless (falls through to next).
 	const resourcesPath: string | undefined = (process as any).resourcesPath;
 	if (typeof resourcesPath === 'string' && resourcesPath) {
-		out.push(path.join(resourcesPath, 'app', 'resources', 'vibeide', LOCAL_SNAPSHOT_FILENAME));
-		out.push(path.join(resourcesPath, 'vibeide', LOCAL_SNAPSHOT_FILENAME));
+		out.push({ path: path.join(resourcesPath, 'app', 'resources', 'vibeide', LOCAL_SNAPSHOT_FILENAME), source: 'bundled' });
+		out.push({ path: path.join(resourcesPath, 'vibeide', LOCAL_SNAPSHOT_FILENAME), source: 'bundled' });
 	}
+	const userData = resolveUserDataDir();
+	if (userData) out.push({ path: path.join(userData, LOCAL_SNAPSHOT_FILENAME), source: 'userData' });
 	return out;
 };
 
-const tryReadLocalSnapshot = async (): Promise<{ catalog: CatalogIndex; from: string } | null> => {
-	for (const p of localSnapshotCandidates()) {
+const tryReadLocalSnapshot = async (): Promise<{ catalog: CatalogIndex; from: string; source: 'exeDir' | 'bundled' | 'userData' } | null> => {
+	for (const { path: p, source } of localSnapshotCandidates()) {
 		try {
 			const raw = await fs.promises.readFile(p, 'utf-8');
 			const indexed = indexJson(JSON.parse(raw));
-			if (indexed) return { catalog: indexed, from: p };
+			if (indexed) return { catalog: indexed, from: p, source };
 		} catch { /* missing / invalid — try next candidate */ }
 	}
 	return null;
@@ -235,6 +244,7 @@ const refreshInBackground = (): void => {
 				cachedCatalog = fresh.index;
 				lastFailureAt = 0;
 				loadedFromLocalPath = null;
+				loadedFromLocalSource = null;
 				await persistSnapshotToUserData(fresh.rawText);
 			}
 		} finally {
@@ -261,6 +271,7 @@ const getCatalog = (): Promise<CatalogIndex | null> => {
 			cachedCatalog = fresh.catalog;
 			lastFailureAt = 0;
 			loadedFromLocalPath = fresh.from;
+			loadedFromLocalSource = 'userData';
 			console.warn(`[modelsDevCatalog] served fresh userData snapshot from ${fresh.from} (age ${Math.floor(fresh.ageMs / 1000)}s); refreshing in background`);
 			refreshInBackground();
 			inFlight = null;
@@ -272,6 +283,7 @@ const getCatalog = (): Promise<CatalogIndex | null> => {
 			cachedCatalog = fromNetwork.index;
 			lastFailureAt = 0;
 			loadedFromLocalPath = null;
+			loadedFromLocalSource = null;
 			// Fire-and-forget: snapshot for next offline boot. Not awaited so the
 			// LLM call doesn't pay disk-write latency on every cold start.
 			void persistSnapshotToUserData(fromNetwork.rawText);
@@ -287,7 +299,8 @@ const getCatalog = (): Promise<CatalogIndex | null> => {
 			cachedCatalog = local.catalog;
 			lastFailureAt = 0;
 			loadedFromLocalPath = local.from;
-			console.warn(`[modelsDevCatalog] network fetch failed; loaded local snapshot from ${local.from}`);
+			loadedFromLocalSource = local.source;
+			console.warn(`[modelsDevCatalog] network fetch failed; loaded local snapshot from ${local.from} (source: ${local.source})`);
 			inFlight = null;
 			return local.catalog;
 		}
@@ -295,7 +308,7 @@ const getCatalog = (): Promise<CatalogIndex | null> => {
 		console.warn(
 			`[modelsDevCatalog] network fetch failed and no local snapshot found. ` +
 			`Per-model SDK routing falls back to openai-compatible (aggregator-proxied minimax/qwen may return empty responses). ` +
-			`Download ${MODELS_DEV_URL} and save as "${LOCAL_SNAPSHOT_FILENAME}" in one of: ${localSnapshotCandidates().join(' | ')}`
+			`Download ${MODELS_DEV_URL} and save as "${LOCAL_SNAPSHOT_FILENAME}" in one of: ${localSnapshotCandidates().map(c => c.path).join(' | ')}`
 		);
 		inFlight = null;
 		return null;
@@ -333,17 +346,19 @@ export const _refreshCatalogForTests = (): void => {
 	inFlight = null;
 	lastFailureAt = 0;
 	loadedFromLocalPath = null;
+	loadedFromLocalSource = null;
 };
 
 // Where the in-memory catalog actually came from. Set when getCatalog() resolves.
 // Consumed by the status IPC channel so the renderer can decide whether to surface
 // a toast ("network down, using offline snapshot from X" or "no snapshot at all").
 let loadedFromLocalPath: string | null = null;
+let loadedFromLocalSource: 'exeDir' | 'bundled' | 'userData' | null = null;
 
 export type ModelsDevCatalogStatus =
 	| { state: 'unloaded' }
 	| { state: 'loaded_from_network' }
-	| { state: 'loaded_from_local'; path: string }
+	| { state: 'loaded_from_local'; path: string; source: 'exeDir' | 'bundled' | 'userData' }
 	| { state: 'failed'; candidatePaths: string[]; catalogUrl: string };
 
 /**
@@ -354,10 +369,14 @@ export type ModelsDevCatalogStatus =
 export const getCatalogStatus = async (): Promise<ModelsDevCatalogStatus> => {
 	const catalog = await getCatalog();
 	if (!catalog) {
-		return { state: 'failed', candidatePaths: localSnapshotCandidates(), catalogUrl: MODELS_DEV_URL };
+		return {
+			state: 'failed',
+			candidatePaths: localSnapshotCandidates().map(c => c.path),
+			catalogUrl: MODELS_DEV_URL,
+		};
 	}
-	if (loadedFromLocalPath) {
-		return { state: 'loaded_from_local', path: loadedFromLocalPath };
+	if (loadedFromLocalPath && loadedFromLocalSource) {
+		return { state: 'loaded_from_local', path: loadedFromLocalPath, source: loadedFromLocalSource };
 	}
 	return { state: 'loaded_from_network' };
 };

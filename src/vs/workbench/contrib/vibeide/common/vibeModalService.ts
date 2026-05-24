@@ -1,0 +1,77 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright 2026 VibeIDE Team. All rights reserved.
+ *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+import { Event } from '../../../../base/common/event.js';
+import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { VibeModalOptions, VibeModalQueueEntry, VibeModalResult } from './vibeModalTypes.js';
+
+export const IVibeModalService = createDecorator<IVibeModalService>('vibeModalService');
+
+/**
+ * Renderer-side service for displaying VibeModal dialogs. Replaces ad-hoc
+ * uses of `IDialogService.confirm()` when the interaction needs richer UI
+ * (icons, multi-line body, validated input, branded styling) or stickiness
+ * (notification toasts can be dismissed without action — modals require it).
+ *
+ * Usage:
+ *   const { buttonId, inputValue } = await vibeModalService.showModal({
+ *     title: 'Подтвердить удаление',
+ *     body: 'Файл будет удалён без возможности восстановления.',
+ *     buttons: [
+ *       { id: 'ok', label: 'Удалить', role: 'danger' },
+ *       { id: 'cancel', label: 'Отмена', role: 'secondary' },
+ *     ],
+ *   });
+ *   if (buttonId === 'ok') ...
+ *
+ * Queueing: when multiple modals are requested concurrently, they're shown
+ * one at a time (FIFO). The React container always renders the head of the
+ * queue. This keeps focus management deterministic and avoids stacked
+ * modals fighting over Tab order.
+ *
+ * Service is renderer-side. Main-process callers must route through
+ * an IPC channel (not in scope for v1; toasts via INotificationService
+ * remain the option for main).
+ */
+export interface IVibeModalService {
+	readonly _serviceBrand: undefined;
+
+	/**
+	 * Show a modal and resolve with the user's choice. Resolves with
+	 * `buttonId === '__dismiss__'` if the user pressed ESC / clicked
+	 * backdrop (only when `dismissible !== false`).
+	 *
+	 * Multiple concurrent calls are queued FIFO.
+	 */
+	showModal<TButtonId extends string = string>(
+		options: VibeModalOptions<TButtonId>,
+	): Promise<VibeModalResult<TButtonId>>;
+
+	/**
+	 * Read the current queue snapshot. Used by the React container to render
+	 * the head modal. The container should subscribe to `onDidChangeQueue`
+	 * for updates instead of polling.
+	 */
+	getQueue(): ReadonlyArray<VibeModalQueueEntry>;
+
+	/**
+	 * Fires whenever an entry is added, resolved, or removed. The React
+	 * container subscribes to this and re-renders with `getQueue()`.
+	 */
+	readonly onDidChangeQueue: Event<void>;
+
+	/**
+	 * Programmatically resolve the head modal with a specific button id.
+	 * Used for tests and for keyboard shortcuts that need to commit a choice
+	 * without a real click. No-op if no modal is active.
+	 */
+	resolveHead(buttonId: string, inputValue?: string): void;
+
+	/**
+	 * Dismiss the head modal (equivalent to ESC). Only succeeds if the
+	 * modal has `dismissible !== false`. No-op otherwise.
+	 */
+	dismissHead(): void;
+}

@@ -30,6 +30,7 @@ import './vibeideSettingsPane.js'
 
 // register css
 import './media/vibeide.css'
+import './media/vibeModal.css'
 
 // Builtin Vibe Neon — title-bar glow toggle registration + default theme chrome CSS (extensions/vibeide-neon)
 import './vibeNeonGlowTitleBar.js'
@@ -421,6 +422,10 @@ import './vibeIdleWatchdogTimelineCommand.js'
 
 // VibeIDE: Idle Watchdog — AI diagnosis Action2 (roadmap W.36)
 import './vibeIdleWatchdogAiDiagnosisAction.js'
+
+// VibeIDE: VibeModal — workbench-level themed modal framework
+import './vibeModalServiceImpl.js'
+import './vibeModalRootContribution.js'
 
 // VibeIDE: Extension host crash UX — EH disconnect → pause/resume/discard notification (L1033)
 import './vibeEHCrashRecoveryContribution.js'

@@ -5,11 +5,12 @@
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
-import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { IModelsDevCatalogStatusService } from '../common/modelsDevCatalogStatusService.js';
+import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
+import { IModelsDevCatalogStatusService, ModelsDevCatalogStatus } from '../common/modelsDevCatalogStatusService.js';
+import { IVibeModalService } from '../common/vibeModalService.js';
 
 /**
  * On startup, asks main-process whether the models.dev catalog loaded successfully.
@@ -17,13 +18,13 @@ import { IModelsDevCatalogStatusService } from '../common/modelsDevCatalogStatus
  * is ready before the user sends their first chat message.
  *
  * Notifies the user only in degraded states:
- *   - 'loaded_from_local': INFO toast (catalog is working, but came from a frozen snapshot
- *     — they should know it might be stale, especially after a new model release).
- *   - 'failed': WARNING toast with actionable instructions (download models.dev/api.json
- *     and drop it next to VibeIDE.exe or into userData). Includes an "Open URL" action.
+ *   - 'loaded_from_local': VibeModal (was INFO toast pre-A) — important info that users
+ *     used to dismiss accidentally. Semantic source label («рядом с VibeIDE.exe» /
+ *     «встроенный снимок» / «из пользовательских данных») replaces raw path display.
+ *   - 'failed': VibeModal with copy-URL button + path list + open-URL action. Sticky.
  *
  * Why the registration-time fetch: aiSdkAdapter calls getCatalog() lazily on the first LLM
- * request. Without this prefetch, the failure toast would only fire after the user already
+ * request. Without this prefetch, the failure modal would only fire after the user already
  * hit a broken minimax response — too late to be helpful. Doing it at AfterRestored phase
  * keeps it off the critical startup path while still warning the user before they're
  * blocked.
@@ -33,13 +34,14 @@ export class ModelsDevCatalogStatusContribution extends Disposable implements IW
 
 	constructor(
 		@IModelsDevCatalogStatusService statusService: IModelsDevCatalogStatusService,
-		@INotificationService notificationService: INotificationService,
+		@IVibeModalService modalService: IVibeModalService,
 		@IOpenerService openerService: IOpenerService,
+		@IClipboardService clipboardService: IClipboardService,
 		@IConfigurationService configurationService: IConfigurationService,
 	) {
 		super();
 		// Fire-and-forget. Status check failure (IPC down etc) is non-critical.
-		void this._check(statusService, notificationService, openerService);
+		void this._check(statusService, modalService, openerService, clipboardService);
 
 		// Push the user's `modelsDevCacheTtlHours` setting to main-process at
 		// startup, then re-push whenever it changes. Without this, the setting
@@ -57,10 +59,11 @@ export class ModelsDevCatalogStatusContribution extends Disposable implements IW
 
 	private async _check(
 		statusService: IModelsDevCatalogStatusService,
-		notificationService: INotificationService,
+		modalService: IVibeModalService,
 		openerService: IOpenerService,
+		clipboardService: IClipboardService,
 	): Promise<void> {
-		let status;
+		let status: ModelsDevCatalogStatus;
 		try {
 			status = await statusService.getStatus();
 		} catch (e) {
@@ -72,41 +75,64 @@ export class ModelsDevCatalogStatusContribution extends Disposable implements IW
 		if (status.state === 'loaded_from_network' || status.state === 'unloaded') return;
 
 		if (status.state === 'loaded_from_local') {
-			notificationService.notify({
-				severity: Severity.Info,
-				message:
-					`VibeIDE: каталог моделей models.dev недоступен по сети — загружен локальный снимок (${status.path}). ` +
-					`Aggregator-провайдеры (openCode, openCodeZen) будут работать. Чтобы обновить каталог — скачайте свежую версию ` +
-					`с https://models.dev/api.json при наличии сети.`,
-				sticky: false,
+			const sourceLabel = labelOf(status.source);
+			const body =
+				`Каталог моделей models.dev недоступен по сети.\n\n` +
+				`Загружен ${sourceLabel}.\n\n` +
+				`Aggregator-провайдеры (openCode, openCodeZen) продолжат работать.\n\n` +
+				`Чтобы обновить каталог — скачайте ${MODELS_DEV_URL} при наличии сети и положите рядом с VibeIDE.exe (файл с именем models.dev.json).`;
+			void modalService.showModal<'ok' | 'copyUrl'>({
+				title: 'Каталог моделей: офлайн режим',
+				body,
+				icon: 'info',
+				buttons: [
+					{ id: 'copyUrl', label: 'Скопировать URL', role: 'secondary' },
+					{ id: 'ok', label: 'Понятно', role: 'primary' },
+				],
+			}).then(async result => {
+				if (result.buttonId === 'copyUrl') {
+					await clipboardService.writeText(MODELS_DEV_URL);
+				}
 			});
 			return;
 		}
 
 		// state === 'failed'
-		const paths = status.candidatePaths.length > 0 ? status.candidatePaths.join('\n  • ') : '(нет доступных путей)';
-		notificationService.notify({
-			severity: Severity.Warning,
-			message:
-				`VibeIDE: каталог моделей models.dev недоступен по сети, локальный снимок не найден. ` +
-				`Модели minimax/qwen через openCode/openCodeZen могут возвращать пустые ответы. ` +
-				`Скачайте ${status.catalogUrl} и сохраните как "models.dev.json" по одному из путей:\n  • ${paths}`,
-			sticky: true,
-			actions: {
-				primary: [
-					{
-						id: 'vibeide.openModelsDevUrl',
-						label: 'Открыть models.dev/api.json',
-						tooltip: status.catalogUrl,
-						class: undefined,
-						enabled: true,
-						run: async () => { await openerService.open(URI.parse(status.catalogUrl)); },
-					},
-				],
-			},
+		const pathsText = status.candidatePaths.length > 0
+			? status.candidatePaths.map(p => `  • ${p}`).join('\n')
+			: '  (нет доступных путей)';
+		const body =
+			`Каталог моделей models.dev недоступен по сети, локальный снимок не найден.\n\n` +
+			`Модели minimax/qwen через openCode/openCodeZen могут возвращать пустые ответы.\n\n` +
+			`Скачайте каталог с ${status.catalogUrl} и сохраните как «models.dev.json» по одному из путей (приоритет сверху вниз):\n${pathsText}`;
+		void modalService.showModal<'openUrl' | 'copyUrl' | 'close'>({
+			title: 'Каталог моделей: ошибка загрузки',
+			body,
+			icon: 'warning',
+			buttons: [
+				{ id: 'close', label: 'Закрыть', role: 'secondary' },
+				{ id: 'copyUrl', label: 'Скопировать URL', role: 'secondary' },
+				{ id: 'openUrl', label: 'Открыть models.dev/api.json', role: 'primary' },
+			],
+		}).then(async result => {
+			if (result.buttonId === 'openUrl') {
+				await openerService.open(URI.parse(status.catalogUrl));
+			} else if (result.buttonId === 'copyUrl') {
+				await clipboardService.writeText(status.catalogUrl);
+			}
 		});
 	}
 }
+
+const MODELS_DEV_URL = 'https://models.dev/api.json';
+
+const labelOf = (source: 'exeDir' | 'bundled' | 'userData'): string => {
+	switch (source) {
+		case 'exeDir':   return 'снимок, который вы положили рядом с VibeIDE.exe';
+		case 'bundled':  return 'встроенный снимок (из ресурсов установки)';
+		case 'userData': return 'кэшированный снимок из пользовательских данных';
+	}
+};
 
 registerWorkbenchContribution2(
 	ModelsDevCatalogStatusContribution.ID,

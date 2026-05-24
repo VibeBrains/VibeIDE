@@ -10,10 +10,18 @@ import { IMainProcessService } from '../../../../platform/ipc/common/mainProcess
 
 // Mirrors electron-main/llmMessage/modelsDevCatalog.ts. Duplicated here (not imported)
 // because workbench-layer code can't reach into electron-main packages directly.
+/**
+ * `source` discriminates how the local snapshot was provisioned:
+ *  - `exeDir`   — file dropped next to VibeIDE.exe by the user (preferred);
+ *  - `bundled`  — shipped inside the install (`resources/app/resources/vibeide/`);
+ *  - `userData` — auto-written cache from a previous successful network fetch
+ *                 (Roaming/.config). Lowest priority — confusing to corporate
+ *                 users who never put a file there themselves.
+ */
 export type ModelsDevCatalogStatus =
 	| { state: 'unloaded' }
 	| { state: 'loaded_from_network' }
-	| { state: 'loaded_from_local'; path: string }
+	| { state: 'loaded_from_local'; path: string; source: 'exeDir' | 'bundled' | 'userData' }
 	| { state: 'failed'; candidatePaths: string[]; catalogUrl: string };
 
 export interface IModelsDevCatalogStatusService {
