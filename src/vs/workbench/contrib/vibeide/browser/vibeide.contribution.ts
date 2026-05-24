@@ -31,7 +31,7 @@ import './vibeideSettingsPane.js'
 // register css
 import './media/vibeide.css'
 // Z.12 BISECT — temporarily disable VibeModal CSS to confirm/deny it as the freeze source
-// import './media/vibeModal.css'
+import './media/vibeModal.css'
 
 // Builtin Vibe Neon — title-bar glow toggle registration + default theme chrome CSS (extensions/vibeide-neon)
 import './vibeNeonGlowTitleBar.js'
@@ -424,13 +424,9 @@ import './vibeIdleWatchdogTimelineCommand.js'
 // VibeIDE: Idle Watchdog — AI diagnosis Action2 (roadmap W.36)
 import './vibeIdleWatchdogAiDiagnosisAction.js'
 
-// Z.12 BISECT — keep IVibeModalService registered (services.tsx + status
-// contribution depend on it), keep recheck Action2 (registration-only, safe).
-// Disable ONLY the React-mounting workbench contribution + the CSS bundle.
-// If chat opens with these two disabled → React-tree/CSS is the culprit.
-// If chat still doesn't open → look at the service or status-contribution.
+// VibeIDE: VibeModal — workbench-level themed modal framework
 import './vibeModalServiceImpl.js'
-// import './vibeModalRootContribution.js'
+import './vibeModalRootContribution.js'
 import './modelsDevCatalogRecheckAction.js'
 
 // VibeIDE: Extension host crash UX — EH disconnect → pause/resume/discard notification (L1033)

@@ -1,23 +1,14 @@
-# Saved release notes — v0.13.14 (deleted, content reused for next release)
-
-> **Source:** GitHub Release v0.13.14 (created 2026-05-24 by `release-windows.ps1`,
-> deleted same day by user request after discovering workbench-freeze regression
-> from modal-blocking-at-startup). The body below was original — donation phrase
-> «Toast можно закрыть не глядя, модал — нужно прочитать. У автора с кнопкой
-> ниже та же дисциплина: проигнорировать сложнее.» NOTE: that phrase is no
-> longer apt after we revert `loaded_from_local` back to a toast — pick a new
-> one for the next release.
-
----
-
 ## ✨ Новое
 
 - **VibeModal — кастомный модал-фреймворк.** Workbench-level портал с собственным сервисом и React-контейнером. Темизация **только через `var(--vscode-*)`** — модалы выглядят нативно в Default Dark+, Light+, High Contrast и Vibe Neon без overrides. API: `showModal<T>` Promise / FIFO queue / focus-trap / ESC dismiss / Enter→primary / hotkey-bindings / `aria-live` announce. Опции: `size: 'small'|'medium'|'large'`, `loading`, `progress: {current,total,label}`, `autoDismissAfterMs` (с pause-on-hover/focus/loading), `onBeforeDismiss` veto с timeout-защитой, `onMount`/`onClose` lifecycle, keyboard-hint footer.
+- **Non-blocking режим модала.** `showImportantInfoModal({ blocking: false })` — модал по центру окна, без backdrop и `inert`. Workbench остаётся интерактивным. Применён для `loaded_from_local`: важная info не блокирует IDE на корпоративных машинах в офлайне.
 - **Shortcuts на сервисе:** `confirmModal({title, body, danger?})`, `successModal`/`errorModal`/`warnModal` пресеты, `showImportantInfoModal`. Closer'ы: `resolveHead` / `dismissHead` / `dismissHeadWithVeto` / `closeHead` (programmatic bypass).
 - **Command Palette: «VibeIDE: Перепроверить каталог models.dev».** Сбрасывает in-memory cache и заново проходит priority chain без рестарта IDE. Loading-модал во время probe → result-модал с семантическим лейблом источника.
 
 ## 🐛 Исправления
 
+- **Чат открывается даже без открытой папки.** Клик «+» на пустом workspace раньше молча ничего не делал — `SIDE_GROUP` не мог расщепить пустой grid. Теперь в этом сценарии чат открывается в active group вместо split'а (Welcome page заменяется на чат).
+- **Workbench-freeze regression при offline-старте.** В пре-фикс реализации `loaded_from_local` блокирующий модал применял `inert` ко всему workbench до того, как React успевал смонтироваться → меню/sidebar/кнопки замораживались. Заменён на non-blocking-модал — IDE остаётся полностью интерактивным.
 - **models.dev — Roaming больше не побеждает.** Приоритет поиска snapshot'а перестроен: `exeDir → resourcesPath (bundled) → userData (Roaming)`. Файл, который пользователь положил рядом с `VibeIDE.exe`, теперь побеждает auto-cached Roaming-копию (ранее corporate-пользователи на work-машинах получали toast с Roaming-путём вопреки policy «положи рядом с exe»).
 - **Fast-path priority bug** — pre-fix реализация читала только `userData` с TTL → даже свежий exe-adjacent файл игнорировался в пользу stale Roaming-cache. Fast-path переписан: exeDir/bundled читаются безусловно, userData — с TTL.
 - **Toast → VibeModal для `loaded_from_local` + `failed`.** Важная info про каталог моделей раньше могла быть закрыта пользователем «не глядя» как toast. Теперь модал с семантическим лейблом источника («снимок, который вы положили рядом с VibeIDE.exe» / «встроенный снимок» / «кэшированный»), copy-URL action, open-URL action.
@@ -60,9 +51,8 @@
 ### Поддержать проект
 
 Если VibeIDE оказалось полезным — буду рад благодарности.
-Toast можно закрыть не глядя, модал — нужно прочитать. У автора с кнопкой ниже та же дисциплина: проигнорировать сложнее.
+Модал по центру, workbench не блокируется. Автор тоже старается не блокировать — особенно пока кофе ещё есть. Кнопка ниже не блокирует ничего, но привлекает внимание.
 
 <a href="https://raw.githubusercontent.com/borodatych/VSCodeSyncFiles/main/media/QR-Code.jpg" target="_blank">
   <img src="https://raw.githubusercontent.com/borodatych/VSCodeSyncFiles/main/media/QR-Code.jpg" width="120" alt="QR-код для поддержки проекта">
 </a>
-

@@ -35,6 +35,7 @@ import { ConfigurationTarget, IConfigurationService } from '../../../../platform
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IEditorOpenContext } from '../../../common/editor.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
@@ -271,8 +272,9 @@ export async function openVibeChatEditor(instantiationService: IInstantiationSer
 		chatThreadService: accessor.get(IChatThreadService),
 		notificationService: accessor.get(INotificationService),
 		configurationService: accessor.get(IConfigurationService),
+		workspaceContextService: accessor.get(IWorkspaceContextService),
 	}));
-	const { editorGroupsService, editorService, storageService, contextKeyService, chatThreadService, notificationService, configurationService } = services;
+	const { editorGroupsService, editorService, storageService, contextKeyService, chatThreadService, notificationService, configurationService, workspaceContextService } = services;
 
 	// Initialize context key and removal listener once per renderer session.
 	if (!_hasChatGroupCtxKey) {
@@ -290,22 +292,6 @@ export async function openVibeChatEditor(instantiationService: IInstantiationSer
 		return;
 	}
 
-	// Long-task observer — diagnostic for v0.13.14 freeze investigation. Logs any
-	// synchronous JS task taking > 50ms in the renderer. Auto-removes after 30s.
-	try {
-		const PO = (globalThis as { PerformanceObserver?: typeof PerformanceObserver }).PerformanceObserver;
-		if (PO) {
-			const obs = new PO((entries) => {
-				for (const e of entries.getEntries()) {
-					console.warn(`[long-task] ${e.duration.toFixed(0)}ms — ${e.name}`);
-				}
-			});
-			obs.observe({ entryTypes: ['longtask'] });
-			setTimeout(() => obs.disconnect(), 30_000);
-		}
-	} catch { /* PerformanceObserver entryType 'longtask' unsupported — silent skip */ }
-
-	console.warn('[VibeChat] openVibeChatEditor: ENTER');
 	let input: VibeChatEditorInput;
 	if (options.chatId) {
 		input = new VibeChatEditorInput(options.chatId);
@@ -317,45 +303,21 @@ export async function openVibeChatEditor(instantiationService: IInstantiationSer
 		if (!chatId) { chatId = chatThreadService.forceCreateNewThread(); }
 		input = new VibeChatEditorInput(chatId);
 	}
-	console.warn('[VibeChat] openVibeChatEditor: await openEditor() — start, groups.count=', editorGroupsService.groups.length, 'ids=', editorGroupsService.groups.map(g => g.id));
-	const pane = await editorService.openEditor(input, { pinned: true }, SIDE_GROUP);
-	console.warn('[VibeChat] openVibeChatEditor: await openEditor() — done, pane=', !!pane, 'groups.count=', editorGroupsService.groups.length, 'ids=', editorGroupsService.groups.map(g => g.id));
+
+	// When no folder/workspace is open, SIDE_GROUP silently fails to create a new
+	// editor-group (the grid has nothing to split against) — the chat would be
+	// invisible AND the event-loop's macro-task queue starves on the dangling split.
+	// In that case, open in the active group: the welcome editor is replaced by chat.
+	const useActiveGroup = workspaceContextService.getWorkbenchState() === WorkbenchState.EMPTY;
+	const pane = useActiveGroup
+		? await editorService.openEditor(input, { pinned: true })
+		: await editorService.openEditor(input, { pinned: true }, SIDE_GROUP);
 	const newGroup = pane?.group;
 	if (newGroup) {
-		console.warn('[VibeChat] new group id=', newGroup.id, 'editors.count=', newGroup.editors.length, 'activeEditor=', newGroup.activeEditor?.constructor?.name);
 		_chatEditorGroupId = newGroup.id;
 		storageService.store(CHAT_GROUP_STORAGE_KEY, newGroup.id, StorageScope.WORKSPACE, StorageTarget.MACHINE);
 		_hasChatGroupCtxKey.set(true);
 		setupChatGroupLockdown(newGroup, editorGroupsService);
-		console.warn('[VibeChat] post-lockdown: editors.count=', newGroup.editors.length, 'activeEditor=', newGroup.activeEditor?.constructor?.name, 'isLocked=', newGroup.isLocked);
-		// One-shot delayed check: confirm group still exists 200ms later + dump DOM sizes
-		// of all editor group containers + grid columns to localize «invisible group» bug.
-		setTimeout(() => {
-			const stillThere = editorGroupsService.getGroup(newGroup.id);
-			console.warn('[VibeChat] +200ms check: group exists=', !!stillThere, 'all groups=', editorGroupsService.groups.map(g => g.id));
-			try {
-				const groupEls = document.querySelectorAll<HTMLElement>('.editor-group-container');
-				console.warn('[VibeChat] DOM: .editor-group-container count=', groupEls.length);
-				groupEls.forEach((el, i) => {
-					const rect = el.getBoundingClientRect();
-					console.warn(`[VibeChat] DOM[${i}]: id=${el.id || '(none)'} w=${rect.width.toFixed(0)} h=${rect.height.toFixed(0)} display=${getComputedStyle(el).display} visibility=${getComputedStyle(el).visibility} opacity=${getComputedStyle(el).opacity}`);
-				});
-				const editorPart = document.querySelector<HTMLElement>('.part.editor');
-				if (editorPart) {
-					const r = editorPart.getBoundingClientRect();
-					console.warn(`[VibeChat] DOM .part.editor: w=${r.width.toFixed(0)} h=${r.height.toFixed(0)} display=${getComputedStyle(editorPart).display}`);
-				}
-				const splitView = document.querySelector<HTMLElement>('.part.editor .split-view-container, .part.editor .monaco-grid-view');
-				if (splitView) {
-					const r = splitView.getBoundingClientRect();
-					console.warn(`[VibeChat] DOM splitView: w=${r.width.toFixed(0)} h=${r.height.toFixed(0)}`);
-				}
-			} catch (e) {
-				console.warn('[VibeChat] DOM probe threw', e);
-			}
-		}, 200);
-	} else {
-		console.warn('[VibeChat] pane was nullish — openEditor returned no pane!');
 	}
 }
 
@@ -522,27 +484,18 @@ class VibeChatEditorPane extends EditorPane {
 		chatElt.style.width = '100%';
 		parent.appendChild(chatElt);
 
-		console.warn('[VibeChat] createEditor: about to mountSidebar');
 		this.instantiationService.invokeFunction(accessor => {
-			const t0 = performance.now();
 			const disposeFn = mountSidebar(chatElt, accessor)?.dispose;
-			console.warn(`[VibeChat] createEditor: mountSidebar() returned in ${(performance.now() - t0).toFixed(0)}ms`);
 			this._register(toDisposable(() => disposeFn?.()));
 		});
 	}
 
 	override async setInput(input: EditorInput, options: IEditorOptions | undefined, context: IEditorOpenContext, token: CancellationToken): Promise<void> {
-		console.warn('[VibeChat] setInput: ENTER');
-		const t0 = performance.now();
 		await super.setInput(input, options, context, token);
-		console.warn(`[VibeChat] setInput: super.setInput returned in ${(performance.now() - t0).toFixed(0)}ms`);
 		// Each chat tab carries its own threadId via chatId; switching tabs flips the global "current thread" so the React UI re-renders for the active chat.
 		if (input instanceof VibeChatEditorInput) {
-			const t1 = performance.now();
 			this.chatThreadService.switchToThread(input.chatId);
-			console.warn(`[VibeChat] setInput: switchToThread returned in ${(performance.now() - t1).toFixed(0)}ms`);
 		}
-		console.warn('[VibeChat] setInput: EXIT');
 	}
 
 	layout(_dimension: Dimension): void { /* handled by flex/percent CSS */ }
