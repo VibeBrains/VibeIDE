@@ -291,18 +291,23 @@ export async function openVibeChatEditor(instantiationService: IInstantiationSer
 	}
 
 	// No chat group — open via IEditorService.openEditor(..., SIDE_GROUP). This is the canonical VS Code path: it creates the group, lays it out, activates it, and focuses the new editor in one atomic step. Manual addGroup + openEditor leaves the new group unactivated when the click originates from the auxiliary bar (sidebar "+"), which made the chat tab invisible on a cold start.
+	console.warn('[VibeChat] openVibeChatEditor: building input', { hasChatId: !!options.chatId, newChat: options.newChat });
 	let input: VibeChatEditorInput;
 	if (options.chatId) {
 		input = new VibeChatEditorInput(options.chatId);
 	} else if (options.newChat) {
+		console.warn('[VibeChat] openVibeChatEditor: forceCreateNewThread() — start');
 		const newThreadId = chatThreadService.forceCreateNewThread();
+		console.warn('[VibeChat] openVibeChatEditor: forceCreateNewThread() — done', newThreadId);
 		input = new VibeChatEditorInput(newThreadId);
 	} else {
 		let chatId = chatThreadService.state.currentThreadId;
 		if (!chatId) { chatId = chatThreadService.forceCreateNewThread(); }
 		input = new VibeChatEditorInput(chatId);
 	}
+	console.warn('[VibeChat] openVibeChatEditor: editorService.openEditor() — start');
 	const pane = await editorService.openEditor(input, { pinned: true }, SIDE_GROUP);
+	console.warn('[VibeChat] openVibeChatEditor: editorService.openEditor() — done');
 	const newGroup = pane?.group;
 	if (newGroup) {
 		_chatEditorGroupId = newGroup.id;
@@ -475,8 +480,13 @@ class VibeChatEditorPane extends EditorPane {
 		chatElt.style.width = '100%';
 		parent.appendChild(chatElt);
 
+		console.warn('[VibeChat] createEditor: about to mountSidebar');
 		this.instantiationService.invokeFunction(accessor => {
+			console.warn('[VibeChat] createEditor: inside invokeFunction, calling mountSidebar');
+			const t0 = performance.now();
 			const disposeFn = mountSidebar(chatElt, accessor)?.dispose;
+			const dt = performance.now() - t0;
+			console.warn(`[VibeChat] createEditor: mountSidebar returned in ${dt.toFixed(1)}ms`);
 			this._register(toDisposable(() => disposeFn?.()));
 		});
 	}
