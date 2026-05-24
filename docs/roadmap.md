@@ -1819,7 +1819,8 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
   - `electron-main/llmMessage/sendLLMMessage.impl.ts:824, 828, 1047, 1092, 1211` — `for (const item of newText as any[])` затем `item.thinking as any[]`. Полное стирание типов через массив-of-unknown. Переход на discriminated union `ContentBlock | ThinkingBlock | ToolBlock | ...` + narrow по `block.type`.
   - `electron-main/llmMessage/sendLLMMessage.impl.ts:859` — `// @ts-ignore` на `nameOfReasoningFieldInDelta`. Типизировать поле delta через optional union `{ reasoning?: string; reasoning_content?: string; thinking?: string }`.
   - `electron-main/metricsMainService.ts:108` — `this._productService as any` для чтения опциональных полей. Расширить `IProductService` интерфейсом `IVibeideProductFields` (declaration merging) или валидатором рантайма.
-  - `browser/convertToLLMMessageService.ts:338, 782, 867, 1040, 1084, 1091, 1139, 1153, 1157` — несколько `as any` на image/PDF/system-message блоках + два «COMPLETE HACK» / «SYSTEM MESSAGE HACK» комментария на line 867 и line 1040 (assistant-only first message shift). Нуждается в proper `SimpleLLMMessage[]` валидации, а не комментариях-маркерах.
+  - `browser/convertToLLMMessageService.ts:338, 782, 1084, 1091, 1139, 1153, 1157` — несколько `as any` на image/PDF/system-message блоках. Нуждается в proper `SimpleLLMMessage[]` валидации.
+  - ✅ **Pre-existing «COMPLETE HACK» / «SYSTEM MESSAGE HACK» comments at lines 867 + 1040** rewritten as descriptive comments documenting the intentional system-message-in-array pattern (single trim pipeline для system + chat сообщений). Это не закрывает full S.1 (as-any остаются), но снимает misleading «HACK» tag. — ✅ this session.
 - [~] Acceptance — wave-2 (strict mode work).
 
 ### S.2 Hardcoded stall thresholds → settings
@@ -2652,7 +2653,7 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 - [x] **Theming** (`media/vibeModal.css`): **только** `var(--vscode-*)` tokens — Default Dark+/Light+/High Contrast/Vibe Neon работают без overrides. Z-index `2500` (выше editor hover widgets, ниже context menus). `max-width: min(560px, 90vw)` — narrow VS Code windows не ломаются. `overflow-wrap: anywhere` — длинные пути не разрывают вёрстку.
 - [x] **Workbench mount** (`browser/vibeModalRootContribution.ts`): `WorkbenchPhase.Eventually` находит `.monaco-workbench` root, append portal div, mount React tree. Disposes cleanly.
 - [x] **Build pipeline**: добавлено `./src2/modal-tsx/index.tsx` в `tsup.config.js`. `npm run buildreact` создаёт `react/out/modal-tsx/index.js` (gitignored — регенерируется на каждом билде).
-- [x] **Tests** (`test/common/vibeModalService.test.ts`): 21 unit-тест — push/resolve/result, dismiss (включая `dismissible: false`), FIFO ordering, change events, loading toggle, confirmModal helper (primary/cancel/dismiss/danger/custom labels), dispose pending resolution.
+- [x] **Tests** (`test/common/vibeModalService.test.ts`): 48 unit-тестов (cumulative через Z.0 → Z.9) — push/resolve/result, dismiss (включая `dismissible: false`), FIFO ordering, change events, loading toggle, confirmModal helper, closeHead matrix, dismissHeadWithVeto (with sync/async/throwing callback + timeout), updateHeadOptions, severity presets, onClose lifecycle (including dispose-drain and throwing-hook isolation), hotkey field round-trip, dispose pending resolution.
 
 ### Z.1 A — models.dev: reorder + переход на VibeModal (commits `3c944a55` + audit `23416ac0`)
 

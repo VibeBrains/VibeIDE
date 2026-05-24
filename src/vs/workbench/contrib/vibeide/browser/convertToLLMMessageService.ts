@@ -864,8 +864,14 @@ const prepareOpenAIOrAnthropicMessages = ({
 	}) as (SimpleLLMMessage | { role: 'system', content: string })[]
 
 	// ================ system message ================
-	// A COMPLETE HACK: last message is system message for context purposes
-
+	// System message is assembled here and prepended to `messages` as `role: 'system'`.
+	// Subsequent trim/compaction passes operate on the full array; the system role
+	// is split back out near the end (line ~1036) before constructing the LLM-shape
+	// `AnthropicOrOpenAILLMMessage[]`. Originally this was tagged with a «complete
+	// hack» comment because the system message rides through the same array as
+	// chat messages; the pattern is intentional — single trim pipeline applies to
+	// system + chat together.
+	//
 	// XML-tagged sections keep the model from confusing system context with user-attached content (e.g. images).
 	const sysMsgParts: string[] = []
 	if (aiInstructions) sysMsgParts.push(`<workspace_guidelines source=".vibe/rules.md, AGENTS.md">\n${aiInstructions}\n</workspace_guidelines>`)
@@ -1037,7 +1043,10 @@ const prepareOpenAIOrAnthropicMessages = ({
 
 
 	// ================ tools and anthropicReasoning ================
-	// SYSTEM MESSAGE HACK: we shifted (removed) the system message role, so now SimpleLLMMessage[] is valid
+	// At this point `messages.shift()` removed the system entry (captured in
+	// `newSysMsg`), so the remaining array satisfies the `SimpleLLMMessage[]`
+	// shape (which excludes `role: 'system'` — system content travels via the
+	// `separateSystemMessage` return field instead).
 
 	let llmChatMessages: AnthropicOrOpenAILLMMessage[] = []
 	if (!specialToolFormat) { // XML tool behavior
