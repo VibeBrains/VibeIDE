@@ -32,6 +32,7 @@ import { CopyButton, EditToolAcceptRejectButtonsHTML, IconShell1, JumpToFileButt
 import { IsRunningType, WAITING_FOR_MODEL_RESPONSE_SENTINEL } from '../../../chatThreadService.js';
 import { acceptAllBg, acceptBorder, buttonFontSize, buttonTextColor, rejectAllBg, rejectBg, rejectBorder } from '../../../../common/helpers/colors.js';
 import { builtinToolNames, isABuiltinToolName, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_INACTIVE_TIME } from '../../../../common/prompt/prompts.js';
+import { stripUnclaimedToolTags } from '../../../../common/xmlToolNormalize.js';
 import { RawToolCallObj } from '../../../../common/sendLLMMessageTypes.js';
 import ErrorBoundary from './ErrorBoundary.js';
 import { ToolApprovalTypeSwitch } from '../vibe-settings-tsx/Settings.js';
@@ -1887,7 +1888,16 @@ const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, 
 	const accessor = useAccessor()
 	const chatThreadsService = accessor.get('IChatThreadService')
 
-	const reasoningStr = chatMessage.reasoning?.trim() || null
+	// Render-layer safety net: scrub any complete tool-call tags that leaked into
+	// user-visible text (e.g. a 2nd tool emission past the parser's first, or a
+	// chat mode without the extractGrammar wrapper). stripUnclaimedToolTags swaps
+	// `<run_command>…</run_command>` for a polite placeholder. Memoized so it only
+	// recomputes when the underlying text changes.
+	const reasoningStr = useMemo(() => {
+		const r = chatMessage.reasoning?.trim() || null
+		return r ? stripUnclaimedToolTags(r) : null
+	}, [chatMessage.reasoning])
+	const displayContent = useMemo(() => stripUnclaimedToolTags(chatMessage.displayContent || ''), [chatMessage.displayContent])
 	const hasReasoning = !!reasoningStr
 	const isDoneReasoning = !!chatMessage.displayContent
 	const thread = chatThreadsService.getCurrentThread()
@@ -1919,7 +1929,7 @@ const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, 
 		}
 
 		{/* assistant message */}
-		{chatMessage.displayContent &&
+		{displayContent &&
 			<div
 				className={`select-text ${isCheckpointGhost ? 'opacity-50' : ''} ${!isCommitted ? 'streaming-content-chunk' : ''}`}
 				role={!isCommitted ? "status" : undefined}
@@ -1928,7 +1938,7 @@ const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, 
 			>
 				<ProseWrapper>
 					<ChatMarkdownRender
-						string={chatMessage.displayContent || ''}
+						string={displayContent}
 						chatMessageLocation={chatMessageLocation}
 						isApplyEnabled={true}
 						isLinkDetectionEnabled={true}

@@ -7,6 +7,7 @@ import { CancellationToken } from '../../../../base/common/cancellation.js'
 import { URI } from '../../../../base/common/uri.js'
 import { isAbsolute as pathIsAbsolute } from '../../../../base/common/path.js'
 import { joinPath } from '../../../../base/common/resources.js'
+import { localize } from '../../../../nls.js'
 import { IFileService } from '../../../../platform/files/common/files.js'
 import { IVibeConstraintsService, ConstraintViolationError } from '../common/vibeConstraintsService.js'
 import { IVibePromptGuardService } from '../common/vibePromptGuardService.js'
@@ -75,7 +76,7 @@ const validateStr = (argName: string, value: unknown) => {
  * Validates a URI string and converts it to a URI object.
  * Now includes workspace validation for safety in Agent Mode.
  */
-const validateURI = (uriStr: unknown, workspaceContextService?: IWorkspaceContextService, requireWorkspace: boolean = true) => {
+const validateURI = (uriStr: unknown, workspaceContextService?: IWorkspaceContextService, requireWorkspace: boolean = true, accessKind: 'read' | 'write' = 'read') => {
 	if (uriStr === null) throw new Error(`Invalid LLM output: uri was null.`)
 	if (typeof uriStr !== 'string') throw new Error(`Invalid LLM output format: Provided uri must be a string, but it's a(n) ${typeof uriStr}. Full value: ${JSON.stringify(uriStr)}.`)
 
@@ -125,23 +126,26 @@ const validateURI = (uriStr: unknown, workspaceContextService?: IWorkspaceContex
 		}
 	}
 
-	// Strict workspace enforcement for Agent Mode safety
+	// Workspace-boundary enforcement. Whether reads/writes outside the open
+	// workspace are allowed is config-driven (the caller passes the resolved
+	// `requireWorkspace`); `accessKind` only selects which setting key the
+	// denial message names, so the user can copy-paste it into Settings search.
 	if (requireWorkspace && workspaceContextService) {
 		const isInWorkspace = workspaceContextService.isInsideWorkspace(uri);
 		if (!isInWorkspace) {
-			// Provide helpful error message with workspace info
-			const workspace = workspaceContextService.getWorkspace();
-			const workspaceFolders = workspace.folders.map(f => f.uri.fsPath).join(', ');
-			throw new Error(`File ${uri.fsPath} is outside the workspace and cannot be accessed. Only files within the workspace are allowed for safety. Current workspace: ${workspaceFolders || 'none'}. If this is a relative path, ensure it's relative to the workspace root.`);
+			const settingKey = accessKind === 'write'
+				? 'vibeide.agent.allowWriteOutsideWorkspace'
+				: 'vibeide.agent.allowReadOutsideWorkspace';
+			throw new Error(localize(
+				'vibeide.tools.outsideWorkspace',
+				"Доступ к файлу вне рабочей области отключён: {0}\nЧтобы разрешить, включите настройку: {1}\n(Параметры → вставьте этот ключ в поиск.)",
+				uri.fsPath,
+				settingKey,
+			));
 		}
 	}
 
 	return uri;
-}
-
-const validateOptionalURI = (uriStr: unknown, workspaceContextService?: IWorkspaceContextService) => {
-	if (isFalsy(uriStr)) return null
-	return validateURI(uriStr, workspaceContextService, true)
 }
 
 const validateOptionalStr = (argName: string, str: unknown) => {
@@ -258,10 +262,22 @@ export class ToolsService implements IToolsService {
 		this._offlineGate = new OfflinePrivacyGate();
 		const queryBuilder = instantiationService.createInstance(QueryBuilder);
 
+		// Workspace-boundary policy — config-driven (see vibeAgentBehaviorConfiguration.ts).
+		// Reads default-allowed (`allowReadOutsideWorkspace`=true), writes default-blocked
+		// (`allowWriteOutsideWorkspace`=false). The helpers resolve the "must stay inside
+		// workspace" flag at call time and tag the access kind for the denial message.
+		const requireWorkspaceForRead = (): boolean =>
+			this._configurationService.getValue<boolean>('vibeide.agent.allowReadOutsideWorkspace') === false
+		const requireWorkspaceForWrite = (): boolean =>
+			this._configurationService.getValue<boolean>('vibeide.agent.allowWriteOutsideWorkspace') !== true
+		const validateReadURI = (u: unknown) => validateURI(u, workspaceContextService, requireWorkspaceForRead(), 'read')
+		const validateWriteURI = (u: unknown) => validateURI(u, workspaceContextService, requireWorkspaceForWrite(), 'write')
+		const validateOptionalReadURI = (u: unknown) => isFalsy(u) ? null : validateReadURI(u)
+
 		this.validateParams = {
 			read_file: (params: RawToolParamsObj) => {
 				const { uri: uriStr, start_line: startLineUnknown, end_line: endLineUnknown, page_number: pageNumberUnknown, line_limit: lineLimitUnknown, with_line_numbers: withLineNumbersUnknown } = params
-				const uri = validateURI(uriStr, workspaceContextService, true)
+				const uri = validateReadURI(uriStr)
 				const pageNumber = validatePageNum(pageNumberUnknown)
 
 				let startLine = validateNumber(startLineUnknown, { default: null })
@@ -297,7 +313,7 @@ export class ToolsService implements IToolsService {
 					}
 					uri = folders[0].uri
 				} else {
-					uri = validateURI(uriStr, workspaceContextService, true)
+					uri = validateReadURI(uriStr)
 				}
 				const pageNumber = validatePageNum(pageNumberUnknown)
 				return { uri, pageNumber }
@@ -314,7 +330,7 @@ export class ToolsService implements IToolsService {
 					}
 					uri = folders[0].uri
 				} else {
-					uri = validateURI(uriStr, workspaceContextService, true)
+					uri = validateReadURI(uriStr)
 				}
 				return { uri }
 			},
@@ -341,7 +357,7 @@ export class ToolsService implements IToolsService {
 				} = params
 				const queryStr = validateStr('query', queryUnknown)
 				const pageNumber = validatePageNum(pageNumberUnknown)
-				const searchInFolder = validateOptionalURI(searchInFolderUnknown, workspaceContextService)
+				const searchInFolder = validateOptionalReadURI(searchInFolderUnknown)
 				const isRegex = validateBoolean(isRegexUnknown, { default: false })
 				return {
 					query: queryStr,
@@ -352,7 +368,7 @@ export class ToolsService implements IToolsService {
 			},
 			search_in_file: (params: RawToolParamsObj) => {
 				const { uri: uriStr, query: queryUnknown, is_regex: isRegexUnknown } = params;
-				const uri = validateURI(uriStr, workspaceContextService, true);
+				const uri = validateReadURI(uriStr);
 				const query = validateStr('query', queryUnknown);
 				const isRegex = validateBoolean(isRegexUnknown, { default: false });
 				return { uri, query, isRegex };
@@ -361,7 +377,7 @@ export class ToolsService implements IToolsService {
 			glob: (params: RawToolParamsObj) => {
 				const { pattern: patternUnknown, search_in_folder: folderUnknown, page_number: pageNumberUnknown } = params
 				const pattern = validateStr('pattern', patternUnknown)
-				const searchInFolder = validateOptionalURI(folderUnknown, workspaceContextService)
+				const searchInFolder = validateOptionalReadURI(folderUnknown)
 				const pageNumber = validatePageNum(pageNumberUnknown)
 				return { pattern, searchInFolder, pageNumber }
 			},
@@ -383,7 +399,7 @@ export class ToolsService implements IToolsService {
 				const pattern = validateStr('pattern', patternUnknown)
 				const globPat = validateOptionalStr('glob', globUnknown)
 				const fileType = validateOptionalStr('file_type', fileTypeUnknown)
-				const searchInFolder = validateOptionalURI(folderUnknown, workspaceContextService)
+				const searchInFolder = validateOptionalReadURI(folderUnknown)
 				const outputModeRaw = (typeof outputModeUnknown === 'string' ? outputModeUnknown : 'content').toLowerCase()
 				const outputMode = (outputModeRaw === 'files_with_matches' || outputModeRaw === 'count' ? outputModeRaw : 'content') as 'content' | 'files_with_matches' | 'count'
 				const contextBefore = Math.max(0, validateNumber(contextBeforeUnknown, { default: 0 }) ?? 0)
@@ -401,7 +417,7 @@ export class ToolsService implements IToolsService {
 				const {
 					uri: uriUnknown,
 				} = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateReadURI(uriUnknown)
 				return { uri }
 			},
 
@@ -409,13 +425,13 @@ export class ToolsService implements IToolsService {
 				const {
 					uri: uriUnknown,
 				} = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateReadURI(uriUnknown)
 				return { uri }
 			},
 
 			go_to_definition: (params: RawToolParamsObj) => {
 				const { uri: uriUnknown, line: lineUnknown, column: columnUnknown } = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateReadURI(uriUnknown)
 				const line = validateNumber(lineUnknown, { default: null })
 				const column = validateNumber(columnUnknown, { default: null })
 				if (line === null || line < 1) throw new Error(`Invalid LLM output: line must be a positive integer, got ${lineUnknown}`)
@@ -425,7 +441,7 @@ export class ToolsService implements IToolsService {
 
 			find_references: (params: RawToolParamsObj) => {
 				const { uri: uriUnknown, line: lineUnknown, column: columnUnknown } = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateReadURI(uriUnknown)
 				const line = validateNumber(lineUnknown, { default: null })
 				const column = validateNumber(columnUnknown, { default: null })
 				if (line === null || line < 1) throw new Error(`Invalid LLM output: line must be a positive integer, got ${lineUnknown}`)
@@ -436,19 +452,19 @@ export class ToolsService implements IToolsService {
 			search_symbols: (params: RawToolParamsObj) => {
 				const { query: queryUnknown, uri: uriUnknown } = params
 				const query = validateStr('query', queryUnknown)
-				const uri = uriUnknown ? validateURI(uriUnknown, workspaceContextService, true) : null
+				const uri = uriUnknown ? validateReadURI(uriUnknown) : null
 				return { query, uri }
 			},
 
 			automated_code_review: (params: RawToolParamsObj) => {
 				const { uri: uriUnknown } = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateReadURI(uriUnknown)
 				return { uri }
 			},
 
 			generate_tests: (params: RawToolParamsObj) => {
 				const { uri: uriUnknown, function_name: functionNameUnknown, test_framework: testFrameworkUnknown } = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateWriteURI(uriUnknown)
 				const functionName = validateOptionalStr('function_name', functionNameUnknown) ?? undefined
 				const testFramework = validateOptionalStr('test_framework', testFrameworkUnknown) ?? undefined
 				return { uri, functionName, testFramework }
@@ -456,7 +472,7 @@ export class ToolsService implements IToolsService {
 
 			rename_symbol: (params: RawToolParamsObj) => {
 				const { uri: uriUnknown, line: lineUnknown, column: columnUnknown, new_name: newNameUnknown } = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateWriteURI(uriUnknown)
 				const line = validateNumber(lineUnknown, { default: null })
 				const column = validateNumber(columnUnknown, { default: null })
 				if (line === null || line < 1) throw new Error(`Invalid LLM output: line must be a positive integer, got ${lineUnknown}`)
@@ -467,7 +483,7 @@ export class ToolsService implements IToolsService {
 
 			extract_function: (params: RawToolParamsObj) => {
 				const { uri: uriUnknown, start_line: startLineUnknown, end_line: endLineUnknown, function_name: functionNameUnknown } = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateWriteURI(uriUnknown)
 				const startLine = validateNumber(startLineUnknown, { default: null })
 				const endLine = validateNumber(endLineUnknown, { default: null })
 				if (startLine === null || startLine < 1) throw new Error(`Invalid LLM output: start_line must be a positive integer, got ${startLineUnknown}`)
@@ -483,7 +499,7 @@ export class ToolsService implements IToolsService {
 
 			create_file_or_folder: (params: RawToolParamsObj) => {
 				const { uri: uriUnknown } = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateWriteURI(uriUnknown)
 				const uriStr = validateStr('uri', uriUnknown)
 				const isFolder = checkIfIsFolder(uriStr)
 				return { uri, isFolder }
@@ -491,7 +507,7 @@ export class ToolsService implements IToolsService {
 
 			delete_file_or_folder: (params: RawToolParamsObj) => {
 				const { uri: uriUnknown, is_recursive: isRecursiveUnknown } = params
-				const uri = validateURI(uriUnknown, workspaceContextService, true)
+				const uri = validateWriteURI(uriUnknown)
 				const isRecursive = validateBoolean(isRecursiveUnknown, { default: false })
 				const uriStr = validateStr('uri', uriUnknown)
 				const isFolder = checkIfIsFolder(uriStr)
@@ -500,14 +516,14 @@ export class ToolsService implements IToolsService {
 
 			rewrite_file: (params: RawToolParamsObj) => {
 				const { uri: uriStr, new_content: newContentUnknown } = params
-				const uri = validateURI(uriStr, workspaceContextService, true)
+				const uri = validateWriteURI(uriStr)
 				const newContent = validateStr('newContent', newContentUnknown)
 				return { uri, newContent }
 			},
 
 			edit_file: (params: RawToolParamsObj) => {
 				const { uri: uriStr, search_replace_blocks: searchReplaceBlocksUnknown } = params
-				const uri = validateURI(uriStr, workspaceContextService, true)
+				const uri = validateWriteURI(uriStr)
 				const searchReplaceBlocks = validateStr('searchReplaceBlocks', searchReplaceBlocksUnknown)
 				return { uri, searchReplaceBlocks }
 			},

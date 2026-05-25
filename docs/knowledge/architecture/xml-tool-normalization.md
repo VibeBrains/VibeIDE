@@ -36,9 +36,20 @@ LLM emit'ит tool call в произвольном формате
 │   заменяет паттерны в text на placeholder italic-md   │
 │   чтобы user не видел сырой XML.                      │
 └───────────────────────────────────────────────────────┘
+        ↓
+┌───────────────────────────────────────────────────────┐
+│ Layer 4 (render-side net)                             │
+│   stripUnclaimedToolTags() ещё раз, в React           │
+│   AssistantMessageComponent (SidebarChat.tsx) на      │
+│   displayContent + reasoning (memoized).              │
+│                                                       │
+│   Ловит leak'и, которые НЕ прошли через Layer 2/3:    │
+│   chat mode без extractGrammar wrapper (tools=undef в │
+│   `normal`), или displayContent собран в обход stream.│
+└───────────────────────────────────────────────────────┘
 ```
 
-**Layer 1** — pure `string → string`, lives в `common/xmlToolNormalize.ts`. Testable unit-тестами без electron deps. **Layer 2** — streaming-state machine, lives в `electron-main/llmMessage/extractGrammar.ts` — owns transient buffers, не testable изолированно. **Layer 3** — pure, lives с Layer 1.
+**Layer 1** — pure `string → string`, lives в `common/xmlToolNormalize.ts`. Testable unit-тестами без electron deps. **Layer 2** — streaming-state machine, lives в `electron-main/llmMessage/extractGrammar.ts` — owns transient buffers, не testable изолированно. **Layer 3** — pure, lives с Layer 1. **Layer 4** — тот же pure `stripUnclaimedToolTags`, но вызывается на browser-стороне в `SidebarChat.tsx` непосредственно перед `ChatMarkdownRender`. Гарантирует, что user никогда не видит сырой `<run_command>…</run_command>` независимо от того, какой upstream-слой пропустил. Memoized по тексту — пересчёт только при изменении. Incident 2026-05-24: leaked `<run_command>` при fallback на Get-Content после блокировки read вне workspace (см. [tool-calling.md](./tool-calling.md) про config-driven workspace boundary).
 
 ## [архитектура] Поддерживаемые format'ы
 

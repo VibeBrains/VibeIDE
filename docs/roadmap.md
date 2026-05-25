@@ -1596,6 +1596,14 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
   - `AUTO_DOWNGRADE_TTL_MS = 7 * 24 * 60 * 60 * 1000` продублирована inline (sync risk низкий — константа никогда не меняется). Можно вынести в `common/` модуль если будет третий потребитель.
   - **ErrorBoundary** оборачивает панель — фейл рендера не ломает остальной Settings экран. — ✅ in this session.
 
+### O.11 Reason-specific downgrade + cross-session re-probe (2026-05-25)
+
+> Корень инцидента model-stalls #008: deepseek-v4-pro через openCode залипал в XML-fallback и обрывал агентный цикл на каждом ходе без tool-call. Сверка с opencode (skill `opencode-repo`) показала: у них **нет** downgrade-to-XML — модель держится на native FC (их же признано в нашем комментарии `chatThreadService.ts:99`). Наш агрессивный 3-страйк downgrade + 7-дневный TTL + session-scoped re-probe = залипание на дни.
+
+- [x] **Reason-specific downgrade.** Триггер auto-downgrade теперь срабатывает **только** при `reason === 'numeric-tool-name'` (классический minimax/qwen quirk, который XML действительно лечит). `missing-required-field` / `wrong-tool-name` / `other` — транзиентные/самокорректирующиеся на native FC (opencode просто переживает их повторами), downgrade на них больше не пишется. Защита от настоящих поломок остаётся: `MAX_CONSECUTIVE_TOOL_ERRORS = 15`. Реализует «future selectivity rule», заявленную в комментарии к `classifyToolErrorReason`.
+- [x] **Порог 3 → 6.** `AUTO_DOWNGRADE_THRESHOLD` поднят: 3 был слишком чувствителен к транзиентным сбоям.
+- [x] **Cross-session re-probe.** Персистентный `_autoDetected`-оверрайд из ПРОШЛОЙ сессии раньше держал модель в XML до 7-дневного TTL (re-probe из O.9 session-scoped, а `downgradedModelsThisSession` пуст после рестарта окна). Теперь при первой встрече модели с персистентным auto-оверрайдом в новой сессии взводится одноразовый native-FC probe (`persistentOverrideProbedThisSession`), на успехе оверрайд снимается. `RE_PROBE_AFTER_SUCCESSES` снижен 20 → 5 для более быстрого in-session восстановления. — ✅ `chatThreadService.ts`.
+
 ---
 
 ## Tool-call resilience — Data-driven SDK routing через models.dev (2026-05-16, фаза P)

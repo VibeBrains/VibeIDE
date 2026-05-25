@@ -71,6 +71,20 @@
 
 <!-- Добавлять новые записи СВЕРХУ. Нумерация сквозная, инкрементная. -->
 
+### #008 — 2026-05-25 13:05 — Агент стопится на каждом шаге (текст без tool-call) — застрял в XML после auto-downgrade
+
+- **Где:** VibeIDE Dev, проект BuzzBang/admin. Сценарий — отладка `EmptyError: "no elements in sequence"`, агент ищет `.first()` в cloud-функциях.
+- **Что делали:** Agent-режим, deepseek-v4-pro через openCode. Пользователь раз за разом пишет «Продолжи».
+- **Симптом:** Модель эмитит **текст без tool-call** («Начинаю с поиска.», «Найду все .first(») и ход завершается → `awaiting_user`. Накануне (скрин #1) — утечка **сырых XML-тегов** `<run_command>…` в чат (fallback на Get-Content после блокировки read вне workspace). Оба симптома = модель в **XML-fallback режиме**.
+- **Окружение:** провайдер `openCode`, модель `deepseek-v4-pro`, режим Agent, «Автопилот» виден в нижней панели, `∞ итер`. Контекст ~5237/94208 (6%).
+- **Гипотеза (подтверждена кодом):** Корень — **VibeIDE-специфичный auto-downgrade** (`chatThreadService.ts` `AUTO_DOWNGRADE_THRESHOLD = 3`): после 3 подряд tool-ошибок пишется персистентный `_autoDetected`-оверрайд `specialToolFormat: undefined` → модель уходит в XML-fallback. deepseek-v4-pro по умолчанию (через `aggregatorOpenAIFallback`) идёт на **native FC** — но после даунгрейда залипает в XML, где ненадёжно эмитит теги → нарратив без tool-call → стоп. TTL оверрайда — **7 дней** (`AUTO_DOWNGRADE_TTL_MS`), а re-probe (`RE_PROBE_AFTER_SUCCESSES = 20`) завязан на session-scoped `downgradedModelsThisSession` → после рестарта окна re-probe не запускается, залипание держится днями.
+- **Сравнение с opencode (root-cause divergence):** opencode CLI **не имеет** такого breaker'а — держит модель на native FC и даёт ей итерироваться до успеха (это прямо признано в нашем же комментарии `chatThreadService.ts:99`: *"opencode CLI has no breaker — model just keeps iterating until it succeeds"*). Их цикл (`packages/opencode/src/session/prompt.ts`) тоже завершается на ходе без tool-call (`finish && finish !== "tool-calls" && !hasToolCalls`), `toolChoice:"required"` ставится только для structured-output — то есть стратегия цикла идентична, расхождение **только** в наличии у нас downgrade-to-XML.
+- **Действия пользователя (немедленный unblock):** Settings → Models → Overrides → deepseek-v4-pro (openCode) → сбросить auto-detected `specialToolFormat` (вернуть native FC). После этого «Продолжи» не понадобится.
+- **Связано с инцидентами:** #001 (та же модель/провайдер — там empty response на tool-only серии), #004/#007 (та же модель РАНЬШЕ работала на native — подтверждает, что XML-режим и есть регрессия), #005 (тот же auto-downgrade контур).
+- **Фикс (реализован 2026-05-25, roadmap O.11):** (1) auto-downgrade теперь только на `numeric-tool-name` (deepseek-v4-pro в XML больше не попадает); (2) `AUTO_DOWNGRADE_THRESHOLD` 3→6; (3) cross-session re-probe — персистентный auto-оверрайд получает одноразовый native-FC probe в начале новой сессии (раньше залипал до 7-дневного TTL), `RE_PROBE_AFTER_SUCCESSES` 20→5. Уже залипшие модели восстанавливаются автоматически при следующем запросе; ручной сброс через Settings → Models → Overrides больше не обязателен.
+
+---
+
 ### #007 — 2026-05-19 17:57 — deepseek-v4-pro через openCode полностью выполнил skill `deadborn-process-load`
 
 - **Где:** VibeIDE Dev, проект Promed. Тот же скилл `/skill:deadborn-process-load`. Повторный тест на deepseek-v4-pro после фиксов #002/#003.

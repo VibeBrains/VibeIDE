@@ -332,6 +332,21 @@ prompts.ts       →  tools/index.ts, tools/_constants.ts
 
 ---
 
+## [правило] Граница workspace — config-driven (read открыт, write закрыт)
+
+`validateURI()` в `toolsService.ts` решает, можно ли тулу трогать путь вне открытой рабочей области. С 2026-05-24 это **не зашитый запрет**, а две настройки в `vibeAgentBehaviorConfiguration.ts`:
+
+| Ключ | Default | Кого касается |
+|---|---|---|
+| `vibeide.agent.allowReadOutsideWorkspace` | `true` (открыто) | read-only тулы: read_file, ls_dir, get_dir_tree, search_in_file, read_lint_errors, open_file, go_to_definition, find_references, search_symbols, automated_code_review, + search-root у search_for_files / glob / grep |
+| `vibeide.agent.allowWriteOutsideWorkspace` | `false` (закрыто) | изменяющие тулы: edit_file, rewrite_file, create_file_or_folder, delete_file_or_folder, rename_symbol, extract_function, generate_tests |
+
+**Почему read открыт по умолчанию:** жёсткий запрет тривиально обходился через `run_command` + `Get-Content`, поэтому давал не безопасность, а трение (агент застревал в обходных попытках, тегами протекая в чат — см. incident в [xml-tool-normalization.md](./xml-tool-normalization.md) Layer 4). Write остаётся закрытым: защита от случайной записи в системные файлы и соседние проекты.
+
+**Механика:** конструктор `ToolsService` определяет `requireWorkspaceForRead()` / `requireWorkspaceForWrite()` (читают config на каждый вызов) и обёртки `validateReadURI` / `validateWriteURI` / `validateOptionalReadURI`. Каждый валидатор в `validateParams` зовёт нужную обёртку. При отказе бросается чистое локализованное сообщение с **точным ключом настройки** (copy-paste в поиск Параметров), без технического блока и без подсказок про обходы.
+
+---
+
 ## Связанные файлы
 
 - [aiSdkAdapter.ts](../../../src/vs/workbench/contrib/vibeide/electron-main/llmMessage/aiSdkAdapter.ts) — AI SDK путь, `convertToolsToAiSdkToolSet`, `experimental_repairToolCall`.

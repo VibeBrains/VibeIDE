@@ -46,6 +46,16 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: 'npm test',
 			description: localize('vibeide.agent.runTestsAfterApply.command', 'Shell-команда для прогона тестов (используется только когда `runTestsAfterApply.enabled = true`). Должна быть быстрой (≤30s), иначе блокирует следующий agent step. Пример: `npm test -- --bail` для остановки на первой ошибке.'),
 		},
+		'vibeide.agent.allowReadOutsideWorkspace': {
+			type: 'boolean',
+			default: true,
+			description: localize('vibeide.agent.allowReadOutsideWorkspace', 'Разрешить read-only инструментам агента (read_file, ls_dir, grep, поиск и т.д.) читать файлы вне открытой рабочей области. On-by-default: запрет всё равно тривиально обходился через run_command + Get-Content, поэтому давал не безопасность, а трение. Выключите, чтобы жёстко ограничить чтение рамками workspace.'),
+		},
+		'vibeide.agent.allowWriteOutsideWorkspace': {
+			type: 'boolean',
+			default: false,
+			description: localize('vibeide.agent.allowWriteOutsideWorkspace', 'Разрешить изменяющим инструментам агента (edit_file, rewrite_file, create/delete, rename_symbol, extract_function, generate_tests) писать файлы вне открытой рабочей области. Off-by-default — защита от случайной записи в системные файлы и соседние проекты. Включайте осознанно.'),
+		},
 		'vibeide.agent.maxLoopIterations': {
 			type: 'number',
 			default: 30,

@@ -97,7 +97,7 @@ const MAX_RETRY_DELAY = 5000 // Cap at 5s
 const DEFAULT_MAX_AGENT_LOOP_ITERATIONS = 30 // Default cap; overridable via `vibeide.agent.maxLoopIterations`. 0 in the setting disables the cap.
 const MAX_AGENT_LOOP_ITERATIONS_UPPER_BOUND = 200 // Hard ceiling for user-supplied values to avoid runaway loops via accidental large input.
 const MAX_CONSECUTIVE_TOOL_ERRORS = 15 // Circuit-breaker: abort agent loop after this many back-to-back tool failures. opencode CLI has no breaker — model just keeps iterating until it succeeds. 15 gives breathing room (some models recover after 5-10 attempts before finding the right tool format) while still preventing infinite loops on truly broken combos.
-const AUTO_DOWNGRADE_THRESHOLD = 3 // After this many consecutive tool failures per-(provider×model), automatically write an `_autoDetected` override switching the model to XML-fallback mode. Counter resets on `success` or after AUTO_DOWNGRADE_TRIGGER fires (giving the XML path a fresh slate). See roadmap O.2.
+const AUTO_DOWNGRADE_THRESHOLD = 6 // After this many consecutive tool failures per-(provider×model), CONSIDER an `_autoDetected` override switching the model to XML-fallback — but only for the `numeric-tool-name` quirk (see the gate at the downgrade trigger). Other reasons (missing-required-field / wrong-tool-name / other) are transient, self-correcting failures that opencode just retries through on native FC, so we no longer shove the model into XML for them (that was the root cause of capable models like deepseek-v4-pro getting stuck — see model-stalls #008). Raised 3→6: 3 was trigger-happy on transient failures. Counter resets on `success`. See roadmap O.2.
 
 // Classify the last tool failure into a coarse reason code stored as
 // `_reason` on auto-detected overrides (roadmap O.7). Drives toast wording and
@@ -4371,9 +4371,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		let toolsExecutedInRequest: string[] = []
 		// Per-(provider×model) consecutive tool failure counter (tool_error / invalid_params).
 		// Reset on `success` per key. Triggers two thresholds:
-		//   - AUTO_DOWNGRADE_THRESHOLD (3) → write `specialToolFormat: undefined` override
+		//   - AUTO_DOWNGRADE_THRESHOLD (6) → write `specialToolFormat: undefined` override
 		//     for that model and continue loop with XML-fallback path. Only fires once per
-		//     model per session (downgradedModelsThisSession). See roadmap O.1/O.2.
+		//     model per session (downgradedModelsThisSession) AND only for the
+		//     `numeric-tool-name` quirk. See roadmap O.1/O.2.
 		//   - MAX_CONSECUTIVE_TOOL_ERRORS (15) → abort agent loop with hard message. Last
 		//     resort safety net even after downgrade. See roadmap O.3 (circuit-breaker).
 		const consecutiveToolErrorsByModel = new Map<string, number>()
@@ -4385,9 +4386,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// If the probe call's first tool returns `success` → clear the persistent
 		// override entirely (model has recovered). If it returns `tool_error` →
 		// keep override, reset counter, try again later in the session.
-		const RE_PROBE_AFTER_SUCCESSES = 20
+		const RE_PROBE_AFTER_SUCCESSES = 5
 		const successCountForDowngradedModel = new Map<string, number>()
 		const probeRequestedForModel = new Set<string>()
+		// O.11 — Cross-session recovery. A persisted `_autoDetected` override written in a
+		// PRIOR session would otherwise keep the model in XML-fallback until the 7-day TTL,
+		// because the success-based re-probe above is session-scoped (downgradedModelsThisSession
+		// is empty after a window restart) — and a model that can't reliably emit tool calls in
+		// XML never accumulates the successes needed to trigger it. This set tracks which models
+		// already got their one-shot native-FC probe this session (seeded in the probe block).
+		const persistentOverrideProbedThisSession = new Set<string>()
 
 		// Resolve max iterations once per run. Reading on every iteration would let a mid-run
 		// settings tweak chop off an in-flight loop unexpectedly.
@@ -4916,6 +4924,24 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				const iterationModelKey = `${modelSelection.providerName}:${modelSelection.modelName}`
 				let effectiveOverridesForCall = this._settingsService.state.overridesOfModel
 				probeActiveThisCall = undefined
+				// O.11 — Cross-session recovery: if this model carries a persisted `_autoDetected`
+				// override (auto-downgraded to XML in a prior session) and we haven't probed it yet
+				// this session, queue ONE native-FC probe now instead of waiting out the 7-day TTL.
+				// On probe success the override is cleared (post-dispatch block); on failure it stays
+				// in XML. Skip models downgraded *this* session — the success-based re-probe governs those.
+				if (
+					modelSelection.providerName !== 'auto'
+					&& !probeRequestedForModel.has(iterationModelKey)
+					&& !downgradedModelsThisSession.has(iterationModelKey)
+					&& !persistentOverrideProbedThisSession.has(iterationModelKey)
+				) {
+					const persistedOverride = effectiveOverridesForCall?.[modelSelection.providerName]?.[modelSelection.modelName]
+					if (persistedOverride?._autoDetected) {
+						probeRequestedForModel.add(iterationModelKey)
+						persistentOverrideProbedThisSession.add(iterationModelKey)
+						this._agentActivityLog.logStarted(`Re-probe (cross-session): ${iterationModelKey} has persisted XML override → native FC attempt`)
+					}
+				}
 				if (probeRequestedForModel.has(iterationModelKey)) {
 					const providerOverrides = effectiveOverridesForCall?.[modelSelection.providerName as Exclude<typeof modelSelection.providerName, 'auto'>]
 					const existing = providerOverrides?.[modelSelection.modelName]
@@ -5987,6 +6013,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							&& !downgradedModelsThisSession.has(modelKey)
 							&& lastMsg?.role === 'tool'
 							&& (lastMsg.type === 'tool_error' || lastMsg.type === 'invalid_params')
+							// Only downgrade for the numeric-tool-name quirk — the one failure mode XML naming
+							// genuinely fixes. Other reasons are transient/self-correcting on native FC (opencode
+							// just retries through them); shoving capable models like deepseek-v4-pro into XML for
+							// those was the root cause of "agent stops at every step" (model-stalls #008).
+							&& classifyToolErrorReason(String(lastMsg.name), String(lastMsg.content ?? '')) === 'numeric-tool-name'
 						) {
 							const reason = classifyToolErrorReason(String(lastMsg.name), String(lastMsg.content ?? ''))
 							const reasonHuman = (() => {
