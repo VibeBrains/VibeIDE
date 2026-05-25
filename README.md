@@ -277,17 +277,21 @@ mkdir D:\github-runner && cd D:\github-runner
 
 **Где живут квирки:** [`resources/model-quirks.json`](resources/model-quirks.json) — JSON-каталог в этом репо.
 
-**Как работает обновление:**
-- IDE при старте читает bundled-копию из `resources/`.
-- Параллельно фоном тянет свежую версию через CDN с `main`-ветки: `https://raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/resources/model-quirks.json`. ETag-кэш в `${userData}/model-quirks-cache.json`.
-- Refresh каждые 24 часа (настройка `vibeide.modelQuirks.refreshIntervalHours`, 0 — отключить).
-- Если merge в `main` → новый квирк доступен всем пользователям **без релиза VibeIDE** на следующем refresh-цикле.
+**Источники и приоритет (по образцу `models.dev.json`):**
+1. **exe-adjacent** — файл `model-quirks.json`, положенный **рядом с исполняемым файлом VibeIDE**. **Максимальный приоритет** (явный override, действует всегда — даже офлайн). Если он **старее** bundled/CDN (по полю `date`) — **один раз при старте VibeIDE** показывается тост: файл всё ещё действует, но может не содержать свежих фиксов; предлагается обновить/удалить или обновить с CDN.
+2. **CDN** — фоновый fetch с `main`-ветки `https://raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/resources/model-quirks.json`, ETag-кэш в `${userData}/model-quirks-cache.json`. Refresh каждые 24ч (`vibeide.modelQuirks.refreshIntervalHours`, 0 — выкл).
+3. **bundled** — копия, вшитая в сборку (TS-константа, всегда доступна).
+
+- При отсутствии exe-adjacent активным становится **более свежий по `date`** из {CDN-кэш, bundled}.
+- CDN недоступен → работаем на кэше/bundled/exe — **работа не встаёт**.
+- Merge в `main` → квирк у всех пользователей **без релиза VibeIDE** на следующем refresh-цикле.
+- Top-level поле **`date`** (ISO `YYYY-MM-DD`) определяет «свежесть» при сравнении источников.
 
 **Как добавить квирк для новой модели:** PR в этот репо, правка одного файла `resources/model-quirks.json`. Поля правила:
 
 | Поле | Тип | Что делает |
 |---|---|---|
-| `match` | string | Substring модели (case-insensitive). First match wins по порядку в массиве — специфические правила сверху, family-fallback снизу. |
+| `match` | string | Substring модели (case-insensitive). Правила **сливаются по полям** с приоритетом most-specific (`provider`-scoped > длиннее `match`); каждое поле берётся из самого специфичного правила, которое его задаёт — затенения нет. |
 | `temperature` | 0..2 | Override default temperature провайдера. |
 | `topP` | 0..1 | Nucleus sampling. |
 | `topK` | int ≥1 | Только для провайдеров, которые его уважают. |
@@ -298,7 +302,7 @@ mkdir D:\github-runner && cd D:\github-runner
 
 **User-уровневый override:** настройка `vibeide.modelQuirks` (JSON-объект `{ <modelId>: { …поля… } }`). Перекрывает каталог per-field. Полезно для приватных моделей или быстрого тюнинга без PR.
 
-**Принудительный refresh:** команда `VibeIDE: Refresh model quirks catalog` через палитру.
+**Принудительный refresh:** команда **«VibeIDE: Обновить каталог квирков моделей (model-quirks) с CDN»** через палитру — резерв, если фоновый refresh не сработал или нужен свежий каталог сейчас.
 
 Подробнее: [`docs/knowledge/architecture/model-quirks.md`](docs/knowledge/architecture/model-quirks.md) (локально, если есть).
 

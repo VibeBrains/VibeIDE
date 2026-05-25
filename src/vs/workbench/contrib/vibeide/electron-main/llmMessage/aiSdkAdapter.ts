@@ -319,7 +319,10 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 	// before v0.13.6). Empty quirks → both flags `false` → no special handling, same as
 	// for a model with no known quirks.
 	const quirks = getModelQuirks(modelName, providerName);
-	const isDeepseek = quirks.forceEmptyReasoning === true;
+	// `forceEmptyReasoning` quirk — misnamed `isDeepseek` historically, but it's not
+	// deepseek-specific: any interleaved-reasoning family (deepseek, minimax-m2, kimi-thinking)
+	// needs the empty-reasoning slot roundtrip. Driven purely by the quirk flag.
+	const forceEmptyReasoningSlot = quirks.forceEmptyReasoning === true;
 	const needsInterleavedMirror = quirks.mirrorReasoningContent === true;
 
 	for (let i = 0; i < messages.length; i++) {
@@ -375,7 +378,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 			if (typeof reasoningPayload === 'string' && reasoningPayload.length > 0) {
 				parts.push({ type: 'reasoning', text: reasoningPayload });
 				reasoningText = reasoningPayload;
-			} else if (isDeepseek) {
+			} else if (forceEmptyReasoningSlot) {
 				// DeepSeek family hard requirement: every assistant turn must carry a
 				// reasoning slot, even empty. Without it the provider returns HTTP 400
 				// or — worse — closes the stream with an empty body that surfaces here

@@ -44,7 +44,7 @@ const WRAPPERS = ['tool_calls', 'function_calls'];
 const pick = <T>(rng: () => number, arr: readonly T[]): T => arr[Math.floor(rng() * arr.length)];
 
 const genFragment = (rng: () => number): string => {
-	const kind = Math.floor(rng() * 8);
+	const kind = Math.floor(rng() * 9);
 	const tool = pick(rng, TOOL_NAMES);
 	const param = pick(rng, PARAM_NAMES);
 	const value = pick(rng, ATTR_VALUES);
@@ -74,6 +74,11 @@ const genFragment = (rng: () => number): string => {
 			// Self-closing invoke combo
 			return `<invoke name="${tool}" ${param}="${value}" />`;
 		case 7:
+			// Truncated vendor wrapper (deepseek-v4-pro via openCode, model-stalls #008):
+			// `<tool_calls` cut to `<tool_c`, `</invoke` cut to `</inv`. Exercises the O.12
+			// vendor-leak scrub through the existing no-throw / idempotency / no-explosion props.
+			return `<tool_c <invoke name="${tool}"><parameter name="${param}">${value}</parameter> </inv </tool_c`;
+		case 8:
 		default:
 			// Plain prose with no tools
 			return pick(rng, PROSE);

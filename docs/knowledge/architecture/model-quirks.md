@@ -24,19 +24,23 @@
 
 **Контекст:** сервис должен работать сразу при старте (до `getQuirks()` из `aiSdkAdapter`), переживать отсутствие сети, и быть устойчивым к плохому JSON.
 
-**Суть — 4 уровня fallback** (каждый выше затеняет нижний):
-1. **CDN fetch result** — после успешного `fetchFromCDN()` сохраняется в `${userData}/model-quirks-cache.json` с ETag и timestamp. Используется first-priority при следующем старте.
-2. **userData cache** — последний успешный CDN-результат от предыдущего запуска IDE.
-3. **Bundled** — `resources/model-quirks.json`, шиппится с IDE на момент билда.
-4. **Empty** — пустой каталог. Все модели получают provider defaults.
+**Суть — источники с приоритетом + date-freshness (v0.13.17, по образцу `models.dev`):**
+1. **exe-adjacent** — `<exeDir>/model-quirks.json` рядом с исполняемым файлом. **МАКС приоритет** (явный override, действует всегда, даже офлайн). Если старее bundled/CDN по `date` → флаг `staleExeAdjacent` → тост **один раз при старте VibeIDE**.
+2. **CDN-кэш** — `${userData}/model-quirks-cache.json` (ETag + timestamp), пишется `fetchFromCDN()`.
+3. **Bundled** — TS-константа `BUNDLED_CATALOG` (mirror `resources/model-quirks.json`); сам JSON gulp в пакет НЕ копирует (нет stderr на Windows GUI → console.warn нельзя).
+4. **Empty** — provider defaults.
 
-User override (`vibeide.modelQuirks` setting) merge'ится поверх resolved-каталога **per-field** — undefined поля наследуют каталог, заполненные перекрывают.
+Без exe-adjacent активным становится **более свежий по `date`** из {CDN-кэш, bundled}. `fetchFromCDN` уважает exe-pin (не свапает активный `_catalog`, только обновляет кэш + пересчитывает staleness). Top-level `date` (ISO `YYYY-MM-DD`) — критерий свежести. CDN-down → остаёмся на кэше/bundled/exe (работа не встаёт).
+
+User override (`vibeide.modelQuirks`) merge'ится поверх per-field (user wins).
+
+**Матчинг правил:** `matchQuirks` — **field-merge most-specific** (НЕ first-match): все совпавшие правила сливаются, каждое поле берётся из самого специфичного (provider-scoped > длиннее `match`). Устраняет затенение provider-scoped правил (model-stalls #009).
 
 **Lifecycle:**
-- `initModelQuirksService(userDataPath)` вызывается из `src/main.ts` после `app.setPath('userData', ...)` (тот же паттерн, что у `vibeIdleWatchdogService`).
-- Init синхронно загружает highest-tier available (cache → bundled → empty), затем kicks off background CDN fetch.
-- `getModelQuirks(modelId)` — синхронный lookup, безопасен до завершения init (вернёт `EMPTY_QUIRKS`).
-- `refreshModelQuirksCatalog(userDataPath)` — force-refresh через команду `VibeIDE: Refresh model quirks catalog`.
+- `initModelQuirksService(userDataPath)` из `src/main.ts` после `app.setPath('userData', …)`. Сохраняет `_userDataPath`, синхронно резолвит источник по приоритету, kicks off background CDN fetch.
+- `getModelQuirks(modelId, providerName?)` — синхронный lookup (EMPTY_QUIRKS до init).
+- `getModelQuirksCatalogStatus()` — provenance + staleness; отдаётся в renderer через ProxyChannel `vibeide-channel-modelQuirksStatus` → `modelQuirksCatalogStatusContribution` (тост при старте).
+- `refreshModelQuirksCatalogNow()` / команда `vibeide.modelQuirks.refresh` — ручной CDN-refresh (резерв при падении сети).
 
 **Применение:** работа сервиса полностью изолирована от main-bundle init (нет throw из module-init level). Любой failure → fallback вниз по цепочке без UI ошибок.
 

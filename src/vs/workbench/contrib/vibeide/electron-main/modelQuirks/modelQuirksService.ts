@@ -6,19 +6,19 @@
 /**
  * ModelQuirksService — main-process catalog loader for model-behaviour quirks.
  *
- * Fallback chain (each tier shadows the next):
- *   1. CDN fetch result, written to `${userData}/model-quirks-cache.json` (most recent).
- *   2. userData cache from previous successful CDN fetch.
- *   3. Bundled `resources/model-quirks.json` shipped with the IDE.
- *   4. Empty catalog (no quirks; provider defaults everywhere).
+ * Source resolution (v0.13.17, mirrors modelsDevCatalog.ts):
+ *   1. exe-adjacent `<exeDir>/model-quirks.json` — explicit user override, MAX priority.
+ *   2. newer of {CDN-cache `${userData}/model-quirks-cache.json`, bundled} by top-level `date`.
+ *   3. Empty catalog (no quirks; provider defaults everywhere).
+ * exe-adjacent older than (2) by `date` → `staleExeAdjacent` flag → one startup toast.
+ * CDN unreachable → keep cache/bundled/exe (work never halts).
  *
- * On top of the resolved catalog match, the user override from
- * `vibeide.modelQuirks` setting is merged per-field (user wins).
+ * On top of the resolved catalog, the user override from `vibeide.modelQuirks` setting is
+ * merged per-field (user wins). Rule matching is field-merge most-specific (see `matchQuirks`).
  *
- * Settings read ONCE at first `getQuirks()` call directly from
- * `${userData}/User/settings.json` — same pattern as `vibeIdleWatchdogService`,
- * no IPC channel. Restart-required to pick up settings changes (acceptable for
- * a diagnostic-grade feature; IPC live-reload can come later).
+ * Settings read ONCE at init from `${userData}/User/settings.json` — same pattern as
+ * `vibeIdleWatchdogService`. Catalog status is exposed to the renderer via a ProxyChannel
+ * (`vibeide-channel-modelQuirksStatus`) for the startup staleness toast + refresh command.
  */
 
 import * as path from 'node:path'
@@ -48,6 +48,22 @@ let _catalog: ModelQuirksCatalog | null = null
 let _userOverride: Record<string, unknown> = {}
 let _initStarted = false
 let _refreshTimer: ReturnType<typeof setTimeout> | null = null
+let _userDataPath = ''  // saved at init for no-arg refresh from the status channel
+
+// Catalog provenance / freshness — for the startup staleness notification + diagnostics.
+type QuirksCatalogSource = 'exeAdjacent' | 'cdn' | 'bundled' | 'empty'
+let _activeSource: QuirksCatalogSource = 'empty'
+let _activeDate = ''           // `date` of the active catalog
+let _latestAvailableDate = ''  // newest `date` among NON-exe sources (cdn-cache / bundled / fetched)
+let _staleExeAdjacent = false  // exe-adjacent override in use but older than cdn/bundled
+
+export interface ModelQuirksCatalogStatus {
+	readonly source: QuirksCatalogSource
+	readonly activeDate: string
+	readonly latestAvailableDate: string
+	readonly staleExeAdjacent: boolean
+	readonly exeAdjacentPath: string | null
+}
 
 interface ReadConfig {
 	catalogUrl: string
@@ -94,23 +110,57 @@ function cacheFilePath(userDataPath: string): string {
 }
 
 function readBundled(): ModelQuirksCatalog | null {
-	// Bundled catalog ships as a TS constant `BUNDLED_CATALOG` (auto-generated mirror
-	// of `resources/model-quirks.json`). We do NOT read from disk because the gulp
-	// build doesn't copy that JSON into the packaged app, and there's no stdout/stderr
-	// on Windows GUI to log file-not-found errors — any `console.warn` here would
-	// EPIPE-crash the main process. The TS constant approach guarantees the fallback
-	// is always available, and `resources/model-quirks.json` remains the source of
-	// truth for the CDN endpoint (the JSON file is what `raw.githubusercontent.com`
+	// `BUNDLED_CATALOG` is a compile-time import of `resources/model-quirks.json`
+	// (resolveJsonModule + esbuild's `.json` loader inline the data into the bundle —
+	// see `bundledCatalog.ts`), so it auto-mirrors the JSON including `date` with zero
+	// drift. We do NOT read from disk at runtime because the gulp build doesn't copy
+	// that JSON into the packaged app, and there's no stdout/stderr on Windows GUI to
+	// log file-not-found errors — any `console.warn` here would EPIPE-crash the main
+	// process. `resources/model-quirks.json` thus stays the single source of truth for
+	// both the inlined fallback and the CDN endpoint (what `raw.githubusercontent.com`
 	// serves to running IDEs).
 	try {
 		return validateCatalog(BUNDLED_CATALOG)
 	} catch {
-		// BUNDLED_CATALOG is a typed TS object that already passed compile — should
-		// never throw, but defensively swallow if validateCatalog rejects a future
-		// schema breaking change in the constant.
+		// BUNDLED_CATALOG passed compile as typed JSON — should never throw, but
+		// defensively swallow if validateCatalog rejects a future schema breaking change.
 		return null
 	}
 }
+
+const EXE_ADJACENT_FILENAME = 'model-quirks.json'
+
+/** Path of the user-dropped override next to the executable (max priority). */
+function exeAdjacentPath(): string | null {
+	try {
+		const dir = path.dirname(process.execPath)
+		return dir ? path.join(dir, EXE_ADJACENT_FILENAME) : null
+	} catch {
+		return null
+	}
+}
+
+/**
+ * Read the exe-adjacent override (`<exeDir>/model-quirks.json`). Mirrors the
+ * "drop a file next to VibeIDE.exe" policy of `modelsDevCatalog.ts`. Missing OR
+ * invalid → null, SILENTLY: the Windows GUI main process has no stderr, so any
+ * console.warn here would EPIPE-crash it (same hazard as `readBundled` documents).
+ */
+function readExeAdjacent(): ModelQuirksCatalog | null {
+	const p = exeAdjacentPath()
+	if (!p) return null
+	try {
+		return validateCatalog(JSON.parse(fs.readFileSync(p, 'utf-8')))
+	} catch {
+		return null
+	}
+}
+
+/** Catalog publish date (`YYYY-MM-DD`); '' when absent → treated as oldest. ISO sorts lexicographically. */
+function catalogDate(c: ModelQuirksCatalog | null | undefined): string {
+	return c && typeof c.date === 'string' ? c.date : ''
+}
+const maxDate = (a: string, b: string): string => (a >= b ? a : b)
 
 function readCache(userDataPath: string): { catalog: ModelQuirksCatalog | null; etag: string | undefined } {
 	try {
@@ -150,8 +200,18 @@ async function fetchFromCDN(url: string, userDataPath: string, currentEtag: stri
 		}
 		fs.writeFileSync(cacheFilePath(userDataPath), JSON.stringify(withMeta, null, 2), 'utf-8')
 
-		// Atomic swap.
-		_catalog = validated
+		// Track freshness; respect the exe-adjacent pin (MAX priority — never swap it out).
+		const fetchedDate = catalogDate(validated)
+		_latestAvailableDate = maxDate(_latestAvailableDate, fetchedDate)
+		if (_activeSource === 'exeAdjacent') {
+			// exe override stays active; just re-evaluate whether it's now behind the CDN.
+			_staleExeAdjacent = _latestAvailableDate !== '' && _activeDate < _latestAvailableDate
+		} else {
+			// Not pinned — adopt the freshly fetched catalog (a CDN 200 is the newest source).
+			_catalog = validated
+			_activeSource = 'cdn'
+			_activeDate = fetchedDate
+		}
 	} catch {
 		// Network down / DNS / TLS / aggregator rate-limit — silent failure, keep
 		// current catalog. NOTE: must NOT call console.warn/error here — Windows GUI
@@ -189,19 +249,42 @@ function scheduleRefresh(intervalHours: number, url: string, userDataPath: strin
 export function initModelQuirksService(userDataPath: string): void {
 	if (_initStarted) return
 	_initStarted = true
+	_userDataPath = userDataPath
 
 	const cfg = readSettings(userDataPath)
 	_userOverride = cfg.userOverride
 
-	// Tier 2: userData cache from previous CDN fetch.
+	// Source resolution (priority): exe-adjacent override (MAX) → newer of {CDN-cache, bundled} by `date`.
+	const exe = readExeAdjacent()
 	const cache = readCache(userDataPath)
-	if (cache.catalog) {
+	const bundled = readBundled()
+	const cdnDate = catalogDate(cache.catalog)
+	const bundledDate = catalogDate(bundled)
+	if (exe) {
+		// User explicitly dropped a file next to the exe → wins regardless of date.
+		_catalog = exe
+		_activeSource = 'exeAdjacent'
+		_activeDate = catalogDate(exe)
+		_latestAvailableDate = maxDate(cdnDate, bundledDate)
+		_staleExeAdjacent = _latestAvailableDate !== '' && _activeDate < _latestAvailableDate
+	} else if (cache.catalog && (!bundled || cdnDate >= bundledDate)) {
+		// CDN-cache present and at least as new as bundled.
 		_catalog = cache.catalog
+		_activeSource = 'cdn'
+		_activeDate = cdnDate
+		_latestAvailableDate = maxDate(cdnDate, bundledDate)
+	} else if (bundled) {
+		_catalog = bundled
+		_activeSource = 'bundled'
+		_activeDate = bundledDate
+		_latestAvailableDate = maxDate(cdnDate, bundledDate)
 	} else {
-		// Tier 3: bundled catalog shipped with this IDE build.
-		_catalog = readBundled()
+		// Last resort: cache exists but bundled failed to validate, else fully empty.
+		_catalog = cache.catalog
+		_activeSource = cache.catalog ? 'cdn' : 'empty'
+		_activeDate = cdnDate
+		_latestAvailableDate = cdnDate
 	}
-	// Tier 4: empty (handled lazily by getQuirks if _catalog stays null).
 
 	// Tier 1 (async): kick off CDN fetch immediately. Don't await — getQuirks() is
 	// synchronous, callers use whatever's loaded now and pick up the fresh catalog
@@ -242,6 +325,20 @@ export function getModelQuirks(modelId: string, providerName?: string): Resolved
 }
 
 /**
+ * Catalog provenance + freshness snapshot — read by the renderer status contribution
+ * to warn (once, at VibeIDE startup) when the exe-adjacent override is stale.
+ */
+export function getModelQuirksCatalogStatus(): ModelQuirksCatalogStatus {
+	return {
+		source: _activeSource,
+		activeDate: _activeDate,
+		latestAvailableDate: _latestAvailableDate,
+		staleExeAdjacent: _staleExeAdjacent,
+		exeAdjacentPath: _activeSource === 'exeAdjacent' ? exeAdjacentPath() : null,
+	}
+}
+
+/**
  * Force a CDN refresh now. Returns true if catalog was updated, false otherwise
  * (304, network error, parse error). Exposed for the `vibeide.modelQuirks.refresh`
  * command — user can trigger refresh without waiting for the periodic schedule.
@@ -254,6 +351,12 @@ export async function refreshModelQuirksCatalog(userDataPath: string): Promise<b
 	return _catalog !== before
 }
 
+/** No-arg refresh using the userData path saved at init — for the status channel / command. */
+export async function refreshModelQuirksCatalogNow(): Promise<boolean> {
+	if (!_userDataPath) return false
+	return refreshModelQuirksCatalog(_userDataPath)
+}
+
 /**
  * Test-only — reset module state. Real callers should use `initModelQuirksService()`.
  */
@@ -261,6 +364,11 @@ export function __resetForTests(): void {
 	_catalog = null
 	_userOverride = {}
 	_initStarted = false
+	_userDataPath = ''
+	_activeSource = 'empty'
+	_activeDate = ''
+	_latestAvailableDate = ''
+	_staleExeAdjacent = false
 	if (_refreshTimer !== null) {
 		clearTimeout(_refreshTimer)
 		_refreshTimer = null

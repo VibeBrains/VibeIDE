@@ -23,6 +23,8 @@
  *   - `heapSnapshotThresholdMB` 100..16000, default 2000
  *   - `snapshotCooldownMinutes` 5..1440, default 30
  *   - `growthAlertMBPerMin`  1..200, default 5 (W.5)
+ *   - `heapSnapshotOnRapidGrowth` boolean, default false (O.12) — snapshot on per-tick RSS jump
+ *   - `snapshotGrowthDeltaMB` 50..8000, default 500 (O.12) — per-tick RSS jump (MB) that triggers it
  *
  * Settings hot-reload (W.8): `fs.watch` on `User/settings.json` re-reads on change.
  *
@@ -70,6 +72,13 @@ interface WatchdogConfig {
 	readonly heapSnapshotThresholdMB: number;
 	readonly snapshotCooldownMinutes: number;
 	readonly growthAlertMBPerMin: number;
+	/** Capture a heap snapshot when a single-tick RSS jump exceeds `snapshotGrowthDeltaMB` (O.12) —
+	 * complements `heapSnapshotOnHighRss`, which only fires on absolute RSS. A balloon that crashes
+	 * before reaching the absolute threshold (renderer OOM, crash-report 2026-05-25) leaves no snapshot
+	 * under the threshold rule alone. Off by default — heap snapshots pause the process and are large. */
+	readonly heapSnapshotOnRapidGrowth: boolean;
+	/** Per-tick RSS jump (MB, vs the previous sample for the SAME process) that triggers a growth snapshot. */
+	readonly snapshotGrowthDeltaMB: number;
 	readonly maxSnapshotsRetained: number;
 	readonly includeChildProcessTypes: readonly string[];
 	/** Total disk budget for `logs/vibe-idle-watchdog/` (`.jsonl` + snapshots). W.26. */
@@ -97,6 +106,8 @@ const DEFAULTS: WatchdogConfig = {
 	heapSnapshotThresholdMB: 2000,
 	snapshotCooldownMinutes: 30,
 	growthAlertMBPerMin: 5,
+	heapSnapshotOnRapidGrowth: false,
+	snapshotGrowthDeltaMB: 500,
 	maxSnapshotsRetained: 3,
 	includeChildProcessTypes: DEFAULT_CHILD_PROCESS_TYPES,
 	maxLogsTotalMB: 500,
@@ -152,6 +163,8 @@ function readConfigFromDisk(userDataPath: string, previous?: WatchdogConfig): Wa
 			heapSnapshotThresholdMB: clampInt(parsed['vibeide.diagnostics.idleWatchdog.heapSnapshotThresholdMB'], 100, 16000, DEFAULTS.heapSnapshotThresholdMB),
 			snapshotCooldownMinutes: clampInt(parsed['vibeide.diagnostics.idleWatchdog.snapshotCooldownMinutes'], 5, 1440, DEFAULTS.snapshotCooldownMinutes),
 			growthAlertMBPerMin: clampInt(parsed['vibeide.diagnostics.idleWatchdog.growthAlertMBPerMin'], 1, 200, DEFAULTS.growthAlertMBPerMin),
+			heapSnapshotOnRapidGrowth: clampBool(parsed['vibeide.diagnostics.idleWatchdog.heapSnapshotOnRapidGrowth'], DEFAULTS.heapSnapshotOnRapidGrowth),
+			snapshotGrowthDeltaMB: clampInt(parsed['vibeide.diagnostics.idleWatchdog.snapshotGrowthDeltaMB'], 50, 8000, DEFAULTS.snapshotGrowthDeltaMB),
 			maxSnapshotsRetained: clampInt(parsed['vibeide.diagnostics.idleWatchdog.maxSnapshotsRetained'], 1, 20, DEFAULTS.maxSnapshotsRetained),
 			includeChildProcessTypes: childTypes,
 			maxLogsTotalMB: clampInt(parsed['vibeide.diagnostics.idleWatchdog.maxLogsTotalMB'], 50, 10000, DEFAULTS.maxLogsTotalMB),
@@ -435,6 +448,8 @@ export class VibeIdleWatchdogService {
 	private readonly _lastTickTsByKey = new Map<string, string>();
 	private readonly _slopeWatchers = new Map<string, SlopeWatcher>();
 	private readonly _lastSnapshotByKey = new Map<string, number>();
+	/** Last sampled RSS (MB) per process key — for per-tick growth-delta snapshot trigger (O.12). */
+	private readonly _lastRssByKey = new Map<string, number>();
 
 	/**
 	 * Slope-alert event. Multi-subscriber via standard `Emitter` — no longer the
@@ -950,19 +965,34 @@ export class VibeIdleWatchdogService {
 	}
 
 	private _maybeTriggerSnapshot(sample: WatchdogSampleBase): void {
-		if (!this._config.heapSnapshotOnHighRss) return;
-		const rssMB = sample.rss / (1024 * 1024);
-		if (rssMB < this._config.heapSnapshotThresholdMB) return;
 		const k = keyFor({ proc: sample.proc, windowId: sample.windowId, pid: sample.pid });
+		const rssMB = sample.rss / (1024 * 1024);
+		const prevRssMB = this._lastRssByKey.get(k);
+		this._lastRssByKey.set(k, rssMB);
+
+		// Reason 1 (W.4): absolute RSS over threshold.
+		const overThreshold = this._config.heapSnapshotOnHighRss
+			&& rssMB >= this._config.heapSnapshotThresholdMB;
+		// Reason 2 (O.12): rapid single-tick growth — RSS jumped by >= snapshotGrowthDeltaMB
+		// since the previous sample for THIS process. Catches a balloon that crashes before
+		// crossing the absolute threshold (the renderer OOM in crash-report 2026-05-25 spiked
+		// from ~580 MB, so the threshold rule never fired). Note: an inter-tick spike faster
+		// than `intervalMinutes` still slips through — lower the interval when hunting one.
+		const rapidGrowth = this._config.heapSnapshotOnRapidGrowth
+			&& prevRssMB !== undefined
+			&& (rssMB - prevRssMB) >= this._config.snapshotGrowthDeltaMB;
+
+		if (!overThreshold && !rapidGrowth) return;
 		const last = this._lastSnapshotByKey.get(k) ?? 0;
 		const cooldownMs = this._config.snapshotCooldownMinutes * 60 * 1000;
 		const now = Date.now();
 		if (now - last < cooldownMs) return;
 		this._lastSnapshotByKey.set(k, now);
-		// Only main can snapshot itself synchronously; renderer/exthost snapshots
-		// are triggered by their own contributions (see W.4 in roadmap).
+		// Only main can snapshot itself synchronously; renderer/exthost snapshots are triggered
+		// by their own contributions (see W.4). For those the growth signal still lands in the
+		// .jsonl + slope alert for offline review.
 		if (sample.proc === 'main') {
-			this.captureMainHeapSnapshot('threshold');
+			this.captureMainHeapSnapshot(overThreshold ? 'threshold' : 'slope');
 		}
 	}
 

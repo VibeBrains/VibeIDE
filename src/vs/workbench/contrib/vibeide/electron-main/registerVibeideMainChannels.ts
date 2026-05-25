@@ -23,6 +23,7 @@ import { MetricsMainService } from './metricsMainService.js';
 import { OllamaInstallerChannel } from './ollamaInstallerChannel.js';
 import { RemoteCatalogFetchChannel } from './remoteCatalogFetchChannel.js';
 import { ModelsDevCatalogStatusMainService } from './modelsDevCatalogStatusMainService.js';
+import { ModelQuirksStatusMainService } from './modelQuirksStatusMainService.js';
 import { VibeIdleWatchdogChannelService } from './vibeIdleWatchdogChannel.js';
 import { VIBE_IDLE_WATCHDOG_CHANNEL } from '../common/vibeIdleWatchdogTypes.js';
 
@@ -77,6 +78,12 @@ export function registerVibeideMainProcessChannels(
 	mainProcessElectronServer.registerChannel(
 		'vibeide-channel-modelsDevCatalogStatus',
 		ProxyChannel.fromService(modelsDevCatalogStatusService, disposables),
+	);
+
+	const modelQuirksStatusService = new ModelQuirksStatusMainService();
+	mainProcessElectronServer.registerChannel(
+		'vibeide-channel-modelQuirksStatus',
+		ProxyChannel.fromService(modelQuirksStatusService, disposables),
 	);
 
 	// Idle Watchdog — IPC channel for renderer / ext-host samples (roadmap W.1/W.2).

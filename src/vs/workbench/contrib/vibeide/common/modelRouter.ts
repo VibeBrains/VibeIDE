@@ -15,6 +15,36 @@ import { IStorageService } from '../../../../platform/storage/common/storage.js'
 import { shouldUseSpeculativeEscalation } from './routingEscalation.js';
 import { getPerformanceHarness } from './performanceHarness.js';
 
+// ── Local-model speed heuristics (data-driven) ──────────────────────────────
+// Substring hints used ONLY for auto-routing SCORING (which local model to prefer
+// for a task) — NOT request/behaviour config (that lives in the quirks catalog +
+// capabilities). Kept as DATA so a new local model is a row here, not a scattered
+// `name.includes(...)` edit duplicated across scoring branches.
+//
+// A bare string hint matches when the (lowercased) model name includes it. A
+// `{ token, unless }` hint matches `token` UNLESS `unless` is also present — e.g.
+// "7b" is fast UNLESS it's "70b"; "llama3"/"mistral" are slow UNLESS the small
+// "8b"/"7b" variant. Mirrors the original `a || (b && !c) || …` precedence exactly.
+type ModelNameHint = string | { readonly token: string; readonly unless: string }
+const matchesNameHint = (lowerName: string, hints: readonly ModelNameHint[]): boolean =>
+	hints.some(h => typeof h === 'string'
+		? lowerName.includes(h)
+		: lowerName.includes(h.token) && !lowerName.includes(h.unless))
+
+// Fast/small local models — low param count, quick on consumer hardware.
+const FAST_LOCAL_HINTS: readonly ModelNameHint[] = [
+	'fast', 'small', 'tiny', '1b', '3b', { token: '7b', unless: '70b' },
+	'qwen2.5-0.5b', 'qwen2.5-1.5b', 'phi-3-mini', 'gemma-2b',
+]
+// Slow/large local models — heavy, high latency on consumer hardware.
+const SLOW_LOCAL_HINTS: readonly ModelNameHint[] = [
+	'13b', '70b', { token: 'llama3', unless: '8b' }, { token: 'mistral', unless: '7b' }, 'mixtral',
+]
+/** `true` if the lowercased model name looks like a fast/small local model. */
+const matchesFastLocalHints = (lowerName: string): boolean => matchesNameHint(lowerName, FAST_LOCAL_HINTS)
+/** `true` if the lowercased model name looks like a slow/large local model. */
+const matchesSlowLocalHints = (lowerName: string): boolean => matchesNameHint(lowerName, SLOW_LOCAL_HINTS)
+
 /**
  * Task types for automatic model selection
  */
@@ -865,11 +895,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			// Simple chat: Strongly prefer fast online models over slow local models
 			if (isLocal) {
 				// Check if it's a slow local model
-				const isSlowLocalModel = name.includes('13b') ||
-					name.includes('70b') ||
-					name.includes('llama3') && !name.includes('8b') ||
-					name.includes('mistral') && !name.includes('7b') ||
-					name.includes('mixtral');
+				const isSlowLocalModel = matchesSlowLocalHints(name);
 
 				if (isSlowLocalModel) {
 					score -= 50; // Very strong penalty for slow local models on simple chat
@@ -1146,22 +1172,8 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 				// Local models: Only give bonus if they're actually fast
 				// Fast local models typically have "fast", "small", "tiny", "1b", "3b", "7b" in name
 				// Slow local models are usually larger: "13b", "70b", "llama3", "mistral", etc.
-				const isFastLocalModel = name.includes('fast') ||
-					name.includes('small') ||
-					name.includes('tiny') ||
-					name.includes('1b') ||
-					name.includes('3b') ||
-					name.includes('7b') && !name.includes('70b') ||
-					name.includes('qwen2.5-0.5b') ||
-					name.includes('qwen2.5-1.5b') ||
-					name.includes('phi-3-mini') ||
-					name.includes('gemma-2b');
-
-				const isSlowLocalModel = name.includes('13b') ||
-					name.includes('70b') ||
-					name.includes('llama3') && !name.includes('8b') ||
-					name.includes('mistral') && !name.includes('7b') ||
-					name.includes('mixtral');
+				const isFastLocalModel = matchesFastLocalHints(name);
+				const isSlowLocalModel = matchesSlowLocalHints(name);
 
 				if (isFastLocalModel) {
 					score += 25; // Bonus for fast local models

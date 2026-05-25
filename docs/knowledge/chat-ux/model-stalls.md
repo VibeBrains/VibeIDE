@@ -71,6 +71,19 @@
 
 <!-- Добавлять новые записи СВЕРХУ. Нумерация сквозная, инкрементная. -->
 
+### #009 — 2026-05-25 — «Empty response from openCode/minimax-m2.7 (reason: unknown)» — у minimax не выставлен reasoning-roundtrip quirk
+
+- **Где:** VibeIDE 0.13.16, Agent-режим, провайдер openCode, модель minimax-m2.7.
+- **Симптом:** тост `VibeIDE: Empty response from openCode/minimax-m2.7 (reason: unknown).` (в консоли — из `aiSdkAdapter`). Пользователь: «мы же это лечили?».
+- **Что лечили раньше:** `reason: tool_calls` (drop tool_calls без `index` у агрегаторов) → миграция на AI SDK. Это **другой** finish-reason.
+- **Корень (подтверждён кодом):** minimax-m2.x — **interleaved-reasoning** семейство (так и помечено в `modelQuirksTypes.ts:61`): требует reasoning-слот roundtrip на каждом assistant-ходе, иначе openCode/upstream закрывает стрим пустым телом → `reason: unknown` (см. комментарий `aiSdkAdapter.ts:378-384`). Quirks `forceEmptyReasoning`/`mirrorReasoningContent` стояли у **deepseek**, но у **minimax — нет** (только temperature/topK + xml). Их просто забыли добавить.
+- **Доп. находка (pre-existing bug):** `matchQuirks` (`modelQuirksTypes.ts:129`) — **first-match-wins**, не merge. Правило `minimax-m2.7` (без provider) стоит в каталоге ВЫШЕ правила `minimax via openCode` → последнее **затенено** и никогда не применяется (то же для kimi via openCode). Поэтому `forceToolCallFormat: xml` для minimax+openCode из quirk не применялся (XML включался только через runtime auto-downgrade).
+- **Фикс:** в `resources/model-quirks.json` добавлены `forceEmptyReasoning: true` + `mirrorReasoningContent: true` в правила `minimax-m2.7/m2.5/m2/minimax` (на этих правилах, т.к. именно они матчатся первыми). JSON — единый source of truth для bundled-fallback и CDN. Также переименован обманчивый `isDeepseek` → `forceEmptyReasoningSlot` в `aiSdkAdapter.ts`.
+- **Открыто (roadmap):** затенение provider-scoped правил порядком в каталоге — нужен либо reorder (provider-rules выше family-rules), либо most-specific-wins вместо first-match. Делать осознанно (взаимодействует с O.11 reason-specific downgrade). Проверить kimi-k2-thinking — у него `mirrorReasoningContent` есть, а `forceEmptyReasoning` нет (вероятно тот же пробел).
+- **Связано:** #001 (та же модель/провайдер — там это и наблюдалось впервые, тогда списали на flakiness), #006 (minimax работал в XML через auto-downgrade).
+
+---
+
 ### #008 — 2026-05-25 13:05 — Агент стопится на каждом шаге (текст без tool-call) — застрял в XML после auto-downgrade
 
 - **Где:** VibeIDE Dev, проект BuzzBang/admin. Сценарий — отладка `EmptyError: "no elements in sequence"`, агент ищет `.first()` в cloud-функциях.
@@ -81,7 +94,7 @@
 - **Сравнение с opencode (root-cause divergence):** opencode CLI **не имеет** такого breaker'а — держит модель на native FC и даёт ей итерироваться до успеха (это прямо признано в нашем же комментарии `chatThreadService.ts:99`: *"opencode CLI has no breaker — model just keeps iterating until it succeeds"*). Их цикл (`packages/opencode/src/session/prompt.ts`) тоже завершается на ходе без tool-call (`finish && finish !== "tool-calls" && !hasToolCalls`), `toolChoice:"required"` ставится только для structured-output — то есть стратегия цикла идентична, расхождение **только** в наличии у нас downgrade-to-XML.
 - **Действия пользователя (немедленный unblock):** Settings → Models → Overrides → deepseek-v4-pro (openCode) → сбросить auto-detected `specialToolFormat` (вернуть native FC). После этого «Продолжи» не понадобится.
 - **Связано с инцидентами:** #001 (та же модель/провайдер — там empty response на tool-only серии), #004/#007 (та же модель РАНЬШЕ работала на native — подтверждает, что XML-режим и есть регрессия), #005 (тот же auto-downgrade контур).
-- **Фикс (реализован 2026-05-25, roadmap O.11):** (1) auto-downgrade теперь только на `numeric-tool-name` (deepseek-v4-pro в XML больше не попадает); (2) `AUTO_DOWNGRADE_THRESHOLD` 3→6; (3) cross-session re-probe — персистентный auto-оверрайд получает одноразовый native-FC probe в начале новой сессии (раньше залипал до 7-дневного TTL), `RE_PROBE_AFTER_SUCCESSES` 20→5. Уже залипшие модели восстанавливаются автоматически при следующем запросе; ручной сброс через Settings → Models → Overrides больше не обязателен.
+- **Фикс (реализован 2026-05-25, roadmap O.11–O.12):** (1) auto-downgrade теперь только на `numeric-tool-name` (deepseek-v4-pro в XML больше не попадает); (2) `AUTO_DOWNGRADE_THRESHOLD` 3→6; (3) cross-session recovery — стейл `_autoDetected`-оверрайд **безусловно снимается** раз за сессию (первая версия с probe-on-success не годилась: модель в XML не даёт успеха → залипание самоподдерживалось, что и наблюдалось на 0.13.16), `RE_PROBE_AFTER_SUCCESSES` 20→5; (4) vendor-leak scrub — `<invoke>`/`<tool_calls>` и обрезанные `</inv`/`</tool_c` больше не протекают в чат; (5) watchdog `heapSnapshotOnRapidGrowth` — snapshot по Δ-RSS за тик (для диагностики будущих OOM; <60-с спайк всё ещё требует меньшего `intervalMinutes`). Уже залипшие модели восстанавливаются автоматически при следующем запросе; ручной сброс через Settings → Models → Overrides больше не обязателен.
 
 ---
 

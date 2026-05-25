@@ -542,7 +542,7 @@ export interface IChatThreadService {
 	editPlan(opts: { threadId: string, messageIdx: number, updatedPlan: PlanMessage }): void;
 	toggleStepDisabled(opts: { threadId: string, messageIdx: number, stepNumber: number }): void;
 	reorderPlanSteps(opts: { threadId: string, messageIdx: number, newStepOrder: number[] }): void;
-	dismissAllPendingPlans(threadId: string): number;
+	dismissAllPendingPlans(threadId: string, opts?: { resumeBlockedMessage?: boolean }): number;
 
 	// Step execution control
 	pauseAgentExecution(opts: { threadId: string }): Promise<void>;
@@ -1899,10 +1899,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 						tooltip: '',
 						checked: undefined,
 						run: () => {
-							const n = this.dismissAllPendingPlans(threadId)
-							if (n > 0) {
-								this._setStreamState(threadId, undefined)
-							}
+							// Dismiss + auto-resume the blocked message (stream state handled inside).
+							this.dismissAllPendingPlans(threadId, { resumeBlockedMessage: true })
 						},
 					}],
 				},
@@ -1920,7 +1918,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	 * `vibeide.chat.dismissPendingPlan` command and the inline error UX in chat that
 	 * appears when `_runChatAgent` early-exits due to a pending plan.
 	 */
-	dismissAllPendingPlans(threadId: string): number {
+	dismissAllPendingPlans(threadId: string, opts?: { resumeBlockedMessage?: boolean }): number {
 		const thread = this.state.allThreads[threadId]
 		if (!thread) return 0
 		let touched = 0
@@ -1939,7 +1937,38 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			this.editPlan({ threadId, messageIdx: i, updatedPlan })
 			touched++
 		}
+		// Optionally resume the user message that the gate blocked, so the user doesn't have to
+		// re-type / re-send it (stuck-chat UX feedback). State is fully owned here when requested.
+		if (opts?.resumeBlockedMessage && touched > 0) {
+			if (!this._resumeBlockedUserMessageAfterDismiss(threadId)) {
+				// Nothing to resume — just clear the pending-plan-gate error so the chat unblocks.
+				this._setStreamState(threadId, undefined)
+			}
+		}
 		return touched
+	}
+
+	/**
+	 * After a pending plan is dismissed, resume the trailing UNPROCESSED user message (the one the
+	 * plan gate blocked) WITHOUT regenerating a plan — the user explicitly chose to proceed, so
+	 * re-blocking on a fresh plan would loop. Returns true if a resume run was started.
+	 */
+	private _resumeBlockedUserMessageAfterDismiss(threadId: string): boolean {
+		const thread = this.state.allThreads[threadId]
+		if (!thread || thread.messages.length === 0) return false
+		const last = thread.messages[thread.messages.length - 1]
+		// Resume only when the conversation ends on a user message with no reply yet — i.e. a
+		// message submitted but never processed because the plan gate blocked it.
+		if (!last || last.role !== 'user') return false
+		// Suppress plan generation for this one run so the resume doesn't regenerate a plan and
+		// re-trigger the gate we just cleared (infinite block loop).
+		this._suppressPlanOnceByThread[threadId] = true
+		this._setStreamState(threadId, undefined) // clear the dismissPlan recoverable error
+		this._wrapRunAgentToNotify(
+			this._runChatAgent({ threadId, ...this._currentModelSelectionProps() }),
+			threadId,
+		)
+		return true
 	}
 
 	async pauseAgentExecution(opts: { threadId: string }): Promise<void> {
@@ -4178,7 +4207,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			// Existing active plan found - check if it's pending
 			if (existingPlanInfo.plan.approvalState === 'pending') {
 				planWasGenerated = true
-				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
+				// A pre-existing pending plan blocks this NEW user message. Surface the gate
+				// (inline error + "Сбросить план и продолжить" button + toast) immediately, so the
+				// user recovers WITHOUT a window reload or waiting out the 120s submit-watchdog.
+				// Previously this returned `isRunning: 'idle'` silently → message added, nothing
+				// happened, no recovery affordance ("text sent, process didn't go" symptom).
+				this._surfacePendingPlanGate(threadId)
 				return
 			}
 		}
@@ -4386,15 +4420,21 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// If the probe call's first tool returns `success` → clear the persistent
 		// override entirely (model has recovered). If it returns `tool_error` →
 		// keep override, reset counter, try again later in the session.
-		const RE_PROBE_AFTER_SUCCESSES = 5
+		// Config-driven (default 5). See `vibeide.agent.reprobeAfterSuccesses`.
+		const rawReprobe = this._configurationService.getValue<unknown>('vibeide.agent.reprobeAfterSuccesses')
+		const RE_PROBE_AFTER_SUCCESSES = (typeof rawReprobe === 'number' && Number.isFinite(rawReprobe) && rawReprobe >= 1)
+			? Math.min(100, Math.floor(rawReprobe))
+			: 5
 		const successCountForDowngradedModel = new Map<string, number>()
 		const probeRequestedForModel = new Set<string>()
 		// O.11 — Cross-session recovery. A persisted `_autoDetected` override written in a
 		// PRIOR session would otherwise keep the model in XML-fallback until the 7-day TTL,
 		// because the success-based re-probe above is session-scoped (downgradedModelsThisSession
 		// is empty after a window restart) — and a model that can't reliably emit tool calls in
-		// XML never accumulates the successes needed to trigger it. This set tracks which models
-		// already got their one-shot native-FC probe this session (seeded in the probe block).
+		// XML never accumulates the successes needed to trigger it. So instead of a success-gated
+		// probe, the loop CLEARS such a stale auto-override once per session (giving native FC a
+		// clean slate; reason-specific auto-downgrade re-applies it if the quirk is real). This set
+		// tracks which models already had that one-shot cross-session clear attempted this session.
 		const persistentOverrideProbedThisSession = new Set<string>()
 
 		// Resolve max iterations once per run. Reading on every iteration would let a mid-run
@@ -4404,6 +4444,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			? Math.min(MAX_AGENT_LOOP_ITERATIONS_UPPER_BOUND, Math.floor(rawMaxIter))
 			: DEFAULT_MAX_AGENT_LOOP_ITERATIONS
 		// 0 = no cap (user opted out)
+
+		// Auto-downgrade-to-XML threshold (config-driven; default AUTO_DOWNGRADE_THRESHOLD).
+		// `0` disables auto-downgrade entirely → model stays on native FC no matter what, like
+		// opencode CLI (which has no breaker). See `vibeide.agent.autoDowngradeThreshold`.
+		const rawAutoDowngrade = this._configurationService.getValue<unknown>('vibeide.agent.autoDowngradeThreshold')
+		const autoDowngradeThreshold = (typeof rawAutoDowngrade === 'number' && Number.isFinite(rawAutoDowngrade) && rawAutoDowngrade >= 0)
+			? Math.min(50, Math.floor(rawAutoDowngrade))
+			: AUTO_DOWNGRADE_THRESHOLD
 
 		// tool use loop
 		while (shouldSendAnotherMessage) {
@@ -4922,26 +4970,38 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// _runChatAgent setup would be stale). For probe iterations (O.9), strip
 				// the auto-detected override so this single LLM call uses native FC.
 				const iterationModelKey = `${modelSelection.providerName}:${modelSelection.modelName}`
-				let effectiveOverridesForCall = this._settingsService.state.overridesOfModel
-				probeActiveThisCall = undefined
-				// O.11 — Cross-session recovery: if this model carries a persisted `_autoDetected`
-				// override (auto-downgraded to XML in a prior session) and we haven't probed it yet
-				// this session, queue ONE native-FC probe now instead of waiting out the 7-day TTL.
-				// On probe success the override is cleared (post-dispatch block); on failure it stays
-				// in XML. Skip models downgraded *this* session — the success-based re-probe governs those.
+				// O.11 — Cross-session recovery: clear a STALE persisted `_autoDetected` override
+				// (auto-downgrade from a PRIOR session) ONCE per session, BEFORE reading overrides for
+				// this call. The success-gated re-probe (O.9) can't rescue a model that never yields a
+				// tool success in XML (it emits malformed tags instead) — so for cross-session recovery
+				// we hand a clean native-FC slate outright. Reason-specific auto-downgrade (numeric-tool-
+				// name, threshold 6) re-applies within the session if the quirk is real. Manual/pinned
+				// overrides (no `_autoDetected`) are never cleared. Skip models downgraded *this* session.
+				// Keyed by resolvedModelSelection (const) to align with downgradedModelsThisSession,
+				// which the downgrade block keys the same way.
+				const recoveryKey = `${resolvedModelSelection.providerName}:${resolvedModelSelection.modelName}`
 				if (
-					modelSelection.providerName !== 'auto'
-					&& !probeRequestedForModel.has(iterationModelKey)
-					&& !downgradedModelsThisSession.has(iterationModelKey)
-					&& !persistentOverrideProbedThisSession.has(iterationModelKey)
+					resolvedModelSelection.providerName !== 'auto'
+					&& !persistentOverrideProbedThisSession.has(recoveryKey)
+					&& !downgradedModelsThisSession.has(recoveryKey)
 				) {
-					const persistedOverride = effectiveOverridesForCall?.[modelSelection.providerName]?.[modelSelection.modelName]
-					if (persistedOverride?._autoDetected) {
-						probeRequestedForModel.add(iterationModelKey)
-						persistentOverrideProbedThisSession.add(iterationModelKey)
-						this._agentActivityLog.logStarted(`Re-probe (cross-session): ${iterationModelKey} has persisted XML override → native FC attempt`)
+					persistentOverrideProbedThisSession.add(recoveryKey)
+					// Use resolvedModelSelection (const) — NOT the mutable `modelSelection` let. Passing
+					// the let into setOverridesOfModel's typed params creates a circular inference that
+					// collapses `modelSelection` to `any`. Cast mirrors the downgrade/probe write sites.
+					const prov = resolvedModelSelection.providerName as Exclude<typeof resolvedModelSelection.providerName, 'auto'>
+					const persisted = this._settingsService.state.overridesOfModel?.[prov]?.[resolvedModelSelection.modelName]
+					if (persisted?._autoDetected) {
+						try {
+							await this._settingsService.setOverridesOfModel(prov, resolvedModelSelection.modelName, undefined)
+							this._agentActivityLog.logFinished(`Cross-session recovery: cleared stale XML override for ${recoveryKey} → native FC this session`)
+						} catch (e) {
+							this._agentActivityLog.logError(`Cross-session override clear failed for ${recoveryKey}: ${getErrorMessage(e)}`)
+						}
 					}
 				}
+				let effectiveOverridesForCall = this._settingsService.state.overridesOfModel
+				probeActiveThisCall = undefined
 				if (probeRequestedForModel.has(iterationModelKey)) {
 					const providerOverrides = effectiveOverridesForCall?.[modelSelection.providerName as Exclude<typeof modelSelection.providerName, 'auto'>]
 					const existing = providerOverrides?.[modelSelection.modelName]
@@ -6007,9 +6067,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							}
 						}
 
-						// Stage 1: auto-downgrade trigger
+						// Stage 1: auto-downgrade trigger (skipped entirely when threshold is 0 — native-only mode)
 						if (
-							curCount >= AUTO_DOWNGRADE_THRESHOLD
+							autoDowngradeThreshold > 0
+							&& curCount >= autoDowngradeThreshold
 							&& !downgradedModelsThisSession.has(modelKey)
 							&& lastMsg?.role === 'tool'
 							&& (lastMsg.type === 'tool_error' || lastMsg.type === 'invalid_params')

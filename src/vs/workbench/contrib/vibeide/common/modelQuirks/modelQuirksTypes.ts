@@ -27,10 +27,10 @@ export type ToolCallFormat = 'native' | 'xml' | 'auto'
  *   all providers (broad behaviour). Lets us force XML for `kimi` via `openCode`
  *   while preserving native FC on direct Moonshot API where it works correctly.
  *
- * Order in the catalog = priority: first match wins (Array#find semantics). Place
- * more specific patterns above broader family patterns. Provider-scoped rules
- * should typically go ABOVE the same-model unscoped rule so the scoped variant
- * wins when its provider matches.
+ * Resolution (since v0.13.17): ALL matching rules are FIELD-MERGED with most-specific
+ * precedence — `provider`-scoped beats unscoped, and a longer `match` beats a shorter one.
+ * Each field comes from the most specific rule that sets it, so catalog ORDER no longer
+ * causes shadowing (a provider-scoped rule placed below a broad family rule still applies).
  *
  * All fields except `match` are optional — undefined = fall through to provider defaults.
  */
@@ -81,11 +81,15 @@ export interface ModelQuirksRule {
 export interface ModelQuirksCatalog {
 	/** Schema version. Currently 1. Bump only on breaking changes. */
 	readonly version: number
+	/** Catalog publish date, ISO `YYYY-MM-DD`. Drives freshness comparison across the
+	 *  exe-adjacent / CDN / bundled sources (lexicographic ISO compare). Optional;
+	 *  absent → treated as oldest. */
+	readonly date?: string
 	/** Human-readable description; ignored at runtime. */
 	readonly description?: string
 	/** Pointer to schema/contribution docs; ignored at runtime. */
 	readonly docs?: string
-	/** Rules in priority order — first match wins. */
+	/** Rules; resolved via field-merge with most-specific precedence (see `matchQuirks`). */
 	readonly rules: readonly ModelQuirksRule[]
 }
 
@@ -110,9 +114,9 @@ export const EMPTY_QUIRKS: ResolvedModelQuirks = Object.freeze({})
  *   substring of `providerName`. When `rule.provider` is absent, the rule
  *   applies to all providers (legacy behaviour, backward-compatible with
  *   pre-per-provider catalogs).
- * - First match in array order wins. Provider-scoped rules should be listed
- *   above same-model unscoped rules so the scoped variant wins when its
- *   provider matches.
+ * - ALL matching rules are field-merged with most-specific precedence (provider-scoped
+ *   beats unscoped; longer `match` beats shorter). Each field is taken from the most
+ *   specific rule that defines it — array order no longer matters for shadowing.
  *
  * Passing `providerName = ''` (or omitting it) skips provider matching — useful
  * for tests or when caller doesn't track provider context. Provider-scoped
@@ -126,18 +130,34 @@ export function matchQuirks(
 	const modelNeedle = (modelId ?? '').toLowerCase()
 	if (!modelNeedle) return null
 	const providerNeedle = (providerName ?? '').toLowerCase()
+	// Collect ALL matching rules, then FIELD-MERGE with most-specific-wins precedence.
+	// Why (model-stalls #009): the old first-match-wins returned ONE whole rule, so a broad
+	// family rule (e.g. `minimax-m2.7`) shadowed a provider-scoped rule (`minimax` via openCode →
+	// forceToolCallFormat:'xml') that set a DIFFERENT field — the provider rule never applied.
+	// OpenCode sidesteps this by resolving each behaviour dimension independently (separate
+	// temperature()/topK()/reasoning resolvers in provider/transform.ts). We emulate that on a
+	// single table: merge PER FIELD so each setting comes from the most specific rule that defines
+	// it (provider-scoped beats unscoped; longer `match` beats shorter). Object spread only
+	// overrides fields a rule actually sets, so omitted fields fall through to less-specific rules.
+	const matched: ModelQuirksRule[] = []
 	for (const rule of rules) {
 		const modelPat = (rule.match ?? '').toLowerCase()
 		if (!modelPat || !modelNeedle.includes(modelPat)) continue
 		// Provider-scoped rule: only apply when provider also matches.
-		if (rule.provider) {
-			const providerPat = rule.provider.toLowerCase()
-			if (!providerNeedle.includes(providerPat)) continue
-		}
-		const { match: _m, provider: _p, note: _n, ...rest } = rule
-		return rest
+		if (rule.provider && !providerNeedle.includes(rule.provider.toLowerCase())) continue
+		matched.push(rule)
 	}
-	return null
+	if (matched.length === 0) return null
+	// Ascending specificity → least specific first, so the most specific rule's fields win on merge.
+	// `provider` set dominates any match length; among equals, longer match string is more specific.
+	const specificity = (r: ModelQuirksRule): number => (r.provider ? 1_000_000 : 0) + (r.match?.length ?? 0)
+	const sorted = [...matched].sort((a, b) => specificity(a) - specificity(b))
+	let merged: ResolvedModelQuirks = {}
+	for (const rule of sorted) {
+		const { match: _m, provider: _p, note: _n, ...rest } = rule
+		merged = { ...merged, ...rest }
+	}
+	return merged
 }
 
 /**
@@ -189,6 +209,7 @@ export function validateCatalog(raw: unknown): ModelQuirksCatalog {
 	}
 	return {
 		version,
+		...readIsoDate(obj),
 		...readString(obj, 'description'),
 		...readString(obj, 'docs'),
 		rules,
@@ -205,6 +226,14 @@ function readIntPositive(obj: Record<string, unknown>, key: string): Partial<Mod
 	const v = obj[key]
 	if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0 || !Number.isInteger(v)) return {}
 	return { [key]: v } as Partial<ModelQuirksRule>
+}
+
+// Catalog `date` must be ISO `YYYY-MM-DD` (optionally with a time suffix) so the
+// freshness comparison stays a valid lexicographic compare. Malformed/non-padded
+// values are dropped → treated as "oldest" rather than mis-ranking sources.
+function readIsoDate(obj: Record<string, unknown>): { date?: string } {
+	const v = obj['date']
+	return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? { date: v } : {}
 }
 
 function readBool(obj: Record<string, unknown>, key: string): Partial<ModelQuirksRule> {

@@ -1,5 +1,6 @@
 {
 	"version": 1,
+	"date": "2026-05-25",
 	"description": "VibeIDE model behaviour quirks. Source of truth — see README.md section 'Model behaviour quirks'. PRs welcome. Schema: ./src/vs/workbench/contrib/vibeide/common/modelQuirks/modelQuirksTypes.ts.",
 	"docs": "https://github.com/VibeIDETeam/VibeIDE#model-behaviour-quirks",
 	"rules": [
@@ -12,12 +13,12 @@
 		{ "match": "kimi", "temperature": 1.0, "topP": 0.95,
 		  "note": "Future kimi versions — defaults to 'new-style' preset" },
 
-		{ "match": "minimax-m2.7", "temperature": 1.0, "topP": 0.95, "topK": 40 },
-		{ "match": "minimax-m2.5", "temperature": 1.0, "topP": 0.95, "topK": 40 },
-		{ "match": "minimax-m2", "temperature": 1.0, "topP": 0.95, "topK": 20,
-		  "note": "Base minimax-m2 — opencode upstream uses topK=20; m2.x variants prefer topK=40" },
-		{ "match": "minimax", "temperature": 1.0, "topP": 0.95, "topK": 40,
-		  "note": "Future minimax versions — defaults to higher topK" },
+		{ "match": "minimax-m2.7", "temperature": 1.0, "topP": 0.95, "topK": 40, "forceEmptyReasoning": true, "mirrorReasoningContent": true },
+		{ "match": "minimax-m2.5", "temperature": 1.0, "topP": 0.95, "topK": 40, "forceEmptyReasoning": true, "mirrorReasoningContent": true },
+		{ "match": "minimax-m2", "temperature": 1.0, "topP": 0.95, "topK": 20, "forceEmptyReasoning": true, "mirrorReasoningContent": true,
+		  "note": "Base minimax-m2 — opencode upstream uses topK=20; m2.x variants prefer topK=40. Interleaved-reasoning family: needs empty-reasoning slot + mirrored reasoning_content roundtrip on every assistant turn, else openCode closes the stream with an empty body → 'Empty response (reason: unknown)' (model-stalls #001/#009)." },
+		{ "match": "minimax", "temperature": 1.0, "topP": 0.95, "topK": 40, "forceEmptyReasoning": true, "mirrorReasoningContent": true,
+		  "note": "Future minimax versions — higher topK + reasoning-roundtrip (interleaved-reasoning family)" },
 
 		{ "match": "kimi", "provider": "openCode", "temperature": 1.0, "topP": 0.95, "forceToolCallFormat": "xml",
 		  "note": "kimi via openCode aggregator — native FC unreliable (auto-downgrade fires repeatedly on tool-call errors). Force XML up front to skip warmup. Direct Moonshot API users get the regular kimi-* family rules below without XML forcing." },

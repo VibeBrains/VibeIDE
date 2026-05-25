@@ -63,5 +63,19 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			maximum: 200,
 			description: localize('vibeide.agent.maxLoopIterations', 'Максимум итераций tool-use loop в одном агентском прогоне. При достижении — прогон останавливается, чтобы не зациклиться. `0` = без лимита (для уверенных в себе; есть риск зацикливания и расхода токенов). Дефолт 30, диапазон 0–200. Контрол продублирован в нижней панели чата рядом с тогглом «Автопилот».'),
 		},
+		'vibeide.agent.autoDowngradeThreshold': {
+			type: 'number',
+			default: 6,
+			minimum: 0,
+			maximum: 50,
+			description: localize('vibeide.agent.autoDowngradeThreshold', 'Сколько подряд tool-ошибок (типа `numeric-tool-name`) на одной модели допускается, прежде чем агент принудительно переключит её на XML-fallback формат тулов. `0` = НИКОГДА не переключать — модель всегда остаётся на native function-calling (как в opencode CLI; рекомендуется для способных моделей вроде deepseek/claude/gpt). Дефолт 6. Circuit-breaker (15 подряд ошибок → стоп) не отключается этим ключом.'),
+		},
+		'vibeide.agent.reprobeAfterSuccesses': {
+			type: 'number',
+			default: 5,
+			minimum: 1,
+			maximum: 100,
+			description: localize('vibeide.agent.reprobeAfterSuccesses', 'Через сколько успешных XML-tool-call`ов модель, переключённую в XML-fallback, повторно пробуют вернуть на native function-calling (одноразовый probe). Меньше = быстрее восстановление, больше = меньше «дёрганья». Дефолт 5, диапазон 1–100.'),
+		},
 	},
 });

@@ -61,6 +61,10 @@ export const TOOL_NAME_ALIASES: { readonly [alias: string]: string } = {
 	'search': 'grep',
 	'ripgrep': 'grep',
 	'rg': 'grep',
+	'grep_search': 'grep', // Cursor's content-search tool name
+	'search_content': 'grep', // observed from deepseek-v4-pro (model-stalls #008)
+	'content_search': 'grep',
+	'search_text': 'grep',
 	// create / write / delete
 	'create': 'create_file_or_folder',
 	'create_file': 'create_file_or_folder',

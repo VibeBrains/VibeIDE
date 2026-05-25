@@ -71,4 +71,14 @@ UI рендеринг (`SidebarChat.tsx` ~4912-4955): каждая `recoverable`
 
 - Не пытаемся auto-recover «зависший» thread без явного user-action. Всегда показываем permanent inline error.
 - Не сохраняем state «recoverable error» через restart — streamState volatile, после restart всё свежее.
-- Не делаем «just retry the request». User должен явно reset и решить нажать send ещё раз.
+- ~~Не делаем «just retry the request». User должен явно reset и решить нажать send ещё раз.~~ → **Уточнено в v0.13.17 (см. ниже):** dismiss плана — это и есть явный user-action; после него мы продолжаем уже-отправленное сообщение, не требуя повторного send. Принцип «без молчаливого auto-recover» сохранён (resume только по явному dismiss).
+
+## v0.13.17 — silent plan-block + auto-resume
+
+Фидбэк: после window-reload новое сообщение «отправлялось, но процесс не шёл», без ошибки/кнопки — только через 120s submit-watchdog или ещё один «продолжи».
+
+**Корень:** `_runChatAgent` при **уже существующем** `pending`-плане (`chatThreadService.ts` ~4179) делал `isRunning: 'idle'` + `return` **молча** — не вызывая `_surfacePendingPlanGate`. Сообщение добавлено, обработки нет, recovery-affordance нет.
+
+**Фикс 1 (видимость без reload):** в этой ветке теперь зовётся `_surfacePendingPlanGate(threadId)` → мгновенно inline-ошибка «Незавершённый план блокирует» + кнопка «Сбросить план и продолжить» + тост, без перезагрузки и без ожидания watchdog'а.
+
+**Фикс 2 (resume после dismiss):** `dismissAllPendingPlans(threadId, { resumeBlockedMessage: true })` — после аннулирования плана, если последнее сообщение треда это необработанное user-сообщение, автоматически запускает `_runChatAgent` для него (через `_resumeBlockedUserMessageAfterDismiss`). **Guard от петли:** `_suppressPlanOnceByThread[threadId] = true` перед resume — иначе агент сгенерит новый план и снова заблокирует. Подключено ко всем точкам dismiss: inline-тост (`_surfacePendingPlanGate`), команда `vibeide.chat.dismissPendingPlan`, inline-кнопка `recoverable: 'dismissPlan'`.

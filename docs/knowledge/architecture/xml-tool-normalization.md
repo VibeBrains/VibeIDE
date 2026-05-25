@@ -119,6 +119,16 @@ const VENDOR_WRAPPER_NAMES: readonly string[] = [
 
 Не выравнивать — это deliberate trade-off. Документировано в file header `xmlToolNormalize.ts`.
 
+## [правило] Vendor-wrapper leaks в safety net (O.12, 2026-05-25)
+
+`stripUnclaimedToolTags` дополнительно чистит **вендорные tool-call обёртки**, которые `normalizeAlternativeToolSyntax` не смог сконвертировать (чаще всего из-за **обрезанных** close-тегов, как deepseek-v4-pro через openCode: `<tool_c <invoke name="…">…</inv </tool_c`). Канонический-only проход их не ловил → они протекали в чат (model-stalls #008).
+
+- `VENDOR_LEAK_BLOCK_RE` — от вендорного OPEN (`invoke`/`tool_calls`/`tool_code`/`tool_use`/`function_calls`/обрезанный `tool_c`) до следующего вендорного CLOSE (включая обрезанные `</inv`/`</tool_c`), non-greedy. Заменяется одним placeholder'ом.
+- `VENDOR_LEAK_FRAGMENT_RE` — остаточные одиночные обёртки open/close. **Только** wrapper-токены (НЕ `<parameter>`: они внутри блока, а standalone-strip калечил бы прозу/код).
+- **Footgun:** trailing `(?:[^>]*>)?`, НЕ `[^>]*>?` — у обрезанного close без `>` голый `[^>]*` жадно съедает прозу после тега до ближайшего `>`/EOL.
+
+Безопасно: `<invoke`/`<tool_calls>`/`<tool_c` в обычной прозе не встречаются; well-formed вызовы конвертируются normalize'ом раньше и до scrub не доходят.
+
 ## [правило] Защитные паттерны — symmetry checklist
 
 При добавлении нового regex / transform проверить (см. `audit-checklist` в agent-collaboration/):

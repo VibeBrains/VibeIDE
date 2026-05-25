@@ -23,7 +23,7 @@ suite('ModelQuirks — matchQuirks', () => {
 		{ match: 'qwen', temperature: 0.55, topP: 1.0, forceToolCallFormat: 'xml' },
 	];
 
-	test('exact prefix wins over family fallback (first match in array order)', () => {
+	test('exact prefix wins over family fallback (most-specific field-merge)', () => {
 		const q = matchQuirks(rules, 'kimi-k2.6');
 		assert.strictEqual(q?.temperature, 1.0);
 		assert.strictEqual(q?.topP, 0.95);
@@ -103,6 +103,32 @@ suite('ModelQuirks — matchQuirks per-provider', () => {
 		const q = matchQuirks(rules, 'kimi-k2.6', 'openCode');
 		assert.ok(q);
 		assert.ok(!('provider' in q));
+	});
+
+	test('field-merge: provider rule (toolFormat) + family rule (reasoning) BOTH apply (model-stalls #009)', () => {
+		// Repro of the shadowing bug: a broad family rule sets the reasoning quirks; the provider-scoped
+		// rule (placed AFTER it, broad `match`) sets the tool format. Old first-match-wins returned ONE
+		// rule and dropped the other dimension. Merge must combine both — exactly how the minimax+openCode
+		// "Empty response / Calling: read_file as text" symptom is fixed.
+		const mergeRules: ModelQuirksRule[] = [
+			{ match: 'minimax-m2', temperature: 1.0, topK: 40, forceEmptyReasoning: true, mirrorReasoningContent: true },
+			{ match: 'minimax', provider: 'openCode', forceToolCallFormat: 'xml' },
+		];
+		const q = matchQuirks(mergeRules, 'minimax-m2.7', 'openCode');
+		assert.strictEqual(q?.forceToolCallFormat, 'xml');     // from provider-scoped rule
+		assert.strictEqual(q?.forceEmptyReasoning, true);      // from family rule (lost under old first-match)
+		assert.strictEqual(q?.mirrorReasoningContent, true);   // from family rule
+		assert.strictEqual(q?.temperature, 1.0);               // from family rule
+		assert.strictEqual(q?.topK, 40);                       // from family rule
+	});
+
+	test('field-merge: most-specific match wins on field conflict', () => {
+		const mergeRules: ModelQuirksRule[] = [
+			{ match: 'minimax', topK: 40 },
+			{ match: 'minimax-m2', topK: 20 }, // longer match = more specific → wins for base m2
+		];
+		assert.strictEqual(matchQuirks(mergeRules, 'minimax-m2')?.topK, 20);
+		assert.strictEqual(matchQuirks(mergeRules, 'minimax-other')?.topK, 40); // only broad rule matches
 	});
 });
 

@@ -505,6 +505,35 @@ assert.match(out, /\*\[.+\]\*/);
 			assert.strictEqual(stripUnclaimedToolTags(''), '');
 			assert.strictEqual(stripUnclaimedToolTags('Just text.'), 'Just text.');
 		});
+
+		test('truncated vendor <invoke>/<tool_calls> leak gets scrubbed (model-stalls #008, deepseek-v4-pro)', () => {
+			// Verbatim shape observed leaking into chat: <tool_calls> wrapper truncated to
+			// <tool_c, invoke close truncated to </inv. normalizeAlternativeToolSyntax can't
+			// convert it (its invoke regex needs </invoke), and the canonical-name passes
+			// don't match the <invoke> wrapper — so pre-fix it leaked raw.
+			const input = 'before <tool_c <invoke name="search_content"><parameter name="pattern" string="true">allowLoginAs</parameter><parameter name="uri" string="true">d:\\Projects\\X\\config.ts</parameter> </inv </tool_c after';
+			const out = stripUnclaimedToolTags(input);
+			assert.doesNotMatch(out, /<invoke/i);
+			assert.doesNotMatch(out, /<\/?tool_c/i);
+			assert.doesNotMatch(out, /<parameter/i);
+			assert.doesNotMatch(out, /<\/inv/i);
+			// Surrounding prose preserved.
+			assert.match(out, /^before /);
+			assert.match(out, / after$/);
+		});
+
+		test('well-formed Anthropic <invoke> leak gets scrubbed too', () => {
+			const input = 'x <invoke name="read_file"><parameter name="path">a.ts</parameter></invoke> y';
+			const out = stripUnclaimedToolTags(input);
+			assert.doesNotMatch(out, /<invoke/i);
+			assert.doesNotMatch(out, /<parameter/i);
+		});
+
+		test('prose with bare angle brackets but no vendor token is NOT mangled', () => {
+			// No vendor OPEN tag present → vendor scrub must not fire.
+			const input = 'Compare a < b and c > d; this is fine.';
+			assert.strictEqual(stripUnclaimedToolTags(input), input);
+		});
 	});
 
 	suite('SELF_CLOSING_PARTIAL_RE — streaming detection', () => {

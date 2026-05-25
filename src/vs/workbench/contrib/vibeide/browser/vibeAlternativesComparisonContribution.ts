@@ -66,12 +66,12 @@ class VibeAlternativesComparisonContribution extends Disposable {
 		this._notifications.notify({
 			severity: Severity.Info,
 			message: localize('vibeide.comparison.notification',
-				'Welcome to VibeIDE! Curious how it compares to Cursor, Continue.dev, or Aider? Run the comparison overview from the Command Palette.'
+				'Добро пожаловать в VibeIDE! Хотите узнать, чем он отличается от Cursor, Continue.dev или Aider? Откройте обзор сравнения из палитры команд.'
 			),
 			actions: {
 				primary: [{
 					id: 'vibeide.showAlternativesComparison',
-					label: localize('vibeide.comparison.action', 'How are we different?'),
+					label: localize('vibeide.comparison.action', 'Чем мы отличаемся?'),
 					tooltip: '',
 					class: undefined,
 					enabled: true,

@@ -44,15 +44,14 @@ registerAction2(class DismissPendingPlanAction extends Action2 {
 			return;
 		}
 
-		const touched = chatThreadService.dismissAllPendingPlans(threadId);
+		const touched = chatThreadService.dismissAllPendingPlans(threadId, { resumeBlockedMessage: true });
 		if (touched === 0) {
 			notificationService.notify({ severity: Severity.Info, message: localize('vibeide.chat.dismissPlan.noPlan', 'В этом чате нет активных планов.') });
 			return;
 		}
 
-		// Clear any pending-plan-gate error in stream state so the chat error block hides.
-		// Best-effort: only valid if streamState carries our recoverable marker.
-		chatThreadService.dismissStreamError(threadId);
+		// Stream state is owned by dismissAllPendingPlans when resumeBlockedMessage is set:
+		// it either resumes the blocked user message or clears the pending-plan-gate error.
 
 		notificationService.notify({
 			severity: Severity.Info,

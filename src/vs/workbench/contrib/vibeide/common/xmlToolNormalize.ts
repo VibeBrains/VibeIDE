@@ -325,7 +325,7 @@ export const normalizeAlternativeToolSyntax = (text: string): string => {
 //
 // Lives in common because the producer (transforms above) is common-layer
 // pure code; the consumer can be wired from any process.
-type NormalizeCounterKey = 'fullPath' | 'dsml' | 'wrapper' | 'invoke' | 'selfClosing' | 'safetyNetPaired' | 'safetyNetSelfClosing';
+type NormalizeCounterKey = 'fullPath' | 'dsml' | 'wrapper' | 'invoke' | 'selfClosing' | 'safetyNetPaired' | 'safetyNetSelfClosing' | 'safetyNetVendor';
 const normalizeCounters: Record<NormalizeCounterKey, number> = {
 	fullPath: 0,
 	dsml: 0,
@@ -334,6 +334,7 @@ const normalizeCounters: Record<NormalizeCounterKey, number> = {
 	selfClosing: 0,
 	safetyNetPaired: 0,
 	safetyNetSelfClosing: 0,
+	safetyNetVendor: 0,
 };
 function bumpCounter(key: NormalizeCounterKey): void {
 	normalizeCounters[key] += 1;
@@ -380,6 +381,43 @@ const STRIP_PATTERNS: readonly StripPattern[] = builtinToolNames.map(toolName =>
 })
 
 /**
+ * Vendor tool-call leak patterns (v0.13.17). When a model emits an Anthropic-style
+ * `<invoke>` / `<tool_calls>` wrapper that `normalizeAlternativeToolSyntax` couldn't
+ * convert — most often because the close tag is TRUNCATED (`</inv`, `</tool_c`)
+ * the way deepseek-v4-pro via openCode emits it — the raw block leaks into chat.
+ * `stripUnclaimedToolTags` (canonical-name based) never matched these, so they slipped
+ * through. These tokens never occur in legitimate prose, so scrubbing is safe.
+ *
+ *   - BLOCK: from a vendor OPEN tag to the next vendor/invoke CLOSE tag (full OR
+ *     truncated). Non-greedy so it stops at the first close. Covers the observed
+ *     `<tool_c <invoke name="…">…</parameter> </inv` shape.
+ *   - FRAGMENT: leftover standalone wrapper open/close fragments (e.g. the trailing
+ *     `</tool_c` the block pass leaves behind). Wrapper tokens only — NOT `<parameter>`
+ *     (those live inside the block and are consumed there; stripping them standalone
+ *     risks mangling prose/code).
+ *
+ * Longer tokens first in each alternation so `tool_calls`/`tool_code` win before the
+ * truncated `tool_c`.
+ */
+// Token alternation derived from `VENDOR_WRAPPER_NAMES` (single source of truth — same
+// const that feeds `STRIP_WRAPPERS_RE`/`FAST_PATH_SNIFFS`) plus `invoke` and a small
+// EMPIRICAL set of truncated variants the way deepseek-v4-pro via openCode emits them
+// (`<tool_c`/`</inv` cut mid-tag). Adding a vendor wrapper to VENDOR_WRAPPER_NAMES extends
+// these scrubs automatically — no duplicated hardcoded list. Longest-first so full names
+// win over their truncated prefixes.
+const VENDOR_LEAK_TRUNCATIONS: readonly string[] = ['tool_c', 'inv']
+const vendorLeakAlternation = [...VENDOR_WRAPPER_NAMES, 'invoke', ...VENDOR_LEAK_TRUNCATIONS]
+	.slice()
+	.sort((a, b) => b.length - a.length)
+	.map(escapeRegexLiteral)
+	.join('|')
+// Trailing `(?:[^>]*>)?` (NOT `[^>]*>?`): for a TRUNCATED close with no `>` (e.g. `</inv `
+// before `</tool_c`), a bare `[^>]*` would greedily swallow the following prose up to the
+// next `>`/EOL. The grouped form only consumes `attrs>` when a `>` actually closes the tag.
+const VENDOR_LEAK_BLOCK_RE = new RegExp(`<(?:${vendorLeakAlternation})\\b[\\s\\S]*?<\\/(?:${vendorLeakAlternation})\\b(?:[^>]*>)?`, 'gi')
+const VENDOR_LEAK_FRAGMENT_RE = new RegExp(`<\\/?(?:${vendorLeakAlternation})\\b(?:[^>]*>)?`, 'gi')
+
+/**
  * Last-resort scrub. If a tool tag in canonical form OR self-closing form
  * makes it through `extractXMLToolsWrapper` (e.g. parser only processes the
  * first call per turn, subsequent calls in the same response would leak raw),
@@ -393,6 +431,22 @@ export const stripUnclaimedToolTags = (text: string): string => {
 	if (!text || text.indexOf('<') === -1) return text
 	let out = text
 	let placeholder: string | null = null
+	// Vendor-wrapper leaks first (Anthropic <invoke>, <tool_calls>, truncated
+	// <tool_c/</inv) — these escape the canonical-name passes below. The block pass
+	// replaces a full malformed region with one placeholder; the fragment pass (run
+	// independently — a lone unclosed `<invoke …>` has no block to match) clears any
+	// leftover standalone wrapper open/close tokens with no extra placeholders.
+	let didVendorScrub = false
+	if (VENDOR_LEAK_BLOCK_RE.test(out)) {
+		placeholder ??= unclaimedToolTagPlaceholder()
+		out = out.replace(VENDOR_LEAK_BLOCK_RE, placeholder)
+		didVendorScrub = true
+	}
+	if (VENDOR_LEAK_FRAGMENT_RE.test(out)) {
+		out = out.replace(VENDOR_LEAK_FRAGMENT_RE, '')
+		didVendorScrub = true
+	}
+	if (didVendorScrub) bumpCounter('safetyNetVendor')
 	for (const { paired, selfClosing } of STRIP_PATTERNS) {
 		if (paired.test(out)) {
 			placeholder ??= unclaimedToolTagPlaceholder()

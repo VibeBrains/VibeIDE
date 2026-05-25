@@ -109,6 +109,10 @@ import './memoriesTrackingContribution.js'
 import '../common/modelsDevCatalogStatusService.js'
 import './modelsDevCatalogStatusContribution.js'
 
+// model-quirks catalog status (toast once on startup if exe-adjacent override is stale)
+import '../common/modelQuirksCatalogStatusService.js'
+import './modelQuirksCatalogStatusContribution.js'
+
 // edit risk scoring
 import '../common/editRiskScoringService.js'
 
