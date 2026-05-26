@@ -43,6 +43,7 @@
 |---|---|
 | [css-pipeline.md](ui/css-pipeline.md) | `vibeide.css`, `styles.css`, build flow, CSS MIME в dev |
 | [scope-tailwind.md](ui/scope-tailwind.md) | `@@`-escape, классы в константах, `.vibe-scope *` preflight, ID с точками, popup borders, quick pick |
+| [vibe-modal.md](ui/vibe-modal.md) | IVibeModalService: архитектура, `@@`-рассинхрон (инлайн vs переменная), blocking/non-blocking, размер+ресайз |
 | [themes-and-chat.md](ui/themes-and-chat.md) | Vibe Neon, theme tokens, theming чат-панели, fullscreen modes, secondary sidebar border |
 | [view-title-bar.md](ui/view-title-bar.md) | ViewPaneContainer, дубли иконок, single-row aux bar |
 | [projects-pane.md](ui/projects-pane.md) | Vibe Projects native pane, decorations через ResourceLabel, FontAwesome escape |
