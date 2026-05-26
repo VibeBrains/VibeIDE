@@ -5017,6 +5017,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					}
 				}
 
+				// DURABLE turn trace (kept intentionally — this pipeline breaks often and
+				// the timeline is the only way to stop guessing). Renderer-side, so it
+				// surfaces in DevTools. Measures the silent reasoning-warmup gap (start →
+				// first-activity) that has been mistaken for a hang.
+				const _turnStartMs = Date.now()
+				console.debug('[VibeIDE/llmTurn] start', { iter: nMessagesSent, msgs: messages.length, model: modelSelection?.modelName, provider: modelSelection?.providerName, chatMode })
 				const llmCancelToken = this._llmMessageService.sendLLMMessage({
 					messagesType: 'chatMessages',
 					chatMode,
@@ -5039,6 +5045,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					if (!firstTokenReceived && (fullText.length > 0 || fullReasoning.length > 0)) {
 						firstTokenReceived = true
 						chatLatencyAudit.markNetworkEnd(finalRequestId) // Network complete when first token arrives
+						console.debug('[VibeIDE/llmTurn] first-activity', { afterMs: Date.now() - _turnStartMs, kind: fullText.length > 0 ? 'text' : 'reasoning' })
 						chatLatencyAudit.markFirstToken(finalRequestId)
 					}
 
@@ -5098,6 +5105,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						})
 					},
 				onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage }) => {
+					console.debug('[VibeIDE/llmTurn] done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null, textLen: fullText?.length ?? 0, reasoningLen: fullReasoning?.length ?? 0 })
 					// Mark message as done to prevent late onText updates
 					messageIsDone = true
 

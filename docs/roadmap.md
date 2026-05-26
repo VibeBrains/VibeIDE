@@ -1750,6 +1750,19 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ---
 
+## O.21 — durable trace + connection-vs-content timeout (2026-05-26, батч 0.13.22)
+
+Контекст: deepseek native FC заработал (многошаговая работа), НО каждый ход — ~30–60с молчания (reasoning буферизуется провайдером, токенами не стримится), упиралось в first-token-таймаут (30с) → abort → retry → опять 30с. Пользователь верно назвал это «один костыль ломает, другой поднимает» и попросил **durable-логи вместо гадания**.
+
+- [x] **Durable turn-trace (готово).** `[VibeIDE/llmTurn]` в `chatThreadService` (browser → видно в DevTools, оставлено НАВСЕГДА): `start {iter,msgs,model}`, `first-activity {afterMs,kind}` (= замер молчания), `done {afterMs,toolCall,textLen,reasoningLen}`. Теперь таймлайн хода виден фактически. — ✅
+- [x] **Принципиальный timeout-фикс (не крутилка числа).** Разделены «соединение живо» и «первый КОНТЕНТ-токен»: `markConnected` снимает connection-таймаут на ПЕРВУЮ часть стрима ЛЮБОГО типа (`start`/reasoning/text/tool) — думающую-но-живую модель не обрываем. idle-таймер армится только на КОНТЕНТ-дельтах (не на старте). Connection-таймаут поднят до 90с как ВРЕМЕННЫЙ потолок — точное число подберём из трейса (рано ли openCode шлёт `start` или буферизует ~60с). — ✅
+
+**Backlog (по данным трейса):**
+- [ ] Подобрать connection-таймаут по факту (если `start` приходит рано — вернуть к 30с; если буфер ~60с — оставить 90с).
+- [ ] Если reasoning у openCode можно включить в стриминг (provider-options) — тогда молчания не будет вовсе.
+
+---
+
 ## Tool-call resilience — Data-driven SDK routing через models.dev (2026-05-16, фаза P)
 
 > Продолжение фазы O. Открытие: для aggregator-провайдеров типа opencode-go/zen один URL выставляет ДВА протокола (OpenAI chat-completions + Anthropic Messages), per-model. Если послать модель в неправильный SDK — деградация на уровне tool-calls (numeric names, empty params), даже на корректно работающих моделях типа minimax-m2.7. Раньше мы боролись с симптомами через auto-downgrade; настоящая причина была в выборе SDK.

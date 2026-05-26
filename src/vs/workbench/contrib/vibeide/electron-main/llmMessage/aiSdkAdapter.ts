@@ -893,7 +893,13 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		if (idleTimeoutId) { clearTimeout(idleTimeoutId); idleTimeoutId = null; }
 	};
 
-	const markFirstToken = () => {
+	// Connection liveness: cleared by the FIRST stream part of ANY kind (a `start`
+	// part, reasoning, text, tool-input — anything means the upstream answered and
+	// is alive). The connection timeout below only fires if NOTHING arrives. We do
+	// NOT abort a connected-but-silent stream (a model thinking before it emits) —
+	// that's what falsely killed deepseek/minimax mid-reasoning and triggered the
+	// abort→retry churn. The overall cap + the content idle-timer cover real hangs.
+	const markConnected = () => {
 		if (firstTokenReceived) return;
 		firstTokenReceived = true;
 		if (firstTokenTimeoutId) { clearTimeout(firstTokenTimeoutId); firstTokenTimeoutId = null; }
@@ -920,9 +926,16 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		};
 	};
 
+	// Connection (NOT first-CONTENT) timeout: fires only if the stream produces no
+	// part AT ALL — a dead / never-answered request. `markConnected` (stream-loop
+	// top) clears it on the first part of ANY kind, so a connected-but-still-thinking
+	// model (reasoning silently before it emits) is NOT aborted — that false abort
+	// was the abort→retry churn. 90s is a deliberately generous TEMPORARY ceiling
+	// until the [VibeIDE/llmTurn] trace shows how openCode actually streams (early
+	// `start` part vs buffering ~60s); then we tune the number from data, not guesses.
 	firstTokenTimeoutId = setTimeout(() => {
-		if (!firstTokenReceived) abortController.abort(new Error('First-token timeout'));
-	}, 30_000);
+		if (!firstTokenReceived) abortController.abort(new Error('Connection timeout (no stream parts received).'));
+	}, 90_000);
 
 	// Shared hard-timeout handler for BOTH the overall wall-clock cap and the idle
 	// timer. Delivers any partial content (so a stalled-but-started tool-call still
@@ -948,14 +961,17 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 
 	overallTimeoutId = setTimeout(() => handleHardTimeout('Request timed out.'), timeoutMs);
 
-	// (Re)arm the idle timer — called at the top of the stream loop on every part,
-	// so a steady stream never trips it; only a genuine mid-stream stall does.
+	// (Re)arm the idle timer — armed on the first CONTENT part and reset on each
+	// subsequent content part. Governs ONLY the post-content phase (inter-token
+	// gaps); the silent pre-content reasoning warmup is intentionally NOT covered
+	// (it's a thinking model, not a stall) — only the overall cap bounds that.
 	const resetIdle = () => {
 		if (timeoutFired) return;
 		if (idleTimeoutId) { clearTimeout(idleTimeoutId); }
-		idleTimeoutId = setTimeout(() => handleHardTimeout('Stream stalled — no tokens for 45s.'), idleMs);
+		idleTimeoutId = setTimeout(() => handleHardTimeout('Stream stalled — no tokens for 45s after content started.'), idleMs);
 	};
-	resetIdle();
+	// NOTE: NOT armed here — armed on first content delta (see stream loop). Arming
+	// at stream start would re-introduce the false abort of a silent thinking phase.
 
 	try {
 		// Model-family generation params (kimi/minimax/glm/gemini/qwen/...). Catalog-driven
@@ -1062,17 +1078,17 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 
 		for await (const part of result.fullStream as AsyncIterable<TextStreamPart<any>>) {
 			if (timeoutFired) break;
-			resetIdle(); // any stream activity resets the idle stall timer
+			markConnected(); // ANY part means the upstream answered → clear connection timeout
 
 			switch (part.type) {
 				case 'text-delta': {
-					markFirstToken();
+					resetIdle(); // content flowing → (re)arm the inter-token stall timer
 					fullTextSoFar += (part as any).text ?? '';
 					onText({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, toolCall: buildPartialToolCallObj() });
 					break;
 				}
 				case 'reasoning-delta': {
-					markFirstToken();
+					resetIdle();
 					fullReasoningSoFar += (part as any).text ?? '';
 					onText({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, toolCall: buildPartialToolCallObj() });
 					break;
@@ -1084,7 +1100,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 					if (toolName) break;
 					toolName = (part as any).toolName ?? '';
 					toolId = (part as any).id ?? '';
-					markFirstToken();
+					resetIdle();
 					onText({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, toolCall: buildPartialToolCallObj() });
 					break;
 				}
