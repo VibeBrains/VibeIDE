@@ -1763,6 +1763,23 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ---
 
+## O.22 — read_file на каталоге + проверка теории трейсом (2026-05-26, батч 0.13.23)
+
+**Трейс (O.21) окупился сразу — и опроверг мою же гипотезу.** Лог пользователя на 0.13.22:
+```
+[llmTurn] start {iter:1, model:deepseek-v4-pro}
+[llmTurn] first-activity {afterMs:3060, kind:'reasoning'}   ← 3с, не 60!
+[llmTurn] done {afterMs:7057, toolCall:'read_file', reasoningLen:588}  ← ход 7с
+```
+То есть reasoning **стримится** (3с до первой активности), ход — **7с**, никакого 30–60с молчания и timeout-abort нет. Моя timeout-теория (O.21) была **неверной** — трейс это доказал фактами (timeout-фикс не вреден, но лечил не ту болезнь). Реальный сбой — в ошибке тула:
+
+- [x] **read_file на каталоге (готово, компилируется).** Модель (для «обнови .vibe из .cursor») вызвала `read_file("…/.vibe")` — а это КАТАЛОГ. Старое поведение: сырой `FileOperationError` («является каталогом») со стеком, модель не понимает что делать → тупит. Фикс (`toolsService.read_file`): directory-guard через `fileService.resolve` → если каталог, возвращаем **листинг entries как УСПЕШНЫЙ результат** (`fileContents` = «это DIRECTORY, entries: …, читай файл внутри / get_dir_tree»). Модель видит содержимое и идёт изучать/сравнивать/обновлять файлы (цель пользователя) — без error-раунда. — ✅
+- [x] **Сверка с эталонами (opencode/kilo/crush/continue) ПЕРЕД финалом.** Находки: opencode + kilocode (2/4) — read на каталоге = **success-листинг** (`<type>directory</type><entries>`, пагинация); crush — простая ошибка «Path is a directory» без листинга; continue — без спец-обработки. Мой первый вариант (throw-ошибка С листингом) — гибрид, которого нет ни у кого → переделал на **success-листинг по opencode** (референс, на который ровняемся для openCode-моделей). — ✅
+
+**Урок:** (1) диагностика-трейс (O.21) — лучшее вложение дня (перестал гадать, гипотеза проверяется за один лог); (2) сверка с эталонами ловит «гибридные» решения до релиза.
+
+---
+
 ## Tool-call resilience — Data-driven SDK routing через models.dev (2026-05-16, фаза P)
 
 > Продолжение фазы O. Открытие: для aggregator-провайдеров типа opencode-go/zen один URL выставляет ДВА протокола (OpenAI chat-completions + Anthropic Messages), per-model. Если послать модель в неправильный SDK — деградация на уровне tool-calls (numeric names, empty params), даже на корректно работающих моделях типа minimax-m2.7. Раньше мы боролись с симптомами через auto-downgrade; настоящая причина была в выборе SDK.

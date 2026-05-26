@@ -644,6 +644,26 @@ export class ToolsService implements IToolsService {
 
 		this.callTool = {
 			read_file: async ({ uri, startLine, endLine, pageNumber, lineLimit, withLineNumbers }) => {
+				// Directory guard (0.13.23): read_file on a directory previously threw a
+				// cryptic FileOperationError ("...is actually a directory") the model
+				// could not act on (observed: agent called read_file on `.vibe`, a folder,
+				// and stalled). Following opencode/kilocode (the reference behaviour — they
+				// return the listing as a SUCCESS result, not an error → no wasted error
+				// round-trip), return the directory entries as the tool result so the agent
+				// reads the files inside (study / compare / update). resolve() failure
+				// (path missing) falls through to the existing not-found handling below.
+				{
+					const entry = await fileService.resolve(uri).catch(() => null);
+					if (entry?.isDirectory) {
+						const names = (entry.children ?? [])
+							.map(c => `${c.name}${c.isDirectory ? '/' : ''}`)
+							.sort((a, b) => a.localeCompare(b));
+						const listing = names.length ? names.join('\n') : '(empty directory)';
+						const dirContents = `"${uri.fsPath}" is a DIRECTORY, not a file. Entries (${names.length}):\n${listing}\n\nNext: call read_file on a specific file listed above, or get_dir_tree on this path for a recursive view.`;
+						const dirLineCount = dirContents.split('\n').length;
+						return { result: { fileContents: dirContents, totalFileLen: dirContents.length, hasNextPage: false, totalNumLines: dirLineCount, linesReturned: dirLineCount, startLineReturned: 1, endLineReturned: dirLineCount, truncatedByLineLimit: false } };
+					}
+				}
 				// VibeIDE: Large file policy — warn on files >200KB (first page only)
 				if (pageNumber === 1 && startLine === null && endLine === null) {
 					try {
