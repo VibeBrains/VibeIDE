@@ -1721,6 +1721,20 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ---
 
+## O.19 — корень: native FC для openCode-моделей + XML safety-net (2026-05-26, батч 0.13.20)
+
+Контекст: на XML через openCode сломаны **ВСЕ** агрегатор-модели — deepseek вываливает теги (self-closing, paired-attr), minimax стопорится, **qwen галлюцинирует** («Я не имею доступа к ФС, вставьте контент») вместо вызова тулов. Гонка форматов в XML — проигрышная. Корень — XML-канал; лекарство — native FC (модель видит тулы структурно, не пишет XML текстом).
+
+- [x] **Fix B — native FC для openCode (готово).** `forceToolCallFormat: "xml" → "auto"` для kimi/deepseek/minimax openCode-правил + новое provider-scoped правило qwen-openCode (`auto`; unscoped qwen остаётся `xml` для direct API). `auto` = native-first + auto-downgrade safety-net. Исходный блокер (cross-tool arg confusion, 120с-зависание) закрыт arg-repair (0.13.18, O.17) + роутингом в `invalid` + retries. `+path_pattern→pattern` alias (qwen native-FC param-галлюцинация). **Откат — 1 строка** (auto→xml) если native залипнет. — ✅
+- [x] **Fix A — XML safety-net: парный-атрибутный формат (готово, node-верифицировано).** `<read_file path="x">…</read_file>` (4-й формат: атрибуты на парном теге) теперь (1) **извлекается** — новый хендлер в `normalizeAlternativeToolSyntax` конвертит атрибуты→дочерние теги (loose-резолв + bail на не-тулы); (2) **сниффится** — close-теги канонических тулов в `FAST_PATH_SNIFFS` (иначе fast-path пропускал); (3) **скрабится** — `STRIP_PATTERNS.paired` терпит атрибуты на открывающем теге. Нужно на случай auto-downgrade обратно в XML. — ✅
+- [x] **Fix C — idle (inter-token) таймаут (готово).** Жалоба: при залипании стрима ждём весь overall-таймаут (`timeoutMs.aggregator ?? 180_000` = 180с). Добавлен idle-таймер (`idleMs=45_000`, `aiSdkAdapter`): сбрасывается на каждую часть стрима (верх цикла), стреляет только при реальной тишине 45с → восстановление за ~45с вместо 180с, БЕЗ обрыва длинных активных ответов (они шлют токены → сброс). Общий `handleHardTimeout` для overall+idle (guard `timeoutFired`, доставка partial, abort); `clearAllTimers` гасит idle при нормальном завершении. Прямо снижает риск native-FC флипа (если native залипнет — быстрый recovery). `idleMs` пока const; конфиг — backlog. — ✅
+
+**Backlog:**
+- [ ] **Если native FC стабилен** — убрать XML-форс и у прочих (qwen direct?), упростить XML-обработчики (станут мёртвым кодом для этих моделей).
+- [ ] **Регресс-тесты** paired-attr + native-flip (локальный раннер на stale `out/`).
+
+---
+
 ## Tool-call resilience — Data-driven SDK routing через models.dev (2026-05-16, фаза P)
 
 > Продолжение фазы O. Открытие: для aggregator-провайдеров типа opencode-go/zen один URL выставляет ДВА протокола (OpenAI chat-completions + Anthropic Messages), per-model. Если послать модель в неправильный SDK — деградация на уровне tool-calls (numeric names, empty params), даже на корректно работающих моделях типа minimax-m2.7. Раньше мы боролись с симптомами через auto-downgrade; настоящая причина была в выборе SDK.

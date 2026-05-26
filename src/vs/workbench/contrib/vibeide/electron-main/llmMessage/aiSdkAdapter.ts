@@ -872,6 +872,15 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	let firstTokenReceived = false;
 	let firstTokenTimeoutId: ReturnType<typeof setTimeout> | null = null;
 	let overallTimeoutId: ReturnType<typeof setTimeout> | null = null;
+	// Idle (inter-token) timeout: abort if the stream goes silent for `idleMs`
+	// after it has started. The 180s `timeoutMs` is the overall wall-clock cap; a
+	// model that STALLS mid-stream (e.g. native FC on an openCode aggregator that
+	// confuses tool args) used to make the user wait the full 180s. The idle timer
+	// recovers in ~45s instead, while NOT cutting off legitimately-long responses
+	// (those keep emitting tokens, which reset it). Reset at the top of the stream
+	// loop on every part.
+	let idleTimeoutId: ReturnType<typeof setTimeout> | null = null;
+	const idleMs = 45_000;
 	let lastFinishReason: string | null = null;
 	// Last `usage` block emitted by the AI SDK on `finish-step` / `finish` parts.
 	// We surface this in onFinalMessage so the UI can display real prompt/completion
@@ -881,6 +890,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	const clearAllTimers = () => {
 		if (firstTokenTimeoutId) { clearTimeout(firstTokenTimeoutId); firstTokenTimeoutId = null; }
 		if (overallTimeoutId) { clearTimeout(overallTimeoutId); overallTimeoutId = null; }
+		if (idleTimeoutId) { clearTimeout(idleTimeoutId); idleTimeoutId = null; }
 	};
 
 	const markFirstToken = () => {
@@ -914,7 +924,11 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		if (!firstTokenReceived) abortController.abort(new Error('First-token timeout'));
 	}, 30_000);
 
-	overallTimeoutId = setTimeout(() => {
+	// Shared hard-timeout handler for BOTH the overall wall-clock cap and the idle
+	// timer. Delivers any partial content (so a stalled-but-started tool-call still
+	// surfaces) or an error, then aborts. Guarded so it runs at most once.
+	const handleHardTimeout = (errMessage: string) => {
+		if (timeoutFired) return;
 		timeoutFired = true;
 		if (fullTextSoFar || fullReasoningSoFar || toolName) {
 			timeoutDeliveredPartial = true;
@@ -927,10 +941,21 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				...(lastUsage ? { usage: lastUsage } : {}),
 			});
 		} else {
-			onError({ message: 'Request timed out.', fullError: null });
+			onError({ message: errMessage, fullError: null });
 		}
 		abortController.abort();
-	}, timeoutMs);
+	};
+
+	overallTimeoutId = setTimeout(() => handleHardTimeout('Request timed out.'), timeoutMs);
+
+	// (Re)arm the idle timer — called at the top of the stream loop on every part,
+	// so a steady stream never trips it; only a genuine mid-stream stall does.
+	const resetIdle = () => {
+		if (timeoutFired) return;
+		if (idleTimeoutId) { clearTimeout(idleTimeoutId); }
+		idleTimeoutId = setTimeout(() => handleHardTimeout('Stream stalled — no tokens for 45s.'), idleMs);
+	};
+	resetIdle();
 
 	try {
 		// Model-family generation params (kimi/minimax/glm/gemini/qwen/...). Catalog-driven
@@ -1037,6 +1062,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 
 		for await (const part of result.fullStream as AsyncIterable<TextStreamPart<any>>) {
 			if (timeoutFired) break;
+			resetIdle(); // any stream activity resets the idle stall timer
 
 			switch (part.type) {
 				case 'text-delta': {

@@ -144,10 +144,11 @@ export const PARAM_ALIASES_BY_TOOL: { readonly [canonicalToolName: string]: { re
 		path: 'uri', filepath: 'uri', directory: 'uri', folder: 'uri', dir: 'uri',
 	},
 	glob: {
-		glob: 'pattern', glob_pattern: 'pattern', pattern_glob: 'pattern',
+		glob: 'pattern', glob_pattern: 'pattern', pattern_glob: 'pattern', path_pattern: 'pattern',
 	},
 	grep: {
-		query: 'pattern', regex: 'pattern', search: 'pattern',
+		// `path_pattern` — qwen-family native-FC param hallucination (model-quirks qwen note).
+		query: 'pattern', regex: 'pattern', search: 'pattern', path_pattern: 'pattern',
 	},
 	search_for_files: {
 		pattern: 'query', search: 'query',

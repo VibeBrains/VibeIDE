@@ -163,6 +163,10 @@ const FAST_PATH_SNIFFS: readonly string[] = [
 	'<invoke',
 	...VENDOR_WRAPPER_NAMES.map(name => `<${name}`),
 	...VENDOR_NAMESPACED_SUFFIXES.map(suffix => `:${suffix}`),
+	// Close-tag of any canonical tool → enter the full path so the paired-attribute
+	// handler (`<read_file path="x">…</read_file>`, 0.13.19) gets a chance. Block-form
+	// canonical tags also trigger this (harmless — normalize leaves them unchanged).
+	...builtinToolNames.map(name => `</${name}`),
 	'/>',           // self-closing tool tag (v0.13.10)
 	'｜',          // U+FF5C — DSML fullwidth-pipe wrapper (v0.13.10)
 ]
@@ -322,6 +326,30 @@ export const normalizeAlternativeToolSyntax = (text: string): string => {
 		}
 	)
 	if (result !== beforeInvoke) bumpCounter('invoke')
+	// Paired attribute-style tag: `<read_file path="x"> </read_file>` — params as
+	// attributes on a paired open/close tag (deepseek-v4-pro, 0.13.19). Neither the
+	// self-closing handler (needs `/>`) nor the block extractor (wants child param
+	// tags) catches it. Convert attrs → child param tags; keep body only if it
+	// already carries child tags (drop stray text/whitespace). Loose-resolve + bail
+	// leaves `<div class="x">…</div>` and other non-tool paired tags untouched.
+	const beforePairedAttr = result
+	result = result.replace(
+		/<([A-Za-z][A-Za-z0-9_-]*)\s+([^>]*?=[^>]*?)>([\s\S]*?)<\/\1\s*(?:>|(?=<|$))/g,
+		(_m: string, rawTool: string, attrsStr: string, body: string) => {
+			const canonical = resolveToolNameLoose(rawTool)
+			if (!canonical) { return _m }
+			const attrRe = /([\p{L}_][\p{L}\p{N}_-]*)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')/gu
+			let am: RegExpExecArray | null
+			const parts: string[] = []
+			while ((am = attrRe.exec(attrsStr)) !== null) {
+				const cp = resolveInvokeParamName(am[1], canonical)
+				parts.push(`<${cp}>${am[2] ?? am[3] ?? ''}</${cp}>`)
+			}
+			const keptBody = body && body.includes('<') ? body : ''
+			return `<${canonical}>${parts.join('')}${keptBody}</${canonical}>`
+		}
+	)
+	if (result !== beforePairedAttr) bumpCounter('pairedAttr')
 	if (result.includes('/>')) {
 		const beforeSelfClosing = result
 		result = result.replace(SELF_CLOSING_TOOL_RE, (_match: string, rawTool: string, attrsStr: string) => {
@@ -356,12 +384,13 @@ export const normalizeAlternativeToolSyntax = (text: string): string => {
 //
 // Lives in common because the producer (transforms above) is common-layer
 // pure code; the consumer can be wired from any process.
-type NormalizeCounterKey = 'fullPath' | 'dsml' | 'wrapper' | 'invoke' | 'selfClosing' | 'safetyNetPaired' | 'safetyNetSelfClosing' | 'safetyNetVendor';
+type NormalizeCounterKey = 'fullPath' | 'dsml' | 'wrapper' | 'invoke' | 'pairedAttr' | 'selfClosing' | 'safetyNetPaired' | 'safetyNetSelfClosing' | 'safetyNetVendor';
 const normalizeCounters: Record<NormalizeCounterKey, number> = {
 	fullPath: 0,
 	dsml: 0,
 	wrapper: 0,
 	invoke: 0,
+	pairedAttr: 0,
 	selfClosing: 0,
 	safetyNetPaired: 0,
 	safetyNetSelfClosing: 0,
@@ -403,7 +432,10 @@ const STRIP_PATTERNS: readonly StripPattern[] = builtinToolNames.map(toolName =>
 	// addition like `foo.bar` would silently produce broken regex without escape.
 	const escaped = escapeRegexLiteral(toolName)
 	return {
-		paired: new RegExp(`<${escaped}>[\\s\\S]*?<\\/${escaped}>`, 'g'),
+		// Open tag tolerates attributes (`<read_file path="x">…</read_file>` —
+		// deepseek-v4-pro paired-attribute form, 0.13.19) AND the plain `<read_file>`
+		// block form. Tolerant close (whitespace before `>`).
+		paired: new RegExp(`<${escaped}(?:\\s[^>]*)?>[\\s\\S]*?<\\/${escaped}\\s*>`, 'g'),
 		// Self-closing form with tolerant close (v0.13.11): `<tag attrs />` AND
 		// `<tag attrs /` (no trailing `>`). Symmetric with the tolerant invoke/wrapper
 		// closes in `normalizeAlternativeToolSyntax`.

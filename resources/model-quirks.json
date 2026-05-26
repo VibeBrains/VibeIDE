@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"date": "2026-05-25",
+	"date": "2026-05-26",
 	"description": "VibeIDE model behaviour quirks. Source of truth — see README.md section 'Model behaviour quirks'. PRs welcome. Schema: ./src/vs/workbench/contrib/vibeide/common/modelQuirks/modelQuirksTypes.ts.",
 	"docs": "https://github.com/VibeIDETeam/VibeIDE#model-behaviour-quirks",
 	"rules": [
@@ -20,19 +20,21 @@
 		{ "match": "minimax", "temperature": 1.0, "topP": 0.95, "topK": 40, "forceEmptyReasoning": true, "mirrorReasoningContent": true,
 		  "note": "Future minimax versions — higher topK + reasoning-roundtrip (interleaved-reasoning family)" },
 
-		{ "match": "kimi", "provider": "openCode", "temperature": 1.0, "topP": 0.95, "forceToolCallFormat": "xml",
-		  "note": "kimi via openCode aggregator — native FC unreliable (auto-downgrade fires repeatedly on tool-call errors). Force XML up front to skip warmup. Direct Moonshot API users get the regular kimi-* family rules below without XML forcing." },
-		{ "match": "deepseek", "provider": "openCode", "forceEmptyReasoning": true, "mirrorReasoningContent": true, "forceToolCallFormat": "xml",
-		  "note": "DeepSeek via openCode aggregator — native FC confuses tool names with cross-tool args (e.g. names a tool 'read_file' but sends search_for_files-shaped args). Force XML. Direct DeepSeek API works correctly with native FC — falls through to the unscoped deepseek rule below." },
+		{ "match": "kimi", "provider": "openCode", "temperature": 1.0, "topP": 0.95, "forceToolCallFormat": "auto",
+		  "note": "kimi via openCode — native FC (auto = native-first + auto-downgrade safety net). XML fallback was forced because native FC was unreliable, but XML itself proved broken for openCode aggregator models (tags leak / model stalls / hallucinates, 0.13.17-19). arg-repair (0.13.18) + invalid-routing now handle native arg confusion; auto-downgrade reverts to XML only if native genuinely keeps failing. Revert to xml if native stalls." },
+		{ "match": "deepseek", "provider": "openCode", "forceEmptyReasoning": true, "mirrorReasoningContent": true, "forceToolCallFormat": "auto",
+		  "note": "DeepSeek via openCode — native FC (auto = native-first + auto-downgrade). Was forced to XML (native confused tool names with cross-tool args), but XML proved worse: model emits attribute self-closing / paired-attr tags that leak into chat and never execute (0.13.17-19). arg-repair (0.13.18) + invalid-routing handle the arg confusion now. Revert to xml if native stalls." },
 
-		{ "match": "minimax", "provider": "openCode", "temperature": 1.0, "topP": 0.95, "topK": 40, "forceToolCallFormat": "xml",
-		  "note": "minimax via openCode aggregator — native FC has same cross-tool args confusion as deepseek (observed 2026-05-23: model calls 'read_file' with {nl_input: 'check apps'} — nl_input is run_nl_command's param, not read_file's). Stream stalls 120s on invalid_params no-retry. Force XML up front. Direct minimax API works fine — falls through to unscoped minimax rules below for temperature/topK only." },
+		{ "match": "minimax", "provider": "openCode", "temperature": 1.0, "topP": 0.95, "topK": 40, "forceToolCallFormat": "auto",
+		  "note": "minimax via openCode — native FC (auto = native-first + auto-downgrade). Was forced to XML over cross-tool arg confusion (read_file with {nl_input}), but on XML minimax just stalls without emitting a parseable call (0.13.17-19). arg-repair (0.13.18) + invalid-routing turn the arg confusion into a clean recoverable error instead of a 120s stall. Revert to xml if native stalls." },
 
 		{ "match": "deepseek", "forceEmptyReasoning": true, "mirrorReasoningContent": true,
 		  "note": "DeepSeek family (all providers) — every assistant message must carry a reasoning slot (HTTP 400 otherwise); reasoning text must be mirrored on top-level message field. Native FC is left enabled here for direct API users; the openCode-scoped rule above forces XML for that aggregator." },
 
 		{ "match": "qwen", "temperature": 0.55, "topP": 1.0, "forceToolCallFormat": "xml",
-		  "note": "Qwen-family — native FC unreliable (hallucinates param names like 'path_pattern' instead of 'pattern'). Forcing XML mode routes the output through extractXMLToolsWrapper which handles the naked-tag <grep><pattern>...</pattern></grep> format the model naturally emits." },
+		  "note": "Qwen-family (DIRECT API) — native FC unreliable (hallucinates param names like 'path_pattern' instead of 'pattern'). Forcing XML routes through extractXMLToolsWrapper which handles the naked-tag <grep><pattern>...</pattern></grep> form. NOTE: openCode-scoped override below flips qwen-via-openCode to native (XML there proved to be silent hallucination — model claims no file access)." },
+		{ "match": "qwen", "provider": "openCode", "temperature": 0.55, "topP": 1.0, "forceToolCallFormat": "auto",
+		  "note": "qwen via openCode — native FC (auto = native-first + auto-downgrade). On XML qwen did NOT execute tools — it hallucinated a plausible summary then admitted 'no file-system access' (observed 2026-05-26). Param-name hallucination (path_pattern→pattern) is now caught by arg-repair (0.13.18). Revert to xml if native stalls." },
 
 		{ "match": "glm", "temperature": 1.0,
 		  "note": "GLM family (z.ai) — 4.6/4.7/5/5.1, single preset" },
