@@ -29,11 +29,29 @@ import {
 	PlanContext,
 } from '../common/extensionHostCrashRecovery.js';
 
+/**
+ * The EH `onDidChangeResponsiveChange(isResponsive:false)` event is TRANSIENT — it
+ * fires whenever the extension host misses a few heartbeats (busy with a big op,
+ * VS Code auto-profiling it, a slow extension), and the EH recovers on its own
+ * moments later. It is NOT a crash. We debounce: only treat it as a real
+ * disconnect if the EH stays unresponsive past this window; a recovery
+ * (`isResponsive:true`) cancels the pending decision. Without this, a flapping EH
+ * spams the recovery prompt on every blip while an agent run is tool-running
+ * (observed once native FC let agents stay in tool-running for real, 0.13.20).
+ */
+const EH_UNRESPONSIVE_DEBOUNCE_MS = 15_000;
+
 export class VibeEHCrashRecoveryContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.vibeEHCrashRecovery';
 
 	/** ms when the stream started per threadId — used as checkpoint age approximation. */
 	private readonly _runStartMs = new Map<string, number>();
+
+	/** Pending debounce timer for a sustained-unresponsive decision (null = none). */
+	private _unresponsiveTimer: ReturnType<typeof setTimeout> | null = null;
+
+	/** Runs already shown a recovery prompt — prevents re-prompting the same run. */
+	private readonly _promptedRuns = new Set<string>();
 
 	constructor(
 		@IChatThreadService private readonly _chatThreadService: IChatThreadService,
@@ -53,15 +71,25 @@ export class VibeEHCrashRecoveryContribution extends Disposable implements IWork
 				}
 			} else {
 				this._runStartMs.delete(threadId);
+				this._promptedRuns.delete(threadId); // run ended — allow a fresh prompt next time
 			}
 		}));
 
-		// Listen for EH becoming unresponsive (crash / hang / cold disconnect).
+		// EH responsiveness. `isResponsive:false` is transient (busy/profiling), so
+		// debounce: only act if it STAYS down past EH_UNRESPONSIVE_DEBOUNCE_MS. A
+		// recovery cancels the pending decision. See the const's doc comment.
 		this._register(this._extensionService.onDidChangeResponsiveChange(e => {
-			if (!e.isResponsive) {
-				this._handleDisconnect();
+			if (e.isResponsive) {
+				if (this._unresponsiveTimer) { clearTimeout(this._unresponsiveTimer); this._unresponsiveTimer = null; }
+				return;
 			}
+			if (this._unresponsiveTimer) { return; } // already waiting out the window
+			this._unresponsiveTimer = setTimeout(() => {
+				this._unresponsiveTimer = null;
+				this._handleDisconnect();
+			}, EH_UNRESPONSIVE_DEBOUNCE_MS);
 		}));
+		this._register({ dispose: () => { if (this._unresponsiveTimer) { clearTimeout(this._unresponsiveTimer); this._unresponsiveTimer = null; } } });
 	}
 
 	private _handleDisconnect(): void {
@@ -76,6 +104,13 @@ export class VibeEHCrashRecoveryContribution extends Disposable implements IWork
 
 		if (!runningThreadId) {
 			this._log.info('[VibeEHCrashRecovery] EH unresponsive — no running thread, silent.');
+			return;
+		}
+
+		// Already surfaced a recovery prompt for this run — don't stack another one
+		// if the EH keeps flapping. Cleared when the run ends (onDidChangeStreamState).
+		if (this._promptedRuns.has(runningThreadId)) {
+			this._log.info('[VibeEHCrashRecovery] recovery already prompted for this run — skipping duplicate.');
 			return;
 		}
 
@@ -124,6 +159,12 @@ export class VibeEHCrashRecoveryContribution extends Disposable implements IWork
 		this._log.warn(`[VibeEHCrashRecovery] action=${decision.action} reason=${decision.reason} thread=${runningThreadId} phase=${phase}`);
 
 		const banner = describeEHCrashRecovery(decision);
+
+		// Mark this run so a flapping EH doesn't stack duplicate prompts (see guard
+		// above). 'silent' shows nothing, so it stays eligible for a later prompt.
+		if (decision.action !== 'silent') {
+			this._promptedRuns.add(runningThreadId);
+		}
 
 		switch (decision.action) {
 			case 'silent':

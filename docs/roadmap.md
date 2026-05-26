@@ -1735,6 +1735,21 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ---
 
+## O.20 — EH-crash-recovery: дебаунс транзиентной unresponsive (2026-05-26, хотфикс 0.13.21)
+
+Симптом (на 0.13.20): тост «соединение прервано во время выполнения инструмента / Доступен чекпойнт / Восстановить или отменить?» спамится по кругу 15 мин, retry не помогает. Консоль: EH (pid) осциллирует `unresponsive`↔`responsive` (VS Code авто-профилирует занятый EH), и `VibeEHCrashRecovery` на КАЖДЫЙ `isResponsive:false` (транзиентный!) при `phase=tool-running` выдаёт `pause-and-prompt-resume`.
+
+Почему всплыло: до 0.13.20 модели на XML сразу вставали → фаза `tool-running` не длилась. Native FC (0.13.20) заставил агента **реально** долго работать → пересечение с EH-блипами.
+
+- [x] **Дебаунс + дедуп (готово, компилируется).** `onDidChangeResponsiveChange(isResponsive:false)` теперь не вызывает recovery сразу — ставит таймер `EH_UNRESPONSIVE_DEBOUNCE_MS=15с`; `isResponsive:true` его отменяет. Срабатывает только при **устойчивой** неотзывчивости >15с (реальный краш/висяк), транзиентные блипы игнорятся. + `_promptedRuns` дедуп (один тост на run, очищается при завершении run-а). EH-флаппинг больше не порождает петлю. — ✅
+
+**Замечание:** агент VibeIDE живёт в electron-main/renderer, НЕ в EH — EH-флаппинг не должен реально рвать агента. Дебаунс развязывает ложную тревогу. Первопричина EH-unresponsive (расширение? языковой воркер `require is not defined`? нагрузка от tool-exec?) — отдельный вопрос (backlog).
+
+**Backlog:**
+- [ ] Разобраться, ПОЧЕМУ EH становится unresponsive при долгой агентной работе (профилировать; возможно вообще отвязать agent-recovery от EH-health, раз агент не в EH).
+
+---
+
 ## Tool-call resilience — Data-driven SDK routing через models.dev (2026-05-16, фаза P)
 
 > Продолжение фазы O. Открытие: для aggregator-провайдеров типа opencode-go/zen один URL выставляет ДВА протокола (OpenAI chat-completions + Anthropic Messages), per-model. Если послать модель в неправильный SDK — деградация на уровне tool-calls (numeric names, empty params), даже на корректно работающих моделях типа minimax-m2.7. Раньше мы боролись с симптомами через auto-downgrade; настоящая причина была в выборе SDK.
