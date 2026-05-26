@@ -29,12 +29,47 @@ import { builtinToolNames } from './prompt/prompts.js'
 import { PARAM_ALIASES_BY_TOOL, TOOL_NAME_ALIASES } from './prompt/toolAliases.js'
 
 /**
- * Resolve an open-tag name to canonical VibeIDE tool. Case-insensitive.
+ * Separator/case-insensitive tool-name key. Collapses `FileRead`, `file_read`,
+ * `fileRead`, `File-Read`, `READFILE` → `fileread` so a SINGLE concept mapping
+ * covers every spelling a model invents. We map concepts (~15), never spellings.
  */
-export const resolveInvokeToolName = (rawName: string): string => {
+const normToolKey = (name: string): string => name.toLowerCase().replace(/[_\-\s]+/g, '')
+
+/**
+ * normKey → canonical tool name, built once from canonical names + aliases.
+ * Aliases are inserted first so a canonical name (added last) always wins on a
+ * normKey collision — the registered tool is authoritative.
+ */
+const NORMALIZED_TOOL_NAME_MAP: { readonly [normKey: string]: string } = (() => {
+	const m: { [k: string]: string } = {}
+	for (const [alias, target] of Object.entries(TOOL_NAME_ALIASES)) { m[normToolKey(alias)] = target }
+	for (const name of builtinToolNames) { m[normToolKey(name)] = name }
+	return m
+})()
+
+/**
+ * Resolve a raw tag name to a canonical VibeIDE tool, or `null` if it isn't one.
+ *
+ * Order: exact alias → exact canonical → separator/case-insensitive normKey. The
+ * normKey stage is what kills the spelling whack-a-mole — `<FileRead/>`,
+ * `<file_read/>`, `<ReadFile/>`, `<readFile/>` all resolve to `read_file` with
+ * ZERO per-spelling entries. Returns null for non-tool tags (`<br/>`, `<Input/>`)
+ * so callers can leave them untouched.
+ */
+export const resolveToolNameLoose = (rawName: string): string | null => {
 	const lower = rawName.toLowerCase()
 	if (TOOL_NAME_ALIASES[lower]) return TOOL_NAME_ALIASES[lower]
-	return lower
+	if ((builtinToolNames as readonly string[]).includes(lower)) return lower
+	return NORMALIZED_TOOL_NAME_MAP[normToolKey(rawName)] ?? null
+}
+
+/**
+ * Resolve an open-tag name to canonical VibeIDE tool. Case/separator-insensitive.
+ * Falls back to the lowercased raw name when nothing resolves (callers that need
+ * the «is this a tool at all?» signal should use `resolveToolNameLoose`).
+ */
+export const resolveInvokeToolName = (rawName: string): string => {
+	return resolveToolNameLoose(rawName) ?? rawName.toLowerCase()
 }
 
 /**
@@ -161,29 +196,21 @@ function escapeRegexLiteral(s: string): string {
 }
 
 /**
- * Self-closing tool-call regex (v0.13.10).
+ * Self-closing tool-call regex (v0.13.10; broadened 0.13.19).
  *
- * Matches `<tool_name attr="v1" attr2="v2" />` for any canonical or aliased
- * tool name. Restricted to the known tool-name universe to avoid matching
- * arbitrary HTML self-closing (`<br />`, `<img />`, `<hr />`, `<input />`).
+ * Matches ANY attribute-style self-closing tag `<Name attr="v" ... />` where
+ * `Name` is an identifier. We deliberately do NOT restrict the alternation to
+ * known tool names anymore — models invent endless spellings (`<file_read/>`,
+ * `<FileRead/>`, `<ReadFile/>`, …) and listing each is whack-a-mole. Instead the
+ * REWRITE callback calls `resolveToolNameLoose(name)`: a real tool → normalize +
+ * execute; anything else (`<br/>`, `<img/>`, a JSX `<Input/>` discussed in chat)
+ * → `null` → left byte-for-byte untouched. Safety moves from the matcher to the
+ * resolver, which is separator/case-insensitive and concept-mapped.
  *
- * Sorted longer-first so `read_file` matches before `read` when both are in
- * the pool (prefix safety — JS alternation IS left-to-right but backtracking
- * handles short-first; longest-first is faster + clearer intent).
- *
- * Note: includes aliases (`<read attr="v" />` → canonical) deliberately. The
- * paired-form safety net `stripUnclaimedToolTags` does NOT include aliases —
- * see asymmetry rationale in this file's header comment. Roadmap X.0.3.
+ * `[^>]*?` (lazy, no `>`) keeps each match within a single tag. `escapeRegexLiteral`
+ * is retained for the param-name path; the tag-name class needs no escaping.
  */
-export const SELF_CLOSING_TOOL_RE = (() => {
-	const names = [
-		...builtinToolNames,
-		...Object.keys(TOOL_NAME_ALIASES),
-	]
-	names.sort((a, b) => b.length - a.length)
-	const escaped = names.map(escapeRegexLiteral)
-	return new RegExp(`<(${escaped.join('|')})\\s+([^>]*?)\\s*\\/>`, 'gi')
-})()
+export const SELF_CLOSING_TOOL_RE = /<([A-Za-z][A-Za-z0-9_-]*)\s+([^>]*?)\s*\/>/g
 
 /**
  * Partial detection for self-closing tool tag mid-stream (v0.13.10).
@@ -298,7 +325,11 @@ export const normalizeAlternativeToolSyntax = (text: string): string => {
 	if (result.includes('/>')) {
 		const beforeSelfClosing = result
 		result = result.replace(SELF_CLOSING_TOOL_RE, (_match: string, rawTool: string, attrsStr: string) => {
-			const canonical = resolveInvokeToolName(rawTool)
+			// Broadened regex matches ANY `<Name attr="v"/>`; bail unless the name
+			// resolves to a real tool — leaves `<br/>`, `<img/>`, JSX `<Input/>` etc.
+			// byte-for-byte untouched. This is the safety gate (matcher is now loose).
+			const canonical = resolveToolNameLoose(rawTool)
+			if (!canonical) { return _match }
 			// X.15.5 — Unicode param-name support via `\p{L}` (e.g. `путь`,
 			// `路径`). X.15.8 — escaped-quote tolerance: `"((?:[^"\\]|\\.)*)"`
 			// captures attribute values containing `\"` escapes.

@@ -75,12 +75,18 @@
 
 .vibeide-modal {
 	position: relative;
-	/* `min(560px, 90vw)` clamps width for narrow VS Code windows (split panes,
-	   small monitors) — without it the modal could exceed viewport and clip
-	   buttons off-screen. */
-	min-width: min(360px, 88vw);
-	max-width: min(560px, 90vw);
-	max-height: 80vh;
+	/* Default size capped at 800×600 (per-variant default width below), never
+	   full-screen. Width clamps to viewport (min(..,9Xvw)) for narrow VS Code
+	   windows so buttons never clip off-screen. */
+	min-width: 320px;
+	min-height: 160px;
+	max-width: min(800px, 95vw);
+	max-height: min(600px, 90vh);
+	/* User-resizable from the bottom-right corner. `resize` requires a non-visible
+	   overflow to render the grip; the inner body scrolls (flex:1 + min-height:0),
+	   so shrinking the card scrolls content instead of clipping it. */
+	resize: both;
+	overflow: hidden;
 	display: flex;
 	flex-direction: column;
 	background-color: var(--vscode-editorWidget-background);
@@ -95,11 +101,13 @@
 	transition: transform 140ms ease-out, opacity 140ms ease-out;
 }
 
-/* Size variants (feature: VibeModalOptions.size). Width clamped by viewport
-   in all variants so narrow windows degrade gracefully. */
-.vibeide-modal.size-small  { max-width: min(360px, 90vw); }
-.vibeide-modal.size-medium { max-width: min(560px, 90vw); }
-.vibeide-modal.size-large  { max-width: min(800px, 92vw); }
+/* Size variants (feature: VibeModalOptions.size) set the DEFAULT width; the
+   shared `max-width: min(800px, 95vw)` above caps every variant at 800, and
+   `resize: both` lets the user adjust from there. Width clamped by viewport so
+   narrow windows degrade gracefully. */
+.vibeide-modal.size-small  { width: min(420px, 90vw); }
+.vibeide-modal.size-medium { width: min(600px, 90vw); }
+.vibeide-modal.size-large  { width: min(800px, 92vw); }
 
 .vibeide-modal-root.is-active .vibeide-modal {
 	transform: scale(1);
@@ -134,6 +142,10 @@
 
 .vibeide-modal-body {
 	padding: 12px 16px;
+	/* flex:1 + min-height:0 → body absorbs leftover height and scrolls when the
+	   user shrinks the resizable card, instead of overflowing past the buttons. */
+	flex: 1 1 auto;
+	min-height: 0;
 	overflow-y: auto;
 	color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
 	white-space: pre-wrap;

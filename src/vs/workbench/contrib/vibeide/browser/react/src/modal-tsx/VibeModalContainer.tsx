@@ -114,6 +114,10 @@ export const VibeModalContainer: React.FC = () => {
 	}, [head]);
 
 	const nonBlocking = head?.options.blocking === false;
+	// NOTE: this class list is built as a VARIABLE (not an inline `className={...}`
+	// literal), so scope-tailwind never sees it → never prefixes it. These ship
+	// raw as-is and match `vibeModal.css` directly — no `@@` ignore-marker needed
+	// (unlike VibeModal.tsx, whose inline literals DO get prefixed without `@@`).
 	const rootClassName = `vibeide-modal-root${head ? ' is-active' : ''}${nonBlocking ? ' non-blocking' : ''}`;
 
 	return (

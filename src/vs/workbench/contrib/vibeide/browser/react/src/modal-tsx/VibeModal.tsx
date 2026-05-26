@@ -25,7 +25,7 @@ const renderButtonLabel = (label: string, hotkey?: string): React.ReactNode => {
 	const idx = label.toLowerCase().indexOf(hotkey.toLowerCase());
 	if (idx === -1) {
 		// Show hotkey hint at end for accessibility: «Apply (Y)».
-		return <>{label}<span className="vibeide-modal-button-hotkey-hint"> ({hotkey.toUpperCase()})</span></>;
+		return <>{label}<span className="@@vibeide-modal-button-hotkey-hint"> ({hotkey.toUpperCase()})</span></>;
 	}
 	return (
 		<>
@@ -229,16 +229,24 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
 
 	const titleId = `vibeide-modal-title-${entry.id}`;
 	const bodyId = `vibeide-modal-body-${entry.id}`;
+	// `@@` is scope-tailwind's ignore-prefix marker: it strips `@@` and leaves the
+	// class UNPREFIXED (verified). Without it the build rewrites `vibeide-modal` →
+	// `vibe-vibeide-modal`, which no longer matches the hand-written `vibeModal.css`
+	// (loaded via workbench contribution, outside the tailwind pipeline) → the modal
+	// renders unstyled/fullscreen with dead buttons. Every modal class is `@@`-marked
+	// so it ships raw and the CSS applies. codicon* MUST also stay raw (icon font).
+	// Built as a variable → scope-tailwind doesn't see it → already ships raw (no
+	// `@@` needed). The inline `@@vibeide-modal` literal below DOES need `@@`.
 	const sizeClass = `size-${options.size ?? 'medium'}`;
 	const hintParts = buildKeyboardHint(options);
 	let assignedPrimary = false;
 
 	return (
 		<>
-			<div className="vibeide-modal-backdrop" onClick={onBackdropClick} />
+			<div className="@@vibeide-modal-backdrop" onClick={onBackdropClick} />
 			<div
 				ref={modalRef}
-				className={`vibeide-modal ${sizeClass}`}
+				className={`@@vibeide-modal ${sizeClass}`}
 				role="dialog"
 				aria-modal="true"
 				aria-labelledby={titleId}
@@ -246,23 +254,23 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
 				aria-busy={options.loading ? true : undefined}
 				onKeyDown={onTrapKeyDown}
 			>
-				<div className="vibeide-modal-header">
+				<div className="@@vibeide-modal-header">
 					{options.icon && (
-						<span className={`vibeide-modal-icon codicon codicon-${options.icon}`} aria-hidden="true" />
+						<span className={`@@vibeide-modal-icon @@codicon @@codicon-${options.icon}`} aria-hidden="true" />
 					)}
-					<h2 id={titleId} className="vibeide-modal-title">{options.title}</h2>
+					<h2 id={titleId} className="@@vibeide-modal-title">{options.title}</h2>
 				</div>
 
 				{options.body && (
-					<div id={bodyId} className="vibeide-modal-body">{options.body}</div>
+					<div id={bodyId} className="@@vibeide-modal-body">{options.body}</div>
 				)}
 
 				{options.input && (
-					<div className="vibeide-modal-input-wrap">
+					<div className="@@vibeide-modal-input-wrap">
 						{options.input.multiline ? (
 							<textarea
 								ref={r => { inputRef.current = r; }}
-								className={`vibeide-modal-textarea${validationError ? ' is-invalid' : ''}`}
+								className={`@@vibeide-modal-textarea${validationError ? ' @@is-invalid' : ''}`}
 								placeholder={options.input.placeholder}
 								value={inputValue}
 								onChange={e => setInputValue(e.target.value)}
@@ -272,7 +280,7 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
 						) : (
 							<input
 								ref={r => { inputRef.current = r; }}
-								className={`vibeide-modal-input${validationError ? ' is-invalid' : ''}`}
+								className={`@@vibeide-modal-input${validationError ? ' @@is-invalid' : ''}`}
 								type="text"
 								placeholder={options.input.placeholder}
 								value={inputValue}
@@ -281,13 +289,13 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
 								aria-invalid={!!validationError}
 							/>
 						)}
-						<div className="vibeide-modal-validation" role="alert">
+						<div className="@@vibeide-modal-validation" role="alert">
 							{validationError ?? ''}
 						</div>
 					</div>
 				)}
 
-				<div className="vibeide-modal-buttons">
+				<div className="@@vibeide-modal-buttons">
 					{options.buttons.map(btn => {
 						const role = btn.role ?? 'secondary';
 						const disabled = !!btn.disabled
@@ -300,7 +308,7 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
 								key={btn.id}
 								ref={ref}
 								type="button"
-								className={`vibeide-modal-button role-${role}`}
+								className={`@@vibeide-modal-button @@role-${role}`}
 								disabled={disabled}
 								onClick={() => onButtonClick(btn)}
 								title={btn.hotkey ? `${btn.label} (${btn.hotkey.toUpperCase()})` : undefined}
@@ -312,16 +320,16 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
 				</div>
 
 				{options.progress && (
-					<div className="vibeide-modal-progress">
+					<div className="@@vibeide-modal-progress">
 						{options.progress.label && (
-							<div className="vibeide-modal-progress-label">{options.progress.label}</div>
+							<div className="@@vibeide-modal-progress-label">{options.progress.label}</div>
 						)}
-						<div className="vibeide-modal-progress-track">
+						<div className="@@vibeide-modal-progress-track">
 							{options.progress.total === 0 ? (
-								<div className="vibeide-modal-progress-bar is-indeterminate" />
+								<div className="@@vibeide-modal-progress-bar @@is-indeterminate" />
 							) : (
 								<div
-									className="vibeide-modal-progress-bar"
+									className="@@vibeide-modal-progress-bar"
 									style={{ width: `${Math.max(0, Math.min(100, (options.progress.current / options.progress.total) * 100))}%` }}
 								/>
 							)}
@@ -330,7 +338,7 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
 				)}
 
 				{options.showKeyboardHint !== false && hintParts.length > 0 && (
-					<div className="vibeide-modal-keyboard-hint" aria-hidden="true">
+					<div className="@@vibeide-modal-keyboard-hint" aria-hidden="true">
 						{hintParts.map((part, idx) => (
 							<React.Fragment key={idx}>
 								{idx > 0 && <span>{' · '}</span>}
@@ -341,14 +349,14 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
 				)}
 
 				{options.announceLabel && (
-					<div className="vibeide-modal-sr-only" role="status" aria-live="polite">
+					<div className="@@vibeide-modal-sr-only" role="status" aria-live="polite">
 						{options.announceLabel}
 					</div>
 				)}
 
 				{options.loading && (
-					<div className="vibeide-modal-loading-overlay" aria-hidden="true">
-						<div className="vibeide-modal-loading-spinner" />
+					<div className="@@vibeide-modal-loading-overlay" aria-hidden="true">
+						<div className="@@vibeide-modal-loading-spinner" />
 					</div>
 				)}
 			</div>

@@ -78,12 +78,13 @@ export const TOOL_NAME_ALIASES: { readonly [alias: string]: string } = {
 	'fetch': 'browse_url',
 	'webfetch': 'browse_url',
 	'web_fetch': 'browse_url',
-	// Word-order-swapped variants (observed: deepseek-v4-pro emitted
-	// `<file_read file="..." />` instead of canonical `read_file`). These leak
-	// into chat as raw text because SELF_CLOSING_TOOL_RE only recognizes names
-	// in this universe; once aliased, the self-closing form is normalized,
-	// extracted, and executed. The whole `file_<verb>` class is covered to stop
-	// recurrence — none of these collide with a canonical name.
+	// Word-order-swapped concept anchors (observed: deepseek-v4-pro emitted
+	// `<file_read file="..." />` / `<FileRead .../>` instead of canonical
+	// `read_file`). These map the *word order* `file_<verb>` → canonical; the
+	// separator/case-insensitive resolver (`resolveToolNameLoose` + normToolKey in
+	// xmlToolNormalize) then makes ONE entry cover every spelling — `file_read`,
+	// `FileRead`, `fileRead`, `FILE_READ` all normalize to `fileread` → here. We
+	// map concepts, never spellings. None collide with a canonical name.
 	'file_read': 'read_file',
 	'file_write': 'rewrite_file',
 	'file_edit': 'edit_file',

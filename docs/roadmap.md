@@ -1709,6 +1709,18 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ---
 
+## O.18 — спелл-независимые имена тулов + чиним модал (2026-05-26, батч 0.13.19)
+
+- [x] **Issue 1 — `<FileRead filePath=.../>` утечка + остановка (готово, node-верифицировано).** Корень: резолв имён был **сепаратор-чувствителен** (`FileRead`→`fileread` ≠ алиас `file_read`) — это whack-a-mole. Фикс БЕЗ хардкода написаний: `normToolKey` (lower + strip `_-пробел`) + `NORMALIZED_TOOL_NAME_MAP` (из canonical+алиасов) + `resolveToolNameLoose` (xmlToolNormalize). `SELF_CLOSING_TOOL_RE` расширен с белого списка имён до **любого** `<Name attr="v"/>`; callback резолвит loose и **бейлит на не-тулы** (`<br/>`, JSX `<Input/>` — не трогаются). `FileRead`/`file_read`/`ReadFile`/`fileRead` → read_file одним концептом. Маппим концепты (~15), не написания. — ✅
+- [x] **Issue 2 — сломанный модал офлайн-каталога (готово, build-верифицировано).** Корень: scope-tailwind префиксовал инлайн-классы `vibeide-modal*`→`vibe-vibeide-modal*`, а `vibeModal.css` (грузится вне tailwind-пайплайна) — сырой → рассинхрон → без bg/border/padding, на весь экран, мёртвые кнопки (non-blocking `pointer-events:none` + карточка без `.vibeide-modal{pointer-events:auto}`). Фикс: пометить инлайн-классы маркером `@@` (scope-tailwind ignore-prefix — стрипается, НЕ префиксуется; проверено эмпирически, вкл. partial+интерполяцию `@@codicon-${icon}`). Классы из **переменных** (`rootClassName`, `sizeClass`) scope-tailwind не трогал → они уже сырые → `@@` там НЕ нужен (важный нюанс: маркер в variable не стрипается). Билд: 0 `vibe-vibeide-modal`, 0 stray `@@` (кроме React `@@iterator`). — ✅
+- [x] **Модал: ресайз + ≤800×600.** `.vibeide-modal` → `resize: both` + `overflow:hidden` + дефолт-кап `max-width:min(800px,95vw)`/`max-height:min(600px,90vh)`, `min` 320×160; size-варианты задают дефолт-ширину; body `flex:1`+`min-height:0` (скролл при сжатии). — ✅
+
+**Backlog:**
+- [ ] **Регресс-тесты** `xmlToolNormalize`: `<FileRead/>`/`<ReadFile/>`/`<fileRead/>` → read_file; `<br/>`/`<Input/>` нетронуты (node-верифицировано, но юнит-тест в репо стоит добавить — локальный раннер на stale `out/`).
+- [ ] **Paired-form спеллинги** `<FileRead>...</FileRead>` (не self-closing) — резолвятся ли через loose? Проверить extractGrammar-путь.
+
+---
+
 ## Tool-call resilience — Data-driven SDK routing через models.dev (2026-05-16, фаза P)
 
 > Продолжение фазы O. Открытие: для aggregator-провайдеров типа opencode-go/zen один URL выставляет ДВА протокола (OpenAI chat-completions + Anthropic Messages), per-model. Если послать модель в неправильный SDK — деградация на уровне tool-calls (numeric names, empty params), даже на корректно работающих моделях типа minimax-m2.7. Раньше мы боролись с симптомами через auto-downgrade; настоящая причина была в выборе SDK.
