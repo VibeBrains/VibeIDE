@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../../workbench/common/contributions.js';
 import { IEditorService } from '../../../../workbench/services/editor/common/editorService.js';
@@ -67,7 +68,7 @@ export class MemoriesTrackingContribution extends Disposable implements IWorkben
 			}
 		} catch (error) {
 			// Silently fail - memories tracking is non-critical
-			console.debug('[MemoriesTracking] Failed to track file:', error);
+			vibeLog.debug('memoriesTracking', '[MemoriesTracking] Failed to track file:', error);
 		}
 	}
 }

@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../../common/vibeLog.js';
 import { SendLLMMessageParams, OnText, OnFinalMessage, OnError } from '../../common/sendLLMMessageTypes.js';
 import { IMetricsService } from '../../common/metricsService.js';
 import { displayInfoOfProviderName, FeatureName } from '../../common/vibeideSettingsTypes.js';
@@ -75,7 +76,7 @@ export const sendLLMMessage = async ({
 
 	const onError: OnError = ({ message: errorMessage, fullError }) => {
 		if (_didAbort) return
-		console.error('sendLLMMessage onError:', errorMessage)
+		vibeLog.error('sendLLMMessage', 'sendLLMMessage onError:', errorMessage)
 
 		// handle failed to fetch / connection errors, which give 0 information by design
 		const isConnectionError = errorMessage === 'TypeError: fetch failed'

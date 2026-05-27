@@ -36,6 +36,7 @@
 // Source: https://models.dev/api.json (schema: `{<providerId>: {api, npm,
 // models: {<modelId>: {provider?: {npm}}}}}`).
 
+import { vibeLog } from '../../common/vibeLog.js';
 import { fetch as undiciFetch } from 'undici';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -115,7 +116,7 @@ const fetchAndIndex = async (): Promise<{ index: CatalogIndex; rawText: string }
 			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
 		});
 		if (!res.ok) {
-			console.warn(`[modelsDevCatalog] fetch returned HTTP ${res.status} ${res.statusText} — falling back to local snapshot if available`);
+			vibeLog.warn('modelsDevCatalog', `[modelsDevCatalog] fetch returned HTTP ${res.status} ${res.statusText} — falling back to local snapshot if available`);
 			return null;
 		}
 		// Read as text first so we can both parse AND persist verbatim. Avoids a
@@ -123,13 +124,13 @@ const fetchAndIndex = async (): Promise<{ index: CatalogIndex; rawText: string }
 		const rawText = await res.text();
 		const index = indexJson(JSON.parse(rawText));
 		if (!index) {
-			console.warn('[modelsDevCatalog] fetched JSON did not contain any indexable providers — falling back to local snapshot if available');
+			vibeLog.warn('modelsDevCatalog', '[modelsDevCatalog] fetched JSON did not contain any indexable providers — falling back to local snapshot if available');
 			return null;
 		}
 		return { index, rawText };
 	} catch (e) {
 		const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-		console.warn(`[modelsDevCatalog] fetch/parse failed: ${msg} — falling back to local snapshot if available`);
+		vibeLog.warn('modelsDevCatalog', `[modelsDevCatalog] fetch/parse failed: ${msg} — falling back to local snapshot if available`);
 		return null;
 	}
 };
@@ -235,7 +236,7 @@ const tryReadFastPathSnapshot = async (): Promise<{ catalog: CatalogIndex; from:
 				raw = await fs.promises.readFile(p, 'utf-8');
 				const indexed = indexJson(JSON.parse(raw));
 				if (!indexed) {
-					console.warn(`[modelsDevCatalog] fast-path: userData snapshot at ${p} parsed but lacks indexable providers; skipping`);
+					vibeLog.warn('modelsDevCatalog', `[modelsDevCatalog] fast-path: userData snapshot at ${p} parsed but lacks indexable providers; skipping`);
 					return null;
 				}
 				return { catalog: indexed, from: p, source, ageMs };
@@ -244,16 +245,16 @@ const tryReadFastPathSnapshot = async (): Promise<{ catalog: CatalogIndex; from:
 		} catch (e: unknown) {
 			// ENOENT = candidate doesn't exist — silent skip is correct.
 			if ((e as NodeJS.ErrnoException)?.code !== 'ENOENT') {
-				console.warn(`[modelsDevCatalog] fast-path: read error at ${p} (${source})`, e);
+				vibeLog.warn('modelsDevCatalog', `[modelsDevCatalog] fast-path: read error at ${p} (${source})`, e);
 			}
 			continue;
 		}
 		try {
 			const indexed = indexJson(JSON.parse(raw));
 			if (indexed) return { catalog: indexed, from: p, source };
-			console.warn(`[modelsDevCatalog] fast-path: snapshot at ${p} (${source}) parsed but lacks indexable providers; trying next candidate`);
+			vibeLog.warn('modelsDevCatalog', `[modelsDevCatalog] fast-path: snapshot at ${p} (${source}) parsed but lacks indexable providers; trying next candidate`);
 		} catch (e) {
-			console.warn(`[modelsDevCatalog] fast-path: invalid JSON at ${p} (${source}) — fix or delete the file; trying next candidate`, e);
+			vibeLog.warn('modelsDevCatalog', `[modelsDevCatalog] fast-path: invalid JSON at ${p} (${source}) — fix or delete the file; trying next candidate`, e);
 		}
 	}
 	return null;
@@ -303,7 +304,7 @@ const getCatalog = (): Promise<CatalogIndex | null> => {
 			loadedFromLocalPath = fresh.from;
 			loadedFromLocalSource = fresh.source;
 			const ageNote = fresh.ageMs !== undefined ? ` (age ${Math.floor(fresh.ageMs / 1000)}s)` : '';
-			console.warn(`[modelsDevCatalog] fast-path served ${fresh.source} snapshot from ${fresh.from}${ageNote}; refreshing in background`);
+			vibeLog.warn('modelsDevCatalog', `[modelsDevCatalog] fast-path served ${fresh.source} snapshot from ${fresh.from}${ageNote}; refreshing in background`);
 			refreshInBackground();
 			inFlight = null;
 			return fresh.catalog;
@@ -331,13 +332,13 @@ const getCatalog = (): Promise<CatalogIndex | null> => {
 			lastFailureAt = 0;
 			loadedFromLocalPath = local.from;
 			loadedFromLocalSource = local.source;
-			console.warn(`[modelsDevCatalog] network fetch failed; loaded local snapshot from ${local.from} (source: ${local.source})`);
+			vibeLog.warn('modelsDevCatalog', `[modelsDevCatalog] network fetch failed; loaded local snapshot from ${local.from} (source: ${local.source})`);
 			inFlight = null;
 			return local.catalog;
 		}
 		lastFailureAt = Date.now();
-		console.warn(
-			`[modelsDevCatalog] network fetch failed and no local snapshot found. ` +
+		vibeLog.warn(
+			'modelsDevCatalog', `[modelsDevCatalog] network fetch failed and no local snapshot found. ` +
 			`Per-model SDK routing falls back to openai-compatible (aggregator-proxied minimax/qwen may return empty responses). ` +
 			`Download ${MODELS_DEV_URL} and save as "${LOCAL_SNAPSHOT_FILENAME}" in one of: ${localSnapshotCandidates().map(c => c.path).join(' | ')}`
 		);

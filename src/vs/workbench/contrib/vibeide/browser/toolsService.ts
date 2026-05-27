@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js'
 import { URI } from '../../../../base/common/uri.js'
 import { isAbsolute as pathIsAbsolute } from '../../../../base/common/path.js'
@@ -680,7 +681,7 @@ export class ToolsService implements IToolsService {
 						const stat = await fileService.stat(uri);
 						const LARGE_FILE_BYTES = 200 * 1024; // 200KB
 						if (stat.size > LARGE_FILE_BYTES) {
-							console.warn(`[VibeIDE LargeFilePolicy] File ${uri.fsPath} is ${Math.round(stat.size / 1024)}KB. Reading large files consumes significant context tokens. Consider adding to .vibe/ignore if not needed.`);
+							vibeLog.warn('LargeFilePolicy', `File ${uri.fsPath} is ${Math.round(stat.size / 1024)}KB. Reading large files consumes significant context tokens. Consider adding to .vibe/ignore if not needed.`);
 						}
 					} catch { /* stat failed — ignore, proceed with read */ }
 				}

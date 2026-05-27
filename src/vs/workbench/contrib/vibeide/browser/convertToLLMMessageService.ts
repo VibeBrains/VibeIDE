@@ -1,3 +1,4 @@
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -5,28 +6,27 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ChatMessage, ChatImageAttachment } from '../common/chatThreadServiceTypes.js';
-import { vibeTraceTs } from '../common/helpers/vibeTraceTs.js';
 import { recordChatTrace } from './vibeChatRunTrace.js';
 import { VSBuffer, encodeBase64 } from '../../../../base/common/buffer.js';
 
 // Use VS Code's built-in base64 encoding (tested, optimized, handles edge cases)
 function uint8ArrayToBase64(data: Uint8Array): string {
 	if (!data || data.length === 0) {
-		console.error('[uint8ArrayToBase64] Empty or null data provided', { dataLength: data?.length ?? 0 });
+		vibeLog.error('convertToLLMMessage', '[uint8ArrayToBase64] Empty or null data provided', { dataLength: data?.length ?? 0 });
 		throw new Error('Cannot encode empty data to base64');
 	}
 
 	try {
 		const buffer = VSBuffer.wrap(data);
 		if (!buffer || buffer.byteLength === 0) {
-			console.error('[uint8ArrayToBase64] VSBuffer is empty', { originalLength: data.length });
+			vibeLog.error('convertToLLMMessage', '[uint8ArrayToBase64] VSBuffer is empty', { originalLength: data.length });
 			throw new Error('VSBuffer is empty after wrapping');
 		}
 
 		const base64 = encodeBase64(buffer, true, false); // padded = true, urlSafe = false
 
 		if (!base64 || base64.length === 0) {
-			console.error('[uint8ArrayToBase64] encodeBase64 returned empty string', {
+			vibeLog.error('convertToLLMMessage', '[uint8ArrayToBase64] encodeBase64 returned empty string', {
 				bufferLength: buffer.byteLength,
 				dataLength: data.length
 			});
@@ -38,7 +38,7 @@ function uint8ArrayToBase64(data: Uint8Array): string {
 		const cleaned = base64.trim().replace(/\s+/g, '');
 
 		if (cleaned.length === 0) {
-			console.error('[uint8ArrayToBase64] Base64 became empty after cleaning', {
+			vibeLog.error('convertToLLMMessage', '[uint8ArrayToBase64] Base64 became empty after cleaning', {
 				original: base64.substring(0, 50),
 				originalLength: base64.length
 			});
@@ -47,7 +47,7 @@ function uint8ArrayToBase64(data: Uint8Array): string {
 
 		return cleaned;
 	} catch (error) {
-		console.error('[uint8ArrayToBase64] Encoding failed', {
+		vibeLog.error('convertToLLMMessage', '[uint8ArrayToBase64] Encoding failed', {
 			error: error instanceof Error ? error.message : String(error),
 			dataLength: data.length,
 			dataType: data.constructor.name
@@ -255,7 +255,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 
 					// Validate image data is not empty and is valid
 					if (!image.data) {
-						console.error('Image data is null or undefined', { image: { mimeType: image.mimeType, hasData: !!image.data } });
+						vibeLog.error('convertToLLMMessage', 'Image data is null or undefined', { image: { mimeType: image.mimeType, hasData: !!image.data } });
 						throw new Error('Image data is null or undefined');
 					}
 
@@ -281,12 +281,12 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 								}
 								imageData = bytes;
 							} catch (error) {
-								console.error('Failed to decode base64 image data', { error, mimeType: image.mimeType });
+								vibeLog.error('convertToLLMMessage', 'Failed to decode base64 image data', { error, mimeType: image.mimeType });
 								throw new Error('Failed to decode base64 image data from storage');
 							}
 						} else {
 							// Regular string (shouldn't happen, but handle gracefully)
-							console.error('Image data is a plain string, expected Uint8Array', {
+							vibeLog.error('convertToLLMMessage', 'Image data is a plain string, expected Uint8Array', {
 								mimeType: image.mimeType,
 								dataType: typeof data,
 								dataLength: data.length
@@ -303,7 +303,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 
 						// Safety check: if too many keys, it's probably not image data
 						if (keys.length > 10000000) {
-							console.error('Image data object has too many keys, likely not image data', {
+							vibeLog.error('convertToLLMMessage', 'Image data object has too many keys, likely not image data', {
 								mimeType: image.mimeType,
 								keyCount: keys.length
 							});
@@ -363,7 +363,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 
 								imageData = new Uint8Array(values);
 							} catch (error) {
-								console.error('Failed to convert object to Uint8Array', {
+								vibeLog.error('convertToLLMMessage', 'Failed to convert object to Uint8Array', {
 									error: error instanceof Error ? error.message : String(error),
 									mimeType: image.mimeType,
 									keyCount: keys.length,
@@ -377,7 +377,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 							const dataType = typeof data;
 							const constructorName = data?.constructor?.name;
 
-							console.error('Image data has invalid object structure', {
+							vibeLog.error('convertToLLMMessage', 'Image data has invalid object structure', {
 								mimeType: image.mimeType,
 								dataType: dataType,
 								constructor: constructorName,
@@ -390,7 +390,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 							// Instead of throwing immediately, check if we can access the data differently
 							// Maybe it's a VSBuffer or similar object?
 							if ('buffer' in data || 'byteLength' in data) {
-								console.error('Object appears to be a Buffer-like object but conversion failed', {
+								vibeLog.error('convertToLLMMessage', 'Object appears to be a Buffer-like object but conversion failed', {
 									hasBuffer: 'buffer' in data,
 									hasByteLength: 'byteLength' in data
 								});
@@ -401,7 +401,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 					} else {
 						// Unknown type
 						const dataType = typeof data;
-						console.error('Image data has completely invalid type', {
+						vibeLog.error('convertToLLMMessage', 'Image data has completely invalid type', {
 							mimeType: image.mimeType,
 							dataType: dataType
 						});
@@ -410,7 +410,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 
 					// Validate image data is not empty
 					if (imageData.length === 0) {
-						console.error('Image data array is empty', { mimeType: image.mimeType });
+						vibeLog.error('convertToLLMMessage', 'Image data array is empty', { mimeType: image.mimeType });
 						throw new Error('Image data is empty');
 					}
 
@@ -418,7 +418,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 					// Base64 encoding increases size by ~33%, so check if original is under ~15MB
 					const maxImageSize = 15 * 1024 * 1024; // 15MB
 					if (imageData.length > maxImageSize) {
-						console.error(`Image too large: ${imageData.length} bytes (max ${maxImageSize})`);
+						vibeLog.error('convertToLLMMessage', `Image too large: ${imageData.length} bytes (max ${maxImageSize})`);
 						throw new Error(`Image is too large: ${Math.round(imageData.length / 1024 / 1024)}MB. Maximum size is 20MB.`);
 					}
 
@@ -428,21 +428,21 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 					// Validate base64 format - must contain only valid base64 characters
 					// OpenAI is strict: base64 must be clean, no whitespace, proper padding
 					if (!base64 || base64.length === 0) {
-						console.error('Base64 encoding returned empty string');
+						vibeLog.error('convertToLLMMessage', 'Base64 encoding returned empty string');
 						throw new Error('Failed to encode image to base64');
 					}
 
 					// Ensure base64 contains only valid characters (A-Z, a-z, 0-9, +, /, =)
 					const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
 					if (!base64Regex.test(base64)) {
-						console.error('Base64 contains invalid characters:', base64.substring(0, 100));
+						vibeLog.error('convertToLLMMessage', 'Base64 contains invalid characters:', base64.substring(0, 100));
 						throw new Error('Invalid base64 encoding: contains invalid characters');
 					}
 
 					// Validate padding - base64 should end with 0, 1, or 2 '=' characters
 					const paddingCount = (base64.match(/=+$/) || [''])[0].length;
 					if (paddingCount > 2) {
-						console.error('Base64 has invalid padding:', base64.substring(base64.length - 10));
+						vibeLog.error('convertToLLMMessage', 'Base64 has invalid padding:', base64.substring(base64.length - 10));
 						throw new Error('Invalid base64 encoding: too many padding characters');
 					}
 
@@ -452,7 +452,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 
 					// Additional validation: ensure data URL is reasonable size
 					if (dataUrl.length > 30 * 1024 * 1024) { // 30MB as safety limit
-						console.error('Data URL too large:', dataUrl.length);
+						vibeLog.error('convertToLLMMessage', 'Data URL too large:', dataUrl.length);
 						throw new Error('Image data URL is too large');
 					}
 
@@ -1431,7 +1431,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				}
 			} catch (error) {
 				// Memories unavailable, continue without them
-				console.debug('[ConvertToLLMMessage] Failed to get memories:', error);
+				vibeLog.debug('convertToLLMMessage', '[ConvertToLLMMessage] Failed to get memories:', error);
 			}
 		}
 
@@ -1640,7 +1640,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 						relevantMemories = memoryLines.join('\n');
 					}
 				} catch (error) {
-					console.debug('[ConvertToLLMMessage] Failed to get memories:', error);
+					vibeLog.debug('convertToLLMMessage', '[ConvertToLLMMessage] Failed to get memories:', error);
 				}
 			}
 
@@ -1700,11 +1700,11 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				const contextSection = `\n\n<repo_context>\nHere are relevant files and symbols from the codebase:\n${indexResults.map((r, i) => `${i + 1}. ${r}`).join('\n\n')}\n</repo_context>`;
 				systemMessage = systemMessage + guidance + contextSection;
 
-				// Log metrics for monitoring (only in dev/debug mode to avoid noise)
-				if (console.debug && metrics) {
+				// Log metrics for monitoring (vibeLog self-gates on level/category)
+				if (metrics) {
 					const lastUserMessage = chatMessages.filter(m => m.role === 'user').pop();
 					const userQuery = lastUserMessage?.content || chatMessages.filter(m => m.role === 'user').map(m => m.content).join(' ').slice(0, 200);
-					console.debug('[RepoIndexer]', {
+					vibeLog.debug('convertToLLMMessage', '[RepoIndexer]', {
 						query: userQuery.slice(0, 50),
 						latencyMs: metrics.retrievalLatencyMs.toFixed(1),
 						tokens: metrics.tokensInjected,
@@ -1743,14 +1743,14 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			[...lastUserTextForSkills.matchAll(/\/skill:\s*([\w.-]+)/gi)].map(m => m[1])
 		)).slice(0, 3);
 		// eslint-disable-next-line no-console
-		console.debug('[VibeIDE/Skill] expand intercept', { lastUserSnippet: lastUserTextForSkills.slice(0, 100), foundIds: explicitSkillIdsForExpand });
+		vibeLog.debug('Skill', 'expand intercept', { lastUserSnippet: lastUserTextForSkills.slice(0, 100), foundIds: explicitSkillIdsForExpand });
 		const explicitSkillBodies: Array<{ id: string; body: string }> = [];
 		if (explicitSkillIdsForExpand.length > 0) {
 			for (const skillId of explicitSkillIdsForExpand) {
 				try {
 					const expanded = await this.slashCommandService.expand(`/skill:${skillId}`);
 					// eslint-disable-next-line no-console
-					console.debug('[VibeIDE/Skill] expand result', { skillId, isNull: expanded === null, isEmpty: expanded === '', bodyLen: expanded?.length ?? 0, headSnippet: expanded?.slice(0, 120) ?? null });
+					vibeLog.debug('Skill', 'expand result', { skillId, isNull: expanded === null, isEmpty: expanded === '', bodyLen: expanded?.length ?? 0, headSnippet: expanded?.slice(0, 120) ?? null });
 					if (expanded) {
 						explicitSkillBodies.push({ id: skillId, body: expanded });
 						// Bump MRU so this skill ranks higher in autocomplete next time.
@@ -1758,11 +1758,11 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 					}
 				} catch (err) {
 					// eslint-disable-next-line no-console
-					console.warn('[VibeIDE/Skill] expand threw', { skillId, err: String(err) });
+					vibeLog.warn('Skill', 'expand threw', { skillId, err: String(err) });
 				}
 			}
 			// eslint-disable-next-line no-console
-			console.debug('[VibeIDE/Skill] final context built', { expansionsCount: explicitSkillBodies.length, totalBodyChars: explicitSkillBodies.reduce((a, b) => a + b.body.length, 0) });
+			vibeLog.debug('Skill', 'final context built', { expansionsCount: explicitSkillBodies.length, totalBodyChars: explicitSkillBodies.reduce((a, b) => a + b.body.length, 0) });
 		}
 		// Build the user-message prefix once; we prepend it after `_chatMessagesToSimpleMessages`
 		// converts to the canonical wire format.
@@ -1944,7 +1944,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			const afterTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
 			// Update status bar to reflect post-truncation size; suppress popup (user sees % in status bar)
 			try { this.contextGuardService.updateUsage(afterTokens, contextWindow) } catch { }
-			console.debug(`[VibeIDE] Context smart truncation: ~${beforeTokens} → ~${afterTokens} tokens`); recordChatTrace('context:truncated', { before: beforeTokens, after: afterTokens })
+			vibeLog.debug('convertToLLMMessage', `Context smart truncation: ~${beforeTokens} → ~${afterTokens} tokens`); recordChatTrace('context:truncated', { before: beforeTokens, after: afterTokens })
 		}
 
 		// Second pass — active guard. If we are still over the model's real context window,
@@ -1987,7 +1987,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				})
 				if (compacted > 0) {
 					currentTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
-					console.debug(`[VibeIDE ContextGuard] Step A.5 compacted ${compacted} old tool-results (kept last ${compactAfterTurns} user turns): ~${savedTokens.toLocaleString()} tokens summarized → currentTokens ~${currentTokens.toLocaleString()}`)
+					vibeLog.debug('ContextGuard', `Step A.5 compacted ${compacted} old tool-results (kept last ${compactAfterTurns} user turns): ~${savedTokens.toLocaleString()} tokens summarized → currentTokens ~${currentTokens.toLocaleString()}`)
 				}
 			}
 		}
@@ -2016,7 +2016,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				currentTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
 			}
 			if (dropped > 0) {
-				console.debug(`[VibeIDE ContextGuard] Step B dropped ${dropped} oldest tail messages: ~${beforeStepB} → ~${currentTokens} tokens`)
+				vibeLog.debug('ContextGuard', `Step B dropped ${dropped} oldest tail messages: ~${beforeStepB} → ~${currentTokens} tokens`)
 			}
 		}
 
@@ -2116,8 +2116,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			}
 			const lastUserHasSkillInvocation = lastUserContent.includes(skillInvocationTag);
 			const skillBodyHeadIdx = lastUserContent.indexOf(skillInvocationTag);
-			// eslint-disable-next-line no-console
-			console.debug(`[${vibeTraceTs()}] [VibeIDE/promptDump] final prompt summary`, {
+			vibeLog.debug('promptDump', 'final prompt summary', {
 				provider: validProviderName,
 				model: modelName,
 				supportsSystemMessage,
@@ -2137,7 +2136,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			});
 		} catch (e) {
 			// eslint-disable-next-line no-console
-			console.warn('[VibeIDE/promptDump] dump failed', { err: String(e) });
+			vibeLog.warn('promptDump', 'dump failed', { err: String(e) });
 		}
 
 		return { messages, separateSystemMessage };

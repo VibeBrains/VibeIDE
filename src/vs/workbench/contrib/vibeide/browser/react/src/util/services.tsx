@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { useState, useEffect, useCallback } from 'react'
 import { MCPUserState, RefreshableProviderName, SettingsOfProvider } from '../../../../../../../workbench/contrib/vibeide/common/vibeideSettingsTypes.js'
 import { DisposableStore, IDisposable } from '../../../../../../../base/common/lifecycle.js'
@@ -282,7 +283,7 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 		} as const
 		return reactAccessor
 	} catch (error) {
-		console.error('[ReactServices] Failed to extract services from accessor:', error);
+		vibeLog.error('services', '[ReactServices] Failed to extract services from accessor:', error);
 		throw error;
 	}
 }

@@ -5,6 +5,7 @@
 
 // Scope contract: references/v1/telemetry-service-scope.md
 // Local audit channel — no outbound calls.  Rename to RoutingAuditService is a backlog item.
+import { vibeLog } from '../vibeLog.js';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../../platform/instantiation/common/extensions.js';
@@ -66,7 +67,7 @@ export class VibeideTelemetryService extends Disposable implements IVibeideTelem
 				}
 				// Flush remaining events on dispose
 				this._flushAsync().catch(err => {
-					console.warn('[Telemetry] Failed to flush on dispose:', err);
+					vibeLog.warn('telemetry', '[Telemetry] Failed to flush on dispose:', err);
 				});
 			}
 		});
@@ -92,7 +93,7 @@ export class VibeideTelemetryService extends Disposable implements IVibeideTelem
 		// Async flush if queue is full
 		if (this.eventQueue.length >= this.maxQueueSize) {
 			this._flushAsync().catch(err => {
-				console.warn('[Telemetry] Failed to flush queue:', err);
+				vibeLog.warn('telemetry', '[Telemetry] Failed to flush queue:', err);
 			});
 		}
 	}
@@ -256,7 +257,7 @@ export class VibeideTelemetryService extends Disposable implements IVibeideTelem
 	private _startFlushTimer(): void {
 		this.flushTimer = setInterval(() => {
 			this._flushAsync().catch(err => {
-				console.warn('[Telemetry] Failed to flush:', err);
+				vibeLog.warn('telemetry', '[Telemetry] Failed to flush:', err);
 			});
 		}, this.flushInterval);
 	}

@@ -9,6 +9,7 @@
  * Combines all audit metrics into a single report
  */
 
+import { vibeLog } from './vibeLog.js';
 import { metricsCollector } from './metricsCollector.js';
 import type { ChatLatencyMetrics } from './chatLatencyTypes.js';
 import { StartupMetrics, startupAudit } from './startupAudit.js';
@@ -201,68 +202,68 @@ export function printComprehensiveAuditReport(): void {
 	const report = generateComprehensiveAuditReport();
 
 	console.group('📊 Comprehensive Performance Audit Report');
-	console.log(`Timestamp: ${report.timestamp}`);
-	console.log('');
+	vibeLog.info('comprehensiveAudit', `Timestamp: ${report.timestamp}`);
+	vibeLog.info('comprehensiveAudit', '');
 
 	// Startup
 	if (report.startup) {
 		console.group('🚀 Startup');
-		console.log(`Cold Start: ${report.startup.coldStartTime.toFixed(1)}ms`);
-		console.log(`Warm Start: ${report.startup.warmStartTime.toFixed(1)}ms (target: ≤1200ms) ${report.targets.startup.met ? '✅' : '❌'}`);
-		console.log(`Ready to Type: ${report.startup.readyToType.toFixed(1)}ms`);
-		console.log(`Extension Activation: ${report.startup.extensionActivationTime.toFixed(1)}ms`);
-		console.log(`Extensions: ${report.startup.extensionCount}`);
+		vibeLog.info('comprehensiveAudit', `Cold Start: ${report.startup.coldStartTime.toFixed(1)}ms`);
+		vibeLog.info('comprehensiveAudit', `Warm Start: ${report.startup.warmStartTime.toFixed(1)}ms (target: ≤1200ms) ${report.targets.startup.met ? '✅' : '❌'}`);
+		vibeLog.info('comprehensiveAudit', `Ready to Type: ${report.startup.readyToType.toFixed(1)}ms`);
+		vibeLog.info('comprehensiveAudit', `Extension Activation: ${report.startup.extensionActivationTime.toFixed(1)}ms`);
+		vibeLog.info('comprehensiveAudit', `Extensions: ${report.startup.extensionCount}`);
 		if (report.startup.slowExtensions.length > 0) {
-			console.log(`Slow Extensions (>100ms):`);
+			vibeLog.info('comprehensiveAudit', `Slow Extensions (>100ms):`);
 			report.startup.slowExtensions.forEach(ext => {
-				console.log(`  - ${ext.id}: ${ext.time.toFixed(1)}ms`);
+				vibeLog.info('comprehensiveAudit', `  - ${ext.id}: ${ext.time.toFixed(1)}ms`);
 			});
 		}
-		console.log(`Initial Memory: ${report.startup.initialMemoryMB.toFixed(1)}MB`);
-		console.log(`Peak Memory: ${report.startup.peakMemoryMB.toFixed(1)}MB`);
+		vibeLog.info('comprehensiveAudit', `Initial Memory: ${report.startup.initialMemoryMB.toFixed(1)}MB`);
+		vibeLog.info('comprehensiveAudit', `Peak Memory: ${report.startup.peakMemoryMB.toFixed(1)}MB`);
 		console.groupEnd();
 	}
 
 	// Chat
 	console.group('💬 Chat Performance');
-	console.log(`Sample Size: ${report.chat.count} requests`);
-	console.log(`TTFS: ${report.chat.ttfs.p50.toFixed(1)}ms / ${report.chat.ttfs.p95.toFixed(1)}ms (target: ≤400ms) ${report.targets.ttfs.met ? '✅' : '❌'}`);
-	console.log(`TTS: ${report.chat.tts.p50.toFixed(1)}ms / ${report.chat.tts.p95.toFixed(1)}ms (target: ≤3000ms) ${report.targets.tts.met ? '✅' : '❌'}`);
+	vibeLog.info('comprehensiveAudit', `Sample Size: ${report.chat.count} requests`);
+	vibeLog.info('comprehensiveAudit', `TTFS: ${report.chat.ttfs.p50.toFixed(1)}ms / ${report.chat.ttfs.p95.toFixed(1)}ms (target: ≤400ms) ${report.targets.ttfs.met ? '✅' : '❌'}`);
+	vibeLog.info('comprehensiveAudit', `TTS: ${report.chat.tts.p50.toFixed(1)}ms / ${report.chat.tts.p95.toFixed(1)}ms (target: ≤3000ms) ${report.targets.tts.met ? '✅' : '❌'}`);
 	if (report.chat.routerDecisionTime.p50 > 0) {
-		console.log(`Router Decision: ${report.chat.routerDecisionTime.p50.toFixed(1)}ms / ${report.chat.routerDecisionTime.p95.toFixed(1)}ms (target: ≤10ms) ${report.targets.routerDecision.met ? '✅' : '❌'}`);
+		vibeLog.info('comprehensiveAudit', `Router Decision: ${report.chat.routerDecisionTime.p50.toFixed(1)}ms / ${report.chat.routerDecisionTime.p95.toFixed(1)}ms (target: ≤10ms) ${report.targets.routerDecision.met ? '✅' : '❌'}`);
 	}
-	console.log(`Network Latency: ${report.chat.networkLatency.p50.toFixed(1)}ms / ${report.chat.networkLatency.p95.toFixed(1)}ms`);
-	console.log(`Prompt Assembly: ${report.chat.promptAssemblyTime.p50.toFixed(1)}ms / ${report.chat.promptAssemblyTime.p95.toFixed(1)}ms`);
-	console.log(`Tokens/Second: ${report.chat.tokensPerSecond.p50.toFixed(1)} / ${report.chat.tokensPerSecond.p95.toFixed(1)}`);
-	console.log(`Render FPS: ${report.chat.renderFPS.p50.toFixed(1)} / ${report.chat.renderFPS.p95.toFixed(1)}`);
-	console.log(`Dropped Frames: (avg): ${report.chat.droppedFrames.mean.toFixed(1)}`);
+	vibeLog.info('comprehensiveAudit', `Network Latency: ${report.chat.networkLatency.p50.toFixed(1)}ms / ${report.chat.networkLatency.p95.toFixed(1)}ms`);
+	vibeLog.info('comprehensiveAudit', `Prompt Assembly: ${report.chat.promptAssemblyTime.p50.toFixed(1)}ms / ${report.chat.promptAssemblyTime.p95.toFixed(1)}ms`);
+	vibeLog.info('comprehensiveAudit', `Tokens/Second: ${report.chat.tokensPerSecond.p50.toFixed(1)} / ${report.chat.tokensPerSecond.p95.toFixed(1)}`);
+	vibeLog.info('comprehensiveAudit', `Render FPS: ${report.chat.renderFPS.p50.toFixed(1)} / ${report.chat.renderFPS.p95.toFixed(1)}`);
+	vibeLog.info('comprehensiveAudit', `Dropped Frames: (avg): ${report.chat.droppedFrames.mean.toFixed(1)}`);
 	console.groupEnd();
 
 	// Diff/Composer
 	if (report.diffComposer) {
 		console.group('📝 Diff/Composer');
-		console.log(`Panel Open: ${report.diffComposer.panelOpenTime.toFixed(1)}ms (target: ≤250ms) ${report.targets.diffOpen.met ? '✅' : '❌'}`);
-		console.log(`Hunk Render: ${report.diffComposer.hunkRenderTime.toFixed(1)}ms (${report.diffComposer.hunkCount} hunks)`);
-		console.log(`Apply: ${report.diffComposer.applyTime.toFixed(1)}ms (target: ≤300ms) ${report.targets.diffApply.met ? '✅' : '❌'}`);
-		console.log(`Undo: ${report.diffComposer.undoTime.toFixed(1)}ms`);
+		vibeLog.info('comprehensiveAudit', `Panel Open: ${report.diffComposer.panelOpenTime.toFixed(1)}ms (target: ≤250ms) ${report.targets.diffOpen.met ? '✅' : '❌'}`);
+		vibeLog.info('comprehensiveAudit', `Hunk Render: ${report.diffComposer.hunkRenderTime.toFixed(1)}ms (${report.diffComposer.hunkCount} hunks)`);
+		vibeLog.info('comprehensiveAudit', `Apply: ${report.diffComposer.applyTime.toFixed(1)}ms (target: ≤300ms) ${report.targets.diffApply.met ? '✅' : '❌'}`);
+		vibeLog.info('comprehensiveAudit', `Undo: ${report.diffComposer.undoTime.toFixed(1)}ms`);
 		console.groupEnd();
 	}
 
 	// Recovery
 	console.group('🔄 Recovery');
-	console.log(`Auto-Stash: ${report.recovery.autoStashCount} operations, avg ${report.recovery.autoStashTime.toFixed(1)}ms`);
-	console.log(`Rollback: ${report.recovery.rollbackCount} operations, avg ${report.recovery.rollbackTime.toFixed(1)}ms, success: ${report.recovery.rollbackSuccess ? '✅' : '❌'}`);
-	console.log(`Lost State: ${report.recovery.lostStateIncidents} incidents`);
-	console.log(`Recovered State: ${report.recovery.recoveredStateIncidents} incidents`);
+	vibeLog.info('comprehensiveAudit', `Auto-Stash: ${report.recovery.autoStashCount} operations, avg ${report.recovery.autoStashTime.toFixed(1)}ms`);
+	vibeLog.info('comprehensiveAudit', `Rollback: ${report.recovery.rollbackCount} operations, avg ${report.recovery.rollbackTime.toFixed(1)}ms, success: ${report.recovery.rollbackSuccess ? '✅' : '❌'}`);
+	vibeLog.info('comprehensiveAudit', `Lost State: ${report.recovery.lostStateIncidents} incidents`);
+	vibeLog.info('comprehensiveAudit', `Recovered State: ${report.recovery.recoveredStateIncidents} incidents`);
 	console.groupEnd();
 
 	// Onboarding
 	console.group('🎓 Onboarding');
-	console.log(`First-Run Duration: ${(report.onboarding.firstRunDuration / 1000).toFixed(1)}s (target: ≤90s) ${report.targets.onboarding.met ? '✅' : '❌'}`);
-	console.log(`Time to First Chat: ${(report.onboarding.timeToFirstChat / 1000).toFixed(1)}s`);
-	console.log(`Time to First Diff Apply: ${(report.onboarding.timeToFirstDiffApply / 1000).toFixed(1)}s`);
-	console.log(`Command Palette Opened: ${report.onboarding.commandPaletteOpened ? '✅' : '❌'}`);
-	console.log(`Quick Actions Discovered: ${report.onboarding.quickActionsDiscovered ? '✅' : '❌'}`);
+	vibeLog.info('comprehensiveAudit', `First-Run Duration: ${(report.onboarding.firstRunDuration / 1000).toFixed(1)}s (target: ≤90s) ${report.targets.onboarding.met ? '✅' : '❌'}`);
+	vibeLog.info('comprehensiveAudit', `Time to First Chat: ${(report.onboarding.timeToFirstChat / 1000).toFixed(1)}s`);
+	vibeLog.info('comprehensiveAudit', `Time to First Diff Apply: ${(report.onboarding.timeToFirstDiffApply / 1000).toFixed(1)}s`);
+	vibeLog.info('comprehensiveAudit', `Command Palette Opened: ${report.onboarding.commandPaletteOpened ? '✅' : '❌'}`);
+	vibeLog.info('comprehensiveAudit', `Quick Actions Discovered: ${report.onboarding.quickActionsDiscovered ? '✅' : '❌'}`);
 	console.groupEnd();
 
 	// Targets
@@ -271,14 +272,14 @@ export function printComprehensiveAuditReport(): void {
 		const met = 'met' in target ? target.met : false;
 		const value = 'p95' in target ? target.p95 : ('actual' in target ? target.actual : 0);
 		const targetValue = 'target' in target ? target.target : 0;
-		console.log(`${key}: ${value.toFixed(1)} (target: ${targetValue}) ${met ? '✅' : '❌'}`);
+		vibeLog.info('comprehensiveAudit', `${key}: ${value.toFixed(1)} (target: ${targetValue}) ${met ? '✅' : '❌'}`);
 	});
 	console.groupEnd();
 
 	// Bottlenecks
 	console.group('🔍 Top Bottlenecks');
 	report.bottlenecks.forEach((b, i) => {
-		console.log(`${i + 1}. ${b}`);
+		vibeLog.info('comprehensiveAudit', `${i + 1}. ${b}`);
 	});
 	console.groupEnd();
 

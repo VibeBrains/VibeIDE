@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -37,9 +38,9 @@ class MarkerCheckService extends Disposable implements IMarkerCheckService {
 			if (errors.length > 0) {
 				for (const error of errors) {
 
-					console.log(`----------------------------------------------`);
+					vibeLog.info('_markerCheck', `----------------------------------------------`);
 
-					console.log(`${error.resource.fsPath}: ${error.startLineNumber} ${error.message} ${error.severity}`); // ! all errors in the file
+					vibeLog.info('_markerCheck', `${error.resource.fsPath}: ${error.startLineNumber} ${error.message} ${error.severity}`); // ! all errors in the file
 
 					try {
 						// Get the text model for the file
@@ -80,9 +81,9 @@ class MarkerCheckService extends Disposable implements IMarkerCheckService {
 									// quickFixesForImports
 
 									if (quickFixes.length > 0) {
-										console.log('Available Quick Fixes:');
+										vibeLog.info('_markerCheck', 'Available Quick Fixes:');
 										quickFixes.forEach(action => {
-											console.log(`- ${action.title}`);
+											vibeLog.info('_markerCheck', `- ${action.title}`);
 										});
 									}
 								}
@@ -92,7 +93,7 @@ class MarkerCheckService extends Disposable implements IMarkerCheckService {
 						// Dispose the model reference
 						modelReference.dispose();
 					} catch (e) {
-						console.error('Error getting quick fixes:', e);
+						vibeLog.error('_markerCheck', 'Error getting quick fixes:', e);
 					}
 				}
 			}

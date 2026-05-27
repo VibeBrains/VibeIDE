@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -11,7 +12,6 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../platfo
 import { URI } from '../../../../base/common/uri.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
-import { vibeTraceTs } from '../common/helpers/vibeTraceTs.js';
 import { recordChatTrace } from './vibeChatRunTrace.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases } from '../common/prompt/toolAliases.js';
@@ -809,7 +809,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 						}
 						return bytes;
 					} catch (e) {
-						console.error('Failed to decode base64 image data in storage reviver', e);
+						vibeLog.error('chatThread', 'Failed to decode base64 image data in storage reviver', e);
 						return value; // Return original value on error
 					}
 				} else if (Array.isArray(value)) {
@@ -1161,11 +1161,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					requiresComplexReasoning,
 					hasCode,
 				};
-				console.log('[Auto Model Select]', JSON.stringify(logData, null, 2));
+				vibeLog.info('chatThread', '[Auto Model Select]', JSON.stringify(logData, null, 2));
 
 				// Warn if local model selected for codebase question
 				if (isCodebaseQuestion && routingDecision.modelSelection.providerName === 'ollama') {
-					console.warn('[Auto Model Select] WARNING: Local model selected for codebase question!', logData);
+					vibeLog.warn('chatThread', '[Auto Model Select] WARNING: Local model selected for codebase question!', logData);
 				}
 			}
 
@@ -1173,7 +1173,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			// We'll track the outcome when the message is actually sent
 			return routingDecision.modelSelection
 		} catch (error) {
-			console.error('[Auto Model Select] Error:', error)
+			vibeLog.error('chatThread', '[Auto Model Select] Error:', error)
 			// Fall back to user's manual selection or null
 			return userManualSelection
 		}
@@ -2149,7 +2149,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 							await this._settingsService.setOverridesOfModel(modelSelection.providerName, modelSelection.modelName, { supportsVision: false });
 							this._notificationService.info(localize('vibeide.visionDrop.blocked', 'Изображения для «{0}» теперь блокируются. Снять блокировку можно в Настройках → Модели.', key));
 						} catch (err) {
-							console.error('[visionDrop] Failed to set supportsVision override', err);
+							vibeLog.error('chatThread', '[visionDrop] Failed to set supportsVision override', err);
 						} finally {
 							handle.close();
 						}
@@ -2817,7 +2817,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								resolve() // Still resolve - let normal execution continue
 							}
 						} catch (parseError) {
-							console.error('Failed to parse plan from LLM:', parseError)
+							vibeLog.error('chatThread', 'Failed to parse plan from LLM:', parseError)
 							// Add as assistant message
 							this._addMessageToThread(threadId, {
 								role: 'assistant',
@@ -2893,9 +2893,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				new Promise<'__timeout__'>(resolve => setTimeout(() => { timedOut = true; resolve('__timeout__') }, HANG_MS)),
 			])
 			if (timedOut) {
-				console.warn(`[VibeIDE chatThread] abortRunning timeout: interrupt Promise did not resolve within ${HANG_MS}ms (threadId=${threadId}). Forcibly clearing state.`)
+				vibeLog.warn('chatThread', `abortRunning timeout: interrupt Promise did not resolve within ${HANG_MS}ms (threadId=${threadId}). Forcibly clearing state.`)
 			} else if (typeof winner === 'function') {
-				try { winner() } catch (e) { console.warn('[VibeIDE chatThread] interrupt() threw:', e) }
+				try { winner() } catch (e) { vibeLog.warn('chatThread', 'interrupt() threw:', e) }
 			}
 		}
 
@@ -2934,7 +2934,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		this._setStreamState(threadId, undefined)
 
 		if (actuallyResetSomething) {
-			console.warn(`[VibeIDE chatThread] forceResetChatState(${threadId}) — state, watchdog, RAF, and age tracker all cleared.`)
+			vibeLog.warn('chatThread', `forceResetChatState(${threadId}) — state, watchdog, RAF, and age tracker all cleared.`)
 			this._metricsService.capture('Chat Force Reset', {
 				priorState: priorStateBeforeReset,
 				priorAgeSec: Math.floor(priorAgeMs / 1000),
@@ -3494,7 +3494,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			const keys = Object.keys(paramsObjForShape);
 			const isRunCommandShape = keys.every(k => k === 'command' || k === 'cwd' || k === 'timeout_ms');
 			if (isRunCommandShape && requestedToolName !== 'run_command' && isABuiltinToolName('run_command')) {
-				console.warn(`[VibeIDE/Tool] auto-routing ${requestedToolName} → run_command (run_command-shape params)`, {
+				vibeLog.warn('Tool', `auto-routing ${requestedToolName} → run_command (run_command-shape params)`, {
 					originalTool: requestedToolName,
 					keys,
 				});
@@ -3571,7 +3571,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		if (sameLoop) {
 			const keysLabel = currentParamKeysSig || '(без параметров)';
 			const breakerMsg = `Прервано: модель ${invalidParamsBreakerLimit + 1} раз подряд вызвала "${toolName}" с одной и той же неверной формой параметров (${keysLabel}). Похоже на петлю — переключитесь на другую модель или начните новый чат.`;
-			console.warn('[VibeIDE/Tool] circuit breaker tripped', { toolName, keys: currentParamKeysSig });
+			vibeLog.warn('Tool', 'circuit breaker tripped', { toolName, keys: currentParamKeysSig });
 			this._metricsService.capture('Circuit Breaker Tripped — Tool Invalid Params', {
 				toolName,
 				paramKeysSig: currentParamKeysSig,
@@ -3616,7 +3616,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// see the UI's "Invalid parameters" badge and have to guess.
 				try {
 					// eslint-disable-next-line no-console
-					console.warn('[VibeIDE/Tool] invalid params', {
+					vibeLog.warn('Tool', 'invalid params', {
 						toolName,
 						errorMessage,
 						rawParams: opts.unvalidatedToolParams,
@@ -3691,7 +3691,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						}
 					} catch (error) {
 						// If check fails, fall back to normal approval flow
-						console.debug('[ChatThreadService] NL command safety check failed, using normal approval:', error);
+						vibeLog.debug('chatThread', '[ChatThreadService] NL command safety check failed, using normal approval:', error);
 					}
 				}
 
@@ -3740,7 +3740,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					} catch (error) {
 						// If risk scoring fails, fall back to normal approval flow
 						// If autoApprove was already true, keep it true (don't block due to scoring failure)
-						console.debug('[ChatThreadService] Risk scoring failed, using normal approval:', error);
+						vibeLog.debug('chatThread', '[ChatThreadService] Risk scoring failed, using normal approval:', error);
 					}
 				}
 
@@ -3844,7 +3844,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				return typeof v === 'string' ? v.slice(0, 160) : ''
 			} catch { return '' }
 		})()
-		console.debug(`[${vibeTraceTs()}] [VibeIDE/toolExec] start`, { tool: toolName, hint: _toolHint, mcp: mcpServerName ?? null }); recordChatTrace('toolExec:start', { tool: toolName, hint: _toolHint })
+		vibeLog.debug('toolExec', 'start', { tool: toolName, hint: _toolHint, mcp: mcpServerName ?? null }); recordChatTrace('toolExec:start', { tool: toolName, hint: _toolHint })
 
 		let interrupted = false
 		let resolveInterruptor: (r: () => void) => void = () => { }
@@ -3938,7 +3938,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 			const errorMessage = getErrorMessage(error)
 			this._agentActivityLog.logError(`${toolActivityLabel}: ${errorMessage}`);
-			console.debug(`[${vibeTraceTs()}] [VibeIDE/toolExec] done`, { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false }); this._updateLatestTool(threadId, { role: 'tool', type: 'tool_error', params: toolParams, result: errorMessage, name: toolName, content: errorMessage, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName })
+			vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false }); this._updateLatestTool(threadId, { role: 'tool', type: 'tool_error', params: toolParams, result: errorMessage, name: toolName, content: errorMessage, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName })
 			return {}
 		}
 
@@ -3954,12 +3954,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		} catch (error) {
 			const errorMessage = this.toolErrMsgs.errWhenStringifying(error)
 			this._agentActivityLog.logError(`${toolActivityLabel}: stringify ${errorMessage}`);
-			console.debug(`[${vibeTraceTs()}] [VibeIDE/toolExec] done`, { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false }); this._updateLatestTool(threadId, { role: 'tool', type: 'tool_error', params: toolParams, result: errorMessage, name: toolName, content: errorMessage, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName })
+			vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false }); this._updateLatestTool(threadId, { role: 'tool', type: 'tool_error', params: toolParams, result: errorMessage, name: toolName, content: errorMessage, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName })
 			return {}
 		}
 
 		// 5. add to history and keep going
-		console.debug(`[${vibeTraceTs()}] [VibeIDE/toolExec] done`, { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: true }); recordChatTrace('toolExec:done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: true }); this._updateLatestTool(threadId, { role: 'tool', type: 'success', params: toolParams, result: toolResult, name: toolName, content: toolResultStr, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName })
+		vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: true }); recordChatTrace('toolExec:done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: true }); this._updateLatestTool(threadId, { role: 'tool', type: 'success', params: toolParams, result: toolResult, name: toolName, content: toolResultStr, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName })
 		this._agentActivityLog.logFinished(toolActivityLabel);
 
 		// Cache read_file results to prevent duplicate reads
@@ -4544,7 +4544,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					if (preprocessed.shouldUsePipeline) {
 						// Log QA response in dev mode for debugging
 						if (settings.imageQADevMode && preprocessed.qaResponse) {
-							console.log('[ImageQA] Pipeline response:', {
+							vibeLog.info('chatThread', '[ImageQA] Pipeline response:', {
 								confidence: preprocessed.qaResponse.confidence,
 								needsLLM: !!(preprocessed.qaResponse as any)._needsLLM,
 								needsVLM: !!(preprocessed.qaResponse as any)._needsVLM,
@@ -4569,7 +4569,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						}
 					}
 				} catch (error) {
-					console.error('[ImageQA] Error preprocessing images:', error);
+					vibeLog.error('chatThread', '[ImageQA] Error preprocessing images:', error);
 					// Continue with original messages on error
 				}
 			}
@@ -4779,7 +4779,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					// This ensures messages are formatted correctly for the new model
 					if (previousModelKey !== null && previousModelKey !== modelKey) {
 						try {
-							console.log(`[ChatThreadService] Re-preparing messages for new model: ${modelKey}`)
+							vibeLog.info('chatThread', `[ChatThreadService] Re-preparing messages for new model: ${modelKey}`)
 							// PERFORMANCE: Use cache for model switch too
 							const switchCacheKey = this._getMessagePrepCacheKey(preprocessedMessages, modelSelection, chatMode, repoIndexerResults);
 							const switchCached = this._messagePrepCache.get(switchCacheKey);
@@ -4859,7 +4859,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								chatLatencyAudit.markPromptAssemblyEnd(finalRequestId, promptTokens, 0, 0, false)
 							}
 						} catch (prepError) {
-							console.error('[ChatThreadService] Error re-preparing messages for new model:', prepError)
+							vibeLog.error('chatThread', '[ChatThreadService] Error re-preparing messages for new model:', prepError)
 							// Continue with existing messages if re-prep fails
 						}
 					}
@@ -5038,7 +5038,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// surfaces in DevTools. Measures the silent reasoning-warmup gap (start →
 				// first-activity) that has been mistaken for a hang.
 				const _turnStartMs = Date.now()
-				console.debug(`[${vibeTraceTs()}] [VibeIDE/llmTurn] start`, { iter: nMessagesSent, msgs: messages.length, model: modelSelection?.modelName, provider: modelSelection?.providerName, chatMode }); recordChatTrace('llmTurn:start', { iter: nMessagesSent, msgs: messages.length, model: modelSelection?.modelName, provider: modelSelection?.providerName })
+				vibeLog.debug('llmTurn', 'start', { iter: nMessagesSent, msgs: messages.length, model: modelSelection?.modelName, provider: modelSelection?.providerName, chatMode }); recordChatTrace('llmTurn:start', { iter: nMessagesSent, msgs: messages.length, model: modelSelection?.modelName, provider: modelSelection?.providerName })
 				const llmCancelToken = this._llmMessageService.sendLLMMessage({
 					messagesType: 'chatMessages',
 					chatMode,
@@ -5061,7 +5061,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					if (!firstTokenReceived && (fullText.length > 0 || fullReasoning.length > 0)) {
 						firstTokenReceived = true
 						chatLatencyAudit.markNetworkEnd(finalRequestId) // Network complete when first token arrives
-						console.debug(`[${vibeTraceTs()}] [VibeIDE/llmTurn] first-activity`, { afterMs: Date.now() - _turnStartMs, kind: fullText.length > 0 ? 'text' : 'reasoning' }); recordChatTrace('llmTurn:first-activity', { afterMs: Date.now() - _turnStartMs })
+						vibeLog.debug('llmTurn', 'first-activity', { afterMs: Date.now() - _turnStartMs, kind: fullText.length > 0 ? 'text' : 'reasoning' }); recordChatTrace('llmTurn:first-activity', { afterMs: Date.now() - _turnStartMs })
 						chatLatencyAudit.markFirstToken(finalRequestId)
 					}
 
@@ -5121,7 +5121,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						})
 					},
 				onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage }) => {
-					console.debug(`[${vibeTraceTs()}] [VibeIDE/llmTurn] done`, { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null, textLen: fullText?.length ?? 0, reasoningLen: fullReasoning?.length ?? 0 }); recordChatTrace('llmTurn:done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null })
+					vibeLog.debug('llmTurn', 'done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null, textLen: fullText?.length ?? 0, reasoningLen: fullReasoning?.length ?? 0 }); recordChatTrace('llmTurn:done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null })
 					// Mark message as done to prevent late onText updates
 					messageIsDone = true
 
@@ -5274,7 +5274,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								fullError: error?.fullError ?? null,
 								recoverable: 'switchModel',
 							}
-							console.warn(`[VibeIDE chatThread] Context overflow: ${overflowProvider}/${overflowModel} (threadId=${threadId}).`)
+							vibeLog.warn('chatThread', `Context overflow: ${overflowProvider}/${overflowModel} (threadId=${threadId}).`)
 							this._metricsService.capture('Context Overflow', {
 								providerName: overflowProvider,
 								modelName: overflowModel,
@@ -5304,7 +5304,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									fullError: error?.fullError ?? null,
 									recoverable: 'switchModel',
 								}
-								console.warn(`[VibeIDE chatThread] Empty-response circuit breaker tripped: ${errProvider}/${errModel} × ${streak} (threadId=${threadId}).`)
+								vibeLog.warn('chatThread', `Empty-response circuit breaker tripped: ${errProvider}/${errModel} × ${streak} (threadId=${threadId}).`)
 								this._metricsService.capture('Circuit Breaker Tripped — Empty Response', {
 									providerName: errProvider,
 									modelName: errModel,
@@ -5341,7 +5341,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								windowMs: HEALTH_WINDOW_MS,
 								threshold: HEALTH_FAILURE_THRESHOLD,
 							})
-							console.warn(`[VibeIDE chatThread] Model health degraded: ${healthMatch.providerName}/${healthMatch.modelName} (${count} failures in ${windowMin} min).`)
+							vibeLog.warn('chatThread', `Model health degraded: ${healthMatch.providerName}/${healthMatch.modelName} (${count} failures in ${windowMin} min).`)
 						}
 
 						// Clear stream state immediately so submit button becomes active (avoids stuck "Waiting for model response..." if audit or resolve fails)
@@ -5471,7 +5471,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 								originalRoutingDecision = await this._modelRouter.route(context)
 							} catch (routerError) {
-								console.error('[ChatThreadService] Error getting routing decision for fallback:', routerError)
+								vibeLog.error('chatThread', '[ChatThreadService] Error getting routing decision for fallback:', routerError)
 							}
 						}
 
@@ -5545,7 +5545,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									}
 								}
 							} catch (routerError) {
-								console.error('[ChatThreadService] Error getting new routing decision:', routerError)
+								vibeLog.error('chatThread', '[ChatThreadService] Error getting new routing decision:', routerError)
 							}
 						}
 
@@ -5553,10 +5553,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						if (nextModel) {
 							// Safety check: prevent infinite loops by limiting total model switches
 							if (triedModels.size >= 10) {
-								console.warn('[ChatThreadService] Auto mode: Too many model switches, stopping fallback attempts')
+								vibeLog.warn('chatThread', '[ChatThreadService] Auto mode: Too many model switches, stopping fallback attempts')
 								// Fall through to show error
 							} else {
-								console.log(`[ChatThreadService] Auto mode: Model ${modelSelection?.providerName}/${modelSelection?.modelName} failed, trying fallback: ${nextModel.providerName}/${nextModel.modelName}`)
+								vibeLog.info('chatThread', `[ChatThreadService] Auto mode: Model ${modelSelection?.providerName}/${modelSelection?.modelName} failed, trying fallback: ${nextModel.providerName}/${nextModel.modelName}`)
 								modelSelection = nextModel
 								// Update resolvedModelSelection and options for next iteration
 								resolvedModelSelection = nextModel
@@ -5608,9 +5608,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						// require provider-API support; for now we log the decision (L1185).
 						const resumeDecision = decideResume(_retryPartial, false, Date.now())
 						if (resumeDecision.kind === 'resume-replay') {
-							console.log(`[ChatThreadService] Retry ${nAttempts}: resume-replay, skip ${resumeDecision.alreadyRenderedChars} chars`)
+							vibeLog.info('chatThread', `[ChatThreadService] Retry ${nAttempts}: resume-replay, skip ${resumeDecision.alreadyRenderedChars} chars`)
 						} else if (resumeDecision.kind === 'expired-partial') {
-							console.log(`[ChatThreadService] Retry ${nAttempts}: partial expired (${resumeDecision.previousChars} chars), restarting`)
+							vibeLog.info('chatThread', `[ChatThreadService] Retry ${nAttempts}: partial expired (${resumeDecision.previousChars} chars), restarting`)
 						}
 						shouldRetryLLM = true
 						this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor })
@@ -6873,7 +6873,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 					})
 					return
 				}
-				console.warn(`[VibeIDE chatThread] Submit watchdog fired with isRunning=${currentState.isRunning} (threadId=${threadId}, after ${submitWatchdogSeconds}s). Surfacing forceReset error.`)
+				vibeLog.warn('chatThread', `Submit watchdog fired with isRunning=${currentState.isRunning} (threadId=${threadId}, after ${submitWatchdogSeconds}s). Surfacing forceReset error.`)
 				this._setStreamState(threadId, {
 					isRunning: undefined,
 					error: {
@@ -6903,7 +6903,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const setAt = this._streamStateSetAt.get(threadId)
 		const ageMs = setAt !== undefined ? Date.now() - setAt : 0
 		if (this.streamState[threadId]?.isRunning && ageMs > stuckThresholdMs) {
-			console.warn(`[VibeIDE chatThread] Detected stuck running state on send (age=${Math.floor(ageMs / 1000)}s > ${stuckThresholdMs / 1000}s threshold, isRunning=${this.streamState[threadId]?.isRunning}). Force-resetting instead of awaiting abortRunning.`)
+			vibeLog.warn('chatThread', `Detected stuck running state on send (age=${Math.floor(ageMs / 1000)}s > ${stuckThresholdMs / 1000}s threshold, isRunning=${this.streamState[threadId]?.isRunning}). Force-resetting instead of awaiting abortRunning.`)
 			this.forceResetChatState(threadId)
 		} else if (this.streamState[threadId]?.isRunning) {
 			await this.abortRunning(threadId)
@@ -6962,13 +6962,13 @@ We only need to do it for files that were edited since `from`, ie files between 
 					const pageInfo = pdf.pageCount ? ` (${pdf.pageCount} page${pdf.pageCount !== 1 ? 's' : ''})` : '';
 					pdfTexts.push(`\n\n[PDF: ${pdf.filename}${pageInfo}]\n${textToInclude}`);
 				} else {
-					console.warn(`PDF ${pdf.filename} has no extracted text - it may not have been processed correctly`);
+					vibeLog.warn('chatThread', `PDF ${pdf.filename} has no extracted text - it may not have been processed correctly`);
 				}
 			}
 			if (pdfTexts.length > 0) {
 				userMessageContent += '\n\n' + pdfTexts.join('\n\n');
 			} else {
-				console.warn('PDFs were attached but no extracted text was available to send to the model');
+				vibeLog.warn('chatThread', 'PDFs were attached but no extracted text was available to send to the model');
 			}
 		}
 
@@ -7598,7 +7598,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 				createdAt: Date.now(),
 			}
 			nextMessages = [trimMarker, ...nextMessages.slice(dropCount)]
-			console.warn(`[VibeIDE] Trimmed ${dropCount} oldest messages from thread ${threadId} (cap=${cap}, target=${target})`)
+			vibeLog.warn('chatThread', `Trimmed ${dropCount} oldest messages from thread ${threadId} (cap=${cap}, target=${target})`)
 			this._metricsService.capture('Thread Messages Trimmed', {
 				dropCount,
 				cap,

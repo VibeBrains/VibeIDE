@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
@@ -47,7 +48,7 @@ export class VibeModalRootContribution extends Disposable implements IWorkbenchC
 			if (this._modalService.getQueue().length === 0) return;
 			this._mounted = true;
 			lazyMountSub.dispose();
-			console.warn('[VibeModalRoot] mounting React tree (first modal triggered lazy mount)');
+			vibeLog.warn('vibeModalRoot', '[VibeModalRoot] mounting React tree (first modal triggered lazy mount)');
 			this._tryMount();
 		}));
 	}
@@ -56,7 +57,7 @@ export class VibeModalRootContribution extends Disposable implements IWorkbenchC
 		const workbench = document.querySelector<HTMLElement>('.monaco-workbench')
 			?? document.body;
 		if (!workbench) {
-			console.warn('[VibeModalRoot] no .monaco-workbench root found; modal portal not mounted');
+			vibeLog.warn('vibeModalRoot', '[VibeModalRoot] no .monaco-workbench root found; modal portal not mounted');
 			return;
 		}
 

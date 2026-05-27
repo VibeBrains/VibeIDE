@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
@@ -31,7 +32,7 @@ function safeOnClose(options: VibeModalOptions, result: { buttonId: string; inpu
 	try {
 		options.onClose(result);
 	} catch (e) {
-		console.warn('[VibeModalService] onClose threw', e);
+		vibeLog.warn('vibeModalServiceImpl', '[VibeModalService] onClose threw', e);
 	}
 }
 
@@ -117,7 +118,7 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 					return await veto();
 				} catch (e) {
 					// Defensive — a throwing callback BLOCKS dismiss (user-state preservation).
-					console.warn('[VibeModalService] onBeforeDismiss threw; blocking dismiss', e);
+					vibeLog.warn('vibeModalServiceImpl', '[VibeModalService] onBeforeDismiss threw; blocking dismiss', e);
 					return false;
 				}
 			})();
@@ -135,7 +136,7 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 			if (raceResult === timeoutSentinel) {
 				// Timeout reached — auto-allow dismiss with a warning. Better to
 				// release a stuck modal than strand the user inside it.
-				console.warn(`[VibeModalService] onBeforeDismiss did not resolve within ${timeoutMs}ms; auto-allowing dismiss`);
+				vibeLog.warn('vibeModalServiceImpl', `[VibeModalService] onBeforeDismiss did not resolve within ${timeoutMs}ms; auto-allowing dismiss`);
 			} else if (!raceResult && !timedOut) {
 				return false;
 			}
@@ -233,7 +234,7 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 		}).then(async result => {
 			if (args.secondaryAction && result.buttonId === args.secondaryAction.id) {
 				try { await args.secondaryAction.onClick(); }
-				catch (e) { console.warn('[showImportantInfoModal] secondaryAction.onClick threw', e); }
+				catch (e) { vibeLog.warn('vibeModalServiceImpl', '[showImportantInfoModal] secondaryAction.onClick threw', e); }
 			}
 		});
 	}

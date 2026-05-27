@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { useEffect, useState } from 'react';
 import * as ReactDOM from 'react-dom/client'
 import { _registerServices } from './services.js';
@@ -12,7 +13,7 @@ import { ServicesAccessor } from '../../../../../../../editor/browser/editorExte
 
 export const mountFnGenerator = (Component: (params: any) => React.ReactNode) => (rootElement: HTMLElement, accessor: ServicesAccessor, props?: any) => {
 	if (typeof document === 'undefined') {
-		console.error('index.tsx error: document was undefined')
+		vibeLog.error('mountFnGenerator', 'index.tsx error: document was undefined')
 		return
 	}
 

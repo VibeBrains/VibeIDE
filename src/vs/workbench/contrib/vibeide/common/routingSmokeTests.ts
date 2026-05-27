@@ -10,6 +10,7 @@
  * Run these tests manually or integrate into your test suite.
  */
 
+import { vibeLog } from './vibeLog.js';
 import { TaskContext, ITaskAwareModelRouter } from './modelRouter.js';
 import { ModelSelection } from './vibeideSettingsTypes.js';
 
@@ -305,33 +306,33 @@ async function testSpeculativeEscalation(router: ITaskAwareModelRouter): Promise
  * Print smoke test results
  */
 export function printSmokeTestResults(results: SmokeTestResult[]): void {
-	console.log('\n=== Model Routing Smoke Test Results ===\n');
+	vibeLog.info('routingSmokeTests', '\n=== Model Routing Smoke Test Results ===\n');
 
 	let passed = 0;
 	let failed = 0;
 
 	for (const result of results) {
 		const status = result.passed ? '✓ PASS' : '✗ FAIL';
-		console.log(`${status} - ${result.name}`);
+		vibeLog.info('routingSmokeTests', `${status} - ${result.name}`);
 
 		if (result.selectedModel) {
-			console.log(`  Model: ${result.selectedModel.providerName}/${result.selectedModel.modelName}`);
+			vibeLog.info('routingSmokeTests', `  Model: ${result.selectedModel.providerName}/${result.selectedModel.modelName}`);
 		}
 		if (result.confidence !== undefined) {
-			console.log(`  Confidence: ${(result.confidence * 100).toFixed(1)}%`);
+			vibeLog.info('routingSmokeTests', `  Confidence: ${(result.confidence * 100).toFixed(1)}%`);
 		}
 		if (result.reasoning) {
-			console.log(`  Reasoning: ${result.reasoning}`);
+			vibeLog.info('routingSmokeTests', `  Reasoning: ${result.reasoning}`);
 		}
 		if (result.error) {
-			console.log(`  Error: ${result.error}`);
+			vibeLog.info('routingSmokeTests', `  Error: ${result.error}`);
 		}
-		console.log();
+		vibeLog.info('routingSmokeTests');
 
 		if (result.passed) passed++;
 		else failed++;
 	}
 
-	console.log(`\nSummary: ${passed} passed, ${failed} failed out of ${results.length} tests\n`);
+	vibeLog.info('routingSmokeTests', `\nSummary: ${passed} passed, ${failed} failed out of ${results.length} tests\n`);
 }
 

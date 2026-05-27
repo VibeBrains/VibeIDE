@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { createDecorator, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -67,7 +68,7 @@ registerAction2(class extends Action2 {
 		const notifService = accessor.get(INotificationService)
 
 		const debugProperties = await metricsService.getDebuggingProperties()
-		console.log('Metrics:', debugProperties)
+		vibeLog.info('metrics', 'Metrics:', debugProperties)
 		notifService.info(`VibeIDE Debug info:\n${JSON.stringify(debugProperties, null, 2)}`)
 	}
 })

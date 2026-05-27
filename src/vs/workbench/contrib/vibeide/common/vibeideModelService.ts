@@ -1,3 +1,4 @@
+import { vibeLog } from './vibeLog.js';
 import { Disposable, IReference } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ITextModel } from '../../../../editor/common/model.js';
@@ -56,7 +57,7 @@ class VibeideModelService extends Disposable implements IVibeideModelService {
 		try {
 			// Validate URI is actually a URI instance
 			if (!uri || typeof uri.fsPath !== 'string') {
-				console.debug('InitializeModel error: Invalid URI provided', uri);
+				vibeLog.debug('vibeideModel', 'InitializeModel error: Invalid URI provided', uri);
 				return;
 			}
 
@@ -131,7 +132,7 @@ class VibeideModelService extends Disposable implements IVibeideModelService {
 				return;
 			}
 			// Log other unexpected errors at debug level
-			console.debug('InitializeModel error:', e)
+			vibeLog.debug('vibeideModel', 'InitializeModel error:', e)
 		}
 	};
 

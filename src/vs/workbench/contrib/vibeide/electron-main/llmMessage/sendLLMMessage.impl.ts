@@ -5,6 +5,7 @@
 
 // disable foreign import complaints
 /* eslint-disable */
+import { vibeLog } from '../../common/vibeLog.js';
 import Anthropic from '@anthropic-ai/sdk';
 import { Ollama } from 'ollama';
 import OpenAI, { ClientOptions, AzureOpenAI } from 'openai';
@@ -1017,7 +1018,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 					return // Exit early to prevent showing any error
 				} catch (retryError) {
 					// Log the retry failure for debugging (but don't show confusing error to user)
-					console.debug('[sendLLMMessage] Retry with non-streaming also failed:', retryError instanceof Error ? retryError.message : String(retryError))
+					vibeLog.debug('sendLLMMessage', '[sendLLMMessage] Retry with non-streaming also failed:', retryError instanceof Error ? retryError.message : String(retryError))
 					// If retry also fails, show a generic error instead of silently failing
 					// This prevents users from wondering why the model isn't responding
 					onError({
@@ -1075,7 +1076,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 					return // Exit early to prevent showing any error
 				} catch (retryError) {
 					// Log the retry failure for debugging
-					console.debug('[sendLLMMessage] Retry without tools also failed:', retryError instanceof Error ? retryError.message : String(retryError))
+					vibeLog.debug('sendLLMMessage', '[sendLLMMessage] Retry without tools also failed:', retryError instanceof Error ? retryError.message : String(retryError))
 					// If retry also fails, show the original error
 					onError({
 						message: `Model does not support tool calling: ${error.message || 'Unknown error'}`,
@@ -1098,7 +1099,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 				// The upper layer in sendLLMMessage.ts wraps this in a friendly preamble
 				// and appends the bracketed details for diagnosis.
 				const diag = describeConnectionError(error)
-				console.warn(`[VibeIDE] APIConnectionError ${providerName}/${modelName}:`, diag, serializeConnectionError(error))
+				vibeLog.warn('sendLLMMessage', `APIConnectionError ${providerName}/${modelName}:`, diag, serializeConnectionError(error))
 				onError({ message: `APIConnectionError: ${diag}`, fullError: error });
 			}
 			else {
@@ -1257,7 +1258,7 @@ const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessag
 				runOnText()
 			}
 			else if (e.content_block.type === 'redacted_thinking') {
-				console.log('delta', e.content_block.type)
+				vibeLog.info('sendLLMMessage', 'delta', e.content_block.type)
 				if (fullReasoning) fullReasoning += '\n\n' // starting a 2nd reasoning block
 				fullReasoning += '[redacted_thinking]'
 				runOnText()

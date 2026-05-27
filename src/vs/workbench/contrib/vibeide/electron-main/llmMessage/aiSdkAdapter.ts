@@ -5,6 +5,7 @@
 
 // disable foreign import complaints
 /* eslint-disable */
+import { vibeLog } from '../../common/vibeLog.js';
 import { streamText, jsonSchema, tool, type ModelMessage, type ToolSet, type TextStreamPart, type LanguageModel } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createAnthropic } from '@ai-sdk/anthropic';
@@ -770,7 +771,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	const sdkLogKey = `${providerName}|${modelName}|${sdkNpm ?? 'fallback'}|${sdkSource}`;
 	if (!_loggedSdkSelections.has(sdkLogKey)) {
 		_loggedSdkSelections.add(sdkLogKey);
-		console.debug(`[aiSdkAdapter] provider=${providerName} model=${modelName} baseURL=${baseURL} sdkNpm=${sdkNpm ?? '(unknown → fallback openai-compatible)'} source=${sdkSource}`);
+		vibeLog.debug('aiSdkAdapter', `[aiSdkAdapter] provider=${providerName} model=${modelName} baseURL=${baseURL} sdkNpm=${sdkNpm ?? '(unknown → fallback openai-compatible)'} source=${sdkSource}`);
 	}
 	const languageModel: LanguageModel = sdkNpm === '@ai-sdk/anthropic'
 		? createAnthropic({
@@ -1156,7 +1157,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 						// names per provider without re-reading the SDK source. Cleared
 						// once `lastUsage` is set so we don't spam.
 						else {
-							console.warn('[VibeIDE/usage] received but unrecognized shape', {
+							vibeLog.warn('usage', 'received but unrecognized shape', {
 								part: part.type, keys: Object.keys(u), raw: u,
 							});
 						}

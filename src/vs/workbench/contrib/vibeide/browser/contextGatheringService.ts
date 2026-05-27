@@ -1,3 +1,4 @@
+import { vibeLog } from '../common/vibeLog.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Position } from '../../../../editor/common/core/position.js';
 import { DocumentSymbol, SymbolKind } from '../../../../editor/common/languages.js';
@@ -236,7 +237,7 @@ class ContextGatheringService extends Disposable implements IContextGatheringSer
 					symbols.push(...intersecting);
 				}
 			} catch (e) {
-				console.warn('Symbol provider error:', e);
+				vibeLog.warn('contextGathering', 'Symbol provider error:', e);
 			}
 		}
 		// Also check reference providers.
@@ -272,7 +273,7 @@ class ContextGatheringService extends Disposable implements IContextGatheringSer
 							}
 						}
 					} catch (e) {
-						console.warn('Reference provider error:', e);
+						vibeLog.warn('contextGathering', 'Reference provider error:', e);
 					}
 				}
 			}
@@ -329,7 +330,7 @@ class ContextGatheringService extends Disposable implements IContextGatheringSer
 					})));
 				}
 			} catch (e) {
-				console.warn('Definition provider error:', e);
+				vibeLog.warn('contextGathering', 'Definition provider error:', e);
 			}
 		}
 		return defs;

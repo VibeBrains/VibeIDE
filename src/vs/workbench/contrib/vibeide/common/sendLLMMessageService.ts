@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, ServiceSendLLMMessageParams, MainSendLLMMessageParams, MainLLMMessageAbortParams, ServiceModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, MainModelListParams, OllamaModelResponse, OpenaiCompatibleModelResponse, } from './sendLLMMessageTypes.js';
 import { IVibeTokenBudgetService } from './vibeTokenBudgetService.js';
 
@@ -95,9 +96,9 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			const config = this.secretDetectionService.getConfig();
 			if (config.enabled) {
 				const redacted = this.secretDetectionService.redactSecretsInObject(e);
-				console.error('Error in LLMMessageService:', JSON.stringify(redacted.redacted))
+				vibeLog.error('sendLLMMessage', 'Error in LLMMessageService:', JSON.stringify(redacted.redacted))
 			} else {
-				console.error('Error in LLMMessageService:', JSON.stringify(e))
+				vibeLog.error('sendLLMMessage', 'Error in LLMMessageService:', JSON.stringify(e))
 			}
 		}))
 		// .list()

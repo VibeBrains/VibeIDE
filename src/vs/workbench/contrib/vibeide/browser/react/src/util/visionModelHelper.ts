@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../../../../common/vibeLog.js';
 import { SettingsOfProvider, ModelSelection, ProviderName, OverridesOfModel } from '../../../../common/vibeideSettingsTypes.js';
 import { isVisionByNameHeuristic } from '../../../../common/modelVisionHeuristics.js';
 
@@ -27,7 +28,7 @@ function aggregatorVisionHeuristic(providerName: ProviderName, modelName: string
 		const key = `${providerName}/${modelName}`;
 		if (!heuristicWarnedSet.has(key)) {
 			heuristicWarnedSet.add(key);
-			console.warn(`[VibeIDE] vision capability for ${key} resolved by name heuristic — no catalog override available. If this is wrong, set supportsVision on the model entry.`);
+			vibeLog.warn('visionModelHelper', `vision capability for ${key} resolved by name heuristic — no catalog override available. If this is wrong, set supportsVision on the model entry.`);
 		}
 	}
 	return matched;

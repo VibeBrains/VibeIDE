@@ -2,6 +2,7 @@
  *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
+import { vibeLog } from './vibeLog.js';
 
 /**
  * Secret detection and redaction utilities
@@ -253,7 +254,7 @@ export function getActivePatterns(config: SecretDetectionConfig = DEFAULT_CONFIG
 					priority: custom.priority,
 				});
 			} catch (e) {
-				console.warn(`Invalid regex pattern for custom secret pattern ${custom.id}:`, e);
+				vibeLog.warn('secretDetection', `Invalid regex pattern for custom secret pattern ${custom.id}:`, e);
 			}
 		}
 	}

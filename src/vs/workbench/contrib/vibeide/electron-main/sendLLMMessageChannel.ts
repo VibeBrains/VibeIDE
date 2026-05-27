@@ -6,6 +6,7 @@
 // registered in app.ts
 // code convention is to make a service responsible for this stuff, and not a channel, but having fewer files is simpler...
 
+import { vibeLog } from '../common/vibeLog.js';
 import { IServerChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, MainSendLLMMessageParams, AbortRef, SendLLMMessageParams, MainLLMMessageAbortParams, ModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, OllamaModelResponse, OpenaiCompatibleModelResponse, MainModelListParams, } from '../common/sendLLMMessageTypes.js';
@@ -85,7 +86,7 @@ export class LLMMessageChannel implements IServerChannel {
 			}
 		}
 		catch (e) {
-			console.log('llmMessageChannel: Call Error:', e)
+			vibeLog.info('sendLLMMessageChannel', 'llmMessageChannel: Call Error:', e)
 		}
 	}
 
@@ -105,7 +106,7 @@ export class LLMMessageChannel implements IServerChannel {
 				this.llmMessageEmitters.onFinalMessage.fire({ requestId, ...p });
 			},
 			onError: (p) => {
-				console.log('sendLLM: firing err');
+				vibeLog.info('sendLLMMessageChannel', 'sendLLM: firing err');
 				this.llmMessageEmitters.onError.fire({ requestId, ...p });
 			},
 			abortRef: this._infoOfRunningRequest[requestId].abortRef,

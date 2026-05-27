@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react'; // Added useRef import just in case it was missed, though likely already present
 import { ProviderName, SettingName, displayInfoOfSettingName, providerNames, VibeideStatefulModelInfo, customSettingNamesOfProvider, RefreshableProviderName, refreshableProviderNames, displayInfoOfProviderName, nonlocalProviderNames, localProviderNames, GlobalSettingName, featureNames, displayInfoOfFeatureName, isProviderNameDisabled, FeatureName, hasDownloadButtonsOnModelsProviderNames, subTextMdOfProviderName } from '../../../../common/vibeideSettingsTypes.js'
 import { remoteCatalogCapableProviderNames } from '../../../../common/remoteCatalogService.js'
@@ -170,7 +171,7 @@ const RefreshRemoteCatalogButton = ({ providerName, compact }: { providerName: P
 			setJustFinished('finished')
 			metricsService.capture('Click', { providerName, action: 'Refresh Remote Catalog' })
 		} catch (error) {
-			console.error('Failed to refresh remote catalog:', error)
+			vibeLog.error('Settings', 'Failed to refresh remote catalog:', error)
 			setJustFinished('error')
 		} finally {
 			setIsRefreshing(false)
@@ -956,7 +957,7 @@ const ProviderSetting = ({ providerName, settingName, subTextMd }: { providerNam
 
 	const settingValue = settingsState.settingsOfProvider[providerName][settingName] as string // this should always be a string in this component
 	if (typeof settingValue !== 'string') {
-		console.log('Error: Provider setting had a non-string value.')
+		vibeLog.info('Settings', 'Error: Provider setting had a non-string value.')
 		return
 	}
 
@@ -1497,7 +1498,7 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                                                     }
                                                 }
                                             } catch (e) {
-                                                console.error('Auto-tune error:', e)
+                                                vibeLog.error('Settings', 'Auto-tune error:', e)
                                             }
                                             // Lightweight: warm project index placeholder (runs in background)
                                             try {
@@ -1533,14 +1534,14 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                                 const errorMsg = error?.message || String(error) || 'Unknown error'
                                 setStatusText(ollamaS.pullErr(modelTag, errorMsg))
                                 notificationService.error(ollamaS.pullErrNotif(modelTag, errorMsg))
-                                console.error('Pull error:', error)
+                                vibeLog.error('Settings', 'Pull error:', error)
                             })
                     } catch (error) {
                         setStatus('error')
                         const errorMsg = error?.message || String(error) || 'Unknown error'
                         setStatusText(ollamaS.pullStartErr(modelTag, errorMsg))
                         notificationService.error(ollamaS.pullStartErrNotif(modelTag, errorMsg))
-                        console.error('Pull setup error:', error)
+                        vibeLog.error('Settings', 'Pull setup error:', error)
                     }
                 }}
             >{ollamaS.btnPull}</button>
@@ -1609,14 +1610,14 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                                 const errorMsg = error?.message || String(error) || 'Unknown error'
                                 setStatusText(ollamaS.deleteErr(modelTag, errorMsg))
                                 notificationService.error(ollamaS.deleteErrNotif(modelTag, errorMsg))
-                                console.error('Delete error:', error)
+                                vibeLog.error('Settings', 'Delete error:', error)
                             })
                     } catch (error) {
                         setStatus('error')
                         const errorMsg = error?.message || String(error) || 'Unknown error'
                         setStatusText(ollamaS.deleteStartErr(modelTag, errorMsg))
                         notificationService.error(ollamaS.deleteStartErrNotif(modelTag, errorMsg))
-                        console.error('Delete setup error:', error)
+                        vibeLog.error('Settings', 'Delete setup error:', error)
                     }
                 }}
             >{ollamaS.btnDelete}</button>

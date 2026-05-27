@@ -1,3 +1,4 @@
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable, IDisposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
@@ -341,11 +342,11 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				this._isWarmed = true;
 				// Save to new location
 				await this._saveIndex();
-				console.debug('[RepoIndexer] Migrated index from old location to new location');
+				vibeLog.debug('repoIndexer', '[RepoIndexer] Migrated index from old location to new location');
 			}
 		} catch (error) {
 			// Old index doesn't exist or is invalid, will rebuild on demand
-			console.debug('[RepoIndexer] Failed to load index, will rebuild:', error);
+			vibeLog.debug('repoIndexer', '[RepoIndexer] Failed to load index, will rebuild:', error);
 		}
 	}
 
@@ -418,7 +419,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			}
 			await this.fileService.writeFile(indexPath, bufferModule.VSBuffer.fromString(content));
 		} catch (e) {
-			console.warn('[RepoIndexer] Failed to save repo index:', e);
+			vibeLog.warn('repoIndexer', '[RepoIndexer] Failed to save repo index:', e);
 		}
 	}
 
@@ -704,7 +705,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 					};
 				} catch (error) {
 					// Embedding computation failed, continue without embeddings
-					console.debug('[RepoIndexer] Failed to compute embeddings during snippet extraction:', error);
+					vibeLog.debug('repoIndexer', '[RepoIndexer] Failed to compute embeddings during snippet extraction:', error);
 				}
 			}
 
@@ -915,7 +916,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				}
 			} catch (error) {
 				// Embedding computation failed, continue with BM25-only
-				console.debug('[RepoIndexer] Query embedding computation failed:', error);
+				vibeLog.debug('repoIndexer', '[RepoIndexer] Query embedding computation failed:', error);
 			}
 		}
 
@@ -927,7 +928,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				vectorResults = vectorStoreResults.map(r => ({ id: r.id, score: r.score }));
 			} catch (error) {
 				// Vector store query failed, continue with BM25-only
-				console.debug('[RepoIndexer] Vector store query failed:', error);
+				vibeLog.debug('repoIndexer', '[RepoIndexer] Vector store query failed:', error);
 			}
 		}
 
@@ -1278,7 +1279,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			const avgLatency = this._runningSum / this._recentLatencies.length;
 			if (avgLatency > RepoIndexerService.PERFORMANCE_THRESHOLD_MS && !this._isDisabledDueToPerformance) {
 				this._isDisabledDueToPerformance = true;
-				console.warn(`[RepoIndexer] Disabled due to poor performance (avg latency: ${avgLatency.toFixed(1)}ms). Will re-enable after index rebuild.`);
+				vibeLog.warn('repoIndexer', `[RepoIndexer] Disabled due to poor performance (avg latency: ${avgLatency.toFixed(1)}ms). Will re-enable after index rebuild.`);
 			}
 		}
 	}
@@ -1923,10 +1924,8 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		// Schedule debounced save (don't save immediately)
 		if (updatedCount > 0) {
 			this._saveIndexScheduler.schedule();
-			// Optional: log updates in debug mode
-			if (console.debug) {
-				console.debug(`[RepoIndexer] Incrementally updated ${updatedCount} file(s)${failedCount > 0 ? `, ${failedCount} failed` : ''}`);
-			}
+			// Optional: log updates in debug mode (vibeLog self-gates on level/category)
+			vibeLog.debug('repoIndexer', `[RepoIndexer] Incrementally updated ${updatedCount} file(s)${failedCount > 0 ? `, ${failedCount} failed` : ''}`);
 		}
 	}
 
@@ -2093,7 +2092,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			}
 		} catch (error) {
 			// Embedding computation failed, fallback to BM25-only
-			console.debug('[RepoIndexer] Embedding computation failed, falling back to BM25:', error);
+			vibeLog.debug('repoIndexer', '[RepoIndexer] Embedding computation failed, falling back to BM25:', error);
 			return [];
 		}
 	}

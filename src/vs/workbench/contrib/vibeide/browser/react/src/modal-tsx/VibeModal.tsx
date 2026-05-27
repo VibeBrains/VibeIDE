@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccessor } from '../util/services.js';
 import { VIBE_MODAL_MIN_AUTO_DISMISS_MS, VibeModalButton, VibeModalQueueEntry } from '../../../../common/vibeModalTypes.js';
@@ -95,7 +96,7 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
 	useEffect(() => {
 		if (!options.onMount) return;
 		try { options.onMount(); }
-		catch (e) { console.warn('[VibeModal] onMount threw', e); }
+		catch (e) { vibeLog.warn('VibeModal', '[VibeModal] onMount threw', e); }
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally
 		// only fires on entry.id change; options.onMount changes shouldn't refire
 		// (caller expectation: «mount» = once per showModal call).
@@ -143,7 +144,7 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
 		const ms = Math.max(VIBE_MODAL_MIN_AUTO_DISMISS_MS, rawMs);
 		if (rawMs < VIBE_MODAL_MIN_AUTO_DISMISS_MS && !_autoDismissClampWarned) {
 			_autoDismissClampWarned = true;
-			console.warn(`[VibeModal] autoDismissAfterMs=${rawMs}ms is below the floor (${VIBE_MODAL_MIN_AUTO_DISMISS_MS}ms); clamped. Anything shorter is a visual flash — pick >= ${VIBE_MODAL_MIN_AUTO_DISMISS_MS}ms.`);
+			vibeLog.warn('VibeModal', `[VibeModal] autoDismissAfterMs=${rawMs}ms is below the floor (${VIBE_MODAL_MIN_AUTO_DISMISS_MS}ms); clamped. Anything shorter is a visual flash — pick >= ${VIBE_MODAL_MIN_AUTO_DISMISS_MS}ms.`);
 		}
 		let cancelled = false;
 		let pausedByHover = false;

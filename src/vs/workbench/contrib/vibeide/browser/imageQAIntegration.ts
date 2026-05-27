@@ -8,6 +8,7 @@
  * Hooks into chat flow to process images locally before sending to LLM
  */
 
+import { vibeLog } from '../common/vibeLog.js';
 import { ChatImageAttachment } from '../common/chatThreadServiceTypes.js';
 import { imageQAPipeline, type ImageQAOptions, type QAResponse } from '../common/imageQA/index.js';
 import { ModelSelection, OverridesOfModel, SettingsOfProvider } from '../common/vibeideSettingsTypes.js';
@@ -122,7 +123,7 @@ export async function preprocessImagesForQA(
 	const willUseOCR = shouldUseImageQAPipeline(images, modelSelection, pipelineEnabled, settings?.settingsOfProvider, settings?.overridesOfModel);
 	if (devMode || pipelineEnabled) {
 		// Diagnostic: surface the gate decision so users can see why OCR did or didn't run.
-		console.debug('[ImageQA gate]', {
+		vibeLog.debug('imageQAIntegration', '[ImageQA gate]', {
 			provider: modelSelection?.providerName,
 			model: modelSelection?.modelName,
 			imageCount: images?.length ?? 0,
@@ -191,7 +192,7 @@ export async function preprocessImagesForQA(
 		};
 
 	} catch (error: any) {
-		console.error('[ImageQA] Pipeline error:', error);
+		vibeLog.error('imageQAIntegration', '[ImageQA] Pipeline error:', error);
 
 		// Fallback: send images normally
 		return {

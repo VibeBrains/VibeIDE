@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { ILLMMessageService } from './sendLLMMessageService.js';
 import { IRemoteCatalogService } from './remoteCatalogService.js';
@@ -280,7 +281,7 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 				await this.vibeideSettingsService.pruneOverridesToProviderModels(providerName);
 			}
 		} catch (error) {
-			console.error(`Failed to refresh remote catalog for ${providerName}:`, error);
+			vibeLog.error('refreshModel', `Failed to refresh remote catalog for ${providerName}:`, error);
 			throw error;
 		}
 	}

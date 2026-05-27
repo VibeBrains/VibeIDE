@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -380,7 +381,7 @@ Provide your review annotations as a JSON array:`;
 		} catch (error) {
 			// If parsing fails, try to extract annotations from natural language response
 			// This is a fallback - ideally the LLM should return JSON
-			console.warn('Failed to parse review response as JSON:', error);
+			vibeLog.warn('codeReview', 'Failed to parse review response as JSON:', error);
 		}
 
 		return annotations;

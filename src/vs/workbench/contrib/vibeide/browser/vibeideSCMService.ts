@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { ThemeIcon } from '../../../../base/common/themables.js'
 import { localize2 } from '../../../../nls.js'
 import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js'
@@ -165,7 +166,7 @@ class GenerateCommitMessageService extends Disposable implements IGenerateCommit
 					resolve(commitMessage)
 				},
 				onError: (error) => {
-					console.error(error)
+					vibeLog.error('vibeideSCM', error)
 					reject(error)
 				},
 				onAbort: () => {
@@ -188,7 +189,7 @@ class GenerateCommitMessageService extends Disposable implements IGenerateCommit
 
 	private onError(error: any) {
 		if (!isCancellationError(error)) {
-			console.error(error)
+			vibeLog.error('vibeideSCM', error)
 			this.notificationService.error(localize2('vibeFailedToGenerateCommitMessage', 'Failed to generate commit message.').value)
 		}
 	}

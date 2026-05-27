@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../../../../common/vibeLog.js';
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { useAccessor, useChatThreadsState, useChatThreadsStreamState, useCommandBarState, useCommandBarURIListener, useSettingsState } from '../util/services.js'
 import { usePromise, useRefState } from '../util/helpers.js'
@@ -294,7 +295,7 @@ const ApplyButtonsForTerminal = ({
 			metricsService.capture('Execute Shell', { length: codeStr.length })
 		} catch (e) {
 			setIsShellRunning(false)
-			console.error('Failed to execute in terminal:', e)
+			vibeLog.error('ApplyBlockHoverButtons', 'Failed to execute in terminal:', e)
 		}
 	}, [codeStr, uri, applyBoxId, metricsService, terminalToolService, isShellRunning])
 

@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { ButtonHTMLAttributes, FormEvent, FormHTMLAttributes, Fragment, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 
@@ -1648,7 +1649,7 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			// Defensive check: verify the message is still a user message before editing
 			const thread = chatThreadsState.allThreads[threadId]
 			if (!thread || !thread.messages || thread.messages[messageIdx]?.role !== 'user') {
-				console.error('Error while editing message: Message is not a user message or no longer exists')
+				vibeLog.error('SidebarChat', 'Error while editing message: Message is not a user message or no longer exists')
 				setIsBeingEdited(false)
 				chatThreadsService.setCurrentlyFocusedMessageIdx(undefined)
 				return
@@ -1665,7 +1666,7 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			try {
 				await chatThreadsService.editUserMessageAndStreamResponse({ userMessage, messageIdx, threadId })
 			} catch (e) {
-				console.error('Error while editing message:', e)
+				vibeLog.error('SidebarChat', 'Error while editing message:', e)
 			}
 			await chatThreadsService.focusCurrentChat()
 			requestAnimationFrame(() => _scrollToBottom?.())
@@ -2196,14 +2197,14 @@ const ToolRequestAcceptRejectButtons = ({ toolName }: { toolName: ToolName }) =>
 			// use subscribed state
 			chatThreadsService.approveLatestToolRequest(currentThreadId)
 			metricsService.capture('Tool Request Accepted', {})
-		} catch (e) { console.error('Error while approving message in chat:', e) }
+		} catch (e) { vibeLog.error('SidebarChat', 'Error while approving message in chat:', e) }
 	}, [chatThreadsService, metricsService, currentThreadId])
 
 	const onReject = useCallback(() => {
 		try {
 			// use subscribed state
 			chatThreadsService.rejectLatestToolRequest(currentThreadId)
-		} catch (e) { console.error('Error while approving message in chat:', e) }
+		} catch (e) { vibeLog.error('SidebarChat', 'Error while approving message in chat:', e) }
 		metricsService.capture('Tool Request Rejected', {})
 	}, [chatThreadsService, metricsService, currentThreadId])
 
@@ -4605,7 +4606,7 @@ export const SidebarChat = () => {
 							}
 						} catch (err) {
 							// Service error - log but continue
-							console.warn('Error resolving symbol:', err)
+							vibeLog.warn('SidebarChat', 'Error resolving symbol:', err)
 						}
 					}
 					if (!symbolFound) {
@@ -4635,7 +4636,7 @@ export const SidebarChat = () => {
 					}
 				} catch (err) {
 					// Service error - log but continue
-					console.warn('Error resolving reference:', err)
+					vibeLog.warn('SidebarChat', 'Error resolving reference:', err)
 				}
 				if (!resolved) {
 					unresolvedRefs.push(`@${raw}`)
@@ -4650,7 +4651,7 @@ export const SidebarChat = () => {
 			}
 		} catch (err) {
 			// Best-effort; do not block send, but log error
-			console.warn('Error resolving @references:', err)
+			vibeLog.warn('SidebarChat', 'Error resolving @references:', err)
 		}
 
 		// Convert image attachments to ChatImageAttachment format
@@ -4752,7 +4753,7 @@ export const SidebarChat = () => {
 		try {
 			await chatThreadsService.addUserMessageAndStreamResponse({ userMessage, threadId, images, pdfs, _chatSelections: stagingSelections })
 		} catch (e) {
-			console.error('Error while sending message in chat:', e)
+			vibeLog.error('SidebarChat', 'Error while sending message in chat:', e)
 		}
 
 	}, [chatThreadsService, isDisabled, isRunning, textAreaRef, textAreaFnsRef, setSelections, settingsState, imageAttachments, pdfAttachments, clearImages, clearPDFs, currentThread.id])

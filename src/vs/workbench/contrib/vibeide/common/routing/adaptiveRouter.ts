@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../vibeLog.js';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../../platform/instantiation/common/extensions.js';
@@ -45,7 +46,7 @@ export class AdaptiveModelRouter extends Disposable implements IAdaptiveModelRou
 		// Update learned adjustments every hour
 		this.updateInterval = setInterval(() => {
 			this.updateFromTelemetry().catch(err => {
-				console.warn('[AdaptiveRouter] Failed to update from telemetry:', err);
+				vibeLog.warn('adaptiveRouter', '[AdaptiveRouter] Failed to update from telemetry:', err);
 			});
 		}, 60 * 60 * 1000); // 1 hour
 
@@ -59,7 +60,7 @@ export class AdaptiveModelRouter extends Disposable implements IAdaptiveModelRou
 
 		// Initial update
 		this.updateFromTelemetry().catch(err => {
-			console.warn('[AdaptiveRouter] Failed initial telemetry update:', err);
+			vibeLog.warn('adaptiveRouter', '[AdaptiveRouter] Failed initial telemetry update:', err);
 		});
 	}
 
@@ -115,7 +116,7 @@ export class AdaptiveModelRouter extends Disposable implements IAdaptiveModelRou
 
 		// Phase 5: Record decision for learning (non-blocking)
 		this._recordRoutingDecision(context, best, scored, eventId, startTime).catch(err => {
-			console.warn('[AdaptiveRouter] Failed to record routing decision:', err);
+			vibeLog.warn('adaptiveRouter', '[AdaptiveRouter] Failed to record routing decision:', err);
 		});
 
 		const confidence = Math.min(1.0, best.finalScore / 100);
@@ -162,7 +163,7 @@ export class AdaptiveModelRouter extends Disposable implements IAdaptiveModelRou
 		}
 
 		// Save learned adjustments (could persist to storage)
-		console.log('[AdaptiveRouter] Updated learned adjustments:', this.learnedAdjustments.size);
+		vibeLog.info('adaptiveRouter', '[AdaptiveRouter] Updated learned adjustments:', this.learnedAdjustments.size);
 	}
 
 	/**

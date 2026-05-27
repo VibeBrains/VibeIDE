@@ -8,6 +8,7 @@
 // per-window breach ladder (amber/red) that performanceGuardrailsService and
 // `vibe doctor --perf` consume.
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -761,7 +762,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		const startTime = performance.now();
 		const isEnabled = this._settingsService.state.globalSettings.enableAutocomplete
 		if (!isEnabled) {
-			console.debug('[Autocomplete] Disabled in settings. Enable it in VibeIDE Settings > Feature Options > Autocomplete')
+			vibeLog.debug('autocomplete', '[Autocomplete] Disabled in settings. Enable it in VibeIDE Settings > Feature Options > Autocomplete')
 			return []
 		}
 
@@ -769,7 +770,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		const lineLength = model.getValueLengthInRange(new Range(1, 1, position.lineNumber, position.column));
 		if (lineLength > 500) {
 			// Skip autocomplete for very long lines (>500 chars)
-			console.debug('[Autocomplete] Skipped: Line too long (>500 chars)')
+			vibeLog.debug('autocomplete', '[Autocomplete] Skipped: Line too long (>500 chars)')
 			return [];
 		}
 
@@ -777,7 +778,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		const languageId = model.getLanguageId();
 		const codeLanguages = ['typescript', 'javascript', 'typescriptreact', 'javascriptreact', 'python', 'java', 'go', 'rust', 'cpp', 'c', 'cs', 'ruby', 'php', 'swift', 'kotlin', 'scala', 'dart'];
 		if (!codeLanguages.includes(languageId)) {
-			console.debug(`[Autocomplete] Skipped: Language "${languageId}" not supported. Supported: ${codeLanguages.join(', ')}`)
+			vibeLog.debug('autocomplete', `[Autocomplete] Skipped: Language "${languageId}" not supported. Supported: ${codeLanguages.join(', ')}`)
 			return [];
 		}
 
@@ -795,7 +796,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 					// Only abort if request is still pending (don't abort finished or accepted requests)
 					// This prevents aborting requests that have already completed successfully or been accepted
 					if (autocompletion.status === 'pending' && autocompletion.requestId) {
-						console.debug(`[Autocomplete] Aborting request ${autocompletion.id} due to cache eviction`)
+						vibeLog.debug('autocomplete', `[Autocomplete] Aborting request ${autocompletion.id} due to cache eviction`)
 						this._llmMessageService.abort(autocompletion.requestId)
 					}
 					// If status is 'finished' or 'error', the request is already done, so no need to abort
@@ -920,7 +921,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		// (This check happens after we've already checked the cache, so we know we need a new request)
 		if (numPending >= MAX_PENDING_REQUESTS && oldestPending) {
 			// cancel the oldest pending request and remove it from cache
-			console.debug(`[Autocomplete] Cancelling oldest pending request (${oldestPending.id}) to make room for new one`)
+			vibeLog.debug('autocomplete', `[Autocomplete] Cancelling oldest pending request (${oldestPending.id}) to make room for new one`)
 			this._autocompletionsOfDocument[docUriStr].delete(oldestPending.id)
 		}
 
@@ -953,7 +954,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		const { shouldGenerate, predictionType, llmPrefix, llmSuffix, stopTokens } = getCompletionOptions(prefixAndSuffix, relevantContext, justAcceptedAutocompletion, isLocal)
 
 		if (!shouldGenerate) {
-			console.debug('[Autocomplete] Skipped: shouldGenerate=false (likely cursor position or context not suitable for completion)')
+			vibeLog.debug('autocomplete', '[Autocomplete] Skipped: shouldGenerate=false (likely cursor position or context not suitable for completion)')
 			return []
 		}
 
@@ -985,7 +986,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 			}
 			return [];
 		}
-		console.debug(`[VibeIDE Autocomplete] FIM routing: ${describeFIMRouting(fimDecision)}`);
+		vibeLog.debug('Autocomplete', `FIM routing: ${describeFIMRouting(fimDecision)}`);
 
 		// L1016: assemble structured FIM context and run budget enforcer before
 		// dispatching the request. Logs trimmed sections at debug level so
@@ -997,11 +998,11 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 			if (fimContext) {
 				const budget = reportFIMBudget(fimContext, FIM_BUDGET_DEFAULTS);
 				if (budget.trimmed.length > 0) {
-					console.debug(`[VibeIDE Autocomplete] FIM budget: ${budget.totalChars}/${FIM_BUDGET_DEFAULTS.maxContextChars} chars, trimmed=${budget.trimmed.join(',')}`);
+					vibeLog.debug('Autocomplete', `FIM budget: ${budget.totalChars}/${FIM_BUDGET_DEFAULTS.maxContextChars} chars, trimmed=${budget.trimmed.join(',')}`);
 				}
 			}
 		} catch (e) {
-			console.debug('[VibeIDE Autocomplete] FIM budget report skipped:', e);
+			vibeLog.debug('Autocomplete', 'FIM budget report skipped:', e);
 		}
 
 
@@ -1080,7 +1081,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 						// The final handler will do proper truncation
 					} catch (e) {
 						// If streaming processing fails, log but don't break - fall back to final text
-						console.debug('[Autocomplete] Error processing streamed text:', e)
+						vibeLog.debug('autocomplete', '[Autocomplete] Error processing streamed text:', e)
 						// Continue - onFinalMessage will handle the final text
 					}
 				},

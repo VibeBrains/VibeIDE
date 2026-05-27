@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../vibeLog.js';
 import { ImageType, QuestionType, imageQARegistry } from './modelRegistry.js';
 
 export interface RoutingDecision {
@@ -226,7 +227,7 @@ export class ImageQARouter {
 	 */
 	logDecision(decision: RoutingDecision, devMode: boolean = false): void {
 		if (devMode) {
-			console.log('[ImageQA Router]', {
+			vibeLog.info('imageRouter', '[ImageQA Router]', {
 				imageType: decision.imageType,
 				questionType: decision.questionType,
 				path: decision.path,

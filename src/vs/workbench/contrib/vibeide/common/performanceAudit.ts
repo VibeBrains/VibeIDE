@@ -10,6 +10,7 @@
  * Run this in the browser console or via a command to get performance reports.
  */
 
+import { vibeLog } from './vibeLog.js';
 import { metricsCollector } from './metricsCollector.js';
 import { ChatLatencyMetrics } from './chatLatencyTypes.js';
 
@@ -168,39 +169,39 @@ export function printPerformanceAuditReport(mode: 'auto' | 'single' = 'auto'): v
 	const report = generatePerformanceAuditReport(mode);
 
 	console.group(`📊 Performance Audit Report - ${mode.toUpperCase()} Mode`);
-	console.log(`Timestamp: ${report.timestamp}`);
-	console.log(`Sample Size: ${metricsCollector.getAll().length} requests`);
-	console.log('');
+	vibeLog.info('performanceAudit', `Timestamp: ${report.timestamp}`);
+	vibeLog.info('performanceAudit', `Sample Size: ${metricsCollector.getAll().length} requests`);
+	vibeLog.info('performanceAudit', '');
 
 	console.group('📈 Metrics (p50 / p95 / mean)');
-	console.log(`TTFS: ${report.metrics.ttfs.p50.toFixed(1)}ms / ${report.metrics.ttfs.p95.toFixed(1)}ms / ${report.metrics.ttfs.mean.toFixed(1)}ms`);
-	console.log(`TTS: ${report.metrics.tts.p50.toFixed(1)}ms / ${report.metrics.tts.p95.toFixed(1)}ms / ${report.metrics.tts.mean.toFixed(1)}ms`);
+	vibeLog.info('performanceAudit', `TTFS: ${report.metrics.ttfs.p50.toFixed(1)}ms / ${report.metrics.ttfs.p95.toFixed(1)}ms / ${report.metrics.ttfs.mean.toFixed(1)}ms`);
+	vibeLog.info('performanceAudit', `TTS: ${report.metrics.tts.p50.toFixed(1)}ms / ${report.metrics.tts.p95.toFixed(1)}ms / ${report.metrics.tts.mean.toFixed(1)}ms`);
 	if (report.metrics.routerDecisionTime.p50 > 0) {
-		console.log(`Router Decision: ${report.metrics.routerDecisionTime.p50.toFixed(1)}ms / ${report.metrics.routerDecisionTime.p95.toFixed(1)}ms / ${report.metrics.routerDecisionTime.mean.toFixed(1)}ms`);
+		vibeLog.info('performanceAudit', `Router Decision: ${report.metrics.routerDecisionTime.p50.toFixed(1)}ms / ${report.metrics.routerDecisionTime.p95.toFixed(1)}ms / ${report.metrics.routerDecisionTime.mean.toFixed(1)}ms`);
 	}
-	console.log(`Network Latency: ${report.metrics.networkLatency.p50.toFixed(1)}ms / ${report.metrics.networkLatency.p95.toFixed(1)}ms / ${report.metrics.networkLatency.mean.toFixed(1)}ms`);
-	console.log(`Prompt Assembly: ${report.metrics.promptAssemblyTime.p50.toFixed(1)}ms / ${report.metrics.promptAssemblyTime.p95.toFixed(1)}ms / ${report.metrics.promptAssemblyTime.mean.toFixed(1)}ms`);
+	vibeLog.info('performanceAudit', `Network Latency: ${report.metrics.networkLatency.p50.toFixed(1)}ms / ${report.metrics.networkLatency.p95.toFixed(1)}ms / ${report.metrics.networkLatency.mean.toFixed(1)}ms`);
+	vibeLog.info('performanceAudit', `Prompt Assembly: ${report.metrics.promptAssemblyTime.p50.toFixed(1)}ms / ${report.metrics.promptAssemblyTime.p95.toFixed(1)}ms / ${report.metrics.promptAssemblyTime.mean.toFixed(1)}ms`);
 	if (report.metrics.tokensPerSecond.p50 > 0) {
-		console.log(`Tokens/Second: ${report.metrics.tokensPerSecond.p50.toFixed(1)} / ${report.metrics.tokensPerSecond.p95.toFixed(1)} / ${report.metrics.tokensPerSecond.mean.toFixed(1)}`);
+		vibeLog.info('performanceAudit', `Tokens/Second: ${report.metrics.tokensPerSecond.p50.toFixed(1)} / ${report.metrics.tokensPerSecond.p95.toFixed(1)} / ${report.metrics.tokensPerSecond.mean.toFixed(1)}`);
 	}
-	console.log(`Input Tokens: ${report.metrics.totalInputTokens.p50} / ${report.metrics.totalInputTokens.mean.toFixed(0)}`);
-	console.log(`Output Tokens: ${report.metrics.outputTokens.p50} / ${report.metrics.outputTokens.mean.toFixed(0)}`);
+	vibeLog.info('performanceAudit', `Input Tokens: ${report.metrics.totalInputTokens.p50} / ${report.metrics.totalInputTokens.mean.toFixed(0)}`);
+	vibeLog.info('performanceAudit', `Output Tokens: ${report.metrics.outputTokens.p50} / ${report.metrics.outputTokens.mean.toFixed(0)}`);
 	console.groupEnd();
 
 	console.group('🎯 Targets');
-	console.log(`TTFS ≤${report.targets.ttfs.target}ms: ${report.targets.ttfs.met ? '✅' : '❌'} (${report.metrics.ttfs.p95.toFixed(1)}ms)`);
-	console.log(`TTS ≤${report.targets.tts.target}ms: ${report.targets.tts.met ? '✅' : '❌'} (${report.metrics.tts.p95.toFixed(1)}ms)`);
+	vibeLog.info('performanceAudit', `TTFS ≤${report.targets.ttfs.target}ms: ${report.targets.ttfs.met ? '✅' : '❌'} (${report.metrics.ttfs.p95.toFixed(1)}ms)`);
+	vibeLog.info('performanceAudit', `TTS ≤${report.targets.tts.target}ms: ${report.targets.tts.met ? '✅' : '❌'} (${report.metrics.tts.p95.toFixed(1)}ms)`);
 	if (report.metrics.routerDecisionTime.p50 > 0) {
-		console.log(`Router ≤${report.targets.routerDecisionTime.target}ms: ${report.targets.routerDecisionTime.met ? '✅' : '❌'} (${report.metrics.routerDecisionTime.p95.toFixed(1)}ms)`);
+		vibeLog.info('performanceAudit', `Router ≤${report.targets.routerDecisionTime.target}ms: ${report.targets.routerDecisionTime.met ? '✅' : '❌'} (${report.metrics.routerDecisionTime.p95.toFixed(1)}ms)`);
 	}
 	if (report.targets.tokensPerSecond.target > 0) {
-		console.log(`Tokens/s ≥${report.targets.tokensPerSecond.target}: ${report.targets.tokensPerSecond.met ? '✅' : '❌'} (${report.metrics.tokensPerSecond.p50.toFixed(1)})`);
+		vibeLog.info('performanceAudit', `Tokens/s ≥${report.targets.tokensPerSecond.target}: ${report.targets.tokensPerSecond.met ? '✅' : '❌'} (${report.metrics.tokensPerSecond.p50.toFixed(1)})`);
 	}
 	console.groupEnd();
 
 	console.group('🔍 Top Bottlenecks');
 	report.bottlenecks.forEach((b, i) => {
-		console.log(`${i + 1}. ${b}`);
+		vibeLog.info('performanceAudit', `${i + 1}. ${b}`);
 	});
 	console.groupEnd();
 
@@ -212,7 +213,7 @@ export function printPerformanceAuditReport(mode: 'auto' | 'single' = 'auto'): v
  */
 export function clearPerformanceMetrics(): void {
 	metricsCollector.clear();
-	console.log('✅ Performance metrics cleared');
+	vibeLog.info('performanceAudit', '✅ Performance metrics cleared');
 }
 
 /**

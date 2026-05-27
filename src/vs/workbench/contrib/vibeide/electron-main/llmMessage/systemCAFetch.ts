@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE.txt for license information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../../common/vibeLog.js';
 import * as tls from 'node:tls'
 import { Agent, setGlobalDispatcher } from 'undici'
 
@@ -34,7 +35,7 @@ const buildDispatcher = (): Agent => {
 			systemCAs = (tls as any).getCACertificates('system') ?? []
 		}
 	} catch (e) {
-		console.warn('[VibeIDE] tls.getCACertificates(system) failed — system CAs unavailable:', (e as Error).message)
+		vibeLog.warn('systemCAFetch', 'tls.getCACertificates(system) failed — system CAs unavailable:', (e as Error).message)
 	}
 	const ca = [...tls.rootCertificates, ...systemCAs]
 	const agent = new Agent({ connect: { ca } })
@@ -54,7 +55,7 @@ export const ensureSystemCADispatcher = (): Agent => {
 			setGlobalDispatcher(_dispatcher)
 			_initialized = true
 		} catch (e) {
-			console.warn('[VibeIDE] setGlobalDispatcher failed:', (e as Error).message)
+			vibeLog.warn('systemCAFetch', 'setGlobalDispatcher failed:', (e as Error).message)
 		}
 	}
 	return _dispatcher

@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { AppResourcePath, FileAccess, nodeModulesPath } from '../../../../base/common/network.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 
@@ -141,7 +142,7 @@ export class PDFService implements IPDFService {
 			this.pdfjsLib = pdfjs;
 			this.initialized = true;
 		} catch (error: any) {
-			console.error('Failed to initialize PDF.js:', error);
+			vibeLog.error('pdf', 'Failed to initialize PDF.js:', error);
 			throw new Error(`PDF.js failed to load: ${error?.message || error || 'Unknown error'}`);
 		}
 	}
@@ -425,7 +426,7 @@ export class PDFService implements IPDFService {
 
 					return { index, preview: canvas.toDataURL('image/png') };
 				} catch (e) {
-					console.warn(`Failed to generate preview for page ${pageNumber}:`, e);
+					vibeLog.warn('pdf', `Failed to generate preview for page ${pageNumber}:`, e);
 					return { index, preview: null };
 				}
 			});

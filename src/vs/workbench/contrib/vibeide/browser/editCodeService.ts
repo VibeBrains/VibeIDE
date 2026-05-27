@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { localize } from '../../../../nls.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -494,7 +495,7 @@ class EditCodeService extends Disposable implements IEditCodeService {
 			if (diffArea.type !== 'CtrlKZone') continue
 			if (!diffArea._mountInfo) {
 				diffArea._mountInfo = this._addCtrlKZoneInput(diffArea)
-				console.log('MOUNTED CTRLK', diffArea.diffareaid)
+				vibeLog.info('editCode', 'MOUNTED CTRLK', diffArea.diffareaid)
 			}
 			else {
 				diffArea._mountInfo.refresh()
@@ -1446,7 +1447,7 @@ class EditCodeService extends Disposable implements IEditCodeService {
 				this._modelWarmupService.warmupModelIfNeeded(modelSelection.providerName, modelSelection.modelName, featureName)
 			} catch (e) {
 				// Warm-up failures should never block edit flows - silently ignore
-				console.debug('[EditCodeService] Warm-up call failed (non-blocking):', e)
+				vibeLog.debug('editCode', '[EditCodeService] Warm-up call failed (non-blocking):', e)
 			}
 		}
 
@@ -1514,7 +1515,7 @@ class EditCodeService extends Disposable implements IEditCodeService {
 
 		// helpers
 		const onDone = () => {
-			console.log('called onDone')
+			vibeLog.info('editCode', 'called onDone')
 			diffZone._streamState = { isStreaming: false, }
 			this._onDidChangeStreamingInDiffZone.fire({ uri, diffareaid: diffZone.diffareaid })
 
@@ -1770,7 +1771,7 @@ class EditCodeService extends Disposable implements IEditCodeService {
 				this._modelWarmupService.warmupModelIfNeeded(modelSelection.providerName, modelSelection.modelName, featureName)
 			} catch (e) {
 				// Warm-up failures should never block edit flows - silently ignore
-				console.debug('[EditCodeService] Warm-up call failed (non-blocking):', e)
+				vibeLog.debug('editCode', '[EditCodeService] Warm-up call failed (non-blocking):', e)
 			}
 		}
 
@@ -1938,12 +1939,12 @@ class EditCodeService extends Disposable implements IEditCodeService {
 							if (typeof originalBounds === 'string' || hasOverlap) {
 								const errorMessage = typeof originalBounds === 'string' ? originalBounds : 'Has overlap' as const
 
-								console.log('--------------Error finding text in code:')
-								console.log('originalFileCode', { originalFileCode })
-								console.log('fullText', { fullText })
-								console.log('error:', errorMessage)
-								console.log('block.orig:', block.orig)
-								console.log('---------')
+								vibeLog.info('editCode', '--------------Error finding text in code:')
+								vibeLog.info('editCode', 'originalFileCode', { originalFileCode })
+								vibeLog.info('editCode', 'fullText', { fullText })
+								vibeLog.info('editCode', 'error:', errorMessage)
+								vibeLog.info('editCode', 'block.orig:', block.orig)
+								vibeLog.info('editCode', '---------')
 								const content = this._errContentOfInvalidStr(errorMessage, block.orig)
 								const retryMsg = 'All of your previous outputs have been ignored. Please re-output ALL SEARCH/REPLACE blocks starting from the first one, and avoid the error this time.'
 								messages.push(
@@ -2004,7 +2005,7 @@ class EditCodeService extends Disposable implements IEditCodeService {
 
 						// should always be in streaming state here
 						if (!diffZone._streamState.isStreaming) {
-							console.error('DiffZone was not in streaming state in _initializeSearchAndReplaceStream')
+							vibeLog.error('editCode', 'DiffZone was not in streaming state in _initializeSearchAndReplaceStream')
 							continue
 						}
 

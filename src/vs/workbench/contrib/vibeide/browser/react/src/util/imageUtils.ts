@@ -2,6 +2,7 @@
  *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
  *  Licensed under the Apache License, Version 2.0. See License.txt for more information.
  *--------------------------------------------------------------------------------------*/
+import { vibeLog } from '../../../../common/vibeLog.js';
 
 /**
  * Image utilities for Void chat image uploads
@@ -368,7 +369,7 @@ async function processSvgImage(file: File, onProgress?: (progress: number) => vo
 
 	// If more than 30% was removed, it's likely malicious - fallback to raster
 	if (removalRatio > 0.3) {
-		console.warn('SVG sanitization removed >30% of content, using raster fallback for safety');
+		vibeLog.warn('imageUtils', 'SVG sanitization removed >30% of content, using raster fallback for safety');
 	}
 
 	// Try to rasterize SVG to PNG (always rasterize for security)

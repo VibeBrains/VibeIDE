@@ -10,6 +10,7 @@
  * Run in browser console: vibeideRunAudit()
  */
 
+import { vibeLog } from './vibeLog.js';
 import { printComprehensiveAuditReport, generateComprehensiveAuditReport } from './comprehensiveAudit.js';
 import { startupAudit } from './startupAudit.js';
 import { metricsCollector } from './metricsCollector.js';
@@ -18,7 +19,7 @@ import { metricsCollector } from './metricsCollector.js';
  * Run full audit and print report
  */
 export function runAudit(): void {
-	console.log('🔍 Running Comprehensive Performance Audit...\n');
+	vibeLog.info('runAudit', '🔍 Running Comprehensive Performance Audit...\n');
 
 	// Complete startup audit if not already done
 	const startupMetrics = startupAudit.getMetrics();
@@ -31,11 +32,11 @@ export function runAudit(): void {
 
 	// Additional diagnostics
 	console.group('📊 Additional Diagnostics');
-	console.log(`Chat Requests Collected: ${metricsCollector.getAll().length}`);
-	console.log(`Startup Metrics Available: ${startupMetrics ? '✅' : '❌'}`);
+	vibeLog.info('runAudit', `Chat Requests Collected: ${metricsCollector.getAll().length}`);
+	vibeLog.info('runAudit', `Startup Metrics Available: ${startupMetrics ? '✅' : '❌'}`);
 	console.groupEnd();
 
-	console.log('\n✅ Audit complete!');
+	vibeLog.info('runAudit', '\n✅ Audit complete!');
 }
 
 /**

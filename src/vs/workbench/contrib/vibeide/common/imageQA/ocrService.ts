@@ -2,6 +2,7 @@
  *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
+import { vibeLog } from '../vibeLog.js';
 
 /**
  * OCR Service for extracting text from images
@@ -70,14 +71,14 @@ export class TesseractOCRService implements IOCRService {
 			const tesseractModule = await import('tesseract.js').catch((err) => { importError = err; return null; });
 			if (!tesseractModule) {
 				const reason = importError instanceof Error ? importError.message : String(importError);
-				console.warn('[OCR] tesseract.js dynamic import failed:', reason);
+				vibeLog.warn('ocr', '[OCR] tesseract.js dynamic import failed:', reason);
 				throw new Error(`tesseract.js failed to load: ${reason}`);
 			}
 			const { createWorker } = tesseractModule;
 			this.tesseractWorker = await createWorker('eng');
 			this.workerInitialized = true;
 		} catch (error: any) {
-			console.error('Failed to initialize Tesseract worker:', error);
+			vibeLog.error('ocr', 'Failed to initialize Tesseract worker:', error);
 			throw new Error(`OCR service unavailable: ${error.message || 'Tesseract.js failed to load'}`);
 		}
 	}

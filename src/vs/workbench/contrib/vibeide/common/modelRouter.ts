@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { ProviderName, ModelSelection } from './vibeideSettingsTypes.js';
 import { getModelCapabilities, VibeideStaticModelInfo } from './modelCapabilities.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
@@ -266,7 +267,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 				if (m.providerName === 'auto') return false;
 				return (localProviderNames as readonly ProviderName[]).includes(m.providerName as ProviderName);
 			});
-			console.log('[ModelRouter] Codebase question detected:', {
+			vibeLog.info('modelRouter', '[ModelRouter] Codebase question detected:', {
 				hasOnlineModels,
 				onlineModelCount: onlineModels.length,
 				onlineModels: onlineModels.map(m => `${m.providerName}/${m.modelName}`),
@@ -349,7 +350,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			const afterFilter = candidateModels.length;
 
 			// Debug logging
-			console.log('[ModelRouter] Filtering local models for codebase question:', {
+			vibeLog.info('modelRouter', '[ModelRouter] Filtering local models for codebase question:', {
 				beforeFilter,
 				afterFilter,
 				filteredOut: beforeFilter - afterFilter,
@@ -358,7 +359,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 
 			// If filtering removed all models (shouldn't happen if hasOnlineModels is true), fall back
 			if (candidateModels.length === 0) {
-				console.error('[ModelRouter] ERROR: Filtering removed all models despite hasOnlineModels=true!', {
+				vibeLog.error('modelRouter', '[ModelRouter] ERROR: Filtering removed all models despite hasOnlineModels=true!', {
 					hasOnlineModels,
 					availableModels: availableModels.map(m => `${m.providerName}/${m.modelName}`),
 				});
@@ -431,7 +432,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 
 		// Debug: Log top 3 models for codebase questions
 		if (isCodebaseQuestionCheck && scored.length > 0) {
-			console.log('[ModelRouter] Top models after scoring:', scored.slice(0, 3).map(s => ({
+			vibeLog.info('modelRouter', '[ModelRouter] Top models after scoring:', scored.slice(0, 3).map(s => ({
 				model: `${s.model.providerName}/${s.model.modelName}`,
 				score: s.score,
 				ruleScore: s.ruleScore,
@@ -484,7 +485,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		// (This should never happen due to filtering, but add safeguard)
 		if (finalModel.providerName === 'auto' && finalModel.modelName === 'auto') {
 			// This should never happen, but if it does, try local models as fallback
-			console.error('[ModelRouter] Error: Attempted to return "auto" model selection. Trying local model fallback.');
+			vibeLog.error('modelRouter', '[ModelRouter] Error: Attempted to return "auto" model selection. Trying local model fallback.');
 			const localDecision = this.routeToLocalModel(context);
 			if (localDecision) {
 				return localDecision;
@@ -519,7 +520,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		if (isCodebaseQuestionForDebug) {
 			const isLocal = (localProviderNames as readonly ProviderName[]).includes(finalModel.providerName as ProviderName);
 			if (isLocal && hasOnlineModels) {
-				console.warn('[ModelRouter] WARNING: Selected local model for codebase question despite online models available!', {
+				vibeLog.warn('modelRouter', '[ModelRouter] WARNING: Selected local model for codebase question despite online models available!', {
 					selectedModel: finalModel,
 					hasOnlineModels,
 					reasoning,

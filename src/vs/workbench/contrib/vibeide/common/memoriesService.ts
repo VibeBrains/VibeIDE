@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -159,7 +160,7 @@ class MemoriesService extends Disposable implements IMemoriesService {
 				this._enforceSizeLimits();
 				return this._memories;
 			} catch (error) {
-				console.warn('[MemoriesService] Failed to load memories:', error);
+				vibeLog.warn('memories', '[MemoriesService] Failed to load memories:', error);
 				this._memories = this._getEmptyMemories();
 				return this._memories;
 			}
@@ -231,7 +232,7 @@ class MemoriesService extends Disposable implements IMemoriesService {
 				StorageTarget.MACHINE
 			);
 		} catch (error) {
-			console.warn('[MemoriesService] Failed to save memories:', error);
+			vibeLog.warn('memories', '[MemoriesService] Failed to save memories:', error);
 		}
 	}
 

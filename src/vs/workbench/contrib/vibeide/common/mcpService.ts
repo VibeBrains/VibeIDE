@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { URI } from '../../../../base/common/uri.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -123,12 +124,12 @@ class MCPService extends Disposable implements IMCPService {
 			const fileExists = await this._configFileExists(mcpConfigUri);
 			if (!fileExists) {
 				await this._createMCPConfigFile(mcpConfigUri);
-				console.log('MCP Config file created:', mcpConfigUri.toString());
+				vibeLog.info('mcp', 'MCP Config file created:', mcpConfigUri.toString());
 			}
 			await this._addMCPConfigFileWatcher();
 			await this._refreshMCPServers();
 		} catch (error) {
-			console.error('Error initializing MCPService:', error);
+			vibeLog.error('mcp', 'Error initializing MCPService:', error);
 		}
 	}
 
@@ -195,7 +196,7 @@ class MCPService extends Disposable implements IMCPService {
 				}
 			});
 		} catch (error) {
-			console.error('Error opening MCP config file:', error);
+			vibeLog.error('mcp', 'Error opening MCP config file:', error);
 		}
 	}
 
@@ -259,7 +260,7 @@ class MCPService extends Disposable implements IMCPService {
 
 			// Check if propertyValues is not an object
 			if (typeof propertyValues !== 'object') {
-				console.warn(`Invalid property value for ${paramName}: expected object, got ${typeof propertyValues}`);
+				vibeLog.warn('mcp', `Invalid property value for ${paramName}: expected object, got ${typeof propertyValues}`);
 				return; // in forEach the return is equivalent to continue
 			}
 
@@ -312,8 +313,8 @@ class MCPService extends Disposable implements IMCPService {
 		this._setHasError(undefined)
 
 		const newConfigFileJSON = await this._parseMCPConfigFile();
-		if (!newConfigFileJSON) { console.log(`Not setting state: MCP config file not found`); return }
-		if (!newConfigFileJSON?.mcpServers) { console.log(`Not setting state: MCP config file did not have an 'mcpServers' field`); return }
+		if (!newConfigFileJSON) { vibeLog.info('mcp', `Not setting state: MCP config file not found`); return }
+		if (!newConfigFileJSON?.mcpServers) { vibeLog.info('mcp', `Not setting state: MCP config file did not have an 'mcpServers' field`); return }
 
 
 		const oldConfigFileNames = Object.keys(this.state.mcpServerOfName)

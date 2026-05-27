@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { env } from '../../../../base/common/process.js';
@@ -65,7 +66,7 @@ class ExtensionTransferService extends Disposable implements IExtensionTransferS
 			// Check if the source file exists before attempting to copy
 			try {
 				if (!isExtensions) {
-					console.log('transferring item', from, to)
+					vibeLog.info('extensionTransfer', 'transferring item', from, to)
 
 					const exists = await fileService.exists(from)
 					if (exists) {
@@ -77,12 +78,12 @@ class ExtensionTransferService extends Disposable implements IExtensionTransferS
 						}
 						await fileService.copy(from, to, true)
 					} else {
-						console.log(`Skipping file that doesn't exist: ${from.toString()}`)
+						vibeLog.info('extensionTransfer', `Skipping file that doesn't exist: ${from.toString()}`)
 					}
 				}
 				// extensions folder
 				else {
-					console.log('transferring extensions...', from, to)
+					vibeLog.info('extensionTransfer', 'transferring extensions...', from, to)
 					const exists = await fileService.exists(from)
 					if (exists) {
 						const stat = await fileService.resolve(from)
@@ -111,20 +112,20 @@ class ExtensionTransferService extends Disposable implements IExtensionTransferS
 										await fileService.writeFile(to, VSBuffer.fromString(jsonStr))
 									}
 									catch {
-										console.log('Error copying extensions.json, skipping')
+										vibeLog.info('extensionTransfer', 'Error copying extensions.json, skipping')
 									}
 								}
 							}
 						}
 
 					} else {
-						console.log(`Skipping file that doesn't exist: ${from.toString()}`)
+						vibeLog.info('extensionTransfer', `Skipping file that doesn't exist: ${from.toString()}`)
 					}
-					console.log('done transferring extensions.')
+					vibeLog.info('extensionTransfer', 'done transferring extensions.')
 				}
 			}
 			catch (e) {
-				console.error('Error copying file:', e)
+				vibeLog.error('extensionTransfer', 'Error copying file:', e)
 				errAcc += `Error copying ${from.toString()}: ${e}\n`
 			}
 		}
@@ -145,7 +146,7 @@ class ExtensionTransferService extends Disposable implements IExtensionTransferS
 				if (child.isDirectory) {
 					// if is blacklisted
 					if (isBlacklisted(child.resource.fsPath)) {
-						console.log('Deleting extension', child.resource.fsPath)
+						vibeLog.info('extensionTransfer', 'Deleting extension', child.resource.fsPath)
 						await fileService.del(child.resource, { recursive: true, useTrash: true })
 					}
 				}
@@ -153,7 +154,7 @@ class ExtensionTransferService extends Disposable implements IExtensionTransferS
 					// if is extensions.json
 
 					if (child.name === 'extensions.json') {
-						console.log('Updating extensions.json', child.resource.fsPath)
+						vibeLog.info('extensionTransfer', 'Updating extensions.json', child.resource.fsPath)
 						try {
 							const contentsStr = await fileService.readFile(child.resource)
 							const json: any = JSON.parse(contentsStr.value.toString())
@@ -162,13 +163,13 @@ class ExtensionTransferService extends Disposable implements IExtensionTransferS
 							await fileService.writeFile(child.resource, VSBuffer.fromString(jsonStr))
 						}
 						catch {
-							console.log('Error copying extensions.json, skipping')
+							vibeLog.info('extensionTransfer', 'Error copying extensions.json, skipping')
 						}
 					}
 				}
 			}
 			catch (e) {
-				console.error('Could not delete extension', child.resource.fsPath, e)
+				vibeLog.error('extensionTransfer', 'Could not delete extension', child.resource.fsPath, e)
 			}
 		}
 	}

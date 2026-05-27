@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../vibeLog.js';
 import { TelemetryEvent, TelemetryQuery } from './telemetryTypes.js';
 import { promisify } from 'util';
 import { gzip, gunzip } from 'zlib';
@@ -60,7 +61,7 @@ export class TelemetryStorageService {
 		if (events.length === 0) return;
 		if (!this.fs) {
 			// Browser context - would need IndexedDB implementation
-			console.warn('[TelemetryStorage] File system not available in browser context');
+			vibeLog.warn('telemetryStorage', '[TelemetryStorage] File system not available in browser context');
 			return;
 		}
 
@@ -76,7 +77,7 @@ export class TelemetryStorageService {
 				const decompressed = await gunzipAsync(compressed);
 				existingLines = decompressed.toString().split('\n').filter(line => line.trim());
 			} catch (error) {
-				console.warn('[TelemetryStorage] Failed to read existing file:', error);
+				vibeLog.warn('telemetryStorage', '[TelemetryStorage] Failed to read existing file:', error);
 			}
 		}
 
@@ -129,7 +130,7 @@ export class TelemetryStorageService {
 					}
 				}
 			} catch (error) {
-				console.warn(`[TelemetryStorage] Failed to read file ${file}:`, error);
+				vibeLog.warn('telemetryStorage', `[TelemetryStorage] Failed to read file ${file}:`, error);
 			}
 		}
 
@@ -148,7 +149,7 @@ export class TelemetryStorageService {
 			const lines = decompressed.toString().split('\n').filter(line => line.trim());
 			return lines.map(line => JSON.parse(line) as TelemetryEvent);
 		} catch (error) {
-			console.warn(`[TelemetryStorage] Failed to read file ${filepath}:`, error);
+			vibeLog.warn('telemetryStorage', `[TelemetryStorage] Failed to read file ${filepath}:`, error);
 			return [];
 		}
 	}
@@ -198,7 +199,7 @@ export class TelemetryStorageService {
 				try {
 					this.fs.unlinkSync(file);
 				} catch (error) {
-					console.warn(`[TelemetryStorage] Failed to delete old file ${file}:`, error);
+					vibeLog.warn('telemetryStorage', `[TelemetryStorage] Failed to delete old file ${file}:`, error);
 				}
 			}
 		}

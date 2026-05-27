@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../vibeLog.js';
 import { ImageType, QuestionType } from './modelRegistry.js';
 import { imageQARouter, RoutingDecision } from './imageRouter.js';
 import { getOCRService, OCRResult } from './ocrService.js';
@@ -92,7 +93,7 @@ export class ImageQAPipeline {
 		if (ocrResult.totalChars < 10) {
 			// OCR yielded little text - get region proposals from VLM if available
 			if (options.vlmModel || options.allowRemoteModels) {
-				if (devMode) console.log('[ImageQA] OCR yielded little text, getting VLM region proposals');
+				if (devMode) vibeLog.info('imageQAPipeline', '[ImageQA] OCR yielded little text, getting VLM region proposals');
 				const regions = await this.getRegionProposals(imageData, mimeType, options.vlmModel, options.allowRemoteModels);
 
 				if (regions.length > 0) {
@@ -350,7 +351,7 @@ export class ImageQAPipeline {
 		const prompt = this.buildCodeModelPrompt(userQuestion, structuredData, routing, vlmHints);
 
 		if (devMode) {
-			console.log('[ImageQA] Code model prompt:', prompt.substring(0, 500) + '...');
+			vibeLog.info('imageQAPipeline', '[ImageQA] Code model prompt:', prompt.substring(0, 500) + '...');
 		}
 
 		// Return structured response that will be processed by the integration layer

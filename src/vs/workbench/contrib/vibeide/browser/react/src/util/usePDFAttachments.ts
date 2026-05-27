@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------*/
 
 // @ts-nocheck — bundled by vibeide browser/react/build.js; excluded from vscode src typecheck hygiene
+import { vibeLog } from '../../../../common/vibeLog.js';
 import { useState, useCallback, useRef } from 'react';
 import { ChatPDFAttachment } from '../../../../common/chatThreadServiceTypes.js';
 import { getPDFService, IPDFService } from '../../../../common/pdfService.js';
@@ -170,7 +171,7 @@ export function usePDFAttachments(): UsePDFAttachmentsReturn {
 				cancelRef.current.delete(id);
 			} catch (error: any) {
 				if (checkCancelled()) return;
-				console.error('Error processing PDF:', error);
+				vibeLog.error('usePDFAttachments', 'Error processing PDF:', error);
 				setAttachments(prev => prev.map(att =>
 					att.id === id
 						? {

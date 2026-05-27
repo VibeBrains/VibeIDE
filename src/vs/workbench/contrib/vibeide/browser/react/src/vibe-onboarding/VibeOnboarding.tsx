@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../../../../common/vibeLog.js';
 import { useEffect, useState, useMemo } from 'react';
 import { useAccessor, useIsDark, useSettingsState } from '../util/services.js';
 import { Brain, Check, ChevronRight, DollarSign, ExternalLink, Lock, X } from 'lucide-react';
@@ -61,7 +62,7 @@ const VibeHeroIcon = () => {
 				className="w-full h-full object-contain opacity-95"
 				draggable={false}
 				onError={(e) => {
-					console.error('Failed to load VibeIDE logo:', heroLogoUri);
+					vibeLog.error('VibeOnboarding', 'Failed to load VibeIDE logo:', heroLogoUri);
 					// Fallback: try direct path
 					const fallbackUri = FileAccess.asBrowserUri('vs/workbench/browser/media/vibeide-logo.png').toString(true);
 					if (fallbackUri !== heroLogoUri) {

@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { ICodeEditor } from '../../../../editor/browser/editorBrowser.js';
 import { EditorContributionInstantiation, registerEditorContribution } from '../../../../editor/browser/editorExtensions.js';
@@ -57,7 +58,7 @@ export class ErrorDetectionEditorContribution extends Disposable implements IEdi
 			const errors = await this._errorDetectionService.detectErrorsInFile(uri);
 			this.setErrors(uri, errors);
 		} catch (error) {
-			console.error('[ErrorDetectionEditorContribution] Error detecting errors:', error);
+			vibeLog.error('errorDetectionEditor', '[ErrorDetectionEditorContribution] Error detecting errors:', error);
 		}
 	}
 

@@ -2,6 +2,7 @@
  *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
+import { vibeLog } from './vibeLog.js';
 
 // Simple message type for compression
 type SimpleMessage = {
@@ -52,7 +53,7 @@ export class ChatHistoryCompressor {
 					content: `Previous conversation summary: ${summary}`
 				}];
 			} catch (error) {
-				console.warn('[ChatHistoryCompressor] Failed to summarize, dropping old messages:', error);
+				vibeLog.warn('chatHistoryCompressor', '[ChatHistoryCompressor] Failed to summarize, dropping old messages:', error);
 				// If summarization fails, just drop old messages
 			}
 		}

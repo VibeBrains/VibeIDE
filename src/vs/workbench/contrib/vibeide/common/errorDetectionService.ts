@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { localize } from '../../../../nls.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/common/markers.js';
@@ -153,7 +154,7 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 
 			modelRef.dispose();
 		} catch (error) {
-			console.error('[ErrorDetectionService] Error detecting errors:', error);
+			vibeLog.error('errorDetection', '[ErrorDetectionService] Error detecting errors:', error);
 		}
 
 		return errors;
@@ -262,11 +263,11 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 					}
 				} catch (error) {
 					// Continue with other providers
-					console.debug('[ErrorDetectionService] Provider error:', error);
+					vibeLog.debug('errorDetection', '[ErrorDetectionService] Provider error:', error);
 				}
 			}
 		} catch (error) {
-			console.error('[ErrorDetectionService] Error getting quick fixes:', error);
+			vibeLog.error('errorDetection', '[ErrorDetectionService] Error getting quick fixes:', error);
 		}
 
 		return fixes;
@@ -367,7 +368,7 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 				description: localize('vibeide.errorDetection.llmFixDesc', "LLM-generated fix for {0} error(s)", errors.length),
 			};
 		} catch (error) {
-			console.error('[ErrorDetectionService] Error generating LLM fix:', error);
+			vibeLog.error('errorDetection', '[ErrorDetectionService] Error generating LLM fix:', error);
 			return null;
 		}
 	}

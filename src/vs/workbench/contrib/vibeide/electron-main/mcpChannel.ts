@@ -7,6 +7,7 @@
 // can't make a service responsible for this, because it needs
 // to be connected to the main process and node dependencies
 
+import { vibeLog } from '../common/vibeLog.js';
 import { IServerChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -105,7 +106,7 @@ export class MCPChannel implements IServerChannel {
 			}
 		}
 		catch (e) {
-			console.error('mcp channel: Call Error:', e)
+			vibeLog.error('mcpChannel', 'mcp channel: Call Error:', e)
 		}
 	}
 
@@ -181,7 +182,7 @@ export class MCPChannel implements IServerChannel {
 			// For now: warn on potentially dangerous commands but allow (Phase 1)
 			// Phase 2: configurable allowlist via .vibe/mcp-allowlist.json
 			if (BLOCKED_COMMANDS.includes(cmdBase)) {
-				console.warn(`[VibeIDE MCP] ⚠️ MCP server "${serverName}" uses a potentially dangerous command: "${server.command}". Ensure this is a trusted MCP server.`);
+				vibeLog.warn('MCP', `⚠️ MCP server "${serverName}" uses a potentially dangerous command: "${server.command}". Ensure this is a trusted MCP server.`);
 			}
 		}
 
@@ -261,7 +262,7 @@ export class MCPChannel implements IServerChannel {
 				try {
 					transport = new SSEClientTransport(url);
 					await client.connect(transport);
-					console.log(`Connected via SSE to ${serverName}`);
+					vibeLog.info('mcpChannel', `Connected via SSE to ${serverName}`);
 					const { tools } = await client.listTools()
 					info = {
 						status: isOn ? 'success' : 'offline',
@@ -277,7 +278,7 @@ export class MCPChannel implements IServerChannel {
 				try {
 					transport = new StreamableHTTPClientTransport(url);
 					await client.connect(transport);
-					console.log(`Connected via HTTP to ${serverName}`);
+					vibeLog.info('mcpChannel', `Connected via HTTP to ${serverName}`);
 					const { tools } = await client.listTools()
 					info = {
 						status: isOn ? 'success' : 'offline',
@@ -293,7 +294,7 @@ export class MCPChannel implements IServerChannel {
 				try {
 					transport = new StreamableHTTPClientTransport(url);
 					await client.connect(transport);
-					console.log(`Connected via HTTP to ${serverName}`);
+					vibeLog.info('mcpChannel', `Connected via HTTP to ${serverName}`);
 					const { tools } = await client.listTools()
 					info = {
 						status: isOn ? 'success' : 'offline',
@@ -301,11 +302,11 @@ export class MCPChannel implements IServerChannel {
 						command: urlString,
 					}
 				} catch (httpErr) {
-					console.warn(`HTTP failed for ${serverName}, trying SSE…`, httpErr);
+					vibeLog.warn('mcpChannel', `HTTP failed for ${serverName}, trying SSE…`, httpErr);
 					transport = new SSEClientTransport(url);
 					await client.connect(transport);
 					const { tools } = await client.listTools()
-					console.log(`Connected via SSE to ${serverName}`);
+					vibeLog.info('mcpChannel', `Connected via SSE to ${serverName}`);
 					info = {
 						status: isOn ? 'success' : 'offline',
 						tools: tools,
@@ -354,7 +355,7 @@ export class MCPChannel implements IServerChannel {
 			this._registerActiveUrl(serverConfig);
 			return c
 		} catch (err) {
-			console.error(`❌ Failed to connect to server "${serverName}":`, err);
+			vibeLog.error('mcpChannel', `❌ Failed to connect to server "${serverName}":`, err);
 			const fullCommand = !serverConfig.command ? '' : `${serverConfig.command} ${serverConfig.args?.join(' ') || ''}`;
 			const c: MCPServerError = { status: 'error', error: err + '', command: fullCommand, };
 			return { mcpServerEntryJSON: serverConfig, mcpServer: c, };
@@ -366,7 +367,7 @@ export class MCPChannel implements IServerChannel {
 			await this._closeClient(serverName);
 			delete this.infoOfClientId[serverName];
 		}
-		console.log('Closed all MCP servers');
+		vibeLog.info('mcpChannel', 'Closed all MCP servers');
 	}
 
 	private async _closeClient(serverName: string) {
@@ -380,7 +381,7 @@ export class MCPChannel implements IServerChannel {
 		}
 		// VibeIDE: Unregister URL on close for port conflict tracking
 		this._unregisterActiveUrl(info.mcpServerEntryJSON);
-		console.log(`Closed MCP server ${serverName}`);
+		vibeLog.info('mcpChannel', `Closed MCP server ${serverName}`);
 	}
 
 

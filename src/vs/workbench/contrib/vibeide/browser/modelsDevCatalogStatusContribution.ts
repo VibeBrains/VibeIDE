@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
@@ -79,7 +80,7 @@ export class ModelsDevCatalogStatusContribution extends Disposable implements IW
 			status = await statusService.getStatus();
 		} catch (e) {
 			// IPC down — nothing actionable to show. main-process console already logged.
-			console.warn('[modelsDevCatalogStatus] status query failed', e);
+			vibeLog.warn('modelsDevCatalogStatus', '[modelsDevCatalogStatus] status query failed', e);
 			return;
 		}
 
