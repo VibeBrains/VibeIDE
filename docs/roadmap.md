@@ -3022,7 +3022,48 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ---
 
-## Ссылки
+## O.25 — bug-collection day 2026-05-27 (батчи 0.13.27 / 0.13.28)
+
+День «копим ошибки»: собрали grounded-каталог, часть закрыли, часть — в дефер. Рабочий накопитель: [`docs/UNRELEASED.md`](UNRELEASED.md).
+
+### Закрыто
+- [x] `initializeModel` читал каталоги как файлы → спам `FileOperationError` — ✅ `c76fa33c` (stat-guard, 0.13.27)
+- [x] datetime в трейсах `llmTurn/toolExec/promptDump` (видно паузы между ходами) — ✅ `935880ed` (`vibeTraceTs`, 0.13.27)
+- [x] self-host QR доната в `media/` — ✅ `c4467544` (0.13.27)
+- [x] **#D** агент не знал, что хост — VibeIDE, и куда писать правила — ✅ `09259827` (prompt: VibeIDE-identity + авторинг в `.vibe/rules.md`, 0.13.28)
+- [x] **#C** `grep` match-all вешал EH ~234с — ✅ `1607e31f` (reject вырожденных паттернов + 15s cancel, 0.13.28)
+- [x] **#5/#6** ложный `(truncated 500k)` на line-range + `search_in_file` читался как путь — ✅ `01624d33` (0.13.28)
+
+### Дефер — core-fragile, нужен аккуратный фокус-пасс (не рубить в спешном батче)
+- [ ] **A — smart-truncation петля**: обрезка режет последние tool-результаты → модель циклит чтения одного файла, контекст растёт (`41k→86k`, `msgs:6`). Fix в `convertToLLMMessageService.ts:1916` — не выбрасывать последний обмен (ассистентский `tool_use` + его `tool_result`), ввести pin последнего обмена (как guidelines pin на `:893`). Тест: deepseek + крупный скилл, проверить отсутствие повторных `read_file` одного файла.
+- [ ] **B — folded-system теряется при обрезке**: у моделей `supportsSystemMessage:false` (`sysLocation:'folded-into-user'`) обрезка роняет `systemLen → 156`, выкидывая `<workspace_guidelines>` + тело скилла. Fix: пинить folded-system блок так же, как `:893` guidelines. Grounded: `convertToLLMMessageService.ts:877` (fold) + `:1916` (truncate).
+- [ ] **#2 — diff-превью `edit_file` гаснет по клику**: `TextModel disposed before DiffEditorWidget model got reset` (core `diffEditorWidget.ts:406`) при mouse-down/`wordHighlighter`, когда правка не легла/закрылась. Fix: упорядочить lifecycle (сбросить модель DiffEditorWidget до dispose TextModel; снять `wordHighlighter`-listener перед dispose); локализовать владельца превью (chat `edit_file` vs `editCodeService` diff-zone). Repro: `edit_file` с ORIGINAL-mismatch → клик в блок.
+- [ ] **rc — run_command native-exe completion**: robocopy/PS досиживают timeout (~18–40с), `[VibeIDE/toolExec] ok:true` маскирует таймаут. Fix: (1) детект завершения нативных exe (`onCommandFinished` не срабатывает — `terminalToolService.ts:331`); (2) помечать timeout-резолв как `ok:false` в трейсе. Низкий приоритет.
+
+### В docs/knowledge при закрытии
+- [ ] Ночной renderer-OOM 2026-05-27 (059-1-WS-346): heap renderer ровный ~320 МБ 4+ ч → внезапный спайк <2 мин при ночном autopilot; **не** idle-leak. Дополнить `docs/knowledge/runtime-quirks/idle-memory.md`.
+- [ ] Двойной бамп релиза: `release-windows.ps1` сам делает `patch+=1` — не бампить `product.json` руками. Поправить процедуру в `CLAUDE.md` (шаги 1–5).
+
+---
+
+## AB. Идеи и улучшения — survey 2026-05-27
+
+Кандидаты из инцидентов дня (на «добавь фич / модное / необходимое»). **Не реализованы** — ждут выбора пользователя; приоритет проставить при планировании.
+
+### Надёжность (необходимое — выросло из инцидентов)
+- [ ] **Autopilot guard**: верхний лимит итераций / idle-stop для автономного прогона (ночной OOM на iter 46–59; деградация minimax/deepseek в бесконечный цикл). Opt-in, с настройкой `vibeide.agent.maxAutopilotIterations`.
+- [ ] **Partial grep на отсечке**: при срабатывании 15s-cancel (#C) возвращать уже найденное + метка «(остановлено после 15с — сузьте паттерн)», а не пустой/ошибку.
+- [ ] **Индикатор сжатия контекста**: когда сработала smart-truncation — ненавязчивая отметка в чате «контекст сжат N→M токенов», чтобы пользователь понимал потерю истории.
+- [ ] **Provider health в статус-баре**: ловить серии `520/stream-stall` от провайдера (openCode/minimax) и показывать «провайдер деградирует» + кнопка switch-model — вместо немого ожидания watchdog.
+
+### UX правил/скиллов (закрывает класс #D)
+- [ ] **Команда `/rule` (Ctrl+K / палитра)**: «добавить правило» одним действием → дописывает в `.vibe/rules.md` (создаёт при отсутствии), без участия модели.
+- [ ] **Кнопка «Создать правило из сообщения»**: из ответа/выделения в чате сохранить пункт в `.vibe/rules.md`.
+- [ ] **Импорт `.cursor/rules/*.mdc`** как источник правил VibeIDE (сейчас читаются только `.vibe/rules.md` + `AGENTS.md` — `vibeProjectRulesService.ts:71`); для проектов, мигрирующих с Cursor.
+
+### Диагностика (модное — на базе сегодняшних трейсов)
+- [ ] **Chat Run Timeline (webview)**: визуализация `[VibeIDE/llmTurn|toolExec]` с datetime — таймлайн ходов, паузы между ними, длительность тулов; экспорт инцидента одним кликом (перекликается с Watchdog W.7).
+- [ ] **AI-диагностика чата**: «объяснить, почему завис» — собрать последние трейсы + ошибку и сформировать промпт-разбор (аналог `vibeide.watchdog.aiDiagnose`, W.36, но для чат-сессии).
 
 | Документ | Описание |
 |---|---|
