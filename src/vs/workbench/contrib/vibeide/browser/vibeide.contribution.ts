@@ -325,6 +325,12 @@ import '../common/vibeAgentResponseLanguageConfiguration.js'
 // VibeIDE: Agent behaviour knobs (preferJsonToolArguments / terminalOutputAwareness / thinkingOutLoud)
 import '../common/vibeAgentBehaviorConfiguration.js'
 
+// VibeIDE: Diagnostic logging settings (vibeide.logging.*) + singleton bridge + palette commands + Output channel
+import '../common/vibeLoggingConfiguration.js'
+import './vibeLogConfigContribution.js'
+import './vibeLogCommands.js'
+import './vibeLogOutputChannel.js'
+
 // VibeIDE: Project Commands audit privacy flags (vibeide.commands.audit{,Stdout})
 import '../common/commandsAuditPrivacyConfiguration.js'
 

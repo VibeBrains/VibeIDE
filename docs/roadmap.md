@@ -3065,6 +3065,25 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 - [x] **Chat Run Timeline** — ✅ `c93d0e84` (markdown-вариант вместо webview): ring-buffer событий `llmTurn/toolExec` + команда «VibeIDE: Показать трейс прогона чата» с datetime и паузами между событиями. Убирает ручное копирование консоли при диагностике.
 - [~] **AI-диагностика чата**: данные теперь есть (chat-run trace, `c93d0e84`) — осталось собрать их + последнюю ошибку в готовый промпт-разбор (как W.36 `aiDiagnose`). Backlog.
 
+### Единый лог-сервис `vibeLog` (диагностическое логирование, сессия 2026-05-27)
+
+Сделано:
+- [x] **`vibeLog` singleton** (`common/vibeLog.ts`) — datetime-префикс на КАЖДОЙ строке (warn/err тоже, не только trace), уровни `off<error<warn<info<debug<trace`, allowlist категорий, мастер-тумблер. Вывод через обёрнутый глобальный `console.*` (редакция секретов из `firstRunValidation` сохраняется).
+- [x] **Настройки** `vibeide.logging.{enabled,level,categories,timestamps,bufferSize}` + live-bridge в renderer (`vibeLogConfigContribution.ts`) — применяются на лету, без ребилда.
+- [x] **Сквозной свип**: 321 вызов `console.*` в 60 файлах → `vibeLog` через **TS-AST** codemod (строки/комментарии/код-примеры в промптах НЕ тронуты — проверено на `prompts.ts:console.log(root.val)`).
+- [x] **env-override** `VIBE_LOG` / `VIBE_LOG_LEVEL` / `VIBE_LOG_CATEGORIES` (RUST_LOG-style) — единственный способ управлять логами в `electron-main`/node, куда settings-bridge не доходит.
+- [x] **Ring buffer + команды палитры**: «Скопировать недавние логи» (без захода в DevTools), «Уровень логирования», «Фильтр категорий» (multi-select из накопленных), «Вкл/выкл логирование».
+
+Сделано (итерация 2):
+- [x] **Output-канал «VibeIDE Log»** — ✅ `vibeLogOutputChannel.ts`: sink из `vibeLog` в VS Code Output channel (без DevTools, searchable, persistent) + команда «VibeIDE: Показать лог-канал»; на старте flush'ит ring-buffer (backlog), регистрация/sink снимаются на dispose.
+- [x] **`emit` cleanup** — один `vibeTraceTs()` на строку (был двойной: консоль+буфер давали расходящиеся таймстемпы и лишний `Date()`); единый `formatVibeLogEntry()` для буфера и sink'ов.
+
+Backlog:
+- [ ] **IPC live-sync в `electron-main`**: пробросить `vibeide.logging.*` в main-процесс (сейчас main управляется только `VIBE_LOG*`-переменными). Закрывает известное ограничение v1.
+- [ ] **Per-category levels**: `vibeide.logging.categoryLevels` (напр. `{"llmTurn":"off","Tool":"debug"}`) — точечный порог вместо одного глобального.
+- [ ] **Dedup/rate-limit**: схлопывать подряд идущие одинаковые строки («×N») — снять спам в циклах.
+- [ ] **Категории-enum в Settings UI**: автодополнение известных категорий в `vibeide.logging.categories` (сейчас free-form `string[]`; команда «Фильтр категорий» уже даёт discoverability).
+
 | Документ | Описание |
 |---|---|
 | [`docs/v1/`](v1/README.md) | Детальная документация по всем модулям |
