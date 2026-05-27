@@ -3,10 +3,12 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-// Mirrors the vibeLog singleton into a VS Code Output channel ("VibeIDE Log") so logs are
-// visible without opening DevTools — searchable, persistent, copy-friendly. Wires a sink
-// into vibeLog (vibeLog.ts) that appends every passed entry; flushes the existing ring
-// buffer on startup so the channel opens with backlog already present.
+// Mirrors the vibeLog singleton into two persistent sinks so logs survive without DevTools:
+//   1. an Output channel ("VibeIDE Log") — searchable/copyable within the session;
+//   2. a hidden ILoggerService logger writing to `logsHome/vibeide.log` — persists across
+//      restarts (support bundles), and replaces the platform-log-file write that the
+//      logService→vibeLog migration removed. `hidden: true` keeps it out of the Output
+//      dropdown so there is no second "VibeIDE" entry competing with the channel above.
 
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
@@ -14,6 +16,9 @@ import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IOutputService, IOutputChannelRegistry, Extensions as OutputExtensions } from '../../../services/output/common/output.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { ILoggerService, LogLevel } from '../../../../platform/log/common/log.js';
+import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
+import { joinPath } from '../../../../base/common/resources.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { vibeLog, formatVibeLogEntry } from '../common/vibeLog.js';
 
@@ -24,6 +29,8 @@ class VibeLogOutputChannelContribution extends Disposable implements IWorkbenchC
 
 	constructor(
 		@IOutputService private readonly outputService: IOutputService,
+		@ILoggerService loggerService: ILoggerService,
+		@IEnvironmentService environmentService: IEnvironmentService,
 	) {
 		super();
 		const registry = Registry.as<IOutputChannelRegistry>(OutputExtensions.OutputChannels);
@@ -40,9 +47,26 @@ class VibeLogOutputChannelContribution extends Disposable implements IWorkbenchC
 			this.outputService.getChannel(VIBE_LOG_CHANNEL_ID)?.append(backlog.join('\n') + '\n');
 		}
 
-		// Append every subsequent passed entry.
+		// Append every subsequent passed entry to the Output channel.
 		this._register(toDisposable(vibeLog.addSink(entry => {
 			this.outputService.getChannel(VIBE_LOG_CHANNEL_ID)?.append(formatVibeLogEntry(entry) + '\n');
+		})));
+
+		// Persistent file sink (hidden — no Output-dropdown entry). The logger prepends its
+		// own wall-clock + level, so we pass only `[VibeIDE/<category>] <msg>` to avoid doubling.
+		const fileLogger = this._register(loggerService.createLogger(
+			joinPath(environmentService.logsHome, 'vibeide.log'),
+			{ id: 'vibeideFileLog', name: 'VibeIDE', hidden: true, logLevel: LogLevel.Trace },
+		));
+		this._register(toDisposable(vibeLog.addSink(entry => {
+			const line = `[VibeIDE/${entry.category}] ${entry.msg}`;
+			switch (entry.level) {
+				case 'error': fileLogger.error(line); break;
+				case 'warn': fileLogger.warn(line); break;
+				case 'debug': fileLogger.debug(line); break;
+				case 'trace': fileLogger.trace(line); break;
+				default: fileLogger.info(line); break;
+			}
 		})));
 	}
 }

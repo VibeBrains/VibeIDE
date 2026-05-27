@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -10,7 +11,7 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { localize } from '../../../../nls.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -61,7 +62,6 @@ class VibeStealthModeService extends Disposable implements IVibeStealthModeServi
 
 	constructor(
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -72,13 +72,13 @@ class VibeStealthModeService extends Disposable implements IVibeStealthModeServi
 
 	enable(): void {
 		this._configurationService.updateValue('vibeide.stealthMode.enabled', true);
-		this._logService.info('[VibeIDE StealthMode] Enabled: no caching, minimal logs, clipboard auto-clear');
+		vibeLog.info('StealthMode', 'Enabled: no caching, minimal logs, clipboard auto-clear');
 		this._onChanged.fire(true);
 	}
 
 	disable(): void {
 		this._configurationService.updateValue('vibeide.stealthMode.enabled', false);
-		this._logService.info('[VibeIDE StealthMode] Disabled');
+		vibeLog.info('StealthMode', 'Disabled');
 		this._onChanged.fire(false);
 	}
 }

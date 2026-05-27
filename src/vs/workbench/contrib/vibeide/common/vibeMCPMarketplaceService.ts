@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 
 export interface MCPServerEntry {
@@ -56,7 +56,6 @@ class VibeMCPMarketplaceService extends Disposable implements IVibeMCPMarketplac
 	declare readonly _serviceBrand: undefined;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IStorageService private readonly _storageService: IStorageService,
 	) {
 		super();
@@ -90,7 +89,7 @@ class VibeMCPMarketplaceService extends Disposable implements IVibeMCPMarketplac
 			ids.push(id);
 			this._storageService.store('vibeide.mcp.installed', JSON.stringify(ids), StorageScope.APPLICATION, StorageTarget.MACHINE);
 		}
-		this._logService.info(`[VibeIDE MCP Marketplace] Installed: ${server.name}. Run: ${server.installCommand}`);
+		vibeLog.info('vibeMCPMarketplace', `[VibeIDE MCP Marketplace] Installed: ${server.name}. Run: ${server.installCommand}`);
 	}
 }
 

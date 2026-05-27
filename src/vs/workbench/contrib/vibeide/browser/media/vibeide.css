@@ -112,6 +112,9 @@
 	--vibe-neon-text-glow: none;
 	--vibe-neon-timestamp-fg: var(--vibe-fg-3);
 	--vibe-neon-timestamp-glow: none;
+	/* Yellow glow for the "session tokens running low" pulse on the response-time line.
+	 * Inert (none) off-neon; neon themes (vibe-neon*.css) override with a warning glow. */
+	--vibe-neon-warning-glow: none;
 
 	/* Skill-pill (slash-command highlight in chat input + history). Defaults look like
 	 * normal inline code via VS Code's textPreformat tokens — picks up whatever color
@@ -185,6 +188,24 @@
 .vibe-chat-neon-scope textarea,
 .vibe-chat-neon-scope button {
 	text-shadow: var(--vibe-neon-text-glow);
+}
+
+/* Session-token "running low" attention cue. Instead of a toast on every budget
+ * warning (≥80% used), the last response's timestamp pulses. The yellow color +
+ * neon glow are set inline on the <time> element (so they win over the inline
+ * NEON_TIMESTAMP_STYLE); this class only drives the pulse animation. Honors
+ * prefers-reduced-motion by falling back to a static (non-animated) yellow. */
+@keyframes vibe-token-warn-pulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.4; }
+}
+.vibe-token-warn-blink {
+	animation: vibe-token-warn-pulse 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+	.vibe-token-warn-blink {
+		animation: none;
+	}
 }
 
 /* `::placeholder` is a pseudo-element and does not inherit text-shadow from its host. */

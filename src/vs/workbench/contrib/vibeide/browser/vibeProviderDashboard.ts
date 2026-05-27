@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IVibeCostAttributionService } from '../common/vibeCostAttributionService.js';
 import { IVibeModelFingerprintService } from '../common/vibeModelFingerprintService.js';
 
@@ -38,12 +38,11 @@ class VibeProviderDashboardService extends Disposable implements IVibeProviderDa
 	declare readonly _serviceBrand: undefined;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IVibeCostAttributionService private readonly _costService: IVibeCostAttributionService,
 		@IVibeModelFingerprintService private readonly _fingerprintService: IVibeModelFingerprintService,
 	) {
 		super();
-		this._logService.debug('[VibeIDE ProviderDashboard] ready');
+		vibeLog.debug('ProviderDashboard', 'ready');
 	}
 
 	getUsageHistory(): ProviderUsageRecord[] {

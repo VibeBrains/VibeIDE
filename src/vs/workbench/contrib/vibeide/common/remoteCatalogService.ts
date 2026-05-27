@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import type { IHeaders } from '../../../../base/parts/request/common/request.js';
 import { ProviderName } from './vibeideSettingsTypes.js';
@@ -11,7 +12,6 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IRequestService, asTextOrError } from '../../../../platform/request/common/request.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 
 /**
  * Model information from remote provider catalogs
@@ -122,7 +122,6 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 		@IVibeideSettingsService private readonly settingsService: IVibeideSettingsService,
 		@IRequestService private readonly requestService: IRequestService,
 		@IMainProcessService private readonly mainProcessService: IMainProcessService,
-		@ILogService private readonly logService: ILogService,
 	) {}
 
 	/**
@@ -410,7 +409,7 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 			if (now - last >= this.ERROR_LOG_INTERVAL_MS) {
 				this.lastErrLogAt.set(providerName, now);
 				const msg = error instanceof Error ? error.message : String(error);
-				this.logService.warn(`[VibeIDE RemoteCatalog] Failed to fetch catalog for ${providerName}: ${msg}`);
+				vibeLog.warn('RemoteCatalog', `Failed to fetch catalog for ${providerName}: ${msg}`);
 			}
 			return [];
 		}

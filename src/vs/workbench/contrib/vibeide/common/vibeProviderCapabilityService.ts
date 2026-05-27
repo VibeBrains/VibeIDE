@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 
 export interface ProviderCapabilities {
@@ -66,7 +66,6 @@ class VibeProviderCapabilityService extends Disposable implements IVibeProviderC
 	private readonly _cache = new Map<string, ProviderCapabilities>();
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IStorageService private readonly _storageService: IStorageService,
 	) {
 		super();
@@ -111,7 +110,7 @@ class VibeProviderCapabilityService extends Disposable implements IVibeProviderC
 		this._cache.set(key, caps);
 		const arr = Array.from(this._cache.values());
 		this._storageService.store(STORAGE_KEY, JSON.stringify(arr), StorageScope.APPLICATION, StorageTarget.MACHINE);
-		this._logService.debug(`[VibeIDE ProviderCapability] Recorded: ${caps.modelId} — thinking:${caps.extendedThinking}, vision:${caps.vision}, mode:${caps.toolExecutionMode}`);
+		vibeLog.debug('ProviderCapability', `Recorded: ${caps.modelId} — thinking:${caps.extendedThinking}, vision:${caps.vision}, mode:${caps.toolExecutionMode}`);
 	}
 
 	supports(modelId: string, capability: keyof Omit<ProviderCapabilities, 'modelId' | 'providerName' | 'probedAt' | 'maxContextLength' | 'toolExecutionMode'>): boolean {

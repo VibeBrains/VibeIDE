@@ -8,6 +8,7 @@
  * Provides checks before remote model calls and audit logging
  */
 
+import { vibeLog } from '../vibeLog.js';
 import type { ILogService } from '../../../../../platform/log/common/log.js';
 
 export interface SecurityCheckResult {
@@ -26,7 +27,7 @@ export function checkRemoteModelCall(
 ): SecurityCheckResult {
 	// Log the decision
 	if (logService) {
-		logService.debug('[ImageQA Security] Remote model call check', {
+		vibeLog.debug('securityGuardrails', '[ImageQA Security] Remote model call check', {
 			allowRemoteModels,
 			imageSize,
 		});
@@ -34,7 +35,7 @@ export function checkRemoteModelCall(
 
 	if (!allowRemoteModels) {
 		if (logService) {
-			logService.info('[ImageQA Security] Remote model call blocked - remote models disabled');
+			vibeLog.info('securityGuardrails', '[ImageQA Security] Remote model call blocked - remote models disabled');
 		}
 		return {
 			allowed: false,
@@ -46,7 +47,7 @@ export function checkRemoteModelCall(
 	const MAX_REMOTE_IMAGE_SIZE = 50 * 1024 * 1024; // 50 MB
 	if (imageSize > MAX_REMOTE_IMAGE_SIZE) {
 		if (logService) {
-			logService.warn('[ImageQA Security] Remote model call blocked - image too large', {
+			vibeLog.warn('securityGuardrails', '[ImageQA Security] Remote model call blocked - image too large', {
 				imageSize,
 				maxSize: MAX_REMOTE_IMAGE_SIZE,
 			});
@@ -58,7 +59,7 @@ export function checkRemoteModelCall(
 	}
 
 	if (logService) {
-		logService.info('[ImageQA Security] Remote model call allowed');
+		vibeLog.info('securityGuardrails', '[ImageQA Security] Remote model call allowed');
 	}
 
 	return {
@@ -78,7 +79,7 @@ export function logImageProcessingDecision(
 	logService?: ILogService
 ): void {
 	if (logService) {
-		logService.info('[ImageQA Audit] Processing decision', {
+		vibeLog.info('securityGuardrails', '[ImageQA Audit] Processing decision', {
 			routingPath,
 			imageType,
 			questionType,

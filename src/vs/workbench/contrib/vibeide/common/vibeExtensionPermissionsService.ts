@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
 import { localize } from '../../../../nls.js';
@@ -44,7 +44,6 @@ class VibeExtensionPermissionsService extends Disposable implements IVibeExtensi
 	readonly onPermissionsShown = this._onPermissionsShown.event;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@INotificationService private readonly _notificationService: INotificationService,
 		@IExtensionService private readonly _extensionService: IExtensionService,
 	) {
@@ -98,7 +97,7 @@ class VibeExtensionPermissionsService extends Disposable implements IVibeExtensi
 		}
 
 		this._onPermissionsShown.fire(caps);
-		this._logService.debug(`[VibeIDE ExtPermissions] ${extensionId}: ${caps.riskLevel} risk`);
+		vibeLog.debug('ExtPermissions', `${extensionId}: ${caps.riskLevel} risk`);
 	}
 }
 

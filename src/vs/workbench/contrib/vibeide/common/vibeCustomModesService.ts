@@ -3,12 +3,13 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { localize } from '../../../../nls.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 
 export interface CustomMode {
 	id: string;
@@ -74,7 +75,6 @@ class VibeCustomModesService extends Disposable implements IVibeCustomModesServi
 	private _activeMode: CustomMode | null = null;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -85,7 +85,7 @@ class VibeCustomModesService extends Disposable implements IVibeCustomModesServi
 
 	setActiveMode(id: string | null): void {
 		this._activeMode = id ? (this._modes.find(m => m.id === id) ?? null) : null;
-		this._logService.info(`[VibeIDE CustomModes] Active: ${this._activeMode?.name ?? 'none'}`);
+		vibeLog.info('CustomModes', `Active: ${this._activeMode?.name ?? 'none'}`);
 		this._onModeChanged.fire(this._activeMode);
 	}
 
@@ -100,7 +100,7 @@ class VibeCustomModesService extends Disposable implements IVibeCustomModesServi
 		mode.isBuiltin = false;
 		mode.sha256 = hash;
 
-		this._logService.info(`[VibeIDE CustomModes] Imported community mode: ${mode.name} (SHA-256: ${hash.slice(0, 8)})`);
+		vibeLog.info('CustomModes', `Imported community mode: ${mode.name} (SHA-256: ${hash.slice(0, 8)})`);
 		this._modes.push(mode);
 		return { mode, sha256: hash };
 	}

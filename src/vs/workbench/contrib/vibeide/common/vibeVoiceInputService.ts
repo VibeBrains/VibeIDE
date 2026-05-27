@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -10,7 +11,7 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { localize } from '../../../../nls.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -65,7 +66,6 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 
 	constructor(
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -89,11 +89,11 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 	}
 
 	startRecording(): void {
-		this._logService.info('[VibeIDE Voice] Phase 3b: recording started');
+		vibeLog.info('Voice', 'Phase 3b: recording started');
 	}
 
 	async stopRecording(): Promise<string | null> {
-		this._logService.info('[VibeIDE Voice] Phase 3b: recording stopped');
+		vibeLog.info('Voice', 'Phase 3b: recording stopped');
 		return null;
 	}
 }

@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IVibeCheckpointCoordinator } from './vibeCheckpointCoordinatorService.js';
 
 export interface WorktreeInfo {
@@ -62,7 +62,6 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 	private readonly _worktrees = new Map<string, WorktreeInfo>();
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IVibeCheckpointCoordinator private readonly _checkpointCoordinator: IVibeCheckpointCoordinator,
 	) {
 		super();
@@ -83,10 +82,10 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 			};
 			this._worktrees.set(worktree.id, worktree);
 			this._onWorktreeCreated.fire(worktree);
-			this._logService.info(`[VibeIDE Worktree] Created: ${branch}`);
+			vibeLog.info('Worktree', `Created: ${branch}`);
 			return worktree;
 		} catch (e) {
-			this._logService.error('[VibeIDE Worktree] Failed to create:', e);
+			vibeLog.error('Worktree', 'Failed to create:', e);
 			return null;
 		}
 	}
@@ -99,7 +98,7 @@ class VibeGitWorktreeService extends Disposable implements IVibeGitWorktreeServi
 			}
 			this._worktrees.delete(worktreeId);
 			this._onWorktreeMerged.fire(wt);
-			this._logService.info(`[VibeIDE Worktree] Merged: ${wt.branch}`);
+			vibeLog.info('Worktree', `Merged: ${wt.branch}`);
 		});
 	}
 

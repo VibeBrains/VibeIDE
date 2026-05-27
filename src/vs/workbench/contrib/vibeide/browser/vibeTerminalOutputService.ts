@@ -3,13 +3,13 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { ITerminalService } from '../../../contrib/terminal/browser/terminal.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 
 export const IVibeTerminalOutputService = createDecorator<IVibeTerminalOutputService>('vibeTerminalOutputService');
 
@@ -51,7 +51,6 @@ class VibeTerminalOutputService extends Disposable implements IVibeTerminalOutpu
 	constructor(
 		@ITerminalService private readonly _terminalService: ITerminalService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 		this._enabled = this._configurationService.getValue<boolean>('vibeide.agent.terminalOutputAwareness') ?? false;
@@ -71,7 +70,7 @@ class VibeTerminalOutputService extends Disposable implements IVibeTerminalOutpu
 	}
 
 	private _setupTerminalListeners(): void {
-		this._logService.info('[VibeIDE TerminalOutput] Terminal output awareness enabled (opt-in)');
+		vibeLog.info('TerminalOutput', 'Terminal output awareness enabled (opt-in)');
 
 		// Listen to terminal data events
 		this._register(this._terminalService.onDidChangeActiveInstance(terminal => {

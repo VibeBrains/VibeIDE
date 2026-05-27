@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { relative } from '../../../../base/common/path.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -11,7 +12,7 @@ import { joinPath } from '../../../../base/common/resources.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { ILifecycleService } from '../../../services/lifecycle/common/lifecycle.js';
@@ -45,7 +46,6 @@ export class VibeAgentTerritorialLockService extends Disposable implements IVibe
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService private readonly _logService: ILogService,
 		@ILifecycleService private readonly _lifecycleService: ILifecycleService,
 	) {
 		super();
@@ -78,7 +78,7 @@ export class VibeAgentTerritorialLockService extends Disposable implements IVibe
 		try {
 			data = JSON.parse(raw);
 		} catch (e) {
-			this._logService.warn('[VibeIDE] agent-locks.json: invalid JSON', e);
+			vibeLog.warn('vibeAgentTerritorialLock', 'agent-locks.json: invalid JSON', e);
 			return undefined;
 		}
 
@@ -172,14 +172,14 @@ export class VibeAgentTerritorialLockService extends Disposable implements IVibe
 		try {
 			data = JSON.parse(raw);
 		} catch (e) {
-			this._logService.warn('[VibeIDE] agent-locks.json: invalid JSON, skip TTL cleanup', e);
+			vibeLog.warn('vibeAgentTerritorialLock', 'agent-locks.json: invalid JSON, skip TTL cleanup', e);
 			return;
 		}
 		const decoded = decodeAgentLocks(data);
 		if (decoded === null) {
 			// Legacy `{ locks: [...] }` or single-object — not the canonical helper shape.
 			// Don't risk rewriting; surface so the user can normalise via `vibe doctor`.
-			this._logService.warn('[VibeIDE] agent-locks.json: non-canonical shape, skip TTL cleanup');
+			vibeLog.warn('vibeAgentTerritorialLock', 'agent-locks.json: non-canonical shape, skip TTL cleanup');
 			return;
 		}
 		const result = filterLocksForDisposal({
@@ -191,7 +191,7 @@ export class VibeAgentTerritorialLockService extends Disposable implements IVibe
 			return;
 		}
 		for (const r of result.release) {
-			this._logService.info(`[VibeIDE] agent-lock released (${r.reason}): holder=${r.entry.holder} paths=${r.entry.paths.join(',')}`);
+			vibeLog.info('vibeAgentTerritorialLock', `agent-lock released (${r.reason}): holder=${r.entry.holder} paths=${r.entry.paths.join(',')}`);
 		}
 		try {
 			await this._fileService.writeFile(
@@ -200,7 +200,7 @@ export class VibeAgentTerritorialLockService extends Disposable implements IVibe
 				{ atomic: { postfix: '.vibe-tmp' } },
 			);
 		} catch (e) {
-			this._logService.warn('[VibeIDE] agent-locks.json: TTL cleanup write failed', e);
+			vibeLog.warn('vibeAgentTerritorialLock', 'agent-locks.json: TTL cleanup write failed', e);
 		}
 	}
 
@@ -239,7 +239,7 @@ export class VibeAgentTerritorialLockService extends Disposable implements IVibe
 			return;
 		}
 		for (const r of result.release) {
-			this._logService.info(`[VibeIDE] agent-lock holder-disposed (${r.reason}): holder=${r.entry.holder}`);
+			vibeLog.info('vibeAgentTerritorialLock', `agent-lock holder-disposed (${r.reason}): holder=${r.entry.holder}`);
 		}
 		try {
 			await this._fileService.writeFile(
@@ -248,7 +248,7 @@ export class VibeAgentTerritorialLockService extends Disposable implements IVibe
 				{ atomic: { postfix: '.vibe-tmp' } },
 			);
 		} catch (e) {
-			this._logService.warn('[VibeIDE] agent-locks.json: holder release write failed', e);
+			vibeLog.warn('vibeAgentTerritorialLock', 'agent-locks.json: holder release write failed', e);
 		}
 	}
 }

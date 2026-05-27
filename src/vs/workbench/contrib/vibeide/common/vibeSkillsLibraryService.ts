@@ -3,12 +3,13 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService, IFileStat } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -339,7 +340,6 @@ class VibeSkillsLibraryService extends Disposable implements IVibeSkillsLibraryS
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService private readonly _logService: ILogService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@IProductService private readonly _productService: IProductService,
 		@IStorageService private readonly _storageService: IStorageService,
@@ -380,7 +380,7 @@ class VibeSkillsLibraryService extends Disposable implements IVibeSkillsLibraryS
 		try {
 			this._storageService.store(MRU_STORAGE_KEY, JSON.stringify(updated), StorageScope.PROFILE, StorageTarget.USER);
 		} catch (err) {
-			this._logService.warn(`[VibeIDE Skills] Failed to persist MRU list: ${err}`);
+			vibeLog.warn('Skills', `Failed to persist MRU list: ${err}`);
 		}
 	}
 
@@ -451,7 +451,7 @@ class VibeSkillsLibraryService extends Disposable implements IVibeSkillsLibraryS
 			try {
 				await this._collectSkillsIntoMap(URI.file(p), byId);
 			} catch (e) {
-				this._logService.warn('[VibeIDE Skills] globalPaths entry invalid or unreadable:', p, e);
+				vibeLog.warn('Skills', 'globalPaths entry invalid or unreadable:', p, e);
 			}
 		}
 
@@ -538,12 +538,12 @@ class VibeSkillsLibraryService extends Disposable implements IVibeSkillsLibraryS
 			const defaultId = this._inferDefaultSkillId(child.resource, child.name);
 			const parsed = parseSkillMarkdown(text, rel, defaultId);
 			if (!parsed) {
-				this._logService.debug('[VibeIDE Skills] skip (needs name + description when YAML frontmatter present):', child.resource.fsPath);
+				vibeLog.debug('Skills', 'skip (needs name + description when YAML frontmatter present):', child.resource.fsPath);
 				return;
 			}
 			into.set(parsed.skillId.toLowerCase(), parsed);
 		} catch (e) {
-			this._logService.debug('[VibeIDE Skills] skip file', child.resource.fsPath, e);
+			vibeLog.debug('Skills', 'skip file', child.resource.fsPath, e);
 		}
 	}
 

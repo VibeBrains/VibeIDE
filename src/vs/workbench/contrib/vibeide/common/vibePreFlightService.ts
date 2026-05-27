@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 
 export interface PreFlightStep {
 	type: 'file_write' | 'file_read' | 'shell_command' | 'mcp_call' | 'llm_call';
@@ -83,7 +83,6 @@ class VibePreFlightService extends Disposable implements IVibePreFlightService {
 	private static readonly DRIFT_THRESHOLD = 2; // 2× planned steps = drift
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -95,7 +94,7 @@ class VibePreFlightService extends Disposable implements IVibePreFlightService {
 			createdAt: Date.now(),
 		};
 
-		this._logService.debug(`[VibeIDE PreFlight] Plan: ${plan.estimatedFiles} files, ${plan.estimatedCommands} commands`);
+		vibeLog.debug('PreFlight', `Plan: ${plan.estimatedFiles} files, ${plan.estimatedCommands} commands`);
 		this._onPlanPresented.fire(fullPlan);
 
 		return new Promise<PreFlightResult>(resolve => {
@@ -137,7 +136,7 @@ class VibePreFlightService extends Disposable implements IVibePreFlightService {
 		const plannedSteps = pending?.plan.steps.length ?? ARBITRARY_PLAN_THRESHOLD;
 		const isDrift = actualSteps > plannedSteps * VibePreFlightService.DRIFT_THRESHOLD;
 		if (isDrift) {
-			this._logService.warn(`[VibeIDE PreFlight] Plan drift detected: ${actualSteps} actual steps vs ${plannedSteps} planned`);
+			vibeLog.warn('PreFlight', `Plan drift detected: ${actualSteps} actual steps vs ${plannedSteps} planned`);
 		}
 		return isDrift;
 	}

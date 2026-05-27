@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IVibeCheckpointCoordinator } from './vibeCheckpointCoordinatorService.js';
 import { IVibeGitWorktreeService } from './vibeGitWorktreeService.js';
 
@@ -45,7 +45,6 @@ class VibeMultiAgentService extends Disposable implements IVibeMultiAgentService
 	declare readonly _serviceBrand: undefined;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IVibeCheckpointCoordinator private readonly _checkpointCoordinator: IVibeCheckpointCoordinator,
 		@IVibeGitWorktreeService private readonly _worktreeService: IVibeGitWorktreeService,
 	) {
@@ -56,9 +55,9 @@ class VibeMultiAgentService extends Disposable implements IVibeMultiAgentService
 		const sessionId = `multi-${Date.now()}`;
 		const wt = await this._worktreeService.createAgentWorktree(sessionId);
 		if (wt) {
-			this._logService.info(`[VibeIDE MultiAgent] Session ${sessionId} — worktree ${wt.id} (${wt.branch}) for task prefix: ${task.slice(0, 50)}`);
+			vibeLog.info('MultiAgent', `Session ${sessionId} — worktree ${wt.id} (${wt.branch}) for task prefix: ${task.slice(0, 50)}`);
 		} else {
-			this._logService.warn(`[VibeIDE MultiAgent] Session ${sessionId} started without worktree (stub failure)`);
+			vibeLog.warn('MultiAgent', `Session ${sessionId} started without worktree (stub failure)`);
 		}
 		return sessionId;
 	}
@@ -79,7 +78,7 @@ class VibeMultiAgentService extends Disposable implements IVibeMultiAgentService
 	async createCheckpoint(label: string): Promise<string> {
 		return this._checkpointCoordinator.runExclusive({ op: 'multiagent:createCheckpoint', holderLabel: label }, async () => {
 			const id = `checkpoint-${Date.now()}`;
-			this._logService.debug(`[VibeIDE MultiAgent] Checkpoint: ${label}`);
+			vibeLog.debug('MultiAgent', `Checkpoint: ${label}`);
 			return id;
 		});
 	}

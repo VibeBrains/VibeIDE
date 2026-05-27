@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IRollbackSnapshotService } from './rollbackSnapshotService.js';
 import { IAuditLogService } from './auditLogService.js';
 
@@ -47,7 +47,6 @@ class VibePartialRollbackService extends Disposable implements IVibePartialRollb
 	declare readonly _serviceBrand: undefined;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IRollbackSnapshotService private readonly _snapshotService: IRollbackSnapshotService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 	) {
@@ -75,7 +74,7 @@ class VibePartialRollbackService extends Disposable implements IVibePartialRollb
 		const toRestore = allFiles.filter(f => request.selectedFiles.includes(f));
 		const skipped = allFiles.filter(f => !request.selectedFiles.includes(f));
 
-		this._logService.info(`[VibeIDE PartialRollback] Restoring ${toRestore.length} of ${allFiles.length} files`);
+		vibeLog.info('PartialRollback', `Restoring ${toRestore.length} of ${allFiles.length} files`);
 
 		if (this._auditLogService.isEnabled()) {
 			await this._auditLogService.append({

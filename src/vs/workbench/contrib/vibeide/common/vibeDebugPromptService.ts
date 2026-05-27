@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 
 export interface PromptSnapshot {
 	requestId: string;
@@ -66,7 +66,6 @@ class VibeDebugPromptService extends Disposable implements IVibeDebugPromptServi
 	private readonly MAX_STORED = 100;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -80,7 +79,7 @@ class VibeDebugPromptService extends Disposable implements IVibeDebugPromptServi
 		this._snapshots.set(snapshot.requestId, snapshot);
 		this._recentIds.push(snapshot.requestId);
 		this._onSnapshot.fire(snapshot);
-		this._logService.debug(`[VibeIDE DebugPrompt] Snapshot recorded: ${snapshot.requestId} (${snapshot.modelId}, ~${snapshot.estimatedInputTokens} tokens)`);
+		vibeLog.debug('DebugPrompt', `Snapshot recorded: ${snapshot.requestId} (${snapshot.modelId}, ~${snapshot.estimatedInputTokens} tokens)`);
 	}
 
 	getLatest(): PromptSnapshot | undefined {

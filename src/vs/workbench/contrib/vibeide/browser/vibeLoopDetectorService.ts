@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -10,7 +11,7 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { localize } from '../../../../nls.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -108,7 +109,6 @@ class VibeLoopDetectorService extends Disposable implements IVibeLoopDetectorSer
 
 	constructor(
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 		this._threshold = this._configurationService.getValue<number>('vibeide.safety.loopDetectorThreshold') ?? 3;
@@ -139,7 +139,7 @@ class VibeLoopDetectorService extends Disposable implements IVibeLoopDetectorSer
 		if (loopDetected) {
 			const recent = history.slice(-Math.min(5, history.length));
 			const message = `Loop detected: action "${action.type}:${action.target}" repeated ${this._threshold}+ times consecutively.`;
-			this._logService.warn(`[VibeIDE LoopDetector] ⏸ ${message}`);
+			vibeLog.warn('LoopDetector', `⏸ ${message}`);
 			this._onLoopDetected.fire({ sessionId, actions: recent, message });
 		}
 

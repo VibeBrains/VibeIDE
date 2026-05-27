@@ -8,6 +8,7 @@
  * IWorkbenchExtensionManagementService timing / profile quirks).
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { createLinkElement } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { IDisposable, Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
@@ -16,7 +17,6 @@ import * as resources from '../../../../base/common/resources.js';
 import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { ColorThemeData } from '../../../services/themes/common/colorThemeData.js';
 import { IWorkbenchThemeService } from '../../../services/themes/common/workbenchThemeService.js';
@@ -37,7 +37,6 @@ export class VibeNeonThemeContribution extends Disposable implements IWorkbenchC
 
 	constructor(
 		@IWorkbenchThemeService private readonly _themeService: IWorkbenchThemeService,
-		@ILogService private readonly _logService: ILogService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@IContextKeyService contextKeyService: IContextKeyService,
 	) {
@@ -118,7 +117,7 @@ export class VibeNeonThemeContribution extends Disposable implements IWorkbenchC
 			this._chromeDisposable = toDisposable(() => element.remove());
 
 		} catch (err) {
-			this._logService.warn(`[VibeNeonTheme] Failed to attach chrome stylesheet: ${err}`);
+			vibeLog.warn('vibeNeonTheme', `[VibeNeonTheme] Failed to attach chrome stylesheet: ${err}`);
 		}
 	}
 }

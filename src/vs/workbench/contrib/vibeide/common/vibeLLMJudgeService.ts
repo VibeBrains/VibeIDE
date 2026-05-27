@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { DiffChunk } from './vibeDiffPreviewService.js';
 
 export interface JudgeVerdict {
@@ -67,7 +67,6 @@ class VibeLLMJudgeService extends Disposable implements IVibeLLMJudgeService {
 	];
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -80,7 +79,7 @@ class VibeLLMJudgeService extends Disposable implements IVibeLLMJudgeService {
 		const sec = this._firstCodeSecurityIssue(content);
 		if (sec) {
 			const verdict = { ...sec, chunkId: chunk.id };
-			this._logService.debug(`[VibeIDE LLMJudge] chunk ${chunk.id}: ${verdict.verdict}`);
+			vibeLog.debug('LLMJudge', `chunk ${chunk.id}: ${verdict.verdict}`);
 			return verdict;
 		}
 
@@ -91,7 +90,7 @@ class VibeLLMJudgeService extends Disposable implements IVibeLLMJudgeService {
 				message: 'Judge: high-risk change detected by heuristics',
 				isAdvisory: true,
 			};
-			this._logService.debug(`[VibeIDE LLMJudge] chunk ${chunk.id}: ${verdict.verdict}`);
+			vibeLog.debug('LLMJudge', `chunk ${chunk.id}: ${verdict.verdict}`);
 			return verdict;
 		}
 
@@ -101,7 +100,7 @@ class VibeLLMJudgeService extends Disposable implements IVibeLLMJudgeService {
 			message: 'Judge: no obvious issues detected (Phase 2: full LLM review)',
 			isAdvisory: true,
 		};
-		this._logService.debug(`[VibeIDE LLMJudge] chunk ${chunk.id}: ${verdict.verdict}`);
+		vibeLog.debug('LLMJudge', `chunk ${chunk.id}: ${verdict.verdict}`);
 		return verdict;
 	}
 

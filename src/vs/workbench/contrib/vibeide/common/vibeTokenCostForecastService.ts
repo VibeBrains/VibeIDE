@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 
 export interface TokenCostForecast {
 	worstCaseUsd: number;
@@ -58,7 +58,6 @@ class VibeTokenCostForecastService extends Disposable implements IVibeTokenCostF
 	declare readonly _serviceBrand: undefined;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -69,7 +68,7 @@ class VibeTokenCostForecastService extends Disposable implements IVibeTokenCostF
 		const estimatedOutputTokens = Math.ceil(estimatedInputTokens * OUTPUT_RATIO);
 
 		if (!pricing) {
-			this._logService.debug(`[VibeIDE CostForecast] No pricing for model: ${modelId}`);
+			vibeLog.debug('CostForecast', `No pricing for model: ${modelId}`);
 			return {
 				worstCaseUsd: 0,
 				withCacheUsd: 0,
@@ -106,7 +105,7 @@ class VibeTokenCostForecastService extends Disposable implements IVibeTokenCostF
 			(cachedTokens / 1000) * pricing.inputPer1kTokens * (1 - pricing.cacheReadDiscount) +
 			(outputTokens / 1000) * pricing.outputPer1kTokens;
 
-		this._logService.debug(`[VibeIDE CostForecast] Actual cost for ${modelId}: $${actualCost.toFixed(4)} (in:${inputTokens} out:${outputTokens} cached:${cachedTokens})`);
+		vibeLog.debug('CostForecast', `Actual cost for ${modelId}: $${actualCost.toFixed(4)} (in:${inputTokens} out:${outputTokens} cached:${cachedTokens})`);
 	}
 
 	getPricing(modelId: string): ModelPricing | null {

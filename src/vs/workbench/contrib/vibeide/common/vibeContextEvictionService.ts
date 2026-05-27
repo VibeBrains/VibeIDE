@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 
 export interface ContextItem {
 	id: string;
@@ -55,7 +55,6 @@ class VibeContextEvictionService extends Disposable implements IVibeContextEvict
 	private _items = new Map<string, ContextItem>();
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -69,10 +68,10 @@ class VibeContextEvictionService extends Disposable implements IVibeContextEvict
 		const item = this._items.get(itemId);
 		if (item && !item.isPinned) {
 			this._items.delete(itemId);
-			this._logService.debug(`[VibeIDE ContextEviction] Evicted: ${item.filePath || item.symbolName}`);
+			vibeLog.debug('ContextEviction', `Evicted: ${item.filePath || item.symbolName}`);
 			this._onContextChanged.fire();
 		} else if (item?.isPinned) {
-			this._logService.warn(`[VibeIDE ContextEviction] Cannot evict pinned item: ${item.filePath}`);
+			vibeLog.warn('ContextEviction', `Cannot evict pinned item: ${item.filePath}`);
 		}
 	}
 
@@ -104,7 +103,7 @@ class VibeContextEvictionService extends Disposable implements IVibeContextEvict
 		}
 
 		if (evicted.length > 0) {
-			this._logService.info(`[VibeIDE ContextEviction] Auto-compressed: evicted ${evicted.length} items, saved ${saved} tokens`);
+			vibeLog.info('ContextEviction', `Auto-compressed: evicted ${evicted.length} items, saved ${saved} tokens`);
 			this._onContextChanged.fire();
 		}
 

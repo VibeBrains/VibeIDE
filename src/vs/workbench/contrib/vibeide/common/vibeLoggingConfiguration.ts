@@ -55,5 +55,10 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			maximum: 10000,
 			description: localize('vibeide.logging.bufferSize', 'Сколько последних строк лога держать в памяти для команды «VibeIDE: Скопировать недавние логи» (без захода в DevTools). `0` — отключить буфер. Дефолт 500, максимум 10000.'),
 		},
+		'vibeide.logging.collapseRepeats': {
+			type: 'boolean',
+			default: true,
+			description: localize('vibeide.logging.collapseRepeats', 'Схлопывать подряд идущие одинаковые строки лога в одну с пометкой «(повторилось ещё ×N)» — убирает спам в циклах (напр. повторные invalid_params). Выключите, чтобы видеть каждую строку.'),
+		},
 	},
 });

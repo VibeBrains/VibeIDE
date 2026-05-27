@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 
 export interface ThinkingChunk {
@@ -51,7 +51,6 @@ class VibeThinkingOutLoudService extends Disposable implements IVibeThinkingOutL
 
 	constructor(
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 		this._enabled = this._configurationService.getValue<boolean>('vibeide.agent.thinkingOutLoud') ?? false;
@@ -76,7 +75,7 @@ class VibeThinkingOutLoudService extends Disposable implements IVibeThinkingOutL
 		this._onThinkingChunk.fire(full);
 
 		if (chunk.isFinal) {
-			this._logService.debug(`[VibeIDE ThinkingOutLoud] Final reasoning: ${(existing + chunk.text).length} chars`);
+			vibeLog.debug('ThinkingOutLoud', `Final reasoning: ${(existing + chunk.text).length} chars`);
 		}
 	}
 

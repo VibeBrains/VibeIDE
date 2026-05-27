@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 
 export interface FileCostAttribution {
 	filePath: string;
@@ -44,7 +44,6 @@ class VibeCostAttributionService extends Disposable implements IVibeCostAttribut
 	private readonly _fileUsage = new Map<string, FileCostAttribution>();
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -73,7 +72,7 @@ class VibeCostAttributionService extends Disposable implements IVibeCostAttribut
 
 	resetSession(): void {
 		this._fileUsage.clear();
-		this._logService.debug('[VibeIDE CostAttribution] Session reset');
+		vibeLog.debug('CostAttribution', 'Session reset');
 	}
 }
 

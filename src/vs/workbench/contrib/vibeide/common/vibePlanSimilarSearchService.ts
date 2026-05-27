@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { URI } from '../../../../base/common/uri.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { joinPath } from '../../../../base/common/resources.js';
@@ -10,7 +11,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { vibeCosineSimilarity, vibeSimpleTextEmbedding } from './vibeSimpleEmbedding.js';
 
 export interface PlanSimilarityHit {
@@ -49,7 +50,6 @@ class VibePlanSimilarSearchService extends Disposable implements IVibePlanSimila
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -92,7 +92,7 @@ class VibePlanSimilarSearchService extends Disposable implements IVibePlanSimila
 					const label = wsFolder ? `${wsFolder.name}/.vibe/plans/${child.name}` : fileUri.fsPath;
 					scored.push({ uri: fileUri, label, score, preview });
 				} catch (e) {
-					this._logService.warn(`[VibeIDE PlanSimilar] unreadable ${fileUri.toString()}:`, e);
+					vibeLog.warn('PlanSimilar', `unreadable ${fileUri.toString()}:`, e);
 				}
 			}
 		}

@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 
 export interface PromptVersion {
 	version: string;          // e.g., "1.2.3" (IDE version)
@@ -44,7 +44,6 @@ class VibePromptVersioningService extends Disposable implements IVibePromptVersi
 	private readonly _versions: PromptVersion[] = [];
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -65,7 +64,7 @@ class VibePromptVersioningService extends Disposable implements IVibePromptVersi
 		};
 
 		this._versions.push(version);
-		this._logService.info(`[VibeIDE PromptVersioning] Recorded prompt v${ideVersion} (hash: ${hash.slice(0, 8)})`);
+		vibeLog.info('PromptVersioning', `Recorded prompt v${ideVersion} (hash: ${hash.slice(0, 8)})`);
 	}
 
 	getVersionHistory(): PromptVersion[] {

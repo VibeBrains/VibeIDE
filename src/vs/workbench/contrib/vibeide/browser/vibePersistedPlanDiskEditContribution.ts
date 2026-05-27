@@ -3,12 +3,13 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable, DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
 import { localize } from '../../../../nls.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IFileService, FileChangesEvent } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IChatThreadService } from './chatThreadService.js';
@@ -32,7 +33,6 @@ export class VibePersistedPlanDiskEditContribution extends Disposable implements
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService private readonly _logService: ILogService,
 		@INotificationService private readonly _notificationService: INotificationService,
 		@IChatThreadService private readonly _chatThreadService: IChatThreadService,
 	) {
@@ -100,7 +100,7 @@ export class VibePersistedPlanDiskEditContribution extends Disposable implements
 				}
 			}
 		} catch (e) {
-			this._logService.debug('[VibeIDE PlanDiskEdit] skipped:', e);
+			vibeLog.debug('PlanDiskEdit', 'skipped:', e);
 			return;
 		}
 		if (!diskPlanId) {

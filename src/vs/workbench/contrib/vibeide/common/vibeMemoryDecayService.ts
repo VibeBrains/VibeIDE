@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
@@ -50,7 +50,6 @@ class VibeMemoryDecayService extends Disposable implements IVibeMemoryDecayServi
 	private _sessionId: string;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 	) {
@@ -68,7 +67,7 @@ class VibeMemoryDecayService extends Disposable implements IVibeMemoryDecayServi
 				.filter((m, i) => m.importance !== 'low' || i > this._memories.length - 100)
 				.slice(-200);
 		}
-		this._logService.debug(`[VibeIDE Memory] Added ${entry.type}: ${entry.content.slice(0, 60)}`);
+		vibeLog.debug('Memory', `Added ${entry.type}: ${entry.content.slice(0, 60)}`);
 	}
 
 	getRelevantMemories(query: string, limit: number = 5): MemoryEntry[] {
@@ -115,9 +114,9 @@ class VibeMemoryDecayService extends Disposable implements IVibeMemoryDecayServi
 
 		try {
 			await this._fileService.writeFile(contextUri, VSBuffer.fromString(content));
-			this._logService.info('[VibeIDE Memory] Persisted to .vibe/context.md');
+			vibeLog.info('Memory', 'Persisted to .vibe/context.md');
 		} catch (e) {
-			this._logService.warn('[VibeIDE Memory] Failed to persist:', e);
+			vibeLog.warn('Memory', 'Failed to persist:', e);
 		}
 	}
 
@@ -145,7 +144,7 @@ class VibeMemoryDecayService extends Disposable implements IVibeMemoryDecayServi
 					});
 				}
 			}
-			this._logService.debug(`[VibeIDE Memory] Loaded ${this._memories.length} memories from .vibe/context.md`);
+			vibeLog.debug('Memory', `Loaded ${this._memories.length} memories from .vibe/context.md`);
 		} catch {
 			// File doesn't exist yet — OK
 		}

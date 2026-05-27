@@ -3,11 +3,11 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { isLinux, isMacintosh, isWindows } from '../../../../base/common/platform.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { IEnvironmentMainService } from '../../../../platform/environment/electron-main/environmentMainService.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
 import { StorageTarget, StorageScope } from '../../../../platform/storage/common/storage.js';
 import { IApplicationStorageMainService } from '../../../../platform/storage/electron-main/storageMainService.js';
@@ -95,7 +95,6 @@ export class MetricsMainService extends Disposable implements IMetricsService {
 		@IProductService private readonly _productService: IProductService,
 		@IEnvironmentMainService private readonly _envMainService: IEnvironmentMainService,
 		@IApplicationStorageMainService private readonly _appStorage: IApplicationStorageMainService,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super()
 		this.client = new NoOpMetricsClient()
@@ -133,7 +132,7 @@ export class MetricsMainService extends Disposable implements IMetricsService {
 
 		const didOptOut = this._appStorage.getBoolean(OPT_OUT_KEY, StorageScope.APPLICATION, false)
 
-		this._logService.info('[VibeIDE metrics] opt-out:', didOptOut)
+		vibeLog.info('metrics', 'opt-out:', didOptOut)
 		if (didOptOut) {
 			this.client.optOut()
 		}
@@ -142,7 +141,7 @@ export class MetricsMainService extends Disposable implements IMetricsService {
 			this.client.identify(identifyMessage)
 		}
 
-		this._logService.trace('[VibeIDE metrics] identify payload:', JSON.stringify(identifyMessage))
+		vibeLog.trace('metrics', 'identify payload:', JSON.stringify(identifyMessage))
 	}
 
 

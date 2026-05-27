@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { localize } from '../../../../nls.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 
 export interface VibeKeyboardShortcut {
 	command: string;
@@ -69,10 +69,9 @@ class VibeKeyboardShortcutsService extends Disposable implements IVibeKeyboardSh
 	declare readonly _serviceBrand: undefined;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
-		this._logService.debug(`[VibeIDE Keyboard] ${VIBE_KEYBOARD_SHORTCUTS.length} shortcuts registered`);
+		vibeLog.debug('Keyboard', `${VIBE_KEYBOARD_SHORTCUTS.length} shortcuts registered`);
 	}
 
 	getAllShortcuts(): VibeKeyboardShortcut[] {
@@ -89,7 +88,7 @@ class VibeKeyboardShortcutsService extends Disposable implements IVibeKeyboardSh
 					conflictingCommand: conflict.command,
 					key: vibe.key,
 				});
-				this._logService.warn(`[VibeIDE Keyboard] Conflict: ${vibe.key} (${vibe.command} vs ${conflict.command})`);
+				vibeLog.warn('Keyboard', `Conflict: ${vibe.key} (${vibe.command} vs ${conflict.command})`);
 			}
 		}
 		return conflicts;

@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IAuditLogService } from './auditLogService.js';
 
 export interface ProjectHealthSnapshot {
@@ -40,7 +40,6 @@ class VibeProjectHealthService extends Disposable implements IVibeProjectHealthS
 	private _lastSnapshot: ProjectHealthSnapshot | null = null;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 	) {
 		super();
@@ -62,7 +61,7 @@ class VibeProjectHealthService extends Disposable implements IVibeProjectHealthS
 		};
 
 		this._lastSnapshot = snapshot;
-		this._logService.info(`[VibeIDE ProjectHealth] Snapshot: ${events.length} actions, ${totalFiles} files`);
+		vibeLog.info('ProjectHealth', `Snapshot: ${events.length} actions, ${totalFiles} files`);
 		return snapshot;
 	}
 

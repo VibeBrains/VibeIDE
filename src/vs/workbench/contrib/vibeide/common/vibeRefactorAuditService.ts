@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IAuditLogService } from './auditLogService.js';
 import { IVibeAgentHistoryService } from './vibeAgentHistoryService.js';
 
@@ -45,7 +45,6 @@ class VibeRefactorAuditService extends Disposable implements IVibeRefactorAuditS
 	private readonly _operations = new Map<string, RefactorOperation>();
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 		@IVibeAgentHistoryService private readonly _historyService: IVibeAgentHistoryService,
 	) {
@@ -84,7 +83,7 @@ class VibeRefactorAuditService extends Disposable implements IVibeRefactorAuditS
 			canRollback: true,
 		});
 
-		this._logService.info(`[VibeIDE RefactorAudit] ${operation.type}: ${operation.affectedFiles.length} files (id: ${operationId})`);
+		vibeLog.info('RefactorAudit', `${operation.type}: ${operation.affectedFiles.length} files (id: ${operationId})`);
 		return operationId;
 	}
 

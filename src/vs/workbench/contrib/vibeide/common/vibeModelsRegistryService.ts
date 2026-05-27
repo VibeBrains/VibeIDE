@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 
 export interface ModelInfo {
@@ -66,7 +66,6 @@ class VibeModelsRegistryService extends Disposable implements IVibeModelsRegistr
 	private _registry: ModelsRegistry | null = null;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IStorageService private readonly _storageService: IStorageService,
 	) {
 		super();
@@ -76,14 +75,14 @@ class VibeModelsRegistryService extends Disposable implements IVibeModelsRegistr
 		if (cached) {
 			try {
 				this._registry = JSON.parse(cached) as ModelsRegistry;
-				this._logService.debug(`[VibeIDE ModelsRegistry] Loaded ${this._registry.models?.length ?? 0} models from cache`);
+				vibeLog.debug('ModelsRegistry', `Loaded ${this._registry.models?.length ?? 0} models from cache`);
 			} catch {
 				this._registry = null;
 			}
 		}
 
 		// Refresh from CDN in background (non-blocking)
-		this.refresh().catch(e => this._logService.debug('[VibeIDE ModelsRegistry] CDN refresh failed (offline?):', e));
+		this.refresh().catch(e => vibeLog.debug('ModelsRegistry', 'CDN refresh failed (offline?):', e));
 	}
 
 	getRegistry(): ModelsRegistry | null {
@@ -127,12 +126,12 @@ class VibeModelsRegistryService extends Disposable implements IVibeModelsRegistr
 
 			// 304 Not Modified — cache is still valid
 			if (response.status === 304) {
-				this._logService.debug('[VibeIDE ModelsRegistry] Cache still valid (304)');
+				vibeLog.debug('ModelsRegistry', 'Cache still valid (304)');
 				return;
 			}
 
 			if (!response.ok) {
-				this._logService.warn(`[VibeIDE ModelsRegistry] CDN returned ${response.status}`);
+				vibeLog.warn('ModelsRegistry', `CDN returned ${response.status}`);
 				return;
 			}
 
@@ -145,10 +144,10 @@ class VibeModelsRegistryService extends Disposable implements IVibeModelsRegistr
 				this._storageService.store(ETAG_KEY, newEtag, StorageScope.APPLICATION, StorageTarget.MACHINE);
 			}
 
-			this._logService.info(`[VibeIDE ModelsRegistry] Refreshed: ${data.models?.length ?? 0} models (v${data.version})`);
+			vibeLog.info('ModelsRegistry', `Refreshed: ${data.models?.length ?? 0} models (v${data.version})`);
 		} catch (e) {
 			// Network error — use cached version silently
-			this._logService.debug('[VibeIDE ModelsRegistry] Using cached registry (network unavailable)');
+			vibeLog.debug('ModelsRegistry', 'Using cached registry (network unavailable)');
 		}
 	}
 }

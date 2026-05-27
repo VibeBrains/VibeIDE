@@ -3078,11 +3078,17 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 - [x] **Output-канал «VibeIDE Log»** — ✅ `vibeLogOutputChannel.ts`: sink из `vibeLog` в VS Code Output channel (без DevTools, searchable, persistent) + команда «VibeIDE: Показать лог-канал»; на старте flush'ит ring-buffer (backlog), регистрация/sink снимаются на dispose.
 - [x] **`emit` cleanup** — один `vibeTraceTs()` на строку (был двойной: консоль+буфер давали расходящиеся таймстемпы и лишний `Date()`); единый `formatVibeLogEntry()` для буфера и sink'ов.
 
+Сделано (итерация 3):
+- [x] **Полная миграция `ILogService` → `vibeLog`** — ~233 вызова `logService.{info,warn,error,trace,debug}` в 90+ файлах (AST-codemod) + DI-зачистка осиротевших `@ILogService`-инъекций. Исключения (сознательно): `redactingLogService.ts` (обёртка `implements ILogService`), `vectorStore.ts` (не-DI `new`-конструкторы). Теперь `[VibeIDE …]`-строки имеют датавремя в консоли.
+- [x] **Файловый sink** — `vibeLogOutputChannel.ts`: hidden `ILoggerService` logger → `logsHome/vibeide.log` (персистентность через рестарт, support-бандлы), без второго пункта в Output-дропдауне. Восстанавливает файл-лог, снятый миграцией.
+- [x] **Секрет-редакция во ВСЕХ sink'ах** — `vibeLog.setRedactor()` + проводка `ISecretDetectionService` (bridge). Закрыта утечка: `firstRunValidation` редактировал только `console.*`, а ring-buffer (→ clipboard через «копировать логи»), Output-канал и файл несли сырые секреты.
+- [x] **Dedup** — схлопывание подряд идущих одинаковых строк в «(повторилось ещё ×N)» (flush на следующей отличной строке или по idle-таймеру 1.5s). Настройка `vibeide.logging.collapseRepeats` (default on).
+
 Backlog:
-- [ ] **IPC live-sync в `electron-main`**: пробросить `vibeide.logging.*` в main-процесс (сейчас main управляется только `VIBE_LOG*`-переменными). Закрывает известное ограничение v1.
+- [ ] **IPC live-sync в `electron-main`**: пробросить `vibeide.logging.*` (и redactor) в main-процесс (сейчас main управляется только `VIBE_LOG*`-переменными; redactor в main не установлен).
 - [ ] **Per-category levels**: `vibeide.logging.categoryLevels` (напр. `{"llmTurn":"off","Tool":"debug"}`) — точечный порог вместо одного глобального.
-- [ ] **Dedup/rate-limit**: схлопывать подряд идущие одинаковые строки («×N») — снять спам в циклах.
-- [ ] **Категории-enum в Settings UI**: автодополнение известных категорий в `vibeide.logging.categories` (сейчас free-form `string[]`; команда «Фильтр категорий» уже даёт discoverability).
+- [ ] **Взрыв категорий**: после миграции logService категорий стало ~150 (по имени файла). Сгруппировать (напр. префикс-домены `chat/`, `llm/`, `mcp/`) — иначе «Фильтр категорий» неудобен; и подсказывать известные в Settings UI.
+- [ ] **Backlog → файл**: ring-buffer flush'ится в Output-канал на старте, но не в файловый sink (ранние строки до AfterRestored в файл не попадают). Добавить `getRecentEntries()` и flush в файл.
 
 | Документ | Описание |
 |---|---|

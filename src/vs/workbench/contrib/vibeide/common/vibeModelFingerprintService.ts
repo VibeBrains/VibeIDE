@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IAuditLogService } from './auditLogService.js';
 
 export interface ModelFingerprint {
@@ -57,7 +57,6 @@ class VibeModelFingerprintService extends Disposable implements IVibeModelFinger
 	private _promptVersion = '1.0.0';
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 	) {
 		super();
@@ -71,7 +70,7 @@ class VibeModelFingerprintService extends Disposable implements IVibeModelFinger
 		}
 
 		this._fingerprints.set(fingerprint.requestId, fingerprint);
-		this._logService.debug(`[VibeIDE Fingerprint] ${fingerprint.feature || 'chat'} — ${fingerprint.modelId} @ temp=${fingerprint.temperature ?? 'default'}`);
+		vibeLog.debug('Fingerprint', `${fingerprint.feature || 'chat'} — ${fingerprint.modelId} @ temp=${fingerprint.temperature ?? 'default'}`);
 
 		// Persist to audit log
 		if (this._auditLogService.isEnabled()) {

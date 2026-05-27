@@ -3,11 +3,12 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
@@ -76,7 +77,6 @@ class VibePersistedPlanService extends Disposable implements IVibePersistedPlanS
 
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
-		@ILogService private readonly _logService: ILogService,
 		@ISecretDetectionService private readonly _secretDetection: ISecretDetectionService,
 		@IVibePlanEventJournalService private readonly _planEventJournal: IVibePlanEventJournalService,
 	) {
@@ -247,7 +247,7 @@ class VibePersistedPlanService extends Disposable implements IVibePersistedPlanS
 			const det = this._secretDetection.detectSecrets(text);
 			if (det.hasSecrets) {
 				if (secCfg.mode === 'block') {
-					this._logService.warn('[VibePersistedPlan] Refusing to write plan file: secret detection (block mode).');
+					vibeLog.warn('vibePersistedPlan', '[VibePersistedPlan] Refusing to write plan file: secret detection (block mode).');
 					throw new Error('VibeIDE: Plan file blocked: secret-like content detected. Remove secrets from the plan or set vibeide.secretDetection.mode to redact.');
 				}
 				outText = det.redactedText;
@@ -255,7 +255,7 @@ class VibePersistedPlanService extends Disposable implements IVibePersistedPlanS
 		}
 
 		await this.writePlanMarkdown(uri, outText);
-		this._logService.info(`[VibePersistedPlan] wrote approved agent plan: ${uri.fsPath}`);
+		vibeLog.info('vibePersistedPlan', `[VibePersistedPlan] wrote approved agent plan: ${uri.fsPath}`);
 		void this._planEventJournal.append(params.workspaceFolder, {
 			type: 'plan.created',
 			planId,
@@ -276,7 +276,7 @@ class VibePersistedPlanService extends Disposable implements IVibePersistedPlanS
 				return;
 			} catch (e) {
 				lastErr = e;
-				this._logService.warn('[VibePersistedPlan] writePlanMarkdown retry', uri.toString(true), attempt + 1, e);
+				vibeLog.warn('vibePersistedPlan', '[VibePersistedPlan] writePlanMarkdown retry', uri.toString(true), attempt + 1, e);
 				await timeout(80 * (attempt + 1));
 			}
 		}

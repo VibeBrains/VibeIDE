@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 
 export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 
@@ -64,7 +64,6 @@ class VibeAgentTaskQueueService extends Disposable implements IVibeAgentTaskQueu
 	private readonly _tasks: QueuedTask[] = [];
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -79,7 +78,7 @@ class VibeAgentTaskQueueService extends Disposable implements IVibeAgentTaskQueu
 		};
 		this._tasks.push(queued);
 		this._onTaskStatusChanged.fire(queued);
-		this._logService.debug(`[VibeIDE TaskQueue] Queued: ${task.description.slice(0, 60)}`);
+		vibeLog.debug('TaskQueue', `Queued: ${task.description.slice(0, 60)}`);
 		return id;
 	}
 
@@ -93,14 +92,14 @@ class VibeAgentTaskQueueService extends Disposable implements IVibeAgentTaskQueu
 		if (task.status === 'running' || task.status === 'queued') {
 			task.status = 'cancelled';
 			this._onTaskStatusChanged.fire(task);
-			this._logService.debug(`[VibeIDE TaskQueue] Cancelled: ${task.description.slice(0, 40)}`);
+			vibeLog.debug('TaskQueue', `Cancelled: ${task.description.slice(0, 40)}`);
 		}
 	}
 
 	clearQueue(): void {
 		const queued = this._tasks.filter(t => t.status === 'queued');
 		queued.forEach(t => { t.status = 'cancelled'; this._onTaskStatusChanged.fire(t); });
-		this._logService.debug(`[VibeIDE TaskQueue] Cleared ${queued.length} queued tasks`);
+		vibeLog.debug('TaskQueue', `Cleared ${queued.length} queued tasks`);
 	}
 
 	getCurrentTask(): QueuedTask | null {
@@ -118,7 +117,7 @@ class VibeAgentTaskQueueService extends Disposable implements IVibeAgentTaskQueu
 		next.status = 'running';
 		next.startedAt = Date.now();
 		this._onTaskStatusChanged.fire(next);
-		this._logService.debug(`[VibeIDE TaskQueue] Running: ${next.description.slice(0, 60)}`);
+		vibeLog.debug('TaskQueue', `Running: ${next.description.slice(0, 60)}`);
 		return next;
 	}
 
@@ -130,7 +129,7 @@ class VibeAgentTaskQueueService extends Disposable implements IVibeAgentTaskQueu
 		cur.status = finalStatus;
 		cur.completedAt = Date.now();
 		this._onTaskStatusChanged.fire(cur);
-		this._logService.debug(`[VibeIDE TaskQueue] ${finalStatus}: ${cur.description.slice(0, 40)}`);
+		vibeLog.debug('TaskQueue', `${finalStatus}: ${cur.description.slice(0, 40)}`);
 		return cur;
 	}
 }

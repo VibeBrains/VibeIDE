@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IRequestService } from '../../../../platform/request/common/request.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { asText } from '../../../../platform/request/common/request.js';
@@ -41,7 +41,6 @@ class VibeWebContextService extends Disposable implements IVibeWebContextService
 	declare readonly _serviceBrand: undefined;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IRequestService private readonly _requestService: IRequestService,
 	) {
 		super();
@@ -53,7 +52,7 @@ class VibeWebContextService extends Disposable implements IVibeWebContextService
 
 	async search(query: string, isPrivacyMode: boolean): Promise<WebSearchResult[]> {
 		if (isPrivacyMode) {
-			this._logService.warn('[VibeIDE WebContext] @web in privacy mode requires explicit opt-in. Query will be sent to search service.');
+			vibeLog.warn('WebContext', '@web in privacy mode requires explicit opt-in. Query will be sent to search service.');
 		}
 
 		// Phase 1: use DuckDuckGo instant answers (no API key, privacy-respecting)
@@ -94,10 +93,10 @@ class VibeWebContextService extends Disposable implements IVibeWebContextService
 				});
 			}
 
-			this._logService.debug(`[VibeIDE WebContext] ${results.length} results for: ${query}`);
+			vibeLog.debug('WebContext', `${results.length} results for: ${query}`);
 			return results;
 		} catch (e) {
-			this._logService.warn('[VibeIDE WebContext] Search failed:', e);
+			vibeLog.warn('WebContext', 'Search failed:', e);
 			return [];
 		}
 	}

@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IVibeConstraintsService } from './vibeConstraintsService.js';
 import { IVibePersonaService } from './vibePersonaService.js';
 import { IVibeProfilesService } from './vibeProfilesService.js';
@@ -51,7 +51,6 @@ class VibeUnifiedConfigService extends Disposable implements IVibeUnifiedConfigS
 	readonly onConfigChanged = this._onConfigChanged.event;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IVibeConstraintsService private readonly _constraintsService: IVibeConstraintsService,
 		@IVibePersonaService private readonly _personaService: IVibePersonaService,
 		@IVibeProfilesService private readonly _profilesService: IVibeProfilesService,
@@ -82,7 +81,7 @@ class VibeUnifiedConfigService extends Disposable implements IVibeUnifiedConfigS
 		await Promise.allSettled([
 			this._constraintsService.reload(),
 		]);
-		this._logService.debug('[VibeIDE UnifiedConfig] All .vibe/ configs reloaded');
+		vibeLog.debug('UnifiedConfig', 'All .vibe/ configs reloaded');
 		this._onConfigChanged.fire(this.getState());
 	}
 }

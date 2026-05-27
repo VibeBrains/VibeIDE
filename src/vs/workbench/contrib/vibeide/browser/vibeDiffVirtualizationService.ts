@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { DiffPreview, DiffChunk } from '../common/vibeDiffPreviewService.js';
 
 export interface VirtualizedDiffView {
@@ -44,7 +44,6 @@ class VibeDiffVirtualizationService extends Disposable implements IVibeDiffVirtu
 	declare readonly _serviceBrand: undefined;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -60,7 +59,7 @@ class VibeDiffVirtualizationService extends Disposable implements IVibeDiffVirtu
 
 		const visibleChunks = preview.chunks.slice(0, pageSize);
 
-		this._logService.debug(`[VibeIDE DiffVirtualize] ${preview.chunks.length} chunks, ${grouped.size} dirs, showing ${visibleChunks.length}`);
+		vibeLog.debug('DiffVirtualize', `${preview.chunks.length} chunks, ${grouped.size} dirs, showing ${visibleChunks.length}`);
 
 		return {
 			visibleChunks,

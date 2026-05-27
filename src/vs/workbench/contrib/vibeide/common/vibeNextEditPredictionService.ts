@@ -3,12 +3,12 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { IModelDeltaDecoration, TrackedRangeStickiness } from '../../../../editor/common/model.js';
 import { Range } from '../../../../editor/common/core/range.js';
@@ -83,7 +83,6 @@ class VibeNextEditPredictionService extends Disposable implements IVibeNextEditP
 	private readonly _previousContentByUri = new Map<string, string>();
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IVibeProviderCapabilityService private readonly _capabilityService: IVibeProviderCapabilityService,
 		@IVibeideSettingsService private readonly _settingsService: IVibeideSettingsService,
 		@IModelService private readonly _modelService: IModelService,
@@ -115,7 +114,7 @@ class VibeNextEditPredictionService extends Disposable implements IVibeNextEditP
 			|| this._capabilityService.supports(modelId, 'extendedThinking');
 
 		this._capabilityCache = { modelId, capable };
-		this._logService.debug(`[VibeIDE NextEdit] capability probe for ${modelId}: ${capable}`);
+		vibeLog.debug('NextEdit', `capability probe for ${modelId}: ${capable}`);
 		return capable;
 	}
 
@@ -142,7 +141,7 @@ class VibeNextEditPredictionService extends Disposable implements IVibeNextEditP
 	}
 
 	recordAcceptance(prediction: NextEditPrediction): void {
-		this._logService.debug(`[VibeIDE NextEdit] accepted at ${prediction.filePath}:${prediction.lineNumber} (confidence=${prediction.confidence})`);
+		vibeLog.debug('NextEdit', `accepted at ${prediction.filePath}:${prediction.lineNumber} (confidence=${prediction.confidence})`);
 		this._clearDecorationsForUri(prediction.filePath);
 	}
 
@@ -320,7 +319,7 @@ class VibeNextEditPredictionService extends Disposable implements IVibeNextEditP
 			this._settingsService.state.modelSelectionOfFeature[featureName]
 		);
 		if (!modelSelection || modelSelection.providerName === 'auto') {
-			this._logService.debug(localize('vibeide.nextEdit.noModel', '[VibeIDE NextEdit] no model resolved for Autocomplete feature'));
+			vibeLog.debug('vibeNextEditPrediction', localize('vibeide.nextEdit.noModel', '[VibeIDE NextEdit] no model resolved for Autocomplete feature'));
 			return null;
 		}
 
@@ -360,7 +359,7 @@ class VibeNextEditPredictionService extends Disposable implements IVibeNextEditP
 				if (this._activeRequestId) {
 					this._llmMessageService.abort(this._activeRequestId);
 				}
-				this._logService.debug('[VibeIDE NextEdit] LLM request timed out');
+				vibeLog.debug('NextEdit', 'LLM request timed out');
 				settle(null);
 			}, LLM_TIMEOUT_MS);
 
@@ -379,7 +378,7 @@ class VibeNextEditPredictionService extends Disposable implements IVibeNextEditP
 				onFinalMessage: ({ fullText }) => {
 					const parsed = parseNextEditCompletion(fullText || lastText, window.fileUri);
 					if (parsed.kind !== 'ok') {
-						this._logService.debug(`[VibeIDE NextEdit] LLM parse failed: ${parsed.kind === 'shape-mismatch' ? parsed.reason : parsed.kind}`);
+						vibeLog.debug('NextEdit', `LLM parse failed: ${parsed.kind === 'shape-mismatch' ? parsed.reason : parsed.kind}`);
 						settle(null);
 						return;
 					}
@@ -396,7 +395,7 @@ class VibeNextEditPredictionService extends Disposable implements IVibeNextEditP
 					});
 				},
 				onError: ({ message }) => {
-					this._logService.debug(`[VibeIDE NextEdit] LLM error: ${message}`);
+					vibeLog.debug('NextEdit', `LLM error: ${message}`);
 					settle(null);
 				},
 				onAbort: () => settle(null),

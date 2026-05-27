@@ -3,13 +3,14 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { localize } from '../../../../nls.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { ITerminalService } from '../../../contrib/terminal/browser/terminal.js';
 import { IAuditLogService } from './auditLogService.js';
 
@@ -49,7 +50,6 @@ class VibeRunTestsAfterApplyService extends Disposable implements IVibeRunTestsA
 	constructor(
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@ITerminalService private readonly _terminalService: ITerminalService,
-		@ILogService private readonly _logService: ILogService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 	) {
 		super();
@@ -63,7 +63,7 @@ class VibeRunTestsAfterApplyService extends Disposable implements IVibeRunTestsA
 		if (!this.isEnabled()) return null;
 
 		const command = this._configurationService.getValue<string>('vibeide.agent.runTestsAfterApply.command') ?? 'npm test';
-		this._logService.info(`[VibeIDE RunTests] Running: ${command}`);
+		vibeLog.info('RunTests', `Running: ${command}`);
 
 		const start = Date.now();
 		// Audit on start so the user has a record even if Phase 1 fire-and-forget
@@ -106,7 +106,7 @@ class VibeRunTestsAfterApplyService extends Disposable implements IVibeRunTestsA
 			this._onTestsCompleted.fire(result);
 			return result;
 		} catch (e) {
-			this._logService.error('[VibeIDE RunTests] Failed to run tests:', e);
+			vibeLog.error('RunTests', 'Failed to run tests:', e);
 			if (this._auditLogService.isEnabled()) {
 				void this._auditLogService.append({
 					ts: Date.now(),

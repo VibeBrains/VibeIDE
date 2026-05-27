@@ -3,12 +3,12 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize } from '../../../../nls.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { IChatThreadService } from './chatThreadService.js';
@@ -62,7 +62,6 @@ export class VibePersistedPlanResumeContribution extends Disposable implements I
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService private readonly _logService: ILogService,
 		@INotificationService private readonly _notificationService: INotificationService,
 		@IChatThreadService private readonly _chatThreadService: IChatThreadService,
 		@ICommandService private readonly _commandService: ICommandService,
@@ -108,11 +107,11 @@ export class VibePersistedPlanResumeContribution extends Disposable implements I
 					});
 				}
 			} catch (err) {
-				this._logService.warn(`[VibeIDE PlanResume] Could not read plan file ${file.name}:`, err);
+				vibeLog.warn('PlanResume', `Could not read plan file ${file.name}:`, err);
 			}
 		}
 
-		this._logService.info(`[VibeIDE PlanResume] Found ${interrupted.length} interrupted plan(s).`);
+		vibeLog.info('PlanResume', `Found ${interrupted.length} interrupted plan(s).`);
 
 		for (const plan of interrupted) {
 			await this._offerResume(plan);
@@ -250,7 +249,7 @@ export class VibePersistedPlanResumeContribution extends Disposable implements I
 			if (hasExistingThread) {
 				// Switch to the existing thread — plan message is already there in storage
 				this._chatThreadService.switchToThread(plan.boundThreadId);
-				this._logService.info(`[VibeIDE PlanResume] Switched to existing thread: ${plan.boundThreadId}`);
+				vibeLog.info('PlanResume', `Switched to existing thread: ${plan.boundThreadId}`);
 			} else {
 				// Restore plan into a new thread
 				await this._restorePlanInNewThread(plan);
@@ -270,9 +269,9 @@ export class VibePersistedPlanResumeContribution extends Disposable implements I
 
 			// Mark plan file as resumed (status: running again — it will be updated to done/failed as execution proceeds)
 			// No change needed if it was already running — leave as-is
-			this._logService.info(`[VibeIDE PlanResume] Plan ${plan.planId} offered for resume.`);
+			vibeLog.info('PlanResume', `Plan ${plan.planId} offered for resume.`);
 		} catch (err) {
-			this._logService.error('[VibeIDE PlanResume] Error during resume:', err);
+			vibeLog.error('PlanResume', 'Error during resume:', err);
 		}
 	}
 
@@ -304,7 +303,7 @@ export class VibePersistedPlanResumeContribution extends Disposable implements I
 		// Inject plan message into the new thread via a dedicated public method
 		this._chatThreadService.injectPlanMessage(newThreadId, planMessage);
 
-		this._logService.info(`[VibeIDE PlanResume] Restored plan ${plan.planId} into new thread ${newThreadId}`);
+		vibeLog.info('PlanResume', `Restored plan ${plan.planId} into new thread ${newThreadId}`);
 	}
 
 	private async _markPlanPaused(plan: FoundPlan): Promise<void> {
@@ -328,9 +327,9 @@ export class VibePersistedPlanResumeContribution extends Disposable implements I
 			);
 
 			await this._persistedPlanService.writePlanMarkdown(fileUri, updated);
-			this._logService.info(`[VibeIDE PlanResume] Plan ${plan.planId} marked as paused.`);
+			vibeLog.info('PlanResume', `Plan ${plan.planId} marked as paused.`);
 		} catch (err) {
-			this._logService.warn('[VibeIDE PlanResume] Could not update plan status to paused:', err);
+			vibeLog.warn('PlanResume', 'Could not update plan status to paused:', err);
 		}
 	}
 }

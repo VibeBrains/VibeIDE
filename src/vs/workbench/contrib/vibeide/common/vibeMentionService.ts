@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { URI } from '../../../../base/common/uri.js';
 
@@ -99,7 +99,6 @@ class VibeMentionService extends Disposable implements IVibeMentionService {
 	private readonly SEARCH_MENTION_RE = /@search(?::([^\s]+)|\s+"([^"]+)")?/gi;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IFileService private readonly _fileService: IFileService,
 	) {
 		super();
@@ -169,7 +168,7 @@ class VibeMentionService extends Disposable implements IVibeMentionService {
 				content: content.value.toString().slice(0, 50_000), // max 50KB per mention
 			};
 		} catch {
-			this._logService.warn(`[VibeIDE Mention] File not found: ${filePath}`);
+			vibeLog.warn('Mention', `File not found: ${filePath}`);
 			return null;
 		}
 	}

@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IVectorStore } from './vectorStore.js';
 import { vibeSimpleTextEmbedding } from './vibeSimpleEmbedding.js';
 
@@ -42,7 +42,6 @@ class VibeSemanticSearchService extends Disposable implements IVibeSemanticSearc
 
 	constructor(
 		@IVectorStore private readonly _vectorStore: IVectorStore,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -53,7 +52,7 @@ class VibeSemanticSearchService extends Disposable implements IVibeSemanticSearc
 
 	async search(query: string, limit: number = 10): Promise<SemanticSearchResult[]> {
 		if (!this.isReady()) {
-			this._logService.warn('[VibeIDE SemanticSearch] Vector store not ready. Enable RAG in settings.');
+			vibeLog.warn('SemanticSearch', 'Vector store not ready. Enable RAG in settings.');
 			return [];
 		}
 
@@ -71,7 +70,7 @@ class VibeSemanticSearchService extends Disposable implements IVibeSemanticSearc
 				lineEnd: r.metadata?.lineEnd,
 			}));
 		} catch (e) {
-			this._logService.error('[VibeIDE SemanticSearch] Search failed:', e);
+			vibeLog.error('SemanticSearch', 'Search failed:', e);
 			return [];
 		}
 	}

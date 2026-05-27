@@ -3,11 +3,12 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize } from '../../../../nls.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { IVibePromptLibraryService } from './vibePromptLibraryService.js';
 import { IVibeWorkflowService } from './vibeWorkflowService.js';
 import { IVibeSkillsLibraryService, VibeSkillEntry } from './vibeSkillsLibraryService.js';
@@ -95,7 +96,6 @@ class VibeSlashCommandService extends Disposable implements IVibeSlashCommandSer
 	declare readonly _serviceBrand: undefined;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IVibePromptLibraryService private readonly _promptLibrary: IVibePromptLibraryService,
 		@IVibeWorkflowService private readonly _workflowService: IVibeWorkflowService,
 		@IVibeSkillsLibraryService private readonly _skillsLibrary: IVibeSkillsLibraryService,
@@ -186,7 +186,7 @@ class VibeSlashCommandService extends Disposable implements IVibeSlashCommandSer
 			}
 		}
 
-		this._logService.warn(`[VibeIDE SlashCommands] Unknown command: ${command}`);
+		vibeLog.warn('SlashCommands', `Unknown command: ${command}`);
 		return null;
 	}
 

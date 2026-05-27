@@ -6,11 +6,10 @@
 import { suite, test } from 'mocha';
 import * as assert from 'assert';
 import { VibeCheckpointCoordinator } from '../../common/vibeCheckpointCoordinatorService.js';
-import { NullLogService } from '../../../../../platform/log/common/log.js';
 
 suite('VibeCheckpointCoordinator', () => {
 	test('serializes parallel runExclusive (no overlap)', async () => {
-		const c = new VibeCheckpointCoordinator(new NullLogService());
+		const c = new VibeCheckpointCoordinator();
 		const events: string[] = [];
 		const p1 = c.runExclusive({ op: 'a', holderLabel: 'h1' }, async () => {
 			events.push('a-start');

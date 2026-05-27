@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 
 export interface MCPInspectorEntry {
 	id: string;
@@ -53,7 +53,6 @@ class VibeMCPInspectorService extends Disposable implements IVibeMCPInspectorSer
 	private readonly MAX_ENTRIES = 500;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -71,7 +70,7 @@ class VibeMCPInspectorService extends Disposable implements IVibeMCPInspectorSer
 		this._entries.push(full);
 		this._onMCPCall.fire(full);
 
-		this._logService.debug(`[VibeIDE MCP Inspector] ${entry.serverName}.${entry.toolName} [${entry.executionMode}] ${entry.durationMs}ms ${entry.error ? '❌' : '✅'}`);
+		vibeLog.debug('vibeMCPInspector', `[VibeIDE MCP Inspector] ${entry.serverName}.${entry.toolName} [${entry.executionMode}] ${entry.durationMs}ms ${entry.error ? '❌' : '✅'}`);
 	}
 
 	getRecent(limit: number = 50): MCPInspectorEntry[] {

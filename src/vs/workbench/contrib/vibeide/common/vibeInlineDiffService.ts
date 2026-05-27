@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 
 export type InlineDiffDecision = 'accept' | 'reject';
 
@@ -72,7 +72,6 @@ class VibeInlineDiffService extends Disposable implements IVibeInlineDiffService
 	private readonly _sessions = new Map<string, InlineDiffSession>();
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -80,7 +79,7 @@ class VibeInlineDiffService extends Disposable implements IVibeInlineDiffService
 	startSession(filePath: string, chunks: InlineDiffSession['chunks']): string {
 		const sessionId = `inline-diff-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 		this._sessions.set(sessionId, { sessionId, filePath, chunks, isComplete: false });
-		this._logService.debug(`[VibeIDE InlineDiff] Session ${sessionId}: ${chunks.length} chunks in ${filePath}`);
+		vibeLog.debug('InlineDiff', `Session ${sessionId}: ${chunks.length} chunks in ${filePath}`);
 		return sessionId;
 	}
 
@@ -119,7 +118,7 @@ class VibeInlineDiffService extends Disposable implements IVibeInlineDiffService
 		// Check if all chunks decided
 		if (session!.chunks.every(c => c.decision)) {
 			session!.isComplete = true;
-			this._logService.debug(`[VibeIDE InlineDiff] Session ${sessionId} complete`);
+			vibeLog.debug('InlineDiff', `Session ${sessionId} complete`);
 		}
 	}
 }

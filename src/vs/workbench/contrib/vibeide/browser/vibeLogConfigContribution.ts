@@ -11,6 +11,7 @@
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { ISecretDetectionService } from '../common/secretDetectionService.js';
 import { vibeLog } from '../common/vibeLog.js';
 
 class VibeLogConfigContribution extends Disposable implements IWorkbenchContribution {
@@ -18,9 +19,25 @@ class VibeLogConfigContribution extends Disposable implements IWorkbenchContribu
 
 	constructor(
 		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@ISecretDetectionService private readonly secretDetectionService: ISecretDetectionService,
 	) {
 		super();
 		this.apply();
+
+		// Redact secrets in EVERY vibeLog output (console, ring buffer → clipboard, Output
+		// channel, persistent file). firstRunValidation only wraps console.*, so without this
+		// the buffer/file/clipboard paths would carry raw secrets.
+		vibeLog.setRedactor(args => {
+			try {
+				if (!this.secretDetectionService.getConfig().enabled) { return args; }
+				const r = this.secretDetectionService.redactSecretsInObject(args as unknown[]);
+				return r.hasSecrets ? r.redacted : args;
+			} catch {
+				return args; // redaction must never break logging
+			}
+		});
+		this._register({ dispose: () => vibeLog.setRedactor(undefined) });
+
 		this._register(this.configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration('vibeide.logging')) {
 				this.apply();
@@ -36,6 +53,7 @@ class VibeLogConfigContribution extends Disposable implements IWorkbenchContribu
 			categories: c.getValue<string[]>('vibeide.logging.categories'),
 			timestamps: c.getValue<boolean>('vibeide.logging.timestamps'),
 			bufferSize: c.getValue<number>('vibeide.logging.bufferSize'),
+			dedupe: c.getValue<boolean>('vibeide.logging.collapseRepeats'),
 		});
 	}
 }

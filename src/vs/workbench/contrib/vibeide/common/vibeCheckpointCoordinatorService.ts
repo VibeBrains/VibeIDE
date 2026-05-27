@@ -3,10 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 
 export const IVibeCheckpointCoordinator = createDecorator<IVibeCheckpointCoordinator>('vibeCheckpointCoordinator');
 
@@ -33,7 +34,6 @@ export class VibeCheckpointCoordinator extends Disposable implements IVibeCheckp
 	}
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -47,16 +47,16 @@ export class VibeCheckpointCoordinator extends Disposable implements IVibeCheckp
 		});
 		this._chain = prev.then(() => gate);
 		if (this._exclusiveHolderLabel !== undefined) {
-			this._logService.trace(`[VibeCheckpointCoordinator] wait ${opts.op} (${who}) whileHeldBy=${this._exclusiveHolderLabel}`);
+			vibeLog.trace('vibeCheckpointCoordinator', `[VibeCheckpointCoordinator] wait ${opts.op} (${who}) whileHeldBy=${this._exclusiveHolderLabel}`);
 		}
 		await prev;
 		this._exclusiveHolderLabel = who;
-		this._logService.trace(`[VibeCheckpointCoordinator] acquire ${opts.op} (${who})`);
+		vibeLog.trace('vibeCheckpointCoordinator', `[VibeCheckpointCoordinator] acquire ${opts.op} (${who})`);
 		try {
 			return await fn();
 		} finally {
 			this._exclusiveHolderLabel = undefined;
-			this._logService.trace(`[VibeCheckpointCoordinator] release ${opts.op} (${who})`);
+			vibeLog.trace('vibeCheckpointCoordinator', `[VibeCheckpointCoordinator] release ${opts.op} (${who})`);
 			release();
 		}
 	}

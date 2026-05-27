@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -10,7 +11,7 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { localize } from '../../../../nls.js';
 import { IVibeAgentTaskQueueService } from './vibeAgentTaskQueueService.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
@@ -41,6 +42,11 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			type: 'boolean',
 			default: false,
 			description: localize('vibeide.safety.taskQueueTokenSplitEnabled', 'Делить session-лимит между активными задачами очереди (`IVibeAgentTaskQueueService`) пропорционально, чтобы одна задача не съела весь budget. Off-by-default: для одно-таскового флоу не нужен.'),
+		},
+		'vibeide.safety.sessionTokenWarningBlink': {
+			type: 'boolean',
+			default: true,
+			description: localize('vibeide.safety.sessionTokenWarningBlink', 'При приближении к лимиту токенов сессии (≥80%) подсвечивать жёлтым и мигать строкой времени последнего ответа в чате — вместо тоста на каждый warning. Логи при этом пишутся как обычно. Выключите, если мигание мешает.'),
 		},
 	},
 });
@@ -136,7 +142,6 @@ class VibeTokenBudgetService extends Disposable implements IVibeTokenBudgetServi
 
 	constructor(
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
-		@ILogService private readonly _logService: ILogService,
 		@IVibeAgentTaskQueueService private readonly _taskQueue: IVibeAgentTaskQueueService,
 		@IVibeideSettingsService private readonly _vibeideSettingsService: IVibeideSettingsService,
 	) {
@@ -192,13 +197,13 @@ class VibeTokenBudgetService extends Disposable implements IVibeTokenBudgetServi
 			this._perTaskTokens.set(id, (this._perTaskTokens.get(id) ?? 0) + total);
 		}
 
-		this._logService.debug(`[VibeIDE TokenBudget] +${total} tokens (in:${inputTokens} out:${outputTokens}) | total: ${this._sessionTokensUsed}/${this._sessionTokensLimit}`);
+		vibeLog.debug('TokenBudget', `+${total} tokens (in:${inputTokens} out:${outputTokens}) | total: ${this._sessionTokensUsed}/${this._sessionTokensLimit}`);
 
 		const status = this.getStatus();
 		this._onBudgetStatusChanged.fire(status);
 
 		if (status.isWarning && !status.isExceeded) {
-			this._logService.warn(`[VibeIDE TokenBudget] ⚠️ Warning: ${status.percentUsed.toFixed(0)}% of session token limit used (${this._sessionTokensUsed.toLocaleString()}/${this._sessionTokensLimit.toLocaleString()})`);
+			vibeLog.warn('TokenBudget', `⚠️ Warning: ${status.percentUsed.toFixed(0)}% of session token limit used (${this._sessionTokensUsed.toLocaleString()}/${this._sessionTokensLimit.toLocaleString()})`);
 		}
 	}
 
@@ -214,8 +219,8 @@ class VibeTokenBudgetService extends Disposable implements IVibeTokenBudgetServi
 				const now = Date.now();
 				if (now - this._lastAutopilotResetAt >= VibeTokenBudgetService.AUTOPILOT_RESET_COOLDOWN_MS) {
 					this._lastAutopilotResetAt = now;
-					this._logService.warn(
-						`[VibeIDE TokenBudget] Autopilot auto-reset: session reached ${this._sessionTokensUsed.toLocaleString()}/${this._sessionTokensLimit.toLocaleString()} tokens. Counter cleared, run continues.`
+					vibeLog.warn(
+						'TokenBudget', `Autopilot auto-reset: session reached ${this._sessionTokensUsed.toLocaleString()}/${this._sessionTokensLimit.toLocaleString()} tokens. Counter cleared, run continues.`
 					);
 					this.resetSession();
 					return;
@@ -257,7 +262,7 @@ class VibeTokenBudgetService extends Disposable implements IVibeTokenBudgetServi
 		this._sessionTokensUsed = 0;
 		this._perTaskTokens.clear();
 		this._activeQueueTaskId = undefined;
-		this._logService.info(`[VibeIDE TokenBudget] Session reset. Previous usage: ${prev.toLocaleString()} tokens`);
+		vibeLog.info('TokenBudget', `Session reset. Previous usage: ${prev.toLocaleString()} tokens`);
 		this._onBudgetStatusChanged.fire(this.getStatus());
 	}
 }

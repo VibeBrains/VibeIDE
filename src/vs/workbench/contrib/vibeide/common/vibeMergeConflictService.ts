@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 
 export interface MergeConflictResolution {
 	filePath: string;
@@ -51,7 +51,6 @@ class VibeMergeConflictService extends Disposable implements IVibeMergeConflictS
 	private readonly CONFLICT_END = '>>>>>>> ';
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -99,7 +98,7 @@ class VibeMergeConflictService extends Disposable implements IVibeMergeConflictS
 			}
 		}
 
-		this._logService.debug(`[VibeIDE MergeConflict] ${count} conflicts in ${filePath}`);
+		vibeLog.debug('MergeConflict', `${count} conflicts in ${filePath}`);
 
 		return {
 			filePath,

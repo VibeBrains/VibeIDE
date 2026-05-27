@@ -10,7 +10,7 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { localize } from '../../../../nls.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -71,7 +71,6 @@ class VibeAmbientAgentService extends Disposable implements IVibeAmbientAgentSer
 
 	constructor(
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
-		@ILogService _logService: ILogService,
 	) {
 		super();
 	}

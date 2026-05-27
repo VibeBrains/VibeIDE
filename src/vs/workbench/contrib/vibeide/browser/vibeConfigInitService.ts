@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
@@ -89,7 +89,6 @@ export class VibeConfigInitContribution extends Disposable implements IWorkbench
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService private readonly _logService: ILogService,
 		@IVibeideModelService private readonly _vibeideModelService: IVibeideModelService,
 		@IVibeideSettingsService private readonly _vibeideSettingsService: IVibeideSettingsService,
 	) {
@@ -109,7 +108,7 @@ export class VibeConfigInitContribution extends Disposable implements IWorkbench
 
 			// Create .vibe/ directory
 			await this._fileService.createFolder(vibeDir);
-			this._logService.debug('[VibeIDE] .vibe/ directory ready');
+			vibeLog.debug('vibeConfigInit', '.vibe/ directory ready');
 
 			// Create default files (only if they don't exist)
 			await this._createIfMissing(
@@ -228,10 +227,10 @@ vibeVersion: ${VIBE_VERSION}
 `,
 			);
 
-			this._logService.info('[VibeIDE] .vibe/ configuration initialized');
+			vibeLog.info('vibeConfigInit', '.vibe/ configuration initialized');
 		} catch (e) {
 			// Non-blocking: .vibe/ init failure should never crash the IDE
-			this._logService.warn('[VibeIDE] Failed to initialize .vibe/ directory:', e);
+			vibeLog.warn('vibeConfigInit', 'Failed to initialize .vibe/ directory:', e);
 		}
 	}
 
@@ -243,9 +242,9 @@ vibeVersion: ${VIBE_VERSION}
 			// File doesn't exist — create it
 			try {
 				await this._fileService.writeFile(uri, VSBuffer.fromString(content));
-				this._logService.debug(`[VibeIDE] Created ${uri.fsPath}`);
+				vibeLog.debug('vibeConfigInit', `Created ${uri.fsPath}`);
 			} catch (e) {
-				this._logService.warn(`[VibeIDE] Failed to create ${uri.fsPath}:`, e);
+				vibeLog.warn('vibeConfigInit', `Failed to create ${uri.fsPath}:`, e);
 			}
 		}
 	}

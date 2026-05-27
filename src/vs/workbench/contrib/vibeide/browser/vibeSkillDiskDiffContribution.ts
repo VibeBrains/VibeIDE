@@ -3,13 +3,14 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable, IDisposable } from '../../../../base/common/lifecycle.js';
 import { disposableTimeout } from '../../../../base/common/async.js';
 import { localize } from '../../../../nls.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IFileService, FileChangesEvent } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -31,7 +32,6 @@ export class VibeSkillDiskDiffContribution extends Disposable implements IWorkbe
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService private readonly _logService: ILogService,
 		@INotificationService private readonly _notificationService: INotificationService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@IUntitledTextEditorService private readonly _untitledTextEditorService: IUntitledTextEditorService,
@@ -114,7 +114,7 @@ export class VibeSkillDiskDiffContribution extends Disposable implements IWorkbe
 				const content = (await this._fileService.readFile(uri)).value.toString();
 				this._baseline.set(uri.toString(true), content);
 			} catch (err) {
-				this._logService.trace('[VibeIDE SkillDiskDiff] seed skip', uri.toString(true), err);
+				vibeLog.trace('SkillDiskDiff', 'seed skip', uri.toString(true), err);
 			}
 		}
 	}
@@ -190,7 +190,7 @@ export class VibeSkillDiskDiffContribution extends Disposable implements IWorkbe
 		this._baseline.set(key, current);
 
 		const basename = uri.path.split('/').pop() ?? uri.path;
-		this._logService.info(`[VibeIDE SkillDiskDiff] ${basename}: +${additions} −${removals} (approx.)`);
+		vibeLog.info('SkillDiskDiff', `${basename}: +${additions} −${removals} (approx.)`);
 
 		this._notificationService.notify({
 			severity: Severity.Info,

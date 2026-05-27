@@ -25,13 +25,13 @@
  * @see electron-main/vibeIdleWatchdogService.ts — write queue.
  */
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IHostService } from '../../../services/host/browser/host.js';
 import { mainWindow } from '../../../../base/browser/window.js';
@@ -150,7 +150,6 @@ export class VibeIdleWatchdogRendererContribution extends Disposable implements 
 		@IVibeIdleWatchdogProxy private readonly _proxy: IVibeIdleWatchdogProxy,
 		@INotificationService private readonly _notifications: INotificationService,
 		@ICommandService private readonly _commandService: ICommandService,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 		if (!this._isEnabled()) return;
@@ -238,7 +237,7 @@ export class VibeIdleWatchdogRendererContribution extends Disposable implements 
 		} catch (e) {
 			// Logging at warn level to keep the dev console quiet on transient IPC drops;
 			// repeated failures will still show.
-			this._logService.warn(`[VibeIdleWatchdogRenderer] sample push failed: ${(e instanceof Error ? e.message : String(e))}`);
+			vibeLog.warn('vibeIdleWatchdogRenderer', `[VibeIdleWatchdogRenderer] sample push failed: ${(e instanceof Error ? e.message : String(e))}`);
 		}
 	}
 

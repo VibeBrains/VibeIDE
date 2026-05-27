@@ -3,12 +3,13 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
@@ -54,7 +55,6 @@ class VibePlanEventJournalService extends Disposable implements IVibePlanEventJo
 
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
-		@ILogService private readonly _logService: ILogService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 	) {
 		super();
@@ -83,7 +83,7 @@ class VibePlanEventJournalService extends Disposable implements IVibePlanEventJo
 			}
 			await this._fileService.writeFile(uri, VSBuffer.concat([existing, VSBuffer.fromString(line)]));
 		} catch (e) {
-			this._logService.warn('[VibePlanEventJournal] append failed', workspaceFolder.toString(true), e);
+			vibeLog.warn('vibePlanEventJournal', '[VibePlanEventJournal] append failed', workspaceFolder.toString(true), e);
 		}
 	}
 }

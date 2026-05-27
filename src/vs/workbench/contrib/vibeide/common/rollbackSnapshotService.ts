@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -13,7 +14,7 @@ import { joinPath } from '../../../../base/common/resources.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { IAuditLogService } from './auditLogService.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
@@ -82,7 +83,6 @@ class RollbackSnapshotService extends Disposable implements IRollbackSnapshotSer
 		@IFileService private readonly _fileService: IFileService,
 		@ITextModelService private readonly _textModelService: ITextModelService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
-		@ILogService private readonly _logService: ILogService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 		@IVibeCheckpointCoordinator private readonly _checkpointCoordinator: IVibeCheckpointCoordinator,
@@ -127,16 +127,16 @@ class RollbackSnapshotService extends Disposable implements IRollbackSnapshotSer
 								this._lastSnapshotId = snapshot.id;
 							}
 						} catch (e) {
-							this._logService.warn(`[VibeIDE RollbackSnapshot] Failed to load snapshot ${child.name}:`, e);
+							vibeLog.warn('RollbackSnapshot', `Failed to load snapshot ${child.name}:`, e);
 						}
 					}
 				}
 			}
 
 			this._persistenceReady = true;
-			this._logService.info(`[VibeIDE RollbackSnapshot] Loaded ${this._snapshots.size} snapshots from disk`);
+			vibeLog.info('RollbackSnapshot', `Loaded ${this._snapshots.size} snapshots from disk`);
 		} catch (e) {
-			this._logService.warn('[VibeIDE RollbackSnapshot] Failed to initialize persistence, using in-memory only:', e);
+			vibeLog.warn('RollbackSnapshot', 'Failed to initialize persistence, using in-memory only:', e);
 		}
 	}
 
@@ -147,7 +147,7 @@ class RollbackSnapshotService extends Disposable implements IRollbackSnapshotSer
 			const snapshotUri = joinPath(this._snapshotsDirUri, `${snapshot.id}.json`);
 			await this._fileService.writeFile(snapshotUri, VSBuffer.fromString(JSON.stringify(snapshot, null, 2)));
 		} catch (e) {
-			this._logService.warn(`[VibeIDE RollbackSnapshot] Failed to persist snapshot ${snapshot.id}:`, e);
+			vibeLog.warn('RollbackSnapshot', `Failed to persist snapshot ${snapshot.id}:`, e);
 		}
 	}
 
@@ -215,14 +215,14 @@ class RollbackSnapshotService extends Disposable implements IRollbackSnapshotSer
 				const fileBytes = new TextEncoder().encode(content).length;
 				if (totalBytes + fileBytes > this._maxSnapshotBytes) {
 					skipped = true;
-					this._logService.warn(`[RollbackSnapshot] Snapshot exceeded max size, skipping remaining files`);
+					vibeLog.warn('rollbackSnapshot', `[RollbackSnapshot] Snapshot exceeded max size, skipping remaining files`);
 					break;
 				}
 
 				fileSnapshots.push({ path: filePath, content, mtime });
 				totalBytes += fileBytes;
 			} catch (error) {
-				this._logService.warn(`[RollbackSnapshot] Failed to snapshot ${filePath}:`, error);
+				vibeLog.warn('rollbackSnapshot', `[RollbackSnapshot] Failed to snapshot ${filePath}:`, error);
 				// Continue with other files
 			}
 		}
@@ -288,7 +288,7 @@ class RollbackSnapshotService extends Disposable implements IRollbackSnapshotSer
 					// Also write to disk
 					await this._fileService.writeFile(uri, VSBuffer.fromString(fileSnap.content));
 				} catch (error) {
-					this._logService.error(`[RollbackSnapshot] Failed to restore ${fileSnap.path}:`, error);
+					vibeLog.error('rollbackSnapshot', `[RollbackSnapshot] Failed to restore ${fileSnap.path}:`, error);
 					// Continue with other files
 				}
 			}

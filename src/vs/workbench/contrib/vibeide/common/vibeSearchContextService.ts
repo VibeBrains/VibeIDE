@@ -16,12 +16,12 @@
  * into that helper.
  */
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { relative } from '../../../../base/common/path.js';
 import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { ISearchService, resultIsMatch } from '../../../services/search/common/search.js';
 import { QueryBuilder } from '../../../services/search/common/queryBuilder.js';
@@ -46,7 +46,6 @@ class VibeSearchContextService extends Disposable implements IVibeSearchContextS
 	declare readonly _serviceBrand: undefined;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@ISearchService private readonly _searchService: ISearchService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
@@ -102,7 +101,7 @@ class VibeSearchContextService extends Disposable implements IVibeSearchContextS
 
 			return renderSearchMentionFragment(validated.value, hits);
 		} catch (e) {
-			this._logService.warn('[VibeIDE @search] textSearch failed', e);
+			vibeLog.warn('vibeSearchContext', '[VibeIDE @search] textSearch failed', e);
 			return `## @search error\n_workspace search failed; see logs for details_`;
 		}
 	}

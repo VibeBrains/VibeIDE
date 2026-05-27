@@ -3,12 +3,12 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService, FileOperationError, FileOperationResult } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { joinPath } from '../../../../base/common/resources.js';
 
 export interface VibePersona {
@@ -63,7 +63,6 @@ class VibePersonaService extends Disposable implements IVibePersonaService {
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 		this._load();
@@ -78,10 +77,10 @@ class VibePersonaService extends Disposable implements IVibePersonaService {
 			const content = await this._fileService.readFile(uri);
 			const loaded = JSON.parse(content.value.toString()) as VibePersona;
 			this._persona = { ...DEFAULT_PERSONA, ...loaded };
-			this._logService.debug(`[VibeIDE Persona] Loaded: verbosity=${this._persona.verbosity}, ask_before_assume=${this._persona.ask_before_assume}`);
+			vibeLog.debug('Persona', `Loaded: verbosity=${this._persona.verbosity}, ask_before_assume=${this._persona.ask_before_assume}`);
 		} catch (e) {
 			if (!(e instanceof FileOperationError && e.fileOperationResult === FileOperationResult.FILE_NOT_FOUND)) {
-				this._logService.warn('[VibeIDE Persona] Failed to load .vibe/persona.json:', e);
+				vibeLog.warn('Persona', 'Failed to load .vibe/persona.json:', e);
 			}
 			// Use defaults
 		}

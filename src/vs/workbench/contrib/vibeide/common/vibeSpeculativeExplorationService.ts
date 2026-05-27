@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IVibeGitWorktreeService, WorktreeInfo } from './vibeGitWorktreeService.js';
 
 export interface ExplorationBranch {
@@ -44,7 +44,6 @@ class VibeSpeculativeExplorationService extends Disposable implements IVibeSpecu
 	private readonly _explorations = new Map<string, ExplorationBranch[]>();
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IVibeGitWorktreeService private readonly _worktreeService: IVibeGitWorktreeService,
 	) {
 		super();
@@ -52,7 +51,7 @@ class VibeSpeculativeExplorationService extends Disposable implements IVibeSpecu
 
 	async startExploration(task: string, approaches: [string, string]): Promise<string> {
 		const explorationId = `explore-${Date.now()}`;
-		this._logService.info(`[VibeIDE Speculation] Starting parallel exploration: "${task.slice(0, 40)}"`);
+		vibeLog.info('Speculation', `Starting parallel exploration: "${task.slice(0, 40)}"`);
 
 		// Phase 3b: create two worktrees and run agents in parallel
 		const branches: ExplorationBranch[] = [];
@@ -82,7 +81,7 @@ class VibeSpeculativeExplorationService extends Disposable implements IVibeSpecu
 		}
 		for (const branch of abandoned) {
 			branch.status = 'abandoned';
-			this._logService.debug(`[VibeIDE Speculation] Abandoned: ${branch.approach.slice(0, 30)}`);
+			vibeLog.debug('Speculation', `Abandoned: ${branch.approach.slice(0, 30)}`);
 		}
 	}
 }

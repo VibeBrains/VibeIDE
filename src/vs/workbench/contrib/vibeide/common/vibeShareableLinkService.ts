@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IVibeModelFingerprintService } from './vibeModelFingerprintService.js';
 import { IVibeStealthModeService } from './vibeStealthModeService.js';
 
@@ -34,7 +34,6 @@ class VibeShareableLinkService extends Disposable implements IVibeShareableLinkS
 	declare readonly _serviceBrand: undefined;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IVibeModelFingerprintService private readonly _fingerprintService: IVibeModelFingerprintService,
 		@IVibeStealthModeService private readonly _stealthService: IVibeStealthModeService,
 	) {
@@ -47,7 +46,7 @@ class VibeShareableLinkService extends Disposable implements IVibeShareableLinkS
 
 	generateLink(requestId: string): string | null {
 		if (!this.isAvailable()) {
-			this._logService.info('[VibeIDE ShareableLink] Unavailable in stealth/privacy mode');
+			vibeLog.info('ShareableLink', 'Unavailable in stealth/privacy mode');
 			return null;
 		}
 

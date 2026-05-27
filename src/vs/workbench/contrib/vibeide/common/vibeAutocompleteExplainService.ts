@@ -6,7 +6,7 @@
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
@@ -58,7 +58,6 @@ class VibeAutocompleteExplainService extends Disposable implements IVibeAutocomp
 	declare readonly _serviceBrand: undefined;
 
 	constructor(
-		@ILogService _logService: ILogService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 	) {
 		super();

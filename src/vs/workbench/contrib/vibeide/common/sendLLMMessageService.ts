@@ -18,7 +18,7 @@ import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { IMCPService } from './mcpService.js';
 import { ISecretDetectionService } from './secretDetectionService.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 
 // calls channel to implement features
@@ -70,7 +70,6 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		@INotificationService private readonly notificationService: INotificationService,
 		@IMCPService private readonly mcpService: IMCPService,
 		@ISecretDetectionService private readonly secretDetectionService: ISecretDetectionService,
-		@ILogService private readonly logService: ILogService,
 		@IVibeTokenBudgetService private readonly tokenBudgetService: IVibeTokenBudgetService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 	) {
@@ -197,7 +196,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			const typesList = Array.from(countByType.entries())
 				.map(([name, count]) => `${name}=${count}`)
 				.join(', ');
-			this.logService.trace('[SecretDetection] Chat messages scanned.', hasAnySecrets ? `Redacted: ${typesList}` : 'No secrets detected (paths in system message are not redacted).');
+			vibeLog.trace('sendLLMMessage', '[SecretDetection] Chat messages scanned.', hasAnySecrets ? `Redacted: ${typesList}` : 'No secrets detected (paths in system message are not redacted).');
 
 			// Show warning if secrets detected
 			if (hasAnySecrets) {

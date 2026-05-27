@@ -3,9 +3,9 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 
 export interface PromptGuardResult {
@@ -103,7 +103,6 @@ class VibePromptGuardService extends Disposable implements IVibePromptGuardServi
 	declare readonly _serviceBrand: undefined;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -111,7 +110,7 @@ class VibePromptGuardService extends Disposable implements IVibePromptGuardServi
 	sanitizeFileContent(content: string, filePath: string): PromptGuardResult {
 		const result = sanitizePromptText(content, filePath);
 		if (result.warnings.length > 0) {
-			this._logService.warn(`[VibeIDE PromptGuard] ${result.warnings.length} issue(s) in ${filePath}:\n${result.warnings.join('\n')}`);
+			vibeLog.warn('PromptGuard', `${result.warnings.length} issue(s) in ${filePath}:\n${result.warnings.join('\n')}`);
 		}
 		return result;
 	}

@@ -3,9 +3,9 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 
@@ -73,7 +73,6 @@ class VibePrivacyStripperService extends Disposable implements IVibePrivacyStrip
 	private _homePath: string = '';
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 	) {
 		super();
@@ -109,7 +108,7 @@ class VibePrivacyStripperService extends Disposable implements IVibePrivacyStrip
 			username: this._username,
 		});
 		if (result !== text) {
-			this._logService.debug('[VibeIDE PrivacyStripper] Stripped sensitive path info from prompt');
+			vibeLog.debug('PrivacyStripper', 'Stripped sensitive path info from prompt');
 		}
 		return result;
 	}

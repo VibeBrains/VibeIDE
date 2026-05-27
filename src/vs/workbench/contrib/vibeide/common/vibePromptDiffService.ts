@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 
 export interface PromptDiffResult {
@@ -48,7 +48,6 @@ class VibePromptDiffService extends Disposable implements IVibePromptDiffService
 	readonly onPromptChanged = this._onPromptChanged.event;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IStorageService private readonly _storageService: IStorageService,
 	) {
 		super();
@@ -80,7 +79,7 @@ class VibePromptDiffService extends Disposable implements IVibePromptDiffService
 			summary: `System prompt updated: +${additions.length} lines, -${removals.length} lines`,
 		};
 
-		this._logService.info(`[VibeIDE PromptDiff] ${result.summary}`);
+		vibeLog.info('PromptDiff', `${result.summary}`);
 		this._onPromptChanged.fire(result);
 		return result;
 	}

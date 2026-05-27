@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 
 export interface AgentWrittenRange {
 	filePath: string;
@@ -53,7 +53,6 @@ class VibeGutterIndicatorService extends Disposable implements IVibeGutterIndica
 	private _sessionId: string;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 		this._sessionId = this._generateSessionId();
@@ -69,7 +68,7 @@ class VibeGutterIndicatorService extends Disposable implements IVibeGutterIndica
 			timestamp: Date.now(),
 		});
 		this._ranges.set(filePath, existing);
-		this._logService.debug(`[VibeIDE Gutter] Agent wrote lines ${startLine}-${endLine} in ${filePath}`);
+		vibeLog.debug('Gutter', `Agent wrote lines ${startLine}-${endLine} in ${filePath}`);
 		this._onDidRecordAgentWrite.fire();
 	}
 
@@ -80,7 +79,7 @@ class VibeGutterIndicatorService extends Disposable implements IVibeGutterIndica
 	clearSession(): void {
 		this._ranges.clear();
 		this._sessionId = this._generateSessionId();
-		this._logService.debug('[VibeIDE Gutter] Session cleared');
+		vibeLog.debug('Gutter', 'Session cleared');
 	}
 
 	getSessionId(): string {

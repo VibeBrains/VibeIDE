@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -10,7 +11,7 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { localize } from '../../../../nls.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -119,7 +120,6 @@ class VibeDeadMansSwitchService extends Disposable implements IVibeDeadMansSwitc
 
 	constructor(
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 
@@ -142,7 +142,7 @@ class VibeDeadMansSwitchService extends Disposable implements IVibeDeadMansSwitc
 		if (!this._enabled) return;
 		this._clearTimer(taskId);
 		this._scheduleTimer(taskId);
-		this._logService.debug(`[VibeIDE DMS] Started for task ${taskId} (timeout: ${this._timeoutMs / 60000} min)`);
+		vibeLog.debug('DMS', `Started for task ${taskId} (timeout: ${this._timeoutMs / 60000} min)`);
 	}
 
 	approve(taskId: string): void {
@@ -150,20 +150,20 @@ class VibeDeadMansSwitchService extends Disposable implements IVibeDeadMansSwitc
 		if (this._excluded.has(taskId)) return;
 		this._clearTimer(taskId);
 		this._scheduleTimer(taskId);
-		this._logService.debug(`[VibeIDE DMS] Approved / timer reset for task ${taskId}`);
+		vibeLog.debug('DMS', `Approved / timer reset for task ${taskId}`);
 		this._onAgentResumed.fire({ taskId });
 	}
 
 	stop(taskId: string): void {
 		this._clearTimer(taskId);
 		this._excluded.delete(taskId);
-		this._logService.debug(`[VibeIDE DMS] Stopped for task ${taskId}`);
+		vibeLog.debug('DMS', `Stopped for task ${taskId}`);
 	}
 
 	excludeFromTimer(taskId: string): void {
 		this._excluded.add(taskId);
 		this._clearTimer(taskId);
-		this._logService.debug(`[VibeIDE DMS] Excluded task ${taskId} from timer (pre-flight or rate limit)`);
+		vibeLog.debug('DMS', `Excluded task ${taskId} from timer (pre-flight or rate limit)`);
 	}
 
 	includeInTimer(taskId: string): void {
@@ -171,13 +171,13 @@ class VibeDeadMansSwitchService extends Disposable implements IVibeDeadMansSwitc
 		if (this._enabled) {
 			this._scheduleTimer(taskId);
 		}
-		this._logService.debug(`[VibeIDE DMS] Re-included task ${taskId} in timer`);
+		vibeLog.debug('DMS', `Re-included task ${taskId} in timer`);
 	}
 
 	private _scheduleTimer(taskId: string): void {
 		const timer = setTimeout(() => {
 			if (!this._excluded.has(taskId)) {
-				this._logService.warn(`[VibeIDE DMS] ⏸ Agent paused — no approval for ${this._timeoutMs / 60000} minutes. Task: ${taskId}`);
+				vibeLog.warn('DMS', `⏸ Agent paused — no approval for ${this._timeoutMs / 60000} minutes. Task: ${taskId}`);
 				this._onAgentPaused.fire({
 					taskId,
 					reason: localize(

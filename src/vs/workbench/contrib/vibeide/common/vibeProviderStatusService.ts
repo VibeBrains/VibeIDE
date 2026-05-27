@@ -3,11 +3,12 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 
 export type ProviderHealth = 'operational' | 'degraded' | 'outage' | 'unknown';
 
@@ -60,7 +61,6 @@ class VibeProviderStatusService extends Disposable implements IVibeProviderStatu
 	private readonly _statuses = new Map<string, ProviderStatus>();
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -107,7 +107,7 @@ class VibeProviderStatusService extends Disposable implements IVibeProviderStatu
 		this._onStatusChanged.fire(status);
 
 		if (health !== 'operational') {
-			this._logService.warn(`[VibeIDE ProviderStatus] ${providerName}: ${health}`);
+			vibeLog.warn('ProviderStatus', `${providerName}: ${health}`);
 		}
 	}
 }

@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -16,7 +17,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { localize } from '../../../../nls.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -111,7 +112,6 @@ class AuditLogService extends Disposable implements IAuditLogService {
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@IEnvironmentService private readonly _environmentService: IEnvironmentService,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 		this._writeScheduler = this._register(new RunOnceScheduler(() => this._flushWrites(), 100));
@@ -146,7 +146,7 @@ class AuditLogService extends Disposable implements IAuditLogService {
 
 		// Initialize log file if needed
 		this._initializeLogFile().catch(err => {
-			this._logService.error('[AuditLog] Failed to initialize log file:', err);
+			vibeLog.error('auditLog', '[AuditLog] Failed to initialize log file:', err);
 		});
 	}
 
@@ -191,9 +191,9 @@ class AuditLogService extends Disposable implements IAuditLogService {
 			}
 			this._logPath = null;
 			this._enabled = false;
-			this._logService.info('[VibeIDE AuditLog] All audit logs deleted (GDPR erasure)');
+			vibeLog.info('AuditLog', 'All audit logs deleted (GDPR erasure)');
 		} catch (e) {
-			this._logService.error('[VibeIDE AuditLog] Failed to delete audit logs:', e);
+			vibeLog.error('AuditLog', 'Failed to delete audit logs:', e);
 		}
 	}
 
@@ -271,7 +271,7 @@ class AuditLogService extends Disposable implements IAuditLogService {
 			await this._fileService.writeFile(this._logPath, combined);
 			this._currentFileSize += sizeBytes;
 		} catch (err) {
-			this._logService.error('[AuditLog] Failed to write audit log:', err);
+			vibeLog.error('auditLog', '[AuditLog] Failed to write audit log:', err);
 		}
 	}
 
@@ -312,9 +312,9 @@ class AuditLogService extends Disposable implements IAuditLogService {
 			await this._fileService.writeFile(this._logPath, VSBuffer.fromString(''));
 			this._currentFileSize = 0;
 
-			this._logService.debug(`[AuditLog] Rotated log file to ${rotatedPath.path}`);
+			vibeLog.debug('auditLog', `[AuditLog] Rotated log file to ${rotatedPath.path}`);
 		} catch (err) {
-			this._logService.error('[AuditLog] Failed to rotate log file:', err);
+			vibeLog.error('auditLog', '[AuditLog] Failed to rotate log file:', err);
 		}
 	}
 }

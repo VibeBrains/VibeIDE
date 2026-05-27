@@ -3,13 +3,13 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { joinPath } from '../../../../base/common/resources.js';
 
 export interface VibeProfile {
@@ -53,7 +53,6 @@ class VibeProfilesService extends Disposable implements IVibeProfilesService {
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -92,13 +91,13 @@ class VibeProfilesService extends Disposable implements IVibeProfilesService {
 		const profile = profiles.find(p => p.name === name);
 
 		if (!profile) {
-			this._logService.warn(`[VibeIDE Profiles] Profile not found: ${name}`);
+			vibeLog.warn('Profiles', `Profile not found: ${name}`);
 			return { success: false, requiresAgentStop: false };
 		}
 
 		// Phase 1: switch immediately (Phase 2: check for active agent and show dialog)
 		this._activeProfile = profile;
-		this._logService.info(`[VibeIDE Profiles] Switched to profile: ${name}`);
+		vibeLog.info('Profiles', `Switched to profile: ${name}`);
 		this._onProfileChanged.fire(profile);
 		return { success: true, requiresAgentStop: false };
 	}

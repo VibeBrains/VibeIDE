@@ -3,13 +3,14 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize } from '../../../../nls.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService, FileOperationError, FileOperationResult } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
@@ -137,7 +138,6 @@ class VibeConstraintsService extends Disposable implements IVibeConstraintsServi
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService private readonly _logService: ILogService,
 		@INotificationService private readonly _notificationService: INotificationService,
 	) {
 		super();
@@ -156,7 +156,7 @@ class VibeConstraintsService extends Disposable implements IVibeConstraintsServi
 			this._register(watcher);
 			this._register(this._fileService.onDidFilesChange(e => {
 				if (e.contains(constraintsUri)) {
-					this._logService.debug('[VibeIDE Constraints] File changed, scheduling reload');
+					vibeLog.debug('Constraints', 'File changed, scheduling reload');
 					this._reloadScheduler.schedule();
 				}
 			}));
@@ -184,7 +184,7 @@ class VibeConstraintsService extends Disposable implements IVibeConstraintsServi
 			if (e instanceof FileOperationError && e.fileOperationResult === FileOperationResult.FILE_NOT_FOUND) {
 				this._constraints = { rules: [] };
 			} else {
-				this._logService.warn('[VibeIDE Constraints] readFile failed for .vibe/constraints.json:', e);
+				vibeLog.warn('Constraints', 'readFile failed for .vibe/constraints.json:', e);
 				this._constraints = { rules: [] };
 			}
 			raw = undefined;
@@ -195,7 +195,7 @@ class VibeConstraintsService extends Disposable implements IVibeConstraintsServi
 				{ rules: [] },
 				reason => this._reportCorruptConfig('.vibe/constraints.json', uri, reason),
 			);
-			this._logService.info(`[VibeIDE Constraints] Loaded ${this._constraints.rules?.length ?? 0} rules from .vibe/constraints.json`);
+			vibeLog.info('Constraints', `Loaded ${this._constraints.rules?.length ?? 0} rules from .vibe/constraints.json`);
 		}
 
 		// Load allowed-models.json
@@ -218,7 +218,7 @@ class VibeConstraintsService extends Disposable implements IVibeConstraintsServi
 				);
 				this._allowedModels = parsed.models ?? [];
 				if (this._allowedModels.length > 0) {
-					this._logService.info(`[VibeIDE Constraints] Allowed models: ${this._allowedModels.join(', ')}`);
+					vibeLog.info('Constraints', `Allowed models: ${this._allowedModels.join(', ')}`);
 				}
 			}
 		}
@@ -227,7 +227,7 @@ class VibeConstraintsService extends Disposable implements IVibeConstraintsServi
 	private _reportCorruptConfig(label: string, uri: URI, reason: string): void {
 		// Empty file is a normal "no rules saved yet" state — never warn for that.
 		if (reason === 'empty') return;
-		this._logService.warn(`[VibeIDE Constraints] ${label} corrupt (${reason}) — using safe defaults`);
+		vibeLog.warn('Constraints', `${label} corrupt (${reason}) — using safe defaults`);
 		this._notificationService.notify({
 			severity: Severity.Warning,
 			message: localize('vibeide.constraints.corruptConfig', "VibeIDE: {0} повреждён ({1}). Применены безопасные дефолты — откройте файл и исправьте JSON, иначе ограничения не действуют.", label, reason),

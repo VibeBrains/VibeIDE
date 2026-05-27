@@ -56,7 +56,7 @@ import { IModelService } from '../../../../editor/common/services/model.js';
 import { TextEdit } from '../../../../editor/common/core/edits/textEdit.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { localize } from '../../../../nls.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { IAuditLogService } from '../common/auditLogService.js';
 import { IVibeAgentActivityLogService } from './vibeAgentActivityLogService.js';
 import { IVibeLLMJudgeService } from '../common/vibeLLMJudgeService.js';
@@ -687,7 +687,6 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@INotificationService private readonly _notificationService: INotificationService,
 		@IConvertToLLMMessageService private readonly _convertToLLMMessagesService: IConvertToLLMMessageService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService private readonly _logService: ILogService,
 		@IDirectoryStrService private readonly _directoryStringService: IDirectoryStrService,
 		@IFileService private readonly _fileService: IFileService,
 		@IVibePersistedPlanService private readonly _persistedPlanService: IVibePersistedPlanService,
@@ -1661,7 +1660,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	}): Promise<{ planId: string } | undefined> {
 		const folders = this._workspaceContextService.getWorkspace().folders;
 		if (folders.length === 0) {
-			this._logService.debug('[VibeIDE] Persist plan: no workspace folder');
+			vibeLog.debug('chatThread', 'Persist plan: no workspace folder');
 			return undefined;
 		}
 		const workspaceFolder = folders[0].uri;
@@ -1681,7 +1680,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			if (e instanceof Error && e.message.includes('Plan file blocked')) {
 				throw e;
 			}
-			this._logService.warn('[VibeIDE] Persist plan artifact failed:', e);
+			vibeLog.warn('chatThread', 'Persist plan artifact failed:', e);
 			return undefined;
 		}
 		if (!written) {
@@ -1700,7 +1699,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	}
 
 	approvePlan(opts: { threadId: string, messageIdx: number }): void {
-		void this._approvePlanAndRun(opts).catch(err => this._logService.error('[VibeIDE] approvePlan failed', err));
+		void this._approvePlanAndRun(opts).catch(err => vibeLog.error('chatThread', 'approvePlan failed', err));
 	}
 
 	private async _approvePlanAndRun(opts: { threadId: string, messageIdx: number }): Promise<void> {
@@ -1758,7 +1757,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				});
 				return;
 			}
-			this._logService.warn('[VibeIDE] Persist plan artifact failed:', err);
+			vibeLog.warn('chatThread', 'Persist plan artifact failed:', err);
 		}
 
 		const mergedPlan: PlanMessage = persistedMeta
@@ -2097,12 +2096,12 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	injectPlanMessage(threadId: string, plan: PlanMessage): void {
 		const thread = this.state.allThreads[threadId]
 		if (!thread) {
-			this._logService.warn(`[VibeIDE PlanResume] injectPlanMessage: thread ${threadId} not found`)
+			vibeLog.warn('PlanResume', `injectPlanMessage: thread ${threadId} not found`)
 			return
 		}
 		const planWithPending: PlanMessage = { ...plan, approvalState: 'pending' }
 		this._addMessageToThread(threadId, planWithPending)
-		this._logService.info(`[VibeIDE PlanResume] Injected plan into thread ${threadId} (${plan.steps.length} steps)`)
+		vibeLog.info('PlanResume', `Injected plan into thread ${threadId} (${plan.steps.length} steps)`)
 		if (this._auditLogService.isEnabled()) {
 			void this._auditLogService.append({
 				ts: Date.now(),
@@ -2487,7 +2486,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				holderNonce: this._ensureExecutionLeaseHolderNonce(),
 			});
 			if (!r.ok) {
-				this._logService.warn('[VibeIDE] Execution lease heartbeat skipped: held by other thread', r.holderThreadId);
+				vibeLog.warn('chatThread', 'Execution lease heartbeat skipped: held by other thread', r.holderThreadId);
 			}
 		} catch { /* ignore */ }
 	}
@@ -4088,7 +4087,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							resolvedModelSelection = routed;
 							const rp = routed.providerName as Exclude<ProviderName, 'auto'>;
 							resolvedModelSelectionOptions = this._settingsService.state.optionsOfModelSelection['Chat']?.[rp]?.[routed.modelName];
-							this._logService.info(`[VibeIDE] model-routing: ${filePath} → pattern=${decision.matchedPattern} → ${decision.resolvedModelId}`);
+							vibeLog.info('chatThread', `model-routing: ${filePath} → pattern=${decision.matchedPattern} → ${decision.resolvedModelId}`);
 						}
 					}
 				}
@@ -4675,7 +4674,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				const usageRatio = capacity > 0 ? used / capacity : 0;
 				const TOKEN_BUDGET_GATE = 0.70;
 				if (capacity > 0 && usageRatio >= TOKEN_BUDGET_GATE) {
-					this._logService.info(`[VibeIDE] debug-context skipped (token-budget gate: ${used}/${capacity} = ${(usageRatio * 100).toFixed(1)}%)`);
+					vibeLog.info('chatThread', `debug-context skipped (token-budget gate: ${used}/${capacity} = ${(usageRatio * 100).toFixed(1)}%)`);
 				} else {
 					const dbgMarkdown = this._aiDebuggingService.getContextMarkdown();
 					if (dbgMarkdown && dbgMarkdown.length > 0) {
@@ -4689,7 +4688,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					}
 				}
 			} catch (e) {
-				this._logService.warn('[VibeIDE] AI debug context inject failed:', e);
+				vibeLog.warn('chatThread', 'AI debug context inject failed:', e);
 			}
 
 			// CRITICAL: Validate that messages are not empty before sending to API

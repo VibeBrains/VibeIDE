@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 
 export type ToolApprovalDecision = 'approved' | 'rejected' | 'pending';
 
@@ -70,7 +70,6 @@ class VibeToolApprovalService extends Disposable implements IVibeToolApprovalSer
 	}>();
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -83,7 +82,7 @@ class VibeToolApprovalService extends Disposable implements IVibeToolApprovalSer
 			return 'approved';
 		}
 
-		this._logService.debug(`[VibeIDE ToolApproval] Requesting approval: ${request.toolName} — ${request.rationale}`);
+		vibeLog.debug('ToolApproval', `Requesting approval: ${request.toolName} — ${request.rationale}`);
 		this._onApprovalRequested.fire(fullRequest);
 
 		return new Promise<ToolApprovalDecision>(resolve => {
@@ -104,7 +103,7 @@ class VibeToolApprovalService extends Disposable implements IVibeToolApprovalSer
 		const pending = this._pending.get(requestId);
 		if (!pending) return;
 		this._pending.delete(requestId);
-		this._logService.debug(`[VibeIDE ToolApproval] Approved: ${pending.request.toolName}`);
+		vibeLog.debug('ToolApproval', `Approved: ${pending.request.toolName}`);
 		pending.resolve('approved');
 		this._onApprovalDecided.fire({ request: pending.request, decision: 'approved', decidedAt: Date.now() });
 	}
@@ -113,7 +112,7 @@ class VibeToolApprovalService extends Disposable implements IVibeToolApprovalSer
 		const pending = this._pending.get(requestId);
 		if (!pending) return;
 		this._pending.delete(requestId);
-		this._logService.debug(`[VibeIDE ToolApproval] Rejected: ${pending.request.toolName}`);
+		vibeLog.debug('ToolApproval', `Rejected: ${pending.request.toolName}`);
 		pending.resolve('rejected');
 		this._onApprovalDecided.fire({ request: pending.request, decision: 'rejected', decidedAt: Date.now() });
 	}

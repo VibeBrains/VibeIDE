@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import type { PlanStep } from './chatThreadServiceTypes.js';
 
 export interface TaskStep {
@@ -54,7 +54,7 @@ class VibeTaskDecompositionService extends Disposable implements IVibeTaskDecomp
 	private readonly _tasks = new Map<string, TaskDecomposition>();
 	private readonly _persistedThreadToTask = new Map<string, string>();
 
-	constructor(@ILogService private readonly _logService: ILogService) { super(); }
+	constructor() { super(); }
 
 	private _planStepToUiStatus(s: PlanStep): TaskStep['status'] {
 		if (s.disabled) {
@@ -104,7 +104,7 @@ class VibeTaskDecompositionService extends Disposable implements IVibeTaskDecomp
 		};
 		this._tasks.set(taskId, task);
 		this._persistedThreadToTask.set(threadId, taskId);
-		this._logService.info(`[VibeIDE TaskDecomp] Persisted plan mirror: ${title} (${steps.length} steps)`);
+		vibeLog.info('TaskDecomp', `Persisted plan mirror: ${title} (${steps.length} steps)`);
 		this._onTaskUpdated.fire(task);
 	}
 
@@ -139,7 +139,7 @@ class VibeTaskDecompositionService extends Disposable implements IVibeTaskDecomp
 		};
 		if (task.steps.length > 0) task.steps[0].status = 'running';
 		this._tasks.set(taskId, task);
-		this._logService.info(`[VibeIDE TaskDecomp] Started: ${title} (${steps.length} steps)`);
+		vibeLog.info('TaskDecomp', `Started: ${title} (${steps.length} steps)`);
 		this._onTaskUpdated.fire(task);
 		return taskId;
 	}
@@ -152,7 +152,7 @@ class VibeTaskDecompositionService extends Disposable implements IVibeTaskDecomp
 			task.currentStepIndex++;
 			task.steps[task.currentStepIndex].status = 'running';
 		}
-		this._logService.debug(`[VibeIDE TaskDecomp] ${task.steps[task.currentStepIndex - 1]?.label}: ${result}`);
+		vibeLog.debug('TaskDecomp', `${task.steps[task.currentStepIndex - 1]?.label}: ${result}`);
 		this._onTaskUpdated.fire(task);
 	}
 

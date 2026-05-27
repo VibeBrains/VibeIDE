@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -13,7 +14,6 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService, FileOperationError, FileOperationResult } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { parseConfigJsonOrDefaults } from '../common/vibeConfigJsonParser.js';
 import { ShellHardeningConfig } from '../common/shellHardeningTypes.js';
@@ -55,7 +55,6 @@ class ShellHardeningService extends Disposable implements IShellHardeningService
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService private readonly _logService: ILogService,
 		@INotificationService private readonly _notificationService: INotificationService,
 	) {
 		super();
@@ -78,7 +77,7 @@ class ShellHardeningService extends Disposable implements IShellHardeningService
 			this._register(watcher);
 			this._register(this._fileService.onDidFilesChange(e => {
 				if (e.contains(uri)) {
-					this._logService.debug('[VibeIDE ShellHardening] File changed, scheduling reload');
+					vibeLog.debug('ShellHardening', 'File changed, scheduling reload');
 					this._reloadScheduler.schedule();
 				}
 			}));
@@ -102,7 +101,7 @@ class ShellHardeningService extends Disposable implements IShellHardeningService
 			if (e instanceof FileOperationError && e.fileOperationResult === FileOperationResult.FILE_NOT_FOUND) {
 				this._setConfig(EMPTY_CONFIG);
 			} else {
-				this._logService.warn('[VibeIDE ShellHardening] readFile failed for .vibe/shell-hardening.json:', e);
+				vibeLog.warn('ShellHardening', 'readFile failed for .vibe/shell-hardening.json:', e);
 				this._setConfig(EMPTY_CONFIG);
 			}
 			return;
@@ -116,7 +115,7 @@ class ShellHardeningService extends Disposable implements IShellHardeningService
 		const allow = parsed.allowedPatterns?.length ?? 0;
 		const extra = parsed.extraRules?.length ?? 0;
 		const disabled = parsed.disableDefaultRules?.length ?? 0;
-		this._logService.info(`[VibeIDE ShellHardening] Loaded: allowed=${allow}, extraRules=${extra}, disabledDefaults=${disabled}`);
+		vibeLog.info('ShellHardening', `Loaded: allowed=${allow}, extraRules=${extra}, disabledDefaults=${disabled}`);
 		this._setConfig(parsed);
 	}
 
@@ -128,7 +127,7 @@ class ShellHardeningService extends Disposable implements IShellHardeningService
 	private _reportCorruptConfig(uri: URI, reason: string): void {
 		// Empty file is the "no overrides yet" state — never warn for that.
 		if (reason === 'empty') return;
-		this._logService.warn(`[VibeIDE ShellHardening] .vibe/shell-hardening.json corrupt (${reason}) — using bundled defaults only`);
+		vibeLog.warn('ShellHardening', `.vibe/shell-hardening.json corrupt (${reason}) — using bundled defaults only`);
 		this._notificationService.notify({
 			severity: Severity.Warning,
 			message: localize('vibeide.shellHardening.corruptConfig', 'VibeIDE: .vibe/shell-hardening.json повреждён ({0}). Применены дефолтные правила — откройте файл и исправьте JSON.', reason),

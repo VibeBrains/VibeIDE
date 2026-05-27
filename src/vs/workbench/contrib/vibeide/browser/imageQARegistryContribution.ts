@@ -3,12 +3,12 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { initializeModelRegistry, imageQARegistry } from '../common/imageQA/index.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { ILanguageModelsService } from '../../../contrib/chat/common/languageModels.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 
 /**
  * Workbench contribution to initialize Image QA Model Registry
@@ -19,7 +19,6 @@ class ImageQARegistryContribution extends Disposable implements IWorkbenchContri
 	constructor(
 		@IVibeideSettingsService private readonly vibeideSettingsService: IVibeideSettingsService,
 		@ILanguageModelsService private readonly languageModelsService: ILanguageModelsService,
-		@ILogService private readonly logService: ILogService,
 	) {
 		super();
 		this.initialize();
@@ -28,7 +27,7 @@ class ImageQARegistryContribution extends Disposable implements IWorkbenchContri
 	private async initialize(): Promise<void> {
 		// Initialize registry with default local models
 		initializeModelRegistry();
-		this.logService.debug('[ImageQA] Initialized model registry with default models');
+		vibeLog.debug('imageQARegistry', '[ImageQA] Initialized model registry with default models');
 
 		// Wait for settings to be ready
 		await this.vibeideSettingsService.waitForInitState;
@@ -114,10 +113,10 @@ class ImageQARegistryContribution extends Disposable implements IWorkbenchContri
 					contextWindow: model.maxInputTokens, // Use maxInputTokens as context window estimate
 				});
 
-				this.logService.debug(`[ImageQA] Registered ${providerName}:${modelName} as ${role}`);
+				vibeLog.debug('imageQARegistry', `[ImageQA] Registered ${providerName}:${modelName} as ${role}`);
 			}
 		} catch (error) {
-			this.logService.error('[ImageQA] Error registering detected models:', error);
+			vibeLog.error('imageQARegistry', '[ImageQA] Error registering detected models:', error);
 		}
 	}
 }

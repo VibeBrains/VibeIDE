@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 export interface VulnerabilityResult {
@@ -57,7 +57,6 @@ class VibeDependencyVulnService extends Disposable implements IVibeDependencyVul
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 		this._setupFileWatcher();
@@ -72,7 +71,7 @@ class VibeDependencyVulnService extends Disposable implements IVibeDependencyVul
 			for (const resource of uris) {
 				const fileName = resource.path.split('/').pop() || '';
 				if (DEPENDENCY_FILES.includes(fileName)) {
-					this._logService.debug(`[VibeIDE VulnScan] Dependency file changed: ${fileName}`);
+					vibeLog.debug('VulnScan', `Dependency file changed: ${fileName}`);
 					// Debounce: scan after 2s of no changes
 					setTimeout(async () => {
 						const results = await this.scanOnChange(resource.fsPath);
@@ -95,7 +94,7 @@ class VibeDependencyVulnService extends Disposable implements IVibeDependencyVul
 
 		// Phase 1: basic known-vulns check for other ecosystems
 		// Phase 2: integrate OSV.dev API for all ecosystems
-		this._logService.debug(`[VibeIDE VulnScan] Scan for ${fileName} requires Phase 2 OSV.dev integration`);
+		vibeLog.debug('VulnScan', `Scan for ${fileName} requires Phase 2 OSV.dev integration`);
 		return [];
 	}
 
@@ -103,7 +102,7 @@ class VibeDependencyVulnService extends Disposable implements IVibeDependencyVul
 		// Phase 1: return empty (actual npm audit requires subprocess)
 		// npm audit output is available via vibe:doctor:full
 		// Phase 2: integrate via ITerminalService or Node.js child_process
-		this._logService.debug('[VibeIDE VulnScan] npm package.json changed — run npm run vibe:doctor:full for audit');
+		vibeLog.debug('VulnScan', 'npm package.json changed — run npm run vibe:doctor:full for audit');
 		return [];
 	}
 }

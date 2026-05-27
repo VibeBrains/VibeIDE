@@ -47,7 +47,7 @@ import { Range } from '../../../../editor/common/core/range.js'
 
 import { IVibeAgentTerritorialLockService } from './vibeAgentTerritorialLockService.js'
 import { IAuditLogService } from '../common/auditLogService.js'
-import { ILogService } from '../../../../platform/log/common/log.js'
+
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js'
 import { formatProvenanceMarker, shouldMarkProvenance } from '../common/vibeAiProvenanceConfiguration.js'
 import { IGitAutoStashService } from '../common/gitAutoStashService.js'
@@ -254,7 +254,6 @@ export class ToolsService implements IToolsService {
 		@IVibePerFilePermissionsService private readonly vibePermissionsService: IVibePerFilePermissionsService,
 		@IVibeAgentTerritorialLockService private readonly _agentTerritorialLockService: IVibeAgentTerritorialLockService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
-		@ILogService private readonly _logService: ILogService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@IGitAutoStashService private readonly _gitAutoStashService: IGitAutoStashService,
 		@ITextFileService private readonly _textFileService: ITextFileService,
@@ -2357,7 +2356,7 @@ export class ToolsService implements IToolsService {
 					meta: { holders: conflict.holders, patterns: conflict.patterns },
 				});
 			}
-			this._logService.warn(`[VibeIDE] Advisory territorial lock (auto edit, audit): ${detail}`);
+			vibeLog.warn('tools', `Advisory territorial lock (auto edit, audit): ${detail}`);
 			return;
 		}
 		throw new Error(`[VibeIDE] Advisory territorial lock — write blocked in supervised mode (${detail}). Adjust .vibe/agent-locks.json or use an approved/auto edit workflow.`);

@@ -3,12 +3,12 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { localize } from '../../../../nls.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { IVibeConstraintsService } from '../common/vibeConstraintsService.js';
@@ -27,7 +27,6 @@ export class VibeStartupHealthCheckContribution extends Disposable implements IW
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService private readonly _logService: ILogService,
 		@INotificationService private readonly _notificationService: INotificationService,
 		@IVibeConstraintsService _constraintsService: IVibeConstraintsService,
 	) {
@@ -60,10 +59,10 @@ export class VibeStartupHealthCheckContribution extends Disposable implements IW
 		}
 
 		const elapsed = Date.now() - start;
-		this._logService.debug(`[VibeIDE HealthCheck] Completed in ${elapsed}ms. Issues: ${issues.length}`);
+		vibeLog.debug('HealthCheck', `Completed in ${elapsed}ms. Issues: ${issues.length}`);
 
 		if (issues.length > 0) {
-			this._logService.warn(`[VibeIDE HealthCheck] .vibe/ schema issues:\n${issues.join('\n')}`);
+			vibeLog.warn('HealthCheck', `.vibe/ schema issues:\n${issues.join('\n')}`);
 			this._notificationService.notify({
 				severity: Severity.Warning,
 				message: localize('vibeide.startupHealthCheck.migrationNeeded', 'VibeIDE: .vibe/ configuration may need migration ({0} issue(s)). Run `vibe doctor --repair` to fix.', issues.length),

@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IVibeModelFingerprintService, ModelFingerprint } from './vibeModelFingerprintService.js';
 
 export interface ReproducibleSession {
@@ -42,7 +42,6 @@ class VibeReproducibleSessionService extends Disposable implements IVibeReproduc
 	declare readonly _serviceBrand: undefined;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IVibeModelFingerprintService private readonly _fingerprintService: IVibeModelFingerprintService,
 	) {
 		super();
@@ -51,7 +50,7 @@ class VibeReproducibleSessionService extends Disposable implements IVibeReproduc
 	createReproducible(requestId: string, stealthModeWasActive: boolean = false): ReproducibleSession | null {
 		const fingerprint = this._fingerprintService.get(requestId);
 		if (!fingerprint) {
-			this._logService.warn(`[VibeIDE Reproducible] Fingerprint not found for request: ${requestId}`);
+			vibeLog.warn('Reproducible', `Fingerprint not found for request: ${requestId}`);
 			return null;
 		}
 

@@ -3,13 +3,14 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { localize } from '../../../../nls.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -69,7 +70,6 @@ class VibeStructuredOutputService extends Disposable implements IVibeStructuredO
 
 	constructor(
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 		this._enabled = this._configurationService.getValue<boolean>('vibeide.output.structuredMode') ?? false;
@@ -95,10 +95,10 @@ class VibeStructuredOutputService extends Disposable implements IVibeStructuredO
 			if (typeof process !== 'undefined' && process.stdout) {
 				process.stdout.write(line + '\n');
 			} else {
-				this._logService.info(`[VibeIDE StructuredOutput] ${line}`);
+				vibeLog.info('StructuredOutput', `${line}`);
 			}
 		} catch (e) {
-			this._logService.warn('[VibeIDE StructuredOutput] Failed to emit event:', e);
+			vibeLog.warn('StructuredOutput', 'Failed to emit event:', e);
 		}
 	}
 }

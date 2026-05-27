@@ -3,13 +3,14 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { IAuditLogService } from './auditLogService.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { localize } from '../../../../nls.js';
@@ -70,7 +71,6 @@ class GitAutoStashService extends Disposable implements IGitAutoStashService {
 
 	constructor(
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
-		@ILogService private readonly _logService: ILogService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 		@INotificationService private readonly _notificationService: INotificationService,
 		@IExtensionService private readonly _extensionService: IExtensionService,
@@ -112,7 +112,7 @@ class GitAutoStashService extends Disposable implements IGitAutoStashService {
 			// Check if git extension is available
 			const gitExtension = await this._extensionService.getExtension('vscode.git');
 			if (!gitExtension) {
-				this._logService.warn('[GitAutoStash] Git extension not available');
+				vibeLog.warn('gitAutoStash', '[GitAutoStash] Git extension not available');
 				return undefined;
 			}
 
@@ -161,7 +161,7 @@ class GitAutoStashService extends Disposable implements IGitAutoStashService {
 
 			return stashRef;
 		} catch (error) {
-			this._logService.error('[GitAutoStash] Failed to create stash:', error);
+			vibeLog.error('gitAutoStash', '[GitAutoStash] Failed to create stash:', error);
 			if (this._auditLogService.isEnabled()) {
 				await this._auditLogService.append({
 					ts: Date.now(),
@@ -192,7 +192,7 @@ class GitAutoStashService extends Disposable implements IGitAutoStashService {
 			} else {
 				// For other indices, we'd need repository - this is a limitation
 				// For P0, we only support latest stash (index 0)
-				this._logService.warn(`[GitAutoStash] Restore of stash@{${stashIndex}} not supported, only stash@{0} is supported`);
+				vibeLog.warn('gitAutoStash', `[GitAutoStash] Restore of stash@{${stashIndex}} not supported, only stash@{0} is supported`);
 				throw new Error(`Only stash@{0} restore is supported`);
 			}
 
@@ -212,7 +212,7 @@ class GitAutoStashService extends Disposable implements IGitAutoStashService {
 				sticky: false,
 			});
 		} catch (error) {
-			this._logService.error('[GitAutoStash] Failed to restore stash:', error);
+			vibeLog.error('gitAutoStash', '[GitAutoStash] Failed to restore stash:', error);
 			if (this._auditLogService.isEnabled()) {
 				await this._auditLogService.append({
 					ts: Date.now(),
@@ -232,7 +232,7 @@ class GitAutoStashService extends Disposable implements IGitAutoStashService {
 			const stashIndex = match ? parseInt(match[1], 10) : 0;
 			await this._commandService.executeCommand('git.stashDrop', stashIndex);
 		} catch (error) {
-			this._logService.warn('[GitAutoStash] Failed to drop stash:', error);
+			vibeLog.warn('gitAutoStash', '[GitAutoStash] Failed to drop stash:', error);
 		}
 	}
 }

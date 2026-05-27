@@ -3,12 +3,12 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
 
 const FIRST_RUN_VALIDATION_KEY = 'vibeide.firstRunValidation';
@@ -33,7 +33,6 @@ export class FirstRunValidationContribution extends Disposable implements IWorkb
 	constructor(
 		@IStorageService private readonly storageService: IStorageService,
 		@IEditorService private readonly editorService: IEditorService,
-		@ILogService private readonly logService: ILogService,
 		@ISecretDetectionService private readonly secretDetectionService: ISecretDetectionService,
 	) {
 		super();
@@ -168,7 +167,7 @@ export class FirstRunValidationContribution extends Disposable implements IWorkb
 		this.storageService.store(FIRST_RUN_VALIDATION_KEY, 'started', StorageScope.APPLICATION, StorageTarget.MACHINE);
 
 		try {
-			this.logService.info('[FirstRunValidation] Starting smoke test...');
+			vibeLog.info('firstRunValidation', '[FirstRunValidation] Starting smoke test...');
 
 			// Smoke test 1: Open a file (if workspace has files)
 			try {
@@ -177,11 +176,11 @@ export class FirstRunValidationContribution extends Disposable implements IWorkb
 					const firstEditor = editors[0];
 					if (firstEditor.resource) {
 						// File is already open, test passed
-						this.logService.info('[FirstRunValidation] ✓ File access test passed');
+						vibeLog.info('firstRunValidation', '[FirstRunValidation] ✓ File access test passed');
 					}
 				}
 			} catch (error) {
-				this.logService.error('[FirstRunValidation] ✗ File access test failed:', error);
+				vibeLog.error('firstRunValidation', '[FirstRunValidation] ✗ File access test failed:', error);
 			}
 
 			// Smoke test 2: Quick Action command availability
@@ -190,29 +189,29 @@ export class FirstRunValidationContribution extends Disposable implements IWorkb
 				const commands = CommandsRegistry.getCommands();
 				const hasQuickAction = commands.has('vibeide.quickAction');
 				if (hasQuickAction) {
-					this.logService.info('[FirstRunValidation] ✓ Quick Action command available');
+					vibeLog.info('firstRunValidation', '[FirstRunValidation] ✓ Quick Action command available');
 				} else {
-					this.logService.warn('[FirstRunValidation] ⚠ Quick Action command not found');
+					vibeLog.warn('firstRunValidation', '[FirstRunValidation] ⚠ Quick Action command not found');
 				}
 			} catch (error) {
-				this.logService.error('[FirstRunValidation] ✗ Command check failed:', error);
+				vibeLog.error('firstRunValidation', '[FirstRunValidation] ✗ Command check failed:', error);
 			}
 
 			// Smoke test 3: Basic service availability
 			try {
 				// Services should be available at this point
-				this.logService.info('[FirstRunValidation] ✓ Services initialized');
+				vibeLog.info('firstRunValidation', '[FirstRunValidation] ✓ Services initialized');
 			} catch (error) {
-				this.logService.error('[FirstRunValidation] ✗ Service check failed:', error);
+				vibeLog.error('firstRunValidation', '[FirstRunValidation] ✗ Service check failed:', error);
 			}
 
 			// Mark validation as complete
 			this.storageService.store(FIRST_RUN_VALIDATION_COMPLETE_KEY, true, StorageScope.APPLICATION, StorageTarget.MACHINE);
-			this.logService.info('[FirstRunValidation] ✓ Smoke test completed successfully');
+			vibeLog.info('firstRunValidation', '[FirstRunValidation] ✓ Smoke test completed successfully');
 
 		} catch (error) {
 			// Log error but don't block startup
-			this.logService.error('[FirstRunValidation] ✗ Smoke test failed with error:', error);
+			vibeLog.error('firstRunValidation', '[FirstRunValidation] ✗ Smoke test failed with error:', error);
 			// Still mark as complete to avoid retrying on every startup
 			this.storageService.store(FIRST_RUN_VALIDATION_COMPLETE_KEY, true, StorageScope.APPLICATION, StorageTarget.MACHINE);
 		}

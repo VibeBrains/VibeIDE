@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -10,7 +11,7 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { localize } from '../../../../nls.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -109,7 +110,6 @@ class VibeContextGuardService extends Disposable implements IVibeContextGuardSer
 
 	constructor(
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 		this._warningThreshold = this._configurationService.getValue<number>('vibeide.context.warningThresholdPercent') ?? 75;
@@ -135,7 +135,7 @@ class VibeContextGuardService extends Disposable implements IVibeContextGuardSer
 
 		const status = this.getStatus();
 		this._onUsageUpdated.fire(status);
-		this._logService.debug(`[VibeIDE ContextGuard] ${status.percentUsed.toFixed(1)}% (${currentTokens.toLocaleString()}/${maxTokens.toLocaleString()} tokens)`);
+		vibeLog.debug('ContextGuard', `${status.percentUsed.toFixed(1)}% (${currentTokens.toLocaleString()}/${maxTokens.toLocaleString()} tokens)`);
 
 		if (status.isCritical && !this._criticalFired) {
 			this._criticalFired = true;
@@ -146,7 +146,7 @@ class VibeContextGuardService extends Disposable implements IVibeContextGuardSer
 				status.percentUsed.toFixed(0),
 				currentTokens.toLocaleString()
 			);
-			this._logService.warn(`[VibeIDE ContextGuard] 🔴 Critical: ${message}`);
+			vibeLog.warn('ContextGuard', `🔴 Critical: ${message}`);
 			this._onContextLimitCritical.fire({ status, message });
 		} else if (status.isWarning && !this._warningFired) {
 			this._warningFired = true;
@@ -157,7 +157,7 @@ class VibeContextGuardService extends Disposable implements IVibeContextGuardSer
 				currentTokens.toLocaleString(),
 				maxTokens.toLocaleString()
 			);
-			this._logService.warn(`[VibeIDE ContextGuard] ⚠️ Warning: ${message}`);
+			vibeLog.warn('ContextGuard', `⚠️ Warning: ${message}`);
 			this._onContextLimitWarning.fire({ status, message });
 		}
 
@@ -174,7 +174,7 @@ class VibeContextGuardService extends Disposable implements IVibeContextGuardSer
 		this._warningFired = false;
 		this._criticalFired = false;
 		this._onUsageUpdated.fire(this.getStatus());
-		this._logService.debug('[VibeIDE ContextGuard] Reset (thread changed)');
+		vibeLog.debug('ContextGuard', 'Reset (thread changed)');
 	}
 
 	getStatus(): ContextLimitStatus {

@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 
 export type EncryptionMigrationState = 'idle' | 'migrating' | 'completed' | 'error';
@@ -105,7 +105,6 @@ class VibeAuditEncryptionService extends Disposable implements IVibeAuditEncrypt
 	readonly onMigrationProgress = this._onMigrationProgress.event;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 	) {
 		super();
@@ -137,7 +136,7 @@ class VibeAuditEncryptionService extends Disposable implements IVibeAuditEncrypt
 			throw new Error(reason);
 		}
 
-		this._logService.info('[VibeIDE AuditEncryption] Encryption enabled for future audit logs');
+		vibeLog.info('AuditEncryption', 'Encryption enabled for future audit logs');
 		// Phase 2: actual age/libsodium encryption implementation
 		// Phase 1: mark as enabled, warn user to migrate existing logs
 	}
@@ -154,7 +153,7 @@ class VibeAuditEncryptionService extends Disposable implements IVibeAuditEncrypt
 
 		// Phase 1: placeholder for actual migration
 		// Phase 2: encrypt existing .vibe/audit*.jsonl files
-		this._logService.info(`[VibeIDE AuditEncryption] Migration ${encryptAll ? 'all' : 'none'} — Phase 2 implementation pending`);
+		vibeLog.info('AuditEncryption', `Migration ${encryptAll ? 'all' : 'none'} — Phase 2 implementation pending`);
 
 		const done: EncryptionMigrationStatus = { ...status, state: 'completed', processedFiles: status.totalFiles };
 		this._onMigrationProgress.fire(done);

@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -14,7 +15,6 @@ import { IRollbackSnapshotService } from './rollbackSnapshotService.js';
 import { IGitAutoStashService } from './gitAutoStashService.js';
 import { IAuditLogService } from './auditLogService.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { localize } from '../../../../nls.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
@@ -93,7 +93,6 @@ class ApplyEngineV2 extends Disposable implements IApplyEngineV2 {
 		@IGitAutoStashService private readonly _gitStashService: IGitAutoStashService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 		@IWorkspaceContextService private readonly _workspaceService: IWorkspaceContextService,
-		@ILogService private readonly _logService: ILogService,
 		@INotificationService private readonly _notificationService: INotificationService,
 	) {
 		super();
@@ -400,7 +399,7 @@ class ApplyEngineV2 extends Disposable implements IApplyEngineV2 {
 				stashRef = await this._gitStashService.createStash(operationId);
 			}
 		} catch (error) {
-			this._logService.warn('[ApplyEngineV2] Failed to create snapshot/stash:', error);
+			vibeLog.warn('applyEngineV2', '[ApplyEngineV2] Failed to create snapshot/stash:', error);
 		}
 
 		// 7. Apply operations atomically (all or nothing)
@@ -461,7 +460,7 @@ class ApplyEngineV2 extends Disposable implements IApplyEngineV2 {
 					await this._rollbackService.restoreSnapshot(snapshotId);
 					restored = true;
 				} catch (snapshotError) {
-					this._logService.error('[ApplyEngineV2] Snapshot restore failed:', snapshotError);
+					vibeLog.error('applyEngineV2', '[ApplyEngineV2] Snapshot restore failed:', snapshotError);
 				}
 			}
 
@@ -470,7 +469,7 @@ class ApplyEngineV2 extends Disposable implements IApplyEngineV2 {
 					await this._gitStashService.restoreStash(stashRef);
 					restored = true;
 				} catch (stashError) {
-					this._logService.error('[ApplyEngineV2] Stash restore failed:', stashError);
+					vibeLog.error('applyEngineV2', '[ApplyEngineV2] Stash restore failed:', stashError);
 				}
 			}
 

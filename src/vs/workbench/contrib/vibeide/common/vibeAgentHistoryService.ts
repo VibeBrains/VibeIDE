@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { IAuditLogService } from './auditLogService.js';
 
 export interface AgentHistoryEntry {
@@ -58,7 +58,6 @@ class VibeAgentHistoryService extends Disposable implements IVibeAgentHistorySer
 	private _currentSessionId: string;
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 	) {
 		super();
@@ -78,7 +77,7 @@ class VibeAgentHistoryService extends Disposable implements IVibeAgentHistorySer
 		this._history.set(entry.sessionId, sessionHistory);
 
 		this._onActionRecorded.fire(full);
-		this._logService.debug(`[VibeIDE AgentHistory] ${entry.action}: ${entry.description.slice(0, 60)}`);
+		vibeLog.debug('AgentHistory', `${entry.action}: ${entry.description.slice(0, 60)}`);
 
 		// Also persist to audit log
 		if (this._auditLogService.isEnabled()) {

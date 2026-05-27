@@ -3,13 +3,13 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { joinPath } from '../../../../base/common/resources.js';
 
 export interface WorkflowStep {
@@ -76,7 +76,6 @@ class VibeWorkflowService extends Disposable implements IVibeWorkflowService {
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -115,13 +114,13 @@ class VibeWorkflowService extends Disposable implements IVibeWorkflowService {
 	async run(name: string): Promise<WorkflowRunResult> {
 		const workflow = await this.getWorkflow(name);
 		if (!workflow) {
-			this._logService.warn(`[VibeWorkflow] run(): workflow "${name}" not found in .vibe/workflows/`);
+			vibeLog.warn('vibeWorkflow', `[VibeWorkflow] run(): workflow "${name}" not found in .vibe/workflows/`);
 			return { workflowName: name, chatMessage: null, dispatched: false };
 		}
 
 		const chatCommand = `/workflow:${name}`;
 		this._onWorkflowRunRequested.fire({ workflowName: name, chatCommand });
-		this._logService.info(`[VibeWorkflow] run(): dispatched "${chatCommand}" via event`);
+		vibeLog.info('vibeWorkflow', `[VibeWorkflow] run(): dispatched "${chatCommand}" via event`);
 		return { workflowName: name, chatMessage: chatCommand, dispatched: true };
 	}
 }

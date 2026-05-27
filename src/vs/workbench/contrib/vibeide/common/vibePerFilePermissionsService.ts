@@ -3,13 +3,14 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize } from '../../../../nls.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService, FileOperationError, FileOperationResult } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
+
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
@@ -98,7 +99,6 @@ class VibePerFilePermissionsService extends Disposable implements IVibePerFilePe
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService private readonly _logService: ILogService,
 		@INotificationService private readonly _notificationService: INotificationService,
 	) {
 		super();
@@ -116,7 +116,7 @@ class VibePerFilePermissionsService extends Disposable implements IVibePerFilePe
 			raw = content.value.toString();
 		} catch (e) {
 			if (!(e instanceof FileOperationError && e.fileOperationResult === FileOperationResult.FILE_NOT_FOUND)) {
-				this._logService.warn('[VibeIDE Permissions] readFile failed for .vibe/permissions.json:', e);
+				vibeLog.warn('Permissions', 'readFile failed for .vibe/permissions.json:', e);
 			}
 			this._permissions = {};
 			return;
@@ -126,13 +126,13 @@ class VibePerFilePermissionsService extends Disposable implements IVibePerFilePe
 			{},
 			reason => this._reportCorruptPermissions(uri, reason),
 		);
-		this._logService.debug('[VibeIDE Permissions] Loaded .vibe/permissions.json');
+		vibeLog.debug('Permissions', 'Loaded .vibe/permissions.json');
 	}
 
 	private _reportCorruptPermissions(uri: URI, reason: string): void {
 		// Empty file = "no permissions saved yet" — a normal state, no banner.
 		if (reason === 'empty') return;
-		this._logService.warn(`[VibeIDE Permissions] .vibe/permissions.json corrupt (${reason}) — using safe defaults (allow all)`);
+		vibeLog.warn('Permissions', `.vibe/permissions.json corrupt (${reason}) — using safe defaults (allow all)`);
 		this._notificationService.notify({
 			severity: Severity.Warning,
 			message: localize('vibeide.perFilePerms.corrupt', "VibeIDE: .vibe/permissions.json повреждён ({0}). Применены безопасные дефолты — откройте файл и исправьте JSON, иначе per-file ограничения не действуют.", reason),

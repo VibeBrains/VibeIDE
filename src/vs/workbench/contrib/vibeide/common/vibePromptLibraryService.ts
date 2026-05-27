@@ -8,7 +8,6 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 import { joinPath } from '../../../../base/common/resources.js';
 
 export interface PromptTemplate {
@@ -43,7 +42,6 @@ class VibePromptLibraryService extends Disposable implements IVibePromptLibraryS
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
-		@ILogService _logService: ILogService,
 	) {
 		super();
 	}

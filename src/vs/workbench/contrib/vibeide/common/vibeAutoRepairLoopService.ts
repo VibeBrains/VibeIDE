@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
 
 export type RepairPhase = 'lint' | 'types' | 'tests' | 'fix';
 
@@ -57,7 +57,6 @@ class VibeAutoRepairLoopService extends Disposable implements IVibeAutoRepairLoo
 	private readonly _iterations = new Map<string, RepairIteration[]>();
 
 	constructor(
-		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
 	}
@@ -66,7 +65,7 @@ class VibeAutoRepairLoopService extends Disposable implements IVibeAutoRepairLoo
 		const repairChainId = `repair-${taskId}-${Date.now()}`;
 		this._activeChains.add(repairChainId);
 		this._iterations.set(repairChainId, []);
-		this._logService.info(`[VibeIDE AutoRepair] Started chain: ${repairChainId}`);
+		vibeLog.info('AutoRepair', `Started chain: ${repairChainId}`);
 		return repairChainId;
 	}
 
@@ -84,9 +83,9 @@ class VibeAutoRepairLoopService extends Disposable implements IVibeAutoRepairLoo
 		this._onIterationComplete.fire(iteration);
 
 		if (passed) {
-			this._logService.info(`[VibeIDE AutoRepair] ✅ ${phase} passed (iteration ${iteration.iterationNum})`);
+			vibeLog.info('AutoRepair', `✅ ${phase} passed (iteration ${iteration.iterationNum})`);
 		} else {
-			this._logService.debug(`[VibeIDE AutoRepair] ❌ ${phase} failed (iteration ${iteration.iterationNum})`);
+			vibeLog.debug('AutoRepair', `❌ ${phase} failed (iteration ${iteration.iterationNum})`);
 		}
 	}
 
