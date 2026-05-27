@@ -32,6 +32,7 @@ import { ServicesAccessor } from '../../../../platform/instantiation/common/inst
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -248,6 +249,35 @@ registerAction2(class extends Action2 {
 		await fileService.writeFile(uri, VSBuffer.fromString(existing + block));
 		await rulesSvc.reloadRules();
 		notifications.notify({ severity: Severity.Info, message: localize('vibeide.projectRules.addRule.done', 'Правило добавлено в .vibe/rules.md') });
+	}
+});
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.projectRules.open',
+			title: { value: localize('vibeide.projectRules.open', 'VibeIDE: Открыть правила проекта (.vibe/rules.md)'), original: 'VibeIDE: Open Project Rules (.vibe/rules.md)' },
+			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			f1: true,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const fileService = accessor.get(IFileService);
+		const workspace = accessor.get(IWorkspaceContextService);
+		const editorService = accessor.get(IEditorService);
+		const notifications = accessor.get(INotificationService);
+
+		const folder = workspace.getWorkspace().folders[0];
+		if (!folder) {
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeide.projectRules.open.noFolder', 'Откройте папку проекта.') });
+			return;
+		}
+		const uri = joinPath(folder.uri, '.vibe', 'rules.md');
+		if (!(await fileService.exists(uri))) {
+			await fileService.writeFile(uri, VSBuffer.fromString('# Project rules\n\n'));
+		}
+		await editorService.openEditor({ resource: uri });
 	}
 });
 
