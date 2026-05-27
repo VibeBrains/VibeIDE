@@ -6,6 +6,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ChatMessage, ChatImageAttachment } from '../common/chatThreadServiceTypes.js';
 import { vibeTraceTs } from '../common/helpers/vibeTraceTs.js';
+import { recordChatTrace } from './vibeChatRunTrace.js';
 import { VSBuffer, encodeBase64 } from '../../../../base/common/buffer.js';
 
 // Use VS Code's built-in base64 encoding (tested, optimized, handles edge cases)
@@ -1943,7 +1944,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			const afterTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
 			// Update status bar to reflect post-truncation size; suppress popup (user sees % in status bar)
 			try { this.contextGuardService.updateUsage(afterTokens, contextWindow) } catch { }
-			console.debug(`[VibeIDE] Context smart truncation: ~${beforeTokens} → ~${afterTokens} tokens`)
+			console.debug(`[VibeIDE] Context smart truncation: ~${beforeTokens} → ~${afterTokens} tokens`); recordChatTrace('context:truncated', { before: beforeTokens, after: afterTokens })
 		}
 
 		// Second pass — active guard. If we are still over the model's real context window,
