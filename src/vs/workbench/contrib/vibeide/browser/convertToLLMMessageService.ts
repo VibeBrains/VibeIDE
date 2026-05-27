@@ -5,6 +5,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ChatMessage, ChatImageAttachment } from '../common/chatThreadServiceTypes.js';
+import { vibeTraceTs } from '../common/helpers/vibeTraceTs.js';
 import { VSBuffer, encodeBase64 } from '../../../../base/common/buffer.js';
 
 // Use VS Code's built-in base64 encoding (tested, optimized, handles edge cases)
@@ -2115,7 +2116,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			const lastUserHasSkillInvocation = lastUserContent.includes(skillInvocationTag);
 			const skillBodyHeadIdx = lastUserContent.indexOf(skillInvocationTag);
 			// eslint-disable-next-line no-console
-			console.debug('[VibeIDE/promptDump] final prompt summary', {
+			console.debug(`[${vibeTraceTs()}] [VibeIDE/promptDump] final prompt summary`, {
 				provider: validProviderName,
 				model: modelName,
 				supportsSystemMessage,
