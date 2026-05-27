@@ -1207,9 +1207,21 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			// User-initiated abort — propagate nothing, the caller already knows.
 			return;
 		}
-		const status = error?.statusCode ?? error?.status;
-		const errMsg: string = error?.message ?? String(error);
-		const errBody: string = typeof error?.responseBody === 'string' ? error.responseBody : '';
+		// AI SDK wraps exhausted retries in an AI_RetryError whose own `.message`
+		// is "Failed after N attempts. Last error: <none>" and which carries NO
+		// `statusCode` — the real HTTP status (e.g. 520 from a Cloudflare-fronted
+		// aggregator origin) lives on the nested AI_APICallError in `.lastError` /
+		// `.errors[]`. Unwrap to that inner error so the status mapping below sees
+		// the truth instead of surfacing the useless "<none>" wrapper text.
+		const inner: any = error?.lastError
+			?? (Array.isArray(error?.errors) && error.errors.length > 0 ? error.errors[error.errors.length - 1] : undefined);
+		const status = error?.statusCode ?? error?.status ?? inner?.statusCode ?? inner?.status;
+		const innerMsg: string | undefined = typeof inner?.message === 'string' ? inner.message : undefined;
+		const outerMsg: string = error?.message ?? String(error);
+		// Prefer the inner error's message when the outer one is the retry wrapper.
+		const errMsg: string = (innerMsg && innerMsg.trim().length > 0) ? innerMsg : outerMsg;
+		const errBody: string = typeof error?.responseBody === 'string' ? error.responseBody
+			: (typeof inner?.responseBody === 'string' ? inner.responseBody : '');
 		// Detect context-overflow first — same regex catalogue used downstream,
 		// applied here BEFORE generic status mapping so a 413 or a 400 with a
 		// known overflow body gets the specialized message.
@@ -1221,8 +1233,17 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		} else if (status === 401) {
 			onError({ message: `Invalid ${providerName} API key.`, fullError: error instanceof Error ? error : null });
 		} else if (status === 429) {
-			const msg = error?.message ?? 'Rate limit exceeded. Please wait a moment before trying again.';
+			const msg = (errMsg && errMsg.trim().length > 0) ? errMsg : 'Rate limit exceeded. Please wait a moment before trying again.';
 			onError({ message: `Rate limit exceeded: ${msg}`, fullError: error instanceof Error ? error : null });
+		} else if (typeof status === 'number' && status >= 500) {
+			// 5xx — the provider/origin is down or erroring (e.g. 520 from an
+			// aggregator origin). Surface the status explicitly so the user knows
+			// it's the provider, not their request, instead of the retry wrapper's
+			// "Failed after N attempts. Last error: <none>".
+			onError({
+				message: `Provider unavailable (HTTP ${status}) for ${providerName}/${modelName} — the upstream did not respond. Retry shortly or switch the model.`,
+				fullError: error instanceof Error ? error : null,
+			});
 		} else {
 			onError({ message: errMsg, fullError: error instanceof Error ? error : null });
 		}
