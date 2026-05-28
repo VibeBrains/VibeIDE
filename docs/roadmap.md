@@ -3151,7 +3151,7 @@ Review-итерация 8 (2026-05-28, легаси + hardening):
 - **Каузис:** глубинно — minimax через openCode игнорит system-prompt-инструкции (#001/#002); инжект goals помогает (пассивный контекст), но идеального лекарства для слабой модели нет — на deepseek/claude playbook и так отрабатывает (#004).
 
 Backlog (data-gated — не плодить спекулятивно, урок #005 в `model-stalls.md`):
-- [ ] **Pattern-shape routing**: `{pattern, search_in_folder}` неоднозначен между `grep` и `glob` — нужна эвристика (regex-метасимволы → grep, иначе glob). Ждём сигнал из метрики `Tool Invalid Params` (какие `pattern`-формы реально приходят).
+- [ ] **Pattern-shape routing**: `{pattern, search_in_folder}` неоднозначен между `grep` и `glob` — нужна эвристика (regex-метасимволы → grep, иначе glob). Ждём сигнал из метрики `Tool Invalid Params` (какие `pattern`-формы реально приходят). **Data-point #014 (2026-05-28):** minimax прислал `read_file ← {pattern:"**/nginx.conf"}` — path-glob (`**`, `/`) склоняет к `glob`. Одного примера мало для disambiguation (grep-паттерн с `{pattern}`-only ушёл бы не туда); ждём ещё. Возможная безопасная эвристика: path-glob-символы (`**`,`/`,`?`,`{`) без regex-only → glob; иначе grep.
 - [ ] **Ratio-thrash breaker**: текущий thrash строго «подряд»; если ошибки перемежаются успехами и всё равно жгут бюджет (как в #010) — перейти на «N из последних M». Только при наблюдении такого кейса.
 - [ ] **`{uri}` file-vs-dir эвристика**: голый `{uri}` под non-uri инструментом сейчас → read_file; если путь — папка (без расширения / trailing slash), мог бы быть `ls_dir`. Низкий приоритет.
 
