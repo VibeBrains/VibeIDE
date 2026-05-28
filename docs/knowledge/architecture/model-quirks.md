@@ -91,3 +91,19 @@ interface ModelQuirksRule {
 **Без квирков (получают provider defaults):** `mimo-v2-pro / v2-omni / v2.5-pro / v2.5`, `hy3-preview` — данных пока нет. Появится отчёт о проблемах → PR в каталог.
 
 **Применение:** для подтверждения квирков смотреть upstream `opencode/src/provider/transform.ts:478-510` (опытные значения от их LLM-team), либо empirical observation в чате через `Empty response (reason: unknown)` toast.
+
+---
+
+## [квирки] `forceEmptyReasoning` — строго deepseek; mirror — capability-driven (проверено 2026-05-28)
+
+**Контекст:** периодически возникает вопрос «у thinking-модели X есть `mirrorReasoningContent`, но нет `forceEmptyReasoning` — не пробел ли это?» (роадмап про `kimi-k2-thinking`). Сверено с живым `anomalyco/opencode .../provider/transform.ts` (`normalizeMessages`).
+
+**Суть (две независимые reasoning-трансформации в opencode):**
+1. **Пустой reasoning-слот** `{type:"reasoning",text:""}` на assistant-ходах без reasoning — вставляется СТРОГО при `model.api.id.toLowerCase().includes("deepseek")`. Это `forceEmptyReasoning` у нас. **Kimi и minimax апстримом НЕ получают.** Назначение: deepseek-reasoner API требует reasoning-блок на каждом assistant-ходе.
+2. **Mirror `reasoning_content`** в `providerOptions.openaiCompatible.[field]` — gated по `model.capabilities.interleaved.field` (model-agnostic, исключая `@openrouter/...`). Это `mirrorReasoningContent` у нас. Применяется к любой interleaved-модели, включая kimi.
+
+**Вывод по kimi-k2-thinking:** `mirrorReasoningContent` без `forceEmptyReasoning` **в точности** повторяет трактовку kimi в opencode → корректно, НЕ пробел. Добавлять `forceEmptyReasoning` к kimi = отклонение от рабочего апстрима + спекуляция без репорта (урок #005).
+
+**Открытое расхождение (data-point для #009/#014):** наш `minimax` имеет `forceEmptyReasoning:true` (добавлен по #009), а opencode минимаксу пустой слот НЕ ставит — и у них minimax работает. Значит либо (a) наш AI-SDK-путь отличается от opencode и слот реально нужен, либо (b) #009-фикс был шире необходимого. **НЕ править без данных** (#009 у пользователя закрыт; смена = регресс-риск). Проверять при разборе #009/#014 через `vibeide.debug.dumpFullPrompt`.
+
+**Применение:** прежде чем добавлять `forceEmptyReasoning` новой модели — убедиться, что её id-семейство реально deepseek (или есть подтверждённый репорт HTTP-400/empty-stream без reasoning-слота). Mirror — ставить по факту interleaved-reasoning (thinking-модель).
