@@ -497,6 +497,9 @@ import './vibeInlineAiExplanationHoverProvider.js'
 // VibeIDE: Context window visualizer statusbar
 import './vibeContextWindowStatusBar.js'
 
+// VibeIDE: Tool-call format indicator statusbar (native FC vs XML fallback + auto-downgrade reason)
+import './vibeStatusBarToolFormat.js'
+
 // VibeIDE: Editor actions (Explain this line, Freeze, Pause and explain)
 import './vibeEditorActions.js'
 
