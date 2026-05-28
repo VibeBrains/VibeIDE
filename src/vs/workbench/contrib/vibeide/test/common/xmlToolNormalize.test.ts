@@ -609,6 +609,37 @@ assert.match(out, /\*\[.+\]\*/);
 			assert.strictEqual(resolveToolNameLoose('view'), 'read_file');
 		});
 
+		// roadmap 1692: resolve well-known sibling-agent (Cline/Roo/Kilo) tool names
+		// that aggregator-trained models emit. NAME-based (distinctive snake_case) — not
+		// signature-based, so zero false-positive risk on prose/JSX.
+		test('Cline/Roo tool names resolve to VibeIDE canonical', () => {
+			assert.strictEqual(resolveToolNameLoose('write_to_file'), 'rewrite_file');
+			assert.strictEqual(resolveToolNameLoose('execute_command'), 'run_command');
+			assert.strictEqual(resolveToolNameLoose('list_files'), 'ls_dir');
+		});
+
+		test('write_to_file (Cline/Roo) normalizes with clean param mapping (path→uri, content→new_content)', () => {
+			const out = normalizeAlternativeToolSyntax('<write_to_file path="d:/x.ts" content="hello" />');
+			assert.ok(out.includes('<rewrite_file>'), `expected rewrite_file block, got: ${out}`);
+			assert.ok(out.includes('<uri>d:/x.ts</uri>'), `expected uri param, got: ${out}`);
+			assert.ok(out.includes('<new_content>hello</new_content>'), `expected new_content param, got: ${out}`);
+			assert.ok(!out.includes('write_to_file'), `raw name should be gone, got: ${out}`);
+		});
+
+		// roadmap 1692: the SAFE boundary — signature-based recovery (resolving a tool
+		// from path=/command=/pattern= attributes when the NAME is unrecognized) is
+		// deliberately NOT done because those attributes are common in JSX/HTML the model
+		// writes in prose. These must pass through untouched, which only holds because
+		// resolution keys off the tool NAME, not the attribute signature.
+		test('JSX/HTML with tool-signature attributes is left untouched (no signature hijack)', () => {
+			assert.strictEqual(resolveToolNameLoose('Route'), null);
+			assert.strictEqual(resolveToolNameLoose('input'), null);
+			const jsx = 'Use <Route path="/users" /> for routing.';
+			assert.strictEqual(normalizeAlternativeToolSyntax(jsx), jsx);
+			const html = 'Add <input type="text" value="x" /> here.';
+			assert.strictEqual(normalizeAlternativeToolSyntax(html), html);
+		});
+
 		test('non-tool tags resolve to null (callers leave them untouched)', () => {
 			for (const tag of ['br', 'Input', 'img', 'div', 'span', 'randomtag']) {
 				assert.strictEqual(resolveToolNameLoose(tag), null, `${tag} should resolve to null`);

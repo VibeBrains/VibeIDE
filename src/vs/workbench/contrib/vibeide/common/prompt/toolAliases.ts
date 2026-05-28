@@ -71,6 +71,7 @@ export const TOOL_NAME_ALIASES: { readonly [alias: string]: string } = {
 	'mkdir': 'create_file_or_folder',
 	'write_file': 'rewrite_file',
 	'write': 'rewrite_file',
+	'write_to_file': 'rewrite_file', // Cline/Roo/Kilo canonical write tool — aggregator-trained models emit it; params path+content map cleanly to uri+new_content
 	'delete': 'delete_file_or_folder',
 	'rm': 'delete_file_or_folder',
 	'remove': 'delete_file_or_folder',

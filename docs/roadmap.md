@@ -1690,7 +1690,11 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 - [x] **Референс crush-repo.** Создан скилл `.claude/skills/crush-repo/` (charmbracelet/crush — Go, тоже через OpenCode Zen; единственный не-TS эталон). Закрослинкован во все 4 соседних скилла, счётчик «из пяти». — ✅
 
 **Backlog (предложения):**
-- [ ] **Более общий self-closing recovery** — вместо whack-a-mole алиасов распознавать `<snake_name attr="...">` с tool-сигнатурными атрибутами (file=/path=/pattern=/command=) и резолвить fuzzy. Осторожно: не матчить прозу/HTML.
+- [x] **Более общий self-closing recovery** — вместо whack-a-mole алиасов распознавать `<snake_name attr="...">` и резолвить fuzzy. — ✅ (2026-05-29) **с важным выводом по объёму:**
+  - **Ядро уже было реализовано:** `resolveToolNameLoose` (concept-map по normKey) + широкие `SELF_CLOSING_TOOL_RE`/paired-attr handler уже резолвят любые написания (`<FileRead/>`/`<file_read/>`/`<readFile/>`→read_file), а `<br/>`/`<img/>`/`<div>` остаются нетронутыми. Whack-a-mole спеллингов закрыт.
+  - **Сигнатурный резолв (имя нераспознано → резолв по `path=`/`command=`/`pattern=`) ОТКЛОНЁН:** эти атрибуты массово встречаются в JSX/HTML, которые модель пишет в прозе (`<Route path="/x" />`, `<input value=…>`) → высокий риск хайджека легитимного кода. Данных, что такие tool-call'ы реально текут, нет (#005). Безопасность держится именно на резолве по ИМЕНИ тула, не по сигнатуре.
+  - **Добавлено (безопасно, в духе пункта):** alias `write_to_file → rewrite_file` (`toolAliases.ts`) — канонический write-тул Cline/Roo/Kilo, который aggregator-обученные модели эмитят; params `path`+`content` чисто мапятся в `uri`+`new_content` (PARAM_ALIASES уже есть). `apply_diff`/`search_and_replace` НЕ добавлял — у edit_file нет `diff`→`search_replace_blocks`, было бы invalid_params (хуже течи).
+  - **Тесты** (`xmlToolNormalize.test.ts`): резолв `write_to_file`/`execute_command`/`list_files`; roundtrip `<write_to_file path content/>`→`<rewrite_file><uri><new_content>`; и lock неприкосновенности JSX/HTML (`<Route>`/`<input>` → null/unchanged) как документированная граница отказа от сигнатурного резолва. tsgo чист.
 - [ ] **Bug A шаг 2** (если #009 не вылечил): дозеркалить reasoning-захват в XML-пути + опц. выброс пустых ходов из истории (по образцу crush).
 
 ---
