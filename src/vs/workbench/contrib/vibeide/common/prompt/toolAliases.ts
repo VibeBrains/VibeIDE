@@ -225,3 +225,57 @@ export const resolveToolNameAlias = (
 	if (aliasTarget && isCanonical(aliasTarget)) return aliasTarget;
 	return null;
 };
+
+// Tools that legitimately OWN a shared required field. The shape-router must
+// never re-route FROM one of these for that field — that would hijack a valid
+// call (e.g. a real `search_pathnames_only` getting turned into
+// `search_for_files`). Centralized here, next to the schemas they mirror.
+const COMMAND_OWNING_TOOLS: ReadonlySet<string> = new Set(['run_command', 'run_persistent_command']);
+const QUERY_OWNING_TOOLS: ReadonlySet<string> = new Set(['search_for_files', 'search_pathnames_only', 'search_symbols', 'search_in_file']);
+// Non-uri tools: their required field is command/query/pattern, so a bare
+// `{uri}` from them is an unambiguous misname → read_file. Tools that take a
+// `uri` (read_file, ls_dir, get_dir_tree, search_in_file, go_to_definition, …)
+// are deliberately absent so a legitimate `{uri}` call is left untouched.
+const NON_URI_TOOLS: ReadonlySet<string> = new Set(['run_command', 'run_persistent_command', 'run_nl_command', 'search_for_files', 'search_pathnames_only', 'grep', 'glob']);
+
+/**
+ * Shape-based tool-name correction. Aggregator-proxied models (deepseek/minimax/
+ * qwen/nemotron via openCode & co.) routinely emit the RIGHT params under the
+ * WRONG tool name. Map an unambiguous param SHAPE back to the tool it belongs to
+ * so we run what the model obviously meant instead of bouncing schema hints (the
+ * invalid_params loop that burns the whole token budget — model-stalls #010).
+ *
+ * Matches the SHAPE, never the model name (no per-provider hardcode). Returns a
+ * canonical builtin tool name only when the shape uniquely belongs to ONE tool
+ * AND the requested tool does not itself own that shape's required field;
+ * otherwise (ambiguous / already-correct / legitimate sibling) returns undefined
+ * and the call falls through to normal validation. The caller still verifies the
+ * returned name via `isABuiltinToolName`.
+ */
+export const detectToolByParamShape = (
+	params: { readonly [k: string]: unknown } | undefined,
+	requestedToolName: string,
+): string | undefined => {
+	if (!params || typeof params !== 'object') return undefined;
+	const keys = Object.keys(params);
+	if (keys.length === 0) return undefined;
+	const hasStr = (k: string) => typeof params[k] === 'string' && (params[k] as string).length > 0;
+
+	// {command, cwd?, timeout_ms?, run_in_background?} → run_command.
+	if (hasStr('command') && keys.every(k => k === 'command' || k === 'cwd' || k === 'timeout_ms' || k === 'run_in_background')) {
+		return COMMAND_OWNING_TOOLS.has(requestedToolName) ? undefined : 'run_command';
+	}
+	// {query, search_in_folder?, is_regex?, page_number?} WITHOUT uri → search_for_files
+	// (search_in_file pairs query WITH uri, so the `!uri` guard disambiguates it).
+	if (hasStr('query') && !('uri' in params) && keys.every(k => k === 'query' || k === 'search_in_folder' || k === 'is_regex' || k === 'page_number')) {
+		return QUERY_OWNING_TOOLS.has(requestedToolName) ? undefined : 'search_for_files';
+	}
+	// {uri, <read pagination>} with no command/query/pattern → read_file, but only
+	// from a NON-uri tool (a bare {uri} is ambiguous with ls_dir/get_dir_tree/…).
+	if (hasStr('uri') && !hasStr('command') && !hasStr('query') && !('pattern' in params)
+		&& keys.every(k => k === 'uri' || k === 'start_line' || k === 'end_line' || k === 'page_number' || k === 'line_limit' || k === 'with_line_numbers')
+		&& NON_URI_TOOLS.has(requestedToolName)) {
+		return 'read_file';
+	}
+	return undefined;
+};

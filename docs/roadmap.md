@@ -3105,11 +3105,15 @@ Backlog:
 - [x] **Фикс регрессии hijack (review-пасс 2026-05-28)**: search-ветка больше не угоняет легитимные `search_pathnames_only`/`search_symbols`/`search_in_file` (deny-list `query`-владельцев); command-ветка исключает `run_persistent_command`; `run_in_background` добавлен в форму run_command.
 - [x] **Метрика `Tool Auto-Routed By Shape`** `{fromTool,toTool,paramKeysSig}` — наблюдаемость частоты рассинхрона (зеркалит метрику брейкера; сигнал для расследования model-stalls без копания в консоли).
 
+Review-итерация 2 (2026-05-28):
+- [x] **Вынос корректора в чистую `detectToolByParamShape`** (`common/prompt/toolAliases.ts`, рядом с `TOOL_NAME_ALIASES`) — убрал inline-сложность из 220-строчного `_runToolCall`; наборы владельцев формы (`COMMAND/QUERY/NON_URI`) централизованы как `ReadonlySet`. **Закрывает backlog-пункт «централизация».**
+- [x] **Юнит-тест** `test/common/toolShapeRouting.test.ts` — 25 кейсов: #010-рероуты, anti-hijack (`search_pathnames_only`/`search_symbols`/`search_in_file`/`run_persistent_command`), passthrough/ambiguous, пустые/не-строковые поля. Зафиксировал регрессию hijack, которую нашёл в review-1.
+- [x] **Метрика `Tool Invalid Params`** `{toolName, paramKeysSig}` на КАЖДОМ провале валидации — агрегированный сигнал, какие формы корректор ещё НЕ роутит (data-gating для pattern-shape ниже).
+
 Backlog (data-gated — не плодить спекулятивно, урок #005 в `model-stalls.md`):
-- [ ] **Pattern-shape routing**: `{pattern, search_in_folder}` неоднозначен между `grep` и `glob` — нужна эвристика (regex-метасимволы → grep, иначе glob). Отложено до реальных данных.
+- [ ] **Pattern-shape routing**: `{pattern, search_in_folder}` неоднозначен между `grep` и `glob` — нужна эвристика (regex-метасимволы → grep, иначе glob). Ждём сигнал из метрики `Tool Invalid Params` (какие `pattern`-формы реально приходят).
 - [ ] **Ratio-thrash breaker**: текущий thrash строго «подряд»; если ошибки перемежаются успехами и всё равно жгут бюджет (как в #010) — перейти на «N из последних M». Только при наблюдении такого кейса.
 - [ ] **`{uri}` file-vs-dir эвристика**: голый `{uri}` под non-uri инструментом сейчас → read_file; если путь — папка (без расширения / trailing slash), мог бы быть `ls_dir`. Низкий приоритет.
-- [ ] **Централизация tool-shape-owner наборов**: списки имён (uri-owning / query-owning / command-owning) инлайнены в корректоре; при росте числа инструментов вынести рядом со схемами (`toolsService`/`toolAliases`) как single source.
 
 | Документ | Описание |
 |---|---|

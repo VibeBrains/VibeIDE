@@ -14,7 +14,7 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { recordChatTrace } from './vibeChatRunTrace.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
-import { TOOL_NAME_ALIASES, applyParamAliases } from '../common/prompt/toolAliases.js';
+import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '../common/prompt/toolAliases.js';
 import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
 import { AnthropicReasoning, getErrorMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS } from '../common/modelHealthTracker.js';
@@ -3478,60 +3478,30 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			return {};
 		}
 		// Shape-based tool-name correction (BEFORE alias resolution). Aggregator-
-		// proxied models (deepseek/minimax/qwen/nemotron via openCode & co.) often
-		// emit the RIGHT params under the WRONG tool name: `{command}` under
-		// `read_file`, `{uri}` under `run_command`, or `{query, search_in_folder}`
-		// under `read_file`. Without this guard validation rejects -> schema-hint
-		// reply -> model retries -> invalid_params loop that burns the whole token
-		// budget (historically OOM'd long sessions). Re-route to the tool the shape
-		// actually belongs to, but only when that shape is unambiguous (see below);
-		// ambiguous shapes are left untouched and fall through to normal validation.
+		// proxied models often emit the RIGHT params under the WRONG tool name,
+		// which otherwise loops on invalid_params and burns the token budget
+		// (model-stalls #010). Pure routing logic + rationale live in
+		// toolAliases.detectToolByParamShape (unit-tested); it matches the param
+		// SHAPE, never the model name.
 		const paramsObjForShape = opts.unvalidatedToolParams as Record<string, unknown> | undefined;
 		let effectiveRequestedToolName: ToolName = requestedToolName;
-		if (paramsObjForShape && typeof paramsObjForShape === 'object') {
-			const keys = Object.keys(paramsObjForShape);
-			const hasStr = (k: string) => typeof paramsObjForShape[k] === 'string' && (paramsObjForShape[k] as string).length > 0;
-			// Match on the param SHAPE, never the model name (no per-provider hardcode).
-			// Re-route only when the shape uniquely belongs to ONE tool whose required
-			// field is present, AND the requested tool does NOT itself own that field
-			// (otherwise we'd HIJACK a legitimate call). `command`/`query` are shared by
-			// sibling tools, so each branch excludes its shape-owning siblings.
-			let shapeTarget: ToolName | undefined;
-			if (hasStr('command') && keys.every(k => k === 'command' || k === 'cwd' || k === 'timeout_ms' || k === 'run_in_background')) {
-				// {command, cwd?, timeout_ms?, run_in_background?}. `command` is also the
-				// required field of run_persistent_command — exclude it as a source.
-				if (requestedToolName !== 'run_command' && requestedToolName !== 'run_persistent_command') { shapeTarget = 'run_command' as ToolName; }
-			} else if (hasStr('query') && !('uri' in paramsObjForShape) && keys.every(k => k === 'query' || k === 'search_in_folder' || k === 'is_regex' || k === 'page_number')) {
-				// {query, search_in_folder?, ...} WITHOUT uri. `query` is owned by several
-				// search tools, so never re-route FROM one of them (that would hijack a
-				// valid call) — only from a tool that takes no query at all (the real
-				// misname, e.g. read_file<-{query, search_in_folder}).
-				if (!['search_for_files', 'search_pathnames_only', 'search_symbols', 'search_in_file'].includes(requestedToolName as string)) { shapeTarget = 'search_for_files' as ToolName; }
-			} else if (hasStr('uri') && !hasStr('command') && !hasStr('query') && !('pattern' in paramsObjForShape)
-				&& keys.every(k => k === 'uri' || k === 'start_line' || k === 'end_line' || k === 'page_number' || k === 'line_limit' || k === 'with_line_numbers')
-				&& ['run_command', 'run_persistent_command', 'run_nl_command', 'search_for_files', 'search_pathnames_only', 'grep', 'glob'].includes(requestedToolName as string)) {
-				// A bare/paginated {uri} is ambiguous across uri-based tools (ls_dir,
-				// get_dir_tree, search_in_file, ...), so only re-route to read_file when
-				// the requested tool is a NON-uri tool (its required field is
-				// command/query/pattern) and is therefore clearly mismatched.
-				shapeTarget = 'read_file' as ToolName;
-			}
-			if (shapeTarget && shapeTarget !== requestedToolName && isABuiltinToolName(shapeTarget)) {
-				vibeLog.warn('Tool', `auto-routing ${requestedToolName} → ${shapeTarget} (${shapeTarget}-shape params)`, {
-					originalTool: requestedToolName,
-					target: shapeTarget,
-					keys,
-				});
-				// Observability: how often (and from which wrong name) models misalign
-				// tool-name <-> params shape. Mirrors the breaker metric so the
-				// model-stalls investigation has aggregated signal, not just console logs.
-				this._metricsService.capture('Tool Auto-Routed By Shape', {
-					fromTool: requestedToolName,
-					toTool: shapeTarget,
-					paramKeysSig: keys.slice().sort().join(','),
-				});
-				effectiveRequestedToolName = shapeTarget;
-			}
+		const shapeTarget = detectToolByParamShape(paramsObjForShape, requestedToolName as string);
+		if (shapeTarget && shapeTarget !== (requestedToolName as string) && isABuiltinToolName(shapeTarget)) {
+			const keys = Object.keys(paramsObjForShape ?? {});
+			vibeLog.warn('Tool', `auto-routing ${requestedToolName} → ${shapeTarget} (${shapeTarget}-shape params)`, {
+				originalTool: requestedToolName,
+				target: shapeTarget,
+				keys,
+			});
+			// Observability: how often (and from which wrong name) models misalign
+			// tool-name <-> params shape. Mirrors the breaker metric so the
+			// model-stalls investigation has aggregated signal, not just console logs.
+			this._metricsService.capture('Tool Auto-Routed By Shape', {
+				fromTool: requestedToolName,
+				toTool: shapeTarget,
+				paramKeysSig: keys.slice().sort().join(','),
+			});
+			effectiveRequestedToolName = shapeTarget as ToolName;
 		}
 
 		// Resolve raw tool name to canonical VibeIDE name via aliases. Stages:
@@ -3677,6 +3647,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							: null,
 					});
 				} catch { /* logging must never throw — swallow */ }
+				// Aggregated signal on which tool <-> params-shape mismatches the
+				// shape-router does NOT yet handle (drives data-gated routing work,
+				// e.g. pattern-shape -> grep/glob). Sorted key signature only, no values.
+				this._metricsService.capture('Tool Invalid Params', {
+					toolName,
+					paramKeysSig: opts.unvalidatedToolParams && typeof opts.unvalidatedToolParams === 'object'
+						? Object.keys(opts.unvalidatedToolParams as Record<string, unknown>).slice().sort().join(',')
+						: '',
+				});
 				// Wrap raw validator output with a CONCRETE schema hint. Otherwise the
 				// model sees just "Provided uri must be a string, but it's a(n) undefined"
 				// and doesn't know which field name is required or in what XML shape.
