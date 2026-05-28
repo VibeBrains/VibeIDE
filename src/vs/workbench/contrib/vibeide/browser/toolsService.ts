@@ -1542,6 +1542,17 @@ export class ToolsService implements IToolsService {
 				if (_stashDecisionRw.kind === 'stash') {
 					await this._gitAutoStashService.createStash(uri.fsPath);
 				}
+				// rewrite_file must create the file when it doesn't exist yet. Otherwise
+				// initializeModel skips the missing path (`if (!exists) return`), instantlyRewriteFile
+				// finds no editor model (`if (!model) return`) and silently does nothing — the tool
+				// still reports success while the file stays absent. (User report 2026-05-29: "Wrote"
+				// does not create on the first try, only "Create" does.) Create the empty file here —
+				// after the constraint/permission checks above — then load its model so the normal
+				// model-based rewrite path below fills it with content.
+				if (!(await fileService.exists(uri))) {
+					await fileService.createFile(uri)
+					await vibeideModelService.initializeModel(uri)
+				}
 				await editCodeService.callBeforeApplyOrEdit(uri)
 				// AI provenance marker (opt-in via vibeide.aiProvenance.markGeneratedCode).
 				let effectiveContent = newContent
