@@ -1555,6 +1555,14 @@ export class ToolsService implements IToolsService {
 				editCodeService.instantlyRewriteFile({ uri, newContent: effectiveContent })
 				// After rewrite we know the exact content — subsequent edit_file does not need a re-read.
 				this._markFileRead(uri)
+				// Persist to disk and verify. instantlyRewriteFile triggers a save as a
+				// floating promise, so a save failure would otherwise be swallowed while the
+				// tool still reports success — the editor model holds the new content but disk
+				// stays stale. Save explicitly and surface a tool_error if the file is still dirty.
+				await vibeideModelService.saveModel(uri)
+				if (this._textFileService.isDirty(uri)) {
+					throw new Error(`Applied changes to ${uri.fsPath} in the editor but could not save them to disk (the file is still unsaved). It may be read-only, locked by another process, or blocked by a save participant. Verify the file and retry.`)
+				}
 				// at end, get lint errors
 				const lintErrorsPromise = Promise.resolve().then(async () => {
 					await timeout(2000)
@@ -1606,6 +1614,12 @@ export class ToolsService implements IToolsService {
 				editCodeService.instantlyApplySearchReplaceBlocks({ uri, searchReplaceBlocks })
 				// File content has just been mutated — re-mark as read so chained edits still pass the guard.
 				this._markFileRead(uri)
+				// Persist to disk and verify (see rewrite_file): a failed save must surface as a
+				// tool_error rather than a silent success with stale on-disk content.
+				await vibeideModelService.saveModel(uri)
+				if (this._textFileService.isDirty(uri)) {
+					throw new Error(`Applied edits to ${uri.fsPath} in the editor but could not save them to disk (the file is still unsaved). It may be read-only, locked by another process, or blocked by a save participant. Verify the file and retry.`)
+				}
 
 				// at end, get lint errors
 				const lintErrorsPromise = Promise.resolve().then(async () => {
