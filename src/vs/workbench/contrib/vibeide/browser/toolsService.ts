@@ -269,8 +269,16 @@ export class ToolsService implements IToolsService {
 		// has so far (caller treats empty as "not found" and fails fast).
 		const fileSearchCapped = async (query: Parameters<typeof searchService.fileSearch>[0], timeoutMs = 10_000) => {
 			const cts = new CancellationTokenSource()
-			const timer = setTimeout(() => cts.cancel(), timeoutMs)
+			let timedOut = false
+			const timer = setTimeout(() => { timedOut = true; cts.cancel() }, timeoutMs)
 			try { return await searchService.fileSearch(query, cts.token) }
+			catch (e) {
+				// Some search backends THROW on cancellation rather than returning partial
+				// results. On OUR timeout that is expected — return an empty result so the
+				// caller fails fast ("not found") instead of surfacing a raw cancel error.
+				if (timedOut) { return { results: [], messages: [] } as Awaited<ReturnType<typeof searchService.fileSearch>> }
+				throw e
+			}
 			finally { clearTimeout(timer); cts.dispose() }
 		}
 
@@ -729,7 +737,7 @@ export class ToolsService implements IToolsService {
 							fullText = toLf((await fileService.readFile(uri)).value.toString())
 						}
 					} catch { /* ignore and throw original error if still null */ }
-					if (fullText === null) { throw new Error(`No contents; File does not exist.`) }
+					if (fullText === null) { throw new Error(`File not found at the given path (and no file with that name exists in the workspace). The path is likely wrong — use search_for_files or grep to locate the correct file by name, then retry with the path it returns.`) }
 				}
 
 				const allLines = fullText.split('\n')
@@ -1009,7 +1017,7 @@ export class ToolsService implements IToolsService {
 							model = (await vibeideModelService.getModelSafe(uri)).model
 						}
 					} catch { /* ignore and throw original error if still null */ }
-					if (model === null) { throw new Error(`No contents; File does not exist.`); }
+					if (model === null) { throw new Error(`File not found at the given path (and no file with that name exists in the workspace). The path is likely wrong — use search_for_files or grep to locate the correct file by name, then retry with the path it returns.`); }
 				}
 				const contents = model.getValue(EndOfLinePreference.LF);
 				const contentOfLine = contents.split('\n');
