@@ -3116,6 +3116,9 @@ Review-итерация 3 (2026-05-28, инцидент #011 — kimi-k2.6/openC
 - Config-ответы пользователю (не код): `vibeide.agent.allowReadOutsideWorkspace:false` (агент лез в соседний `Promed_2` и `c:\` — это on-by-default), `vibeide.agent.maxLoopIterations`>0 (был ∞ → 44 витка), шумные категории — `vibeide.logging.categoryLevels`.
 - Первопричина — качество kimi-k2.6 через openCode (грайнд/пустой финальный ход); фикс снижает грайнд, слабую модель сильной не делает. Детали — `model-stalls.md` #011.
 
+Review-итерация 4 (2026-05-28, инцидент #012 — «модель всё забыла»):
+- [x] **Pin исходной задачи при thread-trim** — ✅: `_addMessageToThread` (`maxMessagesPerThread`=500) резал 101 самое старое сообщение → за 5 обрезок исходная задача «уезжала» из треда, модель здоровалась заново («контекст пуст»). Теперь первое `user`-сообщение закрепляется в голове при обрезке (`[anchor, trimMarker, ...tail]`, без дубля). Не overflow (контекст был 13%) — именно thread-level cap. Детали — `model-stalls.md` #012.
+
 Backlog (data-gated — не плодить спекулятивно, урок #005 в `model-stalls.md`):
 - [ ] **Pattern-shape routing**: `{pattern, search_in_folder}` неоднозначен между `grep` и `glob` — нужна эвристика (regex-метасимволы → grep, иначе glob). Ждём сигнал из метрики `Tool Invalid Params` (какие `pattern`-формы реально приходят).
 - [ ] **Ratio-thrash breaker**: текущий thrash строго «подряд»; если ошибки перемежаются успехами и всё равно жгут бюджет (как в #010) — перейти на «N из последних M». Только при наблюдении такого кейса.

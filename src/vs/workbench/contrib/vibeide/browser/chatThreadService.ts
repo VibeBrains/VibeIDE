@@ -7620,6 +7620,14 @@ We only need to do it for files that were edited since `from`, ie files between 
 		let nextMessages: ChatMessage[] = [...oldThread.messages, stampedMessage]
 		if (nextMessages.length > cap) {
 			const dropCount = nextMessages.length - target
+			// Pin the FIRST user message (the original task/goal) so it survives the trim.
+			// Without this, a long session that trims the oldest messages repeatedly scrolls
+			// the original request out of the thread entirely, and the model "forgets" what
+			// it was asked to do — greeting the user fresh as if the session were empty
+			// (model-stalls #012). Re-added at the head only when it would otherwise fall
+			// inside the dropped range (so it is never duplicated).
+			const firstUserIdx = nextMessages.findIndex(m => m.role === 'user')
+			const anchorMsg = (firstUserIdx >= 0 && firstUserIdx < dropCount) ? nextMessages[firstUserIdx] : undefined
 			const trimMarker: ChatMessage = {
 				role: 'assistant',
 				displayContent: `_(${dropCount} earlier message${dropCount === 1 ? '' : 's'} trimmed from thread to keep memory bounded. Convert pipeline still summarises older context into each LLM request.)_`,
@@ -7627,8 +7635,10 @@ We only need to do it for files that were edited since `from`, ie files between 
 				anthropicReasoning: null,
 				createdAt: Date.now(),
 			}
-			nextMessages = [trimMarker, ...nextMessages.slice(dropCount)]
-			vibeLog.warn('chatThread', `Trimmed ${dropCount} oldest messages from thread ${threadId} (cap=${cap}, target=${target})`)
+			nextMessages = anchorMsg
+				? [anchorMsg, trimMarker, ...nextMessages.slice(dropCount)]
+				: [trimMarker, ...nextMessages.slice(dropCount)]
+			vibeLog.warn('chatThread', `Trimmed ${dropCount} oldest messages from thread ${threadId} (cap=${cap}, target=${target}${anchorMsg ? ', pinned original task' : ''})`)
 			this._metricsService.capture('Thread Messages Trimmed', {
 				dropCount,
 				cap,
