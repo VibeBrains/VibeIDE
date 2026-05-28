@@ -153,6 +153,33 @@ export function truncateHeadTail(s: string, cap: number, marker = '\n...\n[trunc
 }
 
 /**
+ * Detects whether terminal output ends in a shell line-continuation prompt,
+ * i.e. the shell is blocked waiting for more input rather than executing.
+ *
+ * The signature is a final non-empty line consisting solely of `>` chevrons:
+ * PowerShell emits `>>` when a quote / here-string (`@"`/`"@`) is left open,
+ * POSIX shells emit `>` for an unclosed quote / heredoc. When a `run_command`
+ * times out on inactivity AND the tail looks like this, re-running the identical
+ * command just hangs again — the model should switch to rewrite_file/edit_file
+ * instead of building a file line-by-line in the shell (model-stalls #015, where
+ * this loop burned ~5M tokens across three sessions).
+ *
+ * Conservative on purpose: only the last non-empty line is inspected, and it must
+ * be ONLY chevrons — a line that merely contains `>` (e.g. a redirect echoed in
+ * output) does not match.
+ */
+export function looksLikeShellAwaitingInput(output: string): boolean {
+	if (!output) return false;
+	const lines = output.replace(/[\r\n]+$/, '').split('\n');
+	for (let i = lines.length - 1; i >= 0; i--) {
+		const trimmed = lines[i].trim();
+		if (trimmed === '') continue;
+		return /^>{1,3}$/.test(trimmed);
+	}
+	return false;
+}
+
+/**
  * Heuristic line-counter for cap-decisions without materialising arrays.
  */
 export function countLines(s: string): number {

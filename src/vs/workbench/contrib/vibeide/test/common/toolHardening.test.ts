@@ -6,7 +6,7 @@
 import { suite, test } from 'mocha';
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { detectShellMisuse, truncateHeadTail, countLines, ToolValidationError } from '../../common/toolHardening.js';
+import { detectShellMisuse, truncateHeadTail, countLines, ToolValidationError, looksLikeShellAwaitingInput } from '../../common/toolHardening.js';
 
 suite('ToolHardening', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -252,6 +252,31 @@ suite('ToolHardening', () => {
 			const out = truncateHeadTail(s, 80);
 			assert.ok(out.startsWith('HEAD'));
 			assert.ok(out.endsWith('TAIL'));
+		});
+	});
+
+	suite('looksLikeShellAwaitingInput', () => {
+		test('detects trailing PowerShell >> continuation prompt (model-stalls #015)', () => {
+			assert.strictEqual(looksLikeShellAwaitingInput('PS D:\\proj> Add-Content ...\n>>'), true);
+			assert.strictEqual(looksLikeShellAwaitingInput('PS D:\\proj> foo\n>>\n'), true);
+		});
+
+		test('detects single > (POSIX/unclosed-quote continuation)', () => {
+			assert.strictEqual(looksLikeShellAwaitingInput('echo "unterminated\n>'), true);
+		});
+
+		test('ignores > inside normal output (only whole-line chevrons match)', () => {
+			assert.strictEqual(looksLikeShellAwaitingInput('echo hi > file.txt\ndone\n(exit code 0)'), false);
+			assert.strictEqual(looksLikeShellAwaitingInput('a -> b -> c'), false);
+		});
+
+		test('false for empty / normal completed output', () => {
+			assert.strictEqual(looksLikeShellAwaitingInput(''), false);
+			assert.strictEqual(looksLikeShellAwaitingInput('Build succeeded\n'), false);
+		});
+
+		test('does not match 4+ chevrons (not a real prompt)', () => {
+			assert.strictEqual(looksLikeShellAwaitingInput('>>>>'), false);
 		});
 	});
 
