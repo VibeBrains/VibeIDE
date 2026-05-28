@@ -29,6 +29,7 @@ import { IFileDialogService } from '../../../../platform/dialogs/common/dialogs.
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { isCodeEditor } from '../../../../editor/browser/editorBrowser.js';
 import { ITextResourceEditorInput } from '../../../../platform/editor/common/editor.js';
 import { IChatThreadService } from './chatThreadService.js';
 import { IVibePlanBindingRegistry } from './vibePlanBindingRegistry.js';
@@ -473,6 +474,63 @@ registerAction2(class extends Action2 {
 			toClear.length,
 			toClear.map(t => `${t.provider}/${t.model}`).join(', '),
 		));
+	}
+});
+
+// Capture a project rule into .vibe/rules.md (roadmap 3061). Prefills from the
+// active editor selection when there is one, then appends the entered text as a
+// markdown bullet — quick way to turn an observation into a persisted agent rule.
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.rules.addRule',
+			f1: true,
+			title: localize2('vibeideAddRuleTitle', 'VibeIDE: Add a rule to .vibe/rules.md'),
+			category: localize2('vibeCategory', 'VibeIDE'),
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const quickInput = accessor.get(IQuickInputService);
+		const workspace = accessor.get(IWorkspaceContextService);
+		const files = accessor.get(IFileService);
+		const editorService = accessor.get(IEditorService);
+		const notifications = accessor.get(INotificationService);
+
+		const roots = workspace.getWorkspace().folders;
+		if (!roots.length) {
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeideAddRuleNoWs', 'Open a folder workspace first.') });
+			return;
+		}
+
+		// Best-effort prefill from the active editor selection (optional — the
+		// command still works via manual input if there's no usable selection).
+		let prefill = '';
+		try {
+			const ctrl = editorService.activeTextEditorControl;
+			if (isCodeEditor(ctrl)) {
+				const sel = ctrl.getSelection();
+				const model = ctrl.getModel();
+				if (sel && model && !sel.isEmpty()) { prefill = model.getValueInRange(sel).trim(); }
+			}
+		} catch { /* prefill is optional */ }
+
+		const entered = await quickInput.input({
+			prompt: localize('vibeideAddRulePrompt', 'Текст правила — будет добавлен в .vibe/rules.md'),
+			value: prefill,
+			placeHolder: localize('vibeideAddRulePlaceholder', 'например: всегда запускать тесты перед коммитом'),
+		});
+		const rule = entered?.trim();
+		if (!rule) { return; }
+
+		const vibeDir = joinPath(roots[0].uri, '.vibe');
+		const rulesUri = joinPath(vibeDir, 'rules.md');
+		await files.createFolder(vibeDir);
+		let existing = '';
+		try { existing = (await files.readFile(rulesUri)).value.toString(); } catch { /* file may not exist yet */ }
+		const sep = existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
+		await files.writeFile(rulesUri, VSBuffer.fromString(`${existing}${sep}- ${rule}\n`));
+		notifications.info(localize('vibeideAddRuleDone', 'Правило добавлено в .vibe/rules.md.'));
 	}
 });
 
