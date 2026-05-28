@@ -42,7 +42,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 		'vibeide.debug.providerProxy.enabled': {
 			type: 'boolean',
 			default: false,
-			description: localize('vibeide.debug.providerProxy.enabled', 'Включить локальный HTTP debug-прокси для захвата сырых запросов/ответов AI-провайдера. Секреты всегда редактируются при отображении.'),
+			description: localize('vibeide.debug.providerProxy.enabled', 'Локальный debug-прокси для сырых запросов/ответов AI-провайдера. ⚠️ Перехват запросов пока НЕ подключён к send-пути (HTTP идёт в main-процессе) — лог останется пустым. Для захвата ПОЛНОГО LLM-запроса используйте настройку `vibeide.debug.dumpFullPrompt` — она пишет system + по каждому сообщению content/reasoning/tool в лог `[VibeIDE/promptDump]` (секреты редактируются).'),
 			scope: 1, // APPLICATION
 		},
 		'vibeide.debug.providerProxy.maxEntries': {
@@ -273,13 +273,13 @@ registerAction2(class extends Action2 {
 			// Prompt user to enable via setting
 			const { INotificationService } = await import('../../../../platform/notification/common/notification.js');
 			accessor.get(INotificationService).info(
-				localize('vibeide.debug.proxyDisabled', 'Provider debug proxy is disabled. Enable it via setting "vibeide.debug.providerProxy.enabled".')
+				localize('vibeide.debug.proxyDisabled', 'Provider proxy capture is disabled (and not yet wired to the send path). To capture the full LLM request, enable setting "vibeide.debug.dumpFullPrompt" and reproduce — it logs into the [VibeIDE/promptDump] channel.')
 			);
 			return;
 		}
 		const entries = proxy.getEntries();
 		const content = entries.length === 0
-			? '// No proxy entries captured yet.'
+			? '// Provider-proxy request capture is not wired yet (the LLM request is made in the main process, this proxy lives in the renderer).\n// To capture the full request, enable setting `vibeide.debug.dumpFullPrompt` and reproduce — it dumps system + per-message content/reasoning/tool into the [VibeIDE/promptDump] log (secrets redacted).'
 			: JSON.stringify(entries, null, 2);
 
 		const { ITextModelService } = await import('../../../../editor/common/services/resolverService.js');
