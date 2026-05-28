@@ -852,7 +852,25 @@ export class ToolsService implements IToolsService {
 						const k = MAX_CHILDREN_URIs_PAGE * pageNumber
 						const results = await this.repoIndexerService.query(queryStr, k)
 						if (results && results.length) {
-							indexedUris = results.map(p => URI.file(p))
+							// `query` returns FORMATTED result blobs ("File: <path>:<lines>\nSymbols: …\n
+							// Content preview: …"), NOT bare paths. Wrapping the whole blob in URI.file()
+							// produced garbage "uris" — click-to-open in the chat tried to open the entire
+							// blob as a path (FileOperationError) and the model saw a malformed result.
+							// Extract the real file path from each blob's `File:` header and de-dupe by file.
+							const seen = new Set<string>()
+							const parsed: URI[] = []
+							for (const blob of results) {
+								const firstLine = blob.split('\n', 1)[0] ?? ''
+								const m = firstLine.match(/^File:\s*(.+)$/)
+								if (!m) { continue }
+								const pathOnly = m[1].trim().replace(/:\d+(?:-\d+)?$/, '') // drop trailing :start[-end] citation
+								if (!pathOnly) { continue }
+								let u: URI
+								try { u = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(pathOnly) ? URI.parse(pathOnly) : URI.file(pathOnly) }
+								catch { continue }
+								if (!seen.has(u.fsPath)) { seen.add(u.fsPath); parsed.push(u) }
+							}
+							if (parsed.length) { indexedUris = parsed }
 						}
 					} catch { /* ignore and fall back */ }
 				}
