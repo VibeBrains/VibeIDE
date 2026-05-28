@@ -3042,7 +3042,7 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 ### В docs/knowledge при закрытии
 - [ ] Ночной renderer-OOM 2026-05-27 (059-1-WS-346): heap renderer ровный ~320 МБ 4+ ч → внезапный спайк <2 мин при ночном autopilot; **не** idle-leak. Дополнить `docs/knowledge/runtime-quirks/idle-memory.md`.
-- [ ] Двойной бамп релиза: `release-windows.ps1` сам делает `patch+=1` — не бампить `product.json` руками. Поправить процедуру в `CLAUDE.md` (шаги 1–5).
+- [x] Двойной бамп релиза: `release-windows.ps1` сам делает `patch+=1` — не бампить `product.json` руками. Поправить процедуру в `CLAUDE.md` (шаги 1–5). — ✅ (2026-05-28): шаг 6 процедуры в `CLAUDE.md` теперь предписывает `release-windows.ps1 -Version vX.Y.Z`. С явной `-Version`, совпадающей с уже записанной в `product.json` (шаг 3), скрипт пропускает re-bump+commit (`release-windows.ps1:67` — ветка `if ($product.vibeVersion -ne $newVibe)`); без `-Version` он бампил patch повторно (`:44`). Single-commit flow (`product.json`+README) сохранён, корректно для patch/minor/major.
 
 ---
 
