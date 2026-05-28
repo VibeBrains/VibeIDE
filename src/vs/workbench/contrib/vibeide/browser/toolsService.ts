@@ -2280,7 +2280,13 @@ export class ToolsService implements IToolsService {
 			},
 			// ---
 			create_file_or_folder: (params, result) => {
-				return `URI ${params.uri.fsPath} successfully created.`
+				if (params.isFolder) {
+					return `Folder created at ${params.uri.fsPath}.`
+				}
+				// Be explicit that the file is EMPTY. Models otherwise read "successfully
+				// created" as "created with the content I intended" and move on without
+				// ever writing it — the file stays 0 bytes until the user notices.
+				return `Empty file created at ${params.uri.fsPath}. It has NO content yet (0 bytes). To write its contents, call rewrite_file with this uri now — do not assume the file contains anything until you have written it.`
 			},
 			delete_file_or_folder: (params, result) => {
 				return `URI ${params.uri.fsPath} successfully deleted.`

@@ -7,7 +7,7 @@ import { ToolDef, uriParam } from './_helpers.js';
 
 export const CREATE_FILE_OR_FOLDER_TOOL: ToolDef<'create_file_or_folder'> = {
 	name: 'create_file_or_folder',
-	description: `Create a file or folder at the given path. To create a folder, the path MUST end with a trailing slash.`,
+	description: `Create a file or folder at the given path. To create a folder, the path MUST end with a trailing slash. NOTE: a created file is EMPTY (0 bytes) — this tool does not accept content. To give the file contents, follow up with rewrite_file on the same uri. Do not report a file as written until you have actually written its contents.`,
 	params: {
 		...uriParam('file or folder'),
 	},
