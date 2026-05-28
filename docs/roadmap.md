@@ -3111,6 +3111,11 @@ Review-итерация 2 (2026-05-28):
 - [x] **Юнит-тест** `test/common/toolShapeRouting.test.ts` — 25 кейсов: #010-рероуты, anti-hijack (`search_pathnames_only`/`search_symbols`/`search_in_file`/`run_persistent_command`), passthrough/ambiguous, пустые/не-строковые поля. Зафиксировал регрессию hijack, которую нашёл в review-1.
 - [x] **Метрика `Tool Invalid Params`** `{toolName, paramKeysSig}` на КАЖДОМ провале валидации — агрегированный сигнал, какие формы корректор ещё НЕ роутит (data-gating для pattern-shape ниже).
 
+Review-итерация 3 (2026-05-28, инцидент #011 — kimi-k2.6/openCode грайнд на поиске):
+- [x] **Actionable grep-timeout** — ✅: `grep` на 15s-cancel (`toolsService.ts`) теперь бросает подсказку «scope too large — narrow with search_in_folder / pattern / glob/file_type» вместо голого «Canceled». Модель долбила один широкий grep на огромном репо, не сужая. Покрыты обе ветки (throw + partial-return).
+- Config-ответы пользователю (не код): `vibeide.agent.allowReadOutsideWorkspace:false` (агент лез в соседний `Promed_2` и `c:\` — это on-by-default), `vibeide.agent.maxLoopIterations`>0 (был ∞ → 44 витка), шумные категории — `vibeide.logging.categoryLevels`.
+- Первопричина — качество kimi-k2.6 через openCode (грайнд/пустой финальный ход); фикс снижает грайнд, слабую модель сильной не делает. Детали — `model-stalls.md` #011.
+
 Backlog (data-gated — не плодить спекулятивно, урок #005 в `model-stalls.md`):
 - [ ] **Pattern-shape routing**: `{pattern, search_in_folder}` неоднозначен между `grep` и `glob` — нужна эвристика (regex-метасимволы → grep, иначе glob). Ждём сигнал из метрики `Tool Invalid Params` (какие `pattern`-формы реально приходят).
 - [ ] **Ratio-thrash breaker**: текущий thrash строго «подряд»; если ошибки перемежаются успехами и всё равно жгут бюджет (как в #010) — перейти на «N из последних M». Только при наблюдении такого кейса.

@@ -909,15 +909,27 @@ export class ToolsService implements IToolsService {
 					maxResults: headLimit,
 				})
 				// Hard cap the search so a valid-but-broad pattern over a huge repo cannot hang the EH.
+				let grepCancelledByTimeout = false
 				const grepCts = new CancellationTokenSource()
-				const grepTimer = setTimeout(() => grepCts.cancel(), 15_000)
+				const grepTimer = setTimeout(() => { grepCancelledByTimeout = true; grepCts.cancel() }, 15_000)
+				// Actionable hint shared by both cancel paths (throw vs partial-return). A bare
+				// "Canceled" error makes the model re-issue the SAME broad grep and grind on a
+				// huge repo (model-stalls #011) — tell it to narrow scope instead.
+				const grepTimeoutHint = `grep was cancelled after 15s — the search scope is too large to scan in time. Narrow it: pass "search_in_folder" to limit the directory, use a more specific "pattern", or set "glob"/"file_type" to fewer files. (pattern: ${JSON.stringify(pattern)})`
 				let data: Awaited<ReturnType<typeof searchService.textSearch>>
 				try {
 					data = await searchService.textSearch(textQuery, grepCts.token)
+				} catch (e) {
+					if (grepCancelledByTimeout) { throw new Error(grepTimeoutHint) }
+					throw e
 				} finally {
 					clearTimeout(grepTimer)
 					grepCts.dispose()
 				}
+				// Some search backends return partial results on cancel instead of throwing;
+				// still surface the truncation so the model narrows rather than trusting an
+				// incomplete "few/no matches" result.
+				if (grepCancelledByTimeout) { throw new Error(grepTimeoutHint) }
 
 				const matches: Array<{ uri: URI, line: number, column: number, preview: string }> = []
 				const files: Array<{ uri: URI, count?: number }> = []
