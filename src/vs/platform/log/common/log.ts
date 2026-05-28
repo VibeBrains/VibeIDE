@@ -13,6 +13,7 @@ import { isWindows } from '../../../base/common/platform.js';
 import { joinPath } from '../../../base/common/resources.js';
 import { Mutable, isNumber, isString } from '../../../base/common/types.js';
 import { URI } from '../../../base/common/uri.js';
+import { vibeTimestamp } from '../../../base/common/vibeTimestamp.js';
 import { ILocalizedString } from '../../action/common/action.js';
 import { RawContextKey } from '../../contextkey/common/contextkey.js';
 import { IEnvironmentService } from '../../environment/common/environment.js';
@@ -416,50 +417,55 @@ export class ConsoleLogger extends AbstractLogger implements ILogger {
 
 	trace(message: string, ...args: unknown[]): void {
 		if (this.canLog(LogLevel.Trace)) {
+			const ts = vibeTimestamp();
 			if (this.useColors) {
-				console.log('%cTRACE', 'color: #888', message, ...args);
+				console.log('%cTRACE %c' + ts, 'color: #888', 'color: #888', message, ...args);
 			} else {
-				console.log(message, ...args);
+				console.log(`[${ts}]`, message, ...args);
 			}
 		}
 	}
 
 	debug(message: string, ...args: unknown[]): void {
 		if (this.canLog(LogLevel.Debug)) {
+			const ts = vibeTimestamp();
 			if (this.useColors) {
-				console.log('%cDEBUG', 'background: #eee; color: #888', message, ...args);
+				console.log('%cDEBUG %c' + ts, 'background: #eee; color: #888', 'color: #888', message, ...args);
 			} else {
-				console.log(message, ...args);
+				console.log(`[${ts}]`, message, ...args);
 			}
 		}
 	}
 
 	info(message: string, ...args: unknown[]): void {
 		if (this.canLog(LogLevel.Info)) {
+			const ts = vibeTimestamp();
 			if (this.useColors) {
-				console.log('%c INFO', 'color: #33f', message, ...args);
+				console.log('%c INFO %c' + ts, 'color: #33f', 'color: #888', message, ...args);
 			} else {
-				console.log(message, ...args);
+				console.log(`[${ts}]`, message, ...args);
 			}
 		}
 	}
 
 	warn(message: string | Error, ...args: unknown[]): void {
 		if (this.canLog(LogLevel.Warning)) {
+			const ts = vibeTimestamp();
 			if (this.useColors) {
-				console.warn('%c WARN', 'color: #993', message, ...args);
+				console.warn('%c WARN %c' + ts, 'color: #993', 'color: #888', message, ...args);
 			} else {
-				console.log(message, ...args);
+				console.log(`[${ts}]`, message, ...args);
 			}
 		}
 	}
 
 	error(message: string, ...args: unknown[]): void {
 		if (this.canLog(LogLevel.Error)) {
+			const ts = vibeTimestamp();
 			if (this.useColors) {
-				console.error('%c  ERR', 'color: #f33', message, ...args);
+				console.error('%c  ERR %c' + ts, 'color: #f33', 'color: #888', message, ...args);
 			} else {
-				console.error(message, ...args);
+				console.error(`[${ts}]`, message, ...args);
 			}
 		}
 	}

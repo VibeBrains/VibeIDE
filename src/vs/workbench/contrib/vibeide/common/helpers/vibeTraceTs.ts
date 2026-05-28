@@ -12,7 +12,8 @@
  * Local time on purpose (same wall clock the chat shows). Manual padding keeps the format
  * locale-independent.
  */
+import { vibeTimestamp } from '../../../../../base/common/vibeTimestamp.js';
+
 export function vibeTraceTs(d: Date = new Date()): string {
-	const p = (n: number) => String(n).padStart(2, '0');
-	return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+	return vibeTimestamp(d);
 }

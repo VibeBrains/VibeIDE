@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { IWebWorkerServerRequestHandler, IWebWorkerServerRequestHandlerFactory, WebWorkerServer } from './webWorker.js';
+import { vibeTimestamp } from '../vibeTimestamp.js';
 
 type MessageEvent = {
 	data: unknown;
@@ -13,6 +14,25 @@ declare const globalThis: {
 	postMessage: (message: any) => void;
 	onmessage: (event: MessageEvent) => void;
 };
+
+// VibeIDE: web workers run in a separate realm, so the renderer's console
+// timestamp/redaction wrappers never reach them -- worker console output was the
+// one place without a date-time. This is the single entry point for every worker
+// (language detection, textmate, editor, search, ...), so stamp the worker console
+// here once. Prefix only: no new lines are emitted, so existing noise is unchanged.
+let consoleStamped = false;
+function stampWorkerConsole(): void {
+	if (consoleStamped) { return; }
+	consoleStamped = true;
+	const c = (typeof console !== 'undefined' ? console : undefined) as Record<string, ((...args: any[]) => void) | undefined> | undefined;
+	if (!c) { return; }
+	for (const method of ['log', 'info', 'warn', 'error', 'debug', 'trace'] as const) {
+		const original = c[method];
+		if (typeof original !== 'function') { continue; }
+		c[method] = (...args: any[]) => original.apply(c, [`[${vibeTimestamp()}] [worker]`, ...args]);
+	}
+}
+stampWorkerConsole();
 
 let initialized = false;
 

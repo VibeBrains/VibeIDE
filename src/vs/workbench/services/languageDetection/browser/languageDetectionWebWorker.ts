@@ -238,7 +238,11 @@ export class LanguageDetectionWorker implements ILanguageDetectionWorker {
 		try {
 			modelResults = await modelOperations.runModel(content);
 		} catch (e) {
-			console.warn(e);
+			// Neural model failed to run (e.g. `require` is not defined in the worker
+			// realm). The failure is permanent, so disable the model and fall back to
+			// the regexp detector instead of warning -- and retrying -- on every call.
+			this._loadFailed = true;
+			console.debug('Language detection neural model disabled (run failed); using regexp fallback.', e);
 		}
 
 		if (!modelResults
