@@ -12,6 +12,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { StatusRowSeverity } from '../common/statusBarRowAggregator.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { getModelCapabilities, AUTO_DOWNGRADE_TTL_MS } from '../common/modelCapabilities.js';
+import { classifyToolCallFormat } from '../common/toolCallFormatStatus.js';
 
 /**
  * VibeIDE Tool-call Format indicator — statusbar.
@@ -44,47 +45,52 @@ export class VibeStatusBarToolFormatContribution extends Disposable implements I
 
 	private _compute(): { text: string; tooltip: string; severity: StatusRowSeverity } {
 		const sel = this._settingsService.state.modelSelectionOfFeature['Chat'];
-		if (!sel || sel.providerName === 'auto' || sel.modelName === 'auto') {
-			return {
-				text: '🔧 FC: auto',
-				tooltip: localize('vibeToolFormatAuto', 'Chat model is auto-selected — the tool-call format is resolved per request.'),
-				severity: 'info',
-			};
-		}
+		const isAutoSelection = !sel || sel.providerName === 'auto' || sel.modelName === 'auto';
 
 		const overrides = this._settingsService.state.overridesOfModel;
-		const caps = getModelCapabilities(sel.providerName, sel.modelName, overrides);
-		const isNative = !!caps.specialToolFormat;
+		const caps = isAutoSelection ? undefined : getModelCapabilities(sel.providerName, sel.modelName, overrides);
+		const ov = isAutoSelection ? undefined : overrides?.[sel.providerName]?.[sel.modelName];
 
-		const ov = overrides?.[sel.providerName]?.[sel.modelName];
-		const autoDowngraded = !!ov?._autoDetected
-			&& typeof ov._detectedAt === 'number'
-			&& (Date.now() - ov._detectedAt < AUTO_DOWNGRADE_TTL_MS);
+		const kind = classifyToolCallFormat({
+			isAutoSelection,
+			specialToolFormat: caps?.specialToolFormat,
+			autoDetected: !!ov?._autoDetected,
+			detectedAt: ov?._detectedAt,
+			now: Date.now(),
+			ttlMs: AUTO_DOWNGRADE_TTL_MS,
+		});
 
-		const modelLabel = `${sel.providerName}/${sel.modelName}`;
-		if (isNative) {
-			return {
-				text: '🔧 FC: native',
-				tooltip: localize('vibeToolFormatNative', 'Tool-call format for {0}: native function-calling ({1}).', modelLabel, caps.specialToolFormat),
-				severity: 'info',
-			};
+		const modelLabel = isAutoSelection ? 'auto' : `${sel.providerName}/${sel.modelName}`;
+		switch (kind) {
+			case 'auto':
+				return {
+					text: '🔧 FC: auto',
+					tooltip: localize('vibeToolFormatAuto', 'Chat model is auto-selected — the tool-call format is resolved per request.'),
+					severity: 'info',
+				};
+			case 'native':
+				return {
+					text: '🔧 FC: native',
+					tooltip: localize('vibeToolFormatNative', 'Tool-call format for {0}: native function-calling ({1}).', modelLabel, caps?.specialToolFormat ?? ''),
+					severity: 'info',
+				};
+			case 'xml-autodowngraded':
+				return {
+					text: '🔧 FC: XML ⚠',
+					tooltip: localize('vibeToolFormatXmlAuto', 'Tool-call format for {0}: XML fallback — AUTO-DOWNGRADED from native ({1}). Click to reset and retry native function-calling.', modelLabel, ov?._reason ?? 'other'),
+					severity: 'warn',
+				};
+			case 'xml':
+			default:
+				return {
+					text: '🔧 FC: XML',
+					tooltip: localize('vibeToolFormatXml', 'Tool-call format for {0}: XML fallback (this model has no native function-calling by default).', modelLabel),
+					severity: 'info',
+				};
 		}
-		if (autoDowngraded) {
-			return {
-				text: '🔧 FC: XML ⚠',
-				tooltip: localize('vibeToolFormatXmlAuto', 'Tool-call format for {0}: XML fallback — AUTO-DOWNGRADED from native ({1}). Click to reset and retry native function-calling.', modelLabel, ov?._reason ?? 'other'),
-				severity: 'warn',
-			};
-		}
-		return {
-			text: '🔧 FC: XML',
-			tooltip: localize('vibeToolFormatXml', 'Tool-call format for {0}: XML fallback (this model has no native function-calling by default).', modelLabel),
-			severity: 'info',
-		};
 	}
 
-	private _getEntryProps(): IStatusbarEntry {
-		const c = this._compute();
+	private _entryPropsFrom(c: { text: string; tooltip: string }): IStatusbarEntry {
 		return {
 			name: localize('vibeToolFormat', 'VibeIDE Tool-call Format'),
 			text: c.text,
@@ -98,14 +104,14 @@ export class VibeStatusBarToolFormatContribution extends Disposable implements I
 		this._entry?.dispose(); this._entry = undefined;
 		this._unifiedRow?.dispose(); this._unifiedRow = undefined;
 		const unifiedOnly = this._config.getValue<boolean>('vibeide.statusBar.unifiedOnly') === true;
-		const p = this._getEntryProps();
-		const sev = this._compute().severity;
+		const c = this._compute();
+		const p = this._entryPropsFrom(c);
 		if (unifiedOnly) {
 			this._unifiedRow = this._unified.registerRow({
 				id: 'vibeide.toolFormat',
 				label: p.text,
 				tooltip: typeof p.tooltip === 'string' ? p.tooltip : undefined,
-				severity: sev,
+				severity: c.severity,
 				priority: 175,
 				command: 'vibeide.toolFormat.resetAutoDetectedOverrides',
 			});
@@ -116,11 +122,11 @@ export class VibeStatusBarToolFormatContribution extends Disposable implements I
 	}
 
 	private _refresh(): void {
-		const p = this._getEntryProps();
-		const sev = this._compute().severity;
+		const c = this._compute();
+		const p = this._entryPropsFrom(c);
 		this._entry?.update(p);
 		if (this._unifiedRow) {
-			this._unified.updateRow('vibeide.toolFormat', { label: p.text, tooltip: typeof p.tooltip === 'string' ? p.tooltip : undefined, severity: sev });
+			this._unified.updateRow('vibeide.toolFormat', { label: p.text, tooltip: typeof p.tooltip === 'string' ? p.tooltip : undefined, severity: c.severity });
 		}
 	}
 
