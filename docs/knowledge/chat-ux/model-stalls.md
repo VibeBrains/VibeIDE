@@ -71,6 +71,22 @@
 
 <!-- Добавлять новые записи СВЕРХУ. Нумерация сквозная, инкрементная. -->
 
+### #013 — 2026-05-28 — read_file на несуществующем пути заморозил Extension Host на 9.4 минуты + потеря исходной задачи
+
+- **Где:** проект Promed (огромный репо), Agent, kimi-k2.6 через openCode. Лог `D:\Temp\vscode-app-1779958827503.log`. Жалоба: «kimi потеряла смысл» — на вопрос «какой был первый промпт» модель ответила НЕВЕРНО (назвала read DeathEditWindow.js вместо реальной задачи про getWnd).
+- **Симптом:** `toolExec done {tool:'read_file', ms: 565214}` — ОДИН read_file висел **565 секунд (9.4 мин)**; всё это время `[VibeIDE/vibeideModel] InitializeModel error: EntryNotFound (ENOENT)` для `c:\Repo\Promed\jscore\Forms\Admin\DeathEditWindow.js` спамился **сотни раз**, EH `unresponsive`, сработал `VibeEHCrashRecovery` (pause-and-prompt-resume).
+- **Корень (подтверждён кодом) — ДВА бага в нашем коде:**
+  1. **Неотменяемый fallback-поиск.** read_file (и `search_in_file`, `search_symbols`) при не-найденном пути делал `searchService.fileSearch(query, CancellationToken.None)` — БЕЗ таймаута. Путь `DeathEditWindow.js` модель галлюцинировала (его нет), raw-read упал → fallback искал файл по basename по ВСЕМУ гигантскому репо без отмены → 565с-зависание EH.
+  2. **ENOENT не распознавался.** `vibeideModelService.initializeModel` ловил только `FileOperationError`+FILE_NOT_FOUND, а прилетал сырой `FileSystemProviderError` (code `FileNotFound`=«EntryNotFound») → ре-throw → `vibeLog.debug('InitializeModel error')` спам + кэш существования НЕ заполнялся → каждый повтор ре-статил.
+- **Фикс (реализован 2026-05-28):**
+  1. `fileSearchCapped(query, 10s)` — таймаут-отмена для всех трёх fallback-поисков (read_file/search_in_file/search_symbols). Missing-файл теперь fail-fast («File does not exist») вместо заморозки EH.
+  2. `isFileNotFoundError()` распознаёт ENOENT обоих типов → `exists=false` кэшируется → тихо, без спама и без ре-стата.
+- **Потеря исходной задачи (отдельно):** на вопрос про первый промпт модель не ответила, т.к. `convertToLLMMessage smart truncation ~153401 → ~10953` срезает старое, включая первую постановку задачи. Это **payload-уровень**, отдельный от thread-trim #012 (мой pin #012 держит задачу в `thread.messages`, но payload-усечение её всё равно может выкинуть). Плюс этот build — ДО моих фиксов (#012 и др. не собраны, «не билди»). → backlog: pin первого user-сообщения и в `convertToLLMMessage`-усечении.
+- **Честно:** зонтик — качество kimi/openCode (галлюцинация пути, грайнд), но два бага выше — НАШИ и воспроизводимы на любой модели, давшей несуществующий путь на большом репо.
+- **Связано:** #011 (тот же openCode-грайнд, неотменяемый grep — там 15с-cap уже был; здесь fallback-поиски его не имели), #012 (та же потеря задачи, но thread-cap vs payload-truncation).
+
+---
+
 ### #012 — 2026-05-28 — «модель всё забыла»: thread-trim вырезал исходную задачу → агент здоровается заново
 
 - **Где:** проект BookCatalog (Yii2/PHP), Agent-режим, deepseek-v4-pro через openCode, Автопилот, ∞ итер. Лог `D:\Temp\vscode-app-1779958827503.log`.

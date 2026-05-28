@@ -7,8 +7,16 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
-import { FileOperationError, FileOperationResult } from '../../../../platform/files/common/files.js';
+import { FileOperationError, FileOperationResult, FileSystemProviderError, FileSystemProviderErrorCode } from '../../../../platform/files/common/files.js';
 import { LRUCache } from '../../../../base/common/map.js';
+
+// A missing file surfaces as EITHER a FileOperationError (FILE_NOT_FOUND) OR a raw
+// FileSystemProviderError (code FileNotFound, i.e. "EntryNotFound") depending on which
+// layer threw. Recognising only the former let ENOENT slip through, re-throw, and spam
+// "InitializeModel error" hundreds of times for one missing path (model-stalls #013).
+const isFileNotFoundError = (err: unknown): boolean =>
+	(err instanceof FileOperationError && err.fileOperationResult === FileOperationResult.FILE_NOT_FOUND)
+	|| (err instanceof FileSystemProviderError && err.code === FileSystemProviderErrorCode.FileNotFound);
 
 type VibeideModelType = {
 	model: ITextModel | null;
@@ -93,7 +101,7 @@ class VibeideModelService extends Disposable implements IVibeideModelService {
 					const stat = await this._fileService.stat(uri);
 					exists = !stat.isDirectory;
 				} catch (statErr) {
-					if (statErr instanceof FileOperationError && statErr.fileOperationResult === FileOperationResult.FILE_NOT_FOUND) {
+					if (isFileNotFoundError(statErr)) {
 						exists = false;
 					} else {
 						throw statErr;
@@ -126,9 +134,9 @@ class VibeideModelService extends Disposable implements IVibeideModelService {
 			this._modelCache.set(fsPath, editorModelRef);
 		}
 		catch (e) {
-			// Only log unexpected errors (not file not found errors)
-			if (e instanceof FileOperationError && e.fileOperationResult === FileOperationResult.FILE_NOT_FOUND) {
-				// File not found is expected, don't log
+			// File-not-found is expected (model hallucinated a path) — don't log; the
+			// existence cache above already records exists=false so repeats are cheap.
+			if (isFileNotFoundError(e)) {
 				return;
 			}
 			// Log other unexpected errors at debug level
