@@ -162,7 +162,7 @@ export const chatS = {
 	planAdvisoryReview: 'Совет ревьюера: ',
 	planStepAria: (n: number, status: string, desc: string) => `Шаг ${n}, ${status}: ${desc}`,
 	budgetFooterSessionLabel: 'Сессия',
-	budgetFooterContextLabel: 'Контекст',
+	budgetFooterContextLabel: 'Окно',
 	budgetFooterDisabled: 'Лимит отключён',
 	budgetFooterUnknown: '—',
 	budgetFooterResetTitle: 'Сбросить счётчик сессии',
