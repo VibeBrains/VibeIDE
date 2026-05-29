@@ -735,8 +735,20 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		// Wiring lives here (not in vibeContextGuardService.ts) because the
 		// reverse direction would close a cyclic module graph through
 		// convertToLLMMessageService.
+		//
+		// IMPORTANT: onDidChangeCurrentThread fires on EVERY _setState (it doubles as a
+		// generic "state changed" signal for React), so it fires on every message/tool-
+		// result added mid-turn — not only on real thread switches. Dedupe on the actual
+		// thread id, otherwise the guard was reset to 0 (and re-populated) several times
+		// per agent turn, flickering the context indicator and spamming "Reset (thread
+		// changed)" in the logs.
+		let _lastGuardedThreadId = this.state.currentThreadId;
 		this._register(this.onDidChangeCurrentThread(() => {
-			this._contextGuardService.reset();
+			const cur = this.state.currentThreadId;
+			if (cur !== _lastGuardedThreadId) {
+				_lastGuardedThreadId = cur;
+				this._contextGuardService.reset();
+			}
 		}));
 
 		// always be in a thread
