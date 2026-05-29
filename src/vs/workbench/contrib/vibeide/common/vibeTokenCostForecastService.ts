@@ -57,6 +57,11 @@ const OUTPUT_RATIO = 0.5;
 class VibeTokenCostForecastService extends Disposable implements IVibeTokenCostForecastService {
 	declare readonly _serviceBrand: undefined;
 
+	// Models we've already logged a "no pricing" miss for — log once each, not per
+	// forecast call (the forecast runs on every turn, so an unpriced model like
+	// minimax-m2.7 otherwise repeats the same debug line throughout the session).
+	private readonly _loggedNoPricing = new Set<string>();
+
 	constructor(
 	) {
 		super();
@@ -68,7 +73,10 @@ class VibeTokenCostForecastService extends Disposable implements IVibeTokenCostF
 		const estimatedOutputTokens = Math.ceil(estimatedInputTokens * OUTPUT_RATIO);
 
 		if (!pricing) {
-			vibeLog.debug('CostForecast', `No pricing for model: ${modelId}`);
+			if (!this._loggedNoPricing.has(modelId)) {
+				this._loggedNoPricing.add(modelId);
+				vibeLog.debug('CostForecast', `No pricing for model: ${modelId} (cost forecast disabled for it)`);
+			}
 			return {
 				worstCaseUsd: 0,
 				withCacheUsd: 0,
