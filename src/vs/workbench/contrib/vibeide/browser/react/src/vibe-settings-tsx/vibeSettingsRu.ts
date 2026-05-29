@@ -62,6 +62,8 @@ export const chatS = {
 	contextUsageAria: (pct: number) => `Использование контекста ${pct}%`,
 	contextNearLimit: (total: number, budget: number) =>
 		`Контекст почти исчерпан: ~${total} / ${budget} токенов. Старые сообщения могут быть суммаризированы.`,
+	budgetFillSuffix: (kept: number, summarized: number) =>
+		` · ${kept} целиком / ${summarized} свёрнуто`,
 	suggestions: 'Подсказки',
 	previousThreads: 'Прошлые чаты',
 	chipFile: 'Файл',
@@ -118,7 +120,7 @@ export const chatS = {
 	loadingDefaultAria: 'Загрузка',
 	statusNeedsApproval: 'Нужно подтверждение',
 	statusPreparing: 'Подготовка',
-	statusRunning: 'Выполняется',
+	statusRunning: 'Думаю…',
 	statusDone: 'Готово',
 	rejectAllTooltip: 'Отклонить всё',
 	acceptAllTooltip: 'Принять всё',

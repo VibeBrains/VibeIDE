@@ -4257,9 +4257,13 @@ const CommandBarInChat = () => {
 				<div className="flex gap-2 items-center">
 					{fileDetailsButton}
 				</div>
+				{/* Status indicator FIRST so the accept/reject-all buttons stay pinned to the
+				    right edge and never shift horizontally when the status label width changes
+				    (e.g. "Думаю…" → "Готово"). Previously buttons came first and moved with the
+				    group's left edge, causing accept↔reject misclicks. */}
 				<div className="flex gap-2 items-center">
-					{acceptRejectAllButtons}
 					{threadStatusHTML}
+					{acceptRejectAllButtons}
 				</div>
 			</div>
 		</>
@@ -5177,11 +5181,21 @@ export const SidebarChat = () => {
 	// onUsageUpdated so the chat-pane indicator stays in sync with the same source.
 	const contextGuardService = accessor.get('IVibeContextGuardService')
 	const [guardCurrentTokens, setGuardCurrentTokens] = useState(() => contextGuardService?.getStatus().currentTokens ?? 0)
+	// Budget-fill transparency: kept-full vs summarized message counts from the last prompt build.
+	const [guardTruncation, setGuardTruncation] = useState<{ kept?: number, summarized?: number }>(() => {
+		const st = contextGuardService?.getStatus()
+		return { kept: st?.keptMessages, summarized: st?.summarizedMessages }
+	})
 	useEffect(() => {
 		if (!contextGuardService) return
-		const d = contextGuardService.onUsageUpdated(s => setGuardCurrentTokens(s.currentTokens))
+		const d = contextGuardService.onUsageUpdated(s => {
+			setGuardCurrentTokens(s.currentTokens)
+			setGuardTruncation({ kept: s.keptMessages, summarized: s.summarizedMessages })
+		})
 		// Seed from current status in case an update fired before mount.
-		setGuardCurrentTokens(contextGuardService.getStatus().currentTokens ?? 0)
+		const st = contextGuardService.getStatus()
+		setGuardCurrentTokens(st.currentTokens ?? 0)
+		setGuardTruncation({ kept: st.keptMessages, summarized: st.summarizedMessages })
 		return () => d.dispose()
 	}, [contextGuardService])
 
@@ -5504,7 +5518,7 @@ export const SidebarChat = () => {
 					const color = contextPct >= 1 ? 'text-red-500' : contextPct > 0.8 ? 'text-amber-500' : 'text-vibe-fg-3'
 					const barColor = contextPct >= 1 ? 'bg-red-500' : contextPct > 0.8 ? 'bg-amber-500' : 'bg-vibe-fg-3/60'
 					return <div className='mt-1'>
-						<div className={`text-[10px] ${color}`}>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}</div>
+						<div className={`text-[10px] ${color}`}>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}{(guardTruncation.summarized ?? 0) > 0 ? chatS.budgetFillSuffix(guardTruncation.kept ?? 0, guardTruncation.summarized ?? 0) : ''}</div>
 						<div className='h-[3px] w-full bg-vibe-border-3 rounded mt-0.5'>
 							<div className={`h-[3px] ${barColor} rounded`} style={{ width: `${pctNum}%` }} aria-label={chatS.contextUsageAria(pctNum)} />
 						</div>
@@ -5523,7 +5537,7 @@ export const SidebarChat = () => {
 					const color = contextPct >= 1 ? 'text-red-500' : contextPct > 0.8 ? 'text-amber-500' : 'text-vibe-fg-3'
 					const barColor = contextPct >= 1 ? 'bg-red-500' : contextPct > 0.8 ? 'bg-amber-500' : 'bg-vibe-fg-3/60'
 					return <div className='mt-1 px-2'>
-						<div className={`text-[10px] ${color}`}>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}</div>
+						<div className={`text-[10px] ${color}`}>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}{(guardTruncation.summarized ?? 0) > 0 ? chatS.budgetFillSuffix(guardTruncation.kept ?? 0, guardTruncation.summarized ?? 0) : ''}</div>
 						<div className='h-[3px] w-full bg-vibe-border-3 rounded mt-0.5'>
 							<div className={`h-[3px] ${barColor} rounded`} style={{ width: `${pctNum}%` }} aria-label={chatS.contextUsageAria(pctNum)} />
 						</div>
