@@ -2,7 +2,10 @@
 # Usage:
 #   .\scripts\release-windows.ps1                  # uses version from product.json
 #   .\scripts\release-windows.ps1 -Version v0.2.0  # override version
-#   .\scripts\release-windows.ps1 -SkipCompile     # skip npm run compile-build (if already compiled)
+#   .\scripts\release-windows.ps1 -SkipCompile     # skip npm run compile-build (if already compiled).
+#                                                  # Allowed ONLY together with -SkipPublish (local test
+#                                                  # builds). A real publish always recompiles so it can
+#                                                  # never ship a stale out-build/ under a new version.
 #   .\scripts\release-windows.ps1 -Draft           # create release as draft
 #   .\scripts\release-windows.ps1 -SkipPublish     # build artifacts only — no version bump,
 #                                                  # no tag, no `gh release create`. For manual
@@ -22,6 +25,20 @@ $ErrorActionPreference = "Stop"
 
 $Root = Split-Path $PSScriptRoot -Parent
 Set-Location $Root
+
+# ── Release integrity: never PUBLISH stale code ───────────────────────────────
+# A published release MUST be compiled from source. -SkipCompile packages whatever
+# already sits in out-build/, which risks shipping stale JS under a new version
+# label (vibeVersion / product.json update independently of the compiled bundle —
+# the exact failure class behind "0.14.0 ran 0.13.31 code"). Permit -SkipCompile
+# only for -SkipPublish local test builds.
+if ($SkipCompile -and -not $SkipPublish) {
+    Write-Error "[release] Refusing to PUBLISH with -SkipCompile: a real release must recompile from source (else a stale out-build/ ships under the new version). Drop -SkipCompile, or add -SkipPublish for a local test build."
+    exit 1
+}
+# Captured before any compile so the freshness guard (after compile) can assert the
+# compiled output was actually (re)written during THIS run.
+$buildStartedAt = Get-Date
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 function Step([string]$msg) { Write-Host "▶ $msg" -ForegroundColor Yellow }
@@ -114,6 +131,31 @@ if (-not $SkipCompile) {
     OK "TypeScript compiled"
 } else {
     Write-Host "⏭ Skipping compile (-SkipCompile)" -ForegroundColor DarkGray
+}
+
+# ── 1b. Freshness guard — assert out-build was (re)compiled THIS run ──────────
+# compile-build runs clean-out-build first, so a successful compile yields fresh JS
+# in out-build/ (the source the installer/portable are packaged from). This verifies
+# that actually happened: a representative compiled file must be newer than the build
+# start. Catches a silently cached/failed compile — or a -SkipCompile build sitting on
+# an ancient out-build — BEFORE it is packaged and shipped under a new version. This is
+# the guard that would have flagged the "new version, old compiled code" class of bug.
+$freshnessProbe = "$Root\out-build\vs\code\electron-main\main.js"
+if (-not (Test-Path $freshnessProbe)) {
+    Write-Error "[release] Freshness probe missing: $freshnessProbe not found — out-build/ is absent or incomplete. Run a full compile (drop -SkipCompile)."
+    exit 1
+}
+$probeWritten = (Get-Item $freshnessProbe).LastWriteTime
+if ($probeWritten -lt $buildStartedAt) {
+    $msg = "[release] out-build probe '$freshnessProbe' was last written $probeWritten, BEFORE this build started $buildStartedAt — the TypeScript was NOT recompiled this run."
+    if ($SkipPublish) {
+        Write-Warning "$msg (allowed for -SkipPublish test build, but the package will contain stale code)"
+    } else {
+        Write-Error "$msg Refusing to package/publish stale code."
+        exit 1
+    }
+} else {
+    OK "Freshness verified: out-build recompiled this run (probe written $probeWritten)"
 }
 
 # ── 2. Build Windows x64 app ──────────────────────────────────────────────────
