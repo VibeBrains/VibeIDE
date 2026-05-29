@@ -79,7 +79,7 @@ const NEON_TIMESTAMP_STYLE: React.CSSProperties = {
 	textShadow: 'var(--vibe-neon-timestamp-glow)',
 };
 
-const ChatTimestamp = ({ ts, align, streaming, warnPercent }: { ts: number | undefined; align: 'left' | 'right' | 'inline'; streaming?: boolean; warnPercent?: number }) => {
+const ChatTimestamp = ({ ts, align, streaming }: { ts: number | undefined; align: 'left' | 'right' | 'inline'; streaming?: boolean }) => {
 	const settingsState = useSettingsState();
 	if (settingsState.globalSettings.showChatTimestamps === false) return null;
 	const validTs = typeof ts === 'number' && Number.isFinite(ts);
@@ -87,45 +87,17 @@ const ChatTimestamp = ({ ts, align, streaming, warnPercent }: { ts: number | und
 	// layout does not shift when the first chunk arrives and `ts` becomes valid.
 	if (!validTs && !streaming) return null;
 	const text = validTs ? formatChatTimestamp(ts) : CHAT_TIMESTAMP_STREAMING_PLACEHOLDER;
-	// Session-token budget warning: pulse the response-time line yellow (neon-aware) instead
-	// of a toast. Yellow color + glow are merged inline so they win over NEON_TIMESTAMP_STYLE;
-	// the @@vibe-token-warn-blink class only drives the pulse animation (vibeide.css).
-	const warn = typeof warnPercent === 'number';
-	const tsStyle = warn ? { ...NEON_TIMESTAMP_STYLE, color: 'var(--vibe-warning)', textShadow: 'var(--vibe-neon-warning-glow)' } : NEON_TIMESTAMP_STYLE;
-	const warnTitle = warn ? `Сессия израсходовала ${Math.round(warnPercent ?? 0)}% токенов — сбросьте сессию или поднимите лимит в настройках` : undefined;
+	// NOTE: the session-token budget warning pulse lives on the SESSION line in the footer
+	// (TokenBudgetFooter, SidebarHistory.tsx) — NOT here. Chat timestamps stay neutral.
 	const timeNode = validTs
-		? <time className={warn ? '@@vibe-token-warn-blink' : undefined} dateTime={chatTimestampToISO(ts)} title={warnTitle ?? formatChatTimestamp(ts, 'DD.MM.YYYY HH:mm:ss')} style={tsStyle}>{text}</time>
-		: <span className={warn ? '@@vibe-token-warn-blink' : undefined} aria-hidden='true' title={warnTitle} style={tsStyle}>{text}</span>;
+		? <time dateTime={chatTimestampToISO(ts)} title={formatChatTimestamp(ts, 'DD.MM.YYYY HH:mm:ss')} style={NEON_TIMESTAMP_STYLE}>{text}</time>
+		: <span aria-hidden='true' style={NEON_TIMESTAMP_STYLE}>{text}</span>;
 	if (align === 'inline') {
 		return <span className='text-[11px] select-none'><span className='mx-1 opacity-70'>·</span>{timeNode}</span>;
 	}
 	return <div className={`text-[11px] select-none mt-0.5 px-0.5 ${align === 'right' ? 'text-right' : 'text-left'}`}>
 		{timeNode}
 	</div>;
-};
-
-// Subscribe to the session token budget and return the % used while in the ≥80% warning
-// band (and below 100%), else undefined. Drives the response-time pulse instead of a toast.
-// Honors the `vibeide.safety.sessionTokenWarningBlink` opt-out.
-const useTokenBudgetWarning = (): number | undefined => {
-	const accessor = useAccessor();
-	const budgetService = accessor.get('IVibeTokenBudgetService');
-	const configurationService = accessor.get('IConfigurationService');
-	const [percent, setPercent] = useState<number | undefined>(undefined);
-	useEffect(() => {
-		const recompute = () => {
-			const blinkOn = configurationService.getValue<boolean>('vibeide.safety.sessionTokenWarningBlink') ?? true;
-			const status = budgetService.getStatus();
-			setPercent(blinkOn && status.isWarning && !status.isExceeded ? status.percentUsed : undefined);
-		};
-		recompute();
-		const d1 = budgetService.onBudgetStatusChanged(recompute);
-		const d2 = configurationService.onDidChangeConfiguration(e => {
-			if (e.affectsConfiguration('vibeide.safety.sessionTokenWarningBlink')) { recompute(); }
-		});
-		return () => { d1.dispose(); d2.dispose(); };
-	}, [budgetService, configurationService]);
-	return percent;
 };
 
 const IconArrowUp = ({ size, className = '' }: { size: number, className?: string }) => {
@@ -1914,7 +1886,7 @@ max-w-none
 		{children}
 	</div>
 }
-const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, isCommitted, messageIdx, tokenWarnPercent }: { chatMessage: ChatMessage & { role: 'assistant' }, isCheckpointGhost: boolean, messageIdx: number, isCommitted: boolean, tokenWarnPercent?: number }) => {
+const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, isCommitted, messageIdx }: { chatMessage: ChatMessage & { role: 'assistant' }, isCheckpointGhost: boolean, messageIdx: number, isCommitted: boolean }) => {
 
 	const accessor = useAccessor()
 	const chatThreadsService = accessor.get('IChatThreadService')
@@ -1982,8 +1954,8 @@ const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, 
 		{/* timestamp shown once after the assistant message; placeholder while streaming, real value after first chunk commits */}
 		{(hasReasoning || chatMessage.displayContent) && (
 			isCommitted
-				? <ChatTimestamp ts={chatMessage.createdAt} align='left' warnPercent={tokenWarnPercent} />
-				: <ChatTimestamp ts={chatMessage.createdAt} align='left' streaming warnPercent={tokenWarnPercent} />
+				? <ChatTimestamp ts={chatMessage.createdAt} align='left' />
+				: <ChatTimestamp ts={chatMessage.createdAt} align='left' streaming />
 		)}
 	</>
 
@@ -1993,8 +1965,7 @@ const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, 
 		prev.chatMessage.reasoning === next.chatMessage.reasoning &&
 		prev.isCheckpointGhost === next.isCheckpointGhost &&
 		prev.isCommitted === next.isCommitted &&
-		prev.messageIdx === next.messageIdx &&
-		prev.tokenWarnPercent === next.tokenWarnPercent
+		prev.messageIdx === next.messageIdx
 })
 
 const ReasoningWrapper = ({ isDoneReasoning, isStreaming, children }: { isDoneReasoning: boolean, isStreaming: boolean, children: React.ReactNode }) => {
@@ -3342,7 +3313,6 @@ type ChatBubbleProps = {
 	threadId: string,
 	currCheckpointIdx: number | undefined,
 	_scrollToBottom: (() => void) | null,
-	tokenWarnPercent?: number,
 }
 
 // Plan Component - Shows structured execution plan as a todo list
@@ -3937,11 +3907,10 @@ const ChatBubble = React.memo((props: ChatBubbleProps) => {
 		prev.chatIsRunning === next.chatIsRunning &&
 		prev.currCheckpointIdx === next.currCheckpointIdx &&
 		prev.threadId === next.threadId &&
-		prev.tokenWarnPercent === next.tokenWarnPercent &&
 		prev._scrollToBottom === next._scrollToBottom
 })
 
-const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCommitted, messageIdx, chatIsRunning, _scrollToBottom, tokenWarnPercent }: ChatBubbleProps) => {
+const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCommitted, messageIdx, chatIsRunning, _scrollToBottom }: ChatBubbleProps) => {
 	const role = chatMessage.role
 
 	const isCheckpointGhost = messageIdx > (currCheckpointIdx ?? Infinity) && !chatIsRunning // whether to show as gray (if chat is running, for good measure just dont show any ghosts)
@@ -3961,7 +3930,6 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 			isCheckpointGhost={isCheckpointGhost}
 			messageIdx={messageIdx}
 			isCommitted={isCommitted}
-			tokenWarnPercent={tokenWarnPercent}
 		/>
 	}
 	else if (role === 'tool') {
@@ -4034,7 +4002,6 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 		prev.chatIsRunning === next.chatIsRunning &&
 		prev.currCheckpointIdx === next.currCheckpointIdx &&
 		prev.threadId === next.threadId &&
-		prev.tokenWarnPercent === next.tokenWarnPercent &&
 		prev._scrollToBottom === next._scrollToBottom
 })
 
@@ -4354,12 +4321,6 @@ export const SidebarChat = () => {
 
 	const currentThread = chatThreadsService.getCurrentThread()
 	const previousMessages = currentThread?.messages ?? []
-
-	// Session-token budget: % used while in the ≥80% warning band, else undefined.
-	const tokenWarnPercent = useTokenBudgetWarning()
-	// Only the last assistant message's response-time line pulses on a budget warning.
-	let lastAssistantIdx = -1
-	for (let i = previousMessages.length - 1; i >= 0; i--) { if (previousMessages[i]?.role === 'assistant') { lastAssistantIdx = i; break } }
 
 	const selections = currentThread.state.stagingSelections
 	const setSelections = (s: StagingSelectionItem[]) => { chatThreadsService.setCurrentThreadState({ stagingSelections: s }) }
@@ -4905,7 +4866,6 @@ export const SidebarChat = () => {
 					chatIsRunning={isRunning}
 					threadId={threadId}
 					_scrollToBottom={scrollToBottomCallback}
-					tokenWarnPercent={i === lastAssistantIdx ? tokenWarnPercent : undefined}
 				/>
 			})
 		})
@@ -5021,8 +4981,6 @@ export const SidebarChat = () => {
 		return items
 	}, [
 		previousMessages,
-		tokenWarnPercent,
-		lastAssistantIdx,
 		currCheckpointIdx,
 		isRunning,
 		threadId,

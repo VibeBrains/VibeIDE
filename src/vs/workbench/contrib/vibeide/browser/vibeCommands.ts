@@ -1213,6 +1213,7 @@ registerAction2(class extends Action2 {
 
 		const os = isWindows ? 'win32' : isMacintosh ? 'darwin' : isLinux ? 'linux' : 'unknown';
 		const version = productService.version ?? 'unknown';
+		const vibeVersion = productService.vibeVersion ?? 'unknown';
 		const commit = typeof productService.commit === 'string' ? productService.commit : '';
 		const name = productService.nameShort ?? 'VibeIDE';
 
@@ -1261,7 +1262,7 @@ registerAction2(class extends Action2 {
 		const report = [
 			'## VibeIDE issue diagnostic',
 			'',
-			`**Product:** ${name} ${version}${commit ? ` (${commit.slice(0, 7)})` : ''}`,
+			`**VibeIDE:** ${vibeVersion}${commit ? ` (${commit.slice(0, 7)})` : ''} — base ${name} ${version}`,
 			`**OS:** ${os}`,
 			`**Chat model (ids only):** ${providerLine}`,
 			`**Current thread:** ${thread.id.slice(0, 8)}… — ${planCtx}`,

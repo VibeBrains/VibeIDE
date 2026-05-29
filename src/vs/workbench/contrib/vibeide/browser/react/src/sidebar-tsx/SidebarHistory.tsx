@@ -114,6 +114,7 @@ const TokenBudgetFooter = () => {
 	const budgetService = accessor.get('IVibeTokenBudgetService');
 	const contextGuard = accessor.get('IVibeContextGuardService');
 	const commandService = accessor.get('ICommandService');
+	const configurationService = accessor.get('IConfigurationService');
 
 	const [budget, setBudget] = useState<TokenBudgetStatus>(() => budgetService.getStatus());
 	const [ctx, setCtx] = useState<ContextLimitStatus>(() => contextGuard.getStatus());
@@ -137,6 +138,14 @@ const TokenBudgetFooter = () => {
 	const sessionBarClass = budget.isExceeded
 		? 'bg-red-500'
 		: budget.isWarning ? 'bg-amber-500' : 'bg-green-500';
+	// Pulse the SESSION token line (not chat timestamps) while in the ≥80% warning band
+	// (below 100%). Honors the vibeide.safety.sessionTokenWarningBlink opt-out. Read in render
+	// (the footer re-renders on every budget change, which is exactly when the blink matters).
+	const sessionBlink = sessionEnabled && budget.isWarning && !budget.isExceeded
+		&& (configurationService.getValue<boolean>('vibeide.safety.sessionTokenWarningBlink') ?? true);
+	const sessionWarnTitle = sessionBlink
+		? `Сессия израсходовала ${sessionPct}% токенов — сбросьте сессию или поднимите лимит в настройках`
+		: undefined;
 
 	const ctxKnown = ctx.maxTokens > 0;
 	const ctxPct = ctxKnown ? Math.min(100, Math.max(0, Math.round(ctx.percentUsed))) : 0;
@@ -146,8 +155,8 @@ const TokenBudgetFooter = () => {
 
 	return (
 		<div className="flex-shrink-0 border-t border-vibe-border-1 px-2 py-2 text-[11px] text-vibe-fg-2 select-none">
-			<div className="flex items-center justify-between gap-2 mb-1">
-				<span className="text-vibe-fg-3 truncate">{chatS.budgetFooterSessionLabel}</span>
+			<div className={`flex items-center justify-between gap-2 mb-1${sessionBlink ? ' @@vibe-token-warn-blink' : ''}`} title={sessionWarnTitle} style={sessionBlink ? { color: 'var(--vibe-warning)' } : undefined}>
+				<span className={`truncate${sessionBlink ? '' : ' text-vibe-fg-3'}`}>{chatS.budgetFooterSessionLabel}</span>
 				<span className="font-mono text-[10.5px] truncate">
 					{sessionEnabled
 						? chatS.budgetFooterCounts(formatTokens(budget.sessionTokensUsed), formatTokens(budget.sessionTokensLimit), sessionPct)
