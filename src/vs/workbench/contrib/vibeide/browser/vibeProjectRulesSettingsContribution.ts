@@ -55,6 +55,27 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			maximum: 200000,
 			description: localize('vibeide.projectRules.maxCombinedChars', 'Максимум суммарных символов объединённых правил проекта, подставляемых в системное сообщение AI. Большие файлы обрезаются.'),
 		},
+		'vibeide.projectRules.maxFiles': {
+			type: 'number',
+			default: 50,
+			minimum: 1,
+			maximum: 500,
+			description: localize('vibeide.projectRules.maxFiles', 'Максимум файлов правил, обнаруживаемых в папках `.vibe/rules/` (защита от случайного огромного дерева). Лишние пропускаются с предупреждением в лог.'),
+		},
+		'vibeide.projectRules.maxFolderDepth': {
+			type: 'number',
+			default: 6,
+			minimum: 1,
+			maximum: 20,
+			description: localize('vibeide.projectRules.maxFolderDepth', 'Глубина рекурсивного сканирования папок правил `.vibe/rules/`.'),
+		},
+		'vibeide.projectRules.maxFileBytes': {
+			type: 'number',
+			default: 102400,
+			minimum: 1024,
+			maximum: 5242880,
+			description: localize('vibeide.projectRules.maxFileBytes', 'Максимальный размер одного файла правил (байты); большее обрезается.'),
+		},
 	},
 });
 

@@ -698,6 +698,7 @@ export const safetyS = {
 	rulesModeTrigger: 'триггер',
 	rulesModeGlob: 'glob',
 	rulesModeAgent: 'по запросу',
+	rulesPanelSummary: (n: number, kb: number, off: number) => `${n} правил · ~${kb} КБ · ${off} выкл`,
 
 	// Settings.tsx — extra (L481 long-tail)
 	perfPanelRunDoctorMsg: 'Запустите `npx vibe doctor --perf` в терминале для текстового отчёта.',

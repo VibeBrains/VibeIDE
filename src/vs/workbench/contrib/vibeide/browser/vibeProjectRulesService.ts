@@ -100,17 +100,19 @@ const RULE_FILE_NAMES = ['.vibe/rules.md', 'AGENTS.md'];
 /** Folders scanned recursively for `*.md` / `*.mdc` rule files (R.1). Only `.vibe/rules/` — we
  *  deliberately do NOT read `.cursor/`-style foreign rule folders. */
 const RULE_FOLDER_NAMES = ['.vibe/rules'];
+// Defaults for the scan limits below — overridable via `vibeide.projectRules.*` settings (R.11).
 const MAX_RULE_FILE_BYTES = 102400; // 100KB per file
-/** Cap total folder-discovered rule files so a stray big rules/ tree can't blow the prompt budget. */
-const MAX_RULE_FILES = 50;
-/** Recursion depth cap for the rules-folder scan. */
-const MAX_RULE_FOLDER_DEPTH = 6;
+const MAX_RULE_FILES = 50;          // total folder-discovered files (stray big tree guard)
+const MAX_RULE_FOLDER_DEPTH = 6;    // rules-folder recursion depth
 const WATCHER_DEBOUNCE_MS = 350;
 /** Registered settings (see vibeProjectRulesSettingsContribution) — single source of truth for
  *  disabled rule sources + the combined-output char cap. */
 const DISABLED_SOURCES_KEY = 'vibeide.projectRules.disabledSources';
 const MAX_COMBINED_CHARS_KEY = 'vibeide.projectRules.maxCombinedChars';
 const DEFAULT_MAX_COMBINED_CHARS = 20000;
+const MAX_FILES_KEY = 'vibeide.projectRules.maxFiles';
+const MAX_FOLDER_DEPTH_KEY = 'vibeide.projectRules.maxFolderDepth';
+const MAX_FILE_BYTES_KEY = 'vibeide.projectRules.maxFileBytes';
 
 // ── Implementation ─────────────────────────────────────────────────────────────
 
@@ -140,7 +142,10 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 		// see vibeProjectRulesSettingsContribution) — single source of truth. Recompute the cached
 		// combine when either changes (toggle from the panel / command / settings.json edit).
 		this._register(this._config.onDidChangeConfiguration(e => {
-			if (e.affectsConfiguration(DISABLED_SOURCES_KEY) || e.affectsConfiguration(MAX_COMBINED_CHARS_KEY)) {
+			// Scan-limit changes (R.11) need a full re-scan; disabled/max-chars only need a recombine.
+			if (e.affectsConfiguration(MAX_FILES_KEY) || e.affectsConfiguration(MAX_FOLDER_DEPTH_KEY) || e.affectsConfiguration(MAX_FILE_BYTES_KEY)) {
+				void this.reloadRules().then(() => this._onRulesChanged.fire());
+			} else if (e.affectsConfiguration(DISABLED_SOURCES_KEY) || e.affectsConfiguration(MAX_COMBINED_CHARS_KEY)) {
 				this._cachedCombined = this._combineSources(this._cachedSources, undefined);
 				this._onRulesChanged.fire();
 			}
@@ -247,26 +252,30 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 	async reloadRules(): Promise<void> {
 		const sources: LoadedRuleSource[] = [];
 		const folders = this._workspace.getWorkspace().folders;
+		// R.11 — scan limits from settings (fallback to the built-in defaults).
+		const maxFiles = this._config.getValue<number>(MAX_FILES_KEY) ?? MAX_RULE_FILES;
+		const maxDepth = this._config.getValue<number>(MAX_FOLDER_DEPTH_KEY) ?? MAX_RULE_FOLDER_DEPTH;
+		const maxBytes = this._config.getValue<number>(MAX_FILE_BYTES_KEY) ?? MAX_RULE_FILE_BYTES;
 
 		for (const folder of folders) {
 			// Load named flat rule files
 			for (const name of RULE_FILE_NAMES) {
 				const uri = joinPath(folder.uri, ...name.split('/'));
-				const source = await this._tryLoadRuleFile(uri, name);
+				const source = await this._tryLoadRuleFile(uri, name, maxBytes);
 				if (source) { sources.push(source); }
 			}
-			// R.1 — recursively discover rule files in rules folders (Cursor-compatible).
+			// R.1 — recursively discover rule files in `.vibe/rules/`.
 			for (const folderName of RULE_FOLDER_NAMES) {
-				if (sources.length >= MAX_RULE_FILES) { break; }
+				if (sources.length >= maxFiles) { break; }
 				const dirUri = joinPath(folder.uri, ...folderName.split('/'));
-				const ruleUris = await this._collectFolderRuleUris(dirUri, 0);
+				const ruleUris = await this._collectFolderRuleUris(dirUri, 0, maxDepth);
 				for (const ruleUri of ruleUris) {
-					if (sources.length >= MAX_RULE_FILES) {
-						this._log.warn(`[VibeProjectRules] Hit MAX_RULE_FILES=${MAX_RULE_FILES}; remaining rule files skipped`);
+					if (sources.length >= maxFiles) {
+						this._log.warn(`[VibeProjectRules] Hit maxFiles=${maxFiles}; remaining rule files skipped`);
 						break;
 					}
 					const rel = relativePath(folder.uri, ruleUri) ?? ruleUri.path;
-					const source = await this._tryLoadRuleFile(ruleUri, rel);
+					const source = await this._tryLoadRuleFile(ruleUri, rel, maxBytes);
 					if (source) { sources.push(source); }
 				}
 			}
@@ -279,14 +288,14 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 		this._log.info(`[VibeProjectRules] Loaded ${sources.length} rule sources; combined ${this._cachedCombined.length} chars`);
 	}
 
-	private async _tryLoadRuleFile(uri: URI, relativePath: string): Promise<LoadedRuleSource | null> {
+	private async _tryLoadRuleFile(uri: URI, relativePath: string, maxBytes: number): Promise<LoadedRuleSource | null> {
 		try {
 			const stat = await this._fileService.stat(uri);
-			if (stat.size > MAX_RULE_FILE_BYTES) {
-				this._log.warn(`[VibeProjectRules] Rule file ${relativePath} too large (${stat.size} bytes > ${MAX_RULE_FILE_BYTES}) — truncating`);
+			if (stat.size > maxBytes) {
+				this._log.warn(`[VibeProjectRules] Rule file ${relativePath} too large (${stat.size} bytes > ${maxBytes}) — truncating`);
 			}
 			const file = await this._fileService.readFile(uri);
-			const raw = file.value.toString().slice(0, MAX_RULE_FILE_BYTES);
+			const raw = file.value.toString().slice(0, maxBytes);
 			// `.mdc` (Cursor) files carry a leading frontmatter block — strip it; the body is the
 			// actual instruction, and the frontmatter feeds activation (alwaysApply/triggers/globs).
 			// Plain `.md` is left verbatim (a leading `---` there is content, not frontmatter).
@@ -313,8 +322,8 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 	 * Returns [] when the folder is absent. Depth-capped; children sorted by name for a stable,
 	 * deterministic ordering (the model sees rules in the same order every run).
 	 */
-	private async _collectFolderRuleUris(dirUri: URI, depth: number): Promise<URI[]> {
-		if (depth > MAX_RULE_FOLDER_DEPTH) { return []; }
+	private async _collectFolderRuleUris(dirUri: URI, depth: number, maxDepth: number): Promise<URI[]> {
+		if (depth > maxDepth) { return []; }
 		let stat;
 		try {
 			stat = await this._fileService.resolve(dirUri);
@@ -326,7 +335,7 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 		const children = [...stat.children].sort((a, b) => a.name.localeCompare(b.name));
 		for (const child of children) {
 			if (child.isDirectory) {
-				files.push(...await this._collectFolderRuleUris(child.resource, depth + 1));
+				files.push(...await this._collectFolderRuleUris(child.resource, depth + 1, maxDepth));
 			} else if (isRuleFileName(child.name)) {
 				files.push(child.resource);
 			}

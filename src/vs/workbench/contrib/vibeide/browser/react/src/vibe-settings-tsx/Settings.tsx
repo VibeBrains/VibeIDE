@@ -2261,14 +2261,17 @@ const ProjectRulesPanel = () => {
 	}
 
 	const empty = rows.length === 0
+	const totalKb = Math.round(rows.reduce((a, r) => a + r.sizeBytes, 0) / 1024)
+	const disabledCount = rows.filter(r => !(enabledMap[r.relativePath] ?? true)).length
 	return (
 		<div className='max-w-[800px]'>
 			<h2 className='text-xl mb-2'>{safetyS.rulesPanelTitle}</h2>
 			<h4 className='text-vibe-fg-3 mb-4'>{safetyS.rulesPanelIntro}</h4>
-			<div className='flex gap-2 mb-2'>
+			<div className='flex gap-2 mb-2 items-center'>
 				<VibeButtonBgDarken className='px-4 py-1 max-w-fit' onClick={refresh}>
 					{safetyS.rulesPanelReload}
 				</VibeButtonBgDarken>
+				{!empty && <span className='text-vibe-fg-3 text-xs'>{safetyS.rulesPanelSummary(rows.length, totalKb, disabledCount)}</span>}
 			</div>
 			{empty ? (
 				<div className='text-vibe-fg-3 text-sm'>{safetyS.rulesPanelEmpty}</div>
