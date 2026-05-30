@@ -864,7 +864,7 @@ const prepareOpenAIOrAnthropicMessages = ({
 }): { messages: AnthropicOrOpenAILLMMessage[], separateSystemMessage: string | undefined } => {
 
 	reservedOutputTokenSpace = Math.max(
-		contextWindow * 1 / 2, // reserve at least 1/4 of the token window length
+		contextWindow * 1 / 2, // reserve at least 1/2 of the token window for output (comment was stale: said 1/4)
 		reservedOutputTokenSpace ?? 4_096 // defaults to 4096
 	)
 	// Optimized: shallow clone + selective deep clone only for mutable fields
