@@ -37,7 +37,7 @@ import * as fs from 'original-fs';
 import * as v8 from 'node:v8';
 import * as zlib from 'node:zlib';
 import { PerformanceObserver } from 'node:perf_hooks';
-import { app } from 'electron';
+import { app, webContents } from 'electron';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { parse as parseJsonc } from '../../../../base/common/jsonc.js';
 
@@ -108,6 +108,9 @@ interface WatchdogConfig {
 	readonly burstSamplingEnabled: boolean;
 	readonly burstSamplingSeconds: number;
 	readonly burstDurationTicks: number;
+	/** B: auto-capture a renderer's heap snapshot when its private commit crosses `commitAlertMB`.
+	 *  Off by default — a snapshot of a multi-GB renderer near OOM is a heavy, slow operation. */
+	readonly snapshotRenderersOnCommitAlert: boolean;
 }
 
 const DEFAULT_CHILD_PROCESS_TYPES: readonly string[] = ['Utility', 'GPU'];
@@ -135,6 +138,7 @@ const DEFAULTS: WatchdogConfig = {
 	burstSamplingEnabled: true,
 	burstSamplingSeconds: 15,
 	burstDurationTicks: 12,
+	snapshotRenderersOnCommitAlert: false,
 };
 
 const PERSISTED_STATE_FILE = 'state.json';
@@ -194,6 +198,7 @@ function readConfigFromDisk(userDataPath: string, previous?: WatchdogConfig): Wa
 			burstSamplingEnabled: clampBool(parsed['vibeide.diagnostics.idleWatchdog.burstSamplingEnabled'], DEFAULTS.burstSamplingEnabled),
 			burstSamplingSeconds: clampInt(parsed['vibeide.diagnostics.idleWatchdog.burstSamplingSeconds'], 5, 60, DEFAULTS.burstSamplingSeconds),
 			burstDurationTicks: clampInt(parsed['vibeide.diagnostics.idleWatchdog.burstDurationTicks'], 1, 120, DEFAULTS.burstDurationTicks),
+			snapshotRenderersOnCommitAlert: clampBool(parsed['vibeide.diagnostics.idleWatchdog.snapshotRenderersOnCommitAlert'], DEFAULTS.snapshotRenderersOnCommitAlert),
 		};
 	} catch {
 		// settings.json absent on first launch / read failed mid-write — keep previous
@@ -472,6 +477,8 @@ export class VibeIdleWatchdogService {
 	 * balloons the RSS watchers miss (renderer OOM 2026-05-30). Keyed identically. */
 	private readonly _commitSlopeWatchers = new Map<string, SlopeWatcher>();
 	private readonly _lastSnapshotByKey = new Map<string, number>();
+	/** Renderer OS pids already auto-snapshotted this session (B): one heap dump per pid. */
+	private readonly _rendererSnapshottedPids = new Set<number>();
 	/** Last sampled RSS (MB) per process key — for per-tick growth-delta snapshot trigger (O.12). */
 	private readonly _lastRssByKey = new Map<string, number>();
 	/** W.52 — set once any renderer dies this session. While true, every main tick
@@ -758,6 +765,78 @@ export class VibeIdleWatchdogService {
 		}
 	}
 
+	/** Find the (first, non-destroyed) webContents backed by `osPid`. Best-effort. */
+	private _webContentsForPid(osPid: number): Electron.WebContents | undefined {
+		try {
+			for (const wc of webContents.getAllWebContents()) {
+				if (wc.isDestroyed()) { continue; }
+				let p: number;
+				try { p = wc.getOSProcessId(); } catch { continue; }
+				if (p === osPid) { return wc; }
+			}
+		} catch { /* ignore */ }
+		return undefined;
+	}
+
+	/** A: compact identity label for a renderer pid — `<type>:<host|title>` (e.g. `webview:books.abxb.ru`,
+	 *  `window:VibeIDE`). Lets a commit-charge balloon be attributed to a specific process. */
+	private _rendererLabel(osPid: number): string | undefined {
+		const wc = this._webContentsForPid(osPid);
+		if (!wc) { return undefined; }
+		try {
+			const type = wc.getType();
+			let host = '';
+			try {
+				const url = wc.getURL();
+				if (url) { try { host = new URL(url).host || url.slice(0, 50); } catch { host = url.slice(0, 50); } }
+			} catch { /* ignore */ }
+			let title = '';
+			try { title = wc.getTitle() || ''; } catch { /* ignore */ }
+			const label = host || title;
+			return label ? `${type}:${label}` : type;
+		} catch {
+			return undefined;
+		}
+	}
+
+	/**
+	 * B: capture a heap snapshot of a RENDERER process (by OS pid) via Electron's
+	 * `webContents.takeHeapSnapshot` — main can snapshot any renderer, so the offending
+	 * process (not just main) gets dumped. Heavy + async; callers gate by config + once-per-pid.
+	 */
+	async captureRendererHeapSnapshot(osPid: number, trigger: WatchdogSnapshotEntry['trigger']): Promise<WatchdogSnapshotEntry | null> {
+		try {
+			const wc = this._webContentsForPid(osPid);
+			if (!wc) { return null; }
+			if (!fs.existsSync(this._snapshotsDir)) { fs.mkdirSync(this._snapshotsDir, { recursive: true }); }
+			const ts = new Date();
+			const ymd = ts.toISOString().slice(0, 19).replace(/[-:T]/g, '').slice(0, 15);
+			const fileName = `${ymd}-renderer-${osPid}.heapsnapshot`;
+			const filePath = path.join(this._snapshotsDir, fileName);
+			await wc.takeHeapSnapshot(filePath);
+			const stat = fs.statSync(filePath);
+			if (stat.size === 0) {
+				try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+				return null;
+			}
+			const entry: WatchdogSnapshotEntry = {
+				v: 1,
+				type: 'snapshot',
+				ts: ts.toISOString(),
+				proc: 'renderer',
+				pid: osPid,
+				path: filePath,
+				sizeBytes: stat.size,
+				trigger,
+			};
+			this._writeQueue.enqueue(JSON.stringify(entry) + '\n');
+			this._rotateSnapshots();
+			return entry;
+		} catch {
+			return null;
+		}
+	}
+
 	private _scheduleFirstTick(): void {
 		// 10s after startup — matches pre-W.0 behaviour. Captures baseline before
 		// user interaction inflates working set.
@@ -944,6 +1023,9 @@ export class VibeIdleWatchdogService {
 			// Tag renderer probes so readers don't confuse them with the heap-bearing W.1
 			// self-sample of the same window.
 			const tickNote = isRenderer ? (note ? `${note} commit-probe` : 'commit-probe') : note;
+				// A: label renderers with their webview identity (type + host/title) so a future
+				// commit-charge balloon is attributable to a specific process, not a bare pid.
+				const rendererLabel = isRenderer ? this._rendererLabel(m.pid) : undefined;
 			const uptimeSec = m.creationTime ? Math.round((Date.now() - m.creationTime) / 1000) : 0;
 			const sample: WatchdogSampleBase = {
 				v: 1,
@@ -957,13 +1039,21 @@ export class VibeIdleWatchdogService {
 				// `heapUsed` / `heapTotal` intentionally omitted — `app.getAppMetrics()`
 				// does not expose V8 heap of children. Pre-W.22 emitted `0` here, which
 				// readers misinterpreted as «really zero»; undefined = «not measured».
-				note: this._composeChildNote(tickNote, m.serviceName, m.name),
+				note: this._composeChildNote(tickNote, m.serviceName, rendererLabel ?? m.name),
 			};
 			this._lastTickTsByKey.set(keyFor({ proc, pid: m.pid }), sample.ts);
 			this._writeQueue.enqueue(JSON.stringify(sample) + '\n');
 			this._evaluateSlope(sample);
-			// Heap snapshot trigger only fires for `proc === 'main'` in `_maybeTriggerSnapshot`;
-			// children would need CDP attach (deferred — see roadmap W.4 renderer-side note).
+			// B (crash-report 2026-05-30): auto-capture the OFFENDING renderer's heap when its
+			// private commit crosses the alert. Off by default (heavy: multi-GB file near OOM),
+			// once per pid. `webContents.takeHeapSnapshot` works from main, so the old «children
+			// need CDP attach» note no longer holds.
+			if (isRenderer && privateBytes !== undefined && this._config.snapshotRenderersOnCommitAlert
+				&& this._config.commitAlertMB > 0 && privateBytes / (1024 * 1024) >= this._config.commitAlertMB
+				&& !this._rendererSnapshottedPids.has(m.pid)) {
+				this._rendererSnapshottedPids.add(m.pid);
+				void this.captureRendererHeapSnapshot(m.pid, 'threshold');
+			}
 		}
 		this._reconcileLiveProcesses(livePids);
 	}
