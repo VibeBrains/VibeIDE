@@ -694,6 +694,10 @@ export const safetyS = {
 	rulesPanelOff: 'Выкл',
 	rulesPanelRedacted: '(секреты вычищены)',
 	rulesPanelDocsLink: 'Клик по источнику — превью содержимого. Тоггл выключает правило только в этом workspace.',
+	rulesModeAlways: 'всегда',
+	rulesModeTrigger: 'триггер',
+	rulesModeGlob: 'glob',
+	rulesModeAgent: 'по запросу',
 
 	// Settings.tsx — extra (L481 long-tail)
 	perfPanelRunDoctorMsg: 'Запустите `npx vibe doctor --perf` в терминале для текстового отчёта.',

@@ -2226,7 +2226,15 @@ const ProjectRulesPanel = () => {
 	const accessor = useAccessor()
 	const rulesSvc = accessor.get('IVibeProjectRulesService')
 
-	type Src = { relativePath: string; content: string; sizeBytes: number; wasRedacted: boolean }
+	type Src = { relativePath: string; content: string; sizeBytes: number; wasRedacted: boolean; alwaysApply?: boolean; triggers?: string[]; globs?: string[] }
+	// Activation mode badge (surfaces the R.7/R.2/R.3 engine): how a rule decides to apply.
+	const ruleMode = (r: Src): string => {
+		if (r.alwaysApply === true) { return safetyS.rulesModeAlways }
+		if (r.triggers && r.triggers.length > 0) { return safetyS.rulesModeTrigger }
+		if (r.globs && r.globs.length > 0) { return safetyS.rulesModeGlob }
+		if (r.alwaysApply === false) { return safetyS.rulesModeAgent }
+		return safetyS.rulesModeAlways
+	}
 	const [rows, setRows] = useState<Src[]>([])
 	const [enabledMap, setEnabledMap] = useState<Record<string, boolean>>({})
 	const [expanded, setExpanded] = useState<string | null>(null)
@@ -2292,7 +2300,9 @@ const ProjectRulesPanel = () => {
 										className='px-2 py-1 align-top break-all cursor-pointer text-vibe-fg-1 hover:underline'
 										onClick={() => setExpanded(isOpen ? null : r.relativePath)}
 									>
-										{r.relativePath}{r.wasRedacted ? ` ${safetyS.rulesPanelRedacted}` : ''}
+										{r.relativePath}
+										<span className='ml-2 text-vibe-fg-4 text-xs'>· {ruleMode(r)}</span>
+										{r.wasRedacted ? ` ${safetyS.rulesPanelRedacted}` : ''}
 									</td>
 									<td className='px-2 py-1 align-top whitespace-nowrap text-vibe-fg-3'>{r.sizeBytes} B</td>
 								</tr>,

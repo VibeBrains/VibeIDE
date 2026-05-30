@@ -34,11 +34,11 @@ import { localize } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
-import { IQuickInputService, IQuickPickItem } from '../../../../platform/quickinput/common/quickInput.js';
+import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { parseRuleFrontmatter, isRuleFileName, parseAlwaysApply, parseTriggers, parseGlobs, decideRuleActivation, ruleNameFromPath } from '../common/prompt/ruleFrontmatter.js';
-import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+import { IConfigurationService, ConfigurationTarget } from '../../../../platform/configuration/common/configuration.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -81,9 +81,10 @@ export interface IVibeProjectRulesService {
 	/** Look up a loaded rule by its short name (basename without extension) — for `@rule:NAME` (R.5). */
 	getRuleByName(name: string): LoadedRuleSource | undefined;
 
-	/** R.4 — per-workspace enable/disable of a rule source (by relativePath). */
+	/** R.4 — per-workspace enable/disable of a rule source (by relativePath), backed by the
+	 *  `vibeide.projectRules.disabledSources` setting. */
 	isRuleEnabled(relativePath: string): boolean;
-	setRuleEnabled(relativePath: string, enabled: boolean): void;
+	setRuleEnabled(relativePath: string, enabled: boolean): Promise<void>;
 
 	/** Force reload all rules files (clears cache) */
 	reloadRules(): Promise<void>;
@@ -105,8 +106,11 @@ const MAX_RULE_FILES = 50;
 /** Recursion depth cap for the rules-folder scan. */
 const MAX_RULE_FOLDER_DEPTH = 6;
 const WATCHER_DEBOUNCE_MS = 350;
-/** Workspace-scoped storage of disabled rule source paths (R.4 toggle). */
-const DISABLED_STORAGE_KEY = 'vibeide.projectRules.disabledPaths';
+/** Registered settings (see vibeProjectRulesSettingsContribution) — single source of truth for
+ *  disabled rule sources + the combined-output char cap. */
+const DISABLED_SOURCES_KEY = 'vibeide.projectRules.disabledSources';
+const MAX_COMBINED_CHARS_KEY = 'vibeide.projectRules.maxCombinedChars';
+const DEFAULT_MAX_COMBINED_CHARS = 20000;
 
 // ── Implementation ─────────────────────────────────────────────────────────────
 
@@ -115,8 +119,6 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 
 	private _cachedSources: LoadedRuleSource[] = [];
 	private _cachedCombined = '';
-	/** Rule source paths the user disabled (R.4); honored in `_combineSources`, persisted per workspace. */
-	private readonly _disabledPaths = new Set<string>();
 
 	private readonly _onRulesChanged = this._register(new Emitter<void>());
 	readonly onRulesChanged: Event<void> = this._onRulesChanged.event;
@@ -131,14 +133,18 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 		@IVibePromptGuardService private readonly _guard: IVibePromptGuardService,
-		@IStorageService private readonly _storage: IStorageService,
+		@IConfigurationService private readonly _config: IConfigurationService,
 	) {
 		super();
-		// R.4 — restore the per-workspace disabled-rules set.
-		try {
-			const arr = JSON.parse(this._storage.get(DISABLED_STORAGE_KEY, StorageScope.WORKSPACE, '[]'));
-			if (Array.isArray(arr)) { for (const p of arr) { if (typeof p === 'string') { this._disabledPaths.add(p); } } }
-		} catch { /* corrupt → empty */ }
+		// Disabled sources + max-chars come from the registered config (`vibeide.projectRules.*`,
+		// see vibeProjectRulesSettingsContribution) — single source of truth. Recompute the cached
+		// combine when either changes (toggle from the panel / command / settings.json edit).
+		this._register(this._config.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration(DISABLED_SOURCES_KEY) || e.affectsConfiguration(MAX_COMBINED_CHARS_KEY)) {
+				this._cachedCombined = this._combineSources(this._cachedSources, undefined);
+				this._onRulesChanged.fire();
+			}
+		}));
 		// Watch for file changes in workspace root
 		this._register(this._fileService.onDidFilesChange(e => {
 			const rootUris = this._workspace.getWorkspace().folders.map(f => f.uri);
@@ -177,11 +183,12 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 	 * unmatched ones in an "available rules" index (R.3/R.7). Without `activation` → inject all.
 	 */
 	private _combineSources(sources: readonly LoadedRuleSource[], activation: { userText?: string; files?: readonly string[] } | undefined): string {
+		const disabled = new Set(this._config.getValue<string[]>(DISABLED_SOURCES_KEY) ?? []);
 		const seen = new Set<string>();
 		const injected: string[] = [];
 		const indexed: LoadedRuleSource[] = [];
 		for (const s of sources) {
-			if (this._disabledPaths.has(s.relativePath)) { continue; } // R.4 — user-disabled
+			if (disabled.has(s.relativePath)) { continue; } // disabled in settings (vibeide.projectRules.disabledSources)
 			const body = s.content.trim();
 			if (body.length === 0) { continue; }
 			if (seen.has(body)) { continue; } // R.6 — dedup identical content across sources
@@ -203,7 +210,14 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 			const list = indexed.map(s => `- ${ruleNameFromPath(s.relativePath)}${s.description ? ` — ${s.description}` : ''}`).join('\n');
 			parts.push(`[Available project rules — conditional, not loaded this turn; load with @rule:<name>]\n${list}`);
 		}
-		return parts.join('\n\n').trim();
+		const combined = parts.join('\n\n').trim();
+		// Honor vibeide.projectRules.maxCombinedChars — hard cap on injected rules (was a phantom
+		// setting before consolidation). 0 / negative disables the cap.
+		const maxChars = this._config.getValue<number>(MAX_COMBINED_CHARS_KEY) ?? DEFAULT_MAX_COMBINED_CHARS;
+		if (maxChars > 0 && combined.length > maxChars) {
+			return combined.slice(0, maxChars).trimEnd() + '\n…[project rules truncated to maxCombinedChars]';
+		}
+		return combined;
 	}
 
 	getLoadedSources(): LoadedRuleSource[] {
@@ -217,14 +231,17 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 	}
 
 	isRuleEnabled(relativePath: string): boolean {
-		return !this._disabledPaths.has(relativePath);
+		return !((this._config.getValue<string[]>(DISABLED_SOURCES_KEY) ?? []).includes(relativePath));
 	}
 
-	setRuleEnabled(relativePath: string, enabled: boolean): void {
-		if (enabled) { this._disabledPaths.delete(relativePath); } else { this._disabledPaths.add(relativePath); }
-		this._storage.store(DISABLED_STORAGE_KEY, JSON.stringify([...this._disabledPaths]), StorageScope.WORKSPACE, StorageTarget.USER);
-		this._cachedCombined = this._combineSources(this._cachedSources, undefined);
-		this._onRulesChanged.fire();
+	async setRuleEnabled(relativePath: string, enabled: boolean): Promise<void> {
+		const current = this._config.getValue<string[]>(DISABLED_SOURCES_KEY) ?? [];
+		const next = enabled
+			? current.filter(p => p !== relativePath)
+			: [...new Set([...current, relativePath])];
+		// Persist to the registered workspace setting; the onDidChangeConfiguration listener
+		// recomputes the cache + fires onRulesChanged.
+		await this._config.updateValue(DISABLED_SOURCES_KEY, next, ConfigurationTarget.WORKSPACE);
 	}
 
 	async reloadRules(): Promise<void> {
@@ -320,46 +337,9 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 
 registerSingleton(IVibeProjectRulesService, VibeProjectRulesService, InstantiationType.Delayed);
 
-// ── Command: Toggle Project Rule (enable/disable a source) — R.4 ────────────────
-registerAction2(class extends Action2 {
-	constructor() {
-		super({
-			id: 'vibeide.projectRules.toggle',
-			title: { value: localize('vibeide.projectRules.toggle', 'VibeIDE: Включить/выключить правило проекта'), original: 'VibeIDE: Toggle Project Rule' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
-			f1: true,
-		});
-	}
-	async run(accessor: ServicesAccessor): Promise<void> {
-		const rulesSvc = accessor.get(IVibeProjectRulesService);
-		const quickInput = accessor.get(IQuickInputService);
-		const notifications = accessor.get(INotificationService);
-		await rulesSvc.reloadRules();
-		const sources = rulesSvc.getLoadedSources();
-		if (sources.length === 0) {
-			notifications.notify({ severity: Severity.Info, message: localize('vibeide.projectRules.toggle.none', 'Правил проекта не найдено.') });
-			return;
-		}
-		const items: (IQuickPickItem & { path: string })[] = sources.map(s => {
-			const on = rulesSvc.isRuleEnabled(s.relativePath);
-			return {
-				label: `${on ? '$(check)' : '$(circle-slash)'} ${s.relativePath}`,
-				description: on ? localize('vibeide.projectRules.toggle.on', 'включено') : localize('vibeide.projectRules.toggle.off', 'выключено'),
-				path: s.relativePath,
-			};
-		});
-		const pick = await quickInput.pick(items, { placeHolder: localize('vibeide.projectRules.toggle.placeholder', 'Выберите правило, чтобы включить/выключить') });
-		if (!pick) { return; }
-		const nowEnabled = !rulesSvc.isRuleEnabled(pick.path);
-		rulesSvc.setRuleEnabled(pick.path, nowEnabled);
-		notifications.notify({
-			severity: Severity.Info,
-			message: nowEnabled
-				? localize('vibeide.projectRules.toggle.enabled', 'Правило включено: {0}', pick.path)
-				: localize('vibeide.projectRules.toggle.disabled', 'Правило выключено: {0}', pick.path),
-		});
-	}
-});
+// NOTE: the rule enable/disable toggle command lives in vibeProjectRulesSettingsContribution
+// (`vibeide.projectRules.toggleSource`, config-backed) — single source of truth. The earlier
+// duplicate `vibeide.projectRules.toggle` here was removed during consolidation (2026-05-30).
 
 // ── Command: Reload Project Rules ──────────────────────────────────────────────
 
