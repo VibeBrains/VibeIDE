@@ -84,7 +84,8 @@
 | [portable-and-electron.md](build/portable-and-electron.md) | Portable Windows ZIP, Electron mirror, Linux CI X11 |
 | [compile-and-sync.md](build/compile-and-sync.md) | `tsgo` exit 2, sync без общего предка, `run-dev` / `vibe-dev` runner |
 | [update-service.md](build/update-service.md) | GitHub releases + `IUpdateService`, semver сравнение |
-| [vibe-keybindings.md](build/vibe-keybindings.md) | Встроенный IntelliJ-keymap `extensions/vibe-keybindings/`; **upstream-источник обновлений** (kasecato/vscode-intellij-idea-keybindings, MIT, `master`) + процедура ре-синка |
+| [vibe-keybindings.md](build/vibe-keybindings.md) | Встроенный IntelliJ-keymap `extensions/vibe-keybindings/`; модель владения keymap + история |
+| [third-party-licensing.md](build/third-party-licensing.md) | Провенанс-флажок ДО сборки/релиза: сторонний код = поднять лицензию явно, не доводить молча до релиза |
 
 ### [git-and-tools/](git-and-tools/) — git, скрипты, инструменты
 

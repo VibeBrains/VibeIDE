@@ -1,13 +1,6 @@
-The keybindings bundled in this extension are ported from
-**kasecato/vscode-intellij-idea-keybindings** (https://github.com/kasecato/vscode-intellij-idea-keybindings),
-licensed under the MIT License. The original copyright and permission notice is
-reproduced below in full, as required by the license.
-
----
-
 The MIT License (MIT)
 
-Copyright (c) 2017 - present Keisuke Kato
+Copyright (c) 2026-present VibeIDE Team
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

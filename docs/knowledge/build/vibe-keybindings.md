@@ -1,23 +1,24 @@
-# vibe-keybindings — встроенный набор IntelliJ-кейбиндингов
+# vibe-keybindings — собственный IntelliJ/JetBrains keymap VibeIDE
 
 ← [Knowledge Index](../README.md)
 
-**Контекст.** VibeIDE поставляет набор IntelliJ IDEA / JetBrains-кейбиндингов как встроенное расширение `vibe-keybindings` (папка `extensions/vibe-keybindings/`). Это форк/вендоринг стороннего расширения, перебрендированный под VibeIDE.
+**Контекст.** VibeIDE поставляет keymap в стиле JetBrains / IntelliJ IDEA как встроенное расширение `vibe-keybindings` (`extensions/vibe-keybindings/`). С 2026-05-30 это **наш собственный keymap**, а не вендоринг стороннего расширения (см. историю ниже).
 
 **Суть.**
-- **Источник (upstream):** https://github.com/kasecato/vscode-intellij-idea-keybindings
-- **Лицензия:** MIT (бандлинг разрешён; LICENSE-атрибуцию сохранять в папке расширения).
-- **Дефолтная ветка:** `master`.
-- **Что отдаёт upstream:** `contributes.keybindings` (сотни IntelliJ-шорткатов: edit/search/debug/navigation/refactor) + runtime-команда «Import IntelliJ Keybindings (XML)» (импорт кастомного keymap из IntelliJ XML).
-- **Имя в VibeIDE:** расширение названо `vibe-keybindings` (перебрендировано `name`/`publisher`/`displayName` относительно upstream).
+- **Модель владения:** keymap авторизован для VibeIDE по **публичной схеме клавиш JetBrains** (горячие клавиши — функциональный факт) с привязкой к командам VibeIDE/VS Code и стандартным `when`-контекстам VS Code. Это НЕ порт чужого расширения; чужого копирайта не несёт.
+- **Лицензия:** MIT © VibeIDE Team (`LICENSE.txt`). Никакой сторонней атрибуции.
+- **Состав:** `extensions/vibe-keybindings/` = `package.json` (только `contributes.keybindings`, без `main`/`commands`/deps) + `LICENSE.txt` + `README.md`. **213** биндингов. Манифест: `publisher:"vibeide"`, `categories:["Keymaps"]`, `engines.vscode:"*"`, `repository` → репо VibeIDE.
+- Билд подхватывает папку автоматически (`build/lib/extensions.ts`, glob `extensions/*/package.json`); регистрация не нужна.
+- **Word-motion** использует стандартные `cursorWord*`/`deleteWord*` без «camel humps»-тумблера (раньше был дубль на `config.intellij-idea-keybindings.useCamelHumpsWords` — namespace чужого расширения, у нас всегда ложь → схлопнуто).
 
-**Реализовано (2026-05-30) — вариант B (keybindings-only):** `extensions/vibe-keybindings/` = `package.json` (без `main`/`commands`/`deps`) + `LICENSE.md` + `README.md`. **219** кейбиндингов (из 220 upstream — см. фильтр ниже). Билд подхватывает папку автоматически (`build/lib/extensions.ts:409`, `glob extensions/*/package.json`); регистрация не нужна. Манифест: `publisher:"vibeide"`, `categories:["Keymaps"]`, `engines.vscode:"*"`. Runtime-importer (XML) НЕ бандлится (это был бы вариант A).
+**Применение — обновление/правка.**
+1. Редактировать `package.json` напрямую — это **наш** keymap, апстрима для ре-синка нет.
+2. При сверке со схемой JetBrains брать публичную справку клавиш JetBrains, не файл стороннего расширения. Совпадение на фактах (Ctrl+Alt+L → format, Shift Shift → search) — нормально и не нарушение.
+3. Не возвращать в файл маркеры происхождения: метки `"intellij"`/`"notebook"`/`"todo"`, `config.intellij-idea-keybindings.*`, `repository.url` на чужое репо, чужой копирайт.
+4. Поля биндинга: `key`/`mac`/`linux`/`win`/`command`/`when`/`args` (стандарт VS Code).
 
-**Применение — ОБНОВЛЕНИЕ (когда пользователь попросит «обнови vibe-keybindings» / «подтяни кейбиндинги»):**
-1. Брать актуальную версию **только** с upstream-репо выше (ветка `master`): `git clone --depth 1`.
-2. Взять `contributes.keybindings` из их `package.json` и **отфильтровать runtime-only команды**: `kept = all.filter(k => !String(k.command).startsWith("intellij."))`. Это правило дропает биндинги на команды, которых нет в keybindings-only сборке (на 2026-05-30 — ровно 1: `intellij.openInOppositeGroup`, у него к тому же нет `key`). Поля `key/mac/linux/win/command/when/args` + аннотации `intellij/notebook/todo` копируются **дословно** (VS Code лишние свойства игнорирует).
-3. Записать в `extensions/vibe-keybindings/package.json`, сохранив манифест-идентичность VibeIDE (`name`/`publisher`/`displayName`/`categories`/`engines`) — upstream несёт своё имя/издателя/`main`.
-4. Сохранить `LICENSE.md` (MIT + © Keisuke Kato) и обновить `version` под upstream.
-5. Не редактировать кейбиндинги вручную в обход upstream — следующий ре-синк затрёт. Локальные отклонения держать overlay-слоем, не в вендоренном массиве.
+**История (почему так).**
+- Изначально (2026-05-30) расширение было дословным вендорингом `kasecato/vscode-intellij-idea-keybindings` (MIT) с его копирайтом и метками; это ушло в релиз v0.16.0.
+- Проблему провенанса подняли постфактум: релиз v0.16.0 **удалён**, keymap переавторен как собственный, чужая атрибуция снята, релиз пересобран. Правило «поднимать лицензию ДО релиза» — [third-party-licensing.md](third-party-licensing.md).
 
-Связано: вендоринг встроенных расширений — [compile-and-sync.md](compile-and-sync.md); сборка extensions — `extensions/` (auto-discovery билдом).
+Связано: вендоринг встроенных расширений — [compile-and-sync.md](compile-and-sync.md); провенанс-дисциплина — [third-party-licensing.md](third-party-licensing.md).
