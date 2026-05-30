@@ -41,6 +41,18 @@ export interface WatchdogSampleBase {
 	readonly heapLimit?: number;
 	readonly external?: number;
 	readonly arrayBuffers?: number;
+	/**
+	 * Private commit charge (a.k.a. private bytes) in BYTES — memory the process has
+	 * committed and the OS counts against the system commit limit, NOT shared with
+	 * other processes. Sourced from `app.getAppMetrics().memory.privateBytes` (main
+	 * side only; reported in KB by Electron, stored here in bytes). This is the metric
+	 * that catches commit-charge OOMs invisible in `rss` / working set: a renderer can
+	 * commit gigabytes (ArrayBuffers, WASM, PartitionAlloc super-pages) while its working
+	 * set stays small, then die with Chromium `0xE0000008` when a routine reservation is
+	 * refused. `heapUsed`/`rss` showed ~340/400 MB right up to such a crash. Undefined =
+	 * not measured (renderer self-samples via `performance.memory` cannot read it).
+	 */
+	readonly privateBytes?: number;
 	readonly handles?: number;
 	readonly activeRequests?: number;
 	readonly windowId?: number;
@@ -127,6 +139,15 @@ export interface WatchdogSlopeAlert {
 	readonly windowId?: number;
 	readonly pid?: number;
 	readonly ts: string;
+	/**
+	 * Which memory metric grew: `'rss'` (working set — the original W.5 signal) or
+	 * `'commit'` (private commit charge / `privateBytes`). Absent → treat as `'rss'`
+	 * for backward-compat with pre-commit-slope lines. Commit-slope catches leaks the
+	 * RSS signal misses (renderer OOM 2026-05-30: RSS flat ~400 MB, commit climbed to
+	 * ~13 GB). UI uses this to word the toast correctly — a low working set in Task
+	 * Manager is expected for a commit balloon and must not read as a contradiction.
+	 */
+	readonly metric?: 'rss' | 'commit';
 }
 
 /**

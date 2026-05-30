@@ -57,6 +57,7 @@ export class VibeIdleWatchdogChannelService extends Disposable implements IVibeI
 					windowId: alert.windowId,
 					pid: alert.pid,
 					ts: new Date().toISOString(),
+					metric: alert.metric,
 				});
 			}));
 			this._register(svc.onPreOomAlert(alert => {

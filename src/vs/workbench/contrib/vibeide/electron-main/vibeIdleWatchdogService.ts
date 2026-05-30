@@ -93,6 +93,12 @@ interface WatchdogConfig {
 	readonly adaptiveSampling: boolean;
 	/** Use statistical (3-sigma) slope detection instead of fixed threshold (W.33). */
 	readonly statisticalOutlier: boolean;
+	/**
+	 * Absolute private-commit (privateBytes) in MB that trips a pre-OOM alert for a
+	 * process. Catches commit-charge balloons invisible to the V8-heap-ratio rule
+	 * (renderer OOM 2026-05-30: heap 0.08 of limit, but ~13 GB committed). 0 disables.
+	 */
+	readonly commitAlertMB: number;
 }
 
 const DEFAULT_CHILD_PROCESS_TYPES: readonly string[] = ['Utility', 'GPU'];
@@ -116,6 +122,7 @@ const DEFAULTS: WatchdogConfig = {
 	compressOldJsonl: true,
 	adaptiveSampling: false,
 	statisticalOutlier: false,
+	commitAlertMB: 4000,
 };
 
 const ADAPTIVE_IDLE_THRESHOLD_SEC = 3600;
@@ -173,6 +180,7 @@ function readConfigFromDisk(userDataPath: string, previous?: WatchdogConfig): Wa
 			compressOldJsonl: clampBool(parsed['vibeide.diagnostics.idleWatchdog.compressOldJsonl'], DEFAULTS.compressOldJsonl),
 			adaptiveSampling: clampBool(parsed['vibeide.diagnostics.idleWatchdog.adaptiveSampling'], DEFAULTS.adaptiveSampling),
 			statisticalOutlier: clampBool(parsed['vibeide.diagnostics.idleWatchdog.statisticalOutlier'], DEFAULTS.statisticalOutlier),
+			commitAlertMB: clampInt(parsed['vibeide.diagnostics.idleWatchdog.commitAlertMB'], 0, 64000, DEFAULTS.commitAlertMB),
 		};
 	} catch {
 		// settings.json absent on first launch / read failed mid-write — keep previous
@@ -447,6 +455,9 @@ export class VibeIdleWatchdogService {
 	private _tickCounter = 0;
 	private readonly _lastTickTsByKey = new Map<string, string>();
 	private readonly _slopeWatchers = new Map<string, SlopeWatcher>();
+	/** Parallel slope watchers fed `privateBytes` (commit charge) — catches commit
+	 * balloons the RSS watchers miss (renderer OOM 2026-05-30). Keyed identically. */
+	private readonly _commitSlopeWatchers = new Map<string, SlopeWatcher>();
 	private readonly _lastSnapshotByKey = new Map<string, number>();
 	/** Last sampled RSS (MB) per process key — for per-tick growth-delta snapshot trigger (O.12). */
 	private readonly _lastRssByKey = new Map<string, number>();
@@ -456,8 +467,8 @@ export class VibeIdleWatchdogService {
 	 * pre-W.22 single-callback `setSlopeNotifier`. Fires at most once per
 	 * (proc, windowId, pid) per session (gated by `SlopeWatcher.markNotified`).
 	 */
-	private readonly _onSlopeAlert = new Emitter<{ proc: WatchdogProc; slopeMBPerMin: number; windowId?: number; pid?: number }>();
-	readonly onSlopeAlert: Event<{ proc: WatchdogProc; slopeMBPerMin: number; windowId?: number; pid?: number }> = this._onSlopeAlert.event;
+	private readonly _onSlopeAlert = new Emitter<{ proc: WatchdogProc; slopeMBPerMin: number; windowId?: number; pid?: number; metric?: 'rss' | 'commit' }>();
+	readonly onSlopeAlert: Event<{ proc: WatchdogProc; slopeMBPerMin: number; windowId?: number; pid?: number; metric?: 'rss' | 'commit' }> = this._onSlopeAlert.event;
 
 	/** Pre-OOM alert event (W.34/W.42). Fires when `heapUsed/heapLimit > preOomHeapRatio`. */
 	private readonly _onPreOomAlert = new Emitter<WatchdogPreOomAlert>();
@@ -636,6 +647,7 @@ export class VibeIdleWatchdogService {
 	 */
 	private _cleanupKey(k: string): void {
 		this._slopeWatchers.delete(k);
+		this._commitSlopeWatchers.delete(k);
 		this._lastTickTsByKey.delete(k);
 		this._lastSnapshotByKey.delete(k);
 	}
@@ -864,12 +876,27 @@ export class VibeIdleWatchdogService {
 		for (const m of metrics) {
 			livePids.add(m.pid);
 			if (m.pid === process.pid) continue;             // main — already sampled
-			if (m.type === 'Tab') continue;                   // renderer — covered by W.1
-			if (!includeTypes.includes(m.type)) continue;     // user-configurable filter (W.22)
+			// Renderers (`Tab`) used to be skipped here (covered by the W.1 renderer-side
+			// self-sample). But that self-sample reads `performance.memory` — JS heap only,
+			// no commit — and carries a bogus pid (-1). The renderer OOM 2026-05-30 was a
+			// commit-charge balloon (~13 GB private commit at ~400 MB working set), invisible
+			// to every existing signal. main is the ONLY place that can read a renderer's
+			// `privateBytes` (with its real OS pid), so we now emit a main-side commit-probe
+			// for renderers too. They are exempt from `includeChildProcessTypes` (that filter
+			// targets helper utilities, not the renderer we most need to watch).
+			const isRenderer = m.type === 'Tab';
+			if (!isRenderer && !includeTypes.includes(m.type)) continue; // user-configurable filter (W.22)
 			const proc = mapElectronTypeToProc(m.type);
 			// `workingSetSize` is in KILOBYTES per Electron docs; multiply to bytes for
 			// schema consistency with `process.memoryUsage().rss`.
 			const rss = (m.memory?.workingSetSize ?? 0) * 1024;
+			// `privateBytes` (KB → bytes): private commit charge. 0/absent → undefined
+			// («not measured») rather than a misleading literal 0.
+			const privBytesKb = m.memory?.privateBytes;
+			const privateBytes = typeof privBytesKb === 'number' && privBytesKb > 0 ? privBytesKb * 1024 : undefined;
+			// Tag renderer probes so readers don't confuse them with the heap-bearing W.1
+			// self-sample of the same window.
+			const tickNote = isRenderer ? (note ? `${note} commit-probe` : 'commit-probe') : note;
 			const uptimeSec = m.creationTime ? Math.round((Date.now() - m.creationTime) / 1000) : 0;
 			const sample: WatchdogSampleBase = {
 				v: 1,
@@ -879,10 +906,11 @@ export class VibeIdleWatchdogService {
 				pid: m.pid,
 				uptimeSec,
 				rss,
+				privateBytes,
 				// `heapUsed` / `heapTotal` intentionally omitted — `app.getAppMetrics()`
 				// does not expose V8 heap of children. Pre-W.22 emitted `0` here, which
 				// readers misinterpreted as «really zero»; undefined = «not measured».
-				note: this._composeChildNote(note, m.serviceName, m.name),
+				note: this._composeChildNote(tickNote, m.serviceName, m.name),
 			};
 			this._lastTickTsByKey.set(keyFor({ proc, pid: m.pid }), sample.ts);
 			this._writeQueue.enqueue(JSON.stringify(sample) + '\n');
@@ -957,7 +985,33 @@ export class VibeIdleWatchdogService {
 				slopeMBPerMin,
 				windowId: sample.windowId,
 				pid: sample.pid,
+				metric: 'rss',
 			});
+		}
+		// Commit-charge slope — parallel watcher fed `privateBytes`. Catches a balloon
+		// that grows in private commit while working set stays flat (renderer OOM
+		// 2026-05-30). Only main-sampled children carry `privateBytes`, so this is the
+		// sole growth signal for them; one-shot per key via its own `markNotified`.
+		if (sample.privateBytes !== undefined) {
+			let commitWatcher = this._commitSlopeWatchers.get(k);
+			if (!commitWatcher) {
+				commitWatcher = new SlopeWatcher();
+				this._commitSlopeWatchers.set(k, commitWatcher);
+			}
+			const { slopeMBPerMin: commitSlope, outlier: commitOutlier } = commitWatcher.push(Date.parse(sample.ts), sample.privateBytes);
+			const commitTrigger = this._config.statisticalOutlier
+				? commitOutlier
+				: commitSlope > this._config.growthAlertMBPerMin;
+			if (!commitWatcher.notified && commitTrigger) {
+				commitWatcher.markNotified();
+				this._onSlopeAlert.fire({
+					proc: sample.proc,
+					slopeMBPerMin: commitSlope,
+					windowId: sample.windowId,
+					pid: sample.pid,
+					metric: 'commit',
+				});
+			}
 		}
 		// W.34/W.42 pre-OOM evaluation — orthogonal to slope alert, may fire on
 		// the same sample if the heap ratio crosses threshold.
@@ -1175,7 +1229,15 @@ export class VibeIdleWatchdogService {
 			: undefined;
 		const heuristicRatio = ratio !== undefined && ratio > this._config.preOomHeapRatio;
 		const heuristicGc = (sample.gcMajorCount ?? 0) > 5 && currentSlopeMBPerMin > 10;
-		if (!heuristicRatio && !heuristicGc) return;
+		// Commit-charge heuristic (renderer OOM 2026-05-30): a process can sit at a
+		// healthy V8 heap ratio yet have committed gigabytes that the OS will eventually
+		// refuse. `privateBytes` is only present on main-sampled children (incl. the
+		// renderer commit-probe), so this branch is the sole pre-OOM signal for them.
+		const commitMB = sample.privateBytes !== undefined ? sample.privateBytes / (1024 * 1024) : undefined;
+		const heuristicCommit = this._config.commitAlertMB > 0
+			&& commitMB !== undefined
+			&& commitMB >= this._config.commitAlertMB;
+		if (!heuristicRatio && !heuristicGc && !heuristicCommit) return;
 		this._preOomNotified.add(k);
 		const alert: WatchdogPreOomAlert = {
 			proc: sample.proc,

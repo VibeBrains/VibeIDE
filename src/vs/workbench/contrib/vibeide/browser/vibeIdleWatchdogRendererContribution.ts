@@ -249,23 +249,34 @@ export class VibeIdleWatchdogRendererContribution extends Disposable implements 
 	}
 
 	private _handleSlopeAlert(alert: WatchdogSlopeAlert): void {
-		// Renderer-specific alerts belong to a single window; skip if not ours.
-		if (alert.proc === 'renderer' && alert.windowId !== undefined && alert.windowId !== this._windowId) return;
-		// Non-renderer alerts (main, exthost, gpu, utility) can fire on any window.
-		// To avoid N duplicate toasts in a multi-window setup, only the focused
-		// window surfaces them. Edge case: no window focused — alert is silently
-		// dropped on this side; the .jsonl still records growth for offline review.
-		if (alert.proc !== 'renderer' && !this._hostService.hasFocus) return;
+		// Commit-metric alerts are emitted from main without a windowId (main can't map
+		// pid→window for the renderer commit-probe), so they can't be routed to one
+		// renderer. Treat them like non-renderer alerts below: focus-gated, single window.
+		const isCommit = alert.metric === 'commit';
+		// Renderer-specific RSS alerts belong to a single window; skip if not ours.
+		if (alert.proc === 'renderer' && !isCommit && alert.windowId !== undefined && alert.windowId !== this._windowId) return;
+		// Non-renderer alerts (main, exthost, gpu, utility) AND commit-metric alerts can
+		// fire on any window. To avoid N duplicate toasts in a multi-window setup, only
+		// the focused window surfaces them. Edge case: no window focused — alert is
+		// silently dropped on this side; the .jsonl still records growth for offline review.
+		if ((alert.proc !== 'renderer' || isCommit) && !this._hostService.hasFocus) return;
 
 		const procLabel = this._procLabel(alert.proc);
 		this._notifications.notify({
 			severity: Severity.Warning,
-			message: localize(
-				'vibeide.watchdog.slopeAlert',
-				'VibeIDE: память {0} растёт {1} МБ/мин (sustained over the last 12 samples). Возможна утечка — оставьте окно открытым ещё на несколько минут и снимите crash report для анализа.',
-				procLabel,
-				alert.slopeMBPerMin.toFixed(1),
-			),
+			message: isCommit
+				? localize(
+					'vibeide.watchdog.slopeAlertCommit',
+					'VibeIDE: commit-память (private bytes) {0} растёт {1} МБ/мин (sustained over the last 12 samples). Рост идёт в выделенной памяти, а не в working set — в диспетчере задач он может быть незаметен. Возможна off-heap утечка (ArrayBuffers / нативные буферы); оставьте окно открытым и снимите crash report.',
+					procLabel,
+					alert.slopeMBPerMin.toFixed(1),
+				)
+				: localize(
+					'vibeide.watchdog.slopeAlert',
+					'VibeIDE: память {0} растёт {1} МБ/мин (sustained over the last 12 samples). Возможна утечка — оставьте окно открытым ещё на несколько минут и снимите crash report для анализа.',
+					procLabel,
+					alert.slopeMBPerMin.toFixed(1),
+				),
 			actions: {
 				primary: [
 					{
