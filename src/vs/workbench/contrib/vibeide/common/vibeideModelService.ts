@@ -7,16 +7,24 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
-import { FileOperationError, FileOperationResult, FileSystemProviderError, FileSystemProviderErrorCode } from '../../../../platform/files/common/files.js';
+import { FileOperationError, FileOperationResult, FileSystemProviderError, FileSystemProviderErrorCode, toFileSystemProviderErrorCode } from '../../../../platform/files/common/files.js';
 import { LRUCache } from '../../../../base/common/map.js';
 
 // A missing file surfaces as EITHER a FileOperationError (FILE_NOT_FOUND) OR a raw
 // FileSystemProviderError (code FileNotFound, i.e. "EntryNotFound") depending on which
 // layer threw. Recognising only the former let ENOENT slip through, re-throw, and spam
 // "InitializeModel error" hundreds of times for one missing path (model-stalls #013).
+//
+// #013 round-2: when the error originates in the MAIN-process file service and is
+// marshaled across IPC into the renderer, it loses its prototype — both `instanceof`
+// checks return false (stack lands in main.js), so ENOENT slipped through again,
+// re-threw, and never populated the existence cache → per-tick spam while the agent
+// creates a NOT-YET-EXISTING file (`<workspace>/.vibe/rules/dev.md`). `toFileSystemProviderErrorCode`
+// is prototype-independent: it reads the code off `error.name` ("EntryNotFound (FileSystemError)").
 const isFileNotFoundError = (err: unknown): boolean =>
 	(err instanceof FileOperationError && err.fileOperationResult === FileOperationResult.FILE_NOT_FOUND)
-	|| (err instanceof FileSystemProviderError && err.code === FileSystemProviderErrorCode.FileNotFound);
+	|| (err instanceof FileSystemProviderError && err.code === FileSystemProviderErrorCode.FileNotFound)
+	|| toFileSystemProviderErrorCode(err as Error) === FileSystemProviderErrorCode.FileNotFound;
 
 type VibeideModelType = {
 	model: ITextModel | null;
