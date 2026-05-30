@@ -30,7 +30,26 @@
  *     reset suppression so next failure cycle re-arms.
  */
 
-export type FailureKind = 'empty-response' | 'context-overflow' | 'invalid-params'
+export type FailureKind = 'empty-response' | 'context-overflow' | 'invalid-params' | 'provider-error'
+
+/**
+ * Classify a provider-side degradation error (gateway 520/529, rate/usage limit, overload, stream
+ * stall, retries-exhausted) for health tracking. Returns `'provider-error'` on match, else
+ * undefined. Pattern-based and dependency-free — high-confidence phrases only to avoid false
+ * positives (the counter resets on the next success, so occasional noise is low-harm anyway).
+ */
+export function classifyProviderError(message: string | undefined): FailureKind | undefined {
+	if (!message) { return undefined }
+	const m = message.toLowerCase()
+	const hit =
+		/\b52[09]\b/.test(m)                                   // 520 (origin down) / 529 (overloaded)
+		|| m.includes('rate limit') || m.includes('rate-limit') || m.includes('429') || m.includes('too many requests')
+		|| m.includes('usage limit') || m.includes('quota')
+		|| m.includes('overloaded') || m.includes('capacity')
+		|| m.includes('maxretriesexceeded')
+		|| (m.includes('stream') && (m.includes('stall') || m.includes('timeout') || m.includes('closed')))
+	return hit ? 'provider-error' : undefined
+}
 
 /** Rolling window — only failures within this many ms count toward the threshold. */
 export const HEALTH_WINDOW_MS = 10 * 60 * 1000
@@ -117,6 +136,11 @@ export class ModelHealthTracker {
 		if (!state) return 0
 		const cutoff = now - HEALTH_WINDOW_MS
 		return state.failures.filter(f => f.timestamp >= cutoff).length
+	}
+
+	/** True if this combo is currently at/over the failure threshold within the rolling window. */
+	isDegraded(providerName: string, modelName: string, now: number = Date.now()): boolean {
+		return this.getFailureCount(providerName, modelName, now) >= HEALTH_FAILURE_THRESHOLD
 	}
 
 	/** Test-only — wipe all state. */

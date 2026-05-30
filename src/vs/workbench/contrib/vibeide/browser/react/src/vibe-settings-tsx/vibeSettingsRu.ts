@@ -122,6 +122,7 @@ export const chatS = {
 	statusPreparing: 'Подготовка',
 	statusRunning: 'Выполняется',
 	statusDone: 'Готово',
+	providerDegradedTooltip: 'Провайдер нестабилен (серия сбоев за ~10 мин) — кликните, чтобы сменить модель.',
 	rejectAllTooltip: 'Отклонить всё',
 	acceptAllTooltip: 'Принять всё',
 	rejectFileTooltip: 'Отклонить файл',

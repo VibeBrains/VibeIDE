@@ -19,7 +19,7 @@ import { toolCallSignature, resolveAntiLoopThreshold } from '../common/agentLoop
 import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
 import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
 import { AnthropicReasoning, getErrorMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
-import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS } from '../common/modelHealthTracker.js';
+import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS, classifyProviderError } from '../common/modelHealthTracker.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { autoModelFallbackProviderOrder, ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isVisionByNameHeuristic } from '../common/modelVisionHeuristics.js';
@@ -450,6 +450,10 @@ export interface IChatThreadService {
 
 	onDidChangeCurrentThread: Event<void>;
 	onDidChangeStreamState: Event<{ threadId: string }>
+	/** Fired when provider/model health degradation state changes (3099) — model-chip warning. */
+	readonly onDidChangeProviderHealth: Event<void>;
+	/** True if the (provider×model) is currently over the failure threshold within the window (3099). */
+	isProviderDegraded(providerName: string, modelName: string): boolean;
 	/** Fired after a thread is deleted. Consumers (tab-binding contribution) use this to close/unbind tabs. */
 	readonly onDidDeleteThread: Event<string>;
 	/**
@@ -585,6 +589,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	private readonly _onDidChangeStreamState = new Emitter<{ threadId: string }>();
 	readonly onDidChangeStreamState: Event<{ threadId: string }> = this._onDidChangeStreamState.event;
 
+	private readonly _onDidChangeProviderHealth = new Emitter<void>();
+	readonly onDidChangeProviderHealth: Event<void> = this._onDidChangeProviderHealth.event;
+
 	private readonly _onDidDeleteThread = new Emitter<string>();
 	readonly onDidDeleteThread: Event<string> = this._onDidDeleteThread.event;
 	readonly onDidDisposeThread: Event<string> = this._onDidDeleteThread.event;
@@ -655,6 +662,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	// across multiple chats but it's the same broken aggregator route). Ephemeral;
 	// not persisted across IDE restarts.
 	private readonly _modelHealthTracker = new ModelHealthTracker()
+
+	isProviderDegraded(providerName: string, modelName: string): boolean {
+		return this._modelHealthTracker.isDegraded(providerName, modelName);
+	}
 
 	// Submit-level watchdog: started in _addUserMessageAndStreamResponse, cleared in
 	// _setStreamState when the stream actually transitions to an active state
@@ -5281,7 +5292,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						// Also reset the cross-thread health tracker for this combo. One good
 						// response means the aggregator route is healthy again; next failure
 						// cycle starts fresh.
+						const _wasDegraded = this._modelHealthTracker.isDegraded(modelSelection.providerName, modelSelection.modelName)
 						this._modelHealthTracker.recordSuccess(modelSelection.providerName, modelSelection.modelName)
+						if (_wasDegraded) { this._onDidChangeProviderHealth.fire() }
 					}
 
 					// Persist provider-reported token usage on the thread so the UI
@@ -5473,7 +5486,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						// HEALTH_WINDOW_MS. Catches the case where user spread failures across multiple
 						// chats but it's the same broken route. Doesn't suppress the inline error in
 						// effectiveError (different concern — that's per-thread escalation).
-						const healthMatch = overflowMatch ?? emptyMatch
+						// 3099: count provider-degradation errors (520/529, rate/usage limit, overload, stream stall,
+						// retries-exhausted) toward health so the model-selector chip warns. These errors carry no
+						// model in the text → use the run's current selection.
+						const providerErrKind = (!overflowMatch && !emptyMatch && modelSelection) ? classifyProviderError(error?.message) : undefined
+						if (providerErrKind && modelSelection) {
+							this._modelHealthTracker.recordFailure(modelSelection.providerName, modelSelection.modelName, providerErrKind)
+						}
+
+						const healthMatch = overflowMatch ?? emptyMatch ?? (providerErrKind && modelSelection ? { providerName: modelSelection.providerName, modelName: modelSelection.modelName } : null)
+						if (healthMatch) { this._onDidChangeProviderHealth.fire() }
 						if (healthMatch && this._modelHealthTracker.shouldNotify(healthMatch.providerName, healthMatch.modelName)) {
 							const count = this._modelHealthTracker.getFailureCount(healthMatch.providerName, healthMatch.modelName)
 							const windowMin = Math.round(HEALTH_WINDOW_MS / 60_000)

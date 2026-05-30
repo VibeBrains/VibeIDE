@@ -662,6 +662,27 @@ const ChatTrainingPolicyBadge: React.FC = () => {
 	);
 };
 
+/** Model dropdown that lights up (orange ring + ⚠ tooltip) when the current provider×model is
+ *  degrading (3099): a series of provider errors (520/529, rate/usage limit, overload, stream
+ *  stall) within ~10 min. Clicking the chip opens the model list as usual — the warning sits right
+ *  where you switch models, so no separate status-bar item or extra command is needed. */
+const ChatModelHealthDropdown: React.FC<{ featureName: FeatureName, className: string }> = ({ featureName, className }) => {
+	const accessor = useAccessor();
+	const settingsState = useSettingsState();
+	const chatThreadsService = accessor.get('IChatThreadService');
+	const [, setHealthTick] = useState(0);
+	useEffect(() => {
+		const d = chatThreadsService.onDidChangeProviderHealth(() => setHealthTick(t => t + 1));
+		return () => d.dispose();
+	}, [chatThreadsService]);
+	const sel = settingsState.modelSelectionOfFeature[featureName];
+	const degraded = !!sel && isValidProviderModelSelection(sel) && chatThreadsService.isProviderDegraded(sel.providerName, sel.modelName);
+	const dropdown = <ModelDropdown featureName={featureName} className={degraded ? `${className} ring-1 ring-orange-500/70 !text-orange-400` : className} />;
+	return degraded
+		? <span className='inline-flex' title={chatS.providerDegradedTooltip}>{dropdown}</span>
+		: dropdown;
+};
+
 export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 	children,
 	onSubmit,
@@ -896,7 +917,7 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 				{showModelDropdown && (
 					<div className='flex items-center flex-wrap gap-x-2 gap-y-1 text-nowrap flex-1 min-w-0'>
 						{featureName === 'Chat' && <ChatModeDropdown className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />}
-						<ModelDropdown featureName={featureName} className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />
+						<ChatModelHealthDropdown featureName={featureName} className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />
 						{featureName === 'Chat' && <ChatTrainingPolicyBadge />}
 						{featureName === 'Chat' && <ChatAgentAutopilotToggle />}
 						{featureName === 'Chat' && <ChatMaxLoopIterationsControl />}
