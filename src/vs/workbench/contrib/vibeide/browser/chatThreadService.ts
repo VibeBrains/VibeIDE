@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------*/
 
 import { vibeLog } from '../common/vibeLog.js';
-import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, IDisposable } from '../../../../base/common/lifecycle.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -2496,15 +2496,23 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	/** Soft checkpoint (B): pause an agent run and ask the user whether to keep going. Resolves
 	 *  `true` to continue, `false` to stop. A sticky prompt with explicit Continue/Stop actions;
-	 *  dismissal counts as Stop so the agent loop never hangs waiting on a closed notification. */
-	private _promptAgentSoftCheckpoint(steps: number, tokensSpent: number): Promise<boolean> {
+	 *  dismissal counts as Stop so the agent loop never hangs waiting on a closed notification.
+	 *  D.2a: if the run is aborted (stop button) while the prompt is open, resolve as Stop and
+	 *  close the toast — otherwise the awaiting loop would hang until the prompt is touched. */
+	private _promptAgentSoftCheckpoint(threadId: string, steps: number, tokensSpent: number): Promise<boolean> {
 		return new Promise<boolean>(resolve => {
 			let settled = false;
-			const finish = (v: boolean) => { if (!settled) { settled = true; resolve(v); } };
+			let abortListener: IDisposable | undefined;
+			const finish = (v: boolean) => {
+				if (settled) { return; }
+				settled = true;
+				abortListener?.dispose();
+				resolve(v);
+			};
 			const tokenPart = tokensSpent > 0
 				? localize('vibeide.agent.softCheckpoint.tokens', ' (~{0} токенов)', tokensSpent.toLocaleString())
 				: '';
-			this._notificationService.prompt(
+			const handle = this._notificationService.prompt(
 				Severity.Info,
 				localize('vibeide.agent.softCheckpoint.msg', 'Агент выполнил {0} шагов{1} в одном запросе без остановки. Продолжить?', steps, tokenPart),
 				[
@@ -2513,6 +2521,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				],
 				{ sticky: true, onCancel: () => finish(false) }
 			);
+			abortListener = this.onDidChangeStreamState(e => {
+				if (e.threadId !== threadId) { return; }
+				const ss = this.streamState[threadId];
+				if (!ss || ss.isRunning === undefined) {
+					handle.close();
+					finish(false);
+				}
+			});
 		});
 	}
 
@@ -4602,7 +4618,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			if (nMessagesSent >= nextSoftIterCheckpoint ||
 				(nextSoftTokenCheckpoint !== Number.POSITIVE_INFINITY && this._tokensSpentThisRun(tokensAtRunStart) >= nextSoftTokenCheckpoint)) {
 				const spent = this._tokensSpentThisRun(tokensAtRunStart)
-				const keepGoing = await this._promptAgentSoftCheckpoint(nMessagesSent, spent)
+				const keepGoing = await this._promptAgentSoftCheckpoint(threadId, nMessagesSent, spent)
 				// The user may have interrupted while the prompt was open — re-check before continuing.
 				const ss = this.streamState[threadId]
 				if (!keepGoing || !ss || ss.isRunning === undefined) {
