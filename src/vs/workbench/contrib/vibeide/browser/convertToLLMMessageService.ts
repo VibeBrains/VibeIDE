@@ -58,6 +58,8 @@ function uint8ArrayToBase64(data: Uint8Array): string {
 import { getIsReasoningEnabledState, getReservedOutputTokenSpace, getModelCapabilities } from '../common/modelCapabilities.js';
 import { reParsedToolXMLString, chat_systemMessage, chat_systemMessage_local } from '../common/prompt/prompts.js';
 import { detectModelFamily } from '../common/prompt/modelFamily.js';
+import { computeLastExchangePinSet } from '../common/prompt/lastExchangePin.js';
+import { isPinnedContextMessage } from '../common/prompt/pinnedContext.js';
 import { planBudgetFillTail } from '../common/agentLoopHeuristics.js';
 import { updateTokenCalibration, clampTokenCalibration, serializeCalibration, deserializeCalibration } from '../common/tokenCalibration.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -902,23 +904,29 @@ const prepareOpenAIOrAnthropicMessages = ({
 
 	// the higher the weight, the higher the desire to truncate - TRIM HIGHEST WEIGHT MESSAGES
 	const alreadyTrimmedIdxes = new Set<number>()
-	// Pin-protect: system messages containing explicit skill expansions or workspace
-	// guidelines must NEVER be truncated. If the body is too long for the budget we
-	// would rather drop older user/tool messages than silently strip the skill content
-	// the user explicitly invoked with `/skill:NAME`. Without this guard a long thread
-	// could send the user's `/skill:` command but lose the SKILL.md body to the trimmer,
-	// causing the model to hallucinate (it sees the invocation but not the procedure).
-	const isPinnedSystem = (message: MesType): boolean => {
-		if (message.role !== 'system') return false
-		const c = typeof message.content === 'string' ? message.content : ''
-		return c.includes('Explicitly invoked Agent Skills') || c.includes('<workspace_guidelines')
-	}
+	// Pin-protect (3074/3075): workspace guidelines (system message) and expanded /skill:
+	// bodies (prepended to the last USER message) must NEVER be truncated, or the model loses
+	// the procedure the user just invoked. Predicate is `isPinnedContextMessage` — it covers
+	// BOTH roles and the real `<skill_invocation>` marker; the old local check only matched
+	// role==='system' and a marker string ("Explicitly invoked Agent Skills") that was never
+	// emitted, so a skill body with no workspace guidelines present went unpinned and got
+	// chopped to TRIM_TO_LEN by safetyTrim.
+	// 3074 — hard-pin the most recent assistant↔tool exchange so the trimmer never drops
+	// the freshest tool_result (a just-read file), which would make the model re-read it in
+	// a loop. Indices are stable: the trim loop mutates `content` in place, never reorders.
+	const lastExchangePins = computeLastExchangePinSet(
+		messages,
+		(contextWindow - reservedOutputTokenSpace) * CHARS_PER_TOKEN
+	)
 	const weight = (message: MesType, messages: MesType[], idx: number) => {
 		const base = message.content.length
 
-		// Hard pin: system message carrying skill expansion / workspace guidelines.
+		// Hard pin: workspace guidelines (system) / expanded skill body (user). 3074/3075.
 		// Return 0 so `_findLargestByWeight` never picks it for trimming.
-		if (isPinnedSystem(message)) return 0
+		if (isPinnedContextMessage(message)) return 0
+		// Hard pin: most recent assistant↔tool exchange (3074). Never truncate the freshest
+		// tool_result (or its tool_use turn) — losing it triggers a re-read loop.
+		if (lastExchangePins.has(idx)) return 0
 
 		let multiplier: number
 		multiplier = 1 + (messages.length - 1 - idx) / messages.length // slow rampdown from 2 to 1 as index increases
