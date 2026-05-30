@@ -238,6 +238,21 @@ const QUERY_OWNING_TOOLS: ReadonlySet<string> = new Set(['search_for_files', 'se
 // `uri` (read_file, ls_dir, get_dir_tree, search_in_file, go_to_definition, …)
 // are deliberately absent so a legitimate `{uri}` call is left untouched.
 const NON_URI_TOOLS: ReadonlySet<string> = new Set(['run_command', 'run_persistent_command', 'run_nl_command', 'search_for_files', 'search_pathnames_only', 'grep', 'glob']);
+// `pattern` is shared by glob and grep, so a bare `{pattern[, search_in_folder, page_number]}`
+// shape under a NON-pattern tool is a misname (#014: minimax emitted `read_file ← {pattern:"**/nginx.conf"}`).
+const PATTERN_OWNING_TOOLS: ReadonlySet<string> = new Set(['glob', 'grep']);
+// Regex-only constructs that a filename glob never uses → grep. Note `.` is excluded (it appears in
+// filenames like `.conf`); only a dot FOLLOWED by a quantifier (`.*`, `.+`, `.?`) reads as regex.
+const PATTERN_REGEX_ONLY = /[\^$\\|+()\[\]]|\.[*+?]/;
+// Path-glob markers a regex search pattern essentially never carries.
+const PATTERN_GLOB_SIGNAL = /\*\*|\/|\{|\*\.|^\*|\?/;
+/**
+ * Disambiguate a shared `{pattern}` between glob and grep by syntax (roadmap 3226):
+ * path-glob markers with NO regex-only metachars → `glob`; otherwise → `grep`. Conservative —
+ * any regex-only construct (anchors, escapes, alternation, `.*`) falls to grep.
+ */
+const classifyPatternTool = (pattern: string): 'glob' | 'grep' =>
+	(PATTERN_GLOB_SIGNAL.test(pattern) && !PATTERN_REGEX_ONLY.test(pattern)) ? 'glob' : 'grep';
 
 /**
  * Shape-based tool-name correction. Aggregator-proxied models (deepseek/minimax/
@@ -278,6 +293,14 @@ export const detectToolByParamShape = (
 	// (search_in_file pairs query WITH uri, so the `!uri` guard disambiguates it).
 	if (hasStr('query') && !('uri' in params) && keys.every(k => k === 'query' || k === 'search_in_folder' || k === 'is_regex' || k === 'page_number')) {
 		return QUERY_OWNING_TOOLS.has(requestedToolName) ? undefined : 'search_for_files';
+	}
+	// {pattern[, search_in_folder, page_number]} WITHOUT uri -> glob/grep by pattern syntax
+	// (roadmap 3226 / #014). Only this MINIMAL shared shape triggers: a real grep carrying
+	// output_mode/file_type/glob/... won't satisfy keys.every(...), so rich grep calls pass
+	// through untouched. Never re-route FROM glob/grep -- they own `pattern`.
+	if (hasStr('pattern') && !('uri' in params)
+		&& keys.every(k => k === 'pattern' || k === 'search_in_folder' || k === 'page_number')) {
+		return PATTERN_OWNING_TOOLS.has(requestedToolName) ? undefined : classifyPatternTool(params['pattern'] as string);
 	}
 	// {uri, <read pagination>} with no command/query/pattern → read_file, but only
 	// from a NON-uri tool (a bare {uri} is ambiguous with ls_dir/get_dir_tree/…).

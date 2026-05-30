@@ -73,11 +73,48 @@ suite('detectToolByParamShape — shape→tool routing (model-stalls #010)', () 
 		});
 	});
 
-	suite('ambiguous / unhandled shapes pass through (undefined)', () => {
-		test('{pattern, search_in_folder} -> undefined (grep vs glob ambiguous, not handled)', () => {
-			assert.strictEqual(detectToolByParamShape({ pattern: '*.ts', search_in_folder: 'src' }, 'read_file'), undefined);
+	// roadmap 3226 / #014: {pattern[, search_in_folder, page_number]} under a non-pattern tool
+	// → glob vs grep by pattern syntax.
+	suite('{pattern} → glob / grep (3226)', () => {
+		test('path-glob markers → glob (the #014 case)', () => {
+			assert.strictEqual(detectToolByParamShape({ pattern: '**/nginx.conf' }, 'read_file'), 'glob');
+			assert.strictEqual(detectToolByParamShape({ pattern: '*.ts', search_in_folder: 'src' }, 'read_file'), 'glob');
+			assert.strictEqual(detectToolByParamShape({ pattern: 'src/**/*.tsx' }, 'read_file'), 'glob');
+			assert.strictEqual(detectToolByParamShape({ pattern: '**/{Dockerfile,docker-compose.yml}' }, 'read_file'), 'glob');
 		});
 
+		test('regex-only metachars → grep', () => {
+			assert.strictEqual(detectToolByParamShape({ pattern: '^foo$' }, 'read_file'), 'grep');
+			assert.strictEqual(detectToolByParamShape({ pattern: 'foo.*bar' }, 'read_file'), 'grep');
+			assert.strictEqual(detectToolByParamShape({ pattern: 'foo\\d+' }, 'read_file'), 'grep');
+			assert.strictEqual(detectToolByParamShape({ pattern: 'TODO|FIXME' }, 'read_file'), 'grep');
+		});
+
+		test('plain literal → grep (conservative default)', () => {
+			assert.strictEqual(detectToolByParamShape({ pattern: 'TODO' }, 'read_file'), 'grep');
+			assert.strictEqual(detectToolByParamShape({ pattern: 'nginx.conf' }, 'read_file'), 'grep');
+		});
+
+		test('never re-routes FROM glob/grep (they own pattern)', () => {
+			assert.strictEqual(detectToolByParamShape({ pattern: '**/*.ts' }, 'glob'), undefined);
+			assert.strictEqual(detectToolByParamShape({ pattern: 'foo.*' }, 'grep'), undefined);
+		});
+
+		test('rich grep shape (extra keys) is NOT hijacked', () => {
+			assert.strictEqual(detectToolByParamShape({ pattern: 'foo', output_mode: 'content', file_type: 'ts' }, 'read_file'), undefined);
+		});
+
+		test('{pattern} with uri present is left alone (not a search shape)', () => {
+			assert.strictEqual(detectToolByParamShape({ pattern: '*.ts', uri: 'a.ts' }, 'read_file'), undefined);
+		});
+
+		test('empty / non-string pattern is not a match', () => {
+			assert.strictEqual(detectToolByParamShape({ pattern: '' }, 'read_file'), undefined);
+			assert.strictEqual(detectToolByParamShape({ pattern: 42 }, 'read_file'), undefined);
+		});
+	});
+
+	suite('ambiguous / unhandled shapes pass through (undefined)', () => {
 		test('{query, uri} -> undefined ({query} but uri present blocks search routing)', () => {
 			assert.strictEqual(detectToolByParamShape({ query: 'foo', uri: 'a.ts' }, 'read_file'), undefined);
 		});
