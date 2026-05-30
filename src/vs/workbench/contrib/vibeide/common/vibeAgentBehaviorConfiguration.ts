@@ -63,6 +63,20 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			maximum: 200,
 			description: localize('vibeide.agent.maxLoopIterations', 'Максимум итераций tool-use loop в одном агентском прогоне. При достижении — прогон останавливается, чтобы не зациклиться. `0` = без лимита (для уверенных в себе; есть риск зацикливания и расхода токенов). Дефолт 30, диапазон 0–200. Контрол продублирован в нижней панели чата рядом с тогглом «Автопилот».'),
 		},
+		'vibeide.agent.softCheckpointIterations': {
+			type: 'number',
+			default: 25,
+			minimum: 0,
+			maximum: 500,
+			description: localize('vibeide.agent.softCheckpointIterations', 'Мягкий чекпоинт: после стольких итераций tool-use loop в одном агентском прогоне агент ПАУЗИТСЯ и спросит, продолжать ли (в отличие от жёсткого `maxLoopIterations`, который просто обрывает прогон). Защита от тихого «молочения» десятков шагов. `0` = выкл. Дефолт 25. После подтверждения порог сдвигается на следующий интервал.'),
+		},
+		'vibeide.agent.softCheckpointTokens': {
+			type: 'number',
+			default: 1000000,
+			minimum: 0,
+			maximum: 100000000,
+			description: localize('vibeide.agent.softCheckpointTokens', 'Мягкий чекпоинт по токенам: когда расход за ОДИН агентский прогон превышает это число input+output токенов, агент паузится и спрашивает, продолжать ли. Работает вместе с `softCheckpointIterations` (что сработает раньше). `0` = выкл. Дефолт 1 000 000.'),
+		},
 		'vibeide.agent.autoDowngradeThreshold': {
 			type: 'number',
 			default: 6,

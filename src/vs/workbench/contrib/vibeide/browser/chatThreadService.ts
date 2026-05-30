@@ -16,6 +16,7 @@ import { recordChatTrace } from './vibeChatRunTrace.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '../common/prompt/toolAliases.js';
 import { toolCallSignature, resolveAntiLoopThreshold } from '../common/agentLoopHeuristics.js';
+import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
 import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
 import { AnthropicReasoning, getErrorMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS } from '../common/modelHealthTracker.js';
@@ -690,6 +691,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IEditCodeService private readonly _editCodeService: IEditCodeService,
 		@INotificationService private readonly _notificationService: INotificationService,
 		@IConvertToLLMMessageService private readonly _convertToLLMMessagesService: IConvertToLLMMessageService,
+		@IVibeTokenBudgetService private readonly _tokenBudgetService: IVibeTokenBudgetService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 		@IDirectoryStrService private readonly _directoryStringService: IDirectoryStrService,
 		@IFileService private readonly _fileService: IFileService,
@@ -2479,6 +2481,39 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			return;
 		}
 		void this._persistedPlanService.clearExecutionLease(folders[0].uri, planId).catch(() => { });
+	}
+
+	/** Tokens spent since `baseline` (captured at run start). Clamped to 0 so an autopilot
+	 *  mid-run counter reset can't produce a negative delta. Best-effort (returns 0 on error). */
+	private _tokensSpentThisRun(baseline: number): number {
+		try {
+			const now = this._tokenBudgetService.getStatus().sessionTokensUsed;
+			return Math.max(0, now - baseline);
+		} catch {
+			return 0;
+		}
+	}
+
+	/** Soft checkpoint (B): pause an agent run and ask the user whether to keep going. Resolves
+	 *  `true` to continue, `false` to stop. A sticky prompt with explicit Continue/Stop actions;
+	 *  dismissal counts as Stop so the agent loop never hangs waiting on a closed notification. */
+	private _promptAgentSoftCheckpoint(steps: number, tokensSpent: number): Promise<boolean> {
+		return new Promise<boolean>(resolve => {
+			let settled = false;
+			const finish = (v: boolean) => { if (!settled) { settled = true; resolve(v); } };
+			const tokenPart = tokensSpent > 0
+				? localize('vibeide.agent.softCheckpoint.tokens', ' (~{0} токенов)', tokensSpent.toLocaleString())
+				: '';
+			this._notificationService.prompt(
+				Severity.Info,
+				localize('vibeide.agent.softCheckpoint.msg', 'Агент выполнил {0} шагов{1} в одном запросе без остановки. Продолжить?', steps, tokenPart),
+				[
+					{ label: localize('vibeide.agent.softCheckpoint.continue', 'Продолжить'), run: () => finish(true) },
+					{ label: localize('vibeide.agent.softCheckpoint.stop', 'Остановить'), run: () => finish(false) },
+				],
+				{ sticky: true, onCancel: () => finish(false) }
+			);
+		});
 	}
 
 	private async _touchPersistedExecutionLease(threadId: string): Promise<void> {
@@ -4527,7 +4562,19 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			: AUTO_DOWNGRADE_THRESHOLD
 
 		// tool use loop
-		while (shouldSendAnotherMessage) {
+		// Soft checkpoint (B): pause-and-ask after N iterations or M tokens in a single run, so a
+			// non-converging autopilot run can't silently grind dozens of steps / millions of tokens.
+			// Independent of the hard maxLoopIterations cap (which the user may have disabled with 0).
+			const rawSoftIter = this._configurationService.getValue<unknown>('vibeide.agent.softCheckpointIterations')
+			const softCheckpointIterations = (typeof rawSoftIter === 'number' && Number.isFinite(rawSoftIter) && rawSoftIter >= 0) ? Math.floor(rawSoftIter) : 25
+			const rawSoftTok = this._configurationService.getValue<unknown>('vibeide.agent.softCheckpointTokens')
+			const softCheckpointTokens = (typeof rawSoftTok === 'number' && Number.isFinite(rawSoftTok) && rawSoftTok >= 0) ? Math.floor(rawSoftTok) : 1_000_000
+			let nextSoftIterCheckpoint = softCheckpointIterations > 0 ? softCheckpointIterations : Number.POSITIVE_INFINITY
+			let nextSoftTokenCheckpoint = softCheckpointTokens > 0 ? softCheckpointTokens : Number.POSITIVE_INFINITY
+			let tokensAtRunStart = 0
+			try { tokensAtRunStart = this._tokenBudgetService.getStatus().sessionTokensUsed } catch { /* best-effort baseline */ }
+
+			while (shouldSendAnotherMessage) {
 			// CRITICAL: Check for maximum iterations to prevent infinite loops (skipped when user disabled the cap with 0)
 			if (maxLoopIterations > 0 && nMessagesSent >= maxLoopIterations) {
 				this._notificationService.warn(`Agent loop reached maximum iterations (${maxLoopIterations}). Stopping to prevent infinite loop.`)
@@ -4548,6 +4595,22 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// Plan is pending approval - stop execution and wait
 				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
 				return
+			}
+
+			// Soft checkpoint (B): once this run crosses the iteration or token threshold, pause and
+			// ask before doing more work. The token side is only probed when that checkpoint is armed.
+			if (nMessagesSent >= nextSoftIterCheckpoint ||
+				(nextSoftTokenCheckpoint !== Number.POSITIVE_INFINITY && this._tokensSpentThisRun(tokensAtRunStart) >= nextSoftTokenCheckpoint)) {
+				const spent = this._tokensSpentThisRun(tokensAtRunStart)
+				const keepGoing = await this._promptAgentSoftCheckpoint(nMessagesSent, spent)
+				// The user may have interrupted while the prompt was open — re-check before continuing.
+				const ss = this.streamState[threadId]
+				if (!keepGoing || !ss || ss.isRunning === undefined) {
+					this._setStreamState(threadId, { isRunning: undefined })
+					return
+				}
+				if (nMessagesSent >= nextSoftIterCheckpoint) { nextSoftIterCheckpoint = nMessagesSent + softCheckpointIterations }
+				if (spent >= nextSoftTokenCheckpoint) { nextSoftTokenCheckpoint = spent + softCheckpointTokens }
 			}
 
 			void this._touchPersistedExecutionLease(threadId);
