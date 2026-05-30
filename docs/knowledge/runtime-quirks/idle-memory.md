@@ -168,6 +168,9 @@ Main отслеживает rolling-window slope `(rss_last - rss_first) / dt_mi
 | `snapshotCooldownMinutes` | `30` | Минимальный интервал между snapshot'ами |
 | `growthAlertMBPerMin` | `5` | Slope-порог МБ/мин для proactive notification (W.5). Применяется и к RSS-slope, и к commit-slope |
 | `commitAlertMB` | `4000` (0..64000, 0=off) | Абсолютный private-commit (МБ) → `onPreOomAlert`. Ловит commit-балон при здоровой V8-куче (инцидент 2026-05-30) |
+| `burstSamplingEnabled` | `true` | 1630: при slope/pre-OOM-алерте временно ускорять тики, чтобы поймать суб-60-с спайк |
+| `burstSamplingSeconds` | `15` (5..60) | Интервал тиков в burst-окне |
+| `burstDurationTicks` | `12` (1..120) | Сколько тиков длится burst (12×15с ≈ 3 мин), затем авто-возврат к базе |
 
 Все настройки — APPLICATION scope. Settings UI секция «VibeIDE — Idle Watchdog (diagnostics)».
 
