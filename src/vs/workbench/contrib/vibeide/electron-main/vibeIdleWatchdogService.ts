@@ -134,7 +134,7 @@ const DEFAULTS: WatchdogConfig = {
 	compressOldJsonl: true,
 	adaptiveSampling: false,
 	statisticalOutlier: false,
-	commitAlertMB: 4000,
+	commitAlertMB: 3500, // D.4a: lowered from 4000 — real renderer OOM (2026-05-30) was ~4.5 GB commit; earlier lead time before the fatal abort.
 	burstSamplingEnabled: true,
 	burstSamplingSeconds: 15,
 	burstDurationTicks: 12,
