@@ -59,6 +59,7 @@ import type {
 	WatchdogSampleBase,
 	WatchdogSnapshotEntry,
 } from '../common/vibeIdleWatchdogTypes.js';
+import { computeSamplingIntervalMs } from '../common/vibeIdleWatchdogSampling.js';
 
 const LOGS_SUBDIR = path.join('logs', 'vibe-idle-watchdog');
 const SNAPSHOTS_SUBDIR = path.join(LOGS_SUBDIR, 'snapshots');
@@ -99,6 +100,14 @@ interface WatchdogConfig {
 	 * (renderer OOM 2026-05-30: heap 0.08 of limit, but ~13 GB committed). 0 disables.
 	 */
 	readonly commitAlertMB: number;
+	/**
+	 * 1630 — temporarily shrink the sampling interval to `burstSamplingSeconds` for
+	 * `burstDurationTicks` ticks once a slope / pre-OOM alert fires, so a sub-60s spike
+	 * is captured instead of slipping between two `intervalMinutes` samples.
+	 */
+	readonly burstSamplingEnabled: boolean;
+	readonly burstSamplingSeconds: number;
+	readonly burstDurationTicks: number;
 }
 
 const DEFAULT_CHILD_PROCESS_TYPES: readonly string[] = ['Utility', 'GPU'];
@@ -123,10 +132,11 @@ const DEFAULTS: WatchdogConfig = {
 	adaptiveSampling: false,
 	statisticalOutlier: false,
 	commitAlertMB: 4000,
+	burstSamplingEnabled: true,
+	burstSamplingSeconds: 15,
+	burstDurationTicks: 12,
 };
 
-const ADAPTIVE_IDLE_THRESHOLD_SEC = 3600;
-const ADAPTIVE_RATE_MULTIPLIER = 6;
 const PERSISTED_STATE_FILE = 'state.json';
 
 function clampInt(v: unknown, min: number, max: number, fallback: number): number {
@@ -181,6 +191,9 @@ function readConfigFromDisk(userDataPath: string, previous?: WatchdogConfig): Wa
 			adaptiveSampling: clampBool(parsed['vibeide.diagnostics.idleWatchdog.adaptiveSampling'], DEFAULTS.adaptiveSampling),
 			statisticalOutlier: clampBool(parsed['vibeide.diagnostics.idleWatchdog.statisticalOutlier'], DEFAULTS.statisticalOutlier),
 			commitAlertMB: clampInt(parsed['vibeide.diagnostics.idleWatchdog.commitAlertMB'], 0, 64000, DEFAULTS.commitAlertMB),
+			burstSamplingEnabled: clampBool(parsed['vibeide.diagnostics.idleWatchdog.burstSamplingEnabled'], DEFAULTS.burstSamplingEnabled),
+			burstSamplingSeconds: clampInt(parsed['vibeide.diagnostics.idleWatchdog.burstSamplingSeconds'], 5, 60, DEFAULTS.burstSamplingSeconds),
+			burstDurationTicks: clampInt(parsed['vibeide.diagnostics.idleWatchdog.burstDurationTicks'], 1, 120, DEFAULTS.burstDurationTicks),
 		};
 	} catch {
 		// settings.json absent on first launch / read failed mid-write — keep previous
@@ -461,6 +474,16 @@ export class VibeIdleWatchdogService {
 	private readonly _lastSnapshotByKey = new Map<string, number>();
 	/** Last sampled RSS (MB) per process key — for per-tick growth-delta snapshot trigger (O.12). */
 	private readonly _lastRssByKey = new Map<string, number>();
+	/** W.52 — set once any renderer dies this session. While true, every main tick
+	 * captures a full `process.report` subset (libuv-handle breakdown) so the post-crash
+	 * `external` leak hunt gets per-tick granularity. Reset only on a fresh service start. */
+	private _rendererCrashSeen = false;
+	/** 1630 — remaining ticks of fast (burst) sampling; > 0 means burst is active. */
+	private _burstTicksRemaining = 0;
+	/** Effective interval (ms) of the currently-armed timer — lets `_maybeReschedule`
+	 * detect when burst/adaptive transitions require re-arming, without introspecting
+	 * the native timer handle. */
+	private _currentIntervalMs = 0;
 
 	/**
 	 * Slope-alert event. Multi-subscriber via standard `Emitter` — no longer the
@@ -495,6 +518,12 @@ export class VibeIdleWatchdogService {
 
 	start(): void {
 		if (!this._config.enabled) return;
+		// 1630 — any growth / pre-OOM alert kicks the sampler into burst mode so the
+		// imminent spike is captured at second-resolution instead of slipping between
+		// two base-interval samples. Listeners are released when the emitters are
+		// disposed in `stop()`.
+		this.onSlopeAlert(() => this._enterBurst());
+		this.onPreOomAlert(() => this._enterBurst());
 		this._cleanupOldLogs();
 		this._compressOldJsonl();
 		this._enforceLogSizeCap();
@@ -600,6 +629,12 @@ export class VibeIdleWatchdogService {
 	}): void {
 		const k = keyFor({ proc: args.proc, windowId: args.windowId, pid: args.pid });
 		const lastTickRef = this._lastTickTsByKey.get(k);
+		// W.52 — once a renderer dies, force a full process.report on every subsequent
+		// main tick (see `_buildMainSample`) so the post-crash external-leak hunt gets
+		// per-tick libuv-handle granularity instead of the default every-10th-tick rate.
+		if (args.proc === 'renderer') {
+			this._rendererCrashSeen = true;
+		}
 		const entry: WatchdogCrashEntry = {
 			v: 1,
 			type: 'crash',
@@ -732,43 +767,50 @@ export class VibeIdleWatchdogService {
 
 	private _scheduleInterval(): void {
 		const intervalMs = this._effectiveIntervalMs();
+		this._currentIntervalMs = intervalMs;
 		this._intervalTimer = setInterval(() => this._tickMain(), intervalMs) as unknown as TimerHandle;
 		unrefTimer(this._intervalTimer);
 	}
 
 	/**
-	 * W.50 — when adaptive sampling is on AND no user activity for >1 hour, stretch
-	 * the interval by 6×. Re-armed on the next tick if user is active again (the
-	 * timer itself re-evaluates via `_maybeReschedule()` after each fire).
+	 * W.50/1630 — resolve the effective interval. Burst (1630) shrinks it after a
+	 * growth/pre-OOM alert; adaptive (W.50) stretches it when idle > 1h. Pure decision
+	 * in `computeSamplingIntervalMs`; the timer is re-armed by `_maybeReschedule()`.
 	 */
 	private _effectiveIntervalMs(): number {
-		const baseMs = this._config.intervalMinutes * 60 * 1000;
-		if (!this._config.adaptiveSampling) return baseMs;
-		const idleSec = (Date.now() - this._lastActivityTs) / 1000;
-		return idleSec > ADAPTIVE_IDLE_THRESHOLD_SEC ? baseMs * ADAPTIVE_RATE_MULTIPLIER : baseMs;
+		return computeSamplingIntervalMs({
+			burstTicksRemaining: this._burstTicksRemaining,
+			burstSeconds: this._config.burstSamplingSeconds,
+			adaptive: this._config.adaptiveSampling,
+			intervalMinutes: this._config.intervalMinutes,
+			idleMs: Date.now() - this._lastActivityTs,
+		});
 	}
 
 	/**
-	 * After each tick, if adaptive sampling is on, check whether the effective
-	 * interval should change (idle→active or active→idle transition) and
-	 * re-arm the timer accordingly. Cheap: only fires when the boundary is
-	 * crossed (compared to the active timer's period).
+	 * 1630 — enter burst sampling: fast ticks for `burstDurationTicks` ticks so an
+	 * imminent spike is captured instead of slipping between two base-interval samples.
+	 * Idempotent (re-arms the counter), cheap, no-op when disabled. Re-arms the timer
+	 * immediately so the speed-up doesn't wait for the next (slow) tick to land.
+	 */
+	private _enterBurst(): void {
+		if (!this._config.burstSamplingEnabled) return;
+		this._burstTicksRemaining = this._config.burstDurationTicks;
+		this._maybeReschedule();
+	}
+
+	/**
+	 * Re-arm the interval timer when the effective interval changed — covers both
+	 * adaptive idle↔active transitions (W.50) and burst enter/exit (1630). Cheap: a
+	 * single comparison against the currently-armed interval (`_currentIntervalMs`),
+	 * which `_scheduleInterval()` keeps in sync.
 	 */
 	private _maybeReschedule(): void {
-		if (!this._config.adaptiveSampling) return;
 		if (this._intervalTimer === null) return;
 		const targetMs = this._effectiveIntervalMs();
-		// We can't introspect setInterval's period; cheap heuristic: re-arm whenever
-		// adaptive mode is on AND we just transitioned a boundary (track via a
-		// simple flag).
-		const wasStretched = (this._intervalTimer as unknown as { _vibeStretched?: boolean })._vibeStretched ?? false;
-		const isStretched = targetMs > this._config.intervalMinutes * 60 * 1000;
-		if (wasStretched !== isStretched) {
+		if (targetMs !== this._currentIntervalMs) {
 			this._clearTimer('_intervalTimer');
 			this._scheduleInterval();
-			if (this._intervalTimer) {
-				(this._intervalTimer as unknown as { _vibeStretched?: boolean })._vibeStretched = isStretched;
-			}
 		}
 	}
 
@@ -854,7 +896,12 @@ export class VibeIdleWatchdogService {
 			// Renderers (`type === 'Tab'`) are skipped here — they self-sample via W.1
 			// renderer-side contribution to provide window-context (workspaceHash, idleSec).
 			this._sampleElectronChildProcesses(note);
-			// W.50 — adjust sampling rate if idle/active state flipped.
+			// 1630 — count down the burst window; when it hits 0, `_maybeReschedule`
+			// restores the base interval on this same tick.
+			if (this._burstTicksRemaining > 0) {
+				this._burstTicksRemaining -= 1;
+			}
+			// W.50/1630 — re-arm if the effective interval changed (idle/active flip or burst enter/exit).
 			this._maybeReschedule();
 			// W.26 — periodic budget check (cheap; just sums sizes once per tick).
 			if (this._tickCounter % 12 === 0) this._enforceLogSizeCap();
@@ -937,7 +984,18 @@ export class VibeIdleWatchdogService {
 		const { handles, activeRequests } = readNodeHandleCount();
 		const gc = this._gcObserver?.snapshot();
 		// Include process.report every 10th tick when enabled — keeps file size reasonable.
-		const includeReport = this._config.includeProcessReport && (this._tickCounter % 10 === 0);
+		// W.52: after a renderer crash, force it EVERY tick regardless of config so the
+		// post-crash `external` leak gets per-tick libuv-handle breakdown.
+		const includeReport = (this._config.includeProcessReport && (this._tickCounter % 10 === 0)) || this._rendererCrashSeen;
+		// Markers — make incident windows trivially filterable in the .jsonl
+		// (`jq 'select(.note|test("post-renderer-crash"))'` / `test("burst")`).
+		// W.52: every main sample after a renderer death. 1630: samples taken while burst
+		// sampling is active.
+		const markers: string[] = [];
+		if (note) markers.push(note);
+		if (this._rendererCrashSeen) markers.push('post-renderer-crash');
+		if (this._burstTicksRemaining > 0) markers.push('burst');
+		const effectiveNote = markers.length > 0 ? markers.join(' ') : undefined;
 		const sample: WatchdogSampleBase = {
 			v: 1,
 			type: 'sample',
@@ -959,7 +1017,7 @@ export class VibeIdleWatchdogService {
 			gcCount: gc?.count,
 			gcMajorCount: gc?.majorCount,
 			gcTotalMs: gc?.totalMs,
-			note,
+			note: effectiveNote,
 			report: includeReport ? buildProcessReportSubset() : undefined,
 		};
 		return sample;
