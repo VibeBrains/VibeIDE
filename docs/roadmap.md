@@ -1675,7 +1675,7 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 **Backlog (предложения):**
 - [ ] **DRY: общий multi-source catalog resolver.** `modelsDevCatalog.ts` и `modelQuirksService.ts` теперь ДУБЛИРУЮТ логику exeDir→bundled→cdn(+date). Вынести в общий helper (`localSnapshotCandidates`-стиль с date-freshness) — добавление третьего CDN-каталога станет тривиальным. Осторожно: у них разные форматы (ModelQuirksCatalog vs CatalogIndex) и разные bundled-механизмы (TS-константа vs runtime-файл).
-- [ ] **Status-bar индикатор активного quirks-источника** (exe/cdn/bundled + дата), как у models.dev status. Дешёвая постоянная видимость; дополняет toast и `showStatus`.
+- [x] **Status-bar индикатор активного quirks-источника** — ✅ (2026-05-31): `vibeModelQuirksSourceStatusBar` показывает `$(database) exe|CDN|встроен` (+ `$(warning)` при stale exe-adjacent), tooltip с источником/датами; клик → `vibeide.modelQuirks.showStatus`. В **глобальном** статус-баре (не в подвале чата — там диагностика терялась бы), с поддержкой `unifiedOnly`-режима как у chat-mode. Read-once на `AfterRestored` (у сервиса квирков нет onDidChange; источник фиксирован на сессию).
 - [ ] **Toast-action «Обновить с CDN» при запиненном exe** — сейчас рефреш обновляет кэш, но активный (exe) каталог не меняется → действие частично вводит в заблуждение. Либо предложить «открыть папку с exe-файлом», либо уточнить формулировку.
 
 ---
