@@ -33,6 +33,21 @@ export interface ILLMMessageService {
 }
 
 
+/**
+ * Serialize an LLM error for logging while OMITTING the echoed prompt payload. AI SDK errors
+ * (AI_APICallError etc.) carry the full request under `requestBodyValues` / `messages` / `prompt`;
+ * logging it verbatim leaks file contents and non-pattern secrets and bloats the log. The
+ * diagnostic fields (name / message / reason / url / statusCode / requestId) are preserved.
+ */
+const LLM_ERROR_HEAVY_KEYS = new Set(['requestBodyValues', 'messages', 'prompt', 'input', 'rawPrompt', 'body']);
+export function sanitizeLlmErrorForLog(e: unknown): string {
+	try {
+		return JSON.stringify(e, (key, value) => (key && LLM_ERROR_HEAVY_KEYS.has(key)) ? '[omitted: request payload]' : value);
+	} catch {
+		return '[unserializable LLM error]';
+	}
+}
+
 // open this file side by side with llmMessageChannel
 export class LLMMessageService extends Disposable implements ILLMMessageService {
 
@@ -91,14 +106,13 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		this._register((this.channel.listen('onError_sendLLMMessage') satisfies Event<EventLLMMessageOnErrorParams>)(e => {
 			this.llmMessageHooks.onError[e.requestId]?.(e);
 			this._clearChannelHooks(e.requestId);
-			// Mask secrets in error logs
+			// Mask secrets, then strip the echoed request body. AI SDK errors embed the FULL
+			// prompt under requestBodyValues/messages; logging it verbatim leaks file contents
+			// and non-pattern secrets and bloats the log (crash-report 2026-05-30). Pattern-secret
+			// redaction stays; the bulk prompt payload is omitted.
 			const config = this.secretDetectionService.getConfig();
-			if (config.enabled) {
-				const redacted = this.secretDetectionService.redactSecretsInObject(e);
-				vibeLog.error('sendLLMMessage', 'Error in LLMMessageService:', JSON.stringify(redacted.redacted))
-			} else {
-				vibeLog.error('sendLLMMessage', 'Error in LLMMessageService:', JSON.stringify(e))
-			}
+			const errObj = config.enabled ? this.secretDetectionService.redactSecretsInObject(e).redacted : e;
+			vibeLog.error('sendLLMMessage', 'Error in LLMMessageService:', sanitizeLlmErrorForLog(errObj))
 		}))
 		// .list()
 		this._register((this.channel.listen('onSuccess_list_ollama') satisfies Event<EventModelListOnSuccessParams<OllamaModelResponse>>)(e => {
