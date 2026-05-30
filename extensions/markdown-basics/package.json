@@ -35,7 +35,8 @@
           ".workbook"
         ],
         "filenamePatterns": [
-          "**/.cursor/**/*.mdc"
+          "**/.cursor/**/*.mdc",
+          "**/.vibe/**/*.mdc"
         ],
         "configuration": "./language-configuration.json"
       }
