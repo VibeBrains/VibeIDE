@@ -5292,9 +5292,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						// Also reset the cross-thread health tracker for this combo. One good
 						// response means the aggregator route is healthy again; next failure
 						// cycle starts fresh.
-						const _wasDegraded = this._modelHealthTracker.isDegraded(modelSelection.providerName, modelSelection.modelName)
+						const wasDegraded = this._modelHealthTracker.isDegraded(modelSelection.providerName, modelSelection.modelName)
 						this._modelHealthTracker.recordSuccess(modelSelection.providerName, modelSelection.modelName)
-						if (_wasDegraded) { this._onDidChangeProviderHealth.fire() }
+						if (wasDegraded) { this._onDidChangeProviderHealth.fire() }
 					}
 
 					// Persist provider-reported token usage on the thread so the UI

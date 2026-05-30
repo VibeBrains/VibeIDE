@@ -42,8 +42,8 @@ export function classifyProviderError(message: string | undefined): FailureKind 
 	if (!message) { return undefined }
 	const m = message.toLowerCase()
 	const hit =
-		/\b52[09]\b/.test(m)                                   // 520 (origin down) / 529 (overloaded)
-		|| m.includes('rate limit') || m.includes('rate-limit') || m.includes('429') || m.includes('too many requests')
+		/\b(?:52[09]|429)\b/.test(m)                           // gateway 520/529 / rate-limit 429 — word-bounded so "4290" etc. don't match
+		|| m.includes('rate limit') || m.includes('rate-limit') || m.includes('too many requests')
 		|| m.includes('usage limit') || m.includes('quota')
 		|| m.includes('overloaded') || m.includes('capacity')
 		|| m.includes('maxretriesexceeded')
