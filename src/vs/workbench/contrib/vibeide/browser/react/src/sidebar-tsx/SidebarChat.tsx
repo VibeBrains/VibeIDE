@@ -4080,9 +4080,13 @@ const CommandBarInChat = () => {
 
 
 	const acceptRejectAllButtons = <div
-		// do this with opacity so that the height remains the same at all times
+		// When visible: `ml-2` spaces the buttons from the status label. When hidden:
+		// `w-0 overflow-hidden` collapses the horizontal footprint (not just opacity) so
+		// the status label ("Готово") sits flush at the right edge instead of leaving a
+		// phantom gap where the buttons were. Height is unaffected — the always-present
+		// status indicator in the same row fixes the row height regardless of this width.
 		className={`flex items-center gap-0.5
-			${isFinishedMakingThreadChanges ? '' : 'opacity-0 pointer-events-none'}`
+			${isFinishedMakingThreadChanges ? 'ml-2' : 'w-0 overflow-hidden opacity-0 pointer-events-none'}`
 		}
 	>
 		<IconShell1 // RejectAllButtonWrapper
@@ -4261,7 +4265,7 @@ const CommandBarInChat = () => {
 				    right edge and never shift horizontally when the status label width changes
 				    (e.g. "Думаю…" → "Готово"). Previously buttons came first and moved with the
 				    group's left edge, causing accept↔reject misclicks. */}
-				<div className="flex gap-2 items-center">
+				<div className="flex items-center">
 					{threadStatusHTML}
 					{acceptRejectAllButtons}
 				</div>

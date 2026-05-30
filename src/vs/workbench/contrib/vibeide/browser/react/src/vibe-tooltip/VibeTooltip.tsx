@@ -88,18 +88,24 @@ export const VibeTooltip = () => {
 				border='1px solid rgba(100,100,100,.2)'
 				opacity={1}
 				delayShow={50}
+				// Dismiss orphaned tooltips: chat anchors mount/unmount during streaming,
+				// so a `mouseleave` may never fire and the tooltip sticks. Closing on
+				// scroll / click / resize / Esc clears it. (react-tooltip v6)
+				globalCloseEvents={{ escape: true, scroll: true, resize: true, clickOutsideAnchor: true }}
 			/>
 			<Tooltip
 				id="vibe-tooltip-orange"
 				border='1px solid rgba(200,200,200,.3)'
 				opacity={1}
 				delayShow={50}
+				globalCloseEvents={{ escape: true, scroll: true, resize: true, clickOutsideAnchor: true }}
 			/>
 			<Tooltip
 				id="vibe-tooltip-green"
 				border='1px solid rgba(200,200,200,.3)'
 				opacity={1}
 				delayShow={50}
+				globalCloseEvents={{ escape: true, scroll: true, resize: true, clickOutsideAnchor: true }}
 			/>
 			<Tooltip
 				id="vibe-tooltip-ollama-settings"
@@ -132,6 +138,7 @@ export const VibeTooltip = () => {
 				border='1px solid rgba(100,100,100,.2)'
 				opacity={1}
 				delayShow={50}
+				globalCloseEvents={{ escape: true, scroll: true, resize: true, clickOutsideAnchor: true }}
 				style={{ pointerEvents: 'all', userSelect: 'text', fontSize: 11, maxWidth: '280px', paddingTop:'8px', paddingBottom:'8px' }}
 			/>
 		</>

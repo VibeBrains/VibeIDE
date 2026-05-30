@@ -184,7 +184,7 @@ export const StatusIndicator = ({ indicatorColor, title, className, ...props }: 
 			{title && <span className='opacity-80'>{title}</span>}
 			<div
 				className={` size-1.5 rounded-full border
-					${indicatorColor === 'dark' ? 'bg-[rgba(0,0,0,0)] border-vibe-border-1' :
+					${indicatorColor === 'dark' ? 'bg-vibe-fg-4 border-vibe-fg-4' :
 						indicatorColor === 'orange' ? 'bg-orange-500 border-orange-500 shadow-[0_0_4px_0px_rgba(234,88,12,0.6)]' :
 							indicatorColor === 'green' ? 'bg-green-500 border-green-500 shadow-[0_0_4px_0px_rgba(22,163,74,0.6)]' :
 								indicatorColor === 'yellow' ? 'bg-yellow-500 border-yellow-500 shadow-[0_0_4px_0px_rgba(22,163,74,0.6)]' :
