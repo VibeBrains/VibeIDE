@@ -61,6 +61,8 @@ export interface ContextLimitStatus {
 	/** Budget-fill truncation transparency: how many older messages were folded into the
 	 * <chat_summary>. `undefined` / 0 when no truncation occurred. */
 	summarizedMessages?: number;
+	/** Learned estimate→real token-calibration factor applied to currentTokens (D.9 diagnostic). */
+	calibrationFactor?: number;
 }
 
 export interface ContextLimitEvent {
@@ -84,6 +86,10 @@ export interface IVibeContextGuardService {
 	 * in the same build), so there is no extra event churn.
 	 */
 	setTruncationStats(keptMessages: number | undefined, summarizedMessages: number | undefined): void;
+
+	/** Record the learned token-calibration factor for the UI indicator tooltip (D.9). Rides along
+	 *  on the next `updateUsage` fire, like `setTruncationStats`. */
+	setCalibrationFactor(factor: number | undefined): void;
 
 	/**
 	 * Reset usage counters to zero (e.g. when the user switches to a different
@@ -127,6 +133,7 @@ class VibeContextGuardService extends Disposable implements IVibeContextGuardSer
 	private _maxTokens = 0;
 	private _keptMessages: number | undefined = undefined;
 	private _summarizedMessages: number | undefined = undefined;
+	private _calibrationFactor: number | undefined = undefined;
 	private _warningFired = false;
 	private _criticalFired = false;
 	private _warningThreshold: number;
@@ -197,11 +204,16 @@ class VibeContextGuardService extends Disposable implements IVibeContextGuardSer
 		this._summarizedMessages = summarizedMessages;
 	}
 
+	setCalibrationFactor(factor: number | undefined): void {
+		this._calibrationFactor = factor;
+	}
+
 	reset(): void {
 		this._currentTokens = 0;
 		this._maxTokens = 0;
 		this._keptMessages = undefined;
 		this._summarizedMessages = undefined;
+		this._calibrationFactor = undefined;
 		this._warningFired = false;
 		this._criticalFired = false;
 		this._onUsageUpdated.fire(this.getStatus());
@@ -220,6 +232,7 @@ class VibeContextGuardService extends Disposable implements IVibeContextGuardSer
 			isCritical: percentUsed >= this._criticalThreshold,
 			keptMessages: this._keptMessages,
 			summarizedMessages: this._summarizedMessages,
+			calibrationFactor: this._calibrationFactor,
 		};
 	}
 }

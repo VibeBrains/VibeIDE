@@ -2175,7 +2175,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		}
 
 		// Reflect the final number on the status bar.
-		try { this.contextGuardService.updateUsage(Math.round(currentTokens * calibrationFactor), contextWindow) } catch { }
+		try { this.contextGuardService.setCalibrationFactor(calibrationEnabled ? calibrationFactor : undefined) } catch { }
+			try { this.contextGuardService.updateUsage(Math.round(currentTokens * calibrationFactor), contextWindow) } catch { }
 
 		// Pair this turn's RAW estimate of the sent payload with the provider's reported
 		// promptTokens (arrives later via recordActualPromptTokens) to self-calibrate the budget.

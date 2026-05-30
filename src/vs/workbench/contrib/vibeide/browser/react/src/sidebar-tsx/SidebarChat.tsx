@@ -5193,6 +5193,8 @@ export const SidebarChat = () => {
 	// onUsageUpdated so the chat-pane indicator stays in sync with the same source.
 	const contextGuardService = accessor.get('IVibeContextGuardService')
 	const [guardCurrentTokens, setGuardCurrentTokens] = useState(() => contextGuardService?.getStatus().currentTokens ?? 0)
+	// D.9: learned estimate→real token-calibration factor, for the context-indicator tooltip.
+	const [guardCalibration, setGuardCalibration] = useState<number | undefined>(() => contextGuardService?.getStatus().calibrationFactor)
 	// Budget-fill transparency: kept-full vs summarized message counts from the last prompt build.
 	const [guardTruncation, setGuardTruncation] = useState<{ kept?: number, summarized?: number }>(() => {
 		const st = contextGuardService?.getStatus()
@@ -5203,11 +5205,13 @@ export const SidebarChat = () => {
 		const d = contextGuardService.onUsageUpdated(s => {
 			setGuardCurrentTokens(s.currentTokens)
 			setGuardTruncation({ kept: s.keptMessages, summarized: s.summarizedMessages })
+			setGuardCalibration(s.calibrationFactor)
 		})
 		// Seed from current status in case an update fired before mount.
 		const st = contextGuardService.getStatus()
 		setGuardCurrentTokens(st.currentTokens ?? 0)
 		setGuardTruncation({ kept: st.keptMessages, summarized: st.summarizedMessages })
+		setGuardCalibration(st.calibrationFactor)
 		return () => d.dispose()
 	}, [contextGuardService])
 
@@ -5530,7 +5534,7 @@ export const SidebarChat = () => {
 					const color = contextPct >= 1 ? 'text-red-500' : contextPct > 0.8 ? 'text-amber-500' : 'text-vibe-fg-3'
 					const barColor = contextPct >= 1 ? 'bg-red-500' : contextPct > 0.8 ? 'bg-amber-500' : 'bg-vibe-fg-3/60'
 					return <div className='mt-1'>
-						<div className={`text-[10px] ${color}`}>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}{(guardTruncation.summarized ?? 0) > 0 ? chatS.budgetFillSuffix(guardTruncation.kept ?? 0, guardTruncation.summarized ?? 0) : ''}</div>
+						<div title={guardCalibration && guardCalibration > 1 ? `Калибровка ×${guardCalibration.toFixed(2)}: показ контекста скорректирован под реальные токены провайдера (грубая оценка длина/4 их занижает)` : undefined} className={`text-[10px] ${color}`}>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}{(guardTruncation.summarized ?? 0) > 0 ? chatS.budgetFillSuffix(guardTruncation.kept ?? 0, guardTruncation.summarized ?? 0) : ''}</div>
 						<div className='h-[3px] w-full bg-vibe-border-3 rounded mt-0.5'>
 							<div className={`h-[3px] ${barColor} rounded`} style={{ width: `${pctNum}%` }} aria-label={chatS.contextUsageAria(pctNum)} />
 						</div>
@@ -5549,7 +5553,7 @@ export const SidebarChat = () => {
 					const color = contextPct >= 1 ? 'text-red-500' : contextPct > 0.8 ? 'text-amber-500' : 'text-vibe-fg-3'
 					const barColor = contextPct >= 1 ? 'bg-red-500' : contextPct > 0.8 ? 'bg-amber-500' : 'bg-vibe-fg-3/60'
 					return <div className='mt-1 px-2'>
-						<div className={`text-[10px] ${color}`}>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}{(guardTruncation.summarized ?? 0) > 0 ? chatS.budgetFillSuffix(guardTruncation.kept ?? 0, guardTruncation.summarized ?? 0) : ''}</div>
+						<div title={guardCalibration && guardCalibration > 1 ? `Калибровка ×${guardCalibration.toFixed(2)}: показ контекста скорректирован под реальные токены провайдера (грубая оценка длина/4 их занижает)` : undefined} className={`text-[10px] ${color}`}>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}{(guardTruncation.summarized ?? 0) > 0 ? chatS.budgetFillSuffix(guardTruncation.kept ?? 0, guardTruncation.summarized ?? 0) : ''}</div>
 						<div className='h-[3px] w-full bg-vibe-border-3 rounded mt-0.5'>
 							<div className={`h-[3px] ${barColor} rounded`} style={{ width: `${pctNum}%` }} aria-label={chatS.contextUsageAria(pctNum)} />
 						</div>
