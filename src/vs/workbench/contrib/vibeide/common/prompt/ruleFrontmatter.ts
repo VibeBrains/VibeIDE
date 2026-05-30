@@ -19,6 +19,8 @@
  * so it unit-tests without the workspace services.
  */
 
+import { match as globMatch } from '../../../../../base/common/glob.js';
+
 export interface ParsedRuleFile {
 	readonly frontmatter: Readonly<Record<string, string>>;
 	readonly body: string;
@@ -47,6 +49,23 @@ export function parseRuleFrontmatter(content: string): ParsedRuleFile {
 /** Recognise rule files by extension: Markdown (`.md`) and Cursor rules (`.mdc`). */
 export function isRuleFileName(name: string): boolean {
 	return /\.(md|mdc)$/i.test(name);
+}
+
+/** Short, typeable rule name from a path: basename without extension, lowercased.
+ *  `.vibe/rules/dev-engine.mdc` → `dev-engine`. Used for `@rule:<name>` (R.5) + the index. */
+export function ruleNameFromPath(relativePath: string): string {
+	const base = relativePath.replace(/\\/g, '/').split('/').pop() ?? relativePath;
+	return base.replace(/\.(md|mdc)$/i, '').toLowerCase();
+}
+
+/** Parse `@rule:NAME` / `/rule:NAME` invocations from the user message (deduped, lowercased). R.5. */
+export function parseRuleInvocations(text: string): string[] {
+	if (!text) { return []; }
+	const names = new Set<string>();
+	for (const m of text.matchAll(/[@/]rule:\s*([\w.-]+)/gi)) {
+		names.add(m[1].toLowerCase());
+	}
+	return [...names];
 }
 
 /** Parse `alwaysApply: true` (case-insensitive). Absent / non-true → false. */
@@ -111,21 +130,78 @@ export interface RuleMeta {
 
 export type RuleActivation = 'inject' | 'index';
 
+export interface RuleActivationContext {
+	/** Latest user message — matched against `triggers` (R.7). */
+	readonly userText?: string;
+	/** Workspace-relative, `/`-separated file paths in context this turn — matched against `globs` (R.2). */
+	readonly files?: readonly string[];
+}
+
+function basename(p: string): string {
+	const i = p.lastIndexOf('/');
+	return i >= 0 ? p.slice(i + 1) : p;
+}
+
+/** True if any `glob` matches any `file` (workspace-relative). A glob without `/` (e.g. `*.tsx`)
+ *  also matches by basename so it fires for files at any depth (Cursor semantics). R.2. */
+export function ruleGlobsMatchAnyFile(globs: readonly string[], files: readonly string[]): boolean {
+	for (const g of globs) {
+		if (!g) { continue; }
+		const noSlash = !g.includes('/');
+		for (const f of files) {
+			if (!f) { continue; }
+			if (globMatch(g, f)) { return true; }
+			if (noSlash && globMatch(g, basename(f))) { return true; }
+		}
+	}
+	return false;
+}
+
 /**
  * Decide whether a rule's body goes into the prompt (`inject`) or is merely listed as available
- * (`index`, R.3 agent-requested) given the current user message.
+ * (`index`, R.3 agent-requested) given the current activation context.
  *
  *  - `alwaysApply: true`                         → inject
- *  - has `triggers` matching the user message    → inject (R.7)
- *  - conditional (alwaysApply:false / has triggers / has globs) but unmatched → index
+ *  - `triggers` match the user message           → inject (R.7)
+ *  - `globs` match a context file                → inject (R.2, Cursor "Auto Attached")
+ *  - conditional (alwaysApply:false / triggers / globs) but unmatched → index
  *  - plain rule (no frontmatter conditions)      → inject (back-compat: flat .md / AGENTS.md)
- *
- * `globs` are treated as "conditional, currently unmatched → index" until R.2 wires open-file
- * matching; this keeps glob-scoped rules out of every prompt rather than always-on.
  */
-export function decideRuleActivation(meta: RuleMeta, userText: string | undefined): RuleActivation {
+export function decideRuleActivation(meta: RuleMeta, ctx: RuleActivationContext): RuleActivation {
 	if (meta.alwaysApply === true) { return 'inject'; }
-	if (meta.triggers.length > 0 && userText && matchesAnyTrigger(meta.triggers, userText)) { return 'inject'; }
+	if (meta.triggers.length > 0 && ctx.userText && matchesAnyTrigger(meta.triggers, ctx.userText)) { return 'inject'; }
+	if (meta.globs.length > 0 && ctx.files && ctx.files.length > 0 && ruleGlobsMatchAnyFile(meta.globs, ctx.files)) { return 'inject'; }
 	if (meta.alwaysApply === false || meta.triggers.length > 0 || meta.globs.length > 0) { return 'index'; }
 	return 'inject';
+}
+
+/** Collect file paths from agent tool calls in the chat history (read_file/edit_file/… carry `rawParams.uri`). R.2. */
+export function extractToolFilePaths(messages: ReadonlyArray<{ readonly role?: string; readonly rawParams?: unknown }>): string[] {
+	const out: string[] = [];
+	for (const m of messages) {
+		if (!m || m.role !== 'tool') { continue; }
+		const rp = m.rawParams as Record<string, unknown> | undefined;
+		const uri = rp?.['uri'];
+		if (typeof uri === 'string' && uri.length > 0) { out.push(uri); }
+	}
+	return out;
+}
+
+/**
+ * Normalise an absolute (or already-relative) path to a workspace-relative, `/`-separated form
+ * for glob matching. Strips the longest matching workspace-folder prefix (case-insensitive for
+ * Windows). Paths outside the workspace are returned normalised but unchanged.
+ */
+export function toWorkspaceRelative(p: string, workspaceFsPaths: readonly string[]): string {
+	const norm = p.replace(/\\/g, '/');
+	let best = norm;
+	for (const root of workspaceFsPaths) {
+		const r = root.replace(/\\/g, '/').replace(/\/+$/, '');
+		if (r.length === 0) { continue; }
+		if (norm.toLowerCase().startsWith(r.toLowerCase() + '/')) {
+			const rel = norm.slice(r.length + 1);
+			if (rel.length < best.length) { best = rel; }
+		}
+	}
+	return best;
 }

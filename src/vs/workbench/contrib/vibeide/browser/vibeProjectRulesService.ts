@@ -34,10 +34,11 @@ import { localize } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
-import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
+import { IQuickInputService, IQuickPickItem } from '../../../../platform/quickinput/common/quickInput.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
-import { parseRuleFrontmatter, isRuleFileName, parseAlwaysApply, parseTriggers, parseGlobs, decideRuleActivation } from '../common/prompt/ruleFrontmatter.js';
+import { parseRuleFrontmatter, isRuleFileName, parseAlwaysApply, parseTriggers, parseGlobs, decideRuleActivation, ruleNameFromPath } from '../common/prompt/ruleFrontmatter.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -72,10 +73,17 @@ export interface IVibeProjectRulesService {
 	 * unmatched → listed in an "available rules" index (R.3/R.7). Without `activation` → inject all.
 	 * Returns empty string if no rules files found.
 	 */
-	getCombinedRules(activation?: { userText?: string }): string;
+	getCombinedRules(activation?: { userText?: string; files?: readonly string[] }): string;
 
 	/** Get list of loaded rule sources (for UI preview / settings panel) */
 	getLoadedSources(): LoadedRuleSource[];
+
+	/** Look up a loaded rule by its short name (basename without extension) — for `@rule:NAME` (R.5). */
+	getRuleByName(name: string): LoadedRuleSource | undefined;
+
+	/** R.4 — per-workspace enable/disable of a rule source (by relativePath). */
+	isRuleEnabled(relativePath: string): boolean;
+	setRuleEnabled(relativePath: string, enabled: boolean): void;
 
 	/** Force reload all rules files (clears cache) */
 	reloadRules(): Promise<void>;
@@ -96,6 +104,8 @@ const MAX_RULE_FILES = 50;
 /** Recursion depth cap for the rules-folder scan. */
 const MAX_RULE_FOLDER_DEPTH = 6;
 const WATCHER_DEBOUNCE_MS = 350;
+/** Workspace-scoped storage of disabled rule source paths (R.4 toggle). */
+const DISABLED_STORAGE_KEY = 'vibeide.projectRules.disabledPaths';
 
 // ── Implementation ─────────────────────────────────────────────────────────────
 
@@ -104,6 +114,8 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 
 	private _cachedSources: LoadedRuleSource[] = [];
 	private _cachedCombined = '';
+	/** Rule source paths the user disabled (R.4); honored in `_combineSources`, persisted per workspace. */
+	private readonly _disabledPaths = new Set<string>();
 
 	private readonly _onRulesChanged = this._register(new Emitter<void>());
 	readonly onRulesChanged: Event<void> = this._onRulesChanged.event;
@@ -118,8 +130,14 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 		@IVibePromptGuardService private readonly _guard: IVibePromptGuardService,
+		@IStorageService private readonly _storage: IStorageService,
 	) {
 		super();
+		// R.4 — restore the per-workspace disabled-rules set.
+		try {
+			const arr = JSON.parse(this._storage.get(DISABLED_STORAGE_KEY, StorageScope.WORKSPACE, '[]'));
+			if (Array.isArray(arr)) { for (const p of arr) { if (typeof p === 'string') { this._disabledPaths.add(p); } } }
+		} catch { /* corrupt → empty */ }
 		// Watch for file changes in workspace root
 		this._register(this._fileService.onDidFilesChange(e => {
 			const rootUris = this._workspace.getWorkspace().folders.map(f => f.uri);
@@ -143,7 +161,7 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 		}));
 	}
 
-	getCombinedRules(activation?: { userText?: string }): string {
+	getCombinedRules(activation?: { userText?: string; files?: readonly string[] }): string {
 		// No activation (Settings preview / Ctrl+K / Autocomplete) → inject all (cached, computed
 		// in reloadRules). With activation (Chat agent path) → gate conditional rules by user text.
 		// Both read from `_cachedSources`; content was loaded async, so this is last-known (the
@@ -157,17 +175,18 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 	 * (`[Source: path]`), and — when `activation` is given — gate conditional rules, listing
 	 * unmatched ones in an "available rules" index (R.3/R.7). Without `activation` → inject all.
 	 */
-	private _combineSources(sources: readonly LoadedRuleSource[], activation: { userText?: string } | undefined): string {
+	private _combineSources(sources: readonly LoadedRuleSource[], activation: { userText?: string; files?: readonly string[] } | undefined): string {
 		const seen = new Set<string>();
 		const injected: string[] = [];
 		const indexed: LoadedRuleSource[] = [];
 		for (const s of sources) {
+			if (this._disabledPaths.has(s.relativePath)) { continue; } // R.4 — user-disabled
 			const body = s.content.trim();
 			if (body.length === 0) { continue; }
 			if (seen.has(body)) { continue; } // R.6 — dedup identical content across sources
 			seen.add(body);
 			const act = activation
-				? decideRuleActivation({ alwaysApply: s.alwaysApply, triggers: s.triggers ?? [], globs: s.globs ?? [] }, activation.userText)
+				? decideRuleActivation({ alwaysApply: s.alwaysApply, triggers: s.triggers ?? [], globs: s.globs ?? [] }, activation)
 				: 'inject';
 			if (act === 'inject') {
 				const label = `[Source: ${s.relativePath}${s.wasRedacted ? ' (secrets redacted)' : ''}]`;
@@ -179,14 +198,31 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 		const parts: string[] = [];
 		if (injected.length > 0) { parts.push(injected.join('\n\n')); }
 		if (indexed.length > 0) {
-			const list = indexed.map(s => `- ${s.relativePath}${s.description ? ` — ${s.description}` : ''}`).join('\n');
-			parts.push(`[Available project rules (conditional — not loaded for this turn)]\n${list}`);
+			const list = indexed.map(s => `- ${ruleNameFromPath(s.relativePath)}${s.description ? ` — ${s.description}` : ''}`).join('\n');
+			parts.push(`[Available project rules — conditional, not loaded this turn; load with @rule:<name>]\n${list}`);
 		}
 		return parts.join('\n\n').trim();
 	}
 
 	getLoadedSources(): LoadedRuleSource[] {
 		return [...this._cachedSources];
+	}
+
+	getRuleByName(name: string): LoadedRuleSource | undefined {
+		const target = name.trim().toLowerCase();
+		if (!target) { return undefined; }
+		return this._cachedSources.find(s => ruleNameFromPath(s.relativePath) === target);
+	}
+
+	isRuleEnabled(relativePath: string): boolean {
+		return !this._disabledPaths.has(relativePath);
+	}
+
+	setRuleEnabled(relativePath: string, enabled: boolean): void {
+		if (enabled) { this._disabledPaths.delete(relativePath); } else { this._disabledPaths.add(relativePath); }
+		this._storage.store(DISABLED_STORAGE_KEY, JSON.stringify([...this._disabledPaths]), StorageScope.WORKSPACE, StorageTarget.USER);
+		this._cachedCombined = this._combineSources(this._cachedSources, undefined);
+		this._onRulesChanged.fire();
 	}
 
 	async reloadRules(): Promise<void> {
@@ -281,6 +317,47 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 }
 
 registerSingleton(IVibeProjectRulesService, VibeProjectRulesService, InstantiationType.Delayed);
+
+// ── Command: Toggle Project Rule (enable/disable a source) — R.4 ────────────────
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.projectRules.toggle',
+			title: { value: localize('vibeide.projectRules.toggle', 'VibeIDE: Включить/выключить правило проекта'), original: 'VibeIDE: Toggle Project Rule' },
+			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			f1: true,
+		});
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const rulesSvc = accessor.get(IVibeProjectRulesService);
+		const quickInput = accessor.get(IQuickInputService);
+		const notifications = accessor.get(INotificationService);
+		await rulesSvc.reloadRules();
+		const sources = rulesSvc.getLoadedSources();
+		if (sources.length === 0) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.projectRules.toggle.none', 'Правил проекта не найдено.') });
+			return;
+		}
+		const items: (IQuickPickItem & { path: string })[] = sources.map(s => {
+			const on = rulesSvc.isRuleEnabled(s.relativePath);
+			return {
+				label: `${on ? '$(check)' : '$(circle-slash)'} ${s.relativePath}`,
+				description: on ? localize('vibeide.projectRules.toggle.on', 'включено') : localize('vibeide.projectRules.toggle.off', 'выключено'),
+				path: s.relativePath,
+			};
+		});
+		const pick = await quickInput.pick(items, { placeHolder: localize('vibeide.projectRules.toggle.placeholder', 'Выберите правило, чтобы включить/выключить') });
+		if (!pick) { return; }
+		const nowEnabled = !rulesSvc.isRuleEnabled(pick.path);
+		rulesSvc.setRuleEnabled(pick.path, nowEnabled);
+		notifications.notify({
+			severity: Severity.Info,
+			message: nowEnabled
+				? localize('vibeide.projectRules.toggle.enabled', 'Правило включено: {0}', pick.path)
+				: localize('vibeide.projectRules.toggle.disabled', 'Правило выключено: {0}', pick.path),
+		});
+	}
+});
 
 // ── Command: Reload Project Rules ──────────────────────────────────────────────
 

@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
-import { parseRuleFrontmatter, isRuleFileName, isAlwaysApply, parseAlwaysApply, parseTriggers, parseGlobs, matchesAnyTrigger, decideRuleActivation } from '../../common/prompt/ruleFrontmatter.js';
+import { parseRuleFrontmatter, isRuleFileName, isAlwaysApply, parseAlwaysApply, parseTriggers, parseGlobs, matchesAnyTrigger, decideRuleActivation, ruleGlobsMatchAnyFile, extractToolFilePaths, toWorkspaceRelative, ruleNameFromPath, parseRuleInvocations } from '../../common/prompt/ruleFrontmatter.js';
 
 suite('ruleFrontmatter — .mdc frontmatter parsing (R.1)', () => {
 
@@ -88,23 +88,66 @@ suite('ruleFrontmatter — activation engine (R.7 / R.3)', () => {
 	});
 
 	test('decideRuleActivation: alwaysApply true → inject', () => {
-		assert.strictEqual(decideRuleActivation({ alwaysApply: true, triggers: [], globs: [] }, undefined), 'inject');
+		assert.strictEqual(decideRuleActivation({ alwaysApply: true, triggers: [], globs: [] }, {}), 'inject');
 	});
 
 	test('decideRuleActivation: triggers match → inject, miss → index', () => {
-		assert.strictEqual(decideRuleActivation({ alwaysApply: false, triggers: ['deploy'], globs: [] }, 'time to deploy'), 'inject');
-		assert.strictEqual(decideRuleActivation({ alwaysApply: false, triggers: ['deploy'], globs: [] }, 'hello world'), 'index');
+		assert.strictEqual(decideRuleActivation({ alwaysApply: false, triggers: ['deploy'], globs: [] }, { userText: 'time to deploy' }), 'inject');
+		assert.strictEqual(decideRuleActivation({ alwaysApply: false, triggers: ['deploy'], globs: [] }, { userText: 'hello world' }), 'index');
 	});
 
 	test('decideRuleActivation: alwaysApply:false without match → index (agent-requested)', () => {
-		assert.strictEqual(decideRuleActivation({ alwaysApply: false, triggers: [], globs: [] }, 'anything'), 'index');
+		assert.strictEqual(decideRuleActivation({ alwaysApply: false, triggers: [], globs: [] }, { userText: 'anything' }), 'index');
 	});
 
-	test('decideRuleActivation: globs-only unmatched → index (until R.2)', () => {
-		assert.strictEqual(decideRuleActivation({ alwaysApply: undefined, triggers: [], globs: ['*.ts'] }, 'x'), 'index');
+	test('decideRuleActivation: globs match a context file → inject (R.2)', () => {
+		assert.strictEqual(decideRuleActivation({ alwaysApply: false, triggers: [], globs: ['src/**/*.tsx'] }, { files: ['src/ui/Button.tsx'] }), 'inject');
+		assert.strictEqual(decideRuleActivation({ alwaysApply: false, triggers: [], globs: ['*.tsx'] }, { files: ['src/ui/Button.tsx'] }), 'inject'); // basename fallback
+		assert.strictEqual(decideRuleActivation({ alwaysApply: false, triggers: [], globs: ['src/**/*.tsx'] }, { files: ['lib/util.ts'] }), 'index'); // no match → index
+		assert.strictEqual(decideRuleActivation({ alwaysApply: false, triggers: [], globs: ['*.ts'] }, {}), 'index'); // no files → index
 	});
 
 	test('decideRuleActivation: plain rule (no frontmatter) → inject (back-compat)', () => {
-		assert.strictEqual(decideRuleActivation({ alwaysApply: undefined, triggers: [], globs: [] }, undefined), 'inject');
+		assert.strictEqual(decideRuleActivation({ alwaysApply: undefined, triggers: [], globs: [] }, {}), 'inject');
+	});
+
+	test('ruleGlobsMatchAnyFile: matches path globs + basename fallback', () => {
+		assert.strictEqual(ruleGlobsMatchAnyFile(['src/**/*.ts'], ['src/a/b.ts']), true);
+		assert.strictEqual(ruleGlobsMatchAnyFile(['*.md'], ['docs/readme.md']), true); // no-slash glob → basename
+		assert.strictEqual(ruleGlobsMatchAnyFile(['src/*.ts'], ['src/a/b.ts']), false); // single * doesn't cross /
+		assert.strictEqual(ruleGlobsMatchAnyFile([], ['a.ts']), false);
+	});
+
+	test('extractToolFilePaths: collects rawParams.uri from tool messages only', () => {
+		const msgs = [
+			{ role: 'user' },
+			{ role: 'tool', rawParams: { uri: 'src/a.ts' } },
+			{ role: 'assistant' },
+			{ role: 'tool', rawParams: { pattern: 'x' } }, // no uri
+			{ role: 'tool', rawParams: { uri: 'src/b.tsx' } },
+		];
+		assert.deepStrictEqual(extractToolFilePaths(msgs), ['src/a.ts', 'src/b.tsx']);
+	});
+
+	test('toWorkspaceRelative: strips workspace prefix, normalises slashes, case-insensitive', () => {
+		assert.strictEqual(toWorkspaceRelative('d:\\proj\\src\\a.ts', ['d:\\proj']), 'src/a.ts');
+		assert.strictEqual(toWorkspaceRelative('D:/Proj/src/a.ts', ['d:\\proj\\']), 'src/a.ts'); // trailing slash + case
+		assert.strictEqual(toWorkspaceRelative('/other/x.ts', ['d:\\proj']), '/other/x.ts'); // outside ws → unchanged (normalised)
+	});
+});
+
+suite('ruleFrontmatter — @rule invocation + naming (R.5)', () => {
+
+	test('ruleNameFromPath: basename without extension, lowercased', () => {
+		assert.strictEqual(ruleNameFromPath('.vibe/rules/dev-engine.mdc'), 'dev-engine');
+		assert.strictEqual(ruleNameFromPath('AGENTS.md'), 'agents');
+		assert.strictEqual(ruleNameFromPath('.vibe\\rules\\Sub\\X.MD'), 'x');
+	});
+
+	test('parseRuleInvocations: @rule: and /rule:, deduped + lowercased', () => {
+		assert.deepStrictEqual(parseRuleInvocations('use @rule:Deploy and /rule:ci please'), ['deploy', 'ci']);
+		assert.deepStrictEqual(parseRuleInvocations('@rule:x @rule:x'), ['x']);
+		assert.deepStrictEqual(parseRuleInvocations('no invocation here'), []);
+		assert.deepStrictEqual(parseRuleInvocations(''), []);
 	});
 });

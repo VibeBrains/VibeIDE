@@ -61,6 +61,7 @@ import { detectModelFamily } from '../common/prompt/modelFamily.js';
 import { computeLastExchangePinSet } from '../common/prompt/lastExchangePin.js';
 import { isPinnedContextMessage } from '../common/prompt/pinnedContext.js';
 import { IVibeProjectRulesService } from './vibeProjectRulesService.js';
+import { extractToolFilePaths, toWorkspaceRelative, parseRuleInvocations } from '../common/prompt/ruleFrontmatter.js';
 import { planBudgetFillTail } from '../common/agentLoopHeuristics.js';
 import { updateTokenCalibration, clampTokenCalibration, serializeCalibration, deserializeCalibration } from '../common/tokenCalibration.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -1365,7 +1366,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 	}
 
 	// Read `.vibe/rules.md` and root `AGENTS.md` from workspace folders (open-document models when attached)
-	private _getVibeRulesFileContents(activation?: { userText?: string }): string {
+	private _getVibeRulesFileContents(activation?: { userText?: string; files?: readonly string[] }): string {
 		// R.0 — single source of truth: IVibeProjectRulesService combines flat `.vibe/rules.md` +
 		// `AGENTS.md` AND folder rules (`.vibe/rules/**`, `.cursor/rules/**` — `.md`/`.mdc`), with
 		// per-source `[Source: path]` labels + secret-sanitize. Previously this read just the two
@@ -1403,7 +1404,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 	}
 
 	// Get combined AI instructions from settings, .vibe/rules.md, and AGENTS.md (via open models)
-	private _getCombinedAIInstructions(activation?: { userText?: string }): string {
+	private _getCombinedAIInstructions(activation?: { userText?: string; files?: readonly string[] }): string {
 		const globalAIInstructions = this.vibeideSettingsService.state.globalSettings.aiInstructions;
 		const vibeRulesFileContent = this._getVibeRulesFileContents(activation);
 
@@ -1888,21 +1889,42 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const langDirective = buildResponseLanguageDirective(responseLangSetting, lastUserTextForLang);
 		// NOTE: explicitSkillBodies are NOT added to system prompt — they get prepended
 		// to the last user message below. See model-stalls.md #002 for why.
-		const aiInstructions = [this._getCombinedAIInstructions({ userText: lastUserTextForSkills }), skillsDiscovery, implicitSkills, langDirective].filter(s => s.trim().length > 0).join('\n\n');
+		// R.2 — file context for glob-scoped rules ("Auto Attached"): open editors + active editor
+		// + files the agent touched (read/edited) this thread, normalised to workspace-relative paths.
+		const ruleWsFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
+		const ruleOpenFiles = this.editorService.editors.map(e => e.resource?.fsPath).filter((p): p is string => !!p);
+		const ruleActiveFile = this.editorService.activeEditor?.resource?.fsPath;
+		const ruleContextFiles = [
+			...ruleOpenFiles,
+			...(ruleActiveFile ? [ruleActiveFile] : []),
+			...extractToolFilePaths(chatMessages),
+		].map(p => toWorkspaceRelative(p, ruleWsFolders)).filter(p => p.length > 0);
+		const aiInstructions = [this._getCombinedAIInstructions({ userText: lastUserTextForSkills, files: ruleContextFiles }), skillsDiscovery, implicitSkills, langDirective].filter(s => s.trim().length > 0).join('\n\n');
 		const isReasoningEnabled = getIsReasoningEnabledState('Chat', validProviderName, modelName, modelSelectionOptions, overridesOfModel)
 		const reservedOutputTokenSpace = getReservedOutputTokenSpace(validProviderName, modelName, { isReasoningEnabled, overridesOfModel })
 		let llmMessages = this._chatMessagesToSimpleMessages(chatMessages)
 
-		// Prepend explicit-skill bodies into the last user message's content.
-		// This is the load-bearing step that makes /skill:NAME actually take effect:
-		// the skill body lives in the same turn as the user's invocation, so the
-		// model reads them together and binds the procedure to the current request.
-		if (explicitSkillsUserPrefix.length > 0) {
+		// R.5 — `@rule:NAME` / `/rule:NAME` loads a specific (possibly conditional / agent-requested)
+		// rule body ON DEMAND, prepended to the user turn alongside any /skill: bodies (same
+		// mechanism, model-stalls #002: the body must live in the user's turn to bind to the request).
+		const invokedRuleBlocks: string[] = [];
+		for (const ruleName of parseRuleInvocations(lastUserTextForSkills)) {
+			const body = this.projectRulesService.getRuleByName(ruleName)?.content.trim();
+			if (body) { invokedRuleBlocks.push(`<rule_invocation name="${ruleName}">\n${body}\n</rule_invocation>`); }
+		}
+		const ruleInvocationPrefix = invokedRuleBlocks.length > 0
+			? `The user invoked @rule. Follow the rule body below as authoritative for this request.\n\n${invokedRuleBlocks.join('\n\n')}`
+			: '';
+
+		// Prepend explicit-skill + @rule bodies into the last user message's content. This is the
+		// load-bearing step that makes /skill:NAME and @rule:NAME actually take effect.
+		const userTurnPrefix = [explicitSkillsUserPrefix, ruleInvocationPrefix].filter(s => s.length > 0).join('\n\n');
+		if (userTurnPrefix.length > 0) {
 			for (let i = llmMessages.length - 1; i >= 0; i--) {
 				const m = llmMessages[i];
 				if (m.role === 'user') {
 					const original = typeof m.content === 'string' ? m.content : '';
-					(m as { content: string }).content = `${explicitSkillsUserPrefix}\n\n${original}`;
+					(m as { content: string }).content = `${userTurnPrefix}\n\n${original}`;
 					break;
 				}
 			}
