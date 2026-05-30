@@ -2231,9 +2231,9 @@ const ProjectRulesPanel = () => {
 	const [enabledMap, setEnabledMap] = useState<Record<string, boolean>>({})
 	const [expanded, setExpanded] = useState<string | null>(null)
 
-	const refresh = useCallback(() => {
+	const refresh = useCallback(async () => {
 		try {
-			void rulesSvc.reloadRules()
+			await rulesSvc.reloadRules() // await so the list reflects the freshly-scanned sources
 			const sources = rulesSvc.getLoadedSources() as Src[]
 			setRows(sources)
 			const m: Record<string, boolean> = {}
@@ -2244,7 +2244,7 @@ const ProjectRulesPanel = () => {
 		}
 	}, [rulesSvc])
 
-	useEffect(() => { refresh() }, [refresh])
+	useEffect(() => { void refresh() }, [refresh])
 
 	const toggle = (path: string) => {
 		const next = !(enabledMap[path] ?? true)

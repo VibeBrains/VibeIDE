@@ -9,6 +9,7 @@
  * Sources:
  *  - `.vibe/rules.md` (flat file)
  *  - `AGENTS.md` (workspace folder root)
+ *  - `.cursorrules` (legacy single-file Cursor convention, for imported projects)
  *  - `.vibe/rules/**\/*.{md,mdc}` and `.cursor/rules/**\/*.mdc` (folder form, Cursor-compatible — R.1).
  *    `.mdc` frontmatter (`description`/`globs`/`alwaysApply`) is stripped from the body.
  *    Before R.1 only the two flat files were read, so Cursor-style rules sitting in a `rules/`
@@ -94,8 +95,9 @@ export interface IVibeProjectRulesService {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-/** Flat rule files to load in order */
-const RULE_FILE_NAMES = ['.vibe/rules.md', 'AGENTS.md'];
+/** Flat rule files to load in order. `.cursorrules` = legacy single-file Cursor convention
+ *  (pre-`.mdc`), common in imported projects — treated as a plain always-on rule. */
+const RULE_FILE_NAMES = ['.vibe/rules.md', 'AGENTS.md', '.cursorrules'];
 /** Folders scanned recursively for `*.md` / `*.mdc` rule files (R.1, Cursor-compatible). */
 const RULE_FOLDER_NAMES = ['.vibe/rules', '.cursor/rules'];
 const MAX_RULE_FILE_BYTES = 102400; // 100KB per file
@@ -185,13 +187,14 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 			if (body.length === 0) { continue; }
 			if (seen.has(body)) { continue; } // R.6 — dedup identical content across sources
 			seen.add(body);
-			const act = activation
-				? decideRuleActivation({ alwaysApply: s.alwaysApply, triggers: s.triggers ?? [], globs: s.globs ?? [] }, activation)
-				: 'inject';
+			const act = decideRuleActivation({ alwaysApply: s.alwaysApply, triggers: s.triggers ?? [], globs: s.globs ?? [] }, activation ?? {});
 			if (act === 'inject') {
 				const label = `[Source: ${s.relativePath}${s.wasRedacted ? ' (secrets redacted)' : ''}]`;
 				injected.push(`${label}\n${body}`);
-			} else {
+			} else if (activation !== undefined) {
+				// Conditional + unmatched: list as "available" ONLY on the agent-chat path (activation
+				// provided). No-activation callers (Ctrl+K / Autocomplete / Settings combined view) drop
+				// conditional rules entirely — no bloat and no index in narrow completions.
 				indexed.push(s);
 			}
 		}
