@@ -6,16 +6,50 @@
 
 ---
 
+## [инцидент] 2026-05-30 02:28 MSK — renderer-OOM по **commit charge** (НЕ V8 heap)
+
+**Состояние:** механизм root cause установлен. Это тот же класс, что инцидент 2026-05-22/23 ниже, но прежняя атрибуция «V8 heap exhaustion» **опровергнута** — V8-куча была на 8% лимита в момент смерти.
+
+### Подтверждённое (логи + минидамп)
+
+| Факт | Источник |
+|---|---|
+| Renderer крашнулся `2026-05-30 02:28:56 MSK` (`23:28:56Z`), reason `oom`, code `-536870904` (`0xE0000008`) | `main.log` session `20260529T202223`; watchdog `{type:'crash',proc:'renderer',exitCode:-536870904}` |
+| Окно idle ~6 ч (старт 20:22, краш 02:28) | `renderer.log` тих после старта |
+| **V8 heap рендерера был ЗДОРОВ**: за 89 с до смерти `heapUsed≈336 MB` при `heapLimit=4.29 GB` (ratio **0.08**), `rss≈397 MB` — плоско весь вечер | watchdog renderer-сэмплы |
+| **Crash — это commit charge, не куча.** Exception-params минидампа `[0x200000, 0xe73d9f000, 0x356964000]` = `[2 MB запрос, ~57.8 GB commit-лимит, ~13.35 GB закоммичено]` | `Crashpad/reports/*.dmp`, распарсен вручную (cdb/символов нет — парсер `MemoryInfoList` дал мусор, но Exception-стрим читается чисто) |
+| `0xE0000008` = Chromium `kOomExceptionCode`; `0x200000`=2 MB = гранулярность super-page PartitionAlloc | декод params |
+| Системного OOM НЕ было | 48 GB RAM, 30 GB свободно; `Resource-Exhaustion-Detector` в окне краша пуст |
+
+### Почему watchdog не предупредил — слепое пятно по `privateBytes`
+
+Renderer само-сэмплится через `performance.memory` → только V8 heap, **без off-heap/commit**, ещё и с `pid:-1`. Рост шёл в **private commit** (ArrayBuffers / нативные буферы / PartitionAlloc-резервации), невидимый ни в `heapUsed`, ни в `rss` (working set остался 400 MB — страницы нерезидентны/вытеснены в pagefile). Все три существовавших сигнала молчали: pre-OOM смотрел `heapUsed/heapLimit` (0.08), RSS-slope — плоский RSS, абсолютного commit-порога не было.
+
+### Исправление — commit-видимость watchdog (2026-05-30)
+
+- **`privateBytes`** (private commit, байты) добавлен в `WatchdogSampleBase`; пишется в `_sampleElectronChildProcesses` из `app.getAppMetrics().memory.privateBytes` для **всех** дочерних процессов.
+- Рендереры больше **не** пропускаются в main-сэмплере (бывшая строка `if (m.type==='Tab') continue`): эмитится main-side commit-probe (`note:'commit-probe'`, реальный OS-pid). Это единственный способ прочитать commit рендерера — сам он не может.
+- Pre-OOM: ветка `commitAlertMB` (абсолютный private commit, default 4000 MB) → `onPreOomAlert`.
+- Commit-slope: параллельный `SlopeWatcher` на `privateBytes` → `onSlopeAlert` с `metric:'commit'` (rss-алерт стал `metric:'rss'`). Renderer-нотификация различает текст: «commit-память … растёт, в working set/диспетчере задач не видно».
+
+**Зачем абсолют И наклон вместе:** абсолют (`commitAlertMB`) = «уже у обрыва»; slope = «идёшь к обрыву» (ловит раньше, не зависит от машины, различает рост vs плато). RSS-slope этот инцидент пропустил именно потому, что рост был в commit, а не в working set.
+
+### Открытый хвост — пост-крашевый leak в main
+
+После смерти рендерера main (с висящим диалогом «Открыть повторно?») **сам** начинает течь `external` ~6 MB/ч; маркер зомби-состояния — `handles` падает 16→12. В здоровой сессии (`handles:16`, без crash-событий) main `external` плоский ~5 MB 4.5 ч подряд — **устойчивой idle-утечки main НЕТ** (прежнее предположение об этом снято: измерялось только пост-крашевое окно). Вторичный leak заведён отдельной задачей — см. `docs/roadmap.md` секция W. Источник не локализован (кандидаты: retry/буферизация IPC к мёртвому MessagePort, crash-recovery state).
+
+---
+
 ## [инцидент] 2026-05-22/23 — ночной renderer-OOM (cross-machine reproduction)
 
-**Состояние:** root cause частично локализован — renderer V8 heap exhaustion на idle. **Виновный сервис не определён** — нужны данные расширенного watchdog'а (см. ниже).
+**Состояние:** ⚠️ гипотеза «V8 heap exhaustion» **опровергнута** инцидентом 2026-05-30 выше — тот же код `0xE0000008` оказался **commit-charge OOM** (PartitionAlloc/Chromium), а не исчерпанием V8-кучи. Виновник роста — off-heap/private commit, невидимый старому watchdog'у. Записи ниже верны как факты по логам, но вывод о «heap exhaustion» читать с поправкой.
 
 ### Подтверждённое (по логам, не гипотезы)
 
 | Факт | Источник |
 |---|---|
 | Renderer крашнулся **`2026-05-22 23:56:06`** | `main.log:10` в session `20260522T184505`: `CodeWindow: renderer process gone (reason: oom, code: -536870904)` |
-| Reason: `oom`, code: `-536870904` (`0xE0000008`) | Standard V8 `FatalProcessOutOfMemory` signature на Windows |
+| Reason: `oom`, code: `-536870904` (`0xE0000008`) | Chromium `kOomExceptionCode` (НЕ V8 `FatalProcessOutOfMemory`, как считалось ранее — см. инцидент 2026-05-30: это commit charge) |
 | Окно было **idle 5h 10min** до смерти | `renderer.log` молчит с 18:45:14 до 23:56:06 (14 строк за 8 секунд на старте, потом тишина) |
 | **Main-процесс стабилен на обеих машинах** | Watchdog `vibe-idle-watchdog/2026-05-22.jsonl` + `2026-05-23.jsonl`: rss ~208 MB ± noise всю ночь, handles=9, requests=0 |
 | **Воспроизводится на двух машинах** | Дом (0.13.8) — ночью идл; Работа (0.13.5) — оставлен на ночь с 18:45, упал в 23:56 |
@@ -105,9 +139,10 @@ Main отслеживает rolling-window slope `(rss_last - rss_first) / dt_mi
     "proc": "main" | "renderer" | "exthost" | "gpu" | "utility",
     "pid": 12345,
     "uptimeSec": 3600,
-    "rss": 230_000_000,          // байты
+    "rss": 230_000_000,          // байты (working set)
     "heapUsed": 85_000_000,
     "heapTotal": 130_000_000,
+    "privateBytes": 240_000_000, // private commit charge, байты — main-sampled children + renderer commit-probe. Ловит commit-OOM, невидимый в rss
     "handles": 11,
     "activeRequests": 0,
     "windowId": 12345678,        // только renderer
@@ -131,7 +166,8 @@ Main отслеживает rolling-window slope `(rss_last - rss_first) / dt_mi
 | `heapSnapshotOnHighRss` | `false` | Auto-snapshot при rss > threshold (W.4) |
 | `heapSnapshotThresholdMB` | `2000` | Порог rss для auto-snapshot |
 | `snapshotCooldownMinutes` | `30` | Минимальный интервал между snapshot'ами |
-| `growthAlertMBPerMin` | `5` | Slope для proactive notification (W.5, detector работает; renderer push пока в разработке) |
+| `growthAlertMBPerMin` | `5` | Slope-порог МБ/мин для proactive notification (W.5). Применяется и к RSS-slope, и к commit-slope |
+| `commitAlertMB` | `4000` (0..64000, 0=off) | Абсолютный private-commit (МБ) → `onPreOomAlert`. Ловит commit-балон при здоровой V8-куче (инцидент 2026-05-30) |
 
 Все настройки — APPLICATION scope. Settings UI секция «VibeIDE — Idle Watchdog (diagnostics)».
 

@@ -2546,6 +2546,21 @@ vibeide.subagent.*, vibeide.mcp.*, vibeide.commands.audit*, …
 
 - [x] **Setting + interval scaling** — ✅ this session: `adaptiveSampling` (default false). `_effectiveIntervalMs()` возвращает `base * 6` когда `(now - _lastActivityTs) > 3600s`. `_maybeReschedule()` после каждого tick re-arms timer если crossed idle/active boundary. `_lastActivityTs` обновляется (a) явно через `notifyActivity()`, (b) при receive renderer-sample с `idleSec < 60` (W.50 wiring via `acceptExternalSample`).
 
+### W.51 Commit-charge visibility — private commit sampling + commit-slope (2026-05-30)
+
+> **Контекст:** renderer-OOM 2026-05-30 02:28 был **commit charge**, не V8 heap (heap на 0.08 лимита, ~13 GB закоммичено). Все существовавшие сигналы молчали: watchdog не сэмплил `privateBytes`, рендереры в main-сэмплере пропускались, pre-OOM смотрел только heap-ratio. См. [docs/knowledge/runtime-quirks/idle-memory.md](knowledge/runtime-quirks/idle-memory.md) инцидент 2026-05-30.
+
+- [x] **`privateBytes` в схему + main-сэмплер** — ✅ this session: поле `privateBytes?` (private commit, байты) в `WatchdogSampleBase`; пишется в `_sampleElectronChildProcesses` из `app.getAppMetrics().memory.privateBytes` для всех дочерних процессов. Рендереры больше не пропускаются — main-side commit-probe (`note:'commit-probe'`, реальный OS-pid), т.к. сам рендерер commit прочитать не может (`performance.memory` = heap only).
+- [x] **Pre-OOM по абсолютному commit** — ✅ this session: `commitAlertMB` (default 4000, 0=off) → ветка в `_evaluatePreOom` → `onPreOomAlert`. Ловит commit-балон при здоровой V8-куче.
+- [x] **Commit-slope** — ✅ this session: параллельный `_commitSlopeWatchers` (`SlopeWatcher` на `privateBytes`) → `onSlopeAlert` с `metric:'commit'` (rss-алерт стал `metric:'rss'`). Renderer-нотификация различает текст про commit-память. `_cleanupKey` чистит commit-watcher (анти-зомби).
+
+### W.52 Post-crash main `external` leak — провисший recovery-диалог (открыто, 2026-05-30)
+
+> **Контекст:** после смерти рендерера main-процесс (с открытым диалогом «Окно завершило работу. Открыть повторно?») сам течёт `external` ~6 MB/ч; маркер — `handles` падает 16→12. В здоровой сессии main `external` плоский ~5 MB. Severity низкая (bounded, узкий сценарий), главное лекарство — не допускать сам OOM (W.51). **Устойчивой idle-утечки main НЕТ** — прежнее предположение снято (измерялось только пост-крашевое окно).
+
+- [ ] **Локализовать источник** — что в main аллоцирует off-heap каждые ~5 мин при висящем recovery-диалоге с мёртвым MessagePort. Кандидаты: retry/буферизация IPC к мёртвому каналу рендерера; состояние crash-recovery. Данные текущих логов неполные — воспроизвести с `privateBytes`-инструментацией (W.51) и `includeProcessReport:true` для libuv-handle разбивки на пост-крашевом main.
+- [ ] **Решение** — после локализации: освобождать буферы/останавливать retry-петлю при `render-process-gone`, либо ограничить время жизни recovery-состояния.
+
 ---
 
 ## X. XML tool-call normalization stack — v0.13.10 (2026-05-23)
