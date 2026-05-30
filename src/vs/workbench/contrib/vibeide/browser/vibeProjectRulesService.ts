@@ -6,12 +6,11 @@
 /**
  * VibeProjectRulesService — workspace project rules for AI context.
  *
- * Sources:
+ * Sources (our own conventions only — no foreign tools' rule files):
  *  - `.vibe/rules.md` (flat file)
  *  - `AGENTS.md` (workspace folder root)
- *  - `.cursorrules` (legacy single-file Cursor convention, for imported projects)
- *  - `.vibe/rules/**\/*.{md,mdc}` and `.cursor/rules/**\/*.mdc` (folder form, Cursor-compatible — R.1).
- *    `.mdc` frontmatter (`description`/`globs`/`alwaysApply`) is stripped from the body.
+ *  - `.vibe/rules/**\/*.{md,mdc}` (folder form — R.1). `.mdc` frontmatter
+ *    (`description`/`globs`/`alwaysApply`/`triggers`) is stripped from the body and drives activation.
  *    Before R.1 only the two flat files were read, so Cursor-style rules sitting in a `rules/`
  *    folder were invisible to the model — it then hallucinated filenames (incident 2026-05-30).
  *
@@ -95,11 +94,11 @@ export interface IVibeProjectRulesService {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-/** Flat rule files to load in order. `.cursorrules` = legacy single-file Cursor convention
- *  (pre-`.mdc`), common in imported projects — treated as a plain always-on rule. */
-const RULE_FILE_NAMES = ['.vibe/rules.md', 'AGENTS.md', '.cursorrules'];
-/** Folders scanned recursively for `*.md` / `*.mdc` rule files (R.1, Cursor-compatible). */
-const RULE_FOLDER_NAMES = ['.vibe/rules', '.cursor/rules'];
+/** Flat rule files to load in order. Only our own conventions — no foreign tools' rule files. */
+const RULE_FILE_NAMES = ['.vibe/rules.md', 'AGENTS.md'];
+/** Folders scanned recursively for `*.md` / `*.mdc` rule files (R.1). Only `.vibe/rules/` — we
+ *  deliberately do NOT read `.cursor/`-style foreign rule folders. */
+const RULE_FOLDER_NAMES = ['.vibe/rules'];
 const MAX_RULE_FILE_BYTES = 102400; // 100KB per file
 /** Cap total folder-discovered rule files so a stray big rules/ tree can't blow the prompt budget. */
 const MAX_RULE_FILES = 50;
@@ -482,7 +481,7 @@ registerAction2(class extends Action2 {
 		const { ITextModelService } = await import('../../../../editor/common/services/resolverService.js');
 
 		const content = sources.length === 0
-			? '// No project rules files found.\n// Create: .vibe/rules.md | AGENTS.md | .vibe/rules/*.md(c) | .cursor/rules/*.mdc'
+			? '// No project rules files found.\n// Create: .vibe/rules.md | AGENTS.md | .vibe/rules/*.md(c)'
 			: sources.map(s => `// ${s.relativePath} (${s.sizeBytes} bytes${s.wasRedacted ? ', secrets redacted' : ''})\n${s.content}`).join('\n\n---\n\n');
 
 		const uri = URI_.parse(`untitled://project-rules-sources-${Date.now()}.md`);

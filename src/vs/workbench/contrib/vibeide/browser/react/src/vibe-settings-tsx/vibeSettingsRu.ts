@@ -684,7 +684,7 @@ export const safetyS = {
 
 	// R.4.1 — Project rules panel
 	rulesPanelTitle: 'Правила проекта',
-	rulesPanelIntro: 'Найденные правила: `.vibe/rules.md`, `AGENTS.md`, `.vibe/rules/**` и `.cursor/rules/**` (`.md`/`.mdc`). Включённые подмешиваются в системный промпт с метками источника. Условные (`alwaysApply:false` / `globs` / `triggers`) активируются по контексту или через `@rule:<имя>`.',
+	rulesPanelIntro: 'Найденные правила: `.vibe/rules.md`, `AGENTS.md`, `.vibe/rules/**` (`.md`/`.mdc`). Включённые подмешиваются в системный промпт с метками источника. Условные (`alwaysApply:false` / `globs` / `triggers`) активируются по контексту или через `@rule:<имя>`.',
 	rulesPanelReload: 'Перечитать',
 	rulesPanelEmpty: 'Правил проекта не найдено.',
 	rulesPanelColEnabled: 'Статус',

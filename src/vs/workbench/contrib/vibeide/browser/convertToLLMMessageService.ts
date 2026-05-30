@@ -1368,8 +1368,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 	// Read `.vibe/rules.md` and root `AGENTS.md` from workspace folders (open-document models when attached)
 	private _getVibeRulesFileContents(activation?: { userText?: string; files?: readonly string[] }): string {
 		// R.0 — single source of truth: IVibeProjectRulesService combines flat `.vibe/rules.md` +
-		// `AGENTS.md` AND folder rules (`.vibe/rules/**`, `.cursor/rules/**` — `.md`/`.mdc`), with
-		// per-source `[Source: path]` labels + secret-sanitize. Previously this read just the two
+		// `AGENTS.md` AND folder rules (`.vibe/rules/**` — `.md`/`.mdc`; no foreign tools' rule dirs),
+		// with per-source `[Source: path]` labels + secret-sanitize. Previously this read just the two
 		// flat files inline via getModel, bypassing the service — so folder/`.mdc` rules never
 		// reached the prompt (incident 2026-05-30, model hallucinated filenames). `activation`
 		// (the user message) gates conditional rules (triggers/alwaysApply:false → R.7/R.3).
