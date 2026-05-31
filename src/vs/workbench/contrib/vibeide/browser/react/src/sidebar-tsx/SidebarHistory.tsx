@@ -5,11 +5,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useIsDark, useAccessor, useChatThreadsState, useFullChatThreadsStreamState } from '../util/services.js';
-import { PastThreadElement } from './SidebarThreadSelector.js';
+import { PastThreadElement, useHistoryScope, HistoryScopeToggle, type HistoryScope } from './SidebarThreadSelector.js';
 import '../styles.css';
 import ErrorBoundary from './ErrorBoundary.js';
 import { Search, RotateCcw, Settings as SettingsIcon } from 'lucide-react';
 import { IsRunningType, ThreadType } from '../../../chatThreadService.js';
+import { threadMatchesWorkspace } from '../../../../common/chatHistoryScope.js';
 import { chatS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 import type { TokenBudgetStatus } from '../../../../common/vibeTokenBudgetService.js';
 import type { ContextLimitStatus } from '../../../vibeContextGuardService.js';
@@ -71,12 +72,14 @@ const DateGroupSection = ({
 	currentThreadId,
 	runningThreadIds,
 	onAfterSwitch,
+	scope,
 }: {
 	label: DateGroupLabel;
 	threads: ThreadType[];
 	currentThreadId: string | undefined;
 	runningThreadIds: Record<string, IsRunningType | undefined>;
 	onAfterSwitch: () => void;
+	scope: HistoryScope;
 }) => {
 	const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
@@ -96,6 +99,7 @@ const DateGroupSection = ({
 						isRunning={runningThreadIds[thread.id]}
 						isActive={thread.id === currentThreadId}
 						onAfterSwitch={onAfterSwitch}
+						scope={scope}
 					/>
 				))}
 			</div>
@@ -245,7 +249,9 @@ const HistoryContent = () => {
 		return result;
 	}, [streamState]);
 
-	const sortedThreads = useMemo((): ThreadType[] => {
+	const { showAll, setShowAll, wsId } = useHistoryScope();
+
+	const messageThreads = useMemo((): ThreadType[] => {
 		return Object.values(threadsState.allThreads ?? {})
 			.filter((t): t is ThreadType => !!(t as ThreadType)?.messages?.length)
 			.sort((a, b) => {
@@ -255,14 +261,35 @@ const HistoryContent = () => {
 			});
 	}, [threadsState.allThreads]);
 
+	// Scoped to the current project unless the user opted into "all projects".
+	const sortedThreads = useMemo((): ThreadType[] => {
+		return messageThreads.filter(t => threadMatchesWorkspace(t, wsId, showAll));
+	}, [messageThreads, wsId, showAll]);
+
+	const otherProjectsCount = useMemo(() => {
+		return messageThreads.filter(t => !threadMatchesWorkspace(t, wsId, false)).length;
+	}, [messageThreads, wsId]);
+
+	const scope = useMemo((): HistoryScope => ({ showAll, currentWorkspaceId: wsId }), [showAll, wsId]);
+
+	const threadMatchesQuery = useCallback((t: ThreadType, q: string): boolean => {
+		const fu = t.messages.find(m => m.role === 'user') as any;
+		return ((fu?.displayContent || fu?.content || '') as string).toLowerCase().includes(q);
+	}, []);
+
 	const filteredThreads = useMemo(() => {
 		const q = filter.trim().toLowerCase();
 		if (!q) { return sortedThreads; }
-		return sortedThreads.filter(t => {
-			const fu = t.messages.find(m => m.role === 'user') as any;
-			return ((fu?.displayContent || fu?.content || '') as string).toLowerCase().includes(q);
-		});
-	}, [sortedThreads, filter]);
+		return sortedThreads.filter(t => threadMatchesQuery(t, q));
+	}, [sortedThreads, filter, threadMatchesQuery]);
+
+	// CH.9 — when searching in scoped mode, count matches hiding in OTHER projects
+	// so a chat made elsewhere never looks "lost". Only meaningful while scoped.
+	const otherMatchesCount = useMemo(() => {
+		const q = filter.trim().toLowerCase();
+		if (!q || showAll) { return 0; }
+		return messageThreads.filter(t => !threadMatchesWorkspace(t, wsId, false) && threadMatchesQuery(t, q)).length;
+	}, [messageThreads, filter, showAll, wsId, threadMatchesQuery]);
 
 	const dateGroups = useMemo(() => {
 		if (filter.trim()) { return null; }
@@ -276,7 +303,7 @@ const HistoryContent = () => {
 	return (
 		<div className="flex flex-col h-full w-full overflow-hidden">
 			{/* Search */}
-			<div className="px-2 py-1.5 flex-shrink-0">
+			<div className="px-2 py-1.5 flex-shrink-0 flex flex-col gap-1.5">
 				<div className="flex items-center gap-1.5 px-2 py-1 @@vibe-command-center-search">
 					<Search size={11} className="text-vibe-fg-4 shrink-0" />
 					<input
@@ -288,6 +315,11 @@ const HistoryContent = () => {
 						className="flex-1 bg-transparent text-xs text-vibe-fg-2 outline-none placeholder:text-vibe-fg-4 min-w-0"
 					/>
 				</div>
+				{otherProjectsCount > 0 && (
+					<div className="flex justify-end">
+						<HistoryScopeToggle showAll={showAll} setShowAll={setShowAll} otherCount={otherProjectsCount} />
+					</div>
+				)}
 			</div>
 
 			{/* Thread list */}
@@ -297,26 +329,38 @@ const HistoryContent = () => {
 						{chatS.historyEmptyState}
 					</div>
 				) : filter.trim() ? (
-					filteredThreads.length === 0 ? (
-						<div className="px-3 py-4 text-xs text-vibe-fg-3 text-center select-none">
-							{chatS.historyNoMatches(filter)}
-						</div>
-					) : (
-						<div className="flex flex-col gap-1 px-2 py-2">
-							{filteredThreads.map((thread, i) => (
-								<PastThreadElement
-									key={thread.id}
-									pastThread={thread}
-									idx={i}
-									hoveredIdx={hoveredIdx}
-									setHoveredIdx={setHoveredIdx}
-									isRunning={runningThreadIds[thread.id]}
-									isActive={thread.id === currentThreadId}
-									onAfterSwitch={handleAfterSwitch}
-								/>
-							))}
-						</div>
-					)
+					<>
+						{otherMatchesCount > 0 && (
+							<button
+								type="button"
+								className="w-full text-left px-3 py-2 text-xs text-vibe-fg-3 hover:text-vibe-fg-1 hover:bg-vibe-bg-3 transition-colors select-none"
+								onClick={() => setShowAll(true)}
+							>
+								{chatS.historyOtherMatches(otherMatchesCount)}
+							</button>
+						)}
+						{filteredThreads.length === 0 ? (
+							<div className="px-3 py-4 text-xs text-vibe-fg-3 text-center select-none">
+								{chatS.historyNoMatches(filter)}
+							</div>
+						) : (
+							<div className="flex flex-col gap-1 px-2 py-2">
+								{filteredThreads.map((thread, i) => (
+									<PastThreadElement
+										key={thread.id}
+										pastThread={thread}
+										idx={i}
+										hoveredIdx={hoveredIdx}
+										setHoveredIdx={setHoveredIdx}
+										isRunning={runningThreadIds[thread.id]}
+										isActive={thread.id === currentThreadId}
+										onAfterSwitch={handleAfterSwitch}
+										scope={scope}
+									/>
+								))}
+							</div>
+						)}
+					</>
 				) : (
 					dateGroups && (Array.from(dateGroups.entries()) as [DateGroupLabel, ThreadType[]][]).map(([label, threads]) => (
 						<DateGroupSection
@@ -326,6 +370,7 @@ const HistoryContent = () => {
 							currentThreadId={currentThreadId}
 							runningThreadIds={runningThreadIds}
 							onAfterSwitch={handleAfterSwitch}
+							scope={scope}
 						/>
 					))
 				)}

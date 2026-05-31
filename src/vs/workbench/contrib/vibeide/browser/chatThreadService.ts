@@ -42,6 +42,7 @@ import { VibeideFileSnapshot } from '../common/editCodeServiceTypes.js';
 import { INotificationHandle, INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { truncate } from '../../../../base/common/strings.js';
 import { THREAD_STORAGE_KEY } from '../common/storageKeys.js';
+import { HISTORY_SHOW_ALL_PROJECTS_KEY, HISTORY_DEFAULT_SHOW_ALL_KEY } from '../common/chatHistoryScope.js';
 import { IConvertToLLMMessageService, ContextOverflowError } from './convertToLLMMessageService.js';
 import { timeout } from '../../../../base/common/async.js';
 import { deepClone } from '../../../../base/common/objects.js';
@@ -314,6 +315,8 @@ export type ThreadType = {
 	id: string; // store the id here too
 	createdAt: string; // ISO string
 	lastModified: string; // ISO string
+	workspaceId?: string; // IWorkspace.id this thread belongs to. Undefined = legacy (pre-scoping) thread → shown in every project.
+	workspaceLabel?: string; // Human-readable project name (first folder basename) captured at stamp time, for the "all projects" badge.
 
 	messages: ChatMessage[];
 	filesWithUserChanges: Set<string>;
@@ -420,12 +423,14 @@ export type ThreadStreamState = {
 	}
 }
 
-const newThreadObject = () => {
+const newThreadObject = (workspaceId: string | undefined, workspaceLabel: string | undefined) => {
 	const now = new Date().toISOString()
 	return {
 		id: generateUuid(),
 		createdAt: now,
 		lastModified: now,
+		workspaceId,
+		workspaceLabel,
 		messages: [],
 		state: {
 			currCheckpointIdx: null,
@@ -436,9 +441,6 @@ const newThreadObject = () => {
 		filesWithUserChanges: new Set()
 	} satisfies ThreadType
 }
-
-
-
 
 
 
@@ -472,6 +474,19 @@ export interface IChatThreadService {
 	pullChatHistoryPopoverPending(): boolean;
 
 	getCurrentThread(): ThreadType;
+	/** IWorkspace.id of the current window — used to scope history to the open project. */
+	getCurrentWorkspaceId(): string;
+	/** Cross-window UI toggle: when true, history lists show threads from every project. */
+	getHistoryShowAllProjects(): boolean;
+	setHistoryShowAllProjects(value: boolean): void;
+	/** Re-assign a thread to the currently open project (used by the "move to this project" history action). */
+	moveThreadToCurrentWorkspace(threadId: string): void;
+	/** Stamp all legacy (untagged) threads onto the current project. Returns how many were claimed. */
+	claimUntaggedThreadsForCurrentWorkspace(): number;
+	/** Message-bearing threads strictly owned by the current project (for export). */
+	getCurrentWorkspaceThreads(): ThreadType[];
+	/** Delete all message-bearing threads strictly owned by the current project. Returns how many were deleted. */
+	deleteCurrentWorkspaceThreads(): number;
 	openNewThread(): void;
 	/** Always create a fresh thread (bypasses openNewThread's empty-thread reuse). Returns the new thread id. */
 	forceCreateNewThread(): string;
@@ -7693,18 +7708,108 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 
 
+	private _currentWorkspace(): { id: string; label: string } {
+		const ws = this._workspaceContextService.getWorkspace()
+		const folders = ws.folders
+		// Folder-less window: `getWorkspace().id` is a transient per-window value
+		// that changes across reopens — stamping it would orphan threads on the
+		// next launch (CH.11). Return an empty id so such threads stay untagged
+		// (≡ visible in every project) instead of bound to an unstable id.
+		if (folders.length === 0) { return { id: '', label: '' } }
+		// First folder basename is the intuitive "project name"; for multi-root
+		// append "+N" so a monorepo workspace is distinguishable.
+		let label = folders[0]?.name ?? ''
+		if (folders.length > 1) { label = `${label} +${folders.length - 1}` }
+		return { id: ws.id, label }
+	}
+
+	getCurrentWorkspaceId(): string {
+		return this._currentWorkspace().id
+	}
+
+	getHistoryShowAllProjects(): boolean {
+		// Stored toggle wins; when unset, fall back to the configurable default scope.
+		const def = this._configurationService.getValue<boolean>(HISTORY_DEFAULT_SHOW_ALL_KEY) === true
+		return this._storageService.getBoolean(HISTORY_SHOW_ALL_PROJECTS_KEY, StorageScope.PROFILE, def)
+	}
+
+	setHistoryShowAllProjects(value: boolean): void {
+		// PROFILE scope + onDidChangeValue makes every history list (and window)
+		// react to the toggle without a bespoke service event.
+		this._storageService.store(HISTORY_SHOW_ALL_PROJECTS_KEY, value, StorageScope.PROFILE, StorageTarget.USER)
+	}
+
+	moveThreadToCurrentWorkspace(threadId: string): void {
+		const thread = this.state.allThreads[threadId]
+		if (!thread) return
+		const ws = this._currentWorkspace()
+		if (!ws.id) return // folder-less window — no real project to assign to (CH.11)
+		if (thread.workspaceId === ws.id) return
+		const updated: ChatThreads = { ...this.state.allThreads, [threadId]: { ...thread, workspaceId: ws.id, workspaceLabel: ws.label } }
+		this._storeAllThreads(updated)
+		this._setState({ allThreads: updated })
+	}
+
+	claimUntaggedThreadsForCurrentWorkspace(): number {
+		// One-shot migration: stamp legacy (pre-scoping) threads — those with no
+		// workspaceId — onto the current project. Threads already owned by another
+		// project are left untouched (use the per-thread "move" action for those).
+		const ws = this._currentWorkspace()
+		if (!ws.id) return 0 // folder-less window — no real project to claim into (CH.11)
+		const current = this.state.allThreads
+		const updated: ChatThreads = { ...current }
+		let claimed = 0
+		for (const id in current) {
+			const t = current[id]
+			if (t && !t.workspaceId) {
+				updated[id] = { ...t, workspaceId: ws.id, workspaceLabel: ws.label }
+				claimed++
+			}
+		}
+		if (claimed === 0) return 0
+		this._storeAllThreads(updated)
+		this._setState({ allThreads: updated })
+		return claimed
+	}
+
+	getCurrentWorkspaceThreads(): ThreadType[] {
+		const wsId = this.getCurrentWorkspaceId()
+		// Strictly OWNED by this project (workspaceId === current) — excludes legacy/untagged
+		// (shared) and other projects, so export/clear act only on this project's own history.
+		return Object.values(this.state.allThreads)
+			.filter((t): t is ThreadType => !!t && t.workspaceId === wsId && t.messages.length > 0)
+	}
+
+	deleteCurrentWorkspaceThreads(): number {
+		const wsId = this.getCurrentWorkspaceId()
+		if (!wsId) return 0 // folder-less window — no real project to clear (CH.11)
+		const ids = Object.keys(this.state.allThreads)
+			.filter(id => this.state.allThreads[id]?.workspaceId === wsId && (this.state.allThreads[id]?.messages.length ?? 0) > 0)
+		for (const id of ids) { this.deleteThread(id) } // reuse deleteThread → plan/lock/session cleanup
+		return ids.length
+	}
+
 	openNewThread() {
+		const ws = this._currentWorkspace()
 		// if a thread with 0 messages already exists, switch to it
 		const { allThreads: currentThreads } = this.state
 		for (const threadId in currentThreads) {
 			if (currentThreads[threadId]!.messages.length === 0) {
-				// switch to the existing empty thread and exit
+				// Re-stamp the reused empty thread to the current workspace before
+				// switching: a persisted empty thread may carry another project's
+				// id, which would otherwise capture this project's first message.
+				const reused = currentThreads[threadId]!
+				if (reused.workspaceId !== ws.id) {
+					const restamped: ChatThreads = { ...currentThreads, [threadId]: { ...reused, workspaceId: ws.id, workspaceLabel: ws.label } }
+					this._storeAllThreads(restamped)
+					this._setState({ allThreads: restamped })
+				}
 				this.switchToThread(threadId)
 				return
 			}
 		}
 		// otherwise, start a new thread
-		const newThread = newThreadObject()
+		const newThread = newThreadObject(ws.id, ws.label)
 
 		// update state
 		const newThreads: ChatThreads = {
@@ -7717,7 +7822,8 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 	forceCreateNewThread(): string {
 		// Unconditionally create a new thread (no empty-thread reuse). Used by multi-chat-tab "+" so each click yields a new tab.
-		const newThread = newThreadObject()
+		const ws = this._currentWorkspace()
+		const newThread = newThreadObject(ws.id, ws.label)
 		const newThreads: ChatThreads = {
 			...this.state.allThreads,
 			[newThread.id]: newThread

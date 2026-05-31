@@ -454,6 +454,7 @@ import './vibeMemorySnapshotAction.js'
 // VibeIDE: Dismiss pending plan in current chat (escape hatch for stuck plan-gate)
 import './vibeDismissPlanAction.js'
 import './vibeForceResetChatStateAction.js'
+import './vibeChatHistoryActions.js'
 
 // VibeIDE: Memory dispatcher — routes writes via memoryLayerRouter pure helper
 import './vibeMemoryDispatcherService.js'

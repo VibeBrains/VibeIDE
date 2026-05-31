@@ -749,6 +749,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 	private _lastCompletionStart = 0
 	private _lastCompletionAccept = 0
 	private _hasShownNoModelWarning = false
+	private _loggedDisabled = false // one-shot guard: avoid logging "disabled" on every keystroke
 	/** Prefix-hash cache — fast O(1) hit check before the O(n) LRU scan. Exposes hit/miss/eviction stats for vibe doctor. */
 	private readonly _prefixCache = new CompletionCache<Autocompletion>({ maxEntries: 256, ttlMs: 5 * 60_000 })
 	// private _lastPrefix: string = ''
@@ -762,9 +763,14 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		const startTime = performance.now();
 		const isEnabled = this._settingsService.state.globalSettings.enableAutocomplete
 		if (!isEnabled) {
-			vibeLog.debug('autocomplete', '[Autocomplete] Disabled in settings. Enable it in VibeIDE Settings > Feature Options > Autocomplete')
+			// Log once per disabled-streak (provider fires on every keystroke) — reset when re-enabled.
+			if (!this._loggedDisabled) {
+				vibeLog.debug('autocomplete', '[Autocomplete] Disabled in settings. Enable it in VibeIDE Settings > Feature Options > Autocomplete')
+				this._loggedDisabled = true
+			}
 			return []
 		}
+		this._loggedDisabled = false
 
 		// Performance optimization: Early returns for long lines or binary files
 		const lineLength = model.getValueLengthInRange(new Range(1, 1, position.lineNumber, position.column));

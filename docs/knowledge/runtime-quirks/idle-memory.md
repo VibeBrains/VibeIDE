@@ -6,7 +6,33 @@
 
 ---
 
-## [наблюдение] 2026-05-31 — 0.17.0: 7 ч flat commit, краш НЕ воспроизвёлся
+## [наблюдение] 2026-05-31 (день) — 0.17.0: commit-баллон ~2 ГБ под нагрузкой агента ПОЙМАН инструментацией
+
+**Состояние:** валидация W.51 + 1630. Crash-report (4 бандла `D:\Temp\1..4.zip`, собраны самим watchdog через «Собрать crash report»). Краша нет — снято pre-OOM, баллон в процессе формирования.
+
+### Факты (watchdog `2026-05-31.jsonl`, **UTC**; логи сессий/консоль — local MSK = UTC+3)
+
+| Факт | Значение |
+|---|---|
+| Renderer **pid 13460** commit | держался плоско ~420 МБ 3+ ч (UTC 11:01→13:41), затем **510 → 1868 → 1957 МБ** за ~10 мин (UTC 13:51→13:53 = local 16:51→16:53) |
+| Корреляция | local ~16:49 console: активный `llmTurn`/`toolExec`/`big-pickle` → **спайк под нагрузкой агента**, НЕ idle-leak (та же сигнатура, что 2026-05-27) |
+| **Burst-sampling сработал** | сэмплы с UTC 13:51:28 несут `note:burst` → slope-детектор увидел рост commit и ускорил тики до 15 с |
+| Видимость | баллон виден только в `privateBytes` (commit-probe), heap/working-set выглядели умеренно — **старый watchdog пропустил бы** |
+| exthost / main / gpu | здоровы (exthost ~90 МБ, разовый спайк 556 кратко; main heap 118→209 МБ; gpu стабилен) |
+| Система | 48 ГБ RAM, 28 свободно — системного давления нет |
+| Краш / OOM | НЕ случился — баллон на ~2 ГБ, далеко до точки смерти (~4.5 ГБ) и ниже `commitAlertMB=3500` |
+
+### Пробел → фикс (W.55)
+
+Renderer heap snapshot **не снялся** (commit не дошёл до `commitAlertMB=3500`, а `snapshotRenderersOnCommitAlert` off) → **видим баллон, не видим виновника**. 141-МБ снапшот в бандле — это **main** со вчера (05-30 18:35), не релевантен. Лекарство: **W.55** — `snapshotRenderersOnCommitSlope` (default false) снимает renderer-снапшот в момент commit-slope алерта (баллон ~2 ГБ, ещё формируется). Для поимки виновника: включить `snapshotRenderersOnCommitSlope` (или `snapshotRenderersOnCommitAlert=true` + `commitAlertMB=1500`) и собрать новый бандл при следующем спайке.
+
+### Побочно (подтверждает фиксы D.10/D.12)
+
+В `renderer.log` этих бандлов — ровно `…\VibeIDEProjects\docs … является каталогом` (BulkFileEdits, **D.12**) и `[VibeIDE/unexpected] {"isTrusted":true}` (**D.10**). Бандл с до-фиксового 0.17.0 → подтверждает, что обе правки бьют по реальным ошибкам.
+
+---
+
+## [наблюдение] 2026-05-31 (утро) — 0.17.0: 7 ч flat commit, краш НЕ воспроизвёлся
 
 **Состояние:** позитивный сигнал по фиксу commit-видимости (см. инцидент 2026-05-30 ниже). Не доказательство — окно не оставляли на полную ночь idle.
 
@@ -213,10 +239,12 @@ Main отслеживает rolling-window slope `(rss_last - rss_first) / dt_mi
 | `heapSnapshotThresholdMB` | `2000` | Порог rss для auto-snapshot |
 | `snapshotCooldownMinutes` | `30` | Минимальный интервал между snapshot'ами |
 | `growthAlertMBPerMin` | `5` | Slope-порог МБ/мин для proactive notification (W.5). Применяется и к RSS-slope, и к commit-slope |
-| `commitAlertMB` | `4000` (0..64000, 0=off) | Абсолютный private-commit (МБ) → `onPreOomAlert`. Ловит commit-балон при здоровой V8-куче (инцидент 2026-05-30) |
+| `commitAlertMB` | `3500` (0..64000, 0=off) | Абсолютный private-commit (МБ) → `onPreOomAlert`. Ловит commit-балон при здоровой V8-куче (инцидент 2026-05-30). D.4a: понижен 4000→3500 |
 | `burstSamplingEnabled` | `true` | 1630: при slope/pre-OOM-алерте временно ускорять тики, чтобы поймать суб-60-с спайк |
 | `burstSamplingSeconds` | `15` (5..60) | Интервал тиков в burst-окне |
 | `burstDurationTicks` | `12` (1..120) | Сколько тиков длится burst (12×15с ≈ 3 мин), затем авто-возврат к базе |
+| `snapshotRenderersOnCommitAlert` | `false` | Снимать renderer heap-snapshot при пересечении `commitAlertMB` (B). Раз на pid. Тяжёлая операция |
+| `snapshotRenderersOnCommitSlope` | `false` | **W.55**: снимать renderer heap-snapshot в момент commit-SLOPE алерта (баллон ~2 ГБ, ещё формируется), не дожидаясь абсолютного порога. Общий guard «раз на pid» с alert-путём. Включать для поимки виновника баллона (наблюдение 2026-05-31) |
 
 Все настройки — APPLICATION scope. Settings UI секция «VibeIDE — Idle Watchdog (diagnostics)».
 

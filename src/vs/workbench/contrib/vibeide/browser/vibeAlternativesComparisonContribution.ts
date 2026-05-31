@@ -31,6 +31,7 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { localize } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 
 // ── Storage key ────────────────────────────────────────────────────────────────
 
@@ -44,6 +45,7 @@ class VibeAlternativesComparisonContribution extends Disposable {
 		@IStorageService private readonly _storage: IStorageService,
 		@INotificationService private readonly _notifications: INotificationService,
 		@ILogService private readonly _log: ILogService,
+		@ICommandService private readonly _commands: ICommandService,
 	) {
 		super();
 		// Show at most once per workspace
@@ -66,7 +68,7 @@ class VibeAlternativesComparisonContribution extends Disposable {
 		this._notifications.notify({
 			severity: Severity.Info,
 			message: localize('vibeide.comparison.notification',
-				'Добро пожаловать в VibeIDE! Хотите узнать, чем он отличается от Cursor, Continue.dev или Aider? Откройте обзор сравнения из палитры команд.'
+				'Добро пожаловать в VibeIDE! Хотите узнать, чем он отличается от Cursor, Continue.dev или Aider? Нажмите кнопку ниже.'
 			),
 			actions: {
 				primary: [{
@@ -77,7 +79,9 @@ class VibeAlternativesComparisonContribution extends Disposable {
 					enabled: true,
 					checked: false,
 					run: () => {
-						// Command is registered below
+						// Open the comparison preview modal via the registered command.
+						this._commands.executeCommand('vibeide.showAlternativesComparison')
+							.catch(err => this._log.error('[VibeIDE] showAlternativesComparison failed', err));
 					},
 				}],
 			},
@@ -103,35 +107,34 @@ registerAction2(class extends Action2 {
 	}
 
 	async run(accessor: ServicesAccessor): Promise<void> {
-		const { IEditorService } = await import('../../../services/editor/common/editorService.js');
 		const { URI } = await import('../../../../base/common/uri.js');
 		const { IFileService } = await import('../../../../platform/files/common/files.js');
 		const { IWorkspaceContextService } = await import('../../../../platform/workspace/common/workspace.js');
+		const { IVibeModalService } = await import('../common/vibeModalService.js');
 
-		const wsService = accessor.get(IWorkspaceContextService);
-		const workspaceRoot = wsService.getWorkspace().folders[0]?.uri;
-
+		// Source of truth: the project's comparison doc if present, else the
+		// embedded fallback. Read failures degrade silently to the fallback.
+		let content = COMPARISON_CONTENT;
+		const workspaceRoot = accessor.get(IWorkspaceContextService).getWorkspace().folders[0]?.uri;
 		if (workspaceRoot) {
-			// Try to find the comparison doc in references/ inside the project
 			const refPath = URI.joinPath(workspaceRoot, 'references', 'v1', 'vibeide-vs-alternatives.md');
-			const fileService = accessor.get(IFileService);
 			try {
-				const exists = await fileService.exists(refPath);
-				if (exists) {
-					await accessor.get(IEditorService).openEditor({ resource: refPath });
-					return;
+				const fileService = accessor.get(IFileService);
+				if (await fileService.exists(refPath)) {
+					content = (await fileService.readFile(refPath)).value.toString();
 				}
-			} catch { /* fall through */ }
+			} catch { /* fall through to embedded content */ }
 		}
 
-		// Fallback: open a generated comparison as untitled document
-		const { ITextModelService } = await import('../../../../editor/common/services/resolverService.js');
-		const uri = URI.parse(`untitled://vibeide-vs-alternatives-${Date.now()}.md`);
-		const modelService = accessor.get(ITextModelService);
-		const ref = await modelService.createModelReference(uri);
-		ref.object.textEditorModel?.setValue(COMPARISON_CONTENT);
-		ref.dispose();
-		await accessor.get(IEditorService).openEditor({ resource: uri });
+		// Render as a Markdown preview inside a large modal.
+		await accessor.get(IVibeModalService).showModal<'ok'>({
+			title: localize('vibeide.comparison.modalTitle', 'Чем VibeIDE отличается'),
+			body: content,
+			bodyMarkdown: true,
+			size: 'large',
+			dismissible: true,
+			buttons: [{ id: 'ok', label: localize('vibeide.comparison.modalClose', 'Закрыть'), role: 'primary' }],
+		});
 	}
 });
 

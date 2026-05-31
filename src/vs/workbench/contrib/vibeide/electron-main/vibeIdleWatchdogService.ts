@@ -111,6 +111,12 @@ interface WatchdogConfig {
 	/** B: auto-capture a renderer's heap snapshot when its private commit crosses `commitAlertMB`.
 	 *  Off by default — a snapshot of a multi-GB renderer near OOM is a heavy, slow operation. */
 	readonly snapshotRenderersOnCommitAlert: boolean;
+	/** W.55: auto-capture a renderer's heap snapshot the moment its commit-SLOPE alert fires
+	 *  (balloon still forming, ~2 GB) instead of waiting for the absolute `commitAlertMB`.
+	 *  Catches the culprit objects while the spike is in progress (crash-report 2026-05-31:
+	 *  commit ballooned to ~2 GB under agent load but never reached the 3.5 GB threshold, so no
+	 *  renderer snapshot was taken). Off by default — heavy operation; shares the once-per-pid guard. */
+	readonly snapshotRenderersOnCommitSlope: boolean;
 }
 
 const DEFAULT_CHILD_PROCESS_TYPES: readonly string[] = ['Utility', 'GPU'];
@@ -139,6 +145,7 @@ const DEFAULTS: WatchdogConfig = {
 	burstSamplingSeconds: 15,
 	burstDurationTicks: 12,
 	snapshotRenderersOnCommitAlert: false,
+	snapshotRenderersOnCommitSlope: false,
 };
 
 const PERSISTED_STATE_FILE = 'state.json';
@@ -199,6 +206,7 @@ function readConfigFromDisk(userDataPath: string, previous?: WatchdogConfig): Wa
 			burstSamplingSeconds: clampInt(parsed['vibeide.diagnostics.idleWatchdog.burstSamplingSeconds'], 5, 60, DEFAULTS.burstSamplingSeconds),
 			burstDurationTicks: clampInt(parsed['vibeide.diagnostics.idleWatchdog.burstDurationTicks'], 1, 120, DEFAULTS.burstDurationTicks),
 			snapshotRenderersOnCommitAlert: clampBool(parsed['vibeide.diagnostics.idleWatchdog.snapshotRenderersOnCommitAlert'], DEFAULTS.snapshotRenderersOnCommitAlert),
+			snapshotRenderersOnCommitSlope: clampBool(parsed['vibeide.diagnostics.idleWatchdog.snapshotRenderersOnCommitSlope'], DEFAULTS.snapshotRenderersOnCommitSlope),
 		};
 	} catch {
 		// settings.json absent on first launch / read failed mid-write — keep previous
@@ -1159,6 +1167,15 @@ export class VibeIdleWatchdogService {
 					pid: sample.pid,
 					metric: 'commit',
 				});
+				// W.55: snapshot the renderer WHILE the commit balloon is forming (slope),
+				// not only at the absolute `commitAlertMB`. Shares `_rendererSnapshottedPids`
+				// with the threshold path so a pid is dumped at most once. `sample.pid` is the
+				// real OS pid (main-side commit-probe), which `webContents.takeHeapSnapshot` needs.
+				if (this._config.snapshotRenderersOnCommitSlope && sample.proc === 'renderer'
+					&& sample.pid !== undefined && sample.pid > 0 && !this._rendererSnapshottedPids.has(sample.pid)) {
+					this._rendererSnapshottedPids.add(sample.pid);
+					void this.captureRendererHeapSnapshot(sample.pid, 'slope');
+				}
 			}
 		}
 		// W.34/W.42 pre-OOM evaluation — orthogonal to slope alert, may fire on

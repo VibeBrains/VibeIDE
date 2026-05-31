@@ -7,6 +7,7 @@ import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccessor } from '../util/services.js';
 import { VIBE_MODAL_MIN_AUTO_DISMISS_MS, VibeModalButton, VibeModalQueueEntry } from '../../../../common/vibeModalTypes.js';
+import { ChatMarkdownRender } from '../markdown/ChatMarkdownRender.js';
 
 /** Lower bound for the post-pause `remaining` clamp — avoids zero/negative
  *  timer values after rapid hover-in/out cycles. */
@@ -263,7 +264,11 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
 				</div>
 
 				{options.body && (
-					<div id={bodyId} className="@@vibeide-modal-body">{options.body}</div>
+					<div id={bodyId} className="@@vibeide-modal-body">
+						{options.bodyMarkdown
+							? <ChatMarkdownRender string={options.body} chatMessageLocation={undefined} />
+							: options.body}
+					</div>
 				)}
 
 				{options.input && (

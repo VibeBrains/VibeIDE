@@ -279,6 +279,18 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.diagnostics.idleWatchdog.autoOpenDevToolsOnPreOom', 'При pre-OOM alert (W.42) автоматически открыть DevTools в текущем окне — пользователь может вручную снять heap snapshot до V8 abort. Off по умолчанию (intrusive).'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				// Roadmap B — renderer heap snapshot at the absolute commit threshold.
+				'vibeide.diagnostics.idleWatchdog.snapshotRenderersOnCommitAlert': {
+					type: 'boolean', default: false,
+					description: localize('vibeide.diagnostics.idleWatchdog.snapshotRenderersOnCommitAlert', 'Снимать heap snapshot renderer-процесса, когда его private commit пересекает `commitAlertMB`. Off по умолчанию — снимок многогигабайтного renderer у OOM тяжёлый и медленный. Снимок раз на pid.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				// Roadmap W.55 — renderer heap snapshot when the commit-slope alert fires (balloon forming).
+				'vibeide.diagnostics.idleWatchdog.snapshotRenderersOnCommitSlope': {
+					type: 'boolean', default: false,
+					description: localize('vibeide.diagnostics.idleWatchdog.snapshotRenderersOnCommitSlope', 'Снимать heap snapshot renderer-процесса в момент commit-SLOPE алерта (баллон ещё формируется, ~2 ГБ), не дожидаясь абсолютного `commitAlertMB`. Ловит объекты-виновники, пока спайк в процессе (crash-report 2026-05-31: commit раздулся до ~2 ГБ под нагрузкой агента, но не достиг порога 3.5 ГБ → снимок не снялся). Off по умолчанию — тяжёлая операция; общий guard «раз на pid».'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 			},
 		});
 
@@ -318,6 +330,21 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					maximum: 20,
 					default: 6,
 					description: localize('vibeide.commands.toolbar.maxPinned', 'Максимальное число закреплённых команд (`pinned: true`), которые рендерятся в статус-баре. Остальные доступны через палитру `VibeIDE: Run Project Command`. Диапазон 1–20; визуально комфортный предел — 6–8.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+			},
+		});
+
+		// `vibeide.history.*` — chat history project-scoping (roadmap §CH).
+		registry.registerConfiguration({
+			id: 'vibeide.history',
+			title: localize('vibeide.history.title', 'VibeIDE — Chat History'),
+			type: 'object',
+			properties: {
+				'vibeide.history.defaultShowAllProjects': {
+					type: 'boolean',
+					default: false,
+					description: localize('vibeide.history.defaultShowAllProjects', 'Показывать историю чатов из всех проектов по умолчанию. False (по умолчанию) — история ограничена текущим проектом, переключатель «Все проекты» доступен в списках истории. Применяется только пока пользователь сам не переключил тумблер (после этого запоминается выбор пользователя).'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 			},

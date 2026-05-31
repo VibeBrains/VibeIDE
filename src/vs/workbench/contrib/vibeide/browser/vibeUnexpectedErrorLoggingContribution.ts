@@ -39,6 +39,17 @@ class VibeUnexpectedErrorLoggingContribution extends Disposable {
 					detail = err.stack || `${err.name}: ${err.message}`;
 				} else if (typeof err === 'string') {
 					detail = err;
+				} else if (typeof Event !== 'undefined' && err instanceof Event) {
+					// DOM Event (e.g. a resource-load `error` on <script>/<img>, or an
+					// ErrorEvent). JSON.stringify on these yields a useless `{"isTrusted":true}`
+					// because their fields are non-enumerable — extract the useful bits by hand.
+					const ev = err as any;
+					const parts: string[] = [`Event(${ev.type ?? 'unknown'})`];
+					if (ev.message) { parts.push(String(ev.message)); }
+					const src = ev.filename || ev.target?.src || ev.target?.href;
+					if (src) { parts.push(`src=${src}`); }
+					if (ev.error instanceof Error) { parts.push(ev.error.stack || `${ev.error.name}: ${ev.error.message}`); }
+					detail = parts.join(' ');
 				} else {
 					try { detail = JSON.stringify(err); } catch { detail = String(err); }
 				}

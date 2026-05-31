@@ -140,6 +140,10 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 	private _imageAddon?: ImageAddonType;
 	private readonly _ligaturesAddon: MutableDisposable<LigaturesAddonType> = this._register(new MutableDisposable());
 	private readonly _ligaturesAddonConfig?: ILigatureOptions;
+	// VibeIDE D.11: if the ligatures addon module is missing from the package
+	// (resource load 404), don't retry on every refresh and don't let the async
+	// rejection bubble up as an unhandled error — disable ligatures gracefully.
+	private _ligaturesAddonLoadFailed = false;
 
 	private readonly _attachedDisposables = this._register(new DisposableStore());
 	private readonly _anyTerminalFocusContextKey: IContextKey<boolean>;
@@ -895,12 +899,22 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 		}
 		const ligaturesConfig = this._terminalConfigurationService.config.fontLigatures;
 		let shouldRecreateWebglRenderer = false;
-		if (ligaturesConfig?.enabled) {
+		if (ligaturesConfig?.enabled && !this._ligaturesAddonLoadFailed) {
 			if (this._ligaturesAddon.value && !equals(ligaturesConfig, this._ligaturesAddonConfig)) {
 				this._ligaturesAddon.clear();
 			}
 			if (!this._ligaturesAddon.value) {
-				const LigaturesAddon = await this._xtermAddonLoader.importAddon('ligatures');
+				let LigaturesAddon: typeof LigaturesAddonType;
+				try {
+					LigaturesAddon = await this._xtermAddonLoader.importAddon('ligatures');
+				} catch (e) {
+					// Module absent from the package (resource 404) — degrade quietly: log
+					// once, disable ligatures, and stop retrying so we neither spam the log
+					// nor leak an unhandled rejection into the global error handler.
+					this._ligaturesAddonLoadFailed = true;
+					this._logService.warn('Terminal ligatures addon failed to load; ligatures disabled for this session', e);
+					return;
+				}
 				if (this._store.isDisposed) {
 					return;
 				}

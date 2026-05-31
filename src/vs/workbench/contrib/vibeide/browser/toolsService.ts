@@ -672,6 +672,21 @@ export class ToolsService implements IToolsService {
 
 		}
 
+		// VibeIDE D.12: writing to a path that is an existing *directory* previously
+		// surfaced a raw FileService "...is actually a directory" stack (logged twice
+		// via the bulk-edit create+reload path) and an opaque agent failure. Fail fast
+		// with a structured, actionable error before any write side effect.
+		const assertTargetNotDirectory = async (uri: URI, action: string): Promise<void> => {
+			let isDir = false
+			try { isDir = (await fileService.stat(uri)).isDirectory } catch { return } // absent → nothing to guard
+			if (isDir) {
+				throw new ToolValidationError({
+					code: 'target_is_directory',
+					message: `Cannot ${action} ${uri.fsPath}: that path is an existing directory, not a file.`,
+					hint: 'Use a file path (add a filename under this directory), or delete_file_or_folder if you meant to remove the directory.',
+				})
+			}
+		}
 
 		this.callTool = {
 			read_file: async ({ uri, startLine, endLine, pageNumber, lineLimit, withLineNumbers }) => {
@@ -1467,6 +1482,7 @@ export class ToolsService implements IToolsService {
 
 			create_file_or_folder: async ({ uri, isFolder }) => {
 				if (!isFolder) {
+					await assertTargetNotDirectory(uri, 'create file');
 					await this._checkAdvisoryTerritorialLocks(uri);
 				}
 				// Pre-flight: if creating a file, ensure the parent directory exists.
@@ -1513,6 +1529,7 @@ export class ToolsService implements IToolsService {
 			},
 
 			rewrite_file: async ({ uri, newContent }) => {
+				await assertTargetNotDirectory(uri, 'write file')
 				await vibeideModelService.initializeModel(uri)
 				const streamState = this.commandBarService.getStreamState(uri)
 				if (streamState === 'streaming') {
@@ -1584,6 +1601,7 @@ export class ToolsService implements IToolsService {
 			},
 
 			edit_file: async ({ uri, searchReplaceBlocks }) => {
+				await assertTargetNotDirectory(uri, 'edit file')
 				// VibeIDE: Deterministic constraint enforcement before any file edit
 				try {
 					this.vibeConstraintsService.checkWriteAllowed(uri.fsPath);

@@ -9,11 +9,69 @@ import { chatS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 import { IconShell1 } from '../markdown/ApplyBlockHoverButtons.js';
 import { useAccessor, useChatThreadsState, useFullChatThreadsStreamState } from '../util/services.js';
 import { IconX } from './SidebarChat.js';
-import { Check, Copy, LoaderCircle, MessageCircleQuestion, Trash2, History, X } from 'lucide-react';
+import { Check, Copy, LoaderCircle, MessageCircleQuestion, Trash2, History, X, FolderInput } from 'lucide-react';
 import { IsRunningType, ThreadType } from '../../../chatThreadService.js';
+import { threadMatchesWorkspace, HISTORY_SHOW_ALL_PROJECTS_KEY } from '../../../../common/chatHistoryScope.js';
+import { StorageScope } from '../../../../../../../platform/storage/common/storage.js';
+import { DisposableStore } from '../../../../../../../base/common/lifecycle.js';
+
+/** History scope passed down to PastThreadElement so it can render the project badge / move action. */
+export type HistoryScope = { showAll: boolean; currentWorkspaceId: string };
 
 
 const numInitialThreads = 3
+
+/**
+ * Shared history-scope state: current workspace id + the persisted
+ * "show all projects" toggle. Local state mirrors the service so the toggle
+ * re-renders instantly; the service persists it across windows.
+ */
+export const useHistoryScope = () => {
+	const accessor = useAccessor()
+	const chatThreadsService = accessor.get('IChatThreadService')
+	const storageService = accessor.get('IStorageService')
+	const [showAll, setShowAllState] = useState(() => chatThreadsService.getHistoryShowAllProjects())
+	const wsId = chatThreadsService.getCurrentWorkspaceId()
+
+	// React to the persisted toggle so every mounted history list (and other
+	// windows) stay in sync — not just the component that flipped it.
+	useEffect(() => {
+		const store = new DisposableStore()
+		store.add(storageService.onDidChangeValue(StorageScope.PROFILE, HISTORY_SHOW_ALL_PROJECTS_KEY, store)(() => {
+			setShowAllState(chatThreadsService.getHistoryShowAllProjects())
+		}))
+		return () => store.dispose()
+	}, [storageService, chatThreadsService])
+
+	const setShowAll = useCallback((v: boolean) => {
+		chatThreadsService.setHistoryShowAllProjects(v) // storage write → onDidChangeValue → all hooks update
+	}, [chatThreadsService])
+	return { showAll, setShowAll, wsId }
+}
+
+/** Compact "This project / All projects" segmented toggle for the history lists. */
+export const HistoryScopeToggle = ({ showAll, setShowAll, otherCount = 0, className = '' }: { showAll: boolean; setShowAll: (v: boolean) => void; otherCount?: number; className?: string }) => {
+	return (
+		<div className={`inline-flex items-center gap-0.5 text-[10px] rounded-full bg-vibe-bg-2 p-0.5 ${className}`}>
+			<button
+				type="button"
+				className={`px-2 py-0.5 rounded-full transition-colors ${!showAll ? 'bg-vibe-bg-3 text-vibe-fg-1' : 'text-vibe-fg-3 hover:text-vibe-fg-2'}`}
+				onClick={() => setShowAll(false)}
+			>{chatS.historyScopeThisProject}</button>
+			<button
+				type="button"
+				className={`px-2 py-0.5 rounded-full transition-colors inline-flex items-center gap-1 ${showAll ? 'bg-vibe-bg-3 text-vibe-fg-1' : 'text-vibe-fg-3 hover:text-vibe-fg-2'}`}
+				onClick={() => setShowAll(true)}
+				title={!showAll && otherCount > 0 ? chatS.historyOtherProjectsHint(otherCount) : undefined}
+			>
+				{chatS.historyScopeAllProjects}
+				{!showAll && otherCount > 0 && (
+					<span className="px-1 rounded-full bg-vibe-bg-1 text-[9px] text-vibe-fg-2">+{otherCount}</span>
+				)}
+			</button>
+		</div>
+	)
+}
 
 export const PastThreadsList = ({ className = '', onAfterSwitch }: { className?: string; onAfterSwitch?: () => void }) => {
 	const [showAll, setShowAll] = useState(false);
@@ -24,6 +82,7 @@ export const PastThreadsList = ({ className = '', onAfterSwitch }: { className?:
 	const { allThreads } = threadsState
 
 	const streamState = useFullChatThreadsStreamState()
+	const { showAll, setShowAll, wsId } = useHistoryScope()
 
 	// Memoize runningThreadIds computation to avoid recalculating on every render
 	const runningThreadIds = useMemo(() => {
@@ -35,16 +94,26 @@ export const PastThreadsList = ({ className = '', onAfterSwitch }: { className?:
 		return result
 	}, [streamState])
 
+	// Message-bearing thread ids, newest first (before workspace scoping).
+	const messageThreadIds = useMemo(() => {
+		return Object.keys(allThreads ?? {})
+			.sort((threadId1, threadId2) => (allThreads?.[threadId1]?.lastModified ?? 0) > (allThreads?.[threadId2]?.lastModified ?? 0) ? -1 : 1)
+			.filter(threadId => (allThreads?.[threadId]?.messages.length ?? 0) !== 0)
+	}, [allThreads])
+
+	// Scoped to the current project unless the user opted into "all projects".
+	const sortedThreadIds = useMemo(() => {
+		return messageThreadIds.filter(threadId => threadMatchesWorkspace(allThreads![threadId]!, wsId, showAll))
+	}, [messageThreadIds, allThreads, wsId, showAll])
+
+	// Count of history in OTHER projects — drives the toggle visibility + "+N" hint.
+	const otherProjectsCount = useMemo(() => {
+		return messageThreadIds.filter(threadId => !threadMatchesWorkspace(allThreads![threadId]!, wsId, false)).length
+	}, [messageThreadIds, allThreads, wsId])
+
 	if (!allThreads) {
 		return <div key="error" className="p-1">{chatS.historyError}</div>;
 	}
-
-	// Memoize sortedThreadIds computation to avoid recalculating on every render
-	const sortedThreadIds = useMemo(() => {
-		return Object.keys(allThreads ?? {})
-			.sort((threadId1, threadId2) => (allThreads[threadId1]?.lastModified ?? 0) > (allThreads[threadId2]?.lastModified ?? 0) ? -1 : 1)
-			.filter(threadId => (allThreads![threadId]?.messages.length ?? 0) !== 0)
-	}, [allThreads])
 
 	// Get only first 5 threads if not showing all
 	const hasMoreThreads = sortedThreadIds.length > numInitialThreads;
@@ -52,6 +121,11 @@ export const PastThreadsList = ({ className = '', onAfterSwitch }: { className?:
 
 	return (
 		<div className={`@@vibe-chat-neon-scope flex flex-col mb-2 gap-2 w-full text-nowrap text-vibe-fg-2 select-none relative ${className}`}>
+			{otherProjectsCount > 0 && (
+				<div className="flex justify-end">
+					<HistoryScopeToggle showAll={showAll} setShowAll={setShowAll} otherCount={otherProjectsCount} />
+				</div>
+			)}
 			{displayThreads.length === 0 // this should never happen
 				? <></>
 				: displayThreads.map((threadId, i) => {
@@ -69,6 +143,7 @@ export const PastThreadsList = ({ className = '', onAfterSwitch }: { className?:
 							setHoveredIdx={setHoveredIdx}
 							isRunning={runningThreadIds[pastThread.id]}
 							onAfterSwitch={onAfterSwitch}
+							scope={{ showAll, currentWorkspaceId: wsId }}
 						/>
 					);
 				})
@@ -178,6 +253,7 @@ export const PastThreadElement = ({
 	isRunning,
 	onAfterSwitch,
 	isActive = false,
+	scope,
 }: {
 	pastThread: ThreadType,
 	idx: number,
@@ -186,6 +262,7 @@ export const PastThreadElement = ({
 	isRunning: IsRunningType | undefined,
 	onAfterSwitch?: () => void,
 	isActive?: boolean,
+	scope?: HistoryScope,
 }) => {
 
 
@@ -193,6 +270,13 @@ export const PastThreadElement = ({
 	const chatThreadsService = accessor.get('IChatThreadService')
 
 	const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+
+	// In "all projects" view, a thread that doesn't belong to the open project
+	// gets a project badge + a "move here" affordance. Legacy threads (no
+	// workspaceId) count as foreign so they can be claimed by the current project.
+	const isForeign = !!scope && pastThread.workspaceId !== scope.currentWorkspaceId;
+	const showForeign = !!scope?.showAll && isForeign;
+	const projectBadgeLabel = pastThread.workspaceLabel || (pastThread.workspaceId ? chatS.historyBadgeOtherProject : chatS.historyBadgeNoProject);
 
 	// const settingsState = useSettingsState()
 	// const convertService = accessor.get('IConvertToLLMMessageService')
@@ -270,6 +354,17 @@ export const PastThreadElement = ({
 				{/* name */}
 				<span className="truncate overflow-hidden text-ellipsis text-vibe-fg-1">{firstMsg}</span>
 
+				{/* project badge — only in "all projects" view for foreign threads */}
+				{showForeign && (
+					<span
+						className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-vibe-bg-2 text-[9px] uppercase tracking-wide text-vibe-fg-3 max-w-[120px]"
+						title={projectBadgeLabel}
+					>
+						<FolderInput size={9} className="shrink-0 opacity-70" />
+						<span className="truncate">{projectBadgeLabel}</span>
+					</span>
+				)}
+
 				{/* <span className='opacity-60'>{`(${numMessages})`}</span> */}
 			</span>
 
@@ -284,6 +379,14 @@ export const PastThreadElement = ({
 				{/* action icons: absolute overlay, only visible on hover */}
 				{idx === hoveredIdx && (
 					<div className="absolute inset-y-0 right-0 flex items-center gap-x-1">
+						{showForeign && !isConfirmingDelete && (
+							<IconShell1
+								Icon={FolderInput}
+								className='size-[11px]'
+								title={chatS.historyMoveToProject}
+								onClick={() => { chatThreadsService.moveThreadToCurrentWorkspace(pastThread.id); }}
+							/>
+						)}
 						{!isConfirmingDelete && <DuplicateButton threadId={pastThread.id} />}
 						<TrashButton threadId={pastThread.id} onPressedChange={setIsConfirmingDelete} />
 					</div>
@@ -304,8 +407,9 @@ export const ChatHistoryToolbarDropdown: React.FC<{ className?: string }> = ({ c
 	const [isOpen, setIsOpen] = useState(false);
 	const [filter, setFilter] = useState('');
 	const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+	const { showAll, setShowAll, wsId } = useHistoryScope();
 
-	const sortedThreadIds = useMemo(() => {
+	const messageThreadIds = useMemo(() => {
 		const { allThreads } = threadsState;
 		if (!allThreads) {
 			return [];
@@ -314,6 +418,16 @@ export const ChatHistoryToolbarDropdown: React.FC<{ className?: string }> = ({ c
 			.sort((a, b) => (allThreads[a]?.lastModified ?? 0) > (allThreads[b]?.lastModified ?? 0) ? -1 : 1)
 			.filter(id => (allThreads[id]?.messages.length ?? 0) !== 0);
 	}, [threadsState]);
+
+	const sortedThreadIds = useMemo(() => {
+		const { allThreads } = threadsState;
+		return messageThreadIds.filter(id => threadMatchesWorkspace(allThreads![id]!, wsId, showAll));
+	}, [messageThreadIds, threadsState, wsId, showAll]);
+
+	const otherProjectsCount = useMemo(() => {
+		const { allThreads } = threadsState;
+		return messageThreadIds.filter(id => !threadMatchesWorkspace(allThreads![id]!, wsId, false)).length;
+	}, [messageThreadIds, threadsState, wsId]);
 
 	const filteredIds = useMemo(() => {
 		const q = filter.trim().toLowerCase();
@@ -334,6 +448,21 @@ export const ChatHistoryToolbarDropdown: React.FC<{ className?: string }> = ({ c
 			return text.includes(q);
 		});
 	}, [sortedThreadIds, filter, threadsState]);
+
+	// CH.12 — matches hiding in OTHER projects while scoped, so a chat made elsewhere
+	// never looks lost (parity with the full history panel, CH.9).
+	const otherMatchesCount = useMemo(() => {
+		const q = filter.trim().toLowerCase();
+		if (!q || showAll) { return 0; }
+		const { allThreads } = threadsState;
+		if (!allThreads) { return 0; }
+		return messageThreadIds.filter(id => {
+			const t = allThreads[id];
+			if (!t || threadMatchesWorkspace(t, wsId, false)) { return false; }
+			const fu = t.messages.find(m => m.role === 'user');
+			return ((fu?.displayContent || fu?.content || '') + '').toLowerCase().includes(q);
+		}).length;
+	}, [messageThreadIds, filter, showAll, wsId, threadsState]);
 
 	const runningThreadIds = useMemo(() => {
 		const result: { [threadId: string]: IsRunningType | undefined } = {};
@@ -467,7 +596,7 @@ export const ChatHistoryToolbarDropdown: React.FC<{ className?: string }> = ({ c
 					className="z-[10000] bg-vibe-bg-1 @@vibe-popup-panel rounded-xl shadow-lg overflow-hidden"
 					style={{ position: strategy, top: y ?? 0, left: x ?? 0 }}
 				>
-					<div className="px-2 py-1.5 border-b border-vibe-border-2 shrink-0">
+					<div className="px-2 py-1.5 border-b border-vibe-border-2 shrink-0 flex flex-col gap-1.5">
 						<input
 							type="search"
 							autoFocus
@@ -477,12 +606,26 @@ export const ChatHistoryToolbarDropdown: React.FC<{ className?: string }> = ({ c
 							placeholder={chatS.historyFilterPlaceholder}
 							className="w-full text-xs px-2 py-1 rounded-lg bg-vibe-bg-2 text-vibe-fg-2 border border-vibe-border-2 outline-none placeholder:text-vibe-fg-4"
 						/>
+						{otherProjectsCount > 0 && (
+							<div className="flex justify-end">
+								<HistoryScopeToggle showAll={showAll} setShowAll={setShowAll} otherCount={otherProjectsCount} />
+							</div>
+						)}
 					</div>
 					<div
 						ref={measureRef}
 						className="overflow-y-auto min-h-0 flex-1 px-1 py-1 flex flex-col gap-1"
 						style={{ maxHeight: 'min(320px, 70vh)' }}
 					>
+						{otherMatchesCount > 0 && (
+							<button
+								type="button"
+								className="w-full text-left px-2 py-1.5 text-[11px] text-vibe-fg-3 hover:text-vibe-fg-1 hover:bg-vibe-bg-3 rounded-lg transition-colors select-none"
+								onClick={() => setShowAll(true)}
+							>
+								{chatS.historyOtherMatches(otherMatchesCount)}
+							</button>
+						)}
 						{filteredIds.length === 0 ? (
 							<div className="text-xs text-vibe-fg-4 px-2 py-2">{chatS.historyEmptyFiltered}</div>
 						) : (
@@ -500,6 +643,7 @@ export const ChatHistoryToolbarDropdown: React.FC<{ className?: string }> = ({ c
 										setHoveredIdx={setHoveredIdx}
 										isRunning={runningThreadIds[pastThread.id]}
 										onAfterSwitch={close}
+										scope={{ showAll, currentWorkspaceId: wsId }}
 									/>
 								);
 							})

@@ -64,6 +64,13 @@ export type VibeModalSize = 'small' | 'medium' | 'large';
 export interface VibeModalOptions<TButtonId extends string = string> {
 	readonly title: string;
 	readonly body?: string;
+	/**
+	 * When true, `body` is rendered as Markdown (via ChatMarkdownRender:
+	 * GFM tables, lists, code, links) instead of plain text. Opt-in only —
+	 * default keeps the plain-text rendering so existing callers are unaffected
+	 * and no untrusted string is ever auto-parsed as markup.
+	 */
+	readonly bodyMarkdown?: boolean;
 	readonly buttons: ReadonlyArray<VibeModalButton<TButtonId>>;
 	readonly input?: VibeModalInputSpec;
 	/** Default true. When false, ESC + backdrop click do nothing. */
