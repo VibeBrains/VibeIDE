@@ -29,3 +29,13 @@ export interface WorkspaceScoped {
 export const threadMatchesWorkspace = (thread: WorkspaceScoped, currentWorkspaceId: string, showAllProjects: boolean): boolean => {
 	return showAllProjects || !thread.workspaceId || thread.workspaceId === currentWorkspaceId;
 };
+
+/**
+ * Strictly OWNED by the given project — used by per-project export/clear so they
+ * act only on this project's own threads (not legacy/untagged or other projects).
+ * A falsy `currentWorkspaceId` (folder-less window) owns nothing, so bulk
+ * export/clear become no-ops there instead of touching shared untagged history.
+ */
+export const threadOwnedBy = (thread: WorkspaceScoped, currentWorkspaceId: string): boolean => {
+	return !!currentWorkspaceId && thread.workspaceId === currentWorkspaceId;
+};

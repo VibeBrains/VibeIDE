@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
-import { threadMatchesWorkspace, HISTORY_SHOW_ALL_PROJECTS_KEY, HISTORY_DEFAULT_SHOW_ALL_KEY } from '../../common/chatHistoryScope.js';
+import { threadMatchesWorkspace, threadOwnedBy, HISTORY_SHOW_ALL_PROJECTS_KEY, HISTORY_DEFAULT_SHOW_ALL_KEY } from '../../common/chatHistoryScope.js';
 
 suite('chatHistoryScope — project-scoped history visibility (CH.1/CH.10)', () => {
 
@@ -43,6 +43,17 @@ suite('chatHistoryScope — project-scoped history visibility (CH.1/CH.10)', () 
 		assert.strictEqual(threadMatchesWorkspace({}, '', false), true);
 		assert.strictEqual(threadMatchesWorkspace({ workspaceId: 'workspace-bbb' }, '', false), false);
 		assert.strictEqual(threadMatchesWorkspace({ workspaceId: 'workspace-bbb' }, '', true), true);
+	});
+
+	test('threadOwnedBy: strict ownership for export/clear (CH.13)', () => {
+		assert.strictEqual(threadOwnedBy({ workspaceId: WS }, WS), true);
+		assert.strictEqual(threadOwnedBy({ workspaceId: 'workspace-bbb' }, WS), false);
+		// Legacy/untagged is NOT owned — export/clear must not touch shared history.
+		assert.strictEqual(threadOwnedBy({}, WS), false);
+		assert.strictEqual(threadOwnedBy({ workspaceId: '' }, WS), false);
+		// Folder-less window (empty current id) owns nothing → bulk ops are no-ops.
+		assert.strictEqual(threadOwnedBy({ workspaceId: '' }, ''), false);
+		assert.strictEqual(threadOwnedBy({ workspaceId: WS }, ''), false);
 	});
 
 	test('storage keys are stable and distinct', () => {

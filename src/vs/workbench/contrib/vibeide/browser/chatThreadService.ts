@@ -42,7 +42,7 @@ import { VibeideFileSnapshot } from '../common/editCodeServiceTypes.js';
 import { INotificationHandle, INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { truncate } from '../../../../base/common/strings.js';
 import { THREAD_STORAGE_KEY } from '../common/storageKeys.js';
-import { HISTORY_SHOW_ALL_PROJECTS_KEY, HISTORY_DEFAULT_SHOW_ALL_KEY } from '../common/chatHistoryScope.js';
+import { HISTORY_SHOW_ALL_PROJECTS_KEY, HISTORY_DEFAULT_SHOW_ALL_KEY, threadOwnedBy } from '../common/chatHistoryScope.js';
 import { IConvertToLLMMessageService, ContextOverflowError } from './convertToLLMMessageService.js';
 import { timeout } from '../../../../base/common/async.js';
 import { deepClone } from '../../../../base/common/objects.js';
@@ -7774,17 +7774,16 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 	getCurrentWorkspaceThreads(): ThreadType[] {
 		const wsId = this.getCurrentWorkspaceId()
-		// Strictly OWNED by this project (workspaceId === current) — excludes legacy/untagged
+		// Strictly OWNED by this project (see threadOwnedBy) — excludes legacy/untagged
 		// (shared) and other projects, so export/clear act only on this project's own history.
 		return Object.values(this.state.allThreads)
-			.filter((t): t is ThreadType => !!t && t.workspaceId === wsId && t.messages.length > 0)
+			.filter((t): t is ThreadType => !!t && threadOwnedBy(t, wsId) && t.messages.length > 0)
 	}
 
 	deleteCurrentWorkspaceThreads(): number {
 		const wsId = this.getCurrentWorkspaceId()
-		if (!wsId) return 0 // folder-less window — no real project to clear (CH.11)
 		const ids = Object.keys(this.state.allThreads)
-			.filter(id => this.state.allThreads[id]?.workspaceId === wsId && (this.state.allThreads[id]?.messages.length ?? 0) > 0)
+			.filter(id => { const t = this.state.allThreads[id]; return !!t && threadOwnedBy(t, wsId) && t.messages.length > 0 })
 		for (const id of ids) { this.deleteThread(id) } // reuse deleteThread → plan/lock/session cleanup
 		return ids.length
 	}

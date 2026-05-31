@@ -51,6 +51,24 @@ const threadTitle = (t: ThreadType): string => {
 	return text ? (text.length > 80 ? text.slice(0, 80) + '…' : text) : t.id;
 };
 
+const threadsToJson = (threads: ThreadType[], project: string): string => {
+	// Replacer drops runtime-only noise and lossy types so the export is clean
+	// and portable: `mountedInfo` is a live Promise + resolver fns (serialize to
+	// `{}`/dropped), Sets (filesWithUserChanges) would silently become `{}`, and
+	// raw image bytes would bloat the file — keep a size placeholder instead.
+	const replacer = (key: string, value: unknown): unknown => {
+		if (key === 'mountedInfo') { return undefined; }
+		if (value instanceof Set) { return Array.from(value); }
+		if (value instanceof Uint8Array) { return `__bytes__:${value.length}`; }
+		return value;
+	};
+	const payload = {
+		meta: { schema: 1, exportedAt: new Date().toISOString(), project, threadCount: threads.length },
+		threads,
+	};
+	return JSON.stringify(payload, replacer, 2);
+};
+
 const threadsToMarkdown = (threads: ThreadType[], project: string): string => {
 	const lines: string[] = [`# VibeIDE — история чата: ${project}`, '', `> Экспортировано: ${new Date().toISOString()} · тредов: ${threads.length}`, ''];
 	for (const t of threads) {
@@ -114,7 +132,7 @@ registerAction2(class ExportProjectHistoryAction extends Action2 {
 
 		const content = isMd
 			? threadsToMarkdown(threads, project)
-			: JSON.stringify(threads, (key, value) => (value instanceof Uint8Array ? `__bytes__:${value.length}` : value), 2);
+			: threadsToJson(threads, project);
 		try {
 			await fileService.writeFile(target, VSBuffer.fromString(content));
 			notificationService.notify({ severity: Severity.Info, message: localize('vibeide.history.exportProject.done', 'История экспортирована: {0} тредов → {1}', threads.length, target.fsPath) });
