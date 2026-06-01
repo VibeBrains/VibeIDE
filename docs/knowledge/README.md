@@ -129,6 +129,7 @@
 | [lessons-from-roadmap-max-runs.md](patterns/lessons-from-roadmap-max-runs.md) | Pure-helper + DI wrapper, discriminated-union FSM, tagged-result envelopes, twin-shape redactor, JSDoc `*/`-footgun, ReadonlyArray push/sort, OAuth state-CSRF-first, HMAC + decoder pairing, sticky-comment CI |
 | [settings-registration-sweep.md](patterns/settings-registration-sweep.md) | Phantom config keys, in-service vs centralised registration, standalone xxxConfiguration.ts, localize() for descriptions, ConfigurationScope choice, minimum/maximum clamp, code-review smell |
 | [main-renderer-config-bridge.md](patterns/main-renderer-config-bridge.md) | Pattern для прокидывания renderer-side settings в electron-main process через IPC + `process.env` indirection. Когда использовать, когда нет, alternative с direct IPC channel при росте |
+| [verify-before-hypothesizing.md](patterns/verify-before-hypothesizing.md) | **[правило]** Если симптом измерим — измерь (терминал/инструментация) ПЕРЕД гипотезой. Канон: get_dir_tree-тормоза (3 неверных гипотезы → 1 `Get-ChildItem` = 25мс → корень). Гипотезу без замера в roadmap помечать гипотезой, не причиной |
 
 ### [agent-collaboration/](agent-collaboration/) — правила работы агента с автором
 
