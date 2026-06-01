@@ -98,5 +98,12 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			maximum: 100,
 			description: localize('vibeide.agent.reprobeAfterSuccesses', 'Через сколько успешных XML-tool-call`ов модель, переключённую в XML-fallback, повторно пробуют вернуть на native function-calling (одноразовый probe). Меньше = быстрее восстановление, больше = меньше «дёрганья». Дефолт 5, диапазон 1–100.'),
 		},
+		'vibeide.agent.scanTimeoutMs': {
+			type: 'number',
+			default: 10000,
+			minimum: 1000,
+			maximum: 120000,
+			description: localize('vibeide.agent.scanTimeoutMs', 'Бюджет по времени (мс) для широких файловых сканов агента — `glob`, `search_pathnames_only`, `get_dir_tree`. Защищает Extension Host от зависания на огромном/корневом дереве: по истечении бюджета поиск возвращает частичный результат с пометкой «обрезано». Дефолт 10000 (10с), диапазон 1000–120000.'),
+		},
 	},
 });

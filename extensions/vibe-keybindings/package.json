@@ -432,11 +432,6 @@
         "when": "editorTextFocus"
       },
       {
-        "key": "shift shift",
-        "mac": "shift shift",
-        "command": "workbench.action.quickOpen"
-      },
-      {
         "key": "f3",
         "mac": "cmd+g",
         "command": "editor.action.nextMatchFindAction",

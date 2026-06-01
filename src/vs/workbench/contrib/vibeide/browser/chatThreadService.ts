@@ -651,6 +651,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	private readonly _fileReadCacheLRU: Map<string, string[]> = new Map()
 	private static readonly MAX_FILE_READ_CACHE_ENTRIES_PER_THREAD = 100 // Limit cache size per thread
 
+	// Anti-loop guard: rolling window of recent successful tool-call signatures per thread. When the
+	// model issues the SAME tool with identical args repeatedly (observed: glob **/* ~10× in a row),
+	// the result never changes — we nudge it to change approach. (threadId -> last N signatures)
+	private readonly _recentToolSigs: Map<string, string[]> = new Map()
+	private static readonly TOOL_LOOP_WINDOW = 6
+	private static readonly TOOL_LOOP_THRESHOLD = 3
+	private static readonly TOOL_LOOP_ESCALATE_THRESHOLD = 5
+
 	/** Stable per-window-session nonce so lease heartbeats extend the same execution lease file. */
 	private _executionLeaseHolderNonce: string | undefined
 
@@ -3535,6 +3543,35 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		});
 	}
 
+	/**
+	 * Anti-loop guard. Records this tool-call's signature in a small rolling per-thread window and, if
+	 * the SAME signature has occurred >= TOOL_LOOP_THRESHOLD times within the last TOOL_LOOP_WINDOW
+	 * calls, appends a directive to the tool result telling the model to stop repeating and change
+	 * approach. Returns the (possibly augmented) result string. Pure-ish: only mutates `_recentToolSigs`.
+	 */
+	private _maybeAppendToolLoopNudge(threadId: string, toolName: string, toolParams: unknown, resultStr: string): string {
+		let sig: string
+		try { sig = `${toolName}|${JSON.stringify(toolParams)}` } catch { sig = toolName }
+
+		const window = this._recentToolSigs.get(threadId) ?? []
+		window.push(sig)
+		while (window.length > ChatThreadService.TOOL_LOOP_WINDOW) { window.shift() }
+		this._recentToolSigs.set(threadId, window)
+
+		const repeats = window.filter(s => s === sig).length
+		if (repeats < ChatThreadService.TOOL_LOOP_THRESHOLD) { return resultStr }
+
+		// Observability — surfaces in the console the user is already watching (no _agentActivityLog,
+		// to avoid coupling a non-error event to the error circuit-breaker).
+		vibeLog.warn('toolLoop', 'repeated identical tool call', { tool: toolName, repeats, window: window.length })
+
+		// Escalate the wording once it's clearly stuck, so the directive is harder to ignore.
+		const nudge = repeats >= ChatThreadService.TOOL_LOOP_ESCALATE_THRESHOLD
+			? `\n\n[STOP — you have called "${toolName}" with identical arguments ${repeats} times and the result has NOT changed. Do not call it again. Switch strategy entirely: act on what you already gathered, ask the user a clarifying question, or finalize your answer.]`
+			: `\n\n[Loop detected: you have called "${toolName}" with identical arguments ${repeats} times in the last ${window.length} tool calls — the result is not changing. STOP repeating this call. Use what you have already gathered, try materially different arguments, or move on to the next concrete step toward the user's goal.]`
+		return resultStr + nudge
+	}
+
 	private _runToolCall = async (
 		threadId: string,
 		requestedToolName: ToolName,
@@ -4111,6 +4148,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			this._agentActivityLog.logError(`${toolActivityLabel}: stringify ${errorMessage}`);
 			vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false }); this._updateLatestTool(threadId, { role: 'tool', type: 'tool_error', params: toolParams, result: errorMessage, name: toolName, content: errorMessage, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName })
 			return {}
+		}
+
+		// Anti-loop nudge (built-in tools only — MCP result signatures are opaque): if the model keeps
+		// re-issuing this exact tool with identical args, the result isn't changing — append guidance so
+		// it changes approach instead of spinning (e.g. glob **/* repeated until soft-checkpoint).
+		if (isBuiltInTool) {
+			toolResultStr = this._maybeAppendToolLoopNudge(threadId, toolName, toolParams, toolResultStr)
 		}
 
 		// 5. add to history and keep going
@@ -7927,6 +7971,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 		this._planCache.delete(threadId)
 		this._fileReadCache.delete(threadId)
 		this._fileReadCacheLRU.delete(threadId)
+		this._recentToolSigs.delete(threadId)
 		delete this._suppressPlanOnceByThread[threadId]
 		delete this.streamState[threadId]
 		// `_emptyResponseStreak` is keyed by `${threadId}:provider:model` — need

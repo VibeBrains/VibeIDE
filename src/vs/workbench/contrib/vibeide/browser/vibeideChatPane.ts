@@ -94,11 +94,26 @@ function setupGroupRemovalListener(
 
 	_groupListenerDisposable = editorGroupsService.onDidRemoveGroup(group => {
 		if (group.id === _chatEditorGroupId) {
-			_chatEditorGroupId = undefined;
-			storageService.remove(CHAT_GROUP_STORAGE_KEY, StorageScope.WORKSPACE);
-			_hasChatGroupCtxKey?.set(false);
+			// The chat group's id is gone. Two cases:
+			//   (a) chat genuinely closed — clean up and stop.
+			//   (b) a MERGE discarded the chat group's id and migrated the chat editor INTO the
+			//       surviving (foreign) group, leaving chat + a file in one tab bar (D.15 round 2:
+			//       closing Settings still merged rules.md + Chat on 0.18.0). The removal event fires
+			//       AFTER the editors are moved to the survivor, so re-discover where the chat editor
+			//       landed and re-establish isolation there. Distinguishing (a) from (b): scan for a
+			//       surviving VibeChatEditorInput — findExistingChatGroup returns undefined for (a).
 			_chatGroupLockdownDisposable?.dispose();
 			_chatGroupLockdownDisposable = undefined;
+			_chatEditorGroupId = undefined;
+			const rediscovered = findExistingChatGroup(editorGroupsService, storageService);
+			if (rediscovered) {
+				_hasChatGroupCtxKey?.set(true);
+				setupChatGroupLockdown(rediscovered, editorGroupsService); // re-lock + evict the migrated file + show chat
+				enforceChatGroupRightmost(editorGroupsService);
+			} else {
+				_hasChatGroupCtxKey?.set(false);
+				storageService.remove(CHAT_GROUP_STORAGE_KEY, StorageScope.WORKSPACE);
+			}
 			return;
 		}
 		// Another group closed (e.g. Settings editor). VS Code MERGES its editors into the

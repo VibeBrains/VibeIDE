@@ -60,6 +60,7 @@ import { reParsedToolXMLString, chat_systemMessage, chat_systemMessage_local } f
 import { detectModelFamily } from '../common/prompt/modelFamily.js';
 import { computeLastExchangePinSet } from '../common/prompt/lastExchangePin.js';
 import { isPinnedContextMessage } from '../common/prompt/pinnedContext.js';
+import { pickHeaviestTrimmableIndex } from '../common/prompt/contextTrim.js';
 import { IVibeProjectRulesService } from './vibeProjectRulesService.js';
 import { extractToolFilePaths, toWorkspaceRelative, parseRuleInvocations } from '../common/prompt/ruleFrontmatter.js';
 import { planBudgetFillTail } from '../common/agentLoopHeuristics.js';
@@ -966,19 +967,10 @@ const prepareOpenAIOrAnthropicMessages = ({
 		return base * multiplier
 	}
 
-	const _findLargestByWeight = (messages_: MesType[]) => {
-		let largestIndex = -1
-		let largestWeight = -Infinity
-		for (let i = 0; i < messages.length; i += 1) {
-			const m = messages[i]
-			const w = weight(m, messages_, i)
-			if (w > largestWeight) {
-				largestWeight = w
-				largestIndex = i
-			}
-		}
-		return largestIndex
-	}
+	// D.16: selection is delegated to the pure, unit-tested `pickHeaviestTrimmableIndex` (returns -1
+	// when every message is weight 0 = pinned/empty, so the trim loops never crush the system).
+	const _findLargestByWeight = (messages_: MesType[]) =>
+		pickHeaviestTrimmableIndex(messages.map((m, i) => weight(m, messages_, i)))
 
 	let totalLen = 0
 	for (const m of messages) { totalLen += m.content.length }
@@ -1001,6 +993,7 @@ const prepareOpenAIOrAnthropicMessages = ({
 		if (i > 100) break
 
 		const trimIdx = _findLargestByWeight(messages)
+		if (trimIdx === -1) break // D.16: nothing trimmable (all pinned) — stop rather than crush the system
 		const m = messages[trimIdx]
 
 		// if can finish here, do
@@ -1059,6 +1052,7 @@ const prepareOpenAIOrAnthropicMessages = ({
 		while (charsTrimmed < excessChars && guardLoops < 200) {
 			guardLoops += 1
 			const trimIdx = _findLargestByWeight(messages)
+			if (trimIdx === -1) break // D.16: nothing trimmable (all pinned) — stop rather than crush the system
 			const m = messages[trimIdx]
 			if (m.content.length <= TRIM_TO_LEN) {
 				// Already tiny, skip to next largest
@@ -2224,20 +2218,6 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				finalTokens: currentTokens,
 				contextWindow,
 			})
-		}
-
-		// D.16 safety net — a cloud model that wants a system message must never receive an empty
-		// assistant-instructions body. If `systemMessage` somehow arrived empty (cache/race/dep
-		// failure observed on openCode-family providers), log loudly and rebuild ONCE bypassing the
-		// cache, so the model never silently runs without its operating instructions.
-		if (!disableSystemMessage && !isLocal && systemMessage.trim().length === 0) {
-			vibeLog.error('convertToLLMMessage', 'D.16 system collapse: assistant-instructions empty before send — rebuilding (cache bypassed)', {
-				provider: validProviderName,
-				model: modelName,
-				aiInstructionsLen: aiInstructions.length,
-			})
-			this._systemMessageCache.clear()
-			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat, validProviderName, modelName)
 		}
 
 		const { messages, separateSystemMessage } = prepareMessages({

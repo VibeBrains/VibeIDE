@@ -15,6 +15,7 @@ import { MAX_CHILDREN_URIs_PAGE, MAX_DIRSTR_CHARS_TOTAL_BEGINNING, MAX_DIRSTR_CH
 
 
 const MAX_FILES_TOTAL = 1000;
+const GET_DIR_TREE_BUDGET_MS = 10_000; // D.20: wall-clock cap so get_dir_tree on a huge/root dir cannot freeze the EH
 
 
 const START_MAX_DEPTH = Infinity;
@@ -26,7 +27,7 @@ const DEFAULT_MAX_ITEMS_PER_DIR = 3;
 export interface IDirectoryStrService {
 	readonly _serviceBrand: undefined;
 
-	getDirectoryStrTool(uri: URI): Promise<string>
+	getDirectoryStrTool(uri: URI, opts?: { budgetMs?: number }): Promise<string>
 	getAllDirectoriesStr(opts: { cutOffMessage: string }): Promise<string>
 
 	getAllURIsInDirectory(uri: URI, opts: { maxResults: number }): Promise<URI[]>
@@ -38,10 +39,18 @@ export const IDirectoryStrService = createDecorator<IDirectoryStrService>('vibeD
 
 
 // Check if it's a known filtered type like .git
+// Heavy / machine-generated dot-dirs that add only noise to a tree listing. We deliberately do NOT
+// blanket-exclude every dotfolder: meaningful config dirs the agent needs to see/edit (.cursor, .vibe,
+// .github, .vscode, .devcontainer) must stay visible — e.g. importing/inspecting .vibe & .cursor.
+const EXCLUDED_DOT_DIRS = new Set([
+	'.git', '.svn', '.hg', '.cache', '.next', '.nuxt', '.gradle', '.idea', '.vs',
+	'.pytest_cache', '.mypy_cache', '.tox', '.venv', '.turbo', '.parcel-cache',
+	'.terraform', '.angular', '.yarn', '.pnpm-store',
+]);
+
 const shouldExcludeDirectory = (name: string) => {
-	if (name === '.git' ||
+	if (EXCLUDED_DOT_DIRS.has(name) ||
 		name === 'node_modules' ||
-		name.startsWith('.') ||
 		name === 'dist' ||
 		name === 'build' ||
 		name === 'out' ||
@@ -150,7 +159,7 @@ const computeAndStringifyDirectoryTree = async (
 	fileService: IFileService,
 	MAX_CHARS: number,
 	fileCount: { count: number } = { count: 0 },
-	options: { maxDepth?: number, currentDepth?: number, maxItemsPerDir?: number } = {}
+	options: { maxDepth?: number, currentDepth?: number, maxItemsPerDir?: number, deadline?: number } = {}
 ): Promise<{ content: string, wasCutOff: boolean }> => {
 	// Set default values for options
 	const maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
@@ -164,6 +173,11 @@ const computeAndStringifyDirectoryTree = async (
 
 	// Check if we've reached the file limit
 	if (fileCount.count >= MAX_FILES_TOTAL) {
+		return { content: '', wasCutOff: true };
+	}
+
+	// D.20: wall-clock budget — bail if a huge/root traversal runs too long (EH-freeze guard).
+	if (options.deadline && Date.now() > options.deadline) {
 		return { content: '', wasCutOff: true };
 	}
 
@@ -203,7 +217,7 @@ const computeAndStringifyDirectoryTree = async (
 				'',
 				fileService,
 				fileCount,
-				{ maxDepth, currentDepth, maxItemsPerDir } // Pass maxItemsPerDir to the render function
+				{ maxDepth, currentDepth, maxItemsPerDir, deadline: options.deadline } // Pass maxItemsPerDir + deadline to the render function
 			);
 			content += childrenContent;
 			wasCutOff = childrenCutOff;
@@ -220,7 +234,7 @@ const renderChildrenCombined = async (
 	parentPrefix: string,
 	fileService: IFileService,
 	fileCount: { count: number },
-	options: { maxDepth: number, currentDepth: number, maxItemsPerDir?: number }
+	options: { maxDepth: number, currentDepth: number, maxItemsPerDir?: number, deadline?: number }
 ): Promise<{ childrenContent: string, childrenCutOff: boolean }> => {
 	const { maxDepth, currentDepth } = options; // Remove maxItemsPerDir from destructuring
 	// Get maxItemsPerDir separately and make sure we use it
@@ -246,6 +260,12 @@ const renderChildrenCombined = async (
 	for (let i = 0; i < itemsToProcess.length; i++) {
 		// Check if we've reached the file limit
 		if (fileCount.count >= MAX_FILES_TOTAL) {
+			childrenCutOff = true;
+			break;
+		}
+
+		// D.20: wall-clock budget
+		if (options.deadline && Date.now() > options.deadline) {
 			childrenCutOff = true;
 			break;
 		}
@@ -287,7 +307,7 @@ const renderChildrenCombined = async (
 					nextLevelPrefix,
 					fileService,
 					fileCount,
-					{ maxDepth, currentDepth: nextDepth, maxItemsPerDir }
+					{ maxDepth, currentDepth: nextDepth, maxItemsPerDir, deadline: options.deadline }
 				);
 
 				if (grandChildrenContent.length > 0) {
@@ -396,11 +416,14 @@ class DirectoryStrService extends Disposable implements IDirectoryStrService {
 		return getAllUrisInDirectory(uri, opts.maxResults, this.fileService)
 	}
 
-	async getDirectoryStrTool(uri: URI) {
+	async getDirectoryStrTool(uri: URI, opts?: { budgetMs?: number }) {
 		const eRoot = await this.fileService.resolve(uri)
 		if (!eRoot) throw new Error(`The folder ${uri.fsPath} does not exist.`)
 
 		const maxItemsPerDir = START_MAX_ITEMS_PER_DIR; // Use START_MAX_ITEMS_PER_DIR
+		// D.20: single wall-clock deadline shared by both passes (EH-freeze guard on huge/root dirs).
+		// Budget is configurable via `vibeide.agent.scanTimeoutMs` (passed by the tool layer).
+		const deadline = Date.now() + (opts?.budgetMs ?? GET_DIR_TREE_BUDGET_MS);
 
 		// First try with START_MAX_DEPTH
 		const { content: initialContent, wasCutOff: initialCutOff } = await computeAndStringifyDirectoryTree(
@@ -408,18 +431,20 @@ class DirectoryStrService extends Disposable implements IDirectoryStrService {
 			this.fileService,
 			MAX_DIRSTR_CHARS_TOTAL_TOOL,
 			{ count: 0 },
-			{ maxDepth: START_MAX_DEPTH, currentDepth: 0, maxItemsPerDir }
+			{ maxDepth: START_MAX_DEPTH, currentDepth: 0, maxItemsPerDir, deadline }
 		);
 
-		// If cut off, try again with DEFAULT_MAX_DEPTH and DEFAULT_MAX_ITEMS_PER_DIR
+		// If cut off, try again with DEFAULT_MAX_DEPTH and DEFAULT_MAX_ITEMS_PER_DIR — but ONLY if the
+		// budget is left. If the deadline caused the cutoff, the shallow retry would also time out
+		// immediately and discard the partial tree we already gathered, so keep the first pass instead.
 		let content, wasCutOff;
-		if (initialCutOff) {
+		if (initialCutOff && Date.now() < deadline) {
 			const result = await computeAndStringifyDirectoryTree(
 				eRoot,
 				this.fileService,
 				MAX_DIRSTR_CHARS_TOTAL_TOOL,
 				{ count: 0 },
-				{ maxDepth: DEFAULT_MAX_DEPTH, currentDepth: 0, maxItemsPerDir: DEFAULT_MAX_ITEMS_PER_DIR }
+				{ maxDepth: DEFAULT_MAX_DEPTH, currentDepth: 0, maxItemsPerDir: DEFAULT_MAX_ITEMS_PER_DIR, deadline }
 			);
 			content = result.content;
 			wasCutOff = result.wasCutOff;

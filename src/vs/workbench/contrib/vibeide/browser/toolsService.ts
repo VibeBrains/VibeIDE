@@ -264,7 +264,10 @@ export class ToolsService implements IToolsService {
 		// ~9.4 min via `fileSearch(..., CancellationToken.None)`. On OUR timeout it returns the
 		// partial result if the backend yields one, or an empty result if the backend throws on
 		// cancellation — either way the caller treats it as "not found" and fails fast.
-		const fileSearchCapped = async (query: Parameters<typeof searchService.fileSearch>[0], timeoutMs = 10_000) => {
+		// Scan time-budget (ms), user-configurable via `vibeide.agent.scanTimeoutMs`. Shared by the
+		// broad file-search tools (glob / search_pathnames_only) and get_dir_tree. Clamped defensively.
+		const scanTimeoutMs = () => Math.max(1_000, Math.min(120_000, this._configurationService.getValue<number>('vibeide.agent.scanTimeoutMs') ?? 10_000))
+		const fileSearchCapped = async (query: Parameters<typeof searchService.fileSearch>[0], timeoutMs = scanTimeoutMs()) => {
 			const cts = new CancellationTokenSource()
 			let timedOut = false
 			const timer = setTimeout(() => { timedOut = true; cts.cancel() }, timeoutMs)
@@ -273,11 +276,17 @@ export class ToolsService implements IToolsService {
 				// Some search backends THROW on cancellation rather than returning partial
 				// results. On OUR timeout that is expected — return an empty result so the
 				// caller fails fast ("not found") instead of surfacing a raw cancel error.
-				if (timedOut) { return { results: [], messages: [] } as Awaited<ReturnType<typeof searchService.fileSearch>> }
+				// limitHit:true on timeout so callers can tell "search too broad / timed out" apart from
+				// "genuinely no matches" and hint the model to narrow (D.21).
+				if (timedOut) { return { results: [], messages: [], limitHit: true } as Awaited<ReturnType<typeof searchService.fileSearch>> }
 				throw e
 			}
 			finally { clearTimeout(timer); cts.dispose() }
 		}
+
+		// Upper bound on glob matches. A broad pattern (**/*) on a large repo otherwise enumerates the
+		// whole tree; capping makes the backend stop early and return fast. 10 pages of MAX_CHILDREN_URIs_PAGE.
+		const GLOB_MAX_RESULTS = MAX_CHILDREN_URIs_PAGE * 10
 
 		// Workspace-boundary policy — config-driven (see vibeAgentBehaviorConfiguration.ts).
 		// Reads default-allowed (`allowReadOutsideWorkspace`=true), writes default-blocked
@@ -833,7 +842,7 @@ export class ToolsService implements IToolsService {
 			},
 
 			get_dir_tree: async ({ uri }) => {
-				const str = await this.directoryStrService.getDirectoryStrTool(uri)
+				const str = await this.directoryStrService.getDirectoryStrTool(uri, { budgetMs: scanTimeoutMs() })
 				return { result: { str } }
 			},
 
@@ -843,8 +852,9 @@ export class ToolsService implements IToolsService {
 					filePattern: queryStr,
 					includePattern: includePattern ?? undefined,
 					sortByScore: true, // makes results 10x better
+					maxResults: GLOB_MAX_RESULTS,
 				})
-				const data = await searchService.fileSearch(query, CancellationToken.None)
+				const data = await fileSearchCapped(query)
 
 				const fromIdx = MAX_CHILDREN_URIs_PAGE * (pageNumber - 1)
 				const toIdx = MAX_CHILDREN_URIs_PAGE * pageNumber - 1
@@ -853,7 +863,7 @@ export class ToolsService implements IToolsService {
 					.map(({ resource, results }) => resource)
 
 				const hasNextPage = (data.results.length - 1) - toIdx >= 1
-				return { result: { uris, hasNextPage } }
+				return { result: { uris, hasNextPage, limitHit: !!data.limitHit } }
 			},
 
 			search_for_files: async ({ query: queryStr, isRegex, searchInFolder, pageNumber }) => {
@@ -903,9 +913,16 @@ export class ToolsService implements IToolsService {
 				const query = queryBuilder.text({
 					pattern: queryStr,
 					isRegExp: isRegex,
-				}, searchFolders)
+				}, searchFolders, { maxResults: GLOB_MAX_RESULTS })
 
-				const data = await searchService.textSearch(query, CancellationToken.None)
+				// EH-freeze guard (same class as D.19 glob/search_pathnames): raw uncancellable textSearch
+				// on a huge tree could hang the Extension Host for minutes. Time-cap via scanTimeoutMs().
+				const sfCts = new CancellationTokenSource()
+				const sfTimer = setTimeout(() => sfCts.cancel(), scanTimeoutMs())
+				let data: Awaited<ReturnType<typeof searchService.textSearch>>
+				try { data = await searchService.textSearch(query, sfCts.token) }
+				catch { data = { results: [], messages: [] } as Awaited<ReturnType<typeof searchService.textSearch>> }
+				finally { clearTimeout(sfTimer); sfCts.dispose() }
 
 				const fromIdx = MAX_CHILDREN_URIs_PAGE * (pageNumber - 1)
 				const toIdx = MAX_CHILDREN_URIs_PAGE * pageNumber - 1
@@ -920,18 +937,23 @@ export class ToolsService implements IToolsService {
 				const folders = searchInFolder === null
 					? workspaceContextService.getWorkspace().folders.map(f => f.uri)
 					: [searchInFolder]
+				// Bound the search: a broad pattern (**/*) on a large repo otherwise scans the whole tree
+				// under an UNCANCELLABLE search and freezes the Extension Host for minutes (observed:
+				// glob **/* on a large repo hung the EH > 10 min). Cap total matches so the backend stops
+				// early, and time-cap the search (fileSearchCapped, 10s) as a safety net.
 				const query = queryBuilder.file(folders, {
 					includePattern: pattern,
 					expandPatterns: true,
 					sortByScore: false,
+					maxResults: GLOB_MAX_RESULTS,
 				})
-				const data = await searchService.fileSearch(query, CancellationToken.None)
+				const data = await fileSearchCapped(query)
 				const fromIdx = MAX_CHILDREN_URIs_PAGE * (pageNumber - 1)
 				const toIdx = MAX_CHILDREN_URIs_PAGE * pageNumber - 1
 				const all = data.results.map(r => r.resource)
 				const uris = all.slice(fromIdx, toIdx + 1)
 				const hasNextPage = (all.length - 1) - toIdx >= 1
-				return { result: { uris, hasNextPage, totalMatches: all.length } }
+				return { result: { uris, hasNextPage, totalMatches: all.length, limitHit: !!data.limitHit } }
 			},
 
 			grep: async ({ pattern, glob: globPat, fileType, searchInFolder, outputMode, contextBefore, contextAfter, caseInsensitive, multiline, headLimit, pageNumber }) => {
@@ -2216,17 +2238,26 @@ export class ToolsService implements IToolsService {
 				return truncateSearchOutput(result.str)
 			},
 			search_pathnames_only: (params, result) => {
-				return truncateSearchOutput(result.uris.map(uri => uri.fsPath).join('\n') + nextPageStr(result.hasNextPage))
+				const capNote = result.limitHit ? `\n(results capped — refine the query or include_pattern)` : ''
+				if (result.uris.length === 0 && result.limitHit) {
+					return `Pathname search timed out (scope too large). Refine the query or pass include_pattern.`
+				}
+				return truncateSearchOutput(result.uris.map(uri => uri.fsPath).join('\n') + nextPageStr(result.hasNextPage) + capNote)
 			},
 			search_for_files: (params, result) => {
 				return truncateSearchOutput(result.uris.map(uri => uri.fsPath).join('\n') + nextPageStr(result.hasNextPage))
 			},
 			glob: (params, result) => {
 				if (result.uris.length === 0) {
-					return `No files match pattern "${params.pattern}".`
+					// D.21: distinguish "search too broad / timed out" (limitHit) from genuinely empty,
+					// so the model narrows instead of re-issuing the same broad pattern in a loop.
+					return result.limitHit
+						? `Search for "${params.pattern}" was too broad to finish in time. Narrow the pattern (e.g. a subfolder) or pass search_in_folder.`
+						: `No files match pattern "${params.pattern}".`
 				}
-				const header = `Matched ${result.totalMatches} file${result.totalMatches === 1 ? '' : 's'} for "${params.pattern}":\n`
-				return truncateSearchOutput(header + result.uris.map(uri => uri.fsPath).join('\n') + nextPageStr(result.hasNextPage))
+				const capNote = result.limitHit ? `\n(results capped — more matches exist; narrow the pattern or pass search_in_folder)` : ''
+				const header = `Matched ${result.totalMatches}${result.limitHit ? '+' : ''} file${result.totalMatches === 1 ? '' : 's'} for "${params.pattern}":\n`
+				return truncateSearchOutput(header + result.uris.map(uri => uri.fsPath).join('\n') + nextPageStr(result.hasNextPage) + capNote)
 			},
 			grep: (params, result) => {
 				if (result.totalMatches === 0) {

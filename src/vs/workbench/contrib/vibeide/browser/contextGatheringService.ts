@@ -63,6 +63,9 @@ class ContextGatheringService extends Disposable implements IContextGatheringSer
 	}
 
 	public async updateCache(model: ITextModel, pos: Position): Promise<void> {
+		// D.18 — this runs async off onDidChangeContent; the file can be closed (model disposed)
+		// before/between the awaited symbol-provider calls. Bail early on a dead model.
+		if (model.isDisposed()) { return; }
 		const snippets = new Set<string>();
 		this._snippetIntervals = []; // Reset intervals for new cache update
 
@@ -79,6 +82,8 @@ class ContextGatheringService extends Disposable implements IContextGatheringSer
 
 	// Basic snippet extraction.
 	private _getSnippetForRange(model: ITextModel, range: IRange, numLines: number): string {
+		// D.18 — model may be disposed mid-async (file closed during gather). Guard raw line access.
+		if (model.isDisposed()) { return ''; }
 		// Validate line numbers to prevent "Illegal value for lineNumber" errors
 		const lineCount = model.getLineCount();
 		const validStartLine = Math.max(1, Math.min(range.startLineNumber, lineCount));
@@ -337,6 +342,8 @@ class ContextGatheringService extends Disposable implements IContextGatheringSer
 	}
 
 	private async _findContainerFunction(model: ITextModel, pos: Position): Promise<DocumentSymbol | null> {
+		// D.18 — model may be disposed mid-async (file closed during gather). Guard raw line access.
+		if (model.isDisposed()) { return null; }
 		// Validate position to prevent "Illegal value for lineNumber" errors
 		const lineCount = model.getLineCount();
 		const validLineNumber = Math.max(1, Math.min(pos.lineNumber, lineCount));
