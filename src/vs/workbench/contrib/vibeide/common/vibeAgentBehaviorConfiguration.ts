@@ -65,10 +65,10 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 		},
 		'vibeide.agent.maxLoopIterations': {
 			type: 'number',
-			default: 30,
+			default: 0,
 			minimum: 0,
 			maximum: 200,
-			description: localize('vibeide.agent.maxLoopIterations', 'Максимум итераций tool-use loop в одном агентском прогоне. При достижении — прогон останавливается, чтобы не зациклиться. `0` = без лимита (для уверенных в себе; есть риск зацикливания и расхода токенов). Дефолт 30, диапазон 0–200. Контрол продублирован в нижней панели чата рядом с тогглом «Автопилот».'),
+			description: localize('vibeide.agent.maxLoopIterations', 'Жёсткий потолок итераций tool-use loop в одном агентском прогоне: при достижении прогон ОБРЫВАЕТСЯ без вопроса. `0` = выкл (дефолт) — управление длиной прогона отдано мягкому `softCheckpointIterations`, который ПАУЗИТСЯ и спрашивает, а не рубит. Диапазон 0–200. Оставьте `0`, если не нужен именно жёсткий аварийный обрыв.'),
 		},
 		'vibeide.agent.softCheckpointIterations': {
 			type: 'number',
@@ -82,7 +82,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: 1000000,
 			minimum: 0,
 			maximum: 100000000,
-			description: localize('vibeide.agent.softCheckpointTokens', 'Мягкий чекпоинт по токенам: когда расход за ОДИН агентский прогон превышает это число input+output токенов, агент паузится и спрашивает, продолжать ли. Работает вместе с `softCheckpointIterations` (что сработает раньше). `0` = выкл. Дефолт 1 000 000.'),
+			description: localize('vibeide.agent.softCheckpointTokens', 'Мягкий чекпоинт по токенам: когда расход за ОДИН агентский прогон превышает это число input+output токенов, агент паузится и спрашивает, продолжать ли. Работает вместе с `softCheckpointIterations` (что сработает раньше). `0` = выкл. ВАЖНО: при `softCheckpointIterations = 0` («полная автономия» / счётчик в тулбаре на ∞) токеновый чекпоинт тоже отключается — единый счётчик на `0` означает прогон без пауз. Дефолт 1 000 000.'),
 		},
 		'vibeide.agent.autoDowngradeThreshold': {
 			type: 'number',

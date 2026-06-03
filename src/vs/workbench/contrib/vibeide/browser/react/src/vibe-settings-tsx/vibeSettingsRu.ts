@@ -92,7 +92,14 @@ export const chatS = {
 	maxLoopIterationsOffLabel: '∞ итер.',
 	maxLoopIterationsOffHint: 'лимит снят',
 	maxLoopIterationsTitle:
-		'Максимум итераций tool-use loop в одном агентском прогоне (vibeide.agent.maxLoopIterations). Дефолт 30, диапазон 0–200. 0 = без лимита (для уверенных — есть риск зацикливания и расхода токенов).',
+		'Жёсткий потолок итераций tool-use loop в одном агентском прогоне (vibeide.agent.maxLoopIterations). Дефолт 30, диапазон 0–200. 0 = без лимита (до победного). ВАЖНО: отдельно работает «пауза» (soft-checkpoint, справа) — она спрашивает «продолжить?» даже при ∞.',
+	iterStepperDec: 'Уменьшить',
+	iterStepperInc: 'Увеличить',
+	softCheckpointLabel: 'пауза',
+	softCheckpointOffLabel: 'без пауз',
+	softCheckpointOffHint: 'пауза снята',
+	softCheckpointTitle:
+		'Soft-checkpoint: после скольких шагов в ОДНОМ прогоне агент паузится и спрашивает «продолжить?» (vibeide.agent.softCheckpointIterations). Работает НЕЗАВИСИМО от лимита итераций слева — срабатывает даже при ∞ как страховка от тихого runaway. Дефолт 25, 0 = без пауз.',
 	trainingUnknown: 'обуч.?',
 	trainingNone: 'без обуч.',
 	trainingOptIn: 'opt-in',

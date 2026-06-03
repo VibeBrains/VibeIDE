@@ -1104,7 +1104,11 @@ export class CommentController extends Disposable implements IEditorContribution
 	}
 
 	private onEditorMouseDown(e: IEditorMouseEvent): void {
-		this.mouseDownInfo = (e.target.element?.className.indexOf('comment-range-glyph') ?? -1) >= 0 ? parseMouseDownInfoFromEvent(e) : null;
+		// `className` is a plain string for HTML elements but an SVGAnimatedString (no `.indexOf`) for
+		// SVG targets — e.g. the diff-navigation arrows in the changed-files review view. Guard the type
+		// so clicking those does not throw `className.indexOf is not a function`.
+		const className = e.target.element?.className;
+		this.mouseDownInfo = (typeof className === 'string' && className.indexOf('comment-range-glyph') >= 0) ? parseMouseDownInfoFromEvent(e) : null;
 	}
 
 	private onEditorMouseUp(e: IEditorMouseEvent): void {
@@ -1114,7 +1118,7 @@ export class CommentController extends Disposable implements IEditorContribution
 		if (!this.editor || matchedLineNumber === null || !e.target.element) {
 			return;
 		}
-		const mouseUpIsOnDecorator = (e.target.element.className.indexOf('comment-range-glyph') >= 0);
+		const mouseUpIsOnDecorator = (typeof e.target.element.className === 'string' && e.target.element.className.indexOf('comment-range-glyph') >= 0);
 
 		const lineNumber = e.target.position!.lineNumber;
 		let range: Range | undefined;

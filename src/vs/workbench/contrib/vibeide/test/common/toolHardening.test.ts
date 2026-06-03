@@ -83,6 +83,31 @@ suite('ToolHardening', () => {
 		test('does NOT flag dir /b on a single file (bare format alone is not recursive)', () => {
 			assert.strictEqual(detectShellMisuse('dir /b file.md'), null);
 		});
+
+		// D.39: shell-wrapper bypass — the real command is quoted inside cmd/c, powershell -c, bash -c.
+		// Head-of-command is the wrapper (`cmd`), so rules must re-check the inner command.
+		test('flags tree wrapped in cmd /c (the 67s-freeze bypass)', () => {
+			const m = detectShellMisuse('cmd /c "tree /F /A c:\\Repo\\Promed\\.vibe"');
+			assert.ok(m);
+			assert.strictEqual(m!.suggestedTool, 'get_dir_tree');
+		});
+
+		test('flags recursive dir wrapped in cmd /c', () => {
+			assert.ok(detectShellMisuse('cmd /c "dir /s C:\\proj"'));
+		});
+
+		test('flags grep-like wrapped in bash -c / powershell -Command', () => {
+			assert.ok(detectShellMisuse("bash -c 'grep -r foo .'"));
+			assert.ok(detectShellMisuse('powershell -Command "Get-Content big.log"'));
+		});
+
+		test('wrapper exemptions still hold (cmd /c with bounded file-existence probe)', () => {
+			assert.strictEqual(detectShellMisuse('cmd /c "dir /s /b file.txt"'), null);
+		});
+
+		test('does NOT flag a legitimate wrapped command (npm build)', () => {
+			assert.strictEqual(detectShellMisuse('cmd /c "npm run build"'), null);
+		});
 	});
 
 	suite('detectShellMisuse — workspace config overrides', () => {

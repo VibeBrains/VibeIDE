@@ -199,7 +199,9 @@ export class WatchExpressionsView extends ViewPane implements IDebugViewWithVari
 	}
 
 	private onMouseDblClick(e: ITreeMouseEvent<IExpression>): void {
-		if ((e.browserEvent.target as HTMLElement).className.indexOf('twistie') >= 0) {
+		// `className` may be an SVGAnimatedString (no `.indexOf`) when the event target is an SVG node.
+		const targetClassName = (e.browserEvent.target as HTMLElement).className;
+		if (typeof targetClassName === 'string' && targetClassName.indexOf('twistie') >= 0) {
 			// Ignore double click events on twistie
 			return;
 		}

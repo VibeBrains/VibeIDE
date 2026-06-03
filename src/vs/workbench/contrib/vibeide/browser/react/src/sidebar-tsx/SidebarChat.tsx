@@ -470,13 +470,17 @@ const ChatModeDropdown = ({ className }: { className: string }) => {
 const ChatAgentAutopilotToggle = ({ className }: { className?: string }) => {
 	const accessor = useAccessor()
 	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
+	const configurationService = accessor.get('IConfigurationService')
 	const metricsService = accessor.get('IMetricsService')
 	const settingsState = useSettingsState()
 
 	const onChange = useCallback((v: boolean) => {
 		vibeideSettingsService.setGlobalSetting('chatAgentAutopilot', v)
+		// #5 — couple with the iterations counter: full autonomy ON → no pause (counter 0); OFF →
+		// controlled mode (bounded default, pause + confirmations). Mirror of ChatAgentIterationsControl.
+		configurationService.updateValue(SOFT_CHECKPOINT_KEY, v ? 0 : SOFT_CHECKPOINT_DEFAULT)
 		metricsService.capture('Chat Agent Autopilot Toggle', { enabled: v })
-	}, [vibeideSettingsService, metricsService])
+	}, [vibeideSettingsService, configurationService, metricsService])
 
 	const mode = settingsState.globalSettings.chatMode
 	if (mode !== 'agent' && mode !== 'plan') {
@@ -485,7 +489,7 @@ const ChatAgentAutopilotToggle = ({ className }: { className?: string }) => {
 
 	return (
 		<div
-			className={`flex items-center gap-1 flex-shrink-0 ${className ?? ''}`}
+			className={`@@vibe-toolbar-pill flex items-center gap-1 flex-shrink-0 rounded-xl py-0.5 px-1.5 ${className ?? ''}`}
 			title={chatS.autopilotTitle}
 		>
 			<VibeSwitch size='xs' value={settingsState.globalSettings.chatAgentAutopilot === true} onChange={onChange} />
@@ -495,43 +499,59 @@ const ChatAgentAutopilotToggle = ({ className }: { className?: string }) => {
 }
 
 
-/** Toolbar control: cap on tool-use loop iterations per agent run. 0 = unlimited. Mirrors `vibeide.agent.maxLoopIterations`. */
-const MAX_LOOP_ITERATIONS_DEFAULT = 30
-const MAX_LOOP_ITERATIONS_UPPER = 200
-const MAX_LOOP_ITERATIONS_KEY = 'vibeide.agent.maxLoopIterations'
+/** Single agent-iterations control = soft-checkpoint pause (`vibeide.agent.softCheckpointIterations`). 0 = run to completion. */
+const SOFT_CHECKPOINT_DEFAULT = 25
+const SOFT_CHECKPOINT_UPPER = 500
+const SOFT_CHECKPOINT_KEY = 'vibeide.agent.softCheckpointIterations'
 
-const ChatMaxLoopIterationsControl = ({ className }: { className?: string }) => {
+/**
+ * Reusable numeric stepper bound to a config key: [−] [input] [+] [label]. 0 renders an off-label.
+ * Pointer events are stopped from bubbling so the composer's click/mousedown refocus can't yank focus
+ * back to the chat textarea the moment you interact with these controls (the reported focus-steal bug).
+ */
+const NumberStepperControl = ({ className, configKey, defaultValue, upper, label, offLabel, offHint, title, presets, onValueCommitted }: {
+	className?: string
+	configKey: string
+	defaultValue: number
+	upper: number
+	label: string
+	offLabel: string
+	offHint: string
+	title: string
+	presets?: number[]
+	onValueCommitted?: (value: number) => void
+}) => {
 	const accessor = useAccessor()
 	const configurationService = accessor.get('IConfigurationService')
-	const settingsState = useSettingsState()
 
 	const readValue = useCallback((): number => {
-		const raw = configurationService.getValue<unknown>(MAX_LOOP_ITERATIONS_KEY)
+		const raw = configurationService.getValue<unknown>(configKey)
 		if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 0) {
-			return Math.min(MAX_LOOP_ITERATIONS_UPPER, Math.floor(raw))
+			return Math.min(upper, Math.floor(raw))
 		}
-		return MAX_LOOP_ITERATIONS_DEFAULT
-	}, [configurationService])
+		return defaultValue
+	}, [configurationService, configKey, defaultValue, upper])
 
 	const [value, setValue] = useState<number>(readValue)
 	const [draft, setDraft] = useState<string>(() => String(readValue()))
 
 	useEffect(() => {
 		const d = configurationService.onDidChangeConfiguration(e => {
-			if (!e.affectsConfiguration(MAX_LOOP_ITERATIONS_KEY)) return
+			if (!e.affectsConfiguration(configKey)) return
 			const next = readValue()
 			setValue(next)
 			setDraft(String(next))
 		})
 		return () => d.dispose()
-	}, [configurationService, readValue])
+	}, [configurationService, readValue, configKey])
 
 	const commit = useCallback((next: number) => {
-		const clamped = Math.max(0, Math.min(MAX_LOOP_ITERATIONS_UPPER, Math.floor(next)))
+		const clamped = Math.max(0, Math.min(upper, Math.floor(next)))
 		setValue(clamped)
 		setDraft(String(clamped))
-		configurationService.updateValue(MAX_LOOP_ITERATIONS_KEY, clamped)
-	}, [configurationService])
+		configurationService.updateValue(configKey, clamped)
+		onValueCommitted?.(clamped)
+	}, [configurationService, configKey, upper, onValueCommitted])
 
 	const onInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
 		setDraft(e.target.value)
@@ -555,35 +575,106 @@ const ChatMaxLoopIterationsControl = ({ className }: { className?: string }) => 
 		}
 	}, [value])
 
-	const mode = settingsState.globalSettings.chatMode
-	if (mode !== 'agent' && mode !== 'plan') {
-		return null
-	}
+	// Focus-steal fix: keep pointer events from reaching the composer's refocus handlers.
+	const stop = useCallback((e: React.SyntheticEvent) => { e.stopPropagation() }, [])
 
 	const isDisabled = value === 0
-	const titleSuffix = isDisabled ? ` (${chatS.maxLoopIterationsOffHint})` : ` — ${value}`
+	const titleSuffix = isDisabled ? ` (${offHint})` : ` — ${value}`
+	const btnCls = 'flex items-center justify-center w-4 h-4 rounded text-vibe-fg-3 leading-none select-none cursor-pointer hover:bg-vibe-bg-2 disabled:opacity-40 disabled:cursor-default'
 
 	return (
 		<div
-			className={`flex items-center gap-1 flex-shrink-0 ${className ?? ''}`}
-			title={chatS.maxLoopIterationsTitle + titleSuffix}
+			className={`@@vibe-toolbar-pill flex items-center gap-0.5 flex-shrink-0 rounded-xl py-0.5 px-1.5 ${className ?? ''}`}
+			title={title + titleSuffix}
+			onMouseDown={stop}
+			onClick={stop}
 		>
+			<button
+				type='button'
+				className={btnCls}
+				aria-label={chatS.iterStepperDec}
+				disabled={value <= 0}
+				onMouseDown={stop}
+				onClick={(e) => { stop(e); commit(value - 1) }}
+			>−</button>
 			<input
 				type='number'
 				min={0}
-				max={MAX_LOOP_ITERATIONS_UPPER}
+				max={upper}
 				step={1}
 				value={draft}
 				onChange={onInputChange}
 				onBlur={onBlur}
 				onKeyDown={onKeyDown}
+				onMouseDown={stop}
+				onClick={stop}
 				className='w-8 text-xs text-vibe-fg-3 bg-transparent border-0 outline-none text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
-				aria-label={chatS.maxLoopIterationsTitle}
+				aria-label={title}
 			/>
-			<span className='text-vibe-fg-3 text-xs whitespace-nowrap select-none pointer-events-none'>
-				{isDisabled ? chatS.maxLoopIterationsOffLabel : chatS.maxLoopIterationsLabel}
+			<button
+				type='button'
+				className={btnCls}
+				aria-label={chatS.iterStepperInc}
+				disabled={value >= upper}
+				onMouseDown={stop}
+				onClick={(e) => { stop(e); commit(value + 1) }}
+			>+</button>
+			<span className='text-vibe-fg-3 text-xs whitespace-nowrap select-none pointer-events-none ml-0.5'>
+				{isDisabled ? offLabel : label}
 			</span>
+			{presets && presets.length > 0 && (
+				<span className='flex items-center gap-0.5 ml-1 pl-1 border-l border-vibe-border-3'>
+					{presets.map(p => (
+						<button
+							key={p}
+							type='button'
+							className={`px-1 rounded text-[10px] leading-none select-none cursor-pointer ${p === value ? 'text-vibe-fg-1 bg-vibe-bg-2' : 'text-vibe-fg-4 hover:text-vibe-fg-2'}`}
+							title={p === 0 ? offLabel : `${label} ${p}`}
+							onMouseDown={stop}
+							onClick={(e) => { stop(e); commit(p) }}
+						>{p === 0 ? '∞' : p}</button>
+					))}
+				</span>
+			)}
 		</div>
+	)
+}
+
+/**
+ * Single agent-iterations control. Bound to the soft-checkpoint (`vibeide.agent.softCheckpointIterations`):
+ * after N steps in one run the agent pauses and asks «продолжить?»; `0` = no pause, run to completion.
+ * (The old hard `maxLoopIterations` cap is removed from the UI and defaults to 0 so it can't silently
+ * stop before this — a single, predictable counter.) Coupled with Autopilot (#5): committing `0` turns
+ * Autopilot ON (full autonomy: no pause + auto-approve); any value >0 turns it OFF (controlled mode).
+ */
+const ChatAgentIterationsControl = ({ className }: { className?: string }) => {
+	const accessor = useAccessor()
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
+	const settingsState = useSettingsState()
+
+	const onValueCommitted = useCallback((n: number) => {
+		// Two-way coupling: counter 0 ⟺ Autopilot ON (full autonomy). >0 ⟺ controlled (pause + confirm).
+		const autopilot = n === 0
+		if ((settingsState.globalSettings.chatAgentAutopilot === true) !== autopilot) {
+			vibeideSettingsService.setGlobalSetting('chatAgentAutopilot', autopilot)
+		}
+	}, [vibeideSettingsService, settingsState.globalSettings.chatAgentAutopilot])
+
+	const mode = settingsState.globalSettings.chatMode
+	if (mode !== 'agent' && mode !== 'plan') { return null }
+	return (
+		<NumberStepperControl
+			className={className}
+			configKey={SOFT_CHECKPOINT_KEY}
+			defaultValue={SOFT_CHECKPOINT_DEFAULT}
+			upper={SOFT_CHECKPOINT_UPPER}
+			label={chatS.maxLoopIterationsLabel}
+			offLabel={chatS.maxLoopIterationsOffLabel}
+			offHint={chatS.maxLoopIterationsOffHint}
+			title={chatS.softCheckpointTitle}
+			presets={[0, 25, 50, 100]}
+			onValueCommitted={onValueCommitted}
+		/>
 	)
 }
 
@@ -920,7 +1011,7 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 						<ChatModelHealthDropdown featureName={featureName} className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />
 						{featureName === 'Chat' && <ChatTrainingPolicyBadge />}
 						{featureName === 'Chat' && <ChatAgentAutopilotToggle />}
-						{featureName === 'Chat' && <ChatMaxLoopIterationsControl />}
+						{featureName === 'Chat' && <ChatAgentIterationsControl />}
 						<ReasoningOptionSlider featureName={featureName} />
 					</div>
 				)}

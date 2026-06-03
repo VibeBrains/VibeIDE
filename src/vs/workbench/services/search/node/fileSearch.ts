@@ -21,6 +21,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { Promises } from '../../../../base/node/pfs.js';
 import { IFileQuery, IFolderQuery, IProgressMessage, ISearchEngineStats, IRawFileMatch, ISearchEngine, ISearchEngineSuccess, isFilePatternMatch, hasSiblingFn } from '../common/search.js';
 import { spawnRipgrepCmd } from './ripgrepFileSearch.js';
+import { RIPGREP_PROCESS_MAX_DURATION_MS } from './ripgrepSearchUtils.js';
 import { prepareQuery } from '../../../../base/common/fuzzyScorer.js';
 
 interface IDirectoryEntry extends IRawFileMatch {
@@ -34,6 +35,12 @@ interface IDirectoryTree {
 }
 
 const killCmds = new Set<() => void>();
+// D.40: birth timestamp per live file-search rg, for spawn-triggered reaping. A setTimeout watchdog
+// inside the host process is unreliable when that process's event loop is saturated (observed: 179
+// orphaned rg, oldest 264s, none reaped — the 60s timer never got a tick under load). Spawns keep
+// arriving (~37/min from an extension polling findFiles), so we piggyback reaping on the spawn path
+// instead of a timer: each new search sweeps and kills any prior rg older than the ceiling.
+const searchBirths = new Map<() => void, number>();
 process.on('exit', () => {
 	killCmds.forEach(cmd => cmd());
 });
@@ -195,10 +202,26 @@ export class FileWalker {
 		const isMac = platform.isMacintosh;
 
 		const killCmd = () => cmd && cmd.kill();
-		killCmds.add(killCmd);
 
+		// D.40: reap-on-spawn — before registering this search, kill any prior rg older than the ceiling.
+		// Runs on the spawn path (which keeps firing under the leak) so it does NOT depend on a starved
+		// event loop, unlike the setTimeout watchdog below. Together they cover both load and idle.
+		const nowMs = Date.now();
+		for (const [staleKill, born] of searchBirths) {
+			if (nowMs - born > RIPGREP_PROCESS_MAX_DURATION_MS) {
+				try { staleKill(); } catch { /* already exited */ }
+				searchBirths.delete(staleKill);
+				killCmds.delete(staleKill);
+			}
+		}
+		killCmds.add(killCmd);
+		searchBirths.set(killCmd, nowMs);
+
+		let watchdog: ReturnType<typeof setTimeout> | undefined;
 		let done = (err?: Error) => {
+			if (watchdog) { clearTimeout(watchdog); watchdog = undefined; }
 			killCmds.delete(killCmd);
+			searchBirths.delete(killCmd);
 			done = () => { };
 			cb(err);
 		};
@@ -207,6 +230,19 @@ export class FileWalker {
 
 		const ripgrep = spawnRipgrepCmd(this.config, folderQuery, this.config.includePattern, this.folderExcludePatterns.get(folderQuery.folder.fsPath)!.expression, numThreads);
 		const cmd = ripgrep.cmd;
+
+		// Hard wall-clock ceiling: force-kill a file-search rg that runs past the limit. A hung enumeration
+		// that is never cancelled and never emits 'close' would otherwise keep `killCmd` armed forever and
+		// leak the process (see RIPGREP_PROCESS_MAX_DURATION_MS). Cleared by `done()` on normal completion.
+		// Treat the timeout as a truncated (limit-hit) result, NOT a hard error: the caller gets the
+		// partial file list plus a "limit hit" signal instead of a failure that could trigger an immediate
+		// retry storm. Mirrors the text-search watchdog.
+		watchdog = setTimeout(() => {
+			this.isLimitHit = true;
+			onMessage({ message: `ripgrep file search exceeded ${RIPGREP_PROCESS_MAX_DURATION_MS}ms — terminating rg` });
+			try { cmd?.kill(); } catch { /* already exited */ }
+			done();
+		}, RIPGREP_PROCESS_MAX_DURATION_MS);
 		const noSiblingsClauses = !Object.keys(ripgrep.siblingClauses).length;
 
 		const escapedArgs = ripgrep.rgArgs.args

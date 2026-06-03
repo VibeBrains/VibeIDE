@@ -77,6 +77,26 @@ function applyRule(rule: ShellHardeningRule, stripped: string, bareName: string)
 }
 
 /**
+ * If the command is a shell wrapper that executes an inner command string
+ * (`cmd /c "…"`, `powershell -Command "…"`, `bash -c "…"`, …), return that inner command so the
+ * hardening rules can be re-evaluated against the REAL command. Otherwise `cmd /c "tree /F"` slips
+ * past the head-of-command check (the head is `cmd`, not `tree`) — exactly how a recursive `tree`
+ * froze the Extension Host for 67s. Returns null when this is not a recognised wrapper form.
+ */
+function unwrapShellWrapper(stripped: string, bareName: string): string | null {
+	if (!/^(cmd|powershell|pwsh|bash|sh|zsh)$/.test(bareName)) return null;
+	const afterExe = stripped.replace(/^\S+\s*/, ''); // drop the wrapper executable token
+	const m = afterExe.match(/^(?:\/[ck]|-c|-command|--command)\b\s*(.*)$/is);
+	if (!m) return null;
+	let inner = m[1].trim();
+	// Strip one layer of wrapping quotes around the inner command.
+	if (inner.length >= 2 && ((inner[0] === '"' && inner[inner.length - 1] === '"') || (inner[0] === "'" && inner[inner.length - 1] === "'"))) {
+		inner = inner.slice(1, -1).trim();
+	}
+	return inner || null;
+}
+
+/**
  * Returns a misuse descriptor if the given shell command duplicates a built-in tool.
  * Returns null for legitimate shell usage (git, npm, build scripts, tests, etc).
  *
@@ -87,7 +107,7 @@ function applyRule(rule: ShellHardeningRule, stripped: string, bareName: string)
  * returns null = allowed), then default rules run minus `config.disableDefaultRules`,
  * then `config.extraRules` run last.
  */
-export function detectShellMisuse(rawCommand: string, config?: ShellHardeningConfig): ShellMisuse | null {
+export function detectShellMisuse(rawCommand: string, config?: ShellHardeningConfig, _depth = 0): ShellMisuse | null {
 	const head = extractHead(rawCommand);
 	if (!head) return null;
 	const { stripped, bareName } = head;
@@ -116,6 +136,15 @@ export function detectShellMisuse(rawCommand: string, config?: ShellHardeningCon
 		for (const rule of config.extraRules) {
 			const misuse = applyRule(rule, stripped, bareName);
 			if (misuse) return misuse;
+		}
+	}
+
+	// D.39: re-check inside shell wrappers (`cmd /c "…"`, `bash -c "…"`, …) so head-of-command rules
+	// aren't bypassed by quoting the real command. Bounded recursion guards pathological nesting.
+	if (_depth < 2) {
+		const inner = unwrapShellWrapper(stripped, bareName);
+		if (inner && inner !== rawCommand.trim()) {
+			return detectShellMisuse(inner, config, _depth + 1);
 		}
 	}
 

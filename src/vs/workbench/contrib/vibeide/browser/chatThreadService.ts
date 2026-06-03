@@ -4690,7 +4690,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			const rawSoftTok = this._configurationService.getValue<unknown>('vibeide.agent.softCheckpointTokens')
 			const softCheckpointTokens = (typeof rawSoftTok === 'number' && Number.isFinite(rawSoftTok) && rawSoftTok >= 0) ? Math.floor(rawSoftTok) : 1_000_000
 			let nextSoftIterCheckpoint = softCheckpointIterations > 0 ? softCheckpointIterations : Number.POSITIVE_INFINITY
-			let nextSoftTokenCheckpoint = softCheckpointTokens > 0 ? softCheckpointTokens : Number.POSITIVE_INFINITY
+			// D.30: the toolbar exposes a SINGLE iterations counter; `0` means "full autonomy / no pauses".
+			// The token checkpoint is config-only (invisible in the toolbar), so it must follow the same
+			// switch — otherwise full autonomy still pauses at softCheckpointTokens, which surprised the
+			// user (toast at ~1M tokens despite the counter showing 0/∞). Arm tokens only when iterations
+			// are also armed.
+			let nextSoftTokenCheckpoint = (softCheckpointTokens > 0 && softCheckpointIterations > 0) ? softCheckpointTokens : Number.POSITIVE_INFINITY
 			let tokensAtRunStart = 0
 			try { tokensAtRunStart = this._tokenBudgetService.getStatus().sessionTokensUsed } catch { /* best-effort baseline */ }
 
@@ -7602,8 +7607,28 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 
 
+	// D.41: codespan→link resolution is invoked by the markdown renderer for EVERY inline code span on
+	// EVERY React re-render — and the chat re-renders on every streamed token. The file-or-folder branch
+	// runs search_pathnames_only (rg --files) and the function branch runs definition providers; both are
+	// expensive. Unmemoized, this spawned dozens of duplicate ripgrep processes per second during
+	// streaming — the confirmed driver of the rg leak. The link target for a given codespan text is
+	// render-stable, so cache the (in-flight + resolved) result per (threadId, codespanStr) and resolve
+	// each at most once. Cosmetic staleness (a file created later isn't re-linked) is acceptable.
+	private readonly _codespanLinkCache = new Map<string, Promise<{ uri: URI; displayText: string } | null>>()
+
 	// gets the location of codespan link so the user can click on it
-	generateCodespanLink: IChatThreadService['generateCodespanLink'] = async ({ codespanStr: _codespanStr, threadId }) => {
+	generateCodespanLink: IChatThreadService['generateCodespanLink'] = (args) => {
+		const key = `${args.threadId} ${args.codespanStr}`
+		let cached = this._codespanLinkCache.get(key)
+		if (!cached) {
+			if (this._codespanLinkCache.size > 5000) { this._codespanLinkCache.clear() } // bound memory on very long sessions
+			cached = this._generateCodespanLinkImpl(args)
+			this._codespanLinkCache.set(key, cached)
+		}
+		return cached
+	}
+
+	private _generateCodespanLinkImpl: IChatThreadService['generateCodespanLink'] = async ({ codespanStr: _codespanStr, threadId }) => {
 
 		// process codespan to understand what we are searching for
 		// TODO account for more complicated patterns eg `ITextEditorService.openEditor()`

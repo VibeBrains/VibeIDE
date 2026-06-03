@@ -17,7 +17,7 @@ import { DEFAULT_MAX_SEARCH_RESULTS, IExtendedExtensionSearchOptions, ITextSearc
 import { Range, TextSearchComplete2, TextSearchContext2, TextSearchMatch2, TextSearchProviderOptions, TextSearchQuery2, TextSearchResult2 } from '../common/searchExtTypes.js';
 import { AST as ReAST, RegExpParser, RegExpVisitor } from 'vscode-regexpp';
 import { rgPath } from '@vscode/ripgrep';
-import { anchorGlob, IOutputChannel, Maybe, rangeToSearchRange, searchRangeToRange } from './ripgrepSearchUtils.js';
+import { anchorGlob, IOutputChannel, Maybe, rangeToSearchRange, searchRangeToRange, RIPGREP_PROCESS_MAX_DURATION_MS } from './ripgrepSearchUtils.js';
 import type { RipgrepTextSearchOptions } from '../common/searchExtTypesInternal.js';
 import { newToOldPreviewOptions } from '../common/searchExtConversionTypes.js';
 
@@ -92,13 +92,23 @@ export class RipgrepTextSearchEngine {
 			});
 
 			let isDone = false;
+			let watchdog: ReturnType<typeof setTimeout> | undefined;
+			const clearWatchdog = () => { if (watchdog) { clearTimeout(watchdog); watchdog = undefined; } };
 			const cancel = () => {
 				isDone = true;
+				clearWatchdog();
 
 				rgProc?.kill();
 
 				ripgrepParser?.cancel();
 			};
+
+			// D.34: force-kill a text search that runs past the hard ceiling. A grep blocked on a
+			// pathological FS whose cancellation never reaches the child would otherwise leak rg.exe.
+			watchdog = setTimeout(() => {
+				this.outputChannel.appendLine(`Text search exceeded ${RIPGREP_PROCESS_MAX_DURATION_MS}ms — terminating rg`);
+				cancel();
+			}, RIPGREP_PROCESS_MAX_DURATION_MS);
 
 			let limitHit = false;
 			ripgrepParser.on('hitLimit', () => {
@@ -128,6 +138,7 @@ export class RipgrepTextSearchEngine {
 			});
 
 			rgProc.on('close', () => {
+				clearWatchdog();
 				this.outputChannel.appendLine(gotData ? 'Got data from stdout' : 'No data from stdout');
 				this.outputChannel.appendLine(gotResult ? 'Got result from parser' : 'No result from parser');
 				if (dataWithoutResult) {

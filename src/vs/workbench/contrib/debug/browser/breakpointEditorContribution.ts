@@ -264,8 +264,9 @@ export class BreakpointEditorContribution implements IBreakpointEditorContributi
 				|| e.target.type !== MouseTargetType.GUTTER_GLYPH_MARGIN
 				|| e.target.detail.isAfterLines
 				|| !this.marginFreeFromNonDebugDecorations(e.target.position.lineNumber)
-				// don't return early if there's a breakpoint
-				&& !e.target.element?.className.includes('breakpoint')
+				// don't return early if there's a breakpoint (className is an SVGAnimatedString — no
+				// `.includes` — for SVG glyph targets; guard the type so a gutter click cannot throw)
+				&& !(typeof e.target.element?.className === 'string' && e.target.element.className.includes('breakpoint'))
 			) {
 				return;
 			}

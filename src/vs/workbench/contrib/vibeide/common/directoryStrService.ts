@@ -163,13 +163,66 @@ const resolveChildren = async (children: undefined | IFileStat[], fileService: I
 	return list.map(c => c.isDirectory ? (resolved.get(c.resource.toString()) ?? c) : c)
 }
 
+// D.31: synchronous counterpart of resolveChildren backed by a prefetched map (see
+// prefetchDirectoryTree). Swaps each directory child for its already-resolved (children-populated)
+// stat with ZERO I/O. A miss (node beyond the prefetch's depth/node-cap) keeps the bare child, which
+// the renderer treats as a leaf — same graceful degradation as a depth cutoff.
+const resolveChildrenSync = (children: undefined | IFileStat[], prefetch: Map<string, IFileStat>): IFileStat[] => {
+	const list = children ?? []
+	return list.map(c => c.isDirectory ? (prefetch.get(c.resource.toString()) ?? c) : c)
+}
+
+// D.31: breadth-first prefetch of the directory tree with ONE batched resolveAll per LEVEL (all
+// directories at a depth resolved together), instead of the recursion's one-resolveAll-per-node
+// issued serially. This collapses I/O round-trips from O(directory nodes) to O(depth). On a slow FS
+// (Defender real-time scan / RDP / network share) the per-resolve latency was the ~10x amplifier
+// turning get_dir_tree into tens of seconds. Bounded by maxDepth, the shared wall-clock `deadline`
+// (D.20), and a node cap (MAX_FILES_TOTAL) so a huge/root tree can neither freeze the EH nor blow up
+// memory. Returns resolved (children-populated) stats keyed by resource; the renderer reads from here.
+const prefetchDirectoryTree = async (
+	root: IFileStat,
+	fileService: IFileService,
+	opts: { maxDepth: number, deadline?: number, nodeCap: number }
+): Promise<Map<string, IFileStat>> => {
+	const map = new Map<string, IFileStat>()
+	map.set(root.resource.toString(), root)
+	let level: IFileStat[] = [root] // dirs whose children are already known
+	let depth = 0
+	let nodes = 1
+	while (level.length > 0 && depth < opts.maxDepth) {
+		if (opts.deadline && Date.now() > opts.deadline) { break }
+		if (nodes >= opts.nodeCap) { break }
+		// Gather every subdirectory of this level that still needs its children fetched.
+		const next: IFileStat[] = []
+		for (const dir of level) {
+			for (const child of dir.children ?? []) {
+				if (child.isDirectory && !shouldExcludeDirectory(child.name)) { next.push(child) }
+			}
+		}
+		if (next.length === 0) { break }
+		const capped = next.slice(0, Math.max(0, opts.nodeCap - nodes))
+		nodes += capped.length
+		const res = await fileService.resolveAll(capped)
+		const resolved: IFileStat[] = []
+		res.forEach((s, i) => {
+			if (s.success && s.stat) {
+				map.set(capped[i].resource.toString(), s.stat)
+				resolved.push(s.stat)
+			}
+		})
+		level = resolved
+		depth++
+	}
+	return map
+}
+
 // Remove the old computeDirectoryTree function and replace with a combined version that handles both computation and rendering
 const computeAndStringifyDirectoryTree = async (
 	eItem: IFileStat,
 	fileService: IFileService,
 	MAX_CHARS: number,
 	fileCount: { count: number } = { count: 0 },
-	options: { maxDepth?: number, currentDepth?: number, maxItemsPerDir?: number, deadline?: number } = {}
+	options: { maxDepth?: number, currentDepth?: number, maxItemsPerDir?: number, deadline?: number, prefetch?: Map<string, IFileStat> } = {}
 ): Promise<{ content: string, wasCutOff: boolean }> => {
 	// Set default values for options
 	const maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
@@ -216,8 +269,10 @@ const computeAndStringifyDirectoryTree = async (
 
 	// Fetch and process children if not a filtered directory
 	if (eItem.isDirectory && !isGitIgnoredDirectory) {
-		// Fetch children with Modified sort order to show recently modified first
-		const eChildren = await resolveChildren(eItem.children, fileService)
+		// D.31: read children from the prefetched map (zero I/O) when available; else resolve lazily.
+		const eChildren = options.prefetch
+			? resolveChildrenSync(eItem.children, options.prefetch)
+			: await resolveChildren(eItem.children, fileService)
 
 		// Then recursively add all children with proper tree formatting
 		if (eChildren && eChildren.length > 0) {
@@ -227,7 +282,7 @@ const computeAndStringifyDirectoryTree = async (
 				'',
 				fileService,
 				fileCount,
-				{ maxDepth, currentDepth, maxItemsPerDir, deadline: options.deadline } // Pass maxItemsPerDir + deadline to the render function
+				{ maxDepth, currentDepth, maxItemsPerDir, deadline: options.deadline, prefetch: options.prefetch } // Pass maxItemsPerDir + deadline + prefetch to the render function
 			);
 			content += childrenContent;
 			wasCutOff = childrenCutOff;
@@ -244,7 +299,7 @@ const renderChildrenCombined = async (
 	parentPrefix: string,
 	fileService: IFileService,
 	fileCount: { count: number },
-	options: { maxDepth: number, currentDepth: number, maxItemsPerDir?: number, deadline?: number }
+	options: { maxDepth: number, currentDepth: number, maxItemsPerDir?: number, deadline?: number, prefetch?: Map<string, IFileStat> }
 ): Promise<{ childrenContent: string, childrenCutOff: boolean }> => {
 	const { maxDepth, currentDepth } = options; // Remove maxItemsPerDir from destructuring
 	// Get maxItemsPerDir separately and make sure we use it
@@ -305,7 +360,9 @@ const renderChildrenCombined = async (
 		// Create the prefix for the next level (continuation line or space)
 		if (child.isDirectory && !isGitIgnoredDirectory) {
 			// Fetch children with Modified sort order to show recently modified first
-			const eChildren = await resolveChildren(child.children, fileService)
+			const eChildren = options.prefetch
+				? resolveChildrenSync(child.children, options.prefetch)
+				: await resolveChildren(child.children, fileService)
 
 			if (eChildren && eChildren.length > 0) {
 				const {
@@ -317,7 +374,7 @@ const renderChildrenCombined = async (
 					nextLevelPrefix,
 					fileService,
 					fileCount,
-					{ maxDepth, currentDepth: nextDepth, maxItemsPerDir, deadline: options.deadline }
+					{ maxDepth, currentDepth: nextDepth, maxItemsPerDir, deadline: options.deadline, prefetch: options.prefetch }
 				);
 
 				if (grandChildrenContent.length > 0) {
@@ -435,13 +492,17 @@ class DirectoryStrService extends Disposable implements IDirectoryStrService {
 		// Budget is configurable via `vibeide.agent.scanTimeoutMs` (passed by the tool layer).
 		const deadline = Date.now() + (opts?.budgetMs ?? GET_DIR_TREE_BUDGET_MS);
 
+		// D.31: prefetch the whole tree ONCE with level-batched resolveAll (O(depth) round-trips, not
+		// O(nodes) serial). Built at START_MAX_DEPTH so it also covers the shallower retry pass below.
+		const prefetch = await prefetchDirectoryTree(eRoot, this.fileService, { maxDepth: START_MAX_DEPTH, deadline, nodeCap: MAX_FILES_TOTAL });
+
 		// First try with START_MAX_DEPTH
 		const { content: initialContent, wasCutOff: initialCutOff } = await computeAndStringifyDirectoryTree(
 			eRoot,
 			this.fileService,
 			MAX_DIRSTR_CHARS_TOTAL_TOOL,
 			{ count: 0 },
-			{ maxDepth: START_MAX_DEPTH, currentDepth: 0, maxItemsPerDir, deadline }
+			{ maxDepth: START_MAX_DEPTH, currentDepth: 0, maxItemsPerDir, deadline, prefetch }
 		);
 
 		// If cut off, try again with DEFAULT_MAX_DEPTH and DEFAULT_MAX_ITEMS_PER_DIR — but ONLY if the
@@ -454,7 +515,7 @@ class DirectoryStrService extends Disposable implements IDirectoryStrService {
 				this.fileService,
 				MAX_DIRSTR_CHARS_TOTAL_TOOL,
 				{ count: 0 },
-				{ maxDepth: DEFAULT_MAX_DEPTH, currentDepth: 0, maxItemsPerDir: DEFAULT_MAX_ITEMS_PER_DIR, deadline }
+				{ maxDepth: DEFAULT_MAX_DEPTH, currentDepth: 0, maxItemsPerDir: DEFAULT_MAX_ITEMS_PER_DIR, deadline, prefetch }
 			);
 			content = result.content;
 			wasCutOff = result.wasCutOff;
@@ -491,13 +552,18 @@ class DirectoryStrService extends Disposable implements IDirectoryStrService {
 			const eRoot = await this.fileService.resolve(rootURI)
 			if (!eRoot) continue;
 
+			// D.31: prefetch this folder's tree once (level-batched), reused by both passes. Bounded by
+			// a wall-clock deadline (EH guard) and node cap, same as the tool path.
+			const deadline = Date.now() + GET_DIR_TREE_BUDGET_MS;
+			const prefetch = await prefetchDirectoryTree(eRoot, this.fileService, { maxDepth: START_MAX_DEPTH, deadline, nodeCap: MAX_FILES_TOTAL });
+
 			// First try with START_MAX_DEPTH and startMaxItemsPerDir
 			const { content: initialContent, wasCutOff: initialCutOff } = await computeAndStringifyDirectoryTree(
 				eRoot,
 				this.fileService,
 				MAX_DIRSTR_CHARS_TOTAL_BEGINNING - str.length,
 				{ count: 0 },
-				{ maxDepth: START_MAX_DEPTH, currentDepth: 0, maxItemsPerDir: startMaxItemsPerDir }
+				{ maxDepth: START_MAX_DEPTH, currentDepth: 0, maxItemsPerDir: startMaxItemsPerDir, deadline, prefetch }
 			);
 
 			// If cut off, try again with DEFAULT_MAX_DEPTH and DEFAULT_MAX_ITEMS_PER_DIR
@@ -508,7 +574,7 @@ class DirectoryStrService extends Disposable implements IDirectoryStrService {
 					this.fileService,
 					MAX_DIRSTR_CHARS_TOTAL_BEGINNING - str.length,
 					{ count: 0 },
-					{ maxDepth: DEFAULT_MAX_DEPTH, currentDepth: 0, maxItemsPerDir: DEFAULT_MAX_ITEMS_PER_DIR }
+					{ maxDepth: DEFAULT_MAX_DEPTH, currentDepth: 0, maxItemsPerDir: DEFAULT_MAX_ITEMS_PER_DIR, deadline, prefetch }
 				);
 				content = result.content;
 				wasCutOff = result.wasCutOff;

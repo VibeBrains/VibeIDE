@@ -9,6 +9,12 @@ import * as searchExtTypes from '../common/searchExtTypes.js';
 
 export type Maybe<T> = T | null | undefined;
 
+// Hard wall-clock ceiling for a single ripgrep invocation (file OR text search). A search blocked on a
+// pathological FS whose cancellation never reaches the child would otherwise leak an orphaned rg.exe
+// forever; both engines force-kill any rg that exceeds this. A healthy search finishes in well under a
+// second, so it never fires for legitimate work — it only reaps hung processes. Internal safety ceiling.
+export const RIPGREP_PROCESS_MAX_DURATION_MS = 60_000;
+
 export function anchorGlob(glob: string): string {
 	return glob.startsWith('**') || glob.startsWith('/') ? glob : `/${glob}`;
 }

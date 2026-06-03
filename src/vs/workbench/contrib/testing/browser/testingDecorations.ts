@@ -1337,7 +1337,8 @@ class TestMessageDecoration implements ITestDecoration {
 			return false;
 		}
 
-		if (e.target.element?.className.includes(this.contentIdClass)) {
+		// Guard `className` type: it is an SVGAnimatedString (no `.includes`) for SVG glyph targets.
+		if (typeof e.target.element?.className === 'string' && e.target.element.className.includes(this.contentIdClass)) {
 			this.peekOpener.peekUri(this.messageUri);
 		}
 

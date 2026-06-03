@@ -696,7 +696,9 @@ export class QuickDiffEditorController extends Disposable implements IEditorCont
 		if (!e.target.element) {
 			return;
 		}
-		if (e.target.element.className.indexOf('dirty-diff-glyph') < 0) {
+		// `className` is an SVGAnimatedString (no `.indexOf`) for SVG glyph-margin targets — guard the
+		// type so a gutter click cannot throw; a non-string className is treated as "not the glyph".
+		if (typeof e.target.element.className !== 'string' || e.target.element.className.indexOf('dirty-diff-glyph') < 0) {
 			return;
 		}
 
