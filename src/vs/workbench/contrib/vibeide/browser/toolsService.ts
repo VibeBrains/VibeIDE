@@ -267,11 +267,41 @@ export class ToolsService implements IToolsService {
 		// Scan time-budget (ms), user-configurable via `vibeide.agent.scanTimeoutMs`. Shared by the
 		// broad file-search tools (glob / search_pathnames_only) and get_dir_tree. Clamped defensively.
 		const scanTimeoutMs = () => Math.max(1_000, Math.min(120_000, this._configurationService.getValue<number>('vibeide.agent.scanTimeoutMs') ?? 10_000))
+
+		// Search-backend (ripgrep) hardening: rg can fail INTERMITTENTLY even when present — a
+		// realtime AV/EDR scan holds a lock on rg.exe and the spawn throws `ENOENT` (observed on a
+		// corporate machine in a clean session). Two defenses, both config-driven (no hardcode):
+		//   (1) auto-retry the spawn `vibeide.tools.searchBackendRetries` times with a short delay;
+		//   (2) on exhaustion, surface a CLEAR error instead of an empty result, so the model treats
+		//       it as "backend down, retry / navigate" rather than "no matches" and stops thrashing.
+		const SEARCH_BACKEND_RETRIES_DEFAULT = 1
+		const SEARCH_BACKEND_RETRY_DELAY_MS_DEFAULT = 150
+		const searchBackendRetries = () => Math.max(0, Math.min(5, this._configurationService.getValue<number>('vibeide.tools.searchBackendRetries') ?? SEARCH_BACKEND_RETRIES_DEFAULT))
+		const searchBackendRetryDelayMs = () => Math.max(0, Math.min(5_000, this._configurationService.getValue<number>('vibeide.tools.searchBackendRetryDelayMs') ?? SEARCH_BACKEND_RETRY_DELAY_MS_DEFAULT))
+		const isSearchBackendUnavailable = (e: unknown): boolean => {
+			const msg = e instanceof Error ? e.message : String(e ?? '')
+			return /ENOENT|spawn|ripgrep|\brg(\.exe)?\b/i.test(msg)
+		}
+		const SEARCH_BACKEND_UNAVAILABLE_MSG = 'Поисковый backend (ripgrep) временно недоступен — вероятно, антивирус/EDR держит блокировку на rg.exe. Повтори ЭТОТ ЖЕ запрос; если повторяется — поиск по содержимому сейчас недоступен, используй read_file/ls_dir для навигации.'
+		const withSearchRetry = async <T,>(run: () => Promise<T>): Promise<T> => {
+			const max = searchBackendRetries()
+			for (let attempt = 0; ; attempt++) {
+				try { return await run() }
+				catch (e) {
+					if (isSearchBackendUnavailable(e) && attempt < max) {
+						await new Promise<void>(resolve => setTimeout(resolve, searchBackendRetryDelayMs()))
+						continue
+					}
+					throw e
+				}
+			}
+		}
+
 		const fileSearchCapped = async (query: Parameters<typeof searchService.fileSearch>[0], timeoutMs = scanTimeoutMs()) => {
 			const cts = new CancellationTokenSource()
 			let timedOut = false
 			const timer = setTimeout(() => { timedOut = true; cts.cancel() }, timeoutMs)
-			try { return await searchService.fileSearch(query, cts.token) }
+			try { return await withSearchRetry(() => searchService.fileSearch(query, cts.token)) }
 			catch (e) {
 				// Some search backends THROW on cancellation rather than returning partial
 				// results. On OUR timeout that is expected — return an empty result so the
@@ -279,6 +309,9 @@ export class ToolsService implements IToolsService {
 				// limitHit:true on timeout so callers can tell "search too broad / timed out" apart from
 				// "genuinely no matches" and hint the model to narrow (D.21).
 				if (timedOut) { return { results: [], messages: [], limitHit: true } as Awaited<ReturnType<typeof searchService.fileSearch>> }
+				// Backend down (rg spawn failed after retries) — surface a clear, actionable error
+				// instead of a raw `ENOENT`, so the model retries/navigates rather than thrashing.
+				if (isSearchBackendUnavailable(e)) { throw new Error(SEARCH_BACKEND_UNAVAILABLE_MSG) }
 				throw e
 			}
 			finally { clearTimeout(timer); cts.dispose() }
@@ -920,8 +953,14 @@ export class ToolsService implements IToolsService {
 				const sfCts = new CancellationTokenSource()
 				const sfTimer = setTimeout(() => sfCts.cancel(), scanTimeoutMs())
 				let data: Awaited<ReturnType<typeof searchService.textSearch>>
-				try { data = await searchService.textSearch(query, sfCts.token) }
-				catch { data = { results: [], messages: [] } as Awaited<ReturnType<typeof searchService.textSearch>> }
+				try { data = await withSearchRetry(() => searchService.textSearch(query, sfCts.token)) }
+				catch (e) {
+					// Backend down (rg spawn failed after retries) → clear error, NOT a silent empty
+					// result (which the model misreads as "nothing exists" and keeps re-searching).
+					// Genuine cancellation/timeout errors don't match the detector → still fail-fast as empty.
+					if (isSearchBackendUnavailable(e)) { throw new Error(SEARCH_BACKEND_UNAVAILABLE_MSG) }
+					data = { results: [], messages: [] } as Awaited<ReturnType<typeof searchService.textSearch>>
+				}
 				finally { clearTimeout(sfTimer); sfCts.dispose() }
 
 				const fromIdx = MAX_CHILDREN_URIs_PAGE * (pageNumber - 1)
@@ -994,9 +1033,11 @@ export class ToolsService implements IToolsService {
 				const grepTimeoutHint = `grep was cancelled after ${Math.round(grepTimeoutMs / 1000)}s — the search scope is too large to scan in time. Narrow it: pass "search_in_folder" to limit the directory, use a more specific "pattern", or set "glob"/"file_type" to fewer files. (pattern: ${JSON.stringify(pattern)})`
 				let data: Awaited<ReturnType<typeof searchService.textSearch>>
 				try {
-					data = await searchService.textSearch(textQuery, grepCts.token)
+					data = await withSearchRetry(() => searchService.textSearch(textQuery, grepCts.token))
 				} catch (e) {
 					if (grepCancelledByTimeout) { throw new Error(grepTimeoutHint) }
+					// Backend down (rg spawn failed after retries) — clear, actionable error instead of raw ENOENT.
+					if (isSearchBackendUnavailable(e)) { throw new Error(SEARCH_BACKEND_UNAVAILABLE_MSG) }
 					throw e
 				} finally {
 					clearTimeout(grepTimer)
@@ -2225,13 +2266,15 @@ export class ToolsService implements IToolsService {
 				const window = result.startLineReturned && result.endLineReturned
 					? `lines ${result.startLineReturned}-${result.endLineReturned} of ${result.totalNumLines}`
 					: `${result.totalNumLines} lines`
-				const truncNote = result.truncatedByLineLimit
-					? `\n(Truncated by line_limit. To continue, call read_file with start_line=${result.endLineReturned + 1}.)`
-					: ''
-				const pageNote = result.hasNextPage && !result.truncatedByLineLimit
-					? `\nMore info because truncated: this file has ${result.totalNumLines} lines, or ${result.totalFileLen} characters.`
-					: ''
-				return `${params.uri.fsPath} (${window})\n\`\`\`\n${result.fileContents}\n\`\`\`${nextPageStr(result.hasNextPage)}${truncNote}${pageNote}`
+				// Navigation hint at the TOP (before the body) so the model reads it first — mirrors
+				// opencode/kilo/roo/crush. Goal: stop the read→forget→re-read loop by pointing the model
+				// at ranged continuation and at grep/search_in_file instead of re-reading the whole file.
+				const nav = result.truncatedByLineLimit
+					? `⚠️ Partial read (${window}). To continue: read_file with start_line=${result.endLineReturned + 1}. To jump to specific content, prefer grep/search_in_file over re-reading the whole file.\n`
+					: result.hasNextPage
+						? `⚠️ Partial read (${window}; ${result.totalFileLen} chars on this page, file has more). Continue with page_number, or use grep/search_in_file to jump to content — avoid re-reading the whole file.\n`
+						: ''
+				return `${nav}${params.uri.fsPath} (${window})\n\`\`\`\n${result.fileContents}\n\`\`\``
 			},
 			ls_dir: (params, result) => {
 				const dirTreeStr = stringifyDirectoryTree1Deep(params, result)

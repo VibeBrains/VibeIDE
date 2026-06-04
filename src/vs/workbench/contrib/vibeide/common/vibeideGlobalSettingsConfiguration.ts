@@ -387,6 +387,7 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					type: 'boolean',
 					default: true,
 					description: localize('vibeide.llm.repairBrokenToolCalls', 'Авто-починка битых XML tool-call\'ов: если модель прислала tool-call в некорректном/обрезанном XML (частая проблема deepseek/minimax через aggregator), агент вливает корректирующий ход и даёт модели переотправить вызов в каноне (1 попытка на ход), вместо того чтобы «заткнуться». **Режим отладки совместимости** — добавляет доп. обращение к модели (медленнее) на битых ходах. ON по умолчанию; выключите, если важнее предсказуемая скорость/стоимость.'),
+					scope: ConfigurationScope.APPLICATION,
 				},
 				'vibeide.llm.timeoutMs.local': {
 					type: 'integer',
@@ -634,6 +635,22 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					minimum: 1000,
 					maximum: 50000,
 					description: localize('vibeide.tools.searchMaxChars', 'Максимум символов в одном tool-output для поисковых тулзов (`grep`, `glob`, `search_for_files`, `search_pathnames_only`, `ls_dir`, `get_dir_tree`). Сверх этого порога — head+tail truncation с маркером `[truncated]`, модель видит начало + конец результата. Защищает от того, что один `grep "**/*"` на большом репо забивает весь context window. 8000 ≈ ~2K токенов — достаточно для понимания результата, но не разрушает контекст.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.tools.searchBackendRetries': {
+					type: 'number',
+					default: 1,
+					minimum: 0,
+					maximum: 5,
+					description: localize('vibeide.tools.searchBackendRetries', 'Сколько раз авто-повторять запуск поискового backend\'а (ripgrep) при перемежающемся сбое spawn (`ENOENT`). Такой сбой на присутствующем здоровом `rg.exe` обычно означает, что антивирус/EDR держит лок на бинарнике в момент частых вызовов подряд. Ретрай делает это прозрачным для агента. `0` = не повторять (сразу явная ошибка). Дефолт 1.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.tools.searchBackendRetryDelayMs': {
+					type: 'number',
+					default: 150,
+					minimum: 0,
+					maximum: 5000,
+					description: localize('vibeide.tools.searchBackendRetryDelayMs', 'Задержка в миллисекундах между повторными попытками запуска поискового backend\'а (см. `vibeide.tools.searchBackendRetries`). Даёт антивирусу/EDR отпустить лок на `rg.exe` перед повтором. Дефолт 150 мс.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 				'vibeide.tools.disableExpensiveSearchInNonAgentModes': {

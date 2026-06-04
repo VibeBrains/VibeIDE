@@ -13,18 +13,21 @@ import { ScrollType } from '../../../../../../../editor/common/editorCommon.js';
 
 import { ChatMarkdownRender, ChatMessageLocation, getApplyBoxId } from '../markdown/ChatMarkdownRender.js';
 import { URI } from '../../../../../../../base/common/uri.js';
+import { VSBuffer } from '../../../../../../../base/common/buffer.js';
+import { threadToMarkdown } from '../../../../common/chatThreadToMarkdown.js';
 import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
 import { ErrorDisplay } from './ErrorDisplay.js';
 import { BlockCode, TextAreaFns, VibeCustomDropdownBox, VibeInputBox2, VibeSlider, VibeSwitch, VibeDiffEditor } from '../util/inputs.js';
 import { ModelDropdown, } from '../vibe-settings-tsx/ModelDropdown.js';
 import { PastThreadsList, ChatHistoryToolbarDropdown } from './SidebarThreadSelector.js';
+import { TokenBudgetInline } from './SidebarHistory.js';
 import { VIBEIDE_CTRL_L_ACTION_ID } from '../../../actionIDs.js';
 import { VIBEIDE_OPEN_SETTINGS_ACTION_ID } from '../../../vibeideSettingsPane.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, isFeatureNameDisabled, isValidProviderModelSelection } from '../../../../../../../workbench/contrib/vibeide/common/vibeideSettingsTypes.js';
 import { ICommandService } from '../../../../../../../platform/commands/common/commands.js';
 import { WarningBox } from '../vibe-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputTokenSpace } from '../../../../common/modelCapabilities.js';
-import { AlertTriangle, File, Ban, Check, ChevronRight, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Image as ImageIcon, FileText, LoaderCircle, Maximize2, Maximize, Pin } from 'lucide-react';
+import { AlertTriangle, File, Ban, Check, ChevronRight, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Image as ImageIcon, FileText, LoaderCircle, Maximize2, Maximize, Pin, FileDown } from 'lucide-react';
 import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, PlanStep, StepStatus, PlanApprovalState } from '../../../../common/chatThreadServiceTypes.js';
 import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER } from '../../../../common/chatTimestampFormatter.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
@@ -2044,6 +2047,15 @@ const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, 
 		messageIdx: messageIdx,
 	}), [thread.id, messageIdx])
 
+	// Premature-stop affordance: the agent appends a notice (agentStoppedNoToolCall) when it
+	// halts because the model returned text with no tool call and Autopilot is off. Offer a
+	// one-click «Продолжить» — but only while this is still the thread's last message and the
+	// thread is idle (so historical notices don't keep a live button).
+	const threadIsRunning = useChatThreadsStreamState(thread.id)?.isRunning
+	const threadIsIdle = threadIsRunning === undefined || threadIsRunning === 'idle'
+	const isLastMessage = messageIdx === (thread.messages.length - 1)
+	const showContinueAffordance = chatMessage.agentStoppedNoToolCall === true && isLastMessage && threadIsIdle && !isCheckpointGhost
+
 	const isEmpty = !chatMessage.displayContent && !chatMessage.reasoning
 	if (isEmpty) return null
 
@@ -2089,6 +2101,21 @@ const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, 
 			isCommitted
 				? <ChatTimestamp ts={chatMessage.createdAt} align='left' />
 				: <ChatTimestamp ts={chatMessage.createdAt} align='left' streaming />
+		)}
+
+		{/* one-click resume when the agent stopped on a text-only turn (no tool call) */}
+		{showContinueAffordance && (
+			<div className="mt-1.5">
+				<button
+					type="button"
+					title={chatS.agentContinueTitle}
+					aria-label={chatS.agentContinueLabel}
+					onClick={() => { void chatThreadsService.addUserMessageAndStreamResponse({ userMessage: 'продолжи', threadId: thread.id }) }}
+					className="px-3 py-1.5 text-xs rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+				>
+					{chatS.agentContinueLabel}
+				</button>
+			</div>
 		)}
 	</>
 
@@ -4149,6 +4176,35 @@ const CommandBarInChat = () => {
 	const commandBarState = useCommandBarState()
 	const chatThreadsStreamState = useChatThreadsStreamState(chatThreadsState.currentThreadId)
 
+	// Chat → Markdown: Copy keeps tool-results truncated (small clipboard payload), Export writes
+	// the full log to a .md file. Both serialize collapsed reasoning blocks regardless of UI state.
+	const clipboardService = accessor.get('IClipboardService')
+	const fileDialogService = accessor.get('IFileDialogService')
+	const cmdBarFileService = accessor.get('IFileService')
+	const cmdBarNotificationService = accessor.get('INotificationService')
+	const exportThreadMarkdown = async (mode: 'copy' | 'export') => {
+		const threadId = chatThreadsState.currentThreadId
+		const messages = (threadId ? chatThreadsState.allThreads[threadId]?.messages : undefined) ?? []
+		if (!messages.length) { cmdBarNotificationService.info(chatS.exportChatEmpty); return }
+		const md = threadToMarkdown(messages, { truncateToolResults: mode === 'copy' })
+		try {
+			if (mode === 'copy') {
+				await clipboardService.writeText(md)
+				cmdBarNotificationService.info(chatS.exportChatCopied)
+			} else {
+				const target = await fileDialogService.showSaveDialog({
+					title: chatS.exportChatSaveTitle,
+					filters: [{ name: 'Markdown', extensions: ['md'] }],
+				})
+				if (!target) { return }
+				await cmdBarFileService.writeFile(target, VSBuffer.fromString(md))
+				cmdBarNotificationService.info(chatS.exportChatSaved)
+			}
+		} catch {
+			cmdBarNotificationService.error(chatS.exportChatFailed)
+		}
+	}
+
 	// (
 	// 	<IconShell1
 	// 		Icon={CopyIcon}
@@ -4397,6 +4453,20 @@ const CommandBarInChat = () => {
 			>
 				<div className="flex gap-2 items-center">
 					{fileDetailsButton}
+					<IconShell1
+						Icon={CopyIcon}
+						onClick={() => { void exportThreadMarkdown('copy') }}
+						data-tooltip-id='vibe-tooltip'
+						data-tooltip-place='top'
+						data-tooltip-content={chatS.exportChatCopyTooltip}
+					/>
+					<IconShell1
+						Icon={FileDown}
+						onClick={() => { void exportThreadMarkdown('export') }}
+						data-tooltip-id='vibe-tooltip'
+						data-tooltip-place='top'
+						data-tooltip-content={chatS.exportChatExportTooltip}
+					/>
 				</div>
 				{/* Status indicator FIRST so the accept/reject-all buttons stay pinned to the
 				    right edge and never shift horizontally when the status label width changes
@@ -4484,6 +4554,72 @@ export const SidebarChat = () => {
 	// state of current message
 	const initVal = ''
 	const [instructionsAreEmpty, setInstructionsAreEmpty] = useState(!initVal)
+
+	// Per-thread composer draft. The chat is ONE mounted component shared across tabs (refactor B),
+	// so on tab switch we save the outgoing thread's unsent text and restore the incoming thread's.
+	// Without this the single composer loses drafts on switch / bleeds text between tabs.
+	useEffect(() => {
+		// Restore this thread's draft into the composer on mount/switch. Drafts are saved on each
+		// keystroke (onChangeText) + cleared on send, so no unmount-time save is needed here.
+		const saved = chatThreadsService.getThreadDraft(chatThreadsState.currentThreadId)
+		textAreaFnsRef.current?.setValue(saved)
+		setInstructionsAreEmpty(!saved)
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [chatThreadsState.currentThreadId])
+
+	// ── Per-tab chat config (model / mode / autopilot / iterations) ──────────────────────────────
+	// Each chat tab keeps its own config. SidebarChat is keyed by thread (see Sidebar.tsx), so this
+	// instance == one tab: on mount we APPLY the tab's saved config to the global stores (or snapshot
+	// the current globals if the tab has none yet); on any control change we SAVE the globals back into
+	// this tab. Writes go to the thread (not the globals), so there's no apply→save→apply loop.
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
+	const configurationService = accessor.get('IConfigurationService')
+	const SOFT_CHECKPOINT_ITER_KEY = 'vibeide.agent.softCheckpointIterations'
+	const readIter = useCallback((): number => {
+		const r = configurationService.getValue<unknown>(SOFT_CHECKPOINT_ITER_KEY)
+		return (typeof r === 'number' && Number.isFinite(r) && r >= 0) ? Math.floor(r) : 25
+	}, [configurationService])
+	const [iterValue, setIterValue] = useState<number>(readIter)
+	useEffect(() => {
+		const d = configurationService.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration(SOFT_CHECKPOINT_ITER_KEY)) { setIterValue(readIter()) }
+		})
+		return () => d.dispose()
+	}, [configurationService, readIter])
+
+	const curModelSel = settingsState.modelSelectionOfFeature['Chat'] ?? null
+	const curChatMode = settingsState.globalSettings.chatMode
+	const curAutopilot = settingsState.globalSettings.chatAgentAutopilot === true
+	const readChatConfig = useCallback(() => ({
+		model: curModelSel ? { providerName: curModelSel.providerName, modelName: curModelSel.modelName } : null,
+		chatMode: curChatMode as string,
+		autopilot: curAutopilot,
+		iterations: iterValue,
+	}), [curModelSel, curChatMode, curAutopilot, iterValue])
+
+	// Apply saved config (or snapshot current) once on mount/tab-switch.
+	useEffect(() => {
+		const cfg = chatThreadsService.getCurrentThread()?.chatConfig
+		if (cfg) {
+			if (cfg.model) { void vibeideSettingsService.setModelSelectionOfFeature('Chat', { providerName: cfg.model.providerName, modelName: cfg.model.modelName } as any) }
+			void vibeideSettingsService.setGlobalSetting('chatMode', cfg.chatMode as any)
+			void vibeideSettingsService.setGlobalSetting('chatAgentAutopilot', cfg.autopilot)
+			void configurationService.updateValue(SOFT_CHECKPOINT_ITER_KEY, cfg.iterations)
+		} else {
+			chatThreadsService.setThreadChatConfig(currentThread.id, readChatConfig())
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [])
+
+	// Save config into this tab on any control change. Skip the first run (mount) so the apply above
+	// can propagate; the second run (triggered by the apply's global changes) writes the applied config
+	// back — a no-op via the service's JSON-equality guard. Genuine user changes are saved thereafter.
+	const skipFirstCfgSaveRef = useRef(true)
+	useEffect(() => {
+		if (skipFirstCfgSaveRef.current) { skipFirstCfgSaveRef.current = false; return }
+		chatThreadsService.setThreadChatConfig(currentThread.id, readChatConfig())
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [curModelSel?.providerName, curModelSel?.modelName, curChatMode, curAutopilot, iterValue])
 
 	// Image attachments management
 	const {
@@ -4892,6 +5028,7 @@ export const SidebarChat = () => {
 		if (textAreaFnsRef.current) {
 			textAreaFnsRef.current.setValue('')
 		}
+		chatThreadsService.setThreadDraft(currentThread.id, '') // drop the saved draft once sent
 		clearImages() // clear image attachments
 		clearPDFs() // clear PDF attachments
 		textAreaRef.current?.focus() // focus input after submit
@@ -5250,6 +5387,10 @@ export const SidebarChat = () => {
 
 	const onChangeText = useCallback((newStr: string) => {
 		setInstructionsAreEmpty(!newStr)
+		// Persist the draft on every keystroke so switching chat tabs preserves unsent text.
+		// (Saving on unmount is unreliable: with the per-thread key the composer unmounts before
+		// the parent cleanup runs, and the rich input's value isn't on textAreaRef.value.)
+		chatThreadsService.setThreadDraft(chatThreadsState.currentThreadId, newStr)
 		// Detect `/skill:` trigger near cursor and open/close menu accordingly.
 		const ta = textAreaRef.current
 		if (!ta) { setSkillMenuOpen(false); return }
@@ -5265,7 +5406,7 @@ export const SidebarChat = () => {
 		} else {
 			setSkillMenuOpen(false)
 		}
-	}, [setInstructionsAreEmpty])
+	}, [setInstructionsAreEmpty, chatThreadsService, chatThreadsState.currentThreadId])
 
 	const onKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
 		// Skill menu takes precedence over Enter/Escape submit/abort when it's open.
@@ -5663,7 +5804,7 @@ export const SidebarChat = () => {
 					const color = contextPct >= 1 ? 'text-red-500' : contextPct > 0.8 ? 'text-amber-500' : 'text-vibe-fg-3'
 					const barColor = contextPct >= 1 ? 'bg-red-500' : contextPct > 0.8 ? 'bg-amber-500' : 'bg-vibe-fg-3/60'
 					return <div className='mt-1'>
-						<div title={guardCalibration && guardCalibration > 1 ? `Калибровка ×${guardCalibration.toFixed(2)}: показ контекста скорректирован под реальные токены провайдера (грубая оценка длина/4 их занижает)` : undefined} className={`text-[10px] ${color}`}>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}{(guardTruncation.summarized ?? 0) > 0 ? chatS.budgetFillSuffix(guardTruncation.kept ?? 0, guardTruncation.summarized ?? 0) : ''}</div>
+						<div title={guardCalibration && guardCalibration > 1 ? `Калибровка ×${guardCalibration.toFixed(2)}: показ контекста скорректирован под реальные токены провайдера (грубая оценка длина/4 их занижает)` : undefined} className={`text-[10px] ${color} flex items-center flex-wrap`}><span>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}{(guardTruncation.summarized ?? 0) > 0 ? chatS.budgetFillSuffix(guardTruncation.kept ?? 0, guardTruncation.summarized ?? 0) : ''}</span><TokenBudgetInline /></div>
 						<div className='h-[3px] w-full bg-vibe-border-3 rounded mt-0.5'>
 							<div className={`h-[3px] ${barColor} rounded`} style={{ width: `${pctNum}%` }} aria-label={chatS.contextUsageAria(pctNum)} />
 						</div>
@@ -5682,7 +5823,7 @@ export const SidebarChat = () => {
 					const color = contextPct >= 1 ? 'text-red-500' : contextPct > 0.8 ? 'text-amber-500' : 'text-vibe-fg-3'
 					const barColor = contextPct >= 1 ? 'bg-red-500' : contextPct > 0.8 ? 'bg-amber-500' : 'bg-vibe-fg-3/60'
 					return <div className='mt-1 px-2'>
-						<div title={guardCalibration && guardCalibration > 1 ? `Калибровка ×${guardCalibration.toFixed(2)}: показ контекста скорректирован под реальные токены провайдера (грубая оценка длина/4 их занижает)` : undefined} className={`text-[10px] ${color}`}>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}{(guardTruncation.summarized ?? 0) > 0 ? chatS.budgetFillSuffix(guardTruncation.kept ?? 0, guardTruncation.summarized ?? 0) : ''}</div>
+						<div title={guardCalibration && guardCalibration > 1 ? `Калибровка ×${guardCalibration.toFixed(2)}: показ контекста скорректирован под реальные токены провайдера (грубая оценка длина/4 их занижает)` : undefined} className={`text-[10px] ${color} flex items-center flex-wrap`}><span>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}{(guardTruncation.summarized ?? 0) > 0 ? chatS.budgetFillSuffix(guardTruncation.kept ?? 0, guardTruncation.summarized ?? 0) : ''}</span><TokenBudgetInline /></div>
 						<div className='h-[3px] w-full bg-vibe-border-3 rounded mt-0.5'>
 							<div className={`h-[3px] ${barColor} rounded`} style={{ width: `${pctNum}%` }} aria-label={chatS.contextUsageAria(pctNum)} />
 						</div>

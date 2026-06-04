@@ -171,6 +171,10 @@ export type ChatMessage =
 
 		anthropicReasoning: AnthropicReasoning[] | null; // anthropic reasoning
 		createdAt?: number; // unix ms when message was added to thread
+		// Set on the synthetic notice the agent appends when it stops in agent mode because the
+		// model returned text with NO tool call (and Autopilot is off / nudge budget spent). The UI
+		// hangs a one-click «Продолжить» on this message while it's the thread's last message.
+		agentStoppedNoToolCall?: boolean;
 	}
 	| ToolMessage<ToolName>
 	| DecorativeCanceledTool

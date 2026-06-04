@@ -98,6 +98,13 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			maximum: 100,
 			description: localize('vibeide.agent.reprobeAfterSuccesses', 'Через сколько успешных XML-tool-call`ов модель, переключённую в XML-fallback, повторно пробуют вернуть на native function-calling (одноразовый probe). Меньше = быстрее восстановление, больше = меньше «дёрганья». Дефолт 5, диапазон 1–100.'),
 		},
+		'vibeide.agent.autoContinueMaxNudges': {
+			type: 'number',
+			default: 2,
+			minimum: 0,
+			maximum: 10,
+			description: localize('vibeide.agent.autoContinueMaxNudges', 'Сколько раз ПОДРЯД, при ВКЛЮЧЁННОМ автопилоте, агент автоматически подтолкнёт модель продолжить, если та завершила ход обычным текстом БЕЗ вызова инструмента (частый артефакт слабых tool-calling-моделей через aggregator: проговаривают ход вместо вызова). Счётчик сбрасывается на каждом реально выполненном tool-call (прогресс), поэтому ограничивает только подряд идущие «пустые» текстовые ходы. `0` = выкл (даже под автопилотом останавливаться сразу). Без автопилота авто-подталкивания нет — агент останавливается и предлагает кнопку «Продолжить». Дефолт 2.'),
+		},
 		'vibeide.agent.scanTimeoutMs': {
 			type: 'number',
 			default: 10000,

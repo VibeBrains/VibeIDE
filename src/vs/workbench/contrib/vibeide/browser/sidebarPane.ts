@@ -33,7 +33,7 @@ import { IKeybindingService } from '../../../../platform/keybinding/common/keybi
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
-import { mountSidebarHistory } from './react/out/sidebar-tsx/index.js';
+import { mountSidebar } from './react/out/sidebar-tsx/index.js';
 
 import { Orientation } from '../../../../base/browser/ui/sash/sash.js';
 // import { IDisposable } from '../../../../base/common/lifecycle.js';
@@ -163,9 +163,14 @@ class SidebarViewPane extends ViewPane {
 
 		// gets set immediately
 		this.instantiationService.invokeFunction(accessor => {
-			const disposeFn: (() => void) | undefined = mountSidebarHistory(parent, accessor)?.dispose;
+			const disposeFn: (() => void) | undefined = this.mountReact(parent, accessor);
 			this._register(toDisposable(() => disposeFn?.()));
 		});
+	}
+
+	/** Mounts the combined chat surface: chat (left) + history/session-token rail (right). */
+	protected mountReact(parent: HTMLElement, accessor: ServicesAccessor): (() => void) | undefined {
+		return mountSidebar(parent, accessor)?.dispose;
 	}
 
 	protected override layoutBody(height: number, width: number): void {
@@ -182,16 +187,20 @@ class SidebarViewPane extends ViewPane {
 
 // called VIEWLET_ID in other places for some reason
 export const VIBEIDE_VIEW_CONTAINER_ID = 'workbench.view.vibeide';
+// History view keeps the legacy id (== container id) for back-compat with hardcoded references.
 export const VIBEIDE_VIEW_ID = VIBEIDE_VIEW_CONTAINER_ID;
+// Chat is now a first-class View (refactor B): immune to editor-group merges that used to strand
+// the old chat editor tab. Lives in the same AuxiliaryBar container, side-by-side: chat left, history right.
+export const VIBEIDE_CHAT_VIEW_ID = 'workbench.view.vibeide.chat';
 
 // Register view container
 const viewContainerRegistry = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry);
 const container = viewContainerRegistry.registerViewContainer({
 	id: VIBEIDE_VIEW_CONTAINER_ID,
-	title: nls.localize2('vibeContainer', 'History'),
+	title: nls.localize2('vibeContainer', 'VibeIDE'),
 	ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [VIBEIDE_VIEW_CONTAINER_ID, {
 		mergeViewWithContainerWhenSingleView: true,
-		orientation: Orientation.HORIZONTAL,
+		orientation: Orientation.HORIZONTAL, // side-by-side: chat left, history right
 	}]),
 	hideIfEmpty: false,
 	order: 1,
@@ -204,27 +213,20 @@ const container = viewContainerRegistry.registerViewContainer({
 
 
 
-// Register search default location to the container (sidebar)
+// Register a SINGLE chat view. Its React renders both columns internally (chat left + history/token
+// rail right), so we don't split the view container — that avoids the auxiliary-bar's vertical view
+// stacking (which can't do side-by-side) and keeps everything in one merge-proof View.
 const viewsRegistry = Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry);
 viewsRegistry.registerViews([{
-	id: VIBEIDE_VIEW_ID,
+	id: VIBEIDE_CHAT_VIEW_ID,
 	hideByDefault: false, // start open
 	containerIcon: FileAccess.asBrowserUri('vs/workbench/browser/media/vibeide-icon.png'), // VibeIDE logo
-	name: nls.localize2('vibeHistory', ''),
+	name: nls.localize2('vibeChat', 'Chat'),
 	ctorDescriptor: new SyncDescriptor(SidebarViewPane),
 	canToggleVisibility: false,
 	canMoveView: false, // can't move this out of its container
-	weight: 80,
+	weight: 100,
 	order: 1,
-	// singleViewPaneContainerTitle: 'hi',
-
-	// openCommandActionDescriptor: {
-	// 	id: VIBEIDE_VIEW_CONTAINER_ID,
-	// 	keybindings: {
-	// 		primary: KeyMod.CtrlCmd | KeyCode.KeyL,
-	// 	},
-	// 	order: 1
-	// },
 }], container);
 
 

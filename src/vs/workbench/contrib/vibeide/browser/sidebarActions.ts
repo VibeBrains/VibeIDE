@@ -15,7 +15,7 @@ import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextke
 
 import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
 import { IRange } from '../../../../editor/common/core/range.js';
-import { VIBEIDE_VIEW_CONTAINER_ID, VIBEIDE_VIEW_ID } from './sidebarPane.js';
+import { VIBEIDE_VIEW_CONTAINER_ID, VIBEIDE_CHAT_VIEW_ID } from './sidebarPane.js';
 import { IMetricsService } from '../common/metricsService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { VIBEIDE_TOGGLE_SETTINGS_ACTION_ID } from './vibeideSettingsPane.js';
@@ -171,7 +171,7 @@ registerAction2(class extends Action2 {
 				mac: { primary: KeyMod.CtrlCmd | KeyMod.WinCtrl | KeyCode.KeyI },
 			},
 			icon: { id: 'add' },
-			menu: [{ id: MenuId.ViewTitle, group: 'navigation', order: 1, when: ContextKeyExpr.equals('view', VIBEIDE_VIEW_ID) }],
+			menu: [{ id: MenuId.ViewTitle, group: 'navigation', order: 1, when: ContextKeyExpr.equals('view', VIBEIDE_CHAT_VIEW_ID) }],
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
@@ -251,7 +251,7 @@ registerAction2(class extends Action2 {
 			id: 'vibe.settingsAction',
 			title: localize2('vibeSettingsSidebar', 'VibeIDE Settings'),
 			icon: { id: 'settings-gear' },
-			menu: [{ id: MenuId.ViewTitle, group: 'navigation', order: 3, when: ContextKeyExpr.equals('view', VIBEIDE_VIEW_ID), }]
+			menu: [{ id: MenuId.ViewTitle, group: 'navigation', order: 3, when: ContextKeyExpr.equals('view', VIBEIDE_CHAT_VIEW_ID), }]
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {

@@ -41,7 +41,7 @@ import { IEditCodeService } from './editCodeServiceInterface.js';
 import { VibeideFileSnapshot } from '../common/editCodeServiceTypes.js';
 import { INotificationHandle, INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { truncate } from '../../../../base/common/strings.js';
-import { THREAD_STORAGE_KEY } from '../common/storageKeys.js';
+import { THREAD_STORAGE_KEY, OPEN_TAB_IDS_KEY } from '../common/storageKeys.js';
 import { HISTORY_SHOW_ALL_PROJECTS_KEY, HISTORY_DEFAULT_SHOW_ALL_KEY, threadOwnedBy } from '../common/chatHistoryScope.js';
 import { IVibeExternalAccessService, ExternalAccessRequiredError } from '../common/vibeExternalAccessService.js';
 import { unclaimedToolTagPlaceholder } from '../common/xmlToolNormalize.js';
@@ -313,12 +313,25 @@ type WhenMounted = {
 
 
 
+/** Per-tab chat config snapshot (multi-chat): each chat tab keeps its own model / mode / autopilot /
+ * iterations. Applied to the global stores when the tab becomes active, re-saved when the user changes
+ * a control while it's active. `chatMode` is kept as a plain string here to avoid a type import cycle;
+ * the React layer casts it to ChatMode. */
+export type ThreadChatConfig = {
+	model: { providerName: string; modelName: string } | null;
+	chatMode: string;
+	autopilot: boolean;
+	iterations: number;
+}
+
 export type ThreadType = {
 	id: string; // store the id here too
 	createdAt: string; // ISO string
 	lastModified: string; // ISO string
 	workspaceId?: string; // IWorkspace.id this thread belongs to. Undefined = legacy (pre-scoping) thread → shown in every project.
 	workspaceLabel?: string; // Human-readable project name (first folder basename) captured at stamp time, for the "all projects" badge.
+	/** Per-tab chat config (model/mode/autopilot/iterations). Undefined until the tab first snapshots the globals. */
+	chatConfig?: ThreadChatConfig;
 
 	messages: ChatMessage[];
 	filesWithUserChanges: Set<string>;
@@ -359,6 +372,8 @@ type ChatThreads = {
 export type ThreadsState = {
 	allThreads: ChatThreads;
 	currentThreadId: string; // intended for internal use only
+	/** Working set of threads shown as in-view chat tabs (multi-chat). Subset of allThreads; persisted per-workspace. */
+	openTabIds: string[];
 }
 
 export type IsRunningType =
@@ -493,6 +508,13 @@ export interface IChatThreadService {
 	/** Always create a fresh thread (bypasses openNewThread's empty-thread reuse). Returns the new thread id. */
 	forceCreateNewThread(): string;
 	switchToThread(threadId: string): void;
+	/** Close an in-view chat tab (removes it from the open set; the thread stays in history). */
+	closeTab(threadId: string): void;
+	/** Per-thread composer draft (in-memory). Lets each open chat tab keep its own unsent input across tab switches. */
+	getThreadDraft(threadId: string): string;
+	setThreadDraft(threadId: string, text: string): void;
+	/** Per-tab chat config snapshot (model/mode/autopilot/iterations), persisted with the thread. */
+	setThreadChatConfig(threadId: string, cfg: ThreadChatConfig): void;
 
 	// thread selector
 	deleteThread(threadId: string): void;
@@ -763,16 +785,21 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeExternalAccessService private readonly _externalAccessService: IVibeExternalAccessService,
 	) {
 		super()
-		this.state = { allThreads: {}, currentThreadId: null as unknown as string } // default state
+		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabIds: [] } // default state
 		// When set for a thread, the next call to _shouldGeneratePlan will return false and clear the flag
 		this._suppressPlanOnceByThread = {}
 
 		const readThreads = this._readAllThreads() || {}
 
 		const allThreads = readThreads
+		// Restore open chat tabs, dropping any whose thread no longer exists (deleted elsewhere) OR is
+		// empty (stale "Новый чат" leftovers — e.g. the locked empty tab from the pre-View layout). The
+		// single current empty thread is re-added by openNewThread() below, so there's never more than one.
+		const restoredTabs = this._readOpenTabIds().filter(id => (allThreads[id]?.messages.length ?? 0) > 0)
 		this.state = {
 			allThreads: allThreads,
 			currentThreadId: null as unknown as string, // gets set in startNewThread()
+			openTabIds: restoredTabs,
 		}
 
 		// Reset ContextGuard counters when the user switches to a different
@@ -836,7 +863,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		this._onDidChangeCurrentThread.fire()
 	}
 	resetState = () => {
-		this.state = { allThreads: {}, currentThreadId: null as unknown as string } // see constructor
+		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabIds: [] } // see constructor
+		this._storeOpenTabIds([])
 		this.openNewThread()
 		this._onDidChangeCurrentThread.fire()
 	}
@@ -919,6 +947,19 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			StorageScope.APPLICATION,
 			StorageTarget.USER
 		);
+	}
+
+	// ── Open chat tabs (multi-chat) ──────────────────────────────────────────────
+	private _readOpenTabIds(): string[] {
+		const s = this._storageService.get(OPEN_TAB_IDS_KEY, StorageScope.WORKSPACE);
+		if (!s) { return []; }
+		try {
+			const arr = JSON.parse(s);
+			return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [];
+		} catch { return []; }
+	}
+	private _storeOpenTabIds(ids: string[]) {
+		this._storageService.store(OPEN_TAB_IDS_KEY, JSON.stringify(ids), StorageScope.WORKSPACE, StorageTarget.USER);
 	}
 
 
@@ -4628,6 +4669,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		let hasSynthesizedToolsInThisRequest = false
 		// #6 — broken-XML tool-call repair fires at most once per request (anti-loop).
 		let hasRepairedXmlThisRequest = false
+		// Premature-stop nudge: consecutive agent-mode turns that returned text with NO tool call.
+		// Reset to 0 on any executed tool call (progress). Bounds the Autopilot auto-continue.
+		let autoContinueOnTextCount = 0
 
 		// Track tools executed in this request to detect incomplete workflows
 		let toolsExecutedInRequest: string[] = []
@@ -6055,8 +6099,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				if (chatMode === 'agent' && !toolCall && info.fullText.trim() && !hasSynthesizedForRequest && modelSupportsTools) {
 					if (originalUserMessage) {
 						const userRequest = originalUserMessage.displayContent?.toLowerCase() || ''
-						const actionWords = ['add', 'create', 'edit', 'delete', 'remove', 'update', 'modify', 'change', 'make', 'write', 'build', 'implement', 'fix', 'run', 'execute', 'install', 'setup', 'configure']
-						const codebaseQueryWords = ['codebase', 'code base', 'repository', 'repo', 'project', 'endpoint', 'endpoints', 'api', 'route', 'routes', 'files', 'structure', 'architecture', 'what is', 'about']
+						const actionWords = ['add', 'create', 'edit', 'delete', 'remove', 'update', 'modify', 'change', 'make', 'write', 'build', 'implement', 'fix', 'run', 'execute', 'install', 'setup', 'configure',
+							// Russian action verbs (substring match covers common inflections, e.g. "создай"/"создать")
+							'созда', 'добав', 'удали', 'измени', 'обнови', 'перенес', 'замен', 'исправ', 'запусти', 'собери', 'напиши', 'написать', 'реализ', 'настрой', 'импортир', 'адаптир', 'сделай', 'построй']
+						const codebaseQueryWords = ['codebase', 'code base', 'repository', 'repo', 'project', 'endpoint', 'endpoints', 'api', 'route', 'routes', 'files', 'structure', 'architecture', 'what is', 'about',
+							// Russian codebase nouns
+							'кодовая база', 'репозитор', 'проект', 'структур', 'файл', 'эндпоинт', 'маршрут', 'архитектур']
 						const webQueryWords = ['search the web', 'search online', 'check the web', 'check the internet', 'check internet', 'look up', 'google', 'duckduckgo', 'browse url', 'fetch url', 'open url']
 
 						const isActionRequest = actionWords.some(word => userRequest.includes(word)) &&
@@ -6186,6 +6234,42 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// PERFORMANCE: Clear stream state immediately to stop showing "running" status
 				// This prevents the UI from continuing to show streaming state after completion
 				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
+
+				// Premature-stop handling (agent mode, model returned text with NO tool call).
+				// Weak tool-callers (deepseek/minimax via openCode) sometimes narrate a turn as
+				// plain text instead of emitting the next tool call, which would silently end the
+				// run mid-task. Behaviour splits on Autopilot:
+				//   - Autopilot ON  → inject ONE corrective "continue" turn (capped, anti-loop).
+				//   - Autopilot OFF → stop, but explain why + surface a one-click «Продолжить».
+				// The model's real reply is already saved above; we only add a nudge/notice on top.
+				// Skipped when a synthesis path already handled this turn (those own their own flow).
+				if (chatMode === 'agent' && !toolCall && info.fullText.trim()
+					&& !hasSynthesizedToolsInThisRequest && !toolSynthesizedAndMessageAdded) {
+					const autopilotOn = this._settingsService.state.globalSettings.chatAgentAutopilot === true
+					const rawMaxNudges = this._configurationService.getValue<unknown>('vibeide.agent.autoContinueMaxNudges')
+					const maxNudges = (typeof rawMaxNudges === 'number' && Number.isFinite(rawMaxNudges) && rawMaxNudges >= 0) ? Math.floor(rawMaxNudges) : 2
+
+					if (autopilotOn && maxNudges > 0 && autoContinueOnTextCount < maxNudges) {
+						autoContinueOnTextCount += 1
+						const corrective = '⚙️ Авто-продолжение (автопилот): ты завершил ход текстом без вызова инструмента. Если задача НЕ закончена — продолжай, вызвав нужный инструмент. Если задача выполнена — заверши явно. Если нужен ответ пользователя — задай вопрос и остановись.'
+						this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, state: defaultMessageState })
+						shouldSendAnotherMessage = true
+						this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
+						continue
+					}
+
+					// Autopilot OFF, or the auto-continue budget is spent → stop with an explanation
+					// + a one-click resume affordance (rendered by SidebarChat on the last message).
+					this._addMessageToThread(threadId, {
+						role: 'assistant',
+						displayContent: localize('vibeide.agent.stoppedNoToolCall', 'Агент остановился: модель завершила ход текстом без вызова инструмента — задача может быть не закончена. Частый артефакт слабых tool-calling-моделей (проговаривают ход вместо вызова инструмента). Нажмите «Продолжить», чтобы подтолкнуть модель дальше.'),
+						reasoning: '',
+						anthropicReasoning: null,
+						agentStoppedNoToolCall: true,
+					})
+					this._setStreamState(threadId, { isRunning: undefined })
+					return
+				}
 
 				// CRITICAL: Check if model responded with text but no tool call after executing tools
 				// This can happen when model explores codebase but doesn't continue to answer the question
@@ -6556,6 +6640,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					// Tool errors are handled by _runToolCall which adds error messages to the thread
 					// The loop will continue so the model can process the error
 					toolsExecutedInRequest.push(toolCall.name)
+					// Real progress — reset the premature-stop nudge budget so only CONSECUTIVE
+					// text-only turns (no tool call between them) are auto-continued.
+					autoContinueOnTextCount = 0
 
 					// Only update plan step status if we have an active plan (skip if no plan)
 					if (activePlanTracking?.currentStep) {
@@ -7841,7 +7928,55 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 
 	switchToThread(threadId: string) {
-		this._setState({ currentThreadId: threadId })
+		// Switching to a thread also OPENS it as a tab (covers opening from history). Idempotent.
+		const openTabIds = this.state.openTabIds.includes(threadId)
+			? this.state.openTabIds
+			: [...this.state.openTabIds, threadId]
+		if (openTabIds !== this.state.openTabIds) { this._storeOpenTabIds(openTabIds) }
+		this._setState({ currentThreadId: threadId, openTabIds })
+	}
+
+	// Per-thread composer draft (in-memory — drafts intentionally do not survive a full reload,
+	// matching the previous editor-tab behaviour). Keyed by threadId so each open chat tab keeps
+	// its own unsent text across tab switches.
+	private readonly _threadDrafts = new Map<string, string>()
+	getThreadDraft(threadId: string): string {
+		return this._threadDrafts.get(threadId) ?? ''
+	}
+	setThreadDraft(threadId: string, text: string): void {
+		if (text) { this._threadDrafts.set(threadId, text) } else { this._threadDrafts.delete(threadId) }
+	}
+
+	setThreadChatConfig(threadId: string, cfg: ThreadChatConfig): void {
+		const thread = this.state.allThreads[threadId]
+		if (!thread) { return }
+		// Skip a no-op write so re-applying a snapshot on tab switch doesn't churn state.
+		if (JSON.stringify(thread.chatConfig) === JSON.stringify(cfg)) { return }
+		const updated: ChatThreads = { ...this.state.allThreads, [threadId]: { ...thread, chatConfig: cfg } }
+		this._storeAllThreads(updated)
+		this._setState({ allThreads: updated })
+	}
+
+	closeTab(threadId: string): void {
+		this._threadDrafts.delete(threadId)
+		const idx = this.state.openTabIds.indexOf(threadId)
+		if (idx === -1) { return }
+		const openTabIds = this.state.openTabIds.filter(id => id !== threadId)
+		this._storeOpenTabIds(openTabIds)
+		// Closing a tab does NOT delete the thread — it stays in history.
+		if (this.state.currentThreadId === threadId) {
+			// Activate the neighbour (prefer the tab to the left, else the new one at this index).
+			const next = openTabIds[idx - 1] ?? openTabIds[idx] ?? openTabIds[openTabIds.length - 1]
+			if (next) {
+				this._setState({ currentThreadId: next, openTabIds })
+			} else {
+				// No tabs left — open a fresh chat so the view is never empty.
+				this._setState({ openTabIds })
+				this.openNewThread()
+			}
+		} else {
+			this._setState({ openTabIds })
+		}
 	}
 
 
@@ -7952,8 +8087,10 @@ We only need to do it for files that were edited since `from`, ie files between 
 			...currentThreads,
 			[newThread.id]: newThread
 		}
+		const openTabIds = [...this.state.openTabIds, newThread.id]
 		this._storeAllThreads(newThreads)
-		this._setState({ allThreads: newThreads, currentThreadId: newThread.id })
+		this._storeOpenTabIds(openTabIds)
+		this._setState({ allThreads: newThreads, currentThreadId: newThread.id, openTabIds })
 	}
 
 	forceCreateNewThread(): string {
@@ -7964,8 +8101,10 @@ We only need to do it for files that were edited since `from`, ie files between 
 			...this.state.allThreads,
 			[newThread.id]: newThread
 		}
+		const openTabIds = [...this.state.openTabIds, newThread.id]
 		this._storeAllThreads(newThreads)
-		this._setState({ allThreads: newThreads, currentThreadId: newThread.id })
+		this._storeOpenTabIds(openTabIds)
+		this._setState({ allThreads: newThreads, currentThreadId: newThread.id, openTabIds })
 		return newThread.id
 	}
 
@@ -7997,6 +8136,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 		this._fileReadCache.delete(threadId)
 		this._fileReadCacheLRU.delete(threadId)
 		this._recentToolSigs.delete(threadId)
+		this._threadDrafts.delete(threadId)
 		delete this._suppressPlanOnceByThread[threadId]
 		delete this.streamState[threadId]
 		// `_emptyResponseStreak` is keyed by `${threadId}:provider:model` — need
@@ -8013,9 +8153,25 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const newThreads = { ...currentThreads };
 		delete newThreads[threadId];
 
+		// Also drop it from the open-tab set (deleting from history closes its tab too).
+		const openTabIds = this.state.openTabIds.filter(id => id !== threadId)
+		const wasCurrent = this.state.currentThreadId === threadId
+
 		// store the updated threads
 		this._storeAllThreads(newThreads);
-		this._setState({ ...this.state, allThreads: newThreads });
+		this._storeOpenTabIds(openTabIds);
+		if (wasCurrent) {
+			const next = openTabIds[openTabIds.length - 1]
+			if (next) {
+				this._setState({ allThreads: newThreads, openTabIds, currentThreadId: next });
+			} else {
+				// Deleted the only/last open chat — open a fresh one so the view is never empty.
+				this._setState({ allThreads: newThreads, openTabIds });
+				this.openNewThread();
+			}
+		} else {
+			this._setState({ allThreads: newThreads, openTabIds });
+		}
 		this._onDidDeleteThread.fire(threadId);
 	}
 

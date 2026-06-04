@@ -17,6 +17,7 @@ import { IModelService } from '../../../../../../../editor/common/services/model
 import { IClipboardService } from '../../../../../../../platform/clipboard/common/clipboardService.js';
 import { IContextViewService, IContextMenuService } from '../../../../../../../platform/contextview/browser/contextView.js';
 import { IFileService } from '../../../../../../../platform/files/common/files.js';
+import { IFileDialogService } from '../../../../../../../platform/dialogs/common/dialogs.js';
 import { IHoverService } from '../../../../../../../platform/hover/browser/hover.js';
 import { IThemeService } from '../../../../../../../platform/theme/common/themeService.js';
 import { ILLMMessageService } from '../../../../common/sendLLMMessageService.js';
@@ -224,6 +225,7 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 			IContextViewService: accessor.get(IContextViewService),
 			IContextMenuService: accessor.get(IContextMenuService),
 			IFileService: accessor.get(IFileService),
+			IFileDialogService: accessor.get(IFileDialogService),
 			IHoverService: accessor.get(IHoverService),
 			IThemeService: accessor.get(IThemeService),
 			ILLMMessageService: accessor.get(ILLMMessageService),

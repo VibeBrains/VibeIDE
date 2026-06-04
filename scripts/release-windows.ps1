@@ -1,16 +1,21 @@
 # release-windows.ps1 — Local Windows build + GitHub Release
-# Usage:
-#   .\scripts\release-windows.ps1                  # uses version from product.json
-#   .\scripts\release-windows.ps1 -Version v0.2.0  # override version
-#   .\scripts\release-windows.ps1 -SkipCompile     # skip npm run compile-build (if already compiled).
-#                                                  # Allowed ONLY together with -SkipPublish (local test
-#                                                  # builds). A real publish always recompiles so it can
-#                                                  # never ship a stale out-build/ under a new version.
+#
+# TWO-PHASE FLOW (default working mode — build & test first, publish the SAME build after):
+#   Phase 1 — bump + compile + package, NO publish (carry the archive / test from the folder):
+#     .\scripts\release-windows.ps1 -Version vX.Y.Z -SkipPublish
+#   Phase 2 — publish the SAME tested artifacts WITHOUT recompiling (fast):
+#     .\scripts\release-windows.ps1 -SkipCompile
+#   A version stamp written into out-build during Phase 1 is verified in Phase 2, so a
+#   prebuilt publish can only ship the exact version it was compiled at (no stale code).
+#   If Phase-1 testing fails: fix code → re-run Phase 1 with the next -Version → retest.
+#
+# Other usage:
+#   .\scripts\release-windows.ps1                  # one-shot: auto-bump patch + compile + publish
+#   .\scripts\release-windows.ps1 -Version v0.2.0  # override version (one-shot publish)
+#   .\scripts\release-windows.ps1 -SkipCompile     # publish prebuilt at current product.json version
+#                                                  # (stamp must match out-build, else refused)
 #   .\scripts\release-windows.ps1 -Draft           # create release as draft
-#   .\scripts\release-windows.ps1 -SkipPublish     # build artifacts only — no version bump,
-#                                                  # no tag, no `gh release create`. For manual
-#                                                  # smoke-test before committing to a real release.
-#                                                  # Re-run without the flag to publish.
+#   .\scripts\release-windows.ps1 -SkipPublish     # build + package artifacts only (no tag/publish)
 # Requires: Node.js, gh CLI (winget install GitHub.cli), InnoSetup (choco install innosetup)
 
 param(
@@ -27,15 +32,16 @@ $Root = Split-Path $PSScriptRoot -Parent
 Set-Location $Root
 
 # ── Release integrity: never PUBLISH stale code ───────────────────────────────
-# A published release MUST be compiled from source. -SkipCompile packages whatever
-# already sits in out-build/, which risks shipping stale JS under a new version
-# label (vibeVersion / product.json update independently of the compiled bundle —
-# the exact failure class behind "0.14.0 ran 0.13.31 code"). Permit -SkipCompile
-# only for -SkipPublish local test builds.
-if ($SkipCompile -and -not $SkipPublish) {
-    Write-Error "[release] Refusing to PUBLISH with -SkipCompile: a real release must recompile from source (else a stale out-build/ ships under the new version). Drop -SkipCompile, or add -SkipPublish for a local test build."
-    exit 1
-}
+# A published release MUST correspond to artifacts compiled-from-source at THIS exact
+# version. Two ways to satisfy that:
+#   • recompile in this run (default), OR
+#   • -SkipCompile publish of a build whose `out-build/.vibe-build-version` stamp matches
+#     product.json — i.e. it WAS compiled at this same version in a prior Phase-1 build
+#     (`-Version vX.Y.Z -SkipPublish`). This is the two-phase flow: bump+compile+test first,
+#     then publish the SAME tested artifacts without re-compiling.
+# The stamp check in the freshness section below ENFORCES this and is what prevents the
+# "new version label on stale code" class ("0.14.0 ran 0.13.31"). A -SkipCompile publish
+# with a missing/mismatched stamp is refused there, so no early hard-block is needed.
 # Captured before any compile so the freshness guard (after compile) can assert the
 # compiled output was actually (re)written during THIS run.
 $buildStartedAt = Get-Date
@@ -49,14 +55,16 @@ $productPath = "$Root\product.json"
 $product = Get-Content $productPath -Raw | ConvertFrom-Json
 
 if (-not $Version) {
-    if ($SkipPublish) {
-        # Test build — don't bump or commit. Build at the current product.json
-        # version so the user can repeatedly rebuild and smoke-test without
-        # wasting version numbers. Real publish run (without -SkipPublish)
-        # will auto-bump as usual.
+    if ($SkipPublish -or $SkipCompile) {
+        # Build/publish at the CURRENT product.json version — no auto-bump.
+        #  • -SkipPublish: repeatable local test builds without wasting version numbers.
+        #  • -SkipCompile: two-phase publish of already-compiled artifacts — the version was
+        #    already bumped in Phase 1, so publishing must reuse it (the stamp check ties
+        #    out-build to this exact version). Auto-bumping here would mismatch the stamp.
         $newVibe = $product.vibeVersion
         $Version = "v$newVibe"
-        OK "Test build at current vibeVersion: $newVibe (no auto-bump, -SkipPublish)"
+        $mode = if ($SkipPublish) { '-SkipPublish test build' } else { '-SkipCompile prebuilt publish' }
+        OK "Using current vibeVersion: $newVibe (no auto-bump, $mode)"
     } else {
         # Auto-bump patch (maintenance) in product.json
         $parts = $product.vibeVersion -split '\.'
@@ -129,8 +137,13 @@ if (-not $SkipCompile) {
     Step "Compiling TypeScript (npm run compile-build)..."
     Npm "run compile-build"
     OK "TypeScript compiled"
+    # Stamp out-build with the version it was compiled at. A later two-phase publish
+    # (-SkipCompile) verifies this stamp == product.json before shipping, so prebuilt
+    # artifacts can ONLY be published under the same version they were compiled at.
+    Set-Content "$Root\out-build\.vibe-build-version" $newVibe -NoNewline
+    OK "Stamped out-build version: $newVibe"
 } else {
-    Write-Host "⏭ Skipping compile (-SkipCompile)" -ForegroundColor DarkGray
+    Write-Host "⏭ Skipping compile (-SkipCompile) — will verify out-build version stamp before publishing" -ForegroundColor DarkGray
 }
 
 # ── 1b. Freshness guard — assert out-build was (re)compiled THIS run ──────────
@@ -145,11 +158,34 @@ if (-not (Test-Path $freshnessProbe)) {
     Write-Error "[release] Freshness probe missing: $freshnessProbe not found — out-build/ is absent or incomplete. Run a full compile (drop -SkipCompile)."
     exit 1
 }
+
+# Two-phase publish: when publishing WITHOUT recompiling (-SkipCompile, real publish),
+# the artifacts are safe to ship only if out-build was compiled at THIS version. The
+# version stamp (written right after compile-build) ties out-build to a version — this is
+# what makes "compile+test once, publish the same build" safe instead of risking stale code.
+if ($SkipCompile -and -not $SkipPublish) {
+    $stampPath = "$Root\out-build\.vibe-build-version"
+    if (-not (Test-Path $stampPath)) {
+        Write-Error "[release] -SkipCompile publish blocked: version stamp '$stampPath' missing — out-build was not produced by a versioned build. Run a Phase-1 build first: .\scripts\release-windows.ps1 -Version $Version -SkipPublish"
+        exit 1
+    }
+    $stamped = (Get-Content $stampPath -Raw).Trim()
+    if ($stamped -ne $newVibe) {
+        Write-Error "[release] -SkipCompile publish blocked: out-build was compiled at $stamped but you are publishing $newVibe. Recompile (drop -SkipCompile) or redo Phase-1 at $newVibe."
+        exit 1
+    }
+    OK "Prebuilt publish verified: out-build stamp matches $newVibe (no recompile needed)."
+}
+
 $probeWritten = (Get-Item $freshnessProbe).LastWriteTime
 if ($probeWritten -lt $buildStartedAt) {
     $msg = "[release] out-build probe '$freshnessProbe' was last written $probeWritten, BEFORE this build started $buildStartedAt — the TypeScript was NOT recompiled this run."
     if ($SkipPublish) {
         Write-Warning "$msg (allowed for -SkipPublish test build, but the package will contain stale code)"
+    } elseif ($SkipCompile) {
+        # Expected for a two-phase publish — code identity is guaranteed by the version-stamp
+        # check above, not by recompilation in this run.
+        Write-Host "  (out-build from a prior Phase-1 build; version stamp verified above)" -ForegroundColor DarkGray
     } else {
         Write-Error "$msg Refusing to package/publish stale code."
         exit 1
