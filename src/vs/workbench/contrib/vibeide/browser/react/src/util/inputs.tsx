@@ -1588,10 +1588,18 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 		void update();
 	}, [isOpen, update, options, selectedOption, detailPresentation]);
 
-	// if the selected option is null, set the selection to the 0th option
+	// if the selected option is null, set the selection to the 0th option — ONCE.
+	// Guarded by a ref so it never retries: if the parent's onChangeOption doesn't make
+	// `selectedOption` defined on the next render (e.g. the chosen value isn't found in the
+	// parent's option list), retrying every render is an infinite setState→re-render loop.
+	// With a large sibling tree (e.g. a long un-virtualized history list) that loop freezes
+	// the renderer ("Окно не отвечает"). One-shot auto-select is the correct initialization.
+	const didAutoSelectRef = useRef(false)
 	useEffect(() => {
+		if (didAutoSelectRef.current) return
 		if (options.length === 0) return
 		if (selectedOption !== undefined) return
+		didAutoSelectRef.current = true
 		onChangeOption(options[0])
 	}, [selectedOption, onChangeOption, options])
 

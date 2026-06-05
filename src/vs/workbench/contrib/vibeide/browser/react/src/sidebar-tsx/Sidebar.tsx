@@ -3,19 +3,30 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useIsDark, useAccessor, useChatThreadsState } from '../util/services.js';
 import { X as IconClose, Plus as IconPlus, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { StorageScope, StorageTarget } from '../../../../../../../platform/storage/common/storage.js';
+import { Parts } from '../../../../../../../workbench/services/layout/browser/layoutService.js';
 import { chatS } from '../vibe-settings-tsx/vibeSettingsRu.js';
+import { trackRenderLoop } from '../util/renderLoopGuard.js';
 
 import '../styles.css'
 import { SidebarChat } from './SidebarChat.js';
 import { SidebarHistory } from './SidebarHistory.js';
 import ErrorBoundary from './ErrorBoundary.js';
 
-const HISTORY_RAIL_WIDTH_PX = 260;
+// History rail width (px). The chat keeps its width; opening/closing the rail grows/shrinks the
+// whole auxiliary bar by this amount (chat stays put). The bar's one-time default width is
+// `vibeide.chat.defaultWidth` (650px), so the chat starts at ~650px with the rail collapsed.
+const HISTORY_RAIL_WIDTH_PX = 280;
+// When the CHAT column itself (not the whole bar) is squeezed narrower than this while the rail is
+// open, auto-collapse the rail (no bar resize — the user is dragging the bar border).
+const CHAT_MIN_WIDTH_PX = 370;
 const HISTORY_COLLAPSED_KEY = 'vibeide.chatHistoryRailCollapsed';
+// One-time flag: the configured default bar width has been applied (so we don't clobber the
+// user's later manual resize, which the workbench persists on its own).
+const DEFAULT_WIDTH_APPLIED_KEY = 'vibeide.chatDefaultWidthApplied';
 
 // Multi-chat tab strip (refactor B): the in-view replacement for the old editor tabs. Renders the
 // service's `openTabIds` working set; click switches, X closes (thread stays in history), + opens new.
@@ -82,19 +93,59 @@ const ChatTabStrip = ({ historyCollapsed, onToggleHistory }: { historyCollapsed:
 // both columns so collapsing the history rail never hides it. All inside ONE auxiliary-bar View — no
 // editor group to merge/strand. The auxiliary bar itself is resizable.
 export const Sidebar = ({ className }: { className: string }) => {
+	trackRenderLoop('Sidebar')
 
 	const isDark = useIsDark()
 	const accessor = useAccessor()
 	const storageService = accessor.get('IStorageService')
+	const layoutService = accessor.get('IWorkbenchLayoutService')
+	const configurationService = accessor.get('IConfigurationService')
 	// Re-key the chat by active thread so switching tabs fully re-renders it for the new thread.
 	const { currentThreadId } = useChatThreadsState()
 
-	const [historyCollapsed, setHistoryCollapsed] = useState<boolean>(() => storageService.getBoolean(HISTORY_COLLAPSED_KEY, StorageScope.PROFILE, false))
-	const toggleHistory = () => {
+	const chatColRef = useRef<HTMLDivElement>(null)
+	const [historyCollapsed, setHistoryCollapsed] = useState<boolean>(() => storageService.getBoolean(HISTORY_COLLAPSED_KEY, StorageScope.PROFILE, true))
+
+	const setAuxBarWidth = useCallback((width: number) => {
+		const cur = layoutService.getSize(Parts.AUXILIARYBAR_PART)
+		layoutService.setSize(Parts.AUXILIARYBAR_PART, { width: Math.max(320, Math.round(width)), height: cur.height })
+	}, [layoutService])
+
+	// Apply the configured default bar width ONCE so the chat starts at ~650px. Afterwards the
+	// workbench persists the user's own width and we never override it.
+	useEffect(() => {
+		if (storageService.getBoolean(DEFAULT_WIDTH_APPLIED_KEY, StorageScope.PROFILE, false)) { return }
+		const chatW = Math.max(320, Math.min(2000, Math.floor(configurationService.getValue<number>('vibeide.chat.defaultWidth') ?? 650)))
+		setAuxBarWidth(chatW + (historyCollapsed ? 0 : HISTORY_RAIL_WIDTH_PX))
+		storageService.store(DEFAULT_WIDTH_APPLIED_KEY, true, StorageScope.PROFILE, StorageTarget.USER)
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [])
+
+	// Button toggle: grow/shrink the bar by the rail width so the chat column keeps its width.
+	const toggleHistory = useCallback(() => {
 		const next = !historyCollapsed
 		setHistoryCollapsed(next)
 		storageService.store(HISTORY_COLLAPSED_KEY, next, StorageScope.PROFILE, StorageTarget.USER)
-	}
+		const cur = layoutService.getSize(Parts.AUXILIARYBAR_PART)
+		setAuxBarWidth(cur.width + (next ? -HISTORY_RAIL_WIDTH_PX : HISTORY_RAIL_WIDTH_PX))
+	}, [historyCollapsed, storageService, layoutService, setAuxBarWidth])
+
+	// Auto-collapse the rail when the CHAT column is squeezed below CHAT_MIN_WIDTH_PX while the rail
+	// is open (no bar resize — the user is dragging the bar border). Observing the chat column (not
+	// the whole bar) means the threshold is the chat's own width, independent of the rail width.
+	useEffect(() => {
+		const el = chatColRef.current
+		if (!el || typeof ResizeObserver === 'undefined') { return }
+		const ro = new ResizeObserver(entries => {
+			const w = entries[0]?.contentRect.width ?? 0
+			if (w > 0 && w < CHAT_MIN_WIDTH_PX && !historyCollapsed) {
+				setHistoryCollapsed(true)
+				storageService.store(HISTORY_COLLAPSED_KEY, true, StorageScope.PROFILE, StorageTarget.USER)
+			}
+		})
+		ro.observe(el)
+		return () => ro.disconnect()
+	}, [historyCollapsed, storageService])
 
 	return <div
 		className={`@@vibe-scope ${isDark ? 'dark' : ''}`}
@@ -104,8 +155,8 @@ export const Sidebar = ({ className }: { className: string }) => {
 
 			{/* Columns: chat (left) + collapsible history rail (right) */}
 			<div className="w-full flex-1 min-h-0 flex flex-row">
-				{/* Left column — chat tabs (multi-chat) + chat */}
-				<div className="flex-1 min-w-0 h-full flex flex-col">
+				{/* Left column — chat tabs (multi-chat) + chat. Fills the bar minus the history rail. */}
+				<div ref={chatColRef} className="flex-1 min-w-0 h-full flex flex-col">
 					<ChatTabStrip historyCollapsed={historyCollapsed} onToggleHistory={toggleHistory} />
 					<div className="flex-1 min-h-0">
 						<ErrorBoundary>

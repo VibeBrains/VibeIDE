@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useIsDark, useAccessor, useChatThreadsState, useFullChatThreadsStreamState } from '../util/services.js';
+import { trackRenderLoop } from '../util/renderLoopGuard.js';
 import { PastThreadElement, useHistoryScope, HistoryScopeToggle, type HistoryScope } from './SidebarThreadSelector.js';
 import '../styles.css';
 import ErrorBoundary from './ErrorBoundary.js';
@@ -296,7 +297,8 @@ const HistoryContent = () => {
 		return groupThreadsByDate(sortedThreads);
 	}, [sortedThreads, filter]);
 
-	const handleAfterSwitch = (): void => { void commandService.executeCommand(OPEN_CHAT_CMD); };
+	// Stable identity so memo'd PastThreadElement rows don't all re-render when SidebarHistory re-renders.
+	const handleAfterSwitch = useCallback((): void => { void commandService.executeCommand(OPEN_CHAT_CMD); }, [commandService]);
 
 	const hasThreads = sortedThreads.length > 0;
 
@@ -410,6 +412,7 @@ export const TokenBudgetInline = () => {
 };
 
 export const SidebarHistory = () => {
+	trackRenderLoop('SidebarHistory');
 	const isDark = useIsDark();
 	return (
 		<div

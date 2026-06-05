@@ -56,6 +56,8 @@ export async function openVibeChatEditor(instantiationService: IInstantiationSer
 	}
 
 	// Reveal + focus the chat view; the React chat re-renders for the active thread.
+	// Auxiliary-bar width is owned by the React Sidebar (it knows the chat width + history-rail
+	// collapsed state and resizes the bar to chat+rail on mount/toggle).
 	await viewsService.openView(VIBEIDE_CHAT_VIEW_ID, /*focus*/ true);
 }
 

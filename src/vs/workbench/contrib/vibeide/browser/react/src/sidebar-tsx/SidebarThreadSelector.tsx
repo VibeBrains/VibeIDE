@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
-import { useMemo, useState, useCallback, useLayoutEffect, useEffect, useRef } from 'react';
+import { useMemo, useState, useCallback, useLayoutEffect, useEffect, useRef, memo } from 'react';
 import { useFloating, autoUpdate, offset, flip, shift, size } from '@floating-ui/react';
 import { chatS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 import { IconShell1 } from '../markdown/ApplyBlockHoverButtons.js';
@@ -247,7 +247,12 @@ const TrashButton = ({ threadId, onPressedChange }: { threadId: string; onPresse
 	)
 }
 
-export const PastThreadElement = ({
+// memo-wrapped: during a state-storm re-render of the history list, only the row whose
+// `pastThread` ref actually changed re-renders; the other 100+ rows bail on shallow-equal
+// props. Without this, a single _setState re-rendered & re-committed every row, and with a
+// large un-virtualized history that compounded into a multi-second renderer freeze
+// ("Окно не отвечает") when no project was open (full cross-project history shown).
+export const PastThreadElement = memo(({
 	pastThread,
 	idx,
 	hoveredIdx,
@@ -396,7 +401,7 @@ export const PastThreadElement = ({
 			</div>
 		</div>
 	</div>;
-};
+});
 
 
 /** Composer toolbar control: anchored popover listing past threads (same pattern as ChatModeDropdown). */

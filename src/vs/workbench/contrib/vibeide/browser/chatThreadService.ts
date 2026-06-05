@@ -7927,12 +7927,34 @@ We only need to do it for files that were edited since `from`, ie files between 
 		return this.getCurrentFocusedMessageIdx() !== undefined
 	}
 
+	// Soft cap on simultaneously open chat tabs (`vibeide.chat.maxOpenTabs`, default 5).
+	// Reading the live config keeps a single source of truth; clamped defensively so a
+	// corrupt/out-of-range value can never disable the cap or evict the active tab.
+	private _maxOpenTabs(): number {
+		const r = this._configurationService.getValue<number>('vibeide.chat.maxOpenTabs')
+		return (typeof r === 'number' && Number.isFinite(r)) ? Math.max(1, Math.min(20, Math.floor(r))) : 5
+	}
+	// Trim `openTabIds` down to the cap by evicting the OLDEST tabs (front of the array —
+	// new tabs are appended), never closing `keepId` (the tab being activated/created).
+	// Eviction only drops the tab from the working set; the thread stays in history.
+	private _capOpenTabs(openTabIds: string[], keepId: string): string[] {
+		const cap = this._maxOpenTabs()
+		if (openTabIds.length <= cap) { return openTabIds }
+		const result = [...openTabIds]
+		for (let i = 0; i < result.length && result.length > cap;) {
+			if (result[i] === keepId) { i++; continue }
+			result.splice(i, 1)
+		}
+		return result
+	}
+
 	switchToThread(threadId: string) {
 		// Switching to a thread also OPENS it as a tab (covers opening from history). Idempotent.
-		const openTabIds = this.state.openTabIds.includes(threadId)
-			? this.state.openTabIds
-			: [...this.state.openTabIds, threadId]
-		if (openTabIds !== this.state.openTabIds) { this._storeOpenTabIds(openTabIds) }
+		let openTabIds = this.state.openTabIds
+		if (!openTabIds.includes(threadId)) {
+			openTabIds = this._capOpenTabs([...openTabIds, threadId], threadId)
+			this._storeOpenTabIds(openTabIds)
+		}
 		this._setState({ currentThreadId: threadId, openTabIds })
 	}
 
@@ -7954,7 +7976,11 @@ We only need to do it for files that were edited since `from`, ie files between 
 		if (JSON.stringify(thread.chatConfig) === JSON.stringify(cfg)) { return }
 		const updated: ChatThreads = { ...this.state.allThreads, [threadId]: { ...thread, chatConfig: cfg } }
 		this._storeAllThreads(updated)
-		this._setState({ allThreads: updated })
+		// A pure config write must NOT refresh the mount info: doing so resets the active
+		// thread's `whenMounted` to a fresh pending promise on every per-tab config snapshot.
+		// During a new-tab mount the apply-effect writes that snapshot synchronously, so the
+		// reset churns the resolver effect and (with no project open) can wedge the renderer.
+		this._setState({ allThreads: updated }, true)
 	}
 
 	closeTab(threadId: string): void {
@@ -8087,7 +8113,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 			...currentThreads,
 			[newThread.id]: newThread
 		}
-		const openTabIds = [...this.state.openTabIds, newThread.id]
+		const openTabIds = this._capOpenTabs([...this.state.openTabIds, newThread.id], newThread.id)
 		this._storeAllThreads(newThreads)
 		this._storeOpenTabIds(openTabIds)
 		this._setState({ allThreads: newThreads, currentThreadId: newThread.id, openTabIds })
@@ -8101,7 +8127,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 			...this.state.allThreads,
 			[newThread.id]: newThread
 		}
-		const openTabIds = [...this.state.openTabIds, newThread.id]
+		const openTabIds = this._capOpenTabs([...this.state.openTabIds, newThread.id], newThread.id)
 		this._storeAllThreads(newThreads)
 		this._storeOpenTabIds(openTabIds)
 		this._setState({ allThreads: newThreads, currentThreadId: newThread.id, openTabIds })

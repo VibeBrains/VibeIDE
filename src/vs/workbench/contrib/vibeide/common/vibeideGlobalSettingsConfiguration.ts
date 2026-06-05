@@ -560,6 +560,22 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.chat.maxMessagesPerThread', 'Жёсткий потолок на количество сообщений в одном thread. При превышении старые сообщения обрезаются до `maxMessagesPerThread - 100` + вставляется маркер с подсчётом. Это **независимо** от LLM-payload truncation (smart truncation в convertToLLMMessageService) — этот лимит ограничивает JSON, который хранится в renderer-памяти и на диске, чтобы долгие агент-сессии не приводили к OOM рендерера. Поднимите для очень длинных проектов; опустите если у вас слабая машина.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.chat.maxOpenTabs': {
+					type: 'number',
+					default: 5,
+					minimum: 1,
+					maximum: 20,
+					description: localize('vibeide.chat.maxOpenTabs', 'Максимум одновременно открытых вкладок чата. При превышении самая старая вкладка автоматически закрывается (тред остаётся в истории, не удаляется). Активная вкладка никогда не закрывается. Установите 1, чтобы держать только один чат за раз.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.chat.defaultWidth': {
+					type: 'number',
+					default: 650,
+					minimum: 320,
+					maximum: 2000,
+					description: localize('vibeide.chat.defaultWidth', 'Ширина боковой панели VibeIDE (в пикселях), применяемая при открытии чата. Задаёт ширину чата по умолчанию. Применяется один раз; после ручного перетаскивания границы ваш размер сохраняется. Изменение этого значения снова применит новую ширину при следующем открытии чата.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.catalog.modelsDevCacheTtlHours': {
 					type: 'number',
 					default: 24,

@@ -28,7 +28,11 @@ const ModelSelectBox = ({ options, featureName, className }: { options: ModelOpt
 	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
 
 	const selection = vibeideSettingsService.state.modelSelectionOfFeature[featureName]
-	const selectedOption = selection ? vibeideSettingsService.state._modelOptions.find(v => modelSelectionsEqual(v.selection, selection))! : options[0]
+	// Fall back to options[0] when the saved selection isn't found in _modelOptions (stale/removed
+	// model). `.find(...)!` previously lied — it could return undefined, which fed VibeCustomDropdownBox
+	// an undefined selectedOption and tripped its auto-select loop. `options` is guaranteed non-empty
+	// here (MemoizedModelDropdown renders a WarningBox when there are no options).
+	const selectedOption = (selection && vibeideSettingsService.state._modelOptions.find(v => modelSelectionsEqual(v.selection, selection))) || options[0]
 
 	const onChangeOption = useCallback((newOption: ModelOption) => {
 		vibeideSettingsService.setModelSelectionOfFeature(featureName, newOption.selection)

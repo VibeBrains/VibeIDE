@@ -44,6 +44,7 @@ import { chatDiffCountLabel, chatFilesWithChangesLabel, chatModeDetail, chatMode
 
 import { persistentTerminalNameOfId } from '../../../terminalToolService.js';
 import { removeMCPToolNamePrefix } from '../../../../common/mcpServiceTypes.js';
+import { trackRenderLoop } from '../util/renderLoopGuard.js';
 import { useImageAttachments } from '../util/useImageAttachments.js';
 import { usePDFAttachments } from '../util/usePDFAttachments.js';
 import { PDFAttachmentList } from '../util/PDFAttachmentList.js';
@@ -4521,6 +4522,7 @@ const EditToolSoFar = ({ toolCallSoFar, }: { toolCallSoFar: RawToolCallObj }) =>
 
 
 export const SidebarChat = () => {
+	trackRenderLoop('SidebarChat')
 	const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
 	const textAreaFnsRef = useRef<TextAreaFns | null>(null)
 

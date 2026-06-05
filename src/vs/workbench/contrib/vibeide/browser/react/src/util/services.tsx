@@ -13,6 +13,7 @@ import { RefreshModelStateOfProvider } from '../../../../../../../workbench/cont
 
 import { ServicesAccessor } from '../../../../../../../editor/browser/editorExtensions.js';
 import { IExplorerService } from '../../../../../../../workbench/contrib/files/browser/files.js'
+import { IWorkbenchLayoutService } from '../../../../../../../workbench/services/layout/browser/layoutService.js'
 import { IModelService } from '../../../../../../../editor/common/services/model.js';
 import { IClipboardService } from '../../../../../../../platform/clipboard/common/clipboardService.js';
 import { IContextViewService, IContextMenuService } from '../../../../../../../platform/contextview/browser/contextView.js';
@@ -247,6 +248,7 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 			ISearchService: accessor.get(ISearchService),
 
 			IExplorerService: accessor.get(IExplorerService),
+			IWorkbenchLayoutService: accessor.get(IWorkbenchLayoutService),
 			IEnvironmentService: accessor.get(IEnvironmentService),
 			IConfigurationService: accessor.get(IConfigurationService),
 			IPathService: accessor.get(IPathService),
@@ -303,12 +305,18 @@ const _registerAccessor = (accessor: ServicesAccessor) => {
 
 
 // -- services --
+// Stable singleton API. `reactAccessor_` is a module-level singleton, so `get` can resolve it lazily
+// at call time and the returned object identity never changes. Returning a fresh `{ get }` per call
+// (the old behaviour) made every `useEffect(..., [accessor])` re-run on EVERY render — and any such
+// effect that setState'd (e.g. the skills loader's async setSkillCmds([...])) became an infinite
+// microtask-driven re-render loop that froze the renderer ("Окно не отвечает").
+const _accessorApi = { get: <S extends keyof ReactAccessor,>(service: S): ReactAccessor[S] => reactAccessor_![service] }
 export const useAccessor = () => {
 	if (!reactAccessor_) {
 		throw new Error(`⚠️ VibeIDE useAccessor was called before _registerServices!`)
 	}
 
-	return { get: <S extends keyof ReactAccessor,>(service: S): ReactAccessor[S] => reactAccessor_![service] }
+	return _accessorApi
 }
 
 
