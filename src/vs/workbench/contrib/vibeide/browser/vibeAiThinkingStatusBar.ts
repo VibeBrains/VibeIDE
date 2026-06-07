@@ -134,7 +134,7 @@ export class VibeAiThinkingStatusBarContribution extends Disposable implements I
 		}
 
 		const props = {
-			name: localize('vibeAiThinkingStatusBarName', 'VibeIDE AI Thinking'),
+			name: localize('vibeAiThinkingStatusBarName', 'VibeIDE — думает ИИ'),
 			text: state.text,
 			ariaLabel: state.hint ?? state.text,
 			tooltip: state.hint,

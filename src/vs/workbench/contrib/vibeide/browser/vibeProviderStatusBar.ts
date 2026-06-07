@@ -115,11 +115,11 @@ export class VibeProviderStatusBarContribution extends Disposable implements IWo
 		const healthText = this._healthLabel(healthStatus?.health || 'unknown');
 
 		return {
-			name: localize('vibeProviderStatus', 'VibeIDE Provider Status'),
+			name: localize('vibeProviderStatus', 'Статус провайдера VibeIDE'),
 			text: displayName,
-			tooltip: localize('vibeProviderStatusTooltip', 'Provider: {0} — Status: {1}. Click to check.', providerName, healthText),
+			tooltip: localize('vibeProviderStatusTooltip', 'Провайдер: {0} — Статус: {1}. Нажмите для проверки.', providerName, healthText),
 			command: 'vibeide.transparency.show',
-			ariaLabel: localize('vibeProviderStatusAria', 'Provider: {0} {1}', providerName, healthText),
+			ariaLabel: localize('vibeProviderStatusAria', 'Провайдер: {0} {1}', providerName, healthText),
 		};
 	}
 
@@ -129,20 +129,20 @@ export class VibeProviderStatusBarContribution extends Disposable implements IWo
 			? `$(symbol-currency) in ${pricing.inputPer1kTokens.toFixed(3)}/1k`
 			: '$(symbol-currency)';
 		return {
-			name: localize('vibeTokenCost', 'VibeIDE Token Cost'),
+			name: localize('vibeTokenCost', 'Стоимость токенов VibeIDE'),
 			text,
-			tooltip: localize('vibeTokenCostTooltip', 'Token cost forecast. Run a task to see estimate.'),
+			tooltip: localize('vibeTokenCostTooltip', 'Прогноз стоимости токенов. Запустите задачу, чтобы увидеть оценку.'),
 			command: 'vibeide.tokenBudget.status',
-			ariaLabel: localize('vibeTokenCostAria', 'Token cost forecast'),
+			ariaLabel: localize('vibeTokenCostAria', 'Прогноз стоимости токенов'),
 		};
 	}
 
 	private _healthLabel(health: ProviderHealth): string {
 		switch (health) {
-			case 'operational': return localize('vibeProviderHealth.operational', 'Operational');
-			case 'degraded': return localize('vibeProviderHealth.degraded', 'Degraded');
-			case 'outage': return localize('vibeProviderHealth.outage', 'Outage');
-			default: return localize('vibeProviderHealth.notChecked', 'Not checked');
+			case 'operational': return localize('vibeProviderHealth.operational', 'Работает');
+			case 'degraded': return localize('vibeProviderHealth.degraded', 'Деградирует');
+			case 'outage': return localize('vibeProviderHealth.outage', 'Недоступен');
+			default: return localize('vibeProviderHealth.notChecked', 'Не проверялся');
 		}
 	}
 }

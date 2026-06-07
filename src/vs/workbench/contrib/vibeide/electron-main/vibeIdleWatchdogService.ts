@@ -1308,6 +1308,20 @@ export class VibeIdleWatchdogService {
 					try { fs.unlinkSync(path.join(this._logsDir, file)); } catch { /* ignore */ }
 				}
 			}
+			// Heap snapshots age out on the SAME retention clock as the .jsonl logs. The count-based
+			// `_rotateSnapshots` only runs on capture, so without this a quiet period (no new
+			// captures) preserved 130MB+ snapshots indefinitely — and every crash-report bundle
+			// dragged those stale artefacts along (observed: May 30/31 snapshots still shipping in
+			// June 6 bundles, 45MB per export). Runs at startup + periodic tick alongside log cleanup.
+			if (fs.existsSync(this._snapshotsDir)) {
+				for (const file of fs.readdirSync(this._snapshotsDir)) {
+					if (!file.endsWith('.heapsnapshot')) continue;
+					const full = path.join(this._snapshotsDir, file);
+					try {
+						if (fs.statSync(full).mtimeMs < cutoffMs) { fs.unlinkSync(full); }
+					} catch { /* ignore */ }
+				}
+			}
 		} catch {
 			// Best-effort; never throw out of startup path.
 		}

@@ -29,9 +29,11 @@ suite('Agent error classifier (294)', () => {
 			assert.strictEqual(classifyAgentError({ source: 'stream' }), 'stream-broken');
 		});
 
-		test('provider 4xx → provider-4xx', () => {
+		test('provider 4xx → provider-4xx (quota statuses excluded)', () => {
 			assert.strictEqual(classifyAgentError({ source: 'provider', httpStatus: 401 }), 'provider-4xx');
-			assert.strictEqual(classifyAgentError({ source: 'provider', httpStatus: 429 }), 'provider-4xx');
+			// 402/429 are quota/rate-limit — their own class since the openCode Go incident.
+			assert.strictEqual(classifyAgentError({ source: 'provider', httpStatus: 429 }), 'provider-quota');
+			assert.strictEqual(classifyAgentError({ source: 'provider', httpStatus: 402 }), 'provider-quota');
 		});
 
 		test('provider 5xx → provider-5xx', () => {
@@ -111,7 +113,26 @@ suite('Agent error classifier (294)', () => {
 		test('end-to-end timeout via errorCode', () => {
 			const r = classifyAndBuildToast({ source: 'provider', errorCode: 'ETIMEDOUT' });
 			assert.strictEqual(r.cls, 'timeout');
-			assert.match(r.toast.headline, /timed out/i);
+			assert.match(r.toast.headline, /таймаут/i);
+		});
+
+		test('402 quota → provider-quota class with provider message in body', () => {
+			const r = classifyAndBuildToast({ source: 'provider', httpStatus: 402, errorMessage: 'Monthly usage limit reached. Resets in 5 days.' });
+			assert.strictEqual(r.cls, 'provider-quota');
+			assert.match(r.toast.headline, /Лимит провайдера/);
+			assert.match(r.toast.body, /Monthly usage limit reached/);
+			assert.ok(r.toast.actions.includes('switch-model'));
+		});
+
+		test('429 → provider-quota, not provider-4xx', () => {
+			const r = classifyAndBuildToast({ source: 'provider', httpStatus: 429 });
+			assert.strictEqual(r.cls, 'provider-quota');
+		});
+
+		test('plain 400 keeps provider-4xx and shows provider message', () => {
+			const r = classifyAndBuildToast({ source: 'provider', httpStatus: 400, errorMessage: 'unknown field temperature_x' });
+			assert.strictEqual(r.cls, 'provider-4xx');
+			assert.match(r.toast.body, /unknown field temperature_x/);
 		});
 	});
 });

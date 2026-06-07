@@ -38,7 +38,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: PERSONAS_COMMAND_IMPORT_FROM_URL,
-			title: { value: localize('vibeide.personas.importFromUrl.title', 'VibeIDE: Import personas from URL'), original: 'VibeIDE: Import personas from URL' },
+			title: { value: localize('vibeide.personas.importFromUrl.title', 'VibeIDE: Импортировать персоны по URL'), original: 'VibeIDE: Import personas from URL' },
 			f1: true,
 		});
 	}

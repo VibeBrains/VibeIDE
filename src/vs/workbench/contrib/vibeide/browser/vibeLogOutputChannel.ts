@@ -36,7 +36,7 @@ class VibeLogOutputChannelContribution extends Disposable implements IWorkbenchC
 		const registry = Registry.as<IOutputChannelRegistry>(OutputExtensions.OutputChannels);
 		registry.registerChannel({
 			id: VIBE_LOG_CHANNEL_ID,
-			label: localize('vibeide.logging.channelLabel', 'VibeIDE Log'),
+			label: localize('vibeide.logging.channelLabel', 'Лог VibeIDE'),
 			log: false,
 		});
 		this._register(toDisposable(() => registry.removeChannel(VIBE_LOG_CHANNEL_ID)));

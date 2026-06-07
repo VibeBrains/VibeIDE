@@ -27,7 +27,7 @@ import { ChatMode, displayInfoOfProviderName, FeatureName, isFeatureNameDisabled
 import { ICommandService } from '../../../../../../../platform/commands/common/commands.js';
 import { WarningBox } from '../vibe-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputTokenSpace } from '../../../../common/modelCapabilities.js';
-import { AlertTriangle, File, Ban, Check, ChevronRight, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Image as ImageIcon, FileText, LoaderCircle, Maximize2, Maximize, Pin, FileDown } from 'lucide-react';
+import { AlertTriangle, File, Ban, Check, ChevronRight, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Image as ImageIcon, FileText, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward } from 'lucide-react';
 import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, PlanStep, StepStatus, PlanApprovalState } from '../../../../common/chatThreadServiceTypes.js';
 import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER } from '../../../../common/chatTimestampFormatter.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
@@ -361,9 +361,12 @@ const ReasoningOptionSlider = ({ featureName }: { featureName: FeatureName }) =>
 	const modelSelectionOptions = vibeSettingsState.optionsOfModelSelection[featureName][providerName]?.[modelName]
 	const isReasoningEnabled = getIsReasoningEnabledState(featureName, providerName, modelName, modelSelectionOptions, overridesOfModel)
 
+	// Pill container matches the neighbouring toolbar controls («подпин.», autopilot…) —
+	// previously this control had no border and a fixed 40px label that overflowed onto
+	// the slider thumb («Рассужде…» over the knob).
 	if (canTurnOffReasoning && !reasoningBudgetSlider) { // if it's just a on/off toggle without a power slider
-		return <div className='flex items-center gap-x-2'>
-			<span className='text-vibe-fg-3 text-xs pointer-events-none inline-block w-10 pr-1'>{chatS.thinkingLabel}</span>
+		return <div className='@@vibe-toolbar-pill flex items-center gap-x-2 flex-shrink-0 rounded-xl py-0.5 px-1.5'>
+			<span className='text-vibe-fg-3 text-xs pointer-events-none whitespace-nowrap'>{chatS.thinkingLabel}</span>
 			<VibeSwitch
 				size='xxs'
 				value={isReasoningEnabled}
@@ -386,8 +389,8 @@ const ReasoningOptionSlider = ({ featureName }: { featureName: FeatureName }) =>
 		const value = isReasoningEnabled ? vibeSettingsState.optionsOfModelSelection[featureName][modelSelection.providerName]?.[modelSelection.modelName]?.reasoningBudget ?? defaultVal
 			: valueIfOff
 
-		return <div className='flex items-center gap-x-2'>
-			<span className='text-vibe-fg-3 text-xs pointer-events-none inline-block w-10 pr-1'>{chatS.thinkingLabel}</span>
+		return <div className='@@vibe-toolbar-pill flex items-center gap-x-2 flex-shrink-0 rounded-xl py-0.5 px-1.5'>
+			<span className='text-vibe-fg-3 text-xs pointer-events-none whitespace-nowrap'>{chatS.thinkingLabel}</span>
 			<VibeSlider
 				width={50}
 				size='xs'
@@ -401,7 +404,7 @@ const ReasoningOptionSlider = ({ featureName }: { featureName: FeatureName }) =>
 					vibeideSettingsService.setOptionsOfModelSelection(featureName, modelSelection.providerName, modelSelection.modelName, { reasoningEnabled: !isOff, reasoningBudget: newVal })
 				}}
 			/>
-			<span className='text-vibe-fg-3 text-xs pointer-events-none'>{isReasoningEnabled ? `${value} ${chatS.tokensSuffix}` : chatS.thinkingDisabled}</span>
+			<span className='text-vibe-fg-3 text-xs pointer-events-none whitespace-nowrap'>{isReasoningEnabled ? `${value} ${chatS.tokensSuffix}` : chatS.thinkingDisabled}</span>
 		</div>
 	}
 
@@ -418,8 +421,8 @@ const ReasoningOptionSlider = ({ featureName }: { featureName: FeatureName }) =>
 
 		const currentEffortCapitalized = currentEffort.charAt(0).toUpperCase() + currentEffort.slice(1, Infinity)
 
-		return <div className='flex items-center gap-x-2'>
-			<span className='text-vibe-fg-3 text-xs pointer-events-none inline-block w-10 pr-1'>{chatS.thinkingLabel}</span>
+		return <div className='@@vibe-toolbar-pill flex items-center gap-x-2 flex-shrink-0 rounded-xl py-0.5 px-1.5'>
+			<span className='text-vibe-fg-3 text-xs pointer-events-none whitespace-nowrap'>{chatS.thinkingLabel}</span>
 			<VibeSlider
 				width={30}
 				size='xs'
@@ -433,7 +436,7 @@ const ReasoningOptionSlider = ({ featureName }: { featureName: FeatureName }) =>
 					vibeideSettingsService.setOptionsOfModelSelection(featureName, modelSelection.providerName, modelSelection.modelName, { reasoningEnabled: !isOff, reasoningEffort: values[newVal] ?? undefined })
 				}}
 			/>
-			<span className='text-vibe-fg-3 text-xs pointer-events-none'>{isReasoningEnabled ? `${currentEffortCapitalized}` : chatS.thinkingDisabled}</span>
+			<span className='text-vibe-fg-3 text-xs pointer-events-none whitespace-nowrap'>{isReasoningEnabled ? `${currentEffortCapitalized}` : chatS.thinkingDisabled}</span>
 		</div>
 	}
 
@@ -498,6 +501,44 @@ const ChatAgentAutopilotToggle = ({ className }: { className?: string }) => {
 		>
 			<VibeSwitch size='xs' value={settingsState.globalSettings.chatAgentAutopilot === true} onChange={onChange} />
 			<span className='text-vibe-fg-3 text-xs whitespace-nowrap select-none pointer-events-none'>{chatS.autopilotLabel}</span>
+		</div>
+	)
+}
+
+
+/**
+ * Toolbar quick-reset for the SESSION token counter (same `vibeide.tokenBudget.reset` command as
+ * the full TokenBudgetFooter in history — one source of reset logic). Lives right after the
+ * Autopilot toggle for quick access; tooltip shows the current spend so the click is informed.
+ */
+const ChatSessionResetButton = ({ className }: { className?: string }) => {
+	const accessor = useAccessor()
+	const commandService = accessor.get('ICommandService')
+	const budgetService = accessor.get('IVibeTokenBudgetService')
+	const settingsState = useSettingsState()
+	const [used, setUsed] = useState<number>(() => budgetService.getStatus().sessionTokensUsed)
+	useEffect(() => {
+		const d = budgetService.onBudgetStatusChanged(s => setUsed(s.sessionTokensUsed))
+		return () => d.dispose()
+	}, [budgetService])
+
+	const onClick = useCallback(() => {
+		void commandService.executeCommand('vibeide.tokenBudget.reset')
+	}, [commandService])
+
+	const mode = settingsState.globalSettings.chatMode
+	if (mode !== 'agent' && mode !== 'plan') { return null }
+	return (
+		<div className={`@@vibe-toolbar-pill flex items-center flex-shrink-0 rounded-xl py-0.5 px-1.5 ${className ?? ''}`}>
+			<button
+				type='button'
+				onClick={onClick}
+				title={chatS.sessionResetTitle(used.toLocaleString('ru-RU'))}
+				aria-label={chatS.sessionResetAria}
+				className='flex items-center justify-center text-vibe-fg-3 hover:text-vibe-fg-1 leading-none select-none cursor-pointer'
+			>
+				<RotateCcw size={12} />
+			</button>
 		</div>
 	)
 }
@@ -715,6 +756,36 @@ const ChatAgentNudgesControl = ({ className }: { className?: string }) => {
 	)
 }
 
+/**
+ * Question-nudge control («подпин?»). Bound to `vibeide.agent.autoContinueOnQuestion`: under
+ * Autopilot a turn that ENDS with «?» is always auto-continued — it does not spend the regular
+ * nudge budget on the left. N = max CONSECUTIVE question-nudges (counter resets on every executed
+ * tool call); `0` = unlimited (∞) — inverse of «подпин.» where 0 means off. Default 3.
+ */
+const QUESTION_NUDGES_DEFAULT = 3
+const QUESTION_NUDGES_UPPER = 10
+const QUESTION_NUDGES_KEY = 'vibeide.agent.autoContinueOnQuestion'
+
+const ChatAgentQuestionNudgesControl = ({ className }: { className?: string }) => {
+	const settingsState = useSettingsState()
+
+	const mode = settingsState.globalSettings.chatMode
+	if (mode !== 'agent' && mode !== 'plan') { return null }
+	return (
+		<NumberStepperControl
+			className={className}
+			configKey={QUESTION_NUDGES_KEY}
+			defaultValue={QUESTION_NUDGES_DEFAULT}
+			upper={QUESTION_NUDGES_UPPER}
+			label={chatS.questionNudgesLabel}
+			offLabel={chatS.questionNudgesOffLabel}
+			offHint={chatS.questionNudgesOffHint}
+			title={chatS.questionNudgesTitle}
+			presets={[0, 5, 10]}
+		/>
+	)
+}
+
 
 
 interface VibeideChatAreaProps {
@@ -755,6 +826,45 @@ interface VibeideChatAreaProps {
 
 	/** When false, hide anchored chat history control (e.g. inline message editor). Default: true for Chat. */
 	showChatHistoryControl?: boolean;
+
+	/** Quick-continue: send the configured nudge text (`vibeide.chat.continueButtonText`) as a
+	 *  user message. When provided, a StepForward button renders left of the send arrow
+	 *  (hidden while streaming — the arrow is a Stop button then). */
+	onContinue?: (text: string) => void;
+}
+
+/** Config-backed text for the quick-continue button — also used as its tooltip. */
+const CONTINUE_TEXT_KEY = 'vibeide.chat.continueButtonText'
+const CONTINUE_TEXT_DEFAULT = 'продолжи'
+
+const ChatContinueButton = ({ onSend }: { onSend: (text: string) => void }) => {
+	const accessor = useAccessor()
+	const configurationService = accessor.get('IConfigurationService')
+
+	const readText = useCallback((): string => {
+		const raw = configurationService.getValue<unknown>(CONTINUE_TEXT_KEY)
+		return (typeof raw === 'string' && raw.trim().length > 0) ? raw.trim() : CONTINUE_TEXT_DEFAULT
+	}, [configurationService])
+
+	const [text, setText] = useState<string>(readText)
+	useEffect(() => {
+		const d = configurationService.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration(CONTINUE_TEXT_KEY)) { setText(readText()) }
+		})
+		return () => d.dispose()
+	}, [configurationService, readText])
+
+	return (
+		<button
+			type="button"
+			onClick={() => onSend(text)}
+			className="flex-shrink-0 p-1.5 rounded-xl hover:bg-vibe-bg-2-alt text-vibe-fg-4 hover:text-vibe-fg-2 transition-colors"
+			aria-label={text}
+			title={text}
+		>
+			<StepForward size={16} />
+		</button>
+	)
 }
 
 /** CDN catalog hint next to Chat model picker (training / data-use). */
@@ -834,6 +944,7 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 	featureName,
 	showChatHistoryControl = true,
 	loadingIcon,
+	onContinue,
 }) => {
 	const [isDragOver, setIsDragOver] = React.useState(false);
 	const imageInputRef = React.useRef<HTMLInputElement>(null);
@@ -1017,6 +1128,9 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 						<FileText size={16} />
 					</button>
 
+					{/* Quick-continue button — left of the send arrow, hidden while streaming */}
+					{!isStreaming && onContinue && <ChatContinueButton onSend={onContinue} />}
+
 					{/* Submit button */}
 					{isStreaming ? (
 						<ButtonStop onClick={onAbort} />
@@ -1048,8 +1162,10 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 						<ChatModelHealthDropdown featureName={featureName} className='text-xs text-vibe-fg-3 @@vibe-toolbar-pill rounded-xl overflow-hidden py-0.5 px-1.5' />
 						{featureName === 'Chat' && <ChatTrainingPolicyBadge />}
 						{featureName === 'Chat' && <ChatAgentAutopilotToggle />}
+						{featureName === 'Chat' && <ChatSessionResetButton />}
 						{featureName === 'Chat' && <ChatAgentIterationsControl />}
 						{featureName === 'Chat' && <ChatAgentNudgesControl />}
+						{featureName === 'Chat' && <ChatAgentQuestionNudgesControl />}
 						<ReasoningOptionSlider featureName={featureName} />
 					</div>
 				)}
@@ -1129,7 +1245,9 @@ const ChatScroller = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLD
 			<div
 				ref={ref}
 				{...rest}
-				className='flex flex-col py-3 w-full h-full overflow-x-hidden overflow-y-auto'
+				// `@@vibe-chat-scroll-root`: opt out of the generic `.vibe-scope` 4px near-invisible
+				// scrollbar (vibeide.css) — the chat list gets an always-visible, grabbable thumb.
+				className='@@vibe-chat-scroll-root flex flex-col py-3 w-full h-full overflow-x-hidden overflow-y-auto'
 				style={style}
 			>
 				{children}
@@ -4730,11 +4848,11 @@ export const SidebarChat = () => {
 			const commandService = accessor.get('ICommandService');
 			notificationService.notify({
 				severity: 1, // Severity.Info
-				message: 'The currently selected model may not support images. Switch to a vision-capable model (Claude, GPT-4, Gemini, or an Ollama vision model like llava) to use the attached image.',
+				message: 'Выбранная модель, похоже, не поддерживает изображения. Переключитесь на vision-модель (Claude, GPT-4, Gemini или Ollama-модель вроде llava), чтобы использовать прикреплённую картинку.',
 				actions: {
 					primary: [{
 						id: 'vibe.vision.setup',
-						label: 'Open settings',
+						label: 'Открыть настройки',
 						tooltip: '',
 						class: undefined,
 						enabled: true,
@@ -5293,8 +5411,8 @@ export const SidebarChat = () => {
 						/>
 					) : (
 						<>
-							<p className="text-sm text-vibe-fg-3 px-1">You can try again or open settings to change the model.</p>
-							<WarningBox className='text-sm my-1 mx-3' onClick={() => { commandService.executeCommand(VIBEIDE_OPEN_SETTINGS_ACTION_ID) }} text='Open settings' />
+							<p className="text-sm text-vibe-fg-3 px-1">Можно повторить попытку или сменить модель в настройках.</p>
+							<WarningBox className='text-sm my-1 mx-3' onClick={() => { commandService.executeCommand(VIBEIDE_OPEN_SETTINGS_ACTION_ID) }} text='Открыть настройки' />
 						</>
 					)}
 				</div>
@@ -5636,6 +5754,7 @@ export const SidebarChat = () => {
 		<VibeChatArea
 		featureName='Chat'
 		onSubmit={() => onSubmit()}
+		onContinue={(text) => onSubmit(text)}
 		onAbort={onAbort}
 		isStreaming={isActivelyStreaming}
 		isDisabled={isDisabled}
@@ -5766,43 +5885,11 @@ export const SidebarChat = () => {
 			)
 		})()}
 
-		{/* Context chips for current selections */}
-		{selections.length > 0 && (
-			<div className='mt-1 flex flex-wrap gap-1 px-1'>
-				{selections.map((sel, idx) => {
-					const name = sel.type === 'Folder'
-						? (sel.uri?.path?.split('/').filter(Boolean).pop() || chatS.chipFallbackFolder)
-						: (sel.uri?.path?.split('/').pop() || chatS.chipFallbackFile)
-					const fullPath = sel.uri?.fsPath || sel.uri?.path || name
-					const rangeLabel = (sel as any).range ? ` • ${(sel as any).range.startLineNumber}-${(sel as any).range.endLineNumber}` : ''
-					const tooltipText = (sel as any).range
-						? chatS.rangeTooltip(fullPath, (sel as any).range.startLineNumber, (sel as any).range.endLineNumber)
-						: fullPath
-					return (
-						<span
-							key={idx}
-							className='inline-flex items-center gap-1 px-2 py-0.5 rounded-xl border border-vibe-border-3 bg-vibe-bg-1 text-vibe-fg-2 text-[11px]'
-							title={tooltipText}
-							aria-label={tooltipText}
-						>
-							<span className='opacity-80'>{sel.type === 'Folder' ? chatS.chipFolder : chatS.chipFile}</span>
-							<span className='text-vibe-fg-1'>{name}</span>
-							{rangeLabel && <span className='opacity-70'>{rangeLabel}</span>}
-							<button
-								className='ml-1 text-vibe-fg-3 hover:text-vibe-fg-1'
-								onClick={() => {
-									// remove single selection
-									chatThreadsService.popStagingSelections(1)
-								}}
-								aria-label={chatS.removeChipAria(name)}
-							>
-								×
-							</button>
-						</span>
-					)
-				})}
-			</div>
-		)}
+		{/* Context chips for current selections were rendered here as a SECOND copy of the
+		    staging attachments (under the textarea, «Файл X ×» pills). Removed: the
+		    SelectedFiles strip above the textarea is the single source — it supports
+		    per-item removal and click-to-open, while this copy's × only popped the LAST
+		    selection regardless of which chip was clicked. */}
 
 	</VibeChatArea>
 	</div>

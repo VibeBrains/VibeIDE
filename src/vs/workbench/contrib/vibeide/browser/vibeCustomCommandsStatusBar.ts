@@ -98,7 +98,7 @@ export class VibeCustomCommandsStatusBarContribution extends Disposable implemen
 			return;
 		}
 		const props = {
-			name: localize('vibeProjectCommandsStatusBarName', 'VibeIDE Project Commands'),
+			name: localize('vibeProjectCommandsStatusBarName', 'Пользовательские команды VibeIDE'),
 			text: state.text,
 			ariaLabel: state.tooltip,
 			tooltip: state.tooltip,

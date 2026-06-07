@@ -64,13 +64,13 @@ registerWorkbenchContribution2(VibeProjectsContextKeysContribution.ID, VibeProje
 const vibeProjectsActivityGlyph = registerVibeideFaRegularIcon(
 	'vibeide-vibe-projects-activity',
 	'\uf07c',
-	localize('vibeProjects.activityIcon', 'Vibe Projects activity bar icon'),
+	localize('vibeProjects.activityIcon', 'Иконка Vibe Projects на панели активности'),
 );
 
 const vibeProjectsViewTabIcon = registerVibeideFaRegularIcon(
 	'vibeide-vibe-projects-view-tab',
 	'\uf07c',
-	localize('vibeProjects.viewTab', 'Vibe Projects view tab'),
+	localize('vibeProjects.viewTab', 'Вкладка представления Vibe Projects'),
 );
 
 const vibeProjectsViewContainerRegistry = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry);
@@ -92,7 +92,7 @@ vibeProjectsViewsRegistry.registerViews(
 	[
 		{
 			id: VIBE_PROJECTS_VIEW_ID,
-			name: localize2('vibeProjects.viewName', 'Favorites'),
+			name: localize2('vibeProjects.viewName', 'Избранное'),
 			containerIcon: vibeProjectsViewTabIcon,
 			ctorDescriptor: new SyncDescriptor(VibeProjectsViewPane),
 			canToggleVisibility: false,
@@ -101,7 +101,7 @@ vibeProjectsViewsRegistry.registerViews(
 			order: 1,
 			openCommandActionDescriptor: {
 				id: VIBE_PROJECTS_VIEWLET_ID,
-				mnemonicTitle: localize({ key: 'vibeProjects_mnemonic2', comment: ['&& denotes a mnemonic'] }, "Vibe &&Projects"),
+				mnemonicTitle: localize({ key: 'vibeProjects_mnemonic2', comment: ['&& denotes a mnemonic'] }, "Vibe &&Проекты"),
 				keybindings: {
 					primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KeyB,
 					when: ContextKeyExpr.regex('neverMatch', /doesNotMatch/),
@@ -116,7 +116,7 @@ vibeProjectsViewsRegistry.registerViews(
 vibeProjectsViewsRegistry.registerViewWelcomeContent(VIBE_PROJECTS_VIEW_ID, {
 	content: localize(
 		'vibeProjects.welcome',
-		'No saved projects yet.\n[Save Project](command:{0})\n[Edit Projects](command:{1})',
+		'Сохранённых проектов пока нет.\n[Сохранить проект](command:{0})\n[Редактировать проекты](command:{1})',
 		VibeProjectsCommands.saveProject,
 		VibeProjectsCommands.editProjects,
 	),
@@ -132,7 +132,7 @@ registerAction2(
 		constructor() {
 			super({
 				id: VibeProjectsCommands.saveProject,
-				title: localize2('vibeProjects.saveProject', 'Vibe Projects: Save Project'),
+				title: localize2('vibeProjects.saveProject', 'Vibe Projects: Сохранить проект'),
 				icon: Codicon.save,
 				category: vibeCategory,
 				f1: true,
@@ -149,22 +149,22 @@ registerAction2(
 			const ledger = accessor.get(IVibeProjectsService);
 
 			if (workspace.getWorkbenchState() === WorkbenchState.EMPTY) {
-				notice.info(localize('vibeProjects.needWorkspace', 'Open a folder or workspace before saving it as a Vibe Project.'));
+				notice.info(localize('vibeProjects.needWorkspace', 'Откройте папку или рабочую область перед сохранением в качестве Vibe Project.'));
 				return;
 			}
 
 			const snapshot = workspace.getWorkspace();
 			const target = snapshot.configuration ?? snapshot.folders[0]?.uri;
 			if (!target) {
-				notice.warn(localize('vibeProjects.nothingToPin', 'No path available to save.'));
+				notice.warn(localize('vibeProjects.nothingToPin', 'Нет доступного пути для сохранения.'));
 				return;
 			}
 
 			const guess = basename(target);
 			const label = await quick.input({
-				title: localize('vibeProjects.inputTitle', 'Project name'),
+				title: localize('vibeProjects.inputTitle', 'Название проекта'),
 				value: guess,
-				validateInput: async v => (v.trim().length ? undefined : localize('vibeProjects.emptyLabel', 'Name cannot be empty')),
+				validateInput: async v => (v.trim().length ? undefined : localize('vibeProjects.emptyLabel', 'Название не может быть пустым')),
 			});
 			if (!label?.trim()) {
 				return;
@@ -184,7 +184,7 @@ registerAction2(
 		constructor() {
 			super({
 				id: VibeProjectsCommands.editProjects,
-				title: localize2('vibeProjects.editProjects', 'Vibe Projects: Edit Projects'),
+				title: localize2('vibeProjects.editProjects', 'Vibe Projects: Редактировать проекты'),
 				icon: Codicon.edit,
 				category: vibeCategory,
 				f1: true,
@@ -220,7 +220,7 @@ registerAction2(
 		constructor() {
 			super({
 				id: VibeProjectsCommands.viewAsTags,
-				title: localize2('vibeProjects.viewAsTags', 'Vibe Projects: View as Tags'),
+				title: localize2('vibeProjects.viewAsTags', 'Vibe Projects: Показать по тегам'),
 				icon: Codicon.listTree,
 				category: vibeCategory,
 				f1: true,
@@ -241,7 +241,7 @@ registerAction2(
 		constructor() {
 			super({
 				id: VibeProjectsCommands.viewAsList,
-				title: localize2('vibeProjects.viewAsList', 'Vibe Projects: View as List'),
+				title: localize2('vibeProjects.viewAsList', 'Vibe Projects: Показать списком'),
 				icon: Codicon.listFlat,
 				category: vibeCategory,
 				f1: true,
@@ -262,7 +262,7 @@ registerAction2(
 		constructor() {
 			super({
 				id: VibeProjectsCommands.listProjects,
-				title: localize2('vibeProjects.listProjects', 'Vibe Projects: List Projects to Open'),
+				title: localize2('vibeProjects.listProjects', 'Vibe Projects: Открыть проект из списка'),
 				icon: Codicon.search,
 				category: vibeCategory,
 				f1: true,
@@ -280,13 +280,13 @@ registerAction2(
 
 			const seeds = await ledger.readEntries();
 			if (!seeds.length) {
-				notice.info(localize('vibeProjects.emptyRoster', 'No projects yet — use Save Project.'));
+				notice.info(localize('vibeProjects.emptyRoster', 'Проектов пока нет — используйте «Сохранить проект».'));
 				return;
 			}
 
 			type SeedPick = IQuickPickItem & { entry: (typeof seeds)[number] };
 			const picks: SeedPick[] = seeds.map(s => ({ label: s.label, description: s.target.fsPath, entry: s }));
-			const pick = await quick.pick(picks, { placeHolder: localize('vibeProjects.pick.placeholder', 'Select a project to open') });
+			const pick = await quick.pick(picks, { placeHolder: localize('vibeProjects.pick.placeholder', 'Выберите проект для открытия') });
 			const hit = pick?.entry;
 			if (!hit) {
 				return;
@@ -305,7 +305,7 @@ registerAction2(
 		constructor() {
 			super({
 				id: VibeProjectsCommands.filterByTag,
-				title: localize2('vibeProjects.filterByTag', 'Vibe Projects: Filter Projects by Tag'),
+				title: localize2('vibeProjects.filterByTag', 'Vibe Projects: Фильтр проектов по тегу'),
 				icon: Codicon.tag,
 				category: vibeCategory,
 				f1: true,
@@ -317,7 +317,7 @@ registerAction2(
 
 		async run(accessor: ServicesAccessor): Promise<void> {
 			const notice = accessor.get(INotificationService);
-			notice.info(localize('vibeProjects.noTagsYet', 'No tags yet — tags can be assigned to projects in a future release.'));
+			notice.info(localize('vibeProjects.noTagsYet', 'Тегов пока нет — теги можно будет назначать проектам в одном из следующих выпусков.'));
 		}
 	},
 );
@@ -327,7 +327,7 @@ registerAction2(
 		constructor() {
 			super({
 				id: VibeProjectsCommands.collapseAll,
-				title: localize2('vibeProjects.collapseAll', 'Vibe Projects: Collapse All'),
+				title: localize2('vibeProjects.collapseAll', 'Vibe Projects: Свернуть всё'),
 				icon: Codicon.collapseAll,
 				category: vibeCategory,
 				f1: true,
@@ -339,7 +339,7 @@ registerAction2(
 
 		async run(accessor: ServicesAccessor): Promise<void> {
 			const notice = accessor.get(INotificationService);
-			notice.info(localize('vibeProjects.collapseAllStub', 'Tag groups collapsing arrives with the tags release.'));
+			notice.info(localize('vibeProjects.collapseAllStub', 'Сворачивание групп тегов появится вместе с выпуском тегов.'));
 		}
 	},
 );
@@ -349,7 +349,7 @@ registerAction2(
 		constructor() {
 			super({
 				id: VibeProjectsCommands.openSettings,
-				title: localize2('vibeProjects.openSettings', 'Vibe Projects: Open Settings'),
+				title: localize2('vibeProjects.openSettings', 'Vibe Projects: Открыть настройки'),
 				category: vibeCategory,
 				f1: true,
 				menu: [

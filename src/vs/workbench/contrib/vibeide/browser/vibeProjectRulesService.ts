@@ -364,7 +364,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.projectRules.reload',
-			title: { value: localize('vibeide.projectRules.reload', 'VibeIDE: Reload Project Rules (force invalidation)'), original: 'VibeIDE: Reload Project Rules (force invalidation)' },
+			title: { value: localize('vibeide.projectRules.reload', 'VibeIDE: Перезагрузить правила проекта (принудительная инвалидация)'), original: 'VibeIDE: Reload Project Rules (force invalidation)' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -379,7 +379,7 @@ registerAction2(class extends Action2 {
 		notifications.notify({
 			severity: Severity.Info,
 			message: localize('vibeide.projectRules.reloaded',
-				'Project rules reloaded: {0} sources, {1} chars total.',
+				'Правила проекта перезагружены: {0} источников, {1} символов всего.',
 				sources.length,
 				combined.length
 			),
@@ -461,7 +461,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.projectRules.showSources',
-			title: { value: localize('vibeide.projectRules.showSources', 'VibeIDE: Show Loaded Project Rule Sources'), original: 'VibeIDE: Show Loaded Project Rule Sources' },
+			title: { value: localize('vibeide.projectRules.showSources', 'VibeIDE: Показать загруженные источники правил проекта'), original: 'VibeIDE: Show Loaded Project Rule Sources' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});

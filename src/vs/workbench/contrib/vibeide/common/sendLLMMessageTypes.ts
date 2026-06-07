@@ -194,7 +194,10 @@ export type AnthropicReasoning = ({ type: 'thinking'; thinking: any; signature: 
 // promptTokens / completionTokens / totalTokens; legacy OpenAI / Anthropic shapes
 // map to the same fields when surfaced through `@ai-sdk/*` adapters. Optional —
 // not every termination path (e.g. early timeout, abort) yields usage.
-export type LLMTokenUsage = { promptTokens?: number; completionTokens?: number; totalTokens?: number }
+// `cachedInputTokens` — provider-reported prompt-cache hits (subset of promptTokens);
+// surfaced so the TokenBudget log shows whether cache-friendly prompt assembly works
+// (knowledge/roadmap/token-economy.md, A).
+export type LLMTokenUsage = { promptTokens?: number; completionTokens?: number; totalTokens?: number; cachedInputTokens?: number }
 
 export type OnText = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj }) => void
 export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; usage?: LLMTokenUsage }) => void // id is tool_use_id

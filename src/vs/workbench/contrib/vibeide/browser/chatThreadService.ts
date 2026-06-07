@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------*/
 
 import { vibeLog } from '../common/vibeLog.js';
-import { Disposable, IDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -15,11 +15,12 @@ import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { recordChatTrace } from './vibeChatRunTrace.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '../common/prompt/toolAliases.js';
-import { toolCallSignature, resolveAntiLoopThreshold } from '../common/agentLoopHeuristics.js';
+import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, QUESTION_AUTO_CONTINUE_DEFAULT } from '../common/agentLoopHeuristics.js';
 import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
 import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
 import { AnthropicReasoning, getErrorMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS, classifyProviderError } from '../common/modelHealthTracker.js';
+import { translateProviderError } from '../common/providerErrorTranslator.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { autoModelFallbackProviderOrder, ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isVisionByNameHeuristic } from '../common/modelVisionHeuristics.js';
@@ -108,6 +109,7 @@ const MAX_CONSECUTIVE_TOOL_ERRORS = 15 // Circuit-breaker: abort agent loop afte
 const AUTO_DOWNGRADE_THRESHOLD = 6 // After this many consecutive tool failures per-(provider×model), CONSIDER an `_autoDetected` override switching the model to XML-fallback — but only for the `numeric-tool-name` quirk (see the gate at the downgrade trigger). Other reasons (missing-required-field / wrong-tool-name / other) are transient, self-correcting failures that opencode just retries through on native FC, so we no longer shove the model into XML for them (that was the root cause of capable models like deepseek-v4-pro getting stuck — see model-stalls #008). Raised 3→6: 3 was trigger-happy on transient failures. Counter resets on `success`. See roadmap O.2.
 const ANTI_LOOP_SIGNATURE_RING = 50 // Anti-loop guard: how many recent tool-call signatures to retain per request. Bounds memory while spanning enough history to catch slow re-read cycles. See roadmap F (aggregator-failures section).
 const ANTI_LOOP_MAX_BLOCKS = 8 // Anti-loop guard: after this many TOTAL short-circuited (blocked) calls in one request, the model is clearly ignoring the hint — abort the loop with a hard message instead of spinning to maxLoopIterations. Last-resort escalation; the per-signature threshold (`vibeide.chat.antiLoopRepeatThreshold`) is the first line.
+const ANTI_LOOP_MAX_CONSECUTIVE_SAME_BLOCKS = 3 // Tighter escalation for the SAME signature blocked back-to-back with no executed call in between: the model is verbatim-replaying one call (observed: get_dir_tree on the same dir ×4 after the guard hint, each costing a full LLM round-trip). Three identical consecutive blocks ≈ zero chance the next nudge lands — abort early instead of burning turns to the total cap.
 
 // Classify the last tool failure into a coarse reason code stored as
 // `_reason` on auto-detected overrides (roadmap O.7). Drives toast wording and
@@ -231,6 +233,7 @@ const DEFAULT_EARLY_STALL_SECONDS      = 15      // soft signal: show inline "st
 const DEFAULT_FIRST_TOKEN_STALL_SECONDS = 30     // no first token received after sending request
 const DEFAULT_MID_STREAM_STALL_SECONDS = 45      // no new token received during active streaming
 const DEFAULT_HARD_STALL_SECONDS       = 120     // 120s — default auto-abort threshold
+const HARD_STALL_AUTO_RETRY_MAX        = 1       // ONE automatic re-send per thread after a hard-stall: a second stall in a row means the hang is systemic (payload/provider), not transient — surface the error instead of burning more silent 120s windows. Reset on any successful reply; on/off via `vibeide.chat.hardStallAutoRetry`.
 
 // Read a numeric setting with NaN-guard. Math.max/min propagate NaN, which then
 // becomes setTimeout(NaN * 1000) — a no-op timer that silently disables stall
@@ -707,6 +710,16 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	// are parsed at runtime from the VibeIDE-emitted error template via regex.
 	// Key shape: `${threadId}:${providerName}:${modelName}`.
 	private readonly _emptyResponseStreak = new Map<string, number>()
+	// Consecutive auto-waits on minute-window rate limits per thread (autopilot resume).
+	// Bounded by `vibeide.chat.rateLimitAutoWaitMaxRetries`; reset on any successful reply.
+	private readonly _rateLimitAutoWaitStreak = new Map<string, number>()
+	// Consecutive hard-stall auto-retries per thread (`vibeide.chat.hardStallAutoRetry`).
+	// Capped at HARD_STALL_AUTO_RETRY_MAX; reset on any successful reply.
+	private readonly _hardStallAutoRetryStreak = new Map<string, number>()
+	// Models auto-downgraded to XML after a «no endpoints support tool_choice» 404 —
+	// SESSION-wide by necessity: the post-downgrade retry starts a new run, so a
+	// run-local guard would reset and loop the downgrade forever.
+	private readonly _noToolsDowngradedModels = new Set<string>()
 
 	// Cross-thread health tracker per (provider, model) combo. Counts failures
 	// (empty-response, overflow, invalid-params) in a rolling 10-min window. When
@@ -1846,7 +1859,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		if (opinion.verdict !== 'looks_ok') {
 			this._notificationService.notify({
 				severity: opinion.verdict === 'security_concern' ? Severity.Warning : Severity.Info,
-				message: localize('vibeide.planSecondOpinion', 'Advisory plan review: {0}', opinion.message),
+				message: localize('vibeide.planSecondOpinion', 'Совещательное ревью плана: {0}', opinion.message),
 			})
 		}
 
@@ -2718,14 +2731,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		updatedSteps[stepIdx] = {
 			...updatedSteps[stepIdx],
 			status: 'paused',
-			error: localize('vibeide.planToolDriftStepError', 'Paused: tool "{0}" does not match this step\'s planned tools. Update `.vibe/plans/*.plan.md` or resume.', String(toolName)),
+			error: localize('vibeide.planToolDriftStepError', 'Пауза: инструмент "{0}" не совпадает с запланированными для этого шага. Обновите `.vibe/plans/*.plan.md` или продолжите.', String(toolName)),
 		};
 		const updatedPlan: PlanMessage = { ...plan, steps: updatedSteps, approvalState: 'executing' };
 		this._editMessageInThread(threadId, planIdx, updatedPlan);
 		this._planCache.delete(threadId);
 		this._notificationService.notify({
 			severity: Severity.Warning,
-			message: localize('vibeide.planToolDriftNotify', 'Plan paused: tool "{0}" diverges from the step\'s planned tools.', String(toolName)),
+			message: localize('vibeide.planToolDriftNotify', 'План приостановлен: инструмент "{0}" расходится с запланированными для этого шага.', String(toolName)),
 		});
 		return true;
 	}
@@ -2795,14 +2808,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		updatedSteps[stepIdx] = {
 			...updatedSteps[stepIdx],
 			status: 'paused',
-			error: localize('vibeide.planMcpAllowlistStepError', 'Paused: MCP tool "{0}" on server "{1}" is outside this step\'s allowlist. Update `.vibe/plans/*.plan.md` or resume.', String(toolName), String(srvTxt)),
+			error: localize('vibeide.planMcpAllowlistStepError', 'Пауза: MCP-инструмент "{0}" сервера "{1}" вне allowlist этого шага. Обновите `.vibe/plans/*.plan.md` или продолжите.', String(toolName), String(srvTxt)),
 		};
 		const updatedPlan: PlanMessage = { ...plan, steps: updatedSteps, approvalState: 'executing' };
 		this._editMessageInThread(threadId, planIdx, updatedPlan);
 		this._planCache.delete(threadId);
 		this._notificationService.notify({
 			severity: Severity.Warning,
-			message: localize('vibeide.planMcpAllowlistNotify', 'Plan paused: MCP tool "{0}" violates the step allowlist.', String(toolName)),
+			message: localize('vibeide.planMcpAllowlistNotify', 'План приостановлен: MCP-инструмент "{0}" нарушает allowlist шага.', String(toolName)),
 		});
 		return true;
 	}
@@ -2849,6 +2862,23 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		return hasComplexIndicator || actionCount >= 3
 	}
 
+	/**
+	 * Auxiliary-model routing (knowledge/roadmap/token-economy.md, C): service LLM calls
+	 * (plan generation etc.) don't need the user's main — often expensive — model. When
+	 * `vibeide.chat.auxiliaryModel` is set to a known `provider/model`, route there.
+	 * Unset / invalid value → null, caller keeps the main selection (a typo in the setting
+	 * must degrade to current behaviour, not break the service call).
+	 */
+	private _resolveAuxiliaryModelSelection(): ModelSelection | null {
+		const raw = this._configurationService.getValue<unknown>('vibeide.chat.auxiliaryModel')
+		if (typeof raw !== 'string' || raw.trim().length === 0) { return null }
+		const resolved = this._findModelSelectionForId(raw.trim())
+		if (!resolved) {
+			vibeLog.warn('chatThread', `auxiliaryModel "${raw.trim()}" not found among configured providers — using the main model for this service call.`)
+		}
+		return resolved
+	}
+
 	// Generate plan from user request by asking LLM
 	private async _generatePlanFromUserRequest(
 		threadId: string,
@@ -2857,6 +2887,15 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	): Promise<void> {
 		const thread = this.state.allThreads[threadId]
 		if (!thread) return
+
+		// Service call → cheap auxiliary model when configured (token-economy C).
+		// `_findModelSelectionForId` never returns the pseudo-provider 'auto', but the type
+		// allows it — narrow explicitly so the options lookup index-checks.
+		const auxSelection = this._resolveAuxiliaryModelSelection()
+		if (auxSelection && auxSelection.providerName !== 'auto') {
+			modelSelection = auxSelection
+			modelSelectionOptions = this._settingsService.state.optionsOfModelSelection['Chat'][auxSelection.providerName]?.[auxSelection.modelName]
+		}
 
 		const lastUserMessage = thread.messages.filter(m => m.role === 'user').pop()
 		if (!lastUserMessage || lastUserMessage.role !== 'user') return
@@ -3005,11 +3044,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				})
 
 				if (!llmCancelToken) {
-					this._setStreamState(threadId, { isRunning: undefined, error: { message: localize('vibeide.chatThread.plan.failedToGenerate', 'Failed to generate plan'), fullError: null } })
+					this._setStreamState(threadId, { isRunning: undefined, error: { message: localize('vibeide.chatThread.plan.failedToGenerate', 'Не удалось сгенерировать план'), fullError: null } })
 					reject(new Error('Failed to start plan generation'))
 				}
 			} catch (error) {
-				this._setStreamState(threadId, { isRunning: undefined, error: { message: localize('vibeide.chatThread.plan.errorGenerating', 'Error generating plan'), fullError: error instanceof Error ? error : null } })
+				this._setStreamState(threadId, { isRunning: undefined, error: { message: localize('vibeide.chatThread.plan.errorGenerating', 'Ошибка при генерации плана'), fullError: error instanceof Error ? error : null } })
 				reject(error)
 			}
 		})
@@ -3562,14 +3601,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// Info severity (not warning) to be less intrusive
 		this._notificationService.notify({
 			severity: Severity.Info,
-			message: localize('yolo.autoApplied', 'Auto-applied {0} to {1}', operationLabel, fileName),
+			message: localize('yolo.autoApplied', 'Автоприменено: {0} → {1}', operationLabel, fileName),
 			source: 'YOLO Mode',
 			sticky: false, // Auto-dismiss
 			actions: {
 				primary: [{
 					id: 'yolo.undo',
-					label: localize('yolo.undo', 'Undo'),
-					tooltip: localize('yolo.undoTooltip', 'Undo this edit'),
+					label: localize('yolo.undo', 'Отменить'),
+					tooltip: localize('yolo.undoTooltip', 'Отменить эту правку'),
 					class: undefined,
 					enabled: true,
 					run: async () => {
@@ -3582,7 +3621,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							});
 						} catch (error) {
 							// Undo failed, show error
-							this._notificationService.warn(localize('yolo.undoFailed', 'Could not undo edit. Use Ctrl+Z manually.'));
+							this._notificationService.warn(localize('yolo.undoFailed', 'Не удалось отменить правку. Используйте Ctrl+Z вручную.'));
 						}
 					},
 				}],
@@ -4297,6 +4336,20 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		repoIndexerPromise?: Promise<{ results: string[], metrics: any } | null>,
 	}) {
 
+		// Concurrency guard: ONE agent loop per thread. Observed (2026-06-07): a hard-stall
+		// cleared the stream state while the previous loop's HTTP was still in flight; rapid
+		// «продолжи» presses then spawned parallel loops that interleaved writes into the
+		// same thread (msgs count regressing 40 → 37 in the logs). A second loop never
+		// helps — refuse it loudly instead. Only ACTIVE states block: 'idle' must pass
+		// (plan pauses park the thread at 'idle' and resume re-enters here).
+		// (typed as plain string so the guard's narrowing doesn't leak into the per-turn
+		// `isRunning !== 'LLM'` check further down — tsgo propagates alias narrowing).
+		const existingRun = this.streamState[threadId]?.isRunning as string | undefined
+		if (existingRun === 'LLM' || existingRun === 'tool') {
+			vibeLog.warn('chatThread', `Refusing to start a second agent loop for threadId=${threadId} (existing run state: ${existingRun}).`)
+			return
+		}
+
 		// CRITICAL: Validate and resolve model selection BEFORE starting the loop
 		// This prevents wasted API calls and ensures we have a valid model
 		let resolvedModelSelection = modelSelection
@@ -4364,9 +4417,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 			if (costDecision.kind === 'require-confirm') {
 				const body = describeCostDecision(forecast, costDecision);
 				const result = await this._dialogService.confirm({
-					message: localize('vibeide.cost.confirm.title', 'VibeIDE — cost confirmation'),
+					message: localize('vibeide.cost.confirm.title', 'VibeIDE — подтверждение стоимости'),
 					detail: body,
-					primaryButton: localize('vibeide.cost.confirm.primary', 'Send request'),
+					primaryButton: localize('vibeide.cost.confirm.primary', 'Отправить запрос'),
 				});
 				if (!result.confirmed) {
 					this._setStreamState(threadId, { isRunning: undefined });
@@ -4441,10 +4494,23 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// even when context truncation has erased the prior result from the model's view.
 		const recentToolSignatures: string[] = []
 		let antiLoopBlocks = 0
+		// Same-signature streak for the tighter escalation (see ANTI_LOOP_MAX_CONSECUTIVE_SAME_BLOCKS).
+		// Reset whenever a call PASSES the guard (any executed call = progress).
+		let lastBlockedToolSig: string | undefined
+		let consecutiveSameSigBlocks = 0
 		const rawAntiLoop = this._configurationService.getValue<unknown>('vibeide.chat.antiLoopRepeatThreshold')
 		const antiLoopThreshold = (typeof rawAntiLoop === 'number' && Number.isFinite(rawAntiLoop) && rawAntiLoop >= 0)
 			? Math.min(20, Math.floor(rawAntiLoop))
 			: 3
+		// Escalation caps (config-driven; constants are the registered-default mirrors).
+		const rawMaxBlocks = this._configurationService.getValue<unknown>('vibeide.chat.antiLoopMaxBlocks')
+		const antiLoopMaxBlocks = (typeof rawMaxBlocks === 'number' && Number.isFinite(rawMaxBlocks) && rawMaxBlocks >= 1)
+			? Math.min(50, Math.floor(rawMaxBlocks))
+			: ANTI_LOOP_MAX_BLOCKS
+		const rawSameBlocks = this._configurationService.getValue<unknown>('vibeide.chat.antiLoopMaxConsecutiveSameBlocks')
+		const antiLoopMaxConsecutiveSameBlocks = (typeof rawSameBlocks === 'number' && Number.isFinite(rawSameBlocks) && rawSameBlocks >= 1)
+			? Math.min(20, Math.floor(rawSameBlocks))
+			: ANTI_LOOP_MAX_CONSECUTIVE_SAME_BLOCKS
 
 		// PERFORMANCE: Check for plan ONCE at start, not on every tool call
 		// Only do plan tracking if an active plan exists
@@ -4678,6 +4744,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// Premature-stop nudge: consecutive agent-mode turns that returned text with NO tool call.
 		// Reset to 0 on any executed tool call (progress). Bounds the Autopilot auto-continue.
 		let autoContinueOnTextCount = 0
+		// Question-ending turns get their own ALWAYS-nudge lane under Autopilot (a closing «…?»
+		// is a permission-seeking stall nobody answers in unattended mode). Bounded by the
+		// `autoContinueOnQuestion` setting (0 = unlimited); reset on any executed tool call, same as above.
+		let questionNudgeCount = 0
 
 		// Track tools executed in this request to detect incomplete workflows
 		let toolsExecutedInRequest: string[] = []
@@ -5224,8 +5294,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					clearStallNotification()
 					setInlineStall()
 					const msg = kind === 'noFirstToken'
-						? localize('agentStall.noFirstToken', 'Agent is waiting for AI response (>{0}s). The model may be slow or the connection stalled.', firstTokenStallSeconds)
-						: localize('agentStall.midStream', 'AI response stream paused (>{0}s with no new tokens). The model may be stuck.', midStreamStallSeconds)
+						? localize('agentStall.noFirstToken', 'Агент ждёт ответ модели (>{0}с). Модель может быть медленной, либо соединение зависло.', firstTokenStallSeconds)
+						: localize('agentStall.midStream', 'Стрим ответа модели приостановился (>{0}с без новых токенов). Модель могла зависнуть.', midStreamStallSeconds)
 					stallNotificationHandle = this._notificationService.notify({ severity: Severity.Warning, message: msg })
 				}
 				let earlyStallTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(setInlineStall, earlyStallMs)
@@ -5243,18 +5313,43 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				let hardStallTimer: ReturnType<typeof setTimeout> | undefined
 				const onHardStall = () => {
 					// No partial content commit: hardStall resets on every token, so reaching it
-					// means nothing arrived. Abort the LLM call, drop the stream state, surface
-					// an error so the user can retry or switch models.
+					// means nothing arrived. Abort the LLM call, drop the stream state, then either
+					// auto-retry the turn ONCE (Zen holds large payloads without a single byte —
+					// observed repeatedly on 40-90k-token requests; a fresh attempt usually goes
+					// through) or surface the error so the user can retry / switch models.
 					try { if (llmCancelToken) this._llmMessageService.abort(llmCancelToken) } catch { /* already aborted */ }
 					clearTimeout(earlyStallTimer); earlyStallTimer = undefined
 					clearTimeout(firstTokenStallTimer); firstTokenStallTimer = undefined
 					clearTimeout(midStreamStallTimer); midStreamStallTimer = undefined
 					clearTimeout(hardStallTimer); hardStallTimer = undefined
 					clearStallNotification()
+
+					// Single retry by design: a SECOND hard-stall right after a fresh attempt means
+					// the hang is systemic (payload/provider), not transient — surface it instead of
+					// burning another silent 120s window. Streak resets on any successful reply.
+					const autoRetryEnabled = this._configurationService.getValue<boolean>('vibeide.chat.hardStallAutoRetry') !== false
+					const stallStreak = this._hardStallAutoRetryStreak.get(threadId) ?? 0
+					if (autoRetryEnabled && stallStreak < HARD_STALL_AUTO_RETRY_MAX) {
+						this._hardStallAutoRetryStreak.set(threadId, stallStreak + 1)
+						vibeLog.warn('chatThread', `Hard-stall auto-retry: re-sending the turn (attempt ${stallStreak + 1}/${HARD_STALL_AUTO_RETRY_MAX}, threadId=${threadId}).`)
+						this._notificationService.notify({
+							severity: Severity.Info,
+							message: localize('vibeide.chatThread.hardStallAutoRetry', 'Стрим завис ({0}с без токенов) — пробую отправить ход заново автоматически.', String(hardStallSeconds)),
+						})
+						this._setStreamState(threadId, { isRunning: undefined })
+						const retryTimer = setTimeout(() => {
+							if (this.streamState[threadId]?.isRunning === undefined) {
+								this._runChatAgent({ threadId, ...this._currentModelSelectionProps() })
+							}
+						}, 2_000)
+						this._register(toDisposable(() => clearTimeout(retryTimer)))
+						return
+					}
+
 					this._setStreamState(threadId, {
 						isRunning: undefined,
 						error: {
-							message: localize('vibeide.chatThread.streamHardStall', 'Stream stalled — no tokens received for {0}s. The provider may be unreachable, overloaded, or rejected the request size. Try retrying, switching the model, or shortening the conversation.', String(hardStallSeconds)),
+							message: localize('vibeide.chatThread.streamHardStall', 'Стрим завис — нет токенов уже {0}с. Провайдер может быть недоступен, перегружен или отклонил слишком большой запрос. Повторите попытку, переключите модель или сократите переписку.', String(hardStallSeconds)),
 							fullError: null,
 						},
 					})
@@ -5269,7 +5364,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						if (fx.kind === 'show-waiting') {
 							setInlineStall()
 						} else if (fx.kind === 'show-retrying') {
-							this._notificationService.notify({ severity: Severity.Info, message: localize('vibeide.streamRetrying', 'Reconnecting to AI provider (attempt {0})…', fx.attempt) })
+							this._notificationService.notify({ severity: Severity.Info, message: localize('vibeide.streamRetrying', 'Переподключение к AI-провайдеру (попытка {0})…', fx.attempt) })
 						} else if (fx.kind === 'auto-retry-scheduled') {
 							watchdogRetry = true
 							shouldRetryLLM = true
@@ -5308,6 +5403,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					resolvedModelSelection.providerName !== 'auto'
 					&& !persistentOverrideProbedThisSession.has(recoveryKey)
 					&& !downgradedModelsThisSession.has(recoveryKey)
+					// No-tools downgrades are deliberate and re-run the turn in a NEW run, where
+					// the run-local sets above are fresh — without this session-wide check the
+					// recovery cleared the just-written override seconds later and the model
+					// 404'd again (downgrade → rerun → recovery undid it → error, 2026-06-08).
+					&& !this._noToolsDowngradedModels.has(recoveryKey)
 				) {
 					persistentOverrideProbedThisSession.add(recoveryKey)
 					// Use resolvedModelSelection (const) — NOT the mutable `modelSelection` let. Passing
@@ -5315,7 +5415,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					// collapses `modelSelection` to `any`. Cast mirrors the downgrade/probe write sites.
 					const prov = resolvedModelSelection.providerName as Exclude<typeof resolvedModelSelection.providerName, 'auto'>
 					const persisted = this._settingsService.state.overridesOfModel?.[prov]?.[resolvedModelSelection.modelName]
-					if (persisted?._autoDetected) {
+					// Age guard: «cross-session recovery» exists for STALE overrides (yesterday's
+					// aggregator quirk may be fixed today). An override written minutes ago — e.g.
+					// just before a window reload or by a downgrade-rerun — is not stale; clearing
+					// it only re-triggers the original failure chain.
+					const RECOVERY_MIN_OVERRIDE_AGE_MS = 10 * 60 * 1000
+					const isFreshOverride = typeof persisted?._detectedAt === 'number' && (Date.now() - persisted._detectedAt) < RECOVERY_MIN_OVERRIDE_AGE_MS
+					if (persisted?._autoDetected && !isFreshOverride) {
 						try {
 							await this._settingsService.setOverridesOfModel(prov, resolvedModelSelection.modelName, undefined)
 							this._agentActivityLog.logFinished(`Cross-session recovery: cleared stale XML override for ${recoveryKey} → native FC this session`)
@@ -5438,6 +5544,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					// CONSECUTIVE empties; one good reply means the model is alive again.
 					if (modelSelection) {
 						this._emptyResponseStreak.delete(`${threadId}:${modelSelection.providerName}:${modelSelection.modelName}`)
+						this._rateLimitAutoWaitStreak.delete(threadId)
+						this._hardStallAutoRetryStreak.delete(threadId)
 						// Also reset the cross-thread health tracker for this combo. One good
 						// response means the aggregator route is healthy again; next failure
 						// cycle starts fresh.
@@ -5552,6 +5660,17 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						chatLatencyAudit.markNetworkEnd(finalRequestId)
 						// Mark stream as complete with 0 tokens on error
 						chatLatencyAudit.markStreamComplete(finalRequestId, 0)
+						// Diagnostic breadcrumb: which error reached the chat-level handler and with
+						// what classification inputs. Debug-gated; invaluable when a run "just stops"
+						// (the 2026-06-07 rate-limit auto-wait silently not firing took a session to
+						// reconstruct without this line).
+						vibeLog.debug('chatThread', 'onError', {
+							requestId: finalRequestId,
+							msgHead: (error?.message ?? '').slice(0, 100),
+							status: (error?.fullError as { statusCode?: number } | null | undefined)?.statusCode,
+							autopilot: this._settingsService.state.globalSettings.chatAgentAutopilot === true,
+							rateWaitStreak: this._rateLimitAutoWaitStreak.get(threadId) ?? 0,
+						})
 
 						// Empty-response circuit breaker. Parse provider/model out of OUR
 						// own error template (no hardcoded names). If the same combo
@@ -5630,6 +5749,95 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							}
 						}
 
+						// Auto-wait on minute-window rate limits (token-economy follow-up): a 429
+						// whose retry-after is SECONDS (day-scale ones are re-statused to 402
+						// upstream — see customFetch) means «slow down», not «broken». Stopping the
+						// run over a transient TPM window forces the user to babysit «продолжи»
+						// (observed: Anthropic org limit 30k input-tokens/min at ~23k-token turns,
+						// 3-4 manual resumes per task). Deliberately NOT gated on Autopilot — this
+						// is an infrastructure retry of the same LLM turn, no tools are executed
+						// during the pause, so it is safe in supervised mode too.
+						if (!overflowMatch && !emptyMatch
+							&& /rate.?limit|too many requests|\b429\b/i.test(error?.message ?? '')) {
+							const rawWaitMax = this._configurationService.getValue<unknown>('vibeide.chat.rateLimitAutoWaitMaxSeconds')
+							const waitMaxSec = (typeof rawWaitMax === 'number' && Number.isFinite(rawWaitMax) && rawWaitMax >= 0) ? Math.floor(rawWaitMax) : 120
+							const rawWaitRetries = this._configurationService.getValue<unknown>('vibeide.chat.rateLimitAutoWaitMaxRetries')
+							const waitMaxRetries = (typeof rawWaitRetries === 'number' && Number.isFinite(rawWaitRetries) && rawWaitRetries >= 0) ? Math.floor(rawWaitRetries) : 3
+							const streak = this._rateLimitAutoWaitStreak.get(threadId) ?? 0
+							// retry-after may sit on the wrapper, the last inner error, or be absent
+							// (default 30s ≈ a minute-window half-life).
+							const rawErr0 = error?.fullError as { responseHeaders?: Record<string, string>; lastError?: unknown; errors?: unknown[] } | null | undefined
+							const candidates = [rawErr0, rawErr0?.lastError, ...(Array.isArray(rawErr0?.errors) ? rawErr0.errors : [])] as Array<{ responseHeaders?: Record<string, string> } | null | undefined>
+							let retryAfterSec: number | undefined
+							for (const c of candidates) {
+								const ra = Number(c?.responseHeaders?.['retry-after'])
+								if (Number.isFinite(ra) && ra > 0) { retryAfterSec = ra; break }
+							}
+							// A retry-after beyond the wait cap is a period quota in rate-limit clothing
+							// («Rate limit exceeded: Monthly usage limit…») — waiting the capped time is
+							// hopeless, fall through to the regular error instead of burning retries.
+							const hopelesslyFar = retryAfterSec !== undefined && retryAfterSec > waitMaxSec
+							if (waitMaxSec > 0 && streak < waitMaxRetries && !hopelesslyFar) {
+								const waitSec = Math.min(Math.max(retryAfterSec ?? 30, 5), waitMaxSec)
+								this._rateLimitAutoWaitStreak.set(threadId, streak + 1)
+								vibeLog.warn('chatThread', `Rate-limit auto-wait: resuming in ${waitSec}s (attempt ${streak + 1}/${waitMaxRetries}, threadId=${threadId}).`)
+								this._notificationService.notify({
+									severity: Severity.Info,
+									message: localize('vibeide.chatThread.rateLimitAutoWait', 'Минутный лимит провайдера — автопауза {0}с, затем продолжу автоматически (попытка {1} из {2}).', String(waitSec), String(streak + 1), String(waitMaxRetries)),
+								})
+								this._setStreamState(threadId, { isRunning: undefined })
+								const resumeTimer = setTimeout(() => {
+									// Resume only if the user hasn't already restarted the thread manually.
+									if (this.streamState[threadId]?.isRunning === undefined) {
+										this._runChatAgent({ threadId, ...this._currentModelSelectionProps() })
+									}
+								}, waitSec * 1000)
+								this._register(toDisposable(() => clearTimeout(resumeTimer)))
+								return
+							}
+						}
+
+						// Tools-unsupported endpoint (observed: OpenRouter free variants → 404
+						// «No endpoints found that support the provided 'tool_choice'»). Native FC
+						// can never work on this route — flip the model to the XML tool-format
+						// override (same mechanism as the numeric-tool-name auto-downgrade) and
+						// re-run the turn automatically. Once per model per session.
+						const noToolsEndpoint = /no endpoints found that support.{0,40}tool|does not support tool(?:s| use| calling)/i.test(error?.message ?? '')
+						// Guard MUST be class-level (_noToolsDowngradedModels): the retry below starts a
+						// NEW _runChatAgent whose run-local `downgradedModelsThisSession` is fresh — a
+						// run-local guard let the downgrade toast loop forever (observed 2026-06-07).
+						if (noToolsEndpoint && modelSelection && modelSelection.providerName !== 'auto'
+							&& !this._noToolsDowngradedModels.has(`${modelSelection.providerName}:${modelSelection.modelName}`)) {
+							const modelKey = `${modelSelection.providerName}:${modelSelection.modelName}`
+							try {
+								await this._settingsService.setOverridesOfModel(modelSelection.providerName, modelSelection.modelName, {
+									// null, NOT undefined — undefined keys are dropped by JSON/IPC
+									// serialization and the override never reached the main process.
+									specialToolFormat: null,
+									_autoDetected: true,
+									_detectedAt: Date.now(),
+									_reason: 'other',
+								})
+								this._noToolsDowngradedModels.add(modelKey)
+								downgradedModelsThisSession.add(modelKey)
+								vibeLog.warn('chatThread', `No-tools endpoint: ${modelKey} → XML tool format, re-running the turn.`)
+								this._notificationService.notify({
+									severity: Severity.Info,
+									message: localize('vibeide.chatThread.noToolsEndpointDowngrade', 'Эндпоинт модели {0} не поддерживает native-вызов инструментов (типично для free-вариантов OpenRouter) — переключаю на XML-формат тулов и повторяю ход автоматически.', modelSelection.modelName),
+								})
+								this._setStreamState(threadId, { isRunning: undefined })
+								const downgradeRetryTimer = setTimeout(() => {
+									if (this.streamState[threadId]?.isRunning === undefined) {
+										this._runChatAgent({ threadId, ...this._currentModelSelectionProps() })
+									}
+								}, 1_000)
+								this._register(toDisposable(() => clearTimeout(downgradeRetryTimer)))
+								return
+							} catch (e) {
+								this._agentActivityLog.logError(`No-tools downgrade failed for ${modelKey}: ${getErrorMessage(e)}`)
+							}
+						}
+
 						// Cross-thread health notification — fires once per (provider,model) every
 						// SUPPRESSION_WINDOW_MS when failures cross HEALTH_FAILURE_THRESHOLD within
 						// HEALTH_WINDOW_MS. Catches the case where user spread failures across multiple
@@ -5667,6 +5875,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								threshold: HEALTH_FAILURE_THRESHOLD,
 							})
 							vibeLog.warn('chatThread', `Model health degraded: ${healthMatch.providerName}/${healthMatch.modelName} (${count} failures in ${windowMin} min).`)
+						}
+
+						// Translate well-known RAW provider error texts to Russian (deterministic
+						// dictionary — no LLM on the error path: the model is what just failed).
+						// Our own localized messages (overflow/breaker above) contain Cyrillic and
+						// pass through untouched; unmatched English stays as-is.
+						if (effectiveError?.message) {
+							const translated = translateProviderError(effectiveError.message)
+							if (translated) { effectiveError = { ...effectiveError, message: translated } }
 						}
 
 						// Clear stream state immediately so submit button becomes active (avoids stuck "Waiting for model response..." if audit or resolve fails)
@@ -5730,7 +5947,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 				// mark as streaming
 				if (!llmCancelToken) {
-					this._setStreamState(threadId, { isRunning: undefined, error: { message: localize('vibeide.chatThread.send.unexpectedError', 'There was an unexpected error when sending your chat message.'), fullError: null } })
+					this._setStreamState(threadId, { isRunning: undefined, error: { message: localize('vibeide.chatThread.send.unexpectedError', 'Непредвиденная ошибка при отправке сообщения в чат.'), fullError: null } })
 					break
 				}
 
@@ -6094,7 +6311,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						anthropicReasoning: info.anthropicReasoning ?? null,
 					})
 					const corrective = '⚙️ Авто-исправление: твой предыдущий tool-call был в некорректном/обрезанном XML и не распознан. Переотправь РОВНО ОДИН валидный tool-call в каноническом формате. Если инструмент не нужен — ответь обычным текстом.'
-					this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, state: defaultMessageState })
+					this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState })
 					shouldSendAnotherMessage = true
 					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
 					continue
@@ -6250,16 +6467,35 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				//   - Autopilot OFF → stop, but explain why + surface a one-click «Продолжить».
 				// The model's real reply is already saved above; we only add a nudge/notice on top.
 				// Skipped when a synthesis path already handled this turn (those own their own flow).
-				if (chatMode === 'agent' && !toolCall && info.fullText.trim()
+				// COMPLETELY EMPTY turns (no text AND no tool call — Zen degradation artifact,
+				// observed on sonnet mid-task) take the same path: previously they fell through
+				// and the run died SILENTLY with no notice and no «Продолжить» affordance.
+				if (chatMode === 'agent' && !toolCall
 					&& !hasSynthesizedToolsInThisRequest && !toolSynthesizedAndMessageAdded) {
 					const autopilotOn = this._settingsService.state.globalSettings.chatAgentAutopilot === true
 					const rawMaxNudges = this._configurationService.getValue<unknown>('vibeide.agent.autoContinueMaxNudges')
 					const maxNudges = (typeof rawMaxNudges === 'number' && Number.isFinite(rawMaxNudges) && rawMaxNudges >= 0) ? Math.floor(rawMaxNudges) : 2
 
-					if (autopilotOn && maxNudges > 0 && autoContinueOnTextCount < maxNudges) {
+					// A turn that ENDS with a question («Приступать к реализации?») is a permission-seeking
+					// stall: under Autopilot nobody answers, so it is ALWAYS nudged — independent of the
+					// regular nudge budget (works even at maxNudges=0). Bounded by its own CONSECUTIVE
+					// counter from `vibeide.agent.autoContinueOnQuestion` (toolbar «подпин?», default 3,
+					// 0 = unlimited), reset on every executed tool call like the regular nudge counter.
+					const rawQuestionNudges = this._configurationService.getValue<unknown>('vibeide.agent.autoContinueOnQuestion')
+					const maxQuestionNudges = (typeof rawQuestionNudges === 'number' && Number.isFinite(rawQuestionNudges) && rawQuestionNudges >= 0) ? Math.floor(rawQuestionNudges) : QUESTION_AUTO_CONTINUE_DEFAULT
+					const askedQuestion = endsWithQuestion(info.fullText)
+					const withinNudgeBudget = maxNudges > 0 && autoContinueOnTextCount < maxNudges
+					const questionOverride = askedQuestion && (maxQuestionNudges === 0 || questionNudgeCount < maxQuestionNudges)
+
+					if (autopilotOn && (withinNudgeBudget || questionOverride)) {
 						autoContinueOnTextCount += 1
-						const corrective = '⚙️ Авто-продолжение (автопилот): ты завершил ход текстом без вызова инструмента. Если задача НЕ закончена — продолжай, вызвав нужный инструмент. Если задача выполнена — заверши явно. Если нужен ответ пользователя — задай вопрос и остановись.'
-						this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, state: defaultMessageState })
+						if (askedQuestion) { questionNudgeCount += 1 }
+						const corrective = askedQuestion
+							? '⚙️ Авто-продолжение (автопилот): ты завершил ход вопросом, но автопилот включён — пользователь в этом режиме не отвечает. Прими решение самостоятельно (выбери разумный вариант по умолчанию, зафиксируй его одной строкой) и продолжай работу инструментами. Не жди подтверждения.'
+							: info.fullText.trim().length === 0
+								? '⚙️ Авто-продолжение (автопилот): твой предыдущий ход пришёл ПУСТЫМ (ни текста, ни вызова инструмента) — вероятно, сбой доставки ответа. Продолжай выполнение задачи с того места, где остановился: вызови следующий нужный инструмент или дай финальный ответ.'
+								: '⚙️ Авто-продолжение (автопилот): ты завершил ход текстом без вызова инструмента. Если задача НЕ закончена — продолжай, вызвав нужный инструмент. Если задача выполнена — заверши явно. Если не хватает данных — прими разумное решение сам и продолжай.'
+						this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState })
 						shouldSendAnotherMessage = true
 						this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
 						continue
@@ -6269,7 +6505,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					// + a one-click resume affordance (rendered by SidebarChat on the last message).
 					this._addMessageToThread(threadId, {
 						role: 'assistant',
-						displayContent: localize('vibeide.agent.stoppedNoToolCall', 'Агент остановился: модель завершила ход текстом без вызова инструмента — задача может быть не закончена. Частый артефакт слабых tool-calling-моделей (проговаривают ход вместо вызова инструмента). Нажмите «Продолжить», чтобы подтолкнуть модель дальше.'),
+						displayContent: localize('vibeide.agent.stoppedNoToolCall', 'Прогон завершён: модель закончила ход текстом без вызова инструмента. Если задача не доделана — нажмите «Продолжить» или напишите следующий шаг.'),
 						reasoning: '',
 						anthropicReasoning: null,
 						agentStoppedNoToolCall: true,
@@ -6430,10 +6666,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						if (recentToolSignatures.length > ANTI_LOOP_SIGNATURE_RING) { recentToolSignatures.shift() }
 						if (priorSameCount >= effectiveThreshold) {
 							antiLoopBlocks += 1
+							consecutiveSameSigBlocks = (toolSig === lastBlockedToolSig) ? consecutiveSameSigBlocks + 1 : 1
+							lastBlockedToolSig = toolSig
 							this._metricsService.capture('Anti-Loop Guard Tripped', {
 								toolName: toolCall.name,
 								repeats: priorSameCount,
 								totalBlocks: antiLoopBlocks,
+								consecutiveSameSigBlocks,
 								threshold: antiLoopThreshold,
 								effectiveThreshold,
 								chatMode,
@@ -6441,8 +6680,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 							// Escalation: the model keeps re-issuing identical calls despite the hint.
 							// Abort the loop with a hard message rather than spin to maxLoopIterations.
-							if (antiLoopBlocks > ANTI_LOOP_MAX_BLOCKS) {
-								const abortMsg = `Agent loop aborted: the model repeatedly issued identical tool calls (\`${toolCall.name}\` and others) without acting on the results — ${antiLoopBlocks} blocked repetitions in this turn. This usually means the task is ambiguous or the model is stuck. Rephrase the request, narrow the scope, or switch to a different model.`
+							// Two triggers: total blocked calls across the request (mixed patterns), or
+							// the SAME signature blocked back-to-back (verbatim replay — hopeless sooner).
+							if (antiLoopBlocks > antiLoopMaxBlocks || consecutiveSameSigBlocks >= antiLoopMaxConsecutiveSameBlocks) {
+								const abortMsg = localize('vibeide.antiLoop.aborted', 'Прогон агента остановлен: модель повторяла один и тот же tool-call (`{0}` и др.), игнорируя результаты — {1} заблокированных повторов. Обычно это значит, что задача сформулирована неоднозначно или модель застряла. Переформулируйте запрос, сузьте область или переключите модель.', toolCall.name, String(antiLoopBlocks))
 								this._notificationService.warn(abortMsg)
 								this._addMessageToThread(threadId, {
 									role: 'tool',
@@ -6460,7 +6701,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								return
 							}
 
-							const hint = `Anti-loop guard: you have already called \`${toolCall.name}\` with these exact arguments ${priorSameCount} time(s) in this turn, so this call was NOT executed again — the result will not change. Use the result you already obtained, or move on to the next step / give your final answer. Do not repeat this call.`
+							const hint = `Anti-loop guard: you have already called \`${toolCall.name}\` with these exact arguments ${priorSameCount} time(s) in this turn, so this call was NOT executed again — the result will not change. Use the result you already obtained, or move on to the next step / give your final answer. If you actually meant a DIFFERENT target (another folder, file, command or query), change the arguments to match it instead of repeating these. Do not repeat this call.`
 							this._addMessageToThread(threadId, {
 								role: 'tool',
 								type: 'tool_error',
@@ -6477,6 +6718,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
 							continue
 						}
+						// Call passed the guard → the model changed its arguments or tool: progress.
+						// Break the same-signature streak so only UNINTERRUPTED replays escalate.
+						consecutiveSameSigBlocks = 0
+						lastBlockedToolSig = undefined
 					}
 
 					// PERFORMANCE: Use cached step from activePlanTracking, don't lookup every time
@@ -6586,7 +6831,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									providerForOverride,
 									resolvedModelSelection.modelName,
 									{
-										specialToolFormat: undefined,
+										// null, NOT undefined: undefined keys are dropped by JSON/IPC
+										// serialization, so the override never reached the main process
+										// (getModelCapabilities normalizes null→undefined on read).
+										specialToolFormat: null,
 										_autoDetected: true,
 										_detectedAt: Date.now(),
 										_reason: reason,
@@ -6647,9 +6895,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					// Tool errors are handled by _runToolCall which adds error messages to the thread
 					// The loop will continue so the model can process the error
 					toolsExecutedInRequest.push(toolCall.name)
-					// Real progress — reset the premature-stop nudge budget so only CONSECUTIVE
-					// text-only turns (no tool call between them) are auto-continued.
+					// Real progress — reset the premature-stop nudge budgets so only CONSECUTIVE
+					// text-only / question-only turns (no tool call between them) are auto-continued.
 					autoContinueOnTextCount = 0
+					questionNudgeCount = 0
 
 					// Only update plan step status if we have an active plan (skip if no plan)
 					if (activePlanTracking?.currentStep) {
@@ -7259,14 +7508,14 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 			this._notificationService.notify({
 				severity: error ? Severity.Warning : Severity.Info,
-				message: error ? localize('vibeide.chatThread.notify.errorPrefix', 'Error: {0} ', error) : localize('vibeide.chatThread.notify.resultReady', 'A new Chat result is ready.'),
+				message: error ? localize('vibeide.chatThread.notify.errorPrefix', 'Ошибка: {0} ', error) : localize('vibeide.chatThread.notify.resultReady', 'Готов новый ответ в чате.'),
 				source: messageContent,
 				sticky: true,
 				actions: {
 					primary: [{
 						id: 'vibe.goToChat',
 						enabled: true,
-						label: localize('vibeide.chatThread.notify.jumpToChat', 'Jump to Chat'),
+						label: localize('vibeide.chatThread.notify.jumpToChat', 'Перейти к чату'),
 						tooltip: '',
 						class: undefined,
 						run: () => {
@@ -7334,7 +7583,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 					this._setStreamState(threadId, {
 						isRunning: undefined,
 						error: {
-							message: localize('vibeide.chatThread.submitHardStall', 'Submit timed out — preparation stage did not finish within {0}s (no progress to "Preparing request..."). Likely a hung file read, model router, or prompt-prep step. Try retrying, switching the model, or removing attached files / context.', String(submitWatchdogSeconds)),
+							message: localize('vibeide.chatThread.submitHardStall', 'Отправка зависла — этап подготовки не завершился за {0}с (нет прогресса до «Подготовка запроса…»). Вероятно, завис чтение файла, роутер моделей или сборка промпта. Повторите попытку, переключите модель или уберите прикреплённые файлы/контекст.', String(submitWatchdogSeconds)),
 							fullError: null,
 						},
 					})
@@ -7712,7 +7961,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 	// gets the location of codespan link so the user can click on it
 	generateCodespanLink: IChatThreadService['generateCodespanLink'] = (args) => {
-		const key = `${args.threadId} ${args.codespanStr}`
+		const key = `${args.threadId}\u0000${args.codespanStr}`
 		let cached = this._codespanLinkCache.get(key)
 		if (!cached) {
 			if (this._codespanLinkCache.size > 5000) { this._codespanLinkCache.clear() } // bound memory on very long sessions

@@ -12,23 +12,23 @@ import { localize } from '../../../../nls.js';
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'vibeide.cost',
-	title: localize('vibeide.cost.title', 'VibeIDE — Cost Controls'),
+	title: localize('vibeide.cost.title', 'VibeIDE — Управление стоимостью'),
 	type: 'object',
 	properties: {
 		'vibeide.cost.confirmThreshold': {
 			type: 'number',
 			default: 0.5,
-			description: localize('vibeide.cost.confirmThreshold', 'Show a confirmation dialog before sending a request whose estimated cost exceeds this value in USD. Set to 0 to always confirm; set to a very large number to disable. Default: $0.50.'),
+			description: localize('vibeide.cost.confirmThreshold', 'Показывать диалог подтверждения перед отправкой запроса, если предполагаемая стоимость превышает это значение в USD. 0 — подтверждать всегда; очень большое число — отключить. По умолчанию: $0.50.'),
 		},
 		'vibeide.cost.confirmTokenThreshold': {
 			type: 'number',
 			default: 50000,
-			description: localize('vibeide.cost.confirmTokenThreshold', 'Show a confirmation dialog before sending a request whose estimated token count exceeds this value. Default: 50 000.'),
+			description: localize('vibeide.cost.confirmTokenThreshold', 'Показывать диалог подтверждения перед отправкой запроса, если предполагаемое число токенов превышает это значение. По умолчанию: 50 000.'),
 		},
 		'vibeide.cost.alwaysConfirm': {
 			type: 'boolean',
 			default: false,
-			description: localize('vibeide.cost.alwaysConfirm', 'Always show a cost confirmation dialog before sending any LLM request, regardless of estimated cost. Useful during development or cost auditing.'),
+			description: localize('vibeide.cost.alwaysConfirm', 'Всегда показывать диалог подтверждения стоимости перед отправкой любого LLM-запроса, независимо от предполагаемой стоимости. Полезно при разработке или аудите расходов.'),
 		},
 	},
 });

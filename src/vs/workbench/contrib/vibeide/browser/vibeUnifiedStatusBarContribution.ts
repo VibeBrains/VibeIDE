@@ -66,7 +66,7 @@ export class VibeUnifiedStatusBarContribution extends Disposable implements IWor
 		return {
 			name: localize('vibeide.unified.sb.name', 'VibeIDE'),
 			text: '$(vibeide-logo) VibeIDE',
-			ariaLabel: localize('vibeide.unified.sb.aria', 'VibeIDE status'),
+			ariaLabel: localize('vibeide.unified.sb.aria', 'Статус VibeIDE'),
 			tooltip: '',
 			command: SHOW_COMMAND,
 		};
@@ -76,7 +76,7 @@ export class VibeUnifiedStatusBarContribution extends Disposable implements IWor
 		return {
 			...this._baseProps(),
 			text,
-			ariaLabel: localize('vibeide.unified.sb.aria', 'VibeIDE status'),
+			ariaLabel: localize('vibeide.unified.sb.aria', 'Статус VibeIDE'),
 			tooltip,
 		};
 	}
@@ -94,7 +94,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: SHOW_COMMAND,
-			title: { value: localize('vibeide.unified.showPopup', 'VibeIDE: Show Status Popup'), original: 'VibeIDE: Show Status Popup' },
+			title: { value: localize('vibeide.unified.showPopup', 'VibeIDE: Показать всплывающее окно статуса'), original: 'VibeIDE: Show Status Popup' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -113,8 +113,8 @@ registerAction2(class extends Action2 {
 			command: r.command,
 		}));
 		const picked = await quickInput.pick(items, {
-			title: localize('vibeide.unified.popupTitle', 'VibeIDE status'),
-			placeHolder: localize('vibeide.unified.popupPh', 'Select to open the related panel/action'),
+			title: localize('vibeide.unified.popupTitle', 'Статус VibeIDE'),
+			placeHolder: localize('vibeide.unified.popupPh', 'Выберите для открытия связанной панели или действия'),
 			matchOnDescription: true,
 			matchOnDetail: true,
 		});

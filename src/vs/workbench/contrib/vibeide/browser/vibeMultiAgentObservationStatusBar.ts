@@ -93,23 +93,23 @@ export class VibeMultiAgentObservationStatusBarContribution extends Disposable i
 		const hasAny = agents > 0 || wtActive > 0 || !!lock;
 		if (!hasAny) {
 			return {
-				name: localize('vibeideMaObsSbName', 'VibeIDE agents / worktrees'),
+				name: localize('vibeideMaObsSbName', 'VibeIDE агенты / воркдеревья'),
 				text: '',
-				ariaLabel: localize('vibeideMaObsSbAriaIdle', 'No isolated agent worktrees'),
+				ariaLabel: localize('vibeideMaObsSbAriaIdle', 'Изолированных агентских воркдеревьев нет'),
 				tooltip: localize(
 					'vibeideMaObsSbTipIdle',
-					'Isolation status: idle. Multi-agent sessions and git worktrees will show counts here; checkpoint mutex holder when active.'
+					'Статус изоляции: простой. Здесь будут отображаться счётчики мультиагентных сессий и git-воркдеревьев, а при активности — держатель мьютекса чекпоинта.'
 				),
 			};
 		}
 		const lockHint = lock
-			? localize('vibeideMaObsLock', 'checkpoint lock: {0}', lock)
-			: localize('vibeideMaObsNoLock', 'no checkpoint lock');
+			? localize('vibeideMaObsLock', 'блокировка чекпоинта: {0}', lock)
+			: localize('vibeideMaObsNoLock', 'блокировки чекпоинта нет');
 		return {
-			name: localize('vibeideMaObsSbName', 'VibeIDE agents / worktrees'),
+			name: localize('vibeideMaObsSbName', 'VibeIDE агенты / воркдеревья'),
 			text: `A:${agents} W:${wtActive}${lock ? ' L' : ''}`,
-			ariaLabel: localize('vibeideMaObsAria', 'Agents {0}, agent worktrees {1}. {2}', agents, wtActive, lockHint),
-			tooltip: localize('vibeideMaObsTip', '{0}; agents derived from isolated worktrees.', lockHint),
+			ariaLabel: localize('vibeideMaObsAria', 'Агентов: {0}, агентских воркдеревьев: {1}. {2}', agents, wtActive, lockHint),
+			tooltip: localize('vibeideMaObsTip', '{0}; агенты привязаны к изолированным воркдеревьям.', lockHint),
 		};
 	}
 }

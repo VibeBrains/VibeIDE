@@ -49,37 +49,37 @@ export interface IVibeSlashCommandService {
 const BUILTIN_COMMANDS: SlashCommand[] = [
 	{
 		name: 'fix',
-		description: localize('vibeide.slash.fix.desc', 'Fix the current error or issue'),
+		description: localize('vibeide.slash.fix.desc', 'Исправить текущую ошибку или проблему'),
 		category: 'builtin',
 		execute: (args) => `Fix the following issue: ${args || 'Fix all errors in the current file'}. Explain what was wrong and how you fixed it.`,
 	},
 	{
 		name: 'tests',
-		description: localize('vibeide.slash.tests.desc', 'Write tests for the current code'),
+		description: localize('vibeide.slash.tests.desc', 'Написать тесты для текущего кода'),
 		category: 'builtin',
 		execute: (args) => `Write comprehensive tests for ${args || 'the current file'}. Include happy path, edge cases, and error cases.`,
 	},
 	{
 		name: 'explain',
-		description: localize('vibeide.slash.explain.desc', 'Explain the current code'),
+		description: localize('vibeide.slash.explain.desc', 'Объяснить текущий код'),
 		category: 'builtin',
 		execute: (args) => `Explain ${args || 'the current file'} in clear language. Describe what it does, how it works, and any important patterns.`,
 	},
 	{
 		name: 'refactor',
-		description: localize('vibeide.slash.refactor.desc', 'Refactor for clarity and performance'),
+		description: localize('vibeide.slash.refactor.desc', 'Рефакторинг для ясности и производительности'),
 		category: 'builtin',
 		execute: (args) => `Refactor ${args || 'this code'} for clarity, performance, and maintainability. Follow best practices. Explain your changes.`,
 	},
 	{
 		name: 'review',
-		description: localize('vibeide.slash.review.desc', 'Code review with suggestions'),
+		description: localize('vibeide.slash.review.desc', 'Код-ревью с рекомендациями'),
 		category: 'builtin',
 		execute: (args) => `Review ${args || 'this code'} for bugs, security issues, performance problems, and style. Provide actionable suggestions.`,
 	},
 	{
 		name: 'docs',
-		description: localize('vibeide.slash.docs.desc', 'Add documentation/comments'),
+		description: localize('vibeide.slash.docs.desc', 'Добавить документацию / комментарии'),
 		category: 'builtin',
 		execute: (args) => `Add clear documentation and comments to ${args || 'this code'}. Use the appropriate doc format (JSDoc, docstring, etc.).`,
 	},

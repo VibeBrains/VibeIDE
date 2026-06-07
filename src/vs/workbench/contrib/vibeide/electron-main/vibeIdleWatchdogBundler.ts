@@ -10,7 +10,7 @@
  * can share a snapshot of an incident in one file. Contents:
  *
  *   logs/vibe-idle-watchdog/2026-MM-DD.jsonl × last 3 days
- *   logs/vibe-idle-watchdog/snapshots/*.heapsnapshot × up to 3
+ *   logs/vibe-idle-watchdog/snapshots/*.heapsnapshot × up to 3, not older than 3 days
  *   logs/YYYYMMDDTHHmmss/main.log + window1/renderer.log + window1/exthost/exthost.log × last 5 sessions
  *   system-info.json — { os, cpus, totalmem, freemem, versions, vibeVersion }
  *
@@ -48,9 +48,15 @@ function listJsonlFiles(watchdogDir: string): string[] {
 function listSnapshots(snapshotsDir: string): string[] {
 	try {
 		if (!fs.existsSync(snapshotsDir)) return [];
+		// Freshness gate mirrors the jsonl window (MAX_DAYS): a bundle documents the CURRENT
+		// incident, and a week-old 130MB+ heapsnapshot from a long-fixed investigation only
+		// bloats every export (observed: two May snapshots riding along in June bundles,
+		// 45MB per zip). Belt to the service-side age pruning's braces.
+		const cutoffMs = Date.now() - MAX_DAYS * 24 * 60 * 60 * 1000;
 		return fs.readdirSync(snapshotsDir)
 			.filter(f => f.endsWith('.heapsnapshot'))
 			.map(f => ({ name: f, full: path.join(snapshotsDir, f), mtime: fs.statSync(path.join(snapshotsDir, f)).mtimeMs }))
+			.filter(x => x.mtime >= cutoffMs)
 			.sort((a, b) => b.mtime - a.mtime)
 			.slice(0, MAX_SNAPSHOTS)
 			.map(x => x.full);

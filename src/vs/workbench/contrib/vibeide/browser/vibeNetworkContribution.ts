@@ -27,7 +27,7 @@ function ensureNetworkOutputChannel(): void {
 	if (!reg.getChannel(VIBE_NETWORK_CHANNEL_ID)) {
 		reg.registerChannel({
 			id: VIBE_NETWORK_CHANNEL_ID,
-			label: localize('vibeide.network.channelLabel', 'VibeIDE Outbound Connections'),
+			label: localize('vibeide.network.channelLabel', 'Исходящие соединения VibeIDE'),
 			log: false,
 		});
 	}

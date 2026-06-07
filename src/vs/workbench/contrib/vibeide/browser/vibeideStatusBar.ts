@@ -109,13 +109,13 @@ export class VibeideStatusBarContribution extends Disposable implements IWorkben
 			const icon = isActive ? '$(loading~spin)' : '$(code)';
 			const text = isActive ? `${icon} Auto` : `${icon} Auto`;
 			const tooltipReason = isOffline
-				? '\n\n' + localize('vibeide.model.tooltip.reason.offline', 'Reason: Offline mode - using local model')
-				: '\n\n' + localize('vibeide.model.tooltip.reason.auto', 'Reason: Automatic model selection based on task');
+				? '\n\n' + localize('vibeide.model.tooltip.reason.offline', 'Причина: автономный режим — используется локальная модель')
+				: '\n\n' + localize('vibeide.model.tooltip.reason.auto', 'Причина: автоматический выбор модели по задаче');
 			return {
-				name: localize('vibeide.model', "Vibeide Model"),
+				name: localize('vibeide.model', "Модель VibeIDE"),
 				text,
-				ariaLabel: localize('vibeide.model.auto', "Vibeide Model: Auto{0}", isActive ? ' (Active)' : ''),
-				tooltip: statusMessage || (localize('vibeide.model.auto.tooltip', "Model: Auto (automatic selection)") + tooltipReason),
+				ariaLabel: localize('vibeide.model.auto', "VibeIDE, модель: Авто{0}", isActive ? ' (активна)' : ''),
+				tooltip: statusMessage || (localize('vibeide.model.auto.tooltip', "Модель: Авто (автоматический выбор)") + tooltipReason),
 			};
 		}
 
@@ -125,24 +125,24 @@ export class VibeideStatusBarContribution extends Disposable implements IWorkben
 		const icon = isActive ? '$(loading~spin)' : '$(code)';
 
 		// Build enhanced tooltip with reasoning
-		let tooltip = statusMessage || localize('vibeide.model.tooltip', "Model: {0} ({1})", modelName, providerName);
+		let tooltip = statusMessage || localize('vibeide.model.tooltip', "Модель: {0} ({1})", modelName, providerName);
 
 		// Add privacy/offline explanation
 		if (isLocal) {
-			tooltip += '\n\n' + localize('vibeide.model.tooltip.privacy.local', 'Privacy: Local/offline model - data stays on your device');
+			tooltip += '\n\n' + localize('vibeide.model.tooltip.privacy.local', 'Конфиденциальность: локальная/офлайн-модель — данные остаются на устройстве');
 		} else if (isOffline) {
-			tooltip += '\n\n' + localize('vibeide.model.tooltip.privacy.offline.fallback', 'Note: Currently offline - using cached/fallback model');
+			tooltip += '\n\n' + localize('vibeide.model.tooltip.privacy.offline.fallback', 'Примечание: нет сети — используется кешированная/резервная модель');
 		} else {
-			tooltip += '\n\n' + localize('vibeide.model.tooltip.privacy.remote', 'Privacy: Remote model - data sent to provider');
+			tooltip += '\n\n' + localize('vibeide.model.tooltip.privacy.remote', 'Конфиденциальность: удалённая модель — данные передаются провайдеру');
 		}
 
 		// Note: Routing reasoning could be added to metrics in the future
 		// to provide more detailed "why this model" explanations
 
 		return {
-			name: localize('vibeide.model', "Vibeide Model"),
+			name: localize('vibeide.model', "Модель VibeIDE"),
 			text: `${icon} ${displayName}`,
-			ariaLabel: localize('vibeide.model.selected', "Vibeide Model: {0} ({1}){2}", modelName, providerName, isActive ? ' (Active)' : ''),
+			ariaLabel: localize('vibeide.model.selected', "VibeIDE, модель: {0} ({1}){2}", modelName, providerName, isActive ? ' (активна)' : ''),
 			tooltip,
 		};
 	}
@@ -152,9 +152,9 @@ export class VibeideStatusBarContribution extends Disposable implements IWorkben
 		const allMetrics = metricsCollector.getAll();
 		if (allMetrics.length === 0) {
 			return {
-				name: localize('vibeide.latency', "Vibeide Latency"),
+				name: localize('vibeide.latency', "Задержка VibeIDE"),
 				text: '',
-				ariaLabel: localize('vibeide.latency.idle', "Vibeide Latency: Idle"),
+				ariaLabel: localize('vibeide.latency.idle', "VibeIDE, задержка: нет активности"),
 			};
 		}
 
@@ -188,12 +188,12 @@ export class VibeideStatusBarContribution extends Disposable implements IWorkben
 		const ttfsDisplay = ttfs > 0 ? `${Math.round(ttfs)}ms` : '—';
 		const text = `${icon} ${ttfsDisplay}${tokensPerSec}`;
 
-		const speedLine = tokensPerSec ? '\n' + localize('vibeide.latency.speedLine', 'Speed: {0}', tokensPerSec.trim()) : '';
+		const speedLine = tokensPerSec ? '\n' + localize('vibeide.latency.speedLine', 'Скорость: {0}', tokensPerSec.trim()) : '';
 		return {
-			name: localize('vibeide.latency', "Vibeide Latency"),
+			name: localize('vibeide.latency', "Задержка VibeIDE"),
 			text,
-			ariaLabel: localize('vibeide.latency.status', "Vibeide Latency: TTFS {0}, Status: {1}", ttfsDisplay, status),
-			tooltip: localize('vibeide.latency.tooltip', "Time to first token: {0}ms\nTime to stream: {1}ms{2}", ttfs, tts, speedLine),
+			ariaLabel: localize('vibeide.latency.status', "VibeIDE, задержка: TTFS {0}, статус: {1}", ttfsDisplay, status),
+			tooltip: localize('vibeide.latency.tooltip', "Время до первого токена: {0}мс\nВремя стриминга: {1}мс{2}", ttfs, tts, speedLine),
 		};
 	}
 
@@ -210,7 +210,7 @@ export class VibeideStatusBarContribution extends Disposable implements IWorkben
 		// Only show privacy indicator if local or offline
 		if (!isLocal && !isOffline) {
 			return {
-				name: localize('vibeide.privacy', "Vibeide Privacy"),
+				name: localize('vibeide.privacy', "Конфиденциальность VibeIDE"),
 				text: '', // Hide when not applicable
 				ariaLabel: '',
 			};
@@ -222,19 +222,19 @@ export class VibeideStatusBarContribution extends Disposable implements IWorkben
 
 		if (isOffline && isLocal) {
 			icon = '$(lock)';
-			tooltip = localize('vibeide.privacy.offline.local', "Privacy: Offline mode with local model\n\nYour data stays on your device and is never sent to remote servers.");
+			tooltip = localize('vibeide.privacy.offline.local', "Конфиденциальность: автономный режим с локальной моделью\n\nДанные остаются на вашем устройстве и не передаются на внешние серверы.");
 		} else if (isOffline) {
 			icon = '$(cloud-offline)';
-			tooltip = localize('vibeide.privacy.offline', "Privacy: Currently offline\n\nNo network connection available.");
+			tooltip = localize('vibeide.privacy.offline', "Конфиденциальность: нет сети\n\nСетевое подключение недоступно.");
 		} else if (isLocal) {
 			icon = '$(lock)';
-			tooltip = localize('vibeide.privacy.local', "Privacy: Local model\n\nYour data stays on your device and is never sent to remote servers.\n\nWhy this model: Privacy mode enabled or local model preferred for this task.");
+			tooltip = localize('vibeide.privacy.local', "Конфиденциальность: локальная модель\n\nДанные остаются на вашем устройстве и не передаются на внешние серверы.\n\nПочему эта модель: включён режим конфиденциальности или для этой задачи предпочтена локальная модель.");
 		}
 
 		return {
-			name: localize('vibeide.privacy', "Vibeide Privacy"),
+			name: localize('vibeide.privacy', "Конфиденциальность VibeIDE"),
 			text: icon,
-			ariaLabel: localize('vibeide.privacy.aria', "Vibeide Privacy: {0}", isOffline ? 'Offline' : 'Local'),
+			ariaLabel: localize('vibeide.privacy.aria', "VibeIDE, конфиденциальность: {0}", isOffline ? 'офлайн' : 'локально'),
 			tooltip,
 		};
 	}

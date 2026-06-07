@@ -49,13 +49,13 @@ export class VibeOllamaOnboardingContribution extends Disposable implements IWor
 				severity: Severity.Info,
 				message: localize(
 					'vibeOllamaDetected',
-					'🦙 Ollama detected with {0} model(s)! VibeIDE can use local models — no API key needed, complete privacy.',
+					'🦙 Обнаружен Ollama с {0} моделями! VibeIDE может использовать локальные модели — без API-ключа, полная конфиденциальность.',
 					result.modelCount
 				),
 				actions: {
 					primary: [{
 						id: 'vibeide.ollama.configure',
-						label: localize('vibeConfigure', 'Configure Ollama'),
+						label: localize('vibeConfigure', 'Настроить Ollama'),
 						tooltip: '',
 						class: undefined,
 						enabled: true,
@@ -83,6 +83,6 @@ CommandsRegistry.registerCommand(OLLAMA_REDETECT_CMD, (accessor: ServicesAccesso
 	accessor.get(IStorageService).remove(OLLAMA_PROBED_KEY, StorageScope.APPLICATION);
 	accessor.get(INotificationService).notify({
 		severity: Severity.Info,
-		message: localize('vibeOllamaRedetect', 'Ollama detection reset. Restart VibeIDE to re-probe local models.'),
+		message: localize('vibeOllamaRedetect', 'Определение Ollama сброшено. Перезапустите VibeIDE для повторного обнаружения локальных моделей.'),
 	});
 });

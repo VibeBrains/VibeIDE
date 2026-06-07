@@ -160,11 +160,11 @@ export class VibeProjectCommandsTopBarContribution extends Disposable implements
 			const contextTooltip: ITooltipWithCommands = {
 				content: tooltipContent,
 				commands: [
-					{ id: PROJECT_COMMANDS_PALETTE_IDS.run, title: localize('vibeide.topbar.ctx.run', 'Run') },
-					{ id: PROJECT_COMMANDS_PALETTE_IDS.edit, title: localize('vibeide.topbar.ctx.edit', 'Edit') },
-					{ id: PROJECT_COMMANDS_PALETTE_IDS.pin, title: localize('vibeide.topbar.ctx.pin', 'Pin') },
-					{ id: PROJECT_COMMANDS_PALETTE_IDS.unpin, title: localize('vibeide.topbar.ctx.unpin', 'Unpin') },
-					{ id: PROJECT_COMMANDS_PALETTE_IDS.delete, title: localize('vibeide.topbar.ctx.delete', 'Delete') },
+					{ id: PROJECT_COMMANDS_PALETTE_IDS.run, title: localize('vibeide.topbar.ctx.run', 'Выполнить') },
+					{ id: PROJECT_COMMANDS_PALETTE_IDS.edit, title: localize('vibeide.topbar.ctx.edit', 'Изменить') },
+					{ id: PROJECT_COMMANDS_PALETTE_IDS.pin, title: localize('vibeide.topbar.ctx.pin', 'Закрепить') },
+					{ id: PROJECT_COMMANDS_PALETTE_IDS.unpin, title: localize('vibeide.topbar.ctx.unpin', 'Открепить') },
+					{ id: PROJECT_COMMANDS_PALETTE_IDS.delete, title: localize('vibeide.topbar.ctx.delete', 'Удалить') },
 				],
 			};
 			const props: IStatusbarEntry = {
@@ -195,7 +195,7 @@ export class VibeProjectCommandsTopBarContribution extends Disposable implements
 		}
 		const props: IStatusbarEntry = {
 			name: localize('vibeide.topbar.anchor.name', 'VibeIDE: Project Commands'),
-			text: `$(terminal) ${localize('vibeide.topbar.anchor.text', 'Vibe Commands')}`,
+			text: `$(terminal) ${localize('vibeide.topbar.anchor.text', 'Vibe Команды')}`,
 			ariaLabel: localize('vibeide.topbar.anchor.aria', 'Открыть палитру Project Commands'),
 			tooltip: localize('vibeide.topbar.anchor.tooltip', 'Закреплённых команд нет. Кликните, чтобы открыть палитру Project Commands (можно добавить и закрепить новую).'),
 			command: PROJECT_COMMANDS_PALETTE_IDS.run,
@@ -248,23 +248,23 @@ export class VibeProjectCommandsTopBarContribution extends Disposable implements
 		for (const a of visible) {
 			switch (a) {
 				case 'run':
-					actions.push(new Action('vibeide.topbar.ctx.run', localize('vibeide.topbar.ctx.run', 'Run'), undefined, true,
+					actions.push(new Action('vibeide.topbar.ctx.run', localize('vibeide.topbar.ctx.run', 'Выполнить'), undefined, true,
 						async () => { await this._commands.run(cmd.id); }));
 					break;
 				case 'edit':
-					actions.push(new Action('vibeide.topbar.ctx.edit', localize('vibeide.topbar.ctx.edit', 'Edit'), undefined, true,
+					actions.push(new Action('vibeide.topbar.ctx.edit', localize('vibeide.topbar.ctx.edit', 'Изменить'), undefined, true,
 						async () => { await this._commandService.executeCommand(PROJECT_COMMANDS_PALETTE_IDS.edit); }));
 					break;
 				case 'unpin':
-					actions.push(new Action('vibeide.topbar.ctx.unpin', localize('vibeide.topbar.ctx.unpin', 'Unpin'), undefined, true,
+					actions.push(new Action('vibeide.topbar.ctx.unpin', localize('vibeide.topbar.ctx.unpin', 'Открепить'), undefined, true,
 						async () => { await this._commandService.executeCommand(PROJECT_COMMANDS_PALETTE_IDS.unpin); }));
 					break;
 				case 'delete':
-					actions.push(new Action('vibeide.topbar.ctx.delete', localize('vibeide.topbar.ctx.delete', 'Delete'), undefined, true,
+					actions.push(new Action('vibeide.topbar.ctx.delete', localize('vibeide.topbar.ctx.delete', 'Удалить'), undefined, true,
 						async () => { await this._commandService.executeCommand(PROJECT_COMMANDS_PALETTE_IDS.delete); }));
 					break;
 				case 'copy-command-line':
-					actions.push(new Action('vibeide.topbar.ctx.copy', localize('vibeide.topbar.ctx.copy', 'Copy command line'), undefined, true,
+					actions.push(new Action('vibeide.topbar.ctx.copy', localize('vibeide.topbar.ctx.copy', 'Скопировать командную строку'), undefined, true,
 						async () => { await this._commandService.executeCommand('vibeide.commands.copyCommandLine'); }));
 					break;
 			}

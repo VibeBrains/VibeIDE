@@ -86,6 +86,32 @@ export const resolveAntiLoopThreshold = (toolName: string, base: number): number
 };
 
 /**
+ * Default for `vibeide.agent.autoContinueOnQuestion` — max CONSECUTIVE question-triggered
+ * auto-continues (see `endsWithQuestion`). Under Autopilot a question-ending text turn is
+ * ALWAYS nudged — independent of the regular `autoContinueMaxNudges` budget — because nobody
+ * answers questions in unattended mode and the run would stall. The counter resets on every
+ * executed tool call, like the regular nudge counter. `0` means unlimited (∞) — the toolbar
+ * «подпин?» stepper exposes 0/5/10 presets next to this default.
+ */
+export const QUESTION_AUTO_CONTINUE_DEFAULT = 3;
+
+/**
+ * True when a model turn ends with a question — the last meaningful character is `?` (or
+ * fullwidth `？`), allowing trailing whitespace and markdown/quote/bracket tails so that
+ * `**Приступать?**`, `вопрос?»` and `(continue?)` all count. A question mark in the MIDDLE of
+ * the text does not. Used by the Autopilot premature-stop handler: under unattended execution
+ * a closing question («Приступать к реализации?») is a permission-seeking stall, not a real
+ * request for input — the agent should decide and continue.
+ */
+export const endsWithQuestion = (text: string): boolean => {
+	if (!text) { return false; }
+	// Strip trailing whitespace + common markdown emphasis / quote / bracket tail characters.
+	const trimmed = text.replace(/[\s*_`~"'»«)\]}>]+$/u, '');
+	const last = trimmed.charAt(trimmed.length - 1);
+	return last === '?' || last === '？';
+};
+
+/**
  * Budget-FILL tail selection for context truncation (roadmap F).
  *
  * Given per-message token estimates ordered oldest→newest and a token budget for the kept

@@ -37,13 +37,13 @@ export class OfflinePrivacyGate {
 
 			let message: string;
 			if (isOffline) {
-				message = localize('offlineBlocked', '{0} is unavailable: you are currently offline. Please check your internet connection.', operationName);
+				message = localize('offlineBlocked', '{0} недоступно: устройство не подключено к сети. Проверьте подключение к интернету.', operationName);
 			} else {
-				message = localize('privacyBlocked', '{0} is unavailable: privacy mode is enabled. Please disable privacy mode to use this feature.', operationName);
+				message = localize('privacyBlocked', '{0} недоступно: включён режим приватности. Отключите режим приватности для использования этой функции.', operationName);
 			}
 
 			if (allowOverride) {
-				message += ' ' + localize('overrideHint', 'You can override this in settings.');
+				message += ' ' + localize('overrideHint', 'Это ограничение можно отключить в настройках.');
 			}
 
 			throw new Error(message);
@@ -57,10 +57,10 @@ export class OfflinePrivacyGate {
 		const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
 
 		if (isOffline) {
-			return localize('offlineBlocked', '{0} is unavailable: you are currently offline. Please check your internet connection.', operationName);
+			return localize('offlineBlocked', '{0} недоступно: устройство не подключено к сети. Проверьте подключение к интернету.', operationName);
 		}
 
-		return localize('unknownBlocked', '{0} is unavailable.', operationName);
+		return localize('unknownBlocked', '{0} недоступно.', operationName);
 	}
 }
 

@@ -145,7 +145,7 @@ class GitAutoStashService extends Disposable implements IGitAutoStashService {
 			// Non-blocking toast
 			this._notificationService.notify({
 				severity: Severity.Info,
-				message: localize('autostash.created', 'Auto-stash created: {0} — use Git:Stashes to inspect.', stashRef),
+				message: localize('autostash.created', 'Авто-stash создан: {0} — откройте Git:Stashes для просмотра.', stashRef),
 				sticky: false,
 			});
 
@@ -208,7 +208,7 @@ class GitAutoStashService extends Disposable implements IGitAutoStashService {
 
 			this._notificationService.notify({
 				severity: Severity.Info,
-				message: localize('autostash.restored', 'Apply failed. Working tree restored from {0}.', stashRef),
+				message: localize('autostash.restored', 'Применение не удалось. Рабочее дерево восстановлено из {0}.', stashRef),
 				sticky: false,
 			});
 		} catch (error) {

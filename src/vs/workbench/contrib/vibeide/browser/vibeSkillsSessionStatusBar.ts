@@ -69,22 +69,22 @@ export class VibeSkillsSessionStatusBarContribution extends Disposable implement
 		const tipIds = ids.join(', ');
 		if (!ids.length) {
 			return {
-				name: localize('vibeideSkillsSessionSbName', 'VibeIDE session skills'),
+				name: localize('vibeideSkillsSessionSbName', 'VibeIDE скиллы сессии'),
 				text: '',
-				ariaLabel: localize('vibeideSkillsSessionSbAriaIdle', 'Session skill filter: off'),
+				ariaLabel: localize('vibeideSkillsSessionSbAriaIdle', 'Фильтр скиллов сессии: выключен'),
 				tooltip: localize(
 					'vibeideSkillsSessionSbTipIdle',
-					'No session skill filter. Run “VibeIDE: Skills — select for session” to limit GUIDELINES discovery.'
+					'Фильтр скиллов сессии не задан. Выполните «VibeIDE: Skills — select for session», чтобы ограничить обнаружение GUIDELINES.'
 				),
 			};
 		}
 		return {
-			name: localize('vibeideSkillsSessionSbName', 'VibeIDE session skills'),
-			text: localize('vibeideSkillsSessionSbText', 'skills:{0}', ids.length),
-			ariaLabel: localize('vibeideSkillsSessionSbAria', 'Session skill filter: {0} skills', ids.length),
+			name: localize('vibeideSkillsSessionSbName', 'VibeIDE скиллы сессии'),
+			text: localize('vibeideSkillsSessionSbText', 'скиллы:{0}', ids.length),
+			ariaLabel: localize('vibeideSkillsSessionSbAria', 'Фильтр скиллов сессии: {0} скиллов', ids.length),
 			tooltip: localize(
 				'vibeideSkillsSessionSbTip',
-				'Limited discovery to: {0}. Click to re-open picker; palette: “Skills — clear session filter”.',
+				'Обнаружение ограничено: {0}. Нажмите, чтобы открыть выборщик; палитра: «Skills — clear session filter».',
 				tipIds
 			),
 			command: 'vibeide.skills.pickSession',

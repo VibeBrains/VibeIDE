@@ -47,7 +47,7 @@ class VibeideSettingsInput extends EditorInput {
 	}
 
 		override getName(): string {
-			return nls.localize('vibeSettingsInputsName', 'VibeIDE Settings');
+			return nls.localize('vibeSettingsInputsName', 'Настройки VibeIDE');
 		}
 
 	override getIcon() {
@@ -110,7 +110,7 @@ class VibeideSettingsPane extends EditorPane {
 
 // register Settings pane
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
-	EditorPaneDescriptor.create(VibeideSettingsPane, VibeideSettingsPane.ID, nls.localize('VibeideSettingsPane', "VibeIDE Settings Pane")),
+	EditorPaneDescriptor.create(VibeideSettingsPane, VibeideSettingsPane.ID, nls.localize('VibeideSettingsPane', "Панель настроек VibeIDE")),
 	[new SyncDescriptor(VibeideSettingsInput)]
 );
 
@@ -121,7 +121,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_TOGGLE_SETTINGS_ACTION_ID,
-			title: nls.localize2('vibeSettings', "VibeIDE: Toggle Settings"),
+			title: nls.localize2('vibeSettings', "VibeIDE: Переключить настройки"),
 			icon: Codicon.settingsGear,
 			// Settings gear lives on the chat view title (and Global Activity), not in the title-bar layout strip
 		});
@@ -158,7 +158,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_OPEN_SETTINGS_ACTION_ID,
-			title: nls.localize2('vibeSettingsAction2', "VibeIDE: Open Settings"),
+			title: nls.localize2('vibeSettingsAction2', "VibeIDE: Открыть настройки"),
 			f1: true,
 			icon: Codicon.settingsGear,
 		});
@@ -188,7 +188,7 @@ MenuRegistry.appendMenuItem(MenuId.GlobalActivity, {
 	group: '0_command',
 	command: {
 		id: VIBEIDE_TOGGLE_SETTINGS_ACTION_ID,
-		title: nls.localize('vibeSettingsActionGear', "VibeIDE Settings")
+		title: nls.localize('vibeSettingsActionGear', "Настройки VibeIDE")
 	},
 	order: 1
 });

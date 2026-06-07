@@ -169,16 +169,16 @@ export class VibeProjectsViewPane extends ViewPane {
 	private _accessibility(): IListAccessibilityProvider<IVibeProjectsEntry> {
 		return {
 			getAriaLabel: e => e.label,
-			getWidgetAriaLabel: () => localize('vibeProjects.aria.widget', "Vibe Projects bookmarks"),
+			getWidgetAriaLabel: () => localize('vibeProjects.aria.widget', "Закладки Vibe Projects"),
 		};
 	}
 
 	private _ctxSlice(entry: IVibeProjectsEntry): IAction[] {
 		return [
-			new Action('vibeProjects.ctx.open', localize('vibeProjects.ctx.open', "Open"), '', true, () => void this._openTarget(entry.target, false)),
-			new Action('vibeProjects.ctx.openNew', localize('vibeProjects.ctx.openNew', "Open in New Window"), '', true, () => void this._openTarget(entry.target, true)),
+			new Action('vibeProjects.ctx.open', localize('vibeProjects.ctx.open', "Открыть"), '', true, () => void this._openTarget(entry.target, false)),
+			new Action('vibeProjects.ctx.openNew', localize('vibeProjects.ctx.openNew', "Открыть в новом окне"), '', true, () => void this._openTarget(entry.target, true)),
 			new Separator(),
-			new Action('vibeProjects.ctx.forget', localize('vibeProjects.ctx.forget', "Remove"), '', true, () => void this._registry.dropEntry(entry.id)),
+			new Action('vibeProjects.ctx.forget', localize('vibeProjects.ctx.forget', "Удалить"), '', true, () => void this._registry.dropEntry(entry.id)),
 		];
 	}
 

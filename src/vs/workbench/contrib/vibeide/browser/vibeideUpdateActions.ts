@@ -31,7 +31,7 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 
 		if (res.action === 'reinstall') {
 			primary.push({
-				label: localize('vibeide.update.actionReinstall', 'Reinstall'),
+				label: localize('vibeide.update.actionReinstall', 'Переустановить'),
 				id: 'vibe.updater.reinstall',
 				enabled: true,
 				tooltip: '',
@@ -40,7 +40,7 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 					if (res.verifiedDownload) {
 						await progressService.withProgress({
 							location: ProgressLocation.Notification,
-							title: localize('vibeide.update.downloadInstallerProgress', 'Downloading VibeIDE installer…'),
+							title: localize('vibeide.update.downloadInstallerProgress', 'Загрузка установщика VibeIDE…'),
 						}, async () => {
 							const r = await vibeideUpdateService.downloadVerifiedReleaseAsset(
 								res.verifiedDownload!.url,
@@ -61,7 +61,7 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 
 		if (res.action === 'download') {
 			primary.push({
-				label: localize('vibeide.update.actionDownload', 'Download'),
+				label: localize('vibeide.update.actionDownload', 'Скачать'),
 				id: 'vibe.updater.download',
 				enabled: true,
 				tooltip: '',
@@ -75,7 +75,7 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 
 		if (res.action === 'apply') {
 			primary.push({
-				label: localize('vibeide.update.actionApply', 'Apply'),
+				label: localize('vibeide.update.actionApply', 'Применить'),
 				id: 'vibe.updater.apply',
 				enabled: true,
 				tooltip: '',
@@ -88,7 +88,7 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 
 		if (res.action === 'restart') {
 			primary.push({
-				label: localize('vibeide.update.actionRestart', 'Restart'),
+				label: localize('vibeide.update.actionRestart', 'Перезапустить'),
 				id: 'vibe.updater.restart',
 				enabled: true,
 				tooltip: '',
@@ -102,7 +102,7 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 		primary.push({
 			id: 'vibe.updater.site',
 			enabled: true,
-			label: localize('vibeide.update.actionOpenSite', 'VibeIDE Site'),
+			label: localize('vibeide.update.actionOpenSite', 'Сайт VibeIDE'),
 			tooltip: '',
 			class: undefined,
 			run: () => {
@@ -116,7 +116,7 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 			secondary: [{
 				id: 'vibe.updater.close',
 				enabled: true,
-				label: localize('vibeide.update.actionKeepVersion', 'Keep current version'),
+				label: localize('vibeide.update.actionKeepVersion', 'Оставить текущую версию'),
 				tooltip: '',
 				class: undefined,
 				run: () => {
@@ -195,7 +195,7 @@ registerAction2(class extends Action2 {
 		super({
 			f1: true,
 			id: 'vibe.checkUpdate',
-			title: localize2('vibeCheckUpdate', 'VibeIDE: Check for Updates'),
+			title: localize2('vibeCheckUpdate', 'VibeIDE: проверить наличие обновлений'),
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {

@@ -22,7 +22,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibe.errorDetection.detectErrors',
-			title: localize2('vibeErrorDetectionDetectErrors', 'VibeIDE: Detect Errors'),
+			title: localize2('vibeErrorDetectionDetectErrors', 'VibeIDE: Обнаружить ошибки'),
 			f1: true,
 			keybinding: {
 				weight: 100,
@@ -53,12 +53,12 @@ registerAction2(class extends Action2 {
 		await progressService.withProgress(
 			{
 				location: ProgressLocation.Notification,
-				title: localize('vibeide.errorDetection.progress', 'Detecting errors in {0}…', fileName),
+				title: localize('vibeide.errorDetection.progress', 'Обнаружение ошибок в {0}…', fileName),
 				cancellable: true,
 			},
 			async (progress: IProgress<IProgressStep>) => {
 				try {
-					progress.report({ message: localize('vibeide.errorDetection.scanning', 'Scanning for errors…') });
+					progress.report({ message: localize('vibeide.errorDetection.scanning', 'Сканирование ошибок…') });
 
 					// Detect errors
 					const errors = await errorDetectionService.detectErrorsInFile(uri, cancellationTokenSource.token);
@@ -71,7 +71,7 @@ registerAction2(class extends Action2 {
 					const contribution = ErrorDetectionEditorContribution.get(editor);
 					if (contribution) {
 						contribution.setErrors(uri, errors);
-						progress.report({ message: localize('vibeide.errorDetection.foundErrors', 'Found {0} error(s)', errors.length) });
+						progress.report({ message: localize('vibeide.errorDetection.foundErrors', 'Найдено ошибок: {0}', errors.length) });
 					}
 
 					// Show notification with summary
@@ -102,7 +102,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibe.errorDetection.applyFix',
 			f1: false, // Not in command palette, called programmatically
-			title: localize2('vibeErrorDetectionApplyFix', 'VibeIDE: Apply Fix'),
+			title: localize2('vibeErrorDetectionApplyFix', 'VibeIDE: Применить исправление'),
 		});
 	}
 

@@ -261,7 +261,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.debug.openProviderProxyLog',
-			title: { value: localize('vibeide.debug.openProviderProxyLog', 'VibeIDE Debug: Open Provider Proxy Log'), original: 'VibeIDE Debug: Open Provider Proxy Log' },
+			title: { value: localize('vibeide.debug.openProviderProxyLog', 'VibeIDE Debug: Открыть лог прокси провайдера'), original: 'VibeIDE Debug: Open Provider Proxy Log' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -273,7 +273,7 @@ registerAction2(class extends Action2 {
 			// Prompt user to enable via setting
 			const { INotificationService } = await import('../../../../platform/notification/common/notification.js');
 			accessor.get(INotificationService).info(
-				localize('vibeide.debug.proxyDisabled', 'Provider proxy capture is disabled (and not yet wired to the send path). To capture the full LLM request, enable setting "vibeide.debug.dumpFullPrompt" and reproduce — it logs into the [VibeIDE/promptDump] channel.')
+				localize('vibeide.debug.proxyDisabled', 'Захват прокси провайдера отключён (и ещё не подключён к пути отправки). Чтобы захватить полный LLM-запрос, включите настройку «vibeide.debug.dumpFullPrompt» и воспроизведите — лог пишется в канал [VibeIDE/promptDump].')
 			);
 			return;
 		}
@@ -298,7 +298,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.debug.clearProviderProxyLog',
-			title: { value: localize('vibeide.debug.clearProviderProxyLog', 'VibeIDE Debug: Clear Provider Proxy Log'), original: 'VibeIDE Debug: Clear Provider Proxy Log' },
+			title: { value: localize('vibeide.debug.clearProviderProxyLog', 'VibeIDE Debug: Очистить лог прокси провайдера'), original: 'VibeIDE Debug: Clear Provider Proxy Log' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});

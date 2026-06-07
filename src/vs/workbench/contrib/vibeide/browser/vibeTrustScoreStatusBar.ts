@@ -130,27 +130,27 @@ export class VibeTrustScoreStatusBarContribution extends Disposable implements I
 		switch (this._level) {
 			case 'manual':
 				return {
-					name: localize('vibeTrustScore', 'VibeIDE Trust Score'),
+					name: localize('vibeTrustScore', 'Индекс доверия VibeIDE'),
 					text: localize('vibeTrustScoreTextManual', "🟢 Manual{0}", budgetWarning),
-					tooltip: localize('vibeTrustScoreManual', 'Trust Score: Manual — each action requires confirmation. Click to cycle. (Ctrl+Shift+T)'),
+					tooltip: localize('vibeTrustScoreManual', 'Индекс доверия: Manual — каждое действие требует подтверждения. Нажмите для смены. (Ctrl+Shift+T)'),
 					command: 'vibeide.trustScore.toggle',
-					ariaLabel: localize('vibeTrustScoreAriaManual', 'Trust Score: Manual'),
+					ariaLabel: localize('vibeTrustScoreAriaManual', 'Индекс доверия: Manual'),
 				};
 			case 'supervised':
 				return {
-					name: localize('vibeTrustScore', 'VibeIDE Trust Score'),
+					name: localize('vibeTrustScore', 'Индекс доверия VibeIDE'),
 					text: localize('vibeTrustScoreTextSupervised', "🟡 Supervised{0}", budgetWarning),
-					tooltip: localize('vibeTrustScoreSupervised', 'Trust Score: Supervised — notifications; auto-apply after timeout. Click to cycle. (Ctrl+Shift+T)'),
+					tooltip: localize('vibeTrustScoreSupervised', 'Индекс доверия: Supervised — уведомления; авто-применение после таймаута. Нажмите для смены. (Ctrl+Shift+T)'),
 					command: 'vibeide.trustScore.toggle',
-					ariaLabel: localize('vibeTrustScoreAriaSupervised', 'Trust Score: Supervised'),
+					ariaLabel: localize('vibeTrustScoreAriaSupervised', 'Индекс доверия: Supervised'),
 				};
 			case 'auto':
 				return {
-					name: localize('vibeTrustScore', 'VibeIDE Trust Score'),
+					name: localize('vibeTrustScore', 'Индекс доверия VibeIDE'),
 					text: localize('vibeTrustScoreTextAuto', "🔴 Auto{0}", budgetWarning),
-					tooltip: localize('vibeTrustScoreAuto', 'Trust Score: Auto — agent runs autonomously with budget limits. Click to cycle. (Ctrl+Shift+T)'),
+					tooltip: localize('vibeTrustScoreAuto', 'Индекс доверия: Auto — агент работает автономно с budget-лимитами. Нажмите для смены. (Ctrl+Shift+T)'),
 					command: 'vibeide.trustScore.toggle',
-					ariaLabel: localize('vibeTrustScoreAriaAuto', 'Trust Score: Auto'),
+					ariaLabel: localize('vibeTrustScoreAriaAuto', 'Индекс доверия: Auto'),
 				};
 		}
 	}

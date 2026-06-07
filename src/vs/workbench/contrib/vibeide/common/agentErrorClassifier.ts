@@ -24,6 +24,7 @@
  */
 
 export type AgentErrorClass =
+	| 'provider-quota'
 	| 'provider-4xx'
 	| 'provider-5xx'
 	| 'stream-broken'
@@ -68,6 +69,10 @@ export function classifyAgentError(input: ClassifyInput): AgentErrorClass {
 
 	const status = typeof input.httpStatus === 'number' ? input.httpStatus : undefined;
 	if (status !== undefined) {
+		// 402/429 — quota / rate limit, NOT a request misconfiguration: the previous
+		// blanket 4xx wording («model / params misconfiguration») misdiagnosed an
+		// exhausted monthly limit (observed openCode Go 402).
+		if (status === 402 || status === 429) return 'provider-quota';
 		if (status >= 400 && status < 500) return 'provider-4xx';
 		if (status >= 500 && status < 600) return 'provider-5xx';
 	}
@@ -99,60 +104,71 @@ export function buildToast(
 	const requestIdSuffix = requestId.length > 0 ? ` (id: ${requestId})` : '';
 	const dup = !!input.alreadyInChat;
 
+	// Provider's own message is the truth — surface it (trimmed) instead of guessing.
+	const providerMsg = (input.errorMessage ?? '').trim().slice(0, 200);
+
 	switch (cls) {
+		case 'provider-quota':
+			return {
+				severity: 'error',
+				headline: 'Лимит провайдера исчерпан',
+				body: `HTTP ${input.httpStatus}: ${providerMsg || 'квота или rate limit исчерпаны'}.${requestIdSuffix}`,
+				actions: ['switch-model', 'open-log', 'dismiss'],
+				duplicateOfChat: dup,
+			};
 		case 'provider-4xx':
 			return {
 				severity: 'error',
-				headline: 'Provider rejected the request',
-				body: `HTTP ${input.httpStatus} — likely a model / params misconfiguration.${requestIdSuffix}`,
+				headline: 'Провайдер отклонил запрос',
+				body: `HTTP ${input.httpStatus}: ${providerMsg || 'возможна неверная конфигурация модели/параметров'}.${requestIdSuffix}`,
 				actions: ['open-log', 'switch-model', 'dismiss'],
 				duplicateOfChat: dup,
 			};
 		case 'provider-5xx':
 			return {
 				severity: 'error',
-				headline: 'Provider outage',
-				body: `HTTP ${input.httpStatus} — try again or switch provider.${requestIdSuffix}`,
+				headline: 'Сбой на стороне провайдера',
+				body: `HTTP ${input.httpStatus} — повторите попытку или смените провайдера.${requestIdSuffix}`,
 				actions: ['retry', 'switch-model', 'open-log'],
 				duplicateOfChat: dup,
 			};
 		case 'stream-broken':
 			return {
 				severity: 'warning',
-				headline: 'Stream interrupted',
-				body: `Got partial response then connection died.${requestIdSuffix}`,
+				headline: 'Стрим оборвался',
+				body: `Получен частичный ответ, затем соединение разорвалось.${requestIdSuffix}`,
 				actions: ['retry', 'open-log'],
 				duplicateOfChat: dup,
 			};
 		case 'timeout':
 			return {
 				severity: 'warning',
-				headline: 'Provider timed out',
-				body: 'No response within the gap window.',
+				headline: 'Провайдер не отвечает (таймаут)',
+				body: 'Нет ответа в отведённое окно ожидания.',
 				actions: ['retry', 'switch-model', 'open-log'],
 				duplicateOfChat: dup,
 			};
 		case 'tool-failure':
 			return {
 				severity: 'warning',
-				headline: 'Tool returned an error',
-				body: input.errorMessage ?? 'Tool / MCP server reported a failure.',
+				headline: 'Инструмент вернул ошибку',
+				body: input.errorMessage ?? 'Tool / MCP-сервер сообщил о сбое.',
 				actions: ['retry', 'open-log'],
 				duplicateOfChat: dup,
 			};
 		case 'ipc-error':
 			return {
 				severity: 'error',
-				headline: 'Internal IPC failure',
-				body: 'Renderer ↔ main IPC channel disconnected. Reload the window.',
+				headline: 'Внутренний сбой IPC',
+				body: 'Канал renderer ↔ main разорван. Перезагрузите окно.',
 				actions: ['open-log'],
 				duplicateOfChat: dup,
 			};
 		case 'cancelled':
 			return {
 				severity: 'info',
-				headline: 'Request cancelled',
-				body: 'The agent run was stopped by you.',
+				headline: 'Запрос отменён',
+				body: 'Прогон агента остановлен вами.',
 				actions: ['dismiss'],
 				duplicateOfChat: dup,
 			};
@@ -160,8 +176,8 @@ export function buildToast(
 		default:
 			return {
 				severity: 'error',
-				headline: 'Unexpected error',
-				body: input.errorMessage ?? 'No further details.',
+				headline: 'Непредвиденная ошибка',
+				body: input.errorMessage ?? 'Подробностей нет.',
 				actions: ['open-log', 'copy-request-id'],
 				duplicateOfChat: dup,
 			};

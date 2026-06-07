@@ -784,7 +784,7 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		const elt: IUndoRedoElement = {
 			type: UndoRedoElementType.Resource,
 			resource: uri,
-			label: localize('vibeide.editCode.undoLabel', 'VibeIDE Agent'),
+			label: localize('vibeide.editCode.undoLabel', 'Агент VibeIDE'),
 			code: 'undoredo.editCode',
 			undo: async () => { opts?.onWillUndo?.(); await this._restoreVibeideFileSnapshot(uri, beforeSnapshot) },
 			redo: async () => { if (afterSnapshot) await this._restoreVibeideFileSnapshot(uri, afterSnapshot) }

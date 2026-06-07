@@ -100,7 +100,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.showAlternativesComparison',
-			title: { value: localize('vibeide.showAlternativesComparison', 'VibeIDE: How are we different from Cursor/Continue.dev/Aider?'), original: 'VibeIDE: How are we different from Cursor/Continue.dev/Aider?' },
+			title: { value: localize('vibeide.showAlternativesComparison', 'VibeIDE: Чем мы отличаемся от Cursor/Continue.dev/Aider?'), original: 'VibeIDE: How are we different from Cursor/Continue.dev/Aider?' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});

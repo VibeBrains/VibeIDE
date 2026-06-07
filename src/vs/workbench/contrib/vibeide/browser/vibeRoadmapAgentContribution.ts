@@ -37,7 +37,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.roadmapAgent.start',
-			title: { value: localize('vibeide.roadmapAgent.start', 'VibeIDE: Start Roadmap Agent (orchestrate delegated subagents)'), original: 'VibeIDE: Start Roadmap Agent (orchestrate delegated subagents)' },
+			title: { value: localize('vibeide.roadmapAgent.start', 'VibeIDE: Запустить Roadmap Agent (оркестрация делегированных субагентов)'), original: 'VibeIDE: Start Roadmap Agent (orchestrate delegated subagents)' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -51,18 +51,18 @@ registerAction2(class extends Action2 {
 
 		// Step 1: pick the source-of-truth file
 		const sourceChoice = await quickInput.pick([
-			{ id: 'roadmap', label: 'docs/roadmap.md', description: localize('vibeide.roadmapAgent.source.roadmapDesc', 'Project roadmap ([ ] items)') },
-			{ id: 'plan', label: '.vibe/plans/*.plan.md', description: localize('vibeide.roadmapAgent.source.planDesc', 'Persisted agent plan') },
-			{ id: 'custom', label: localize('vibeide.roadmapAgent.source.customLabel', 'Custom path...'), description: localize('vibeide.roadmapAgent.source.customDesc', 'Enter file path manually') },
+			{ id: 'roadmap', label: 'docs/roadmap.md', description: localize('vibeide.roadmapAgent.source.roadmapDesc', 'Роадмап проекта (пункты [ ])') },
+			{ id: 'plan', label: '.vibe/plans/*.plan.md', description: localize('vibeide.roadmapAgent.source.planDesc', 'Сохранённый план агента') },
+			{ id: 'custom', label: localize('vibeide.roadmapAgent.source.customLabel', 'Указать путь вручную...'), description: localize('vibeide.roadmapAgent.source.customDesc', 'Ввести путь к файлу вручную') },
 		], {
-			title: localize('vibeide.roadmapAgent.source', 'Roadmap Agent: Choose source of truth'),
+			title: localize('vibeide.roadmapAgent.source', 'Roadmap Agent: выберите источник истины'),
 		});
 
 		if (!sourceChoice) { return; }
 
 		let sourcePath = '';
 		if (sourceChoice.id === 'custom') {
-			const input = await quickInput.input({ prompt: localize('vibeide.roadmapAgent.customPathPrompt', 'Enter file path relative to workspace root') });
+			const input = await quickInput.input({ prompt: localize('vibeide.roadmapAgent.customPathPrompt', 'Введите путь к файлу относительно корня рабочей области') });
 			if (!input) { return; }
 			sourcePath = input;
 		} else {
@@ -75,7 +75,7 @@ registerAction2(class extends Action2 {
 
 		// Step 3: parse items from source (Phase MVP: ask user for items directly)
 		const itemsRaw = await quickInput.input({
-			prompt: localize('vibeide.roadmapAgent.items', 'Paste pending items (one per line, or leave empty to read from file in Phase 3b)'),
+			prompt: localize('vibeide.roadmapAgent.items', 'Вставьте незавершённые пункты (по одному на строку, или оставьте пустым для чтения из файла в фазе 3b)'),
 			placeHolder: localize('vibeide.roadmapAgent.itemsPlaceholder', '- [ ] Implement X\n- [ ] Add Y'),
 		});
 
@@ -84,7 +84,7 @@ registerAction2(class extends Action2 {
 		if (items.length === 0) {
 			notifications.notify({
 				severity: Severity.Info,
-				message: localize('vibeide.roadmapAgent.noItems', 'No pending items found. Phase 3b: automatic parsing from {0}.', sourcePath),
+				message: localize('vibeide.roadmapAgent.noItems', 'Незавершённых пунктов не найдено. Фаза 3b: автоматический разбор из {0}.', sourcePath),
 			});
 			return;
 		}
@@ -122,7 +122,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.roadmapAgent.executeDelegation',
-			title: { value: localize('vibeide.roadmapAgent.executeDelegation', 'VibeIDE: Execute Roadmap Agent (real subagent delegation)'), original: 'VibeIDE: Execute Roadmap Agent (real subagent delegation)' },
+			title: { value: localize('vibeide.roadmapAgent.executeDelegation', 'VibeIDE: Выполнить Roadmap Agent (делегирование субагентам)'), original: 'VibeIDE: Execute Roadmap Agent (real subagent delegation)' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -136,7 +136,7 @@ registerAction2(class extends Action2 {
 		const notifications = accessor.get(INotificationService);
 
 		const itemsRaw = await quickInput.input({
-			prompt: localize('vibeide.roadmapAgent.executeItems', 'Paste pending roadmap items (one per line, prefix `- [ ]` optional)'),
+			prompt: localize('vibeide.roadmapAgent.executeItems', 'Вставьте пункты роадмапа (по одному на строку, префикс `- [ ]` необязателен)'),
 			placeHolder: localize('vibeide.roadmapAgent.executeItems.placeholder', "- [ ] Implement X\n- [ ] Add Y"),
 		});
 		if (!itemsRaw) { return; }
@@ -158,9 +158,9 @@ registerAction2(class extends Action2 {
 
 		const confirm = await dialog.confirm({
 			type: Severity.Info,
-			message: localize('vibeide.roadmapAgent.confirmExecute', 'Delegate {0} items to isolated subagents?', items.length),
+			message: localize('vibeide.roadmapAgent.confirmExecute', 'Делегировать {0} пунктов изолированным субагентам?', items.length),
 			detail: items.slice(0, 8).map(i => '• ' + i.summary).join('\n') + (items.length > 8 ? `\n…and ${items.length - 8} more` : ''),
-			primaryButton: localize('vibeide.roadmapAgent.confirmExecuteBtn', 'Delegate'),
+			primaryButton: localize('vibeide.roadmapAgent.confirmExecuteBtn', 'Делегировать'),
 		});
 		if (!confirm.confirmed) { return; }
 
@@ -187,7 +187,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.roadmapAgent.previewDelegation',
-			title: { value: localize('vibeide.roadmapAgent.previewDelegation', 'VibeIDE: Preview Roadmap Delegation (which items go to subagents?)'), original: 'VibeIDE: Preview Roadmap Delegation' },
+			title: { value: localize('vibeide.roadmapAgent.previewDelegation', 'VibeIDE: Предпросмотр делегирования роадмапа (какие пункты уйдут субагентам?)'), original: 'VibeIDE: Preview Roadmap Delegation' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});

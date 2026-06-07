@@ -20,7 +20,7 @@ class ExplainThisLineAction extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.explainLine',
-			title: { value: localize('vibeExplainLine', 'VibeIDE: Explain This Line'), original: 'VibeIDE: Explain This Line' },
+			title: { value: localize('vibeExplainLine', 'VibeIDE: объяснить эту строку'), original: 'VibeIDE: Explain This Line' },
 			f1: true,
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyCode.Period,
@@ -49,7 +49,7 @@ class ExplainThisLineAction extends Action2 {
 			severity: Severity.Info,
 			message: localize(
 				'vibeExplainLineResult',
-				'Line {0} in {1}: "{2}"\n\n💡 Open chat and type: explain line {0} of {3}',
+				'Строка {0} в {1}: «{2}»\n\n💡 Откройте чат и введите: объясни строку {0} в {3}',
 				position.lineNumber,
 				filePath.split('/').pop() || filePath,
 				lineContent.trim().slice(0, 60),
@@ -67,7 +67,7 @@ class FreezeThisCodeAction extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.freezeCode',
-			title: { value: localize('vibeFreezeCode', 'VibeIDE: Freeze This Code for Agent'), original: 'VibeIDE: Freeze This Code for Agent' },
+			title: { value: localize('vibeFreezeCode', 'VibeIDE: заморозить этот код для агента'), original: 'VibeIDE: Freeze This Code for Agent' },
 			f1: true,
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyF,
@@ -93,7 +93,7 @@ class FreezeThisCodeAction extends Action2 {
 			severity: Severity.Info,
 			message: localize(
 				'vibeFreezeCodeResult',
-				'Added to .vibe/constraints.json: deny_write for {0}. The agent cannot modify this file.',
+				'Добавлено в .vibe/constraints.json: deny_write для {0}. Агент не может изменять этот файл.',
 				filePath.split(/[/\\]/).pop() || filePath
 			),
 		});
@@ -112,7 +112,7 @@ class PauseAndExplainAction extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.agent.pauseAndExplain',
-			title: { value: localize('vibePauseExplain', 'VibeIDE: Pause Agent and Ask What It\'s Doing'), original: 'VibeIDE: Pause Agent — What Are You Doing?' },
+			title: { value: localize('vibePauseExplain', 'VibeIDE: приостановить агента и спросить что он делает'), original: 'VibeIDE: Pause Agent — What Are You Doing?' },
 			f1: true,
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyP,
@@ -129,12 +129,12 @@ class PauseAndExplainAction extends Action2 {
 			severity: Severity.Info,
 			message: localize(
 				'vibePauseExplainResult',
-				'Agent paused. Type your question in the chat and the agent will explain, then continue. Click "Continue" to resume without asking.'
+				'Агент приостановлен. Введите вопрос в чат — агент объяснит происходящее и продолжит работу. Нажмите «Продолжить» для возобновления без вопроса.'
 			),
 			actions: {
 				primary: [{
 					id: 'vibeide.agent.continue',
-					label: localize('vibeContinue', 'Continue'),
+					label: localize('vibeContinue', 'Продолжить'),
 					tooltip: '',
 					class: undefined,
 					enabled: true,

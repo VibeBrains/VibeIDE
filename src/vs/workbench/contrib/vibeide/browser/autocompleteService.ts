@@ -950,7 +950,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 			// Only show notification once per session to avoid spam
 			if (!this._hasShownNoModelWarning) {
 				this._hasShownNoModelWarning = true
-				this._notificationService.warn(localize('vibeide.autocomplete.requiresFimModel', 'Autocomplete requires a model with FIM (Fill-In-the-Middle) support. Please select a model in VibeIDE Settings > Feature Options > Autocomplete. Cloud options: Mistral codestral-latest. Local options: Ollama qwen2.5-coder.'))
+				this._notificationService.warn(localize('vibeide.autocomplete.requiresFimModel', 'Автодополнение требует модель с поддержкой FIM (Fill-In-the-Middle). Выберите модель в VibeIDE Settings > Feature Options > Autocomplete. Облако: Mistral codestral-latest. Локально: Ollama qwen2.5-coder.'))
 			}
 			return []
 		}
@@ -1213,7 +1213,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 			if (!errorMessage.includes('Timeout') && !errorMessage.includes('Aborted')) {
 				// Only show error notification occasionally to avoid spam
 				if (Math.random() < 0.1) { // 10% chance to show notification
-					this._notificationService.warn(localize('vibeide.autocomplete.error', 'Autocomplete error: {0}. Check console for details.', errorMessage))
+					this._notificationService.warn(localize('vibeide.autocomplete.error', 'Ошибка автодополнения: {0}. Подробности — в консоли.', errorMessage))
 				}
 			}
 

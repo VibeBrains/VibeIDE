@@ -123,6 +123,9 @@ type SimpleLLMMessage = {
 	content: string;
 	images?: ChatImageAttachment[];
 	pinned?: boolean;
+	/** System-injected corrective nudge (carried from ChatMessage.isSyntheticNudge): NOT a real
+	 *  user turn — skipped when counting "user turns" for the Step A.5 / maxTurnPairs windows. */
+	isSyntheticNudge?: boolean;
 } | {
 	role: 'assistant';
 	content: string;
@@ -143,10 +146,16 @@ type SimpleLLMMessage = {
 
 const CHARS_PER_TOKEN = 4 // assume abysmal chars per token
 const TRIM_TO_LEN = 120
-// Safety clamp to avoid hitting provider TPM limits (e.g., OpenAI 30k TPM)
-// 20k tokens (~80k chars) gives more conservative headroom for output tokens and image tokens
-// Images can add significant tokens (~85 per 512x512 tile), so we need more headroom
-const MAX_INPUT_TOKENS_SAFETY = 20_000
+// LEGACY safety clamp, originally «avoid OpenAI 30k TPM» hardcoded at 20k tokens. It SILENTLY
+// crushed every message above the cap to 120-char stubs on every request regardless of the
+// model's real window — busting the prompt cache each turn (the prefix mutated), erasing the
+// model's memory of files it had just read (re-read loops), and bouncing `in:` between 23k/39k.
+// Root cause of the 2026-06-07 sonnet incident chain. Now config-driven via
+// `vibeide.chat.maxInputTokensSafety`, DEFAULT 0 = disabled: rate limits are handled properly
+// by the 429 fail-fast + auto-wait pipeline, and the context-window trim above already bounds
+// the payload by (contextWindow - reservedOutputTokenSpace). The constant remains only as the
+// fallback for an invalid config value.
+const MAX_INPUT_TOKENS_SAFETY_DEFAULT = 0
 
 // Helper function to detect if a provider is local
 // Used for optimizing prompts and token budgets for local models
@@ -857,6 +866,7 @@ const prepareOpenAIOrAnthropicMessages = ({
 	supportsAnthropicReasoning,
 	contextWindow,
 	reservedOutputTokenSpace,
+	maxInputTokensSafety,
 }: {
 	messages: SimpleLLMMessage[],
 	systemMessage: string,
@@ -866,6 +876,8 @@ const prepareOpenAIOrAnthropicMessages = ({
 	supportsAnthropicReasoning: boolean,
 	contextWindow: number,
 	reservedOutputTokenSpace: number | null | undefined,
+	/** Hard input-token cap for the legacy safetyTrim (0 = disabled). See MAX_INPUT_TOKENS_SAFETY_DEFAULT. */
+	maxInputTokensSafety?: number,
 }): { messages: AnthropicOrOpenAILLMMessage[], separateSystemMessage: string | undefined } => {
 
 	reservedOutputTokenSpace = Math.max(
@@ -1013,6 +1025,12 @@ const prepareOpenAIOrAnthropicMessages = ({
 	// After context-based trimming, also enforce a hard upper bound on total input size
 	// This accounts for text tokens, image tokens, system messages, tool definitions, and message structure overhead
 	const safetyTrim = () => {
+		// Disabled by default (0): see MAX_INPUT_TOKENS_SAFETY_DEFAULT — this clamp used to
+		// silently crush history to 120-char stubs above a hardcoded 20k tokens.
+		const inputCap = (typeof maxInputTokensSafety === 'number' && Number.isFinite(maxInputTokensSafety) && maxInputTokensSafety > 0)
+			? Math.floor(maxInputTokensSafety)
+			: MAX_INPUT_TOKENS_SAFETY_DEFAULT
+		if (inputCap <= 0) return
 		// Estimate total tokens: text content + images + system message overhead
 		let textChars = 0
 		let imageTokens = 0
@@ -1041,14 +1059,15 @@ const prepareOpenAIOrAnthropicMessages = ({
 		const totalEstimatedTokens = textTokens + imageTokens + systemMessageTokens + messageStructureOverhead + nativeToolDefinitionsOverhead
 
 		// If we're under the limit, no need to trim
-		if (totalEstimatedTokens <= MAX_INPUT_TOKENS_SAFETY) return
+		if (totalEstimatedTokens <= inputCap) return
 
 		// Need to trim more aggressively
-		const excessTokens = totalEstimatedTokens - MAX_INPUT_TOKENS_SAFETY
+		const excessTokens = totalEstimatedTokens - inputCap
 		const excessChars = excessTokens * CHARS_PER_TOKEN
 
 		let guardLoops = 0
 		let charsTrimmed = 0
+		let messagesCrushed = 0
 		while (charsTrimmed < excessChars && guardLoops < 200) {
 			guardLoops += 1
 			const trimIdx = _findLargestByWeight(messages)
@@ -1063,6 +1082,12 @@ const prepareOpenAIOrAnthropicMessages = ({
 			m.content = m.content.substring(0, TRIM_TO_LEN - '...'.length) + '...'
 			alreadyTrimmedIdxes.add(trimIdx)
 			charsTrimmed += (before - m.content.length)
+			messagesCrushed += 1
+		}
+		// NEVER silent: this clamp rewrites history (cache-bust + model amnesia). If it fired,
+		// say so loudly — the 2026-06-07 incident took a day to localize because it didn't.
+		if (messagesCrushed > 0) {
+			vibeLog.warn('ContextGuard', `safetyTrim crushed ${messagesCrushed} message(s) to ${TRIM_TO_LEN} chars (~${charsTrimmed.toLocaleString()} chars cut; cap ${inputCap} tokens, estimated ${totalEstimatedTokens}).`)
 		}
 	}
 
@@ -1306,6 +1331,7 @@ const prepareMessages = (params: {
 	supportsAnthropicReasoning: boolean,
 	contextWindow: number,
 	reservedOutputTokenSpace: number | null | undefined,
+	maxInputTokensSafety?: number,
 	providerName: ProviderName
 }): { messages: LLMChatMessage[], separateSystemMessage: string | undefined } => {
 
@@ -1567,6 +1593,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 					content: m.content,
 					images: m.images,
 					pinned: m.pinned,
+					isSyntheticNudge: m.isSyntheticNudge,
 				})
 			}
 		}
@@ -1640,18 +1667,28 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			supportsAnthropicReasoning: providerName === 'anthropic',
 			contextWindow: effectiveContextWindow,
 			reservedOutputTokenSpace: effectiveReservedOutput,
+			maxInputTokensSafety: this.configurationService.getValue<number>('vibeide.chat.maxInputTokensSafety') ?? 0,
 			providerName,
 		})
 		return { messages, separateSystemMessage };
 	}
+	// Last REAL user message text for retrieval queries. Synthetic corrective nudges
+	// (isSyntheticNudge) carry no user intent and must not key RepoIndexer retrieval —
+	// observed in the sonnet stall log: queries ran against «⚙️ Авто-продолжение…»
+	// instead of the actual task, degrading injected repo context.
+	private _lastRealUserQuery(chatMessages: ChatMessage[]): string {
+		const realUsers = chatMessages.filter((m): m is ChatMessage & { role: 'user' } => m.role === 'user' && !m.isSyntheticNudge);
+		const last = realUsers[realUsers.length - 1];
+		return last?.content || realUsers.map(m => m.content).join(' ').slice(0, 200);
+	}
+
 	startRepoIndexerQuery: IConvertToLLMMessageService['startRepoIndexerQuery'] = async (chatMessages, chatMode) => {
 		// PERFORMANCE: Start repo indexer query early (can be done in parallel with router decision)
 		if (!this.vibeideSettingsService.state.globalSettings.enableRepoIndexer) {
 			return null;
 		}
 
-		const lastUserMessage = chatMessages.filter(m => m.role === 'user').pop();
-		const userQuery = lastUserMessage?.content || chatMessages.filter(m => m.role === 'user').map(m => m.content).join(' ').slice(0, 200);
+		const userQuery = this._lastRealUserQuery(chatMessages);
 		if (!userQuery.trim()) {
 			return null;
 		}
@@ -1750,6 +1787,10 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 		// Query repo indexer if enabled - get context from the LAST user message (most relevant)
 		// PERFORMANCE: Use pre-started promise if available (from parallel execution), otherwise start now
+		// Prompt-caching (knowledge/roadmap/token-economy.md, A): retrieval output changes every
+		// turn, so it must NOT be appended to the system message — that invalidated the provider's
+		// prefix cache on every request. It rides in the last user turn instead (prepended below).
+		let repoContextUserBlock = '';
 		if (this.vibeideSettingsService.state.globalSettings.enableRepoIndexer && !disableSystemMessage) {
 			let indexResults: string[] | null = null;
 			let metrics: any = null;
@@ -1764,8 +1805,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 					}
 				} catch (error) {
 					// Fall back to starting query now if pre-started failed
-					const lastUserMessage = chatMessages.filter(m => m.role === 'user').pop();
-					const userQuery = lastUserMessage?.content || chatMessages.filter(m => m.role === 'user').map(m => m.content).join(' ').slice(0, 200);
+					const userQuery = this._lastRealUserQuery(chatMessages);
 					if (userQuery.trim()) {
 						try {
 							const k = chatMode === 'agent' ? 8 : 6;
@@ -1779,8 +1819,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				}
 			} else {
 				// Start query now (fallback for non-auto mode or if promise not provided)
-				const lastUserMessage = chatMessages.filter(m => m.role === 'user').pop();
-				const userQuery = lastUserMessage?.content || chatMessages.filter(m => m.role === 'user').map(m => m.content).join(' ').slice(0, 200);
+				const userQuery = this._lastRealUserQuery(chatMessages);
 				if (userQuery.trim()) {
 					try {
 						const k = chatMode === 'agent' ? 8 : 6;
@@ -1796,12 +1835,11 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			if (indexResults && indexResults.length > 0) {
 				const guidance = `\n\n<repo_guidance>\nYou have access to repository context via <repo_context>. Use it to answer repo-specific questions and make changes. Do not claim that you lack access to the repository or files. When asked what the repo is about, summarize based on README.md, package/product metadata, and top-level docs if present.\n\nIMPORTANT: When referencing code or files from the context, cite them explicitly using the file path and line ranges provided (e.g., "In repoIndexerService.ts:42-56, the function does..."). This helps users verify your answers and navigate to the relevant code.\n</repo_guidance>`;
 				const contextSection = `\n\n<repo_context>\nHere are relevant files and symbols from the codebase:\n${indexResults.map((r, i) => `${i + 1}. ${r}`).join('\n\n')}\n</repo_context>`;
-				systemMessage = systemMessage + guidance + contextSection;
+				repoContextUserBlock = (guidance + contextSection).trim();
 
 				// Log metrics for monitoring (vibeLog self-gates on level/category)
 				if (metrics) {
-					const lastUserMessage = chatMessages.filter(m => m.role === 'user').pop();
-					const userQuery = lastUserMessage?.content || chatMessages.filter(m => m.role === 'user').map(m => m.content).join(' ').slice(0, 200);
+					const userQuery = this._lastRealUserQuery(chatMessages);
 					vibeLog.debug('convertToLLMMessage', '[RepoIndexer]', {
 						query: userQuery.slice(0, 50),
 						latencyMs: metrics.retrievalLatencyMs.toFixed(1),
@@ -1823,7 +1861,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const modelSelectionOptions = this.vibeideSettingsService.state.optionsOfModelSelection['Chat'][validProviderName]?.[modelName]
 
 		// Get combined AI instructions + optional project skills index (discovery + implicit keyword retrieval)
-		const lastUserForSkills = [...chatMessages].reverse().find(m => m.role === 'user');
+		// Synthetic nudges are skipped: /skill: parsing + implicit retrieval must key off the real request.
+		const lastUserForSkills = [...chatMessages].reverse().find((m): m is ChatMessage & { role: 'user' } => m.role === 'user' && !m.isSyntheticNudge);
 		const lastUserTextForSkills = typeof lastUserForSkills?.content === 'string' ? lastUserForSkills.content : '';
 		const skillsDiscovery = await this.skillsLibraryService.getDiscoveryText(chatMode);
 		const implicitSkills = await this.skillsLibraryService.getImplicitSkillRetrievalHints(lastUserTextForSkills, chatMode);
@@ -1905,7 +1944,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			}
 		}
 		const responseLangSetting = this.configurationService.getValue<string>('vibeide.agent.responseLanguage') ?? 'auto';
-		const lastUserForLang = [...chatMessages].reverse().find(m => m.role === 'user');
+		// Synthetic nudges are always Russian — detecting language from them would override the user's.
+		const lastUserForLang = [...chatMessages].reverse().find((m): m is ChatMessage & { role: 'user' } => m.role === 'user' && !m.isSyntheticNudge);
 		const lastUserTextForLang = typeof lastUserForLang?.content === 'string' ? lastUserForLang.content : '';
 		const langDirective = buildResponseLanguageDirective(responseLangSetting, lastUserTextForLang);
 		// NOTE: explicitSkillBodies are NOT added to system prompt — they get prepended
@@ -1920,7 +1960,10 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			...(ruleActiveFile ? [ruleActiveFile] : []),
 			...extractToolFilePaths(chatMessages),
 		].map(p => toWorkspaceRelative(p, ruleWsFolders)).filter(p => p.length > 0);
-		const aiInstructions = [this._getCombinedAIInstructions({ userText: lastUserTextForSkills, files: ruleContextFiles }), skillsDiscovery, implicitSkills, langDirective].filter(s => s.trim().length > 0).join('\n\n');
+		// Prompt-caching: implicitSkills + langDirective derive from the LAST user message and
+		// change every turn — they ride in the user turn (userTurnPrefix below), NOT in the
+		// system-bound aiInstructions, so the system prefix stays byte-stable across turns.
+		const aiInstructions = [this._getCombinedAIInstructions({ userText: lastUserTextForSkills, files: ruleContextFiles }), skillsDiscovery].filter(s => s.trim().length > 0).join('\n\n');
 		const isReasoningEnabled = getIsReasoningEnabledState('Chat', validProviderName, modelName, modelSelectionOptions, overridesOfModel)
 		const reservedOutputTokenSpace = getReservedOutputTokenSpace(validProviderName, modelName, { isReasoningEnabled, overridesOfModel })
 		let llmMessages = this._chatMessagesToSimpleMessages(chatMessages)
@@ -1946,13 +1989,17 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			? `The user invoked @rule. Follow the rule body below as authoritative for this request.\n\n${invokedRuleBlocks.join('\n\n')}`
 			: '';
 
-		// Prepend explicit-skill + @rule bodies into the last user message's content. This is the
-		// load-bearing step that makes /skill:NAME and @rule:NAME actually take effect.
-		const userTurnPrefix = [explicitSkillsUserPrefix, ruleInvocationPrefix].filter(s => s.length > 0).join('\n\n');
+		// Prepend the per-turn dynamic blocks into the last user message's content. This is the
+		// load-bearing step that makes /skill:NAME and @rule:NAME actually take effect, and the
+		// cache-friendly home for everything that varies per turn (repo retrieval, implicit skill
+		// hints, language directive) — see knowledge/roadmap/token-economy.md (A).
+		const userTurnPrefix = [repoContextUserBlock, explicitSkillsUserPrefix, ruleInvocationPrefix, implicitSkills.trim(), langDirective.trim()].filter(s => s.length > 0).join('\n\n');
 		if (userTurnPrefix.length > 0) {
 			for (let i = llmMessages.length - 1; i >= 0; i--) {
 				const m = llmMessages[i];
-				if (m.role === 'user') {
+				// Bind skill/rule bodies to the last REAL user turn — prefixing a synthetic nudge
+				// would associate the invocation with system boilerplate instead of the request.
+				if (m.role === 'user' && !m.isSyntheticNudge) {
 					const original = typeof m.content === 'string' ? m.content : '';
 					(m as { content: string }).content = `${userTurnPrefix}\n\n${original}`;
 					break;
@@ -1996,7 +2043,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			// For now, we keep a simple fallback limit if compression isn't available
 			// plan mode: 3 turn pairs (same as normal — plan is short-lived before Execute)
 			const maxTurnPairs = chatMode === 'agent' ? 5 : 3
-			const userMessages = llmMessages.filter(m => m.role === 'user')
+			// Synthetic nudges don't count as turns — they'd shrink the retained window.
+			const userMessages = llmMessages.filter(m => m.role === 'user' && !m.isSyntheticNudge)
 			if (userMessages.length > maxTurnPairs * 2) {
 				// Keep only the last maxTurnPairs user messages and their corresponding assistant messages
 				const lastUserIndices = userMessages.slice(-maxTurnPairs).map(um => llmMessages.indexOf(um))
@@ -2138,29 +2186,42 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const TOOL_RESULT_TOKEN_THRESHOLD = 5000
 		let currentTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
 
-		// Step A.5 (proactive) — compact tool-results older than the last N user turns,
-		// regardless of overflow status. Aggregator-proxied models (openCode/minimax-m2.7)
-		// crash with empty responses long before hardCap is hit, because the *cumulative*
-		// growth of accumulated tool outputs across many agentic hops blows their internal
-		// budget. We replace stale tool message contents with a short stub so newer turns
-		// keep full fidelity. The tool can always be re-called if the model still needs it.
-		const compactAfterTurns = Math.max(0, Math.min(50,
-			this.configurationService.getValue<number>('vibeide.chat.compactToolResultsAfterTurns') ?? 3
+		// Step A.5 (proactive, token-budget) — one-shot compaction of old tool-results.
+		// REDESIGNED 2026-06-07 (cache-friendly). The old trigger («older than the last N
+		// user turns») was broken both ways: with a single real user message per agent run
+		// it NEVER fired (history grew to 100k+ input-tokens/turn, 2M session burned in
+		// minutes), and when it did fire (via the nudge-counting bug) the window slid EVERY
+		// turn, rewriting the prefix and busting the prompt cache on each request. New contract:
+		//   - trigger: total tool-result tokens exceed `compactToolResultsAtTokens` (0 = off);
+		//   - action: ONE pass stubs every tool-result except the newest
+		//     `compactKeepRecentToolResults` (pinned/small ones always survive);
+		//   - between compactions history is append-only → the provider prefix cache lives;
+		//     each compaction is ONE deliberate cache-bust, logged loudly (no silent trims).
+		// Stubs are deterministic, so already-stubbed messages never change — later compactions
+		// only add NEW stubs further down the list, keeping the earlier prefix cacheable.
+		const compactAtTokens = Math.max(0, Math.min(500_000,
+			this.configurationService.getValue<number>('vibeide.chat.compactToolResultsAtTokens') ?? 60_000
 		))
-		if (compactAfterTurns > 0) {
-			let userTurnsSeen = 0
-			let keepFromIdx = 0
-			for (let i = llmMessages.length - 1; i >= 0; i--) {
-				if (llmMessages[i].role === 'user') {
-					userTurnsSeen++
-					if (userTurnsSeen === compactAfterTurns) { keepFromIdx = i; break }
+		const keepRecentToolResults = Math.max(1, Math.min(100,
+			this.configurationService.getValue<number>('vibeide.chat.compactKeepRecentToolResults') ?? 8
+		))
+		if (compactAtTokens > 0) {
+			const toolIdxs: number[] = []
+			let toolResultTokens = 0
+			for (let i = 0; i < llmMessages.length; i++) {
+				const m = llmMessages[i]
+				if (m.role === 'tool') {
+					toolIdxs.push(i)
+					toolResultTokens += estimateTokens(m.content)
 				}
 			}
-			if (keepFromIdx > 0) {
+			if (toolResultTokens > compactAtTokens && toolIdxs.length > keepRecentToolResults) {
+				// First index that must stay full — everything before it is compaction territory.
+				const stubBefore = toolIdxs[toolIdxs.length - keepRecentToolResults]
 				let compacted = 0
 				let savedTokens = 0
 				llmMessages = llmMessages.map((m, i) => {
-					if (i < keepFromIdx && m.role === 'tool' && m.content.length > 300 && !m.pinned) {
+					if (i < stubBefore && m.role === 'tool' && m.content.length > 300 && !m.pinned && !m.content.startsWith('[summarized:')) {
 						const tokensBefore = estimateTokens(m.content)
 						compacted++
 						savedTokens += tokensBefore
@@ -2170,7 +2231,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				})
 				if (compacted > 0) {
 					currentTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
-					vibeLog.debug('ContextGuard', `Step A.5 compacted ${compacted} old tool-results (kept last ${compactAfterTurns} user turns): ~${savedTokens.toLocaleString()} tokens summarized → currentTokens ~${currentTokens.toLocaleString()}`)
+					vibeLog.warn('ContextGuard', `Step A.5 compacted ${compacted} old tool-results: ~${savedTokens.toLocaleString()} tokens saved (trigger ${compactAtTokens.toLocaleString()}, kept last ${keepRecentToolResults}) → currentTokens ~${currentTokens.toLocaleString()}. Prompt-cache prefix rebuilds next turn.`)
 				}
 			}
 		}
@@ -2229,6 +2290,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			supportsAnthropicReasoning: validProviderName === 'anthropic',
 			contextWindow,
 			reservedOutputTokenSpace,
+			maxInputTokensSafety: this.configurationService.getValue<number>('vibeide.chat.maxInputTokensSafety') ?? 0,
 			providerName: validProviderName,
 		})
 
@@ -2259,7 +2321,17 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			const lenOf = (m: LLMChatMessage): number => {
 				const anyM = m as { content?: unknown; parts?: unknown };
 				if (typeof anyM.content === 'string') return anyM.content.length;
-				if (Array.isArray(anyM.content)) return extractText(anyM.content).length;
+				if (Array.isArray(anyM.content)) {
+					// Count tool blocks too — text-only counting showed every tool turn as len:0,
+					// which left history-rewrite diagnostics blind (the deterministic prompt-cache
+					// bust at iter ~11 could not be localized: tool_result sizes were invisible).
+					let total = extractText(anyM.content).length;
+					for (const p of anyM.content as Array<{ type?: string; content?: unknown; input?: unknown; name?: unknown }>) {
+						if (p?.type === 'tool_result') { total += typeof p.content === 'string' ? p.content.length : 0; }
+						else if (p?.type === 'tool_use') { total += (typeof p.name === 'string' ? p.name.length : 0) + JSON.stringify(p.input ?? {}).length; }
+					}
+					return total;
+				}
 				if (Array.isArray(anyM.parts)) {
 					// Gemini parts shape: { text } or { functionCall }
 					let out = 0;
@@ -2341,11 +2413,23 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 					messages: messages.map(m => {
 						const mm = m as { content?: unknown; reasoning_content?: unknown; reasoning?: unknown; name?: unknown };
 						const reasoning = typeof mm.reasoning_content === 'string' ? mm.reasoning_content : (typeof mm.reasoning === 'string' ? mm.reasoning : '');
+						// Tool blocks were invisible here (extractText is text-parts-only), which
+						// blinded the history-rewrite investigation — dump heads of each block too.
+						const blocks = Array.isArray(mm.content)
+							? (mm.content as Array<{ type?: string; content?: unknown; input?: unknown; name?: unknown; text?: unknown }>).map(p => ({
+								type: p?.type,
+								head: p?.type === 'tool_result' && typeof p.content === 'string' ? `${(p.content as string).length}c: ${(p.content as string).slice(0, 160)}`
+									: p?.type === 'tool_use' ? `${String(p.name)} ${JSON.stringify(p.input ?? {}).slice(0, 140)}`
+										: p?.type === 'text' && typeof p.text === 'string' ? `${p.text.length}c: ${p.text.slice(0, 160)}`
+											: undefined,
+							}))
+							: undefined;
 						return {
 							role: m.role,
 							tool: m.role === 'tool' && typeof mm.name === 'string' ? mm.name : undefined,
 							reasoning: reasoning || undefined,
 							content: extractText(mm.content),
+							...(blocks ? { blocks } : {}),
 						};
 					}),
 				});

@@ -28,14 +28,14 @@ import { localize } from '../../../../nls.js';
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'vibeide.providers',
-	title: localize('vibeide.providers.title', "VibeIDE — Provider Resilience"),
+	title: localize('vibeide.providers.title', "VibeIDE — Устойчивость провайдеров"),
 	type: 'object',
 	properties: {
 		'vibeide.providers.failoverChain': {
 			type: 'array',
 			items: { type: 'string' },
 			default: [],
-			description: localize('vibeide.providers.failoverChain.description', "Ordered list of provider ids to use for auto-failover when the current provider returns 3 consecutive server errors. Leave empty to disable failover. Example: [\"anthropic\",\"openai\",\"ollama\"]."),
+			description: localize('vibeide.providers.failoverChain.description', "Упорядоченный список id провайдеров для авто-failover, когда текущий провайдер возвращает 3 подряд серверных ошибки. Оставьте пустым для отключения failover. Пример: [\"anthropic\",\"openai\",\"ollama\"]."),
 		},
 	},
 });
@@ -93,7 +93,7 @@ export class VibeProviderFailoverContribution extends Disposable implements IWor
 				severity: Severity.Warning,
 				message: localize(
 					'vibeide.providerFailover.switched',
-					'Provider "{0}" appears to be down after 3 consecutive failures. Switching to "{1}".',
+					'Провайдер "{0}" недоступен после 3 подряд неудач. Выполняется переключение на "{1}".',
 					decision.from,
 					decision.to,
 				),
@@ -105,7 +105,7 @@ export class VibeProviderFailoverContribution extends Disposable implements IWor
 				severity: Severity.Error,
 				message: localize(
 					'vibeide.providerFailover.exhausted',
-					'All configured providers in the failover chain are unavailable. Please check your API keys or network connectivity.',
+					'Все провайдеры в цепочке failover недоступны. Проверьте API-ключи или подключение к сети.',
 				),
 			});
 		}

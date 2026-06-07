@@ -37,7 +37,7 @@ export class VibeOfflineUXContribution extends Disposable implements IWorkbenchC
 				severity: Severity.Warning,
 				message: localize(
 					'vibeOffline',
-					'VibeIDE: Offline mode. AI features are unavailable. Ollama local models still work.'
+					'VibeIDE: Режим офлайн. Функции AI недоступны. Локальные модели Ollama продолжают работать.'
 				),
 			});
 		};
@@ -47,7 +47,7 @@ export class VibeOfflineUXContribution extends Disposable implements IWorkbenchC
 			this._offlineEntry = undefined;
 			this._notificationService.notify({
 				severity: Severity.Info,
-				message: localize('vibeOnline', 'VibeIDE: Back online. AI features restored.'),
+				message: localize('vibeOnline', 'VibeIDE: Соединение восстановлено. Функции AI снова доступны.'),
 			});
 		};
 
@@ -62,10 +62,10 @@ export class VibeOfflineUXContribution extends Disposable implements IWorkbenchC
 
 	private _showOfflineIndicator(): void {
 		const props: IStatusbarEntry = {
-			name: localize('vibeOfflineStatus', 'VibeIDE Offline'),
-			text: localize('vibeOfflineStatusText', '$(cloud-offline) Offline'),
-			tooltip: localize('vibeOfflineTooltip', 'VibeIDE is offline. Cloud AI unavailable. Ollama works locally.'),
-			ariaLabel: localize('vibeOfflineStatusAria', 'VibeIDE is offline'),
+			name: localize('vibeOfflineStatus', 'VibeIDE офлайн'),
+			text: localize('vibeOfflineStatusText', '$(cloud-offline) Офлайн'),
+			tooltip: localize('vibeOfflineTooltip', 'VibeIDE офлайн. Облачный AI недоступен. Ollama работает локально.'),
+			ariaLabel: localize('vibeOfflineStatusAria', 'VibeIDE работает офлайн'),
 		};
 
 		this._offlineEntry = this._statusbarService.addEntry(

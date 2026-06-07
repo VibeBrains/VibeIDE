@@ -11,7 +11,7 @@
 1. **Документация проекта** живёт в `docs/v1/` (33 файла по модулям) + `docs/roadmap.md` (чеклист с фазами) + `docs/idea.md` (исходный документ идеи). См. [architecture/doc-structure.md](architecture/doc-structure.md).
 2. **Roadmap.md** — единственный источник истины по тому, «что уже сделано». Любая новая сессия начинается с его чтения.
 3. **Кодовая база** — форк CortexIDE → форк VS Code. Префикс модуля и команд — `vibeide.*`. См. AGENTS.md в корне репо.
-4. **Локализация UI**: всегда писать русские строки сразу при добавлении новых `localize()` / описаний настроек — см. [i18n/](i18n/).
+4. **Локализация UI**: ВСЕ пользовательские тексты — на русском, сразу в исходнике; исключения (ByteString, идентификаторы, бренды) — в [i18n/russian-first.md](i18n/russian-first.md).
 5. **CSS React-чата** проходит через `scope-tailwind` — это источник большей части визуальных багов. См. [ui/scope-tailwind.md](ui/scope-tailwind.md).
 
 ---
@@ -74,6 +74,7 @@
 |---|---|
 | [language-pack.md](i18n/language-pack.md) | `vscode-loc` vs VSIX, встроенный core language pack, `&&` мнемоники |
 | [nls-indices.md](i18n/nls-indices.md) | Плейсхолдеры `{0}`, рассинхрон `nls.messages.json`, NLS extract в dev |
+| [russian-first.md](i18n/russian-first.md) | Правило: все user-facing тексты на русском сразу в исходнике; список исключений (ByteString/Latin-1, идентификаторы, бренды) |
 | [react-and-settings.md](i18n/react-and-settings.md) | `vibeSettingsRu.ts`, перевод настроек напрямую (без bundle), правило для будущих PR |
 
 ### [build/](build/) — сборка и dev
@@ -108,12 +109,16 @@
 | [idle-memory.md](runtime-quirks/idle-memory.md) | Ночной OOM / блок других Electron-приложений / Idle Watchdog инструмент диагностики |
 | [watchdog-commands.md](runtime-quirks/watchdog-commands.md) | Idle Watchdog: Command Palette entries, всех 18 settings keys, on-disk artefact layout, .jsonl schema v=1 |
 | [xml-tool-format-incidents.md](runtime-quirks/xml-tool-format-incidents.md) | Chronological catalog of observed XML tool-call format incidents (model / format / fix commit / regression test) |
+| [provider-quota-429.md](runtime-quirks/provider-quota-429.md) | Квотные 429 (retry-after в днях) vs burst-троттлинг: fail-fast в customFetch, отдельное семейство переводчика ошибок |
+| [anthropic-shape-tool-history.md](runtime-quirks/anthropic-shape-tool-history.md) | Инцидент: tool_use/tool_result Anthropic-формы выбрасывались AI SDK адаптером → модель не видела результаты и реплеила вызовы; диагностика через прирост `in:` |
+| [auto-downgrade-pipeline.md](runtime-quirks/auto-downgrade-pipeline.md) | Тройной инцидент авто-даунгрейда в XML: run-local guard, потеря undefined на IPC/диске (→ null-sentinel), recovery стирал свежие override'ы (→ age-guard) |
 
 ### [roadmap/](roadmap/) — run logs (long sessions)
 
 | Файл | О чём |
 |---|---|
 | [runs.md](roadmap/runs.md) | Run logs ночных roadmap-max сессий |
+| [token-economy.md](roadmap/token-economy.md) | Токен-экономия: cache-friendly prompt assembly, конденсер вывода терминала, auxiliary-модель для служебных вызовов |
 
 ### [assets/](assets/) — лого, иконки, онбординг
 

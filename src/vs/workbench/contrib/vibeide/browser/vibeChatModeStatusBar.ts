@@ -15,11 +15,12 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 
 const MODE_ORDER: ChatMode[] = ['agent', 'gather', 'plan', 'normal'];
 
+// Mirrors the mode names in the chat dropdown (vibeSettingsRu.ts) — single terminology.
 const MODE_LABEL: Record<ChatMode, string> = {
-	agent: 'Agent',
-	gather: 'Explore',
-	plan: 'Plan',
-	normal: 'Chat',
+	agent: 'Агент',
+	gather: 'Обзор',
+	plan: 'План',
+	normal: 'Чат',
 };
 
 const MODE_ICON: Record<ChatMode, string> = {
@@ -30,10 +31,10 @@ const MODE_ICON: Record<ChatMode, string> = {
 };
 
 const MODE_TOOLTIP: Record<ChatMode, string> = {
-	agent: 'Agent — agent runs tools, edits files, with Trust Score and constraints.',
-	gather: 'Explore — read-only investigation, no writes.',
-	plan: 'Plan — research and produce a Markdown plan, no mutations.',
-	normal: 'Chat — plain Q&A, no tools.',
+	agent: 'Агент — выполняет инструменты и правит файлы, с учётом Trust Score и ограничений.',
+	gather: 'Обзор — исследование кодовой базы, только чтение, без записи.',
+	plan: 'План — исследование и Markdown-план, без изменений в коде.',
+	normal: 'Чат — обычный вопрос-ответ, без инструментов.',
 };
 
 const CYCLE_COMMAND = 'vibeide.chat.cycleMode';
@@ -117,10 +118,10 @@ export class VibeChatModeStatusBarContribution extends Disposable implements IWo
 		const label = MODE_LABEL[mode];
 		const icon = MODE_ICON[mode];
 		return {
-			name: localize('vibeideChatModeSbName', 'VibeIDE chat mode'),
+			name: localize('vibeideChatModeSbName', 'VibeIDE режим чата'),
 			text: `${icon} ${label}`,
-			ariaLabel: localize('vibeideChatModeSbAria', 'Chat mode: {0}. Click to cycle.', label),
-			tooltip: MODE_TOOLTIP[mode] + '\n\n' + localize('vibeideChatModeSbCycle', 'Click to cycle: Agent → Explore → Plan → Chat.'),
+			ariaLabel: localize('vibeideChatModeSbAria', 'Режим чата: {0}. Нажмите для переключения.', label),
+			tooltip: MODE_TOOLTIP[mode] + '\n\n' + localize('vibeideChatModeSbCycle', 'Нажмите для перебора: Agent → Explore → Plan → Chat.'),
 			command: CYCLE_COMMAND,
 		};
 	}

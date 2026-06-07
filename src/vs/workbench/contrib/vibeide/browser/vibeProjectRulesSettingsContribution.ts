@@ -110,7 +110,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.projectRules.toggleSource',
-			title: { value: localize('vibeide.projectRules.toggleSource', 'VibeIDE: Toggle Project Rule Source (enable/disable for AI context)'), original: 'VibeIDE: Toggle Project Rule Source (enable/disable for AI context)' },
+			title: { value: localize('vibeide.projectRules.toggleSource', 'VibeIDE: Переключить источник правил проекта (включить/выключить для AI-контекста)'), original: 'VibeIDE: Toggle Project Rule Source (enable/disable for AI context)' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -127,7 +127,7 @@ registerAction2(class extends Action2 {
 		}
 		const sources = rulesSvc.getLoadedSources();
 		if (sources.length === 0) {
-			notifications.notify({ severity: Severity.Info, message: localize('vibeide.projectRules.noSources', 'No project rules files found.') });
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.projectRules.noSources', 'Файлы правил проекта не найдены.') });
 			return;
 		}
 
@@ -139,7 +139,7 @@ registerAction2(class extends Action2 {
 		}));
 
 		const selected = await quickInput.pick(picks, {
-			title: localize('vibeide.projectRules.toggleTitle', 'Toggle Project Rule Sources (checked = enabled for AI)'),
+			title: localize('vibeide.projectRules.toggleTitle', 'Переключить источники правил проекта (отмеченные = включены для AI)'),
 			canPickMany: true,
 		});
 		if (!selected) { return; }
@@ -151,7 +151,7 @@ registerAction2(class extends Action2 {
 		await config.updateValue('vibeide.projectRules.disabledSources', newDisabled, 5 /* WORKSPACE */);
 		notifications.notify({
 			severity: Severity.Info,
-			message: localize('vibeide.projectRules.toggled', '{0} sources enabled, {1} disabled.', selected.length, newDisabled.length),
+			message: localize('vibeide.projectRules.toggled', '{0} источников включено, {1} отключено.', selected.length, newDisabled.length),
 		});
 	}
 });
@@ -160,7 +160,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.projectRules.showStats',
-			title: { value: localize('vibeide.projectRules.showStats', 'VibeIDE: Show Project Rules Stats (token budget preview)'), original: 'VibeIDE: Show Project Rules Stats (token budget preview)' },
+			title: { value: localize('vibeide.projectRules.showStats', 'VibeIDE: Показать статистику правил проекта (предпросмотр токенного бюджета)'), original: 'VibeIDE: Show Project Rules Stats (token budget preview)' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});

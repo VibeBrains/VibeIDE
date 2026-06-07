@@ -41,7 +41,7 @@ export const VibeideTitleBarMenuId = new MenuId('VibeideTitleBarMenu');
 export const vibeideCommandCenterBrainIcon = registerVibeideFaSolidIcon(
 	'vibeide-command-center-brain',
 	'\uf5dc',
-	localize('vibeideCommandCenterBrainIcon', 'VibeIDE menu icon in the title bar command center.'),
+	localize('vibeideCommandCenterBrainIcon', 'Иконка меню VibeIDE в командном центре заголовка.'),
 );
 
 // ─── CommandCenter entry ──────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_SHOW_CHAT_HISTORY_CMD,
-			title: localize2('vibeideChatHistory', 'VibeIDE: Chat History'),
+			title: localize2('vibeideChatHistory', 'VibeIDE: История чата'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 			f1: true,
 		});
@@ -83,7 +83,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_PROVIDER_DASHBOARD_CMD,
-			title: localize2('vibeideProviderDashboard', 'VibeIDE: Provider Dashboard'),
+			title: localize2('vibeideProviderDashboard', 'VibeIDE: Дашборд провайдера'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 			f1: true,
 		});
@@ -107,7 +107,7 @@ registerAction2(class extends Action2 {
 		} catch (err) {
 			notificationService.notify({
 				severity: Severity.Error,
-				message: localize('vibeideProviderDashboardErr', 'Could not open Provider Dashboard: {0}', String(err)),
+				message: localize('vibeideProviderDashboardErr', 'Не удалось открыть дашборд провайдера: {0}', String(err)),
 			});
 		}
 	}
@@ -120,7 +120,7 @@ registerAction2(class extends Action2 {
 MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 	command: {
 		id: 'vibeide.cmdShiftL',
-		title: localize('vibeNewChat', 'New Chat'),
+		title: localize('vibeNewChat', 'Новый чат'),
 	},
 	group: 'a_chat',
 	order: 1,
@@ -129,7 +129,7 @@ MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 	command: {
 		id: VIBEIDE_SHOW_CHAT_HISTORY_CMD,
-		title: localize('vibeideChatHistoryMenu', 'Chat History'),
+		title: localize('vibeideChatHistoryMenu', 'История чата'),
 	},
 	group: 'a_chat',
 	order: 2,
@@ -140,7 +140,7 @@ MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 	command: {
 		id: VIBEIDE_TOGGLE_SETTINGS_ACTION_ID,
-		title: localize('vibeideSettingsMenu', 'VibeIDE Settings'),
+		title: localize('vibeideSettingsMenu', 'Настройки VibeIDE'),
 	},
 	group: 'b_config',
 	order: 1,
@@ -149,7 +149,7 @@ MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 	command: {
 		id: VIBEIDE_PROVIDER_DASHBOARD_CMD,
-		title: localize('vibeideProviderDashboardMenu', 'Provider Dashboard'),
+		title: localize('vibeideProviderDashboardMenu', 'Дашборд провайдера'),
 	},
 	group: 'b_config',
 	order: 2,
@@ -160,7 +160,7 @@ MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 	command: {
 		id: 'vibeide.skills.showFolder',
-		title: localize('vibeideSkillsFolder', 'Open Skills Folder'),
+		title: localize('vibeideSkillsFolder', 'Открыть папку скиллов'),
 	},
 	group: 'c_workspace',
 	order: 1,
@@ -169,7 +169,7 @@ MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 	command: {
 		id: 'vibeide.plans.showPlansFolder',
-		title: localize('vibe_idePlansFolder', 'Open Plans Folder'),
+		title: localize('vibe_idePlansFolder', 'Открыть папку планов'),
 	},
 	group: 'c_workspace',
 	order: 2,
@@ -178,7 +178,7 @@ MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 	command: {
 		id: 'vibe.codebase.query',
-		title: localize('vibeideCodebaseSearch', 'Search Codebase (AI)'),
+		title: localize('vibeideCodebaseSearch', 'Поиск по кодовой базе (ИИ)'),
 	},
 	group: 'c_workspace',
 	order: 3,

@@ -23,7 +23,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.subagent.spawnExplore',
-			title: { value: localize('vibeide.subagent.spawnExplore', 'VibeIDE Subagent: Spawn Explore (read-only codebase search)'), original: 'VibeIDE Subagent: Spawn Explore (read-only codebase search)' },
+			title: { value: localize('vibeide.subagent.spawnExplore', 'VibeIDE Субагент: запустить исследование (поиск по кодовой базе, только чтение)'), original: 'VibeIDE Subagent: Spawn Explore (read-only codebase search)' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -35,8 +35,8 @@ registerAction2(class extends Action2 {
 		const notifications = accessor.get(INotificationService);
 
 		const goal = await quickInput.input({
-			prompt: localize('vibeide.subagent.spawnExplore.prompt', 'What should the explore subagent find? (read-only, isolated context)'),
-			placeHolder: localize('vibeide.subagent.spawnExplore.placeholder', 'e.g. Find all usages of IVibeConstraintsService'),
+			prompt: localize('vibeide.subagent.spawnExplore.prompt', 'Что должен найти субагент исследования? (только чтение, изолированный контекст)'),
+			placeHolder: localize('vibeide.subagent.spawnExplore.placeholder', 'напр. Найди все использования IVibeConstraintsService'),
 		});
 
 		if (!goal?.trim()) { return; }
@@ -50,7 +50,7 @@ registerAction2(class extends Action2 {
 
 		notifications.notify({
 			severity: Severity.Info,
-			message: localize('vibeide.subagent.spawned', 'Explore subagent spawned (id: {0}). Waiting for result...', subagentId),
+			message: localize('vibeide.subagent.spawned', 'Субагент исследования запущен (id: {0}). Ожидание результата...', subagentId),
 		});
 
 		try {
@@ -59,14 +59,14 @@ registerAction2(class extends Action2 {
 			notifications.notify({
 				severity: result.status === 'success' ? Severity.Info : Severity.Warning,
 				message: localize('vibeide.subagent.result',
-					'Explore subagent completed ({0}): {1}\n\nPaths: {2}',
+					'Субагент исследования завершил работу ({0}): {1}\n\nПути: {2}',
 					result.status,
 					result.summary.slice(0, 200),
 					paths.slice(0, 300)
 				),
 			});
 		} catch (err) {
-			notifications.notify({ severity: Severity.Error, message: localize('vibeide.subagent.error', 'Subagent error: {0}', String(err)) });
+			notifications.notify({ severity: Severity.Error, message: localize('vibeide.subagent.error', 'Ошибка субагента: {0}', String(err)) });
 		}
 	}
 });
@@ -77,7 +77,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.subagent.listActive',
-			title: { value: localize('vibeide.subagent.listActive', 'VibeIDE Subagent: List Active Subagents'), original: 'VibeIDE Subagent: List Active Subagents' },
+			title: { value: localize('vibeide.subagent.listActive', 'VibeIDE Субагент: список активных субагентов'), original: 'VibeIDE Subagent: List Active Subagents' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -94,7 +94,7 @@ registerAction2(class extends Action2 {
 
 		if (allEntries.length === 0) {
 			const notifications = accessor.get(INotificationService);
-			notifications.notify({ severity: Severity.Info, message: localize('vibeide.subagent.none', 'No active subagents.') });
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.subagent.none', 'Нет активных субагентов.') });
 			return;
 		}
 
@@ -104,7 +104,7 @@ registerAction2(class extends Action2 {
 				description: e.handoff.goal.slice(0, 80),
 				detail: localize('vibeide.subagent.listItemDetail', 'id: {0} | parent: {1}', String(e.id), String(e.parentThreadId)),
 			})),
-			{ title: localize('vibeide.subagent.listTitle', 'Active Subagents') }
+			{ title: localize('vibeide.subagent.listTitle', 'Активные субагенты') }
 		);
 	}
 });

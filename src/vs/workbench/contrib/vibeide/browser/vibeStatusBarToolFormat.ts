@@ -65,26 +65,26 @@ export class VibeStatusBarToolFormatContribution extends Disposable implements I
 			case 'auto':
 				return {
 					text: '🔧 FC: auto',
-					tooltip: localize('vibeToolFormatAuto', 'Chat model is auto-selected — the tool-call format is resolved per request.'),
+					tooltip: localize('vibeToolFormatAuto', 'Модель чата выбирается автоматически — формат вызова тулов определяется для каждого запроса.'),
 					severity: 'info',
 				};
 			case 'native':
 				return {
 					text: '🔧 FC: native',
-					tooltip: localize('vibeToolFormatNative', 'Tool-call format for {0}: native function-calling ({1}).', modelLabel, caps?.specialToolFormat ?? ''),
+					tooltip: localize('vibeToolFormatNative', 'Формат тулов для {0}: нативный function-calling ({1}).', modelLabel, caps?.specialToolFormat ?? ''),
 					severity: 'info',
 				};
 			case 'xml-autodowngraded':
 				return {
 					text: '🔧 FC: XML ⚠',
-					tooltip: localize('vibeToolFormatXmlAuto', 'Tool-call format for {0}: XML fallback — AUTO-DOWNGRADED from native ({1}). Click to reset and retry native function-calling.', modelLabel, ov?._reason ?? 'other'),
+					tooltip: localize('vibeToolFormatXmlAuto', 'Формат тулов для {0}: XML fallback — АВТОМАТИЧЕСКИ ПОНИЖЕН с нативного ({1}). Нажмите для сброса и повтора нативного function-calling.', modelLabel, ov?._reason ?? 'other'),
 					severity: 'warn',
 				};
 			case 'xml':
 			default:
 				return {
 					text: '🔧 FC: XML',
-					tooltip: localize('vibeToolFormatXml', 'Tool-call format for {0}: XML fallback (this model has no native function-calling by default).', modelLabel),
+					tooltip: localize('vibeToolFormatXml', 'Формат тулов для {0}: XML fallback (эта модель не поддерживает нативный function-calling по умолчанию).', modelLabel),
 					severity: 'info',
 				};
 		}
@@ -92,7 +92,7 @@ export class VibeStatusBarToolFormatContribution extends Disposable implements I
 
 	private _entryPropsFrom(c: { text: string; tooltip: string }): IStatusbarEntry {
 		return {
-			name: localize('vibeToolFormat', 'VibeIDE Tool-call Format'),
+			name: localize('vibeToolFormat', 'VibeIDE: формат тулов'),
 			text: c.text,
 			tooltip: c.tooltip,
 			command: 'vibeide.toolFormat.resetAutoDetectedOverrides',

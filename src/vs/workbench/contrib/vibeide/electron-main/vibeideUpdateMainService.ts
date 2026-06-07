@@ -135,42 +135,42 @@ export class VibeideMainUpdateService extends Disposable implements IVibeideUpda
 
 		if (this._updateService.state.type === StateType.Uninitialized) {
 			// The update service hasn't been initialized yet
-			return { message: explicit ? localize('vibeide.update.checkingSoon', 'Checking for updates soon...') : null, action: explicit ? 'reinstall' : undefined } as const;
+			return { message: explicit ? localize('vibeide.update.checkingSoon', 'Скоро будет выполнена проверка обновлений...') : null, action: explicit ? 'reinstall' : undefined } as const;
 		}
 
 		if (this._updateService.state.type === StateType.Idle) {
 			// No updates currently available
-			return { message: explicit ? localize('vibeide.update.noneFound', 'No updates found!') : null, action: explicit ? 'reinstall' : undefined } as const;
+			return { message: explicit ? localize('vibeide.update.noneFound', 'Обновлений не найдено!') : null, action: explicit ? 'reinstall' : undefined } as const;
 		}
 
 		if (this._updateService.state.type === StateType.CheckingForUpdates) {
 			// Currently checking for updates
-			return { message: explicit ? localize('vibeide.update.checking', 'Checking for updates...') : null } as const;
+			return { message: explicit ? localize('vibeide.update.checking', 'Проверка обновлений...') : null } as const;
 		}
 
 		if (this._updateService.state.type === StateType.AvailableForDownload) {
 			// Update available but requires manual download (mainly for Linux)
-			return { message: localize('vibeide.update.availableDownload', 'A new update is available!'), action: 'download', } as const;
+			return { message: localize('vibeide.update.availableDownload', 'Доступно новое обновление!'), action: 'download', } as const;
 		}
 
 		if (this._updateService.state.type === StateType.Downloading) {
 			// Update is currently being downloaded
-			return { message: explicit ? localize('vibeide.update.downloading', 'Currently downloading update...') : null } as const;
+			return { message: explicit ? localize('vibeide.update.downloading', 'Идёт загрузка обновления...') : null } as const;
 		}
 
 		if (this._updateService.state.type === StateType.Downloaded) {
 			// Update has been downloaded but not yet ready
-			return { message: explicit ? localize('vibeide.update.readyToApply', 'An update is ready to be applied!') : null, action: 'apply' } as const;
+			return { message: explicit ? localize('vibeide.update.readyToApply', 'Обновление готово к установке!') : null, action: 'apply' } as const;
 		}
 
 		if (this._updateService.state.type === StateType.Updating) {
 			// Update is being applied
-			return { message: explicit ? localize('vibeide.update.applying', 'Applying update...') : null } as const;
+			return { message: explicit ? localize('vibeide.update.applying', 'Применение обновления...') : null } as const;
 		}
 
 		if (this._updateService.state.type === StateType.Ready) {
 			// Update is ready
-			return { message: localize('vibeide.update.restartToUpdate', 'Restart VibeIDE to update!'), action: 'restart' } as const;
+			return { message: localize('vibeide.update.restartToUpdate', 'Перезапустите VibeIDE для применения обновления!'), action: 'restart' } as const;
 		}
 
 		if (this._updateService.state.type === StateType.Disabled) {
@@ -266,8 +266,8 @@ export class VibeideMainUpdateService extends Disposable implements IVibeideUpda
 			let message: string | null;
 			let action: 'reinstall' | undefined;
 
-			const msgAvailable = localize('vibeide.update.availableReinstall', 'A new version of VibeIDE is available! Please reinstall (auto-updates are disabled on this OS) - it only takes a second!');
-			const msgUpToDate = localize('vibeide.update.upToDate', 'VibeIDE is up-to-date!');
+			const msgAvailable = localize('vibeide.update.availableReinstall', 'Доступна новая версия VibeIDE! Выполните переустановку (автообновления отключены для этой ОС) — это займёт секунду!');
+			const msgUpToDate = localize('vibeide.update.upToDate', 'VibeIDE обновлён до последней версии!');
 
 			if (explicit) {
 				if (!isUpToDate) {
@@ -293,7 +293,7 @@ export class VibeideMainUpdateService extends Disposable implements IVibeideUpda
 		catch (e) {
 			if (explicit) {
 				return {
-					message: localize('vibeide.update.fetchReleaseError', 'An error occurred when fetching the latest GitHub release tag: {0}. Please try again in ~5 minutes.', String(e)),
+					message: localize('vibeide.update.fetchReleaseError', 'Произошла ошибка при получении последнего тега релиза GitHub: {0}. Повторите попытку примерно через 5 минут.', String(e)),
 					action: 'reinstall',
 				};
 			}

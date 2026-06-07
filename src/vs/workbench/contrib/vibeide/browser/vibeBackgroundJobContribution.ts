@@ -57,7 +57,7 @@ class VibeBackgroundJobContribution extends Disposable {
 			this._notifications.notify({
 				severity: mostRecent.status === 'completed' ? Severity.Info : Severity.Warning,
 				message: localize('vibeide.backgroundJob.digest',
-					'{0} Background job "{1}" completed with status: {2}. Tokens used: {3}. Open .vibe/jobs/{4}-digest.md for details.',
+					'{0} Фоновая задача «{1}» завершена со статусом: {2}. Использовано токенов: {3}. Подробности — .vibe/jobs/{4}-digest.md.',
 					icon,
 					mostRecent.jobId,
 					mostRecent.status,
@@ -82,7 +82,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.backgroundJob.createCheckpoint',
-			title: { value: localize('vibeide.backgroundJob.createCheckpoint', 'VibeIDE Background Job: Create Checkpoint Before Run'), original: 'VibeIDE Background Job: Create Checkpoint Before Run' },
+			title: { value: localize('vibeide.backgroundJob.createCheckpoint', 'VibeIDE Фоновая задача: создать контрольную точку перед запуском'), original: 'VibeIDE Background Job: Create Checkpoint Before Run' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -96,7 +96,7 @@ registerAction2(class extends Action2 {
 
 		const quickInputSvc = accessor.get(IQuickInputService);
 		const jobId = await quickInputSvc.input({
-			prompt: localize('vibeide.backgroundJob.checkpointPrompt', 'Enter job ID to create a checkpoint for'),
+			prompt: localize('vibeide.backgroundJob.checkpointPrompt', 'Введите ID задачи для создания контрольной точки'),
 			placeHolder: 'job-1234567890',
 		});
 		if (!jobId) { return; }
@@ -111,7 +111,7 @@ registerAction2(class extends Action2 {
 			await jobSvc.updateJobStatus(jobId, { checkpointBefore: snapshotRef });
 			notifications.notify({
 				severity: Severity.Info,
-				message: localize('vibeide.backgroundJob.checkpointCreated', 'Checkpoint "{0}" created for job {1}. Ref: {2}', label, jobId, snapshotRef),
+				message: localize('vibeide.backgroundJob.checkpointCreated', 'Контрольная точка «{0}» создана для задачи {1}. Ссылка: {2}', label, jobId, snapshotRef),
 			});
 		} catch (err) {
 			notifications.notify({ severity: Severity.Error, message: `Checkpoint creation failed: ${String(err)}` });
@@ -123,7 +123,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.backgroundJob.listJobs',
-			title: { value: localize('vibeide.backgroundJob.listJobs', 'VibeIDE Background Job: List All Jobs'), original: 'VibeIDE Background Job: List All Jobs' },
+			title: { value: localize('vibeide.backgroundJob.listJobs', 'VibeIDE Фоновые задачи: список всех задач'), original: 'VibeIDE Background Job: List All Jobs' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -135,7 +135,7 @@ registerAction2(class extends Action2 {
 
 		const jobs = await jobSvc.listJobs();
 		if (jobs.length === 0) {
-			notifications.notify({ severity: Severity.Info, message: localize('vibeide.backgroundJob.noJobs', 'No background jobs found in .vibe/jobs/. Create one with: node scripts/vibe-agent-run.js --create-job') });
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.backgroundJob.noJobs', 'Фоновые задачи в .vibe/jobs/ не найдены. Создайте задачу: node scripts/vibe-agent-run.js --create-job') });
 			return;
 		}
 
@@ -148,7 +148,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.backgroundJob.scheduleHint',
-			title: { value: localize('vibeide.backgroundJob.scheduleHint', 'VibeIDE Background Job: Show Local Schedule Setup Instructions'), original: 'VibeIDE Background Job: Show Local Schedule Setup Instructions' },
+			title: { value: localize('vibeide.backgroundJob.scheduleHint', 'VibeIDE Фоновые задачи: инструкция по настройке локального расписания'), original: 'VibeIDE Background Job: Show Local Schedule Setup Instructions' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});

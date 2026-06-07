@@ -280,7 +280,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.context.pickDiagram',
-			title: { value: localize('vibeide.context.pickDiagram', 'VibeIDE: Pick Diagram / Image for Agent Context (@diagram)'), original: 'VibeIDE: Pick Diagram / Image for Agent Context (@diagram)' },
+			title: { value: localize('vibeide.context.pickDiagram', 'VibeIDE: Выбрать диаграмму / изображение для контекста агента (@diagram)'), original: 'VibeIDE: Pick Diagram / Image for Agent Context (@diagram)' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -295,13 +295,13 @@ registerAction2(class extends Action2 {
 		const Severity = (await import('../../../../platform/notification/common/notification.js')).Severity;
 
 		// Scan workspace for diagram files
-		notifSvc.notify({ severity: Severity.Info, message: localize('vibeide.context.pickDiagram.scanning', 'Scanning workspace for diagrams...') });
+		notifSvc.notify({ severity: Severity.Info, message: localize('vibeide.context.pickDiagram.scanning', 'Сканирование рабочего пространства на диаграммы...') });
 		const files = await diagramSvc.scanWorkspaceDiagramFiles(200);
 
 		if (files.length === 0) {
 			notifSvc.notify({
 				severity: Severity.Info,
-				message: localize('vibeide.context.pickDiagram.none', 'No diagram/image files found in workspace. Supported: png, svg, jpg, webp, drawio, excalidraw.'),
+				message: localize('vibeide.context.pickDiagram.none', 'В рабочем пространстве не найдено диаграмм или изображений. Поддерживаются: png, svg, jpg, webp, drawio, excalidraw.'),
 			});
 			return;
 		}
@@ -313,7 +313,7 @@ registerAction2(class extends Action2 {
 				detail: f,
 			})),
 			{
-				title: localize('vibeide.context.pickDiagram.title', 'Pick diagram to add as @diagram:<path>'),
+				title: localize('vibeide.context.pickDiagram.title', 'Выберите диаграмму для вставки как @diagram:<path>'),
 				matchOnDescription: true,
 			}
 		);
@@ -328,12 +328,12 @@ registerAction2(class extends Action2 {
 			await navigator.clipboard.writeText(mention);
 			notifSvc.notify({
 				severity: Severity.Info,
-				message: localize('vibeide.context.pickDiagram.copied', 'Copied to clipboard: {0} — paste into chat to include in agent context.', mention),
+				message: localize('vibeide.context.pickDiagram.copied', 'Скопировано в буфер обмена: {0} — вставьте в чат для включения в контекст агента.', mention),
 			});
 		} catch {
 			notifSvc.notify({
 				severity: Severity.Info,
-				message: localize('vibeide.context.pickDiagram.use', 'Add to chat: {0}', mention),
+				message: localize('vibeide.context.pickDiagram.use', 'Добавьте в чат: {0}', mention),
 			});
 		}
 	}
@@ -343,7 +343,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.context.previewDiagram',
-			title: { value: localize('vibeide.context.previewDiagram', 'VibeIDE: Preview Diagram Context Block (show what agent sees)'), original: 'VibeIDE: Preview Diagram Context Block' },
+			title: { value: localize('vibeide.context.previewDiagram', 'VibeIDE: Предпросмотр блока контекста диаграммы (что видит агент)'), original: 'VibeIDE: Preview Diagram Context Block' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -358,7 +358,7 @@ registerAction2(class extends Action2 {
 		const { ITextModelService } = await import('../../../../editor/common/services/resolverService.js');
 
 		const path = await quickInputSvc.input({
-			prompt: localize('vibeide.context.previewDiagram.prompt', 'Enter diagram path or URL to preview'),
+			prompt: localize('vibeide.context.previewDiagram.prompt', 'Введите путь к диаграмме или URL для предпросмотра'),
 			placeHolder: 'src/docs/architecture.png',
 		});
 		if (!path) { return; }

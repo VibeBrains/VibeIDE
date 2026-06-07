@@ -33,7 +33,7 @@ class VibeDeadMansSwitchNotification extends Disposable implements IWorkbenchCon
 		this._register(this._dmsService.onAgentPaused(({ reason }) => {
 			this._notificationService.notify({
 				severity: Severity.Warning,
-				message: localize('vibeAgentPaused', 'Agent paused: {0}', reason),
+				message: localize('vibeAgentPaused', 'Агент приостановлен: {0}', reason),
 				sticky: true,
 			});
 		}));

@@ -89,10 +89,10 @@ export class VibeIdleWatchdogStatusBarContribution extends Disposable implements
 		return {
 			name: 'VibeIDE Watchdog',
 			text: `🧠 ${fmt(mainRss)} / ${fmt(renderRss)} / ${fmt(extRss)}`,
-			ariaLabel: localize('vibeide.watchdog.statusbar.aria', 'VibeIDE Idle Watchdog memory usage'),
+			ariaLabel: localize('vibeide.watchdog.statusbar.aria', 'Потребление памяти вотчдога VibeIDE'),
 			tooltip: localize(
 				'vibeide.watchdog.statusbar.tooltip',
-				'VibeIDE memory: main {0} · renderer {1} · ext-host {2}\nClick → Show Idle Watchdog Timeline',
+				'Память VibeIDE: main {0} · renderer {1} · ext-host {2}\nКлик → показать таймлайн вотчдога',
 				fmt(mainRss), fmt(renderRss), fmt(extRss),
 			),
 			command: 'vibeide.watchdog.showTimeline',

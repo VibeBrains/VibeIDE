@@ -67,13 +67,7 @@ export const chatS = {
 	suggestions: 'Подсказки',
 	previousThreads: 'Прошлые чаты',
 	chipFile: 'Файл',
-	chipFolder: 'Папка',
 	chipModel: 'Модель',
-	chipFallbackFolder: 'папка',
-	chipFallbackFile: 'файл',
-	removeChipAria: (name: string) => `Убрать ${name}`,
-	rangeTooltip: (path: string, start: number, end: number) =>
-		`${path} (строки ${start}–${end})`,
 	quickExplain: 'Объяснить',
 	quickRefactor: 'Рефакторинг',
 	quickAddTests: 'Добавить тесты',
@@ -105,6 +99,14 @@ export const chatS = {
 	autoNudgesOffHint: 'автоподпинывание выключено',
 	autoNudgesTitle:
 		'Автоподпинывание (vibeide.agent.autoContinueMaxNudges): сколько раз ПОДРЯД при включённом автопилоте агент подтолкнёт модель продолжить, если та завершила ход текстом без вызова инструмента (артефакт слабых tool-calling-моделей). Счётчик сбрасывается на каждом выполненном инструменте. 0 = выкл — останавливаться сразу. Дефолт 2.',
+	questionNudgesLabel: 'подпин?',
+	questionNudgesOffLabel: '∞ подпин?',
+	questionNudgesOffHint: 'без лимита',
+	questionNudgesTitle:
+		'Автоподпин при вопросе (vibeide.agent.autoContinueOnQuestion): если при включённом автопилоте модель завершила ход ВОПРОСОМ (последний символ «?»), агент подтолкнёт её продолжить — не тратит лимит обычных подпинов слева и работает даже при их 0. Значение — сколько вопрос-подпинов ПОДРЯД допускается (счётчик сбрасывается на каждом выполненном инструменте). 0 = без лимита (∞). Дефолт 3.',
+	sessionResetTitle: (used: string) =>
+		`Сбросить счётчик токенов сессии (израсходовано ${used}). Обнуляет session-лимит безопасности — история чата не затрагивается.`,
+	sessionResetAria: 'Сбросить счётчик токенов сессии',
 	trainingUnknown: 'обуч.?',
 	trainingNone: 'без обуч.',
 	trainingOptIn: 'opt-in',
@@ -124,7 +126,7 @@ export const chatS = {
 	uploadPdfsAria: 'Загрузить PDF',
 	uploadPdfsTitle: 'Загрузить PDF (или вставить / перетащить)',
 	thinkingLabel: 'Рассуждение',
-	thinkingDisabled: 'Рассуждение выключено',
+	thinkingDisabled: 'off',
 	tokensSuffix: 'токенов',
 	loadingThinkingAria: 'Думает',
 	loadingTypingAria: 'Печатает',

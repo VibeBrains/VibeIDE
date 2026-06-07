@@ -18,6 +18,8 @@ import { MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_CHARS, MAX_TERMINAL_INACTIVE
 import { TerminalResolveReason } from '../common/toolsServiceTypes.js';
 import { timeout } from '../../../../base/common/async.js';
 import { truncateHeadTail } from '../common/toolHardening.js';
+import { condenseTerminalOutput } from '../common/terminalOutputCondenser.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 
 
@@ -95,6 +97,7 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 	constructor(
 		@ITerminalService private readonly terminalService: ITerminalService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
 	) {
 		super();
 
@@ -431,7 +434,14 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 			if (!resolveReason) throw new Error('Unexpected internal error: Promise.any should have resolved with a reason.')
 
 			if (!isPersistent) result = `$ ${command}\n${result}`
-			result = truncateHeadTail(removeAnsiEscapeCodes(result), MAX_TERMINAL_CHARS)
+			// Semantic condense (token-economy B) BEFORE the size clamp: collapse test-runner
+			// "ok"-spam, progress bars and duplicate lines; errors/summaries stay verbatim.
+			// The char clamp below remains the safety net for unrecognised huge output.
+			result = removeAnsiEscapeCodes(result)
+			if (this.configurationService.getValue<boolean>('vibeide.terminal.condenseOutput') !== false) {
+				result = condenseTerminalOutput(result)
+			}
+			result = truncateHeadTail(result, MAX_TERMINAL_CHARS)
 			return { result, resolveReason }
 
 		}

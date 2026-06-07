@@ -26,7 +26,7 @@ const BUILTIN_MODES: CustomMode[] = [
 	{
 		id: 'architect',
 		name: 'Architect',
-		description: localize('vibeide.customModes.architect.desc', 'High-level design and planning mode'),
+		description: localize('vibeide.customModes.architect.desc', 'Режим высокоуровневого проектирования и планирования'),
 		systemPromptExtension: 'You are in Architect mode. Focus on high-level design, architecture decisions, and planning. Avoid implementing details. Ask clarifying questions about requirements.',
 		allowedTools: ['read_file', 'ls_dir', 'web_search'],
 		trustScore: 'supervised',
@@ -35,7 +35,7 @@ const BUILTIN_MODES: CustomMode[] = [
 	{
 		id: 'coder',
 		name: 'Coder',
-		description: localize('vibeide.customModes.coder.desc', 'Implementation and coding mode'),
+		description: localize('vibeide.customModes.coder.desc', 'Режим реализации и написания кода'),
 		systemPromptExtension: 'You are in Coder mode. Focus on implementing code efficiently. Write clean, well-tested code. Follow existing patterns.',
 		allowedTools: undefined, // All tools
 		trustScore: 'auto',
@@ -44,7 +44,7 @@ const BUILTIN_MODES: CustomMode[] = [
 	{
 		id: 'debugger',
 		name: 'Debugger',
-		description: localize('vibeide.customModes.debugger.desc', 'Bug investigation and fixing mode'),
+		description: localize('vibeide.customModes.debugger.desc', 'Режим расследования и исправления ошибок'),
 		systemPromptExtension: 'You are in Debugger mode. Focus on identifying root causes. Start by reading relevant code, then propose minimal targeted fixes. Explain your reasoning.',
 		allowedTools: ['read_file', 'ls_dir', 'run_command'],
 		trustScore: 'manual',

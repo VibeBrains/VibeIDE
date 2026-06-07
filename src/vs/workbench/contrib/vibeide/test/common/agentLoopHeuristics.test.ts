@@ -4,9 +4,40 @@
  *--------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
-import { toolCallSignature, pickBudgetFillTail, resolveAntiLoopThreshold, planBudgetFillTail } from '../../common/agentLoopHeuristics.js';
+import { toolCallSignature, pickBudgetFillTail, resolveAntiLoopThreshold, planBudgetFillTail, endsWithQuestion } from '../../common/agentLoopHeuristics.js';
 
 suite('agentLoopHeuristics', () => {
+
+	suite('endsWithQuestion', () => {
+		test('plain trailing question mark', () => {
+			assert.strictEqual(endsWithQuestion('Приступать к реализации?'), true);
+		});
+
+		test('trailing whitespace / newline after the question mark', () => {
+			assert.strictEqual(endsWithQuestion('Продолжать?\n'), true);
+			assert.strictEqual(endsWithQuestion('Продолжать?   '), true);
+		});
+
+		test('markdown / quote / bracket tails after the question mark', () => {
+			assert.strictEqual(endsWithQuestion('**Приступать?**'), true);
+			assert.strictEqual(endsWithQuestion('вопрос?»'), true);
+			assert.strictEqual(endsWithQuestion('(continue?)'), true);
+			assert.strictEqual(endsWithQuestion('`run it?`'), true);
+		});
+
+		test('fullwidth question mark', () => {
+			assert.strictEqual(endsWithQuestion('继续？'), true);
+		});
+
+		test('question mark in the MIDDLE does not count', () => {
+			assert.strictEqual(endsWithQuestion('Вопрос? Ответ: да, продолжаю.'), false);
+		});
+
+		test('plain statements and empty input', () => {
+			assert.strictEqual(endsWithQuestion('Готово.'), false);
+			assert.strictEqual(endsWithQuestion(''), false);
+		});
+	});
 
 	suite('toolCallSignature', () => {
 		test('identical object params produce identical signatures regardless of key order', () => {

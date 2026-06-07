@@ -34,8 +34,8 @@ export const VIBEIDE_TOGGLE_NEON_GLOW_COMMAND_ID = 'vibeide.theme.toggleNeonEdit
 export const NeonGlowTitleBarToggleVisible = new RawContextKey<boolean>('vibeide.neonGlowTitleBarToggleVisible', false);
 
 /** FA6 solid `toggle-on` / `toggle-off` (private use U+F205 / U+F204). */
-const neonGlowToggleIconOn = registerVibeideFaSolidIcon('vibeide-neon-editor-glow-on', '\uf205', localize('vibeideNeonGlowIconOn', 'Editor neon glow enabled'));
-const neonGlowToggleIconOff = registerVibeideFaSolidIcon('vibeide-neon-editor-glow-off', '\uf204', localize('vibeideNeonGlowIconOff', 'Editor neon glow disabled'));
+const neonGlowToggleIconOn = registerVibeideFaSolidIcon('vibeide-neon-editor-glow-on', '\uf205', localize('vibeideNeonGlowIconOn', '\u041d\u0435\u043e\u043d\u043e\u0432\u043e\u0435 \u0441\u0432\u0435\u0447\u0435\u043d\u0438\u0435 \u0440\u0435\u0434\u0430\u043a\u0442\u043e\u0440\u0430 \u0432\u043a\u043b\u044e\u0447\u0435\u043d\u043e'));
+const neonGlowToggleIconOff = registerVibeideFaSolidIcon('vibeide-neon-editor-glow-off', '\uf204', localize('vibeideNeonGlowIconOff', '\u041d\u0435\u043e\u043d\u043e\u0432\u043e\u0435 \u0441\u0432\u0435\u0447\u0435\u043d\u0438\u0435 \u0440\u0435\u0434\u0430\u043a\u0442\u043e\u0440\u0430 \u043e\u0442\u043a\u043b\u044e\u0447\u0435\u043d\u043e'));
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'vibeideTheme',
@@ -68,7 +68,7 @@ class NeonGlowCommandCenterSwitchViewItem extends BaseActionViewItem {
 	protected override getTooltip(): string | undefined {
 		return localize(
 			'vibeide.toggleNeonEditorGlowTooltip',
-			'Toggle neon glow on editor text (Vibe Neon theme).',
+			'Переключить неоновое свечение текста редактора (тема Vibe Neon).',
 		);
 	}
 
@@ -150,7 +150,7 @@ registerAction2(class VibeideToggleNeonEditorGlow extends Action2 {
 	constructor() {
 		super({
 			id: VibeideToggleNeonEditorGlow.ID,
-			title: localize2('vibeide.toggleNeonEditorGlow', 'Toggle Vibe Neon Editor Glow'),
+			title: localize2('vibeide.toggleNeonEditorGlow', 'Переключить неоновое свечение редактора Vibe Neon'),
 			tooltip: localize(
 				'vibeide.toggleNeonEditorGlowTooltip',
 				'Toggle neon glow on editor text (Vibe Neon theme).',
@@ -159,7 +159,7 @@ registerAction2(class VibeideToggleNeonEditorGlow extends Action2 {
 			f1: true,
 			icon: neonGlowToggleIconOff,
 			toggled: {
-				title: localize('vibeide.neonGlowEnabled', 'Neon editor glow on'),
+				title: localize('vibeide.neonGlowEnabled', 'Неоновое свечение редактора включено'),
 				icon: neonGlowToggleIconOn,
 				condition: ContextKeyExpr.equals(`config.${CONFIG_NEON_EDITOR_GLOW}`, true),
 			},

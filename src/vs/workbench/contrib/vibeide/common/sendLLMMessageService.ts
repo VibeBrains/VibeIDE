@@ -255,7 +255,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 				const outChars = (p.fullText?.length ?? 0) + (p.fullReasoning?.length ?? 0);
 				outForBudget = Math.max(1, Math.ceil(outChars / 4));
 			}
-			this.tokenBudgetService.recordUsage(inForBudget, outForBudget);
+			this.tokenBudgetService.recordUsage(inForBudget, outForBudget, p.usage?.cachedInputTokens);
 			onFinalMessage(p);
 		}
 		this.llmMessageHooks.onError[requestId] = onError

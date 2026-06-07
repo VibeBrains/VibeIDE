@@ -70,7 +70,7 @@ export class VibeProjectCommandFormInput extends EditorInput {
 	}
 
 	override getName(): string {
-		return nls.localize('vibeProjectCommandFormInput', 'Project Command');
+		return nls.localize('vibeProjectCommandFormInput', 'Команда проекта');
 	}
 
 	override getIcon() {
@@ -168,6 +168,6 @@ export class VibeProjectCommandFormPane extends EditorPane {
 }
 
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
-	EditorPaneDescriptor.create(VibeProjectCommandFormPane, VibeProjectCommandFormPane.ID, nls.localize('vibeProjectCommandFormPane', 'VibeIDE Project Command Form')),
+	EditorPaneDescriptor.create(VibeProjectCommandFormPane, VibeProjectCommandFormPane.ID, nls.localize('vibeProjectCommandFormPane', 'VibeIDE Форма команды проекта')),
 	[new SyncDescriptor(VibeProjectCommandFormInput)],
 );

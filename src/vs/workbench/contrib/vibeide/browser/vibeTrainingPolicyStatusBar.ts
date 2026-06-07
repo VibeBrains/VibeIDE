@@ -14,11 +14,11 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 
 function labelForTrainingPolicy(p: ModelInfo['trainingPolicy']): string {
 	switch (p) {
-		case 'none': return localize('vibeTrainNone', 'no train');
-		case 'opt-in': return localize('vibeTrainOptIn', 'train opt-in');
-		case 'opt-out-available': return localize('vibeTrainOptOut', 'train opt-out avail');
-		case 'always': return localize('vibeTrainAlways', 'may train');
-		default: return localize('vibeTrainUnknown', 'train ?');
+		case 'none': return localize('vibeTrainNone', 'без обучения');
+		case 'opt-in': return localize('vibeTrainOptIn', 'обучение по согласию');
+		case 'opt-out-available': return localize('vibeTrainOptOut', 'обучение, отказ возможен');
+		case 'always': return localize('vibeTrainAlways', 'возможно обучение');
+		default: return localize('vibeTrainUnknown', 'обучение ?');
 	}
 }
 
@@ -26,18 +26,18 @@ function describeTrainingPolicy(p: ModelInfo['trainingPolicy'] | undefined): str
 	if (p === undefined) {
 		return localize(
 			'vibeTrainTooltipUnknown',
-			'Training / data use policy for this model is unknown (refresh catalog or check provider docs).'
+			'Политика обучения / использования данных для этой модели неизвестна (обновите каталог или проверьте документацию провайдера).'
 		);
 	}
 	switch (p) {
 		case 'none':
-			return localize('vibeTrainTipNone', 'Provider states this model is not trained on your API data (per VibeIDE catalog).');
+			return localize('vibeTrainTipNone', 'Провайдер заявляет, что данная модель не обучается на ваших данных API (согласно каталогу VibeIDE).');
 		case 'opt-in':
-			return localize('vibeTrainTipOptIn', 'Training on your data requires explicit opt-in (per VibeIDE catalog).');
+			return localize('vibeTrainTipOptIn', 'Обучение на ваших данных требует явного согласия (согласно каталогу VibeIDE).');
 		case 'opt-out-available':
-			return localize('vibeTrainTipOptOut', 'Provider may use data for training; an opt-out is available (per VibeIDE catalog).');
+			return localize('vibeTrainTipOptOut', 'Провайдер может использовать данные для обучения; доступен отказ (согласно каталогу VibeIDE).');
 		case 'always':
-			return localize('vibeTrainTipAlways', 'Provider may use prompts for training under default terms (per VibeIDE catalog).');
+			return localize('vibeTrainTipAlways', 'Провайдер может использовать запросы для обучения на стандартных условиях (согласно каталогу VibeIDE).');
 	}
 }
 
@@ -101,21 +101,21 @@ export class VibeTrainingPolicyStatusBarContribution extends Disposable implemen
 		const sel = this._settingsService.state.modelSelectionOfFeature['Chat'];
 		if (!sel || sel.providerName === 'auto' && sel.modelName === 'auto') {
 			return {
-				name: localize('vibeTrainingPolicy', 'VibeIDE training policy'),
-				text: localize('vibeTrainingPolicyTextNoModel', '📚 train: —'),
-				tooltip: localize('vibeTrainNoModel', 'Select a Chat model to see training / data-use hint from VibeIDE model catalog.'),
-				ariaLabel: localize('vibeTrainAriaNoModel', 'Training policy: not selected'),
+				name: localize('vibeTrainingPolicy', 'Политика обучения VibeIDE'),
+				text: localize('vibeTrainingPolicyTextNoModel', '📚 обучение: —'),
+				tooltip: localize('vibeTrainNoModel', 'Выберите модель чата, чтобы увидеть подсказку об обучении / использовании данных из каталога моделей VibeIDE.'),
+				ariaLabel: localize('vibeTrainAriaNoModel', 'Политика обучения: не выбрана'),
 			};
 		}
 		const policy = this._modelsRegistry.getTrainingPolicyForSelection(sel.providerName, sel.modelName);
-		const short = policy !== undefined ? labelForTrainingPolicy(policy) : localize('vibeTrainUnknown', 'train ?');
+		const short = policy !== undefined ? labelForTrainingPolicy(policy) : localize('vibeTrainUnknown', 'обучение ?');
 		const tip = describeTrainingPolicy(policy);
 		const text = `📚 ${short}`;
 		return {
-			name: localize('vibeTrainingPolicy', 'VibeIDE training policy'),
+			name: localize('vibeTrainingPolicy', 'Политика обучения VibeIDE'),
 			text,
-			tooltip: `${sel.providerName}/${sel.modelName}\n${tip}\n\n${localize('vibeTrainCatalogHint', 'Source: registry.vibeide.io/models.json (cached). Not legal advice.')}`,
-			ariaLabel: localize('vibeTrainAriaModel', 'Training policy for {0}: {1}', sel.modelName, short),
+			tooltip: `${sel.providerName}/${sel.modelName}\n${tip}\n\n${localize('vibeTrainCatalogHint', 'Источник: registry.vibeide.io/models.json (кеш). Не является юридической консультацией.')}`,
+			ariaLabel: localize('vibeTrainAriaModel', 'Политика обучения для {0}: {1}', sel.modelName, short),
 		};
 	}
 }

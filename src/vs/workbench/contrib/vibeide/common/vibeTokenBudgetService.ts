@@ -68,7 +68,7 @@ export interface IVibeTokenBudgetService {
 	getStatus(): TokenBudgetStatus;
 
 	/** Record token usage from an LLM response */
-	recordUsage(inputTokens: number, outputTokens: number): void;
+	recordUsage(inputTokens: number, outputTokens: number, cachedInputTokens?: number): void;
 
 	/** Check if budget is exceeded — throws if so */
 	checkBudget(): void;
@@ -187,7 +187,7 @@ class VibeTokenBudgetService extends Disposable implements IVibeTokenBudgetServi
 		return computeBudgetStatus(this._sessionTokensUsed, this._sessionTokensLimit, this._enabled);
 	}
 
-	recordUsage(inputTokens: number, outputTokens: number): void {
+	recordUsage(inputTokens: number, outputTokens: number, cachedInputTokens?: number): void {
 		const previous = this._sessionTokensUsed;
 		this._sessionTokensUsed = accumulateUsage(previous, inputTokens, outputTokens);
 		const total = this._sessionTokensUsed - previous;
@@ -197,7 +197,10 @@ class VibeTokenBudgetService extends Disposable implements IVibeTokenBudgetServi
 			this._perTaskTokens.set(id, (this._perTaskTokens.get(id) ?? 0) + total);
 		}
 
-		vibeLog.debug('TokenBudget', `+${total} tokens (in:${inputTokens} out:${outputTokens}) | total: ${this._sessionTokensUsed}/${this._sessionTokensLimit}`);
+		// `cached:` — provider-reported prompt-cache hits (subset of `in:`). Visibility metric
+		// for cache-friendly prompt assembly (knowledge/roadmap/token-economy.md, A).
+		const cachedSuffix = typeof cachedInputTokens === 'number' && cachedInputTokens > 0 ? ` cached:${cachedInputTokens}` : '';
+		vibeLog.debug('TokenBudget', `+${total} tokens (in:${inputTokens} out:${outputTokens}${cachedSuffix}) | total: ${this._sessionTokensUsed}/${this._sessionTokensLimit}`);
 
 		const status = this.getStatus();
 		this._onBudgetStatusChanged.fire(status);

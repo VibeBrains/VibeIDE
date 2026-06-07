@@ -15,6 +15,7 @@
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions, ConfigurationScope } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { localize } from '../../../../nls.js';
+import { QUESTION_AUTO_CONTINUE_DEFAULT } from './agentLoopHeuristics.js';
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'vibeide.agent',
@@ -104,6 +105,13 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			minimum: 0,
 			maximum: 10,
 			description: localize('vibeide.agent.autoContinueMaxNudges', 'Сколько раз ПОДРЯД, при ВКЛЮЧЁННОМ автопилоте, агент автоматически подтолкнёт модель продолжить, если та завершила ход обычным текстом БЕЗ вызова инструмента (частый артефакт слабых tool-calling-моделей через aggregator: проговаривают ход вместо вызова). Счётчик сбрасывается на каждом реально выполненном tool-call (прогресс), поэтому ограничивает только подряд идущие «пустые» текстовые ходы. `0` = выкл (даже под автопилотом останавливаться сразу). Без автопилота авто-подталкивания нет — агент останавливается и предлагает кнопку «Продолжить». Дефолт 2.'),
+		},
+		'vibeide.agent.autoContinueOnQuestion': {
+			type: 'number',
+			default: QUESTION_AUTO_CONTINUE_DEFAULT,
+			minimum: 0,
+			maximum: 10,
+			description: localize('vibeide.agent.autoContinueOnQuestion', 'Автоподпин при вопросе: если при включённом автопилоте модель завершила ход ВОПРОСОМ (последний символ «?»), автоматически подтолкнуть её продолжить — пользователь в этом режиме не отвечает, и прогон иначе встаёт. Не тратит лимит `autoContinueMaxNudges` и работает даже при его значении 0. Значение — сколько вопрос-подпинов ПОДРЯД допускается (счётчик сбрасывается на каждом выполненном инструменте). `0` = без лимита (∞). Дефолт 3, диапазон 0–10. Тулбар-контрол «подпин?».'),
 		},
 		'vibeide.agent.scanTimeoutMs': {
 			type: 'number',

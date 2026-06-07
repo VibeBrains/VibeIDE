@@ -553,6 +553,41 @@ body.monaco-workbench,
 	background-color: var(--vibe-bg-3) !important;
 }
 
+/* Chat message list: the generic .vibe-scope scrollbar above is 4px with a bg-1-on-bg-3 thumb —
+ * in dark themes both resolve to near-identical greys, so the chat "scrolls but has no visible
+ * thumb to grab". Override with an always-visible, grabbable thumb on VS Code scrollbar tokens.
+ * Selector is .vibe-scope-descendant so it outranks the `.vibe-scope *` generics (same file,
+ * higher specificity + !important). Only the chat list opts in via this class. */
+.vibe-scope .vibe-chat-scroll-root {
+	scrollbar-width: thin !important;
+	scrollbar-color: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4)) transparent !important;
+}
+
+.vibe-scope .vibe-chat-scroll-root::-webkit-scrollbar {
+	width: 8px !important;
+	background-color: transparent !important;
+}
+
+.vibe-scope .vibe-chat-scroll-root::-webkit-scrollbar-track {
+	background-color: transparent !important;
+}
+
+.vibe-scope .vibe-chat-scroll-root::-webkit-scrollbar-thumb {
+	background-color: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4)) !important;
+	border-radius: 9999px !important;
+	min-height: 40px;
+}
+
+.vibe-scope .vibe-chat-scroll-root::-webkit-scrollbar-thumb:hover {
+	background-color: var(--vscode-scrollbarSlider-hoverBackground, rgba(100, 100, 100, 0.7)) !important;
+	filter: none !important;
+}
+
+.vibe-scope .vibe-chat-scroll-root::-webkit-scrollbar-thumb:active {
+	background-color: var(--vscode-scrollbarSlider-activeBackground, rgba(191, 191, 191, 0.4)) !important;
+	filter: none !important;
+}
+
 /* Match scroll styling for vibe-scrollable-element */
 .vibe-scrollable-element {
 	background-color: var(--vscode-editor-background);

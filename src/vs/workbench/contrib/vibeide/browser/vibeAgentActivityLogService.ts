@@ -45,7 +45,7 @@ class VibeAgentActivityLogService extends Disposable implements IVibeAgentActivi
 		if (!reg.getChannel(VIBE_AGENT_ACTIVITY_CHANNEL_ID)) {
 			reg.registerChannel({
 				id: VIBE_AGENT_ACTIVITY_CHANNEL_ID,
-				label: localize('vibeide.agentActivity.channel', 'VibeIDE Agent Activity'),
+				label: localize('vibeide.agentActivity.channel', 'Активность агента VibeIDE'),
 				log: false,
 			});
 		}

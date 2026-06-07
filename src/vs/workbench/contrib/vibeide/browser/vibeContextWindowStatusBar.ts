@@ -91,18 +91,18 @@ export class VibeContextWindowStatusBarContribution extends Disposable implement
 			: '';
 
 		return {
-			name: localize('vibeContextWindow', 'VibeIDE Context Window'),
+			name: localize('vibeContextWindow', 'Контекстное окно VibeIDE'),
 			text: `${contextIcon} CTX${contextPct}${budgetPct}`,
 			tooltip: localize(
 				'vibeContextWindowTooltip',
-				'Context: {0}% ({1}/{2} tokens) | Session budget: {3}%',
+				'Контекст: {0}% ({1}/{2} токенов) | Бюджет сессии: {3}%',
 				status.percentUsed.toFixed(0),
 				status.currentTokens.toLocaleString(),
 				status.maxTokens.toLocaleString(),
 				budgetStatus.percentUsed.toFixed(0)
 			),
 			command: 'vibeide.context.status',
-			ariaLabel: localize('vibeContextWindowAria', 'Context window: {0}%', status.percentUsed.toFixed(0)),
+			ariaLabel: localize('vibeContextWindowAria', 'Контекстное окно: {0}%', status.percentUsed.toFixed(0)),
 		};
 	}
 }

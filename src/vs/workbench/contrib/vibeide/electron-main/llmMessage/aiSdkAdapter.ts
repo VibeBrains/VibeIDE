@@ -80,11 +80,35 @@ const OPENCODE_PROCESS_SESSION_ID = `vibeide-${generateUuid()}`;
 // ensureSystemCADispatcher() lazily once per OpenAI client construction.
 const sharedDispatcher = ensureSystemCADispatcher();
 
+// 429s with a NOTICEABLE retry-after are NOT retryable in-place: AI SDK would burn its
+// maxRetries backoff invisibly — no tokens flow during retries, so the renderer's
+// hard-stall watchdog (120s) kills the stream mid-retry (observed: sonnet TPM saturation,
+// «Стрим завис — нет токенов 120с» while retries were in progress). Re-statusing to 402
+// (non-retryable per AI SDK's APICallError.isRetryable) surfaces the error in ~1s; the
+// renderer's rate-limit auto-wait then pauses VISIBLY for the exact retry-after and
+// resumes the turn. The response body/headers pass through untouched, so the provider's
+// message and retry-after still reach the renderer. Only blip-throttles (retry-after
+// missing or < 10s) keep the SDK's quick in-place retries.
+const RATE_LIMIT_FAIL_FAST_RETRY_AFTER_SECONDS = 10;
+
 // fetch wrapper that pins the corporate-CA-aware undici dispatcher. We cannot
 // pass `dispatcher` directly to streamText() — AI SDK only accepts a standard
 // fetch — so we wrap undici.fetch and surface it as a global-fetch lookalike.
-const customFetch: typeof globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-	return undiciFetch(input as any, { ...(init as any), dispatcher: sharedDispatcher }) as unknown as Promise<Response>;
+const customFetch: typeof globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+	const response = await (undiciFetch(input as any, { ...(init as any), dispatcher: sharedDispatcher }) as unknown as Promise<Response>);
+	if (response.status === 429) {
+		const retryAfterSec = Number(response.headers.get('retry-after'));
+		if (Number.isFinite(retryAfterSec) && retryAfterSec >= RATE_LIMIT_FAIL_FAST_RETRY_AFTER_SECONDS) {
+			// NOTE: statusText is a ByteString (Latin-1 only) — non-ASCII characters here
+			// make the Response constructor itself throw (observed with an em-dash).
+			return new Response(response.body, {
+				status: 402,
+				statusText: 'Payment Required (quota exhausted, retry-after too distant to retry)',
+				headers: response.headers,
+			});
+		}
+	}
+	return response;
 }) as any;
 
 const parseHeadersJSON = (s: string | undefined): Record<string, string> | undefined => {
@@ -278,9 +302,20 @@ const resolveEndpoint = async (
 const buildToolNameLookup = (messages: LLMChatMessage[]): Map<string, string> => {
 	const map = new Map<string, string>();
 	for (const msg of messages as any[]) {
-		if (msg?.role === 'assistant' && Array.isArray(msg.tool_calls)) {
+		if (msg?.role !== 'assistant') { continue; }
+		// OpenAI shape: assistant.tool_calls[].
+		if (Array.isArray(msg.tool_calls)) {
 			for (const tc of msg.tool_calls) {
 				if (tc?.id && tc?.function?.name) map.set(tc.id, tc.function.name);
+			}
+		}
+		// Anthropic shape: assistant.content[] with { type: 'tool_use', id, name } blocks.
+		// (The renderer emits this shape for anthropic-protocol routes — e.g. sonnet via
+		// openCode Zen /v1/messages. Without this branch the lookup stayed empty and the
+		// whole tool history was silently dropped below — see the get_dir_tree replay bug.)
+		if (Array.isArray(msg.content)) {
+			for (const p of msg.content) {
+				if (p?.type === 'tool_use' && typeof p?.id === 'string' && typeof p?.name === 'string') map.set(p.id, p.name);
 			}
 		}
 	}
@@ -355,10 +390,39 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 						const url: string = p.image_url.url;
 						try { parts.push({ type: 'image', image: new URL(url) }); }
 						catch { parts.push({ type: 'image', image: url }); }
+					} else if (p?.type === 'image' && p?.source?.data) {
+						// Anthropic image shape: { type: 'image', source: { type: 'base64', media_type, data } }.
+						parts.push({ type: 'image', image: p.source.data, ...(p.source.media_type ? { mediaType: p.source.media_type } : {}) });
+					} else if (p?.type === 'tool_result' && typeof p?.tool_use_id === 'string') {
+						// Anthropic shape carries tool results as user-content blocks. AI SDK wants a
+						// dedicated `role: 'tool'` message. These were silently DROPPED before — the
+						// model saw empty user turns instead of its tool outputs and re-issued the
+						// same call forever (observed: sonnet via openCode Zen, get_dir_tree replay).
+						const resultText = typeof p.content === 'string' ? p.content : flattenTextContent(p.content);
+						if (toolNameLookup.has(p.tool_use_id)) {
+							out.push({
+								role: 'tool',
+								content: [{
+									type: 'tool-result',
+									toolCallId: p.tool_use_id,
+									toolName: toolNameLookup.get(p.tool_use_id)!,
+									output: { type: 'text', value: resultText || EMPTY_CONTENT_PLACEHOLDER },
+								}],
+							});
+						} else {
+							// Orphan tool_result (its tool_use turn was summarized away): a bare
+							// role:'tool' would 400 on strict providers — degrade to inline text.
+							parts.push({ type: 'text', text: `[tool result]\n${resultText || EMPTY_CONTENT_PLACEHOLDER}` });
+						}
 					}
 				}
-				if (parts.length === 0) parts.push({ type: 'text', text: EMPTY_CONTENT_PLACEHOLDER });
-				out.push({ role: 'user', content: parts });
+				// A user message that consisted ONLY of tool_result blocks is fully represented
+				// by the role:'tool' messages pushed above — don't emit an empty user turn.
+				if (parts.length > 0) {
+					out.push({ role: 'user', content: parts });
+				} else if (out.length === 0 || (out[out.length - 1] as any).role !== 'tool') {
+					out.push({ role: 'user', content: EMPTY_CONTENT_PLACEHOLDER });
+				}
 			} else {
 				out.push({ role: 'user', content: EMPTY_CONTENT_PLACEHOLDER });
 			}
@@ -394,6 +458,10 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 				for (const p of content) {
 					if (p?.type === 'text' && typeof p?.text === 'string') {
 						parts.push({ type: 'text', text: p.text });
+					} else if (p?.type === 'tool_use' && typeof p?.id === 'string' && typeof p?.name === 'string') {
+						// Anthropic shape: tool calls live as content blocks, not `tool_calls`.
+						// Dropped before → the model's own prior calls vanished from history.
+						parts.push({ type: 'tool-call', toolCallId: p.id, toolName: p.name, input: p.input ?? {} });
 					}
 					// AnthropicReasoning parts intentionally skipped.
 				}
@@ -841,7 +909,50 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 						: undefined,
 				}).chatModel(modelName);
 
-	const modelMessages = convertMessagesToModelMessages(messages, modelName, providerName);
+	let modelMessages = convertMessagesToModelMessages(messages, modelName, providerName);
+	// Prompt caching for the Anthropic protocol (knowledge/roadmap/token-economy.md, A phase 2).
+	// Anthropic caches NOTHING without explicit `cache_control` breakpoints — every agentic
+	// turn re-bills the full prompt (observed: 23k input/turn → org TPM limit in 11 turns).
+	// Two of the four allowed breakpoints:
+	//   1. the system prompt (biggest stable block) — moved INTO messages as a system role,
+	//      because the top-level `system: string` option cannot carry providerOptions;
+	//   2. the LAST message — Anthropic reuses the longest previously-cached prefix, so
+	//      marking the tail makes each turn cache the whole conversation for the next one.
+	// Harmless when a proxy (openCode Zen) strips the field — it is purely additive.
+	let systemForCall: string | undefined = separateSystemMessage;
+	if (sdkNpm === '@ai-sdk/anthropic') {
+		const cacheCtl = { anthropic: { cacheControl: { type: 'ephemeral' } } };
+		if (systemForCall) {
+			modelMessages = [{ role: 'system', content: systemForCall, providerOptions: cacheCtl } as any, ...modelMessages];
+			systemForCall = undefined;
+		}
+		const lastMsg = modelMessages[modelMessages.length - 1] as any;
+		if (lastMsg) { lastMsg.providerOptions = { ...(lastMsg.providerOptions ?? {}), ...cacheCtl }; }
+	} else if (providerName === 'openRouter' && /claude/i.test(modelName)) {
+		// OpenRouter (OpenAI-shape API) forwards Anthropic `cache_control` markers for
+		// claude-family models. The openai-compatible serializer spreads
+		// `providerOptions.openaiCompatible` into the serialized message AND into each
+		// content part (verified in @ai-sdk/openai-compatible convertToOpenAICompatible-
+		// ChatMessages), so the marker lands as a raw `cache_control` field. Same two
+		// breakpoints as the native route: system + the last message. EXPERIMENT status:
+		// whether OpenRouter honors message-level (vs part-level) placement is confirmed
+		// by the `cached:` numbers in the TokenBudget log — harmless if ignored.
+		const orCacheCtl = { openaiCompatible: { cache_control: { type: 'ephemeral' } } };
+		if (systemForCall) {
+			modelMessages = [{ role: 'system', content: systemForCall, providerOptions: orCacheCtl } as any, ...modelMessages];
+			systemForCall = undefined;
+		}
+		const lastMsg = modelMessages[modelMessages.length - 1] as any;
+		if (lastMsg) {
+			if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
+				// Part-level marker (documented OpenRouter shape) when the message has parts.
+				const lastPart = lastMsg.content[lastMsg.content.length - 1];
+				lastPart.providerOptions = { ...(lastPart.providerOptions ?? {}), ...orCacheCtl };
+			} else {
+				lastMsg.providerOptions = { ...(lastMsg.providerOptions ?? {}), ...orCacheCtl };
+			}
+		}
+	}
 	// Tools-field policy:
 	//   - specialToolFormat set (known native-FC-capable model) → pass tools.
 	//     Repair hook + `invalid` pseudo-tool catch quirks.
@@ -969,7 +1080,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		abortController.abort();
 	};
 
-	overallTimeoutId = setTimeout(() => handleHardTimeout('Request timed out.'), timeoutMs);
+	overallTimeoutId = setTimeout(() => handleHardTimeout('Превышено время ожидания ответа провайдера.'), timeoutMs);
 
 	// (Re)arm the idle timer — armed on the first CONTENT part and reset on each
 	// subsequent content part. Governs ONLY the post-content phase (inter-token
@@ -978,7 +1089,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	const resetIdle = () => {
 		if (timeoutFired) return;
 		if (idleTimeoutId) { clearTimeout(idleTimeoutId); }
-		idleTimeoutId = setTimeout(() => handleHardTimeout('Stream stalled — no tokens for 45s after content started.'), idleMs);
+		idleTimeoutId = setTimeout(() => handleHardTimeout(`Стрим завис — нет токенов ${idleMs / 1000}с после начала ответа.`), idleMs);
 	};
 	// NOTE: NOT armed here — armed on first content delta (see stream loop). Arming
 	// at stream start would re-introduce the false abort of a silent thinking phase.
@@ -1003,7 +1114,9 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			// security risk" warning AND ensures minimax/Anthropic-protocol
 			// models actually see the tool instructions (previously dropped
 			// when system was inside messages array on the Anthropic path).
-			system: separateSystemMessage,
+			// On the @ai-sdk/anthropic route the system rides INSIDE messages
+			// instead (with a cache_control breakpoint) — see systemForCall above.
+			system: systemForCall,
 			messages: modelMessages,
 			tools,
 			activeTools,
@@ -1147,6 +1260,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 					const u = ((part as any).usage ?? (part as any).totalUsage) as {
 						inputTokens?: number; outputTokens?: number; totalTokens?: number;
 						promptTokens?: number; completionTokens?: number;
+						cachedInputTokens?: number;
 					} | undefined;
 					if (u) {
 						const inTok = typeof u.inputTokens === 'number' ? u.inputTokens
@@ -1154,11 +1268,14 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 						const outTok = typeof u.outputTokens === 'number' ? u.outputTokens
 							: typeof u.completionTokens === 'number' ? u.completionTokens : undefined;
 						const totTok = typeof u.totalTokens === 'number' ? u.totalTokens : undefined;
+						// AI SDK v5+ surfaces provider prompt-cache hits as `cachedInputTokens`.
+						const cachedTok = typeof u.cachedInputTokens === 'number' ? u.cachedInputTokens : undefined;
 						if (typeof inTok === 'number' || typeof outTok === 'number' || typeof totTok === 'number') {
 							lastUsage = {
 								promptTokens: typeof inTok === 'number' ? inTok : lastUsage?.promptTokens,
 								completionTokens: typeof outTok === 'number' ? outTok : lastUsage?.completionTokens,
 								totalTokens: typeof totTok === 'number' ? totTok : lastUsage?.totalTokens,
+								cachedInputTokens: typeof cachedTok === 'number' ? cachedTok : lastUsage?.cachedInputTokens,
 							};
 						}
 						// One-time debug log: surface the exact shape returned by the
@@ -1232,6 +1349,22 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		const errMsg: string = (innerMsg && innerMsg.trim().length > 0) ? innerMsg : outerMsg;
 		const errBody: string = typeof error?.responseBody === 'string' ? error.responseBody
 			: (typeof inner?.responseBody === 'string' ? inner.responseBody : '');
+		// The provider's response BODY often carries the REAL reason while the status code
+		// lies (observed: openCode 401 with body «Free promotion has ended for Qwen3.6 Plus
+		// Free…» — a static «Invalid API key» message hid it). Prefer `data.error.message`
+		// (AI SDK pre-parses it) with a raw-JSON-body fallback.
+		const bodyErrMsg: string | undefined = (() => {
+			const data = (error?.data ?? inner?.data) as { error?: { message?: unknown } } | undefined;
+			if (typeof data?.error?.message === 'string' && data.error.message.trim().length > 0) { return data.error.message.trim(); }
+			if (errBody) {
+				try {
+					const parsed = JSON.parse(errBody) as { error?: { message?: unknown }; message?: unknown };
+					const m = parsed?.error?.message ?? parsed?.message;
+					if (typeof m === 'string' && m.trim().length > 0) { return m.trim(); }
+				} catch { /* body is not JSON — ignore */ }
+			}
+			return undefined;
+		})();
 		// Detect context-overflow first — same regex catalogue used downstream,
 		// applied here BEFORE generic status mapping so a 413 or a 400 with a
 		// known overflow body gets the specialized message.
@@ -1241,9 +1374,11 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				fullError: error instanceof Error ? error : null,
 			});
 		} else if (status === 401) {
-			onError({ message: `Invalid ${providerName} API key.`, fullError: error instanceof Error ? error : null });
+			// Body message wins: a 401 is not always a bad key (ended free promotion, model
+			// gating). Fall back to the static invalid-key text only when the body is silent.
+			onError({ message: bodyErrMsg ?? `Invalid ${providerName} API key.`, fullError: error instanceof Error ? error : null });
 		} else if (status === 429) {
-			const msg = (errMsg && errMsg.trim().length > 0) ? errMsg : 'Rate limit exceeded. Please wait a moment before trying again.';
+			const msg = bodyErrMsg ?? ((errMsg && errMsg.trim().length > 0) ? errMsg : 'Rate limit exceeded. Please wait a moment before trying again.');
 			onError({ message: `Rate limit exceeded: ${msg}`, fullError: error instanceof Error ? error : null });
 		} else if (typeof status === 'number' && status >= 500) {
 			// 5xx — the provider/origin is down or erroring (e.g. 520 from an

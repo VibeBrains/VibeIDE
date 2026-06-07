@@ -25,7 +25,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibe.codeReview.reviewFile',
 			f1: true,
-			title: localize2('vibeCodeReviewFile', 'VibeIDE: Review This File'),
+			title: localize2('vibeCodeReviewFile', 'VibeIDE: Провести код-ревью этого файла'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyR,
@@ -63,12 +63,12 @@ registerAction2(class extends Action2 {
 		await progressService.withProgress(
 			{
 				location: ProgressLocation.Notification,
-				title: localize('vibeide.codeReview.progress', 'Code review: {0}…', fileName),
+				title: localize('vibeide.codeReview.progress', 'Код-ревью: {0}…', fileName),
 				cancellable: true,
 			},
 			async (progress: IProgress<IProgressStep>) => {
 				try {
-					progress.report({ message: localize('vibeide.codeReview.analyzing', 'Analyzing code…') });
+					progress.report({ message: localize('vibeide.codeReview.analyzing', 'Анализ кода…') });
 
 					// Perform review
 					const result = await codeReviewService.reviewFile(uri, cancellationTokenSource.token);
@@ -86,7 +86,7 @@ registerAction2(class extends Action2 {
 					const contribution = CodeReviewEditorContribution.get(editor);
 					if (contribution) {
 						contribution.setAnnotations(uri, result.annotations);
-						progress.report({ message: localize('vibeide.codeReview.foundIssues', 'Found {0} issue(s)', result.annotations.length) });
+						progress.report({ message: localize('vibeide.codeReview.foundIssues', 'Найдено замечаний: {0}', result.annotations.length) });
 					}
 
 					// Show notification with summary
@@ -115,7 +115,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibe.codeReview.applyFix',
 			f1: false, // Not in command palette, called programmatically
-			title: localize2('vibeCodeReviewApplyFix', 'VibeIDE: Apply Fix'),
+			title: localize2('vibeCodeReviewApplyFix', 'VibeIDE: Применить исправление'),
 		});
 	}
 

@@ -53,7 +53,7 @@ const COMMUNITY_CATALOG_FORMAT = 'vibe-community-skills-catalog-v1';
 
 function assertJsonRecord(json: unknown): asserts json is Record<string, unknown> {
 	if (!json || typeof json !== 'object' || Array.isArray(json)) {
-		throw new Error(localize('vibeideSkillsCommunityExpectObject', 'Invalid JSON: expected an object.'));
+		throw new Error(localize('vibeideSkillsCommunityExpectObject', 'Некорректный JSON: ожидается объект.'));
 	}
 }
 
@@ -62,15 +62,15 @@ type ParsedCommunityManifest = { skillId: string; skillMarkdown: string };
 function parseCommunitySkillManifest(json: unknown): ParsedCommunityManifest {
 	assertJsonRecord(json);
 	if (json.format !== COMMUNITY_MANIFEST_FORMAT) {
-		throw new Error(localize('vibeideSkillsCommunityBadManifestFmt', 'Manifest JSON must have format "{0}".', COMMUNITY_MANIFEST_FORMAT));
+		throw new Error(localize('vibeideSkillsCommunityBadManifestFmt', 'JSON манифеста должен содержать поле format "{0}".', COMMUNITY_MANIFEST_FORMAT));
 	}
 	const skillId = json.skillId;
 	const skillMarkdown = json.skillMarkdown;
 	if (typeof skillId !== 'string' || !skillId.trim()) {
-		throw new Error(localize('vibeideSkillsCommunityBadSkillId', 'manifest.skillId is required.'));
+		throw new Error(localize('vibeideSkillsCommunityBadSkillId', 'manifest.skillId обязателен.'));
 	}
 	if (typeof skillMarkdown !== 'string' || !skillMarkdown.trim()) {
-		throw new Error(localize('vibeideSkillsCommunityBadBody', 'manifest.skillMarkdown is required.'));
+		throw new Error(localize('vibeideSkillsCommunityBadBody', 'manifest.skillMarkdown обязателен.'));
 	}
 	return { skillId: skillId.trim(), skillMarkdown: skillMarkdown.replace(/\r\n/g, '\n') };
 }
@@ -85,21 +85,21 @@ interface CommunityCatalogEntry {
 function parseCommunitySkillsCatalog(json: unknown): CommunityCatalogEntry[] {
 	assertJsonRecord(json);
 	if (json.format !== COMMUNITY_CATALOG_FORMAT) {
-		throw new Error(localize('vibeideSkillsCommunityBadCatalogFmt', 'Catalog JSON must have format "{0}".', COMMUNITY_CATALOG_FORMAT));
+		throw new Error(localize('vibeideSkillsCommunityBadCatalogFmt', 'JSON каталога должен содержать поле format "{0}".', COMMUNITY_CATALOG_FORMAT));
 	}
 	const entries = json.entries;
 	if (!Array.isArray(entries)) {
-		throw new Error(localize('vibeideSkillsCommunityBadEntries', 'catalog.entries must be an array.'));
+		throw new Error(localize('vibeideSkillsCommunityBadEntries', 'catalog.entries должен быть массивом.'));
 	}
 	return entries.map((e: unknown, i: number) => {
 		assertJsonRecord(e);
 		const id = e.id;
 		const manifestUrl = e.manifestUrl;
 		if (typeof id !== 'string' || !id.trim()) {
-			throw new Error(localize('vibeideSkillsCommunityBadEntryId', 'entries[{0}].id is required.', String(i)));
+			throw new Error(localize('vibeideSkillsCommunityBadEntryId', 'entries[{0}].id обязателен.', String(i)));
 		}
 		if (typeof manifestUrl !== 'string' || !manifestUrl.trim()) {
-			throw new Error(localize('vibeideSkillsCommunityBadEntryUrl', 'entries[{0}].manifestUrl is required.', String(i)));
+			throw new Error(localize('vibeideSkillsCommunityBadEntryUrl', 'entries[{0}].manifestUrl обязателен.', String(i)));
 		}
 		const sha256 = typeof e.sha256 === 'string' && e.sha256.trim() ? e.sha256.trim().toLowerCase() : undefined;
 		const name = typeof e.name === 'string' ? e.name : undefined;
@@ -117,7 +117,7 @@ async function vibeCommunitySha256Hex(text: string): Promise<string> {
 async function vibeCommunityFetchText(urlStr: string): Promise<string> {
 	const res = await fetch(urlStr);
 	if (!res.ok) {
-		throw new Error(localize('vibeideSkillsCommunityHttpErr', 'HTTP {0} when fetching URL.', String(res.status)));
+		throw new Error(localize('vibeideSkillsCommunityHttpErr', 'HTTP {0} при загрузке URL.', String(res.status)));
 	}
 	return (await res.text()).replace(/\r\n/g, '\n');
 }
@@ -160,7 +160,7 @@ async function installCommunitySkillMarkdown(
 	if (!roots.length) {
 		notifications.notify({
 			severity: Severity.Warning,
-			message: localize('vibeideSkillsCommunityNoWs', 'Open a folder workspace first.'),
+			message: localize('vibeideSkillsCommunityNoWs', 'Сначала откройте папку рабочей области.'),
 		});
 		return;
 	}
@@ -174,7 +174,7 @@ async function installCommunitySkillMarkdown(
 	log.info(`[VibeIDE] Community skill installed: ${uri.fsPath} (${logSuffix})`);
 	notifications.notify({
 		severity: Severity.Info,
-		message: localize('vibeideSkillsCommunityInstalled', 'Installed Agent Skill under .vibe/skills/{0}/', skillId),
+		message: localize('vibeideSkillsCommunityInstalled', 'Скилл агента установлен в .vibe/skills/{0}/', skillId),
 	});
 }
 
@@ -273,7 +273,7 @@ CommandsRegistry.registerCommand('vibeide.emergencyStopAllAgents', async (access
 		severity: Severity.Info,
 		message: localize(
 			'vibeideEmergencyStopDone',
-			'Emergency stop: aborted {0} active agent thread(s) and cleared {1} on-disk execution lease(s).',
+			'Аварийная остановка: прервано тредов агента: {0}; снято дисковых лиз выполнения: {1}.',
 			n,
 			clearedLeases,
 		),
@@ -404,7 +404,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.skills.showFolder',
 			f1: true,
-			title: localize2('vibeideSkillsShowFolderTitle', 'VibeIDE: Open Agent Skills folder (.vibe/skills)'),
+			title: localize2('vibeideSkillsShowFolderTitle', 'VibeIDE: Открыть папку скиллов агента (.vibe/skills)'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -418,7 +418,7 @@ registerAction2(class extends Action2 {
 		if (!roots.length) {
 			notifications.notify({
 				severity: Severity.Warning,
-				message: localize('vibeideSkillsNoWs', 'Open a folder workspace first.'),
+				message: localize('vibeideSkillsNoWs', 'Сначала откройте папку рабочей области.'),
 			});
 			return;
 		}
@@ -440,7 +440,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.toolFormat.resetAutoDetectedOverrides',
 			f1: true,
-			title: localize2('vibeideResetToolFormatTitle', 'VibeIDE: Reset auto-detected tool-format overrides (re-enable native tool calling)'),
+			title: localize2('vibeideResetToolFormatTitle', 'VibeIDE: Сбросить авто-определённые tool-format оверрайды (включить native tool calling)'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -485,7 +485,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.rules.addRule',
 			f1: true,
-			title: localize2('vibeideAddRuleTitle', 'VibeIDE: Add a rule to .vibe/rules.md'),
+			title: localize2('vibeideAddRuleTitle', 'VibeIDE: Добавить правило в .vibe/rules.md'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -499,7 +499,7 @@ registerAction2(class extends Action2 {
 
 		const roots = workspace.getWorkspace().folders;
 		if (!roots.length) {
-			notifications.notify({ severity: Severity.Warning, message: localize('vibeideAddRuleNoWs', 'Open a folder workspace first.') });
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeideAddRuleNoWs', 'Сначала откройте папку рабочей области.') });
 			return;
 		}
 
@@ -539,7 +539,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.skills.newTemplate',
 			f1: true,
-			title: localize2('vibeideSkillsNewTemplateTitle', 'VibeIDE: New Agent Skill template (.vibe/skills)'),
+			title: localize2('vibeideSkillsNewTemplateTitle', 'VibeIDE: Новый шаблон скилла агента (.vibe/skills)'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -553,7 +553,7 @@ registerAction2(class extends Action2 {
 		if (!roots.length) {
 			notifications.notify({
 				severity: Severity.Warning,
-				message: localize('vibeideSkillsTplNoWs', 'Open a folder workspace before adding a skill.'),
+				message: localize('vibeideSkillsTplNoWs', 'Сначала откройте папку рабочей области.'),
 			});
 			return;
 		}
@@ -589,7 +589,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.skills.pickSession',
 			f1: true,
-			title: localize2('vibeideSkillsPickSessionTitle', 'VibeIDE: Skills — select for session'),
+			title: localize2('vibeideSkillsPickSessionTitle', 'VibeIDE: Скиллы — выбрать для сессии'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -601,12 +601,12 @@ registerAction2(class extends Action2 {
 		const notifications = accessor.get(INotificationService);
 		const workspace = accessor.get(IWorkspaceContextService);
 		if (!workspace.getWorkspace().folders.length) {
-			notifications.notify({ severity: Severity.Warning, message: localize('vibeideSkillsPickNoWs', 'Open a folder workspace first.') });
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeideSkillsPickNoWs', 'Сначала откройте папку рабочей области.') });
 			return;
 		}
 		const loaded = await skillsLib.getSkills();
 		if (!loaded.length) {
-			notifications.notify({ severity: Severity.Info, message: localize('vibeideSkillsPickNone', 'No skills loaded from .vibe/skills or global paths.') });
+			notifications.notify({ severity: Severity.Info, message: localize('vibeideSkillsPickNone', 'Скиллы в .vibe/skills и глобальных путях не найдены.') });
 			return;
 		}
 		const active = new Set((cfg.getValue<string[]>('vibeide.skills.sessionActiveIds') ?? []).map(s => s.trim().toLowerCase()).filter(Boolean));
@@ -617,7 +617,7 @@ registerAction2(class extends Action2 {
 		}));
 		const picked = await qi.pick(items, {
 			canPickMany: true,
-			placeHolder: localize('vibeideSkillsPickPh', 'Toggle skills for GUIDELINES discovery (empty selection = use all skills)'),
+			placeHolder: localize('vibeideSkillsPickPh', 'Включить/выключить скиллы для обнаружения GUIDELINES (пустой выбор = все скиллы)'),
 		});
 		if (picked === undefined) {
 			return;
@@ -632,7 +632,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.skills.clearSession',
 			f1: true,
-			title: localize2('vibeideSkillsClearSessionTitle', 'VibeIDE: Skills — clear session filter'),
+			title: localize2('vibeideSkillsClearSessionTitle', 'VibeIDE: Скиллы — очистить фильтр сессии'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -647,7 +647,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.plans.newInWorkspace',
 			f1: true,
-			title: localize2('vibeidePlansNewInWorkspaceTitle', 'VibeIDE: New plan in workspace (.vibe/plans)'),
+			title: localize2('vibeidePlansNewInWorkspaceTitle', 'VibeIDE: Новый план в рабочей области (.vibe/plans)'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -661,7 +661,7 @@ registerAction2(class extends Action2 {
 		if (!roots.length) {
 			notifications.notify({
 				severity: Severity.Warning,
-				message: localize('vibeidePlansNoWs', 'Open a folder workspace before creating a project plan.'),
+				message: localize('vibeidePlansNoWs', 'Сначала откройте папку рабочей области.'),
 			});
 			return;
 		}
@@ -705,7 +705,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.plans.showPlansFolder',
 			f1: true,
-			title: localize2('vibeidePlansShowFolderTitle', 'VibeIDE: Open .vibe/plans folder in Explorer'),
+			title: localize2('vibeidePlansShowFolderTitle', 'VibeIDE: Открыть папку .vibe/plans в проводнике'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -719,7 +719,7 @@ registerAction2(class extends Action2 {
 		if (!roots.length) {
 			notifications.notify({
 				severity: Severity.Warning,
-				message: localize('vibeidePlansShowNoWs', 'Open a folder workspace first.'),
+				message: localize('vibeidePlansShowNoWs', 'Сначала откройте папку рабочей области.'),
 			});
 			return;
 		}
@@ -734,7 +734,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.plans.explainRisk',
 			f1: true,
-			title: localize2('vibeidePlansExplainRiskTitle', 'VibeIDE Plan: Explain plan risk (heuristic scan)'),
+			title: localize2('vibeidePlansExplainRiskTitle', 'VibeIDE Plan: Объяснить риски плана (эвристический анализ)'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -764,7 +764,7 @@ registerAction2(class extends Action2 {
 		if (!uri || uri.scheme !== 'file' || !uri.fsPath.toLowerCase().endsWith('.plan.md')) {
 			notifications.notify({
 				severity: Severity.Warning,
-				message: localize('vibeidePlansExplainRiskNeedPlan', 'Open a `.plan.md` file first, or use **Explain risk** from the plan dashboard while that tab is active.'),
+				message: localize('vibeidePlansExplainRiskNeedPlan', 'Откройте файл `.plan.md` или используйте **Объяснить риски** с панели плана, пока открыта нужная вкладка.'),
 			});
 			return;
 		}
@@ -775,7 +775,7 @@ registerAction2(class extends Action2 {
 		} catch {
 			notifications.notify({
 				severity: Severity.Error,
-				message: localize('vibeidePlansExplainRiskReadFail', 'Could not read the plan file.'),
+				message: localize('vibeidePlansExplainRiskReadFail', 'Не удалось прочитать файл плана.'),
 			});
 			return;
 		}
@@ -797,10 +797,10 @@ registerAction2(class extends Action2 {
 			severity: Severity.Info,
 			message: localize(
 				'vibeidePlansExplainRiskSummary',
-				'Plan risk (heuristic scan — no secret values shown): external URLs ≈ {0}; git push mentioned: {1}; MCP hints: {2}; lines that look like secret assignments ≈ {3}. Review before Execute.',
+				'Риски плана (эвристика, значения секретов не показываются): внешних URL ≈ {0}; git push упоминается: {1}; признаки MCP: {2}; строки, похожие на присвоение секрета ≈ {3}. Проверьте перед запуском.',
 				urlCount,
-				gitPush ? localize('vibeideAffirmative', 'yes') : localize('vibeideNegative', 'no'),
-				mcpHints ? localize('vibeideAffirmative', 'yes') : localize('vibeideNegative', 'no'),
+				gitPush ? localize('vibeideAffirmative', 'да') : localize('vibeideNegative', 'нет'),
+				mcpHints ? localize('vibeideAffirmative', 'да') : localize('vibeideNegative', 'нет'),
 				secretCueLines,
 			),
 		});
@@ -812,7 +812,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.plans.findSimilar',
 			f1: true,
-			title: localize2('vibeidePlansFindSimilarTitle', 'VibeIDE Plan: Find similar completed plans (local)'),
+			title: localize2('vibeidePlansFindSimilarTitle', 'VibeIDE Plan: Найти похожие завершённые планы (локально)'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -825,13 +825,13 @@ registerAction2(class extends Action2 {
 		const workspace = accessor.get(IWorkspaceContextService);
 
 		if (!workspace.getWorkspace().folders.length) {
-			notifications.notify({ severity: Severity.Warning, message: localize('vibeidePlansFindSimilarNoWs', 'Open a folder workspace first.') });
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeidePlansFindSimilarNoWs', 'Сначала откройте папку рабочей области.') });
 			return;
 		}
 
 		const query = await quickInput.input({
-			title: localize('vibeidePlansFindSimilarInputTitle', 'Describe the plan you are looking for'),
-			placeHolder: localize('vibeidePlansFindSimilarPlaceholder', 'e.g. refactor auth, add RU locale, fix checkpoint UI'),
+			title: localize('vibeidePlansFindSimilarInputTitle', 'Опишите план, который ищете'),
+			placeHolder: localize('vibeidePlansFindSimilarPlaceholder', 'например: рефакторинг авторизации, добавить RU-локаль, исправить UI чекпоинта'),
 		});
 		if (!query?.trim()) {
 			return;
@@ -841,7 +841,7 @@ registerAction2(class extends Action2 {
 		if (!hits.length) {
 			notifications.notify({
 				severity: Severity.Info,
-				message: localize('vibeidePlansFindSimilarEmpty', 'No `.plan.md` files under `.vibe/plans/` yet, or nothing matched.'),
+				message: localize('vibeidePlansFindSimilarEmpty', 'Файлы `.plan.md` в `.vibe/plans/` не найдены или ни один не совпал.'),
 			});
 			return;
 		}
@@ -854,7 +854,7 @@ registerAction2(class extends Action2 {
 
 		const picked = await quickInput.pick(items, {
 			canPickMany: false,
-			placeHolder: localize('vibeidePlansFindSimilarPick', 'Open a plan'),
+			placeHolder: localize('vibeidePlansFindSimilarPick', 'Открыть план'),
 		});
 		if (picked?.resource) {
 			const input: ITextResourceEditorInput = { resource: picked.resource, options: { transient: true } };
@@ -868,7 +868,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.context.attachApiSpec',
 			f1: true,
-			title: localize2('vibeideAttachApiSpecTitle', 'VibeIDE: Attach OpenAPI / GraphQL spec to chat'),
+			title: localize2('vibeideAttachApiSpecTitle', 'VibeIDE: Прикрепить спецификацию OpenAPI / GraphQL к чату'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -887,7 +887,7 @@ registerAction2(class extends Action2 {
 		if (!roots.length) {
 			notifications.notify({
 				severity: Severity.Warning,
-				message: localize('vibeideAttachSpecNoWs', 'Open a folder workspace first.'),
+				message: localize('vibeideAttachSpecNoWs', 'Сначала откройте папку рабочей области.'),
 			});
 			return;
 		}
@@ -897,10 +897,10 @@ registerAction2(class extends Action2 {
 			canSelectFolders: false,
 			canSelectMany: false,
 			defaultUri: roots[0].uri,
-			title: localize('vibeideAttachSpecDialogTitle', 'Select OpenAPI (YAML/JSON) or GraphQL schema'),
+			title: localize('vibeideAttachSpecDialogTitle', 'Выберите спецификацию OpenAPI (YAML/JSON) или схему GraphQL'),
 			filters: [
-				{ name: localize('vibeideAttachSpecFilterApiSpecs', 'API specs'), extensions: ['yaml', 'yml', 'json', 'graphql', 'gql'] },
-				{ name: localize('vibeideAttachSpecFilterAllFiles', 'All files'), extensions: ['*'] },
+				{ name: localize('vibeideAttachSpecFilterApiSpecs', 'API-спецификации'), extensions: ['yaml', 'yml', 'json', 'graphql', 'gql'] },
+				{ name: localize('vibeideAttachSpecFilterAllFiles', 'Все файлы'), extensions: ['*'] },
 			],
 		});
 		const uri = picked?.[0];
@@ -910,7 +910,7 @@ registerAction2(class extends Action2 {
 		if (!workspace.isInsideWorkspace(uri)) {
 			notifications.notify({
 				severity: Severity.Warning,
-				message: localize('vibeideAttachSpecOutsideWs', 'Pick a file inside the workspace.'),
+				message: localize('vibeideAttachSpecOutsideWs', 'Выберите файл внутри рабочей области.'),
 			});
 			return;
 		}
@@ -928,7 +928,7 @@ registerAction2(class extends Action2 {
 
 		notifications.notify({
 			severity: Severity.Info,
-			message: localize('vibeideAttachSpecDone', 'Attached spec file to chat context: {0}', uri.fsPath),
+			message: localize('vibeideAttachSpecDone', 'Файл спецификации прикреплён к контексту чата: {0}', uri.fsPath),
 		});
 		log.info(`[VibeIDE] attachApiSpec: ${uri.fsPath}`);
 	}
@@ -939,7 +939,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.skills.importCommunityUrl',
 			f1: true,
-			title: localize2('vibeideSkillsImportCommunityUrlTitle', 'VibeIDE: Import Agent Skill from URL (community manifest or raw SKILL.md)'),
+			title: localize2('vibeideSkillsImportCommunityUrlTitle', 'VibeIDE: Импортировать скилл агента из URL (манифест сообщества или сырой SKILL.md)'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -955,16 +955,16 @@ registerAction2(class extends Action2 {
 			log: accessor.get(ILogService),
 		};
 		const urlRaw = await qi.input({
-			prompt: localize('vibeideSkillsCommunityUrlPrompt', 'HTTPS URL of a community skill manifest JSON or a raw SKILL.md file'),
+			prompt: localize('vibeideSkillsCommunityUrlPrompt', 'HTTPS URL манифеста JSON скилла сообщества или сырого файла SKILL.md'),
 			placeHolder: 'https://…',
 			ignoreFocusLost: true,
-			validateInput: async (v) => (!v.trim() ? localize('vibeideSkillsCommunityUrlRequired', 'Enter a URL.') : undefined),
+			validateInput: async (v) => (!v.trim() ? localize('vibeideSkillsCommunityUrlRequired', 'Введите URL.') : undefined),
 		});
 		if (urlRaw === undefined || !urlRaw.trim()) {
 			return;
 		}
 		const expectSha = (await qi.input({
-			prompt: localize('vibeideSkillsCommunityShaPrompt', 'Expected SHA-256 of downloaded body (optional; leave empty to skip)'),
+			prompt: localize('vibeideSkillsCommunityShaPrompt', 'Ожидаемый SHA-256 тела ответа (необязательно; оставьте пустым, чтобы пропустить)'),
 			ignoreFocusLost: true,
 		}))?.trim().toLowerCase() ?? '';
 		let text: string;
@@ -984,7 +984,7 @@ registerAction2(class extends Action2 {
 		if (expectSha && expectSha !== hex) {
 			notifications.notify({
 				severity: Severity.Error,
-				message: localize('vibeideSkillsCommunityShaMismatch', 'SHA-256 mismatch (got {0}).', hex),
+				message: localize('vibeideSkillsCommunityShaMismatch', 'Несоответствие SHA-256 (получен {0}).', hex),
 			});
 			return;
 		}
@@ -1009,15 +1009,15 @@ registerAction2(class extends Action2 {
 		if (!trimmed.startsWith('---')) {
 			notifications.notify({
 				severity: Severity.Error,
-				message: localize('vibeideSkillsCommunityNeither', 'URL body is neither a community manifest JSON nor a SKILL.md starting with YAML frontmatter (---).'),
+				message: localize('vibeideSkillsCommunityNeither', 'Тело URL не является ни JSON-манифестом сообщества, ни SKILL.md с YAML frontmatter (---).'),
 			});
 			return;
 		}
 		const skillIdRaw = await qi.input({
-			prompt: localize('vibeideSkillsCommunityRawIdPrompt', 'Skill folder id (directory name under .vibe/skills/)'),
+			prompt: localize('vibeideSkillsCommunityRawIdPrompt', 'Id папки скилла (имя директории в .vibe/skills/)'),
 			value: `imported-${Date.now()}`,
 			ignoreFocusLost: true,
-			validateInput: async (v) => (!v.trim() ? localize('vibeideSkillsCommunityIdRequired', 'Enter a skill id.') : undefined),
+			validateInput: async (v) => (!v.trim() ? localize('vibeideSkillsCommunityIdRequired', 'Введите id скилла.') : undefined),
 		});
 		if (skillIdRaw === undefined || !skillIdRaw.trim()) {
 			return;
@@ -1031,7 +1031,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.skills.browseCommunityCatalog',
 			f1: true,
-			title: localize2('vibeideSkillsBrowseCommunityCatalogTitle', 'VibeIDE: Browse community Agent Skills catalog'),
+			title: localize2('vibeideSkillsBrowseCommunityCatalogTitle', 'VibeIDE: Просмотр каталога скиллов агента сообщества'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -1049,10 +1049,10 @@ registerAction2(class extends Action2 {
 		};
 		const defaultCatalog = (cfg.getValue<string>('vibeide.skills.communityCatalogUrl') ?? '').trim();
 		const catalogUrl = await qi.input({
-			prompt: localize('vibeideSkillsCommunityCatalogUrlPrompt', 'HTTPS URL of catalog JSON ({0})', COMMUNITY_CATALOG_FORMAT),
+			prompt: localize('vibeideSkillsCommunityCatalogUrlPrompt', 'HTTPS URL JSON-каталога ({0})', COMMUNITY_CATALOG_FORMAT),
 			value: defaultCatalog,
 			ignoreFocusLost: true,
-			validateInput: async (v) => (!v.trim() ? localize('vibeideSkillsCommunityCatalogUrlRequired', 'Enter catalog URL or set vibeide.skills.communityCatalogUrl.') : undefined),
+			validateInput: async (v) => (!v.trim() ? localize('vibeideSkillsCommunityCatalogUrlRequired', 'Введите URL каталога или задайте vibeide.skills.communityCatalogUrl.') : undefined),
 		});
 		if (catalogUrl === undefined || !catalogUrl.trim()) {
 			return;
@@ -1068,7 +1068,7 @@ registerAction2(class extends Action2 {
 		if (!entries.length) {
 			notifications.notify({
 				severity: Severity.Info,
-				message: localize('vibeideSkillsCommunityCatalogEmpty', 'Catalog has no entries.'),
+				message: localize('vibeideSkillsCommunityCatalogEmpty', 'Каталог не содержит записей.'),
 			});
 			return;
 		}
@@ -1079,7 +1079,7 @@ registerAction2(class extends Action2 {
 				detail: e.manifestUrl,
 			})),
 			{
-				placeHolder: localize('vibeideSkillsCommunityPickEntry', 'Pick a skill to install'),
+				placeHolder: localize('vibeideSkillsCommunityPickEntry', 'Выберите скилл для установки'),
 				canPickMany: false,
 			},
 		);
@@ -1101,7 +1101,7 @@ registerAction2(class extends Action2 {
 		if (entry.sha256 && entry.sha256.toLowerCase() !== hex) {
 			notifications.notify({
 				severity: Severity.Error,
-				message: localize('vibeideSkillsCommunityManifestShaMismatch', 'Manifest SHA-256 mismatch for "{0}".', entry.id),
+				message: localize('vibeideSkillsCommunityManifestShaMismatch', 'Несоответствие SHA-256 манифеста для "{0}".', entry.id),
 			});
 			return;
 		}
@@ -1119,7 +1119,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.skills.saveAsFromChat',
 			f1: true,
-			title: localize2('vibeideSkillsSaveAsFromChatTitle', 'VibeIDE: Save last assistant reply as Agent Skill'),
+			title: localize2('vibeideSkillsSaveAsFromChatTitle', 'VibeIDE: Сохранить последний ответ ассистента как скилл агента'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -1141,7 +1141,7 @@ registerAction2(class extends Action2 {
 		if (!roots.length) {
 			notifications.notify({
 				severity: Severity.Warning,
-				message: localize('vibeideSkillsSaveChatNoWs', 'Open a folder workspace first.'),
+				message: localize('vibeideSkillsSaveChatNoWs', 'Сначала откройте папку рабочей области.'),
 			});
 			return;
 		}
@@ -1149,25 +1149,25 @@ registerAction2(class extends Action2 {
 		if (!raw.trim()) {
 			notifications.notify({
 				severity: Severity.Info,
-				message: localize('vibeideSkillsSaveChatEmpty', 'No assistant message with text found in the current thread.'),
+				message: localize('vibeideSkillsSaveChatEmpty', 'В текущем треде нет сообщений ассистента с текстом.'),
 			});
 			return;
 		}
 		const redacted = secrets.detectSecrets(raw).redactedText;
 		const slug = await qi.input({
-			prompt: localize('vibeideSkillsSaveChatIdPrompt', 'Skill id (folder name under .vibe/skills/)'),
+			prompt: localize('vibeideSkillsSaveChatIdPrompt', 'Id скилла (имя папки в .vibe/skills/)'),
 			value: `from-chat-${Date.now()}`,
 			ignoreFocusLost: true,
-			validateInput: async (v) => (!v.trim() ? localize('vibeideSkillsSaveChatIdRequired', 'Enter a skill id.') : undefined),
+			validateInput: async (v) => (!v.trim() ? localize('vibeideSkillsSaveChatIdRequired', 'Введите id скилла.') : undefined),
 		});
 		if (slug === undefined || !slug.trim()) {
 			return;
 		}
 		const description = await qi.input({
-			prompt: localize('vibeideSkillsSaveChatDescPrompt', 'Short description (YAML frontmatter — when to use this skill)'),
-			value: localize('vibeideSkillsSaveChatDescDefault', 'Saved from chat — edit description after install.'),
+			prompt: localize('vibeideSkillsSaveChatDescPrompt', 'Краткое описание (YAML frontmatter — когда использовать этот скилл)'),
+			value: localize('vibeideSkillsSaveChatDescDefault', 'Сохранено из чата — отредактируйте описание после установки.'),
 			ignoreFocusLost: true,
-			validateInput: async (v) => (!v.trim() ? localize('vibeideSkillsSaveChatDescRequired', 'Enter a description.') : undefined),
+			validateInput: async (v) => (!v.trim() ? localize('vibeideSkillsSaveChatDescRequired', 'Введите описание.') : undefined),
 		});
 		if (description === undefined || !description.trim()) {
 			return;
@@ -1197,7 +1197,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.copyIssueReport',
 			f1: true,
-			title: localize2('vibeideCopyIssueReportTitle', 'VibeIDE: Copy diagnostic report for issue'),
+			title: localize2('vibeideCopyIssueReportTitle', 'VibeIDE: Скопировать диагностический отчёт для отчёта об ошибке'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -1279,7 +1279,7 @@ registerAction2(class extends Action2 {
 		await clipboard.writeText(report);
 		notifications.notify({
 			severity: Severity.Info,
-			message: localize('vibeideCopyIssueReportDone', 'Diagnostic report copied to clipboard.'),
+			message: localize('vibeideCopyIssueReportDone', 'Диагностический отчёт скопирован в буфер обмена.'),
 		});
 	}
 });

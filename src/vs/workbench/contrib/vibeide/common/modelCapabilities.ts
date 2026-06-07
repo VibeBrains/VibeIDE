@@ -152,7 +152,11 @@ export type VibeideStaticModelInfo = { // not stateful
 	reservedOutputTokenSpace: number | null; // reserve this much space in the context window for output, defaults to 4096 if null
 
 	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated'; // typically you should use 'system-role'. 'separated' means the system message is passed as a separate field (e.g. anthropic)
-	specialToolFormat?: 'openai-style' | 'anthropic-style' | 'gemini-style', // typically you should use 'openai-style'. null means "can't call tools by default", and asks the LLM to output XML in agent mode
+	// typically you should use 'openai-style'. Absent/undefined means "can't call tools
+	// natively" → XML grammar in agent mode. NOTE: overrides persist "forced off" as
+	// `null` (see ModelOverrides) because undefined keys are dropped by JSON/IPC;
+	// getModelCapabilities normalizes null→undefined on read, so consumers never see null.
+	specialToolFormat?: 'openai-style' | 'anthropic-style' | 'gemini-style',
 	supportsFIM: boolean; // whether the model was specifically designed for autocomplete or "FIM" ("fill-in-middle" format)
 	supportsVision?: boolean; // image input. Optional — undefined falls back to provider heuristics. Catalog-driven providers (OpenRouter, etc.) populate this from `architecture.input_modalities`.
 	modality?: string; // display-only literal from catalog (e.g. "text+image->text"). Not used for routing — purely informational, surfaced in the model list UI.
@@ -261,10 +265,16 @@ export const API_PROTOCOL_TO_SDK_NPM: Record<ApiProtocolOverride, string> = {
 	'google': '@ai-sdk/google',
 };
 
-export type ModelOverrides = Pick<
+export type ModelOverrides = Omit<Pick<
 	VibeideStaticModelInfo,
 	(typeof modelOverrideKeys)[number]
-> & {
+>, 'specialToolFormat'> & {
+	/** `null` = persistable "forced off" (auto-downgrade to XML tools). `undefined` keys
+	 *  are DROPPED by JSON/IPC serialization (renderer→main), so an
+	 *  `{ specialToolFormat: undefined }` override silently evaporated and the main
+	 *  process kept sending native tools (looping downgrade toast, 2026-06-07).
+	 *  Read side normalizes null→undefined in getModelCapabilities. */
+	specialToolFormat?: 'openai-style' | 'anthropic-style' | 'gemini-style' | null;
 	/** Manual SDK-adapter selection. See {@link ApiProtocolOverride}. */
 	apiProtocol?: ApiProtocolOverride;
 
@@ -2029,20 +2039,29 @@ export const getModelCapabilities = (
 	//   3) user / auto-detected overrides (manual user adjustments and TTL'd
 	//      auto-downgrade overrides win over everything else)
 
+	// `null` is the persistable "forced off" sentinel in overrides (survives JSON/IPC,
+	// unlike undefined) — normalize it back to undefined BEFORE the spread so downstream
+	// consumers keep their simple `'openai-style' | … | undefined` view. The key itself
+	// stays present so the spread still shadows the baseline value.
+	const overridesNorm = (overrides === undefined ? undefined
+		: overrides.specialToolFormat === null ? { ...overrides, specialToolFormat: undefined }
+			: overrides
+	) as (Partial<Omit<ModelOverrides, 'specialToolFormat'>> & { specialToolFormat?: 'openai-style' | 'anthropic-style' | 'gemini-style' }) | undefined;
+
 	// search model options object directly first
 	for (const modelName_ in modelOptions) {
 		const lowercaseModelName_ = modelName_.toLowerCase()
 		if (lowercaseModelName === lowercaseModelName_) {
-			return { ...modelOptions[modelName], ...catalogFields(catalogInfo), ...overrides, modelName, recognizedModelName: modelName, isUnrecognizedModel: false };
+			return { ...modelOptions[modelName], ...catalogFields(catalogInfo), ...overridesNorm, modelName, recognizedModelName: modelName, isUnrecognizedModel: false };
 		}
 	}
 
 	const result = modelOptionsFallback(modelName)
 	if (result) {
-		return { ...result, ...catalogFields(catalogInfo), ...overrides, modelName: result.modelName, isUnrecognizedModel: false };
+		return { ...result, ...catalogFields(catalogInfo), ...overridesNorm, modelName: result.modelName, isUnrecognizedModel: false };
 	}
 
-	return { modelName, ...defaultModelOptions, ...catalogFields(catalogInfo), ...overrides, isUnrecognizedModel: true };
+	return { modelName, ...defaultModelOptions, ...catalogFields(catalogInfo), ...overridesNorm, isUnrecognizedModel: true };
 }
 
 /**

@@ -7,6 +7,18 @@
 
 ---
 
+## Приоритет на следующую итерацию (2026-06-08, после v0.19.4)
+
+Делать одними из первых:
+
+- [ ] **Аудит молчаливых порогов LLM-пайплайна** — пройти `convertToLLMMessageService`, `chatThreadService`, `aiSdkAdapter`, `toolHardening`, `prompts.ts`: каждую числовую константу, влияющую на поведение (режет/стабит/обрывает/ретраит) → конфиг `vibeide.*` или документированная константа; всё, что переписывает историю или обрывает прогон, обязано логировать срабатывание. Прецеденты: `MAX_INPUT_TOKENS_SAFETY=20000` (день дебага), правило «no silent trims» — `docs/knowledge/roadmap/token-economy.md`.
+- [ ] **Layer-3 tool-call parser: форма «JSON-массив в тексте»** — слабые модели (nemotron-nano free) эмитят `[{"type":"tool","tool":"fs","command":"read","args":{…}}]` текстом вместо XML-грамматики; добавить распознавание + запись в `docs/knowledge/runtime-quirks/xml-tool-format-incidents.md`.
+- [ ] **Обкатка токен-бюджетной компакции на длинной сессии** — ждём warning `Step A.5 compacted…`, падение `in:`, один холодный ход и восстановление кеша (`vibeide.chat.compactToolResultsAtTokens=60000`); при желании ускорить — временно 15000.
+- [ ] **Перепроверка зависаний Zen** (когда восстановятся лимиты) — раздутый запрос 40–90k на Zen-sonnet vs Zen-deepseek; гипотеза «Zen + anthropic-протокол + большой payload» в `docs/knowledge/runtime-quirks/provider-quota-429.md`.
+- [ ] **Проверка `cache_control` через OpenRouter для claude-моделей** — эксперимент уже в коде (`aiSdkAdapter`), подтвердить по `cached:` в TokenBudget-логе; если нули — докрутить форму system-блока.
+
+---
+
 ## Release readiness (2026-05-23)
 
 **Active backlog для текущего релиза: 0** (`[ ]` маркеров нет).

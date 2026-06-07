@@ -143,7 +143,7 @@ export class VibePersistedPlanDiskEditContribution extends Disposable implements
 			severity: Severity.Info,
 			message: localize(
 				'vibeide.planEditedMidExecution',
-				'Plan `{0}` edited on disk while executing — {1}. Subsequent agent turns follow .vibe/ hot-reload policy.',
+				'План `{0}` изменён на диске во время выполнения — {1}. Последующие ходы агента следуют политике hot-reload .vibe/.',
 				diskPlanId,
 				diffSummary,
 			),
@@ -158,7 +158,7 @@ export class VibePersistedPlanDiskEditContribution extends Disposable implements
 				const m = line.match(/^-\s+(?:~~)?(?:\[[ x]\]\s+)?Step\s+(\d+):\s*(.+?)(?:~~)?(?:\s*_\(skipped\)_\s*)?$/);
 				if (!m) continue;
 				const status = line.includes('[x]') ? 'succeeded' : line.startsWith('- ~~') ? 'skipped' : 'queued';
-				steps.push({ id: m[1], title: localize('vibeide.planStepTitle', "Step {0}: {1}", m[1], m[2].trim()), status });
+				steps.push({ id: m[1], title: localize('vibeide.planStepTitle', 'Шаг {0}: {1}', m[1], m[2].trim()), status });
 			}
 		}
 		const summaryMatch = text.match(/## Summary\r?\n\r?\n([\s\S]*?)(?:\r?\n##|$)/);

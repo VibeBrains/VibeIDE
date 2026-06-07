@@ -207,7 +207,7 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 				return {
 					uri,
 					edits: allEdits,
-					description: localize('vibeide.errorDetection.quickFixDesc', "Fix {0} error(s) using quick fixes", quickFixErrors.length),
+					description: localize('vibeide.errorDetection.quickFixDesc', "Исправить {0} ошибок(и) с помощью быстрых исправлений", quickFixErrors.length),
 				};
 			}
 		}
@@ -365,7 +365,7 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 			return {
 				uri,
 				edits: [], // Would parse SEARCH/REPLACE blocks into TextEdits
-				description: localize('vibeide.errorDetection.llmFixDesc', "LLM-generated fix for {0} error(s)", errors.length),
+				description: localize('vibeide.errorDetection.llmFixDesc', "Исправление {0} ошибок(и), сгенерированное LLM", errors.length),
 			};
 		} catch (error) {
 			vibeLog.error('errorDetection', '[ErrorDetectionService] Error generating LLM fix:', error);

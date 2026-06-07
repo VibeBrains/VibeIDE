@@ -194,13 +194,13 @@ export class VibeSkillDiskDiffContribution extends Disposable implements IWorkbe
 
 		this._notificationService.notify({
 			severity: Severity.Info,
-			message: localize('vibeide.skillDiskDiff.updated', 'Agent skill file changed: {0} (about +{1} / −{2} non-matching lines)', basename, additions, removals),
+			message: localize('vibeide.skillDiskDiff.updated', 'Файл скилла агента изменён: {0} (примерно +{1} / −{2} несовпадающих строк)', basename, additions, removals),
 			source: 'VibeIDE',
 			actions: {
 				primary: [{
 					id: 'vibeide.skillDiskDiff.open',
-					label: localize('vibeide.skillDiskDiff.openDiff', 'Open diff'),
-					tooltip: localize('vibeide.skillDiskDiff.openDiffTooltip', 'Compare previous snapshot with current file'),
+					label: localize('vibeide.skillDiskDiff.openDiff', 'Открыть diff'),
+					tooltip: localize('vibeide.skillDiskDiff.openDiffTooltip', 'Сравнить предыдущий снимок с текущим файлом'),
 					class: undefined,
 					enabled: true,
 					run: async () => {
@@ -223,7 +223,7 @@ export class VibeSkillDiskDiffContribution extends Disposable implements IWorkbe
 		await this._editorService.openEditor({
 			original: { resource: original.resource },
 			modified: { resource: modified.resource },
-			label: localize('vibeide.skillDiskDiff.diffTitle', '{0} — previous ↔ saved', basename),
+			label: localize('vibeide.skillDiskDiff.diffTitle', '{0} — предыдущий ↔ сохранённый', basename),
 			description: uri.fsPath,
 		});
 	}

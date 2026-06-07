@@ -70,7 +70,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_OPEN_SIDEBAR_ACTION_ID,
-			title: localize2('vibeOpenSidebar', 'VibeIDE: Open Chat'),
+			title: localize2('vibeOpenSidebar', 'VibeIDE: Открыть чат'),
 			f1: true,
 			keybinding: {
 				weight: KeybindingWeight.ExternalExtension,
@@ -100,7 +100,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_CTRL_L_ACTION_ID,
 			f1: true,
-			title: localize2('vibeCmdL', 'VibeIDE: Add Selection to Chat'),
+			title: localize2('vibeCmdL', 'VibeIDE: Добавить выделение в чат'),
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyCode.KeyL,
 				weight: KeybindingWeight.ExternalExtension
@@ -164,7 +164,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_CMD_SHIFT_L_ACTION_ID,
-			title: localize2('vibeNewChatPalette', 'VibeIDE: New Chat'),
+			title: localize2('vibeNewChatPalette', 'VibeIDE: Новый чат'),
 			keybinding: {
 				weight: KeybindingWeight.ExternalExtension,
 				primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KeyI,
@@ -230,7 +230,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibe.historyAction',
-			title: localize('vibeide.history.openPanel', 'View Past Chats'),
+			title: localize('vibeide.history.openPanel', 'История чатов'),
 			icon: { id: 'history' },
 		});
 	}
@@ -249,7 +249,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibe.settingsAction',
-			title: localize2('vibeSettingsSidebar', 'VibeIDE Settings'),
+			title: localize2('vibeSettingsSidebar', 'Настройки VibeIDE'),
 			icon: { id: 'settings-gear' },
 			menu: [{ id: MenuId.ViewTitle, group: 'navigation', order: 3, when: ContextKeyExpr.equals('view', VIBEIDE_CHAT_VIEW_ID), }]
 		});
@@ -265,7 +265,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibe.webSearch',
-			title: localize2('vibeWebSearch', 'VibeIDE: Search the Web'),
+			title: localize2('vibeWebSearch', 'VibeIDE: Поиск в интернете'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 			f1: true,
 		});
@@ -281,8 +281,8 @@ registerAction2(class extends Action2 {
 
 		// Prompt for search query
 		const query = await quickInputService.input({
-			placeHolder: localize2('vibeWebSearchPlaceholder', 'Enter your search query...').value,
-			prompt: localize2('vibeWebSearchPrompt', 'Search the web for information').value,
+			placeHolder: localize2('vibeWebSearchPlaceholder', 'Введите поисковый запрос...').value,
+			prompt: localize2('vibeWebSearchPrompt', 'Поиск информации в интернете').value,
 		}).then((result: string | undefined) => result);
 
 		if (!query) return;
@@ -300,7 +300,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibe.browseUrl',
-			title: localize2('vibeBrowseUrl', 'VibeIDE: Open URL in Reader'),
+			title: localize2('vibeBrowseUrl', 'VibeIDE: Открыть URL в ридере'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 			f1: true,
 		});
@@ -316,8 +316,8 @@ registerAction2(class extends Action2 {
 
 		// Prompt for URL
 		const url = await quickInputService.input({
-			placeHolder: localize2('vibeBrowseUrlPlaceholder', 'Enter URL (https://...)').value,
-			prompt: localize2('vibeBrowseUrlPrompt', 'Fetch and extract content from URL').value,
+			placeHolder: localize2('vibeBrowseUrlPlaceholder', 'Введите URL (https://...)').value,
+			prompt: localize2('vibeBrowseUrlPrompt', 'Загрузить и извлечь содержимое URL').value,
 		}).then((result: string | undefined) => result);
 
 		if (!url) return;

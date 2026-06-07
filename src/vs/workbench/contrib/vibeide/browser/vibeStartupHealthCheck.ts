@@ -65,7 +65,7 @@ export class VibeStartupHealthCheckContribution extends Disposable implements IW
 			vibeLog.warn('HealthCheck', `.vibe/ schema issues:\n${issues.join('\n')}`);
 			this._notificationService.notify({
 				severity: Severity.Warning,
-				message: localize('vibeide.startupHealthCheck.migrationNeeded', 'VibeIDE: .vibe/ configuration may need migration ({0} issue(s)). Run `vibe doctor --repair` to fix.', issues.length),
+				message: localize('vibeide.startupHealthCheck.migrationNeeded', 'VibeIDE: конфигурация .vibe/ может требовать миграции ({0} проблем). Запустите `vibe doctor --repair` для исправления.', issues.length),
 			});
 		}
 	}

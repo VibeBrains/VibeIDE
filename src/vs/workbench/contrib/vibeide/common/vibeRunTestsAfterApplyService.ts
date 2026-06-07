@@ -79,7 +79,7 @@ class VibeRunTestsAfterApplyService extends Disposable implements IVibeRunTestsA
 		try {
 			// Create or reuse terminal and run command
 			const terminal = await this._terminalService.createTerminal({
-				config: { name: localize('vibeRunTestsAfterApply.terminalName', 'VibeIDE Tests') },
+				config: { name: localize('vibeRunTestsAfterApply.terminalName', 'VibeIDE Тесты') },
 			});
 			await terminal.sendText(command, true);
 

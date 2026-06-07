@@ -319,7 +319,7 @@ class VibeNextEditPredictionService extends Disposable implements IVibeNextEditP
 			this._settingsService.state.modelSelectionOfFeature[featureName]
 		);
 		if (!modelSelection || modelSelection.providerName === 'auto') {
-			vibeLog.debug('vibeNextEditPrediction', localize('vibeide.nextEdit.noModel', '[VibeIDE NextEdit] no model resolved for Autocomplete feature'));
+			vibeLog.debug('vibeNextEditPrediction', localize('vibeide.nextEdit.noModel', '[VibeIDE NextEdit] модель для функции Autocomplete не определена'));
 			return null;
 		}
 
@@ -391,7 +391,7 @@ class VibeNextEditPredictionService extends Disposable implements IVibeNextEditP
 						confidence: 0.7,
 						taskContext,
 						startColumn: targetCol,
-						hintLabel: localize('vibeide.nextEdit.suggestedLabel', 'Suggested next edit'),
+						hintLabel: localize('vibeide.nextEdit.suggestedLabel', 'Предлагаемое следующее изменение'),
 					});
 				},
 				onError: ({ message }) => {

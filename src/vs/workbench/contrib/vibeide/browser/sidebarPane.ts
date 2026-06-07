@@ -221,7 +221,7 @@ viewsRegistry.registerViews([{
 	id: VIBEIDE_CHAT_VIEW_ID,
 	hideByDefault: false, // start open
 	containerIcon: FileAccess.asBrowserUri('vs/workbench/browser/media/vibeide-icon.png'), // VibeIDE logo
-	name: nls.localize2('vibeChat', 'Chat'),
+	name: nls.localize2('vibeChat', 'Чат'),
 	ctorDescriptor: new SyncDescriptor(SidebarViewPane),
 	canToggleVisibility: false,
 	canMoveView: false, // can't move this out of its container
@@ -236,7 +236,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_OPEN_SIDEBAR_ACTION_ID,
-			title: nls.localize('vibeide.openSidebar.title', 'Open VibeIDE Sidebar'),
+			title: nls.localize('vibeide.openSidebar.title', 'Открыть боковую панель VibeIDE'),
 		});
 	}
 	run(accessor: ServicesAccessor): void {

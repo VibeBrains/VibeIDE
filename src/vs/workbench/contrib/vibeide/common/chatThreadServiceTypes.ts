@@ -158,6 +158,12 @@ export type ChatMessage =
 		images?: ChatImageAttachment[]; // image attachments
 		pdfs?: ChatPDFAttachment[]; // PDF attachments
 		pinned?: boolean; // pin-context: honored by budget-fill truncation; setter (UI) pending
+		// System-injected corrective («⚙️ Авто-продолжение…», XML-repair nudge): carries NO user
+		// intent. Excluded from "user turn" counting in context-compaction windows (Step A.5 /
+		// maxTurnPairs) and from retrieval heuristics (RepoIndexer query, skill matching, response
+		// language detection) — otherwise consecutive nudges slide the keep-window past fresh tool
+		// results and the model re-issues identical calls in circles (observed sonnet stall loop).
+		isSyntheticNudge?: boolean;
 		state: {
 			stagingSelections: StagingSelectionItem[];
 			isBeingEdited: boolean;

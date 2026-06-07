@@ -328,7 +328,7 @@ class ApplyEngineV2 extends Disposable implements IApplyEngineV2 {
 		// 3. Compute base signatures for all files (pre-apply verification)
 		this._notificationService.notify({
 			severity: 1, // Info
-			message: localize('applyEngine.verifying', 'Verifying files...'),
+			message: localize('applyEngine.verifying', 'Проверка файлов…'),
 			sticky: false,
 		});
 
@@ -443,7 +443,7 @@ class ApplyEngineV2 extends Disposable implements IApplyEngineV2 {
 
 			this._notificationService.notify({
 				severity: 1, // Info
-				message: localize('applyEngine.success', 'Applied (verified) to {0} file(s)', appliedFiles.length),
+				message: localize('applyEngine.success', 'Применено (проверено) к {0} файл(ам)', appliedFiles.length),
 				sticky: false,
 			});
 
@@ -497,7 +497,7 @@ class ApplyEngineV2 extends Disposable implements IApplyEngineV2 {
 
 			this._notificationService.notify({
 				severity: 3, // Error
-				message: localize('applyEngine.failure', 'Apply failed: {0}', errorMessage),
+				message: localize('applyEngine.failure', 'Ошибка применения правок: {0}', errorMessage),
 				sticky: true,
 			});
 
