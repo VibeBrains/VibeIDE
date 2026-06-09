@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
-import { toolCallSignature, pickBudgetFillTail, resolveAntiLoopThreshold, planBudgetFillTail, endsWithQuestion } from '../../common/agentLoopHeuristics.js';
+import { toolCallSignature, pickBudgetFillTail, resolveAntiLoopThreshold, planBudgetFillTail, endsWithQuestion, looksLikeCompletionText } from '../../common/agentLoopHeuristics.js';
 
 suite('agentLoopHeuristics', () => {
 
@@ -36,6 +36,35 @@ suite('agentLoopHeuristics', () => {
 		test('plain statements and empty input', () => {
 			assert.strictEqual(endsWithQuestion('Готово.'), false);
 			assert.strictEqual(endsWithQuestion(''), false);
+		});
+	});
+
+	suite('looksLikeCompletionText', () => {
+		test('terminal Russian completion declarations match', () => {
+			assert.strictEqual(looksLikeCompletionText('Все правки применены, тесты проходят, GUI запускается. Завершаю.'), true);
+			assert.strictEqual(looksLikeCompletionText('Готово.'), true);
+			assert.strictEqual(looksLikeCompletionText('**Задача выполнена.**'), true);
+			assert.strictEqual(looksLikeCompletionText('Всё закрыто. Вызываю vibe_complete.'), true);
+		});
+
+		test('terminal English completion declarations match', () => {
+			assert.strictEqual(looksLikeCompletionText('All changes applied. Task complete.'), true);
+			assert.strictEqual(looksLikeCompletionText('The work is complete.'), true);
+		});
+
+		test('completion phrase at the END of a long turn still matches (tail-scoped)', () => {
+			const long = 'Я прошёлся по всем файлам, проверил импорты, прогнал линтер и тесты. '.repeat(4) + 'Задача решена.';
+			assert.strictEqual(looksLikeCompletionText(long), true);
+		});
+
+		test('mid-task progress (object-taking past forms) does NOT match', () => {
+			assert.strictEqual(looksLikeCompletionText('Завершил чтение файла, перехожу к правкам.'), false);
+			assert.strictEqual(looksLikeCompletionText('Готовлюсь к следующему шагу — открываю auth.ts.'), false);
+			assert.strictEqual(looksLikeCompletionText('Это сложная задача, нужно ещё поработать.'), false);
+		});
+
+		test('empty input does not match', () => {
+			assert.strictEqual(looksLikeCompletionText(''), false);
 		});
 	});
 

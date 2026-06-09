@@ -141,6 +141,8 @@ export function detectShellMisuse(rawCommand: string, config?: ShellHardeningCon
 
 	// D.39: re-check inside shell wrappers (`cmd /c "…"`, `bash -c "…"`, …) so head-of-command rules
 	// aren't bypassed by quoting the real command. Bounded recursion guards pathological nesting.
+	// Depth 2 covers a single legitimate wrapper-in-wrapper (`cmd /c "bash -c ..."`); deeper nesting
+	// is adversarial obfuscation, not real usage, so we stop unwrapping rather than spin.
 	if (_depth < 2) {
 		const inner = unwrapShellWrapper(stripped, bareName);
 		if (inner && inner !== rawCommand.trim()) {
@@ -203,6 +205,9 @@ export function looksLikeShellAwaitingInput(output: string): boolean {
 	for (let i = lines.length - 1; i >= 0; i--) {
 		const trimmed = lines[i].trim();
 		if (trimmed === '') continue;
+		// 1–3 chevrons covers the common interactive continuation prompts (`>`, `>>`, `>>>`:
+		// shells, Python REPL, node REPL). More than three is not a known prompt form, so we
+		// don't treat it as "awaiting input".
 		return /^>{1,3}$/.test(trimmed);
 	}
 	return false;

@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
-import { trimThreadMessages } from '../../common/chatThreadTrim.js';
+import { trimThreadMessages, capToolResultSizes } from '../../common/chatThreadTrim.js';
 import type { ChatMessage } from '../../common/chatThreadServiceTypes.js';
 
 // Minimal builders — the trim only reads `m.role`; identity is tagged via content.
@@ -83,5 +83,56 @@ suite('trimThreadMessages — bound thread memory, pin original task (model-stal
 		const r = trimThreadMessages(assts(250), 5, 1)!; // cap 5 -> 100, so 250 > 100 trims
 		assert.ok(r, 'clamped cap still trims a 250-message thread');
 		assert.ok(r.target >= 100);
+	});
+});
+
+// capToolResultSizes clamps maxResultChars to a floor of 2000, so tests use threshold 2000
+// and oversized strings of ~5000 chars to trip it.
+const MAXCH = 2000;
+const bigContentTool = (id: string, len: number) => ({ role: 'tool', type: 'success', name: 'read_file', id, content: 'X'.repeat(len), result: null } as unknown as ChatMessage);
+const resultObjTool = (id: string, fileLen: number) => ({ role: 'tool', type: 'success', name: 'read_file', id, content: 'short', result: { fileContents: 'F'.repeat(fileLen), totalNumLines: 42, hasNextPage: false } } as unknown as ChatMessage);
+const errTool = (id: string, len: number) => ({ role: 'tool', type: 'tool_error', name: 'run_command', id, content: 'short', result: 'E'.repeat(len) } as unknown as ChatMessage);
+const NOTE = 'усечён';
+
+suite('capToolResultSizes — bound per-result size (renderer/disk memory)', () => {
+
+	test('returns null when nothing exceeds the threshold', () => {
+		assert.strictEqual(capToolResultSizes([user('q'), bigContentTool('t', 500), asst('a')], MAXCH, 0), null);
+	});
+
+	test('caps an oversized `content` of an old tool message, with a marker', () => {
+		const r = capToolResultSizes([bigContentTool('t', 5000)], MAXCH, 0)!;
+		assert.ok(r, 'should cap');
+		assert.strictEqual(r.cappedCount, 1);
+		assert.ok(r.charsCut > 2000, 'cut roughly the overflow');
+		const m = r.messages[0] as { content: string };
+		assert.ok(m.content.length < 5000 && m.content.length <= MAXCH + 200, 'content shrunk near the cap');
+		assert.ok(m.content.includes(NOTE), 'marker present');
+	});
+
+	test('keepRecentFull protects the freshest results', () => {
+		const r = capToolResultSizes([bigContentTool('old', 5000), bigContentTool('new', 5000)], MAXCH, 1)!;
+		assert.strictEqual(r.cappedCount, 1, 'only the older tool is capped');
+		assert.ok((r.messages[0] as { content: string }).content.includes(NOTE), 'old capped');
+		assert.strictEqual((r.messages[1] as { content: string }).content.length, 5000, 'recent kept full');
+	});
+
+	test('caps oversized STRING field inside a `result` object, preserving other fields + shape', () => {
+		const r = capToolResultSizes([resultObjTool('t', 5000)], MAXCH, 0)!;
+		const res = (r.messages[0] as { result: { fileContents: string; totalNumLines: number; hasNextPage: boolean } }).result;
+		assert.ok(res.fileContents.length < 5000 && res.fileContents.includes(NOTE), 'fileContents truncated');
+		assert.strictEqual(res.totalNumLines, 42, 'non-string field preserved');
+		assert.strictEqual(res.hasNextPage, false, 'object shape preserved');
+	});
+
+	test('caps a string `result` (tool_error)', () => {
+		const r = capToolResultSizes([errTool('t', 5000)], MAXCH, 0)!;
+		assert.ok(typeof (r.messages[0] as { result: string }).result === 'string');
+		assert.ok((r.messages[0] as { result: string }).result.includes(NOTE));
+	});
+
+	test('never touches non-tool messages', () => {
+		const longAsst = { role: 'assistant', displayContent: 'Z'.repeat(5000) } as unknown as ChatMessage;
+		assert.strictEqual(capToolResultSizes([user('q'.repeat(5000)), longAsst], MAXCH, 0), null);
 	});
 });

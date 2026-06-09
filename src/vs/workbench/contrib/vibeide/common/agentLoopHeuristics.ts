@@ -111,6 +111,40 @@ export const endsWithQuestion = (text: string): boolean => {
 	return last === '?' || last === '？';
 };
 
+/**
+ * Terminal completion phrases for `looksLikeCompletionText`. Phrase-based (not bare ambiguous
+ * single words) to limit false positives — these read as a CLOSING declaration of done-ness.
+ */
+const COMPLETION_SIGNALS: readonly string[] = [
+	// Russian (primary — observed: MiniMax-M3 ends with «Завершаю.» / «Готово.»).
+	// NOTE: object-taking past forms («завершил чтение», «завершено сканирование») are
+	// deliberately excluded — they read as mid-task progress, not a terminal declaration.
+	'готово', 'завершаю', 'работа завершена',
+	'задача выполнена', 'задача решена', 'задача закрыта', 'готов к проверке',
+	'всё готово', 'все готово', 'всё сделано', 'все сделано', 'всё закрыто', 'все закрыто',
+	'все правки применены', 'всё реализовано', 'все реализовано',
+	// English
+	'task complete', 'task completed', 'all done', 'completed the task',
+	'all changes applied', 'task is complete', 'task is done', 'work is complete',
+];
+
+/**
+ * True when a model turn reads as a TERMINAL completion declaration — the model says it is done
+ * («Готово», «Завершаю», «Задача выполнена», "task complete", …). Used ONLY by the Autopilot
+ * premature-stop handler AFTER the nudge budget is exhausted, as a provider-independent safety
+ * net for weak tool-callers (MiniMax/deepseek narrate completion in prose instead of emitting
+ * the `vibe_complete` call). Looks at the TAIL of the turn (completion lands at the end) and is
+ * phrase-based; residual false-positive risk is low because it only fires after repeated failed
+ * nudges (a mid-task narration would have been nudged to continue and the model would have acted).
+ */
+export const looksLikeCompletionText = (text: string): boolean => {
+	if (!text) { return false; }
+	// Completion declarations land at the END — scope to the last ~200 chars, lowercased,
+	// stripped of trailing markdown/quote/punctuation so «**Готово.**» and «Завершаю!» match.
+	const tail = text.slice(-200).toLowerCase().replace(/[\s*_`~"'»«)\]}>.!]+$/u, '');
+	return COMPLETION_SIGNALS.some(s => tail.includes(s));
+};
+
 
 /**
  * Budget-FILL tail selection for context truncation (roadmap F).

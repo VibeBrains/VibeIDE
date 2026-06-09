@@ -126,6 +126,13 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 
 	}
 
+	// Max chars of terminal output injected into the model's context, per read/run. `vibeide.tools.*`
+	// with the prompts.ts constant as default + defensive clamp. Caps token cost of noisy commands;
+	// the semantic condenser runs BEFORE this hard cap (see condenseTerminalOutput).
+	private maxTerminalOutputChars(): number {
+		return Math.max(1_000, Math.min(5_000_000, this.configurationService.getValue<number>('vibeide.tools.maxTerminalOutputChars') ?? MAX_TERMINAL_CHARS))
+	}
+
 
 	listPersistentTerminalIds() {
 		return Object.keys(this.persistentTerminalInstanceOfId)
@@ -254,7 +261,7 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 			lines.unshift(line);
 		}
 
-		const result = truncateHeadTail(removeAnsiEscapeCodes(lines.join('\n')), MAX_TERMINAL_CHARS);
+		const result = truncateHeadTail(removeAnsiEscapeCodes(lines.join('\n')), this.maxTerminalOutputChars());
 		return result
 	};
 
@@ -441,7 +448,7 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 			if (this.configurationService.getValue<boolean>('vibeide.terminal.condenseOutput') !== false) {
 				result = condenseTerminalOutput(result)
 			}
-			result = truncateHeadTail(result, MAX_TERMINAL_CHARS)
+			result = truncateHeadTail(result, this.maxTerminalOutputChars())
 			return { result, resolveReason }
 
 		}

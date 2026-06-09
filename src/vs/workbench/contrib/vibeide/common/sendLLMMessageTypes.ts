@@ -227,6 +227,8 @@ export type ServiceSendLLMMessageParams = {
 	modelSelectionOptions: ModelSelectionOptions | undefined;
 	overridesOfModel: OverridesOfModel | undefined;
 	onAbort: OnAbort;
+	/** Per-turn: request `tool_choice: 'required'` for this send (agent-loop corrective nudge). */
+	forceToolUse?: boolean;
 } & SendLLMType;
 
 /**
@@ -240,6 +242,14 @@ export type LLMRuntimeOptions = {
 		local?: number;
 		cloud?: number;
 		aggregator?: number;
+		/** Inter-token idle timeout (ms): abort if the stream goes silent AFTER it has started
+		 * emitting content. Default 45000. Does NOT cover the silent pre-content reasoning warmup
+		 * (only the overall cap bounds that). See `vibeide.llm.timeoutMs.streamIdle`. */
+		streamIdle?: number;
+		/** Connection timeout (ms): abort if NO stream part of any kind arrives. Default 90000.
+		 * Cleared by the first part, so a connected-but-thinking model is not cut off. See
+		 * `vibeide.llm.timeoutMs.connection`. */
+		connection?: number;
 	};
 	/** DEPRECATED in favor of `toolFallbackMode`. When false, force XML-in-prompt
 	 * mode for aggregator-provider unknown models (overrides the synthesized
@@ -252,6 +262,12 @@ export type LLMRuntimeOptions = {
 	 * Maps from `vibeide.llm.toolFallbackMode` setting (with backward-compat
 	 * migration from `assumeNativeTools`). See roadmap O.8. */
 	toolFallbackMode?: 'auto' | 'native' | 'xml';
+	/** Per-turn force: when true, send `tool_choice: 'required'` so the model MUST emit a tool
+	 * call instead of ending the turn with prose. Set by the agent loop on the corrective
+	 * autopilot nudge (weak tool-callers like MiniMax narrate «Завершаю» in text instead of
+	 * calling `vibe_complete`). No effect in XML-fallback mode (no native `tools` are sent).
+	 * Default off. See `vibeide.agent.forceToolUseOnNudge`. */
+	forceToolUse?: boolean;
 }
 
 // params to the true sendLLMMessage function

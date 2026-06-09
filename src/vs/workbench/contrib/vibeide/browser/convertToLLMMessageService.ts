@@ -999,6 +999,11 @@ const prepareOpenAIOrAnthropicMessages = ({
 	//                                          totalLen
 	let remainingCharsToTrim = charsNeedToTrim
 	let i = 0
+	// NO SILENT TRIMS: this context-budget loop rewrites history (truncates the heaviest
+	// messages to TRIM_TO_LEN-char stubs). If it fires, say so — silent history rewrites
+	// caused the 2026-06-07 cache-death incident that took a day to localize.
+	let budgetTrimCrushed = 0
+	let budgetTrimCharsCut = 0
 
 	while (remainingCharsToTrim > 0) {
 		i += 1
@@ -1012,13 +1017,22 @@ const prepareOpenAIOrAnthropicMessages = ({
 		const numCharsWillTrim = m.content.length - TRIM_TO_LEN
 		if (numCharsWillTrim > remainingCharsToTrim) {
 			// trim remainingCharsToTrim + '...'.length chars
+			const beforeLen = m.content.length
 			m.content = m.content.slice(0, m.content.length - remainingCharsToTrim - '...'.length).trim() + '...'
+			budgetTrimCrushed += 1
+			budgetTrimCharsCut += (beforeLen - m.content.length)
 			break
 		}
 
 		remainingCharsToTrim -= numCharsWillTrim
+		const beforeLen = m.content.length
 		m.content = m.content.substring(0, TRIM_TO_LEN - '...'.length) + '...'
+		budgetTrimCrushed += 1
+		budgetTrimCharsCut += (beforeLen - m.content.length)
 		alreadyTrimmedIdxes.add(trimIdx)
+	}
+	if (budgetTrimCrushed > 0) {
+		vibeLog.warn('ContextGuard', `Context-budget trim crushed ${budgetTrimCrushed} message(s) to ${TRIM_TO_LEN} chars (~${budgetTrimCharsCut.toLocaleString()} chars cut to fit the context window).`)
 	}
 
 	// ================ safety clamp to avoid TPM overage ================
@@ -2047,11 +2061,17 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			const userMessages = llmMessages.filter(m => m.role === 'user' && !m.isSyntheticNudge)
 			if (userMessages.length > maxTurnPairs * 2) {
 				// Keep only the last maxTurnPairs user messages and their corresponding assistant messages
+				const beforeCount = llmMessages.length
 				const lastUserIndices = userMessages.slice(-maxTurnPairs).map(um => llmMessages.indexOf(um))
 				const firstIndexToKeep = Math.min(...lastUserIndices)
 				// Honor pinned (roadmap pin-context): keep pinned messages even if older than the
 				// retained turn window, so important context isn't dropped before budget-fill runs.
 				llmMessages = llmMessages.filter((m, i) => i >= firstIndexToKeep || m.pinned)
+				// NO SILENT TRIMS: local-model fallback dropped older history pairs — log it.
+				const dropped = beforeCount - llmMessages.length
+				if (dropped > 0) {
+					vibeLog.warn('ContextGuard', `Local-model history fallback dropped ${dropped} older message(s), keeping last ${maxTurnPairs} turn-pair(s) + pinned (${chatMode} mode).`)
+				}
 			}
 		}
 
@@ -2238,14 +2258,23 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 		if (currentTokens > hardCap) {
 			// Step A — elide oversized tool / assistant outputs in remaining tail
+			let elided = 0
+			let elidedTokens = 0
 			llmMessages = llmMessages.map(m => {
 				const tokens = estimateTokens(m.content)
 				if ((m.role === 'tool' || m.role === 'assistant') && tokens > TOOL_RESULT_TOKEN_THRESHOLD && !m.pinned) {
+					elided++
+					elidedTokens += tokens
 					return { ...m, content: `[elided ${m.role} output: ~${tokens.toLocaleString()} tokens]` }
 				}
 				return m
 			})
 			currentTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
+			// NO SILENT TRIMS: align Step A with Step A.5/Step B (both log). The in-band
+			// `[elided …]` marker is visible to the model but not to operators reading the log.
+			if (elided > 0) {
+				vibeLog.warn('ContextGuard', `Step A elided ${elided} oversized tool/assistant output(s) > ${TOOL_RESULT_TOKEN_THRESHOLD} tokens (~${elidedTokens.toLocaleString()} tokens) to fit hardCap → currentTokens ~${currentTokens.toLocaleString()}.`)
+			}
 		}
 
 		if (currentTokens > hardCap && llmMessages.length > 2) {

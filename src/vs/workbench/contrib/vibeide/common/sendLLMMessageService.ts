@@ -116,7 +116,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 	}
 
 	sendLLMMessage(params: ServiceSendLLMMessageParams) {
-		const { onText, onFinalMessage, onError, onAbort, modelSelection, ...proxyParams } = params;
+		const { onText, onFinalMessage, onError, onAbort, modelSelection, forceToolUse, ...proxyParams } = params;
 
 		// VibeIDE: Enforce session token budget before sending
 		try {
@@ -279,9 +279,12 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 				local: this.configurationService.getValue<number>('vibeide.llm.timeoutMs.local'),
 				cloud: this.configurationService.getValue<number>('vibeide.llm.timeoutMs.cloud'),
 				aggregator: this.configurationService.getValue<number>('vibeide.llm.timeoutMs.aggregator'),
+				streamIdle: this.configurationService.getValue<number>('vibeide.llm.timeoutMs.streamIdle'),
+				connection: this.configurationService.getValue<number>('vibeide.llm.timeoutMs.connection'),
 			},
 			assumeNativeTools: oldAssumeNative, // kept for legacy code paths
 			toolFallbackMode,
+			forceToolUse, // per-turn: agent loop forces tool_choice on the corrective nudge
 		};
 
 		// params will be stripped of all its functions over the IPC channel

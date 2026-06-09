@@ -278,6 +278,15 @@ export class ToolsService implements IToolsService {
 		const SEARCH_BACKEND_RETRY_DELAY_MS_DEFAULT = 150
 		const searchBackendRetries = () => Math.max(0, Math.min(5, this._configurationService.getValue<number>('vibeide.tools.searchBackendRetries') ?? SEARCH_BACKEND_RETRIES_DEFAULT))
 		const searchBackendRetryDelayMs = () => Math.max(0, Math.min(5_000, this._configurationService.getValue<number>('vibeide.tools.searchBackendRetryDelayMs') ?? SEARCH_BACKEND_RETRY_DELAY_MS_DEFAULT))
+
+		// read_file output-size limits — `vibeide.tools.*` with the prompts.ts constant as default
+		// and a defensive clamp. These govern how much file content one read injects into the model's
+		// context = direct token cost; exposed so users on tight or very large context windows can tune.
+		const readFileDefaultLineLimit = () => Math.max(1, Math.min(100_000, this._configurationService.getValue<number>('vibeide.tools.readFileDefaultLineLimit') ?? READ_FILE_DEFAULT_LINE_LIMIT))
+		const readFileMaxLineLimit = () => Math.max(1, Math.min(1_000_000, this._configurationService.getValue<number>('vibeide.tools.readFileMaxLineLimit') ?? READ_FILE_MAX_LINE_LIMIT))
+		const readFileMaxCharsPerPage = () => Math.max(10_000, Math.min(5_000_000, this._configurationService.getValue<number>('vibeide.tools.readFileMaxCharsPerPage') ?? MAX_FILE_CHARS_PAGE))
+		const largeFileThresholdChars = () => Math.max(10_000, Math.min(5_000_000, this._configurationService.getValue<number>('vibeide.tools.largeFileThresholdChars') ?? READ_FILE_LARGE_FILE_CHARS))
+		const largeFileWindowChars = () => Math.max(5_000, Math.min(2_000_000, this._configurationService.getValue<number>('vibeide.tools.largeFileWindowChars') ?? READ_FILE_LARGE_FILE_WINDOW_CHARS))
 		const isSearchBackendUnavailable = (e: unknown): boolean => {
 			const msg = e instanceof Error ? e.message : String(e ?? '')
 			return /ENOENT|spawn|ripgrep|\brg(\.exe)?\b/i.test(msg)
@@ -349,7 +358,7 @@ export class ToolsService implements IToolsService {
 				let lineLimit = validateNumber(lineLimitUnknown, { default: null })
 				if (lineLimit !== null) {
 					if (lineLimit < 1) lineLimit = null
-					else if (lineLimit > READ_FILE_MAX_LINE_LIMIT) lineLimit = READ_FILE_MAX_LINE_LIMIT
+					else { const maxLineLimit = readFileMaxLineLimit(); if (lineLimit > maxLineLimit) lineLimit = maxLineLimit }
 				}
 
 				// Default true — numbered output is strictly more useful for subsequent edit_file calls.
@@ -808,7 +817,7 @@ export class ToolsService implements IToolsService {
 
 				// Line-based slice (Claude-Code style): start_line + line_limit drives the window.
 				// Falls back to legacy whole-file path when caller passes neither.
-				const effectiveLineLimit = lineLimit ?? READ_FILE_DEFAULT_LINE_LIMIT
+				const effectiveLineLimit = lineLimit ?? readFileDefaultLineLimit()
 				const isLineRangeMode = startLine !== null || endLine !== null || lineLimit !== null
 
 				let startLineReturned: number
@@ -834,8 +843,8 @@ export class ToolsService implements IToolsService {
 				// 2k-line limit (long lines) yet blow a huge chunk of the context in one tool result.
 				// Shrink the window to the char budget and flag it partial so the nav hint steers the
 				// model to start_line continuation / grep instead. Explicit-range reads are untouched.
-				if (!isLineRangeMode && pageNumber === 1 && fullText.length > READ_FILE_LARGE_FILE_CHARS) {
-					const cappedEnd = clampLineWindowToCharBudget(allLines, startLineReturned, endLineReturned, READ_FILE_LARGE_FILE_WINDOW_CHARS)
+				if (!isLineRangeMode && pageNumber === 1 && fullText.length > largeFileThresholdChars()) {
+					const cappedEnd = clampLineWindowToCharBudget(allLines, startLineReturned, endLineReturned, largeFileWindowChars())
 					if (cappedEnd < endLineReturned) {
 						endLineReturned = cappedEnd
 						truncatedByLineLimit = true
@@ -853,8 +862,9 @@ export class ToolsService implements IToolsService {
 				}
 
 				// Byte-level paginate as a hard cap (huge minified files etc).
-				const fromIdx = MAX_FILE_CHARS_PAGE * (pageNumber - 1)
-				const toIdx = MAX_FILE_CHARS_PAGE * pageNumber - 1
+				const maxCharsPerPage = readFileMaxCharsPerPage()
+				const fromIdx = maxCharsPerPage * (pageNumber - 1)
+				const toIdx = maxCharsPerPage * pageNumber - 1
 				let fileContents = contents.slice(fromIdx, toIdx + 1)
 				const hasNextPage = (contents.length - 1) - toIdx >= 1 || truncatedByLineLimit
 				const totalFileLen = contents.length
@@ -2282,7 +2292,7 @@ export class ToolsService implements IToolsService {
 			return lintErrors
 				.map((e, i) => `Error ${i + 1}:\nLines Affected: ${e.startLineNumber}-${e.endLineNumber}\nError message:${e.message}`)
 				.join('\n\n')
-				.substring(0, MAX_FILE_CHARS_PAGE)
+				.substring(0, readFileMaxCharsPerPage())
 		}
 
 		// given to the LLM after the call for successful tool calls

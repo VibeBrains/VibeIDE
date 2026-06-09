@@ -1025,7 +1025,9 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// (those keep emitting tokens, which reset it). Reset at the top of the stream
 	// loop on every part.
 	let idleTimeoutId: ReturnType<typeof setTimeout> | null = null;
-	const idleMs = 45_000;
+	const idleMs = runtimeOptions?.timeoutMs?.streamIdle ?? 45_000;
+	// Connection liveness ceiling — see the firstTokenTimeoutId arm below. Config-driven default.
+	const connectionMs = runtimeOptions?.timeoutMs?.connection ?? 90_000;
 	let lastFinishReason: string | null = null;
 	// Last `usage` block emitted by the AI SDK on `finish-step` / `finish` parts.
 	// We surface this in onFinalMessage so the UI can display real prompt/completion
@@ -1080,7 +1082,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// `start` part vs buffering ~60s); then we tune the number from data, not guesses.
 	firstTokenTimeoutId = setTimeout(() => {
 		if (!firstTokenReceived) abortController.abort(new Error('Connection timeout (no stream parts received).'));
-	}, 90_000);
+	}, connectionMs);
 
 	// Shared hard-timeout handler for BOTH the overall wall-clock cap and the idle
 	// timer. Delivers any partial content (so a stalled-but-started tool-call still
@@ -1144,7 +1146,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			messages: modelMessages,
 			tools,
 			activeTools,
-			toolChoice: tools ? 'auto' : undefined,
+			toolChoice: runtimeOptions?.forceToolUse && tools ? 'required' : (tools ? 'auto' : undefined),
 			abortSignal: abortController.signal,
 			...modelParams,
 			// AI SDK default maxRetries=2 (3 attempts total) is too aggressive for

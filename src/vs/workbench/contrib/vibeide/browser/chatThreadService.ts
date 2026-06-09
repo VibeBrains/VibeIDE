@@ -16,7 +16,7 @@ import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { recordChatTrace } from './vibeChatRunTrace.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '../common/prompt/toolAliases.js';
-import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, QUESTION_AUTO_CONTINUE_DEFAULT } from '../common/agentLoopHeuristics.js';
+import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, looksLikeCompletionText, QUESTION_AUTO_CONTINUE_DEFAULT } from '../common/agentLoopHeuristics.js';
 import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
 import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
 import { AnthropicReasoning, getErrorMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
@@ -33,7 +33,7 @@ import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage } from '../common/chatThreadServiceTypes.js';
-import { trimThreadMessages } from '../common/chatThreadTrim.js';
+import { trimThreadMessages, capToolResultSizes } from '../common/chatThreadTrim.js';
 import { Position } from '../../../../editor/common/core/position.js';
 import { IMetricsService } from '../common/metricsService.js';
 import { shorten } from '../../../../base/common/labels.js';
@@ -943,12 +943,40 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		});
 	}
 
+	// Tool-result SIZE cap, resolved from config with defensive clamps. Bounds how large a
+	// single stored tool-result may be once it ages past the recent window — the dominant
+	// renderer/disk memory cost on long sessions (real store: ~40MB, `content` 11MB).
+	private _resolveToolResultCap(): { maxChars: number; keepRecent: number } {
+		const kb = Math.max(4, Math.min(2048, this._configurationService.getValue<number>('vibeide.chat.maxStoredToolResultKB') ?? 24))
+		const keepRecent = Math.max(0, Math.min(200, this._configurationService.getValue<number>('vibeide.chat.keepRecentFullToolResults') ?? 16))
+		return { maxChars: kb * 1024, keepRecent }
+	}
+
 	private _readAllThreads(): ChatThreads | null {
 		const threadsStr = this._storageService.get(THREAD_STORAGE_KEY, StorageScope.APPLICATION);
 		if (!threadsStr) {
 			return null
 		}
 		const threads = this._convertThreadDataFromStorage(threadsStr);
+
+		// One-time cleanup on load: cap oversized OLD tool-results across ALL threads so the
+		// historical baseline doesn't sit in renderer memory at full size. Recent results per
+		// thread stay verbatim. The capped state is re-persisted on the next mutation.
+		const { maxChars, keepRecent } = this._resolveToolResultCap()
+		let totalCapped = 0, totalKbCut = 0
+		for (const id of Object.keys(threads)) {
+			const t = threads[id]
+			if (!t) { continue }
+			const capped = capToolResultSizes(t.messages, maxChars, keepRecent)
+			if (capped) {
+				threads[id] = { ...t, messages: capped.messages }
+				totalCapped += capped.cappedCount
+				totalKbCut += capped.charsCut / 1024
+			}
+		}
+		if (totalCapped > 0) {
+			vibeLog.info('chatThread', `Load: capped ${totalCapped} old tool-result(s) across threads (~${totalKbCut | 0} KB) to bound renderer memory (keepRecent=${keepRecent}, maxKB=${(maxChars / 1024) | 0}).`)
+		}
 
 		return threads
 	}
@@ -4774,6 +4802,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		// Premature-stop nudge: consecutive agent-mode turns that returned text with NO tool call.
 		// Reset to 0 on any executed tool call (progress). Bounds the Autopilot auto-continue.
 		let autoContinueOnTextCount = 0
+		// Per-turn force flag: set when the Autopilot premature-stop handler injects a corrective
+		// nudge, consumed (and reset) by the very next sendLLMMessage so it requests tool_choice=required.
+		let forceToolUseNextTurn = false
 		// Question-ending turns get their own ALWAYS-nudge lane under Autopilot (a closing «…?»
 		// is a permission-seeking stall nobody answers in unattended mode). Bounded by the
 		// `autoContinueOnQuestion` setting (0 = unlimited); reset on any executed tool call, same as above.
@@ -4830,6 +4861,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		const autoDowngradeThreshold = (typeof rawAutoDowngrade === 'number' && Number.isFinite(rawAutoDowngrade) && rawAutoDowngrade >= 0)
 			? Math.min(50, Math.floor(rawAutoDowngrade))
 			: AUTO_DOWNGRADE_THRESHOLD
+
+		// Circuit-breaker threshold resolved ONCE per run (mirrors maxLoopIterations rationale:
+		// a mid-run settings tweak shouldn't abort an in-flight loop). Default MAX_CONSECUTIVE_TOOL_ERRORS.
+		const maxConsecutiveToolErrors = Math.max(1, Math.min(100, this._configurationService.getValue<number>('vibeide.chat.maxConsecutiveToolErrors') ?? MAX_CONSECUTIVE_TOOL_ERRORS))
 
 		// tool use loop
 		// Soft checkpoint (B): pause-and-ask after N iterations or M tokens in a single run, so a
@@ -5483,6 +5518,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				// first-activity) that has been mistaken for a hang.
 				const _turnStartMs = Date.now()
 				vibeLog.debug('llmTurn', 'start', { iter: nMessagesSent, msgs: messages.length, model: modelSelection?.modelName, provider: modelSelection?.providerName, chatMode }); recordChatTrace('llmTurn:start', { iter: nMessagesSent, msgs: messages.length, model: modelSelection?.modelName, provider: modelSelection?.providerName })
+				// Consume the one-shot force flag (set by the premature-stop nudge below): this turn
+				// requests tool_choice=required so a weak caller can't return prose again.
+				const forceThisTurn = forceToolUseNextTurn
+				forceToolUseNextTurn = false
 				const llmCancelToken = this._llmMessageService.sendLLMMessage({
 					messagesType: 'chatMessages',
 					chatMode,
@@ -5490,6 +5529,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					modelSelection,
 					modelSelectionOptions,
 					overridesOfModel: effectiveOverridesForCall,
+					forceToolUse: forceThisTurn,
 					logging: { loggingName: `Chat - ${chatMode}`, loggingExtras: { threadId, nMessagesSent, chatMode, requestId: finalRequestId } },
 					separateSystemMessage: separateSystemMessage,
 				onText: ({ fullText, fullReasoning, toolCall }) => {
@@ -6174,7 +6214,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 					// For non-rate-limit errors in non-auto mode, or if we're in auto mode but no fallback was found:
 					// Retry the same model if we haven't exceeded retry limit (only for non-auto mode or if no fallback available)
-					if (!isAutoMode && nAttempts < CHAT_RETRIES) {
+					const maxChatRetries = Math.max(0, Math.min(10, this._configurationService.getValue<number>('vibeide.chat.maxRetries') ?? CHAT_RETRIES))
+					if (!isAutoMode && nAttempts < maxChatRetries) {
 						// Compute resume strategy before the delay so any prefill/skip info is
 						// ready when the while-loop iterates. Anthropic prefill injection would
 						// require provider-API support; for now we log the decision (L1185).
@@ -6189,8 +6230,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						// Faster retries for local models (they fail fast if not available)
 						const isLocalProvider = modelSelection && (modelSelection.providerName === 'ollama' || modelSelection.providerName === 'vLLM' || modelSelection.providerName === 'lmStudio' || modelSelection.providerName === 'openAICompatible' || modelSelection.providerName === 'liteLLM')
 						// Use shorter delays for local models: 0.5s, 1s, 2s (vs 1s, 2s, 4s for remote)
-						const baseDelay = isLocalProvider ? 500 : INITIAL_RETRY_DELAY
-						const retryDelay = Math.min(baseDelay * Math.pow(2, nAttempts - 1), MAX_RETRY_DELAY)
+						const initialRetryDelay = Math.max(0, Math.min(60_000, this._configurationService.getValue<number>('vibeide.chat.retryInitialDelayMs') ?? INITIAL_RETRY_DELAY))
+						const maxRetryDelay = Math.max(0, Math.min(120_000, this._configurationService.getValue<number>('vibeide.chat.retryMaxDelayMs') ?? MAX_RETRY_DELAY))
+						const baseDelay = isLocalProvider ? 500 : initialRetryDelay
+						const retryDelay = Math.min(baseDelay * Math.pow(2, nAttempts - 1), maxRetryDelay)
 						await timeout(retryDelay)
 						if (interruptedWhenIdle) {
 							this._setStreamState(threadId, undefined)
@@ -6548,8 +6591,25 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								: '⚙️ Авто-продолжение (автопилот): ты завершил ход текстом без вызова инструмента. Если задача НЕ закончена — продолжай, вызвав нужный инструмент. Если задача ПОЛНОСТЬЮ выполнена — вызови инструмент `vibe_complete` (но сначала перепроверь, что всё действительно сделано: правки применены, сборка/тесты проходят, шагов не осталось). Не пиши «Готово» просто текстом — это завершит ход только через `vibe_complete`. Если не хватает данных — прими разумное решение сам и продолжай.'
 						this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState })
 						shouldSendAnotherMessage = true
+						// Force the follow-up turn to emit a tool call (vibe_complete or a real tool) so a
+						// weak caller can't return prose AGAIN. No-op in XML mode (no native tools sent).
+						forceToolUseNextTurn = this._configurationService.getValue<boolean>('vibeide.agent.forceToolUseOnNudge') !== false
 						this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
 						continue
+					}
+
+					// Autopilot ON but nudge budget spent: if the model is plainly DECLARING completion in
+					// prose (weak tool-caller that just won't emit the vibe_complete call), accept it as an
+					// implicit completion instead of stranding the unattended autopilot at «Продолжить».
+					// Narrow scope (autopilot + exhausted budget + terminal completion text) so this does
+					// NOT resurrect the always-on «Готово»-match that vibe_complete replaced — a mid-task
+					// narration would have been nudged to continue and the model would have acted.
+					if (autopilotOn
+						&& this._configurationService.getValue<boolean>('vibeide.agent.implicitCompleteOnExhaustedNudge') !== false
+						&& looksLikeCompletionText(info.fullText)) {
+						vibeLog.warn('chatThread', `[autopilot] implicit vibe_complete: model declared completion in prose after ${autoContinueOnTextCount} exhausted nudge(s) — ending run cleanly instead of «Продолжить».`)
+						this._setStreamState(threadId, { isRunning: undefined })
+						return
 					}
 
 					// Autopilot OFF, or the auto-continue budget is spent → stop with an explanation
@@ -6908,8 +6968,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 						}
 
 						// Stage 2: circuit-breaker (last resort)
-						if (curCount >= MAX_CONSECUTIVE_TOOL_ERRORS) {
-							const abortMsg = `Agent loop aborted: ${MAX_CONSECUTIVE_TOOL_ERRORS} consecutive tool failures on ${resolvedModelSelection.modelName} (${resolvedModelSelection.providerName}). Even after auto-downgrade to XML-fallback the model couldn't recover. Switch to a different model (Claude, GPT, Gemini, DeepSeek) or simplify the request.`
+						if (curCount >= maxConsecutiveToolErrors) {
+							const abortMsg = `Agent loop aborted: ${maxConsecutiveToolErrors} consecutive tool failures on ${resolvedModelSelection.modelName} (${resolvedModelSelection.providerName}). Even after auto-downgrade to XML-fallback the model couldn't recover. Switch to a different model (Claude, GPT, Gemini, DeepSeek) or simplify the request.`
 							this._notificationService.warn(abortMsg)
 							this._addMessageToThread(threadId, {
 								role: 'tool',
@@ -8571,6 +8631,16 @@ We only need to do it for files that were edited since `from`, ie files between 
 				cap,
 				target: trim.target,
 			})
+		}
+		// Size-cap OLD tool-results (keeps the last keepRecent full). Bounds the per-result
+		// memory cost that the COUNT trim above doesn't — one huge read_file/search output can
+		// dwarf hundreds of small messages. Feeds the same nextMessages into store + state, so
+		// both the renderer and the persisted blob stay bounded. NO SILENT TRIMS: logged.
+		const { maxChars: resultMaxChars, keepRecent: resultKeepRecent } = this._resolveToolResultCap()
+		const resultCap = capToolResultSizes(nextMessages, resultMaxChars, resultKeepRecent)
+		if (resultCap) {
+			nextMessages = resultCap.messages
+			vibeLog.debug('chatThread', `Capped ${resultCap.cappedCount} old tool-result(s) in thread ${threadId} (~${(resultCap.charsCut / 1024) | 0} KB cut; keepRecent=${resultKeepRecent}, maxKB=${(resultMaxChars / 1024) | 0}).`)
 		}
 		// update state and store it
 		const newThreads = {
