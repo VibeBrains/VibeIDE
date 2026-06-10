@@ -196,6 +196,14 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.diagnostics.idleWatchdog.growthAlertMBPerMin', 'Порог роста rss (МБ/мин) на последних 12 тиках, при котором показать proactive-уведомление о возможной утечке. Один раз на (процесс, окно, pid) за сессию.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.diagnostics.idleWatchdog.sustainedAlertSamples': {
+					type: 'number',
+					default: 3,
+					minimum: 1,
+					maximum: 20,
+					description: localize('vibeide.diagnostics.idleWatchdog.sustainedAlertSamples', 'Сколько ПОДРЯД оценок наклона должны превысить `growthAlertMBPerMin`, прежде чем показать уведомление об утечке. Скользящее 12-тиковое окно, попавшее на восходящий фронт GC-пилы (впадина→пик), даёт разовый ложный всплеск; следующее окно его гасит. Требование N подряд отсекает транзиенты, не пропуская реальный устойчивый рост. `1` — прежнее поведение (срабатывание с первого окна). Дефолт 3.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				// Roadmap W.x / #1632 — rapid-growth heap-snapshot trigger (defaults match
 				// vibeIdleWatchdogService DEFAULTS so registering changes nothing at runtime).
 				'vibeide.diagnostics.idleWatchdog.heapSnapshotOnRapidGrowth': {

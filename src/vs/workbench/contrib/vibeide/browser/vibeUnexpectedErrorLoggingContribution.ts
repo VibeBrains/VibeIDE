@@ -53,6 +53,12 @@ class VibeUnexpectedErrorLoggingContribution extends Disposable {
 				} else {
 					try { detail = JSON.stringify(err); } catch { detail = String(err); }
 				}
+				// Known, already-handled noise — do NOT log as "unexpected": the bundled
+				// @xterm/addon-ligatures ships only an `.mjs` whose runtime load resolves to undefined;
+				// xtermTerminal catches it and disables ligatures gracefully (one warn), but the
+				// resource-load Event / TypeError still reaches this global handler on every terminal
+				// mount. Match on the addon name (stable across both the Event and TypeError forms).
+				if (detail.includes('LigaturesAddon') || detail.includes('addon-ligatures')) { return; }
 				this._logService.error(`[VibeIDE/unexpected] ${detail}`);
 			} catch {
 				// The error sink must never throw — a failure here would recurse through onUnexpectedError.

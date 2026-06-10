@@ -73,6 +73,10 @@ interface WatchdogConfig {
 	readonly heapSnapshotThresholdMB: number;
 	readonly snapshotCooldownMinutes: number;
 	readonly growthAlertMBPerMin: number;
+	/** Require the growth slope to stay above `growthAlertMBPerMin` for this many CONSECUTIVE
+	 * evaluations before alerting — filters transient GC-sawtooth rising edges that a single
+	 * 12-sample window catches. 1 = legacy one-shot behavior. */
+	readonly sustainedAlertSamples: number;
 	/** Capture a heap snapshot when a single-tick RSS jump exceeds `snapshotGrowthDeltaMB` (O.12) —
 	 * complements `heapSnapshotOnHighRss`, which only fires on absolute RSS. A balloon that crashes
 	 * before reaching the absolute threshold (renderer OOM, crash-report 2026-05-25) leaves no snapshot
@@ -130,6 +134,7 @@ const DEFAULTS: WatchdogConfig = {
 	heapSnapshotThresholdMB: 2000,
 	snapshotCooldownMinutes: 30,
 	growthAlertMBPerMin: 5,
+	sustainedAlertSamples: 3,
 	heapSnapshotOnRapidGrowth: false,
 	snapshotGrowthDeltaMB: 500,
 	maxSnapshotsRetained: 3,
@@ -191,6 +196,7 @@ function readConfigFromDisk(userDataPath: string, previous?: WatchdogConfig): Wa
 			heapSnapshotThresholdMB: clampInt(parsed['vibeide.diagnostics.idleWatchdog.heapSnapshotThresholdMB'], 100, 16000, DEFAULTS.heapSnapshotThresholdMB),
 			snapshotCooldownMinutes: clampInt(parsed['vibeide.diagnostics.idleWatchdog.snapshotCooldownMinutes'], 5, 1440, DEFAULTS.snapshotCooldownMinutes),
 			growthAlertMBPerMin: clampInt(parsed['vibeide.diagnostics.idleWatchdog.growthAlertMBPerMin'], 1, 200, DEFAULTS.growthAlertMBPerMin),
+			sustainedAlertSamples: clampInt(parsed['vibeide.diagnostics.idleWatchdog.sustainedAlertSamples'], 1, 20, DEFAULTS.sustainedAlertSamples),
 			heapSnapshotOnRapidGrowth: clampBool(parsed['vibeide.diagnostics.idleWatchdog.heapSnapshotOnRapidGrowth'], DEFAULTS.heapSnapshotOnRapidGrowth),
 			snapshotGrowthDeltaMB: clampInt(parsed['vibeide.diagnostics.idleWatchdog.snapshotGrowthDeltaMB'], 50, 8000, DEFAULTS.snapshotGrowthDeltaMB),
 			maxSnapshotsRetained: clampInt(parsed['vibeide.diagnostics.idleWatchdog.maxSnapshotsRetained'], 1, 20, DEFAULTS.maxSnapshotsRetained),
@@ -346,6 +352,16 @@ class SlopeWatcher {
 
 	get notified(): boolean { return this._notified; }
 	markNotified(): void { this._notified = true; }
+
+	private _sustainedCount = 0;
+	/** Consecutive above-threshold evaluations. A single sliding window that happens to span a GC
+	 * sawtooth (trough→peak) spikes the slope, but the next window collapses it. Requiring N
+	 * consecutive triggers filters those transients while still catching a real sustained climb.
+	 * Increments while `triggered`, resets to 0 otherwise. */
+	recordTrigger(triggered: boolean): number {
+		this._sustainedCount = triggered ? this._sustainedCount + 1 : 0;
+		return this._sustainedCount;
+	}
 }
 
 interface GcMetrics {
@@ -1198,7 +1214,12 @@ export class VibeIdleWatchdogService {
 		const trigger = this._config.statisticalOutlier
 			? outlier
 			: slopeMBPerMin > this._config.growthAlertMBPerMin;
-		if (!watcher.notified && trigger) {
+		// Require the slope to stay above threshold for `sustainedAlertSamples` consecutive
+		// evaluations: a single sliding window spanning a GC sawtooth trough→peak spikes high, but
+		// the next window collapses it; a real leak sustains. Filters false "collect crash report"
+		// prompts on healthy churn. recordTrigger() resets the streak whenever the slope drops back.
+		const sustained = watcher.recordTrigger(trigger);
+		if (!watcher.notified && trigger && sustained >= this._config.sustainedAlertSamples) {
 			watcher.markNotified();
 			this._onSlopeAlert.fire({
 				proc: sample.proc,
@@ -1222,7 +1243,8 @@ export class VibeIdleWatchdogService {
 			const commitTrigger = this._config.statisticalOutlier
 				? commitOutlier
 				: commitSlope > this._config.growthAlertMBPerMin;
-			if (!commitWatcher.notified && commitTrigger) {
+			const commitSustained = commitWatcher.recordTrigger(commitTrigger);
+			if (!commitWatcher.notified && commitTrigger && commitSustained >= this._config.sustainedAlertSamples) {
 				commitWatcher.markNotified();
 				this._onSlopeAlert.fire({
 					proc: sample.proc,
