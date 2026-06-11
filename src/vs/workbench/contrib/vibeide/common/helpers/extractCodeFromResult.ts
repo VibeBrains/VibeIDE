@@ -246,6 +246,20 @@ export const extractSearchReplaceBlocks = (str: string) => {
 }
 
 
+/**
+ * Canonicalize common Search/Replace marker VARIANTS to the exact ORIGINAL/DIVIDER/FINAL form that
+ * `extractSearchReplaceBlocks` requires, so near-miss formats from weaker models parse instead of
+ * failing. Handles: `<<<<<<< SEARCH`/`ORIGINAL` with a glued `>` or missing newline; divider with a
+ * different run of `=`; `>>>>>>> REPLACE`/`FINAL`/`UPDATED`. Intended as a LAST-RESORT retry only when
+ * the strict parse already yielded zero blocks — never run it on input that already parsed (the
+ * heuristics could touch content that legitimately contains marker-like lines, e.g. git conflicts).
+ */
+export const normalizeSearchReplaceMarkers = (s: string): string => s
+	.replace(/<{5,}[ \t]*(?:ORIGINAL|SEARCH)\b[ \t]*>?[ \t]*\r?\n?/gi, ORIGINAL + '\n')
+	.replace(/(^|\n)[ \t]*={5,}[ \t]*(?=\r?\n|$)/g, '$1' + DIVIDER)
+	.replace(/>{5,}[ \t]*(?:UPDATED|FINAL|REPLACE)\b[ \t]*\r?\n?/gi, FINAL + '\n')
+
+
 
 
 

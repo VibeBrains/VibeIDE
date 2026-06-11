@@ -25,7 +25,8 @@ import * as dom from '../../../../base/browser/dom.js';
 import { Widget } from '../../../../base/browser/ui/widget.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IConsistentEditorItemService, IConsistentItemService } from './helperServices/consistentItemService.js';
-import { vibePrefixAndSuffix, ctrlKStream_userMessage, ctrlKStream_systemMessage, ctrlKStream_systemMessage_local, defaultQuickEditFimTags, rewriteCode_systemMessage, rewriteCode_systemMessage_local, rewriteCode_userMessage, searchReplaceGivenDescription_systemMessage, searchReplaceGivenDescription_userMessage, tripleTick, } from '../common/prompt/prompts.js';
+import { vibePrefixAndSuffix, ctrlKStream_userMessage, ctrlKStream_systemMessage, ctrlKStream_systemMessage_local, defaultQuickEditFimTags, rewriteCode_systemMessage, rewriteCode_systemMessage_local, rewriteCode_userMessage, searchReplaceGivenDescription_systemMessage, searchReplaceGivenDescription_userMessage, tripleTick, ORIGINAL, DIVIDER, FINAL, } from '../common/prompt/prompts.js';
+import { searchReplaceBlockTemplate } from '../common/prompt/tools/_constants.js';
 import { isLocalProvider } from './convertToLLMMessageService.js';
 import { IVibeideCommandBarService } from './vibeideCommandBarService.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
@@ -34,7 +35,7 @@ import { VIBEIDE_ACCEPT_DIFF_ACTION_ID, VIBEIDE_REJECT_DIFF_ACTION_ID } from './
 import { mountCtrlK } from './react/out/quick-edit-tsx/index.js'
 import { QuickEditPropsType } from './quickEditActions.js';
 import { IModelContentChangedEvent } from '../../../../editor/common/textModelEvents.js';
-import { extractCodeFromFIM, extractCodeFromRegular, ExtractedSearchReplaceBlock, extractSearchReplaceBlocks } from '../common/helpers/extractCodeFromResult.js';
+import { extractCodeFromFIM, extractCodeFromRegular, ExtractedSearchReplaceBlock, extractSearchReplaceBlocks, normalizeSearchReplaceMarkers } from '../common/helpers/extractCodeFromResult.js';
 import { INotificationService, } from '../../../../platform/notification/common/notification.js';
 import { EditorOption } from '../../../../editor/common/config/editorOptions.js';
 import { Emitter } from '../../../../base/common/event.js';
@@ -1683,9 +1684,38 @@ class EditCodeService extends Disposable implements IEditCodeService {
 	}
 
 
+	/**
+	 * Teaching error for an edit_file payload that produced no valid Search/Replace block. Diagnoses
+	 * which markers are present (tolerant of trailing-char glitches like minimax's `<<<<<<< ORIGINAL>`)
+	 * and shows the exact template, so the model self-corrects instead of giving up. Incident 2026-06-11:
+	 * minimax emitted `<<<<<<< ORIGINAL>` + search text with NO divider/UPDATED, got the old useless
+	 * "No Search/Replace blocks were received!", then resorted to throwaway `__patch_*.py` scripts.
+	 */
+	private _searchReplaceFormatHint(blocksStr: string): string {
+		const hasOrig = /<<<<<<<\s*ORIGINAL/i.test(blocksStr)
+		const hasDiv = blocksStr.includes(DIVIDER)
+		const hasFinal = blocksStr.includes('>>>>>>>')
+		let diagnosis: string
+		if (!hasOrig) { diagnosis = `No "${ORIGINAL}" marker was found.` }
+		else if (!hasDiv) { diagnosis = `Found an ORIGINAL marker but no "${DIVIDER}" divider — your block is missing the divider AND the replacement half (you sent only the code to find).` }
+		else if (!hasFinal) { diagnosis = `Found ORIGINAL and the "${DIVIDER}" divider but no "${FINAL}" closing line.` }
+		else { diagnosis = `Markers are present but malformed — each of "${ORIGINAL}", "${DIVIDER}", "${FINAL}" must be on its OWN line (a newline after "ORIGINAL", not other characters).` }
+		return `Edit NOT applied — no valid Search/Replace block. ${diagnosis}\n`
+			+ `Use this EXACT format (every marker on its own line):\n${tripleTick[0]}\n${searchReplaceBlockTemplate}\n${tripleTick[1]}\n`
+			+ `Each block needs all parts: the "${ORIGINAL}" line, the exact existing code, the "${DIVIDER}" divider, the new code, and the "${FINAL}" line. `
+			+ `If the change spans most of the file, call rewrite_file with the full new content instead. Do NOT write a separate script to patch the file.`
+	}
+
 	private _instantlyApplySRBlocks(uri: URI, blocksStr: string) {
-		const blocks = extractSearchReplaceBlocks(blocksStr)
-		if (blocks.length === 0) throw new Error(`No Search/Replace blocks were received!`)
+		let blocks = extractSearchReplaceBlocks(blocksStr)
+		if (blocks.length === 0) {
+			// Tolerant retry: weaker models emit marker variants (`<<<<<<< ORIGINAL>`, `SEARCH`,
+			// `>>>>>>> REPLACE`, off-by-one `=` runs). Only AFTER the strict parse failed — never on
+			// input that already parsed — canonicalize markers and try once more.
+			const normalized = normalizeSearchReplaceMarkers(blocksStr)
+			if (normalized !== blocksStr) { blocks = extractSearchReplaceBlocks(normalized) }
+		}
+		if (blocks.length === 0) throw new Error(this._searchReplaceFormatHint(blocksStr))
 
 		const { model } = this._vibeideModelService.getModel(uri)
 		if (!model) throw new Error(`Error applying Search/Replace blocks: File does not exist.`)

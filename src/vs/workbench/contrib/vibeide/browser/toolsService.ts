@@ -1669,8 +1669,29 @@ export class ToolsService implements IToolsService {
 				}
 				vibeideModelService.invalidateExistenceCache(uri)
 				await vibeideModelService.initializeModel(uri)
-				if (!vibeideModelService.getModel(uri).model) {
+				const modelForRewrite = vibeideModelService.getModel(uri).model
+				if (!modelForRewrite) {
 					throw new Error(`Could not open an editable model for ${uri.fsPath} — the rewrite was NOT applied (no content written). The path may be unreadable or locked. Retry; if it persists, verify the path.`)
+				}
+				// Truncation guard: refuse to overwrite a SUBSTANTIAL existing file with content that is a
+				// small fraction of it — almost always means the model re-emitted the whole file but its
+				// output was cut off mid-stream, silently shrinking the file (data loss). New/empty files
+				// (existingLen 0) never trip this. Incident 2026-06-11: minimax rewrote large files down to
+				// ~11 lines, then resorted to throwaway patch scripts. Tunable / disengageable via config.
+				if (this._configurationService.getValue<boolean>('vibeide.tools.rewriteFileTruncationGuard') ?? true) {
+					const existingLen = modelForRewrite.getValueLength()
+					const newLen = newContent.length
+					const minChars = Math.max(0, this._configurationService.getValue<number>('vibeide.tools.rewriteFileTruncationMinChars') ?? 2000)
+					const ratio = Math.min(1, Math.max(0, this._configurationService.getValue<number>('vibeide.tools.rewriteFileTruncationRatio') ?? 0.3))
+					if (existingLen >= minChars && newLen < existingLen * ratio) {
+						const pct = Math.round((newLen / Math.max(1, existingLen)) * 100)
+						throw new ToolValidationError({
+							code: 'rewrite_truncation_suspected',
+							message: `Refusing to overwrite ${uri.fsPath}: the current file is ${existingLen} chars but new_content is only ${newLen} (${pct}% of it). This usually means the content was truncated mid-output.`,
+							hint: `Re-send the COMPLETE intended file content, or use edit_file for a targeted change. If this large reduction is intentional, set vibeide.tools.rewriteFileTruncationGuard to false.`,
+							suggestedTool: 'edit_file',
+						})
+					}
 				}
 				await editCodeService.callBeforeApplyOrEdit(uri)
 				// AI provenance marker (opt-in via vibeide.aiProvenance.markGeneratedCode).

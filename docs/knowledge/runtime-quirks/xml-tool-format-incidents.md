@@ -90,6 +90,21 @@ Living document. Каждый новый incident с XML tool-call format'ом, 
 
 ---
 
+### 2026-06-11 — minimax: невалидный edit_file → каскад в Python-патч-скрипты
+
+| Поле | Значение |
+|---|---|
+| **Модель** | minimax (форсирован в XML по quirk) |
+| **Провайдер** | агрегатор |
+| **Format symptom** | `edit_file` `search_replace_blocks` приходит как `<<<<<<< ORIGINAL>` + search-текст, **без** `=======` и `>>>>>>> UPDATED` (6× за сессию, ни одного divider/final). Парсер `extractSearchReplaceBlocks` требует `ORIGINAL\n` + `DIVIDER` + `FINAL` → 0 блоков |
+| **Что было сломано (каскад)** | Тупиковая ошибка `«No Search/Replace blocks were received!»` ничего не объясняла → модель решила «edit_file ненадёжен», перешла на `rewrite_file` → тот **урезал** большие файлы (модель не до-эмитит весь файл) → модель изобрела обход: писать одноразовые `__patch_*.py` в `tests/support/`, прогонять, удалять (11+ скриптов) → мусор в репо → loop на `final_check` → анти-луп гард остановил прогон |
+| **Fix** | `editCodeService._searchReplaceFormatHint` — обучающая ошибка вместо тупиковой: диагноз (что именно из ORIGINAL/DIVIDER/FINAL отсутствует, толерантно к `<<<<<<< ORIGINAL>`) + точный шаблон + «для больших правок — rewrite_file; НЕ пиши скрипт для патча файла». Транспорт ни при чём — XML-извлечение параметра берёт всё между тегами; модель реально не производит divider/final |
+| **Осталось (follow-up)** | (а) ✅ `rewrite_file` truncation-guard сделан (см. `tool-system/edit-safety.md`); (б) промпт-нудж против `__patch`-скриптов — не сделан |
+| **Fix commit** | `<pending>` (v0.21.5) |
+| **Regression test** | None — нужен fixture с verbatim minimax edit_file |
+
+---
+
 ## [правило] Запись новой incident'а
 
 При добавлении новой строки в catalog:

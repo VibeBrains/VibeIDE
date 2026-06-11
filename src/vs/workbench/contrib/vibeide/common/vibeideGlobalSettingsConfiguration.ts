@@ -833,6 +833,28 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.tools.readFileDefaultLineLimit', 'Сколько строк возвращает `read_file` при чтении файла БЕЗ явного диапазона/лимита. Прямо определяет, сколько контента одно чтение вливает в контекст = токен-стоимость. Дефолт 2000. Поднимите, если модель часто дочитывает файлы по частям; опустите на жёстко лимитированных по токенам провайдерах.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.tools.rewriteFileTruncationGuard': {
+					type: 'boolean',
+					default: true,
+					description: localize('vibeide.tools.rewriteFileTruncationGuard', '`rewrite_file`: отклонять перезапись существенного файла контентом, составляющим малую долю от текущего размера — почти всегда это значит, что модель пере-эмитила весь файл, но её вывод обрезался (тихая потеря данных). Новые/пустые файлы guard не трогает. Выключите, если осознанно сильно ужимаете большие файлы целофайловым rewrite.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.tools.rewriteFileTruncationMinChars': {
+					type: 'number',
+					default: 2000,
+					minimum: 0,
+					maximum: 1000000,
+					description: localize('vibeide.tools.rewriteFileTruncationMinChars', 'Минимальный размер ТЕКУЩЕГО файла (символы), ниже которого truncation-guard `rewrite_file` не срабатывает. Мелкие файлы не проверяются. Дефолт 2000.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.tools.rewriteFileTruncationRatio': {
+					type: 'number',
+					default: 0.3,
+					minimum: 0,
+					maximum: 1,
+					description: localize('vibeide.tools.rewriteFileTruncationRatio', 'Порог truncation-guard `rewrite_file`: срабатывает, если новый контент короче `ratio × текущий_размер`. 0.3 = блокировать, когда новый файл < 30% старого (>70% усечение). Ниже = строже (меньше ложных), выше = чувствительнее. Дефолт 0.3.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.tools.readFileMaxLineLimit': {
 					type: 'number',
 					default: 10000,
