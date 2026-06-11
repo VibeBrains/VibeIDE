@@ -32,6 +32,10 @@ import { localize } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { URI } from '../../../../base/common/uri.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { IVibeModalService } from '../common/vibeModalService.js';
 
 // ── Storage key ────────────────────────────────────────────────────────────────
 
@@ -107,19 +111,21 @@ registerAction2(class extends Action2 {
 	}
 
 	async run(accessor: ServicesAccessor): Promise<void> {
-		const { URI } = await import('../../../../base/common/uri.js');
-		const { IFileService } = await import('../../../../platform/files/common/files.js');
-		const { IWorkspaceContextService } = await import('../../../../platform/workspace/common/workspace.js');
-		const { IVibeModalService } = await import('../common/vibeModalService.js');
+		// Capture services synchronously BEFORE any await — a ServicesAccessor is valid only during
+		// the synchronous portion of run(); the previous `await import(...)` + accessor.get() after it
+		// threw "service accessor is only valid during the invocation of its target method" (the command
+		// is auto-triggered in onboarding, so it failed silently on every run). Static imports now.
+		const workspaceService = accessor.get(IWorkspaceContextService);
+		const fileService = accessor.get(IFileService);
+		const modalService = accessor.get(IVibeModalService);
 
 		// Source of truth: the project's comparison doc if present, else the
 		// embedded fallback. Read failures degrade silently to the fallback.
 		let content = COMPARISON_CONTENT;
-		const workspaceRoot = accessor.get(IWorkspaceContextService).getWorkspace().folders[0]?.uri;
+		const workspaceRoot = workspaceService.getWorkspace().folders[0]?.uri;
 		if (workspaceRoot) {
 			const refPath = URI.joinPath(workspaceRoot, 'references', 'v1', 'vibeide-vs-alternatives.md');
 			try {
-				const fileService = accessor.get(IFileService);
 				if (await fileService.exists(refPath)) {
 					content = (await fileService.readFile(refPath)).value.toString();
 				}
@@ -127,7 +133,7 @@ registerAction2(class extends Action2 {
 		}
 
 		// Render as a Markdown preview inside a large modal.
-		await accessor.get(IVibeModalService).showModal<'ok'>({
+		await modalService.showModal<'ok'>({
 			title: localize('vibeide.comparison.modalTitle', 'Чем VibeIDE отличается'),
 			body: content,
 			bodyMarkdown: true,

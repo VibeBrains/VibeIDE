@@ -28,6 +28,10 @@ import { IVibeCheckpointCoordinator } from '../common/vibeCheckpointCoordinatorS
 import { localize } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
+import { URI } from '../../../../base/common/uri.js';
 
 // ── Contribution ──────────────────────────────────────────────────────────────
 
@@ -92,9 +96,8 @@ registerAction2(class extends Action2 {
 		const jobSvc = accessor.get(IVibeBackgroundJobService);
 		const coordinator = accessor.get(IVibeCheckpointCoordinator);
 		const notifications = accessor.get(INotificationService);
-		const { IQuickInputService } = await import('../../../../platform/quickinput/common/quickInput.js');
-
 		const quickInputSvc = accessor.get(IQuickInputService);
+
 		const jobId = await quickInputSvc.input({
 			prompt: localize('vibeide.backgroundJob.checkpointPrompt', 'Введите ID задачи для создания контрольной точки'),
 			placeHolder: 'job-1234567890',
@@ -155,9 +158,10 @@ registerAction2(class extends Action2 {
 	}
 
 	async run(accessor: ServicesAccessor): Promise<void> {
-		const { IEditorService } = await import('../../../services/editor/common/editorService.js');
-		const { URI } = await import('../../../../base/common/uri.js');
-		const { ITextModelService } = await import('../../../../editor/common/services/resolverService.js');
+		// Capture services synchronously BEFORE any await (accessor is invalid after await —
+		// "service accessor is only valid during the invocation of its target method").
+		const modelSvc = accessor.get(ITextModelService);
+		const editorService = accessor.get(IEditorService);
 
 		const content = [
 			'# VibeIDE Background Job — Local Schedule Setup',
@@ -189,10 +193,9 @@ registerAction2(class extends Action2 {
 		].join('\n');
 
 		const uri = URI.parse(`untitled://vibe-background-job-schedule-${Date.now()}.md`);
-		const modelSvc = accessor.get(ITextModelService);
 		const ref = await modelSvc.createModelReference(uri);
 		ref.object.textEditorModel?.setValue(content);
 		ref.dispose();
-		await accessor.get(IEditorService).openEditor({ resource: uri });
+		await editorService.openEditor({ resource: uri });
 	}
 });

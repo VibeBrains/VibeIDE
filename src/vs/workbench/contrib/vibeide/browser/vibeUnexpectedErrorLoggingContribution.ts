@@ -59,6 +59,13 @@ class VibeUnexpectedErrorLoggingContribution extends Disposable {
 				// resource-load Event / TypeError still reaches this global handler on every terminal
 				// mount. Match on the addon name (stable across both the Event and TypeError forms).
 				if (detail.includes('LigaturesAddon') || detail.includes('addon-ligatures')) { return; }
+				// Benign async-diff race: the core diff provider throws "no diff result available" when the
+				// model is disposed/changed before its async computation finishes (transient edit/diff
+				// previews tear down faster than the worker resolves). Harmless — the preview just doesn't
+				// render — but it surfaced here as repeated [VibeIDE/unexpected] noise. NOTE: the distinct
+				// "TextModel disposed before DiffEditorWidget model got reset" click-crash is a SEPARATE
+				// string and is NOT muted by this.
+				if (detail.includes('no diff result available')) { return; }
 				this._logService.error(`[VibeIDE/unexpected] ${detail}`);
 			} catch {
 				// The error sink must never throw — a failure here would recurse through onUnexpectedError.
