@@ -82,6 +82,108 @@ export const resolveInvokeParamName = (rawParamName: string, canonicalToolName: 
 	return paramAliasMap[lower] ?? lower
 }
 
+// ── JSON-array tool-call form (X.16) ────────────────────────────────────────────
+//
+// Weak models and OpenAI-style function calls rendered as TEXT instead of the native channel or
+// the XML grammar:
+//   [{"name":"read_file","arguments":{"uri":"/foo.ts"}}]
+//   [{"type":"tool","tool":"read_file","args":{…}}]
+// Converted to canonical block form `<tool><param>v</param></tool>` reusing the SAME tool/param
+// resolvers as the XML paths (no guessed mapping). CONSERVATIVE: an array is converted only when
+// EVERY object resolves to a real tool — otherwise it is left byte-for-byte untouched (it may be
+// ordinary JSON content; we never mis-route). String `arguments` (OpenAI encodes them as a JSON
+// string) are parsed; object/array param values are JSON-stringified.
+//
+// NOT mapped here: the namespaced `{"tool":"fs","command":"read"}` form (nemotron-nano, roadmap) —
+// `fs` is not a canonical tool and the command→tool + args→param map is unverified, so such entries
+// fail resolveToolNameLoose and are left untouched until a verbatim sample confirms the mapping.
+// See docs/knowledge/runtime-quirks/xml-tool-format-incidents.md.
+
+/** Find the next `[` at/after `from` that is immediately followed (modulo whitespace) by `{`. */
+const findArrayOfObjectsStart = (text: string, from: number): number => {
+	let idx = text.indexOf('[', from)
+	while (idx !== -1) {
+		let j = idx + 1
+		while (j < text.length && /\s/.test(text[j])) j++
+		if (text[j] === '{') return idx
+		idx = text.indexOf('[', idx + 1)
+	}
+	return -1
+}
+
+/** Given `start` at a `[`, return the index just past the matching `]` (string-aware), or -1. */
+const scanBalancedArray = (text: string, start: number): number => {
+	let depth = 0
+	let inStr = false
+	for (let i = start; i < text.length; i++) {
+		const c = text[i]
+		if (inStr) {
+			if (c === '\\') { i++; continue }
+			if (c === '"') inStr = false
+			continue
+		}
+		if (c === '"') { inStr = true; continue }
+		if (c === '[' || c === '{') depth++
+		else if (c === ']' || c === '}') {
+			depth--
+			if (depth === 0) return i + 1
+		}
+	}
+	return -1
+}
+
+/** Parse one `[{…}]` span; return canonical XML blocks, or null if it is not a resolvable tool array. */
+const tryConvertJsonToolSpan = (span: string): string | null => {
+	let parsed: unknown
+	try { parsed = JSON.parse(span) } catch { return null }
+	if (!Array.isArray(parsed) || parsed.length === 0) return null
+	const blocks: string[] = []
+	for (const el of parsed) {
+		if (!el || typeof el !== 'object' || Array.isArray(el)) return null
+		const o = el as Record<string, unknown>
+		const fn = (o.function && typeof o.function === 'object') ? o.function as Record<string, unknown> : undefined
+		const rawName = o.name ?? o.tool ?? fn?.name
+		if (typeof rawName !== 'string') return null
+		const canonical = resolveToolNameLoose(rawName)
+		if (!canonical) return null // conservative: any unresolvable entry → leave the whole array
+		let args: unknown = o.args ?? o.arguments ?? o.parameters ?? fn?.arguments
+		if (typeof args === 'string') { try { args = JSON.parse(args) } catch { args = undefined } }
+		const parts: string[] = []
+		if (args && typeof args === 'object' && !Array.isArray(args)) {
+			for (const [k, v] of Object.entries(args as Record<string, unknown>)) {
+				const p = resolveInvokeParamName(k, canonical)
+				const val = (v === null || v === undefined) ? '' : (typeof v === 'object' ? JSON.stringify(v) : String(v))
+				parts.push(`<${p}>${val}</${p}>`)
+			}
+		}
+		blocks.push(`<${canonical}>${parts.join('')}</${canonical}>`)
+	}
+	return blocks.join('\n')
+}
+
+/** Convert every confidently-resolvable `[{…tool…}]` span in `text` to canonical XML; leave the rest. */
+export const convertJsonToolArrayToCanonical = (text: string): string => {
+	if (!text || text.indexOf('[') === -1) return text
+	let out = ''
+	let i = 0
+	while (i < text.length) {
+		const start = findArrayOfObjectsStart(text, i)
+		if (start === -1) { out += text.slice(i); break }
+		const end = scanBalancedArray(text, start)
+		if (end === -1) { out += text.slice(i); break }
+		const converted = tryConvertJsonToolSpan(text.slice(start, end))
+		if (converted === null) {
+			// Not a tool array — keep verbatim, advance past this `[` so we can still find later ones.
+			out += text.slice(i, start + 1)
+			i = start + 1
+		} else {
+			out += text.slice(i, start) + converted
+			i = end
+		}
+	}
+	return out
+}
+
 /**
  * Vendor-specific bare wrapper names that envelope `<invoke>` blocks.
  *
@@ -169,6 +271,11 @@ const FAST_PATH_SNIFFS: readonly string[] = [
 	...builtinToolNames.map(name => `</${name}`),
 	'/>',           // self-closing tool tag (v0.13.10)
 	'｜',          // U+FF5C — DSML fullwidth-pipe wrapper (v0.13.10)
+	// JSON-array tool-call form (X.16) — enter the full path so convertJsonToolArrayToCanonical
+	// runs. The converter no-ops on non-tool JSON, so these broad-ish markers are safe.
+	'"arguments"',
+	'"type":"tool"',
+	'"type": "tool"',
 ]
 
 /**
@@ -268,10 +375,16 @@ export const normalizeAlternativeToolSyntax = (text: string): string => {
 	// how often normalization is needed vs the fast-path bypass (signal for
 	// whether the pipeline carries weight or is mostly idle infrastructure).
 	bumpCounter('fullPath')
+	// X.16 — JSON-array tool form FIRST: convert `[{"name":"tool","arguments":{…}}]` to canonical
+	// XML so the downstream XML transforms + L2 extractor handle it uniformly. Conservative converter
+	// leaves non-tool JSON untouched. Runs before DSML/wrapper strips (JSON carries no XML markers).
+	const beforeJson = text
+	const jsonNormalized = convertJsonToolArrayToCanonical(text)
+	if (jsonNormalized !== beforeJson) bumpCounter('jsonArray')
 	// Strip DSML fullwidth-pipe markers FIRST so the downstream regexes (which
 	// look for literal `<invoke`, `<parameter`, etc.) see canonical tag names.
-	let beforeDsml = text
-	let result = text.replace(DSML_MARKER_STRIP_RE, '')
+	let beforeDsml = jsonNormalized
+	let result = jsonNormalized.replace(DSML_MARKER_STRIP_RE, '')
 	if (result !== beforeDsml) bumpCounter('dsml')
 	beforeDsml = result
 	result = result.replace(STRIP_WRAPPERS_RE, '')
@@ -384,7 +497,7 @@ export const normalizeAlternativeToolSyntax = (text: string): string => {
 //
 // Lives in common because the producer (transforms above) is common-layer
 // pure code; the consumer can be wired from any process.
-type NormalizeCounterKey = 'fullPath' | 'dsml' | 'wrapper' | 'invoke' | 'pairedAttr' | 'selfClosing' | 'safetyNetPaired' | 'safetyNetSelfClosing' | 'safetyNetVendor';
+type NormalizeCounterKey = 'fullPath' | 'dsml' | 'wrapper' | 'invoke' | 'pairedAttr' | 'selfClosing' | 'jsonArray' | 'safetyNetPaired' | 'safetyNetSelfClosing' | 'safetyNetVendor';
 const normalizeCounters: Record<NormalizeCounterKey, number> = {
 	fullPath: 0,
 	dsml: 0,
@@ -392,6 +505,7 @@ const normalizeCounters: Record<NormalizeCounterKey, number> = {
 	invoke: 0,
 	pairedAttr: 0,
 	selfClosing: 0,
+	jsonArray: 0,
 	safetyNetPaired: 0,
 	safetyNetSelfClosing: 0,
 	safetyNetVendor: 0,

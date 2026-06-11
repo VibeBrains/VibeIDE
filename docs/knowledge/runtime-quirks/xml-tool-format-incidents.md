@@ -75,6 +75,21 @@ Living document. Каждый новый incident с XML tool-call format'ом, 
 
 ---
 
+### 2026-06-11 — JSON-массив в тексте (X.16) — слабые модели / OpenAI-style FC текстом
+
+| Поле | Значение |
+|---|---|
+| **Модель** | nemotron-nano (free) и др. слабые; OpenAI-style function-call, отрендеренный текстом |
+| **Провайдер** | агрегаторы (OpenRouter / openCode) |
+| **Format symptom** | tool-call как JSON-массив в тексте вместо XML: `[{"name":"read_file","arguments":{…}}]` или namespaced `[{"type":"tool","tool":"fs","command":"read","args":{…}}]` |
+| **Что было сломано** | `normalizeAlternativeToolSyntax` не знал JSON-форму → массив утекал в чат / тул не вызывался |
+| **Fix** | X.16 — `convertJsonToolArrayToCanonical` (`xmlToolNormalize.ts`): конвертирует `[{…}]` → канонический `<tool><param>…</param></tool>`, переиспользуя `resolveToolNameLoose`/`resolveInvokeParamName` (тот же маппинг, что у XML-путей). **КОНСЕРВАТИВНО:** конвертит массив только если ВСЕ объекты резолвятся в реальный тул, иначе оставляет байт-в-байт (не мис-роутит). String `arguments` (OpenAI кодирует JSON-строкой) парсятся |
+| **НЕ покрыто (осознанно)** | namespaced `{"tool":"fs","command":"read"}` (nemotron) — `fs` не канонический тул, а `command`→tool + `args`→param маппинг не подтверждён verbatim-сэмплом → такие записи не резолвятся и оставляются нетронутыми (safe). Уточнить при реальном логе nemotron |
+| **Fix commit** | `<pending>` (v0.21.4) |
+| **Regression test** | `test/common/xmlToolNormalize.test.ts` → suite `JSON-array tool form (X.16)` (6 тестов) |
+
+---
+
 ## [правило] Запись новой incident'а
 
 При добавлении новой строки в catalog:

@@ -21,6 +21,17 @@ Refuses to create a file whose parent directory is missing or is itself a file.
 
 Without this guard, `IFileService.createFile` fails with an obscure `Unable to write file (NoPermissions)`-flavoured error that the model has no obvious recovery path for.
 
+## [баг] rewrite_file / edit_file — тихая запись пустого файла (stale existence cache)
+
+**Контекст:** 2026-06-11, отчёт пользователя — `rewrite_file` создавал вложенные файлы пачкой, возвращал «Change successfully made», но файлы оставались **пустыми** (0 байт). Чинилось в v0.21.3.
+
+**Суть:** `vibeideModelService.initializeModel` кэширует существование пути (`_fileExistenceCache`, TTL 5 c) и **никогда не инвалидировал кэш при создании файла**. Два пути в один и тот же баг:
+- (A) первый `initializeModel` (в начале `rewrite_file`) делал `stat` пока файла НЕТ → кэшировал `exists:false`; после `createFile` второй `initializeModel` читал протухший `false` → модель не создавалась;
+- (B) файл создан ранее `create_file_or_folder`, но в кэше остался `false` → `rewrite_file` видит файл через прямой `fileService.exists` (мимо кэша), пропускает ветку create+init, модель так и не резолвится.
+В обоих случаях `instantlyRewriteFile` → `getModel().model === null` → `_startStreamingDiffZone` возвращает `undefined` → запись **молча не происходит**, `saveModel` сохраняет пустую модель, тул рапортует success.
+
+**Применение:** после ЛЮБОГО создания файла перед записью — `invalidateExistenceCache(uri)` + `initializeModel`, затем **assert** `getModel(uri).model != null` (иначе `throw` — пусть будет громкая ошибка, а не тихий no-op). Общее правило: кэш существования/состояния файла обязан инвалидироваться на мутации, а «успех» тула должен подтверждаться фактом записи, а не возвратом void-функции. Любой silent-no-op в write-пути = потенциальная потеря данных → конвертировать в tool_error.
+
 ## What we did NOT yet add
 
 - **Strict uniqueness of `old_string` in SEARCH/REPLACE.** Currently the underlying `editCodeService.instantlyApplySearchReplaceBlocks` finds the first match. A stricter mode that refuses ambiguous matches and asks for more context belongs in that service, not in `toolsService`.

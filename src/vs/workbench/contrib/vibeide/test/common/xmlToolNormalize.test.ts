@@ -78,7 +78,7 @@ suite('XML tool normalization (v0.13.10)', () => {
 			const input = '<invoke name="read_file"><parameter name="path">/foo.ts</parameter></invoke>';
 			const out = normalizeAlternativeToolSyntax(input);
 			assert.match(out, /<read_file>/);
-			assert.match(out, /<path>\/foo\.ts<\/path>/);
+			assert.match(out, /<uri>\/foo\.ts<\/uri>/); // read_file param `path`→`uri` (toolAliases): canonical param is `uri`
 			assert.match(out, /<\/read_file>/);
 		});
 
@@ -114,16 +114,16 @@ suite('XML tool normalization (v0.13.10)', () => {
 			const input = '<read_file path="d:\\foo.md" />';
 			const out = normalizeAlternativeToolSyntax(input);
 			assert.match(out, /<read_file>/);
-			assert.match(out, /<path>d:\\foo\.md<\/path>/);
+			assert.match(out, /<uri>d:\\foo\.md<\/uri>/); // read_file param `path`→`uri` (toolAliases)
 			assert.match(out, /<\/read_file>/);
 		});
 
 		test('self-closing with multiple attributes', () => {
 			const input = '<read_file path="x.ts" offset="1" limit="30" />';
 			const out = normalizeAlternativeToolSyntax(input);
-			assert.match(out, /<path>x\.ts<\/path>/);
-			assert.match(out, /<offset>1<\/offset>/);
-			assert.match(out, /<limit>30<\/limit>/);
+			assert.match(out, /<uri>x\.ts<\/uri>/); // read_file param `path`→`uri` (toolAliases)
+			assert.match(out, /<start_line>1<\/start_line>/); // `offset`→`start_line` (toolAliases)
+			assert.match(out, /<line_limit>30<\/line_limit>/); // `limit`→`line_limit` (toolAliases)
 		});
 
 		test('multiple self-closing tags in sequence (chain)', () => {
@@ -183,16 +183,20 @@ suite('XML tool normalization (v0.13.10)', () => {
 </｜｜DSML｜｜tool_calls>`;
 			const out = normalizeAlternativeToolSyntax(input);
 			assert.match(out, /<read_file>/);
-			assert.match(out, /<list_files>/);
+			assert.match(out, /<ls_dir>/); // `list_files`→`ls_dir` (toolAliases): list_files is not a canonical tool
 			assert.doesNotMatch(out, /｜｜/, `DSML markers should be gone, got: ${out.slice(0, 200)}`);
 			assert.doesNotMatch(out, /<tool_calls>/, `outer wrapper should be stripped, got: ${out.slice(0, 200)}`);
 		});
 
-		test('ASCII-pipe DSML variant also stripped', () => {
-			// Hypothetical future vendor using ASCII `|` instead of fullwidth `｜`.
+		test('ASCII-pipe DSML variant is NOT fast-pathed (documented perf limitation)', () => {
+			// `<|FOO|…>` uses ASCII `|`. The DSML strip regex CAN handle it, but the fast-path
+			// sniff list intentionally omits ASCII `|`: it appears in nearly every markdown
+			// table / code block, so sniffing it would force the full path on almost all
+			// messages. The fullwidth `｜` (U+FF5C) IS sniffed. So this hypothetical ASCII
+			// variant passes through unchanged — by design, not a regression.
 			const input = '<|FOO|invoke name="read_file"><|FOO|parameter name="path">x</|FOO|parameter></|FOO|invoke>';
 			const out = normalizeAlternativeToolSyntax(input);
-			assert.match(out, /<read_file>/);
+			assert.strictEqual(out, input);
 		});
 	});
 
@@ -310,7 +314,7 @@ suite('XML tool normalization (v0.13.10)', () => {
 			const input = '<invoke name="read_file" path="/foo.ts" />';
 			const out = normalizeAlternativeToolSyntax(input);
 			assert.match(out, /<read_file>/);
-			assert.match(out, /<path>\/foo\.ts<\/path>/);
+			assert.match(out, /<uri>\/foo\.ts<\/uri>/); // read_file param `path`→`uri` (toolAliases): canonical param is `uri`
 			assert.doesNotMatch(out, /<invoke/);
 		});
 
@@ -377,14 +381,59 @@ suite('XML tool normalization (v0.13.10)', () => {
 			assert.strictEqual(out, input);
 		});
 
-		test('Cohere multi-tool batch JSON-in-XML (NOT YET COVERED)', () => {
-			// Hypothetical Cohere batch tool calls. The outer container shape
-			// is unknown until observed; current behavior is leak-through.
+		test('Cohere multi-tool batch JSON-in-XML — inner array now converted (X.16)', () => {
 			const input = '<tool_calls_batch>[{"name":"read_file","arguments":{"path":"/foo"}}]</tool_calls_batch>';
 			const out = normalizeAlternativeToolSyntax(input);
-			// Outer wrapper `tool_calls_batch` is not in VENDOR_WRAPPER_NAMES,
-			// so it survives. Test documents current behavior for future fix.
+			// X.16: the inner JSON tool array is now converted to a canonical block. The outer
+			// `tool_calls_batch` wrapper is NOT in VENDOR_WRAPPER_NAMES, so it still survives.
+			assert.match(out, /<read_file>/);
 			assert.match(out, /tool_calls_batch/);
+		});
+	});
+
+	suite('JSON-array tool form (X.16)', () => {
+
+		test('OpenAI-style [{name, arguments}] → canonical block', () => {
+			const input = '[{"name":"read_file","arguments":{"uri":"/foo.ts"}}]';
+			const out = normalizeAlternativeToolSyntax(input);
+			assert.match(out, /<read_file>/);
+			assert.ok(out.includes('/foo.ts'));
+			assert.doesNotMatch(out, /\[\{/); // array span consumed
+		});
+
+		test('arguments as a JSON-encoded string (OpenAI wire form)', () => {
+			const input = '[{"name":"read_file","arguments":"{\\"uri\\":\\"/foo.ts\\"}"}]';
+			const out = normalizeAlternativeToolSyntax(input);
+			assert.match(out, /<read_file>/);
+			assert.ok(out.includes('/foo.ts'));
+		});
+
+		test('{type:"tool", tool:<canonical>, args} shape, inline in prose', () => {
+			const input = 'Sure:\n[{"type":"tool","tool":"read_file","args":{"uri":"/a.ts"}}]\nДальше.';
+			const out = normalizeAlternativeToolSyntax(input);
+			assert.match(out, /<read_file>/);
+			assert.ok(out.includes('/a.ts'));
+			assert.ok(out.startsWith('Sure:'));
+			assert.ok(out.trimEnd().endsWith('Дальше.'));
+		});
+
+		test('unresolvable tool name (nemotron fs/command) is left untouched — no mis-route', () => {
+			const input = '[{"type":"tool","tool":"fs","command":"read","args":{"path":"/foo"}}]';
+			const out = normalizeAlternativeToolSyntax(input);
+			// `fs` is not a canonical tool; the command→tool map is unverified → conservative no-op.
+			assert.strictEqual(out, input);
+		});
+
+		test('plain non-tool JSON array is left untouched', () => {
+			const input = 'Users: [{"name":"Alice","age":30},{"name":"Bob","age":25}]';
+			const out = normalizeAlternativeToolSyntax(input);
+			assert.strictEqual(out, input);
+		});
+
+		test('idempotency — JSON-array conversion is stable', () => {
+			const once = normalizeAlternativeToolSyntax('[{"name":"read_file","arguments":{"uri":"/foo.ts"}}]');
+			const twice = normalizeAlternativeToolSyntax(once);
+			assert.strictEqual(twice, once);
 		});
 	});
 
