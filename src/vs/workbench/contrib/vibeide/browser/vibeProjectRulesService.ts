@@ -119,6 +119,25 @@ const MAX_FILES_KEY = 'vibeide.projectRules.maxFiles';
 const MAX_FOLDER_DEPTH_KEY = 'vibeide.projectRules.maxFolderDepth';
 const MAX_FILE_BYTES_KEY = 'vibeide.projectRules.maxFileBytes';
 
+/** Scaffold for a freshly-created `.vibe/rules.md`. The project-intent guidance is HTML-commented
+ *  so it never reaches the prompt (`_combineSources` strips comments) — it is authoring help, not a
+ *  rule. Pairs with the binding `<project_rules>` envelope in convertToLLMMessageService. */
+const PROJECT_RULES_TEMPLATE = `# Project rules
+
+<!--
+Эти правила инъектируются в системный промпт ИИ как ОБЯЗАТЕЛЬНЫЕ (приоритетнее дефолтов модели).
+Заполни project-intent под свой репозиторий, лишнее удали. Эти строки в комментарии в промпт НЕ попадают.
+
+- Тип проекта:  app | library | catalog | monorepo
+- Можно менять: напр. только src/, tests/, docs/
+- ЗАПРЕЩЕНО:    напр. не создавать новые файлы без спроса; не пушить git-теги; не трогать корневые конфиги
+- Стиль правок: минимальный | обычный
+
+Каждый пункт-правило ниже пиши отдельной строкой (вне комментария).
+-->
+
+`;
+
 // ── Implementation ─────────────────────────────────────────────────────────────
 
 class VibeProjectRulesService extends Disposable implements IVibeProjectRulesService {
@@ -199,8 +218,14 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 		const indexed: LoadedRuleSource[] = [];
 		for (const s of sources) {
 			if (disabled.has(normalizeRuleKey(s.relativePath))) { continue; } // disabled in settings (vibeide.projectRules.disabledSources)
-			const body = s.content.trim();
+			// Strip HTML comments before injection: they are authoring notes (e.g. the project-intent
+			// guidance in the `.vibe/rules.md` scaffold), never instructions — keep them out of the prompt.
+			// Raw content (with comments) is preserved on the source for the UI "show sources" view.
+			const body = s.content.replace(/<!--[\s\S]*?-->/g, '').trim();
 			if (body.length === 0) { continue; }
+			// Skip scaffold-only sources: a freshly-created rules file with just a markdown heading and no
+			// real rules (after comment strip) would otherwise inject a useless "# Project rules" line.
+			if (body.replace(/^#{1,6}\s.*$/gm, '').trim().length === 0) { continue; }
 			if (seen.has(body)) { continue; } // R.6 — dedup identical content across sources
 			seen.add(body);
 			const act = decideRuleActivation({ alwaysApply: s.alwaysApply, triggers: s.triggers ?? [], globs: s.globs ?? [] }, activation ?? {});
@@ -421,7 +446,7 @@ registerAction2(class extends Action2 {
 		try { existing = (await fileService.readFile(uri)).value.toString(); } catch { /* file does not exist yet — will be created */ }
 		const needsHeader = existing.trim().length === 0;
 		const prefix = existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
-		const block = `${needsHeader ? '# Project rules\n\n' : ''}${prefix}- ${text}\n`;
+		const block = `${needsHeader ? PROJECT_RULES_TEMPLATE : ''}${prefix}- ${text}\n`;
 		await fileService.writeFile(uri, VSBuffer.fromString(existing + block));
 		await rulesSvc.reloadRules();
 		notifications.notify({ severity: Severity.Info, message: localize('vibeide.projectRules.addRule.done', 'Правило добавлено в .vibe/rules.md') });
@@ -451,7 +476,7 @@ registerAction2(class extends Action2 {
 		}
 		const uri = joinPath(folder.uri, '.vibe', 'rules.md');
 		if (!(await fileService.exists(uri))) {
-			await fileService.writeFile(uri, VSBuffer.fromString('# Project rules\n\n'));
+			await fileService.writeFile(uri, VSBuffer.fromString(PROJECT_RULES_TEMPLATE));
 		}
 		await editorService.openEditor({ resource: uri });
 	}

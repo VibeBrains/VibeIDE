@@ -145,6 +145,7 @@
 | [release-protocol.md](agent-collaboration/release-protocol.md) | `release-windows.ps1 -Version` для минор/мажор, post-release sync README + pre-clean archive, About-диалог, gh account routing, donation phrase choice |
 | [permissions-and-hooks.md](agent-collaboration/permissions-and-hooks.md) | Marker-gated permissions для write-tools / destructive Bash, не flat global allow |
 | [xml-normalize-audit-checklist.md](agent-collaboration/xml-normalize-audit-checklist.md) | Pre-merge gate для XML normalize transform'ов (8 пунктов: escape / idempotency / null guard / structural assertions / symmetric defense / streaming partial / verbatim fixture) |
+| [why-models-ignore-injected-rules.md](agent-collaboration/why-models-ignore-injected-rules.md) | Модель игнорит правила из-за framing, не отсутствия загрузки: `[Source: path]` читается как справка, нужна binding-обёртка (образец — `session_goals`). Авто-вызов завершения за модель = антипаттерн. Project-intent — прозой в `.vibe/rules.md`, не schema |
 
 ---
 

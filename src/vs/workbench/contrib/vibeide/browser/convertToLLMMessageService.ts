@@ -1470,7 +1470,12 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 		const ans: string[] = []
 		if (globalAIInstructions) ans.push(globalAIInstructions)
-		if (vibeRulesFileContent) ans.push(vibeRulesFileContent)
+		// Binding framing: the model otherwise treats the labeled `[Source: …]` rules block as
+		// reference material, not as instructions, and ignores it (see
+		// docs/knowledge/agent-collaboration/why-models-ignore-injected-rules.md). Wrap it in an
+		// imperative envelope — mirrors how <session_goals> below is obeyed. Static text → no
+		// effect on the system-message cache key.
+		if (vibeRulesFileContent) ans.push(`<project_rules>\nЭто ОБЯЗАТЕЛЬНЫЕ правила этого проекта. Они приоритетнее твоих дефолтов и общих инструкций; при конфликте — следуй им. Это не справка, а прямые указания — соблюдай их буквально.\n\n${vibeRulesFileContent}\n</project_rules>`)
 		if (this.workspaceContextService.getWorkspace().folders.length > 0) {
 			ans.push(VIBE_DOTVIBE_AGENT_PLAYBOOK)
 		}
