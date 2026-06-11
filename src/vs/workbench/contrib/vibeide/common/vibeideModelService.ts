@@ -38,6 +38,8 @@ export interface IVibeideModelService {
 	getModelFromFsPath(fsPath: string): VibeideModelType;
 	getModelSafe(uri: URI): Promise<VibeideModelType>;
 	saveModel(uri: URI): Promise<void>;
+	/** Drop the cached existence result for a path so the next initializeModel re-stats it. */
+	invalidateExistenceCache(uri: URI): void;
 
 }
 
@@ -61,6 +63,16 @@ class VibeideModelService extends Disposable implements IVibeideModelService {
 		@IFileService private readonly _fileService: IFileService,
 	) {
 		super();
+		// Defense-in-depth for the existence cache: any external add/delete invalidates the cached
+		// entry so a later initializeModel re-stats instead of trusting a stale value. The
+		// deterministic fix is invalidateExistenceCache() at each create site (rewrite_file/edit_file);
+		// this covers creates that don't route through there.
+		this._register(this._fileService.onDidFilesChange(e => {
+			if (this._fileExistenceCache.size === 0) { return; }
+			for (const fsPath of [...this._fileExistenceCache.keys()]) {
+				if (e.contains(URI.file(fsPath))) { this._fileExistenceCache.delete(fsPath); }
+			}
+		}));
 	}
 
 	saveModel = async (uri: URI) => {
@@ -188,6 +200,14 @@ class VibeideModelService extends Disposable implements IVibeideModelService {
 		if (!(uri.fsPath in this._modelRefOfURI)) await this.initializeModel(uri);
 		return this.getModel(uri);
 
+	};
+
+	// Drop the cached existence result for a path so the next initializeModel re-stats it. Call right
+	// after creating a file: the cache may hold a stale `exists:false` taken before the create, which
+	// would otherwise make initializeModel skip model resolution → instantlyRewriteFile no-op → empty
+	// file saved as "success".
+	invalidateExistenceCache = (uri: URI): void => {
+		this._fileExistenceCache.delete(uri.fsPath);
 	};
 
 	override dispose() {

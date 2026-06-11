@@ -1652,16 +1652,25 @@ export class ToolsService implements IToolsService {
 				if (_stashDecisionRw.kind === 'stash') {
 					await this._gitAutoStashService.createStash(uri.fsPath);
 				}
-				// rewrite_file must create the file when it doesn't exist yet. Otherwise
-				// initializeModel skips the missing path (`if (!exists) return`), instantlyRewriteFile
-				// finds no editor model (`if (!model) return`) and silently does nothing — the tool
-				// still reports success while the file stays absent. (User report 2026-05-29: "Wrote"
-				// does not create on the first try, only "Create" does.) Create the empty file here —
-				// after the constraint/permission checks above — then load its model so the normal
-				// model-based rewrite path below fills it with content.
+				// rewrite_file must create the file when missing AND have a resolvable editor model —
+				// otherwise instantlyRewriteFile finds no model (`if (!model) return`) and silently does
+				// nothing while the tool reports success (empty file). Two failure modes, both via the
+				// existence cache in initializeModel:
+				//  (A) the initializeModel at the top of this handler stat'd the absent path and cached
+				//      `exists:false`; after createFile, a re-init reads that stale entry and skips the model.
+				//  (B) the file was created by an earlier create_file_or_folder that left a stale
+				//      `exists:false`, so the model is never resolved here at all.
+				// Fix: create if missing, then UNCONDITIONALLY invalidate the cache + re-init, and require a
+				// model before writing — a missing model becomes a loud tool_error, never silent success.
+				// (User reports 2026-05-29 "Wrote does not create on first try" and 2026-06-10 "rewrite_file
+				// reported success but the files were empty".)
 				if (!(await fileService.exists(uri))) {
 					await fileService.createFile(uri)
-					await vibeideModelService.initializeModel(uri)
+				}
+				vibeideModelService.invalidateExistenceCache(uri)
+				await vibeideModelService.initializeModel(uri)
+				if (!vibeideModelService.getModel(uri).model) {
+					throw new Error(`Could not open an editable model for ${uri.fsPath} — the rewrite was NOT applied (no content written). The path may be unreadable or locked. Retry; if it persists, verify the path.`)
 				}
 				await editCodeService.callBeforeApplyOrEdit(uri)
 				// AI provenance marker (opt-in via vibeide.aiProvenance.markGeneratedCode).
@@ -1717,7 +1726,14 @@ export class ToolsService implements IToolsService {
 					})
 				}
 				await this._checkAdvisoryTerritorialLocks(uri);
+				// Same stale-existence-cache guard as rewrite_file: invalidate + re-init so the model
+				// resolves for a just-created file, and require it before applying edits — a missing
+				// model must surface as a tool_error, not a silent no-op against an empty buffer.
+				vibeideModelService.invalidateExistenceCache(uri)
 				await vibeideModelService.initializeModel(uri)
+				if (!vibeideModelService.getModel(uri).model) {
+					throw new Error(`Could not open an editable model for ${uri.fsPath} — the edit was NOT applied. The path may be missing, unreadable, or locked. Read the file and retry.`)
+				}
 				const streamState = this.commandBarService.getStreamState(uri)
 				if (streamState === 'streaming') {
 					// Only block if actually streaming to the same file - allow if streaming to different file
