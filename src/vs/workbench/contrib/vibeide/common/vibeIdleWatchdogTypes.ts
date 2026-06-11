@@ -71,6 +71,13 @@ export interface WatchdogSampleBase {
 	readonly fsActive?: number;
 	readonly note?: string;
 	readonly report?: WatchdogProcessReportSubset;
+	/**
+	 * XML tool-format normalization hit-counters (main-process only) — cumulative per main lifetime.
+	 * `getNormalizeCounters()` from xmlToolNormalize: which fallback layer (fullPath/invoke/jsonArray/
+	 * safetyNet*…) carried load for the models used this session. Dev-diagnostic: lands in the exported
+	 * watchdog bundle so problematic-model format issues are visible without a separate harvest/IPC.
+	 */
+	readonly xmlNormalize?: Readonly<Record<string, number>>;
 }
 
 /**

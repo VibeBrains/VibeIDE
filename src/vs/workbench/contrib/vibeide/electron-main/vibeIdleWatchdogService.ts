@@ -60,6 +60,7 @@ import type {
 	WatchdogSnapshotEntry,
 } from '../common/vibeIdleWatchdogTypes.js';
 import { computeSamplingIntervalMs } from '../common/vibeIdleWatchdogSampling.js';
+import { getNormalizeCounters } from '../common/xmlToolNormalize.js';
 
 const LOGS_SUBDIR = path.join('logs', 'vibe-idle-watchdog');
 const SNAPSHOTS_SUBDIR = path.join(LOGS_SUBDIR, 'snapshots');
@@ -1197,6 +1198,9 @@ export class VibeIdleWatchdogService {
 			gcTotalMs: gc?.totalMs,
 			note: effectiveNote,
 			report: includeReport ? buildProcessReportSubset() : undefined,
+			// XML normalization counters live in the same (main) process as the LLM stream parser, so
+			// we read them directly — no IPC. Dev-diagnostic: shows which fallback layer carried load.
+			xmlNormalize: getNormalizeCounters(),
 		};
 		return sample;
 	}
