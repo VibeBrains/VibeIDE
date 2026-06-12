@@ -361,7 +361,24 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 		return new OpenAI({ baseURL: 'https://gen.pollinations.ai/v1', apiKey: thisConfig.apiKey, ...commonPayloadOpts })
 	}
 
-	else throw new Error(`VibeIDE providerName was invalid: ${providerName}.`)
+	else {
+		// Dynamic provider (.vibe/providers.json): not a compile-time built-in. Its transport config
+		// was merged transiently into settingsOfProvider on the send-site. Route as openai-compatible.
+		const cfg = settingsOfProvider[providerName] as unknown as { baseURL?: string; headers?: Record<string, string>; apiKey?: string; apiKeyEnv?: string }
+		if (cfg && typeof cfg.baseURL === 'string' && cfg.baseURL) {
+			// apiKeyEnv resolves HERE (electron-main has reliable process.env); apiKey came from apiKeyRef.
+			const apiKey = cfg.apiKey || (cfg.apiKeyEnv ? (process.env[cfg.apiKeyEnv] ?? '') : '') || 'noop'
+			const headers = (cfg.headers && typeof cfg.headers === 'object') ? cfg.headers : undefined
+			if (headers) {
+				for (const [hName, hValue] of Object.entries(headers)) {
+					assertHttpHeaderSafe(`Dynamic provider "${providerName}" header name "${hName}"`, hName)
+					if (typeof hValue === 'string') { assertHttpHeaderSafe(`Dynamic provider "${providerName}" header "${hName}" value`, hValue) }
+				}
+			}
+			return new OpenAI({ baseURL: cfg.baseURL, apiKey, defaultHeaders: headers, ...commonPayloadOpts })
+		}
+		throw new Error(`VibeIDE providerName was invalid: ${providerName}.`)
+	}
 }
 
 

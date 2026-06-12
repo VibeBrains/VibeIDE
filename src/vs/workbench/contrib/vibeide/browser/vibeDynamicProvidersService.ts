@@ -24,8 +24,36 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { providerNames } from '../common/vibeideSettingsTypes.js';
-import { IVibeideSettingsService, VibeProviderActiveOverrides } from '../common/vibeideSettingsService.js';
-import { parseProvidersFile, mergeProviderEntry, VibeProviderEntry } from '../common/vibeProvidersFile.js';
+import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig } from '../common/vibeideSettingsService.js';
+import { setDynamicProviderModelCaps, VibeideStaticModelInfo } from '../common/modelCapabilities.js';
+import { parseProvidersFile, mergeProviderEntry, VibeProviderEntry, VibeProviderModelEntry } from '../common/vibeProvidersFile.js';
+
+const TOOL_FORMAT_MAP: Record<string, 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined> = {
+	openai: 'openai-style', anthropic: 'anthropic-style', gemini: 'gemini-style', none: undefined,
+};
+const SYS_MSG_MAP: Record<string, 'system-role' | 'developer-role' | 'separated'> = {
+	system: 'system-role', developer: 'developer-role', separated: 'separated',
+};
+
+/** Map a `.vibe/providers.json` model entry to VibeIDE's internal capability shape (Phase 1 fields;
+ *  reasoning/FIM left to defaults for now). */
+function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStaticModelInfo> {
+	const c: Record<string, unknown> = {};
+	if (typeof m.contextWindow === 'number') { c.contextWindow = m.contextWindow; }
+	if (typeof m.maxOutputTokens === 'number') { c.reservedOutputTokenSpace = m.maxOutputTokens; }
+	if (m.toolFormat) { c.specialToolFormat = TOOL_FORMAT_MAP[m.toolFormat]; }
+	if (typeof m.vision === 'boolean') { c.supportsVision = m.vision; }
+	if (m.systemMessage === false) { c.supportsSystemMessage = false; }
+	else if (m.systemMessage) { c.supportsSystemMessage = SYS_MSG_MAP[m.systemMessage]; }
+	if (m.cost) {
+		c.cost = {
+			input: m.cost.input ?? 0, output: m.cost.output ?? 0,
+			...(m.cost.cacheRead !== undefined ? { cache_read: m.cost.cacheRead } : {}),
+			...(m.cost.cacheWrite !== undefined ? { cache_write: m.cost.cacheWrite } : {}),
+		};
+	}
+	return c as Partial<VibeideStaticModelInfo>;
+}
 
 /** How a file entry relates to the built-in provider set. */
 export type ResolvedProviderKind =
@@ -183,14 +211,51 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	private _applyOverridesToSettings(providers: readonly ResolvedProviderEntry[]): void {
 		const disabledProviders = new Set<string>();
 		const disabledModels = new Map<string, ReadonlySet<string>>();
+		const dynamicModelOptions: ModelOption[] = [];
+		const capsMap = new Map<string, Map<string, Partial<VibeideStaticModelInfo>>>();
+		const transportConfigs: Record<string, DynProviderTransportConfig> = {};
 		for (const p of providers) {
-			if (p.kind !== 'override') { continue; }
-			if (p.entry.active === false) { disabledProviders.add(p.id); continue; }
-			const off = (p.entry.models?.static ?? []).filter(m => m.active === false).map(m => m.id);
-			if (off.length > 0) { disabledModels.set(p.id, new Set(off)); }
+			if (p.kind === 'override') {
+				// Patch of a built-in: active:false disables it; otherwise hide its active:false models.
+				if (p.entry.active === false) { disabledProviders.add(p.id); continue; }
+				const off = (p.entry.models?.static ?? []).filter(m => m.active === false).map(m => m.id);
+				if (off.length > 0) { disabledModels.set(p.id, new Set(off)); }
+				continue;
+			}
+			// definition / extends-builtin: a NEW selectable provider. Phase 1 contributes its static
+			// models (catalog auto-fetch for dynamic providers is a follow-up). providerName = file id.
+			if (p.entry.active === false) { continue; }
+			const label = p.entry.name || p.id;
+			const modelCaps = new Map<string, Partial<VibeideStaticModelInfo>>();
+			for (const m of (p.entry.models?.static ?? [])) {
+				if (m.active === false) { continue; }
+				dynamicModelOptions.push({ name: `${m.name || m.id} (${label})`, selection: { providerName: p.id as any, modelName: m.id } });
+				modelCaps.set(m.id, modelEntryToCaps(m));
+			}
+			if (modelCaps.size > 0) { capsMap.set(p.id, modelCaps); }
+
+			// Transport: only providers with an explicit baseURL are routable. extends-builtin without a
+			// baseURL inherits the built-in endpoint downstream — a follow-up; skip routing for now.
+			if (p.entry.baseURL) {
+				// apiKeyRef resolves here (renderer has settingsOfProvider); apiKeyEnv name is passed
+				// through and resolved in electron-main where process.env is reliable.
+				const refKey = p.entry.apiKeyRef
+					? (this._settingsService.state.settingsOfProvider as Record<string, { apiKey?: string } | undefined>)[p.entry.apiKeyRef]?.apiKey
+					: undefined;
+				transportConfigs[p.id] = {
+					baseURL: p.entry.baseURL,
+					...(refKey ? { apiKey: refKey } : {}),
+					...(p.entry.apiKeyEnv ? { apiKeyEnv: p.entry.apiKeyEnv } : {}),
+					...(p.entry.headers ? { headers: { ...p.entry.headers } } : {}),
+				};
+			}
 		}
+		setDynamicProviderModelCaps(capsMap.size > 0 ? capsMap : undefined);
+		const hasTransport = Object.keys(transportConfigs).length > 0;
 		const overrides: VibeProviderActiveOverrides | undefined =
-			(disabledProviders.size > 0 || disabledModels.size > 0) ? { disabledProviders, disabledModels } : undefined;
+			(disabledProviders.size > 0 || disabledModels.size > 0 || dynamicModelOptions.length > 0 || hasTransport)
+				? { disabledProviders, disabledModels, dynamicModelOptions, ...(hasTransport ? { transportConfigs } : {}) }
+				: undefined;
 		this._settingsService.applyProviderActiveOverrides(overrides);
 	}
 }

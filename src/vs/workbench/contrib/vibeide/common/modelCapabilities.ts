@@ -2089,6 +2089,17 @@ export type CatalogModelHint = {
 	cost?: { input: number; output: number };
 }
 
+/**
+ * Capabilities for DYNAMIC providers (`.vibe/providers.json`) keyed `providerId → modelId → caps`.
+ * Set by `vibeDynamicProvidersService` (browser) so the pure `getModelCapabilities` below can
+ * resolve a provider that isn't in the compile-time `modelSettingsOfProvider`. Module-level, like
+ * the settings service's override holder — keeps this function pure of any service dependency.
+ */
+let _dynamicProviderModelCaps: ReadonlyMap<string, ReadonlyMap<string, Partial<VibeideStaticModelInfo>>> | undefined = undefined;
+export function setDynamicProviderModelCaps(map: ReadonlyMap<string, ReadonlyMap<string, Partial<VibeideStaticModelInfo>>> | undefined): void {
+	_dynamicProviderModelCaps = map;
+}
+
 export const getModelCapabilities = (
 	providerName: ProviderName,
 	modelName: string,
@@ -2100,6 +2111,12 @@ export const getModelCapabilities = (
 ) => {
 	// Guard: Check if provider exists in modelSettingsOfProvider (handles "auto" and other invalid providers)
 	if (!(providerName in modelSettingsOfProvider) || !modelSettingsOfProvider[providerName]) {
+		// Dynamic provider from .vibe/providers.json: caps come from the file (over openai-compatible
+		// defaults), then catalog hints. Treated as recognized so it's not flagged unknown.
+		const dynCaps = _dynamicProviderModelCaps?.get(providerName)?.get(modelName);
+		if (dynCaps) {
+			return { modelName, ...defaultModelOptions, ...dynCaps, ...catalogFields(catalogInfo), recognizedModelName: modelName, isUnrecognizedModel: false };
+		}
 		// Return default capabilities for invalid provider names — still let catalog
 		// fill contextWindow if available.
 		return { modelName, ...defaultModelOptions, ...catalogFields(catalogInfo), isUnrecognizedModel: true };

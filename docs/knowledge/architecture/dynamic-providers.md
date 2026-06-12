@@ -26,7 +26,7 @@
 
 - **A. Список — ГОТОВО** (typecheck exit=0). `applyProviderActiveOverrides({…, dynamicModelOptions})` инжектит модели динамиков в `_modelOptions` (`providerName` как `as any`). Overlay — module-level holder `_providerActiveOverrides`, БЕЗ `_storeState` (derived, не персистится).
 - **B. Capabilities — ГОТОВО** (typecheck exit=0). `setDynamicProviderModelCaps(capsMap)` + `modelEntryToCaps()`; `getModelCapabilities` guard отдаёт caps для динамического id из holder `_dynamicProviderModelCaps`.
-- **C. Транспорт — В РАБОТЕ. ← ПРОДОЛЖИТЬ ОТСЮДА.**
+- **C. Транспорт — КОД ГОТОВ (typecheck exit=0, layers — без новых нарушений). ← E2E-проверка в dev ещё не прогнана.** Реализовано по чек-листу ниже: overlay `transportConfigs` едет через `applyProviderActiveOverrides` → `getDynamicTransportConfigs()` → транзиентный merge в `settingsOfProvider` на send-site → fallthrough в `newOpenAICompatibleSDK` (electron-main) маршрутизирует динамический `providerName` как openai-compatible (`apiKeyEnv` резолвится в main через `process.env`, `apiKeyRef` — в рендерере; headers через `assertHttpHeaderSafe`). `baseURL` обязателен — extends-builtin без явного baseURL пока не маршрутизируется (merge built-in baseURL — follow-up). Осталось: `npm run compile` + `run-dev.bat`, создать `.vibe/providers.json` с реальным провайдером (OpenRouter `apiKeyEnv`), проверить дропдаун + реальный ответ.
 
 #### Чек-лист шага C (overlay едет в `settingsOfProvider` по существующему IPC-пути, новый канал НЕ нужен)
 

@@ -94,6 +94,10 @@ export interface IVibeideSettingsService {
 	 *  persisted) — recomputes the model picker + reselects if the active model became hidden. */
 	applyProviderActiveOverrides(overrides: VibeProviderActiveOverrides | undefined): void;
 
+	/** Transport configs of active dynamic providers (`.vibe/providers.json`), keyed by file id.
+	 *  Merged transiently into `settingsOfProvider` on the send-site — never persisted. */
+	getDynamicTransportConfigs(): Record<string, DynProviderTransportConfig>;
+
 	addMCPUserStateOfNames(userStateOfName: MCPUserStateOfName): Promise<void>;
 	removeMCPUserStateOfNames(serverNames: string[]): Promise<void>;
 	setMCPServerState(serverName: string, state: MCPUserState): Promise<void>;
@@ -232,9 +236,28 @@ const _stateWithMergedDefaultModels = (state: VibeideSettingsState): VibeideSett
  * `_validatedModelState` to drop them from the model picker (and trigger reselection if a hidden one
  * was selected). Module-level so the pure `_validatedModelState` reads it without threading.
  */
+/** Transport config for a DYNAMIC provider, keyed by its file id. Merged transiently into
+ *  `settingsOfProvider` at request time (NOT persisted) so the electron-main SDK factory can route
+ *  an id that isn't a compile-time built-in. `apiKey` is resolved from `apiKeyRef` in the renderer;
+ *  `apiKeyEnv` carries the env-var NAME (resolved in electron-main where `process.env` is reliable). */
+export interface DynProviderTransportConfig {
+	readonly baseURL: string;
+	readonly headers?: Record<string, string>;
+	readonly apiKey?: string;
+	readonly apiKeyEnv?: string;
+}
+
 export interface VibeProviderActiveOverrides {
 	readonly disabledProviders: ReadonlySet<string>;
 	readonly disabledModels: ReadonlyMap<string, ReadonlySet<string>>;
+	/** Selectable models contributed by DYNAMIC providers (definition / extends-builtin) from
+	 *  `.vibe/providers.json`. Their `selection.providerName` is the file id (not a built-in union
+	 *  member), so it's cast through `any` at construction — same trick as the "auto" option. These
+	 *  are derived overlay options (NOT persisted); the request-time transport reads the matching
+	 *  dynamic config from a transient merged `settingsOfProvider`. */
+	readonly dynamicModelOptions?: readonly ModelOption[];
+	/** Transport config per dynamic provider id — merged into `settingsOfProvider` at send time. */
+	readonly transportConfigs?: Record<string, DynProviderTransportConfig>;
 }
 let _providerActiveOverrides: VibeProviderActiveOverrides | undefined = undefined;
 
@@ -276,6 +299,11 @@ const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>
 			if (disabledModelsForProvider?.has(modelName)) continue // .vibe/providers.json: model active:false
 			newModelOptions.push({ name: `${modelName} (${providerTitle})`, selection: { providerName, modelName } })
 		}
+	}
+
+	// Models contributed by dynamic providers (.vibe/providers.json) — appended after the built-ins.
+	if (_providerActiveOverrides?.dynamicModelOptions?.length) {
+		newModelOptions.push(..._providerActiveOverrides.dynamicModelOptions)
 	}
 
 	// now that model options are updated, make sure the selection is valid
@@ -403,6 +431,10 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 		// derived from .vibe/providers.json (reapplied on every load), not persisted user settings.
 		this.state = _validatedModelState(this.state)
 		this._onDidChangeState.fire()
+	}
+
+	getDynamicTransportConfigs = (): Record<string, DynProviderTransportConfig> => {
+		return _providerActiveOverrides?.transportConfigs ?? {}
 	}
 	async resetState() {
 		await this.dangerousSetState(defaultState())

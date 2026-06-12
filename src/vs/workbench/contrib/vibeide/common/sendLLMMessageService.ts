@@ -287,11 +287,19 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			forceToolUse, // per-turn: agent loop forces tool_choice on the corrective nudge
 		};
 
+		// Transiently overlay dynamic-provider transport configs (.vibe/providers.json) so a dynamic
+		// providerName resolves to a baseURL/apiKey/headers in electron-main. Not persisted — a local
+		// copy made only for this send; persisted `settingsOfProvider` stays free of dynamic ids.
+		const dynamicTransport = this.vibeideSettingsService.getDynamicTransportConfigs()
+		const settingsOfProviderForSend = (Object.keys(dynamicTransport).length > 0
+			? { ...settingsOfProvider, ...dynamicTransport }
+			: settingsOfProvider) as typeof settingsOfProvider
+
 		// params will be stripped of all its functions over the IPC channel
 		this.channel.call('sendLLMMessage', {
 			...proxyParams,
 			requestId,
-			settingsOfProvider,
+			settingsOfProvider: settingsOfProviderForSend,
 			modelSelection,
 			mcpTools,
 			runtimeOptions,
