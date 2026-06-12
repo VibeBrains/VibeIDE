@@ -514,6 +514,8 @@ export interface IChatThreadService {
 	switchToThread(threadId: string): void;
 	/** Close an in-view chat tab (removes it from the open set; the thread stays in history). */
 	closeTab(threadId: string): void;
+	/** Reorder open chat tabs: move `fromId` to the slot of `toId` (drag-and-drop). Persisted. */
+	reorderOpenTabs(fromId: string, toId: string): void;
 	/** Per-thread composer draft (in-memory). Lets each open chat tab keep its own unsent input across tab switches. */
 	getThreadDraft(threadId: string): string;
 	setThreadDraft(threadId: string, text: string): void;
@@ -8403,6 +8405,21 @@ We only need to do it for files that were edited since `from`, ie files between 
 		} else {
 			this._setState({ openTabIds })
 		}
+	}
+
+	reorderOpenTabs(fromId: string, toId: string): void {
+		if (fromId === toId) { return }
+		const ids = [...this.state.openTabIds]
+		const from = ids.indexOf(fromId)
+		const to = ids.indexOf(toId)
+		if (from === -1 || to === -1) { return }
+		// Remove the dragged tab, then re-insert it at the drop target: after the target when
+		// dragging rightwards, before it when dragging leftwards (intuitive tab DnD).
+		ids.splice(from, 1)
+		const targetIdx = ids.indexOf(toId)
+		ids.splice(from < to ? targetIdx + 1 : targetIdx, 0, fromId)
+		this._storeOpenTabIds(ids)
+		this._setState({ openTabIds: ids })
 	}
 
 

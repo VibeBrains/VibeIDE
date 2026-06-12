@@ -44,18 +44,29 @@ const ChatTabStrip = ({ historyCollapsed, onToggleHistory }: { historyCollapsed:
 	const state = useChatThreadsState();
 	const openTabIds: string[] = state.openTabIds ?? [];
 	const current = state.currentThreadId;
+	// Drag-and-drop reordering state: the tab being dragged + the tab currently hovered as drop target.
+	const [dragId, setDragId] = useState<string | null>(null);
+	const [overId, setOverId] = useState<string | null>(null);
 	return (
 		<div className="h-[34px] flex items-center gap-1 px-1 border-b border-vibe-border-1 overflow-x-auto flex-shrink-0 bg-vibe-bg-2">
 			{openTabIds.map(id => {
 				const thread = state.allThreads[id];
 				const active = id === current;
 				const label = tabLabel(thread);
+				const isDragging = dragId === id;
+				const isDropTarget = !!dragId && dragId !== id && overId === id;
 				return (
 					<div
 						key={id}
+						draggable
+						onDragStart={(e) => { setDragId(id); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', id); } catch { /* some platforms reject setData */ } }}
+						onDragOver={(e) => { if (dragId && dragId !== id) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (overId !== id) { setOverId(id); } } }}
+						onDragLeave={() => { if (overId === id) { setOverId(null); } }}
+						onDrop={(e) => { e.preventDefault(); if (dragId && dragId !== id) { chatThreadsService.reorderOpenTabs(dragId, id); } setDragId(null); setOverId(null); }}
+						onDragEnd={() => { setDragId(null); setOverId(null); }}
 						onClick={() => chatThreadsService.switchToThread(id)}
 						title={label}
-						className={`group flex items-center gap-1 px-2 py-1 rounded-t text-xs cursor-pointer whitespace-nowrap max-w-[160px] border-b-2 ${active
+						className={`group flex items-center gap-1 px-2 py-1 rounded-t text-xs cursor-pointer whitespace-nowrap max-w-[160px] border-b-2 transition-opacity ${isDragging ? 'opacity-40' : ''} ${isDropTarget ? 'border-l-2 border-l-blue-400 bg-vibe-bg-3' : 'border-l-2 border-l-transparent'} ${active
 							? 'bg-vibe-bg-1 text-vibe-fg-1 font-medium border-blue-400'
 							: 'text-vibe-fg-3 border-transparent hover:bg-vibe-bg-3 hover:text-vibe-fg-2'}`}
 					>
