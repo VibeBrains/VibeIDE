@@ -22,12 +22,57 @@
 - `.vibe-defaults/providers.example.jsonc` — самодокументирующийся пример (засевается).
 - **2b-1:** `vibeideSettingsService.applyProviderActiveOverrides` + фильтр в `_validatedModelState` → `active:false` у built-in **прячет** провайдера/модель из выбора. Чисто (без файла — поведение не меняется).
 
-### Не сделано (2b-2 — динамические провайдеры РЕАЛЬНО работают)
-План (overlay-схема, реализовать свежим заходом):
-- **A. Список:** инжектить динамических провайдеров в `settingsOfProvider` как **НЕперсистентный overlay** (рендерер резолвит → `{apiKey(env/ref), baseURL, headers, models}` под ключом-id); `_validatedModelState` итерирует static `providerNames` + динамические id → их модели в `_modelOptions` (`providerName` как `as any`, по образцу 'auto').
-- **B. Capabilities:** `getModelCapabilities` для динамического id → caps из overlay (contextWindow/toolFormat→specialToolFormat/vision/reasoning).
-- **C. Транспорт** (`electron-main/llmMessage/sendLLMMessage.impl.ts`, функция-фабрика OpenAI-SDK): fallthrough `else { cfg = settingsOfProvider[id]; new OpenAI({ baseURL: cfg.baseURL, apiKey: cfg.apiKey||'noop', defaultHeaders: cfg.headers, ...commonPayloadOpts }) }`. **Новый IPC-канал не нужен** — конфиг едет в `settingsOfProvider` по существующему пути.
+### 2b-2 — динамические провайдеры РЕАЛЬНО работают
 
-**⚠ Риск 2b-2:** `settingsOfProvider` **персистится** (`_storeState`). Динамику персистить нельзя (источник — файл) → overlay должен исключаться из сохранёнки, иначе утечёт в настройки пользователя. Это и есть причина делать 2b-2 аккуратным отдельным заходом.
+- **A. Список — ГОТОВО** (typecheck exit=0). `applyProviderActiveOverrides({…, dynamicModelOptions})` инжектит модели динамиков в `_modelOptions` (`providerName` как `as any`). Overlay — module-level holder `_providerActiveOverrides`, БЕЗ `_storeState` (derived, не персистится).
+- **B. Capabilities — ГОТОВО** (typecheck exit=0). `setDynamicProviderModelCaps(capsMap)` + `modelEntryToCaps()`; `getModelCapabilities` guard отдаёт caps для динамического id из holder `_dynamicProviderModelCaps`.
+- **C. Транспорт — В РАБОТЕ. ← ПРОДОЛЖИТЬ ОТСЮДА.**
+
+#### Чек-лист шага C (overlay едет в `settingsOfProvider` по существующему IPC-пути, новый канал НЕ нужен)
+
+Ключевой ограничитель слоёв: `common/sendLLMMessageService.ts` (send-site) **не может** импортировать `IVibeDynamicProvidersService` (он в `browser/`). Поэтому transport-конфиг течёт через **общий settings-overlay**, который browser-сервис уже толкает в common (`applyProviderActiveOverrides`). Расширяем этот overlay.
+
+1. **`common/vibeideSettingsService.ts`**
+   - Добавить `export interface DynProviderTransportConfig { baseURL: string; headers?: Record<string,string>; apiKey?: string; apiKeyEnv?: string }`.
+   - Расширить `VibeProviderActiveOverrides` полем `transportConfigs?: Record<string, DynProviderTransportConfig>`.
+   - В интерфейс `IVibeideSettingsService` + impl: `getDynamicTransportConfigs(): Record<string, DynProviderTransportConfig>` → `return _providerActiveOverrides?.transportConfigs ?? {}`. (Чистый геттер holder'а, не трогает persisted state.)
+
+2. **`browser/vibeDynamicProvidersService.ts`** → `_applyOverridesToSettings` (строки ~211–242, ветка definition/extends-builtin)
+   - Собрать `transportConfigs: Record<string, DynProviderTransportConfig>` для активных definition/extends-builtin:
+     - `baseURL = p.entry.baseURL` → **если нет — skip** (extends-builtin без явного baseURL = пока не маршрутизируем; merge built-in baseURL — follow-up).
+     - `apiKey` из `apiKeyRef`: `this._settingsService.state.settingsOfProvider[p.entry.apiKeyRef]?.apiKey` (резолв ref — в рендерере).
+     - `apiKeyEnv: p.entry.apiKeyEnv` — **имя** прокидываем как есть (env читается в electron-main).
+     - `headers: p.entry.headers`.
+   - Добавить `transportConfigs` в объект `overrides` (и в условие «overrides не undefined» учесть непустой transportConfigs).
+
+3. **`common/sendLLMMessageService.ts`** (send-site — стр. 223 читает, стр. 291 `this.channel.call('sendLLMMessage', {…, settingsOfProvider, …})`)
+   - Транзиентный merge: `const settingsOfProvider = { ...state.settingsOfProvider, ...this.vibeideSettingsService.getDynamicTransportConfigs() } as <тип SettingsOfProvider или as any>`. Передать этот merged в `channel.call`. **Не персистится** — локальная копия на отправку. (FIM-путь — позже, по аналогии при необходимости.)
+
+4. **`electron-main/llmMessage/sendLLMMessage.impl.ts`** — фабрика `newOpenAICompatibleSDK`, **стр. 364** `else throw new Error(\`VibeIDE providerName was invalid: ${providerName}.\`)`
+   - Заменить на fallthrough:
+     ```ts
+     else {
+         const cfg = settingsOfProvider[providerName] as unknown as { baseURL?: string; headers?: Record<string,string>; apiKey?: string; apiKeyEnv?: string }
+         if (cfg && typeof cfg.baseURL === 'string' && cfg.baseURL) {
+             const apiKey = cfg.apiKey || (cfg.apiKeyEnv ? (process.env[cfg.apiKeyEnv] ?? '') : '') || 'noop'
+             const headers = (cfg.headers && typeof cfg.headers === 'object') ? cfg.headers : undefined
+             if (headers) {
+                 for (const [hName, hValue] of Object.entries(headers)) {
+                     assertHttpHeaderSafe(`Dynamic provider "${providerName}" header name "${hName}"`, hName)
+                     if (typeof hValue === 'string') { assertHttpHeaderSafe(`Dynamic provider "${providerName}" header "${hName}" value`, hValue) }
+                 }
+             }
+             return new OpenAI({ baseURL: cfg.baseURL, apiKey, defaultHeaders: headers, ...commonPayloadOpts })
+         }
+         throw new Error(`VibeIDE providerName was invalid: ${providerName}.`)
+     }
+     ```
+   - `assertHttpHeaderSafe` уже в файле (исп. на стр. 338). `process.env` в electron-main доступен. `apiKeyEnv` резолвится ИМЕННО здесь.
+
+5. **После правок:** `npm run compile-check-ts-native` (ждём exit=0) → затем `npm run compile` (~4.5 мин) + `run-dev.bat` для e2e: создать `.vibe/providers.json` с реальным провайдером (напр. OpenRouter с `apiKeyEnv`), проверить что модель появляется в дропдауне И реально отвечает.
+
+**Маршрут ключа (важно):** `apiKeyRef` → резолв в рендерере (есть `settingsOfProvider[ref].apiKey`); `apiKeyEnv` → резолв в electron-main (`process.env`, надёжно). В файле `.vibe/providers.json` секрета НЕТ никогда.
+
+**⚠ Риск (учтён):** `settingsOfProvider` персистится (`_storeState`), динамику персистить нельзя. Поэтому overlay — отдельный holder, merge в `settingsOfProvider` делается **только** транзиентно на send-site (п.3), в persisted state не попадает.
 
 **Связано:** [[vibe-defaults]] (пример засевается тем же механизмом), [[commands-palette-modal]], [[settings-namespaces]].
