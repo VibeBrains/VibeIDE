@@ -28,7 +28,7 @@ registerAction2(class DismissPendingPlanAction extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.chat.dismissPendingPlan',
-			title: localize2('vibeide.chat.dismissPendingPlan', 'VibeIDE: Сбросить незавершённый план в текущем чате'),
+			title: localize2('vibeide.chat.dismissPendingPlan', 'Сбросить незавершённый план в текущем чате'),
 			f1: true,
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 		});

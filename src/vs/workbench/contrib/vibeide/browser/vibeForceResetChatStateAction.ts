@@ -34,7 +34,7 @@ registerAction2(class ForceResetChatStateAction extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.chat.forceResetChatState',
-			title: localize2('vibeide.chat.forceResetChatState', 'VibeIDE: Принудительно сбросить состояние чата'),
+			title: localize2('vibeide.chat.forceResetChatState', 'Принудительно сбросить состояние чата'),
 			f1: true,
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 		});

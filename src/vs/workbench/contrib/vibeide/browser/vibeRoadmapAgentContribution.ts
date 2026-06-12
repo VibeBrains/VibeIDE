@@ -37,7 +37,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.roadmapAgent.start',
-			title: { value: localize('vibeide.roadmapAgent.start', 'VibeIDE: Запустить Roadmap Agent (оркестрация делегированных субагентов)'), original: 'VibeIDE: Start Roadmap Agent (orchestrate delegated subagents)' },
+			title: { value: localize('vibeide.roadmapAgent.start', 'Запустить Roadmap Agent (оркестрация делегированных субагентов)'), original: 'Start Roadmap Agent (orchestrate delegated subagents)' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -122,7 +122,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.roadmapAgent.executeDelegation',
-			title: { value: localize('vibeide.roadmapAgent.executeDelegation', 'VibeIDE: Выполнить Roadmap Agent (делегирование субагентам)'), original: 'VibeIDE: Execute Roadmap Agent (real subagent delegation)' },
+			title: { value: localize('vibeide.roadmapAgent.executeDelegation', 'Выполнить Roadmap Agent (делегирование субагентам)'), original: 'Execute Roadmap Agent (real subagent delegation)' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -187,7 +187,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.roadmapAgent.previewDelegation',
-			title: { value: localize('vibeide.roadmapAgent.previewDelegation', 'VibeIDE: Предпросмотр делегирования роадмапа (какие пункты уйдут субагентам?)'), original: 'VibeIDE: Preview Roadmap Delegation' },
+			title: { value: localize('vibeide.roadmapAgent.previewDelegation', 'Предпросмотр делегирования роадмапа (какие пункты уйдут субагентам?)'), original: 'Preview Roadmap Delegation' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});

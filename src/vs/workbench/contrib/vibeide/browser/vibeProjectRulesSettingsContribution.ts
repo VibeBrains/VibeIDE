@@ -123,7 +123,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.projectRules.toggleSource',
-			title: { value: localize('vibeide.projectRules.toggleSource', 'VibeIDE: Переключить источник правил проекта (включить/выключить для AI-контекста)'), original: 'VibeIDE: Toggle Project Rule Source (enable/disable for AI context)' },
+			title: { value: localize('vibeide.projectRules.toggleSource', 'Переключить источник правил проекта (включить/выключить для AI-контекста)'), original: 'Toggle Project Rule Source (enable/disable for AI context)' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -173,7 +173,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.projectRules.showStats',
-			title: { value: localize('vibeide.projectRules.showStats', 'VibeIDE: Показать статистику правил проекта (предпросмотр токенного бюджета)'), original: 'VibeIDE: Show Project Rules Stats (token budget preview)' },
+			title: { value: localize('vibeide.projectRules.showStats', 'Показать статистику правил проекта (предпросмотр токенного бюджета)'), original: 'Show Project Rules Stats (token budget preview)' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});

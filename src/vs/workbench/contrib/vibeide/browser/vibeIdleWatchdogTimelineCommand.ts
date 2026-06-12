@@ -33,7 +33,7 @@ class VibeIdleWatchdogTimelineAction extends Action2 {
 	constructor() {
 		super({
 			id: VibeIdleWatchdogTimelineAction.ID,
-			title: localize2('vibeide.watchdog.showTimeline.title', 'VibeIDE: Показать Idle Watchdog Timeline'),
+			title: localize2('vibeide.watchdog.showTimeline.title', 'Показать Idle Watchdog Timeline'),
 			category: { value: 'VibeIDE Diagnostics', original: 'VibeIDE Diagnostics' },
 			f1: true,
 		});

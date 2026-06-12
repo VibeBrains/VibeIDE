@@ -203,7 +203,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.cloud.syncLocale',
-			title: localize2('vibeide.cloud.syncLocale.title', 'VibeIDE: Синхронизировать локаль с облаком'),
+			title: localize2('vibeide.cloud.syncLocale.title', 'Синхронизировать локаль с облаком'),
 			category: { value: 'VibeIDE Cloud', original: 'VibeIDE Cloud' },
 			f1: true,
 		});

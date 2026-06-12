@@ -17,7 +17,7 @@ registerAction2(class AllowExternalFolderAction extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.agent.allowExternalFolder',
-			title: localize2('vibeide.agent.allowExternalFolder', 'VibeIDE: Разрешить папку для доступа агента'),
+			title: localize2('vibeide.agent.allowExternalFolder', 'Разрешить папку для доступа агента'),
 			f1: true,
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 		});
@@ -56,7 +56,7 @@ registerAction2(class RevokeExternalAccessAction extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.agent.revokeExternalAccess',
-			title: localize2('vibeide.agent.revokeExternalAccess', 'VibeIDE: Отозвать разрешение папки для агента'),
+			title: localize2('vibeide.agent.revokeExternalAccess', 'Отозвать разрешение папки для агента'),
 			f1: true,
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 		});

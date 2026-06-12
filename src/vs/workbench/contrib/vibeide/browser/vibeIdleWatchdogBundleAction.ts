@@ -26,7 +26,7 @@ class VibeIdleWatchdogBundleAction extends Action2 {
 	constructor() {
 		super({
 			id: VibeIdleWatchdogBundleAction.ID,
-			title: localize2('vibeide.watchdog.bundleCrashReport.title', 'VibeIDE: Собрать crash report (Idle Watchdog)'),
+			title: localize2('vibeide.watchdog.bundleCrashReport.title', 'Собрать crash report (Idle Watchdog)'),
 			category: { value: 'VibeIDE Diagnostics', original: 'VibeIDE Diagnostics' },
 			f1: true,
 		});

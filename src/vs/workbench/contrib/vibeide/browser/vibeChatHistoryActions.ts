@@ -21,7 +21,7 @@ registerAction2(class ClaimUntaggedThreadsAction extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.history.claimUntaggedThreads',
-			title: localize2('vibeide.history.claimUntaggedThreads', 'VibeIDE: Привязать историю без проекта к текущему'),
+			title: localize2('vibeide.history.claimUntaggedThreads', 'Привязать историю без проекта к текущему'),
 			f1: true,
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 		});
@@ -88,7 +88,7 @@ registerAction2(class ExportProjectHistoryAction extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.history.exportProject',
-			title: localize2('vibeide.history.exportProject', 'VibeIDE: Экспортировать историю текущего проекта'),
+			title: localize2('vibeide.history.exportProject', 'Экспортировать историю текущего проекта'),
 			f1: true,
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 		});
@@ -147,7 +147,7 @@ registerAction2(class ClearProjectHistoryAction extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.history.clearProject',
-			title: localize2('vibeide.history.clearProject', 'VibeIDE: Удалить историю текущего проекта'),
+			title: localize2('vibeide.history.clearProject', 'Удалить историю текущего проекта'),
 			f1: true,
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 		});

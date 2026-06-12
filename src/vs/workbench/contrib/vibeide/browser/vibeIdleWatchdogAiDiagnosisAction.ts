@@ -32,7 +32,7 @@ class VibeIdleWatchdogAiDiagnosisAction extends Action2 {
 	constructor() {
 		super({
 			id: VibeIdleWatchdogAiDiagnosisAction.ID,
-			title: localize2('vibeide.watchdog.aiDiagnose.title', 'VibeIDE: Диагностика памяти через AI'),
+			title: localize2('vibeide.watchdog.aiDiagnose.title', 'Диагностика памяти через AI'),
 			category: { value: 'VibeIDE Diagnostics', original: 'VibeIDE Diagnostics' },
 			f1: true,
 		});

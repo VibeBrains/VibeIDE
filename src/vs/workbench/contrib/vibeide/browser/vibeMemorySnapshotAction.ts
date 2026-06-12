@@ -60,7 +60,7 @@ class VibeMemorySnapshotAction extends Action2 {
 	constructor() {
 		super({
 			id: VibeMemorySnapshotAction.ID,
-			title: localize2('vibeide.dev.memorySnapshot.title', 'VibeIDE Dev: Снять снапшот памяти'),
+			title: localize2('vibeide.dev.memorySnapshot.title', 'Снять снапшот памяти'),
 			category: { value: 'VibeIDE Dev', original: 'VibeIDE Dev' },
 			f1: true,
 		});

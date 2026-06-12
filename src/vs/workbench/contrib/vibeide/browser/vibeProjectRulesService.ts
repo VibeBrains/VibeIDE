@@ -507,7 +507,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.projectRules.reload',
-			title: { value: localize('vibeide.projectRules.reload', 'VibeIDE: Перезагрузить правила проекта (принудительная инвалидация)'), original: 'VibeIDE: Reload Project Rules (force invalidation)' },
+			title: { value: localize('vibeide.projectRules.reload', 'Перезагрузить правила проекта (принудительная инвалидация)'), original: 'Reload Project Rules (force invalidation)' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -534,7 +534,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.projectRules.addRule',
-			title: { value: localize('vibeide.projectRules.addRule', 'VibeIDE: Добавить правило проекта (.vibe/rules.md)'), original: 'VibeIDE: Add Project Rule (.vibe/rules.md)' },
+			title: { value: localize('vibeide.projectRules.addRule', 'Добавить правило проекта (.vibe/rules.md)'), original: 'Add Project Rule (.vibe/rules.md)' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -575,7 +575,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.projectRules.open',
-			title: { value: localize('vibeide.projectRules.open', 'VibeIDE: Открыть правила проекта (.vibe/rules.md)'), original: 'VibeIDE: Open Project Rules (.vibe/rules.md)' },
+			title: { value: localize('vibeide.projectRules.open', 'Открыть правила проекта (.vibe/rules.md)'), original: 'Open Project Rules (.vibe/rules.md)' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -604,7 +604,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.projectRules.showSources',
-			title: { value: localize('vibeide.projectRules.showSources', 'VibeIDE: Показать загруженные источники правил проекта'), original: 'VibeIDE: Show Loaded Project Rule Sources' },
+			title: { value: localize('vibeide.projectRules.showSources', 'Показать загруженные источники правил проекта'), original: 'Show Loaded Project Rule Sources' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});

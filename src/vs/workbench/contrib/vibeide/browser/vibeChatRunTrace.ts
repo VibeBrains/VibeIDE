@@ -75,7 +75,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.chatRunTrace.show',
-			title: { value: localize('vibeide.chatRunTrace.show', 'VibeIDE: Показать трейс прогона чата'), original: 'VibeIDE: Show Chat Run Timeline' },
+			title: { value: localize('vibeide.chatRunTrace.show', 'Показать трейс прогона чата'), original: 'Show Chat Run Timeline' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});

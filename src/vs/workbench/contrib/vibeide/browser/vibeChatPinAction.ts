@@ -16,7 +16,7 @@ registerAction2(class TogglePinLastUserMessageAction extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.chat.togglePinLastUserMessage',
-			title: localize2('vibeide.chat.togglePinLastUserMessage', 'VibeIDE: Закрепить/открепить последнее сообщение'),
+			title: localize2('vibeide.chat.togglePinLastUserMessage', 'Закрепить/открепить последнее сообщение'),
 			f1: true,
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 		});

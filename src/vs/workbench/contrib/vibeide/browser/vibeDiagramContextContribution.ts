@@ -280,7 +280,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.context.pickDiagram',
-			title: { value: localize('vibeide.context.pickDiagram', 'VibeIDE: Выбрать диаграмму / изображение для контекста агента (@diagram)'), original: 'VibeIDE: Pick Diagram / Image for Agent Context (@diagram)' },
+			title: { value: localize('vibeide.context.pickDiagram', 'Выбрать диаграмму / изображение для контекста агента (@diagram)'), original: 'Pick Diagram / Image for Agent Context (@diagram)' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -343,7 +343,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.context.previewDiagram',
-			title: { value: localize('vibeide.context.previewDiagram', 'VibeIDE: Предпросмотр блока контекста диаграммы (что видит агент)'), original: 'VibeIDE: Preview Diagram Context Block' },
+			title: { value: localize('vibeide.context.previewDiagram', 'Предпросмотр блока контекста диаграммы (что видит агент)'), original: 'Preview Diagram Context Block' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});

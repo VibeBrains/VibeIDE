@@ -94,7 +94,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: SHOW_COMMAND,
-			title: { value: localize('vibeide.unified.showPopup', 'VibeIDE: Показать всплывающее окно статуса'), original: 'VibeIDE: Show Status Popup' },
+			title: { value: localize('vibeide.unified.showPopup', 'Показать всплывающее окно статуса'), original: 'Show Status Popup' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});

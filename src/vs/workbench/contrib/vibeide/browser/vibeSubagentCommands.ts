@@ -23,7 +23,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.subagent.spawnExplore',
-			title: { value: localize('vibeide.subagent.spawnExplore', 'VibeIDE Субагент: запустить исследование (поиск по кодовой базе, только чтение)'), original: 'VibeIDE Subagent: Spawn Explore (read-only codebase search)' },
+			title: { value: localize('vibeide.subagent.spawnExplore', 'Субагент: запустить исследование (поиск по кодовой базе, только чтение)'), original: 'Subagent: Spawn Explore (read-only codebase search)' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -77,7 +77,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.subagent.listActive',
-			title: { value: localize('vibeide.subagent.listActive', 'VibeIDE Субагент: список активных субагентов'), original: 'VibeIDE Subagent: List Active Subagents' },
+			title: { value: localize('vibeide.subagent.listActive', 'Субагент: список активных субагентов'), original: 'Subagent: List Active Subagents' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});

@@ -42,7 +42,7 @@ class ModelsDevCatalogRecheckAction extends Action2 {
 	constructor() {
 		super({
 			id: ModelsDevCatalogRecheckAction.ID,
-			title: localize2('vibeide.modelsDevCatalog.recheck.title', 'VibeIDE: Перепроверить каталог models.dev'),
+			title: localize2('vibeide.modelsDevCatalog.recheck.title', 'Перепроверить каталог models.dev'),
 			category: { value: 'VibeIDE Diagnostics', original: 'VibeIDE Diagnostics' },
 			f1: true,
 		});

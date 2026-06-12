@@ -261,7 +261,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.debug.openProviderProxyLog',
-			title: { value: localize('vibeide.debug.openProviderProxyLog', 'VibeIDE Debug: Открыть лог прокси провайдера'), original: 'VibeIDE Debug: Open Provider Proxy Log' },
+			title: { value: localize('vibeide.debug.openProviderProxyLog', 'Debug: Открыть лог прокси провайдера'), original: 'Debug: Open Provider Proxy Log' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -298,7 +298,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.debug.clearProviderProxyLog',
-			title: { value: localize('vibeide.debug.clearProviderProxyLog', 'VibeIDE Debug: Очистить лог прокси провайдера'), original: 'VibeIDE Debug: Clear Provider Proxy Log' },
+			title: { value: localize('vibeide.debug.clearProviderProxyLog', 'Debug: Очистить лог прокси провайдера'), original: 'Debug: Clear Provider Proxy Log' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});

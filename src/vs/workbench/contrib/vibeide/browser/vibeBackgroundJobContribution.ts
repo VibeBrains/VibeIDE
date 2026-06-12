@@ -86,7 +86,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.backgroundJob.createCheckpoint',
-			title: { value: localize('vibeide.backgroundJob.createCheckpoint', 'VibeIDE Фоновая задача: создать контрольную точку перед запуском'), original: 'VibeIDE Background Job: Create Checkpoint Before Run' },
+			title: { value: localize('vibeide.backgroundJob.createCheckpoint', 'Фоновая задача: создать контрольную точку перед запуском'), original: 'Background Job: Create Checkpoint Before Run' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -126,7 +126,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.backgroundJob.listJobs',
-			title: { value: localize('vibeide.backgroundJob.listJobs', 'VibeIDE Фоновые задачи: список всех задач'), original: 'VibeIDE Background Job: List All Jobs' },
+			title: { value: localize('vibeide.backgroundJob.listJobs', 'Фоновые задачи: список всех задач'), original: 'Background Job: List All Jobs' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
@@ -151,7 +151,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.backgroundJob.scheduleHint',
-			title: { value: localize('vibeide.backgroundJob.scheduleHint', 'VibeIDE Фоновые задачи: инструкция по настройке локального расписания'), original: 'VibeIDE Background Job: Show Local Schedule Setup Instructions' },
+			title: { value: localize('vibeide.backgroundJob.scheduleHint', 'Фоновые задачи: инструкция по настройке локального расписания'), original: 'Background Job: Show Local Schedule Setup Instructions' },
 			category: { value: 'VibeIDE', original: 'VibeIDE' },
 			f1: true,
 		});
