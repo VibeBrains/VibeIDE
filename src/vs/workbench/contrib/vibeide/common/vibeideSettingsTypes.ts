@@ -58,6 +58,9 @@ export type VibeideStatefulModelInfo = { // <-- STATEFUL
 	modelName: string,
 	type: 'default' | 'autodetected' | 'custom';
 	isHidden: boolean, // whether or not the user is hiding it (switched off)
+	/** DYNAMIC providers only (.vibe/providers.json): marks a model whose caps are overridden by a file
+	 *  `static` entry (`override`) or defined only in the file (`manual`). Drives the «Модели» tab badge. */
+	fileNote?: 'override' | 'manual',
 }
 
 

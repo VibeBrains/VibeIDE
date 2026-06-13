@@ -27,7 +27,7 @@ import { useMCPServiceState } from '../util/services.js';
 import { OPT_OUT_KEY } from '../../../../common/storageKeys.js';
 import { StorageScope, StorageTarget } from '../../../../../../../platform/storage/common/storage.js';
 import { generateUuid } from '../../../../../../../base/common/uuid.js'
-import { nav, modelsS, providersS, generalS, ollamaS, miscS, toolApprovalLabel, safetyS } from './vibeSettingsRu.js'
+import { nav, modelsS, providersS, generalS, ollamaS, miscS, toolApprovalLabel, safetyS, modelDdS } from './vibeSettingsRu.js'
 
 type Tab =
 	| 'models'
@@ -597,8 +597,12 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 
 	/** Only providers the user has fully configured (API keys / endpoint). Default catalog entries for others stay hidden. */
 	const configuredProviders = useMemo(() => {
-		const base = filteredProviders ?? providerNames;
-		return base.filter(p => !!settingsState.settingsOfProvider[p]._didFillInProviderSettings);
+		// Include dynamic providers (.vibe/providers.json), which are seeded into settingsOfProvider with
+		// non-built-in ids, so they list here exactly like built-ins.
+		const builtinSet = new Set<string>(providerNames as readonly string[]);
+		const dynamicIds = (Object.keys(settingsState.settingsOfProvider) as string[]).filter(id => !builtinSet.has(id)) as ProviderName[];
+		const base = filteredProviders ?? [...providerNames, ...dynamicIds];
+		return base.filter(p => !!settingsState.settingsOfProvider[p]?._didFillInProviderSettings);
 	}, [filteredProviders, settingsState.settingsOfProvider]);
 
 	const modelsByProvider = useMemo(() => {
@@ -679,6 +683,14 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 		>
 			<div className={`flex flex-grow items-center gap-4 min-w-0`}>
 				<span className='w-fit max-w-[400px] truncate'>{modelName}</span>
+				{m.fileNote ? (
+					<span
+						className='shrink-0 cursor-help text-vibe-fg-4 leading-none select-none'
+						data-tooltip-id='vibe-tooltip'
+						data-tooltip-place='right'
+						data-tooltip-content={m.fileNote === 'override' ? modelDdS.fileNoteOverride : modelDdS.fileNoteManual}
+					>✎</span>
+				) : null}
 				{modality && <>
 					<span className='text-vibe-fg-3 opacity-50 select-none'>·</span>
 					<span className='text-vibe-fg-3 opacity-60 text-xs truncate font-mono'>{modality}</span>

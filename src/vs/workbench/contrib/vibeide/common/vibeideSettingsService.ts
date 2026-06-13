@@ -59,6 +59,11 @@ export type VibeideSettingsState = {
 	 *  file); the dynamic-providers service folds these back into key resolution + the seeded entry. */
 	readonly dynamicProviderApiKeys?: Record<string, string>;
 
+	/** Per-model hide toggles for DYNAMIC providers, keyed by provider id then model id. Explicit user
+	 *  overrides of the default (file `static` models default shown; catalog-only models default hidden).
+	 *  Persisted; applied by the dynamic-providers service to gate the chat picker. */
+	readonly dynamicModelHidden?: Record<string, Record<string, boolean>>;
+
 	readonly _modelOptions: ModelOption[] // computed based on the two above items
 }
 
@@ -405,6 +410,7 @@ const defaultState = () => {
 		_modelOptions: [], // computed later
 		mcpUserStateOfName: {},
 		dynamicProviderApiKeys: {},
+		dynamicModelHidden: {},
 	}
 	return d
 }
@@ -861,6 +867,28 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 	}
 	toggleModelHidden(providerName: ProviderName, modelName: string) {
 
+		// Dynamic providers (.vibe/providers.json): the model list is derived from the file/catalog
+		// overlay, so a hide toggle persists as an explicit override; the dynamic-providers service
+		// re-applies it (and re-gates the chat picker) on the resulting state change.
+		if (!(providerNames as readonly string[]).includes(providerName as unknown as string)) {
+			const id = providerName as unknown as string
+			const seed = (this.state.settingsOfProvider as Record<string, { models?: VibeideStatefulModelInfo[] } | undefined>)[id]
+			const cur = seed?.models?.find(m => m.modelName === modelName)
+			if (!cur) { return }
+			const newHidden = !cur.isHidden
+			const newState: VibeideSettingsState = {
+				...this.state,
+				dynamicModelHidden: {
+					...(this.state.dynamicModelHidden ?? {}),
+					[id]: { ...(this.state.dynamicModelHidden?.[id] ?? {}), [modelName]: newHidden },
+				},
+			}
+			this.state = _validatedModelState(newState)
+			void this._storeState()
+			this._onDidChangeState.fire()
+			this._metricsService.capture('Toggle Dynamic Model Hidden', { providerName, modelName, newHidden })
+			return
+		}
 
 		const { models } = this.state.settingsOfProvider[providerName]
 		const modelIdx = models.findIndex(m => m.modelName === modelName)

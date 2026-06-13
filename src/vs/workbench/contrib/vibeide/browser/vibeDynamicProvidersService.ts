@@ -153,6 +153,11 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	/** JSON of the last-seen UI-typed dynamic keys — lets us reload ONLY when they actually change,
 	 *  so our own applyProviderActiveOverrides (which also fires onDidChangeState) can't loop. */
 	private _lastSeenUiKeys = '';
+	/** JSON of the last-seen per-model hide toggles — a change re-applies the overlay (re-gates the
+	 *  picker) WITHOUT a full reload/re-probe (the key didn't change, only which models are enabled). */
+	private _lastSeenHidden = '';
+	/** Last key-validation results, cached so a hide-toggle re-apply doesn't re-probe the network. */
+	private _lastValidation: Map<string, DynamicKeyValidation> | undefined = undefined;
 
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
@@ -181,12 +186,30 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		// re-resolve + reseed. Guarded by a snapshot so our OWN overlay writes (which also fire this
 		// event but don't touch dynamicProviderApiKeys) don't cause an infinite reload loop.
 		this._lastSeenUiKeys = JSON.stringify(this._settingsService.state.dynamicProviderApiKeys ?? {});
+		this._lastSeenHidden = JSON.stringify(this._settingsService.state.dynamicModelHidden ?? {});
 		this._register(this._settingsService.onDidChangeState(() => {
-			const cur = JSON.stringify(this._settingsService.state.dynamicProviderApiKeys ?? {});
-			if (cur === this._lastSeenUiKeys) { return; }
-			this._lastSeenUiKeys = cur;
-			void this.reload();
+			const curKeys = JSON.stringify(this._settingsService.state.dynamicProviderApiKeys ?? {});
+			if (curKeys !== this._lastSeenUiKeys) {
+				// Key changed → full reload (re-resolve + re-probe validity).
+				this._lastSeenUiKeys = curKeys;
+				this._lastSeenHidden = JSON.stringify(this._settingsService.state.dynamicModelHidden ?? {});
+				void this.reload();
+				return;
+			}
+			const curHidden = JSON.stringify(this._settingsService.state.dynamicModelHidden ?? {});
+			if (curHidden !== this._lastSeenHidden) {
+				// Only a model hide-toggle changed → re-apply the overlay (re-gate picker), no re-probe.
+				this._lastSeenHidden = curHidden;
+				this._reapplyOverlay();
+			}
 		}));
+	}
+
+	/** Rebuild + re-apply the overlay from the current resolved providers using the cached validation
+	 *  results — used when only hide-toggles changed (no need to re-read the file or re-probe keys). */
+	private _reapplyOverlay(): void {
+		if (this._state.providers.length === 0) { return; }
+		this._buildAndApply(this._state.providers, this._lastValidation);
 	}
 
 	getState(): VibeDynamicProvidersState {
@@ -353,8 +376,9 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 
 		// A reload (file/.env change, workspace switch) since we started owns the overlay now — drop ours.
 		if (gen !== this._reloadGen) { return; }
-		// Always re-apply (even on all-invalid) so keyStatus flips pending → valid/invalid and a bad key's
-		// models are removed from the picker.
+		// Cache so a later hide-toggle can re-apply without re-probing. Always re-apply (even on
+		// all-invalid) so keyStatus flips pending → valid/invalid and a bad key's models leave the picker.
+		this._lastValidation = validationByProvider;
 		this._buildAndApply(providers, validationByProvider);
 	}
 
@@ -422,10 +446,16 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			for (const m of (p.entry.models?.static ?? [])) {
 				if (m.active !== false) { staticById.set(m.id, m); }
 			}
+			const hiddenOverrides = (this._settingsService.state.dynamicModelHidden ?? {})[p.id];
 			const pushModel = (id: string, name: string, caps: Partial<VibeideStaticModelInfo>, fileNote?: 'override' | 'manual') => {
-				dynamicModelOptions.push({ name: `${name} (${label})`, selection: { providerName: p.id as any, modelName: id }, ...(fileNote ? { fileNote } : {}) });
+				// Default: file `static` models (fileNote set) are shown; catalog-only models (no fileNote)
+				// are hidden until the user enables them in «Модели». An explicit user toggle wins.
+				const hidden = hiddenOverrides?.[id] ?? !fileNote;
+				if (!hidden) {
+					dynamicModelOptions.push({ name: `${name} (${label})`, selection: { providerName: p.id as any, modelName: id }, ...(fileNote ? { fileNote } : {}) });
+				}
 				modelCaps.set(id, caps);
-				seedModels.push({ modelName: id, type: 'autodetected', isHidden: false });
+				seedModels.push({ modelName: id, type: 'autodetected', isHidden: hidden, ...(fileNote ? { fileNote } : {}) });
 			};
 			const pushStatic = () => { for (const m of staticById.values()) { pushModel(m.id, m.name || m.id, modelEntryToCaps(m), 'manual'); } };
 
