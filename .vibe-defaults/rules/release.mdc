@@ -15,6 +15,7 @@ alwaysApply: false
 ## Содержимое
 
 - В changelog включать **только реально вошедшие изменения** — сверять по `git log <prev-tag>..HEAD` / diff тегов, не писать по памяти диалога.
+- **«Что нового» (in-app):** если релиз стоит анонсировать в IDE — добавить запись для новой версии в `WHATS_NEW_BY_VERSION` (`src/vs/workbench/contrib/vibeide/common/vibeWhatsNew.ts`), ключ = `vibeVersion`, тело = Markdown highlights. Нет записи → модал «Что нового» для этой версии не показывается (ок для тихих патчей).
 - Формулировки — с точки зрения пользователя расширения (что изменилось для него), а не внутренних коммитов.
 - Версия в заголовке тега: `vX.Y.Z` (источник версии — `package.json`, см. [versioning.mdc](mdc:.vibe/rules/versioning.mdc)).
 

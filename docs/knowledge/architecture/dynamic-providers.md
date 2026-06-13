@@ -75,4 +75,39 @@
 
 **⚠ Риск (учтён):** `settingsOfProvider` персистится (`_storeState`), динамику персистить нельзя. Поэтому overlay — отдельный holder, merge в `settingsOfProvider` делается **только** транзиентно на send-site (п.3), в persisted state не попадает.
 
+## [convention] JSONC-комментарии в `.vibe/*`-примерах — один пробел, без выравнивания
+
+**Контекст:** 2026-06-13, обратная связь автора по `providers.json`.
+**Суть:** Трейлинг-комментарий отбивается от значения **одним пробелом**: `"order": 10, // …`. НЕ выравнивать столбцом пробелами (`"order": 10,            // …`) — выравнивание ломается при любой правке и даёт шумные диффы. Касается всех наших JSONC (`providers.json`, `commands.json`, …). Исключение — намеренные таблицы внутри блочных комментариев (шпаргалка id), там колоночное выравнивание оставляем.
+**Применение:** так писать во всех генерируемых/примерных JSONC; существующие приводить к стилю при касании.
+
+## [operational] После правки `.vibe/providers.json` — перезапустить VibeIDE
+
+**Контекст:** 2026-06-13. Неочевидно для пользователя.
+**Суть:** Изменения провайдеров надёжно подхватываются только после рестарта; ключи из `apiKeyEnv` читаются в electron-main из `process.env` **только при старте процесса** — новая переменная окружения без перезапуска не видна.
+**Применение:** написано в шапке `providers.example.jsonc`; упоминать при выдаче готового файла пользователю.
+
+## [архитектура] `.vibe/.env` — локальный источник ключа для `apiKeyEnv`
+
+**Контекст:** 2026-06-13. OS-переменные требуют рестарта и неудобны; `apiKeyRef` для нового динамического id некуда сохранить (нет UI-слота).
+**Суть:** `apiKeyEnv` теперь резолвится так (приоритет ↓): `apiKeyRef` (secure settings) → **`.vibe/.env`** (строка `ИМЯ=значение`) → `process.env` (фолбэк в electron-main). `.vibe/.env` парсится в `browser/vibeDynamicProvidersService` (`common/vibeEnvFile.ts`, pure+тест), значение кладётся в транзиентный `transportConfigs.apiKey` — тем же путём, что `apiKeyRef` (в persisted state и в файл не попадает). Сервис вотчит `.vibe/.env` → смена ключа подхватывается **без рестарта** (в отличие от OS-переменных).
+**Применение:** для своих провайдеров рекомендовать `.vibe/.env`. Парсер — минимальный dotenv-сабсет (`KEY=VALUE`, `#`-комменты, `export`, кавычки; без интерполяции).
+
+## [reference] Два ignore-файла в `.vibe/` — разное назначение
+
+**Контекст:** легко спутать.
+**Суть:** `.vibe/.gitignore` — для **git** (что не коммитить: рантайм-артефакты + `.env` с секретами; сеется `vibeConfigInitService`). `.vibe/ignore` — для **агента** (что не читать/индексировать/подмешивать в контекст: `.env`, `.env.*`, `secrets/`, `node_modules/`, …). Секрету нужны ОБА: `ignore` прячет его от модели, `.gitignore` — от коммита.
+**Применение:** добавляя новый секретный артефакт в `.vibe/` — занести и туда, и туда.
+
+## [recipe] Как заставить динамическую модель «думать» (reasoning/thinking)
+
+**Контекст:** 2026-06-13, фича `dynamic-providers-transport` (фаза B). Неочевидно, что нужны ДВА поля.
+**Суть:** в `.vibe/providers.json` у модели:
+- `"reasoning": { "canTurnOff": true, "effort": ["low","medium","high"] }` → маппится в `reasoningCapabilities` (effort_slider) в `modelEntryToCaps`; openai-compat reasoning-хук шлёт `reasoning_effort` и парсит `reasoning_content`. Дефолт усилия — высший (`high`, если есть).
+- `"extraBody": { "thinking": { "type": "enabled" } }` → `additionalOpenAIPayload`, уходит в тело **дословно** (Moonshot-специфичный тумблер). `extraBody` — общий канал для любых провайдеро-специфичных полей.
+
+Инъекция в запрос — в `sendViaAISdk` (`aiSdkAdapter.ts:770-780`, спред `openAICompatExtraBody` через `transformRequestBody`); ядро для этого не правили. Поле `reasoning.field` в формате есть, но Фазой B НЕ потребляется (effort_slider сам шлёт `reasoning_effort`; провайдеро-специфичное — через `extraBody`). Пользовательский рецепт — блок 5 в `providers.example.jsonc`.
+
+**Применение:** для thinking-моделей (Kimi K2.x, и т.п.) — оба поля; только `reasoning` без `extraBody` даёт effort, но не включит Moonshot-`thinking`.
+
 **Связано:** [[vibe-defaults]] (пример засевается тем же механизмом), [[commands-palette-modal]], [[settings-namespaces]].
