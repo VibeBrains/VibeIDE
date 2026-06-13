@@ -307,8 +307,11 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	 * the catalog's negative cache. Bails if a newer reload superseded this run.
 	 */
 	private async _enrichWithCatalog(providers: readonly ResolvedProviderEntry[], gen: number): Promise<void> {
+		// `models.fetch: false` opts out of the live catalog — that provider stays on its file static
+		// list. `true` / a custom URL string / omitted (default) all fetch.
 		const connected = providers.filter(p =>
-			p.kind !== 'override' && p.entry.active !== false && !!p.entry.baseURL && !!this._resolveBrowserKey(p));
+			p.kind !== 'override' && p.entry.active !== false && !!p.entry.baseURL
+			&& p.entry.models?.fetch !== false && !!this._resolveBrowserKey(p));
 		if (connected.length === 0) { return; }
 
 		const catalogByProvider = new Map<string, RemoteModelInfo[]>();
@@ -366,11 +369,13 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			// Transport overlay — built regardless of UI key (apiKeyEnv may resolve in main at send time),
 			// only needs a baseURL. extends-builtin without baseURL inherits downstream (follow-up).
 			if (p.entry.baseURL) {
+				const fetchSpec = p.entry.models?.fetch;
 				transportConfigs[p.id] = {
 					baseURL: p.entry.baseURL,
 					...(resolvedKey ? { apiKey: resolvedKey } : {}),
 					...(p.entry.apiKeyEnv ? { apiKeyEnv: p.entry.apiKeyEnv } : {}),
 					...(p.entry.headers ? { headers: { ...p.entry.headers } } : {}),
+					...(typeof fetchSpec === 'string' ? { modelsUrl: fetchSpec } : {}),
 				};
 			}
 

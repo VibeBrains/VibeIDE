@@ -245,6 +245,9 @@ export interface DynProviderTransportConfig {
 	readonly headers?: Record<string, string>;
 	readonly apiKey?: string;
 	readonly apiKeyEnv?: string;
+	/** Custom models-catalog URL from `models.fetch: "<url>"`. When set, the catalog fetch hits this
+	 *  URL verbatim instead of the `<baseURL>/v1/models` default. */
+	readonly modelsUrl?: string;
 }
 
 export interface VibeProviderActiveOverrides {

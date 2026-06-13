@@ -68,7 +68,9 @@ export interface VibeProviderModelEntry {
 }
 
 export interface VibeProviderModelsSpec {
-	/** `true` = auto-list from `<baseURL>/models`; a string = fetch that URL; `false` = static only. */
+	/** `true` (or omitted — default) = auto-list from `<baseURL>/models`; a string = fetch that URL;
+	 *  `false` = static only (no catalog). Auto-listed models merge with `static` (same id → static
+	 *  overlays caps). */
 	readonly fetch?: boolean | string;
 	readonly static?: readonly VibeProviderModelEntry[];
 }

@@ -287,8 +287,11 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 			if (!dyn.apiKey?.trim()) {
 				return [];
 			}
+			// `models.fetch: "<url>"` overrides the endpoint; otherwise derive it from baseURL.
 			const base = dyn.baseURL.replace(/\/+$/, '');
-			const modelsUrl = base.endsWith('/v1') ? `${base}/models` : `${base}/v1/models`;
+			const modelsUrl = dyn.modelsUrl?.trim()
+				? dyn.modelsUrl.trim()
+				: (base.endsWith('/v1') ? `${base}/models` : `${base}/v1/models`);
 			try {
 				return await this.fetchOpenAICompatibleModelsCatalog(modelsUrl, dyn.apiKey);
 			} catch (error) {
