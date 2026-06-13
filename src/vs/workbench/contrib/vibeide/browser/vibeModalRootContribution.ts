@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { vibeLog } from '../common/vibeLog.js';
-import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, toDisposable, IDisposable } from '../../../../base/common/lifecycle.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IVibeModalService } from '../common/vibeModalService.js';
@@ -42,15 +42,22 @@ export class VibeModalRootContribution extends Disposable implements IWorkbenchC
 	) {
 		super();
 
-		// Lazy: wait until a modal actually shows up.
-		const lazyMountSub = this._register(this._modalService.onDidChangeQueue(() => {
+		// Lazy: mount when a modal enters the queue. Extracted to `maybeMount` so we can ALSO run it
+		// once at construction — a modal queued by an EARLIER-phase contribution (e.g. the What's New
+		// modal shown at AfterRestored, before this Eventually-phase root subscribed) is already in
+		// the queue, and the subscription alone only reacts to FUTURE events. Without the immediate
+		// check that pre-queued modal would wait for an onDidChangeQueue that never comes and never render.
+		let lazyMountSub: IDisposable;
+		const maybeMount = () => {
 			if (this._mounted) return;
 			if (this._modalService.getQueue().length === 0) return;
 			this._mounted = true;
 			lazyMountSub.dispose();
 			vibeLog.warn('vibeModalRoot', '[VibeModalRoot] mounting React tree (first modal triggered lazy mount)');
 			this._tryMount();
-		}));
+		};
+		lazyMountSub = this._register(this._modalService.onDidChangeQueue(maybeMount));
+		maybeMount(); // catch a modal already queued before this subscription existed
 	}
 
 	private _tryMount(): void {
