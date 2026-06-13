@@ -278,6 +278,30 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 	}
 
 	private async fetchFromProvider(providerName: ProviderName): Promise<RemoteModelInfo[]> {
+		// Dynamic providers (.vibe/providers.json) aren't in settingsOfProvider. Resolve their
+		// baseURL + key from the transient transport overlay and fetch the standard OpenAI-compatible
+		// /v1/models — same generic handler the built-in openai-compat providers use. No baseURL or no
+		// key → nothing to fetch (the picker also hides keyless dynamic providers).
+		const dyn = this.settingsService.getDynamicTransportConfigs()[providerName as unknown as string];
+		if (dyn?.baseURL) {
+			if (!dyn.apiKey?.trim()) {
+				return [];
+			}
+			const base = dyn.baseURL.replace(/\/+$/, '');
+			const modelsUrl = base.endsWith('/v1') ? `${base}/models` : `${base}/v1/models`;
+			try {
+				return await this.fetchOpenAICompatibleModelsCatalog(modelsUrl, dyn.apiKey);
+			} catch (error) {
+				const now = Date.now();
+				const last = this.lastErrLogAt.get(providerName) ?? 0;
+				if (now - last >= this.ERROR_LOG_INTERVAL_MS) {
+					this.lastErrLogAt.set(providerName, now);
+					vibeLog.warn('RemoteCatalog', `Failed to fetch catalog for dynamic provider ${String(providerName)}: ${error instanceof Error ? error.message : String(error)}`);
+				}
+				return [];
+			}
+		}
+
 		const settings = this.settingsService.state.settingsOfProvider[providerName];
 
 		if (!settings._didFillInProviderSettings) {

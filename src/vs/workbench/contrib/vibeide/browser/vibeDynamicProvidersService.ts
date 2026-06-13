@@ -26,6 +26,8 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { providerNames } from '../common/vibeideSettingsTypes.js';
 import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig } from '../common/vibeideSettingsService.js';
 import { setDynamicProviderModelCaps, VibeideStaticModelInfo } from '../common/modelCapabilities.js';
+import { IRemoteCatalogService, RemoteModelInfo } from '../common/remoteCatalogService.js';
+import { ProviderName } from '../common/vibeideSettingsTypes.js';
 import { parseProvidersFile, mergeProviderEntry, VibeProviderEntry, VibeProviderModelEntry } from '../common/vibeProvidersFile.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
 import { ILifecycleService, LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
@@ -73,6 +75,17 @@ function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStaticModel
 		if (r.thinkTags) { rc.openSourceThinkTags = [r.thinkTags[0], r.thinkTags[1]]; }
 		c.reasoningCapabilities = rc;
 	}
+	return c as Partial<VibeideStaticModelInfo>;
+}
+
+/** Map a remote-catalog model (fetched from <baseURL>/v1/models) to VibeIDE's capability shape.
+ *  Only the fields the generic OpenAI-compatible catalog reliably exposes; a file `static` entry of
+ *  the same id overlays these (richer/curated caps win — PRODUCT invariant 6). */
+function remoteModelToCaps(m: RemoteModelInfo): Partial<VibeideStaticModelInfo> {
+	const c: Record<string, unknown> = {};
+	if (typeof m.contextWindow === 'number') { c.contextWindow = m.contextWindow; }
+	if (typeof m.supportsVision === 'boolean') { c.supportsVision = m.supportsVision; }
+	if (m.cost) { c.cost = { input: m.cost.input ?? 0, output: m.cost.output ?? 0 }; }
 	return c as Partial<VibeideStaticModelInfo>;
 }
 
@@ -135,12 +148,15 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	private readonly _builtinIds: ReadonlySet<string> = new Set<string>(providerNames as readonly string[]);
 	/** Parsed `.vibe/.env` (local secrets source for `apiKeyEnv`). Refreshed on every reload. */
 	private _envFileVars: Record<string, string> = {};
+	/** Bumped on every state change so a slow async catalog fetch can detect it raced a newer reload. */
+	private _reloadGen = 0;
 
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 		@IVibeideSettingsService private readonly _settingsService: IVibeideSettingsService,
 		@ILifecycleService private readonly _lifecycleService: ILifecycleService,
+		@IRemoteCatalogService private readonly _remoteCatalogService: IRemoteCatalogService,
 	) {
 		super();
 		void this.reload();
@@ -263,16 +279,62 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 
 	private _setState(state: VibeDynamicProvidersState): void {
 		this._state = state;
-		this._applyOverridesToSettings(state.providers);
+		const gen = ++this._reloadGen;
+		// Apply IMMEDIATELY with the file's static model list (no network) so the picker is populated at
+		// once and built-in disables take effect without waiting — preserves Phase 1 behavior / no regress.
+		this._buildAndApply(state.providers, undefined);
 		this._onDidChange.fire();
+		// Then enrich asynchronously: fetch <baseURL>/v1/models for connected providers and re-apply with
+		// the live catalog (models no longer have to be hardcoded in the file). Stale fetches are dropped.
+		void this._enrichWithCatalog(state.providers, gen);
+	}
+
+	/** Browser-visible key for a dynamic provider: apiKeyRef (secure settings) → .vibe/.env. A key only
+	 *  in an OS env var isn't visible to the renderer (PRODUCT invariant 12) — electron-main still
+	 *  resolves apiKeyEnv from process.env at send time; here it just doesn't count for UI gating. */
+	private _resolveBrowserKey(p: ResolvedProviderEntry): string | undefined {
+		const refKey = p.entry.apiKeyRef
+			? (this._settingsService.state.settingsOfProvider as Record<string, { apiKey?: string } | undefined>)[p.entry.apiKeyRef]?.apiKey
+			: undefined;
+		const envFileKey = p.entry.apiKeyEnv ? this._envFileVars[p.entry.apiKeyEnv] : undefined;
+		return refKey || envFileKey || undefined;
 	}
 
 	/**
-	 * Push the built-in disable-toggles to the settings service so the model picker hides them.
-	 * Only `override` entries (id matches a built-in) affect built-in lists; `active:false` on the
-	 * provider disables it whole, otherwise each model with `active:false` is hidden.
+	 * Fetch the live model catalog (<baseURL>/v1/models) for every connected dynamic provider and
+	 * re-apply the overlay so the picker shows catalog models instead of only the file's static list.
+	 * Only connected (resolvable browser key) providers are fetched — keeps a keyless provider out of
+	 * the catalog's negative cache. Bails if a newer reload superseded this run.
 	 */
-	private _applyOverridesToSettings(providers: readonly ResolvedProviderEntry[]): void {
+	private async _enrichWithCatalog(providers: readonly ResolvedProviderEntry[], gen: number): Promise<void> {
+		const connected = providers.filter(p =>
+			p.kind !== 'override' && p.entry.active !== false && !!p.entry.baseURL && !!this._resolveBrowserKey(p));
+		if (connected.length === 0) { return; }
+
+		const catalogByProvider = new Map<string, RemoteModelInfo[]>();
+		await Promise.all(connected.map(async p => {
+			try {
+				const models = await this._remoteCatalogService.fetchCatalog(p.id as unknown as ProviderName);
+				if (models.length > 0) { catalogByProvider.set(p.id, models); }
+			} catch {
+				// fetch failure → leave this provider on its file static list (handled by _buildAndApply)
+			}
+		}));
+
+		// A reload (file/.env change, workspace switch) since we started owns the overlay now — drop ours.
+		if (gen !== this._reloadGen) { return; }
+		if (catalogByProvider.size === 0) { return; }
+		this._buildAndApply(providers, catalogByProvider);
+	}
+
+	/**
+	 * Build the settings overlay (built-in disable-toggles + dynamic transport + selectable models) and
+	 * push it to the settings service. Only `override` entries (id matches a built-in) affect built-in
+	 * lists; `active:false` on the provider disables it whole, otherwise each model with `active:false`
+	 * is hidden. When `catalogByProvider` carries a provider's models, those are the selectable set (file
+	 * `static` of the same id overlays caps); otherwise the file's static list is used.
+	 */
+	private _buildAndApply(providers: readonly ResolvedProviderEntry[], catalogByProvider: ReadonlyMap<string, RemoteModelInfo[]> | undefined): void {
 		const disabledProviders = new Set<string>();
 		const disabledModels = new Map<string, ReadonlySet<string>>();
 		const dynamicModelOptions: ModelOption[] = [];
@@ -299,14 +361,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		activeDynamic.sort(compareDynamicProviders);
 
 		for (const p of activeDynamic) {
-			// Resolve the BROWSER-VISIBLE key: apiKeyRef (secure settings) → .vibe/.env. A key only in
-			// an OS env var isn't visible to the renderer (PRODUCT invariant 12), so it doesn't count
-			// for UI gating — electron-main still resolves apiKeyEnv from process.env at request time.
-			const refKey = p.entry.apiKeyRef
-				? (this._settingsService.state.settingsOfProvider as Record<string, { apiKey?: string } | undefined>)[p.entry.apiKeyRef]?.apiKey
-				: undefined;
-			const envFileKey = p.entry.apiKeyEnv ? this._envFileVars[p.entry.apiKeyEnv] : undefined;
-			const resolvedKey = refKey || envFileKey || undefined;
+			const resolvedKey = this._resolveBrowserKey(p);
 
 			// Transport overlay — built regardless of UI key (apiKeyEnv may resolve in main at send time),
 			// only needs a baseURL. extends-builtin without baseURL inherits downstream (follow-up).
@@ -321,16 +376,37 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 
 			// CONNECTED = resolvable browser-visible key. Models appear in the picker ONLY for connected
 			// providers (PRODUCT invariants 4, 8, 10) — mirrors built-ins requiring filled-in settings.
-			// No key → skip: no models offered for this provider. (Catalog fetch is Phase 2; for now the
-			// models come from the file's static list, gated by per-model `active`.)
 			if (!resolvedKey) { continue; }
 
 			const label = p.entry.name || p.id;
 			const modelCaps = new Map<string, Partial<VibeideStaticModelInfo>>();
+			// Active file static entries, indexed by id — they overlay catalog caps and let the file add
+			// models the catalog omits (or pin curated ones when there is no catalog yet).
+			const staticById = new Map<string, VibeProviderModelEntry>();
 			for (const m of (p.entry.models?.static ?? [])) {
-				if (m.active === false) { continue; }
-				dynamicModelOptions.push({ name: `${m.name || m.id} (${label})`, selection: { providerName: p.id as any, modelName: m.id } });
-				modelCaps.set(m.id, modelEntryToCaps(m));
+				if (m.active !== false) { staticById.set(m.id, m); }
+			}
+
+			const catalog = catalogByProvider?.get(p.id);
+			const pushModel = (id: string, name: string, caps: Partial<VibeideStaticModelInfo>) => {
+				dynamicModelOptions.push({ name: `${name} (${label})`, selection: { providerName: p.id as any, modelName: id } });
+				modelCaps.set(id, caps);
+			};
+
+			if (catalog && catalog.length > 0) {
+				// Catalog is the source of truth; a same-id static entry overlays caps + display name.
+				for (const cm of catalog) {
+					const st = staticById.get(cm.id);
+					const caps = st ? { ...remoteModelToCaps(cm), ...modelEntryToCaps(st) } : remoteModelToCaps(cm);
+					pushModel(cm.id, st?.name || cm.name || cm.id, caps);
+				}
+				// File static ids absent from the catalog still appear (catalog may omit a model).
+				for (const m of staticById.values()) {
+					if (!catalog.some(cm => cm.id === m.id)) { pushModel(m.id, m.name || m.id, modelEntryToCaps(m)); }
+				}
+			} else {
+				// No catalog yet (sync pass, fetch failed, or empty) → file static list is the fallback.
+				for (const m of staticById.values()) { pushModel(m.id, m.name || m.id, modelEntryToCaps(m)); }
 			}
 			if (modelCaps.size > 0) { capsMap.set(p.id, modelCaps); }
 		}
