@@ -62,7 +62,12 @@ const ModelSelectBox = ({ options, featureName, className }: { options: ModelOpt
 			if (option.selection.providerName === 'auto' && option.selection.modelName === 'auto') {
 				return modelDdS.autoDetail
 			}
-			return displayInfoOfProviderName(option.selection.providerName).title
+			const title = displayInfoOfProviderName(option.selection.providerName).title
+			// Dynamic-provider models flag their provenance so the user knows caps came from the file.
+			const note = option.fileNote === 'override' ? modelDdS.fileNoteOverride
+				: option.fileNote === 'manual' ? modelDdS.fileNoteManual
+					: undefined
+			return note ? `${title} · ${note}` : title
 		}}
 		getOptionsEqual={(a, b) => optionsEqual([a], [b])}
 		className={className}

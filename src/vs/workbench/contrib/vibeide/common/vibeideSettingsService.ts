@@ -18,7 +18,15 @@ import { autoModelFallbackProviderOrder, defaultSettingsOfProvider, FeatureName,
 
 
 // name is the name in the dropdown
-export type ModelOption = { name: string, selection: ModelSelection }
+export type ModelOption = {
+	name: string,
+	selection: ModelSelection,
+	/** Provenance marker for DYNAMIC-provider models (.vibe/providers.json), surfaced in the picker so
+	 *  the user knows when caps were customized in their file. `'override'` = present in the live catalog
+	 *  AND patched by a same-id `static` entry (caps may differ from the provider's defaults); `'manual'`
+	 *  = defined only in the file (not returned by the catalog). Absent = plain catalog / built-in. */
+	fileNote?: 'override' | 'manual',
+}
 
 
 

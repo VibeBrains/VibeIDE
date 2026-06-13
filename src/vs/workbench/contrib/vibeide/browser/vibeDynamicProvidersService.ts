@@ -393,25 +393,26 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			}
 
 			const catalog = catalogByProvider?.get(p.id);
-			const pushModel = (id: string, name: string, caps: Partial<VibeideStaticModelInfo>) => {
-				dynamicModelOptions.push({ name: `${name} (${label})`, selection: { providerName: p.id as any, modelName: id } });
+			const pushModel = (id: string, name: string, caps: Partial<VibeideStaticModelInfo>, fileNote?: 'override' | 'manual') => {
+				dynamicModelOptions.push({ name: `${name} (${label})`, selection: { providerName: p.id as any, modelName: id }, ...(fileNote ? { fileNote } : {}) });
 				modelCaps.set(id, caps);
 			};
 
 			if (catalog && catalog.length > 0) {
-				// Catalog is the source of truth; a same-id static entry overlays caps + display name.
+				// Catalog is the source of truth; a same-id static entry overlays caps + display name
+				// ('override' — caps may diverge from provider defaults).
 				for (const cm of catalog) {
 					const st = staticById.get(cm.id);
 					const caps = st ? { ...remoteModelToCaps(cm), ...modelEntryToCaps(st) } : remoteModelToCaps(cm);
-					pushModel(cm.id, st?.name || cm.name || cm.id, caps);
+					pushModel(cm.id, st?.name || cm.name || cm.id, caps, st ? 'override' : undefined);
 				}
-				// File static ids absent from the catalog still appear (catalog may omit a model).
+				// File static ids absent from the catalog still appear ('manual' — fully file-defined).
 				for (const m of staticById.values()) {
-					if (!catalog.some(cm => cm.id === m.id)) { pushModel(m.id, m.name || m.id, modelEntryToCaps(m)); }
+					if (!catalog.some(cm => cm.id === m.id)) { pushModel(m.id, m.name || m.id, modelEntryToCaps(m), 'manual'); }
 				}
 			} else {
-				// No catalog yet (sync pass, fetch failed, or empty) → file static list is the fallback.
-				for (const m of staticById.values()) { pushModel(m.id, m.name || m.id, modelEntryToCaps(m)); }
+				// No catalog (sync pass, fetch failed/empty, or fetch:false) → file static is the source.
+				for (const m of staticById.values()) { pushModel(m.id, m.name || m.id, modelEntryToCaps(m), 'manual'); }
 			}
 			if (modelCaps.size > 0) { capsMap.set(p.id, modelCaps); }
 		}

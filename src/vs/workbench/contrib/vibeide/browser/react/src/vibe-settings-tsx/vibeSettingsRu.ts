@@ -1014,6 +1014,9 @@ export const modelDdS = {
 	enableModel: 'Включите модель в списке',
 	addModel: 'Добавьте модель',
 	needProvider: 'Нужен провайдер',
+	// Provenance markers for dynamic-provider models (.vibe/providers.json), appended to the detail line.
+	fileNoteOverride: '✎ капы из файла',
+	fileNoteManual: '✎ только из файла',
 } as const;
 
 /** Default skeleton for Workspace → «Цели» — insert button copies this verbatim. */
