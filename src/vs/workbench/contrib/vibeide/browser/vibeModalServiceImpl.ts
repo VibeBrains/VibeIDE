@@ -27,13 +27,22 @@ interface InternalQueueEntry<TButtonId extends string> {
  * Invoke `options.onClose` defensively — a buggy caller hook must not break
  * the modal flow. Called from every code path that resolves a queue entry.
  */
-function safeOnClose(options: VibeModalOptions, result: { buttonId: string; inputValue?: string }): void {
+function safeOnClose(options: VibeModalOptions, result: { buttonId: string; inputValue?: string; checked?: boolean }): void {
 	if (!options.onClose) return;
 	try {
 		options.onClose(result);
 	} catch (e) {
 		vibeLog.warn('vibeModalServiceImpl', '[VibeModalService] onClose threw', e);
 	}
+}
+
+/**
+ * Live checkbox state to attach to a result, when the modal declared a checkbox. The React
+ * component mirrors every toggle into `options.checkbox.initialChecked` (via `updateHeadOptions`),
+ * so this reads the current value — making `checked` correct on ALL close paths (button/ESC/backdrop).
+ */
+function checkedFor(options: VibeModalOptions): { checked?: boolean } {
+	return options.checkbox ? { checked: !!options.checkbox.initialChecked } : {};
 }
 
 export class VibeModalService extends Disposable implements IVibeModalService {
@@ -55,7 +64,7 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 			dispose: () => {
 				while (this._queue.length > 0) {
 					const head = this._queue.shift()!;
-					const result = { buttonId: VIBE_MODAL_DISMISS_ID };
+					const result = { buttonId: VIBE_MODAL_DISMISS_ID, ...checkedFor(head.options) };
 					head.resolve(result);
 					safeOnClose(head.options, result);
 				}
@@ -83,8 +92,8 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 		const head = this._queue.shift();
 		if (!head) return;
 		const result = inputValue !== undefined
-			? { buttonId, inputValue }
-			: { buttonId };
+			? { buttonId, inputValue, ...checkedFor(head.options) }
+			: { buttonId, ...checkedFor(head.options) };
 		head.resolve(result);
 		safeOnClose(head.options, result);
 		this._onDidChangeQueue.fire();
@@ -96,7 +105,7 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 		// `dismissible` defaults to true. Reject dismiss only when explicitly false.
 		if (head.options.dismissible === false) return;
 		this._queue.shift();
-		const result = { buttonId: VIBE_MODAL_DISMISS_ID };
+		const result = { buttonId: VIBE_MODAL_DISMISS_ID, ...checkedFor(head.options) };
 		head.resolve(result);
 		safeOnClose(head.options, result);
 		this._onDidChangeQueue.fire();
@@ -144,7 +153,7 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 			if (this._queue[0] !== head) return false;
 		}
 		this._queue.shift();
-		const result = { buttonId: VIBE_MODAL_DISMISS_ID };
+		const result = { buttonId: VIBE_MODAL_DISMISS_ID, ...checkedFor(head.options) };
 		head.resolve(result);
 		safeOnClose(head.options, result);
 		this._onDidChangeQueue.fire();
@@ -156,8 +165,8 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 		if (!head) return;
 		const finalId = buttonId ?? VIBE_MODAL_DISMISS_ID;
 		const result = inputValue !== undefined
-			? { buttonId: finalId, inputValue }
-			: { buttonId: finalId };
+			? { buttonId: finalId, inputValue, ...checkedFor(head.options) }
+			: { buttonId: finalId, ...checkedFor(head.options) };
 		head.resolve(result);
 		safeOnClose(head.options, result);
 		this._onDidChangeQueue.fire();

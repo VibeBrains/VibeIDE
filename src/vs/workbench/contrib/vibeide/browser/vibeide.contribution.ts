@@ -151,6 +151,9 @@ import './vibeDeadMansSwitchNotification.js'
 import('./firstRunValidation.js').catch(() => { });
 import('../common/secretDetectionConfiguration.js').catch(() => { });
 
+// «Что нового» — changelog modal on first launch after an update
+import('./vibeWhatsNewContribution.js').catch(() => { });
+
 // refreshModel
 import '../common/refreshModelService.js'
 

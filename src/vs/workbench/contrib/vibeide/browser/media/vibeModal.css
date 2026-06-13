@@ -205,6 +205,24 @@
 	min-height: 1em;
 }
 
+/* «Remember my choice» checkbox row (e.g. «Don't show again»). Sits between body
+   and buttons, left-aligned, muted to not compete with the primary action. */
+.vibeide-modal-checkbox {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 16px 0;
+	color: var(--vscode-descriptionForeground);
+	font-size: calc(var(--vscode-font-size) - 1px);
+	cursor: pointer;
+	user-select: none;
+}
+
+.vibeide-modal-checkbox input[type="checkbox"] {
+	cursor: pointer;
+	margin: 0;
+}
+
 .vibeide-modal-buttons {
 	display: flex;
 	justify-content: flex-end;

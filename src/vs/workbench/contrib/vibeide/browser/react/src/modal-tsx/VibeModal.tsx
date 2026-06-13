@@ -64,6 +64,7 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
 
 	const [inputValue, setInputValue] = useState(options.input?.initialValue ?? '');
 	const [validationError, setValidationError] = useState<string | null>(null);
+	const [checked, setChecked] = useState(options.checkbox?.initialChecked ?? false);
 	const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
 	const firstFocusableRef = useRef<HTMLButtonElement | null>(null);
 	const modalRef = useRef<HTMLDivElement | null>(null);
@@ -299,6 +300,26 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
 							{validationError ?? ''}
 						</div>
 					</div>
+				)}
+
+				{options.checkbox && (
+					<label className="@@vibeide-modal-checkbox">
+						<input
+							type="checkbox"
+							checked={checked}
+							disabled={options.loading}
+							onChange={e => {
+								const next = e.target.checked;
+								setChecked(next);
+								// Mirror into head options so the service reports `checked` on EVERY close
+								// path (button click, ESC, backdrop) — see checkedFor() in the impl.
+								if (options.checkbox) {
+									modalService.updateHeadOptions({ checkbox: { label: options.checkbox.label, initialChecked: next } });
+								}
+							}}
+						/>
+						<span>{options.checkbox.label}</span>
+					</label>
 				)}
 
 				<div className="@@vibeide-modal-buttons">

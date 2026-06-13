@@ -73,6 +73,17 @@ export interface VibeModalOptions<TButtonId extends string = string> {
 	readonly bodyMarkdown?: boolean;
 	readonly buttons: ReadonlyArray<VibeModalButton<TButtonId>>;
 	readonly input?: VibeModalInputSpec;
+	/**
+	 * Optional «remember my choice» checkbox rendered above the buttons. Its live state is reflected
+	 * back into `VibeModalResult.checked` on EVERY close path (button click, ESC, backdrop) — the
+	 * React component mirrors toggles into `initialChecked`, so callers read one boolean regardless
+	 * of how the modal was closed. Canonical use: «Don't show this again».
+	 */
+	readonly checkbox?: {
+		readonly label: string;
+		/** Initial checked state; also used as the live value carrier (mirrored on toggle). */
+		readonly initialChecked?: boolean;
+	};
 	/** Default true. When false, ESC + backdrop click do nothing. */
 	readonly dismissible?: boolean;
 	/**
@@ -178,7 +189,7 @@ export interface VibeModalOptions<TButtonId extends string = string> {
 	 * returned promise but still want a hook on close. Errors swallowed with
 	 * `console.warn`.
 	 */
-	readonly onClose?: (result: { buttonId: string; inputValue?: string }) => void;
+	readonly onClose?: (result: { buttonId: string; inputValue?: string; checked?: boolean }) => void;
 }
 
 /** Lower bound for `autoDismissAfterMs` — anything shorter is a visual flash. */
@@ -197,6 +208,8 @@ export const VIBE_MODAL_DEFAULT_VETO_TIMEOUT_MS = 30_000;
 export interface VibeModalResult<TButtonId extends string = string> {
 	readonly buttonId: TButtonId | '__dismiss__';
 	readonly inputValue?: string;
+	/** Live checkbox state at close time, when `options.checkbox` was set; undefined otherwise. */
+	readonly checked?: boolean;
 }
 
 /** Sentinel used in `buttonId` when the modal was dismissed (ESC/backdrop). */
