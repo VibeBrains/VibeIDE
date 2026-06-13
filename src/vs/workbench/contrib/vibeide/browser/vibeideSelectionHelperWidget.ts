@@ -213,15 +213,17 @@ export class SelectionHelperContribution extends Disposable implements IEditorCo
 
 		// Near the very top of the file the pill (anchored to the line top) clips/overlaps the first
 		// lines — there's no room above. When the anchor would land on line 1–2 (i.e. the selection
-		// is in the first/second line), render it BELOW the selection instead: left-aligned under the
-		// text on the line right after it, so it never covers what was selected.
+		// is in the first/second line), render it BELOW the selection instead, left-aligned.
 		const renderBelow = targetLine <= 2;
 
 		let boxPos: { top: number; left: number };
 		if (renderBelow) {
-			const belowLine = Math.min(endLine + 1, numLinesModel);
-			const belowPos = this._editor.getScrolledVisiblePosition({ lineNumber: belowLine, column: 1 }) ?? { left: 0, top: 0 };
-			boxPos = { top: belowPos.top, left: belowPos.left };
+			// Anchor to the BOTTOM of the selection's last line (its top + one line height). Using
+			// "endLine + 1" clamps to the SAME line for a single-line file / last-line selection and
+			// re-overlaps the text — this always sits just under the selection regardless of line count.
+			const lastLinePos = this._editor.getScrolledVisiblePosition({ lineNumber: endLine, column: 1 }) ?? { left: 0, top: 0 };
+			const lineHeight = this._editor.getOption(EditorOption.lineHeight);
+			boxPos = { top: lastLinePos.top + lineHeight, left: lastLinePos.left };
 		} else {
 			boxPos = getBoxPosition(targetLine);
 
