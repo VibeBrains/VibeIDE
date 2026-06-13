@@ -1698,6 +1698,23 @@ type CallFnOfProvider = {
 	}
 }
 
+/**
+ * Routing for DYNAMIC providers (`.vibe/providers.json`) — their id isn't a key in the built-in
+ * map below. They go through the SAME AI-SDK path as aggregators (`sendViaAISdk`), inheriting its
+ * repair-hook / alias / models.dev-routing / XML-fallback resilience. Transport (baseURL / apiKey /
+ * headers) is resolved inside `aiSdkAdapter.resolveEndpoint` from the transient `settingsOfProvider`
+ * overlay. Used by the dispatch fallback in `sendLLMMessage.ts`. FIM for dynamics is a follow-up.
+ */
+export const dynamicProviderImplementation: {
+	sendChat: (params: SendChatParams_Internal) => Promise<void>;
+	sendFIM: ((params: SendFIMParams_Internal) => void) | null;
+	list: ((params: ListParams_Internal<any>) => void) | null;
+} = {
+	sendChat: (params) => sendViaAISdk(params),
+	sendFIM: null,
+	list: null,
+};
+
 export const sendLLMMessageToProviderImplementation = {
 	anthropic: {
 		sendChat: sendAnthropicChat,

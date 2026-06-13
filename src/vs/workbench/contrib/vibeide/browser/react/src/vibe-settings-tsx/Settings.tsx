@@ -1121,6 +1121,40 @@ export const VibeProviderSettings = ({ providerNames }: { providerNames: Provide
 	</div>
 }
 
+/**
+ * Built-in cloud providers wrapped in a collapsible. Auto-collapses (but stays one click away) when
+ * the user has their own providers via .vibe/providers.json AND no built-in has a key — the long
+ * built-in list is just noise then. A manual toggle always wins over the auto rule for the session.
+ */
+const BuiltinProvidersFold = ({ names }: { names: ProviderName[] }) => {
+	const settingsState = useSettingsState()
+
+	const anyBuiltinKey = names.some(p => settingsState.settingsOfProvider[p]?._didFillInProviderSettings)
+	const builtinSet = new Set<string>(providerNames as readonly string[])
+	const hasDynamicProviders = settingsState._modelOptions.some(o => {
+		const pn = o.selection.providerName as string
+		return pn !== 'auto' && !builtinSet.has(pn)
+	})
+	const autoCollapse = hasDynamicProviders && !anyBuiltinKey
+
+	// null = follow the auto rule; once the user clicks, their choice sticks for the session.
+	const [userOpen, setUserOpen] = useState<boolean | null>(null)
+	const open = userOpen ?? !autoCollapse
+
+	return <div className='@@vibe-chat-like-shell overflow-hidden'>
+		<button
+			type='button'
+			className='w-full flex items-center gap-2 px-3 py-3 text-left text-base font-semibold text-vibe-fg-1 bg-transparent hover:bg-[var(--vscode-list-hoverBackground)] transition-colors'
+			onClick={() => setUserOpen(!open)}
+			aria-expanded={open}
+		>
+			{open ? <ChevronDown size={18} className='shrink-0 opacity-80' /> : <ChevronRight size={18} className='shrink-0 opacity-80' />}
+			<span>{miscS.builtinProvidersToggle(names.length)}</span>
+		</button>
+		{open ? <div className='pt-2'><VibeProviderSettings providerNames={names} /></div> : null}
+	</div>
+}
+
 
 type TabName = 'models' | 'general'
 export const AutoDetectLocalModelsToggle = () => {
@@ -3048,7 +3082,7 @@ export const Settings = () => {
 											onToggle={() => toggleAllSettingsGroup('providers')}
 										>
 											<h3 className={`text-vibe-fg-3 mb-2`}>{miscS.mainProvBlurb}</h3>
-											<VibeProviderSettings providerNames={nonlocalProviderNames} />
+											<BuiltinProvidersFold names={nonlocalProviderNames} />
 											<div className='w-full h-[1px] my-4' />
 											<RefreshableRemoteCatalogs />
 										</AllSettingsFold>
@@ -3056,7 +3090,7 @@ export const Settings = () => {
 										<>
 											<h2 className={`text-3xl mb-2`}>{nav.providers}</h2>
 											<h3 className={`text-vibe-fg-3 mb-2`}>{miscS.mainProvBlurb}</h3>
-											<VibeProviderSettings providerNames={nonlocalProviderNames} />
+											<BuiltinProvidersFold names={nonlocalProviderNames} />
 											<div className='w-full h-[1px] my-4' />
 											<RefreshableRemoteCatalogs />
 										</>

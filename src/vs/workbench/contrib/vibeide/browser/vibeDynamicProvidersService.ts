@@ -27,6 +27,7 @@ import { providerNames } from '../common/vibeideSettingsTypes.js';
 import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig } from '../common/vibeideSettingsService.js';
 import { setDynamicProviderModelCaps, VibeideStaticModelInfo } from '../common/modelCapabilities.js';
 import { parseProvidersFile, mergeProviderEntry, VibeProviderEntry, VibeProviderModelEntry } from '../common/vibeProvidersFile.js';
+import { parseEnvFile } from '../common/vibeEnvFile.js';
 
 const TOOL_FORMAT_MAP: Record<string, 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined> = {
 	openai: 'openai-style', anthropic: 'anthropic-style', gemini: 'gemini-style', none: undefined,
@@ -52,6 +53,24 @@ function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStaticModel
 			...(m.cost.cacheWrite !== undefined ? { cache_write: m.cost.cacheWrite } : {}),
 		};
 	}
+	// extraBody → additionalOpenAIPayload: the AI-SDK path spreads this verbatim into the request
+	// body (sendViaAISdk → openAICompatExtraBody → transformRequestBody). Carries provider quirks
+	// like Moonshot `thinking: { type: "enabled" }`.
+	if (m.extraBody && typeof m.extraBody === 'object') { c.additionalOpenAIPayload = { ...m.extraBody }; }
+	// reasoning → reasoningCapabilities. An `effort` list maps to an effort_slider, which the
+	// openai-compatible reasoning hook turns into `reasoning_effort` on the wire; reasoning_content
+	// is parsed back via the openai-compat output settings. Default to the highest effort (thinking
+	// models like K2.7 are meant to think). `thinkTags` (rare) routes inline <think> parsing.
+	if (m.reasoning && typeof m.reasoning === 'object') {
+		const r = m.reasoning;
+		const rc: Record<string, unknown> = { supportsReasoning: true, canTurnOffReasoning: r.canTurnOff ?? true, canIOReasoning: true };
+		if (r.effort && r.effort.length > 0) {
+			const def = r.effort.includes('high') ? 'high' : r.effort[r.effort.length - 1];
+			rc.reasoningSlider = { type: 'effort_slider', values: [...r.effort], default: def };
+		}
+		if (r.thinkTags) { rc.openSourceThinkTags = [r.thinkTags[0], r.thinkTags[1]]; }
+		c.reasoningCapabilities = rc;
+	}
 	return c as Partial<VibeideStaticModelInfo>;
 }
 
@@ -68,6 +87,19 @@ export interface ResolvedProviderEntry {
 	readonly extendsBuiltin?: string;
 	/** The entry with any FILE-entry `extends` already merged in. */
 	readonly entry: VibeProviderEntry;
+}
+
+/**
+ * Order of DYNAMIC providers in the model picker (built-ins keep their hard-coded order — these are
+ * appended after them). `order` ascending; entries WITHOUT `order` sink to the end; any tie (equal
+ * `order`, or both missing it) breaks by display name (`name || id`). Pure → unit-testable.
+ */
+function compareDynamicProviders(a: ResolvedProviderEntry, b: ResolvedProviderEntry): number {
+	const ao = a.entry.order, bo = b.entry.order;
+	const aHas = typeof ao === 'number', bHas = typeof bo === 'number';
+	if (aHas && bHas && ao !== bo) { return ao! - bo!; }
+	if (aHas !== bHas) { return aHas ? -1 : 1; } // an explicit order always precedes "no order"
+	return (a.entry.name || a.id).localeCompare(b.entry.name || b.id);
 }
 
 export interface VibeDynamicProvidersState {
@@ -99,6 +131,8 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 
 	private _state: VibeDynamicProvidersState = EMPTY_STATE;
 	private readonly _builtinIds: ReadonlySet<string> = new Set<string>(providerNames as readonly string[]);
+	/** Parsed `.vibe/.env` (local secrets source for `apiKeyEnv`). Refreshed on every reload. */
+	private _envFileVars: Record<string, string> = {};
 
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
@@ -110,8 +144,9 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		this._register(this._workspaceContextService.onDidChangeWorkspaceFolders(() => { void this.reload(); }));
 		this._register(this._fileService.onDidFilesChange(e => {
 			const uri = this._fileUri();
-			if (uri && e.affects(uri)) {
-				vibeLog.debug('DynProviders', 'providers.json changed on disk — reloading');
+			const envUri = this._envFileUri();
+			if ((uri && e.affects(uri)) || (envUri && e.affects(envUri))) {
+				vibeLog.debug('DynProviders', 'providers.json / .vibe/.env changed on disk — reloading');
 				void this.reload();
 			}
 		}));
@@ -126,6 +161,23 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		return folder ? joinPath(folder, '.vibe', 'providers.json') : undefined;
 	}
 
+	private _envFileUri(): URI | undefined {
+		const folder = this._workspaceContextService.getWorkspace().folders[0]?.uri;
+		return folder ? joinPath(folder, '.vibe', '.env') : undefined;
+	}
+
+	/** Read + parse `.vibe/.env`. Absent file is the normal case → empty map. */
+	private async _readEnvFile(): Promise<Record<string, string>> {
+		const envUri = this._envFileUri();
+		if (!envUri) { return {}; }
+		try {
+			const buf = await this._fileService.readFile(envUri);
+			return parseEnvFile(buf.value.toString());
+		} catch {
+			return {};
+		}
+	}
+
 	async reload(): Promise<void> {
 		const uri = this._fileUri();
 		if (!uri) {
@@ -133,6 +185,10 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			this._setState(EMPTY_STATE);
 			return;
 		}
+
+		// Local secrets source for apiKeyEnv (sibling of providers.json). Loaded before resolution
+		// so transport can prefer it over the OS environment.
+		this._envFileVars = await this._readEnvFile();
 
 		let raw: string | undefined;
 		try {
@@ -214,6 +270,10 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		const dynamicModelOptions: ModelOption[] = [];
 		const capsMap = new Map<string, Map<string, Partial<VibeideStaticModelInfo>>>();
 		const transportConfigs: Record<string, DynProviderTransportConfig> = {};
+
+		// First pass: built-in patches (disable toggles) are order-independent; collect the active
+		// dynamic providers to sort before they contribute selectable models.
+		const activeDynamic: ResolvedProviderEntry[] = [];
 		for (const p of providers) {
 			if (p.kind === 'override') {
 				// Patch of a built-in: active:false disables it; otherwise hide its active:false models.
@@ -222,9 +282,17 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				if (off.length > 0) { disabledModels.set(p.id, new Set(off)); }
 				continue;
 			}
-			// definition / extends-builtin: a NEW selectable provider. Phase 1 contributes its static
-			// models (catalog auto-fetch for dynamic providers is a follow-up). providerName = file id.
+			// definition / extends-builtin: a NEW selectable provider.
 			if (p.entry.active === false) { continue; }
+			activeDynamic.push(p);
+		}
+
+		// Sort by `order` (then name) so the picker reflects the user's intended provider order.
+		activeDynamic.sort(compareDynamicProviders);
+
+		for (const p of activeDynamic) {
+			// Phase 1 contributes its static models (catalog auto-fetch for dynamic providers is a
+			// follow-up). providerName = file id. Models keep their in-file order within the provider.
 			const label = p.entry.name || p.id;
 			const modelCaps = new Map<string, Partial<VibeideStaticModelInfo>>();
 			for (const m of (p.entry.models?.static ?? [])) {
@@ -237,14 +305,17 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			// Transport: only providers with an explicit baseURL are routable. extends-builtin without a
 			// baseURL inherits the built-in endpoint downstream — a follow-up; skip routing for now.
 			if (p.entry.baseURL) {
-				// apiKeyRef resolves here (renderer has settingsOfProvider); apiKeyEnv name is passed
-				// through and resolved in electron-main where process.env is reliable.
+				// Key precedence: apiKeyRef (secure settings) → .vibe/.env → process.env (main fallback).
+				// apiKeyRef + .env resolve HERE (renderer); the apiKeyEnv NAME is still forwarded so
+				// electron-main can fall back to process.env when neither produced a value.
 				const refKey = p.entry.apiKeyRef
 					? (this._settingsService.state.settingsOfProvider as Record<string, { apiKey?: string } | undefined>)[p.entry.apiKeyRef]?.apiKey
 					: undefined;
+				const envFileKey = p.entry.apiKeyEnv ? this._envFileVars[p.entry.apiKeyEnv] : undefined;
+				const apiKey = refKey || envFileKey || undefined;
 				transportConfigs[p.id] = {
 					baseURL: p.entry.baseURL,
-					...(refKey ? { apiKey: refKey } : {}),
+					...(apiKey ? { apiKey } : {}),
 					...(p.entry.apiKeyEnv ? { apiKeyEnv: p.entry.apiKeyEnv } : {}),
 					...(p.entry.headers ? { headers: { ...p.entry.headers } } : {}),
 				};

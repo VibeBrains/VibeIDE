@@ -17,9 +17,14 @@ import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IJSONSchema } from '../../../../base/common/jsonSchema.js';
 import * as jsonContributionRegistry from '../../../../platform/jsonschemas/common/jsonContributionRegistry.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { providerNames } from '../common/vibeideSettingsTypes.js';
 
 const SCHEMA_ID = 'vscode://schemas/vibeide-providers';
 const FILE_GLOB = '**/.vibe/providers.json';
+
+/** Built-in provider ids surfaced as autocomplete proposals for `id` / `extends` / `apiKeyRef`.
+ *  `examples` (not `enum`) so suggestions appear WITHOUT forbidding brand-new/custom ids. */
+const BUILTIN_PROVIDER_IDS: string[] = [...providerNames];
 
 const modelSchema: IJSONSchema = {
 	type: 'object',
@@ -68,11 +73,11 @@ const providerSchema: IJSONSchema = {
 	required: ['id'],
 	additionalProperties: false,
 	properties: {
-		id: { type: 'string', description: 'Уникальный ключ. Совпадение со встроенным id — патч встроенного; новый id — новый провайдер.' },
-		extends: { type: 'string', description: 'Унаследовать все поля от другого провайдера (built-in или из файла), затем переопределить ниже.' },
+		id: { type: 'string', examples: BUILTIN_PROVIDER_IDS, description: 'Уникальный ключ. Совпадение со встроенным id — патч встроенного; новый id — новый провайдер. Подсказки в списке — id встроенных.' },
+		extends: { type: 'string', examples: BUILTIN_PROVIDER_IDS, description: 'Унаследовать все поля от другого провайдера (built-in или из файла), затем переопределить ниже.' },
 		name: { type: 'string', description: 'Отображаемое имя.' },
 		active: { type: 'boolean', default: true, description: 'false — выключить провайдера и все его модели.' },
-		order: { type: 'number', description: 'Позиция в списке (меньше = выше).' },
+		order: { type: 'number', description: 'Порядок среди ВАШИХ провайдеров в выборе модели (меньше = выше). Без значения — в конец, по имени. Встроенные не двигаются.' },
 		tags: { type: 'array', items: { type: 'string' } },
 		note: { type: 'string' },
 		protocol: { enum: ['openai', 'anthropic', 'gemini'], default: 'openai', description: 'Протокол транспорта. В Фазе 1 надёжно работает openai.' },
@@ -85,7 +90,7 @@ const providerSchema: IJSONSchema = {
 			],
 		},
 		apiKeyEnv: { type: 'string', description: 'Ключ из переменной окружения (в файле НЕ хранится).' },
-		apiKeyRef: { type: 'string', description: 'Ключ из защищённых настроек VibeIDE (по id провайдера).' },
+		apiKeyRef: { type: 'string', examples: BUILTIN_PROVIDER_IDS, description: 'Ключ из защищённых настроек VibeIDE (по id провайдера).' },
 		headers: { type: 'object', additionalProperties: { type: 'string' }, description: 'Статические HTTP-заголовки.' },
 		query: { type: 'object', additionalProperties: { type: 'string' }, description: 'Статические query-параметры.' },
 		timeoutMs: { type: 'number', description: 'Таймаут запроса (мс). Агрегаторам нужно больше.' },

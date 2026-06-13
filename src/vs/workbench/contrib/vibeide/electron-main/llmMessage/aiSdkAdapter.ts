@@ -299,6 +299,25 @@ const resolveEndpoint = async (
 				queryParams: { 'api-version': apiVersion },
 			};
 		}
+		// ---------- Dynamic providers (.vibe/providers.json) ----------
+		default: {
+			// Not a built-in id. Its transient transport (baseURL/apiKey/apiKeyEnv/headers) was merged
+			// into `settingsOfProvider` on the send-site (2b-2 C overlay). apiKey was already resolved
+			// in the renderer from apiKeyRef/.vibe/.env; apiKeyEnv resolves HERE as the last fallback
+			// (electron-main has reliable process.env). Empty baseURL → caller's guard surfaces a clear
+			// error (PRODUCT invariant 3). Mirror of the openai-compatible fallthrough in
+			// `newOpenAICompatibleSDK` (sendLLMMessage.impl.ts), but for the AI-SDK path.
+			const cfg = (settingsOfProvider as unknown as Record<string, { baseURL?: string; apiKey?: string; apiKeyEnv?: string; headers?: Record<string, string> } | undefined>)[providerName as string];
+			const headers = (cfg?.headers && typeof cfg.headers === 'object') ? cfg.headers : undefined;
+			if (headers) {
+				for (const [hName, hValue] of Object.entries(headers)) {
+					assertHttpHeaderSafe(`Dynamic provider "${providerName}" header name "${hName}"`, hName);
+					if (typeof hValue === 'string') { assertHttpHeaderSafe(`Dynamic provider "${providerName}" header "${hName}" value`, hValue); }
+				}
+			}
+			const apiKey = cfg?.apiKey || (cfg?.apiKeyEnv ? (process.env[cfg.apiKeyEnv] ?? '') : '') || 'noop';
+			return { baseURL: cfg?.baseURL ?? '', apiKey, headers };
+		}
 	}
 };
 

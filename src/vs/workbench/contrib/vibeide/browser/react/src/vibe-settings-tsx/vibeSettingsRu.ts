@@ -993,6 +993,7 @@ export const miscS = {
 		'Любые модели на вашей машине. Локальные модели по умолчанию обнаруживаются автоматически.',
 	mainProvH2: 'Облачные провайдеры',
 	mainProvBlurb: 'Модели Anthropic, OpenAI, OpenRouter и других провайдеров.',
+	builtinProvidersToggle: (n: number) => `Встроенные провайдеры (${n})`,
 	featureOptH2: 'Функции',
 	generalH2: 'Общие',
 	mcpBlurb: 'Model Context Protocol — дополнительные инструменты для режима агента.',

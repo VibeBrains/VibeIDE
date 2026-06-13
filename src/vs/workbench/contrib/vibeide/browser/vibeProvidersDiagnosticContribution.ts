@@ -18,6 +18,23 @@ import { ITextModelService } from '../../../../editor/common/services/resolverSe
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IVibeDynamicProvidersService, ResolvedProviderEntry } from './vibeDynamicProvidersService.js';
 import { normalizeAuth } from '../common/vibeProvidersFile.js';
+import { providerNames, displayInfoOfProviderName } from '../common/vibeideSettingsTypes.js';
+
+/** The built-in provider ids users can copy for `id` (override) / `extends` / `apiKeyRef`. Pulled
+ *  from `providerNames` (single source of truth) so this never drifts from the actual provider set. */
+function describeBuiltinIds(): string {
+	const lines: string[] = [];
+	lines.push('## Встроенные провайдеры — id для `override` / `extends` / `apiKeyRef`');
+	lines.push('');
+	lines.push('Скопируйте `id` ниже: совпадение с ним в поле `"id"` патчит встроенного провайдера; `"extends": "<id>"` клонирует его; `"apiKeyRef": "<id>"` берёт его сохранённый ключ.');
+	lines.push('');
+	lines.push('| id | Провайдер |');
+	lines.push('|---|---|');
+	for (const id of providerNames) {
+		lines.push(`| \`${id}\` | ${displayInfoOfProviderName(id).title} |`);
+	}
+	return lines.join('\n');
+}
 
 function describeProvider(p: ResolvedProviderEntry): string {
 	const e = p.entry;
@@ -85,7 +102,9 @@ registerAction2(class extends Action2 {
 			out.push('Предупреждений нет.');
 		}
 		out.push('');
-		out.push('> Примечание: транспорт ещё не подключён (Фаза 1, инкремент 2a) — это снимок РАСПОЗНАВАНИЯ файла, не работающие запросы.');
+		out.push('---');
+		out.push('');
+		out.push(describeBuiltinIds());
 
 		const uri = URI.parse(`untitled://vibeide-providers-resolved-${Date.now()}.md`);
 		const ref = await modelSvc.createModelReference(uri);

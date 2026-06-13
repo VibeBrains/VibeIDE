@@ -73,6 +73,8 @@ const DEFAULT_VIBE_GITIGNORE = `# VibeIDE — рантайм-артефакты 
 agent-locks.json
 commands.trust.json
 snapshots/
+# Секреты провайдеров (apiKeyEnv из .vibe/providers.json резолвится отсюда) — НИКОГДА не коммитить.
+.env
 `;
 
 const DEFAULT_ALLOWED_MODELS = {
