@@ -64,8 +64,8 @@ const ModelSelectBox = ({ options, featureName, className }: { options: ModelOpt
 			}
 			return displayInfoOfProviderName(option.selection.providerName).title
 		}}
-		getOptionPrefix={(option) => {
-			// Dynamic-provider models flag their provenance with a leading "✎ ·" — the pencil's tooltip
+		getOptionBadge={(option) => {
+			// Dynamic-provider models flag their provenance with a trailing "✎" — the pencil's tooltip
 			// tells the user the model / its caps come from .vibe/providers.json, not the live catalog.
 			const tooltip = option.fileNote === 'override' ? modelDdS.fileNoteOverride
 				: option.fileNote === 'manual' ? modelDdS.fileNoteManual
