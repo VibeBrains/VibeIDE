@@ -45,7 +45,11 @@ type CustomProviderSettings<providerName extends ProviderName> = {
 	[k in CustomSettingName]: k extends keyof typeof defaultProviderSettings[providerName] ? string : undefined
 }
 export const customSettingNamesOfProvider = (providerName: ProviderName) => {
-	return Object.keys(defaultProviderSettings[providerName]) as CustomSettingName[]
+	const builtin = defaultProviderSettings[providerName]
+	// Dynamic providers (.vibe/providers.json) have no built-in field schema; the only editable field in
+	// the Settings card is the API key (baseURL/headers stay file-owned).
+	if (!builtin) { return ['apiKey'] as CustomSettingName[] }
+	return Object.keys(builtin) as CustomSettingName[]
 }
 
 

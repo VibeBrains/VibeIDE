@@ -24,10 +24,10 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { providerNames } from '../common/vibeideSettingsTypes.js';
-import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig } from '../common/vibeideSettingsService.js';
+import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig, DynamicProviderSeed } from '../common/vibeideSettingsService.js';
 import { setDynamicProviderModelCaps, VibeideStaticModelInfo } from '../common/modelCapabilities.js';
 import { IRemoteCatalogService, RemoteModelInfo } from '../common/remoteCatalogService.js';
-import { ProviderName } from '../common/vibeideSettingsTypes.js';
+import { ProviderName, VibeideStatefulModelInfo } from '../common/vibeideSettingsTypes.js';
 import { parseProvidersFile, mergeProviderEntry, VibeProviderEntry, VibeProviderModelEntry } from '../common/vibeProvidersFile.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
 import { ILifecycleService, LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
@@ -150,6 +150,9 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	private _envFileVars: Record<string, string> = {};
 	/** Bumped on every state change so a slow async catalog fetch can detect it raced a newer reload. */
 	private _reloadGen = 0;
+	/** JSON of the last-seen UI-typed dynamic keys — lets us reload ONLY when they actually change,
+	 *  so our own applyProviderActiveOverrides (which also fires onDidChangeState) can't loop. */
+	private _lastSeenUiKeys = '';
 
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
@@ -173,6 +176,16 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				vibeLog.debug('DynProviders', 'providers.json / .vibe/.env changed on disk — reloading');
 				void this.reload();
 			}
+		}));
+		// A key typed into a dynamic provider's Settings card lands in settingsService state; reload to
+		// re-resolve + reseed. Guarded by a snapshot so our OWN overlay writes (which also fire this
+		// event but don't touch dynamicProviderApiKeys) don't cause an infinite reload loop.
+		this._lastSeenUiKeys = JSON.stringify(this._settingsService.state.dynamicProviderApiKeys ?? {});
+		this._register(this._settingsService.onDidChangeState(() => {
+			const cur = JSON.stringify(this._settingsService.state.dynamicProviderApiKeys ?? {});
+			if (cur === this._lastSeenUiKeys) { return; }
+			this._lastSeenUiKeys = cur;
+			void this.reload();
 		}));
 	}
 
@@ -293,11 +306,14 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	 *  in an OS env var isn't visible to the renderer (PRODUCT invariant 12) — electron-main still
 	 *  resolves apiKeyEnv from process.env at send time; here it just doesn't count for UI gating. */
 	private _resolveBrowserKey(p: ResolvedProviderEntry): string | undefined {
+		// Precedence: key typed into the Settings card (UI) → apiKeyRef (another provider's secure key)
+		// → .vibe/.env. The UI key wins because it's the most explicit, per-provider user action.
+		const uiKey = (this._settingsService.state.dynamicProviderApiKeys ?? {})[p.id];
 		const refKey = p.entry.apiKeyRef
 			? (this._settingsService.state.settingsOfProvider as Record<string, { apiKey?: string } | undefined>)[p.entry.apiKeyRef]?.apiKey
 			: undefined;
 		const envFileKey = p.entry.apiKeyEnv ? this._envFileVars[p.entry.apiKeyEnv] : undefined;
-		return refKey || envFileKey || undefined;
+		return (uiKey?.trim() ? uiKey : undefined) || refKey || envFileKey || undefined;
 	}
 
 	/**
@@ -343,6 +359,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		const dynamicModelOptions: ModelOption[] = [];
 		const capsMap = new Map<string, Map<string, Partial<VibeideStaticModelInfo>>>();
 		const transportConfigs: Record<string, DynProviderTransportConfig> = {};
+		const dynamicProviderSettings: Record<string, DynamicProviderSeed> = {};
 
 		// First pass: built-in patches (disable toggles) are order-independent; collect the active
 		// dynamic providers to sort before they contribute selectable models.
@@ -379,48 +396,65 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				};
 			}
 
-			// CONNECTED = resolvable browser-visible key. Models appear in the picker ONLY for connected
-			// providers (PRODUCT invariants 4, 8, 10) — mirrors built-ins requiring filled-in settings.
-			if (!resolvedKey) { continue; }
+			// Models populate the picker ONLY for connected (resolvable key) providers (PRODUCT invariants
+			// 4, 8, 10) — mirrors built-ins requiring filled-in settings. Keyless providers still get a
+			// seeded settings entry below (empty models) so their Settings card shows with a key field.
+			const seedModels: VibeideStatefulModelInfo[] = [];
 
-			const label = p.entry.name || p.id;
-			const modelCaps = new Map<string, Partial<VibeideStaticModelInfo>>();
-			// Active file static entries, indexed by id — they overlay catalog caps and let the file add
-			// models the catalog omits (or pin curated ones when there is no catalog yet).
-			const staticById = new Map<string, VibeProviderModelEntry>();
-			for (const m of (p.entry.models?.static ?? [])) {
-				if (m.active !== false) { staticById.set(m.id, m); }
+			if (resolvedKey) {
+				const label = p.entry.name || p.id;
+				const modelCaps = new Map<string, Partial<VibeideStaticModelInfo>>();
+				// Active file static entries, indexed by id — they overlay catalog caps and let the file add
+				// models the catalog omits (or pin curated ones when there is no catalog yet).
+				const staticById = new Map<string, VibeProviderModelEntry>();
+				for (const m of (p.entry.models?.static ?? [])) {
+					if (m.active !== false) { staticById.set(m.id, m); }
+				}
+
+				const catalog = catalogByProvider?.get(p.id);
+				const pushModel = (id: string, name: string, caps: Partial<VibeideStaticModelInfo>, fileNote?: 'override' | 'manual') => {
+					dynamicModelOptions.push({ name: `${name} (${label})`, selection: { providerName: p.id as any, modelName: id }, ...(fileNote ? { fileNote } : {}) });
+					modelCaps.set(id, caps);
+					seedModels.push({ modelName: id, type: 'autodetected', isHidden: false });
+				};
+
+				if (catalog && catalog.length > 0) {
+					// Catalog is the source of truth; a same-id static entry overlays caps + display name
+					// ('override' — caps may diverge from provider defaults).
+					for (const cm of catalog) {
+						const st = staticById.get(cm.id);
+						const caps = st ? { ...remoteModelToCaps(cm), ...modelEntryToCaps(st) } : remoteModelToCaps(cm);
+						pushModel(cm.id, st?.name || cm.name || cm.id, caps, st ? 'override' : undefined);
+					}
+					// File static ids absent from the catalog still appear ('manual' — fully file-defined).
+					for (const m of staticById.values()) {
+						if (!catalog.some(cm => cm.id === m.id)) { pushModel(m.id, m.name || m.id, modelEntryToCaps(m), 'manual'); }
+					}
+				} else {
+					// No catalog (sync pass, fetch failed/empty, or fetch:false) → file static is the source.
+					for (const m of staticById.values()) { pushModel(m.id, m.name || m.id, modelEntryToCaps(m), 'manual'); }
+				}
+				if (modelCaps.size > 0) { capsMap.set(p.id, modelCaps); }
 			}
 
-			const catalog = catalogByProvider?.get(p.id);
-			const pushModel = (id: string, name: string, caps: Partial<VibeideStaticModelInfo>, fileNote?: 'override' | 'manual') => {
-				dynamicModelOptions.push({ name: `${name} (${label})`, selection: { providerName: p.id as any, modelName: id }, ...(fileNote ? { fileNote } : {}) });
-				modelCaps.set(id, caps);
+			// First-class seed for the Settings UI (provider card + «Модели» tab). `apiKey` is the UI-typed
+			// key only (the editable field value); `_didFillInProviderSettings` reflects ANY resolvable key
+			// (UI / apiKeyRef / .vibe/.env) so an env-only key still shows the provider as connected.
+			const uiKey = (this._settingsService.state.dynamicProviderApiKeys ?? {})[p.id] ?? '';
+			dynamicProviderSettings[p.id] = {
+				apiKey: uiKey,
+				endpoint: p.entry.baseURL ?? '',
+				...(p.entry.headers ? { headersJSON: JSON.stringify(p.entry.headers) } : {}),
+				models: seedModels,
+				_didFillInProviderSettings: !!resolvedKey,
 			};
-
-			if (catalog && catalog.length > 0) {
-				// Catalog is the source of truth; a same-id static entry overlays caps + display name
-				// ('override' — caps may diverge from provider defaults).
-				for (const cm of catalog) {
-					const st = staticById.get(cm.id);
-					const caps = st ? { ...remoteModelToCaps(cm), ...modelEntryToCaps(st) } : remoteModelToCaps(cm);
-					pushModel(cm.id, st?.name || cm.name || cm.id, caps, st ? 'override' : undefined);
-				}
-				// File static ids absent from the catalog still appear ('manual' — fully file-defined).
-				for (const m of staticById.values()) {
-					if (!catalog.some(cm => cm.id === m.id)) { pushModel(m.id, m.name || m.id, modelEntryToCaps(m), 'manual'); }
-				}
-			} else {
-				// No catalog (sync pass, fetch failed/empty, or fetch:false) → file static is the source.
-				for (const m of staticById.values()) { pushModel(m.id, m.name || m.id, modelEntryToCaps(m), 'manual'); }
-			}
-			if (modelCaps.size > 0) { capsMap.set(p.id, modelCaps); }
 		}
 		setDynamicProviderModelCaps(capsMap.size > 0 ? capsMap : undefined);
 		const hasTransport = Object.keys(transportConfigs).length > 0;
+		const hasSeed = Object.keys(dynamicProviderSettings).length > 0;
 		const overrides: VibeProviderActiveOverrides | undefined =
-			(disabledProviders.size > 0 || disabledModels.size > 0 || dynamicModelOptions.length > 0 || hasTransport)
-				? { disabledProviders, disabledModels, dynamicModelOptions, ...(hasTransport ? { transportConfigs } : {}) }
+			(disabledProviders.size > 0 || disabledModels.size > 0 || dynamicModelOptions.length > 0 || hasTransport || hasSeed)
+				? { disabledProviders, disabledModels, dynamicModelOptions, ...(hasTransport ? { transportConfigs } : {}), ...(hasSeed ? { dynamicProviderSettings } : {}) }
 				: undefined;
 		this._settingsService.applyProviderActiveOverrides(overrides);
 	}

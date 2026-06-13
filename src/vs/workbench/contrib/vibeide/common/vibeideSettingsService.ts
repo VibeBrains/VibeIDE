@@ -54,6 +54,11 @@ export type VibeideSettingsState = {
 	readonly globalSettings: GlobalSettings;
 	readonly mcpUserStateOfName: MCPUserStateOfName; // user-controlled state of MCP servers
 
+	/** API keys typed into the Settings UI for DYNAMIC providers (.vibe/providers.json), keyed by file
+	 *  id. Persisted here (the file is the connection source-of-truth, so the key can't live in the
+	 *  file); the dynamic-providers service folds these back into key resolution + the seeded entry. */
+	readonly dynamicProviderApiKeys?: Record<string, string>;
+
 	readonly _modelOptions: ModelOption[] // computed based on the two above items
 }
 
@@ -269,7 +274,20 @@ export interface VibeProviderActiveOverrides {
 	readonly dynamicModelOptions?: readonly ModelOption[];
 	/** Transport config per dynamic provider id — merged into `settingsOfProvider` at send time. */
 	readonly transportConfigs?: Record<string, DynProviderTransportConfig>;
+	/** First-class settings entries seeded for active dynamic providers so the Settings UI renders them
+	 *  like built-ins (provider card + «Модели» tab). Merged into `settingsOfProvider` in
+	 *  `_validatedModelState`. Derived (reapplied each load), never persisted in the settings blob. */
+	readonly dynamicProviderSettings?: Record<string, DynamicProviderSeed>;
 }
+
+/** Shape of a seeded dynamic-provider entry (assignable to SettingsAtProvider via cast on merge). */
+export type DynamicProviderSeed = {
+	apiKey: string;
+	endpoint: string;
+	headersJSON?: string;
+	models: VibeideStatefulModelInfo[];
+	_didFillInProviderSettings: boolean;
+};
 let _providerActiveOverrides: VibeProviderActiveOverrides | undefined = undefined;
 
 const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>): VibeideSettingsState => {
@@ -291,6 +309,18 @@ const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>
 				_didFillInProviderSettings: didFillInProviderSettings,
 			},
 		}
+	}
+
+	// Seed dynamic providers (.vibe/providers.json) as first-class entries so the Settings UI (provider
+	// cards + «Модели» tab) iterates them exactly like built-ins. The chat picker still sources dynamics
+	// from `dynamicModelOptions` below, so the model-options loop deliberately stays built-in-only — no
+	// double counting. These entries are derived (reapplied each load), never written to the blob.
+	if (_providerActiveOverrides?.dynamicProviderSettings) {
+		const merged = { ...newSettingsOfProvider } as Record<string, unknown>
+		for (const [id, seed] of Object.entries(_providerActiveOverrides.dynamicProviderSettings)) {
+			merged[id] = seed
+		}
+		newSettingsOfProvider = merged as unknown as typeof newSettingsOfProvider
 	}
 
 	// update model options
@@ -368,6 +398,7 @@ const defaultState = () => {
 		overridesOfModel: deepClone(defaultOverridesOfModel),
 		_modelOptions: [], // computed later
 		mcpUserStateOfName: {},
+		dynamicProviderApiKeys: {},
 	}
 	return d
 }
@@ -578,15 +609,40 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 
 	private async _storeState() {
 		const state = this.state
-		const encryptedState = await this._encryptionService.encrypt(JSON.stringify(state))
+		// Dynamic providers (.vibe/providers.json) are SEEDED into settingsOfProvider at runtime (derived
+		// from the file overlay, reapplied each load). They must NOT be persisted into the settings blob —
+		// otherwise a provider later removed from the file would linger as a ghost card. Strip every
+		// non-built-in entry before serializing; the overlay re-seeds the live ones on next launch.
+		const builtinSet = new Set<string>(providerNames as readonly string[])
+		const sop = state.settingsOfProvider as Record<string, unknown>
+		const cleanedSettingsOfProvider: Record<string, unknown> = {}
+		for (const k of Object.keys(sop)) {
+			if (builtinSet.has(k)) { cleanedSettingsOfProvider[k] = sop[k] }
+		}
+		const toStore = { ...state, settingsOfProvider: cleanedSettingsOfProvider }
+		const encryptedState = await this._encryptionService.encrypt(JSON.stringify(toStore))
 		this._storageService.store(VOID_SETTINGS_STORAGE_KEY, encryptedState, StorageScope.APPLICATION, StorageTarget.USER);
 	}
 
 	setSettingOfProvider: SetSettingOfProviderFn = async (providerName, settingName, newVal) => {
 
-		const newModelSelectionOfFeature = this.state.modelSelectionOfFeature
-
-		const newOptionsOfModelSelection = this.state.optionsOfModelSelection
+		// Dynamic providers (.vibe/providers.json) aren't in the typed settingsOfProvider blob; their only
+		// user-editable field is the API key, which persists in a side map. The dynamic-providers service
+		// observes this change and folds the key back into resolution + the seeded entry on its reload.
+		if (!(providerNames as readonly string[]).includes(providerName as unknown as string)) {
+			if (settingName !== 'apiKey') { return }
+			const newState: VibeideSettingsState = {
+				...this.state,
+				dynamicProviderApiKeys: {
+					...(this.state.dynamicProviderApiKeys ?? {}),
+					[providerName as unknown as string]: (newVal as string) ?? '',
+				},
+			}
+			this.state = _validatedModelState(newState)
+			await this._storeState()
+			this._onDidChangeState.fire()
+			return
+		}
 
 		const newSettingsOfProvider: SettingsOfProvider = {
 			...this.state.settingsOfProvider,
@@ -596,17 +652,9 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 			}
 		}
 
-		const newGlobalSettings = this.state.globalSettings
-		const newOverridesOfModel = this.state.overridesOfModel
-		const newMCPUserStateOfName = this.state.mcpUserStateOfName
-
-		const newState = {
-			modelSelectionOfFeature: newModelSelectionOfFeature,
-			optionsOfModelSelection: newOptionsOfModelSelection,
+		const newState: VibeideSettingsState = {
+			...this.state,
 			settingsOfProvider: newSettingsOfProvider,
-			globalSettings: newGlobalSettings,
-			overridesOfModel: newOverridesOfModel,
-			mcpUserStateOfName: newMCPUserStateOfName,
 		}
 
 		this.state = _validatedModelState(newState)

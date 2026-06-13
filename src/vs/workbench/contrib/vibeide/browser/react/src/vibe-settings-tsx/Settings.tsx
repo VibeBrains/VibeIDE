@@ -1156,6 +1156,29 @@ const BuiltinProvidersFold = ({ names }: { names: ProviderName[] }) => {
 }
 
 
+/**
+ * Cloud providers declared in `.vibe/providers.json`. They're seeded into `settingsOfProvider` as
+ * first-class entries (by the dynamic-providers service), so they render with the SAME provider card
+ * as built-ins — the raw file id as the title is a deliberate signal that the provider comes from a
+ * file. The API key typed here persists separately and connects the provider (then its catalog loads).
+ * Renders nothing when there are no dynamic providers.
+ */
+const DynamicProvidersSection = () => {
+	const settingsState = useSettingsState()
+	const builtinSet = new Set<string>(providerNames as readonly string[])
+	const dynamicIds = Object.keys(settingsState.settingsOfProvider).filter(id => !builtinSet.has(id))
+	if (dynamicIds.length === 0) { return null }
+	return <div className='mt-4'>
+		<h3 className='text-base font-semibold text-vibe-fg-1 mb-2'>{providersS.dynamicProvidersTitle}</h3>
+		<div className='flex flex-col gap-3'>
+			{dynamicIds.map(id =>
+				<SettingsForProvider key={id} providerName={id as ProviderName} showProviderTitle={true} showProviderSuggestions={true} borderedCard />
+			)}
+		</div>
+	</div>
+}
+
+
 type TabName = 'models' | 'general'
 export const AutoDetectLocalModelsToggle = () => {
 	const settingName: GlobalSettingName = 'autoRefreshModels'
@@ -3083,6 +3106,7 @@ export const Settings = () => {
 										>
 											<h3 className={`text-vibe-fg-3 mb-2`}>{miscS.mainProvBlurb}</h3>
 											<BuiltinProvidersFold names={nonlocalProviderNames} />
+											<DynamicProvidersSection />
 											<div className='w-full h-[1px] my-4' />
 											<RefreshableRemoteCatalogs />
 										</AllSettingsFold>
@@ -3091,6 +3115,7 @@ export const Settings = () => {
 											<h2 className={`text-3xl mb-2`}>{nav.providers}</h2>
 											<h3 className={`text-vibe-fg-3 mb-2`}>{miscS.mainProvBlurb}</h3>
 											<BuiltinProvidersFold names={nonlocalProviderNames} />
+											<DynamicProvidersSection />
 											<div className='w-full h-[1px] my-4' />
 											<RefreshableRemoteCatalogs />
 										</>

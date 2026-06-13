@@ -824,6 +824,7 @@ export const modelsS = {
 } as const;
 
 export const providersS = {
+	dynamicProvidersTitle: 'Свои провайдеры (из .vibe/providers.json)',
 	warnOllama: 'Установите модель Ollama — мы её подхватим автоматически.',
 	warnAddModel: (providerTitle: string) =>
 		`Добавьте модель для ${providerTitle} (раздел «Модели»).`,
