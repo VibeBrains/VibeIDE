@@ -86,6 +86,21 @@ function remoteModelToCaps(m: RemoteModelInfo): Partial<VibeideStaticModelInfo> 
 	if (typeof m.contextWindow === 'number') { c.contextWindow = m.contextWindow; }
 	if (typeof m.supportsVision === 'boolean') { c.supportsVision = m.supportsVision; }
 	if (m.cost) { c.cost = { input: m.cost.input ?? 0, output: m.cost.output ?? 0 }; }
+	// OpenAI-compatible providers support native function calling. The AI-SDK path sends tools ONLY when
+	// a tool format is set (otherwise the model never receives vibe_complete and loops in autopilot), so
+	// default catalog models to openai-style. A file `static` entry's `toolFormat` overrides per model.
+	c.specialToolFormat = 'openai-style';
+	// Reasoning models here emit a native `reasoning_content` channel (parsed via the inherited
+	// openAICompatible providerReasoningIOSettings) AND often duplicate the chain-of-thought as inline
+	// <think> tags in the body (observed: MiniMax-M3). Strip the duplicate from the answer text — the
+	// native channel stays authoritative. Harmless no-op for models that don't emit <think>; a file
+	// `static` entry's `reasoning` (→ reasoningCapabilities) overrides this default.
+	c.reasoningCapabilities = {
+		supportsReasoning: true,
+		canTurnOffReasoning: true,
+		canIOReasoning: true,
+		stripThinkTagsFromContent: ['<think>', '</think>'],
+	};
 	return c as Partial<VibeideStaticModelInfo>;
 }
 
