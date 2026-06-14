@@ -6848,11 +6848,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								chatMode,
 							})
 
-							// Escalation: the model keeps re-issuing identical calls despite the hint.
-							// Abort the loop with a hard message rather than spin to maxLoopIterations.
-							// Two triggers: total blocked calls across the request (mixed patterns), or
-							// the SAME signature blocked back-to-back (verbatim replay — hopeless sooner).
-							if (antiLoopBlocks > antiLoopMaxBlocks || consecutiveSameSigBlocks >= antiLoopMaxConsecutiveSameBlocks) {
+							// Hard-abort ONLY on the TOTAL-blocks ceiling — the model ignored many nudges across
+							// the whole request. Verbatim replay (consecutiveSameSigBlocks) no longer hard-stops:
+							// instead we ESCALATE the nudge below and KEEP GOING, because models routinely break
+							// the loop after a stronger directive — the same recovery a manual «Continue» produces
+							// (observed: the model switched to different arguments immediately after continuing).
+							if (antiLoopBlocks > antiLoopMaxBlocks) {
 								const abortMsg = localize('vibeide.antiLoop.aborted', 'Прогон агента остановлен: модель повторяла один и тот же tool-call (`{0}` и др.), игнорируя результаты — {1} заблокированных повторов. Обычно это значит, что задача сформулирована неоднозначно или модель застряла. Переформулируйте запрос, сузьте область или переключите модель.', toolCall.name, String(antiLoopBlocks))
 								this._notificationService.warn(abortMsg)
 								this._addMessageToThread(threadId, {
@@ -6871,7 +6872,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								return
 							}
 
-							const hint = `Anti-loop guard: you have already called \`${toolCall.name}\` with these exact arguments ${priorSameCount} time(s) in this turn, so this call was NOT executed again — the result will not change. Use the result you already obtained, or move on to the next step / give your final answer. If you actually meant a DIFFERENT target (another folder, file, command or query), change the arguments to match it instead of repeating these. Do not repeat this call.`
+							// After several verbatim replays in a row the gentle hint clearly isn't landing —
+							// escalate to a hard directive (mid-turn equivalent of a manual «Continue» nudge)
+							// instead of aborting the whole run.
+							const escalate = consecutiveSameSigBlocks >= antiLoopMaxConsecutiveSameBlocks
+							const hint = escalate
+								? `STOP — you have called \`${toolCall.name}\` with these EXACT arguments ${priorSameCount} times in a row and it is now blocked: it will NOT execute again and the result will NOT change. Do NOT repeat it. Pick ONE now: (a) use the result you already have, (b) call a DIFFERENT tool — or the same tool with MEANINGFULLY different arguments, or (c) give your final answer. Repeating this identical call only wastes the turn.`
+								: `Anti-loop guard: you have already called \`${toolCall.name}\` with these exact arguments ${priorSameCount} time(s) in this turn, so this call was NOT executed again — the result will not change. Use the result you already obtained, or move on to the next step / give your final answer. If you actually meant a DIFFERENT target (another folder, file, command or query), change the arguments to match it instead of repeating these. Do not repeat this call.`
 							this._addMessageToThread(threadId, {
 								role: 'tool',
 								type: 'tool_error',
