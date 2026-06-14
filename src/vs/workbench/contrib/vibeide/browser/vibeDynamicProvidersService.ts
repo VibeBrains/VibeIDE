@@ -25,8 +25,8 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { providerNames } from '../common/vibeideSettingsTypes.js';
 import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig, DynamicProviderSeed } from '../common/vibeideSettingsService.js';
-import { setDynamicProviderModelCaps, VibeideStaticModelInfo } from '../common/modelCapabilities.js';
-import { IRemoteCatalogService, RemoteModelInfo, DynamicKeyValidation } from '../common/remoteCatalogService.js';
+import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo } from '../common/modelCapabilities.js';
+import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
 import { VibeideStatefulModelInfo } from '../common/vibeideSettingsTypes.js';
 import { parseProvidersFile, mergeProviderEntry, VibeProviderEntry, VibeProviderModelEntry } from '../common/vibeProvidersFile.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
@@ -75,32 +75,6 @@ function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStaticModel
 		if (r.thinkTags) { rc.openSourceThinkTags = [r.thinkTags[0], r.thinkTags[1]]; }
 		c.reasoningCapabilities = rc;
 	}
-	return c as Partial<VibeideStaticModelInfo>;
-}
-
-/** Map a remote-catalog model (fetched from <baseURL>/v1/models) to VibeIDE's capability shape.
- *  Only the fields the generic OpenAI-compatible catalog reliably exposes; a file `static` entry of
- *  the same id overlays these (richer/curated caps win — PRODUCT invariant 6). */
-function remoteModelToCaps(m: RemoteModelInfo): Partial<VibeideStaticModelInfo> {
-	const c: Record<string, unknown> = {};
-	if (typeof m.contextWindow === 'number') { c.contextWindow = m.contextWindow; }
-	if (typeof m.supportsVision === 'boolean') { c.supportsVision = m.supportsVision; }
-	if (m.cost) { c.cost = { input: m.cost.input ?? 0, output: m.cost.output ?? 0 }; }
-	// OpenAI-compatible providers support native function calling. The AI-SDK path sends tools ONLY when
-	// a tool format is set (otherwise the model never receives vibe_complete and loops in autopilot), so
-	// default catalog models to openai-style. A file `static` entry's `toolFormat` overrides per model.
-	c.specialToolFormat = 'openai-style';
-	// Reasoning models here emit a native `reasoning_content` channel (parsed via the inherited
-	// openAICompatible providerReasoningIOSettings) AND often duplicate the chain-of-thought as inline
-	// <think> tags in the body (observed: MiniMax-M3). Strip the duplicate from the answer text — the
-	// native channel stays authoritative. Harmless no-op for models that don't emit <think>; a file
-	// `static` entry's `reasoning` (→ reasoningCapabilities) overrides this default.
-	c.reasoningCapabilities = {
-		supportsReasoning: true,
-		canTurnOffReasoning: true,
-		canIOReasoning: true,
-		stripThinkTagsFromContent: ['<think>', '</think>'],
-	};
 	return c as Partial<VibeideStaticModelInfo>;
 }
 
@@ -408,7 +382,9 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		const disabledProviders = new Set<string>();
 		const disabledModels = new Map<string, ReadonlySet<string>>();
 		const dynamicModelOptions: ModelOption[] = [];
-		const capsMap = new Map<string, Map<string, Partial<VibeideStaticModelInfo>>>();
+		// Registry descriptors: each active dynamic provider is registered as openai-compatible so its
+		// models resolve caps through the SAME name-recognition as built-ins (no per-model caps here).
+		const descriptors: ExternalProviderDescriptor[] = [];
 		const transportConfigs: Record<string, DynProviderTransportConfig> = {};
 		const dynamicProviderSettings: Record<string, DynamicProviderSeed> = {};
 
@@ -455,24 +431,29 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			const keySource = this._resolveKeySource(p);
 			const isStaticOnly = p.entry.models?.fetch === false;
 			const label = p.entry.name || p.id;
-			const modelCaps = new Map<string, Partial<VibeideStaticModelInfo>>();
 			const seedModels: VibeideStatefulModelInfo[] = [];
 			const staticById = new Map<string, VibeProviderModelEntry>();
 			for (const m of (p.entry.models?.static ?? [])) {
 				if (m.active !== false) { staticById.set(m.id, m); }
 			}
+
+			// Register this provider as openai-compatible; file `static` caps become per-model overrides on
+			// the recognized baseline (vision/reasoning/tool-format come from the knowledge base by name).
+			const modelCapOverrides: { [id: string]: Partial<VibeideStaticModelInfo> } = {};
+			for (const m of (p.entry.models?.static ?? [])) { modelCapOverrides[m.id] = modelEntryToCaps(m); }
+			descriptors.push({ id: p.id, source: 'file', ...(Object.keys(modelCapOverrides).length ? { modelCapOverrides } : {}) });
+
 			const hiddenOverrides = (this._settingsService.state.dynamicModelHidden ?? {})[p.id];
-			const pushModel = (id: string, name: string, caps: Partial<VibeideStaticModelInfo>, fileNote?: 'override' | 'manual') => {
+			const pushModel = (id: string, name: string, fileNote?: 'override' | 'manual') => {
 				// Default: file `static` models (fileNote set) are shown; catalog-only models (no fileNote)
 				// are hidden until the user enables them in «Модели». An explicit user toggle wins.
 				const hidden = hiddenOverrides?.[id] ?? !fileNote;
 				if (!hidden) {
 					dynamicModelOptions.push({ name: `${name} (${label})`, selection: { providerName: p.id as any, modelName: id }, ...(fileNote ? { fileNote } : {}) });
 				}
-				modelCaps.set(id, caps);
 				seedModels.push({ modelName: id, type: 'autodetected', isHidden: hidden, ...(fileNote ? { fileNote } : {}) });
 			};
-			const pushStatic = () => { for (const m of staticById.values()) { pushModel(m.id, m.name || m.id, modelEntryToCaps(m), 'manual'); } };
+			const pushStatic = () => { for (const m of staticById.values()) { pushModel(m.id, m.name || m.id, 'manual'); } };
 
 			let keyStatus: DynamicProviderSeed['keyStatus'];
 			if (!resolvedKey) {
@@ -487,14 +468,13 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				} else if (v.status === 'ok') {
 					keyStatus = 'valid';
 					if (v.models.length > 0) {
-						// Catalog is the source of truth; a same-id static entry overlays caps + display name.
+						// Catalog is the source of truth; a same-id static entry marks it as a file override.
 						for (const cm of v.models) {
 							const st = staticById.get(cm.id);
-							const caps = st ? { ...remoteModelToCaps(cm), ...modelEntryToCaps(st) } : remoteModelToCaps(cm);
-							pushModel(cm.id, st?.name || cm.name || cm.id, caps, st ? 'override' : undefined);
+							pushModel(cm.id, st?.name || cm.name || cm.id, st ? 'override' : undefined);
 						}
 						for (const m of staticById.values()) {
-							if (!v.models.some(cm => cm.id === m.id)) { pushModel(m.id, m.name || m.id, modelEntryToCaps(m), 'manual'); }
+							if (!v.models.some(cm => cm.id === m.id)) { pushModel(m.id, m.name || m.id, 'manual'); }
 						}
 					} else {
 						pushStatic(); // valid key but empty catalog → fall back to the file's curated list
@@ -503,7 +483,6 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 					keyStatus = v.status === 'unauthorized' ? 'invalid' : 'error'; // NO models for a bad/unreachable key
 				}
 			}
-			if (modelCaps.size > 0) { capsMap.set(p.id, modelCaps); }
 
 			// First-class seed for the Settings UI. `apiKey` = the UI-typed key only (editable field value).
 			// `_didFillInProviderSettings` is true only when models are actually offered (valid / static).
@@ -518,7 +497,8 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				keySource,
 			};
 		}
-		setDynamicProviderModelCaps(capsMap.size > 0 ? capsMap : undefined);
+		// Register all active dynamic providers in the unified caps registry (replace-all each apply).
+		setExternalProviders(descriptors);
 		const hasTransport = Object.keys(transportConfigs).length > 0;
 		const hasSeed = Object.keys(dynamicProviderSettings).length > 0;
 		const overrides: VibeProviderActiveOverrides | undefined =

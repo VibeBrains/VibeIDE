@@ -2163,11 +2163,6 @@ export type CatalogModelHint = {
  * resolve a provider that isn't in the compile-time `modelSettingsOfProvider`. Module-level, like
  * the settings service's override holder — keeps this function pure of any service dependency.
  */
-let _dynamicProviderModelCaps: ReadonlyMap<string, ReadonlyMap<string, Partial<VibeideStaticModelInfo>>> | undefined = undefined;
-export function setDynamicProviderModelCaps(map: ReadonlyMap<string, ReadonlyMap<string, Partial<VibeideStaticModelInfo>>> | undefined): void {
-	_dynamicProviderModelCaps = map;
-}
-
 export const getModelCapabilities = (
 	providerName: ProviderName,
 	modelName: string,
@@ -2177,22 +2172,18 @@ export const getModelCapabilities = (
 	| { modelName: string; recognizedModelName: string; isUnrecognizedModel: false }
 	| { modelName: string; recognizedModelName?: undefined; isUnrecognizedModel: true }
 ) => {
-	// Guard: Check if provider exists in modelSettingsOfProvider (handles "auto" and other invalid providers)
-	if (!(providerName in modelSettingsOfProvider) || !modelSettingsOfProvider[providerName]) {
-		// Dynamic provider from .vibe/providers.json: caps come from the file (over openai-compatible
-		// defaults), then catalog hints. Treated as recognized so it's not flagged unknown.
-		const dynCaps = _dynamicProviderModelCaps?.get(providerName)?.get(modelName);
-		if (dynCaps) {
-			return { modelName, ...defaultModelOptions, ...dynCaps, ...catalogFields(catalogInfo), recognizedModelName: modelName, isUnrecognizedModel: false };
-		}
-		// Return default capabilities for invalid provider names — still let catalog
-		// fill contextWindow if available.
-		return { modelName, ...defaultModelOptions, ...catalogFields(catalogInfo), isUnrecognizedModel: true };
+	// Resolve through the unified registry — built-in OR external (.vibe/providers.json) provider, the
+	// SAME path. A dynamic provider is registered as openai-compatible, so its models flow through the
+	// same name-recognition (vision/reasoning/tool-format/context) as built-in aggregators. Unknown id
+	// ("auto", or a provider removed from the file) → generic default caps, still let catalog fill in.
+	const resolved = resolveProvider(providerName)
+	if (!resolved) {
+		return { modelName, ...defaultModelOptions, ...catalogFields(catalogInfo), isUnrecognizedModel: true }
 	}
 
 	const lowercaseModelName = modelName.toLowerCase()
 
-	const { modelOptions, modelOptionsFallback } = modelSettingsOfProvider[providerName]
+	const { modelOptions, modelOptionsFallback } = resolved.info
 
 	// Get any override settings for this model. Auto-detected overrides expire
 	// after AUTO_DOWNGRADE_TTL_MS — past that point the model gets a fresh
@@ -2258,11 +2249,11 @@ const catalogFields = (info: CatalogModelHint | undefined): Partial<VibeideStati
 
 // non-model settings
 export const getProviderCapabilities = (providerName: ProviderName) => {
-	// Dynamic providers (.vibe/providers.json) aren't in modelSettingsOfProvider. They're
-	// OpenAI-compatible, so fall back to the openAICompatible provider's reasoning IO settings
-	// (reasoning_effort in / reasoning_content out) instead of destructuring undefined.
-	const settings = modelSettingsOfProvider[providerName] ?? modelSettingsOfProvider['openAICompatible']
-	const { providerReasoningIOSettings } = settings
+	// Unified path: built-in OR external (.vibe/providers.json) provider. An external provider is
+	// registered as openai-compatible, so it carries the same reasoning IO settings; an unknown id
+	// still falls back to openAICompatible rather than destructuring undefined.
+	const info = resolveProvider(providerName)?.info ?? modelSettingsOfProvider['openAICompatible']
+	const { providerReasoningIOSettings } = info
 	return { providerReasoningIOSettings }
 }
 
