@@ -495,6 +495,9 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				_didFillInProviderSettings: keyStatus === 'valid' || keyStatus === 'unverified',
 				keyStatus,
 				keySource,
+				// Carried to electron-main (via settingsOfProvider) so the send-path registers this provider
+				// in its own caps registry — same `modelCapOverrides` as the renderer-side descriptor.
+				...(Object.keys(modelCapOverrides).length ? { modelCapOverrides } : {}),
 			};
 		}
 		// Register all active dynamic providers in the unified caps registry (replace-all each apply).

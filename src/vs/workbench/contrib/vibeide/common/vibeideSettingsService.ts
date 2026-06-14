@@ -12,7 +12,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IMetricsService } from './metricsService.js';
-import { defaultProviderSettings, getModelCapabilities, ModelOverrides } from './modelCapabilities.js';
+import { defaultProviderSettings, getModelCapabilities, ModelOverrides, VibeideStaticModelInfo } from './modelCapabilities.js';
 import { VOID_SETTINGS_STORAGE_KEY } from './storageKeys.js';
 import { autoModelFallbackProviderOrder, defaultSettingsOfProvider, FeatureName, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, ModelSelection, modelSelectionsEqual, featureNames, VibeideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState } from './vibeideSettingsTypes.js';
 
@@ -298,6 +298,10 @@ export type DynamicProviderSeed = {
 	keyStatus?: 'valid' | 'invalid' | 'error' | 'pending' | 'unverified' | 'none';
 	/** Where the resolved key came from — surfaced in the card so the user knows what's in effect. */
 	keySource?: 'gui' | 'env' | 'ref' | 'none';
+	/** Per-model caps from the file `static` list, carried so the SEND PATH (electron-main) can register
+	 *  this provider into its own copy of the caps registry — settingsOfProvider crosses the process
+	 *  boundary per request, the renderer-side registry doesn't. */
+	modelCapOverrides?: { [modelId: string]: Partial<VibeideStaticModelInfo> };
 };
 let _providerActiveOverrides: VibeProviderActiveOverrides | undefined = undefined;
 

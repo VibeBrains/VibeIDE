@@ -6,8 +6,28 @@
 import { vibeLog } from '../../common/vibeLog.js';
 import { SendLLMMessageParams, OnText, OnFinalMessage, OnError } from '../../common/sendLLMMessageTypes.js';
 import { IMetricsService } from '../../common/metricsService.js';
-import { displayInfoOfProviderName, FeatureName } from '../../common/vibeideSettingsTypes.js';
+import { displayInfoOfProviderName, FeatureName, providerNames } from '../../common/vibeideSettingsTypes.js';
+import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo } from '../../common/modelCapabilities.js';
 import { sendLLMMessageToProviderImplementation, dynamicProviderImplementation } from './sendLLMMessage.impl.js';
+
+/**
+ * Register dynamic providers (.vibe/providers.json) into THIS process's caps registry. The renderer's
+ * registry doesn't cross the process boundary, but `settingsOfProvider` (carrying each dynamic provider's
+ * seed entry + `modelCapOverrides`) does — per request. Without this, getModelCapabilities in the send
+ * path can't recognize a dynamic model and sends no tools / wrong caps. Replace-all each call (cheap).
+ */
+const _builtinProviderSet = new Set<string>(providerNames as readonly string[]);
+const syncExternalProvidersFromSettings = (settingsOfProvider: SendLLMMessageParams['settingsOfProvider']): void => {
+	const descriptors: ExternalProviderDescriptor[] = [];
+	const entries = settingsOfProvider as unknown as Record<string, { modelCapOverrides?: { [modelId: string]: Partial<VibeideStaticModelInfo> } } | undefined>;
+	for (const id of Object.keys(entries)) {
+		if (_builtinProviderSet.has(id)) { continue; }
+		const entry = entries[id];
+		if (!entry) { continue; }
+		descriptors.push({ id, source: 'file', ...(entry.modelCapOverrides ? { modelCapOverrides: entry.modelCapOverrides } : {}) });
+	}
+	setExternalProviders(descriptors);
+};
 
 
 export const sendLLMMessage = async ({
@@ -33,6 +53,9 @@ export const sendLLMMessage = async ({
 
 
 	const { providerName, modelName } = modelSelection
+
+	// Sync dynamic providers into this process's caps registry before any getModelCapabilities call.
+	syncExternalProvidersFromSettings(settingsOfProvider)
 
 	// only captures number of messages and message "shape", no actual code, instructions, prompts, etc
 	const captureLLMEvent = (eventId: string, extras?: object) => {
