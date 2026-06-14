@@ -380,7 +380,18 @@ const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>
 		const modelSelectionAtFeature = newModelSelectionOfFeature[featureName]
 		const selnIdx = modelSelectionAtFeature === null ? -1 : modelOptionsForThisFeature.findIndex(m => modelSelectionsEqual(m.selection, modelSelectionAtFeature))
 
-		if (selnIdx !== -1) continue // no longer in list, so update to 1st in list or null
+		if (selnIdx !== -1) continue // still in the list — keep the selection
+
+		// Don't clobber a DYNAMIC-provider selection (.vibe/providers.json) just because it isn't in the
+		// options right now: the overlay + catalog load ASYNC at startup (and a catalog model stays
+		// `pending` until its key is validated), so this validation runs before the model appears. Reset
+		// only when the overlay HAS loaded AND the provider is gone (removed from the file) — otherwise
+		// the persisted selection was reset on every launch. Built-in selections reset as before.
+		const sel = modelSelectionAtFeature
+		if (sel && sel.providerName !== 'auto' && !(providerNames as readonly string[]).includes(sel.providerName)) {
+			const providerStillActive = !_providerActiveOverrides || !!_providerActiveOverrides.dynamicProviderSettings?.[sel.providerName]
+			if (providerStillActive) continue
+		}
 
 		newModelSelectionOfFeature = {
 			...newModelSelectionOfFeature,
