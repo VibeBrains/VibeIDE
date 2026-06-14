@@ -560,6 +560,11 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 	if (lower.includes('deepseek-v4') || lower.includes('deepseek4')) return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekV4')
 	if (lower.includes('deepseek')) return toFallback(openSourceModelOptions_assumingOAICompat, 'deepseekV4')
 
+	// MiniMax (M3 = 1M ctx, multimodal, toggleable thinking; M2 = thinking, 204k). Recognized across ANY
+	// openai-compatible provider (built-in aggregators + dynamic .vibe/providers.json) so vision/reasoning/
+	// tool-format come from the knowledge base, not per-model file config.
+	if (lower.includes('minimax')) return toFallback(minimaxModelOptions, /m-?3/i.test(modelName) ? 'MiniMax-M3' : 'MiniMax-M2')
+
 	if (lower.includes('llama3')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3')
 	if (lower.includes('llama3.1')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.1')
 	if (lower.includes('llama3.2')) return toFallback(openSourceModelOptions_assumingOAICompat, 'llama3.2')
@@ -2067,6 +2072,69 @@ const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProvi
 	microsoftAzure: microsoftAzureSettings,
 	awsBedrock: awsBedrockSettings,
 } as const
+
+
+// ---------------- runtime provider registry (built-in + external file/network providers) ----------------
+
+/**
+ * Where a provider comes from. `builtin` = compiled into VibeIDE; `file` = `.vibe/providers.json`;
+ * `network` = reserved for a future remote source. The tag is metadata — every consumer resolves
+ * providers through ONE path (`resolveProvider`); the tag only drives visual grouping in the UI.
+ */
+export type ProviderSource = 'builtin' | 'file' | 'network';
+
+/**
+ * Minimal descriptor an external source hands to the registry. The registry builds a full
+ * `VoidStaticProviderInfo` for it as an OpenAI-compatible provider — so its models resolve through the
+ * SAME name-recognition (`aggregatorOpenAIFallback` → `extensiveModelOptionsFallback`) as built-in
+ * aggregators. `modelCapOverrides` are per-model partial caps (from a file `static` list) overlaid on
+ * the recognized baseline.
+ */
+export type ExternalProviderDescriptor = {
+	id: string;
+	source: 'file' | 'network';
+	modelCapOverrides?: { [modelId: string]: Partial<VibeideStaticModelInfo> };
+};
+
+const _externalProviders = new Map<string, { info: VoidStaticProviderInfo; source: 'file' | 'network' }>();
+
+const buildExternalProviderInfo = (d: ExternalProviderDescriptor): VoidStaticProviderInfo => {
+	const modelOptions: { [key: string]: VibeideStaticModelInfo } = {};
+	for (const [modelId, partial] of Object.entries(d.modelCapOverrides ?? {})) {
+		// Recognized baseline for the exact id (vision/reasoning/tool-format/context), then the file's
+		// curated partial caps win on top.
+		const baseline: VibeideStaticModelInfo = aggregatorOpenAIFallback(modelId) ?? defaultModelOptions;
+		modelOptions[modelId] = { ...baseline, ...partial };
+	}
+	return {
+		providerReasoningIOSettings: openaiCompatible.providerReasoningIOSettings,
+		modelOptions,
+		modelOptionsFallback: aggregatorOpenAIFallback,
+	};
+};
+
+/** Replace the full set of external providers (called by the dynamic-providers service on each reload). */
+export const setExternalProviders = (descriptors: readonly ExternalProviderDescriptor[]): void => {
+	_externalProviders.clear();
+	for (const d of descriptors) {
+		_externalProviders.set(d.id, { info: buildExternalProviderInfo(d), source: d.source });
+	}
+};
+
+/** Resolve a provider's static info + source — built-in OR registered external — through ONE path. */
+export const resolveProvider = (providerName: string): { info: VoidStaticProviderInfo; source: ProviderSource } | undefined => {
+	if (Object.prototype.hasOwnProperty.call(modelSettingsOfProvider, providerName)) {
+		return { info: modelSettingsOfProvider[providerName as ProviderName], source: 'builtin' };
+	}
+	const ext = _externalProviders.get(providerName);
+	return ext ? { info: ext.info, source: ext.source } : undefined;
+};
+
+/** All provider ids with their source, for UI iteration/grouping (built-ins first, then externals). */
+export const allProviderEntries = (): { id: string; source: ProviderSource }[] => [
+	...Object.keys(modelSettingsOfProvider).map(id => ({ id, source: 'builtin' as ProviderSource })),
+	...Array.from(_externalProviders.entries(), ([id, v]) => ({ id, source: v.source as ProviderSource })),
+];
 
 
 // ---------------- exports ----------------
