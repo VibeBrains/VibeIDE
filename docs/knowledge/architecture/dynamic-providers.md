@@ -75,6 +75,22 @@
 
 **⚠ Риск (учтён):** `settingsOfProvider` персистится (`_storeState`), динамику персистить нельзя. Поэтому overlay — отдельный holder, merge в `settingsOfProvider` делается **только** транзиентно на send-site (п.3), в persisted state не попадает.
 
+## [архитектура] Единый реестр провайдеров — CANONICAL (заменил overlay-caps путь выше)
+
+**Контекст:** 2026-06-14 (v1.2.0). Динамики сперва шли ОТДЕЛЬНОЙ обеднённой веткой (overlay `dynamicModelOptions` + `_dynamicProviderModelCaps` + ветка в `getModelCapabilities` + `remoteModelToCaps`). Итог — whack-a-mole: каждую капу (tool-format, vision, reasoning) переоткрывали руками и ловили по одной (MiniMax-M3: нет тулов → не видит `vibe_complete`; нет vision → тост; утечка сырых `<think>`). Переписано на ЕДИНЫЙ путь.
+
+**Суть (текущая правда):**
+- `common/modelCapabilities.ts` — рантайм-реестр: `resolveProvider(id) → { info, source }`, `setExternalProviders(descriptors)`, `allProviderEntries()`. Built-in сидируются из `modelSettingsOfProvider`; динамики **регистрируются** как openai-compatible (`info.modelOptionsFallback = aggregatorOpenAIFallback`).
+- `getModelCapabilities` / `getProviderCapabilities` резолвят ЛЮБОГО провайдера через `resolveProvider` — **без ветки для динамиков**. Капы динамика приходят из той же базы знаний по ИМЕНИ модели (`extensiveModelOptionsFallback`: claude/gpt/gemini/qwen/deepseek/llama/grok/**minimax**…) → vision/reasoning/tool-format/context «бесплатно».
+- Файловый `static` → `modelCapOverrides` (per-model partial caps поверх распознанного baseline), строит `vibeDynamicProvidersService` через `modelEntryToCaps`.
+- УДАЛЕНО: `_dynamicProviderModelCaps`/`setDynamicProviderModelCaps`, `remoteModelToCaps`, ветка в `getModelCapabilities`, fallback-хак `getProviderCapabilities`. (Разделы «2b-2 A/B» выше — историческое описание снятого подхода.)
+
+**⚠ GOTCHA (корень «тулы/vision не доезжали до модели»):** `getModelCapabilities` зовётся в ДВУХ процессах — рендерер (UI/пикер) И electron-main (send-path, `aiSdkAdapter`). Реестр — module-state, заполняется в РЕНДЕРЕРЕ и границу процесса НЕ пересекает → в main реестр пустой → у динамика нет `specialToolFormat` → тулы не шлются. Фикс: `DynamicProviderSeed.modelCapOverrides` едет в `settingsOfProvider` (он и так пересекает границу per-request), а `sendLLMMessage` (main) зовёт `setExternalProviders` из него ДО любого `getModelCapabilities`.
+
+**Урок:** для динамиков НЕ плодить параллельный путь — гнать через общий реестр+распознавание. Добавить семейство в `extensiveModelOptionsFallback` — польза ВСЕМ openai-compat (и openRouter, и динамику). Любой capability-гейт (vision: `visionModelHelper`/`imageQAIntegration`; tool-format в `aiSdkAdapter`) обязан спрашивать `getModelCapabilities`, а не свою эвристику-набор провайдеров (именно отдельная vision-эвристика и держала тост у динамика).
+
+**Применение:** провайдер распознаваемого семейства работает из коробки; неизвестная модель → openai-style дефолт + per-model override (тоггл vision в «Модели» / `static` в файле). Каталог `/v1/models` отдаёт только id (не капы) — vision/reasoning из базы знаний или override.
+
 ## [convention] JSONC-комментарии в `.vibe/*`-примерах — один пробел, без выравнивания
 
 **Контекст:** 2026-06-13, обратная связь автора по `providers.json`.
