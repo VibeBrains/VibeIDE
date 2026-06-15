@@ -13,6 +13,7 @@ import { IVibeConstraintsService, ConstraintViolationError } from '../common/vib
 import { IVibeExternalAccessService, ExternalAccessRequiredError } from '../common/vibeExternalAccessService.js'
 import { IVibePromptGuardService } from '../common/vibePromptGuardService.js'
 import { IVibePerFilePermissionsService } from '../common/vibePerFilePermissionsService.js'
+import { IVibeIgnoreService } from './vibeIgnoreService.js'
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js'
 import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js'
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js'
@@ -254,6 +255,7 @@ export class ToolsService implements IToolsService {
 		@ITextFileService private readonly _textFileService: ITextFileService,
 		@IShellHardeningService private readonly _shellHardeningService: IShellHardeningService,
 		@IVibeExternalAccessService private readonly _externalAccess: IVibeExternalAccessService,
+		@IVibeIgnoreService vibeIgnoreService: IVibeIgnoreService,
 	) {
 		this._offlineGate = new OfflinePrivacyGate();
 		const queryBuilder = instantiationService.createInstance(QueryBuilder);
@@ -746,6 +748,12 @@ export class ToolsService implements IToolsService {
 
 		this.callTool = {
 			read_file: async ({ uri, startLine, endLine, pageNumber, lineLimit, withLineNumbers }) => {
+				// .vibe/ignore guard: refuse to read files the project excluded from the agent (e.g.
+				// minified single-line bundles that balloon the context window). Fail-safe with a clear
+				// hint instead of silently dumping hundreds of thousands of tokens.
+				if (vibeIgnoreService.isIgnored(uri)) {
+					throw new Error(`Файл «${uri.fsPath}» закрыт правилом .vibe/ignore — чтение пропущено, чтобы не раздувать контекст. Если эта область нужна, читай несжатую/-debug версию (она многострочная и адресуется по строкам) или временно убери правило из .vibe/ignore.`)
+				}
 				// Directory guard (0.13.23): read_file on a directory previously threw a
 				// cryptic FileOperationError ("...is actually a directory") the model
 				// could not act on (observed: agent called read_file on `.vibe`, a folder,
@@ -1126,6 +1134,11 @@ export class ToolsService implements IToolsService {
 			},
 
 			search_in_file: async ({ uri, query, isRegex }) => {
+				// .vibe/ignore guard (same policy as read_file) — don't let the agent search excluded
+				// files and then read the matched lines back into context.
+				if (vibeIgnoreService.isIgnored(uri)) {
+					throw new Error(`Файл «${uri.fsPath}» закрыт правилом .vibe/ignore — поиск пропущен. Используй несжатую/-debug версию или убери правило из .vibe/ignore.`)
+				}
 				await vibeideModelService.initializeModel(uri);
 				let { model } = await vibeideModelService.getModelSafe(uri);
 				if (model === null) {
