@@ -1716,6 +1716,12 @@ class EditCodeService extends Disposable implements IEditCodeService {
 			if (normalized !== blocksStr) { blocks = extractSearchReplaceBlocks(normalized) }
 		}
 		if (blocks.length === 0) throw new Error(this._searchReplaceFormatHint(blocksStr))
+		// A block with an ORIGINAL marker but no "=======" divider parses as 'writingOriginal' with an
+		// EMPTY `final` — applying it would DELETE the matched ORIGINAL text instead of replacing it.
+		// (Incident: an agent sent only the search half three times in a row, silently corrupting a PHP
+		// file.) For a complete, non-streaming tool argument this is never valid; reject with the format
+		// hint (which diagnoses the missing divider) instead of destroying code.
+		if (blocks.some(b => b.state === 'writingOriginal')) throw new Error(this._searchReplaceFormatHint(blocksStr))
 
 		const { model } = this._vibeideModelService.getModel(uri)
 		if (!model) throw new Error(`Error applying Search/Replace blocks: File does not exist.`)
