@@ -591,7 +591,7 @@ export type GlobalSettings = {
 	// Audit log settings
 	audit?: {
 		enable?: boolean; // Enable audit logging (default: false)
-		path?: string; // Custom path for audit log (default: ${workspaceRoot}/.vibeide/audit.jsonl)
+		path?: string; // Custom path for audit log (default: ${workspaceRoot}/.vibe/audit.jsonl)
 		rotationSizeMB?: number; // Rotate log file at this size (default: 10)
 	};
 	// Indexer settings
@@ -654,7 +654,7 @@ export const defaultGlobalSettings: GlobalSettings = {
 	// Audit log defaults
 	audit: {
 		enable: false, // Audit logging disabled by default
-		path: undefined, // Will use ${workspaceRoot}/.vibeide/audit.jsonl
+		path: undefined, // Will use ${workspaceRoot}/.vibe/audit.jsonl
 		rotationSizeMB: 10,
 	},
 	// Indexer defaults

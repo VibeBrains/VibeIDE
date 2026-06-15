@@ -138,7 +138,7 @@ class AuditLogService extends Disposable implements IAuditLogService {
 		} else {
 			const workspace = this._workspaceContextService.getWorkspace();
 			if (workspace.folders.length > 0) {
-				this._logPath = joinPath(workspace.folders[0].uri, '.vibeide', 'audit.jsonl');
+				this._logPath = joinPath(workspace.folders[0].uri, '.vibe', 'audit.jsonl');
 			} else {
 				this._logPath = joinPath(this._environmentService.workspaceStorageHome, 'audit.jsonl');
 			}
