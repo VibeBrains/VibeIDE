@@ -183,7 +183,10 @@ export const PARAM_ALIASES_BY_TOOL: { readonly [canonicalToolName: string]: { re
 		detach: 'run_in_background',
 	},
 	browse_url: {
-		url: 'uri', link: 'uri', href: 'uri',
+		// browse_url's canonical param is `url` (NOT the file-tool `uri`) — it reads `params.url`.
+		// Normalize foreign location names TO `url`; never remap `url` itself (that left params.url
+		// undefined and broke the tool for every input).
+		uri: 'url', link: 'url', href: 'url',
 	},
 	vibe_complete: {
 		// Cline/Roo `attempt_completion` carries the closing text in `result`; others vary.
