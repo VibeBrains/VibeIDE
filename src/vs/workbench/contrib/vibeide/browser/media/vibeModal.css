@@ -147,6 +147,11 @@
 	flex: 1 1 auto;
 	min-height: 0;
 	overflow-y: auto;
+	/* Standardized thin, native-toned scrollbar — same treatment as .vibeide-rmodal-scroll
+	   (resizable modal) and the command-form portal, instead of the default chromium bar.
+	   The matching ::-webkit-scrollbar rules are shared with .vibeide-rmodal-scroll below. */
+	scrollbar-width: thin;
+	scrollbar-color: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4)) transparent;
 	color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
 	white-space: pre-wrap;
 	/* `overflow-wrap: anywhere` + `word-break: break-word` ensure long
@@ -689,22 +694,27 @@
 	scrollbar-width: thin;
 	scrollbar-color: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4)) transparent;
 }
-.vibeide-rmodal-scroll::-webkit-scrollbar {
+.vibeide-rmodal-scroll::-webkit-scrollbar,
+.vibeide-modal-body::-webkit-scrollbar {
 	width: 8px;
 	background-color: transparent;
 }
-.vibeide-rmodal-scroll::-webkit-scrollbar-track {
+.vibeide-rmodal-scroll::-webkit-scrollbar-track,
+.vibeide-modal-body::-webkit-scrollbar-track {
 	background-color: transparent;
 }
-.vibeide-rmodal-scroll::-webkit-scrollbar-thumb {
+.vibeide-rmodal-scroll::-webkit-scrollbar-thumb,
+.vibeide-modal-body::-webkit-scrollbar-thumb {
 	background-color: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
 	border-radius: 9999px;
 	min-height: 40px;
 }
-.vibeide-rmodal-scroll::-webkit-scrollbar-thumb:hover {
+.vibeide-rmodal-scroll::-webkit-scrollbar-thumb:hover,
+.vibeide-modal-body::-webkit-scrollbar-thumb:hover {
 	background-color: var(--vscode-scrollbarSlider-hoverBackground, rgba(100, 100, 100, 0.7));
 }
-.vibeide-rmodal-scroll::-webkit-scrollbar-thumb:active {
+.vibeide-rmodal-scroll::-webkit-scrollbar-thumb:active,
+.vibeide-modal-body::-webkit-scrollbar-thumb:active {
 	background-color: var(--vscode-scrollbarSlider-activeBackground, rgba(191, 191, 191, 0.4));
 }
 .vibeide-rmodal-grip {
