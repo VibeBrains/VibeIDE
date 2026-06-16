@@ -3369,6 +3369,34 @@ Backlog (data-gated — не плодить спекулятивно, урок #
 - [x] **CH.13 — экспорт / очистка истории по проекту** — ✅ (2026-05-31): сервис `getCurrentWorkspaceThreads()` (строго owned: `workspaceId === current`, исключает legacy/чужие) + `deleteCurrentWorkspaceThreads()` (через `deleteThread` → plan/lock/session cleanup; no-op в folder-less окне). Две palette-команды (`vibeChatHistoryActions.ts`): **«Экспортировать историю текущего проекта»** (quick-pick MD/JSON → save-dialog → `IFileService.writeFile`; MD = стенограмма, JSON = полные треды с placeholder для бинарных image-данных) и **«Удалить историю текущего проекта»** (`IDialogService.confirm` warning → удаление, необратимо, трогает только свои треды).
 - [x] **CH.14 — ревью-фиксы CH.13 (экспорт + DRY ownership)** — ✅ (2026-05-31, проход по сделанному): (a) JSON-экспорт чистил только `Uint8Array`, но протаскивал runtime-мусор — `state.mountedInfo` (live Promise + resolver-функции → `{}`) и терял `filesWithUserChanges: Set` (молча → `{}`). Новый `threadsToJson`: meta-обёртка (`{schema,exportedAt,project,threadCount}`) + replacer (drop `mountedInfo`, `Set`→array, bytes→placeholder) — экспорт чистый и self-describing. (b) Дублированная проверка `workspaceId === current` в `getCurrentWorkspaceThreads`/`deleteCurrentWorkspaceThreads` + расхождение в folder-less окне вынесены в чистый `threadOwnedBy(thread, wsId)` (common, `!!wsId` guard → folder-less владеет ничем, обе bulk-операции консистентно no-op). +тест-кейсы (own/foreign/legacy/empty-id/folderless), автономная проверка 6/6.
 
+## FA. Fast-apply «вторая модель» (Cursor/Continue-style apply-model) — ЗАЛОЖЕНО, отложено (2026-06-16)
+
+**Контекст.** MiniMax-M3 не мог редактировать файлы: не умеет выдать многомаркерный SEARCH/REPLACE-блок одной JSON-строкой (в логе 12/12 провалов `edit_file` → лавина одноразовых PowerShell-скриптов, «час тупил»). Разведка по 4 эталонам (Roo Code, OpenCode, Kilo, Continue) дала однозначно: **3 из 4 НЕ используют вторую модель** — спасает плоский `old_string`/`new_string` + терпимый матчинг. Continue — единственный с apply-моделью (Morph/Relace), но у него она **опциональна и deterministic-first**, а lazy-формат gated по модели.
+
+**Сделано в этой сессии (дешёвый фикс, едет в 1.2.x):**
+- **Фаза 1** — flat `old_string`/`new_string` в `edit_file` (валидатор собирает SEARCH/REPLACE-блок внутри; модель отдаёт два простых поля). Файлы: `tools/edit_file.ts`, `toolsServiceTypes.ts` (тип edit_file), `toolsService.ts` (валидатор), `toolAliases.ts`, `prompts.ts` (XML-пример).
+- **Фаза 2** — терпимый матчер `common/helpers/fuzzyLineMatch.ts` (line-trimmed + block-anchor + Levenshtein, ±25% guard) подключён в `editCodeService.findTextInCode`. Тест `test/common/fuzzyLineMatch.test.ts` (10/10).
+
+**Заложено на будущее (Фаза 3 — НЕ для minimax, а для РАСШИРЕНИЯ):** опциональная **apply-модель** (роль `'Apply'`), которая мёрджит loose-правку (`// ... existing code ...`) в файл целиком — как Morph/Relace у Continue. Зачем, раз minimax уже закрыт:
+- **Мы не minimax-едины.** Модели через OpenCode-агрегатор, OpenRouter и пр. разного уровня; где-то flat+матчер не дотянет, и выделенная fast-apply модель даст качество/скорость.
+- **Идея под субагенты:** apply-модель — это специализированный суб-агент-исполнитель (одна узкая задача — «применить правку»), а главная модель лишь описывает «что менять».
+
+**Seam уже существует (не с нуля):**
+- `FeatureName 'Apply'` + `modelSelectionOfFeature['Apply']` (`vibeideSettingsTypes.ts`).
+- `editCodeService._initializeSearchAndReplaceStream` / `_initializeWriteoverStream` — готовый apply-стрим (сейчас подключён только к «ClickApply»-кнопке, не к агентному `edit_file`).
+- Промпты `searchReplaceGivenDescription_*` / `rewriteCode_*` (`prompts.ts`).
+
+**Что доделать, когда возьмёмся:**
+1. Опциональный параметр `code_edit` у `edit_file` (формат Continue: `// ... existing code ...`).
+2. Публичный `applyAgentEditViaModel({uri, codeEdit})` поверх `_initializeWriteoverStream` (writeover целым файлом — надёжно для слабых apply-моделей; MiniMax `rewrite_file` в логе отработал 36/36), вызываемый из тула и awaited; DiffZone + `autoAcceptLLMChanges` переиспользовать.
+3. Роутинг стратегии: writeover для слабых семейств / больших файлов; search/replace-generation для capable apply-моделей.
+4. UI выбора apply-модели + (опц.) готовый Morph/Relace endpoint как fast-apply из коробки.
+5. Флаг `vibeide.agent.fastApply` (default off до обкатки).
+
+**Риск:** трогает AI-SDK apply-стрим (см. `ai-sdk-migration-wip`) → строго за флагом. И если apply-моделью окажется та же слабая модель — выигрыша нет (нужна ВЫДЕЛЕННАЯ); поэтому это **расширение**, а не замена Фаз 1+2.
+
+**Референсы:** Continue `core/edit/lazy/applyCodeBlock.ts` (deterministic-first), `core/llm/llms/Relace.ts`, apply model role (`docs/customize/model-roles/apply.mdx`); Cursor fast-apply; Roo/OpenCode/Kilo — подтверждают, что для большинства моделей вторая модель НЕ нужна.
+
 ---
 
 | Документ | Описание |
