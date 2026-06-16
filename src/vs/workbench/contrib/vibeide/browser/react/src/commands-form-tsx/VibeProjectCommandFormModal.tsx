@@ -5,7 +5,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAccessor } from '../util/services.js';
-import { VibeResizableModal } from '../components/VibeResizableModal.js';
+import { VibeModalForm } from '../components/VibeModalForm.js';
 import { VibeProjectCommandForm } from '../vibe-settings-tsx/VibeProjectCommandForm.js';
 
 /**
@@ -33,7 +33,7 @@ export const VibeProjectCommandFormModal: React.FC = () => {
 		: 'Новая команда проекта';
 
 	return (
-		<VibeResizableModal
+		<VibeModalForm
 			open={open && !!props}
 			title={title}
 			onClose={close}
@@ -53,6 +53,6 @@ export const VibeProjectCommandFormModal: React.FC = () => {
 					/>
 				</div>
 			)}
-		</VibeResizableModal>
+		</VibeModalForm>
 	);
 };

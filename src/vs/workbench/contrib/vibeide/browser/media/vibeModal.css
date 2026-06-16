@@ -589,7 +589,7 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Generic resizable-modal shell (VibeResizableModal.tsx) — backdrop + window + grip.
+   Generic resizable-modal shell (VibeModalForm.tsx) — backdrop + window + grip.
    Shared by «VibeIDE Команды» and the project-command Add/Edit form. The window/header/grip
    mirror the command-palette styling above; the body is a flex column the caller fills.
    ───────────────────────────────────────────────────────────────────────────── */

@@ -14,7 +14,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
  * Inline classNames are `@@`-prefixed so scope-tailwind ships them raw. Used by the command
  * browser («VibeIDE Команды») and the project-command Add/Edit form.
  */
-export interface VibeResizableModalProps {
+export interface VibeModalFormProps {
 	readonly open: boolean;
 	readonly title: string;
 	readonly onClose: () => void;
@@ -32,7 +32,7 @@ export interface VibeResizableModalProps {
 
 const VIEWPORT_MARGIN = 40;
 
-export const VibeResizableModal: React.FC<VibeResizableModalProps> = ({
+export const VibeModalForm: React.FC<VibeModalFormProps> = ({
 	open, title, onClose, headerRight, onKeyDown, ariaLabel, children,
 	defaultWidth = 720, defaultHeight = 600, minWidth = 480, minHeight = 360,
 }) => {

@@ -6,7 +6,7 @@
 import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { useEffect, useState } from 'react';
 import { useAccessor } from '../util/services.js';
-import { VibeModal } from './VibeModal.js';
+import { VibeModalSimple } from './VibeModalSimple.js';
 import { VibeModalQueueEntry } from '../../../../common/vibeModalTypes.js';
 
 /**
@@ -118,12 +118,12 @@ export const VibeModalContainer: React.FC = () => {
 	// NOTE: this class list is built as a VARIABLE (not an inline `className={...}`
 	// literal), so scope-tailwind never sees it → never prefixes it. These ship
 	// raw as-is and match `vibeModal.css` directly — no `@@` ignore-marker needed
-	// (unlike VibeModal.tsx, whose inline literals DO get prefixed without `@@`).
+	// (unlike VibeModalSimple.tsx, whose inline literals DO get prefixed without `@@`).
 	const rootClassName = `vibeide-modal-root${head ? ' is-active' : ''}${nonBlocking ? ' non-blocking' : ''}`;
 
 	return (
 		<div className={rootClassName} aria-hidden={head ? undefined : true}>
-			{head && <VibeModal entry={head} />}
+			{head && <VibeModalSimple entry={head} />}
 		</div>
 	);
 };

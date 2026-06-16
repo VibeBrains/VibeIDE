@@ -57,7 +57,7 @@ const renderButtonLabel = (label: string, hotkey?: string): React.ReactNode => {
 // The component is only rendered when there's a head modal, so `isActive`
 // would always be `true`. Effect deps that previously gated on `isActive`
 // are kept (`true` literal) — they re-fire when the entry changes.
-export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) => {
+export const VibeModalSimple: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) => {
 	const accessor = useAccessor();
 	const modalService = accessor.get('IVibeModalService');
 	const { options } = entry;
@@ -98,7 +98,7 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
 	useEffect(() => {
 		if (!options.onMount) return;
 		try { options.onMount(); }
-		catch (e) { vibeLog.warn('VibeModal', '[VibeModal] onMount threw', e); }
+		catch (e) { vibeLog.warn('VibeModalSimple', '[VibeModalSimple] onMount threw', e); }
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally
 		// only fires on entry.id change; options.onMount changes shouldn't refire
 		// (caller expectation: «mount» = once per showModal call).
@@ -146,7 +146,7 @@ export const VibeModal: React.FC<{ entry: VibeModalQueueEntry }> = ({ entry }) =
 		const ms = Math.max(VIBE_MODAL_MIN_AUTO_DISMISS_MS, rawMs);
 		if (rawMs < VIBE_MODAL_MIN_AUTO_DISMISS_MS && !_autoDismissClampWarned) {
 			_autoDismissClampWarned = true;
-			vibeLog.warn('VibeModal', `[VibeModal] autoDismissAfterMs=${rawMs}ms is below the floor (${VIBE_MODAL_MIN_AUTO_DISMISS_MS}ms); clamped. Anything shorter is a visual flash — pick >= ${VIBE_MODAL_MIN_AUTO_DISMISS_MS}ms.`);
+			vibeLog.warn('VibeModalSimple', `[VibeModalSimple] autoDismissAfterMs=${rawMs}ms is below the floor (${VIBE_MODAL_MIN_AUTO_DISMISS_MS}ms); clamped. Anything shorter is a visual flash — pick >= ${VIBE_MODAL_MIN_AUTO_DISMISS_MS}ms.`);
 		}
 		let cancelled = false;
 		let pausedByHover = false;

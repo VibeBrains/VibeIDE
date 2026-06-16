@@ -7,12 +7,12 @@ import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccessor } from '../util/services.js';
 import { collectVibeideCommands, VibeCommandEntry } from '../../../vibeideCommandCatalog.js';
-import { VibeResizableModal } from '../components/VibeResizableModal.js';
+import { VibeModalForm } from '../components/VibeModalForm.js';
 
 /**
  * «VibeIDE Команды» — a resizable modal window that mirrors EVERY VibeIDE command
  * (every Command-Palette entry whose id starts with `vibe`). Click a row to run it.
- * The resizable window chrome lives in the shared `VibeResizableModal`; this component
+ * The resizable window chrome lives in the shared `VibeModalForm`; this component
  * owns the searchable, keyboard-navigable command list. Inline classNames are `@@`-prefixed
  * so scope-tailwind ships them raw (matches the CSS class names in vibeModal.css).
  */
@@ -86,7 +86,7 @@ export const VibeCommandsPalette: React.FC = () => {
 	}, [activeIndex]);
 
 	return (
-		<VibeResizableModal
+		<VibeModalForm
 			open={open}
 			title="VibeIDE Команды"
 			onClose={close}
@@ -124,6 +124,6 @@ export const VibeCommandsPalette: React.FC = () => {
 					</button>
 				))}
 			</div>
-		</VibeResizableModal>
+		</VibeModalForm>
 	);
 };
