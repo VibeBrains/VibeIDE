@@ -76,7 +76,7 @@ npm run build-language-packs -- --locale de
     {
       "name": "vibeide-language-pack-de",
       "version": "<vibeVersion>",
-      "repo": "https://github.com/VibeIDETeam/vibeide-language-pack-de",
+      "repo": "https://github.com/VibeBrains/vibeide-language-pack-de",
       "metadata": { "id": "vibeide-language-pack-de" }
     }
   ]

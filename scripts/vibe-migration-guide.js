@@ -28,7 +28,7 @@ function printCursorMigration() {
 - Works with local models (Ollama) — no internet required
 
 ## Step 1: Install VibeIDE
-Download from: https://github.com/VibeIDETeam/VibeIDE/releases
+Download from: https://github.com/VibeBrains/VibeIDE/releases
 
 ## Step 2: Import settings
 \`\`\`bash
@@ -59,7 +59,7 @@ VibeIDE uses Open VSX (~70% of VS Marketplace extensions).
 Check compatibility: https://open-vsx.org
 
 ## Need help?
-- GitHub Issues: https://github.com/VibeIDETeam/VibeIDE/issues
+- GitHub Issues: https://github.com/VibeBrains/VibeIDE/issues
 - Discord: [join link]
 `);
 }
@@ -93,7 +93,7 @@ if (VERSION_UPGRADE) {
 	if (FROM === 'cursor') {
 		printCursorMigration();
 	} else {
-		console.log(`\nMigration from ${FROM}:\n\nnpm run vibe:init:from -- --from ${FROM}\n\nSee: https://github.com/VibeIDETeam/VibeIDE/blob/main/docs/CONTRIBUTING.md`);
+		console.log(`\nMigration from ${FROM}:\n\nnpm run vibe:init:from -- --from ${FROM}\n\nSee: https://github.com/VibeBrains/VibeIDE/blob/main/docs/CONTRIBUTING.md`);
 	}
 } else {
 	console.log('Usage: node vibe-migration-guide.js --from cursor|windsurf|continue|aider');

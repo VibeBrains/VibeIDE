@@ -11,7 +11,7 @@
  * inlines the JSON content into the bundled `main.js` at build time. This
  * **eliminates drift by construction**: the JSON file is the single source of
  * truth, consumed both by:
- *   - CDN clients (raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/resources/model-quirks.json),
+ *   - CDN clients (raw.githubusercontent.com/VibeBrains/VibeIDE/main/resources/model-quirks.json),
  *   - bundled IDE fallback (this module).
  *
  * No separate sync step, no drift-check script needed.

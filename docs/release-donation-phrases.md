@@ -142,7 +142,7 @@ Workflow выбора и сохранения — в [AGENTS.md → «Фраза
 ```markdown
 ---
 
-> ⚠️ **Что-то пошло не так?** Откатитесь на предыдущую стабильную сборку — [vX.Y.Z](https://github.com/VibeIDETeam/VibeIDE/releases/tag/vX.Y.Z) (там — ссылка на ещё более раннюю).
+> ⚠️ **Что-то пошло не так?** Откатитесь на предыдущую стабильную сборку — [vX.Y.Z](https://github.com/VibeBrains/VibeIDE/releases/tag/vX.Y.Z) (там — ссылка на ещё более раннюю).
 
 ---
 
@@ -151,7 +151,7 @@ Workflow выбора и сохранения — в [AGENTS.md → «Фраза
 Если VibeIDE оказалось полезным — буду рад благодарности.
 <!-- сюда вставляется одна активная фраза -->
 
-<a href="https://raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/media/QR-Code.jpg" target="_blank">
-  <img src="https://raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/media/QR-Code.jpg" width="120" alt="QR-код для поддержки проекта">
+<a href="https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Code.jpg" target="_blank">
+  <img src="https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Code.jpg" width="120" alt="QR-код для поддержки проекта">
 </a>
 ```

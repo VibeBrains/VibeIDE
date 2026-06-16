@@ -124,7 +124,7 @@
 - [x] Настроить upstream sync pipeline + CI-алерт на отставание > 2 недель — `.github/workflows/upstream-lag-check.yml`
 - [x] Синхронизация с microsoft/vscode **1.118.1** (тег `1.118.1` / SHA `034f571df509819cc10b0c8129f66ef77a542f0e`; merge без общего предка + оверлей VibeIDE; `npm run compile` зелёный)
 - [x] CI-джоб: Electron CVE мониторинг + npm audit на lockfile — `.github/workflows/security-audit.yml`
-- [x] Настроить автообновление через GitHub Releases API — ✅ cortexideUpdateMainService.ts → VibeIDETeam/VibeIDE
+- [x] Настроить автообновление через GitHub Releases API — ✅ cortexideUpdateMainService.ts → VibeBrains/VibeIDE
 - [x] Закрыть Electron debug-порты 9229/9230 — ✅ только в dev launch configs; production безопасен
 - [x] Migration path инфраструктура — ✅ scripts/migrations/template.ts + README
 - [x] SBOM — ✅ .github/workflows/sbom.yml: CycloneDX + AI models + bundled extensions; публикуется при каждом release

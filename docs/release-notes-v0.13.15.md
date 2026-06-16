@@ -53,6 +53,6 @@
 Если VibeIDE оказалось полезным — буду рад благодарности.
 Модал по центру, workbench не блокируется. Автор тоже старается не блокировать — особенно пока кофе ещё есть. Кнопка ниже не блокирует ничего, но привлекает внимание.
 
-<a href="https://raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/media/QR-Code.jpg" target="_blank">
-  <img src="https://raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/media/QR-Code.jpg" width="120" alt="QR-код для поддержки проекта">
+<a href="https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Code.jpg" target="_blank">
+  <img src="https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Code.jpg" width="120" alt="QR-код для поддержки проекта">
 </a>

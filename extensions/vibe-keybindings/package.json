@@ -13,7 +13,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/VibeIDETeam/VibeIDE"
+    "url": "https://github.com/VibeBrains/VibeIDE"
   },
   "contributes": {
     "keybindings": [

@@ -109,6 +109,6 @@ Docs: MIT (то же — knowledge base — часть продукта).
 
 ## Контакты
 
-- Issues: <https://github.com/VibeIDETeam/VibeIDE/issues>
+- Issues: <https://github.com/VibeBrains/VibeIDE/issues>
 - Discussions / support — Discord (ссылка в README).
 - Security — [SECURITY.md](../SECURITY.md) для disclosure procedure.

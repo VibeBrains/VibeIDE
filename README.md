@@ -10,8 +10,8 @@
 
 <p align="center">
   <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
-  <a href="https://github.com/VibeIDETeam/VibeIDE/releases"><img src="https://img.shields.io/badge/версия-1.2.2-green.svg" alt="Версия" /></a>
-  <a href="https://github.com/VibeIDETeam/VibeIDE/issues"><img src="https://img.shields.io/github/issues/VibeIDETeam/VibeIDE.svg" alt="Issues" /></a>
+  <a href="https://github.com/VibeBrains/VibeIDE/releases"><img src="https://img.shields.io/badge/версия-1.2.2-green.svg" alt="Версия" /></a>
+  <a href="https://github.com/VibeBrains/VibeIDE/issues"><img src="https://img.shields.io/github/issues/VibeBrains/VibeIDE.svg" alt="Issues" /></a>
   <a href="https://open-vsx.org"><img src="https://img.shields.io/badge/extensions-Open%20VSX-purple.svg" alt="Open VSX" /></a>
 </p>
 
@@ -109,7 +109,7 @@ VibeIDE — форк [VS Code open source (Code-OSS)](https://github.com/microso
 ### Сборка из исходников
 
 ```bash
-git clone https://github.com/VibeIDETeam/VibeIDE.git
+git clone https://github.com/VibeBrains/VibeIDE.git
 cd VibeIDE
 npm install
 npm run compile
@@ -304,8 +304,8 @@ RAG-индекс кодовой базы хранится **не** в `.vibe/`, 
 
 ```cmd
 mkdir D:\github-runner && cd D:\github-runner
-# Токен и команду взять из: github.com/VibeIDETeam/VibeIDE → Settings → Actions → Runners → New runner
-.\config.cmd --url https://github.com/VibeIDETeam/VibeIDE --token <TOKEN>
+# Токен и команду взять из: github.com/VibeBrains/VibeIDE → Settings → Actions → Runners → New runner
+.\config.cmd --url https://github.com/VibeBrains/VibeIDE --token <TOKEN>
 .\svc.ps1 install && .\svc.ps1 start
 ```
 
@@ -321,7 +321,7 @@ mkdir D:\github-runner && cd D:\github-runner
 
 **Источники и приоритет (по образцу `models.dev.json`):**
 1. **exe-adjacent** — файл `model-quirks.json`, положенный **рядом с исполняемым файлом VibeIDE**. **Максимальный приоритет** (явный override, действует всегда — даже офлайн). Если он **старее** bundled/CDN (по полю `date`) — **один раз при старте VibeIDE** показывается тост: файл всё ещё действует, но может не содержать свежих фиксов; предлагается обновить/удалить или обновить с CDN.
-2. **CDN** — фоновый fetch с `main`-ветки `https://raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/resources/model-quirks.json`, ETag-кэш в `${userData}/model-quirks-cache.json`. Refresh каждые 24ч (`vibeide.modelQuirks.refreshIntervalHours`, 0 — выкл).
+2. **CDN** — фоновый fetch с `main`-ветки `https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/resources/model-quirks.json`, ETag-кэш в `${userData}/model-quirks-cache.json`. Refresh каждые 24ч (`vibeide.modelQuirks.refreshIntervalHours`, 0 — выкл).
 3. **bundled** — копия, вшитая в сборку (TS-константа, всегда доступна).
 
 - При отсутствии exe-adjacent активным становится **более свежий по `date`** из {CDN-кэш, bundled}.
@@ -370,7 +370,7 @@ Pull request'ы приветствуются. Перед началом знач
   </a>
 </p>
 
-**GitHub Issues** — для **воспроизводимых** сбоев, регрессий и предложений по продукту лучше завести [issue в репозитории](https://github.com/VibeIDETeam/VibeIDE/issues/new): так задача не потеряется, к ней можно приложить логи и версию сборки, а исправление будет привязано к релизам.
+**GitHub Issues** — для **воспроизводимых** сбоев, регрессий и предложений по продукту лучше завести [issue в репозитории](https://github.com/VibeBrains/VibeIDE/issues/new): так задача не потеряется, к ней можно приложить логи и версию сборки, а исправление будет привязано к релизам.
 
 **Почта** — [mail@vibeide.ru](mailto:mail@vibeide.ru): деловые вопросы, партнёрство, обратная связь вне публичных площадок.
 
@@ -378,8 +378,8 @@ Pull request'ы приветствуются. Перед началом знач
 
 Если VibeIDE оказался полезным — буду рад благодарности 🙏
 
-<a href="https://raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/media/QR-Code.jpg" target="_blank" rel="noopener noreferrer">
-  <img src="https://raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/media/QR-Code.jpg" width="120" alt="QR-код для поддержки проекта" />
+<a href="https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Code.jpg" target="_blank" rel="noopener noreferrer">
+  <img src="https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Code.jpg" width="120" alt="QR-код для поддержки проекта" />
 </a>
 
 ---

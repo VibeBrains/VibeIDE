@@ -32,7 +32,7 @@ const ALLOWED_HEADERS = new Set([
 	'## 📦 Сборка',
 ]);
 
-const QR_URL = 'https://raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/media/QR-Code.jpg';
+const QR_URL = 'https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Code.jpg';
 
 const args = process.argv.slice(2);
 let tag = null;

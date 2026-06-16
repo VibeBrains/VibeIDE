@@ -51,4 +51,4 @@ if (DRY_RUN) {
 console.log('\n⚠️  Phase 1: vibe run --auto requires VibeIDE to be running.');
 console.log('   Open VibeIDE, run the task in the chat, then use `vibe run --auto` for CI/CD.');
 console.log('\n   Phase 2 will implement direct agent execution via IPC.');
-console.log('   Track progress: https://github.com/VibeIDETeam/VibeIDE/milestone/2');
+console.log('   Track progress: https://github.com/VibeBrains/VibeIDE/milestone/2');

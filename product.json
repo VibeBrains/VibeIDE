@@ -12,8 +12,8 @@
 	"sharedDataFolderName": ".vibeide-shared",
 	"win32MutexName": "vibeide",
 	"licenseName": "MIT",
-	"licenseUrl": "https://github.com/VibeIDETeam/VibeIDE/blob/main/LICENSE.txt",
-	"serverLicenseUrl": "https://github.com/VibeIDETeam/VibeIDE/blob/main/LICENSE.txt",
+	"licenseUrl": "https://github.com/VibeBrains/VibeIDE/blob/main/LICENSE.txt",
+	"serverLicenseUrl": "https://github.com/VibeBrains/VibeIDE/blob/main/LICENSE.txt",
 	"serverGreeting": [],
 	"serverLicense": [],
 	"serverLicensePrompt": "",
@@ -27,7 +27,7 @@
 	"win32arm64AppId": "{{D3B7F5C9-0123-406B-AE4E-8F2C1B9A7E530}",
 	"win32x64UserAppId": "{{E4C86D01-2345-617C-BE5F-9A3D2C08F641}",
 	"win32arm64UserAppId": "{{F5D97E12-3456-728D-CF60-AE4E3D19F752}",
-	"win32AppUserModelId": "VibeIDETeam.VibeIDE",
+	"win32AppUserModelId": "VibeBrains.VibeIDE",
 	"win32ShellNameShort": "V&ibeIDE",
 	"win32TunnelServiceMutex": "vibeide-tunnelservice",
 	"win32TunnelMutex": "vibeide-tunnel",
@@ -36,7 +36,7 @@
 	"darwinProfilePayloadUUID": "CF808BE7-53F3-46C6-A7E2-7EDB98A5E959",
 	"linuxIconName": "vibeide",
 	"licenseFileName": "LICENSE.txt",
-	"reportIssueUrl": "https://github.com/VibeIDETeam/VibeIDE/issues/new",
+	"reportIssueUrl": "https://github.com/VibeBrains/VibeIDE/issues/new",
 	"nodejsRepository": "https://nodejs.org",
 	"urlProtocol": "vibeide",
 	"extensionsGallery": {
@@ -51,7 +51,7 @@
 	"linkProtectionTrustedDomains": [
 		"https://vibeide.io",
 		"https://open-vsx.org",
-		"https://github.com/VibeIDETeam/VibeIDE"
+		"https://github.com/VibeBrains/VibeIDE"
 	],
 	"webviewContentExternalBaseUrlTemplate": "https://{{uuid}}.vscode-cdn.net/insider/ef65ac1ba57f57f2a3961bfe94aa20481caca4c6/out/vs/workbench/contrib/webview/browser/pre/",
 	"builtInExtensions": [

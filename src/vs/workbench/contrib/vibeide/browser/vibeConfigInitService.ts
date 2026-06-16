@@ -23,7 +23,7 @@ const DEFAULT_CONSTRAINTS = {
 	vibeVersion: VIBE_VERSION,
 	rules: [] as unknown[],
 	_comment:
-		'Правила ограничений VibeIDE (блокировки на уровне IDE, агент их не обходит). Документация: https://github.com/VibeIDETeam/VibeIDE'
+		'Правила ограничений VibeIDE (блокировки на уровне IDE, агент их не обходит). Документация: https://github.com/VibeBrains/VibeIDE'
 };
 
 const DEFAULT_RULES_MD = `# Правила ИИ для проекта

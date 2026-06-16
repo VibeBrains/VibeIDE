@@ -9,7 +9,7 @@
 
 | Remote | URL | Назначение |
 |---|---|---|
-| `origin` | `https://github.com/VibeIDETeam/VibeIDE` | VibeIDE репо |
+| `origin` | `https://github.com/VibeBrains/VibeIDE` | VibeIDE репо |
 | `cortexide` | `https://github.com/OpenCortexIDE/cortexide` | Исторический базовый форк (только для просмотра/порта кода, **не** для `git merge` в основную линию) |
 | `upstream` | `https://github.com/microsoft/vscode` | VS Code upstream для sync |
 
@@ -103,7 +103,7 @@
   - `darwinBundleIdentifier`: `com.vibeide.code` → `io.vibeide.app`
   - `urlProtocol`: `cortexide` → `vibeide`
   - `extensionsGallery`: VS Code Marketplace → **Open VSX Registry**
-  - `licenseUrl` / `reportIssueUrl`: обновлены на VibeIDETeam/VibeIDE
+  - `licenseUrl` / `reportIssueUrl`: обновлены на VibeBrains/VibeIDE
   - `linkProtectionTrustedDomains`: добавлены `vibeide.io` и `open-vsx.org`
   - `cortexVersion` → `vibeVersion: "0.1.0"`
 

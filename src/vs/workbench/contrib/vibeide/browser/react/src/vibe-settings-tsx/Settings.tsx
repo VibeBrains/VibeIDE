@@ -459,7 +459,7 @@ const SimpleModelSettingsDialog = ({
 		onClose();
 	};
 
-	const sourcecodeOverridesLink = `https://github.com/VibeIDETeam/VibeIDE/blob/main/src/vs/workbench/contrib/vibeide/common/modelCapabilities.ts#L146-L172`
+	const sourcecodeOverridesLink = `https://github.com/VibeBrains/VibeIDE/blob/main/src/vs/workbench/contrib/vibeide/common/modelCapabilities.ts#L146-L172`
 
 	return (
 		<div // Backdrop

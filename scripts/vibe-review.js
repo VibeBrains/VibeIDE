@@ -35,7 +35,7 @@ function generateSARIF(findings) {
 				driver: {
 					name: 'vibe-review',
 					version: '0.1.0',
-					informationUri: 'https://github.com/VibeIDETeam/VibeIDE',
+					informationUri: 'https://github.com/VibeBrains/VibeIDE',
 					rules: findings.map(f => ({ id: f.ruleId, name: f.ruleId, shortDescription: { text: f.message } }))
 				}
 			},

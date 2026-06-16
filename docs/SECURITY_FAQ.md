@@ -97,13 +97,13 @@ MCP серверы работают в отдельном процессе (stdi
 1. **Откат**: `Agent Action History sidebar → выбери шаг → Rollback`
 2. **Снапшоты**: `.vibe/snapshots/` — JSON файлы с содержимым файлов до изменений
 3. **CLI**: `node scripts/vibe-session-replay.js --list` — посмотреть что делал агент
-4. **Репорт**: [github.com/VibeIDETeam/VibeIDE/issues](https://github.com/VibeIDETeam/VibeIDE/issues)
+4. **Репорт**: [github.com/VibeBrains/VibeIDE/issues](https://github.com/VibeBrains/VibeIDE/issues)
 
 ---
 
 ## Открытый исходный код
 
 Весь код VibeIDE открыт:  
-**[github.com/VibeIDETeam/VibeIDE](https://github.com/VibeIDETeam/VibeIDE)**
+**[github.com/VibeBrains/VibeIDE](https://github.com/VibeBrains/VibeIDE)**
 
 Любой может проверить что именно отправляется наружу.

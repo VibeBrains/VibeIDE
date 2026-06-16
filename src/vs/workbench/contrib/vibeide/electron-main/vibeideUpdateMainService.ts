@@ -203,11 +203,11 @@ export class VibeideMainUpdateService extends Disposable implements IVibeideUpda
 		try {
 			let releaseUrl: string;
 			if (channel === 'beta') {
-				releaseUrl = 'https://api.github.com/repos/VibeIDETeam/VibeIDE/releases?per_page=1';
+				releaseUrl = 'https://api.github.com/repos/VibeBrains/VibeIDE/releases?per_page=1';
 			} else if (channel === 'nightly') {
-				releaseUrl = 'https://api.github.com/repos/VibeIDETeam/VibeIDE/releases?per_page=1';
+				releaseUrl = 'https://api.github.com/repos/VibeBrains/VibeIDE/releases?per_page=1';
 			} else {
-				releaseUrl = 'https://api.github.com/repos/VibeIDETeam/VibeIDE/releases/latest';
+				releaseUrl = 'https://api.github.com/repos/VibeBrains/VibeIDE/releases/latest';
 			}
 
 			const now = Date.now();

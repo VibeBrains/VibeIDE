@@ -34,7 +34,7 @@ import {
 } from '../../common/modelQuirks/modelQuirksTypes.js'
 import { BUNDLED_CATALOG } from '../../common/modelQuirks/bundledCatalog.js'
 
-const DEFAULT_CDN_URL = 'https://raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/resources/model-quirks.json'
+const DEFAULT_CDN_URL = 'https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/resources/model-quirks.json'
 const CACHE_FILENAME = 'model-quirks-cache.json'
 const DEFAULT_REFRESH_INTERVAL_HOURS = 24
 

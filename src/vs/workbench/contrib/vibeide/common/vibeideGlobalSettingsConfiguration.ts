@@ -82,7 +82,7 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 		// `vibeide.modelQuirks.*` — catalog of per-model behaviour overrides
 		// (temperature/topP/topK, reasoning placeholder enforcement, tool-call format).
 		// Catalog source: `resources/model-quirks.json` shipped with the IDE + CDN refresh
-		// from `https://raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/resources/model-quirks.json`.
+		// from `https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/resources/model-quirks.json`.
 		// User `vibeide.modelQuirks` setting overrides catalog values per-model.
 		// Implementation: `electron-main/modelQuirks/modelQuirksService.ts`. Settings read
 		// ONCE at startup (no IPC channel) — restart required to apply changes.
@@ -110,7 +110,7 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 				},
 				'vibeide.modelQuirks.catalogUrl': {
 					type: 'string',
-					default: 'https://raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/resources/model-quirks.json',
+					default: 'https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/resources/model-quirks.json',
 					description: localize('vibeide.modelQuirks.catalogUrl', 'URL для CDN-обновления каталога квирков моделей. По умолчанию — main-ветка VibeIDE на GitHub. Можно указать private mirror (для CI / корпоративных сетей) или fork. Bundled-копия в `resources/model-quirks.json` используется как fallback при недоступности CDN. Изменение требует перезапуска IDE.'),
 					scope: ConfigurationScope.APPLICATION,
 				},

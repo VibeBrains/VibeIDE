@@ -7,7 +7,7 @@
  * Types and validators for the model-quirks catalog.
  *
  * Source of truth: `resources/model-quirks.json` in this repo + CDN
- * (https://raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/resources/model-quirks.json).
+ * (https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/resources/model-quirks.json).
  *
  * Schema version is bumped only when fields are renamed/removed (breaking). Adding
  * new optional fields stays on the same version — older IDE installs ignore unknown

@@ -76,7 +76,7 @@ function supportFooterMarkdown() {
   </a>
 </p>
 
-**GitHub Issues** — для **воспроизводимых** сбоев, регрессий и предложений по продукту лучше завести [issue в репозитории](https://github.com/VibeIDETeam/VibeIDE/issues/new): так задача не потеряется, к ней можно приложить логи и версию сборки, а исправление будет привязано к релизам.
+**GitHub Issues** — для **воспроизводимых** сбоев, регрессий и предложений по продукту лучше завести [issue в репозитории](https://github.com/VibeBrains/VibeIDE/issues/new): так задача не потеряется, к ней можно приложить логи и версию сборки, а исправление будет привязано к релизам.
 
 **Почта** — [mail@vibeide.ru](mailto:mail@vibeide.ru): деловые вопросы, партнёрство, обратная связь вне публичных площадок.
 
@@ -84,8 +84,8 @@ function supportFooterMarkdown() {
 
 Если VibeIDE оказалось полезным — буду рад благодарности.${phraseLine}
 
-<a href="https://raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/media/QR-Code.jpg" target="_blank" rel="noopener noreferrer">
-  <img src="https://raw.githubusercontent.com/VibeIDETeam/VibeIDE/main/media/QR-Code.jpg" width="120" alt="QR-код для поддержки проекта" />
+<a href="https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Code.jpg" target="_blank" rel="noopener noreferrer">
+  <img src="https://raw.githubusercontent.com/VibeBrains/VibeIDE/main/media/QR-Code.jpg" width="120" alt="QR-код для поддержки проекта" />
 </a>
 `;
 }

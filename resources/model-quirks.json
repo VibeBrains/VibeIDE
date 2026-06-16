@@ -2,7 +2,7 @@
 	"version": 1,
 	"date": "2026-06-10",
 	"description": "VibeIDE model behaviour quirks. Source of truth — see README.md section 'Model behaviour quirks'. PRs welcome. Schema: ./src/vs/workbench/contrib/vibeide/common/modelQuirks/modelQuirksTypes.ts.",
-	"docs": "https://github.com/VibeIDETeam/VibeIDE#model-behaviour-quirks",
+	"docs": "https://github.com/VibeBrains/VibeIDE#model-behaviour-quirks",
 	"rules": [
 		{ "match": "kimi-k2.6", "temperature": 1.0, "topP": 0.95, "mirrorReasoningContent": true,
 		  "note": "kimi-k2.x family — opencode upstream transform.ts:478-510" },

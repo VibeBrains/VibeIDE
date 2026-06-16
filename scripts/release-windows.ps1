@@ -348,4 +348,4 @@ $releaseArgs += $artifacts
 if ($LASTEXITCODE -ne 0) { Write-Error "gh release create failed"; exit 1 }
 
 OK "Release $Version published!"
-Write-Host "`n🎉 Done! https://github.com/VibeIDETeam/VibeIDE/releases/tag/$Version`n" -ForegroundColor Cyan
+Write-Host "`n🎉 Done! https://github.com/VibeBrains/VibeIDE/releases/tag/$Version`n" -ForegroundColor Cyan

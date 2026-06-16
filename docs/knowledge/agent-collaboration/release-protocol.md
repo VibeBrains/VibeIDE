@@ -62,13 +62,13 @@
 
 ## gh account routing [reference]
 
-**Контекст.** `gh auth` keyring хранит два аккаунта: `VibeIDETeam` и `borodatych`. Под `VibeIDETeam` push в `borodatych/VSCodeSyncFiles` падает с `403 Permission denied`.
+**Контекст.** `gh auth` keyring хранит два аккаунта: `VibeBrains` и `borodatych`. Под `VibeBrains` push в `borodatych/VSCodeSyncFiles` падает с `403 Permission denied`.
 
 **Суть.** Маршрутизация по проектам:
 
 | Репозиторий | Активный аккаунт |
 |---|---|
-| `VibeIDE` | `VibeIDETeam` (default) |
+| `VibeIDE` | `VibeBrains` (default) |
 | `borodatych/VSCodeSyncFiles` | `borodatych` (требует `gh auth switch -u borodatych`) |
 
 **Применение.** Workflow для VSCodeSync релиза:
@@ -76,10 +76,10 @@
 gh auth switch -u borodatych
 git push origin main && git push origin vX.Y.Z
 gh release create vX.Y.Z builds/vscodesyncfiles-X.Y.Z.vsix --title "…" --notes "…"
-gh auth switch -u VibeIDETeam   # вернуть active по умолчанию
+gh auth switch -u VibeBrains   # вернуть active по умолчанию
 ```
 
-Возврат на `VibeIDETeam` после VSCodeSync-релиза **обязателен** — иначе следующая VibeIDE-операция полезет под чужим аккаунтом.
+Возврат на `VibeBrains` после VSCodeSync-релиза **обязателен** — иначе следующая VibeIDE-операция полезет под чужим аккаунтом.
 
 ---
 
