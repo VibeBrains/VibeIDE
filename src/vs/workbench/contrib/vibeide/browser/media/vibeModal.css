@@ -147,11 +147,7 @@
 	flex: 1 1 auto;
 	min-height: 0;
 	overflow-y: auto;
-	/* Standardized thin, native-toned scrollbar — same treatment as .vibeide-rmodal-scroll
-	   (resizable modal) and the command-form portal, instead of the default chromium bar.
-	   The matching ::-webkit-scrollbar rules are shared with .vibeide-rmodal-scroll below. */
-	scrollbar-width: thin;
-	scrollbar-color: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4)) transparent;
+	/* Scrollbar look comes from the shared .vibe-scroll rules below (single source of truth). */
 	color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
 	white-space: pre-wrap;
 	/* `overflow-wrap: anywhere` + `word-break: break-word` ensure long
@@ -497,29 +493,7 @@
 	min-height: 0;
 	overflow-y: auto;
 	padding: 0 6px 6px;
-	/* Thin, native-toned scrollbar (mirrors the chat panel's .vibe-chat-scroll-root). The default
-	   chromium bar is too thick/light against the modal; use the VS Code scrollbar-slider tokens so
-	   it blends with the modal in every theme. */
-	scrollbar-width: thin;
-	scrollbar-color: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4)) transparent;
-}
-.vibeide-cmdpalette-list::-webkit-scrollbar {
-	width: 8px;
-	background-color: transparent;
-}
-.vibeide-cmdpalette-list::-webkit-scrollbar-track {
-	background-color: transparent;
-}
-.vibeide-cmdpalette-list::-webkit-scrollbar-thumb {
-	background-color: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
-	border-radius: 9999px;
-	min-height: 40px;
-}
-.vibeide-cmdpalette-list::-webkit-scrollbar-thumb:hover {
-	background-color: var(--vscode-scrollbarSlider-hoverBackground, rgba(100, 100, 100, 0.7));
-}
-.vibeide-cmdpalette-list::-webkit-scrollbar-thumb:active {
-	background-color: var(--vscode-scrollbarSlider-activeBackground, rgba(191, 191, 191, 0.4));
+	/* Scrollbar look comes from the shared .vibe-scroll rules (single source of truth). */
 }
 
 .vibeide-cmdpalette-item {
@@ -686,35 +660,56 @@
 	flex-direction: column;
 	overflow: hidden;
 }
-/* Opt-in scroll container with the thin, native-toned scrollbar. */
+/* Layout for the resizable modal's opt-in scroll container (scrollbar look comes from .vibe-scroll). */
 .vibeide-rmodal-scroll {
 	flex: 1 1 auto;
 	min-height: 0;
 	overflow-y: auto;
+}
+
+/* ── SINGLE SOURCE OF TRUTH for the thin, native-toned scrollbar ──────────────
+   Every modal scroll container shares these rules; new ones just add the `vibe-scroll`
+   class. Defined UNSCOPED so modal portals (rendered outside .vibe-scope, where the global
+   `.vibe-scope *` scrollbar rule can't reach) get it too — that scope boundary is exactly
+   why each modal used to re-declare its own bar. Tweak the scrollbar look here, once. */
+.vibe-scroll,
+.vibeide-rmodal-scroll,
+.vibeide-modal-body,
+.vibeide-cmdpalette-list {
 	scrollbar-width: thin;
 	scrollbar-color: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4)) transparent;
 }
+.vibe-scroll::-webkit-scrollbar,
 .vibeide-rmodal-scroll::-webkit-scrollbar,
-.vibeide-modal-body::-webkit-scrollbar {
+.vibeide-modal-body::-webkit-scrollbar,
+.vibeide-cmdpalette-list::-webkit-scrollbar {
 	width: 8px;
 	background-color: transparent;
 }
+.vibe-scroll::-webkit-scrollbar-track,
 .vibeide-rmodal-scroll::-webkit-scrollbar-track,
-.vibeide-modal-body::-webkit-scrollbar-track {
+.vibeide-modal-body::-webkit-scrollbar-track,
+.vibeide-cmdpalette-list::-webkit-scrollbar-track {
 	background-color: transparent;
 }
+.vibe-scroll::-webkit-scrollbar-thumb,
 .vibeide-rmodal-scroll::-webkit-scrollbar-thumb,
-.vibeide-modal-body::-webkit-scrollbar-thumb {
+.vibeide-modal-body::-webkit-scrollbar-thumb,
+.vibeide-cmdpalette-list::-webkit-scrollbar-thumb {
 	background-color: var(--vscode-scrollbarSlider-background, rgba(121, 121, 121, 0.4));
 	border-radius: 9999px;
 	min-height: 40px;
 }
+.vibe-scroll::-webkit-scrollbar-thumb:hover,
 .vibeide-rmodal-scroll::-webkit-scrollbar-thumb:hover,
-.vibeide-modal-body::-webkit-scrollbar-thumb:hover {
+.vibeide-modal-body::-webkit-scrollbar-thumb:hover,
+.vibeide-cmdpalette-list::-webkit-scrollbar-thumb:hover {
 	background-color: var(--vscode-scrollbarSlider-hoverBackground, rgba(100, 100, 100, 0.7));
 }
+.vibe-scroll::-webkit-scrollbar-thumb:active,
 .vibeide-rmodal-scroll::-webkit-scrollbar-thumb:active,
-.vibeide-modal-body::-webkit-scrollbar-thumb:active {
+.vibeide-modal-body::-webkit-scrollbar-thumb:active,
+.vibeide-cmdpalette-list::-webkit-scrollbar-thumb:active {
 	background-color: var(--vscode-scrollbarSlider-activeBackground, rgba(191, 191, 191, 0.4));
 }
 .vibeide-rmodal-grip {
