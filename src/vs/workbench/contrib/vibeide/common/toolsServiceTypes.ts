@@ -65,7 +65,11 @@ export type BuiltinToolCallParams = {
 	'extract_function': { uri: URI, startLine: number, endLine: number, functionName: string },
 	// ---
 	'rewrite_file': { uri: URI, newContent: string },
-	'edit_file': { uri: URI, searchReplaceBlocks: string },
+	// `searchReplaceBlocks` is the multi-marker form; `oldString`/`newString` are the flat str_replace
+	// form (easier for weaker models — they emit two plain string params instead of a marker blob).
+	// Validation collapses old/new into a single block, so the exec handler only reads
+	// `searchReplaceBlocks`; the flat fields are schema-facing only.
+	'edit_file': { uri: URI, searchReplaceBlocks: string, oldString?: string, newString?: string },
 	'create_file_or_folder': { uri: URI, isFolder: boolean },
 	'delete_file_or_folder': { uri: URI, isRecursive: boolean, isFolder: boolean },
 	// ---

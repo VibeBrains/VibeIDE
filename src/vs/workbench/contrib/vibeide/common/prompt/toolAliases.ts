@@ -131,11 +131,11 @@ export const PARAM_ALIASES_BY_TOOL: { readonly [canonicalToolName: string]: { re
 	},
 	edit_file: {
 		path: 'uri', file_path: 'uri', filepath: 'uri', file: 'uri',
-		old_str: 'search_replace_blocks', old_string: 'search_replace_blocks',
-		// Note: edit_file expects a single SEARCH/REPLACE blob, not separate old/new fields.
-		// If a model passes old_str + new_str separately, only old_str is captured here;
-		// the SEARCH/REPLACE format must still be assembled by the model. The prompt is
-		// tightened to make this explicit.
+		// Flat str_replace form is now first-class. `old_string`/`new_string` are canonical (passthrough);
+		// map the Cline/Anthropic underscore + text variants onto them. Validation collapses old/new into
+		// a single SEARCH/REPLACE block, so the model never has to emit the marker blob itself.
+		old_str: 'old_string', new_str: 'new_string',
+		oldtext: 'old_string', newtext: 'new_string', old_text: 'old_string', new_text: 'new_string',
 	},
 	rewrite_file: {
 		path: 'uri', file_path: 'uri', filepath: 'uri', file: 'uri',

@@ -30,7 +30,7 @@ import { computeDirectoryTree1Deep, IDirectoryStrService, stringifyDirectoryTree
 import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/common/markers.js'
 import { timeout } from '../../../../base/common/async.js'
 import { RawToolParamsObj } from '../common/sendLLMMessageTypes.js'
-import { MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_INACTIVE_TIME, READ_FILE_DEFAULT_LINE_LIMIT, READ_FILE_LARGE_FILE_CHARS, READ_FILE_LARGE_FILE_WINDOW_CHARS, READ_FILE_MAX_LINE_LIMIT } from '../common/prompt/prompts.js'
+import { MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_INACTIVE_TIME, READ_FILE_DEFAULT_LINE_LIMIT, READ_FILE_LARGE_FILE_CHARS, READ_FILE_LARGE_FILE_WINDOW_CHARS, READ_FILE_MAX_LINE_LIMIT, ORIGINAL, DIVIDER, FINAL } from '../common/prompt/prompts.js'
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js'
 import { generateUuid } from '../../../../base/common/uuid.js'
 import { INotificationService } from '../../../../platform/notification/common/notification.js'
@@ -603,8 +603,16 @@ export class ToolsService implements IToolsService {
 			},
 
 			edit_file: (params: RawToolParamsObj) => {
-				const { uri: uriStr, search_replace_blocks: searchReplaceBlocksUnknown } = params
+				const { uri: uriStr, search_replace_blocks: searchReplaceBlocksUnknown, old_string: oldStringUnknown, new_string: newStringUnknown } = params
 				const uri = validateWriteURI(uriStr)
+				// Flat str_replace form (preferred for weaker models): two plain string params. Collapse
+				// into a single SEARCH/REPLACE block so the existing apply path is reused unchanged. A
+				// missing new_string means "delete old_string" → empty replacement.
+				if (typeof oldStringUnknown === 'string' && searchReplaceBlocksUnknown == null) {
+					const newString = typeof newStringUnknown === 'string' ? newStringUnknown : ''
+					const searchReplaceBlocks = `${ORIGINAL}\n${oldStringUnknown}\n${DIVIDER}\n${newString}\n${FINAL}`
+					return { uri, searchReplaceBlocks }
+				}
 				const searchReplaceBlocks = validateStr('searchReplaceBlocks', searchReplaceBlocksUnknown)
 				return { uri, searchReplaceBlocks }
 			},

@@ -244,14 +244,16 @@ export const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolI
     <query>api route endpoint server express</query>
     </search_for_files>
 
-    Then after seeing results, read the file and edit it using:
+    Then after seeing results, read the file and edit it using the PREFERRED flat form —
+    copy the exact existing text into <old_string> and the full replacement into <new_string>:
     <edit_file>
     <uri>path/to/server.ts</uri>
-    <search_replace_blocks>
-    // ... existing code ...
-    app.get('/api/health', (req, res) => { res.json({ status: 'ok' }) })
-    </search_replace_blocks>
+    <old_string>const app = express()</old_string>
+    <new_string>const app = express()
+    app.get('/api/health', (req, res) => { res.json({ status: 'ok' }) })</new_string>
     </edit_file>
+    (old_string must match the file verbatim, with enough surrounding lines to be unique. Only use the
+    advanced <search_replace_blocks> marker form if you deliberately need multiple edits in one call.)
 
     REMEMBER: When user asks you to DO something, start with a tool call immediately. DO NOT explain what you're going to do - JUST DO IT using tools.
 
@@ -346,7 +348,9 @@ ${truncatedDirStr}
 		details.push('Step 3: Output a structured Markdown plan with numbered steps. Each step must include: description, tools to use, affected files.')
 		details.push('The user will review the plan and click "Execute in Agent" to run it. Do NOT attempt execution yourself.')
 	} else if (mode === 'gather') {
-		details.push('GATHER: Use tools. One at a time.')
+		details.push('🔍 GATHER MODE (read-only): Use tools one at a time to search, read & explain the codebase.')
+			details.push('❌ Write/edit tools are NOT available in this mode (edit_file, rewrite_file, create/delete, run_command, rename_symbol, extract_function, generate_tests) — do NOT call them, they will be rejected. An unavailable tool here is a MODE restriction, not a wrong tool name; do not retry it.')
+			details.push('To APPLY changes: describe the edits, then tell the user to switch to Agent mode (mode selector above the chat input). Do NOT attempt the edits yourself.')
 	} else {
 		details.push('Ask for context. Reference with @.')
 	}

@@ -7,6 +7,9 @@ import { ToolDef, uriParam } from './_helpers.js';
 
 export const RENAME_SYMBOL_TOOL: ToolDef<'rename_symbol'> = {
 	name: 'rename_symbol',
+	// Mutates the workspace (rewrites all references across files) → gate like edit_file:
+	// excluded from read-only Gather/Plan modes, approval-prompted in Agent mode.
+	approvalType: 'edits',
 	description: `Renames a symbol (function, class, variable) at a specific position and updates all references to it across the codebase.`,
 	params: {
 		...uriParam('file'),

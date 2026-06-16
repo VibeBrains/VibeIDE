@@ -36,6 +36,7 @@ import { mountCtrlK } from './react/out/quick-edit-tsx/index.js'
 import { QuickEditPropsType } from './quickEditActions.js';
 import { IModelContentChangedEvent } from '../../../../editor/common/textModelEvents.js';
 import { extractCodeFromFIM, extractCodeFromRegular, ExtractedSearchReplaceBlock, extractSearchReplaceBlocks, normalizeSearchReplaceMarkers } from '../common/helpers/extractCodeFromResult.js';
+import { findLinesTolerant } from '../common/helpers/fuzzyLineMatch.js';
 import { INotificationService, } from '../../../../platform/notification/common/notification.js';
 import { EditorOption } from '../../../../editor/common/config/editorOptions.js';
 import { Emitter } from '../../../../base/common/event.js';
@@ -166,6 +167,14 @@ const findTextInCode = (text: string, fileContents: string, canFallbackToRemoveW
 
 	if (!canFallbackToRemoveWhitespace)
 		return 'Not found' as const
+
+	// Tolerant line-based fallback (line-trimmed + block-anchor with a Levenshtein-scored middle):
+	// forgives indentation / trailing-whitespace / slightly-paraphrased near-misses that weaker models
+	// emit, BEFORE the aggressive whitespace-strip rung below. Span size is bounded, so it can't match a
+	// large unrelated region. Runs on the ORIGINAL text/fileContents (before the whitespace strip below).
+	const tol = findLinesTolerant(text, fileContents, opts?.startingAtLine)
+	if (Array.isArray(tol)) return tol as readonly [number, number]
+	if (tol === 'not-unique') return 'Not unique' as const
 
 	// try to find it ignoring all whitespace this time
 	text = removeWhitespaceExceptNewlines(text)

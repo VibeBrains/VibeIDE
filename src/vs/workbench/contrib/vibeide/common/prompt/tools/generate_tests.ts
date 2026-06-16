@@ -7,6 +7,9 @@ import { ToolDef, uriParam } from './_helpers.js';
 
 export const GENERATE_TESTS_TOOL: ToolDef<'generate_tests'> = {
 	name: 'generate_tests',
+	// Writes a new test file into the workspace → gate like edit_file: excluded from read-only
+	// Gather/Plan modes, approval-prompted in Agent mode.
+	approvalType: 'edits',
 	description: `Generates unit or integration tests for code in a file. Can generate tests for a specific function or the entire file.`,
 	params: {
 		...uriParam('file'),
