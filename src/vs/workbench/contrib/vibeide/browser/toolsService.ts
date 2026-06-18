@@ -608,7 +608,12 @@ export class ToolsService implements IToolsService {
 				// Flat str_replace form (preferred for weaker models): two plain string params. Collapse
 				// into a single SEARCH/REPLACE block so the existing apply path is reused unchanged. A
 				// missing new_string means "delete old_string" → empty replacement.
-				if (typeof oldStringUnknown === 'string' && searchReplaceBlocksUnknown == null) {
+				// Treat a blank search_replace_blocks as "not provided": models routinely emit every
+				// schema field and fill the unused one with "" instead of omitting it — that empty string
+				// would otherwise skip this branch and fail apply with a "no valid Search/Replace block".
+				const noBlocks = searchReplaceBlocksUnknown == null
+					|| (typeof searchReplaceBlocksUnknown === 'string' && searchReplaceBlocksUnknown.trim() === '')
+				if (typeof oldStringUnknown === 'string' && noBlocks) {
 					const newString = typeof newStringUnknown === 'string' ? newStringUnknown : ''
 					const searchReplaceBlocks = `${ORIGINAL}\n${oldStringUnknown}\n${DIVIDER}\n${newString}\n${FINAL}`
 					return { uri, searchReplaceBlocks }
