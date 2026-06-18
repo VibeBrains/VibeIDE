@@ -66,3 +66,13 @@ VS C++ Build Tools, MSB8040 Spectre, native modules, ripgrep, `@vscode/vsce-sign
 - **Авто-переключение по `.nvmrc`:** в профиль PowerShell добавить `fnm env --use-on-cd | Out-String | Invoke-Expression` — при входе в проект нужная версия подхватывается сама (важно после апдейта базы VS Code, меняющего `.nvmrc`).
 
 **Применение:** onboarding сборки на чистой Windows-машине; диагностика «`vscode-win32-x64 did not complete`» без стека (первым делом сверить `node -v` с `.nvmrc`); апдейт upstream VS Code, бампающий требуемый Node.
+
+---
+
+## [баг] Свежий `git init` без upstream → `release-windows.ps1` не пушит (голый `git push`)
+
+**Контекст:** на чистой машине репозиторий подняли через `git init` + `git remote add origin` + ручные `git push origin main` (без `-u`). При Фазе 1 релиза скрипт забампил `product.json`, закоммитил, но `git push` упал: `fatal: The current branch main has no upstream branch` (2026-06).
+
+**Суть:** `release-windows.ps1` делает **голый `git push`** (без `origin main`). Ручные `git push origin main` пушат, но НЕ ставят upstream-трекинг. Без upstream голый `git push` падает. Падение **не фатально** для скрипта (сборка продолжается), но bump-коммит остаётся НЕ запушенным — легко упустить.
+
+**Применение:** сразу после `git init` на новой машине — `git push -u origin main` (или `git config --global push.autoSetupRemote true`). Тогда голый `git push` скрипта работает, и Фаза 2 (`git push origin vX.Y.Z` для тега — он явный, но upstream полезен в целом) проходит чисто. Если поймал «no upstream» в логе релиза — `git push -u origin main` вручную, артефакты при этом уже собираются.
