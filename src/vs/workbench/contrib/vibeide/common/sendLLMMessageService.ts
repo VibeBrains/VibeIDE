@@ -31,6 +31,8 @@ export interface ILLMMessageService {
 	abort: (requestId: string) => void;
 	ollamaList: (params: ServiceModelListParams<OllamaModelResponse>) => void;
 	openAICompatibleList: (params: ServiceModelListParams<OpenaiCompatibleModelResponse>) => void;
+	/** Diagnostic: reset main-process transport (local client caches + shared cloud dispatcher) without restarting the IDE. */
+	resetProviderClients: () => Promise<void>;
 }
 
 // open this file side by side with llmMessageChannel
@@ -113,6 +115,10 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			this.listHooks.openAICompat.error[e.requestId]?.(e)
 		}))
 
+	}
+
+	resetProviderClients(): Promise<void> {
+		return this.channel.call('resetProviderClients')
 	}
 
 	sendLLMMessage(params: ServiceSendLLMMessageParams) {

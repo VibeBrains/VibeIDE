@@ -76,9 +76,10 @@ const OPENCODE_PROCESS_SESSION_ID = `vibeide-${generateUuid()}`;
 // New models (e.g. a hypothetical `maximax-m1`) get the right SDK automatically
 // once they appear in models.dev; no code change required.
 
-// Module-level singleton: matches the existing impl which also calls
-// ensureSystemCADispatcher() lazily once per OpenAI client construction.
-const sharedDispatcher = ensureSystemCADispatcher();
+// Resolve the shared system-CA dispatcher PER REQUEST (inside customFetch), NOT
+// captured once at module load: the «reset provider clients» diagnostic recreates
+// the dispatcher to clear a wedged keep-alive pool ("no tokens until restart"), and
+// a captured const would keep pinning the dead pool until process exit.
 
 // 429s with a NOTICEABLE retry-after are NOT retryable in-place: AI SDK would burn its
 // maxRetries backoff invisibly — no tokens flow during retries, so the renderer's
@@ -95,7 +96,7 @@ const RATE_LIMIT_FAIL_FAST_RETRY_AFTER_SECONDS = 10;
 // pass `dispatcher` directly to streamText() — AI SDK only accepts a standard
 // fetch — so we wrap undici.fetch and surface it as a global-fetch lookalike.
 const customFetch: typeof globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-	const response = await (undiciFetch(input as any, { ...(init as any), dispatcher: sharedDispatcher }) as unknown as Promise<Response>);
+	const response = await (undiciFetch(input as any, { ...(init as any), dispatcher: ensureSystemCADispatcher() }) as unknown as Promise<Response>);
 	if (response.status === 429) {
 		const retryAfterSec = Number(response.headers.get('retry-after'));
 		if (Number.isFinite(retryAfterSec) && retryAfterSec >= RATE_LIMIT_FAIL_FAST_RETRY_AFTER_SECONDS) {

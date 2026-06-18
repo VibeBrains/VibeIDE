@@ -17,6 +17,7 @@ export default defineConfig({
 		'./src2/modal-tsx/index.tsx',
 		'./src2/commands-palette-tsx/index.tsx',
 		'./src2/commands-form-tsx/index.tsx',
+		'./src2/provider-diagnostics-tsx/index.tsx',
 	],
 	outDir: './out',
 	format: ['esm'],

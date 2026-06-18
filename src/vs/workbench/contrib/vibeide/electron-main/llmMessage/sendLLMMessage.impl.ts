@@ -21,7 +21,7 @@ import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
 import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
-import { ensureSystemCADispatcher } from './systemCAFetch.js';
+import { ensureSystemCADispatcher, resetSystemCADispatcher } from './systemCAFetch.js';
 import { sendViaAISdk } from './aiSdkAdapter.js';
 import { getGoogleApiKey, assertHttpHeaderSafe } from './llmHelpers.js';
 import type { SendChatParams_Internal, SendFIMParams_Internal, ListParams_Internal } from './sendLLMMessage.internalTypes.js';
@@ -138,6 +138,22 @@ const getOllamaClient = ({ endpoint }: { endpoint: string }): Ollama => {
 	const ollama = new Ollama({ host: endpoint })
 	ollamaClientCache.set(endpoint, ollama)
 	return ollama
+}
+
+/**
+ * Reset all process-wide LLM transport state without restarting the IDE.
+ * Two failure modes share the "no tokens until restart" symptom: (1) local SDK
+ * client caches go stale on config change, (2) the shared cloud undici dispatcher
+ * can wedge its keep-alive pool. Clears both client caches and recreates the
+ * dispatcher. Backs the «reset provider clients» diagnostic action.
+ */
+export const clearProviderClientCaches = (): void => {
+	const openCount = openAIClientCache.size
+	const ollamaCount = ollamaClientCache.size
+	openAIClientCache.clear()
+	ollamaClientCache.clear()
+	resetSystemCADispatcher()
+	vibeLog.warn('sendLLMMessage.impl', `[resetProviderClients] cleared ${openCount} OpenAI + ${ollamaCount} Ollama cached clients; recreated shared dispatcher`)
 }
 
 // ------------ OPENAI-COMPATIBLE (HELPERS) ------------

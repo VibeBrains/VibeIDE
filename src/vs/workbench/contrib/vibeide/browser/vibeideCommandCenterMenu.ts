@@ -194,3 +194,12 @@ MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 	group: 'd_commands',
 	order: 1,
 });
+
+MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
+	command: {
+		id: 'vibeide.commands.checkProviders',
+		title: localize('vibeideCheckProviders', 'Проверка провайдеров'),
+	},
+	group: 'd_commands',
+	order: 2,
+});

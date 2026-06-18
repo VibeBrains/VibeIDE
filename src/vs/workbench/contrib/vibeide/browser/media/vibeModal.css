@@ -766,3 +766,114 @@
 #vibeide-project-command-form-portal *::-webkit-scrollbar-thumb:active {
 	background-color: var(--vscode-scrollbarSlider-activeBackground, rgba(191, 191, 191, 0.4)) !important;
 }
+
+/* ── «Проверка провайдеров» (provider diagnostics modal) ───────────────────── */
+.vibeide-provdiag-summary {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+	font-variant-numeric: tabular-nums;
+}
+.vibeide-provdiag-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	padding: 12px 16px 10px;
+}
+.vibeide-provdiag-btn {
+	font-size: 12px;
+	padding: 4px 10px;
+	border-radius: 4px;
+	border: 1px solid var(--vscode-button-border, transparent);
+	background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
+	color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
+	cursor: pointer;
+}
+.vibeide-provdiag-btn:hover:not(:disabled) {
+	background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
+}
+.vibeide-provdiag-btn:disabled { opacity: 0.5; cursor: default; }
+.vibeide-provdiag-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	overflow-y: auto;
+	flex: 1 1 auto;
+	min-height: 0;
+	padding: 0 16px 16px;
+}
+.vibeide-provdiag-empty {
+	color: var(--vscode-descriptionForeground);
+	padding: 16px 4px;
+	text-align: center;
+}
+.vibeide-provdiag-card {
+	border: 1px solid var(--vscode-editorWidget-border, var(--vscode-widget-border, rgba(128,128,128,0.25)));
+	border-radius: 6px;
+	padding: 8px 10px;
+	background: var(--vscode-editorWidget-background, transparent);
+}
+.vibeide-provdiag-card-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.vibeide-provdiag-name { font-weight: 600; }
+.vibeide-provdiag-kind,
+.vibeide-provdiag-key {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+}
+.vibeide-provdiag-spacer { flex: 1 1 auto; }
+.vibeide-provdiag-latency {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+	font-variant-numeric: tabular-nums;
+}
+.vibeide-provdiag-recheck {
+	border: none;
+	background: transparent;
+	color: var(--vscode-foreground);
+	cursor: pointer;
+	font-size: 13px;
+	padding: 0 4px;
+	border-radius: 4px;
+}
+.vibeide-provdiag-recheck:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground); }
+.vibeide-provdiag-recheck:disabled { opacity: 0.4; cursor: default; }
+.vibeide-provdiag-layers {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 8px;
+}
+.vibeide-provdiag-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	font-size: 11px;
+	padding: 2px 8px;
+	border-radius: 9999px;
+	border: 1px solid transparent;
+	background: var(--vscode-badge-background, rgba(128,128,128,0.2));
+	color: var(--vscode-badge-foreground);
+}
+.vibeide-provdiag-chip-glyph { font-weight: 700; }
+.vibeide-provdiag-chip.status-ok { background: rgba(70, 160, 70, 0.18); color: var(--vscode-testing-iconPassed, #3fb950); }
+.vibeide-provdiag-chip.status-warn { background: rgba(190, 150, 40, 0.18); color: var(--vscode-editorWarning-foreground, #d7a000); }
+.vibeide-provdiag-chip.status-fail { background: rgba(190, 60, 60, 0.18); color: var(--vscode-editorError-foreground, #e5534b); }
+.vibeide-provdiag-chip.status-pending,
+.vibeide-provdiag-chip.status-idle,
+.vibeide-provdiag-chip.status-skip { color: var(--vscode-descriptionForeground); }
+.vibeide-provdiag-url {
+	margin-top: 6px;
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+	font-family: var(--vscode-editor-font-family, monospace);
+	overflow-wrap: anywhere;
+}
+.vibeide-provdiag-detail {
+	margin-top: 6px;
+	font-size: 11px;
+	color: var(--vscode-editorError-foreground, #e5534b);
+	overflow-wrap: anywhere;
+}

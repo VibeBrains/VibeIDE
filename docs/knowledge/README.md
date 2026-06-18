@@ -40,6 +40,7 @@
 | [commands-palette-modal.md](architecture/commands-palette-modal.md) | «VibeIDE Команды» — resizable-окно списка всех `vibe*`-команд (brain-меню). Бридж-сервис + ленивый портал, почему не `VibeModalService`, новая tsup-точка + ручной `.d.ts`, `@@`-className-футган |
 | [vibe-defaults.md](architecture/vibe-defaults.md) | `.vibe-defaults/` → генерируемый манифест (перечитывается с нуля каждую сборку) → `applyVibeDefaults` сеет в `.vibe/` (create-if-missing). Команда `vibeide.defaults.apply`, общий `collectVibeideCommands`, word wrap ON по умолчанию |
 | [dynamic-providers.md](architecture/dynamic-providers.md) | `.vibe/providers.json` (JSONC) — user-defined провайдеры/модели без пересборки. **WIP:** Фаза 1 (формат + IntelliSense + диагностика + тоглы built-in) готова; 2b-2 (overlay в `settingsOfProvider` → список+caps+транспорт) с `_storeState`-риском — план внутри |
+| [provider-diagnostics.md](architecture/provider-diagnostics.md) | «Проверка провайдеров» — модалка диагностики (brain-меню), послойные проверки L1–L5, **корень бага «токены не уходят до перезапуска»** (стейл-кэш SDK-клиентов в electron-main), кнопка сброса клиентов, диаг-логи, MD-экспорт |
 
 ### [ui/](ui/) — CSS, темы, view-инфраструктура
 
@@ -58,6 +59,7 @@
 |---|---|
 | [modes-and-policies.md](chat-ux/modes-and-policies.md) | Normal/Plan/Agent, autopilot vs auto-approve, pre-flight, Trust Score, T&C Suite, confidence vs LLM-judge |
 | [attachments.md](chat-ux/attachments.md) | Paste файлов, vision-capability gate (двойной), скрытый dead-code |
+| [chat-interrupt-and-inject.md](chat-ux/chat-interrupt-and-inject.md) | Дубль `tool_call id` после abort mid-tool-call (HTTP 400) — дедуп в `prepareMessages_openai_tools`; дизайн «подмешать контекст к следующему хопу» без прерывания |
 | [shortcuts.md](chat-ux/shortcuts.md) | `Ctrl+Alt+I`, отвязка `workbench.action.chat.open`, скрытие builtin chat |
 | [auto-repair-loop.md](chat-ux/auto-repair-loop.md) | Repair loop, DMS exclusions, pre-flight vs task decomposition |
 | [model-stalls.md](chat-ux/model-stalls.md) | Журнал обрывов/зависаний LLM-ассистента: триггерные слова, шаблон инцидента, гипотезы, митигации |

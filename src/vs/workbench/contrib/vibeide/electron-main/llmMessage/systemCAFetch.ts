@@ -60,3 +60,29 @@ export const ensureSystemCADispatcher = (): Agent => {
 	}
 	return _dispatcher
 }
+
+/**
+ * Force-recreate the shared dispatcher: build a fresh undici Agent, reinstall it as
+ * the global dispatcher, then destroy the old one (killing any wedged keep-alive
+ * sockets). Backs the «reset provider clients» diagnostic action — clears the
+ * "no tokens until restart" state without restarting the IDE. Call sites that resolve
+ * the dispatcher per-request (via `ensureSystemCADispatcher()`) pick up the new Agent
+ * on their next call; module-level captures of the old reference would NOT, so they
+ * must resolve lazily.
+ */
+export const resetSystemCADispatcher = (): Agent => {
+	const old = _dispatcher
+	_dispatcher = buildDispatcher()
+	try {
+		setGlobalDispatcher(_dispatcher)
+		_initialized = true
+	} catch (e) {
+		vibeLog.warn('systemCAFetch', 'setGlobalDispatcher (reset) failed:', (e as Error).message)
+	}
+	// Tear down the old pool AFTER swapping so in-flight requests on it fail fast
+	// instead of pinning sockets. Fire-and-forget — destroy() rejects in-flight requests.
+	if (old) {
+		void old.destroy().catch(e => vibeLog.warn('systemCAFetch', 'old dispatcher destroy failed:', (e as Error).message))
+	}
+	return _dispatcher
+}

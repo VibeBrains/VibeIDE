@@ -12,7 +12,7 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, MainSendLLMMessageParams, AbortRef, SendLLMMessageParams, MainLLMMessageAbortParams, ModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, OllamaModelResponse, OpenaiCompatibleModelResponse, MainModelListParams, } from '../common/sendLLMMessageTypes.js';
 import { sendLLMMessage } from './llmMessage/sendLLMMessage.js'
 import { IMetricsService } from '../common/metricsService.js';
-import { sendLLMMessageToProviderImplementation } from './llmMessage/sendLLMMessage.impl.js';
+import { sendLLMMessageToProviderImplementation, clearProviderClientCaches } from './llmMessage/sendLLMMessage.impl.js';
 
 // NODE IMPLEMENTATION - calls actual sendLLMMessage() and returns listeners to it
 
@@ -80,6 +80,11 @@ export class LLMMessageChannel implements IServerChannel {
 			}
 			else if (command === 'openAICompatibleList') {
 				this._callOpenAICompatibleList(params)
+			}
+			else if (command === 'resetProviderClients') {
+				// Diagnostic: clear stale local client caches + recreate the shared cloud
+				// dispatcher so wedged transport recovers without an IDE restart.
+				clearProviderClientCaches()
 			}
 			else {
 				throw new Error(`VibeIDE sendLLM: command "${command}" not recognized.`)

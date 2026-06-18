@@ -515,6 +515,12 @@ import './vibeContextReportContribution.js'
 // VibeIDE: "VibeIDE Команды" resizable command-browser modal (brain menu)
 import './vibeCommandsPaletteContribution.js'
 
+// VibeIDE: "Проверка провайдеров" — provider connectivity diagnostics modal (brain menu)
+import './vibeProviderDiagnosticsContribution.js'
+
+// VibeIDE: status-bar wrench — one-click «починить связь с провайдерами» (reset transport)
+import './vibeProviderFixStatusBar.js'
+
 // VibeIDE: "Установить дефолтную обвязку для агентов" command (.vibe defaults)
 import './vibeDefaultsContribution.js'
 

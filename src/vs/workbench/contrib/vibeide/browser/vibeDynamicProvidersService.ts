@@ -97,6 +97,27 @@ export interface ResolvedProviderEntry {
 }
 
 /**
+ * One active dynamic provider, flattened for the «Проверка провайдеров» diagnostics modal.
+ * "Active" = resolvable key (gui / .vibe/.env / apiKeyRef) OR an OS-env key name (`apiKeyEnv`,
+ * resolved in electron-main at send time and therefore invisible to the renderer).
+ */
+export interface ProviderDiagnosticsTarget {
+	readonly id: string;
+	readonly displayName: string;
+	readonly baseURL?: string;
+	readonly protocol?: string;
+	readonly keySource: 'gui' | 'env' | 'ref' | 'none';
+	/** OS env var name (main-only). Present => key is resolved server-side; renderer can't probe with it. */
+	readonly apiKeyEnv?: string;
+	/** Renderer-visible key for probing (undefined for OS-env-only providers). */
+	readonly apiKey?: string;
+	/** Custom models URL when `models.fetch` is a string. */
+	readonly modelsUrl?: string;
+	/** `false` => static-only (no catalog probe). */
+	readonly modelsFetch: boolean;
+}
+
+/**
  * Order of DYNAMIC providers in the model picker (built-ins keep their hard-coded order — these are
  * appended after them). `order` ascending; entries WITHOUT `order` sink to the end; any tie (equal
  * `order`, or both missing it) breaks by display name (`name || id`). Pure → unit-testable.
@@ -128,6 +149,8 @@ export interface IVibeDynamicProvidersService {
 	reload(): Promise<void>;
 	/** Config Guard findings from the last load of `.vibe/providers.json` (empty if disabled/clean). */
 	getLastGuardFindings(): readonly ConfigGuardFinding[];
+	/** Active dynamic providers (resolvable key or OS-env key), flattened for the diagnostics modal. */
+	getDiagnosticsTargets(): ProviderDiagnosticsTarget[];
 }
 
 const EMPTY_STATE: VibeDynamicProvidersState = { fileExists: false, providers: [], warnings: [] };
@@ -389,6 +412,32 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		const envFileKey = p.entry.apiKeyEnv ? this._envFileVars[p.entry.apiKeyEnv] : undefined;
 		if (envFileKey?.trim()) { return 'env'; }
 		return 'none';
+	}
+
+	getDiagnosticsTargets(): ProviderDiagnosticsTarget[] {
+		const out: ProviderDiagnosticsTarget[] = [];
+		for (const p of this._state.providers) {
+			// Overrides only patch a built-in (the built-in is diagnosed under its own entry); skip them.
+			if (p.kind === 'override') { continue; }
+			if (p.entry.active === false) { continue; }
+			const keySource = this._resolveKeySource(p);
+			const hasOsEnv = !!p.entry.apiKeyEnv;
+			// "Active" = key resolvable in the renderer OR an OS-env key resolved in main.
+			if (keySource === 'none' && !hasOsEnv) { continue; }
+			const fetchSpec = p.entry.models?.fetch;
+			out.push({
+				id: p.id,
+				displayName: p.entry.name || p.id,
+				baseURL: p.entry.baseURL,
+				protocol: p.entry.protocol,
+				keySource,
+				apiKeyEnv: p.entry.apiKeyEnv,
+				apiKey: this._resolveBrowserKey(p),
+				modelsUrl: typeof fetchSpec === 'string' ? fetchSpec : undefined,
+				modelsFetch: fetchSpec !== false,
+			});
+		}
+		return out;
 	}
 
 	/**
