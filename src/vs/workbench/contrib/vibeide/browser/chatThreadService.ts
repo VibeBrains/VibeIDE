@@ -40,6 +40,7 @@ import { shorten } from '../../../../base/common/labels.js';
 import { IVibeideModelService } from '../common/vibeideModelService.js';
 import { findLast, findLastIdx } from '../../../../base/common/arraysFind.js';
 import { IEditCodeService } from './editCodeServiceInterface.js';
+import { IVibeNotifySoundService, NotifySoundEvent } from './vibeNotifySoundService.js';
 import { VibeideFileSnapshot } from '../common/editCodeServiceTypes.js';
 import { INotificationHandle, INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { truncate } from '../../../../base/common/strings.js';
@@ -101,6 +102,7 @@ import { IVibeContextGuardService } from './vibeContextGuardService.js';
 
 // related to retrying when LLM message has error
 // Optimized retry logic: faster initial retry, exponential backoff
+const STOP_SOUND_SUPPRESS_MS = 2500 // After a user abort / non-terminal clear, suppress run-end notification sounds for this window (covers multiple undefined-transitions from one abort).
 const CHAT_RETRIES = 3
 const INITIAL_RETRY_DELAY = 1000 // Start with 1s for faster recovery
 const MAX_RETRY_DELAY = 5000 // Cap at 5s
@@ -710,6 +712,17 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	// long time, we forcibly recover instead of hanging the chat indefinitely.
 	private readonly _streamStateSetAt = new Map<string, number>()
 
+	// Suppression window (unix ms, per thread) during which a run-end transition to `undefined`
+	// must NOT play a notification sound: user-initiated stops (Escape / abort / cost-decline /
+	// edit-rerun) and non-terminal intermediate clears (hard-stall auto-retry). A time window
+	// (not a one-shot flag) robustly covers a single abort that produces several undefined
+	// transitions in quick succession. Focus-mute already covers the common case; this is the
+	// deterministic backstop for users who turned focus-mute off.
+	private readonly _suppressStopSoundUntil = new Map<string, number>()
+	private _suppressStopSound(threadId: string) {
+		this._suppressStopSoundUntil.set(threadId, Date.now() + STOP_SOUND_SUPPRESS_MS)
+	}
+
 	// Per-(thread × provider × model) counter of consecutive "Empty response" errors.
 	// Reset on any successful response from the same combo (onFinalMessage). Trips
 	// when streak reaches `vibeide.chat.emptyResponseCircuitBreakerThreshold` — at
@@ -815,6 +828,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeAIDebuggingService private readonly _aiDebuggingService: IVibeAIDebuggingService,
 		@IVibeContextGuardService private readonly _contextGuardService: IVibeContextGuardService,
 		@IVibeExternalAccessService private readonly _externalAccessService: IVibeExternalAccessService,
+		@IVibeNotifySoundService private readonly _notifySoundService: IVibeNotifySoundService,
 	) {
 		super()
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabIds: [] } // default state
@@ -1099,7 +1113,14 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 
 	private _setStreamState(threadId: string, state: ThreadStreamState[string]) {
+		const prior = this.streamState[threadId]
 		this.streamState[threadId] = state
+
+		// Notification sound on the single funnel: fire when the thread transitions into a
+		// "waiting for the user / work not proceeding" state. All gates (enabled, per-event,
+		// focus, debounce) live in the sound service. Cheap: the vast majority of calls are
+		// LLM→LLM and fail the guards below immediately.
+		this._maybeNotifyOnStreamTransition(threadId, prior?.isRunning, state)
 
 		// Track the wall-clock moment a thread entered any running state, so the
 		// stuck-state recovery in _addUserMessageAndStreamResponse can decide
@@ -1155,6 +1176,34 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			// Also clear any pending updates for this thread
 			this._pendingStreamStateUpdates.delete(threadId)
 			this._onDidChangeStreamState.fire({ threadId })
+		}
+	}
+
+	// Fire a notification sound when a thread transitions into a "waiting for the user / work not
+	// proceeding" state. Two cases, both reached through the single _setStreamState funnel:
+	//   - awaiting_user: model asked a question / wants plan confirmation (unambiguous transition).
+	//   - run end (→ undefined): the run had been progressing and now stops. Skipped for error
+	//     ends (already surfaced in UI) and for user-initiated/non-terminal clears inside the
+	//     suppression window (abort, cost-decline, hard-stall auto-retry). Complete vs stalled is
+	//     read from the last message (agentStoppedNoToolCall marks the «Продолжить» stall).
+	private _maybeNotifyOnStreamTransition(threadId: string, priorIsRunning: IsRunningType, next: ThreadStreamState[string]): void {
+		const nextIsRunning = next?.isRunning
+
+		if (nextIsRunning === 'awaiting_user') {
+			if (priorIsRunning !== 'awaiting_user') {
+				this._notifySoundService.playForEvent('awaiting_user')
+			}
+			return
+		}
+
+		if (nextIsRunning === undefined && priorIsRunning !== undefined) {
+			if (next?.error) { return }
+			if (Date.now() < (this._suppressStopSoundUntil.get(threadId) ?? 0)) { return }
+			const thread = this.state.allThreads[threadId]
+			const last = thread?.messages[thread.messages.length - 1]
+			const stalled = last?.role === 'assistant' && last.agentStoppedNoToolCall === true
+			const event: NotifySoundEvent = stalled ? 'stalled' : 'complete'
+			this._notifySoundService.playForEvent(event)
 		}
 	}
 
@@ -3176,6 +3225,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		const thread = this.state.allThreads[threadId]
 		if (!thread) return // should never happen
 
+		// User-initiated stop: suppress the run-end notification sound for this thread (the user is
+		// at the keyboard). Covers the several undefined-transitions one abort can produce.
+		this._suppressStopSound(threadId)
+
 		// add assistant message
 		if (this.streamState[threadId]?.isRunning === 'LLM') {
 			const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo
@@ -3279,6 +3332,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 		if (lastUserMsg.role !== 'user') return // type narrow
 
 		// interrupt the current stream WITHOUT committing partial assistant content (unlike abortRunning)
+		// User-initiated edit-and-rerun: suppress the run-end notification sound for this thread.
+		this._suppressStopSound(threadId)
 		const interrupt = await this.streamState[threadId]?.interrupt
 		if (typeof interrupt === 'function') interrupt()
 
@@ -4540,6 +4595,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 					primaryButton: localize('vibeide.cost.confirm.primary', 'Отправить запрос'),
 				});
 				if (!result.confirmed) {
+					// User declined the cost confirmation: no run happened — don't play a run-end sound.
+					this._suppressStopSound(threadId);
 					this._setStreamState(threadId, { isRunning: undefined });
 					return;
 				}
@@ -5465,6 +5522,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 							severity: Severity.Info,
 							message: localize('vibeide.chatThread.hardStallAutoRetry', 'Стрим завис ({0}с без токенов) — пробую отправить ход заново автоматически.', String(hardStallSeconds)),
 						})
+						// Non-terminal clear: the turn is about to be re-sent — don't play a run-end sound.
+						this._suppressStopSound(threadId)
 						this._setStreamState(threadId, { isRunning: undefined })
 						const retryTimer = setTimeout(() => {
 							if (this.streamState[threadId]?.isRunning === undefined) {

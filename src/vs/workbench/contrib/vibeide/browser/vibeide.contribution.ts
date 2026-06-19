@@ -123,6 +123,10 @@ import '../common/codeReviewService.js'
 import './codeReviewEditorContribution.js'
 import './codeReviewCommands.js'
 
+// notification sounds on agent stop / completion / awaiting-user
+import './vibeNotifySoundService.js'
+import './vibeNotifySoundCommands.js'
+
 // codebase query - lazy load (only needed when user invokes codebase query command)
 import('./codebaseQueryCommands.js').catch(() => { });
 

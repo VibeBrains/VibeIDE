@@ -903,6 +903,73 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 				},
 			},
 		});
+
+		registry.registerConfiguration({
+			id: 'vibeide.notify',
+			title: localize('vibeide.notify.title', 'VibeIDE — Уведомления'),
+			type: 'object',
+			properties: {
+				'vibeide.notify.sound.enabled': {
+					type: 'boolean',
+					default: true,
+					description: localize('vibeide.notify.sound.enabled', 'Проигрывать короткий звук, когда IDE переходит в состояние «жду пользователя», а работа агента НЕ идёт: ход завершён, прогон встал (показан «Продолжить») или агент ждёт ответа/подтверждения плана. Тонкая настройка событий — ниже (`onComplete`/`onStalled`/`onAwaitingUser`).'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.notify.sound.sound': {
+					type: 'string',
+					enum: ['taskCompleted', 'success', 'chatUserActionRequired', 'terminalBell', 'break', 'custom'],
+					enumDescriptions: [
+						localize('vibeide.notify.sound.sound.taskCompleted', 'Завершение задачи (дефолт)'),
+						localize('vibeide.notify.sound.sound.success', 'Успех'),
+						localize('vibeide.notify.sound.sound.chatUserActionRequired', 'Требуется действие'),
+						localize('vibeide.notify.sound.sound.terminalBell', 'Звонок терминала'),
+						localize('vibeide.notify.sound.sound.break', 'Короткий сигнал'),
+						localize('vibeide.notify.sound.sound.custom', 'Свой файл (укажите путь в `customPath`)'),
+					],
+					default: 'taskCompleted',
+					description: localize('vibeide.notify.sound.sound', 'Какой звук проигрывать. Прослушать выбранный вариант — команда «VibeIDE: Прослушать звук уведомления». Для своего звука выберите `custom` и укажите путь в `vibeide.notify.sound.customPath`.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.notify.sound.customPath': {
+					type: 'string',
+					default: '',
+					description: localize('vibeide.notify.sound.customPath', 'Абсолютный путь к своему звуковому файлу (используется, когда `sound` = `custom`). Допустимые форматы: mp3, ogg, wav. Лимиты: размер до 1 МБ, длительность до 5 секунд. Файл вне правил не принимается — будет проигран дефолтный звук, причина пишется в лог.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.notify.sound.volume': {
+					type: 'number',
+					default: 0.6,
+					minimum: 0,
+					maximum: 1,
+					description: localize('vibeide.notify.sound.volume', 'Громкость звука уведомления (0 — тихо, 1 — максимум). Дефолт 0.6.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.notify.sound.muteWhenFocused': {
+					type: 'boolean',
+					default: true,
+					description: localize('vibeide.notify.sound.muteWhenFocused', 'Не проигрывать звук, если окно IDE сейчас в фокусе. Телефонная логика «позвать, когда отошёл»: звук слышен только когда вы переключились в другое окно/приложение. Бонусом гасит звук при ручной остановке (Escape), когда вы у клавиатуры. Выключите, чтобы звук играл всегда.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.notify.sound.onComplete': {
+					type: 'boolean',
+					default: true,
+					description: localize('vibeide.notify.sound.onComplete', 'Звук при завершении хода (модель закончила работу: `vibe_complete` / естественный конец).'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.notify.sound.onStalled': {
+					type: 'boolean',
+					default: true,
+					description: localize('vibeide.notify.sound.onStalled', 'Звук, когда прогон встал без подпинываний: автопилот исчерпал бюджет нуджей и показана кнопка «Продолжить».'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.notify.sound.onAwaitingUser': {
+					type: 'boolean',
+					default: true,
+					description: localize('vibeide.notify.sound.onAwaitingUser', 'Звук, когда агент ждёт пользователя: вопрос или подтверждение плана.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+			},
+		});
 	}
 }
 
