@@ -37,6 +37,7 @@ import { QuickEditPropsType } from './quickEditActions.js';
 import { IModelContentChangedEvent } from '../../../../editor/common/textModelEvents.js';
 import { extractCodeFromFIM, extractCodeFromRegular, ExtractedSearchReplaceBlock, extractSearchReplaceBlocks, normalizeSearchReplaceMarkers } from '../common/helpers/extractCodeFromResult.js';
 import { findLinesTolerant } from '../common/helpers/fuzzyLineMatch.js';
+import { alignReplacementIndentation, firstNonBlankLine, getLeadingWhitespace } from '../common/helpers/reindentSearchReplace.js';
 import { INotificationService, } from '../../../../platform/notification/common/notification.js';
 import { EditorOption } from '../../../../editor/common/config/editorOptions.js';
 import { Emitter } from '../../../../base/common/event.js';
@@ -143,7 +144,7 @@ const pruneCodeForLocalModel = (code: string, language: string): string => {
 // finds block.orig in fileContents and return its range in file
 // startingAtLine is 1-indexed and inclusive
 // returns 1-indexed lines
-const findTextInCode = (text: string, fileContents: string, canFallbackToRemoveWhitespace: boolean, opts: { startingAtLine?: number, returnType: 'lines' }) => {
+const findTextInCode = (text: string, fileContents: string, canFallbackToRemoveWhitespace: boolean, opts: { startingAtLine?: number, returnType: 'lines', matchModeRef?: { exact: boolean } }) => {
 
 	const returnAns = (fileContents: string, idx: number) => {
 		const startLine = numLinesOfStr(fileContents.substring(0, idx + 1))
@@ -162,11 +163,15 @@ const findTextInCode = (text: string, fileContents: string, canFallbackToRemoveW
 
 	// if idx was found
 	if (idx !== -1) {
+		if (opts?.matchModeRef) opts.matchModeRef.exact = true
 		return returnAns(fileContents, idx)
 	}
 
 	if (!canFallbackToRemoveWhitespace)
 		return 'Not found' as const
+
+	// From here on any match is indentation/whitespace/paraphrase-tolerant, not byte-exact.
+	if (opts?.matchModeRef) opts.matchModeRef.exact = false
 
 	// Tolerant line-based fallback (line-trimmed + block-anchor with a Levenshtein-scored middle):
 	// forgives indentation / trailing-whitespace / slightly-paraphrased near-misses that weaker models
@@ -1222,7 +1227,7 @@ class EditCodeService extends Disposable implements IEditCodeService {
 			linkedCtrlKZone: null,
 			onWillUndo: () => { },
 		})
-		if (!res) return
+		if (!res) return { indentAdjustments: [] }
 		const { diffZone, onFinishEdit } = res
 
 
@@ -1246,14 +1251,16 @@ class EditCodeService extends Disposable implements IEditCodeService {
 			throw e.fullError || new Error(e.message)
 		}
 
+		let applyResult: { indentAdjustments: { fileIndentWidth: number }[] } | undefined
 		try {
-			this._instantlyApplySRBlocks(uri, searchReplaceBlocks)
+			applyResult = this._instantlyApplySRBlocks(uri, searchReplaceBlocks)
 		}
 		catch (e) {
 			onError({ message: e + '', fullError: null })
 		}
 
 		onDone()
+		return { indentAdjustments: applyResult?.indentAdjustments ?? [] }
 	}
 
 
@@ -1741,9 +1748,11 @@ class EditCodeService extends Disposable implements IEditCodeService {
 
 
 
-		const replacements: { origStart: number; origEnd: number; block: ExtractedSearchReplaceBlock }[] = []
+		const replacements: { origStart: number; origEnd: number; finalText: string; block: ExtractedSearchReplaceBlock }[] = []
+		const indentAdjustments: { fileIndentWidth: number }[] = []
 		for (const b of blocks) {
-			const res = findTextInCode(b.orig, modelStr, true, { returnType: 'lines' })
+			const matchModeRef = { exact: true }
+			const res = findTextInCode(b.orig, modelStr, true, { returnType: 'lines', matchModeRef })
 			if (typeof res === 'string')
 				throw new Error(this._errContentOfInvalidStr(res, b.orig))
 			let [startLine, endLine] = res
@@ -1758,7 +1767,27 @@ class EditCodeService extends Disposable implements IEditCodeService {
 			// including endline at end
 			const origEnd = modelStrLines.slice(0, endLine + 1).join('\n').length - 1
 
-			replacements.push({ origStart, origEnd, block: b });
+			// Indentation alignment: only when the match was NOT byte-exact (indentation differed).
+			// `edit_file` otherwise inserts `final` verbatim, so a model that copied the anchor without
+			// its leading whitespace would land the replacement at the wrong column. Realign to the
+			// file's actual anchor indentation. See helpers/reindentSearchReplace.ts.
+			let finalText = b.final
+			if (!matchModeRef.exact) {
+				// first non-blank line within the matched region → the file's real indent baseline
+				let fileAnchorLine = ''
+				for (let li = startLine; li <= endLine && li < modelStrLines.length; li++) {
+					if (modelStrLines[li].trim() !== '') { fileAnchorLine = modelStrLines[li]; break }
+				}
+				const fileIndent = getLeadingWhitespace(fileAnchorLine)
+				const searchIndent = getLeadingWhitespace(firstNonBlankLine(b.orig))
+				const aligned = alignReplacementIndentation(searchIndent, fileIndent, finalText)
+				if (aligned !== finalText) {
+					finalText = aligned
+					indentAdjustments.push({ fileIndentWidth: fileIndent.length })
+				}
+			}
+
+			replacements.push({ origStart, origEnd, finalText, block: b });
 		}
 		// sort in increasing order
 		replacements.sort((a, b) => a.origStart - b.origStart)
@@ -1773,14 +1802,16 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		// apply each replacement from right to left (so indexes don't shift)
 		let newCode: string = modelStr
 		for (let i = replacements.length - 1; i >= 0; i--) {
-			const { origStart, origEnd, block } = replacements[i]
-			newCode = newCode.slice(0, origStart) + block.final + newCode.slice(origEnd + 1, Infinity)
+			const { origStart, origEnd, finalText } = replacements[i]
+			newCode = newCode.slice(0, origStart) + finalText + newCode.slice(origEnd + 1, Infinity)
 		}
 
 		this._writeURIText(uri, newCode,
 			'wholeFileRange',
 			{ shouldRealignDiffAreas: true }
 		)
+
+		return { indentAdjustments }
 	}
 
 	private _initializeSearchAndReplaceStream(opts: StartApplyingOpts & { from: 'ClickApply' }): [DiffZone, Promise<void>] | undefined {

@@ -46,7 +46,7 @@ export interface IEditCodeService {
 
 	callBeforeApplyOrEdit(uri: URI | 'current'): Promise<void>;
 	startApplying(opts: StartApplyingOpts): [URI, Promise<void>] | null;
-	instantlyApplySearchReplaceBlocks(opts: { uri: URI; searchReplaceBlocks: string }): void;
+	instantlyApplySearchReplaceBlocks(opts: { uri: URI; searchReplaceBlocks: string }): { indentAdjustments: { fileIndentWidth: number }[] };
 	instantlyRewriteFile(opts: { uri: URI; newContent: string }): void;
 	addCtrlKZone(opts: AddCtrlKOpts): number | undefined;
 	removeCtrlKZone(opts: { diffareaid: number }): void;

@@ -1796,7 +1796,15 @@ export class ToolsService implements IToolsService {
 					await this._gitAutoStashService.createStash(uri.fsPath);
 				}
 				await editCodeService.callBeforeApplyOrEdit(uri)
-				editCodeService.instantlyApplySearchReplaceBlocks({ uri, searchReplaceBlocks })
+				const applyInfo = editCodeService.instantlyApplySearchReplaceBlocks({ uri, searchReplaceBlocks })
+				// Indentation mismatch surfaced as an informative note (NOT an error — the edit applied).
+				// Tells the model the tool auto-aligned its block so it does not misread a ragged diff as a
+				// tool "trim" bug and spiral retrying. See helpers/reindentSearchReplace.ts.
+				let indentationNote: string | null = null
+				if (applyInfo.indentAdjustments.length > 0) {
+					const widths = Array.from(new Set(applyInfo.indentAdjustments.map(a => a.fileIndentWidth))).sort((a, b) => a - b)
+					indentationNote = `Внимание: отступ твоего old_string/new_string не совпал с файлом (отступ якорной строки в файле: ${widths.join('/')} пробел(ов)) — я автоматически выровнял блок по файлу. Проверь diff: если отступ в результате всё равно неверный, пришли new_string с ТОЧНЫМ отступом КАЖДОЙ строки (включая первую) или используй rewrite_file. Инструмент вставляет new_string дословно и не переотступает сам.`
+				}
 				// File content has just been mutated — re-mark as read so chained edits still pass the guard.
 				this._markFileRead(uri)
 				// Persist to disk and verify (see rewrite_file): a failed save must surface as a
@@ -1810,7 +1818,7 @@ export class ToolsService implements IToolsService {
 				const lintErrorsPromise = Promise.resolve().then(async () => {
 					await timeout(2000)
 					const { lintErrors } = this._getLintErrors(uri)
-					return { lintErrors }
+					return { lintErrors, indentationNote }
 				})
 
 				return { result: lintErrorsPromise }
@@ -2513,7 +2521,8 @@ export class ToolsService implements IToolsService {
 							: ` No lint errors found.`)
 						: '')
 
-				return `Change successfully made to ${params.uri.fsPath}.${lintErrsString}`
+				const indentNote = result.indentationNote ? `\n${result.indentationNote}` : ''
+				return `Change successfully made to ${params.uri.fsPath}.${lintErrsString}${indentNote}`
 			},
 			rewrite_file: (params, result) => {
 				const lintErrsString = (
