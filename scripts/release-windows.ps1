@@ -245,8 +245,16 @@ New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
 $staleZips = Get-ChildItem "$archiveDir\VibeIDE-*-win32-x64.zip" -ErrorAction SilentlyContinue
 if ($staleZips) {
     foreach ($z in $staleZips) {
-        Remove-Item $z.FullName -Force
-        Write-Host "  Cleaned stale archive: $($z.Name)" -ForegroundColor DarkGray
+        try {
+            Remove-Item $z.FullName -Force -ErrorAction Stop
+            Write-Host "  Cleaned stale archive: $($z.Name)" -ForegroundColor DarkGray
+        } catch {
+            # A stale zip locked by an UNRELATED app (e.g. a messenger still holding a
+            # previously shared build) must NOT abort a build. Skip with a warning — the
+            # Collect step below picks only the CURRENT version's zip, so a leftover is
+            # never shipped regardless.
+            Write-Warning "Stale archive $($z.Name) is locked by another process — skipping delete: $($_.Exception.Message)"
+        }
     }
 }
 
@@ -259,7 +267,9 @@ Step "Collecting artifacts..."
 $setupDir  = "$Root\.build\win32-x64\system-setup"
 
 $exeFiles = Get-ChildItem "$setupDir\VSCodeSetup*.exe" -ErrorAction SilentlyContinue
-$zipFiles  = Get-ChildItem "$archiveDir\VibeIDE-*.zip" -ErrorAction SilentlyContinue
+# Pick ONLY the current version's portable zip — never a stale leftover (e.g. one a
+# messenger locked so the pre-clean above had to skip it). Keeps a forgotten build out.
+$zipFiles  = Get-ChildItem "$archiveDir\$zipName" -ErrorAction SilentlyContinue
 
 if (-not $exeFiles) { Write-Error "No .exe found in $setupDir"; exit 1 }
 if (-not $zipFiles)  { Write-Error "No .zip found in $archiveDir"; exit 1 }
