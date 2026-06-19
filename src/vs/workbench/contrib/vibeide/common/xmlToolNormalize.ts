@@ -561,7 +561,7 @@ const STRIP_PATTERNS: readonly StripPattern[] = builtinToolNames.map(toolName =>
  * Vendor tool-call leak patterns (v0.13.17). When a model emits an Anthropic-style
  * `<invoke>` / `<tool_calls>` wrapper that `normalizeAlternativeToolSyntax` couldn't
  * convert — most often because the close tag is TRUNCATED (`</inv`, `</tool_c`)
- * the way deepseek-v4-pro via openCode emits it — the raw block leaks into chat.
+ * the way deepseek-v4-pro via openCodeGo emits it — the raw block leaks into chat.
  * `stripUnclaimedToolTags` (canonical-name based) never matched these, so they slipped
  * through. These tokens never occur in legitimate prose, so scrubbing is safe.
  *
@@ -578,7 +578,7 @@ const STRIP_PATTERNS: readonly StripPattern[] = builtinToolNames.map(toolName =>
  */
 // Token alternation derived from `VENDOR_WRAPPER_NAMES` (single source of truth — same
 // const that feeds `STRIP_WRAPPERS_RE`/`FAST_PATH_SNIFFS`) plus `invoke` and a small
-// EMPIRICAL set of truncated variants the way deepseek-v4-pro via openCode emits them
+// EMPIRICAL set of truncated variants the way deepseek-v4-pro via openCodeGo emits them
 // (`<tool_c`/`</inv` cut mid-tag). Adding a vendor wrapper to VENDOR_WRAPPER_NAMES extends
 // these scrubs automatically — no duplicated hardcoded list. Longest-first so full names
 // win over their truncated prefixes.

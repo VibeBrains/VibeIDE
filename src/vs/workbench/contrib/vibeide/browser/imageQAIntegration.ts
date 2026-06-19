@@ -25,7 +25,7 @@ export interface ImageQAPreprocessedMessage {
 const VISION_PROVIDERS = new Set(['anthropic', 'openAI', 'gemini', 'pollinations']);
 // Aggregator providers — vision is per-model; rely on catalog-driven `supportsVision` overrides
 // or model-name heuristics rather than blanket-trusting the provider.
-const AGGREGATOR_PROVIDERS = new Set(['openRouter', 'openCode', 'openCodeZen', 'openAICompatible', 'liteLLM']);
+const AGGREGATOR_PROVIDERS = new Set(['openRouter', 'openCodeGo', 'openCodeZen', 'openAICompatible', 'liteLLM']);
 const OLLAMA_VISION_KEYWORDS = ['llava', 'bakllava', 'llama-vision', 'qwen-vl'];
 const AGGREGATOR_VISION_SUBSTRINGS = ['vision', '-vl', 'vl-', 'llava', 'pixtral', 'claude-3', 'claude-4', 'claude-sonnet', 'claude-opus', 'gpt-4o', 'gpt-4.1', 'gpt-5', 'gemini'];
 

@@ -10,7 +10,7 @@ import { getModelCapabilities } from '../../../../common/modelCapabilities.js';
 
 /**
  * Vision-capable providers that require API keys.
- * Note: aggregators like OpenRouter / openCode / openAICompatible / liteLLM are NOT in this set
+ * Note: aggregators like OpenRouter / openCodeGo / openAICompatible / liteLLM are NOT in this set
  * because vision support is per-model, not per-provider. Use catalog-driven `supportsVision`
  * overrides (set by RemoteCatalogService) to flag individual aggregator models.
  */
@@ -21,7 +21,7 @@ const VISION_PROVIDERS: ProviderName[] = ['anthropic', 'openAI', 'gemini', 'poll
  */
 // `minimax` is the native (OpenAI-compatible) endpoint serving both text-only and multimodal
 // models, so vision is per-model — treat it like an aggregator and decide by name heuristic.
-const AGGREGATOR_PROVIDERS: ProviderName[] = ['openRouter', 'openCode', 'openCodeZen', 'openAICompatible', 'liteLLM', 'minimax'];
+const AGGREGATOR_PROVIDERS: ProviderName[] = ['openRouter', 'openCodeGo', 'openCodeZen', 'openAICompatible', 'liteLLM', 'minimax'];
 
 const heuristicWarnedSet = new Set<string>();
 
@@ -49,7 +49,7 @@ function readSupportsVisionOverride(overridesOfModel: OverridesOfModel | undefin
 /**
  * Checks if user has any vision-capable API keys configured.
  * Includes: native vision providers (Anthropic, OpenAI, Gemini, Pollinations), and aggregators
- * (OpenRouter, openCode, openAICompatible, liteLLM) when they have at least one enabled model
+ * (OpenRouter, openCodeGo, openAICompatible, liteLLM) when they have at least one enabled model
  * flagged `supportsVision=true` in catalog overrides or matching the heuristic.
  */
 export function hasVisionCapableApiKey(settingsOfProvider: SettingsOfProvider, currentModelSelection: ModelSelection | null, overridesOfModel?: OverridesOfModel): boolean {

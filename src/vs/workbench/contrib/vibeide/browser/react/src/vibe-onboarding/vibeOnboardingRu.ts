@@ -28,7 +28,7 @@ export const onboardingS = {
 		'Cloud/Other': 'Облако / другое',
 	} as Record<TabName, string>,
 	tabDescription: {
-		Free: 'OpenCode Zen и другие провайдеры с бесплатным уровнем — OpenRouter, Gemini, Pollinations. OpenCode Go (подписка на том же аккаунте) — сразу после Zen. Добавляйте сколько нужно.',
+		Free: 'OpenCode Zen и другие провайдеры с бесплатным уровнем — OpenRouter, Gemini, Pollinations. Добавляйте сколько нужно.',
 		Paid: 'Прямое подключение к любому провайдеру (свой API-ключ).',
 		Local: 'Активные провайдеры подхватываются автоматически. Добавляйте сколько нужно.',
 		'Cloud/Other': 'Добавляйте сколько нужно. Для нестандартной конфигурации — свяжитесь с нами.',
@@ -74,7 +74,7 @@ export const onboardingS = {
 		switch (providerName) {
 			case 'openCodeZen':
 				return 'OpenCode Zen: отобранные модели через opencode.ai/zen; бесплатные модели указаны в документации (MiniMax M2.5 Free, Ling 2.6 Flash и др.).';
-			case 'openCode':
+			case 'openCodeGo':
 				return 'OpenCode Go: подписка Go на том же аккаунте Zen; модели и endpoint /zen/go — см. dev.opencode.ai/docs/go.';
 			case 'minimax':
 				return 'MiniMax: прямой OpenAI-совместимый API. Флагман MiniMax-M3 (контекст 1M, мультимодальная, thinking переключается). Ключ на platform.minimax.io.';

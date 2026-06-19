@@ -30,7 +30,7 @@ export const defaultProviderSettings = {
 	openCodeZen: {
 		apiKey: '',
 	},
-	openCode: {
+	openCodeGo: {
 		apiKey: '',
 	},
 	minimax: { // direct cloud, OpenAI-compatible — https://platform.minimax.io/docs/api-reference/text-chat-openai
@@ -140,7 +140,7 @@ export const defaultModelsOfProvider = {
 	lmRoute: [],
 	pollinations: [],
 	openCodeZen: [],
-	openCode: [],
+	openCodeGo: [],
 	// Empty like every other catalog-capable cloud provider: models come from
 	// RemoteCatalogService (/v1/models) after the key is entered. Seeding here
 	// would collide with catalog 'autodetected' rows (same modelName, different
@@ -353,7 +353,7 @@ const openSourceModelOptions_assumingOAICompat = {
 		contextWindow: 64_000, reservedOutputTokenSpace: 8_000,
 	},
 	// Latest DeepSeek family (V4, V4-pro, …). New default when no explicit version is given.
-	// Catalog wins for known aggregators (openCode/openRouter) — this is only the fallback
+	// Catalog wins for known aggregators (openCodeGo/openRouter) — this is only the fallback
 	// for self-hosted / unknown endpoints that don't return context_length in /v1/models.
 	'deepseekV4': {
 		supportsFIM: false,
@@ -365,7 +365,7 @@ const openSourceModelOptions_assumingOAICompat = {
 		supportsFIM: false,
 		supportsSystemMessage: false, // unstable
 		reasoningCapabilities: false,
-		// V3 spec is 128K through every modern aggregator path (openCode/openRouter).
+		// V3 spec is 128K through every modern aggregator path (openCodeGo/openRouter).
 		// Self-hosted Ollama variants may be smaller, but those usually override via catalog.
 		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
 	},
@@ -1661,7 +1661,7 @@ const ollamaSettings: VoidStaticProviderInfo = {
 
 /**
  * Universal modelOptionsFallback for OpenAI-compatible aggregator providers
- * (openCode, openCodeZen, openRouter, liteLLM, lmRoute, openAICompatible,
+ * (openCodeGo, openCodeZen, openRouter, liteLLM, lmRoute, openAICompatible,
  * pollinations). Aggregators proxy any model behind an OpenAI-compatible
  * `/chat/completions` endpoint and almost universally support OpenAI tools
  * format — so unrecognized models (yesterday's minimax, tomorrow's maximax)
@@ -2065,7 +2065,7 @@ const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProvi
 
 	pollinations: pollinationsSettings,
 	openCodeZen: openCodeZenSettings,
-	openCode: openCodeSettings,
+	openCodeGo: openCodeSettings,
 	minimax: minimaxSettings,
 
 	googleVertex: googleVertexSettings,

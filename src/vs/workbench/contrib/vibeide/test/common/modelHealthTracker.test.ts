@@ -122,14 +122,14 @@ suite('ModelHealthTracker — isolation between combos', () => {
 	test('different (provider, model) tuples are tracked independently', () => {
 		const t = new ModelHealthTracker();
 		for (let i = 0; i < HEALTH_FAILURE_THRESHOLD; i++) {
-			t.recordFailure('openCode', 'minimax-m2.7', 'empty-response', T0 + i * 1000);
+			t.recordFailure('openCodeGo', 'minimax-m2.7', 'empty-response', T0 + i * 1000);
 		}
 		// Same model name, different provider → separate counter.
 		assert.strictEqual(t.getFailureCount('directProvider', 'minimax-m2.7', T0 + 10_000), 0);
 		// Same provider, different model → separate counter.
-		assert.strictEqual(t.getFailureCount('openCode', 'kimi-k2.6', T0 + 10_000), 0);
+		assert.strictEqual(t.getFailureCount('openCodeGo', 'kimi-k2.6', T0 + 10_000), 0);
 		// Original combo still flagged.
-		assert.strictEqual(t.shouldNotify('openCode', 'minimax-m2.7', T0 + 10_000), true);
+		assert.strictEqual(t.shouldNotify('openCodeGo', 'minimax-m2.7', T0 + 10_000), true);
 	});
 });
 

@@ -220,7 +220,7 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 	const isLocalProvider = isExplicitLocalProvider || isLocalhostEndpoint
 	// Aggregator providers: extra hop client→aggregator→upstream adds latency,
 	// reasoning models on big context can take 2–3 minutes to first byte.
-	const isAggregatorProvider = providerName === 'openCode'
+	const isAggregatorProvider = providerName === 'openCodeGo'
 		|| providerName === 'openCodeZen'
 		|| providerName === 'openRouter'
 		|| providerName === 'lmRoute'
@@ -292,7 +292,7 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 		const thisConfig = settingsOfProvider[providerName]
 		return new OpenAI({ baseURL: 'https://opencode.ai/zen/v1', apiKey: thisConfig.apiKey, ...commonPayloadOpts })
 	}
-	else if (providerName === 'openCode') {
+	else if (providerName === 'openCodeGo') {
 		const thisConfig = settingsOfProvider[providerName]
 		return new OpenAI({ baseURL: 'https://opencode.ai/zen/go/v1', apiKey: thisConfig.apiKey, ...commonPayloadOpts })
 	}
@@ -877,7 +877,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 				}
 
 				// tool call
-				// Some aggregator upstreams (openCode/zen/go with minimax-m2.7, certain
+				// Some aggregator upstreams (openCodeGo/zen/go with minimax-m2.7, certain
 				// openAICompatible backends) omit `index` when streaming a single tool_call
 				// in one chunk. OpenAI spec requires it; we tolerate its absence by
 				// defaulting to slot 0. Tools with index > 0 are intentionally dropped —
@@ -1832,7 +1832,7 @@ export const sendLLMMessageToProviderImplementation = {
 		sendFIM: null,
 		list: null,
 	},
-	openCode: {
+	openCodeGo: {
 		sendChat: (params) => sendViaAISdk(params),
 		sendFIM: null,
 		list: null,

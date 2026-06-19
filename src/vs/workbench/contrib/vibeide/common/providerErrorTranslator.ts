@@ -24,14 +24,14 @@ const ORIGINAL_ECHO_MAX_CHARS = 180;
 /** Ordered dictionary — FIRST match wins, so specific families go before generic ones. */
 const TRANSLATION_RULES: readonly { pattern: RegExp; ru: string }[] = [
 	// Usage-quota exhausted — MUST precede rate-limit: «Rate limit exceeded: Monthly usage
-	// limit reached» (observed openCode Go, retry-after ≈ 5 days) would otherwise match the
+	// limit reached» (observed openCodeGo Go, retry-after ≈ 5 days) would otherwise match the
 	// rate-limit family and tell the user to «подождите немного» — false advice for a
 	// monthly quota.
 	{
 		pattern: /monthly usage limit|usage limit (?:reached|exceeded)|quota (?:exhausted|reached)|enable usage from your available balance|(?:Go|Free)UsageLimitError/i,
 		ru: 'Исчерпан лимит использования модели у провайдера (квота за период). Ожидание не поможет — пополните баланс/квоту или переключитесь на другую модель/провайдера.',
 	},
-	// Ended free tier / promotion — observed openCode 401 «Free promotion has ended for
+	// Ended free tier / promotion — observed openCodeGo 401 «Free promotion has ended for
 	// Qwen3.6 Plus Free. You can continue using the model by subscribing…».
 	{
 		pattern: /free (?:promotion|tier|trial|period) has ended|continue using the model by subscribing|subscription required/i,

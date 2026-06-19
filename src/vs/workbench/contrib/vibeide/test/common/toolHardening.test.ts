@@ -64,7 +64,7 @@ suite('ToolHardening', () => {
 		});
 
 		// File-existence idiom: `dir /s /b "<path>\file.ext"` is bounded output.
-		// Used by aggregator-proxied models (Nemotron/qwen via openCode/zen) as
+		// Used by aggregator-proxied models (Nemotron/qwen via openCodeGo/zen) as
 		// a "does this file exist anywhere under here?" probe. Should be allowed.
 		test('does NOT flag dir /s /b with specific file (extension at path end)', () => {
 			assert.strictEqual(

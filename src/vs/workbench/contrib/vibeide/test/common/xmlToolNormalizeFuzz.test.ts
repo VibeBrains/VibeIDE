@@ -74,7 +74,7 @@ const genFragment = (rng: () => number): string => {
 			// Self-closing invoke combo
 			return `<invoke name="${tool}" ${param}="${value}" />`;
 		case 7:
-			// Truncated vendor wrapper (deepseek-v4-pro via openCode, model-stalls #008):
+			// Truncated vendor wrapper (deepseek-v4-pro via openCodeGo, model-stalls #008):
 			// `<tool_calls` cut to `<tool_c`, `</invoke` cut to `</inv`. Exercises the O.12
 			// vendor-leak scrub through the existing no-throw / idempotency / no-explosion props.
 			return `<tool_c <invoke name="${tool}"><parameter name="${param}">${value}</parameter> </inv </tool_c`;

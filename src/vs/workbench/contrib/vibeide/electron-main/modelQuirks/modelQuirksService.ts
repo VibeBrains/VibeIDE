@@ -304,7 +304,7 @@ export function initModelQuirksService(userDataPath: string): void {
  * that don't track provider context fall through to unscoped rules.
  *
  * User override lookup also tries `${providerName}/${modelId}` first so users can
- * scope overrides per-route ("openCode/qwen3.6-plus") in their settings.
+ * scope overrides per-route ("openCodeGo/qwen3.6-plus") in their settings.
  */
 export function getModelQuirks(modelId: string, providerName?: string): ResolvedModelQuirks {
 	if (!_catalog) return EMPTY_QUIRKS

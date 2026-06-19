@@ -70,9 +70,9 @@ suite('tokenCalibration', () => {
 
 	suite('serialize / deserialize', () => {
 		test('round-trips a map of factors', () => {
-			const m = new Map<string, number>([['openCode:deepseek-v4-pro', 1.3], ['anthropic:claude', 1.05]]);
+			const m = new Map<string, number>([['openCodeGo:deepseek-v4-pro', 1.3], ['anthropic:claude', 1.05]]);
 			const restored = deserializeCalibration(serializeCalibration(m));
-			assert.strictEqual(restored.get('openCode:deepseek-v4-pro'), 1.3);
+			assert.strictEqual(restored.get('openCodeGo:deepseek-v4-pro'), 1.3);
 			assert.strictEqual(restored.get('anthropic:claude'), 1.05);
 			assert.strictEqual(restored.size, 2);
 		});

@@ -72,7 +72,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 		'vibeide.debug.dumpFullPrompt': {
 			type: 'boolean',
 			default: false,
-			description: localize('vibeide.debug.dumpFullPrompt', 'Диагностика: при каждом LLM-запросе логировать ПОЛНЫЙ payload через `[VibeIDE/promptDump]` — system + по каждому сообщению role/content/reasoning/tool (секреты редактируются). Нужно для разбора зависаний reasoning-roundtrip (minimax/deepseek/kimi через openCode). По умолчанию off (иначе бьёт по объёму логов и токен-бюджету DevTools). Сводка (длины + reasoningLen на сообщение) пишется ВСЕГДА, без этого флага.'),
+			description: localize('vibeide.debug.dumpFullPrompt', 'Диагностика: при каждом LLM-запросе логировать ПОЛНЫЙ payload через `[VibeIDE/promptDump]` — system + по каждому сообщению role/content/reasoning/tool (секреты редактируются). Нужно для разбора зависаний reasoning-roundtrip (minimax/deepseek/kimi через openCodeGo). По умолчанию off (иначе бьёт по объёму логов и токен-бюджету DevTools). Сводка (длины + reasoningLen на сообщение) пишется ВСЕГДА, без этого флага.'),
 		},
 	},
 });

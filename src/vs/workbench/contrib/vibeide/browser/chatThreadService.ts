@@ -5924,7 +5924,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 								effectiveError = {
 									message: localize(
 										'vibeide.chatThread.emptyResponseCircuitBreaker',
-										'Модель {0} через {1} вернула пустой ответ {2} раз подряд. Это известный паттерн отказа aggregator-проксированных моделей (минимакс/qwen через openCode-zen и др.) — обычно временный сбой провайдера или несовместимость wire-протокола. Откройте настройки и выберите другую модель, либо подождите и попробуйте позже.',
+										'Модель {0} через {1} вернула пустой ответ {2} раз подряд. Это известный паттерн отказа aggregator-проксированных моделей (минимакс/qwen через openCodeGo-zen и др.) — обычно временный сбой провайдера или несовместимость wire-протокола. Откройте настройки и выберите другую модель, либо подождите и попробуйте позже.',
 										errModel,
 										errProvider,
 										String(streak),
@@ -6612,7 +6612,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 									actionMessage = 'fetching the web page'
 								}
 								// Preserve reasoning captured from the model stream — thinking-mode
-								// providers (DeepSeek via openCode/zen, vLLM, liteLLM) reject
+								// providers (DeepSeek via openCodeGo/zen, vLLM, liteLLM) reject
 								// continuations when reasoning_content is absent on any prior turn.
 								this._addMessageToThread(threadId, {
 									role: 'assistant',
@@ -6680,7 +6680,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' })
 
 				// Premature-stop handling (agent mode, model returned text with NO tool call).
-				// Weak tool-callers (deepseek/minimax via openCode) sometimes narrate a turn as
+				// Weak tool-callers (deepseek/minimax via openCodeGo) sometimes narrate a turn as
 				// plain text instead of emitting the next tool call, which would silently end the
 				// run mid-task. Behaviour splits on Autopilot:
 				//   - Autopilot ON  → inject ONE corrective "continue" turn (capped, anti-loop).
@@ -6809,7 +6809,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`
 
 							// Add assistant message explaining we're continuing the search.
 							// Preserve reasoning captured from the model stream — thinking-mode
-							// providers (DeepSeek via openCode/zen, vLLM, liteLLM) reject
+							// providers (DeepSeek via openCodeGo/zen, vLLM, liteLLM) reject
 							// continuations when reasoning_content is absent on any prior turn.
 							this._addMessageToThread(threadId, {
 								role: 'assistant',

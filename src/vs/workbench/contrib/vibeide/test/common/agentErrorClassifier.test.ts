@@ -31,7 +31,7 @@ suite('Agent error classifier (294)', () => {
 
 		test('provider 4xx → provider-4xx (quota statuses excluded)', () => {
 			assert.strictEqual(classifyAgentError({ source: 'provider', httpStatus: 401 }), 'provider-4xx');
-			// 402/429 are quota/rate-limit — their own class since the openCode Go incident.
+			// 402/429 are quota/rate-limit — their own class since the openCodeGo Go incident.
 			assert.strictEqual(classifyAgentError({ source: 'provider', httpStatus: 429 }), 'provider-quota');
 			assert.strictEqual(classifyAgentError({ source: 'provider', httpStatus: 402 }), 'provider-quota');
 		});

@@ -535,6 +535,15 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 
 			// add autoAcceptLLMChanges feature
 			if (rw.globalSettings.autoAcceptLLMChanges === undefined) rw.globalSettings.autoAcceptLLMChanges = false;
+
+			// 1.2.4: provider id `openCode` (OpenCode Go) renamed to `openCodeGo`. Move any config
+			// stored under the legacy key to the new one BEFORE the normalization loop below (which
+			// iterates the renamed `providerNames`), so existing users keep their key/models instead
+			// of silently getting a fresh empty provider.
+			if (rw.settingsOfProvider && rw.settingsOfProvider.openCode && !rw.settingsOfProvider.openCodeGo) {
+				rw.settingsOfProvider.openCodeGo = rw.settingsOfProvider.openCode;
+				delete rw.settingsOfProvider.openCode;
+			}
 			readS = rw as VibeideSettingsState;
 		}
 		catch (e) {

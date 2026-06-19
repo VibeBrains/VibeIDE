@@ -14,10 +14,10 @@ suite('providerErrorTranslator', () => {
 		const cases: { name: string; input: string; expectRu: string }[] = [
 			{ name: 'rate limit (OpenAI)', input: 'Rate limit reached for gpt-4o in organization org-x on tokens per min.', expectRu: 'частоту запросов' },
 			// Quota family must win over rate-limit despite the «Rate limit exceeded» prefix
-			// (observed openCode Go monthly limit, retry-after ≈ 5 days).
-			{ name: 'monthly usage quota (openCode Go)', input: 'Rate limit exceeded: Monthly usage limit reached. Resets in 5 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_x/go', expectRu: 'квота за период' },
+			// (observed openCodeGo Go monthly limit, retry-after ≈ 5 days).
+			{ name: 'monthly usage quota (openCodeGo Go)', input: 'Rate limit exceeded: Monthly usage limit reached. Resets in 5 days. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_x/go', expectRu: 'квота за период' },
 			{ name: 'GoUsageLimitError raw body', input: '{"type":"error","error":{"type":"GoUsageLimitError","message":"Monthly usage limit reached."}}', expectRu: 'квота за период' },
-			{ name: 'ended free promotion (openCode 401)', input: 'Free promotion has ended for Qwen3.6 Plus Free. You can continue using the model by subscribing to OpenCode Go - https://opencode.ai/go', expectRu: 'подписка' },
+			{ name: 'ended free promotion (openCodeGo 401)', input: 'Free promotion has ended for Qwen3.6 Plus Free. You can continue using the model by subscribing to OpenCode Go - https://opencode.ai/go', expectRu: 'подписка' },
 			{ name: 'rate limit (429)', input: 'Request failed with status code 429', expectRu: 'частоту запросов' },
 			{ name: 'overloaded (Anthropic)', input: 'Overloaded', expectRu: 'перегружен' },
 			{ name: 'billing (OpenAI quota)', input: 'You exceeded your current quota, please check your plan and billing details.', expectRu: 'квота' },
@@ -55,7 +55,7 @@ suite('providerErrorTranslator', () => {
 
 		test('already Russian (our localized messages) is left alone', () => {
 			assert.strictEqual(translateProviderError('Стрим завис — нет токенов уже 120с.'), null);
-			assert.strictEqual(translateProviderError('Модель minimax через openCode вернула пустой ответ 3 раз подряд.'), null);
+			assert.strictEqual(translateProviderError('Модель minimax через openCodeGo вернула пустой ответ 3 раз подряд.'), null);
 		});
 
 		test('unknown English error is left alone', () => {

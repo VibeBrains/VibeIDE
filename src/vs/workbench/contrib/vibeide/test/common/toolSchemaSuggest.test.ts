@@ -6,7 +6,7 @@
 /**
  * Tests for cross-tool argument suggestion (X.11.4 / X.13.7 / X.14.2).
  *
- * Driving incident (2026-05-23, minimax-m2.7 via openCode aggregator): model
+ * Driving incident (2026-05-23, minimax-m2.7 via openCodeGo aggregator): model
  * called `read_file({nl_input: "Check Dokku apps"})`. `nl_input` is the
  * required param of `run_nl_command`, not `read_file`. Without the suggester,
  * tool executor only said «uri must be string but got undefined» and the

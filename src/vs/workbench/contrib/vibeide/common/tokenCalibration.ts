@@ -29,7 +29,7 @@ export const TOKEN_CALIBRATION_ALPHA = 0.15;
 /** Clamp band for the factor — guards against a pathological single sample skewing the budget. */
 export const TOKEN_CALIBRATION_MIN = 0.5;
 // Default upper clamp. Reasoning-heavy models proxied through aggregators (e.g. deepseek-v4-pro via
-// openCode) report real prompt tokens ~3x our length/4 estimate and were pinning the old cap of
+// openCodeGo) report real prompt tokens ~3x our length/4 estimate and were pinning the old cap of
 // 3 — leaving the context indicator and budget thresholds under-counting. 8 gives headroom for
 // dense CJK/code tokenizers while still bounding a pathological single sample. Overridable per
 // install via the `vibeide.context.tokenCalibrationMaxFactor` setting (passed as `maxFactor` to

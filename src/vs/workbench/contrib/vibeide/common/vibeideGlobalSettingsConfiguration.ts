@@ -663,7 +663,7 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					default: 3,
 					minimum: 1,
 					maximum: 20,
-					description: localize('vibeide.chat.toolInvalidParamsCircuitBreakerThreshold', 'Сколько раз подряд модель должна вызвать один и тот же tool с одной и той же неверной формой параметров (`invalid_params` подряд) до того, как VibeIDE прервёт чат с явной ошибкой вместо продолжения цикла schema-hint-ов. Защищает от OOM-петель когда aggregator-проксированные модели (Nemotron/qwen/minimax через openCode-zen) застревают в неверном tool-call shape. Сравнить с `emptyResponseCircuitBreakerThreshold` — оба ловят разные классы repetitive failures. По умолчанию 3.'),
+					description: localize('vibeide.chat.toolInvalidParamsCircuitBreakerThreshold', 'Сколько раз подряд модель должна вызвать один и тот же tool с одной и той же неверной формой параметров (`invalid_params` подряд) до того, как VibeIDE прервёт чат с явной ошибкой вместо продолжения цикла schema-hint-ов. Защищает от OOM-петель когда aggregator-проксированные модели (Nemotron/qwen/minimax через openCodeGo-zen) застревают в неверном tool-call shape. Сравнить с `emptyResponseCircuitBreakerThreshold` — оба ловят разные классы repetitive failures. По умолчанию 3.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 				'vibeide.chat.toolInvalidParamsThrashBreakerThreshold': {
@@ -788,7 +788,7 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 		// `vibeide.tools.*` — runtime behavior of built-in agent tools. Primary motivation:
 		// large search-tool outputs (grep / glob / search_for_files matching hundreds of
 		// files) blow up the LLM input prompt and cause aggregator-proxied models
-		// (openCode/minimax-m2.7) to return empty responses → AI_RetryError. Truncation
+		// (openCodeGo/minimax-m2.7) to return empty responses → AI_RetryError. Truncation
 		// here caps any single tool result so one runaway search can't sink the request.
 		registry.registerConfiguration({
 			id: 'vibeide.tools',

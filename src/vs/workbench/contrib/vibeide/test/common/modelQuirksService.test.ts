@@ -68,13 +68,13 @@ suite('ModelQuirks — matchQuirks', () => {
 suite('ModelQuirks — matchQuirks per-provider', () => {
 
 	const rules: ModelQuirksRule[] = [
-		// Provider-scoped rule for kimi via openCode goes BEFORE unscoped kimi rule.
-		{ match: 'kimi', provider: 'openCode', forceToolCallFormat: 'xml', temperature: 1.0 },
+		// Provider-scoped rule for kimi via openCodeGo goes BEFORE unscoped kimi rule.
+		{ match: 'kimi', provider: 'openCodeGo', forceToolCallFormat: 'xml', temperature: 1.0 },
 		{ match: 'kimi', temperature: 0.6 },
 	];
 
 	test('provider-scoped rule wins when provider matches', () => {
-		const q = matchQuirks(rules, 'kimi-k2.6', 'openCode');
+		const q = matchQuirks(rules, 'kimi-k2.6', 'openCodeGo');
 		assert.strictEqual(q?.forceToolCallFormat, 'xml');
 		assert.strictEqual(q?.temperature, 1.0);
 	});
@@ -96,11 +96,11 @@ suite('ModelQuirks — matchQuirks per-provider', () => {
 		const q1 = matchQuirks(rules, 'kimi-k2.6', 'OPENCODE');
 		const q2 = matchQuirks(rules, 'kimi-k2.6', 'opencode-zen');
 		assert.strictEqual(q1?.forceToolCallFormat, 'xml');
-		assert.strictEqual(q2?.forceToolCallFormat, 'xml');  // 'openCode' is substring of 'opencode-zen' (case-insensitive)
+		assert.strictEqual(q2?.forceToolCallFormat, 'xml');  // 'openCodeGo' is substring of 'opencode-zen' (case-insensitive)
 	});
 
 	test('provider field stripped from returned quirks', () => {
-		const q = matchQuirks(rules, 'kimi-k2.6', 'openCode');
+		const q = matchQuirks(rules, 'kimi-k2.6', 'openCodeGo');
 		assert.ok(q);
 		assert.ok(!('provider' in q));
 	});
@@ -108,13 +108,13 @@ suite('ModelQuirks — matchQuirks per-provider', () => {
 	test('field-merge: provider rule (toolFormat) + family rule (reasoning) BOTH apply (model-stalls #009)', () => {
 		// Repro of the shadowing bug: a broad family rule sets the reasoning quirks; the provider-scoped
 		// rule (placed AFTER it, broad `match`) sets the tool format. Old first-match-wins returned ONE
-		// rule and dropped the other dimension. Merge must combine both — exactly how the minimax+openCode
+		// rule and dropped the other dimension. Merge must combine both — exactly how the minimax+openCodeGo
 		// "Empty response / Calling: read_file as text" symptom is fixed.
 		const mergeRules: ModelQuirksRule[] = [
 			{ match: 'minimax-m2', temperature: 1.0, topK: 40, forceEmptyReasoning: true, mirrorReasoningContent: true },
-			{ match: 'minimax', provider: 'openCode', forceToolCallFormat: 'xml' },
+			{ match: 'minimax', provider: 'openCodeGo', forceToolCallFormat: 'xml' },
 		];
-		const q = matchQuirks(mergeRules, 'minimax-m2.7', 'openCode');
+		const q = matchQuirks(mergeRules, 'minimax-m2.7', 'openCodeGo');
 		assert.strictEqual(q?.forceToolCallFormat, 'xml');     // from provider-scoped rule
 		assert.strictEqual(q?.forceEmptyReasoning, true);      // from family rule (lost under old first-match)
 		assert.strictEqual(q?.mirrorReasoningContent, true);   // from family rule

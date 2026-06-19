@@ -76,7 +76,7 @@ interface CatalogIndex {
 // Success is cached for process lifetime. Failures are NOT cached permanently:
 // if the first fetch failed (offline at startup, models.dev 5xx, DNS), every
 // subsequent caller would otherwise see `null` forever, silently degrading
-// aggregator providers that need per-model SDK routing (e.g. openCode + minimax-m2.x
+// aggregator providers that need per-model SDK routing (e.g. openCodeGo + minimax-m2.x
 // without `@ai-sdk/anthropic` returns empty responses). On failure we record the
 // timestamp and let the next call retry after a cooldown.
 let cachedCatalog: CatalogIndex | null = null;

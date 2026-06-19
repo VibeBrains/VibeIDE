@@ -133,7 +133,7 @@ type SimpleLLMMessage = {
 	pinned?: boolean;
 	/** Free-form reasoning string captured from prior assistant turn. For
 	 *  OpenAI-compatible providers that surface `reasoning_content` on response
-	 *  delta (DeepSeek thinking, openCode/zen-proxied reasoning models, vLLM,
+	 *  delta (DeepSeek thinking, openCodeGo/zen-proxied reasoning models, vLLM,
 	 *  liteLLM) — must be sent back in the next request's assistant message
 	 *  as `reasoning_content`, otherwise the provider rejects multi-turn with
 	 *  HTTP 400 "reasoning_content must be passed back". Distinct from
@@ -509,7 +509,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 
 		if (currMsg.role !== 'tool') {
 			// For thinking-models surfaced via OpenAI-compatible aggregators (DeepSeek
-			// thinking through openCode/zen, vLLM, liteLLM), the prior assistant's
+			// thinking through openCodeGo/zen, vLLM, liteLLM), the prior assistant's
 			// `reasoning_content` MUST be roundtripped in subsequent requests or the
 			// provider rejects multi-turn with HTTP 400. Tunnel it through as a custom
 			// field on the assistant message — plain OpenAI/GPT ignore unknown fields,
@@ -1220,7 +1220,7 @@ const prepareOpenAIOrAnthropicMessages = ({
 		// Detect tool-call-only assistant turn: text payload is empty, but a tool_result
 		// follows (or this very message contains tool_use blocks). Per OpenAI spec the
 		// assistant.content field may be empty in that case — the model's "output" is the
-		// tool_calls array, not text. Some aggregator-proxied models (openCode/minimax-m2.7)
+		// tool_calls array, not text. Some aggregator-proxied models (openCodeGo/minimax-m2.7)
 		// reject continuations where prior assistant turns had a placeholder text like
 		// "(empty message)" — they treat it as required model output and refuse next turn.
 		// So: for tool-call-only turns we keep content as an empty string (valid spec),
@@ -2570,7 +2570,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			// Opt-in FULL payload (per-message content + reasoning), gated by
 			// `vibeide.debug.dumpFullPrompt` to avoid bloating every request. Secrets are
 			// redacted by the vibeLog redactor. This is THE capture point for diagnosing
-			// reasoning-roundtrip stalls (minimax/openCode) — no separate proxy needed.
+			// reasoning-roundtrip stalls (minimax/openCodeGo) — no separate proxy needed.
 			if (this.configurationService.getValue<boolean>('vibeide.debug.dumpFullPrompt')) {
 				vibeLog.debug('promptDump', 'full prompt (vibeide.debug.dumpFullPrompt)', {
 					system: sysContent,

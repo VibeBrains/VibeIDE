@@ -71,7 +71,7 @@ export function classifyAgentError(input: ClassifyInput): AgentErrorClass {
 	if (status !== undefined) {
 		// 402/429 — quota / rate limit, NOT a request misconfiguration: the previous
 		// blanket 4xx wording («model / params misconfiguration») misdiagnosed an
-		// exhausted monthly limit (observed openCode Go 402).
+		// exhausted monthly limit (observed openCodeGo Go 402).
 		if (status === 402 || status === 429) return 'provider-quota';
 		if (status >= 400 && status < 500) return 'provider-4xx';
 		if (status >= 500 && status < 600) return 'provider-5xx';

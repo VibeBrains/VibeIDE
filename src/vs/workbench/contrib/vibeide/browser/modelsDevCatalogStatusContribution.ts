@@ -96,7 +96,7 @@ export class ModelsDevCatalogStatusContribution extends Disposable implements IW
 				title: localize('vibeide.modelsDev.offlineMode.title', 'Каталог моделей: офлайн режим'),
 				body: localize(
 					'vibeide.modelsDev.offlineMode.body',
-					'Загружен {0}.\n\nAggregator-провайдеры (openCode, openCodeZen) продолжают работать.\n\nЧтобы обновить каталог — скачайте {1} при наличии сети и положите рядом с VibeIDE.exe (файл с именем models.dev.json), либо вызовите «Перепроверить каталог models.dev» в Command Palette.',
+					'Загружен {0}.\n\nAggregator-провайдеры (openCodeGo, openCodeZen) продолжают работать.\n\nЧтобы обновить каталог — скачайте {1} при наличии сети и положите рядом с VibeIDE.exe (файл с именем models.dev.json), либо вызовите «Перепроверить каталог models.dev» в Command Palette.',
 					sourceLabel,
 					MODELS_DEV_URL,
 				),
@@ -122,7 +122,7 @@ export class ModelsDevCatalogStatusContribution extends Disposable implements IW
 			: localize('vibeide.modelsDev.noPaths', '  (нет доступных путей)');
 		const body = localize(
 			'vibeide.modelsDev.failed.body',
-			'Каталог моделей models.dev недоступен по сети, локальный снимок не найден.\n\nМодели minimax/qwen через openCode/openCodeZen могут возвращать пустые ответы.\n\nСкачайте каталог с {0} и сохраните как «models.dev.json» по одному из путей (приоритет сверху вниз):\n{1}',
+			'Каталог моделей models.dev недоступен по сети, локальный снимок не найден.\n\nМодели minimax/qwen через openCodeGo/openCodeZen могут возвращать пустые ответы.\n\nСкачайте каталог с {0} и сохраните как «models.dev.json» по одному из путей (приоритет сверху вниз):\n{1}',
 			MODELS_DEV_URL,
 			pathsText,
 		);

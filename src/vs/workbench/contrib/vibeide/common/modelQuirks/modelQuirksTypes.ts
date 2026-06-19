@@ -24,7 +24,7 @@ export type ToolCallFormat = 'native' | 'xml' | 'auto'
  * - `match`: case-insensitive substring of the model id (lowercased on both sides). Required.
  * - `provider` (optional): case-insensitive substring of the provider name. When
  *   present, rule applies ONLY to that provider. When absent, rule applies across
- *   all providers (broad behaviour). Lets us force XML for `kimi` via `openCode`
+ *   all providers (broad behaviour). Lets us force XML for `kimi` via `openCodeGo`
  *   while preserving native FC on direct Moonshot API where it works correctly.
  *
  * Resolution (since v0.13.17): ALL matching rules are FIELD-MERGED with most-specific
@@ -141,7 +141,7 @@ export function matchQuirks(
 	const providerNeedle = (providerName ?? '').toLowerCase()
 	// Collect ALL matching rules, then FIELD-MERGE with most-specific-wins precedence.
 	// Why (model-stalls #009): the old first-match-wins returned ONE whole rule, so a broad
-	// family rule (e.g. `minimax-m2.7`) shadowed a provider-scoped rule (`minimax` via openCode →
+	// family rule (e.g. `minimax-m2.7`) shadowed a provider-scoped rule (`minimax` via openCodeGo →
 	// forceToolCallFormat:'xml') that set a DIFFERENT field — the provider rule never applied.
 	// OpenCode sidesteps this by resolving each behaviour dimension independently (separate
 	// temperature()/topK()/reasoning resolvers in provider/transform.ts). We emulate that on a

@@ -22,7 +22,7 @@
 //
 //  id ВСТРОЕННЫХ провайдеров (для патча по "id", для "extends" и "apiKeyRef") — копируйте отсюда:
 //    openCodeZen       OpenCode Zen          openAI            OpenAI
-//    openCode          OpenCode Go           deepseek          DeepSeek
+//    openCodeGo        OpenCode Go           deepseek          DeepSeek
 //    minimax           MiniMax               mistral           Mistral
 //    openRouter        OpenRouter            xAI               Grok (xAI)
 //    lmRoute           LM Router             openAICompatible  Совместимо с OpenAI API

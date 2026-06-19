@@ -41,7 +41,7 @@ import { assertHttpHeaderSafe, getGoogleApiKey } from './llmHelpers.js';
 // anthropic, gemini, ollama, vLLM, lmStudio) stay on the legacy path until
 // later stages.
 export type AiSdkProviderName =
-	| 'openCode' | 'openCodeZen' | 'openRouter' | 'minimax' | 'openAICompatible' | 'liteLLM' | 'lmRoute' | 'pollinations'
+	| 'openCodeGo' | 'openCodeZen' | 'openRouter' | 'minimax' | 'openAICompatible' | 'liteLLM' | 'lmRoute' | 'pollinations'
 	| 'deepseek' | 'mistral' | 'xAI' | 'groq' | 'awsBedrock' | 'googleVertex' | 'microsoftAzure';
 
 const EMPTY_CONTENT_PLACEHOLDER = '(no content)';
@@ -60,7 +60,7 @@ const EMPTY_CONTENT_PLACEHOLDER = '(no content)';
 //     close enough to the per-chat-session grain at upstream without plumbing
 //     chat-thread IDs through the main-process adapter layer.
 // Note: `x-opencode-request` is generated per `resolveEndpoint()` call (one
-// per streamText invocation) — see the openCode branch below.
+// per streamText invocation) — see the openCodeGo branch below.
 const OPENCODE_PROCESS_PROJECT_ID = `vibeide-${createHash('sha256').update(process.execPath).digest('hex').slice(0, 16)}`;
 const OPENCODE_PROCESS_SESSION_ID = `vibeide-${generateUuid()}`;
 
@@ -147,8 +147,8 @@ const resolveEndpoint = async (
 ): Promise<ResolvedEndpoint> => {
 	switch (providerName) {
 		// ---------- Aggregators ----------
-		case 'openCode': {
-			const c = settingsOfProvider.openCode;
+		case 'openCodeGo': {
+			const c = settingsOfProvider.openCodeGo;
 			// Headers mimic upstream opencode CLI (anomalyco/opencode session/llm.ts).
 			// The opencode.ai/zen aggregator routes prompt-injection / model-formatting
 			// based on `x-opencode-*` headers + `User-Agent: opencode/<ver>`. Without
@@ -174,7 +174,7 @@ const resolveEndpoint = async (
 		}
 		case 'openCodeZen': {
 			const c = settingsOfProvider.openCodeZen;
-			// Same rationale as openCode — see comment above.
+			// Same rationale as openCodeGo — see comment above.
 			return {
 				baseURL: 'https://opencode.ai/zen/v1',
 				apiKey: c?.apiKey ?? '',
@@ -336,7 +336,7 @@ const buildToolNameLookup = (messages: LLMChatMessage[]): Map<string, string> =>
 		}
 		// Anthropic shape: assistant.content[] with { type: 'tool_use', id, name } blocks.
 		// (The renderer emits this shape for anthropic-protocol routes — e.g. sonnet via
-		// openCode Zen /v1/messages. Without this branch the lookup stayed empty and the
+		// openCodeGo Zen /v1/messages. Without this branch the lookup stayed empty and the
 		// whole tool history was silently dropped below — see the get_dir_tree replay bug.)
 		if (Array.isArray(msg.content)) {
 			for (const p of msg.content) {
@@ -422,7 +422,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 						// Anthropic shape carries tool results as user-content blocks. AI SDK wants a
 						// dedicated `role: 'tool'` message. These were silently DROPPED before — the
 						// model saw empty user turns instead of its tool outputs and re-issued the
-						// same call forever (observed: sonnet via openCode Zen, get_dir_tree replay).
+						// same call forever (observed: sonnet via openCodeGo Zen, get_dir_tree replay).
 						const resultText = typeof p.content === 'string' ? p.content : flattenTextContent(p.content);
 						if (toolNameLookup.has(p.tool_use_id)) {
 							out.push({
@@ -459,7 +459,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 			const content = msg.content;
 			// AI SDK 4.x supports `{ type: 'reasoning', text }` parts inside assistant
 			// messages. Providers that natively understand thinking-mode roundtrip
-			// (DeepSeek via openai-compatible, openCode/zen-proxied reasoning models)
+			// (DeepSeek via openai-compatible, openCodeGo/zen-proxied reasoning models)
 			// require the previous assistant's `reasoning_content` to be sent back —
 			// without it the provider rejects continuation with HTTP 400 "must be
 			// passed back". Surface it FIRST (before text/tool-call parts) so the SDK
@@ -539,7 +539,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 			//     array contains a tool_call with this callId, the tool message is a true
 			//     orphan — auto-summary dropped its parent assistant turn entirely. We
 			//     can't synthesize a faithful replacement: strict providers (DeepSeek
-			//     thinking via openCode) require `reasoning_content` on the assistant
+			//     thinking via openCodeGo) require `reasoning_content` on the assistant
 			//     turn, and we have no reasoning to attach. A bare tool-call stub passes
 			//     the "tool must follow tool_calls" check but fails the
 			//     "reasoning_content must be passed back" check. Dropping the orphan tool
@@ -930,7 +930,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				// `gemini` VibeIDE provider still uses its own `sendGeminiChat` path
 				// — that's a separate codepath and is NOT touched here. This branch
 				// only kicks in for Gemini models served via aggregator
-				// (openCode/zen with Gemini, openRouter with Gemini, etc.) where
+				// (openCodeGo/zen with Gemini, openRouter with Gemini, etc.) where
 				// the request flows through sendViaAISdk. Tool-call format is
 				// functionDeclarations / functionCall — different from OpenAI shape
 				// — but @ai-sdk/google handles that conversion internally.
@@ -962,7 +962,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	//      because the top-level `system: string` option cannot carry providerOptions;
 	//   2. the LAST message — Anthropic reuses the longest previously-cached prefix, so
 	//      marking the tail makes each turn cache the whole conversation for the next one.
-	// Harmless when a proxy (openCode Zen) strips the field — it is purely additive.
+	// Harmless when a proxy (openCodeGo Zen) strips the field — it is purely additive.
 	let systemForCall: string | undefined = separateSystemMessage;
 	if (sdkNpm === '@ai-sdk/anthropic') {
 		const cacheCtl = { anthropic: { cacheControl: { type: 'ephemeral' } } };
@@ -1039,7 +1039,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	let overallTimeoutId: ReturnType<typeof setTimeout> | null = null;
 	// Idle (inter-token) timeout: abort if the stream goes silent for `idleMs`
 	// after it has started. The 180s `timeoutMs` is the overall wall-clock cap; a
-	// model that STALLS mid-stream (e.g. native FC on an openCode aggregator that
+	// model that STALLS mid-stream (e.g. native FC on an openCodeGo aggregator that
 	// confuses tool args) used to make the user wait the full 180s. The idle timer
 	// recovers in ~45s instead, while NOT cutting off legitimately-long responses
 	// (those keep emitting tokens, which reset it). Reset at the top of the stream
@@ -1098,7 +1098,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// top) clears it on the first part of ANY kind, so a connected-but-still-thinking
 	// model (reasoning silently before it emits) is NOT aborted — that false abort
 	// was the abort→retry churn. 90s is a deliberately generous TEMPORARY ceiling
-	// until the [VibeIDE/llmTurn] trace shows how openCode actually streams (early
+	// until the [VibeIDE/llmTurn] trace shows how openCodeGo actually streams (early
 	// `start` part vs buffering ~60s); then we tune the number from data, not guesses.
 	firstTokenTimeoutId = setTimeout(() => {
 		if (!firstTokenReceived) abortController.abort(new Error('Connection timeout (no stream parts received).'));
@@ -1170,7 +1170,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			abortSignal: abortController.signal,
 			...modelParams,
 			// AI SDK default maxRetries=2 (3 attempts total) is too aggressive for
-			// aggregator-proxied models (openCode/zen → DeepSeek-thinking, BigPickle,
+			// aggregator-proxied models (openCodeGo/zen → DeepSeek-thinking, BigPickle,
 			// minimax-m2.7) — those upstreams throttle on bursts of agentic steps and
 			// 3 attempts hit the same rate-limit window. 5 retries = 6 attempts with
 			// AI SDK's exp backoff (2^n: 0s / 2s / 4s / 8s / 16s / 32s ≈ ~60s spread),
@@ -1396,7 +1396,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		const errBody: string = typeof error?.responseBody === 'string' ? error.responseBody
 			: (typeof inner?.responseBody === 'string' ? inner.responseBody : '');
 		// The provider's response BODY often carries the REAL reason while the status code
-		// lies (observed: openCode 401 with body «Free promotion has ended for Qwen3.6 Plus
+		// lies (observed: openCodeGo 401 with body «Free promotion has ended for Qwen3.6 Plus
 		// Free…» — a static «Invalid API key» message hid it). Prefer `data.error.message`
 		// (AI SDK pre-parses it) with a raw-JSON-body fallback.
 		const bodyErrMsg: string | undefined = (() => {
