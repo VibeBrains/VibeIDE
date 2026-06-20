@@ -75,7 +75,17 @@ export function alignReplacementIndentation(searchIndent: string, fileIndent: st
 	}
 	if (searchIndent.startsWith(fileIndent)) {
 		const remove = searchIndent.slice(fileIndent.length);
-		return lines.map(l => l.startsWith(remove) ? l.slice(remove.length) : l).join('\n');
+		const out = lines.map(l => l.startsWith(remove) ? l.slice(remove.length) : l);
+		// A replacement line that did NOT carry the model's extra indent (e.g. the model indented its
+		// search anchor but wrote the replacement's first line flush-left) is left untouched by the
+		// dedent above — which would land it SHALLOWER than the file anchor (the observed "comment
+		// snapped to column 0" bug). Snap the first non-blank line back to the file indent so the
+		// replacement never sits left of where the anchor lives. Mirrors the first-line snap the
+		// other fallbacks already apply; a line already at/deeper than the anchor is left as-is.
+		if (getLeadingWhitespace(out[firstIdx]).length < fileIndent.length) {
+			out[firstIdx] = setLineIndent(out[firstIdx], fileIndent);
+		}
+		return out.join('\n');
 	}
 
 	// Incompatible whitespace (e.g. tabs vs spaces, no prefix relation) → at minimum align the

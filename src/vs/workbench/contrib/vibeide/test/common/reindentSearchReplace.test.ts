@@ -71,6 +71,21 @@ suite('reindentSearchReplace', () => {
 		assert.strictEqual(out, '    a\n    b');
 	});
 
+	test('dedent branch + replacement first line flush-left → snap first line to file indent', () => {
+		// Observed bug: model indented its search anchor (2 tabs) but the file anchor is 1 tab, AND
+		// the replacement comment was written flush-left. The dedent map left it at column 0; the
+		// first-line snap must lift it to the file's 1-tab indent instead of eating all the spaces.
+		assert.strictEqual(
+			alignReplacementIndentation('\t\t', '\t', '// Оставлю как пример'),
+			'\t// Оставлю как пример',
+		);
+		// Same shape with spaces: search 8, file 4, replacement first line at column 0.
+		assert.strictEqual(
+			alignReplacementIndentation('        ', '    ', 'const x = 1;'),
+			'    const x = 1;',
+		);
+	});
+
 	test('single-line final, model dropped indent → add file indent', () => {
 		assert.strictEqual(alignReplacementIndentation('', '        ', 'ctrl.mask();'), '        ctrl.mask();');
 	});

@@ -33,7 +33,7 @@ import { buildContextOverflowError, buildEmptyResponseError, isContextOverflow, 
 import { getModelQuirks } from '../modelQuirks/modelQuirksService.js';
 import { SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { ensureSystemCADispatcher } from './systemCAFetch.js';
-import { extractReasoningWrapper, extractXMLToolsWrapper, stripThinkTagsWrapper } from './extractGrammar.js';
+import { extractReasoningWrapper, extractXMLToolsWrapper, stripThinkTagsWrapper, stripStandaloneThinkDelimitersWrapper } from './extractGrammar.js';
 import type { SendChatParams_Internal } from './sendLLMMessage.internalTypes.js';
 import { assertHttpHeaderSafe, getGoogleApiKey } from './llmHelpers.js';
 
@@ -831,6 +831,15 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	const openSourceThinkTags = (reasoningCapabilities && (reasoningCapabilities as any).openSourceThinkTags) as [string, string] | undefined;
 	let onText = onText_;
 	let onFinalMessage = onFinalMessage_;
+	// Universal safety net, applied INNERMOST (runs last, on the final text handed to the consumer):
+	// strip orphan reasoning-delimiter lines (a lone </think> with no <think>) that native-reasoning
+	// models leak into content via aggregators. Cleans both the displayed answer and the saved turn
+	// (so the stray tag isn't replayed to the model next request). Other wrappers see the raw text.
+	{
+		const wrapped = stripStandaloneThinkDelimitersWrapper(onText, onFinalMessage);
+		onText = wrapped.newOnText;
+		onFinalMessage = wrapped.newOnFinalMessage;
+	}
 	if (openSourceThinkTags) {
 		const wrapped = extractReasoningWrapper(onText, onFinalMessage, openSourceThinkTags);
 		onText = wrapped.newOnText;

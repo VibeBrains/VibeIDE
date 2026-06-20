@@ -5,6 +5,7 @@
 
 import { generateUuid } from '../../../../../base/common/uuid.js'
 import { endsWithAnyPrefixOf, SurroundingsRemover } from '../../common/helpers/extractCodeFromResult.js'
+import { stripStandaloneThinkDelimiters } from '../../common/helpers/stripThinkDelimiters.js'
 import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js'
 import { PARAM_ALIASES_BY_TOOL, TOOL_NAME_ALIASES } from '../../common/prompt/toolAliases.js'
 import { OnFinalMessage, OnText, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js'
@@ -179,6 +180,26 @@ export const stripThinkTagsWrapper = (
 	}
 	const newOnFinalMessage: OnFinalMessage = ({ fullText, ...p }) => {
 		onFinalMessage({ ...p, fullText: stripThinkBlocks(fullText, open, close) })
+	}
+	return { newOnText, newOnFinalMessage }
+}
+
+
+/**
+ * UNIVERSAL safety net (all models): drop orphan reasoning-delimiter lines that leak into content —
+ * e.g. a lone `</think>` with no matching `<think>`, emitted by native-reasoning models proxied
+ * through aggregators. The block/pair handlers above can't catch a single dangling tag, so without
+ * this the marker shows in the answer and is replayed to the model next turn. Strip logic lives in
+ * `common/helpers/stripThinkDelimiters` (pure, unit-tested); only whole-line delimiters are removed.
+ */
+export const stripStandaloneThinkDelimitersWrapper = (
+	onText: OnText, onFinalMessage: OnFinalMessage
+): { newOnText: OnText, newOnFinalMessage: OnFinalMessage } => {
+	const newOnText: OnText = ({ fullText, ...p }) => {
+		onText({ ...p, fullText: stripStandaloneThinkDelimiters(fullText) })
+	}
+	const newOnFinalMessage: OnFinalMessage = ({ fullText, ...p }) => {
+		onFinalMessage({ ...p, fullText: stripStandaloneThinkDelimiters(fullText) })
 	}
 	return { newOnText, newOnFinalMessage }
 }
