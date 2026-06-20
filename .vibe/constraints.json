@@ -1,0 +1,5 @@
+{
+	"vibeVersion": "1.0.0",
+	"rules": [],
+	"_comment": "Правила ограничений VibeIDE (блокировки на уровне IDE, агент их не обходит). Документация: https://github.com/VibeBrains/VibeIDE"
+}

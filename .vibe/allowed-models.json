@@ -1,0 +1,5 @@
+{
+	"vibeVersion": "1.0.0",
+	"models": [],
+	"_comment": "Оставьте models пустым — разрешены все модели. Иначе укажите whitelist имён, например: [\"claude-3-5-sonnet\", \"gpt-4o\"]"
+}

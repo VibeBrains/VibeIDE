@@ -52,7 +52,6 @@ dist
 .github/skills/.local/
 
 # VibeIDE
-AGENTS.md
 .tmp2/
 .tool-versions
 src/vs/workbench/contrib/vibeide/browser/react/out/**
@@ -67,10 +66,9 @@ src/vs/workbench/contrib/vibeide/browser/react/src2/**
 # or references/ is part of the source tree contract.
 references/*
 !references/logo-final.png
-CLAUDE.md
-.cursor/
-.vibe/
-.agents/
+# CLAUDE.md / AGENTS.md and the AI-tool config dirs are TRACKED so a fresh clone can continue
+# work without external state. Secrets inside .vibe/ are protected by .vibe/.gitignore
+# (.env, snapshots/, *-locks, commands.trust.json); local-only agent files by the *.local.* rules above.
 .config/
 # `docs/` is now tracked (2026-05-23 — became the project knowledge base).
 # Only exclude editor-specific noise inside:

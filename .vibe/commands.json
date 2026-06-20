@@ -1,0 +1,23 @@
+{
+	"_comment_top": "VibeIDE Project Commands — workspace-first shell shortcuts.",
+	"_comment_docs": "Документация: docs/v1/project-commands.md (разделы security, миграция из tasks.json).",
+	"vibeVersion": "1.0.0",
+	"commands": [
+		{
+			"_comment_id": "id: латиница, цифры, дефисы; до 64 символов; уникален в файле.",
+			"_comment_pin": "pinned:true показывает кнопку в верхнем баре; order сортирует слева направо.",
+			"id": "example",
+			"name": "Hello from VibeIDE",
+			"description": "Пример проектной команды. Замените на свою (например, npm run build).",
+			"command": "echo",
+			"args": [
+				"Hello",
+				"from",
+				"VibeIDE"
+			],
+			"terminal": "integrated",
+			"pinned": true,
+			"order": 0
+		}
+	]
+}

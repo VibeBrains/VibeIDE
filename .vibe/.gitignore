@@ -1,0 +1,7 @@
+# VibeIDE — рантайм-артефакты (машинно-локальные, не конфиг проекта). Не коммитить.
+.window-lock.json
+agent-locks.json
+commands.trust.json
+snapshots/
+# Секреты провайдеров (apiKeyEnv из .vibe/providers.json резолвится отсюда) — НИКОГДА не коммитить.
+.env
