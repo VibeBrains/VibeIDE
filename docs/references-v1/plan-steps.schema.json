@@ -1,0 +1,47 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://vibeide.io/schemas/plan-steps.schema.json",
+	"title": "VibeIDE persisted plan steps (embedded JSON block)",
+	"type": "array",
+	"items": {
+		"type": "object",
+		"required": ["stepNumber", "description", "status"],
+		"additionalProperties": true,
+		"properties": {
+			"stepNumber": { "type": "integer", "minimum": 1 },
+			"description": { "type": "string" },
+			"status": {
+				"type": "string",
+				"enum": ["pending", "in_progress", "done", "skipped", "error", "paused", "running"]
+			},
+			"tools": {
+				"type": "array",
+				"items": { "type": "string" }
+			},
+			"mcpServersAllow": {
+				"type": "array",
+				"items": { "type": "string" },
+				"description": "Optional allowlist of MCP server ids/names for this step."
+			},
+			"mcpToolsAllow": {
+				"type": "array",
+				"items": { "type": "string" },
+				"description": "Optional allowlist of MCP tool names (as registered in the client) for this step."
+			},
+			"files": {
+				"type": "array",
+				"items": { "type": "string" }
+			},
+			"disabled": { "type": "boolean" },
+			"checkpointIdx": { "type": ["integer", "null"], "description": "Message index of checkpoint before this step (optional)." },
+			"worktreeBranch": {
+				"type": "string",
+				"description": "Optional git worktree branch binding for this step (see references/v1/plan-worktree-branch.md)."
+			},
+			"explorationId": {
+				"type": "string",
+				"description": "Optional speculative exploration session id linking parallel worktrees."
+			}
+		}
+	}
+}

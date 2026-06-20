@@ -78,6 +78,10 @@ bin/*
 !bin/vibe-language-pack-nls.mjs
 !bin/vibe-language-pack-build.mjs
 !bin/vibe-discord-import.mjs
+# Continuity backups of the dev-launch logic (restore after upstream sync) + push helper.
+!bin/vibe-dev.bat
+!bin/run-dev.bat
+!bin/push.ps1
 # Note: do not add `.github/` here — CI, issue templates, and agent docs must remain committable.
 
 # Local IDE / OS noise (keep out of public tree)

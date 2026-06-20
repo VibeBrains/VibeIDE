@@ -1,0 +1,18 @@
+{
+  "id": "smoke-vibe-init",
+  "name": "Smoke: .vibe/ directory is initialized",
+  "suite": "smoke",
+  "description": "Verifies that the .vibe/ init service creates expected config files on first run.",
+  "prompt": null,
+  "expectedFiles": [
+    ".vibe/rules.md",
+    ".vibe/constraints.json",
+    ".vibe/ignore",
+    ".vibe/allowed-models.json",
+    ".vibe/plans"
+  ],
+  "checkFiles": [".vibe/constraints.json"],
+  "expectedPatterns": ["vibeVersion"],
+  "forbiddenPatterns": ["password", "api_key", "secret"],
+  "_note": "Phase 3b: add actual agent-loop scenarios with prompt → file output checks."
+}

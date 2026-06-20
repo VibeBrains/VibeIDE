@@ -1,0 +1,12 @@
+{
+	"format": "vibe-community-skills-catalog-v1",
+	"vibeVersion": "1.0.0",
+	"entries": [
+		{
+			"id": "example-review",
+			"name": "Example code review skill",
+			"manifestUrl": "https://cdn.example.invalid/vibe-skills/example-review.manifest.json",
+			"sha256": ""
+		}
+	]
+}

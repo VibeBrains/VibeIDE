@@ -1,0 +1,6 @@
+{
+	"format": "vibe-community-skill-manifest-v1",
+	"vibeVersion": "1.0.0",
+	"skillId": "example-review",
+	"skillMarkdown": "---\nname: example-review\ndescription: Example imported skill (replace URL and body).\nvibeVersion: 1.0.0\n---\n\n# Example\n\nInstructions go here.\n"
+}
