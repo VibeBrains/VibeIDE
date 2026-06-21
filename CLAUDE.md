@@ -178,7 +178,11 @@ scripts\test-integration.bat      # Интеграционные тесты
 .\scripts\release-windows.ps1 -SkipCompile                  # Фаза 2: публикация уже собранного (без перекомпиляции)
 .\scripts\release-windows.ps1                               # one-shot: авто-бамп patch + компиляция + публикация
 .\scripts\release-windows.ps1 -Draft                        # Черновой релиз
+.\scripts\winget-release.ps1 -Version vX.Y.Z                # Фаза 2b (после публикации): PR в microsoft/winget-pkgs
+.\scripts\winget-release.ps1 -DryRun                        # Фаза 2b: только рендер+валидация манифестов, без PR
 ```
+
+**Фаза 2b — winget (необязательная, после Фазы 2).** Каждый релиз = новая версионная папка в winget-pkgs отдельным PR (winget хранит все версии, ничего не перезаписывается). Скрипт намеренно отделён от `release-windows.ps1`: PR асинхронный и вне нашего контроля (CI + модерация Microsoft) и физически возможен только ПОСЛЕ публикации (качает выложенный `.exe` для SHA256). Шаблоны манифестов — `build/winget/*.template` (единый источник; pkgId/ProductCode/имя exe выводятся из `product.json`). Установщик неподписан → возможен отказ валидации SmartScreen.
 
 ## Проверка TypeScript перед завершением задачи
 
