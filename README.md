@@ -15,6 +15,14 @@
   <a href="https://open-vsx.org"><img src="https://img.shields.io/badge/extensions-Open%20VSX-purple.svg" alt="Open VSX" /></a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/VibeBrains/VibeIDE/releases/latest/download/VibeIDESetup.exe"><img src="https://img.shields.io/badge/Скачать%20для%20Windows-VibeIDESetup.exe-2ea44f?style=for-the-badge&logo=windows" alt="Скачать VibeIDE для Windows" /></a>
+</p>
+
+<p align="center">
+  <sub>Всегда отдаёт последний релиз. Другие версии — на <a href="https://github.com/VibeBrains/VibeIDE/releases">странице релизов</a>.</sub>
+</p>
+
 ---
 
 ## Что такое VibeIDE?
