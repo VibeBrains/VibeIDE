@@ -26,7 +26,7 @@ Living document. Каждый новый incident с XML tool-call format'ом, 
 | **Модель** | deepseek-v4-pro |
 | **Провайдер** | openCode aggregator |
 | **Format symptom** | Self-closing inline: `<read_file path="d:\..." />`, chain'ил 5-6 одновременно |
-| **Что было сломано** | Canonical парсер искал `<read_file>` literal (no space + immediate `>`). Attribute-form open `<read_file ` его не находил. Safety net требовал paired close → раз в чате как раз self-closing form → leaked verbatim |
+| **Что было сломано** | Canonical парсер искал `<read_file>` literal (no space + immediate `>`). Attribute-form open `<read_file` его не находил. Safety net требовал paired close → раз в чате как раз self-closing form → leaked verbatim |
 | **Root cause** | Один из force-XML моделей через openCode эмитит compact inline XML вместо canonical block form. Модель не виновата — формат валидный XML; парсер был узкий. |
 | **Fix commit** | `baafe380` — added `SELF_CLOSING_TOOL_RE` matching canonical/alias tool names + `\s+attrs\s*\/>`. `<read_file path="x" />` → `<read_file><path>x</path></read_file>` |
 | **Regression test** | `test/common/xmlToolNormalize.test.ts` → suite `normalizeAlternativeToolSyntax — self-closing` (5 tests) |
@@ -56,7 +56,7 @@ Living document. Каждый новый incident с XML tool-call format'ом, 
 | **Format symptom** | Wrapper open и close теги без trailing `>`: `<tool_calls<invoke name="X">...</invoke</tool_calls`. invoke open сам по себе с `>`, но wrapper'ы — без |
 | **Что было сломано** | STRIP_WRAPPERS_RE требовал `\s*>` для match. `<tool_calls` followed by `<` (другой tag) — не match. `</invoke<` следующий tag — invoke regex требовал `</invoke>` literal — не match. Wrappers leaked |
 | **Root cause** | Модель ИНОГДА теряет `>` при chaining close tag'ов. Не stable repro — но happens enough that пользователь увидел в чате |
-| **Fix commit** | `629c0625` + `2400d897` — STRIP_WRAPPERS_RE, invoke close, parameter close все switched на tolerant `\s*(?:>|(?=<|$))` lookahead pattern. Matches `>`, OR `<` of next tag, OR end of buffer |
+| **Fix commit** | `629c0625` + `2400d897` — STRIP_WRAPPERS_RE, invoke close, parameter close все switched на tolerant `\s*(?:>|(?=<|$))` lookahead pattern. Matches `>`, OR`<` of next tag, OR end of buffer |
 | **Regression test** | `test/common/xmlToolNormalize.test.ts` → suite `malformed close tags` (4 tests, включая verbatim user fixture с i18n JSON ru.json) |
 
 ---

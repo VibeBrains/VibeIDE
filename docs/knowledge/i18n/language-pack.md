@@ -28,7 +28,7 @@
 
 **Важно:** в апстриме **`bootstrap-esm.ts`** при **`VSCODE_DEV`** не подгружались **`_VSCODE_NLS_MESSAGES`** вообще — в dev из репо интерфейс оставался английским; VibeIDE убрал эту проверку, чтобы RU работал и в dev-сборке.
 
-**Баг (исправлен):** корневой **`main.ts`** брал **`product.nameShort`** без суффикса **` Dev`**, а **`EnvironmentMainService`** считает user data от **`IProductService.nameShort`** = **`… Dev`** (`product.ts`) — получались два каталога (**`…\vibeide-dev`** vs **`…\vibeide-dev-dev`**): NLS/`clp` и профиль разъезжались, скрипт очистки **`clp`** бил не ту папку. Нужно совпадение строки для **`getUserDataPath`** с dev-продуктом (см. **`main.ts`** комментарий у **`userDataPath`**).
+**Баг (исправлен):** корневой **`main.ts`** брал **`product.nameShort`** без суффикса **`Dev`**, а **`EnvironmentMainService`** считает user data от **`IProductService.nameShort`** = **`… Dev`** (`product.ts`) — получались два каталога (**`…\vibeide-dev`** vs **`…\vibeide-dev-dev`**): NLS/`clp` и профиль разъезжались, скрипт очистки **`clp`** бил не ту папку. Нужно совпадение строки для **`getUserDataPath`** с dev-продуктом (см. **`main.ts`** комментарий у **`userDataPath`**).
 
 **Применение:** форки с не-английским дефолтом и без обязательной установки MS Language Pack с Marketplace.
 

@@ -6,7 +6,7 @@
 
 
 
-### Это не Cursor и не установленный VS Code Marketplace
+## Это не Cursor и не установленный VS Code Marketplace
 
 
 

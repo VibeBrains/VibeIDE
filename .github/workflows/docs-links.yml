@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - "**/*.md"
+      - ".github/workflows/docs-links.yml"
 
 permissions:
   contents: read
