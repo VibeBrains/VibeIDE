@@ -1,6 +1,6 @@
 # Почему модели игнорируют инъектированные правила (framing > наличие)
 
-← [Knowledge Index](README.md)
+← [Knowledge Index](../README.md)
 
 ---
 

@@ -68,7 +68,7 @@ jobs:
           #    link to private Microsoft repos / fixtures — not ours to validate
           #  - .vibe*/ prompt scaffolding (contains API-endpoint URLs, not doc links)
           mapfile -t FILES < <(git ls-files '*.md' \
-            | grep -vE '/_template-|^\.github/(prompts|skills|instructions)/|^extensions/|^build/|^src/|^test/|^cli/|^scripts/|^\.vibe-defaults/|^\.vibe/')
+            | grep -vE '/_template-|^\.github/(prompts|skills|instructions)/|^docs/(references-v1|v1)/|^extensions/|^build/|^src/|^test/|^cli/|^scripts/|^\.vibe-defaults/|^\.vibe/')
           if [ ${#FILES[@]} -eq 0 ]; then
             echo "No tracked markdown files; skipping."
             exit 0

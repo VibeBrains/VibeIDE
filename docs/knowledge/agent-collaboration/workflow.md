@@ -13,7 +13,7 @@
 **Применение.**
 - Признаки «можно без подтверждения»: те же файлы, то же намерение, та же логика; пользователь уже сказал «да» родителю.
 - Снова просить подтверждение если: реальная развилка из нескольких равно правомерных подходов, изменение скоупа, рискованная необратимая операция (push/force/destructive).
-- См. [batch autonomous execution](#batch-autonomous-execution-on-explicit-ask) — расширение этого правила на явное cross-task batch-разрешение.
+- См. [batch autonomous execution](#batch-autonomous-execution-on-explicit-ask-workflow) — расширение этого правила на явное cross-task batch-разрешение.
 
 ---
 
