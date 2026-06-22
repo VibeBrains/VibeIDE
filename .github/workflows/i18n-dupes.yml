@@ -11,6 +11,7 @@ on:
     paths:
       - 'src/vs/workbench/contrib/vibeide/browser/react/src/vibe-settings-tsx/vibeSettingsRu.ts'
       - 'scripts/vibe-i18n-dupes.mjs'
+      - '.github/workflows/i18n-dupes.yml'
 
 jobs:
   i18n-dupes:
@@ -21,7 +22,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Install only the typescript dev-dep needed by the scanner
-        run: npm install typescript --no-save --no-audit --no-fund --legacy-peer-deps
+      - name: Install typescript in isolation (no repo tree, no native build)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tsdep"
+          cd "$RUNNER_TEMP/tsdep"
+          npm init -y >/dev/null
+          npm install typescript@6 --no-audit --no-fund
+          mkdir -p "$GITHUB_WORKSPACE/node_modules"
+          ln -s "$RUNNER_TEMP/tsdep/node_modules/typescript" "$GITHUB_WORKSPACE/node_modules/typescript"
       - name: Fail on duplicate keys in vibeSettingsRu / EN bundles
         run: node scripts/vibe-i18n-dupes.mjs

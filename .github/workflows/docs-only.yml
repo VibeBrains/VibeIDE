@@ -32,9 +32,6 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install markdownlint-cli2
-        run: npm install --no-save markdownlint-cli2@0.13
-
       # Lenient config — fail only on structural errors (broken syntax, missing
       # closing fences), not stylistic preferences. Project uses both ` ``` ` and
       # ` ~~~ ` fences, sometimes long lines, etc. — we don't gate on style nits.
@@ -63,7 +60,7 @@ jobs:
           EOF
 
       - name: Run markdownlint-cli2
-        run: npx markdownlint-cli2
+        run: npx --yes markdownlint-cli2@0.13
 
   roadmap-section-integrity:
     name: roadmap section index integrity

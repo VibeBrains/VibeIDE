@@ -26,9 +26,6 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install markdown-link-check
-        run: npm install --no-save markdown-link-check@3
-
       - name: Write config
         run: |
           cat > .markdown-link-check.json <<'EOF'
@@ -60,4 +57,4 @@ jobs:
             echo "No tracked markdown files; skipping."
             exit 0
           fi
-          npx markdown-link-check --config .markdown-link-check.json --quiet "${FILES[@]}"
+          npx --yes markdown-link-check@3 --config .markdown-link-check.json --quiet "${FILES[@]}"
