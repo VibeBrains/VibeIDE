@@ -58,6 +58,7 @@ function inspectLocaleScreens(locale, visibleStrings) {
     }
     return findings;
 }
+globalThis.inspectLocaleScreens = inspectLocaleScreens;
 `;
 
 type LocaleFinding = { screen: string; text: string; reason: 'english-text' | 'raw-key' | 'placeholder-leak' };
