@@ -37,7 +37,8 @@ jobs:
               { "pattern": "^https://127\\.0\\.0\\.1" },
               { "pattern": "^https://aka\\.ms/" },
               { "pattern": "^https://schemas\\.vibeide\\.io/" },
-              { "pattern": "^(?!https?:)[a-z][a-z0-9+.-]*:" }
+              { "pattern": "^(?!https?:)[a-z][a-z0-9+.-]*:" },
+              { "pattern": "^https://vscode\\.dev/redirect" }
             ],
             "timeout": "20s",
             "retryOn429": true,
