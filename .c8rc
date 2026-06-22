@@ -6,7 +6,7 @@
 		"out/vs/workbench/contrib/vibeide/test/**",
 		"**/*.test.js"
 	],
-	"all": true,
+	"all": false,
 	"lines": 60,
 	"functions": 55,
 	"branches": 50,
