@@ -17,19 +17,6 @@
  * is `npm install --save-dev husky lint-staged && npx husky init`.
  */
 
-export class HuskyLintStagedNotImplementedError extends Error {
-	constructor(operation: string) {
-		super(
-			`Husky / lint-staged is not yet wired up (operation: ${operation}). ` +
-			`Skeleton landed in src/vs/workbench/contrib/vibeide/common/huskyLintStagedSkeleton.ts; ` +
-			`adoption: \`npm install --save-dev husky lint-staged && npx husky init\` + use the ` +
-			`config produced by buildLintStagedConfig() / buildPreCommitHook(). ` +
-			`See roadmap §"Pre-commit hook (husky + lint-staged)".`,
-		);
-		this.name = 'HuskyLintStagedNotImplementedError';
-	}
-}
-
 export interface LintStagedTask {
 	readonly globs: readonly string[];
 	readonly commands: readonly string[];

@@ -93,10 +93,12 @@ suite('ModelQuirks — matchQuirks per-provider', () => {
 	});
 
 	test('provider match is case-insensitive substring', () => {
-		const q1 = matchQuirks(rules, 'kimi-k2.6', 'OPENCODE');
-		const q2 = matchQuirks(rules, 'kimi-k2.6', 'opencode-zen');
+		// Match direction: the supplied provider must CONTAIN the rule's provider
+		// ('opencodego'), case-insensitively.
+		const q1 = matchQuirks(rules, 'kimi-k2.6', 'OPENCODEGO');
+		const q2 = matchQuirks(rules, 'kimi-k2.6', 'opencodego-zen');
 		assert.strictEqual(q1?.forceToolCallFormat, 'xml');
-		assert.strictEqual(q2?.forceToolCallFormat, 'xml');  // 'openCodeGo' is substring of 'opencode-zen' (case-insensitive)
+		assert.strictEqual(q2?.forceToolCallFormat, 'xml');
 	});
 
 	test('provider field stripped from returned quirks', () => {

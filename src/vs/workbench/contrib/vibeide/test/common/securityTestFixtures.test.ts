@@ -108,7 +108,7 @@ suite('securityTestFixtures', () => {
 		});
 
 		test('contains a system-tag inversion variant', () => {
-			assert.ok(PROMPT_INJECTION_PATTERNS.some(p => /<\/system>.*<system>/.test(p)));
+			assert.ok(PROMPT_INJECTION_PATTERNS.some(p => /<\/system>[\s\S]*<system>/.test(p)));
 		});
 
 		test('every pattern is non-empty and non-trivial (≥ 8 chars)', () => {

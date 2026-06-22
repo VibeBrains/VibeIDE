@@ -87,7 +87,9 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'openai-key',
 		name: 'OpenAI API Key',
-		pattern: /\b(sk-[a-zA-Z0-9]{20,})\b/gi,
+		// Project keys (sk-proj-…, hyphenated body) and legacy keys (sk-… 20+ alnum).
+		// Negative lookahead keeps Anthropic keys (sk-ant-…) for their dedicated rule.
+		pattern: /\b(sk-proj-[a-zA-Z0-9_-]{4,}|sk-(?!ant-)[a-zA-Z0-9]{20,})\b/gi,
 		enabled: true,
 		priority: 100,
 	},
@@ -144,7 +146,7 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'github-token',
 		name: 'GitHub Token',
-		pattern: /\b(ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|ghu_[a-zA-Z0-9]{36}|ghs_[a-zA-Z0-9]{36}|ghr_[a-zA-Z0-9]{36})\b/g,
+		pattern: /\b(ghp_[a-zA-Z0-9]{36,}|gho_[a-zA-Z0-9]{36,}|ghu_[a-zA-Z0-9]{36,}|ghs_[a-zA-Z0-9]{36,}|ghr_[a-zA-Z0-9]{36,})\b/g,
 		enabled: true,
 		priority: 100,
 	},

@@ -45,7 +45,9 @@ suite('FIM context contract (1018)', () => {
 				skillDiscoveries: 'x'.repeat(4000),
 				astSnippet: 'y'.repeat(5000),
 			});
-			const r = reportFIMBudget(ctx);
+			// Tight cap so each successive drop is still over budget — the walker
+			// stops as soon as it fits, so the default 8000 cap would drop only one.
+			const r = reportFIMBudget(ctx, { ...FIM_BUDGET_DEFAULTS, maxContextChars: 350 });
 			assert.ok(r.trimmed.includes('skill-discoveries'));
 			assert.ok(r.trimmed.includes('ast-snippet'));
 		});
@@ -56,7 +58,7 @@ suite('FIM context contract (1018)', () => {
 				recentEdits: [{ uri: 'u', timestamp: 0, hunk: 'h'.repeat(3000) }],
 				openTabs: [{ uri: 'u', languageId: 'ts', snippet: 's'.repeat(3000) }],
 			});
-			const r = reportFIMBudget(ctx);
+			const r = reportFIMBudget(ctx, { ...FIM_BUDGET_DEFAULTS, maxContextChars: 350 });
 			assert.deepStrictEqual([...r.trimmed].sort(), ['open-tabs', 'project-rules', 'recent-edits']);
 		});
 

@@ -41,12 +41,14 @@ export function stripPrivacyText(text: string, patterns: PrivacyStripPatterns): 
 
 	if (patterns.workspacePath && patterns.workspacePath.length > 3) {
 		const escapedPath = patterns.workspacePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		result = result.replace(new RegExp(escapedPath.replace(/\\/g, '(?:\\\\|/)'), 'gi'), '<workspace>');
+		// escape doubled each separator backslash to "\\"; collapse that pair (not each
+		// char) into a "\ or /" alternation so a single real separator matches.
+		result = result.replace(new RegExp(escapedPath.replace(/\\\\/g, '(?:\\\\|/)'), 'gi'), '<workspace>');
 	}
 
 	if (patterns.homePath && patterns.homePath.length > 3) {
 		const escapedHome = patterns.homePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		result = result.replace(new RegExp(escapedHome.replace(/\\/g, '(?:\\\\|/)'), 'gi'), '<home>');
+		result = result.replace(new RegExp(escapedHome.replace(/\\\\/g, '(?:\\\\|/)'), 'gi'), '<home>');
 	}
 
 	if (patterns.username && patterns.username.length > 2) {

@@ -9,7 +9,6 @@ import {
 	buildPreCommitHook,
 	buildPackageJsonAdditions,
 	ensureHuskyInstalled,
-	HuskyLintStagedNotImplementedError,
 } from '../../common/huskyLintStagedSkeleton.js';
 
 suite('Husky / lint-staged config skeleton + sentinel', () => {
@@ -89,26 +88,9 @@ suite('Husky / lint-staged config skeleton + sentinel', () => {
 		});
 	});
 
-	suite('sentinel ensureHuskyInstalled', () => {
-		test('throws sentinel error', () => {
-			assert.throws(
-				() => ensureHuskyInstalled(),
-				HuskyLintStagedNotImplementedError,
-			);
-		});
-
-		test('error message references roadmap and adoption command', () => {
-			let captured: unknown;
-			try {
-				ensureHuskyInstalled();
-			} catch (e) {
-				captured = e;
-			}
-			assert.ok(captured instanceof HuskyLintStagedNotImplementedError);
-			const msg = (captured as Error).message;
-			assert.ok(msg.includes('roadmap'));
-			assert.ok(msg.includes('npm install'));
-			assert.ok(msg.includes('husky init'));
+	suite('ensureHuskyInstalled', () => {
+		test('reports husky wired (returns true)', () => {
+			assert.strictEqual(ensureHuskyInstalled(), true);
 		});
 	});
 });

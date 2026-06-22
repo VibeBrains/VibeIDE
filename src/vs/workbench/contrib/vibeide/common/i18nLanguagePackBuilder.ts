@@ -112,13 +112,18 @@ export function buildLanguagePackLayout(input: {
 // -----------------------------------------------------------------------------
 
 export function buildLanguagePackAssetName(localeTag: string, vibeVersion: string): string {
-	if (typeof localeTag !== 'string' || !SUPPORTED_LOCALE_TAG_PATTERN.test(localeTag)) {
+	if (typeof localeTag !== 'string') {
 		throw new LanguagePackNotImplementedError(`buildLanguagePackAssetName(invalid-locale=${String(localeTag)})`);
 	}
-	if (typeof vibeVersion !== 'string' || vibeVersion.length === 0) {
+	// Trim before validating so a padded-but-valid locale ("  RU-BY  ") is accepted
+	// and normalized, mirroring buildLanguagePackLayout.
+	const trimmedTag = localeTag.trim().toLowerCase();
+	if (!SUPPORTED_LOCALE_TAG_PATTERN.test(trimmedTag)) {
+		throw new LanguagePackNotImplementedError(`buildLanguagePackAssetName(invalid-locale=${localeTag})`);
+	}
+	if (typeof vibeVersion !== 'string' || vibeVersion.trim().length === 0) {
 		throw new LanguagePackNotImplementedError(`buildLanguagePackAssetName(missing-version)`);
 	}
-	const trimmedTag = localeTag.trim().toLowerCase();
 	const trimmedVer = vibeVersion.trim();
 	return `vibeide-language-pack-${trimmedTag}-${trimmedVer}.vsix`;
 }

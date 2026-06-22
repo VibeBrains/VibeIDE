@@ -40,16 +40,19 @@ export interface IVibePerFilePermissionsService {
 }
 
 /**
- * Pure helper. Glob match for `filePath` against a single pattern. Mirrors the previous
- * private `_match()` implementation. Splits `**` from `*` and `?` so single-star matches
- * a single segment and double-star matches across segments. Anchored to path-segment
- * boundaries via `(^|/)` ... `($|/)`.
+ * Pure helper. Glob match for `filePath` against a single pattern. Splits `**` from `*`
+ * and `?`: single-star matches a single segment, `?` a single non-separator char, and
+ * `**` matches across segments. A double-star-then-slash token collapses to zero-or-more
+ * segments so a "src/[double-star]/foo.ts" pattern also matches "src/foo.ts". Single-star
+ * and `?` exclude both `/` and `\` so a glob never silently spans a Windows path
+ * separator. Anchored to path-segment boundaries via `(^|/)` ... `($|/)`.
  */
 export function matchPermissionPattern(filePath: string, pattern: string): boolean {
 	const regexStr = pattern.replace(/\\/g, '/')
 		.replace(/[.+^${}()|[\]\\]/g, '\\$&')
-		.replace(/\*\*/g, '§DS§').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]')
-		.replace(/§DS§/g, '.*');
+		.replace(/\*\*\//g, '§DSS§').replace(/\*\*/g, '§DS§')
+		.replace(/\*/g, '[^/\\\\]*').replace(/\?/g, '[^/\\\\]')
+		.replace(/§DSS§/g, '(?:.*/)?').replace(/§DS§/g, '.*');
 	try {
 		return new RegExp(`(^|/)${regexStr}($|/)`).test(filePath);
 	} catch {

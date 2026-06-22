@@ -113,7 +113,7 @@ function classify(
 export function canonicaliseTitle(s: string): string {
 	return s
 		.toLowerCase()
-		.replace(/[`*_~()[\]{}.,;:!?'"]/g, ' ')
+		.replace(/[`*_~()[\]{}.,;:!?'"—–-]/g, ' ')
 		.replace(/\s+/g, ' ')
 		.trim()
 		.slice(0, MAX_TITLE_CHARS);

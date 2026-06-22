@@ -110,12 +110,15 @@ suite('inlineAiExplanationFormatter', () => {
 		});
 
 		test('omitting prompt summary keeps session line but no quote', () => {
+			// Drop rationale too: the only blockquote ("> ") that could appear is then
+			// the prompt-summary quote, so its absence proves the summary was omitted.
 			const r = formatInlineAiExplanation(fixt({
 				session: {
 					sessionId: 'abc',
 					modelId: 'm',
 					timestampMs: NOW - 60_000,
 				},
+				rationale: undefined,
 			}), NOW);
 			assert.ok(r.markdown.includes('Session abc'));
 			assert.ok(!r.markdown.includes('> '));

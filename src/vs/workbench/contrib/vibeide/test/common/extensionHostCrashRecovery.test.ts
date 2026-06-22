@@ -139,7 +139,7 @@ suite('extensionHostCrashRecovery', () => {
 				plan: { planId: 'P-42', lastCompletedStepIdx: 2, totalSteps: 5 },
 			});
 			const text = describeEHCrashRecovery(r);
-			assert.match(text, /шаг 3/);
+			assert.match(text, /шага 3/);
 			assert.match(text, /P-42/);
 		});
 

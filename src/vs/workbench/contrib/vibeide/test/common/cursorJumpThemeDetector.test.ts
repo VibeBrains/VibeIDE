@@ -109,7 +109,8 @@ suite('Cursor-jump theme detector (1029)', () => {
 			const r = detectCursorJumpTheme([
 				RENAME(NOW, 'foo', 'bar'),
 				RENAME(NOW + 1000, 'foo', 'bar'),
-				RENAME(NOW + THEME_DEFAULTS.maxGapMs + 1, 'foo', 'bar'),
+				// gap from the 2nd event (at NOW+1000) must exceed maxGapMs to break the streak.
+				RENAME(NOW + 1000 + THEME_DEFAULTS.maxGapMs + 1, 'foo', 'bar'),
 			], THEME_DEFAULTS);
 			// gap between 2nd and 3rd > maxGapMs → only 1 in the streak.
 			assert.deepStrictEqual(r, { kind: 'no-theme' });

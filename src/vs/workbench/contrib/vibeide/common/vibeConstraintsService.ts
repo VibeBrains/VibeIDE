@@ -77,9 +77,11 @@ export function matchConstraintPattern(filePath: string, pattern: string): boole
 	const normalizedPattern = pattern.replace(/\\/g, '/');
 	const regexStr = normalizedPattern
 		.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+		.replace(/\*\*\//g, '§DOUBLESTARSLASH§')
 		.replace(/\*\*/g, '§DOUBLESTAR§')
 		.replace(/\*/g, '[^/]*')
 		.replace(/\?/g, '[^/]')
+		.replace(/§DOUBLESTARSLASH§/g, '(?:.*/)?')
 		.replace(/§DOUBLESTAR§/g, '.*');
 	try {
 		return new RegExp(`(^|/)${regexStr}($|/)`).test(normalizedPath);

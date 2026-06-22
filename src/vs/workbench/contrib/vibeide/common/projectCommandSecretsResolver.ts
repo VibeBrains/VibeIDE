@@ -201,7 +201,10 @@ export function findSuspiciousLiteralSecrets(input: ResolverInput): readonly { f
 		}
 	}
 	for (const c of checks) {
-		if (looksLikeSecret(c.value)) {
+		// A command/arg value is usually a whole command line ("curl … token=ghp_…"),
+		// so scan each whitespace-separated token — a single embedded key must still
+		// be caught even though the field as a whole contains spaces.
+		if (c.value.split(/\s+/).some(looksLikeSecret)) {
 			out.push({ field: c.field, pathHint: c.pathHint });
 		}
 	}

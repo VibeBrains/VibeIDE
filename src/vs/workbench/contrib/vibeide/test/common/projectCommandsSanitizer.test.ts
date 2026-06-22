@@ -105,7 +105,6 @@ suite('Project Commands sanitizer (335 / 336)', () => {
 		});
 
 		test('detects .. segment', () => {
-			assert.strictEqual(checkCwdTraversal('../etc'), null !== checkCwdTraversal('../etc') ? checkCwdTraversal('../etc') : null);
 			const r = checkCwdTraversal('../etc');
 			assert.strictEqual(r?.kind, 'cwd-traversal');
 		});

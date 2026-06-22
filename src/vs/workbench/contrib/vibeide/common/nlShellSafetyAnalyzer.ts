@@ -45,7 +45,7 @@ const DESTRUCTIVE_PATTERNS: ReadonlyArray<{ re: RegExp; reason: string }> = [
 ];
 
 const DESTRUCTIVE_ARG_PATTERNS: ReadonlyArray<{ re: RegExp; reason: string }> = [
-	{ re: /--force\b/i, reason: 'force-flag' },
+	{ re: /^--?force\b/i, reason: 'force-flag' },
 	{ re: /-rf\b/i, reason: 'rf-flag' },
 	{ re: /-fr\b/i, reason: 'fr-flag' },
 	{ re: /^[\\/]$/, reason: 'root-path' },

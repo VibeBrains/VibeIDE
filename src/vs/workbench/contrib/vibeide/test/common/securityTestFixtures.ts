@@ -102,7 +102,7 @@ export const SECRET_CANARIES = Object.freeze({
 	openaiKey: 'sk-CANARYabcdefghijklmnopqrstuvwxyz0123456789AB',
 	anthropicKey: 'sk-ant-api03-CANARY-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOP-aBcDef',
 	awsAccessKey: 'AKIACANARY123456789A',
-	jwt: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkNBTkFSWSJ9.signature',
+	jwt: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkNBTkFSWSJ9.CANARYsignature',
 	bearerHeader: 'Authorization: Bearer ghp_CANARYabcdef0123456789ABCDEFGHIJKLMNOP',
 	cookieHeader: 'Cookie: session=CANARY-eyJhbGciOiJIUzI1NiIs',
 } as const);

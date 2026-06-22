@@ -4,17 +4,16 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * `VibeSpecDrivenContextService` — parser-diff shapes + sentinel skeleton
+ * `VibeSpecDrivenContextService` — parser-aware spec-drift diffs
  * (roadmap §"Real-impl tail / Phase 3b — `VibeSpecDrivenContextService`
  * реальный parser diff (`swagger-parser`, `graphql-js`); breaking change
  * heuristic ловит только обвал синтаксиса, не семантику").
  *
- * This skeleton lands the **typed shapes and the sentinel error class**
- * so the runtime adopter has a stable contract; the actual `swagger-parser`
- * + `graphql-js` integrations are install-and-finish work that the
- * roadmap-max skill keeps out of scope when the package set is not already
- * in `package.json`. When the runtime side adopts these libraries, the
- * sentinel stubs here get replaced with real parsing.
+ * `diffOpenApi` compares parsed `paths` / `components.schemas` keys for
+ * removals; `diffGraphql` uses `graphql`'s `findBreakingChanges`. Both fall
+ * back to the byte-size `diffSpecHeuristic` when input is not parseable
+ * (YAML / malformed) or the `graphql` package is absent — so callers always
+ * receive a stable `SpecDiffResult` shape and never throw.
  */
 
 export type SpecKind = 'openapi' | 'graphql';
@@ -37,18 +36,6 @@ export interface SpecDiffInput {
 export interface SpecDiffResult {
 	readonly entries: ReadonlyArray<SpecDriftEntry>;
 	readonly hasBreaking: boolean;
-}
-
-export class SpecDrivenContextNotImplementedError extends Error {
-	constructor(operation: string) {
-		super(
-			`SpecDrivenContextService is not yet implemented (operation: ${operation}). ` +
-			`Skeleton landed in src/vs/workbench/contrib/vibeide/common/specDrivenContextSkeleton.ts; ` +
-			`real-impl requires \`swagger-parser\` + \`graphql-js\` install + diff walkers. ` +
-			`See roadmap §"Real-impl tail / VibeSpecDrivenContextService".`,
-		);
-		this.name = 'SpecDrivenContextNotImplementedError';
-	}
 }
 
 /**

@@ -110,14 +110,20 @@ export const suggestAlternateTool = (
 	const hinted = suggestByArgHints(rawParamKeys, availableNames);
 	if (hinted && hinted !== calledTool.name) return hinted;
 	const calledScore = scoreToolMatch(calledTool.params.required, rawParamKeys);
-	let best: { name: string; score: number } | null = null;
+	let best: { name: string; score: number; required: number } | null = null;
 	for (const candidate of candidates) {
 		if (candidate.name === calledTool.name) continue;
 		if (candidate.params.required.length === 0) continue;
 		const score = scoreToolMatch(candidate.params.required, rawParamKeys);
 		if (score < minScore) continue;
 		if (score <= calledScore) continue;
-		if (!best || score > best.score) best = { name: candidate.name, score };
+		const required = candidate.params.required.length;
+		// Tie-break: equal score → prefer the more specific candidate (covers more
+		// required params), so a tool whose full shape is used wins over one whose
+		// shape is a strict subset of the raw keys.
+		if (!best || score > best.score || (score === best.score && required > best.required)) {
+			best = { name: candidate.name, score, required };
+		}
 	}
 	return best?.name ?? null;
 };

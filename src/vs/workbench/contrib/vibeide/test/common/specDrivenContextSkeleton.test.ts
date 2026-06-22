@@ -9,7 +9,6 @@ import {
 	diffOpenApi,
 	diffGraphql,
 	describeSeverity,
-	SpecDrivenContextNotImplementedError,
 } from '../../common/specDrivenContextSkeleton.js';
 
 suite('VibeSpecDrivenContextService — heuristic + sentinels', () => {
@@ -91,33 +90,32 @@ suite('VibeSpecDrivenContextService — heuristic + sentinels', () => {
 		});
 	});
 
-	suite('sentinel real-impl stubs', () => {
-		test('diffOpenApi throws sentinel', () => {
-			assert.throws(
-				() => diffOpenApi({ oldSpec: 'a', newSpec: 'b' }),
-				SpecDrivenContextNotImplementedError,
-			);
+	suite('parser-aware diffs', () => {
+		test('diffOpenApi: removed path → major breaking', () => {
+			const oldSpec = JSON.stringify({ paths: { '/a': {}, '/b': {} } });
+			const newSpec = JSON.stringify({ paths: { '/a': {} } });
+			const r = diffOpenApi({ oldSpec, newSpec });
+			assert.strictEqual(r.hasBreaking, true);
+			assert.ok(r.entries.some(e => e.severity === 'major' && /path removed/.test(e.summary)));
 		});
 
-		test('diffGraphql throws sentinel', () => {
-			assert.throws(
-				() => diffGraphql({ oldSpec: 'a', newSpec: 'b' }),
-				SpecDrivenContextNotImplementedError,
-			);
+		test('diffOpenApi: removed schema → major breaking', () => {
+			const oldSpec = JSON.stringify({ components: { schemas: { User: {}, Post: {} } } });
+			const newSpec = JSON.stringify({ components: { schemas: { User: {} } } });
+			const r = diffOpenApi({ oldSpec, newSpec });
+			assert.ok(r.entries.some(e => e.severity === 'major' && /schema removed/.test(e.summary)));
 		});
 
-		test('sentinel message references roadmap section + npm packages', () => {
-			let captured: unknown;
-			try {
-				diffOpenApi({ oldSpec: 'a', newSpec: 'b' });
-			} catch (e) {
-				captured = e;
-			}
-			assert.ok(captured instanceof SpecDrivenContextNotImplementedError);
-			const msg = (captured as Error).message;
-			assert.ok(msg.includes('roadmap'));
-			assert.ok(msg.includes('swagger-parser'));
-			assert.ok(msg.includes('graphql'));
+		test('diffOpenApi: non-JSON input falls back to heuristic (no throw)', () => {
+			const r = diffOpenApi({ oldSpec: 'a', newSpec: 'b' });
+			assert.strictEqual(r.entries[0].severity, 'patch');
+		});
+
+		test('diffGraphql: unparseable old schema falls back to heuristic (no throw)', () => {
+			// Empty old spec → heuristic regardless of whether `graphql` is installed.
+			const r = diffGraphql({ oldSpec: '', newSpec: 'type Query { a: Int }' });
+			assert.strictEqual(r.entries[0].severity, 'unknown');
+			assert.strictEqual(r.hasBreaking, false);
 		});
 	});
 
