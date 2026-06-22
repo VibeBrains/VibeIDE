@@ -21,6 +21,7 @@
  */
 
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
+import { getBaseURL } from './utils';
 
 // ---------------------------------------------------------------------------
 // Pure windowLockPolicy logic — inlined as a JS snippet, kept in sync with
@@ -214,8 +215,10 @@ test.describe('Multi-window: two browser contexts (window isolation)', () => {
 			const page1 = await ctx1.newPage();
 			const page2 = await ctx2.newPage();
 
-			await page1.goto('about:blank');
-			await page2.goto('about:blank');
+			// Real origin (component-explorer) so localStorage is accessible — about:blank
+			// has an opaque origin and denies localStorage access.
+			await page1.goto(getBaseURL() + '/');
+			await page2.goto(getBaseURL() + '/');
 
 			// Context 1 writes a simulated lock to localStorage.
 			await page1.evaluate(() => {
@@ -245,8 +248,8 @@ test.describe('Multi-window: two browser contexts (window isolation)', () => {
 			const page2 = await ctx2.newPage();
 
 			await Promise.all([
-				page1.goto('/', { waitUntil: 'load', timeout: 25_000 }),
-				page2.goto('/', { waitUntil: 'load', timeout: 25_000 }),
+				page1.goto(getBaseURL() + '/', { waitUntil: 'load', timeout: 25_000 }),
+				page2.goto(getBaseURL() + '/', { waitUntil: 'load', timeout: 25_000 }),
 			]);
 
 			const title1 = await page1.title();

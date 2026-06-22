@@ -140,7 +140,7 @@ jobs:
           fi
           # Run mocha under c8; c8 reads .c8rc for thresholds (lines/functions/branches/statements).
           npx --yes c8@9 --config .c8rc --check-coverage \
-            npx --yes mocha@10 --ui tdd --reporter spec --timeout 30000 $TESTS
+            npx --yes mocha@10 --ui tdd --timeout 30000 $TESTS
 
       - name: Upload coverage report on failure
         if: failure()
