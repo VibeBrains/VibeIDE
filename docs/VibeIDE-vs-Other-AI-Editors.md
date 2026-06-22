@@ -500,7 +500,7 @@ Based on verified code, VibeIDE offers several unique advantages:
 
 ## Supported Models
 
-For a detailed list of models supported by VibeIDE, see the [Supported Models documentation](https://github.com/vibeide/vibeide/wiki/Supported-Models) (link to be added).
+For a detailed list of models supported by VibeIDE, see the Supported Models documentation (link to be added).
 
 VibeIDE supports 15+ providers with 100+ models, including:
 - Reasoning models (o1, o3, Claude 3.7/4, DeepSeek R1, QwQ, Qwen3, Phi-4)
@@ -529,7 +529,7 @@ While other tools excel in specific areas (Cursor's polish, Continue.dev's VS Co
 - Competitors: Public information from official sources
 - Unknown: Marked when information cannot be verified
 
-If you find any inaccuracies, please [open an issue](https://github.com/vibeide/vibeide/issues/new) with corrections and sources.
+If you find any inaccuracies, please [open an issue](https://github.com/VibeBrains/VibeIDE/issues/new) with corrections and sources.
 
 
 

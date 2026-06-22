@@ -16,7 +16,7 @@ violations per channel. Replace bracketed `<...>` placeholders.
 Show HN: VibeIDE — privacy-first AI IDE forked from VS Code, no telemetry, local Ollama
 ```
 
-**URL field:** `https://github.com/borodatych/VibeIDE`
+**URL field:** `https://github.com/VibeBrains/VibeIDE`
 
 **First comment from author (post immediately after submission):**
 
@@ -55,7 +55,7 @@ After ~6 months of work, my fork of VS Code that focuses on private AI coding is
 
 **Signed builds for all four targets.** Windows EV-cert + macOS notarization + ARM Linux + universal binary.
 
-Repo: https://github.com/borodatych/VibeIDE
+Repo: https://github.com/VibeBrains/VibeIDE
 Download: <release URL>
 Roadmap (read-only on website): <website URL>
 
@@ -85,7 +85,7 @@ I forked VS Code 1.118 to ship an AI-pair-programming IDE that doesn't send tele
 - Plan / skill API for extensions; first sample on Open VSX.
 - Code-signed installers; Windows EV cert, macOS notarized, ARM Linux build.
 
-Repo: https://github.com/borodatych/VibeIDE
+Repo: https://github.com/VibeBrains/VibeIDE
 Why fork instead of extension? The privacy guarantees need IDE-level changes (workbench bundle, network policy, etc). An extension can't promise no-telemetry on top of stock VS Code.
 
 Bugs / feature requests welcome — Discord forum is the lowest-friction path; GitHub Issues works too.
@@ -100,7 +100,7 @@ No cloud telemetry. Local Ollama. Typed plan/skill API.
 
 Code-signed for Windows + macOS Universal + ARM Linux.
 
-https://github.com/borodatych/VibeIDE
+https://github.com/VibeBrains/VibeIDE
 
 #vscode #ai #vibeide #v0.4.0
 ```
@@ -132,7 +132,7 @@ boost.
 the workbench bundles in upstream telemetry plumbing that the extension API
 can't reach. Privacy guarantees need IDE-level edits.
 
-Repo + roadmap + bugs: https://github.com/borodatych/VibeIDE
+Repo + roadmap + bugs: https://github.com/VibeBrains/VibeIDE
 ```
 
 ## Discord — pinned `#announcements` post
@@ -147,7 +147,7 @@ Highlights:
 • <new-feature-1>; <new-feature-2>; <new-feature-3>.
 
 Download v0.4.0: <release URL>
-Repo: https://github.com/borodatych/VibeIDE
+Repo: https://github.com/VibeBrains/VibeIDE
 
 Bugs in #bugs, questions in #help. PRs welcome.
 ```
@@ -157,7 +157,7 @@ Bugs in #bugs, questions in #help. PRs welcome.
 ```
 VibeIDE 0.4 — privacy-first AI IDE forked from VS Code. No cloud telemetry, local Ollama auto-detect, typed plan/skill API, code-signed for Win + macOS Universal + ARM Linux. Open-source MIT.
 
-https://github.com/borodatych/VibeIDE
+https://github.com/VibeBrains/VibeIDE
 
 #vscode #ai
 ```
@@ -166,7 +166,7 @@ https://github.com/borodatych/VibeIDE
 
 ```
 Title: VibeIDE — privacy-first AI IDE forked from VS Code, no telemetry, local Ollama
-URL:   https://github.com/borodatych/VibeIDE
+URL:   https://github.com/VibeBrains/VibeIDE
 Tags:  show, vscode, ai
 
 Body:

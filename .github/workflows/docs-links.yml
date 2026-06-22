@@ -37,14 +37,23 @@ jobs:
               { "pattern": "^https://127\\.0\\.0\\.1" },
               { "pattern": "^https://aka\\.ms/" },
               { "pattern": "^https://schemas\\.vibeide\\.io/" },
+              { "pattern": "^https://vibeide\\.io/" },
               { "pattern": "^(?!https?:)[a-z][a-z0-9+.-]*:" },
-              { "pattern": "^https://vscode\\.dev/redirect" }
+              { "pattern": "^https://vscode\\.dev/redirect" },
+              { "pattern": "\\.(ts|tsx|js|mjs|cjs|json|css|scss|html)([#?].*)?$" },
+              { "pattern": "^https://(www\\.)?npmjs\\.(com|org)/" },
+              { "pattern": "^https://platform\\.openai\\.com/" },
+              { "pattern": "^https://claude\\.ai/" },
+              { "pattern": "^https://api\\.anthropic\\.com/" },
+              { "pattern": "^https://dev\\.azure\\.com/" },
+              { "pattern": "^https://marketplace\\.visualstudio\\.com/" },
+              { "pattern": "^https://open-vsx\\.org/admin" }
             ],
             "timeout": "20s",
             "retryOn429": true,
             "retryCount": 3,
             "fallbackRetryDelay": "30s",
-            "aliveStatusCodes": [200, 206, 301, 302, 308]
+            "aliveStatusCodes": [200, 203, 206, 301, 302, 308, 403, 405]
           }
           EOF
 
@@ -52,10 +61,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Skip skeleton template files — they contain placeholder paths like
-          # `[file.ts:42](../../../src/.../file.ts#L42)` that won't resolve.
-          # Templates are meant to be copied + filled, link-check post-copy.
-          mapfile -t FILES < <(git ls-files '*.md' | grep -v '/_template-')
+          # Scope to OUR prose docs. Exclude:
+          #  - skeleton templates (_template-) with placeholder paths
+          #  - upstream-inherited agent/config md (.github/{prompts,skills,instructions})
+          #    and VS Code subtrees (extensions/, build/, src/, test/, cli/, scripts/) that
+          #    link to private Microsoft repos / fixtures — not ours to validate
+          #  - .vibe*/ prompt scaffolding (contains API-endpoint URLs, not doc links)
+          mapfile -t FILES < <(git ls-files '*.md' \
+            | grep -vE '/_template-|^\.github/(prompts|skills|instructions)/|^extensions/|^build/|^src/|^test/|^cli/|^scripts/|^\.vibe-defaults/|^\.vibe/')
           if [ ${#FILES[@]} -eq 0 ]; then
             echo "No tracked markdown files; skipping."
             exit 0

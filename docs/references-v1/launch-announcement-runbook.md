@@ -15,7 +15,7 @@
    bounces, not adopters.
 2. **Open monetization channels** (GitHub Sponsors + Open Collective).
 3. **Stand up the marketing site** (single-page README, deployable to GitHub Pages
-   from `borodatych/VibeIDE-website` repo or similar — out-of-tree).
+   from `VibeBrains/VibeIDE-website` repo or similar — out-of-tree).
 4. **Pre-validate announcement copy** with `validateAnnouncement(...)` against every
    channel you plan to post to. Fix errors before posting anywhere.
 5. **Stage posts in this order**: Discord (private community first) → Mastodon
@@ -49,7 +49,7 @@
 
 Out-of-tree (the docs-policy contract keeps `docs/` local-only). Recommended:
 
-1. New repo `borodatych/VibeIDE-website` — single-page README + GitHub Pages.
+1. New repo `VibeBrains/VibeIDE-website` — single-page README + GitHub Pages.
 2. Use the content scaffold in `references/v1/website-readme-template.md`.
 3. Domain: optional vibeide.dev or equivalent (~$15/y at Namecheap or Porkbun).
 4. Pin to the "Marketing site" cell in this runbook once live.
@@ -76,8 +76,8 @@ node -e "
   const announcement = {
     title: 'VibeIDE 0.4 — privacy-first AI IDE forked from VS Code',
     summary: '...',
-    url: 'https://github.com/borodatych/VibeIDE',
-    downloadUrl: 'https://github.com/borodatych/VibeIDE/releases/tag/v0.4.0',
+    url: 'https://github.com/VibeBrains/VibeIDE',
+    downloadUrl: 'https://github.com/VibeBrains/VibeIDE/releases/tag/v0.4.0',
     screenshots: ['https://example.com/sshot1.png'],
     version: '0.4.0',
   };

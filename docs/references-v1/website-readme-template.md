@@ -1,6 +1,6 @@
 # Website README template (out-of-tree)
 
-> Status: scaffold for `borodatych/VibeIDE-website` (separate repo, GitHub Pages).
+> Status: scaffold for `VibeBrains/VibeIDE-website` (separate repo, GitHub Pages).
 > Source: roadmap §889. Companion: `launch-announcement-runbook.md`.
 
 This file is a template. Copy into a new repository (do **not** add it to the
@@ -12,8 +12,8 @@ VibeIDE source tree — `docs/` is local-only per the docs-policy contract).
 
 > Privacy-first AI IDE forked from VS Code. No telemetry. Local Ollama. Typed plan/skill API.
 
-[![Release](https://img.shields.io/github/v/release/borodatych/VibeIDE?label=release)](https://github.com/borodatych/VibeIDE/releases)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/borodatych/VibeIDE/blob/main/LICENSE.txt)
+[![Release](https://img.shields.io/github/v/release/VibeBrains/VibeIDE?label=release)](https://github.com/VibeBrains/VibeIDE/releases)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/VibeBrains/VibeIDE/blob/main/LICENSE.txt)
 [![Open VSX](https://img.shields.io/badge/Open%20VSX-vibeide-blue)](https://open-vsx.org/namespace/vibeide)
 [![Sponsor](https://img.shields.io/github/sponsors/borodatych)](https://github.com/sponsors/borodatych)
 
@@ -24,7 +24,7 @@ privacy-first contract:
 
 - **Zero cloud telemetry by default.** The "telemetry" service in code is a
   local audit channel for routing decisions; full policy at
-  [`references/v1/telemetry-policy.md`](https://github.com/borodatych/VibeIDE/blob/main/references/v1/telemetry-policy.md).
+  [`references/v1/telemetry-policy.md`](https://github.com/VibeBrains/VibeIDE/blob/main/references/v1/telemetry-policy.md).
 - **Local-first AI.** First-class Ollama / LM Studio support; cloud providers
   (Anthropic, OpenAI, Gemini) are opt-in.
 - **Typed extension API.** Plans, skills, constraints are first-class objects
@@ -36,10 +36,10 @@ privacy-first contract:
 
 | OS | Download |
 |---|---|
-| Windows x64 | [VibeIDE-x64.exe](https://github.com/borodatych/VibeIDE/releases/latest) |
-| macOS Universal | [VibeIDE-mac.dmg](https://github.com/borodatych/VibeIDE/releases/latest) |
-| Linux x64 | [VibeIDE.AppImage](https://github.com/borodatych/VibeIDE/releases/latest) |
-| Linux ARM64 | [VibeIDE-arm64.AppImage](https://github.com/borodatych/VibeIDE/releases/latest) |
+| Windows x64 | [VibeIDE-x64.exe](https://github.com/VibeBrains/VibeIDE/releases/latest) |
+| macOS Universal | [VibeIDE-mac.dmg](https://github.com/VibeBrains/VibeIDE/releases/latest) |
+| Linux x64 | [VibeIDE.AppImage](https://github.com/VibeBrains/VibeIDE/releases/latest) |
+| Linux ARM64 | [VibeIDE-arm64.AppImage](https://github.com/VibeBrains/VibeIDE/releases/latest) |
 
 All releases are signed; verification instructions in the release notes.
 
@@ -66,17 +66,17 @@ All releases are signed; verification instructions in the release notes.
 
 Build VibeIDE-specific extensions against the typed API in
 `extensions/vibeide-sample`. Publish to Open VSX under the `vibeide`
-namespace. See [`references/v1/openvsx-publishing-runbook.md`](https://github.com/borodatych/VibeIDE/blob/main/references/v1/openvsx-publishing-runbook.md)
+namespace. See [`references/v1/openvsx-publishing-runbook.md`](https://github.com/VibeBrains/VibeIDE/blob/main/references/v1/openvsx-publishing-runbook.md)
 for the publishing flow.
 
 ## Support the project
 
-- ⭐ Star the [GitHub repo](https://github.com/borodatych/VibeIDE).
+- ⭐ Star the [GitHub repo](https://github.com/VibeBrains/VibeIDE).
 - 💸 [GitHub Sponsors](https://github.com/sponsors/borodatych) — recurring funding
   goes into infrastructure (signing certs, CI, build hosts).
 - 💬 Join the [Discord](https://discord.gg/vibeide) — `#bugs` for issue intake,
   `#showcase` for community projects.
-- 🐛 [GitHub Issues](https://github.com/borodatych/VibeIDE/issues) for tracked bugs.
+- 🐛 [GitHub Issues](https://github.com/VibeBrains/VibeIDE/issues) for tracked bugs.
 
 ## Privacy & security
 
@@ -90,5 +90,5 @@ roadmap's `[~]` entries for the implementation pointers.
 
 ## License
 
-[MIT](https://github.com/borodatych/VibeIDE/blob/main/LICENSE.txt) — fork of
+[MIT](https://github.com/VibeBrains/VibeIDE/blob/main/LICENSE.txt) — fork of
 [microsoft/vscode](https://github.com/microsoft/vscode) (also MIT).
