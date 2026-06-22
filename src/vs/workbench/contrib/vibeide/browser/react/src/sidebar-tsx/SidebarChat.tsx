@@ -5256,18 +5256,21 @@ export const SidebarChat = () => {
 		const threadId = currentThread.id
 		const val = textAreaRef.current?.value ?? ''
 		if (!val.trim()) { return }
+		// Queue the note; it surfaces immediately as a pinned "queued" chip above the input (see the
+		// pendingInjections strip below), so no toast is needed.
 		chatThreadsService.addPendingInjection(threadId, val)
-		const n = chatThreadsService.state.allThreads[threadId]?.state.pendingInjections?.length ?? 1
 		if (textAreaFnsRef.current) { textAreaFnsRef.current.setValue('') }
 		chatThreadsService.setThreadDraft(threadId, '')
 		textAreaRef.current?.focus()
-		notificationService.info(`Контекст в очереди — подмешается на следующем хопе агента (${n}).`)
-	}, [chatThreadsService, currentThread.id, textAreaRef, textAreaFnsRef, notificationService])
+	}, [chatThreadsService, currentThread.id, textAreaRef, textAreaFnsRef])
 
 	const keybindingString = accessor.get('IKeybindingService').lookupKeybinding(VIBEIDE_CTRL_L_ACTION_ID)?.getLabel()
 
 	const threadId = currentThread.id
 	const currCheckpointIdx = chatThreadsState.allThreads[threadId]?.state?.currCheckpointIdx ?? undefined  // if not exist, treat like checkpoint is last message (infinity)
+	// Notes the user queued mid-run (via onInject). Shown as a pinned "queued" strip above the input until
+	// the agent drains them into a real message on its next hop (then pendingInjections clears → strip gone).
+	const pendingInjections = chatThreadsState.allThreads[threadId]?.state?.pendingInjections ?? []
 
 
 
@@ -5819,6 +5822,66 @@ export const SidebarChat = () => {
 				<Maximize size={14} />
 			</button>
 		</div>
+		{pendingInjections.length > 0 && (
+			<div
+				style={{
+					margin: '0 6px 6px',
+					padding: '6px 8px',
+					borderRadius: '10px',
+					background: 'rgba(234, 179, 8, 0.12)',
+					border: '1px solid rgba(234, 179, 8, 0.35)',
+					display: 'flex',
+					flexDirection: 'column',
+					gap: '4px',
+				}}
+			>
+				<div className="text-xs" style={{ opacity: 0.8, display: 'flex', alignItems: 'center', gap: '6px' }}>
+					<Pin size={12} />
+					<span>В очереди — подмешается в следующем ходе агента ({pendingInjections.length})</span>
+				</div>
+				{pendingInjections.map((note, i) => (
+					<div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+						<div
+							className="text-xs text-vibe-fg-2"
+							title={note}
+							style={{
+								flex: 1,
+								minWidth: 0,
+								whiteSpace: 'pre-wrap',
+								overflow: 'hidden',
+								display: '-webkit-box',
+								WebkitLineClamp: 3,
+								WebkitBoxOrient: 'vertical',
+								opacity: 0.9,
+							}}
+						>
+							{note}
+						</div>
+						<button
+							type="button"
+							onClick={() => chatThreadsService.removePendingInjection(threadId, i)}
+							title="Убрать из очереди"
+							aria-label="Убрать из очереди"
+							style={{
+								flexShrink: 0,
+								padding: '2px',
+								borderRadius: '4px',
+								background: 'transparent',
+								color: 'inherit',
+								border: 'none',
+								cursor: 'pointer',
+								opacity: 0.6,
+								display: 'flex',
+							}}
+							onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+							onMouseLeave={e => (e.currentTarget.style.opacity = '0.6')}
+						>
+							<X size={12} />
+						</button>
+					</div>
+				))}
+			</div>
+		)}
 		<VibeChatArea
 		featureName='Chat'
 		onSubmit={() => onSubmit()}

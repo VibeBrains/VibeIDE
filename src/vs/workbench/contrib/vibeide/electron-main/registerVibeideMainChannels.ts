@@ -25,6 +25,10 @@ import { ModelsDevCatalogStatusMainService } from './modelsDevCatalogStatusMainS
 import { ModelQuirksStatusMainService } from './modelQuirksStatusMainService.js';
 import { VibeIdleWatchdogChannelService } from './vibeIdleWatchdogChannel.js';
 import { VIBE_IDLE_WATCHDOG_CHANNEL } from '../common/vibeIdleWatchdogTypes.js';
+import { VibeWindowAttentionMainService } from './vibeWindowAttentionMainService.js';
+import { VIBE_WINDOW_ATTENTION_CHANNEL } from '../common/vibeWindowAttentionIpc.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
+import { IWindowsMainService } from '../../../../platform/windows/electron-main/windows.js';
 
 /**
  * Registers IPC channels expected by workbench contrib/vibeide (renderer).
@@ -92,5 +96,14 @@ export function registerVibeideMainProcessChannels(
 	mainProcessElectronServer.registerChannel(
 		VIBE_IDLE_WATCHDOG_CHANNEL,
 		ProxyChannel.fromService(idleWatchdogChannelService, disposables),
+	);
+
+	const windowAttentionService = disposables.add(new VibeWindowAttentionMainService(
+		accessor.get(IWindowsMainService),
+		accessor.get(ILogService),
+	));
+	mainProcessElectronServer.registerChannel(
+		VIBE_WINDOW_ATTENTION_CHANNEL,
+		ProxyChannel.fromService(windowAttentionService, disposables),
 	);
 }

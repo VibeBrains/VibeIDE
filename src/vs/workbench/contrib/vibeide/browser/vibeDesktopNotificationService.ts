@@ -4,33 +4,26 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * VibeDesktopNotificationService — OS-level notifications for blocking agent approvals.
+ * VibeDesktopNotificationService — contract + configuration (browser-layer, web-safe).
  *
- * When the agent pauses and waits for user approval (tool approval, pre-flight,
- * dead man's switch, plan step consent) and the IDE window is in the background,
- * this service fires an OS desktop notification so the user doesn't miss it.
+ * This file holds only the decorator, the public interface, the payload types and the
+ * configuration schema — nothing electron-specific — so it can be imported from the browser
+ * layer and a future web build alike. The desktop implementation (which needs the main-process
+ * Notification API) lives in `../electron-browser/vibeDesktopNotificationService.ts` and is
+ * registered from the desktop entrypoint. A web build would register its own browser-layer
+ * implementation against the same decorator.
  *
- * Features:
- *  - Uses Electron shell.showItemInFolder / notification API (Phase MVP: INotificationService fallback)
- *  - Throttled: max 1 notification per 30 s per approval type (no spam)
- *  - Configurable: users can disable or restrict which event types trigger notifications
- *  - Trust Score / DMS integration: high-risk approvals fire immediately without throttle bypass
- *  - Privacy: notification body never contains file contents or API keys
- *
- * Phase MVP: INotificationService (in-IDE) + rate limiter.
- * Phase 3b: Electron Notification API for true OS-level toast.
+ * Behaviour (desktop impl): fires an OS toast when the IDE is in the background — for blocking
+ * agent approvals (`notifyApprovalNeeded`) and for chat thread state-transitions
+ * (`notifyForEvent`, mirroring the notification-sound events). Clicking the toast switches to the
+ * desktop/Space holding the window and focuses it.
  */
 
-import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
-import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { ILogService } from '../../../../platform/log/common/log.js';
-import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { localize } from '../../../../nls.js';
-import { validateDesktopNotification } from '../common/desktopNotificationSpec.js';
+import { NotifySoundEvent } from './vibeNotifySoundService.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -55,6 +48,11 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: ['tool_approval', 'pre_flight', 'dead_mans_switch', 'trust_score_critical'],
 			description: localize('vibeide.notifications.desktopApprovals.events', 'Какие события агента вызывают desktop-уведомление.'),
 		},
+		'vibeide.notify.desktop.enabled': {
+			type: 'boolean',
+			default: true,
+			description: localize('vibeide.notify.desktop.enabled', 'Когда агент завершил работу, остановился или ждёт вашего ответа, а IDE свёрнута или в фоне: мигать иконкой в панели задач (на macOS — прыжок в Dock) и показывать системный тоаст. Клик по иконке или тоасту переключает на рабочий стол с VibeIDE и фокусирует окно.'),
+		},
 	},
 });
 
@@ -78,100 +76,13 @@ export interface IVibeDesktopNotificationService {
 	/** Notify user that the agent is waiting for an approval. Respects throttle and enable setting. */
 	notifyApprovalNeeded(notification: DesktopApprovalNotification): void;
 
+	/**
+	 * Fire an OS toast for a thread state-transition (turn complete / stalled / awaiting user),
+	 * mirroring the notification-sound events. Only fires when the IDE is in the background; clicking
+	 * the toast switches to the IDE's desktop and focuses it. Respects `vibeide.notify.desktop.enabled`.
+	 */
+	notifyForEvent(event: NotifySoundEvent): void;
+
 	/** Dismiss any pending notification for a given event type (e.g. after user approves). */
 	dismissForType(type: ApprovalEventType): void;
 }
-
-// ── Implementation ─────────────────────────────────────────────────────────────
-
-class VibeDesktopNotificationService extends Disposable implements IVibeDesktopNotificationService {
-	declare readonly _serviceBrand: undefined;
-
-	private readonly _lastFiredAt = new Map<ApprovalEventType, number>();
-	/** Live OS notifications keyed by type so we can programmatically close them */
-	private readonly _activeOsNotifications = new Map<ApprovalEventType, Notification>();
-
-	constructor(
-		@ILogService private readonly _log: ILogService,
-		@IConfigurationService private readonly _config: IConfigurationService,
-		@INotificationService private readonly _notifications: INotificationService,
-	) {
-		super();
-	}
-
-	notifyApprovalNeeded(notification: DesktopApprovalNotification): void {
-		if (!this._config.getValue<boolean>('vibeide.notifications.desktopApprovals.enabled')) {
-			return;
-		}
-
-		const enabledEvents = this._config.getValue<ApprovalEventType[]>('vibeide.notifications.desktopApprovals.events') ?? [];
-		if (!enabledEvents.includes(notification.type)) {
-			return;
-		}
-
-		const throttleMs = this._config.getValue<number>('vibeide.notifications.desktopApprovals.throttleMs') ?? 30000;
-		const lastFired = this._lastFiredAt.get(notification.type) ?? 0;
-		const now = Date.now();
-
-		if (!notification.urgent && now - lastFired < throttleMs) {
-			this._log.trace(`[VibeDesktopNotif] Throttled ${notification.type} (${now - lastFired}ms since last)`);
-			return;
-		}
-
-		this._lastFiredAt.set(notification.type, now);
-		this._log.info(`[VibeDesktopNotif] Firing approval notification: type=${notification.type} urgent=${notification.urgent}`);
-
-		const draft = { title: notification.title, body: notification.body, urgency: notification.urgent ? 'critical' as const : 'normal' as const };
-		const validation = validateDesktopNotification(draft, this._getPlatform());
-		if (!validation.ok) {
-			this._log.warn(`[VibeDesktopNotif] Spec validation failed: ${validation.issues.join(', ')} — falling back to in-IDE toast`);
-			this._notifications.notify({ severity: Severity.Info, message: `${notification.title}\n${notification.body}` });
-			return;
-		}
-
-		// Use Electron's window.Notification when available and the window is not focused.
-		// Fallback to INotificationService (in-IDE toast) when the window is in front or
-		// the Notification API is absent (web context).
-		const windowFocused = typeof document !== 'undefined' && document.hasFocus();
-		const canUseOs = typeof window !== 'undefined'
-			&& typeof (window as any).Notification === 'function'
-			&& (window as any).Notification.permission === 'granted';
-
-		if (canUseOs && !windowFocused) {
-			try {
-				const prev = this._activeOsNotifications.get(notification.type);
-				prev?.close();
-				const osn = new (window as any).Notification(validation.spec.title, { body: validation.spec.body, silent: validation.spec.silent });
-				this._activeOsNotifications.set(notification.type, osn);
-				this._log.trace(`[VibeDesktopNotif] OS notification fired for type=${notification.type}`);
-			} catch (err) {
-				this._log.warn(`[VibeDesktopNotif] OS Notification threw: ${err} — falling back to in-IDE toast`);
-				this._notifications.notify({ severity: notification.urgent ? Severity.Warning : Severity.Info, message: `${notification.title}\n${notification.body}` });
-			}
-		} else {
-			this._notifications.notify({
-				severity: notification.urgent ? Severity.Warning : Severity.Info,
-				message: `${notification.title}\n${notification.body}`,
-			});
-		}
-	}
-
-	dismissForType(type: ApprovalEventType): void {
-		const osn = this._activeOsNotifications.get(type);
-		if (osn) {
-			try { osn.close(); } catch { /* already closed */ }
-			this._activeOsNotifications.delete(type);
-		}
-		this._log.trace(`[VibeDesktopNotif] Dismissed type=${type}`);
-	}
-
-	private _getPlatform(): import('../common/desktopNotificationSpec.js').NotificationPlatform {
-		if (typeof process !== 'undefined' && typeof process.platform === 'string') {
-			const p = process.platform;
-			if (p === 'win32' || p === 'darwin' || p === 'linux') return p;
-		}
-		return 'unknown';
-	}
-}
-
-registerSingleton(IVibeDesktopNotificationService, VibeDesktopNotificationService, InstantiationType.Delayed);

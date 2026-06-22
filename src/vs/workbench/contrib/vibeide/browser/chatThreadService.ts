@@ -41,6 +41,7 @@ import { IVibeideModelService } from '../common/vibeideModelService.js';
 import { findLast, findLastIdx } from '../../../../base/common/arraysFind.js';
 import { IEditCodeService } from './editCodeServiceInterface.js';
 import { IVibeNotifySoundService, NotifySoundEvent } from './vibeNotifySoundService.js';
+import { IVibeDesktopNotificationService } from './vibeDesktopNotificationService.js';
 import { VibeideFileSnapshot } from '../common/editCodeServiceTypes.js';
 import { INotificationHandle, INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { truncate } from '../../../../base/common/strings.js';
@@ -592,6 +593,8 @@ export interface IChatThreadService {
 	addUserMessageAndStreamResponse({ userMessage, threadId, images, noPlan, displayContent }: { userMessage: string, threadId: string, images?: ChatImageAttachment[], noPlan?: boolean, displayContent?: string }): Promise<void>;
 	/** Queue context to be merged into the NEXT agent hop without aborting the running turn. */
 	addPendingInjection(threadId: string, text: string): void;
+	/** Remove a still-queued injection by index (user cancelled it before it was drained into context). */
+	removePendingInjection(threadId: string, index: number): void;
 
 	// approve/reject
 	approveLatestToolRequest(threadId: string): void;
@@ -829,6 +832,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeContextGuardService private readonly _contextGuardService: IVibeContextGuardService,
 		@IVibeExternalAccessService private readonly _externalAccessService: IVibeExternalAccessService,
 		@IVibeNotifySoundService private readonly _notifySoundService: IVibeNotifySoundService,
+		@IVibeDesktopNotificationService private readonly _desktopNotificationService: IVibeDesktopNotificationService,
 	) {
 		super()
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabIds: [] } // default state
@@ -1192,6 +1196,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		if (nextIsRunning === 'awaiting_user') {
 			if (priorIsRunning !== 'awaiting_user') {
 				this._notifySoundService.playForEvent('awaiting_user')
+				this._desktopNotificationService.notifyForEvent('awaiting_user')
 			}
 			return
 		}
@@ -1204,6 +1209,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			const stalled = last?.role === 'assistant' && last.agentStoppedNoToolCall === true
 			const event: NotifySoundEvent = stalled ? 'stalled' : 'complete'
 			this._notifySoundService.playForEvent(event)
+			this._desktopNotificationService.notifyForEvent(event)
 		}
 	}
 
@@ -8763,6 +8769,12 @@ We only need to do it for files that were edited since `from`, ie files between 
 		if (!t) { return }
 		const cur = this.state.allThreads[threadId]?.state.pendingInjections ?? []
 		this._setThreadState(threadId, { pendingInjections: [...cur, t] })
+	}
+
+	removePendingInjection(threadId: string, index: number): void {
+		const cur = this.state.allThreads[threadId]?.state.pendingInjections ?? []
+		if (index < 0 || index >= cur.length) { return }
+		this._setThreadState(threadId, { pendingInjections: cur.filter((_, i) => i !== index) })
 	}
 
 	/** Drain queued mid-run context into a real user message so the model sees it on this hop and it
