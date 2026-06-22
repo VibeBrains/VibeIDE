@@ -74,6 +74,7 @@ const TOKEN_CALIBRATION_STORAGE_KEY = 'vibeide.chat.tokenCalibrationFactors';
 import { AnthropicLLMChatMessage, AnthropicReasoning, GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, OpenAILLMChatMessage, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { ChatMode, FeatureName, ModelSelection, ProviderName } from '../common/vibeideSettingsTypes.js';
+import { isLocalProvider } from '../common/isLocalProvider.js';
 import { IDirectoryStrService } from '../common/directoryStrService.js';
 import { ITerminalToolService } from './terminalToolService.js';
 import { IVibeideModelService } from '../common/vibeideModelService.js';
@@ -157,27 +158,9 @@ const TRIM_TO_LEN = 120
 // fallback for an invalid config value.
 const MAX_INPUT_TOKENS_SAFETY_DEFAULT = 0
 
-// Helper function to detect if a provider is local
-// Used for optimizing prompts and token budgets for local models
-export function isLocalProvider(providerName: ProviderName, settingsOfProvider: any): boolean {
-	const isExplicitLocalProvider = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio'
-	if (isExplicitLocalProvider) return true
-
-	// Check for localhost endpoints in openAICompatible or liteLLM
-	if (providerName === 'openAICompatible' || providerName === 'liteLLM') {
-		const endpoint = settingsOfProvider[providerName]?.endpoint || ''
-		if (endpoint) {
-			try {
-				const url = new URL(endpoint)
-				const hostname = url.hostname.toLowerCase()
-				return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1'
-			} catch (e) {
-				return false
-			}
-		}
-	}
-	return false
-}
+// isLocalProvider moved to common/isLocalProvider.ts (pure, no browser deps).
+// Re-exported here so existing importers of this module keep working.
+export { isLocalProvider };
 
 // Feature-specific token caps for local models (brutally small to minimize latency)
 const LOCAL_MODEL_TOKEN_CAPS: Record<FeatureName, number> = {
