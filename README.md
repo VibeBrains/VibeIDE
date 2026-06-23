@@ -45,8 +45,6 @@ VibeIDE — форк [VS Code open source (Code-OSS)](https://github.com/microso
 | **Правила AI на уровне проекта** | ✅ Skills system | ✅ .cursorrules | ❌ | ❌ |
 | **Поддержка MCP** | ✅ Официальный SDK | ✅ | ❌ | ⚠️ Preview |
 
-> 📖 **Со всем функционалом можно ознакомиться в [docs/functional.md](docs/functional.md)** — полный каталог возможностей по темам. Ниже на этой странице — только ключевое.
-
 ---
 
 ## Возможности
