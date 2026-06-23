@@ -1,7 +1,7 @@
 {
 	"nameShort": "VibeIDE",
 	"nameLong": "VibeIDE",
-	"vibeVersion": "1.4.0",
+	"vibeVersion": "1.4.1",
 	"defaultLocale": "ru",
 	"pinnedWorkbenchColorThemeSettingsIds": [
 		"vibe-neon",
