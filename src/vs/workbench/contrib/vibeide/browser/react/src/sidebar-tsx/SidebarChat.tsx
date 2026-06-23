@@ -27,7 +27,7 @@ import { ChatMode, displayInfoOfProviderName, FeatureName, isFeatureNameDisabled
 import { ICommandService } from '../../../../../../../platform/commands/common/commands.js';
 import { WarningBox } from '../vibe-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputTokenSpace } from '../../../../common/modelCapabilities.js';
-import { AlertTriangle, File, Ban, Check, ChevronRight, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Image as ImageIcon, FileText, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward } from 'lucide-react';
+import { AlertTriangle, File, Ban, Check, ChevronRight, ChevronDown, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Image as ImageIcon, FileText, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward } from 'lucide-react';
 import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, PlanStep, StepStatus, PlanApprovalState } from '../../../../common/chatThreadServiceTypes.js';
 import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER } from '../../../../common/chatTimestampFormatter.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
@@ -4918,8 +4918,12 @@ export const SidebarChat = () => {
 	// `followOutput` so streaming chunks only auto-scroll when the user hasn't
 	// scrolled up to read earlier history. Virtuoso fires this via `atBottomStateChange`.
 	const isAtBottomRef = useRef(true)
-	const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
-		isAtBottomRef.current = atBottom
+	// Reactive mirror of the ref — drives the floating "jump to bottom" button. Virtuoso fires
+	// atBottomStateChange only on transitions (not every pixel), so the setState is cheap.
+	const [atBottom, setAtBottom] = useState(true)
+	const handleAtBottomStateChange = useCallback((isBottom: boolean) => {
+		isAtBottomRef.current = isBottom
+		setAtBottom(isBottom)
 	}, [])
 
 	// Same callback signature as before (called by `chatThreadService.whenMounted.then(m => m.scrollToBottom())`
@@ -5516,6 +5520,9 @@ export const SidebarChat = () => {
 			// scrolled up to read history, we won't yank them back to the bottom mid-read.
 			followOutput={() => isAtBottomRef.current ? 'auto' : false}
 			atBottomStateChange={handleAtBottomStateChange}
+			// Treat "within 80px of the bottom" as at-bottom so streaming growth keeps auto-following
+			// (a 0px threshold drops follow on the slightest lag) and the jump button hides near the end.
+			atBottomThreshold={80}
 			// On initial mount, open at the latest item so histories behave like a
 			// normal chat (newest visible first).
 			initialTopMostItemIndex={Math.max(0, chatItems.length - 1)}
@@ -6214,9 +6221,42 @@ export const SidebarChat = () => {
 		className='@@vibe-chat-neon-scope w-full h-full flex flex-col overflow-hidden'
 	>
 
-		<ErrorBoundary>
-			{messagesHTML}
-		</ErrorBoundary>
+		<div className='relative flex-1 min-h-0'>
+			<ErrorBoundary>
+				{messagesHTML}
+			</ErrorBoundary>
+			{!atBottom && chatItems.length > 0 && (
+				<button
+					type='button'
+					onClick={() => { isAtBottomRef.current = true; setAtBottom(true); scrollToBottomCallback() }}
+					title='Вниз, к последнему сообщению'
+					aria-label='Прокрутить вниз'
+					className='@@vibe-focus-ring'
+					style={{
+						position: 'absolute',
+						bottom: '10px',
+						right: '12px',
+						zIndex: 30,
+						display: 'flex',
+						alignItems: 'center',
+						justifyContent: 'center',
+						width: '30px',
+						height: '30px',
+						borderRadius: '9999px',
+						background: 'var(--vscode-button-secondaryBackground, rgba(40,40,40,0.9))',
+						color: 'var(--vscode-button-secondaryForeground, #e0e0e0)',
+						border: '1px solid rgba(255,255,255,0.12)',
+						boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+						cursor: 'pointer',
+						opacity: 0.92,
+					}}
+					onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+					onMouseLeave={e => (e.currentTarget.style.opacity = '0.92')}
+				>
+					<ChevronDown size={16} />
+				</button>
+			)}
+		</div>
 		<ErrorBoundary>
 			{threadPageInput}
 		</ErrorBoundary>
