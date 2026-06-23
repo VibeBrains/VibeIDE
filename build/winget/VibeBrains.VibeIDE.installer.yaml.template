@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
 # Rendered per-release by scripts/winget-release.ps1.
 # Placeholders __VERSION__ / __URL__ / __SHA256__ / __PRODUCTCODE__ are filled from
 # the published GitHub asset and product.json (single source of truth).
@@ -28,4 +28,4 @@ Installers:
         ProductCode: '__PRODUCTCODE__'
         InstallerType: inno
 ManifestType: installer
-ManifestVersion: 1.6.0
+ManifestVersion: 1.12.0
