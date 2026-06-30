@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	selectKeysForLLMDraft,
 	buildI18nDraftRequest,
@@ -14,6 +16,8 @@ import {
 } from '../../common/i18nLLMDraft.js';
 
 suite('i18n LLM-assisted draft helpers — pure', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('selectKeysForLLMDraft', () => {
 		test('selects missing key', () => {
@@ -141,7 +145,7 @@ suite('i18n LLM-assisted draft helpers — pure', () => {
 				new Set(['greet']),
 			);
 			assert.strictEqual(r.kind, 'ok');
-			if (r.kind === 'ok') assert.strictEqual(r.drafts.get('greet'), 'Привет');
+			if (r.kind === 'ok') { assert.strictEqual(r.drafts.get('greet'), 'Привет'); }
 		});
 
 		test('extracts JSON from prose-wrapped response', () => {
@@ -171,7 +175,7 @@ suite('i18n LLM-assisted draft helpers — pure', () => {
 				new Set(['greet']),
 			);
 			assert.strictEqual(r.kind, 'shape-mismatch');
-			if (r.kind === 'shape-mismatch') assert.ok(r.reason.includes('key-missing'));
+			if (r.kind === 'shape-mismatch') { assert.ok(r.reason.includes('key-missing')); }
 		});
 
 		test('item missing translation → shape-mismatch', () => {
@@ -188,7 +192,7 @@ suite('i18n LLM-assisted draft helpers — pure', () => {
 				new Set(['greet']),
 			);
 			assert.strictEqual(r.kind, 'shape-mismatch');
-			if (r.kind === 'shape-mismatch') assert.ok(r.reason.includes('hallucinated-key'));
+			if (r.kind === 'shape-mismatch') { assert.ok(r.reason.includes('hallucinated-key')); }
 		});
 
 		test('extra unknown fields tolerated', () => {
@@ -202,7 +206,7 @@ suite('i18n LLM-assisted draft helpers — pure', () => {
 		test('no JSON found → invalid-json with preview', () => {
 			const r = parseI18nDraftResponse('I cannot translate this.', new Set());
 			assert.strictEqual(r.kind, 'invalid-json');
-			if (r.kind === 'invalid-json') assert.ok(r.preview.length > 0);
+			if (r.kind === 'invalid-json') { assert.ok(r.preview.length > 0); }
 		});
 
 		test('empty translation kept (caller decides)', () => {
@@ -211,7 +215,7 @@ suite('i18n LLM-assisted draft helpers — pure', () => {
 				new Set(['greet']),
 			);
 			assert.strictEqual(r.kind, 'ok');
-			if (r.kind === 'ok') assert.strictEqual(r.drafts.get('greet'), '');
+			if (r.kind === 'ok') { assert.strictEqual(r.drafts.get('greet'), ''); }
 		});
 	});
 

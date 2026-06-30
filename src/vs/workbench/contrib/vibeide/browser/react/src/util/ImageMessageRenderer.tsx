@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChatImageAttachment } from '../../../../common/chatThreadServiceTypes.js';
@@ -48,7 +49,7 @@ export const ImageMessageRenderer: React.FC<ImageMessageRendererProps> = ({
 	}, []);
 
 	const handleNavigate = useCallback((direction: 'prev' | 'next') => {
-		if (lightboxImageIndex === null) return;
+		if (lightboxImageIndex === null) {return;}
 		if (direction === 'prev') {
 			setLightboxImageIndex(Math.max(0, lightboxImageIndex - 1));
 		} else {

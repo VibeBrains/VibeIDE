@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -10,12 +11,15 @@ import {
 	WatchdogState,
 	WatchdogConfig,
 } from '../../common/streamingGapWatchdog.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const NOW = 1_000_000;
 
 const cfg = (overrides: Partial<WatchdogConfig> = {}): WatchdogConfig => ({ ...WATCHDOG_DEFAULTS, ...overrides });
 
 suite('Streaming gap watchdog FSM (K.4 / 958, 959, 960)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('start from idle moves to streaming + show-typing', () => {
 		const t = transitionWatchdog({ kind: 'idle' }, { kind: 'start', now: NOW });
@@ -56,7 +60,7 @@ suite('Streaming gap watchdog FSM (K.4 / 958, 959, 960)', () => {
 		const s: WatchdogState = { kind: 'waiting', lastChunkAt: NOW, chunkCount: 0, waitingSince: NOW + 30_000 };
 		const t = transitionWatchdog(s, { kind: 'tick', now: NOW + 35_000 }, cfg({ retry1AfterMs: 5_000 }));
 		assert.strictEqual(t.state.kind, 'retrying');
-		if (t.state.kind === 'retrying') assert.strictEqual(t.state.attempt, 1);
+		if (t.state.kind === 'retrying') { assert.strictEqual(t.state.attempt, 1); }
 	});
 
 	test('tick in retrying attempt-1 after retry2AfterMs → retrying attempt 2', () => {
@@ -64,14 +68,14 @@ suite('Streaming gap watchdog FSM (K.4 / 958, 959, 960)', () => {
 		const s: WatchdogState = { kind: 'retrying', attempt: 1, nextRetryAt: NOW + 5_000 };
 		const t = transitionWatchdog(s, { kind: 'tick', now: NOW + 6_000 }, c);
 		assert.strictEqual(t.state.kind, 'retrying');
-		if (t.state.kind === 'retrying') assert.strictEqual(t.state.attempt, 2);
+		if (t.state.kind === 'retrying') { assert.strictEqual(t.state.attempt, 2); }
 	});
 
 	test('tick in retrying attempt-2 past nextRetryAt → failed gap-timeout', () => {
 		const s: WatchdogState = { kind: 'retrying', attempt: 2, nextRetryAt: NOW + 5_000 };
 		const t = transitionWatchdog(s, { kind: 'tick', now: NOW + 5_001 });
 		assert.strictEqual(t.state.kind, 'failed');
-		if (t.state.kind === 'failed') assert.strictEqual(t.state.reason, 'gap-timeout');
+		if (t.state.kind === 'failed') { assert.strictEqual(t.state.reason, 'gap-timeout'); }
 		assert.deepStrictEqual(t.effects, [{ kind: 'audit', event: 'stream_failed' }]);
 	});
 
@@ -79,7 +83,7 @@ suite('Streaming gap watchdog FSM (K.4 / 958, 959, 960)', () => {
 		const s: WatchdogState = { kind: 'streaming', lastChunkAt: NOW, chunkCount: 1 };
 		const t = transitionWatchdog(s, { kind: 'cancel', now: NOW + 100 });
 		assert.strictEqual(t.state.kind, 'failed');
-		if (t.state.kind === 'failed') assert.strictEqual(t.state.reason, 'cancelled');
+		if (t.state.kind === 'failed') { assert.strictEqual(t.state.reason, 'cancelled'); }
 		assert.deepStrictEqual(t.effects, [{ kind: 'audit', event: 'stream_cancelled' }]);
 	});
 
@@ -101,21 +105,21 @@ suite('Streaming gap watchdog FSM (K.4 / 958, 959, 960)', () => {
 		const s: WatchdogState = { kind: 'streaming', lastChunkAt: NOW, chunkCount: 1 };
 		const t = transitionWatchdog(s, { kind: 'provider-error', now: NOW + 1000 });
 		assert.strictEqual(t.state.kind, 'failed');
-		if (t.state.kind === 'failed') assert.strictEqual(t.state.reason, 'provider-error');
+		if (t.state.kind === 'failed') { assert.strictEqual(t.state.reason, 'provider-error'); }
 	});
 
 	test('retry-now from waiting → retrying attempt 1', () => {
 		const s: WatchdogState = { kind: 'waiting', lastChunkAt: NOW, chunkCount: 0, waitingSince: NOW + 30_000 };
 		const t = transitionWatchdog(s, { kind: 'retry-now', now: NOW + 31_000 });
 		assert.strictEqual(t.state.kind, 'retrying');
-		if (t.state.kind === 'retrying') assert.strictEqual(t.state.attempt, 1);
+		if (t.state.kind === 'retrying') { assert.strictEqual(t.state.attempt, 1); }
 	});
 
 	test('retry-now from retrying attempt-1 escalates to attempt 2', () => {
 		const s: WatchdogState = { kind: 'retrying', attempt: 1, nextRetryAt: NOW + 5_000 };
 		const t = transitionWatchdog(s, { kind: 'retry-now', now: NOW + 1000 });
 		assert.strictEqual(t.state.kind, 'retrying');
-		if (t.state.kind === 'retrying') assert.strictEqual(t.state.attempt, 2);
+		if (t.state.kind === 'retrying') { assert.strictEqual(t.state.attempt, 2); }
 	});
 
 	test('maxAutoRetries=0 keeps waiting on tick', () => {

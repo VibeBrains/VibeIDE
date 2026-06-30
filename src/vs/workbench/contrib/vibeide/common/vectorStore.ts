@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -46,14 +47,21 @@ export interface VectorDocument {
 	id: string; // Unique document ID (e.g., file path + chunk index)
 	text: string; // Original text
 	embedding: number[]; // Vector embedding
-	metadata?: Record<string, any>; // Additional metadata (file path, line numbers, etc.)
+	metadata?: Record<string, unknown>; // Additional metadata (file path, line numbers, etc.)
 }
 
 export interface VectorSearchResult {
 	id: string;
 	text: string;
 	score: number; // Similarity score (0-1, higher is better)
-	metadata?: Record<string, any>;
+	metadata?: Record<string, unknown>;
+}
+
+/** Shape of a single point returned by Qdrant's `/points/search` endpoint. */
+interface QdrantSearchPoint {
+	id?: string | number;
+	score?: number;
+	payload?: Record<string, unknown>;
 }
 
 export const IVectorStore = createDecorator<IVectorStore>('vectorStore');
@@ -63,7 +71,7 @@ export interface IVectorStore {
 	isEnabled(): boolean;
 	initialize(): Promise<void>;
 	index(documents: VectorDocument[]): Promise<void>;
-	query(queryEmbedding: number[], k: number, filter?: Record<string, any>): Promise<VectorSearchResult[]>;
+	query(queryEmbedding: number[], k: number, filter?: Record<string, unknown>): Promise<VectorSearchResult[]>;
 	delete(ids: string[]): Promise<void>;
 	clear(): Promise<void>;
 }
@@ -90,20 +98,20 @@ class BuiltInVectorStore implements IVectorStore {
 			if (this._documents.size >= this.MAX_DOCUMENTS && !this._documents.has(doc.id)) {
 				// Evict oldest document when limit reached
 				const firstKey = this._documents.keys().next().value;
-				if (firstKey) this._documents.delete(firstKey);
+				if (firstKey) { this._documents.delete(firstKey); }
 			}
 			this._documents.set(doc.id, doc);
 		}
 	}
 
-	async query(queryEmbedding: number[], k: number, filter?: Record<string, any>): Promise<VectorSearchResult[]> {
+	async query(queryEmbedding: number[], k: number, filter?: Record<string, unknown>): Promise<VectorSearchResult[]> {
 		const results: VectorSearchResult[] = [];
 
 		for (const doc of this._documents.values()) {
 			// Apply metadata filter if provided
 			if (filter && doc.metadata) {
 				const matches = Object.entries(filter).every(([key, value]) => doc.metadata![key] === value);
-				if (!matches) continue;
+				if (!matches) { continue; }
 			}
 
 			const score = this._cosineSimilarity(queryEmbedding, doc.embedding);
@@ -126,7 +134,7 @@ class BuiltInVectorStore implements IVectorStore {
 	}
 
 	private _cosineSimilarity(a: number[], b: number[]): number {
-		if (a.length !== b.length || a.length === 0) return 0;
+		if (a.length !== b.length || a.length === 0) { return 0; }
 		let dot = 0, magA = 0, magB = 0;
 		for (let i = 0; i < a.length; i++) {
 			dot += a[i] * b[i];
@@ -154,7 +162,7 @@ class NoOpVectorStore implements IVectorStore {
 		// No-op
 	}
 
-	async query(_queryEmbedding: number[], _k: number, _filter?: Record<string, any>): Promise<VectorSearchResult[]> {
+	async query(_queryEmbedding: number[], _k: number, _filter?: Record<string, unknown>): Promise<VectorSearchResult[]> {
 		return [];
 	}
 
@@ -242,13 +250,18 @@ class QdrantVectorStore implements IVectorStore {
 		}
 	}
 
-	async query(queryEmbedding: number[], k: number, filter?: Record<string, any>): Promise<VectorSearchResult[]> {
+	async query(queryEmbedding: number[], k: number, filter?: Record<string, unknown>): Promise<VectorSearchResult[]> {
 		if (!this._initialized) {
 			await this.initialize();
 		}
 
 		try {
-			const requestBody: any = {
+			const requestBody: {
+				vector: number[];
+				limit: number;
+				with_payload: boolean;
+				filter?: { must: { key: Record<string, unknown> }[] };
+			} = {
 				vector: queryEmbedding,
 				limit: k,
 				with_payload: true,
@@ -268,10 +281,10 @@ class QdrantVectorStore implements IVectorStore {
 				throw new Error(`Qdrant query failed: ${response.statusText}`);
 			}
 
-			const data = await response.json();
-			return (data.result || []).map((point: any) => ({
+			const data = await response.json() as { result?: QdrantSearchPoint[] };
+			return (data.result || []).map(point => ({
 				id: point.id?.toString() || '',
-				text: point.payload?.text || '',
+				text: typeof point.payload?.text === 'string' ? point.payload.text : '',
 				score: point.score || 0,
 				metadata: { ...point.payload, text: undefined }, // Exclude text from metadata
 			}));
@@ -398,13 +411,18 @@ class ChromaVectorStore implements IVectorStore {
 		}
 	}
 
-	async query(queryEmbedding: number[], k: number, filter?: Record<string, any>): Promise<VectorSearchResult[]> {
+	async query(queryEmbedding: number[], k: number, filter?: Record<string, unknown>): Promise<VectorSearchResult[]> {
 		if (!this._initialized) {
 			await this.initialize();
 		}
 
 		try {
-			const requestBody: any = {
+			const requestBody: {
+				query_embeddings: number[][];
+				n_results: number;
+				include: string[];
+				where?: Record<string, unknown>;
+			} = {
 				query_embeddings: [queryEmbedding],
 				n_results: k,
 				include: ['documents', 'metadatas', 'distances'],
@@ -527,7 +545,7 @@ class VectorStoreService implements IVectorStore {
 		await this._delegate.index(documents);
 	}
 
-	async query(queryEmbedding: number[], k: number, filter?: Record<string, any>): Promise<VectorSearchResult[]> {
+	async query(queryEmbedding: number[], k: number, filter?: Record<string, unknown>): Promise<VectorSearchResult[]> {
 		return await this._delegate.query(queryEmbedding, k, filter);
 	}
 

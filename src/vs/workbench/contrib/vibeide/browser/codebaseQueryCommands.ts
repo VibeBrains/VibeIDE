@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
@@ -10,7 +11,7 @@ import { IQuickInputService, IQuickPickItem } from '../../../../platform/quickin
 import { IEditorService } from '../../../../workbench/services/editor/common/editorService.js';
 import { ILabelService } from '../../../../platform/label/common/label.js';
 import { URI } from '../../../../base/common/uri.js';
-import { localize, localize2 } from '../../../../nls.js';
+import { localize2 } from '../../../../nls.js';
 import { KeyMod, KeyCode } from '../../../../base/common/keyCodes.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
@@ -71,7 +72,7 @@ registerAction2(class extends Action2 {
 					const fullPath = labelService.getUriLabel(uri, { relative: false });
 
 					return {
-						label: localize('vibeCodebaseQueryItemLabel', '$(file) {0}', relativePath),
+						label: `$(file) ${relativePath}`,
 						description: fullPath,
 						uri,
 						alwaysShow: true,

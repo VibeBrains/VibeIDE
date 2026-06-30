@@ -1,11 +1,13 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import { vibeLog } from '../common/vibeLog.js';
-import { Disposable, toDisposable, IDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, toDisposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { ILayoutService } from '../../../../platform/layout/browser/layoutService.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IVibeModalService } from '../common/vibeModalService.js';
 import { mountVibeModalRoot } from './react/out/modal-tsx/index.js';
@@ -39,6 +41,7 @@ export class VibeModalRootContribution extends Disposable implements IWorkbenchC
 	constructor(
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
 		@IVibeModalService private readonly _modalService: IVibeModalService,
+		@ILayoutService private readonly _layoutService: ILayoutService,
 	) {
 		super();
 
@@ -47,28 +50,27 @@ export class VibeModalRootContribution extends Disposable implements IWorkbenchC
 		// modal shown at AfterRestored, before this Eventually-phase root subscribed) is already in
 		// the queue, and the subscription alone only reacts to FUTURE events. Without the immediate
 		// check that pre-queued modal would wait for an onDidChangeQueue that never comes and never render.
-		let lazyMountSub: IDisposable;
+		const lazyMountSub = this._register(new MutableDisposable());
 		const maybeMount = () => {
-			if (this._mounted) return;
-			if (this._modalService.getQueue().length === 0) return;
+			if (this._mounted) { return; }
+			if (this._modalService.getQueue().length === 0) { return; }
 			this._mounted = true;
-			lazyMountSub.dispose();
+			lazyMountSub.clear();
 			vibeLog.warn('vibeModalRoot', '[VibeModalRoot] mounting React tree (first modal triggered lazy mount)');
 			this._tryMount();
 		};
-		lazyMountSub = this._register(this._modalService.onDidChangeQueue(maybeMount));
+		lazyMountSub.value = this._modalService.onDidChangeQueue(maybeMount);
 		maybeMount(); // catch a modal already queued before this subscription existed
 	}
 
 	private _tryMount(): void {
-		const workbench = document.querySelector<HTMLElement>('.monaco-workbench')
-			?? document.body;
+		const workbench = this._layoutService.activeContainer;
 		if (!workbench) {
 			vibeLog.warn('vibeModalRoot', '[VibeModalRoot] no .monaco-workbench root found; modal portal not mounted');
 			return;
 		}
 
-		const portal = document.createElement('div');
+		const portal = workbench.ownerDocument.createElement('div');
 		portal.id = 'vibeide-modal-portal';
 		portal.dataset['testid'] = 'vibeide-modal-portal';
 		workbench.appendChild(portal);

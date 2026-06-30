@@ -1,13 +1,14 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { IAuditLogService } from './auditLogService.js';
+import { IAuditLogService, AuditEvent } from './auditLogService.js';
 
 export interface DecisionExplanation {
 	checkpointId: string;
@@ -28,6 +29,11 @@ export interface IVibeExplainDecisionService {
 
 	/** "What would change your decision?" — which rules would alter the outcome */
 	whatWouldChange(checkpointId: string): Promise<string[]>;
+}
+
+/** Coerce an untyped audit-meta value into a string array, dropping non-string entries. */
+function toStringArray(value: unknown): string[] {
+	return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
 }
 
 /**
@@ -63,15 +69,15 @@ class VibeExplainDecisionService extends Disposable implements IVibeExplainDecis
 			checkpointId,
 			action: event.action,
 			reasoning,
-			rulesApplied: event.meta?.rulesApplied || [],
-			constraintsChecked: event.meta?.constraintsChecked || [],
+			rulesApplied: toStringArray(event.meta?.rulesApplied),
+			constraintsChecked: toStringArray(event.meta?.constraintsChecked),
 			modelId: event.model,
 		};
 	}
 
 	async whatWouldChange(checkpointId: string): Promise<string[]> {
 		const explanation = await this.explainDecision(checkpointId);
-		if (!explanation) return [];
+		if (!explanation) { return []; }
 
 		// Phase 1: generic suggestions based on action type
 		// Phase 2: LLM-powered counterfactual analysis
@@ -92,13 +98,13 @@ class VibeExplainDecisionService extends Disposable implements IVibeExplainDecis
 		return suggestions;
 	}
 
-	private _buildReasoning(event: any): string {
+	private _buildReasoning(event: AuditEvent): string {
 		const parts: string[] = [];
 
-		if (event.model) parts.push(`Used model: ${event.model}`);
-		if (event.files?.length) parts.push(`Modified: ${event.files.slice(0, 3).join(', ')}${event.files.length > 3 ? '...' : ''}`);
-		if (event.latencyMs) parts.push(`Latency: ${event.latencyMs}ms`);
-		if (event.ok !== undefined) parts.push(`Outcome: ${event.ok ? 'success' : 'failed'}`);
+		if (event.model) { parts.push(`Used model: ${event.model}`); }
+		if (event.files?.length) { parts.push(`Modified: ${event.files.slice(0, 3).join(', ')}${event.files.length > 3 ? '...' : ''}`); }
+		if (event.latencyMs) { parts.push(`Latency: ${event.latencyMs}ms`); }
+		if (event.ok !== undefined) { parts.push(`Outcome: ${event.ok ? 'success' : 'failed'}`); }
 
 		if (parts.length === 0) {
 			return 'Phase 2: LLM-powered reasoning reconstruction from full audit context.';

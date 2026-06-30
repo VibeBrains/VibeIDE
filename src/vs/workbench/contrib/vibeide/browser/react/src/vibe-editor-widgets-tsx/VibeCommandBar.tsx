@@ -1,12 +1,13 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 
 import { useAccessor, useCommandBarState, useIsDark } from '../util/services.js';
 
-import '../styles.css'
+import '../styles.css';
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { ScrollType } from '../../../../../../../editor/common/editorCommon.js';
 import { acceptAllBg, acceptBorder, buttonFontSize, buttonTextColor, rejectAllBg, rejectBg, rejectBorder } from '../../../../common/helpers/colors.js';
@@ -25,18 +26,18 @@ import {
 import { commandBarS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 
 export const VibeCommandBarMain = ({ uri, editor }: VibeideCommandBarProps) => {
-	const isDark = useIsDark()
+	const isDark = useIsDark();
 
 	return <div
 		className={`@@vibe-scope @@vibe-react-input-surfaces ${isDark ? 'dark' : ''}`}
 	>
 		<VibeCommandBar uri={uri} editor={editor} />
-	</div>
-}
+	</div>;
+};
 
 
 
-export const AcceptAllButtonWrapper = ({ text, onClick, className, ...props }: { text: string, onClick: () => void, className?: string } & React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+export const AcceptAllButtonWrapper = ({ text, onClick, className, ...props }: { text: string; onClick: () => void; className?: string } & React.ButtonHTMLAttributes<HTMLButtonElement>) => (
 	<button
 		className={`
 			px-2 py-0.5
@@ -57,9 +58,9 @@ export const AcceptAllButtonWrapper = ({ text, onClick, className, ...props }: {
 	>
 		{text ? <span>{text}</span> : <Check size={16} />}
 	</button>
-)
+);
 
-export const RejectAllButtonWrapper = ({ text, onClick, className, ...props }: { text: string, onClick: () => void, className?: string } & React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+export const RejectAllButtonWrapper = ({ text, onClick, className, ...props }: { text: string; onClick: () => void; className?: string } & React.ButtonHTMLAttributes<HTMLButtonElement>) => (
 	<button
 		className={`
 			px-2 py-0.5
@@ -80,95 +81,95 @@ export const RejectAllButtonWrapper = ({ text, onClick, className, ...props }: {
 	>
 		{text ? <span>{text}</span> : <X size={16} />}
 	</button>
-)
+);
 
 
 
 export const VibeCommandBar = ({ uri, editor }: VibeideCommandBarProps) => {
-	const accessor = useAccessor()
-	const editCodeService = accessor.get('IEditCodeService')
-	const editorService = accessor.get('ICodeEditorService')
-	const metricsService = accessor.get('IMetricsService')
-	const commandService = accessor.get('ICommandService')
-	const commandBarService = accessor.get('IVibeideCommandBarService')
-	const vibeideModelService = accessor.get('IVibeideModelService')
-	const keybindingService = accessor.get('IKeybindingService')
-	const { stateOfURI: commandBarState, sortedURIs: sortedCommandBarURIs } = useCommandBarState()
-	const [showAcceptRejectAllButtons, setShowAcceptRejectAllButtons] = useState(false)
+	const accessor = useAccessor();
+	const editCodeService = accessor.get('IEditCodeService');
+	const editorService = accessor.get('ICodeEditorService');
+	const metricsService = accessor.get('IMetricsService');
+	const commandService = accessor.get('ICommandService');
+	const commandBarService = accessor.get('IVibeideCommandBarService');
+	const vibeideModelService = accessor.get('IVibeideModelService');
+	const keybindingService = accessor.get('IKeybindingService');
+	const { stateOfURI: commandBarState, sortedURIs: sortedCommandBarURIs } = useCommandBarState();
+	const [showAcceptRejectAllButtons, setShowAcceptRejectAllButtons] = useState(false);
 
 	// latestUriIdx is used to remember place in leftRight
-	const _latestValidUriIdxRef = useRef<number | null>(null)
+	const _latestValidUriIdxRef = useRef<number | null>(null);
 
 	// i is the current index of the URI in sortedCommandBarURIs
-	const i_ = sortedCommandBarURIs.findIndex(e => e.fsPath === uri?.fsPath)
-	const currFileIdx = i_ === -1 ? null : i_
+	const i_ = sortedCommandBarURIs.findIndex(e => e.fsPath === uri?.fsPath);
+	const currFileIdx = i_ === -1 ? null : i_;
 	useEffect(() => {
-		if (currFileIdx !== null) _latestValidUriIdxRef.current = currFileIdx
-	}, [currFileIdx])
+		if (currFileIdx !== null) {_latestValidUriIdxRef.current = currFileIdx;}
+	}, [currFileIdx]);
 
 	const uriIdxInStepper = currFileIdx !== null ? currFileIdx // use currFileIdx if it exists, else use latestNotNullUriIdxRef
 		: _latestValidUriIdxRef.current === null ? null
 			: _latestValidUriIdxRef.current < sortedCommandBarURIs.length ? _latestValidUriIdxRef.current
-				: null
+				: null;
 
 	// when change URI, scroll to the proper spot
 	useEffect(() => {
 		setTimeout(() => {
 			// check undefined
-			if (!uri) return
-			const s = commandBarService.stateOfURI[uri.fsPath]
-			if (!s) return
-			const { diffIdx } = s
-			commandBarService.goToDiffIdx(diffIdx ?? 0)
-		}, 50)
-	}, [uri, commandBarService])
+			if (!uri) {return;}
+			const s = commandBarService.stateOfURI[uri.fsPath];
+			if (!s) {return;}
+			const { diffIdx } = s;
+			commandBarService.goToDiffIdx(diffIdx ?? 0);
+		}, 50);
+	}, [uri, commandBarService]);
 
-	if (uri?.scheme !== 'file') return null // don't show in editors that we made, they must be files
+	if (uri?.scheme !== 'file') {return null;} // don't show in editors that we made, they must be files
 
 	// Using service methods directly
 
-	const currDiffIdx = uri ? commandBarState[uri.fsPath]?.diffIdx ?? null : null
-	const sortedDiffIds = uri ? commandBarState[uri.fsPath]?.sortedDiffIds ?? [] : []
-	const sortedDiffZoneIds = uri ? commandBarState[uri.fsPath]?.sortedDiffZoneIds ?? [] : []
+	const currDiffIdx = uri ? commandBarState[uri.fsPath]?.diffIdx ?? null : null;
+	const sortedDiffIds = uri ? commandBarState[uri.fsPath]?.sortedDiffIds ?? [] : [];
+	const sortedDiffZoneIds = uri ? commandBarState[uri.fsPath]?.sortedDiffZoneIds ?? [] : [];
 
-	const isADiffInThisFile = sortedDiffIds.length !== 0
-	const isADiffZoneInThisFile = sortedDiffZoneIds.length !== 0
-	const isADiffZoneInAnyFile = sortedCommandBarURIs.length !== 0
+	const isADiffInThisFile = sortedDiffIds.length !== 0;
+	const isADiffZoneInThisFile = sortedDiffZoneIds.length !== 0;
+	const isADiffZoneInAnyFile = sortedCommandBarURIs.length !== 0;
 
-	const streamState = uri ? commandBarService.getStreamState(uri) : null
-	const showAcceptRejectAll = streamState === 'idle-has-changes'
+	const streamState = uri ? commandBarService.getStreamState(uri) : null;
+	const showAcceptRejectAll = streamState === 'idle-has-changes';
 
-	const nextDiffIdx = commandBarService.getNextDiffIdx(1)
-	const prevDiffIdx = commandBarService.getNextDiffIdx(-1)
-	const nextURIIdx = commandBarService.getNextUriIdx(1)
-	const prevURIIdx = commandBarService.getNextUriIdx(-1)
+	const nextDiffIdx = commandBarService.getNextDiffIdx(1);
+	const prevDiffIdx = commandBarService.getNextDiffIdx(-1);
+	const nextURIIdx = commandBarService.getNextUriIdx(1);
+	const prevURIIdx = commandBarService.getNextUriIdx(-1);
 
-	const upDownDisabled = prevDiffIdx === null || nextDiffIdx === null
-	const leftRightDisabled = prevURIIdx === null || nextURIIdx === null
+	const upDownDisabled = prevDiffIdx === null || nextDiffIdx === null;
+	const leftRightDisabled = prevURIIdx === null || nextURIIdx === null;
 
 	// accept/reject if current URI has changes
 	const onAcceptFile = () => {
-		if (!uri) return
-		editCodeService.acceptOrRejectAllDiffAreas({ uri, behavior: 'accept', removeCtrlKs: false, _addToHistory: true })
-		metricsService.capture('Accept File', {})
-	}
+		if (!uri) {return;}
+		editCodeService.acceptOrRejectAllDiffAreas({ uri, behavior: 'accept', removeCtrlKs: false, _addToHistory: true });
+		metricsService.capture('Accept File', {});
+	};
 	const onRejectFile = () => {
-		if (!uri) return
-		editCodeService.acceptOrRejectAllDiffAreas({ uri, behavior: 'reject', removeCtrlKs: false, _addToHistory: true })
-		metricsService.capture('Reject File', {})
-	}
+		if (!uri) {return;}
+		editCodeService.acceptOrRejectAllDiffAreas({ uri, behavior: 'reject', removeCtrlKs: false, _addToHistory: true });
+		metricsService.capture('Reject File', {});
+	};
 
 	const onAcceptAll = () => {
 		commandBarService.acceptOrRejectAllFiles({ behavior: 'accept' });
-		metricsService.capture('Accept All', {})
+		metricsService.capture('Accept All', {});
 		setShowAcceptRejectAllButtons(false);
-	}
+	};
 
 	const onRejectAll = () => {
 		commandBarService.acceptOrRejectAllFiles({ behavior: 'reject' });
-		metricsService.capture('Reject All', {})
+		metricsService.capture('Reject All', {});
 		setShowAcceptRejectAllButtons(false);
-	}
+	};
 
 
 
@@ -191,7 +192,7 @@ export const VibeCommandBar = ({ uri, editor }: VibeideCommandBarProps) => {
 	const rejectAllKeybindLabel = editCodeService.processRawKeybindingText(_rejectAllKeybinding?.getAriaLabel() || '');
 
 
-	if (!isADiffZoneInAnyFile) return null
+	if (!isADiffZoneInAnyFile) {return null;}
 
 	// For pages without a current file index, show a simplified command bar
 	if (currFileIdx === null) {
@@ -372,8 +373,8 @@ export const VibeCommandBar = ({ uri, editor }: VibeideCommandBarProps) => {
 				</div>}
 			</div>
 		</div>
-	)
-}
+	);
+};
 
 
 

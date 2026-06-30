@@ -1,3 +1,7 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 import { localize2 } from '../../../../nls.js';
 import { URI } from '../../../../base/common/uri.js';
 import { Action2, registerAction2, MenuId } from '../../../../platform/actions/common/actions.js';
@@ -12,7 +16,7 @@ import { IVibeideModelService } from '../common/vibeideModelService.js';
 
 
 class FilePromptActionService extends Action2 {
-	private static readonly VIBEIDE_COPY_FILE_PROMPT_ID = 'vibeide.copyfileprompt'
+	private static readonly VIBEIDE_COPY_FILE_PROMPT_ID = 'vibeide.copyfileprompt';
 
 	constructor() {
 		super({
@@ -29,18 +33,18 @@ class FilePromptActionService extends Action2 {
 	async run(accessor: ServicesAccessor, uri: URI): Promise<void> {
 		try {
 			const fileService = accessor.get(IFileService);
-			const clipboardService = accessor.get(IClipboardService)
-			const directoryStrService = accessor.get(IDirectoryStrService)
-			const vibeideModelService = accessor.get(IVibeideModelService)
+			const clipboardService = accessor.get(IClipboardService);
+			const directoryStrService = accessor.get(IDirectoryStrService);
+			const vibeideModelService = accessor.get(IVibeideModelService);
 
-			const stat = await fileService.stat(uri)
+			const stat = await fileService.stat(uri);
 
 			const folderOpts = {
 				maxChildren: 1000,
 				maxCharsPerFile: 2_000_000,
-			} as const
+			} as const;
 
-			let m: string = 'No contents detected'
+			let m: string = 'No contents detected';
 			if (stat.isFile) {
 				m = await messageOfSelection({
 					type: 'File',
@@ -51,7 +55,7 @@ class FilePromptActionService extends Action2 {
 					folderOpts,
 					directoryStrService,
 					fileService,
-				})
+				});
 			}
 
 			if (stat.isDirectory) {
@@ -62,17 +66,17 @@ class FilePromptActionService extends Action2 {
 					folderOpts,
 					fileService,
 					directoryStrService,
-				})
+				});
 			}
 
-			await clipboardService.writeText(m)
+			await clipboardService.writeText(m);
 
 		} catch (error) {
-			const notificationService = accessor.get(INotificationService)
-			notificationService.error(error + '')
+			const notificationService = accessor.get(INotificationService);
+			notificationService.error(error + '');
 		}
 	}
 
 }
 
-registerAction2(FilePromptActionService)
+registerAction2(FilePromptActionService);

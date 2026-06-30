@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Persisted-plan lifecycle state machine + scenario DSL (pure helper).
@@ -85,13 +86,13 @@ export function transitionPlan(from: PlanStatus, event: PlanEvent): TransitionRe
 
 	switch (from) {
 		case 'draft':
-			if (event.kind === 'approve') return { ok: true, next: 'ready' };
+			if (event.kind === 'approve') { return { ok: true, next: 'ready' }; }
 			break;
 
 		case 'ready':
-			if (event.kind === 'start') return { ok: true, next: 'running' };
+			if (event.kind === 'start') { return { ok: true, next: 'running' }; }
 			// Re-approving a ready plan is a no-op (idempotent).
-			if (event.kind === 'approve') return { ok: true, next: 'ready', note: 'idempotent-approve' };
+			if (event.kind === 'approve') { return { ok: true, next: 'ready', note: 'idempotent-approve' }; }
 			break;
 
 		case 'running':
@@ -108,15 +109,15 @@ export function transitionPlan(from: PlanStatus, event: PlanEvent): TransitionRe
 					? { ok: true, next: 'failed' }
 					: { ok: true, next: 'running', note: 'retry pending' };
 			}
-			if (event.kind === 'pause') return { ok: true, next: 'paused' };
+			if (event.kind === 'pause') { return { ok: true, next: 'paused' }; }
 			break;
 
 		case 'paused':
-			if (event.kind === 'resume') return { ok: true, next: 'running' };
+			if (event.kind === 'resume') { return { ok: true, next: 'running' }; }
 			// step-completed in paused = background runner finished a queued step
 			// but UI is still showing paused; stay paused. The runtime decides
 			// whether to surface a notification.
-			if (event.kind === 'step-completed') return { ok: true, next: 'paused', note: 'background catch-up; remain paused' };
+			if (event.kind === 'step-completed') { return { ok: true, next: 'paused', note: 'background catch-up; remain paused' }; }
 			break;
 
 		case 'done':

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — community-pack import visual diff (pure helper).
@@ -85,7 +86,7 @@ export function diffCommandsForImport(
 	incoming: readonly ProjectCommandLite[],
 ): ImportDiff {
 	const currentById = new Map<string, ProjectCommandLite>();
-	for (const c of current) currentById.set(c.id, c);
+	for (const c of current) { currentById.set(c.id, c); }
 
 	const items: ImportItemDiff[] = [];
 	let added = 0, modified = 0, removed = 0, unchanged = 0;
@@ -99,7 +100,7 @@ export function diffCommandsForImport(
 			items.push({ id: next.id, kind: 'added', changedFields: [], after: next });
 			added++;
 			// New item with non-empty command counts as "introducing a sensitive field".
-			if (next.command.length > 0) touchesSensitiveFields = true;
+			if (next.command.length > 0) { touchesSensitiveFields = true; }
 			continue;
 		}
 		const fields = compareFields(prev, next);
@@ -110,7 +111,7 @@ export function diffCommandsForImport(
 		}
 		items.push({ id: next.id, kind: 'modified', changedFields: fields, before: prev, after: next });
 		modified++;
-		if (fields.some(f => SENSITIVE_FIELDS.includes(f))) touchesSensitiveFields = true;
+		if (fields.some(f => SENSITIVE_FIELDS.includes(f))) { touchesSensitiveFields = true; }
 	}
 	for (const c of current) {
 		if (!seenIds.has(c.id)) {
@@ -127,27 +128,27 @@ export function diffCommandsForImport(
 
 function compareFields(a: ProjectCommandLite, b: ProjectCommandLite): ChangedField[] {
 	const out: ChangedField[] = [];
-	if ((a.name ?? '') !== (b.name ?? '')) out.push('name');
-	if (a.command !== b.command) out.push('command');
-	if (!arrayEquals(a.args ?? [], b.args ?? [])) out.push('args');
-	if (!recordEquals(a.env ?? {}, b.env ?? {})) out.push('env');
-	if ((a.cwd ?? '') !== (b.cwd ?? '')) out.push('cwd');
+	if ((a.name ?? '') !== (b.name ?? '')) { out.push('name'); }
+	if (a.command !== b.command) { out.push('command'); }
+	if (!arrayEquals(a.args ?? [], b.args ?? [])) { out.push('args'); }
+	if (!recordEquals(a.env ?? {}, b.env ?? {})) { out.push('env'); }
+	if ((a.cwd ?? '') !== (b.cwd ?? '')) { out.push('cwd'); }
 	return out;
 }
 
 function arrayEquals(a: readonly string[], b: readonly string[]): boolean {
-	if (a.length !== b.length) return false;
-	for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+	if (a.length !== b.length) { return false; }
+	for (let i = 0; i < a.length; i++) { if (a[i] !== b[i]) { return false; } }
 	return true;
 }
 
 function recordEquals(a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>>): boolean {
 	const ak = Object.keys(a).sort();
 	const bk = Object.keys(b).sort();
-	if (ak.length !== bk.length) return false;
+	if (ak.length !== bk.length) { return false; }
 	for (let i = 0; i < ak.length; i++) {
-		if (ak[i] !== bk[i]) return false;
-		if (a[ak[i]] !== b[bk[i]]) return false;
+		if (ak[i] !== bk[i]) { return false; }
+		if (a[ak[i]] !== b[bk[i]]) { return false; }
 	}
 	return true;
 }
@@ -196,6 +197,6 @@ export function renderImportDiffMarkdown(diff: ImportDiff): string {
 export function shortCommand(c: ProjectCommandLite): string {
 	const argsPart = c.args && c.args.length > 0 ? ' ' + c.args.join(' ') : '';
 	const full = c.command + argsPart;
-	if (full.length <= 60) return full;
+	if (full.length <= 60) { return full; }
 	return full.slice(0, 59) + '…';
 }

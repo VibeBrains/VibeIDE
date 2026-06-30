@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -10,8 +11,11 @@ import {
 	PROJECT_COMMANDS_INIT_EXAMPLE_ID,
 } from '../../common/projectCommandsInitTemplate.js';
 import { decodeProjectCommandsFile } from '../../common/projectCommandsTypes.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('Project Commands — first-run init template', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('build → valid example command pinned at order 0', () => {
 		const f = buildProjectCommandsInitTemplate({ vibeVersion: '1.0.0' });
@@ -51,7 +55,7 @@ suite('Project Commands — first-run init template', () => {
 		const text = serializeProjectCommandsInitTemplate({ vibeVersion: '2.4.6' });
 		const parsed = JSON.parse(text);
 		// _comment fields are present in raw, but the decoder tolerates extras
-		assert.ok('_comment_top' in parsed);
+		assert.ok(Object.hasOwn(parsed, '_comment_top'));
 		const r = decodeProjectCommandsFile(parsed);
 		assert.strictEqual(r.ok, true);
 		if (r.ok) {

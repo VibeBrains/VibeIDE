@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Conventional Commits helpers (pure, no DI, no I/O). Used by the `/commit`
@@ -78,20 +79,20 @@ export function formatConventionalCommit(commit: ConventionalCommit): string {
  * LLM-generated messages before applying.
  */
 export function parseConventionalCommit(raw: string): ConventionalCommit | null {
-	if (typeof raw !== 'string') return null;
+	if (typeof raw !== 'string') { return null; }
 	const trimmed = raw.trim();
-	if (!trimmed) return null;
+	if (!trimmed) { return null; }
 	const lines = trimmed.split(/\r?\n/);
 	const header = lines[0];
 	// `type(scope)!: subject` with optional scope and breaking marker.
 	const m = /^([a-z]+)(?:\(([^)]+)\))?(!)?:\s+(.+)$/.exec(header);
-	if (!m) return null;
+	if (!m) { return null; }
 	const type = m[1] as ConventionalCommitType;
-	if (!VALID_TYPES.has(type)) return null;
+	if (!VALID_TYPES.has(type)) { return null; }
 	const scope = m[2]?.trim() || undefined;
 	const breaking = !!m[3];
 	const subject = m[4].trim();
-	if (!subject) return null;
+	if (!subject) { return null; }
 
 	const remaining = lines.slice(1).join('\n').trim();
 	if (!remaining) {
@@ -132,7 +133,7 @@ export function parseConventionalCommit(raw: string): ConventionalCommit | null 
  * Returns canonical-snake-case scope name. Case-insensitive matching.
  */
 export function autoDetectScope(changedPaths: readonly string[]): string | undefined {
-	if (changedPaths.length === 0) return undefined;
+	if (changedPaths.length === 0) { return undefined; }
 	const norm = (p: string) => p.replace(/\\/g, '/').replace(/^\.+\//, '');
 	const paths = changedPaths.map(norm);
 
@@ -164,13 +165,13 @@ export function autoDetectScope(changedPaths: readonly string[]): string | undef
 
 	// Try `docs/<topic>/...` → 'docs' (umbrella).
 	const docsRe = /^docs\//;
-	if (paths.every(p => docsRe.test(p))) return 'docs';
+	if (paths.every(p => docsRe.test(p))) { return 'docs'; }
 
 	// Try `scripts/...` → 'scripts'.
-	if (paths.every(p => p.startsWith('scripts/'))) return 'scripts';
+	if (paths.every(p => p.startsWith('scripts/'))) { return 'scripts'; }
 
 	// Try `.github/workflows/...` → 'ci'.
-	if (paths.every(p => p.startsWith('.github/workflows/'))) return 'ci';
+	if (paths.every(p => p.startsWith('.github/workflows/'))) { return 'ci'; }
 
 	return undefined;
 }
@@ -181,15 +182,15 @@ export function autoDetectScope(changedPaths: readonly string[]): string | undef
  * the conservative default.
  */
 export function autoDetectType(diff: string, changedPaths: readonly string[]): ConventionalCommitType {
-	if (typeof diff !== 'string') return 'chore';
+	if (typeof diff !== 'string') { return 'chore'; }
 	const allDocs = changedPaths.length > 0 && changedPaths.every(p => /\.md$/.test(p) || p.startsWith('docs/'));
-	if (allDocs) return 'docs';
+	if (allDocs) { return 'docs'; }
 	const allTests = changedPaths.length > 0 && changedPaths.every(p => /\.test\.[cm]?[jt]sx?$|\.spec\.[cm]?[jt]sx?$|\/test\//.test(p));
-	if (allTests) return 'test';
+	if (allTests) { return 'test'; }
 	const allCi = changedPaths.length > 0 && changedPaths.every(p => p.startsWith('.github/workflows/') || p === '.github/dependabot.yml');
-	if (allCi) return 'ci';
+	if (allCi) { return 'ci'; }
 	const allBuild = changedPaths.length > 0 && changedPaths.every(p => /^(package\.json|package-lock\.json|tsconfig.*\.json|gulpfile\.js|build\/)/.test(p));
-	if (allBuild) return 'build';
+	if (allBuild) { return 'build'; }
 
 	// Diff body heuristics.
 	if (/^[+-]\s*\/\/\s*TODO|^[+-]\s*\/\*\s*TODO/m.test(diff)) {
@@ -197,15 +198,15 @@ export function autoDetectType(diff: string, changedPaths: readonly string[]): C
 	}
 	const hasFixWords = /\b(fix|bug|crash|undefined|null pointer|error|exception)\b/i.test(diff);
 	const hasFeatureWords = /\b(add|new feature|implement|introduce)\b/i.test(diff);
-	if (hasFixWords && !hasFeatureWords) return 'fix';
-	if (hasFeatureWords) return 'feat';
+	if (hasFixWords && !hasFeatureWords) { return 'fix'; }
+	if (hasFeatureWords) { return 'feat'; }
 
 	return 'chore';
 }
 
 function truncateSubject(subject: string): string {
 	const s = subject.trim().replace(/\s+/g, ' ');
-	if (s.length <= 72) return s;
+	if (s.length <= 72) { return s; }
 	return s.slice(0, 71) + '…';
 }
 
@@ -213,16 +214,16 @@ function wrapBody(body: string, width: number): string {
 	const paragraphs = body.split(/\n\n+/);
 	const wrapped = paragraphs.map(p => {
 		const oneLine = p.replace(/\s*\n\s*/g, ' ').trim();
-		if (oneLine.length <= width) return oneLine;
+		if (oneLine.length <= width) { return oneLine; }
 		const words = oneLine.split(' ');
 		const lines: string[] = [];
 		let cur = '';
 		for (const w of words) {
-			if (cur.length === 0) cur = w;
-			else if (cur.length + 1 + w.length <= width) cur += ' ' + w;
+			if (cur.length === 0) { cur = w; }
+			else if (cur.length + 1 + w.length <= width) { cur += ' ' + w; }
 			else { lines.push(cur); cur = w; }
 		}
-		if (cur) lines.push(cur);
+		if (cur) { lines.push(cur); }
 		return lines.join('\n');
 	});
 	return wrapped.join('\n\n');

@@ -1,10 +1,12 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { metricsCollector } from './metricsCollector.js';
+import type { PerformanceAuditReport } from './performanceAudit.js';
 
 /**
  * Chat Latency Audit Service
@@ -224,9 +226,9 @@ export class ChatLatencyAudit {
 			if (!context.networkEndTime) {
 				context.networkEndTime = performance.now();
 			}
-			if (dnsTime !== undefined) context.dnsTime = dnsTime;
-			if (tlsTime !== undefined) context.tlsTime = tlsTime;
-			if (httpTime !== undefined) context.httpTime = httpTime;
+			if (dnsTime !== undefined) { context.dnsTime = dnsTime; }
+			if (tlsTime !== undefined) { context.tlsTime = tlsTime; }
+			if (httpTime !== undefined) { context.httpTime = httpTime; }
 		}
 	}
 
@@ -287,7 +289,7 @@ export class ChatLatencyAudit {
 	 */
 	getMetrics(requestId: string): ChatLatencyMetrics | null {
 		const context = this.contexts.get(requestId);
-		if (!context) return null;
+		if (!context) { return null; }
 
 		const now = performance.now();
 
@@ -422,7 +424,7 @@ export class ChatLatencyAudit {
 		vibeLog.info('chatLatencyAudit', `Provider: ${metrics.providerName}/${metrics.modelName}`);
 		vibeLog.info('chatLatencyAudit', `TTFS: ${metrics.ttfs.toFixed(2)}ms`);
 		vibeLog.info('chatLatencyAudit', `TTS: ${metrics.tts.toFixed(2)}ms`);
-		if (metrics.routerDecisionTime > 0) vibeLog.info('chatLatencyAudit', `Router Decision: ${metrics.routerDecisionTime.toFixed(2)}ms`);
+		if (metrics.routerDecisionTime > 0) { vibeLog.info('chatLatencyAudit', `Router Decision: ${metrics.routerDecisionTime.toFixed(2)}ms`); }
 		vibeLog.info('chatLatencyAudit', `Network Latency: ${metrics.networkLatency.toFixed(2)}ms`);
 		vibeLog.info('chatLatencyAudit', `Prompt Assembly: ${metrics.promptAssemblyTime.toFixed(2)}ms`);
 		vibeLog.info('chatLatencyAudit', `Tokenization: ${metrics.tokenizationTime.toFixed(2)}ms`);
@@ -431,9 +433,9 @@ export class ChatLatencyAudit {
 		vibeLog.info('chatLatencyAudit', `Output Tokens: ${metrics.outputTokens}`);
 		vibeLog.info('chatLatencyAudit', `Context Size: ${metrics.contextSize} chars (truncated: ${metrics.contextTruncated})`);
 		vibeLog.info('chatLatencyAudit', `Render FPS: ${metrics.renderFPS.toFixed(1)} (dropped: ${metrics.droppedFrames})`);
-		if (metrics.dnsTime) vibeLog.info('chatLatencyAudit', `DNS: ${metrics.dnsTime.toFixed(2)}ms`);
-		if (metrics.tlsTime) vibeLog.info('chatLatencyAudit', `TLS: ${metrics.tlsTime.toFixed(2)}ms`);
-		if (metrics.httpTime) vibeLog.info('chatLatencyAudit', `HTTP: ${metrics.httpTime.toFixed(2)}ms`);
+		if (metrics.dnsTime) { vibeLog.info('chatLatencyAudit', `DNS: ${metrics.dnsTime.toFixed(2)}ms`); }
+		if (metrics.tlsTime) { vibeLog.info('chatLatencyAudit', `TLS: ${metrics.tlsTime.toFixed(2)}ms`); }
+		if (metrics.httpTime) { vibeLog.info('chatLatencyAudit', `HTTP: ${metrics.httpTime.toFixed(2)}ms`); }
 		console.groupEnd();
 
 		// Auto-collect for aggregate reporting
@@ -449,7 +451,7 @@ export class ChatLatencyAudit {
 		lines.push(`Provider: ${metrics.providerName}/${metrics.modelName}`);
 		lines.push(`TTFS: ${metrics.ttfs.toFixed(2)}ms`);
 		lines.push(`TTS: ${metrics.tts.toFixed(2)}ms`);
-		if (metrics.routerDecisionTime > 0) lines.push(`Router Decision: ${metrics.routerDecisionTime.toFixed(2)}ms`);
+		if (metrics.routerDecisionTime > 0) { lines.push(`Router Decision: ${metrics.routerDecisionTime.toFixed(2)}ms`); }
 		lines.push(`Network: ${metrics.networkLatency.toFixed(2)}ms`);
 		lines.push(`Prompt Assembly: ${metrics.promptAssemblyTime.toFixed(2)}ms`);
 		lines.push(`Tokenization: ${metrics.tokenizationTime.toFixed(2)}ms`);
@@ -569,9 +571,24 @@ function getMetricsReport(): string {
 	return ChatLatencyAudit.formatAggregateReport(aggregate);
 }
 
+/** Debug API exposed on `window` for console-driven performance auditing. */
+interface IVibeidePerformanceAuditApi {
+	printReport: (mode?: 'auto' | 'single') => void;
+	generateReport: (mode?: 'auto' | 'single') => Promise<PerformanceAuditReport>;
+	clearMetrics: () => void;
+	exportMetrics: () => Promise<ChatLatencyMetrics[]>;
+	getReport: () => string;
+}
+
+declare global {
+	interface Window {
+		vibeidePerformanceAudit?: IVibeidePerformanceAuditApi;
+	}
+}
+
 // Expose performance audit functions globally for console access
 if (typeof window !== 'undefined') {
-	(window as any).vibeidePerformanceAudit = {
+	window.vibeidePerformanceAudit = {
 		printReport: (mode: 'auto' | 'single' = 'auto') => {
 			import('./performanceAudit.js').then(m => m.printPerformanceAuditReport(mode));
 		},

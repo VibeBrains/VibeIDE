@@ -1,13 +1,15 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { localize2 } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { ILayoutService } from '../../../../platform/layout/browser/layoutService.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IVibeNotifySoundsModalService } from '../common/vibeNotifySoundsModalService.js';
 import { mountVibeNotifySounds } from './react/out/vibe-sounds-tsx/index.js';
@@ -47,6 +49,7 @@ export class VibeNotifySoundsRootContribution extends Disposable implements IWor
 	constructor(
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
 		@IVibeNotifySoundsModalService private readonly _modalService: IVibeNotifySoundsModalService,
+		@ILayoutService private readonly _layoutService: ILayoutService,
 	) {
 		super();
 
@@ -59,7 +62,9 @@ export class VibeNotifySoundsRootContribution extends Disposable implements IWor
 	}
 
 	private _tryMount(): void {
-		const workbench = document.querySelector<HTMLElement>('.monaco-workbench') ?? document.body;
+		// `activeContainer` is the `.monaco-workbench` element of the focused window,
+		// keeping the portal multi-window-safe without fragile DOM selectors.
+		const workbench = this._layoutService.activeContainer;
 		if (!workbench) {
 			vibeLog.warn('vibeNotifySoundsRoot', '[VibeNotifySoundsRoot] no .monaco-workbench root; modal not mounted');
 			return;

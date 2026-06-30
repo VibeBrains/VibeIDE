@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -63,7 +64,7 @@ export class ModelsDevCatalogStatusContribution extends Disposable implements IW
 		};
 		pushTtl();
 		this._register(configurationService.onDidChangeConfiguration(e => {
-			if (e.affectsConfiguration('vibeide.catalog.modelsDevCacheTtlHours')) pushTtl();
+			if (e.affectsConfiguration('vibeide.catalog.modelsDevCacheTtlHours')) { pushTtl(); }
 		}));
 	}
 
@@ -84,7 +85,7 @@ export class ModelsDevCatalogStatusContribution extends Disposable implements IW
 			return;
 		}
 
-		if (status.state === 'loaded_from_network' || status.state === 'unloaded') return;
+		if (status.state === 'loaded_from_network' || status.state === 'unloaded') { return; }
 
 		if (status.state === 'loaded_from_local') {
 			// Z.12.4: non-blocking modal — centred for visibility, doesn't apply

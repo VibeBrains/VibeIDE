@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
@@ -14,7 +15,7 @@ import { createDecorator } from '../../../../../platform/instantiation/common/in
 
 // lets you add a "consistent" item to a Model (aka URI), instead of just to a single editor
 
-type AddItemInputs = { uri: URI; fn: (editor: ICodeEditor) => (() => void); }
+type AddItemInputs = { uri: URI; fn: (editor: ICodeEditor) => (() => void) };
 
 export interface IConsistentItemService {
 	readonly _serviceBrand: undefined;
@@ -27,151 +28,143 @@ export const IConsistentItemService = createDecorator<IConsistentItemService>('C
 
 export class ConsistentItemService extends Disposable implements IConsistentItemService {
 
-	readonly _serviceBrand: undefined
+	readonly _serviceBrand: undefined;
 
 	// the items that are attached to each URI, completely independent from current state of editors
-	private readonly consistentItemIdsOfURI: Record<string, Set<string> | undefined> = {}
-	private readonly infoOfConsistentItemId: Record<string, AddItemInputs> = {}
+	private readonly consistentItemIdsOfURI: Record<string, Set<string> | undefined> = {};
+	private readonly infoOfConsistentItemId: Record<string, AddItemInputs> = {};
 
 
 	// current state of items on each editor, and the fns to call to remove them
-	private readonly itemIdsOfEditorId: Record<string, Set<string> | undefined> = {}
-	private readonly consistentItemIdOfItemId: Record<string, string> = {}
-	private readonly disposeFnOfItemId: Record<string, () => void> = {}
+	private readonly itemIdsOfEditorId: Record<string, Set<string> | undefined> = {};
+	private readonly consistentItemIdOfItemId: Record<string, string> = {};
+	private readonly disposeFnOfItemId: Record<string, () => void> = {};
 
 
 	constructor(
 		@ICodeEditorService private readonly _editorService: ICodeEditorService,
 	) {
-		super()
+		super();
 
 
 		const removeItemsFromEditor = (editor: ICodeEditor) => {
-			const editorId = editor.getId()
-			for (const itemId of this.itemIdsOfEditorId[editorId] ?? [])
-				this._removeItemFromEditor(editor, itemId)
-		}
+			const editorId = editor.getId();
+			for (const itemId of this.itemIdsOfEditorId[editorId] ?? []) { this._removeItemFromEditor(editor, itemId); }
+		};
 
 		// put items on the editor, based on the consistent items for that URI
 		const putItemsOnEditor = (editor: ICodeEditor, uri: URI | null) => {
-			if (!uri) return
-			for (const consistentItemId of this.consistentItemIdsOfURI[uri.fsPath] ?? [])
-				this._putItemOnEditor(editor, consistentItemId)
-		}
+			if (!uri) { return; }
+			for (const consistentItemId of this.consistentItemIdsOfURI[uri.fsPath] ?? []) { this._putItemOnEditor(editor, consistentItemId); }
+		};
 
 
 		// when editor switches tabs (models)
 		const addTabSwitchListeners = (editor: ICodeEditor) => {
 			this._register(
 				editor.onDidChangeModel(e => {
-					removeItemsFromEditor(editor)
-					putItemsOnEditor(editor, e.newModelUrl)
+					removeItemsFromEditor(editor);
+					putItemsOnEditor(editor, e.newModelUrl);
 				})
-			)
-		}
+			);
+		};
 
 		// when editor is disposed
 		const addDisposeListener = (editor: ICodeEditor) => {
 			this._register(editor.onDidDispose(() => {
 				// anything on the editor has been disposed already
-				for (const itemId of this.itemIdsOfEditorId[editor.getId()] ?? [])
-					delete this.disposeFnOfItemId[itemId]
-			}))
-		}
+				for (const itemId of this.itemIdsOfEditorId[editor.getId()] ?? []) { delete this.disposeFnOfItemId[itemId]; }
+			}));
+		};
 
 		const initializeEditor = (editor: ICodeEditor) => {
 			// if (editor.getModel()?.uri.scheme !== 'file') return // THIS BREAKS THINGS
-			addTabSwitchListeners(editor)
-			addDisposeListener(editor)
-			putItemsOnEditor(editor, editor.getModel()?.uri ?? null)
-		}
+			addTabSwitchListeners(editor);
+			addDisposeListener(editor);
+			putItemsOnEditor(editor, editor.getModel()?.uri ?? null);
+		};
 
 		// initialize current editors + any new editors
-		for (let editor of this._editorService.listCodeEditors()) initializeEditor(editor)
-		this._register(this._editorService.onCodeEditorAdd(editor => { initializeEditor(editor) }))
+		for (const editor of this._editorService.listCodeEditors()) { initializeEditor(editor); }
+		this._register(this._editorService.onCodeEditorAdd(editor => { initializeEditor(editor); }));
 
 		// when an editor is deleted, remove its items
-		this._register(this._editorService.onCodeEditorRemove(editor => { removeItemsFromEditor(editor) }))
+		this._register(this._editorService.onCodeEditorRemove(editor => { removeItemsFromEditor(editor); }));
 	}
 
 
 
 	_putItemOnEditor(editor: ICodeEditor, consistentItemId: string) {
-		const { fn } = this.infoOfConsistentItemId[consistentItemId]
+		const { fn } = this.infoOfConsistentItemId[consistentItemId];
 
 		// add item
-		const dispose = fn(editor)
+		const dispose = fn(editor);
 
-		const itemId = generateUuid()
-		const editorId = editor.getId()
+		const itemId = generateUuid();
+		const editorId = editor.getId();
 
-		if (!(editorId in this.itemIdsOfEditorId))
-			this.itemIdsOfEditorId[editorId] = new Set()
-		this.itemIdsOfEditorId[editorId]!.add(itemId)
+		if (!Object.hasOwn(this.itemIdsOfEditorId, editorId)) { this.itemIdsOfEditorId[editorId] = new Set(); }
+		this.itemIdsOfEditorId[editorId]!.add(itemId);
 
 
-		this.consistentItemIdOfItemId[itemId] = consistentItemId
+		this.consistentItemIdOfItemId[itemId] = consistentItemId;
 
 		this.disposeFnOfItemId[itemId] = () => {
 			// console.log('calling remove for', itemId)
-			dispose?.()
-		}
+			dispose?.();
+		};
 
 	}
 
 
 	_removeItemFromEditor(editor: ICodeEditor, itemId: string) {
 
-		const editorId = editor.getId()
-		this.itemIdsOfEditorId[editorId]?.delete(itemId)
+		const editorId = editor.getId();
+		this.itemIdsOfEditorId[editorId]?.delete(itemId);
 
-		this.disposeFnOfItemId[itemId]?.()
-		delete this.disposeFnOfItemId[itemId]
+		this.disposeFnOfItemId[itemId]?.();
+		delete this.disposeFnOfItemId[itemId];
 
-		delete this.consistentItemIdOfItemId[itemId]
+		delete this.consistentItemIdOfItemId[itemId];
 	}
 
 	getEditorsOnURI(uri: URI) {
-		const editors = this._editorService.listCodeEditors().filter(editor => editor.getModel()?.uri.fsPath === uri.fsPath)
-		return editors
+		const editors = this._editorService.listCodeEditors().filter(editor => editor.getModel()?.uri.fsPath === uri.fsPath);
+		return editors;
 	}
 
-	consistentItemIdPool = 0
+	consistentItemIdPool = 0;
 	addConsistentItemToURI({ uri, fn }: AddItemInputs) {
-		const consistentItemId = (this.consistentItemIdPool++) + ''
+		const consistentItemId = (this.consistentItemIdPool++) + '';
 
-		if (!(uri.fsPath in this.consistentItemIdsOfURI))
-			this.consistentItemIdsOfURI[uri.fsPath] = new Set()
-		this.consistentItemIdsOfURI[uri.fsPath]!.add(consistentItemId)
+		if (!Object.hasOwn(this.consistentItemIdsOfURI, uri.fsPath)) { this.consistentItemIdsOfURI[uri.fsPath] = new Set(); }
+		this.consistentItemIdsOfURI[uri.fsPath]!.add(consistentItemId);
 
-		this.infoOfConsistentItemId[consistentItemId] = { fn, uri }
+		this.infoOfConsistentItemId[consistentItemId] = { fn, uri };
 
-		const editors = this.getEditorsOnURI(uri)
-		for (const editor of editors)
-			this._putItemOnEditor(editor, consistentItemId)
+		const editors = this.getEditorsOnURI(uri);
+		for (const editor of editors) { this._putItemOnEditor(editor, consistentItemId); }
 
-		return consistentItemId
+		return consistentItemId;
 	}
 
 
 	removeConsistentItemFromURI(consistentItemId: string) {
-		if (!(consistentItemId in this.infoOfConsistentItemId))
-			return
+		if (!Object.hasOwn(this.infoOfConsistentItemId, consistentItemId)) { return; }
 
-		const { uri } = this.infoOfConsistentItemId[consistentItemId]
-		const editors = this.getEditorsOnURI(uri)
+		const { uri } = this.infoOfConsistentItemId[consistentItemId];
+		const editors = this.getEditorsOnURI(uri);
 
 		for (const editor of editors) {
 			for (const itemId of this.itemIdsOfEditorId[editor.getId()] ?? []) {
-				if (this.consistentItemIdOfItemId[itemId] === consistentItemId)
-					this._removeItemFromEditor(editor, itemId)
+				if (this.consistentItemIdOfItemId[itemId] === consistentItemId) { this._removeItemFromEditor(editor, itemId); }
 			}
 		}
 
 		// clear
-		this.consistentItemIdsOfURI[uri.fsPath]?.delete(consistentItemId)
+		this.consistentItemIdsOfURI[uri.fsPath]?.delete(consistentItemId);
 
-		delete this.infoOfConsistentItemId[consistentItemId]
+		delete this.infoOfConsistentItemId[consistentItemId];
 
 	}
 
@@ -358,7 +351,7 @@ export class ConsistentEditorItemService extends Disposable {
 	 * but only when that editor is showing the same model (uri.fsPath).
 	 */
 	addToEditor(editor: ICodeEditor, fn: () => () => void): string {
-		const uri = editor.getModel()?.uri
+		const uri = editor.getModel()?.uri;
 		if (!uri) {
 			throw new Error('No URI on the provided editor or in AddItemInputs.');
 		}

@@ -1,3 +1,7 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 import { vibeLog } from './vibeLog.js';
 import { Disposable, IReference } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -6,8 +10,7 @@ import { IResolvedTextEditorModel, ITextModelService } from '../../../../editor/
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
-import { FileOperationError, FileOperationResult, FileSystemProviderError, FileSystemProviderErrorCode, toFileSystemProviderErrorCode } from '../../../../platform/files/common/files.js';
+import { IFileService, FileOperationError, FileOperationResult, FileSystemProviderError, FileSystemProviderErrorCode, toFileSystemProviderErrorCode } from '../../../../platform/files/common/files.js';
 import { LRUCache } from '../../../../base/common/map.js';
 
 // A missing file surfaces as EITHER a FileOperationError (FILE_NOT_FOUND) OR a raw
@@ -78,8 +81,8 @@ class VibeideModelService extends Disposable implements IVibeideModelService {
 	saveModel = async (uri: URI) => {
 		await this._textFileService.save(uri, { // we want [our change] -> [save] so it's all treated as one change.
 			skipSaveParticipants: true // avoid triggering extensions etc (if they reformat the page, it will add another item to the undo stack)
-		})
-	}
+		});
+	};
 
 	initializeModel = async (uri: URI) => {
 		try {
@@ -97,7 +100,7 @@ class VibeideModelService extends Disposable implements IVibeideModelService {
 			const fsPath = uri.fsPath;
 
 			// Check cache first
-			if (fsPath in this._modelRefOfURI) return;
+			if (Object.hasOwn(this._modelRefOfURI, fsPath)) { return; }
 			const cachedRef = this._modelCache.get(fsPath);
 			if (cachedRef && !cachedRef.object.isDisposed()) {
 				this._modelRefOfURI[fsPath] = cachedRef;
@@ -160,7 +163,7 @@ class VibeideModelService extends Disposable implements IVibeideModelService {
 				return;
 			}
 			// Log other unexpected errors at debug level
-			vibeLog.debug('vibeideModel', 'InitializeModel error:', e)
+			vibeLog.debug('vibeideModel', 'InitializeModel error:', e);
 		}
 	};
 
@@ -192,12 +195,12 @@ class VibeideModelService extends Disposable implements IVibeideModelService {
 	};
 
 	getModel = (uri: URI) => {
-		return this.getModelFromFsPath(uri.fsPath)
-	}
+		return this.getModelFromFsPath(uri.fsPath);
+	};
 
 
 	getModelSafe = async (uri: URI): Promise<VibeideModelType> => {
-		if (!(uri.fsPath in this._modelRefOfURI)) await this.initializeModel(uri);
+		if (!Object.hasOwn(this._modelRefOfURI, uri.fsPath)) { await this.initializeModel(uri); }
 		return this.getModel(uri);
 
 	};

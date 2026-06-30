@@ -1,12 +1,16 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import { logCategoryMatchesPattern, logCategoryAllowed, resolveCategoryLevelWildcard } from '../../common/logCategoryMatch.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('logCategoryMatch (roadmap #3115)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('logCategoryMatchesPattern', () => {
 		test('exact name matches only itself', () => {

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Pre-flight previous-crash notification (roadmap W.14).
@@ -43,7 +44,7 @@ function findUnresolvedCrash(lines: readonly WatchdogLine[]): WatchdogCrashEntry
 	let candidate: WatchdogCrashEntry | undefined;
 	for (const line of lines) {
 		const ts = Date.parse((line as { ts?: string }).ts ?? '');
-		if (!Number.isFinite(ts) || now - ts > TWENTY_FOUR_HOURS_MS) continue;
+		if (!Number.isFinite(ts) || now - ts > TWENTY_FOUR_HOURS_MS) { continue; }
 		if (isCrash(line)) {
 			candidate = line;
 		} else if (candidate && (line as { type?: string }).type === 'sample') {
@@ -86,7 +87,7 @@ export class VibeIdleWatchdogPreFlightContribution extends Disposable implements
 			return;
 		}
 		const crash = findUnresolvedCrash(lines);
-		if (!crash) return;
+		if (!crash) { return; }
 
 		const procLabel = this._procLabel(crash.proc);
 		const reason = crash.reason ?? 'unknown';
@@ -181,7 +182,7 @@ export class VibeIdleWatchdogPreFlightContribution extends Disposable implements
 			defaultUri,
 			filters: [{ name: 'ZIP', extensions: ['zip'] }],
 		});
-		if (!target) return;
+		if (!target) { return; }
 		try {
 			const result = await this._watchdog.bundleCrashReport(target.fsPath);
 			this._notifications.notify({

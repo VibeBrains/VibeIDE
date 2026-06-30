@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Personas marketplace — catalog URL + import orchestrator
@@ -108,13 +109,13 @@ export function diffPersonasForImport(
 	incoming: ReadonlyArray<PersonaLite>,
 ): PersonasImportDiff {
 	const byId = new Map<string, PersonaLite>();
-	for (const c of current) byId.set(c.id, c);
+	for (const c of current) { byId.set(c.id, c); }
 	const items: PersonaImportItem[] = [];
 	let added = 0, modified = 0, unchanged = 0;
 	let touchesSystemPrompt = false;
 	const seen = new Set<string>();
 	for (const inc of incoming) {
-		if (seen.has(inc.id)) continue;
+		if (seen.has(inc.id)) { continue; }
 		seen.add(inc.id);
 		const cur = byId.get(inc.id);
 		if (cur === undefined) {
@@ -126,7 +127,7 @@ export function diffPersonasForImport(
 		if (cur.systemPromptHash !== inc.systemPromptHash || cur.name !== inc.name || cur.mode !== inc.mode) {
 			items.push({ id: inc.id, kind: 'modified', before: cur, after: inc });
 			modified++;
-			if (cur.systemPromptHash !== inc.systemPromptHash) touchesSystemPrompt = true;
+			if (cur.systemPromptHash !== inc.systemPromptHash) { touchesSystemPrompt = true; }
 			continue;
 		}
 		items.push({ id: inc.id, kind: 'unchanged', before: cur, after: inc });

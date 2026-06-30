@@ -1,3 +1,7 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
@@ -82,7 +86,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { EndOfLinePreference } from '../../../../editor/common/model.js';
 import { ToolName } from '../common/toolsServiceTypes.js';
 import { IMCPService } from '../common/mcpService.js';
-import { IRepoIndexerService } from './repoIndexerService.js';
+import { IRepoIndexerService, QueryMetrics } from './repoIndexerService.js';
 import { IMemoriesService } from '../common/memoriesService.js';
 import { IVibeSkillsLibraryService } from '../common/vibeSkillsLibraryService.js';
 import { IVibeSlashCommandService } from '../common/vibeSlashCommandService.js';
@@ -93,7 +97,7 @@ import { IVibeContextGuardService } from './vibeContextGuardService.js';
 import { IRemoteCatalogService } from '../common/remoteCatalogService.js';
 import { buildResponseLanguageDirective } from '../common/vibeAgentResponseLanguageConfiguration.js';
 
-export const EMPTY_MESSAGE = '(empty message)'
+export const EMPTY_MESSAGE = '(empty message)';
 
 // Thrown by prepareLLMChatMessages when even aggressive trimming (head summary,
 // tail tool-output elision, oldest-tail drops) cannot fit the request under the
@@ -141,12 +145,12 @@ type SimpleLLMMessage = {
 	 *  `anthropicReasoning` (Anthropic-only structured blocks). Optional and
 	 *  empty when the model didn't produce reasoning. */
 	reasoning?: string;
-}
+};
 
 
 
-const CHARS_PER_TOKEN = 4 // assume abysmal chars per token
-const TRIM_TO_LEN = 120
+const CHARS_PER_TOKEN = 4; // assume abysmal chars per token
+const TRIM_TO_LEN = 120;
 // LEGACY safety clamp, originally «avoid OpenAI 30k TPM» hardcoded at 20k tokens. It SILENTLY
 // crushed every message above the cap to 120-char stubs on every request regardless of the
 // model's real window — busting the prompt cache each turn (the prefix mutated), erasing the
@@ -156,7 +160,7 @@ const TRIM_TO_LEN = 120
 // by the 429 fail-fast + auto-wait pipeline, and the context-window trim above already bounds
 // the payload by (contextWindow - reservedOutputTokenSpace). The constant remains only as the
 // fallback for an invalid config value.
-const MAX_INPUT_TOKENS_SAFETY_DEFAULT = 0
+const MAX_INPUT_TOKENS_SAFETY_DEFAULT = 0;
 
 // isLocalProvider moved to common/isLocalProvider.ts (pure, no browser deps).
 // Re-exported here so existing importers of this module keep working.
@@ -169,33 +173,33 @@ const LOCAL_MODEL_TOKEN_CAPS: Record<FeatureName, number> = {
 	'Autocomplete': 1000, // Very minimal for autocomplete
 	'Chat': 8192,        // More generous for chat, but still capped
 	'SCM': 4096,         // Moderate for commit messages
-}
+};
 
 // Reserved output space for local models (smaller to allow more input)
-const LOCAL_MODEL_RESERVED_OUTPUT = 1024
+const LOCAL_MODEL_RESERVED_OUTPUT = 1024;
 
 // Estimate tokens for images in OpenAI format
 // OpenAI uses ~85 tokens per 512x512 tile, plus base overhead
 // For detailed images, tokens scale with image dimensions
 // Reference: https://platform.openai.com/docs/guides/vision#calculating-costs
 const estimateImageTokens = (images: ChatImageAttachment[] | undefined): number => {
-	if (!images || images.length === 0) return 0
-	let totalTokens = 0
+	if (!images || images.length === 0) { return 0; }
+	let totalTokens = 0;
 	for (const img of images) {
 		// Base overhead per image: ~85 tokens
-		totalTokens += 85
+		totalTokens += 85;
 		// Estimate tokens based on image dimensions
 		// Images are resized to fit within 2048x2048, then scaled so shortest side is 768px
 		// Each 512x512 tile costs ~170 tokens (85 for base + 85 for detail)
 		// For a rough estimate, use image size as a proxy
 		// Base64 encoding increases size by ~33%, so we estimate conservatively
-		const base64Size = Math.ceil((img.size || img.data.length) * 1.33)
+		const base64Size = Math.ceil((img.size || img.data.length) * 1.33);
 		// Very rough estimate: ~1 token per 100 bytes of base64 (conservative)
 		// This accounts for the fact that images are tokenized more efficiently than text
-		totalTokens += Math.ceil(base64Size / 100)
+		totalTokens += Math.ceil(base64Size / 100);
 	}
-	return totalTokens
-}
+	return totalTokens;
+};
 
 
 
@@ -223,9 +227,14 @@ openai on developer system message - https://cdn.openai.com/spec/model-spec-2024
 */
 
 
+/** OpenAI assistant message extended with the provider-tunneled `reasoning_content` field.
+ *  Some OpenAI-compatible aggregators (DeepSeek thinking, vLLM, liteLLM) require the prior
+ *  assistant turn's reasoning to be roundtripped via this field; plain OpenAI/GPT ignore it. */
+type OpenAIAssistantWithReasoning = (OpenAILLMChatMessage & { role: 'assistant' }) & { reasoning_content?: string };
+
 const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOrOpenAILLMMessage[] => {
 
-	const newMessages: OpenAILLMChatMessage[] = [];
+	const newMessages: (OpenAILLMChatMessage | OpenAIAssistantWithReasoning)[] = [];
 
 	// Tool-call ids already emitted in this assembly. An INTERRUPTED/resumed turn can replay
 	// the same tool_call id into history; a provider rejects a duplicate id in an assistant's
@@ -235,7 +244,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 	const seenToolCallIds = new Set<string>();
 
 	for (let i = 0; i < messages.length; i += 1) {
-		const currMsg = messages[i]
+		const currMsg = messages[i];
 
 		if (currMsg.role === 'user') {
 			// Convert images to OpenAI format if present
@@ -278,8 +287,8 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 
 					// Ensure image.data is a Uint8Array
 					// TypeScript knows image.data is Uint8Array from the type definition, but we validate at runtime
-					// Use 'any' to bypass TypeScript's type narrowing for runtime validation
-					const data: any = image.data;
+					// Widen to 'unknown' so the runtime-shape narrowing below is type-checked rather than bypassed.
+					const data: unknown = image.data;
 					let imageData: Uint8Array;
 
 					if (data instanceof Uint8Array) {
@@ -314,9 +323,13 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 						// Handle object that might be a serialized array or have array-like properties
 						// Only try to convert if it has numeric keys (indicating it was an array serialized as object)
 
+						// `data` is narrowed to a non-null object here; view it as a string-keyed record
+						// so numeric-index access below is type-checked instead of cast to `any`.
+						const dataObj = data as Record<string, unknown>;
+
 						// First, check if this object has been visited (prevent circular references)
 						// We'll use a simple approach: if keys.length is reasonable (< 1M entries)
-						const keys = Object.keys(data);
+						const keys = Object.keys(dataObj);
 
 						// Safety check: if too many keys, it's probably not image data
 						if (keys.length > 10000000) {
@@ -359,8 +372,8 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 									const end = Math.min(start + chunkSize, maxIndex + 1);
 									for (let i = start; i < end; i++) {
 										// Use hasOwnProperty check to avoid getters/prototype issues
-										if (Object.prototype.hasOwnProperty.call(data, String(i))) {
-											const val = (data as any)[String(i)];
+										if (Object.prototype.hasOwnProperty.call(dataObj, String(i))) {
+											const val = dataObj[String(i)];
 											if (typeof val === 'number' && val >= 0 && val <= 255 && Number.isInteger(val)) {
 												values.push(val);
 											} else if (val !== undefined && val !== null) {
@@ -392,7 +405,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 						} else {
 							// Unknown object structure - doesn't look like serialized array
 							const dataType = typeof data;
-							const constructorName = data?.constructor?.name;
+							const constructorName = dataObj.constructor?.name;
 
 							vibeLog.error('convertToLLMMessage', 'Image data has invalid object structure', {
 								mimeType: image.mimeType,
@@ -406,10 +419,12 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 
 							// Instead of throwing immediately, check if we can access the data differently
 							// Maybe it's a VSBuffer or similar object?
-							if ('buffer' in data || 'byteLength' in data) {
+							const hasBuffer = Object.hasOwn(dataObj, 'buffer');
+							const hasByteLength = Object.hasOwn(dataObj, 'byteLength');
+							if (hasBuffer || hasByteLength) {
 								vibeLog.error('convertToLLMMessage', 'Object appears to be a Buffer-like object but conversion failed', {
-									hasBuffer: 'buffer' in data,
-									hasByteLength: 'byteLength' in data
+									hasBuffer,
+									hasByteLength
 								});
 							}
 
@@ -440,7 +455,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 					}
 
 					// Use VS Code's built-in base64 encoder (already tested and optimized)
-					let base64 = uint8ArrayToBase64(imageData);
+					const base64 = uint8ArrayToBase64(imageData);
 
 					// Validate base64 format - must contain only valid base64 characters
 					// OpenAI is strict: base64 must be clean, no whitespace, proper padding
@@ -487,10 +502,11 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 				content: hasImages ? contentParts : (contentParts.length > 0 ? contentParts : (textContent || '')),
 			};
 			newMessages.push(userMsg);
-			continue
+			continue;
 		}
 
 		if (currMsg.role !== 'tool') {
+			// Only assistant turns reach here: the user branch already `continue`d above.
 			// For thinking-models surfaced via OpenAI-compatible aggregators (DeepSeek
 			// thinking through openCodeGo/zen, vLLM, liteLLM), the prior assistant's
 			// `reasoning_content` MUST be roundtripped in subsequent requests or the
@@ -498,21 +514,25 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 			// field on the assistant message — plain OpenAI/GPT ignore unknown fields,
 			// so this is safe to send unconditionally. (Anthropic uses anthropicReasoning
 			// via prepareMessages_anthropic_tools, not this path.)
-			if (currMsg.role === 'assistant' && currMsg.reasoning && currMsg.reasoning.trim().length > 0) {
-				const withReasoning = { ...currMsg, reasoning_content: currMsg.reasoning } as unknown as OpenAILLMChatMessage
-				newMessages.push(withReasoning)
+			if (currMsg.reasoning && currMsg.reasoning.trim().length > 0) {
+				const withReasoning: OpenAIAssistantWithReasoning = {
+					role: 'assistant',
+					content: currMsg.content,
+					reasoning_content: currMsg.reasoning,
+				};
+				newMessages.push(withReasoning);
 			} else {
-				newMessages.push(currMsg as OpenAILLMChatMessage)
+				newMessages.push({ role: 'assistant', content: currMsg.content });
 			}
-			continue
+			continue;
 		}
 
 		// (currMsg.role === 'tool' from here.) Drop a replayed duplicate so the request stays valid.
 		if (currMsg.id && seenToolCallIds.has(currMsg.id)) {
-			vibeLog.warn('convertToLLMMessage', `Пропущен дублирующий tool_call id: ${currMsg.id} (${currMsg.name})`)
-			continue
+			vibeLog.warn('convertToLLMMessage', `Пропущен дублирующий tool_call id: ${currMsg.id} (${currMsg.name})`);
+			continue;
 		}
-		if (currMsg.id) { seenToolCallIds.add(currMsg.id) }
+		if (currMsg.id) { seenToolCallIds.add(currMsg.id); }
 
 		// Append tool_call to the NEAREST preceding assistant message — not just
 		// the immediately previous one. OpenAI tools format permits multiple
@@ -522,15 +542,15 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 		// tool results otherwise, which dropped them from the next LLM request
 		// and caused minimax-style models to loop (they kept retrying because
 		// they never saw their previous tool results).
-		let nearestAssistant: OpenAILLMChatMessage | undefined = undefined
+		let nearestAssistant: (OpenAILLMChatMessage & { role: 'assistant' }) | OpenAIAssistantWithReasoning | undefined = undefined;
 		for (let j = newMessages.length - 1; j >= 0; j--) {
-			const m = newMessages[j]
-			if (m.role === 'assistant') { nearestAssistant = m; break }
-			if (m.role === 'user') { break } // user message ends the assistant→tools group
+			const m = newMessages[j];
+			if (m.role === 'assistant') { nearestAssistant = m; break; }
+			if (m.role === 'user') { break; } // user message ends the assistant→tools group
 		}
 		if (nearestAssistant) {
 			if (!nearestAssistant.tool_calls) {
-				nearestAssistant.tool_calls = []
+				nearestAssistant.tool_calls = [];
 			}
 			nearestAssistant.tool_calls.push({
 				type: 'function',
@@ -539,13 +559,13 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 					name: currMsg.name,
 					arguments: JSON.stringify(currMsg.rawParams)
 				}
-			})
+			});
 		} else {
 			// Genuinely orphan tool result (no preceding assistant in the same
 			// turn group). Synthesize a minimal assistant stub holding the
 			// tool_call so the tool_result can still be sent. Without this the
 			// LLM never sees the result, the model loops, and the agent stalls.
-			newMessages.push({
+			const orphanStub: OpenAILLMChatMessage = {
 				role: 'assistant',
 				content: '',
 				tool_calls: [{
@@ -556,7 +576,8 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 						arguments: JSON.stringify(currMsg.rawParams)
 					}
 				}]
-			} as OpenAILLMChatMessage)
+			};
+			newMessages.push(orphanStub);
 		}
 
 		// add the tool
@@ -564,11 +585,11 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 			role: 'tool',
 			tool_call_id: currMsg.id,
 			content: currMsg.content,
-		})
+		});
 	}
-	return newMessages
+	return newMessages;
 
-}
+};
 
 
 
@@ -601,31 +622,37 @@ assistant: ...content, call(name, id, params)
 user: ...content, result(id, content)
 */
 
-type AnthropicOrOpenAILLMMessage = AnthropicLLMChatMessage | OpenAILLMChatMessage
+type AnthropicOrOpenAILLMMessage = AnthropicLLMChatMessage | OpenAILLMChatMessage;
+
+/** Single content block of any LLM message's array-form `content` (text, image, tool_use,
+ *  tool_result, reasoning, …). Used to give a concrete, mutable element type when normalizing
+ *  array content in place — a `{ type: 'text'; text: string }` block is a member of every
+ *  variant, so it can be inserted/replaced without an `any` cast. */
+type LLMContentBlock = Exclude<AnthropicOrOpenAILLMMessage['content'], string>[number];
 
 const prepareMessages_anthropic_tools = (messages: SimpleLLMMessage[], supportsAnthropicReasoning: boolean): AnthropicOrOpenAILLMMessage[] => {
 	const newMessages: (AnthropicLLMChatMessage | (SimpleLLMMessage & { role: 'tool' }))[] = messages;
 
 	for (let i = 0; i < messages.length; i += 1) {
-		const currMsg = messages[i]
+		const currMsg = messages[i];
 
 		// add anthropic reasoning
 		if (currMsg.role === 'assistant') {
 			if (currMsg.anthropicReasoning && supportsAnthropicReasoning) {
-				const content = currMsg.content
+				const content = currMsg.content;
 				newMessages[i] = {
 					role: 'assistant',
 					content: content ? [...currMsg.anthropicReasoning, { type: 'text' as const, text: content }] : currMsg.anthropicReasoning
-				}
+				};
 			}
 			else {
 				newMessages[i] = {
 					role: 'assistant',
 					content: currMsg.content,
 					// strip away anthropicReasoning
-				}
+				};
 			}
-			continue
+			continue;
 		}
 
 		if (currMsg.role === 'user') {
@@ -674,32 +701,32 @@ const prepareMessages_anthropic_tools = (messages: SimpleLLMMessage[], supportsA
 				content: hasImages ? contentParts : (contentParts.length > 0 ? contentParts : (textContent || '')),
 			};
 			newMessages[i] = userMsg;
-			continue
+			continue;
 		}
 
 		if (currMsg.role === 'tool') {
 			// add anthropic tools
-			const prevMsg = 0 <= i - 1 && i - 1 <= newMessages.length ? newMessages[i - 1] : undefined
+			const prevMsg = 0 <= i - 1 && i - 1 <= newMessages.length ? newMessages[i - 1] : undefined;
 
 			// make it so the assistant called the tool
 			if (prevMsg?.role === 'assistant') {
-				if (typeof prevMsg.content === 'string') prevMsg.content = [{ type: 'text', text: prevMsg.content }]
-				prevMsg.content.push({ type: 'tool_use', id: currMsg.id, name: currMsg.name, input: currMsg.rawParams })
+				if (typeof prevMsg.content === 'string') { prevMsg.content = [{ type: 'text', text: prevMsg.content }]; }
+				prevMsg.content.push({ type: 'tool_use', id: currMsg.id, name: currMsg.name, input: currMsg.rawParams });
 			}
 
 			// turn each tool into a user message with tool results at the end
 			newMessages[i] = {
 				role: 'user',
 				content: [{ type: 'tool_result', tool_use_id: currMsg.id, content: currMsg.content }]
-			}
-			continue
+			};
+			continue;
 		}
 
 	}
 
 	// we just removed the tools
-	return newMessages as AnthropicLLMChatMessage[]
-}
+	return newMessages as AnthropicLLMChatMessage[];
+};
 
 
 const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthropicReasoning: boolean): AnthropicOrOpenAILLMMessage[] => {
@@ -707,30 +734,29 @@ const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthrop
 	const llmChatMessages: AnthropicOrOpenAILLMMessage[] = [];
 	for (let i = 0; i < messages.length; i += 1) {
 
-		const c = messages[i]
-		const next = 0 <= i + 1 && i + 1 <= messages.length - 1 ? messages[i + 1] : null
+		const c = messages[i];
+		const next = 0 <= i + 1 && i + 1 <= messages.length - 1 ? messages[i + 1] : null;
 
 		if (c.role === 'assistant') {
 			// if called a tool (message after it), re-add its XML to the message
 			// alternatively, could just hold onto the original output, but this way requires less piping raw strings everywhere
-			let content: AnthropicOrOpenAILLMMessage['content'] = c.content
+			let content: AnthropicOrOpenAILLMMessage['content'] = c.content;
 			if (next?.role === 'tool') {
-				content = `${content}\n\n${reParsedToolXMLString(next.name, next.rawParams)}`
+				content = `${content}\n\n${reParsedToolXMLString(next.name, next.rawParams)}`;
 			}
 
 			// anthropic reasoning
 			if (c.anthropicReasoning && supportsAnthropicReasoning) {
-				content = content ? [...c.anthropicReasoning, { type: 'text' as const, text: content }] : c.anthropicReasoning
+				content = content ? [...c.anthropicReasoning, { type: 'text' as const, text: content }] : c.anthropicReasoning;
 			}
 			llmChatMessages.push({
 				role: 'assistant',
 				content
-			})
+			});
 		}
 		// add user or tool to the previous user message
 		else if (c.role === 'user' || c.role === 'tool') {
-			if (c.role === 'tool')
-				c.content = `<${c.name}_result>\n${c.content}\n</${c.name}_result>`
+			if (c.role === 'tool') { c.content = `<${c.name}_result>\n${c.content}\n</${c.name}_result>`; }
 
 			if (llmChatMessages.length === 0 || llmChatMessages[llmChatMessages.length - 1].role !== 'user') {
 				// Convert images to Anthropic format if present (only for user messages)
@@ -805,7 +831,7 @@ const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthrop
 									},
 								});
 							}
-							lastMsg.content = contentArray as any;
+							lastMsg.content = contentArray;
 						} else {
 							// No images, just append text
 							lastMsg.content += '\n\n' + c.content;
@@ -848,8 +874,8 @@ const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthrop
 			}
 		}
 	}
-	return llmChatMessages
-}
+	return llmChatMessages;
+};
 
 
 // --- CHAT ---
@@ -865,32 +891,32 @@ const prepareOpenAIOrAnthropicMessages = ({
 	reservedOutputTokenSpace,
 	maxInputTokensSafety,
 }: {
-	messages: SimpleLLMMessage[],
-	systemMessage: string,
-	aiInstructions: string,
-	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated',
-	specialToolFormat: 'openai-style' | 'anthropic-style' | undefined,
-	supportsAnthropicReasoning: boolean,
-	contextWindow: number,
-	reservedOutputTokenSpace: number | null | undefined,
+	messages: SimpleLLMMessage[];
+	systemMessage: string;
+	aiInstructions: string;
+	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated';
+	specialToolFormat: 'openai-style' | 'anthropic-style' | undefined;
+	supportsAnthropicReasoning: boolean;
+	contextWindow: number;
+	reservedOutputTokenSpace: number | null | undefined;
 	/** Hard input-token cap for the legacy safetyTrim (0 = disabled). See MAX_INPUT_TOKENS_SAFETY_DEFAULT. */
-	maxInputTokensSafety?: number,
-}): { messages: AnthropicOrOpenAILLMMessage[], separateSystemMessage: string | undefined } => {
+	maxInputTokensSafety?: number;
+}): { messages: AnthropicOrOpenAILLMMessage[]; separateSystemMessage: string | undefined } => {
 
 	reservedOutputTokenSpace = Math.max(
 		contextWindow * 1 / 2, // reserve at least 1/2 of the token window for output (comment was stale: said 1/4)
 		reservedOutputTokenSpace ?? 4_096 // defaults to 4096
-	)
+	);
 	// Optimized: shallow clone + selective deep clone only for mutable fields
 	// Images (Uint8Array) are large and don't need cloning since we won't mutate them
-	let messages: (SimpleLLMMessage | { role: 'system', content: string })[] = messages_.map(msg => {
+	let messages: (SimpleLLMMessage | { role: 'system'; content: string })[] = messages_.map(msg => {
 		if (msg.role === 'user' && msg.images) {
 			// Shallow clone but keep images reference (we don't mutate images)
-			return { ...msg, images: msg.images }
+			return { ...msg, images: msg.images };
 		}
 		// For other messages, shallow clone is sufficient since content is string
-		return { ...msg }
-	}) as (SimpleLLMMessage | { role: 'system', content: string })[]
+		return { ...msg };
+	}) as (SimpleLLMMessage | { role: 'system'; content: string })[];
 
 	// ================ system message ================
 	// System message is assembled here and prepended to `messages` as `role: 'system'`.
@@ -902,10 +928,10 @@ const prepareOpenAIOrAnthropicMessages = ({
 	// system + chat together.
 	//
 	// XML-tagged sections keep the model from confusing system context with user-attached content (e.g. images).
-	const sysMsgParts: string[] = []
-	if (aiInstructions) sysMsgParts.push(`<workspace_guidelines>\n${aiInstructions}\n</workspace_guidelines>`)
-	if (systemMessage) sysMsgParts.push(`<assistant_instructions>\n${systemMessage}\n</assistant_instructions>`)
-	const combinedSystemMessage = sysMsgParts.join('\n\n')
+	const sysMsgParts: string[] = [];
+	if (aiInstructions) { sysMsgParts.push(`<workspace_guidelines>\n${aiInstructions}\n</workspace_guidelines>`); }
+	if (systemMessage) { sysMsgParts.push(`<assistant_instructions>\n${systemMessage}\n</assistant_instructions>`); }
+	const combinedSystemMessage = sysMsgParts.join('\n\n');
 
 	// D.16 diagnostic — split "system param arrived empty" vs "built full then trimmed".
 	// `systemMessage` here is the <assistant_instructions> body (chat_systemMessage + repo_context);
@@ -916,19 +942,19 @@ const prepareOpenAIOrAnthropicMessages = ({
 		sysParamLen: systemMessage.length,
 		aiInstructionsLen: aiInstructions.length,
 		combinedLen: combinedSystemMessage.length,
-	})
+	});
 
-	messages.unshift({ role: 'system', content: combinedSystemMessage })
+	messages.unshift({ role: 'system', content: combinedSystemMessage });
 
 	// ================ trim ================
-	messages = messages.map(m => ({ ...m, content: m.role !== 'tool' ? m.content.trim() : m.content }))
+	messages = messages.map(m => ({ ...m, content: m.role !== 'tool' ? m.content.trim() : m.content }));
 
-	type MesType = (typeof messages)[0]
+	type MesType = (typeof messages)[0];
 
 	// ================ fit into context ================
 
 	// the higher the weight, the higher the desire to truncate - TRIM HIGHEST WEIGHT MESSAGES
-	const alreadyTrimmedIdxes = new Set<number>()
+	const alreadyTrimmedIdxes = new Set<number>();
 	// Pin-protect (3074/3075): workspace guidelines (system message) and expanded /skill:
 	// bodies (prepended to the last USER message) must NEVER be truncated, or the model loses
 	// the procedure the user just invoked. Predicate is `isPinnedContextMessage` — it covers
@@ -942,51 +968,51 @@ const prepareOpenAIOrAnthropicMessages = ({
 	const lastExchangePins = computeLastExchangePinSet(
 		messages,
 		(contextWindow - reservedOutputTokenSpace) * CHARS_PER_TOKEN
-	)
+	);
 	const weight = (message: MesType, messages: MesType[], idx: number) => {
-		const base = message.content.length
+		const base = message.content.length;
 
 		// Hard pin: workspace guidelines (system) / expanded skill body (user). 3074/3075.
 		// Return 0 so `_findLargestByWeight` never picks it for trimming.
-		if (isPinnedContextMessage(message)) return 0
+		if (isPinnedContextMessage(message)) { return 0; }
 		// Hard pin: most recent assistant↔tool exchange (3074). Never truncate the freshest
 		// tool_result (or its tool_use turn) — losing it triggers a re-read loop.
-		if (lastExchangePins.has(idx)) return 0
+		if (lastExchangePins.has(idx)) { return 0; }
 
-		let multiplier: number
-		multiplier = 1 + (messages.length - 1 - idx) / messages.length // slow rampdown from 2 to 1 as index increases
+		let multiplier: number;
+		multiplier = 1 + (messages.length - 1 - idx) / messages.length; // slow rampdown from 2 to 1 as index increases
 		if (message.role === 'user') {
-			multiplier *= 1
+			multiplier *= 1;
 		}
 		else if (message.role === 'system') {
-			multiplier *= .01 // very low weight
+			multiplier *= .01; // very low weight
 		}
 		else {
-			multiplier *= 10 // llm tokens are far less valuable than user tokens
+			multiplier *= 10; // llm tokens are far less valuable than user tokens
 		}
 
 		// any already modified message should not be trimmed again
 		if (alreadyTrimmedIdxes.has(idx)) {
-			multiplier = 0
+			multiplier = 0;
 		}
 		// 1st and last messages should be very low weight
 		if (idx <= 1 || idx >= messages.length - 1 - 3) {
-			multiplier *= .05
+			multiplier *= .05;
 		}
-		return base * multiplier
-	}
+		return base * multiplier;
+	};
 
 	// D.16: selection is delegated to the pure, unit-tested `pickHeaviestTrimmableIndex` (returns -1
 	// when every message is weight 0 = pinned/empty, so the trim loops never crush the system).
 	const _findLargestByWeight = (messages_: MesType[]) =>
-		pickHeaviestTrimmableIndex(messages.map((m, i) => weight(m, messages_, i)))
+		pickHeaviestTrimmableIndex(messages.map((m, i) => weight(m, messages_, i)));
 
-	let totalLen = 0
-	for (const m of messages) { totalLen += m.content.length }
+	let totalLen = 0;
+	for (const m of messages) { totalLen += m.content.length; }
 	const charsNeedToTrim = totalLen - Math.max(
 		(contextWindow - reservedOutputTokenSpace) * CHARS_PER_TOKEN, // can be 0, in which case charsNeedToTrim=everything, bad
 		5_000 // ensure we don't trim at least 5k chars (just a random small value)
-	)
+	);
 
 
 	// <----------------------------------------->
@@ -994,42 +1020,42 @@ const prepareOpenAIOrAnthropicMessages = ({
 	//                        |    contextWindow |
 	//                     contextWindow - maxOut|putTokens
 	//                                          totalLen
-	let remainingCharsToTrim = charsNeedToTrim
-	let i = 0
+	let remainingCharsToTrim = charsNeedToTrim;
+	let i = 0;
 	// NO SILENT TRIMS: this context-budget loop rewrites history (truncates the heaviest
 	// messages to TRIM_TO_LEN-char stubs). If it fires, say so — silent history rewrites
 	// caused the 2026-06-07 cache-death incident that took a day to localize.
-	let budgetTrimCrushed = 0
-	let budgetTrimCharsCut = 0
+	let budgetTrimCrushed = 0;
+	let budgetTrimCharsCut = 0;
 
 	while (remainingCharsToTrim > 0) {
-		i += 1
-		if (i > 100) break
+		i += 1;
+		if (i > 100) { break; }
 
-		const trimIdx = _findLargestByWeight(messages)
-		if (trimIdx === -1) break // D.16: nothing trimmable (all pinned) — stop rather than crush the system
-		const m = messages[trimIdx]
+		const trimIdx = _findLargestByWeight(messages);
+		if (trimIdx === -1) { break; } // D.16: nothing trimmable (all pinned) — stop rather than crush the system
+		const m = messages[trimIdx];
 
 		// if can finish here, do
-		const numCharsWillTrim = m.content.length - TRIM_TO_LEN
+		const numCharsWillTrim = m.content.length - TRIM_TO_LEN;
 		if (numCharsWillTrim > remainingCharsToTrim) {
 			// trim remainingCharsToTrim + '...'.length chars
-			const beforeLen = m.content.length
-			m.content = m.content.slice(0, m.content.length - remainingCharsToTrim - '...'.length).trim() + '...'
-			budgetTrimCrushed += 1
-			budgetTrimCharsCut += (beforeLen - m.content.length)
-			break
+			const beforeLen = m.content.length;
+			m.content = m.content.slice(0, m.content.length - remainingCharsToTrim - '...'.length).trim() + '...';
+			budgetTrimCrushed += 1;
+			budgetTrimCharsCut += (beforeLen - m.content.length);
+			break;
 		}
 
-		remainingCharsToTrim -= numCharsWillTrim
-		const beforeLen = m.content.length
-		m.content = m.content.substring(0, TRIM_TO_LEN - '...'.length) + '...'
-		budgetTrimCrushed += 1
-		budgetTrimCharsCut += (beforeLen - m.content.length)
-		alreadyTrimmedIdxes.add(trimIdx)
+		remainingCharsToTrim -= numCharsWillTrim;
+		const beforeLen = m.content.length;
+		m.content = m.content.substring(0, TRIM_TO_LEN - '...'.length) + '...';
+		budgetTrimCrushed += 1;
+		budgetTrimCharsCut += (beforeLen - m.content.length);
+		alreadyTrimmedIdxes.add(trimIdx);
 	}
 	if (budgetTrimCrushed > 0) {
-		vibeLog.warn('ContextGuard', `Context-budget trim crushed ${budgetTrimCrushed} message(s) to ${TRIM_TO_LEN} chars (~${budgetTrimCharsCut.toLocaleString()} chars cut to fit the context window).`)
+		vibeLog.warn('ContextGuard', `Context-budget trim crushed ${budgetTrimCrushed} message(s) to ${TRIM_TO_LEN} chars (~${budgetTrimCharsCut.toLocaleString()} chars cut to fit the context window).`);
 	}
 
 	// ================ safety clamp to avoid TPM overage ================
@@ -1040,72 +1066,72 @@ const prepareOpenAIOrAnthropicMessages = ({
 		// silently crush history to 120-char stubs above a hardcoded 20k tokens.
 		const inputCap = (typeof maxInputTokensSafety === 'number' && Number.isFinite(maxInputTokensSafety) && maxInputTokensSafety > 0)
 			? Math.floor(maxInputTokensSafety)
-			: MAX_INPUT_TOKENS_SAFETY_DEFAULT
-		if (inputCap <= 0) return
+			: MAX_INPUT_TOKENS_SAFETY_DEFAULT;
+		if (inputCap <= 0) { return; }
 		// Estimate total tokens: text content + images + system message overhead
-		let textChars = 0
-		let imageTokens = 0
+		let textChars = 0;
+		let imageTokens = 0;
 		for (const m of messages) {
-			textChars += m.content.length
-			// Check if message has images (SimpleLLMMessage with images property)
-			if ('images' in m && m.images) {
-				imageTokens += estimateImageTokens(m.images)
+			textChars += m.content.length;
+			// Check if message has images (only the user-role SimpleLLMMessage carries them)
+			if (m.role === 'user' && m.images) {
+				imageTokens += estimateImageTokens(m.images);
 			}
 		}
 
 		// Add system message tokens (will be added separately or prepended)
-		const systemMessageTokens = Math.ceil(combinedSystemMessage.length / CHARS_PER_TOKEN)
+		const systemMessageTokens = Math.ceil(combinedSystemMessage.length / CHARS_PER_TOKEN);
 
 		// Message structure overhead: JSON formatting, role names, etc.
 		// Estimate ~8 tokens per message for structure (role, content wrapper, etc.)
-		const messageStructureOverhead = messages.length * 8
+		const messageStructureOverhead = messages.length * 8;
 
 		// Native tool definitions overhead (when using openai-style, tools are sent separately)
 		// Conservative estimate: ~500-2000 tokens depending on number of tools
 		// Since we don't have tool info here, use a conservative buffer
-		const nativeToolDefinitionsOverhead = specialToolFormat === 'openai-style' ? 1000 : 0
+		const nativeToolDefinitionsOverhead = specialToolFormat === 'openai-style' ? 1000 : 0;
 
 		// Total estimated tokens
-		const textTokens = Math.ceil(textChars / CHARS_PER_TOKEN)
-		const totalEstimatedTokens = textTokens + imageTokens + systemMessageTokens + messageStructureOverhead + nativeToolDefinitionsOverhead
+		const textTokens = Math.ceil(textChars / CHARS_PER_TOKEN);
+		const totalEstimatedTokens = textTokens + imageTokens + systemMessageTokens + messageStructureOverhead + nativeToolDefinitionsOverhead;
 
 		// If we're under the limit, no need to trim
-		if (totalEstimatedTokens <= inputCap) return
+		if (totalEstimatedTokens <= inputCap) { return; }
 
 		// Need to trim more aggressively
-		const excessTokens = totalEstimatedTokens - inputCap
-		const excessChars = excessTokens * CHARS_PER_TOKEN
+		const excessTokens = totalEstimatedTokens - inputCap;
+		const excessChars = excessTokens * CHARS_PER_TOKEN;
 
-		let guardLoops = 0
-		let charsTrimmed = 0
-		let messagesCrushed = 0
+		let guardLoops = 0;
+		let charsTrimmed = 0;
+		let messagesCrushed = 0;
 		while (charsTrimmed < excessChars && guardLoops < 200) {
-			guardLoops += 1
-			const trimIdx = _findLargestByWeight(messages)
-			if (trimIdx === -1) break // D.16: nothing trimmable (all pinned) — stop rather than crush the system
-			const m = messages[trimIdx]
+			guardLoops += 1;
+			const trimIdx = _findLargestByWeight(messages);
+			if (trimIdx === -1) { break; } // D.16: nothing trimmable (all pinned) — stop rather than crush the system
+			const m = messages[trimIdx];
 			if (m.content.length <= TRIM_TO_LEN) {
 				// Already tiny, skip to next largest
-				alreadyTrimmedIdxes.add(trimIdx)
-				continue
+				alreadyTrimmedIdxes.add(trimIdx);
+				continue;
 			}
-			const before = m.content.length
-			m.content = m.content.substring(0, TRIM_TO_LEN - '...'.length) + '...'
-			alreadyTrimmedIdxes.add(trimIdx)
-			charsTrimmed += (before - m.content.length)
-			messagesCrushed += 1
+			const before = m.content.length;
+			m.content = m.content.substring(0, TRIM_TO_LEN - '...'.length) + '...';
+			alreadyTrimmedIdxes.add(trimIdx);
+			charsTrimmed += (before - m.content.length);
+			messagesCrushed += 1;
 		}
 		// NEVER silent: this clamp rewrites history (cache-bust + model amnesia). If it fired,
 		// say so loudly — the 2026-06-07 incident took a day to localize because it didn't.
 		if (messagesCrushed > 0) {
-			vibeLog.warn('ContextGuard', `safetyTrim crushed ${messagesCrushed} message(s) to ${TRIM_TO_LEN} chars (~${charsTrimmed.toLocaleString()} chars cut; cap ${inputCap} tokens, estimated ${totalEstimatedTokens}).`)
+			vibeLog.warn('ContextGuard', `safetyTrim crushed ${messagesCrushed} message(s) to ${TRIM_TO_LEN} chars (~${charsTrimmed.toLocaleString()} chars cut; cap ${inputCap} tokens, estimated ${totalEstimatedTokens}).`);
 		}
-	}
+	};
 
-	safetyTrim()
+	safetyTrim();
 
 	// ================ system message hack ================
-	const newSysMsg = messages.shift()!.content
+	const newSysMsg = messages.shift()!.content;
 
 	// D.16 diagnostic — did the trim pipeline shrink the system between pre-trim and here?
 	// combinedSystemMessage is the pre-trim baseline (captured above at unshift time).
@@ -1114,7 +1140,7 @@ const prepareOpenAIOrAnthropicMessages = ({
 			preTrimLen: combinedSystemMessage.length,
 			postTrimLen: newSysMsg.length,
 			trimmedAway: combinedSystemMessage.length - newSysMsg.length,
-		})
+		});
 	}
 
 
@@ -1124,31 +1150,28 @@ const prepareOpenAIOrAnthropicMessages = ({
 	// shape (which excludes `role: 'system'` — system content travels via the
 	// `separateSystemMessage` return field instead).
 
-	let llmChatMessages: AnthropicOrOpenAILLMMessage[] = []
+	let llmChatMessages: AnthropicOrOpenAILLMMessage[] = [];
 	if (!specialToolFormat) { // XML tool behavior
-		llmChatMessages = prepareMessages_XML_tools(messages as SimpleLLMMessage[], supportsAnthropicReasoning)
+		llmChatMessages = prepareMessages_XML_tools(messages as SimpleLLMMessage[], supportsAnthropicReasoning);
 	}
 	else if (specialToolFormat === 'anthropic-style') {
-		llmChatMessages = prepareMessages_anthropic_tools(messages as SimpleLLMMessage[], supportsAnthropicReasoning)
+		llmChatMessages = prepareMessages_anthropic_tools(messages as SimpleLLMMessage[], supportsAnthropicReasoning);
 	}
 	else if (specialToolFormat === 'openai-style') {
-		llmChatMessages = prepareMessages_openai_tools(messages as SimpleLLMMessage[])
+		llmChatMessages = prepareMessages_openai_tools(messages as SimpleLLMMessage[]);
 	}
-	const llmMessages = llmChatMessages
+	const llmMessages = llmChatMessages;
 
 
 	// ================ system message add as first llmMessage ================
 
-	let separateSystemMessageStr: string | undefined = undefined
+	let separateSystemMessageStr: string | undefined = undefined;
 
 	// if supports system message
 	if (supportsSystemMessage) {
-		if (supportsSystemMessage === 'separated')
-			separateSystemMessageStr = newSysMsg
-		else if (supportsSystemMessage === 'system-role')
-			llmMessages.unshift({ role: 'system', content: newSysMsg }) // add new first message
-		else if (supportsSystemMessage === 'developer-role')
-			llmMessages.unshift({ role: 'developer', content: newSysMsg }) // add new first message
+		if (supportsSystemMessage === 'separated') { separateSystemMessageStr = newSysMsg; }
+		else if (supportsSystemMessage === 'system-role') { llmMessages.unshift({ role: 'system', content: newSysMsg }); } // add new first message
+		else if (supportsSystemMessage === 'developer-role') { llmMessages.unshift({ role: 'developer', content: newSysMsg }); } // add new first message
 	}
 	// if does not support system message
 	else {
@@ -1164,16 +1187,19 @@ const prepareOpenAIOrAnthropicMessages = ({
 			llmMessages.splice(0, 1); // delete first message
 			llmMessages.unshift(newFirstMessage); // add new first message
 		} else {
-			// Content is an array (may contain images/text parts)
-			// Prepend system message to the first text part, or add a new text part
-			const contentArray = [...firstMsg.content] as any[];
-			const firstTextIndex = contentArray.findIndex((c: any) => c.type === 'text');
+			// Content is an array (may contain images/text parts).
+			// firstMsg.content is an array here (the string case is handled above), so the spread
+			// preserves its element union and the `.type === 'text'` narrowing is type-checked.
+			const contentArray = [...firstMsg.content];
+			const firstTextIndex = contentArray.findIndex(c => c.type === 'text');
 
 			if (firstTextIndex !== -1) {
 				// Prepend to existing text part
+				const existing = contentArray[firstTextIndex];
+				const existingText = existing.type === 'text' ? existing.text : '';
 				contentArray[firstTextIndex] = {
 					type: 'text',
-					text: systemMsgPrefix + (contentArray[firstTextIndex] as any).text
+					text: systemMsgPrefix + existingText
 				};
 			} else {
 				// No text part exists, add one at the beginning
@@ -1183,9 +1209,12 @@ const prepareOpenAIOrAnthropicMessages = ({
 				});
 			}
 
-			const newFirstMessage: AnthropicOrOpenAILLMMessage = {
+			// `contentArray` carries the first message's original blocks (the system prefix was
+			// merged into its text part). Re-tagging as a user message preserves the prior runtime
+			// behavior; type the content as the user-message content rather than `any`.
+			const newFirstMessage: AnthropicLLMChatMessage = {
 				role: 'user',
-				content: contentArray
+				content: contentArray as (AnthropicLLMChatMessage & { role: 'user' })['content']
 			};
 			llmMessages.splice(0, 1); // delete first message
 			llmMessages.unshift(newFirstMessage); // add new first message
@@ -1195,10 +1224,10 @@ const prepareOpenAIOrAnthropicMessages = ({
 
 	// ================ no empty message ================
 	for (let i = 0; i < llmMessages.length; i += 1) {
-		const currMsg: AnthropicOrOpenAILLMMessage = llmMessages[i]
-		const nextMsg: AnthropicOrOpenAILLMMessage | undefined = llmMessages[i + 1]
+		const currMsg: AnthropicOrOpenAILLMMessage = llmMessages[i];
+		const nextMsg: AnthropicOrOpenAILLMMessage | undefined = llmMessages[i + 1];
 
-		if (currMsg.role === 'tool') continue
+		if (currMsg.role === 'tool') { continue; }
 
 		// Detect tool-call-only assistant turn: text payload is empty, but a tool_result
 		// follows (or this very message contains tool_use blocks). Per OpenAI spec the
@@ -1209,91 +1238,101 @@ const prepareOpenAIOrAnthropicMessages = ({
 		// So: for tool-call-only turns we keep content as an empty string (valid spec),
 		// and only fall back to EMPTY_MESSAGE for true empty text turns (no tool_calls).
 		const isToolCallOnlyTurn = nextMsg?.role === 'tool'
-			|| (Array.isArray(currMsg.content) && currMsg.content.some(c => c.type === 'tool_result' || c.type === 'tool_use'))
+			|| (Array.isArray(currMsg.content) && currMsg.content.some(c => c.type === 'tool_result' || c.type === 'tool_use'));
 
 		// if content is a string, replace string with empty msg
 		if (typeof currMsg.content === 'string') {
 			if (!currMsg.content && !isToolCallOnlyTurn) {
-				currMsg.content = EMPTY_MESSAGE
+				currMsg.content = EMPTY_MESSAGE;
 			}
 			// else: leave empty string as-is for tool-call-only turns, or keep actual text
 		}
 		else {
+			// `currMsg.content` is an array (string case handled above). Alias it through a concrete
+			// element type so in-place text-block edits below are type-checked without an `any` cast;
+			// it's the same array reference, so mutations still land on the original message.
+			const content = currMsg.content as LLMContentBlock[];
+
 			// allowed to be empty if has a tool in it or following it
-			if (currMsg.content.find(c => c.type === 'tool_result' || c.type === 'tool_use')) {
-				currMsg.content = currMsg.content.filter(c => !(c.type === 'text' && !c.text)) as any
-				continue
+			if (content.find(c => c.type === 'tool_result' || c.type === 'tool_use')) {
+				// Drop empty text blocks in place (same array reference as currMsg.content),
+				// matching the previous filter-and-reassign behavior without a union reassignment.
+				for (let k = content.length - 1; k >= 0; k--) {
+					const block = content[k];
+					if (block.type === 'text' && !block.text) { content.splice(k, 1); }
+				}
+				continue;
 			}
-			if (nextMsg?.role === 'tool') continue
+			if (nextMsg?.role === 'tool') { continue; }
 
 			// Check if we have images in the content array
-			const hasImagesInContent = currMsg.content.some(c => c.type === 'image' || c.type === 'image_url');
+			const hasImagesInContent = content.some(c => c.type === 'image' || c.type === 'image_url');
 
 			// For messages with images, we need a proper text part (not empty) — but no English boilerplate.
 			if (hasImagesInContent) {
-				const textPartIndex = currMsg.content.findIndex(c => c.type === 'text');
+				const textPartIndex = content.findIndex(c => c.type === 'text');
 				const placeholder = '[user attached image]';
 
 				if (textPartIndex === -1) {
-					currMsg.content.unshift({ type: 'text', text: placeholder } as any);
+					content.unshift({ type: 'text', text: placeholder });
 				} else {
-					const textPart = currMsg.content[textPartIndex];
+					const textPart = content[textPartIndex];
 					if (textPart.type === 'text' && (!textPart.text || textPart.text.trim() === '' || textPart.text === EMPTY_MESSAGE)) {
-						currMsg.content[textPartIndex] = { type: 'text', text: placeholder } as any;
+						content[textPartIndex] = { type: 'text', text: placeholder };
 					}
 				}
 			} else {
 				// No images, just replace empty text with EMPTY_MESSAGE
-				for (const c of currMsg.content) {
-					if (c.type === 'text') c.text = c.text || EMPTY_MESSAGE
+				for (const c of content) {
+					if (c.type === 'text') { c.text = c.text || EMPTY_MESSAGE; }
 				}
 			}
 
 			// If array is completely empty, add a text entry
-			if (currMsg.content.length === 0) currMsg.content = [{ type: 'text', text: EMPTY_MESSAGE }]
+			if (content.length === 0) { currMsg.content = [{ type: 'text', text: EMPTY_MESSAGE }]; }
 		}
 	}
 
 	return {
 		messages: llmMessages,
 		separateSystemMessage: separateSystemMessageStr,
-	} as const
-}
+	} as const;
+};
 
 
 
 
-type GeminiUserPart = (GeminiLLMChatMessage & { role: 'user' })['parts'][0]
-type GeminiModelPart = (GeminiLLMChatMessage & { role: 'model' })['parts'][0]
+type GeminiUserPart = (GeminiLLMChatMessage & { role: 'user' })['parts'][0];
+type GeminiModelPart = (GeminiLLMChatMessage & { role: 'model' })['parts'][0];
 const prepareGeminiMessages = (messages: AnthropicLLMChatMessage[]) => {
-	let latestToolName: ToolName | undefined = undefined
+	let latestToolName: ToolName | undefined = undefined;
 	const messages2: GeminiLLMChatMessage[] = messages.map((m): GeminiLLMChatMessage | null => {
 		if (m.role === 'assistant') {
 			if (typeof m.content === 'string') {
-				return { role: 'model', parts: [{ text: m.content }] }
+				return { role: 'model', parts: [{ text: m.content }] };
 			}
 			else {
 				const parts: GeminiModelPart[] = m.content.map((c): GeminiModelPart | null => {
 					if (c.type === 'text') {
-						return { text: c.text }
+						return { text: c.text };
 					}
 					else if (c.type === 'tool_use') {
-						latestToolName = c.name
-						return { functionCall: { id: c.id, name: c.name, args: c.input } }
+						latestToolName = c.name;
+						return { functionCall: { id: c.id, name: c.name, args: c.input } };
 					}
-					else return null
-				}).filter(m => !!m)
-				return { role: 'model', parts, }
+					else { return null; }
+				}).filter(m => !!m);
+				return { role: 'model', parts, };
 			}
 		}
 		else if (m.role === 'user') {
 			if (typeof m.content === 'string') {
-				return { role: 'user', parts: [{ text: m.content }] } satisfies GeminiLLMChatMessage
+				return { role: 'user', parts: [{ text: m.content }] } satisfies GeminiLLMChatMessage;
 			}
 			else {
 				const parts: GeminiUserPart[] = m.content.map((c): GeminiUserPart | null => {
 					if (c.type === 'text') {
-						return { text: c.text }
+						return { text: c.text };
 					}
 					else if (c.type === 'image') {
 						// Convert Anthropic image format to Gemini inlineData format
@@ -1302,18 +1341,19 @@ const prepareGeminiMessages = (messages: AnthropicLLMChatMessage[]) => {
 								mimeType: c.source.media_type,
 								data: c.source.data,
 							},
-						}
+						};
 					}
 					else if (c.type === 'tool_result') {
-						if (!latestToolName) return null
-						return { functionResponse: { id: c.tool_use_id, name: latestToolName, response: { output: c.content } } }
+						if (!latestToolName) { return null; }
+						return { functionResponse: { id: c.tool_use_id, name: latestToolName, response: { output: c.content } } };
 					}
-					else return null
-				}).filter(m => !!m)
+					else { return null; }
+				}).filter(m => !!m);
 
-				// Ensure we have at least one part, and if we have images, ensure we have text
-				const hasImages = parts.some(p => 'inlineData' in p);
-				const hasText = parts.some(p => 'text' in p);
+				// Ensure we have at least one part, and if we have images, ensure we have text.
+				// Parts are local literals, so own-property checks match the previous `in` semantics.
+				const hasImages = parts.some(p => Object.hasOwn(p, 'inlineData'));
+				const hasText = parts.some(p => Object.hasOwn(p, 'text'));
 
 				if (parts.length === 0) {
 					parts.push({ text: '(empty message)' });
@@ -1322,42 +1362,42 @@ const prepareGeminiMessages = (messages: AnthropicLLMChatMessage[]) => {
 					parts.unshift({ text: '(empty message)' });
 				}
 
-				return { role: 'user', parts, }
+				return { role: 'user', parts, };
 			}
 
 		}
-		else return null
-	}).filter(m => !!m)
+		else { return null; }
+	}).filter(m => !!m);
 
-	return messages2
-}
+	return messages2;
+};
 
 
 const prepareMessages = (params: {
-	messages: SimpleLLMMessage[],
-	systemMessage: string,
-	aiInstructions: string,
-	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated',
-	specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined,
-	supportsAnthropicReasoning: boolean,
-	contextWindow: number,
-	reservedOutputTokenSpace: number | null | undefined,
-	maxInputTokensSafety?: number,
-	providerName: ProviderName
-}): { messages: LLMChatMessage[], separateSystemMessage: string | undefined } => {
+	messages: SimpleLLMMessage[];
+	systemMessage: string;
+	aiInstructions: string;
+	supportsSystemMessage: false | 'system-role' | 'developer-role' | 'separated';
+	specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined;
+	supportsAnthropicReasoning: boolean;
+	contextWindow: number;
+	reservedOutputTokenSpace: number | null | undefined;
+	maxInputTokensSafety?: number;
+	providerName: ProviderName;
+}): { messages: LLMChatMessage[]; separateSystemMessage: string | undefined } => {
 
-	const specialFormat = params.specialToolFormat // this is just for ts stupidness
+	const specialFormat = params.specialToolFormat; // this is just for ts stupidness
 
 	// if need to convert to gemini style of messaes, do that (treat as anthropic style, then convert to gemini style)
 	if (params.providerName === 'gemini' || specialFormat === 'gemini-style') {
-		const res = prepareOpenAIOrAnthropicMessages({ ...params, specialToolFormat: specialFormat === 'gemini-style' ? 'anthropic-style' : undefined })
-		const messages = res.messages as AnthropicLLMChatMessage[]
-		const messages2 = prepareGeminiMessages(messages)
-		return { messages: messages2, separateSystemMessage: res.separateSystemMessage }
+		const res = prepareOpenAIOrAnthropicMessages({ ...params, specialToolFormat: specialFormat === 'gemini-style' ? 'anthropic-style' : undefined });
+		const messages = res.messages as AnthropicLLMChatMessage[];
+		const messages2 = prepareGeminiMessages(messages);
+		return { messages: messages2, separateSystemMessage: res.separateSystemMessage };
 	}
 
-	return prepareOpenAIOrAnthropicMessages({ ...params, specialToolFormat: specialFormat })
-}
+	return prepareOpenAIOrAnthropicMessages({ ...params, specialToolFormat: specialFormat });
+};
 
 
 
@@ -1393,12 +1433,12 @@ export interface IConvertToLLMMessageService {
 	readonly _serviceBrand: undefined;
 	/** Build a composition breakdown of the prompt for the selected model (powers the Context Report command). Read-only — sends nothing. */
 	buildContextBreakdown(modelSelection: ModelSelection | null): Promise<ContextBreakdown>;
-	prepareLLMSimpleMessages: (opts: { simpleMessages: SimpleLLMMessage[], systemMessage: string, modelSelection: ModelSelection | null, featureName: FeatureName }) => { messages: LLMChatMessage[], separateSystemMessage: string | undefined }
-	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[], chatMode: ChatMode, modelSelection: ModelSelection | null, repoIndexerPromise?: Promise<{ results: string[], metrics: any } | null> }) => Promise<{ messages: LLMChatMessage[], separateSystemMessage: string | undefined }>
-	prepareFIMMessage(opts: { messages: LLMFIMMessage, modelSelection: ModelSelection | null, featureName: FeatureName, languageId?: string }): { prefix: string, suffix: string, stopTokens: string[] }
-	startRepoIndexerQuery: (chatMessages: ChatMessage[], chatMode: ChatMode) => Promise<{ results: string[], metrics: any } | null>
+	prepareLLMSimpleMessages: (opts: { simpleMessages: SimpleLLMMessage[]; systemMessage: string; modelSelection: ModelSelection | null; featureName: FeatureName }) => { messages: LLMChatMessage[]; separateSystemMessage: string | undefined };
+	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[]; chatMode: ChatMode; modelSelection: ModelSelection | null; repoIndexerPromise?: Promise<{ results: string[]; metrics: QueryMetrics } | null> }) => Promise<{ messages: LLMChatMessage[]; separateSystemMessage: string | undefined }>;
+	prepareFIMMessage(opts: { messages: LLMFIMMessage; modelSelection: ModelSelection | null; featureName: FeatureName; languageId?: string }): { prefix: string; suffix: string; stopTokens: string[] };
+	startRepoIndexerQuery: (chatMessages: ChatMessage[], chatMode: ChatMode) => Promise<{ results: string[]; metrics: QueryMetrics } | null>;
 	/** Feed back a provider-reported prompt token count so the token-budget estimator can self-calibrate per (provider×model). No-op until a prompt has been built for that model this session. */
-	recordActualPromptTokens(providerName: string, modelName: string, realPromptTokens: number): void
+	recordActualPromptTokens(providerName: string, modelName: string, realPromptTokens: number): void;
 }
 
 export const IConvertToLLMMessageService = createDecorator<IConvertToLLMMessageService>('ConvertToLLMMessageService');
@@ -1442,12 +1482,12 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@IVibeProjectRulesService private readonly projectRulesService: IVibeProjectRulesService,
 		@INotificationService private readonly notificationService: INotificationService,
 	) {
-		super()
+		super();
 		// Restore persisted token-calibration factors (stable per model tokenizer) so the budget
 		// estimator doesn't re-learn from scratch every window reload. Populates the existing map.
 		try {
-			const restored = deserializeCalibration(this.storageService.get(TOKEN_CALIBRATION_STORAGE_KEY, StorageScope.APPLICATION))
-			for (const [k, v] of restored) { this._tokenCalibrationByModel.set(k, v) }
+			const restored = deserializeCalibration(this.storageService.get(TOKEN_CALIBRATION_STORAGE_KEY, StorageScope.APPLICATION));
+			for (const [k, v] of restored) { this._tokenCalibrationByModel.set(k, v); }
 		} catch { /* corrupted blob — start fresh */ }
 	}
 
@@ -1485,7 +1525,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			return parts.join('\n\n').trim();
 		}
 		catch (e) {
-			return ''
+			return '';
 		}
 	}
 
@@ -1494,40 +1534,40 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const globalAIInstructions = this.vibeideSettingsService.state.globalSettings.aiInstructions;
 		const vibeRulesFileContent = this._getVibeRulesFileContents(activation);
 
-		const ans: string[] = []
-		if (globalAIInstructions) ans.push(globalAIInstructions)
+		const ans: string[] = [];
+		if (globalAIInstructions) { ans.push(globalAIInstructions); }
 		// Binding framing: the model otherwise treats the labeled `[Source: …]` rules block as
 		// reference material, not as instructions, and ignores it (see
 		// docs/knowledge/agent-collaboration/why-models-ignore-injected-rules.md). Wrap it in an
 		// imperative envelope — mirrors how <session_goals> below is obeyed. Static text → no
 		// effect on the system-message cache key.
-		if (vibeRulesFileContent) ans.push(`<project_rules>\nЭто ОБЯЗАТЕЛЬНЫЕ правила этого проекта. Они приоритетнее твоих дефолтов и общих инструкций; при конфликте — следуй им. Это не справка, а прямые указания — соблюдай их буквально.\n\n${vibeRulesFileContent}\n</project_rules>`)
+		if (vibeRulesFileContent) { ans.push(`<project_rules>\nЭто ОБЯЗАТЕЛЬНЫЕ правила этого проекта. Они приоритетнее твоих дефолтов и общих инструкций; при конфликте — следуй им. Это не справка, а прямые указания — соблюдай их буквально.\n\n${vibeRulesFileContent}\n</project_rules>`); }
 		if (this.workspaceContextService.getWorkspace().folders.length > 0) {
-			ans.push(VIBE_DOTVIBE_AGENT_PLAYBOOK)
+			ans.push(VIBE_DOTVIBE_AGENT_PLAYBOOK);
 		}
 		// Inject current .vibe/goals.md with medium-strength framing: the model should actively work
 		// toward the goals and self-check against them, but they are NOT a hard contract — the user's
 		// live request and <project_rules> take precedence (goals can be stale/aspirational). Keeps the
 		// original "write to the ROOT file, no subfolders" instruction that fixed the invent-a-new-goals-
 		// file incident. Empty/template goals.md contributes nothing.
-		const sessionGoals = this._getVibeGoalsFileContent()
+		const sessionGoals = this._getVibeGoalsFileContent();
 		if (sessionGoals) {
-			ans.push(`<session_goals source=".vibe/goals.md">\nАктивные цели этой сессии — держи их в фокусе и веди работу к ним; перед завершением хода сверяйся, приблизил ли ты их. НО приоритет: живой запрос пользователя и <project_rules> важнее — если новая просьба противоречит целям, следуй просьбе и предложи обновить цели. Записывать или обновлять цели — ИМЕННО в корневой .vibe/goals.md (НЕ создавай подпапки .vibe/goals/… и не заводи отдельные файлы целей).\n\n${sessionGoals}\n</session_goals>`)
+			ans.push(`<session_goals source=".vibe/goals.md">\nАктивные цели этой сессии — держи их в фокусе и веди работу к ним; перед завершением хода сверяйся, приблизил ли ты их. НО приоритет: живой запрос пользователя и <project_rules> важнее — если новая просьба противоречит целям, следуй просьбе и предложи обновить цели. Записывать или обновлять цели — ИМЕННО в корневой .vibe/goals.md (НЕ создавай подпапки .vibe/goals/… и не заводи отдельные файлы целей).\n\n${sessionGoals}\n</session_goals>`);
 		}
 		// R.x — passive referenced-files block: content of files LINKED from project rules
 		// (Cursor-style `mdc:`/relative links), e.g. docs/knowledge.md. Reference material, NOT
 		// directives — deliberately kept OUT of the binding <project_rules> envelope.
-		const linkedRefs = this.projectRulesService.getLinkedReferences()
+		const linkedRefs = this.projectRulesService.getLinkedReferences();
 		if (linkedRefs) {
-			ans.push(`<referenced_files>\nФайлы, на которые ссылаются правила проекта (база знаний и т.п.). Это СПРАВОЧНЫЙ материал — используй его при формировании ответов, но это НЕ обязательные директивы (в отличие от <project_rules>).\n\n${linkedRefs}\n</referenced_files>`)
+			ans.push(`<referenced_files>\nФайлы, на которые ссылаются правила проекта (база знаний и т.п.). Это СПРАВОЧНЫЙ материал — используй его при формировании ответов, но это НЕ обязательные директивы (в отличие от <project_rules>).\n\n${linkedRefs}\n</referenced_files>`);
 		}
-		return ans.join('\n\n')
+		return ans.join('\n\n');
 	}
 
 
 	// system message with caching
 	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined, providerName?: string, modelName?: string) => {
-		const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath)
+		const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
 
 		const openedURIs = this.modelService.getModels().filter(m => m.isAttachedToEditor()).map(m => m.uri.fsPath) || [];
 		const activeURI = this.editorService.activeEditor?.resource?.fsPath;
@@ -1549,18 +1589,18 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			cutOffMessage: chatMode === 'agent' || chatMode === 'gather' || chatMode === 'plan' ?
 				`...Directories string cut off, use tools to read more...`
 				: `...Directories string cut off, ask user for more if necessary...`
-		})
+		});
 
 		// Native function-calling models (specialToolFormat set) receive tools via
 		// the SDK's `tools:` field — duplicating them in the system prompt as XML
 		// invites the model to hallucinate by-index references ("MCP tool 1"). Only
 		// emit XML definitions when no native channel is available.
-		const includeXMLToolDefinitions = !specialToolFormat
-		const modelFamily = detectModelFamily(providerName, modelName, specialToolFormat)
+		const includeXMLToolDefinitions = !specialToolFormat;
+		const modelFamily = detectModelFamily(providerName, modelName, specialToolFormat);
 
-		const mcpTools = this.mcpService.getMCPTools()
+		const mcpTools = this.mcpService.getMCPTools();
 
-		const persistentTerminalIDs = this.terminalToolService.listPersistentTerminalIds()
+		const persistentTerminalIDs = this.terminalToolService.listPersistentTerminalIds();
 
 		// Get relevant memories for the current context (use active file and recent user messages as query)
 		let relevantMemories: string | undefined;
@@ -1594,7 +1634,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			}
 		}
 
-		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, modelFamily })
+		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, modelFamily });
 
 		// Cache the result
 		this._systemMessageCache.set(cacheKey, { message: systemMessage, timestamp: now });
@@ -1608,8 +1648,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			}
 		}
 
-		return systemMessage
-	}
+		return systemMessage;
+	};
 
 
 
@@ -1617,11 +1657,11 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 	// --- LLM Chat messages ---
 
 	private _chatMessagesToSimpleMessages(chatMessages: ChatMessage[]): SimpleLLMMessage[] {
-		const simpleLLMMessages: SimpleLLMMessage[] = []
+		const simpleLLMMessages: SimpleLLMMessage[] = [];
 
 		for (const m of chatMessages) {
-			if (m.role === 'checkpoint') continue
-			if (m.role === 'interrupted_streaming_tool') continue
+			if (m.role === 'checkpoint') { continue; }
+			if (m.role === 'interrupted_streaming_tool') { continue; }
 			if (m.role === 'assistant') {
 				simpleLLMMessages.push({
 					role: m.role,
@@ -1629,7 +1669,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 					anthropicReasoning: m.anthropicReasoning,
 					reasoning: m.reasoning || undefined,
 					pinned: m.pinned,
-				})
+				});
 			}
 			else if (m.role === 'tool') {
 				simpleLLMMessages.push({
@@ -1639,7 +1679,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 					id: m.id,
 					rawParams: m.rawParams,
 					pinned: m.pinned,
-				})
+				});
 			}
 			else if (m.role === 'user') {
 				simpleLLMMessages.push({
@@ -1648,49 +1688,49 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 					images: m.images,
 					pinned: m.pinned,
 					isSyntheticNudge: m.isSyntheticNudge,
-				})
+				});
 			}
 		}
-		return simpleLLMMessages
+		return simpleLLMMessages;
 	}
 
 	recordActualPromptTokens: IConvertToLLMMessageService['recordActualPromptTokens'] = (providerName, modelName, realPromptTokens) => {
-		const key = `${providerName}:${modelName}`
-		const est = this._lastRawPromptEstimateByModel.get(key)
-		if (est === undefined) { return } // no prompt built for this model yet — nothing to pair against
-		const prev = this._tokenCalibrationByModel.get(key)
-		const maxFactor = this.configurationService.getValue<number>('vibeide.context.tokenCalibrationMaxFactor') ?? TOKEN_CALIBRATION_MAX
-		const next = updateTokenCalibration(prev, realPromptTokens, est, maxFactor)
-		this._tokenCalibrationByModel.set(key, next)
-		vibeLog.debug('tokenCalibration', `${key}: real=${realPromptTokens} est=${est} factor ${(prev ?? 1).toFixed(3)} → ${next.toFixed(3)}`)
+		const key = `${providerName}:${modelName}`;
+		const est = this._lastRawPromptEstimateByModel.get(key);
+		if (est === undefined) { return; } // no prompt built for this model yet — nothing to pair against
+		const prev = this._tokenCalibrationByModel.get(key);
+		const maxFactor = this.configurationService.getValue<number>('vibeide.context.tokenCalibrationMaxFactor') ?? TOKEN_CALIBRATION_MAX;
+		const next = updateTokenCalibration(prev, realPromptTokens, est, maxFactor);
+		this._tokenCalibrationByModel.set(key, next);
+		vibeLog.debug('tokenCalibration', `${key}: real=${realPromptTokens} est=${est} factor ${(prev ?? 1).toFixed(3)} → ${next.toFixed(3)}`);
 		// Persist (APPLICATION scope, MACHINE target) so the factor survives reloads. Payload is a
 		// tiny JSON object keyed by provider:model; storage writes are batched by the platform.
 		try {
-			this.storageService.store(TOKEN_CALIBRATION_STORAGE_KEY, serializeCalibration(this._tokenCalibrationByModel), StorageScope.APPLICATION, StorageTarget.MACHINE)
+			this.storageService.store(TOKEN_CALIBRATION_STORAGE_KEY, serializeCalibration(this._tokenCalibrationByModel), StorageScope.APPLICATION, StorageTarget.MACHINE);
 		} catch { /* non-fatal — calibration still works in-memory this session */ }
-	}
+	};
 
 	prepareLLMSimpleMessages: IConvertToLLMMessageService['prepareLLMSimpleMessages'] = ({ simpleMessages, systemMessage, modelSelection, featureName }) => {
-		if (modelSelection === null) return { messages: [], separateSystemMessage: undefined }
+		if (modelSelection === null) { return { messages: [], separateSystemMessage: undefined }; }
 
-		const { overridesOfModel, settingsOfProvider } = this.vibeideSettingsService.state
+		const { overridesOfModel, settingsOfProvider } = this.vibeideSettingsService.state;
 
-		const { providerName, modelName } = modelSelection
+		const { providerName, modelName } = modelSelection;
 		// Skip "auto" - it's not a real provider
 		if (providerName === 'auto' && modelName === 'auto') {
-			throw new Error('Cannot prepare messages for "auto" model selection - must resolve to a real model first')
+			throw new Error('Cannot prepare messages for "auto" model selection - must resolve to a real model first');
 		}
 		const catalogInfo = this.remoteCatalogService.getCachedModelInfo(providerName, modelName);
 		const {
 			specialToolFormat,
 			contextWindow,
 			supportsSystemMessage,
-		} = getModelCapabilities(providerName, modelName, overridesOfModel, catalogInfo)
+		} = getModelCapabilities(providerName, modelName, overridesOfModel, catalogInfo);
 
-		const modelSelectionOptions = this.vibeideSettingsService.state.optionsOfModelSelection[featureName][modelSelection.providerName]?.[modelSelection.modelName]
+		const modelSelectionOptions = this.vibeideSettingsService.state.optionsOfModelSelection[featureName][modelSelection.providerName]?.[modelSelection.modelName];
 
 		// Detect if local provider for optimizations
-		const isLocal = isLocalProvider(providerName, settingsOfProvider)
+		const isLocal = isLocalProvider(providerName, settingsOfProvider);
 
 		// Get combined AI instructions (skip for local edit features to reduce tokens)
 		const aiInstructions = (isLocal && (featureName === 'Ctrl+K' || featureName === 'Apply'))
@@ -1700,16 +1740,16 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// Keep this method synchronous (indexer enrichment handled in Chat flow)
 		const enrichedSystemMessage = systemMessage;
 
-		const isReasoningEnabled = getIsReasoningEnabledState(featureName, providerName, modelName, modelSelectionOptions, overridesOfModel)
-		const reservedOutputTokenSpace = getReservedOutputTokenSpace(providerName, modelName, { isReasoningEnabled, overridesOfModel })
+		const isReasoningEnabled = getIsReasoningEnabledState(featureName, providerName, modelName, modelSelectionOptions, overridesOfModel);
+		const reservedOutputTokenSpace = getReservedOutputTokenSpace(providerName, modelName, { isReasoningEnabled, overridesOfModel });
 
 		// Apply feature-specific token caps for local models
-		let effectiveContextWindow = contextWindow
-		let effectiveReservedOutput = reservedOutputTokenSpace
+		let effectiveContextWindow = contextWindow;
+		let effectiveReservedOutput = reservedOutputTokenSpace;
 		if (isLocal) {
-			const featureTokenCap = LOCAL_MODEL_TOKEN_CAPS[featureName] || 4096
-			effectiveContextWindow = Math.min(effectiveContextWindow, featureTokenCap + (reservedOutputTokenSpace || LOCAL_MODEL_RESERVED_OUTPUT))
-			effectiveReservedOutput = LOCAL_MODEL_RESERVED_OUTPUT // Use smaller reserved space for locals
+			const featureTokenCap = LOCAL_MODEL_TOKEN_CAPS[featureName] || 4096;
+			effectiveContextWindow = Math.min(effectiveContextWindow, featureTokenCap + (reservedOutputTokenSpace || LOCAL_MODEL_RESERVED_OUTPUT));
+			effectiveReservedOutput = LOCAL_MODEL_RESERVED_OUTPUT; // Use smaller reserved space for locals
 		}
 
 		const { messages, separateSystemMessage } = prepareMessages({
@@ -1723,9 +1763,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			reservedOutputTokenSpace: effectiveReservedOutput,
 			maxInputTokensSafety: this.configurationService.getValue<number>('vibeide.chat.maxInputTokensSafety') ?? 0,
 			providerName,
-		})
+		});
 		return { messages, separateSystemMessage };
-	}
+	};
 	// Last REAL user message text for retrieval queries. Synthetic corrective nudges
 	// (isSyntheticNudge) carry no user intent and must not key RepoIndexer retrieval —
 	// observed in the sonnet stall log: queries ran against «⚙️ Авто-продолжение…»
@@ -1756,7 +1796,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			this.repoIndexerService.warmIndex(undefined).catch(() => { });
 			return null;
 		}
-	}
+	};
 
 	// Read-only composition report for the Context Report command (vibeide.context.status).
 	// Measures the same prompt pieces that prepareLLMChatMessages assembles — reusing the same
@@ -1834,53 +1874,53 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			messagesTokens,
 			liveTotalTokens,
 		};
-	}
+	};
 
 	prepareLLMChatMessages: IConvertToLLMMessageService['prepareLLMChatMessages'] = async ({ chatMessages, chatMode, modelSelection, repoIndexerPromise }) => {
-		if (modelSelection === null) return { messages: [], separateSystemMessage: undefined }
+		if (modelSelection === null) { return { messages: [], separateSystemMessage: undefined }; }
 
-		const { overridesOfModel } = this.vibeideSettingsService.state
+		const { overridesOfModel } = this.vibeideSettingsService.state;
 
-		const { providerName, modelName } = modelSelection
+		const { providerName, modelName } = modelSelection;
 		// Skip "auto" - it's not a real provider
 		if (providerName === 'auto' && modelName === 'auto') {
-			throw new Error('Cannot prepare messages for "auto" model selection - must resolve to a real model first')
+			throw new Error('Cannot prepare messages for "auto" model selection - must resolve to a real model first');
 		}
 		// At this point, TypeScript knows providerName is not "auto", but we need to assert it for the type system
-		const validProviderName = providerName as Exclude<typeof providerName, 'auto'>
+		const validProviderName = providerName as Exclude<typeof providerName, 'auto'>;
 		const catalogInfo = this.remoteCatalogService.getCachedModelInfo(validProviderName, modelName);
 		const {
 			specialToolFormat,
 			contextWindow,
 			supportsSystemMessage,
-		} = getModelCapabilities(validProviderName, modelName, overridesOfModel, catalogInfo)
+		} = getModelCapabilities(validProviderName, modelName, overridesOfModel, catalogInfo);
 
 		const { disableSystemMessage } = this.vibeideSettingsService.state.globalSettings;
 
 		// For local models, use minimal system message template instead of truncating
-		const isLocal = isLocalProvider(validProviderName, this.vibeideSettingsService.state.settingsOfProvider)
+		const isLocal = isLocalProvider(validProviderName, this.vibeideSettingsService.state.settingsOfProvider);
 		const preferJsonToolArguments = this.configurationService.getValue<boolean>('vibeide.agent.preferJsonToolArguments') ?? false;
 
-		let systemMessage: string
+		let systemMessage: string;
 		if (disableSystemMessage) {
-			systemMessage = ''
+			systemMessage = '';
 		} else if (isLocal) {
 			// Use minimal local template for local models
-			const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath)
-			const openedURIs = this.editorService.editors.map(e => e.resource?.fsPath || '').filter(Boolean)
-			const activeURI = this.editorService.activeEditor?.resource?.fsPath
+			const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
+			const openedURIs = this.editorService.editors.map(e => e.resource?.fsPath || '').filter(Boolean);
+			const activeURI = this.editorService.activeEditor?.resource?.fsPath;
 			const directoryStr = await this.directoryStrService.getAllDirectoriesStr({
 				cutOffMessage: chatMode === 'agent' || chatMode === 'gather' || chatMode === 'plan' ?
 					`...Directories string cut off, use tools to read more...`
 					: `...Directories string cut off, ask user for more if necessary...`
-			})
+			});
 			// Same rationale as the cloud path: avoid dual-channel tool exposure
 			// when the model can call tools natively. Local models typically
 			// have specialToolFormat===undefined and keep the XML block.
-			const includeXMLToolDefinitions = !specialToolFormat
-			const modelFamily = detectModelFamily(validProviderName, modelName, specialToolFormat)
-			const mcpTools = this.mcpService.getMCPTools()
-			const persistentTerminalIDs = this.terminalToolService.listPersistentTerminalIds()
+			const includeXMLToolDefinitions = !specialToolFormat;
+			const modelFamily = detectModelFamily(validProviderName, modelName, specialToolFormat);
+			const mcpTools = this.mcpService.getMCPTools();
+			const persistentTerminalIDs = this.terminalToolService.listPersistentTerminalIds();
 
 			// Get relevant memories for the current context
 			let relevantMemories: string | undefined;
@@ -1911,10 +1951,10 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				}
 			}
 
-			systemMessage = chat_systemMessage_local({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, modelFamily })
+			systemMessage = chat_systemMessage_local({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, modelFamily });
 		} else {
 			// Use full system message for cloud models
-			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat, validProviderName, modelName)
+			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat, validProviderName, modelName);
 		}
 
 		// Query repo indexer if enabled - get context from the LAST user message (most relevant)
@@ -1925,7 +1965,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		let repoContextUserBlock = '';
 		if (this.vibeideSettingsService.state.globalSettings.enableRepoIndexer && !disableSystemMessage) {
 			let indexResults: string[] | null = null;
-			let metrics: any = null;
+			let metrics: QueryMetrics | null = null;
 
 			if (repoIndexerPromise) {
 				// Use pre-started query (from parallel execution with router)
@@ -1990,7 +2030,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		}
 
 		// Get model options (providerName is already validated above)
-		const modelSelectionOptions = this.vibeideSettingsService.state.optionsOfModelSelection['Chat'][validProviderName]?.[modelName]
+		const modelSelectionOptions = this.vibeideSettingsService.state.optionsOfModelSelection['Chat'][validProviderName]?.[modelName];
 
 		// Get combined AI instructions + optional project skills index (discovery + implicit keyword retrieval)
 		// Synthetic nudges are skipped: /skill: parsing + implicit retrieval must key off the real request.
@@ -2011,14 +2051,14 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const explicitSkillIdsForExpand = Array.from(new Set(
 			[...lastUserTextForSkills.matchAll(/\/skill:\s*([\w.-]+)/gi)].map(m => m[1])
 		)).slice(0, 3);
-		// eslint-disable-next-line no-console
+
 		vibeLog.debug('Skill', 'expand intercept', { lastUserSnippet: lastUserTextForSkills.slice(0, 100), foundIds: explicitSkillIdsForExpand });
 		const explicitSkillBodies: Array<{ id: string; body: string }> = [];
 		if (explicitSkillIdsForExpand.length > 0) {
 			for (const skillId of explicitSkillIdsForExpand) {
 				try {
 					const expanded = await this.slashCommandService.expand(`/skill:${skillId}`);
-					// eslint-disable-next-line no-console
+
 					vibeLog.debug('Skill', 'expand result', { skillId, isNull: expanded === null, isEmpty: expanded === '', bodyLen: expanded?.length ?? 0, headSnippet: expanded?.slice(0, 120) ?? null });
 					if (expanded) {
 						explicitSkillBodies.push({ id: skillId, body: expanded });
@@ -2026,11 +2066,11 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 						this.skillsLibraryService.trackSkillUse?.(skillId);
 					}
 				} catch (err) {
-					// eslint-disable-next-line no-console
+
 					vibeLog.warn('Skill', 'expand threw', { skillId, err: String(err) });
 				}
 			}
-			// eslint-disable-next-line no-console
+
 			vibeLog.debug('Skill', 'final context built', { expansionsCount: explicitSkillBodies.length, totalBodyChars: explicitSkillBodies.reduce((a, b) => a + b.body.length, 0) });
 		}
 		// Build the user-message prefix once; we prepend it after `_chatMessagesToSimpleMessages`
@@ -2096,9 +2136,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// change every turn — they ride in the user turn (userTurnPrefix below), NOT in the
 		// system-bound aiInstructions, so the system prefix stays byte-stable across turns.
 		const aiInstructions = [this._getCombinedAIInstructions({ userText: lastUserTextForSkills, files: ruleContextFiles }), skillsDiscovery].filter(s => s.trim().length > 0).join('\n\n');
-		const isReasoningEnabled = getIsReasoningEnabledState('Chat', validProviderName, modelName, modelSelectionOptions, overridesOfModel)
-		const reservedOutputTokenSpace = getReservedOutputTokenSpace(validProviderName, modelName, { isReasoningEnabled, overridesOfModel })
-		let llmMessages = this._chatMessagesToSimpleMessages(chatMessages)
+		const isReasoningEnabled = getIsReasoningEnabledState('Chat', validProviderName, modelName, modelSelectionOptions, overridesOfModel);
+		const reservedOutputTokenSpace = getReservedOutputTokenSpace(validProviderName, modelName, { isReasoningEnabled, overridesOfModel });
+		let llmMessages = this._chatMessagesToSimpleMessages(chatMessages);
 
 		// R.5 — `@rule:NAME` / `/rule:NAME` loads a specific (possibly conditional / agent-requested)
 		// rule body ON DEMAND, prepended to the user turn alongside any /skill: bodies (same
@@ -2140,31 +2180,31 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		}
 
 		// Smart context truncation: Prioritize recent messages and user selections
-		const estimateTokens = (text: string) => Math.ceil(text.length / 4)
-		const approximateTotalTokens = (msgs: { role: string, content: string }[], sys: string, instr: string) =>
-			msgs.reduce((acc, m) => acc + estimateTokens(m.content), estimateTokens(sys) + estimateTokens(instr))
-		const rot = reservedOutputTokenSpace ?? 0
+		const estimateTokens = (text: string) => Math.ceil(text.length / 4);
+		const approximateTotalTokens = (msgs: { role: string; content: string }[], sys: string, instr: string) =>
+			msgs.reduce((acc, m) => acc + estimateTokens(m.content), estimateTokens(sys) + estimateTokens(instr));
+		const rot = reservedOutputTokenSpace ?? 0;
 
 		// Optimize context for local models: cap at reasonable values to reduce latency
 		// Local models are slower with large contexts, so we cap them more aggressively
 		// Detect local providers: explicit local providers + localhost endpoints
-		const isExplicitLocalProvider: boolean = validProviderName === 'ollama' || validProviderName === 'vLLM' || validProviderName === 'lmStudio'
-		let isLocalhostEndpoint: boolean = false
+		const isExplicitLocalProvider: boolean = validProviderName === 'ollama' || validProviderName === 'vLLM' || validProviderName === 'lmStudio';
+		let isLocalhostEndpoint: boolean = false;
 		if (validProviderName === 'openAICompatible' || validProviderName === 'liteLLM') {
-			const endpoint = this.vibeideSettingsService.state.settingsOfProvider[validProviderName]?.endpoint || ''
+			const endpoint = this.vibeideSettingsService.state.settingsOfProvider[validProviderName]?.endpoint || '';
 			if (endpoint) {
 				try {
 					// Use proper URL parsing to check hostname (consistent with sendLLMMessage.impl.ts)
-					const url = new URL(endpoint)
-					const hostname = url.hostname.toLowerCase()
-					isLocalhostEndpoint = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1'
+					const url = new URL(endpoint);
+					const hostname = url.hostname.toLowerCase();
+					isLocalhostEndpoint = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1';
 				} catch (e) {
 					// Invalid URL - assume non-local (safe default)
-					isLocalhostEndpoint = false
+					isLocalhostEndpoint = false;
 				}
 			}
 		}
-		const isLocalProviderForContext: boolean = isExplicitLocalProvider || isLocalhostEndpoint
+		const isLocalProviderForContext: boolean = isExplicitLocalProvider || isLocalhostEndpoint;
 
 		// For local models: apply feature-specific token caps and compress chat history
 		// Instead of hard truncation, use semantic compression to preserve context
@@ -2174,30 +2214,30 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			// The compression happens in prepareLLMChatMessages before this point
 			// For now, we keep a simple fallback limit if compression isn't available
 			// plan mode: 3 turn pairs (same as normal — plan is short-lived before Execute)
-			const maxTurnPairs = chatMode === 'agent' ? 5 : 3
+			const maxTurnPairs = chatMode === 'agent' ? 5 : 3;
 			// Synthetic nudges don't count as turns — they'd shrink the retained window.
-			const userMessages = llmMessages.filter(m => m.role === 'user' && !m.isSyntheticNudge)
+			const userMessages = llmMessages.filter(m => m.role === 'user' && !m.isSyntheticNudge);
 			if (userMessages.length > maxTurnPairs * 2) {
 				// Keep only the last maxTurnPairs user messages and their corresponding assistant messages
-				const beforeCount = llmMessages.length
-				const lastUserIndices = userMessages.slice(-maxTurnPairs).map(um => llmMessages.indexOf(um))
-				const firstIndexToKeep = Math.min(...lastUserIndices)
+				const beforeCount = llmMessages.length;
+				const lastUserIndices = userMessages.slice(-maxTurnPairs).map(um => llmMessages.indexOf(um));
+				const firstIndexToKeep = Math.min(...lastUserIndices);
 				// Honor pinned (roadmap pin-context): keep pinned messages even if older than the
 				// retained turn window, so important context isn't dropped before budget-fill runs.
-				llmMessages = llmMessages.filter((m, i) => i >= firstIndexToKeep || m.pinned)
+				llmMessages = llmMessages.filter((m, i) => i >= firstIndexToKeep || m.pinned);
 				// NO SILENT TRIMS: local-model fallback dropped older history pairs — log it.
-				const dropped = beforeCount - llmMessages.length
+				const dropped = beforeCount - llmMessages.length;
 				if (dropped > 0) {
-					vibeLog.warn('ContextGuard', `Local-model history fallback dropped ${dropped} older message(s), keeping last ${maxTurnPairs} turn-pair(s) + pinned (${chatMode} mode).`)
+					vibeLog.warn('ContextGuard', `Local-model history fallback dropped ${dropped} older message(s), keeping last ${maxTurnPairs} turn-pair(s) + pinned (${chatMode} mode).`);
 				}
 			}
 		}
 
-		let effectiveContextWindow = contextWindow
+		let effectiveContextWindow = contextWindow;
 		if (isLocalProviderForContext) {
 			// Apply feature-specific token cap for Chat feature
-			const chatTokenCap = LOCAL_MODEL_TOKEN_CAPS['Chat']
-			effectiveContextWindow = Math.min(contextWindow, chatTokenCap + (reservedOutputTokenSpace || LOCAL_MODEL_RESERVED_OUTPUT))
+			const chatTokenCap = LOCAL_MODEL_TOKEN_CAPS['Chat'];
+			effectiveContextWindow = Math.min(contextWindow, chatTokenCap + (reservedOutputTokenSpace || LOCAL_MODEL_RESERVED_OUTPUT));
 		} else {
 			// Cloud models: use the model's FULL advertised context window. The previous
 			// 50%/16k caps were a latency hedge, but on agentic runs they starved the model
@@ -2207,29 +2247,29 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			// (observed deepseek-v4-pro re-read loop). The budget-fill + Step A.5 passes
 			// below already keep the payload within the real window, so capping here only
 			// discarded usable headroom. Trust the advertised window.
-			effectiveContextWindow = contextWindow
+			effectiveContextWindow = contextWindow;
 		}
 
 		// More aggressive budget: use 75% instead of 80% to leave more room for output
 		// For local models, use 70% to further reduce latency
-		const budgetMultiplier = isLocalProviderForContext ? 0.70 : 0.75
-		const budget = Math.max(256, Math.floor(effectiveContextWindow * budgetMultiplier) - rot)
-		const beforeTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
+		const budgetMultiplier = isLocalProviderForContext ? 0.70 : 0.75;
+		const budget = Math.max(256, Math.floor(effectiveContextWindow * budgetMultiplier) - rot);
+		const beforeTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions);
 
 		// Token-budget self-calibration (roadmap "provider-reported usage"). Our estimates are raw
 		// `length/4`; the provider's real promptTokens include tool-schema JSON + formatting +
 		// the model's true tokenizer. We keep estimating raw and instead DIVIDE the budget/cap
 		// thresholds by the learned factor, so the reserved headroom tracks reality. Factor 1
 		// (default / disabled / no sample yet) leaves behavior unchanged.
-		const calibrationKey = `${validProviderName}:${modelName}`
-		const calibrationEnabled = this.configurationService.getValue<boolean>('vibeide.chat.calibrateTokenBudgetFromUsage') !== false
-		const calibrationMaxFactor = this.configurationService.getValue<number>('vibeide.context.tokenCalibrationMaxFactor') ?? TOKEN_CALIBRATION_MAX
-		const calibrationFactor = calibrationEnabled ? clampTokenCalibration(this._tokenCalibrationByModel.get(calibrationKey), calibrationMaxFactor) : 1
-		const calBudget = Math.max(256, Math.floor(budget / calibrationFactor))
+		const calibrationKey = `${validProviderName}:${modelName}`;
+		const calibrationEnabled = this.configurationService.getValue<boolean>('vibeide.chat.calibrateTokenBudgetFromUsage') !== false;
+		const calibrationMaxFactor = this.configurationService.getValue<number>('vibeide.context.tokenCalibrationMaxFactor') ?? TOKEN_CALIBRATION_MAX;
+		const calibrationFactor = calibrationEnabled ? clampTokenCalibration(this._tokenCalibrationByModel.get(calibrationKey), calibrationMaxFactor) : 1;
+		const calBudget = Math.max(256, Math.floor(budget / calibrationFactor));
 
 		// Clear any stale budget-fill stats from a previous build; the truncation branch below
 		// repopulates them when it fires. Keeps the UI transparency indicator accurate.
-		try { this.contextGuardService.setTruncationStats(undefined, undefined) } catch { }
+		try { this.contextGuardService.setTruncationStats(undefined, undefined); } catch { }
 
 		// NOTE: ContextGuard status updates intentionally moved to AFTER both
 		// truncation passes. Previously we called updateUsage(beforeTokens, …)
@@ -2259,19 +2299,19 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			// counted the ~2.1k-token worst case — pinned task 6000c + body 2400c — letting
 			// afterTokens drift over the soft budget; the hard-cap pass caught it, but the
 			// accounting was inconsistent).
-			const PINNED_TASK_MAX_CHARS = 6000
-			const PER_USER_MSG_MAX_CHARS = 2000
-			const USER_SUMMARY_MAX_CHARS = 2500
-			const PER_OTHER_MSG_MAX_CHARS = 500
-			const OTHER_SUMMARY_MAX_CHARS = 800
-			const SUMMARY_BODY_MAX_CHARS = 2400
-			const SUMMARY_WRAPPER_CHARS = 96 // tags + heading boilerplate
-			const sysInstrTokens = estimateTokens(systemMessage) + estimateTokens(aiInstructions)
+			const PINNED_TASK_MAX_CHARS = 6000;
+			const PER_USER_MSG_MAX_CHARS = 2000;
+			const USER_SUMMARY_MAX_CHARS = 2500;
+			const PER_OTHER_MSG_MAX_CHARS = 500;
+			const OTHER_SUMMARY_MAX_CHARS = 800;
+			const SUMMARY_BODY_MAX_CHARS = 2400;
+			const SUMMARY_WRAPPER_CHARS = 96; // tags + heading boilerplate
+			const sysInstrTokens = estimateTokens(systemMessage) + estimateTokens(aiInstructions);
 			// Reserve room for the summary block we may prepend to the system message, sized to its
 			// worst-case char output (pinned original task + summary body). Mirrors estimateTokens'
 			// chars-per-token ratio without allocating the placeholder string.
-			const summaryReserve = Math.ceil((PINNED_TASK_MAX_CHARS + SUMMARY_BODY_MAX_CHARS + SUMMARY_WRAPPER_CHARS) / 4)
-			const tailBudget = Math.max(256, calBudget - sysInstrTokens - summaryReserve)
+			const summaryReserve = Math.ceil((PINNED_TASK_MAX_CHARS + SUMMARY_BODY_MAX_CHARS + SUMMARY_WRAPPER_CHARS) / 4);
+			const tailBudget = Math.max(256, calBudget - sysInstrTokens - summaryReserve);
 
 			// Plan the kept set: the recent budget-fit tail PLUS any PINNED message that falls in
 			// the older head (kept verbatim so important context survives truncation regardless of
@@ -2280,37 +2320,37 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			const plan = planBudgetFillTail(
 				llmMessages.map(m => ({ tokens: estimateTokens(m.content), pinned: m.pinned })),
 				tailBudget
-			)
-			const head = plan.summarizeIndices.map(i => llmMessages[i])
-			const keep = plan.keepIndices.map(i => llmMessages[i])
+			);
+			const head = plan.summarizeIndices.map(i => llmMessages[i]);
+			const keep = plan.keepIndices.map(i => llmMessages[i]);
 
 			if (head.length > 0) {
-				const firstUser = llmMessages.find(m => m.role === 'user')
+				const firstUser = llmMessages.find(m => m.role === 'user');
 				// The original task is worth pinning into the summary ONLY if it actually landed in
 				// the summarized head; a pinned first message stays verbatim in `keep` (no double-pin).
-				const originalDropped = !!firstUser && head.includes(firstUser)
+				const originalDropped = !!firstUser && head.includes(firstUser);
 				const pinnedOriginal = originalDropped
 					? `<original_user_task>\n${firstUser.content.slice(0, PINNED_TASK_MAX_CHARS)}${firstUser.content.length > PINNED_TASK_MAX_CHARS ? '\n…' : ''}\n</original_user_task>\n\n`
-					: ''
+					: '';
 
 				// Prioritize user messages (they carry selections/intent); summarize the rest.
-				const userMessages = head.filter(m => m.role === 'user')
-				const otherMessages = head.filter(m => m.role !== 'user')
-				const userSummary = userMessages.map(m => `${m.role}: ${m.content.slice(0, PER_USER_MSG_MAX_CHARS)}`).join('\n').slice(0, USER_SUMMARY_MAX_CHARS)
-				const otherSummary = otherMessages.map(m => `${m.role}: ${m.content.slice(0, PER_OTHER_MSG_MAX_CHARS)}`).join('\n').slice(0, OTHER_SUMMARY_MAX_CHARS)
+				const userMessages = head.filter(m => m.role === 'user');
+				const otherMessages = head.filter(m => m.role !== 'user');
+				const userSummary = userMessages.map(m => `${m.role}: ${m.content.slice(0, PER_USER_MSG_MAX_CHARS)}`).join('\n').slice(0, USER_SUMMARY_MAX_CHARS);
+				const otherSummary = otherMessages.map(m => `${m.role}: ${m.content.slice(0, PER_OTHER_MSG_MAX_CHARS)}`).join('\n').slice(0, OTHER_SUMMARY_MAX_CHARS);
 
-				const headConcat = userSummary + (otherSummary ? '\n' + otherSummary : '')
-				const summaryBody = `${pinnedOriginal}Prior conversation summarized (${head.length} older messages; ${keep.length} kept in full incl. pinned). Key points:\n${headConcat.slice(0, SUMMARY_BODY_MAX_CHARS)}${headConcat.length > SUMMARY_BODY_MAX_CHARS ? '…' : ''}`
-				const summary = `\n\n<chat_summary>\n${summaryBody}\n</chat_summary>`
-				systemMessage = (systemMessage || '') + summary
-				llmMessages = keep
+				const headConcat = userSummary + (otherSummary ? '\n' + otherSummary : '');
+				const summaryBody = `${pinnedOriginal}Prior conversation summarized (${head.length} older messages; ${keep.length} kept in full incl. pinned). Key points:\n${headConcat.slice(0, SUMMARY_BODY_MAX_CHARS)}${headConcat.length > SUMMARY_BODY_MAX_CHARS ? '…' : ''}`;
+				const summary = `\n\n<chat_summary>\n${summaryBody}\n</chat_summary>`;
+				systemMessage = (systemMessage || '') + summary;
+				llmMessages = keep;
 				// Surface budget-fill transparency to the UI: N kept full / M summarized.
-				try { this.contextGuardService.setTruncationStats(keep.length, head.length) } catch { }
+				try { this.contextGuardService.setTruncationStats(keep.length, head.length); } catch { }
 			}
-			const afterTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
+			const afterTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions);
 			// Update status bar to reflect post-truncation size; suppress popup (user sees % in status bar)
-			try { this.contextGuardService.updateUsage(Math.round(afterTokens * calibrationFactor), contextWindow) } catch { }
-			vibeLog.debug('convertToLLMMessage', `Context smart truncation (budget-fill): ~${beforeTokens} → ~${afterTokens} tokens (kept ${llmMessages.length} msgs full, ${head.length} summarized)`); recordChatTrace('context:truncated', { before: beforeTokens, after: afterTokens })
+			try { this.contextGuardService.updateUsage(Math.round(afterTokens * calibrationFactor), contextWindow); } catch { }
+			vibeLog.debug('convertToLLMMessage', `Context smart truncation (budget-fill): ~${beforeTokens} → ~${afterTokens} tokens (kept ${llmMessages.length} msgs full, ${head.length} summarized)`); recordChatTrace('context:truncated', { before: beforeTokens, after: afterTokens });
 		}
 
 		// Second pass — active guard. If we are still over the model's real context window,
@@ -2320,9 +2360,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// hardCap and the final overflow window are in REAL tokens; our currentTokens is a raw
 		// length/4 estimate. Divide by the calibration factor so the comparison happens in the
 		// same (estimate) space — an under-counting estimator therefore trips the guard sooner.
-		const hardCap = Math.floor((contextWindow * 0.92) / calibrationFactor) // 8% headroom for output/reasoning
-		const TOOL_RESULT_TOKEN_THRESHOLD = 5000
-		let currentTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
+		const hardCap = Math.floor((contextWindow * 0.92) / calibrationFactor); // 8% headroom for output/reasoning
+		const TOOL_RESULT_TOKEN_THRESHOLD = 5000;
+		let currentTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions);
 
 		// Step A.5 (proactive, token-budget) — one-shot compaction of old tool-results.
 		// REDESIGNED 2026-06-07 (cache-friendly). The old trigger («older than the last N
@@ -2339,59 +2379,59 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// only add NEW stubs further down the list, keeping the earlier prefix cacheable.
 		const compactAtTokens = Math.max(0, Math.min(500_000,
 			this.configurationService.getValue<number>('vibeide.chat.compactToolResultsAtTokens') ?? 60_000
-		))
+		));
 		const keepRecentToolResults = Math.max(1, Math.min(100,
 			this.configurationService.getValue<number>('vibeide.chat.compactKeepRecentToolResults') ?? 8
-		))
+		));
 		if (compactAtTokens > 0) {
-			const toolIdxs: number[] = []
-			let toolResultTokens = 0
+			const toolIdxs: number[] = [];
+			let toolResultTokens = 0;
 			for (let i = 0; i < llmMessages.length; i++) {
-				const m = llmMessages[i]
+				const m = llmMessages[i];
 				if (m.role === 'tool') {
-					toolIdxs.push(i)
-					toolResultTokens += estimateTokens(m.content)
+					toolIdxs.push(i);
+					toolResultTokens += estimateTokens(m.content);
 				}
 			}
 			if (toolResultTokens > compactAtTokens && toolIdxs.length > keepRecentToolResults) {
 				// First index that must stay full — everything before it is compaction territory.
-				const stubBefore = toolIdxs[toolIdxs.length - keepRecentToolResults]
-				let compacted = 0
-				let savedTokens = 0
+				const stubBefore = toolIdxs[toolIdxs.length - keepRecentToolResults];
+				let compacted = 0;
+				let savedTokens = 0;
 				llmMessages = llmMessages.map((m, i) => {
 					if (i < stubBefore && m.role === 'tool' && m.content.length > 300 && !m.pinned && !m.content.startsWith('[summarized:')) {
-						const tokensBefore = estimateTokens(m.content)
-						compacted++
-						savedTokens += tokensBefore
-						return { ...m, content: `[summarized: ${tokensBefore.toLocaleString()} tokens of older tool output. Re-call the tool if this result is needed again.]` }
+						const tokensBefore = estimateTokens(m.content);
+						compacted++;
+						savedTokens += tokensBefore;
+						return { ...m, content: `[summarized: ${tokensBefore.toLocaleString()} tokens of older tool output. Re-call the tool if this result is needed again.]` };
 					}
-					return m
-				})
+					return m;
+				});
 				if (compacted > 0) {
-					currentTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
-					vibeLog.warn('ContextGuard', `Step A.5 compacted ${compacted} old tool-results: ~${savedTokens.toLocaleString()} tokens saved (trigger ${compactAtTokens.toLocaleString()}, kept last ${keepRecentToolResults}) → currentTokens ~${currentTokens.toLocaleString()}. Prompt-cache prefix rebuilds next turn.`)
+					currentTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions);
+					vibeLog.warn('ContextGuard', `Step A.5 compacted ${compacted} old tool-results: ~${savedTokens.toLocaleString()} tokens saved (trigger ${compactAtTokens.toLocaleString()}, kept last ${keepRecentToolResults}) → currentTokens ~${currentTokens.toLocaleString()}. Prompt-cache prefix rebuilds next turn.`);
 				}
 			}
 		}
 
 		if (currentTokens > hardCap) {
 			// Step A — elide oversized tool / assistant outputs in remaining tail
-			let elided = 0
-			let elidedTokens = 0
+			let elided = 0;
+			let elidedTokens = 0;
 			llmMessages = llmMessages.map(m => {
-				const tokens = estimateTokens(m.content)
+				const tokens = estimateTokens(m.content);
 				if ((m.role === 'tool' || m.role === 'assistant') && tokens > TOOL_RESULT_TOKEN_THRESHOLD && !m.pinned) {
-					elided++
-					elidedTokens += tokens
-					return { ...m, content: `[elided ${m.role} output: ~${tokens.toLocaleString()} tokens]` }
+					elided++;
+					elidedTokens += tokens;
+					return { ...m, content: `[elided ${m.role} output: ~${tokens.toLocaleString()} tokens]` };
 				}
-				return m
-			})
-			currentTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
+				return m;
+			});
+			currentTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions);
 			// NO SILENT TRIMS: align Step A with Step A.5/Step B (both log). The in-band
 			// `[elided …]` marker is visible to the model but not to operators reading the log.
 			if (elided > 0) {
-				vibeLog.warn('ContextGuard', `Step A elided ${elided} oversized tool/assistant output(s) > ${TOOL_RESULT_TOKEN_THRESHOLD} tokens (~${elidedTokens.toLocaleString()} tokens) to fit hardCap → currentTokens ~${currentTokens.toLocaleString()}.`)
+				vibeLog.warn('ContextGuard', `Step A elided ${elided} oversized tool/assistant output(s) > ${TOOL_RESULT_TOKEN_THRESHOLD} tokens (~${elidedTokens.toLocaleString()} tokens) to fit hardCap → currentTokens ~${currentTokens.toLocaleString()}.`);
 			}
 		}
 
@@ -2399,25 +2439,25 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			// Step B — iteratively drop the OLDEST tail messages, but always keep the
 			// last user message and the last assistant message so the current turn flow
 			// stays coherent. Hard floor of 2 messages to avoid pathological prompts.
-			const beforeStepB = currentTokens
-			let dropped = 0
+			const beforeStepB = currentTokens;
+			let dropped = 0;
 			while (currentTokens > hardCap && llmMessages.length > 2) {
-				llmMessages = llmMessages.slice(1)
-				dropped++
-				currentTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions)
+				llmMessages = llmMessages.slice(1);
+				dropped++;
+				currentTokens = approximateTotalTokens(llmMessages, systemMessage, aiInstructions);
 			}
 			if (dropped > 0) {
-				vibeLog.debug('ContextGuard', `Step B dropped ${dropped} oldest tail messages: ~${beforeStepB} → ~${currentTokens} tokens`)
+				vibeLog.debug('ContextGuard', `Step B dropped ${dropped} oldest tail messages: ~${beforeStepB} → ~${currentTokens} tokens`);
 			}
 		}
 
 		// Reflect the final number on the status bar.
-		try { this.contextGuardService.setCalibrationFactor(calibrationEnabled ? calibrationFactor : undefined) } catch { }
-			try { this.contextGuardService.updateUsage(Math.round(currentTokens * calibrationFactor), contextWindow) } catch { }
+		try { this.contextGuardService.setCalibrationFactor(calibrationEnabled ? calibrationFactor : undefined); } catch { }
+		try { this.contextGuardService.updateUsage(Math.round(currentTokens * calibrationFactor), contextWindow); } catch { }
 
 		// Pair this turn's RAW estimate of the sent payload with the provider's reported
 		// promptTokens (arrives later via recordActualPromptTokens) to self-calibrate the budget.
-		this._lastRawPromptEstimateByModel.set(calibrationKey, currentTokens)
+		this._lastRawPromptEstimateByModel.set(calibrationKey, currentTokens);
 
 		if (currentTokens > Math.floor(contextWindow / calibrationFactor)) {
 			throw new ContextOverflowError({
@@ -2425,7 +2465,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				model: modelName,
 				finalTokens: currentTokens,
 				contextWindow,
-			})
+			});
 		}
 
 		const { messages, separateSystemMessage } = prepareMessages({
@@ -2439,7 +2479,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			reservedOutputTokenSpace,
 			maxInputTokensSafety: this.configurationService.getValue<number>('vibeide.chat.maxInputTokensSafety') ?? 0,
 			providerName: validProviderName,
-		})
+		});
 
 		// Diagnostic dump of the final prompt that will be sent to the provider.
 		// Confirms whether the explicit-skill body actually survives the pipeline
@@ -2455,11 +2495,11 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			// `<SYSTEM_MESSAGE>...</SYSTEM_MESSAGE>` prefix — i.e. it ends up inside a
 			// text-part of an array. Extracting a flat string requires walking that array.
 			const extractText = (content: unknown): string => {
-				if (typeof content === 'string') return content;
+				if (typeof content === 'string') { return content; }
 				if (Array.isArray(content)) {
 					let out = '';
 					for (const p of content as Array<{ type?: string; text?: unknown }>) {
-						if (p && p.type === 'text' && typeof p.text === 'string') out += p.text;
+						if (p && p.type === 'text' && typeof p.text === 'string') { out += p.text; }
 					}
 					return out;
 				}
@@ -2467,7 +2507,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			};
 			const lenOf = (m: LLMChatMessage): number => {
 				const anyM = m as { content?: unknown; parts?: unknown };
-				if (typeof anyM.content === 'string') return anyM.content.length;
+				if (typeof anyM.content === 'string') { return anyM.content.length; }
 				if (Array.isArray(anyM.content)) {
 					// Count tool blocks too — text-only counting showed every tool turn as len:0,
 					// which left history-rewrite diagnostics blind (the deterministic prompt-cache
@@ -2483,7 +2523,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 					// Gemini parts shape: { text } or { functionCall }
 					let out = 0;
 					for (const p of anyM.parts as Array<{ text?: unknown }>) {
-						if (p && typeof p.text === 'string') out += p.text.length;
+						if (p && typeof p.text === 'string') { out += p.text.length; }
 					}
 					return out;
 				}
@@ -2582,21 +2622,21 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				});
 			}
 		} catch (e) {
-			// eslint-disable-next-line no-console
+
 			vibeLog.warn('promptDump', 'dump failed', { err: String(e) });
 		}
 
 		return { messages, separateSystemMessage };
-	}
+	};
 
 
 	// --- FIM ---
 
 	prepareFIMMessage: IConvertToLLMMessageService['prepareFIMMessage'] = ({ messages, modelSelection, featureName, languageId }) => {
-		const { settingsOfProvider } = this.vibeideSettingsService.state
+		const { settingsOfProvider } = this.vibeideSettingsService.state;
 
 		// Detect if local provider for optimizations
-		const isLocal = modelSelection && modelSelection.providerName !== 'auto' ? isLocalProvider(modelSelection.providerName, settingsOfProvider) : false
+		const isLocal = modelSelection && modelSelection.providerName !== 'auto' ? isLocalProvider(modelSelection.providerName, settingsOfProvider) : false;
 
 		// For local models, skip verbose AI instructions to reduce tokens
 		const combinedInstructions = (isLocal && featureName === 'Autocomplete')
@@ -2617,64 +2657,64 @@ ${!combinedInstructions ? '' : `\
 // Do not output an explanation. Do not output comments. Only output the middle code.
 ${combinedInstructions.split('\n').map(line => `//${line}`).join('\n')}`}
 
-${messages.prefix}`
+${messages.prefix}`;
 
-		let suffix = messages.suffix
-		const stopTokens = messages.stopTokens
+		let suffix = messages.suffix;
+		const stopTokens = messages.stopTokens;
 
 		// Apply local token caps and smart truncation for local models
 		if (isLocal && featureName === 'Autocomplete') {
-			const autocompleteTokenCap = LOCAL_MODEL_TOKEN_CAPS['Autocomplete'] // 1,000 tokens
-			const maxChars = autocompleteTokenCap * CHARS_PER_TOKEN // ~4,000 chars
+			const autocompleteTokenCap = LOCAL_MODEL_TOKEN_CAPS['Autocomplete']; // 1,000 tokens
+			const maxChars = autocompleteTokenCap * CHARS_PER_TOKEN; // ~4,000 chars
 
 			// Smart truncation: prioritize code near cursor, cut at line boundaries
 			const truncatePrefixSuffix = (text: string, maxChars: number, isPrefix: boolean): string => {
-				if (text.length <= maxChars) return text
+				if (text.length <= maxChars) { return text; }
 
 				// Split into lines for line-boundary truncation
-				const lines = text.split('\n')
-				let totalChars = 0
-				const resultLines: string[] = []
+				const lines = text.split('\n');
+				let totalChars = 0;
+				const resultLines: string[] = [];
 
 				// For prefix: keep lines from the end (closest to cursor)
 				// For suffix: keep lines from the start (closest to cursor)
 				if (isPrefix) {
 					// Prefix: keep last lines (closest to cursor)
 					for (let i = lines.length - 1; i >= 0; i--) {
-						const line = lines[i]
-						const lineWithNewline = line + '\n'
-						if (totalChars + lineWithNewline.length > maxChars) break
-						resultLines.unshift(line)
-						totalChars += lineWithNewline.length
+						const line = lines[i];
+						const lineWithNewline = line + '\n';
+						if (totalChars + lineWithNewline.length > maxChars) { break; }
+						resultLines.unshift(line);
+						totalChars += lineWithNewline.length;
 					}
-					return resultLines.join('\n')
+					return resultLines.join('\n');
 				} else {
 					// Suffix: keep first lines (closest to cursor)
 					for (let i = 0; i < lines.length; i++) {
-						const line = lines[i]
-						const lineWithNewline = (i < lines.length - 1 ? line + '\n' : line)
-						if (totalChars + lineWithNewline.length > maxChars) break
-						resultLines.push(line)
-						totalChars += lineWithNewline.length
+						const line = lines[i];
+						const lineWithNewline = (i < lines.length - 1 ? line + '\n' : line);
+						if (totalChars + lineWithNewline.length > maxChars) { break; }
+						resultLines.push(line);
+						totalChars += lineWithNewline.length;
 					}
-					return resultLines.join('\n')
+					return resultLines.join('\n');
 				}
-			}
+			};
 
 			// Apply truncation to combined prefix+suffix, prioritizing code near cursor
-			const combinedLength = prefix.length + suffix.length
+			const combinedLength = prefix.length + suffix.length;
 			if (combinedLength > maxChars) {
 				// Allocate space proportionally, but favor suffix (code after cursor) slightly
-				const prefixMaxChars = Math.floor(maxChars * 0.45) // 45% for prefix
-				const suffixMaxChars = Math.floor(maxChars * 0.55) // 55% for suffix
+				const prefixMaxChars = Math.floor(maxChars * 0.45); // 45% for prefix
+				const suffixMaxChars = Math.floor(maxChars * 0.55); // 55% for suffix
 
-				prefix = truncatePrefixSuffix(prefix, prefixMaxChars, true)
-				suffix = truncatePrefixSuffix(suffix, suffixMaxChars, false)
+				prefix = truncatePrefixSuffix(prefix, prefixMaxChars, true);
+				suffix = truncatePrefixSuffix(suffix, suffixMaxChars, false);
 			}
 		}
 
-		return { prefix, suffix, stopTokens }
-	}
+		return { prefix, suffix, stopTokens };
+	};
 
 
 }

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * VibeSubagentService — first-class UX for delegated subtasks.
@@ -126,6 +127,9 @@ export interface IVibeSubagentService {
 	/** Returns all live (non-disposed) subagents for a parent thread */
 	getByParentThread(parentThreadId: string): SubagentEntry[];
 
+	/** Returns every subagent currently in the registry across all parent threads */
+	getAll(): SubagentEntry[];
+
 	/** Wait for a subagent to complete and receive its compact result */
 	awaitResult(subagentId: string): Promise<SubagentResult>;
 
@@ -225,6 +229,10 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 
 	getByParentThread(parentThreadId: string): SubagentEntry[] {
 		return Array.from(this._registry.values()).filter(e => e.parentThreadId === parentThreadId && e.status !== 'disposed');
+	}
+
+	getAll(): SubagentEntry[] {
+		return Array.from(this._registry.values());
 	}
 
 	awaitResult(subagentId: string): Promise<SubagentResult> {
@@ -333,8 +341,8 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 				timedOut
 					? `[Truncated — wall-clock limit] Subagent ${entry.type} for: ${handoff.goal}. Use exploreReport for partial findings.`
 					: `[MVP stub] Subagent ${entry.type} for: ${handoff.goal}. ` +
-					  `Allowed tools: ${allowedTools.join(', ')}. ` +
-					  `Full isolated execution available in Phase 3b.`,
+					`Allowed tools: ${allowedTools.join(', ')}. ` +
+					`Full isolated execution available in Phase 3b.`,
 				MAX_RESULT_SUMMARY_CHARS,
 			),
 			artifacts: [],

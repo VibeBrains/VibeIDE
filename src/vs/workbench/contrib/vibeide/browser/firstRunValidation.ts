@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -78,7 +79,7 @@ export class FirstRunValidationContribution extends Disposable implements IWorkb
 		const originalInfo = console.info;
 		const originalDebug = console.debug;
 
-		const maybeRedact = (args: any[]): any[] => {
+		const maybeRedact = (args: unknown[]): unknown[] => {
 			if (this.shouldSkipRedaction(args)) {
 				return args;
 			}
@@ -87,11 +88,11 @@ export class FirstRunValidationContribution extends Disposable implements IWorkb
 		};
 
 		// Wrap console methods to redact secrets
-		console.log = (...args: any[]) => {
+		console.log = (...args: unknown[]) => {
 			originalLog(...maybeRedact(args));
 		};
 
-		console.error = (...args: any[]) => {
+		console.error = (...args: unknown[]) => {
 			// Suppress non-fatal Web Locks API errors (they occur during initialization when context isn't fully ready)
 			const errorMessage = args.map(arg => typeof arg === 'string' ? arg : String(arg)).join(' ');
 			if (errorMessage.includes('lock() request could not be registered') ||
@@ -102,15 +103,15 @@ export class FirstRunValidationContribution extends Disposable implements IWorkb
 			originalError(...maybeRedact(args));
 		};
 
-		console.warn = (...args: any[]) => {
+		console.warn = (...args: unknown[]) => {
 			originalWarn(...maybeRedact(args));
 		};
 
-		console.info = (...args: any[]) => {
+		console.info = (...args: unknown[]) => {
 			originalInfo(...maybeRedact(args));
 		};
 
-		console.debug = (...args: any[]) => {
+		console.debug = (...args: unknown[]) => {
 			originalDebug(...maybeRedact(args));
 		};
 
@@ -129,7 +130,7 @@ export class FirstRunValidationContribution extends Disposable implements IWorkb
 	// Skip recursive secret-redaction for large diagnostic envelopes (e.g. promptDump
 	// with a 20+ KB system prompt) when their surface has no secret markers. Returns
 	// false (do not skip) on any uncertainty so the safe path runs.
-	private shouldSkipRedaction(args: any[]): boolean {
+	private shouldSkipRedaction(args: unknown[]): boolean {
 		let size = 0;
 		let surfaceText = '';
 		let budget = 1024;
@@ -163,9 +164,9 @@ export class FirstRunValidationContribution extends Disposable implements IWorkb
 					return false;
 				}
 			}
-			if (size > CONSOLE_REDACT_FAST_PATH_BYTES * 4) break;
+			if (size > CONSOLE_REDACT_FAST_PATH_BYTES * 4) { break; }
 		}
-		if (size <= CONSOLE_REDACT_FAST_PATH_BYTES) return false;
+		if (size <= CONSOLE_REDACT_FAST_PATH_BYTES) { return false; }
 		return !SECRET_MARKERS_RE.test(surfaceText);
 	}
 

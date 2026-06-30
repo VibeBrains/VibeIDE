@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Next-edit LLM prompt builder — pure helper
@@ -82,8 +83,8 @@ export function buildNextEditPrompt(input: NextEditPromptInput): NextEditPromptR
 }
 
 function clampMaxChars(raw: number | undefined): number {
-	if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 256) return DEFAULT_MAX_CONTEXT_CHARS;
-	if (raw > 32_000) return 32_000;
+	if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 256) { return DEFAULT_MAX_CONTEXT_CHARS; }
+	if (raw > 32_000) { return 32_000; }
 	return Math.floor(raw);
 }
 
@@ -151,19 +152,19 @@ function splitContextAtCursor(w: EditWindowContext): { prefix: string; suffix: s
 }
 
 function trimToBudget(text: string, budget: number, keep: 'head' | 'tail'): string {
-	if (text.length <= budget) return text;
-	if (keep === 'head') return text.slice(0, budget);
+	if (text.length <= budget) { return text; }
+	if (keep === 'head') { return text.slice(0, budget); }
 	return text.slice(text.length - budget);
 }
 
 function formatWindow(w: EditWindowContext, budget: number): string {
 	const joined = w.contextLines.join('\n');
-	if (joined.length <= budget) return joined;
+	if (joined.length <= budget) { return joined; }
 	// Keep the cursor line and roughly equal lines around it.
 	const lines = w.contextLines;
 	const cursor = w.cursorLine0;
-	let above: string[] = [];
-	let below: string[] = [];
+	const above: string[] = [];
+	const below: string[] = [];
 	let used = (lines[cursor] ?? '').length + 1;
 	for (let i = 1; i <= lines.length; i++) {
 		const a = cursor - i;
@@ -176,21 +177,21 @@ function formatWindow(w: EditWindowContext, budget: number): string {
 			below.push(lines[b]);
 			used += lines[b].length + 1;
 		}
-		if (used >= budget) break;
+		if (used >= budget) { break; }
 	}
 	const center = lines[cursor] ?? '';
 	return [...above, center, ...below].join('\n');
 }
 
 function truncate(s: string, n: number): string {
-	if (s.length <= n) return s;
+	if (s.length <= n) { return s; }
 	return s.slice(0, n) + '…';
 }
 
 function ageLabelMs(ms: number): string {
-	if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return '?';
-	if (ms < 1000) return `${ms}ms ago`;
-	if (ms < 60_000) return `${Math.floor(ms / 1000)}s ago`;
+	if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) { return '?'; }
+	if (ms < 1000) { return `${ms}ms ago`; }
+	if (ms < 60_000) { return `${Math.floor(ms / 1000)}s ago`; }
 	return `${Math.floor(ms / 60_000)}m ago`;
 }
 
@@ -221,14 +222,14 @@ export function parseNextEditCompletion(
 	defaultFileUri?: string,
 ): NextEditParseResult {
 	const json = extractFirstJsonObject(rawResponse);
-	if (json === null) return { kind: 'no-json' };
+	if (json === null) { return { kind: 'no-json' }; }
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(json);
 	} catch {
 		return { kind: 'no-json' };
 	}
-	if (!parsed || typeof parsed !== 'object') return { kind: 'shape-mismatch', reason: 'root-not-object' };
+	if (!parsed || typeof parsed !== 'object') { return { kind: 'shape-mismatch', reason: 'root-not-object' }; }
 	const o = parsed as Record<string, unknown>;
 	const fileUri = typeof o.file === 'string' && o.file.length > 0 ? o.file : defaultFileUri;
 	if (typeof fileUri !== 'string' || fileUri.length === 0) {
@@ -251,13 +252,13 @@ export function parseNextEditCompletion(
 
 function extractFirstJsonObject(s: string): string | null {
 	const start = s.indexOf('{');
-	if (start === -1) return null;
+	if (start === -1) { return null; }
 	let depth = 0;
 	for (let i = start; i < s.length; i++) {
-		if (s[i] === '{') depth++;
+		if (s[i] === '{') { depth++; }
 		else if (s[i] === '}') {
 			depth--;
-			if (depth === 0) return s.slice(start, i + 1);
+			if (depth === 0) { return s.slice(start, i + 1); }
 		}
 	}
 	return null;

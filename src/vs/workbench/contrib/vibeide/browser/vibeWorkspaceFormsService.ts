@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Loads and saves `.vibe` project AI bundle files via IFileService — used by Workspace settings UI.
@@ -276,7 +277,7 @@ class VibeWorkspaceFormsService extends Disposable implements IVibeWorkspaceForm
 	}
 
 	private async _loadText(uri: URI, maxBytes: number): Promise<VibeWorkspaceTextLoadResult> {
-		let rev = await revisionOf(this._fileService, uri);
+		const rev = await revisionOf(this._fileService, uri);
 		try {
 			const stat = await this._fileService.stat(uri);
 			if (typeof stat.size === 'number' && stat.size > maxBytes) {

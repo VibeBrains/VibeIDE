@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../../../../common/vibeLog.js';
 import { useEffect, useState, useMemo } from 'react';
@@ -15,9 +16,9 @@ import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js';
 import { FileAccess } from '../../../../../../../base/common/network.js';
 import { onboardingS, tabNames, type TabName } from './vibeOnboardingRu.js';
 
-const OVERRIDE_VALUE = false
+const OVERRIDE_VALUE = false;
 
-const getHeroLogoUri = () => FileAccess.asBrowserUri('vs/workbench/browser/media/vibeide-logo.png').toString(true)
+const getHeroLogoUri = () => FileAccess.asBrowserUri('vs/workbench/browser/media/vibeide-logo.png').toString(true);
 
 const welcomeHighlights = onboardingS.welcomeHighlights;
 
@@ -25,10 +26,10 @@ const welcomeStats = onboardingS.welcomeStats;
 
 export const VibeOnboarding = () => {
 
-	const vibeSettingsState = useSettingsState()
-	const isOnboardingComplete = vibeSettingsState.globalSettings.isOnboardingComplete || OVERRIDE_VALUE
+	const vibeSettingsState = useSettingsState();
+	const isOnboardingComplete = vibeSettingsState.globalSettings.isOnboardingComplete || OVERRIDE_VALUE;
 
-	const isDark = useIsDark()
+	const isDark = useIsDark();
 
 	return (
 		<div className={`@@vibe-scope ${isDark ? 'dark' : ''}`}>
@@ -49,8 +50,8 @@ export const VibeOnboarding = () => {
 				</ErrorBoundary>
 			</div>
 		</div>
-	)
-}
+	);
+};
 
 const VibeHeroIcon = () => {
 	const heroLogoUri = useMemo(() => getHeroLogoUri(), []);
@@ -71,33 +72,33 @@ const VibeHeroIcon = () => {
 				}}
 			/>
 		</div>
-	)
-}
+	);
+};
 
-const FADE_DURATION_MS = 2000
+const FADE_DURATION_MS = 2000;
 
-const FadeIn = ({ children, className, delayMs = 0, durationMs, ...props }: { children: React.ReactNode, delayMs?: number, durationMs?: number, className?: string } & React.HTMLAttributes<HTMLDivElement>) => {
+const FadeIn = ({ children, className, delayMs = 0, durationMs, ...props }: { children: React.ReactNode; delayMs?: number; durationMs?: number; className?: string } & React.HTMLAttributes<HTMLDivElement>) => {
 
-	const [opacity, setOpacity] = useState(0)
+	const [opacity, setOpacity] = useState(0);
 
-	const effectiveDurationMs = durationMs ?? FADE_DURATION_MS
+	const effectiveDurationMs = durationMs ?? FADE_DURATION_MS;
 
 	useEffect(() => {
 
 		const timeout = setTimeout(() => {
-			setOpacity(1)
-		}, delayMs)
+			setOpacity(1);
+		}, delayMs);
 
-		return () => clearTimeout(timeout)
-	}, [setOpacity, delayMs])
+		return () => clearTimeout(timeout);
+	}, [setOpacity, delayMs]);
 
 
 	return (
 		<div className={className} style={{ opacity, transition: `opacity ${effectiveDurationMs}ms ease-in-out` }} {...props}>
 			{children}
 		</div>
-	)
-}
+	);
+};
 
 // Onboarding
 
@@ -122,9 +123,9 @@ const providerNamesOfTab: Record<TabName, ProviderName[]> = {
 const descriptionOfTab: Record<TabName, string> = onboardingS.tabDescription;
 
 
-const featureNameMap: ReadonlyArray<{ display: string, featureName: FeatureName }> = onboardingS.featureLabel;
+const featureNameMap: ReadonlyArray<{ display: string; featureName: FeatureName }> = onboardingS.featureLabel;
 
-const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setPageIndex: (index: number) => void }) => {
+const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number; setPageIndex: (index: number) => void }) => {
 	const [currentTab, setCurrentTab] = useState<TabName>('Free');
 	const settingsState = useSettingsState();
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -267,7 +268,7 @@ const AddProvidersPage = ({ pageIndex, setPageIndex }: { pageIndex: number, setP
 							<PreviousButton onClick={() => setPageIndex(pageIndex - 1)} />
 							<NextButton
 								onClick={() => {
-									const isDisabled = isFeatureNameDisabled('Chat', settingsState)
+									const isDisabled = isFeatureNameDisabled('Chat', settingsState);
 									if (!isDisabled) {
 										setPageIndex(pageIndex + 1);
 										setErrorMessage(null);
@@ -348,8 +349,8 @@ const NextButton = ({ onClick, ...props }: { onClick: () => void } & React.Butto
 			{onboardingS.nextBtn}
 			<ChevronRight className="w-4 h-4" />
 		</button>
-	)
-}
+	);
+};
 
 const PreviousButton = ({ onClick, ...props }: { onClick: () => void } & React.ButtonHTMLAttributes<HTMLButtonElement>) => {
 	return (
@@ -361,17 +362,17 @@ const PreviousButton = ({ onClick, ...props }: { onClick: () => void } & React.B
 		>
 			{onboardingS.previousBtn}
 		</button>
-	)
-}
+	);
+};
 
 
 
 const OnboardingPageShell = ({ top, bottom, content, hasMaxWidth = true, className = '', }: {
-	top?: React.ReactNode,
-	bottom?: React.ReactNode,
-	content?: React.ReactNode,
-	hasMaxWidth?: boolean,
-	className?: string,
+	top?: React.ReactNode;
+	bottom?: React.ReactNode;
+	content?: React.ReactNode;
+	hasMaxWidth?: boolean;
+	className?: string;
 }) => {
 	return (
 		<div className={`min-h-[70vh] w-full ${className}`}>
@@ -388,8 +389,8 @@ const OnboardingPageShell = ({ top, bottom, content, hasMaxWidth = true, classNa
 				{bottom && <div className='w-full pt-6'>{bottom}</div>}
 			</div>
 		</div>
-	)
-}
+	);
+};
 
 const WelcomePage = ({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) => {
 	return (
@@ -436,10 +437,10 @@ const WelcomePage = ({ onNext, onSkip }: { onNext: () => void; onSkip: () => voi
 				</div>
 			</div>
 		</div>
-	)
-}
+	);
+};
 
-const OllamaDownloadOrRemoveModelButton = ({ modelName, isModelInstalled, sizeGb }: { modelName: string, isModelInstalled: boolean, sizeGb: number | false | 'not-known' }) => {
+const OllamaDownloadOrRemoveModelButton = ({ modelName, isModelInstalled, sizeGb }: { modelName: string; isModelInstalled: boolean; sizeGb: number | false | 'not-known' }) => {
 	// for now just link to the ollama download page
 	return <a
 		href={`https://ollama.com/library/${modelName}`}
@@ -448,9 +449,9 @@ const OllamaDownloadOrRemoveModelButton = ({ modelName, isModelInstalled, sizeGb
 		className="flex items-center justify-center text-vibe-fg-2 hover:text-vibe-fg-1"
 	>
 		<ExternalLink className="w-3.5 h-3.5" />
-	</a>
+	</a>;
 
-}
+};
 
 
 const YesNoText = ({ val }: { val: boolean | null }) => {
@@ -467,9 +468,9 @@ const YesNoText = ({ val }: { val: boolean | null }) => {
 				: val === false ? 'No'
 					: "Yes*"
 		}
-	</div>
+	</div>;
 
-}
+};
 
 
 
@@ -484,13 +485,13 @@ const abbreviateNumber = (num: number): string => {
 		// For numbers less than 1000
 		return num.toString();
 	}
-}
+};
 
 
 
 
 
-const PrimaryActionButton = ({ children, className = '', ringSize, ...props }: { children: React.ReactNode, ringSize?: undefined | 'xl' | 'screen' } & React.ButtonHTMLAttributes<HTMLButtonElement>) => {
+const PrimaryActionButton = ({ children, className = '', ringSize, ...props }: { children: React.ReactNode; ringSize?: undefined | 'xl' | 'screen' } & React.ButtonHTMLAttributes<HTMLButtonElement>) => {
 	const sizingClass = ringSize === 'xl'
 		? 'px-10 py-4 text-lg'
 		: ringSize === 'screen'
@@ -512,8 +513,8 @@ const PrimaryActionButton = ({ children, className = '', ringSize, ...props }: {
 				className="transition-transform duration-300 ease-in-out group-hover:translate-x-1 group-active:translate-x-1"
 			/>
 		</button>
-	)
-}
+	);
+};
 
 const SecondaryActionButton = ({ children, className = '', ...props }: { children: React.ReactNode } & React.ButtonHTMLAttributes<HTMLButtonElement>) => (
 	<button
@@ -526,25 +527,25 @@ const SecondaryActionButton = ({ children, className = '', ...props }: { childre
 	>
 		{children}
 	</button>
-)
+);
 
 
-type WantToUseOption = 'smart' | 'private' | 'cheap' | 'all'
+type WantToUseOption = 'smart' | 'private' | 'cheap' | 'all';
 
 const VibeOnboardingContent = () => {
 
 
-	const accessor = useAccessor()
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
-	const vibeMetricsService = accessor.get('IMetricsService')
+	const accessor = useAccessor();
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
+	const vibeMetricsService = accessor.get('IMetricsService');
 
-	const vibeSettingsState = useSettingsState()
+	const vibeSettingsState = useSettingsState();
 
-	const [pageIndex, setPageIndex] = useState(0)
+	const [pageIndex, setPageIndex] = useState(0);
 
 
 	// page 1 state
-	const [wantToUseOption, setWantToUseOption] = useState<WantToUseOption>('smart')
+	const [wantToUseOption, setWantToUseOption] = useState<WantToUseOption>('smart');
 
 	// Replace the single selectedProviderName with four separate states
 	// page 2 state - each tab gets its own state
@@ -561,7 +562,7 @@ const VibeOnboardingContent = () => {
 			case 'cheap': return selectedAffordableProvider;
 			case 'all': return selectedAllProvider;
 		}
-	}
+	};
 
 	// Helper function to set the selected provider for the current tab
 	const setSelectedProvider = (provider: ProviderName) => {
@@ -571,55 +572,55 @@ const VibeOnboardingContent = () => {
 			case 'cheap': setSelectedAffordableProvider(provider); break;
 			case 'all': setSelectedAllProvider(provider); break;
 		}
-	}
+	};
 
 	const providerNamesOfWantToUseOption: { [wantToUseOption in WantToUseOption]: ProviderName[] } = {
 		smart: ['anthropic', 'openAI', 'gemini', 'openRouter', 'minimax'],
 		private: ['ollama', 'vLLM', 'openAICompatible', 'lmStudio'],
 		cheap: ['gemini', 'deepseek', 'openRouter', 'pollinations', 'ollama', 'vLLM'],
 		all: providerNames,
-	}
+	};
 
 
 	const selectedProviderName = getSelectedProvider();
-	const didFillInProviderSettings = selectedProviderName && vibeSettingsState.settingsOfProvider[selectedProviderName]._didFillInProviderSettings
-	const isApiKeyLongEnoughIfApiKeyExists = selectedProviderName && vibeSettingsState.settingsOfProvider[selectedProviderName].apiKey ? vibeSettingsState.settingsOfProvider[selectedProviderName].apiKey.length > 15 : true
-	const isAtLeastOneModel = selectedProviderName && vibeSettingsState.settingsOfProvider[selectedProviderName].models.length >= 1
+	const didFillInProviderSettings = selectedProviderName && vibeSettingsState.settingsOfProvider[selectedProviderName]._didFillInProviderSettings;
+	const isApiKeyLongEnoughIfApiKeyExists = selectedProviderName && vibeSettingsState.settingsOfProvider[selectedProviderName].apiKey ? vibeSettingsState.settingsOfProvider[selectedProviderName].apiKey.length > 15 : true;
+	const isAtLeastOneModel = selectedProviderName && vibeSettingsState.settingsOfProvider[selectedProviderName].models.length >= 1;
 
-	const didFillInSelectedProviderSettings = !!(didFillInProviderSettings && isApiKeyLongEnoughIfApiKeyExists && isAtLeastOneModel)
+	const didFillInSelectedProviderSettings = !!(didFillInProviderSettings && isApiKeyLongEnoughIfApiKeyExists && isAtLeastOneModel);
 
 	const skipOnboarding = (reason: string) => {
 		vibeideSettingsService.setGlobalSetting('isOnboardingComplete', true);
 		vibeMetricsService.capture('Skipped Onboarding', { reason, pageIndex, wantToUseOption, selectedProviderName });
-	}
+	};
 
 	const prevAndNextButtons = <div className="max-w-[600px] w-full mx-auto flex flex-col items-end">
 		<div className="flex items-center gap-2">
 			<PreviousButton
-				onClick={() => { setPageIndex(pageIndex - 1) }}
+				onClick={() => { setPageIndex(pageIndex - 1); }}
 			/>
 			<NextButton
-				onClick={() => { setPageIndex(pageIndex + 1) }}
+				onClick={() => { setPageIndex(pageIndex + 1); }}
 			/>
 		</div>
-	</div>
+	</div>;
 
 
 	const lastPagePrevAndNextButtons = <div className="max-w-[600px] w-full mx-auto flex flex-col items-end">
 		<div className="flex items-center gap-2">
 			<PreviousButton
-				onClick={() => { setPageIndex(pageIndex - 1) }}
+				onClick={() => { setPageIndex(pageIndex - 1); }}
 			/>
 			<SecondaryActionButton onClick={() => skipOnboarding('final-step-skip')}>{onboardingS.skipBtn}</SecondaryActionButton>
 			<PrimaryActionButton
 				onClick={() => {
 					vibeideSettingsService.setGlobalSetting('isOnboardingComplete', true);
-					vibeMetricsService.capture('Completed Onboarding', { selectedProviderName, wantToUseOption })
+					vibeMetricsService.capture('Completed Onboarding', { selectedProviderName, wantToUseOption });
 				}}
 				ringSize={vibeSettingsState.globalSettings.isOnboardingComplete ? 'screen' : undefined}
 			>{onboardingS.startInVibe}</PrimaryActionButton>
 		</div>
-	</div>
+	</div>;
 
 
 	// cannot be md
@@ -628,7 +629,7 @@ const VibeOnboardingContent = () => {
 		private: onboardingS.tagPrivate,
 		cheap: onboardingS.tagCheap,
 		all: "",
-	}
+	};
 
 	// can be md
 	const detailedDescOfWantToUseOption: { [wantToUseOption in WantToUseOption]: string } = {
@@ -636,7 +637,7 @@ const VibeOnboardingContent = () => {
 		private: onboardingS.tagPrivateDetail,
 		cheap: onboardingS.tagCheapDetail,
 		all: "",
-	}
+	};
 
 	// Modified: initialize separate provider states on initial render instead of watching wantToUseOption changes
 	useEffect(() => {
@@ -657,9 +658,9 @@ const VibeOnboardingContent = () => {
 	// reset the page to page 0 if the user redos onboarding
 	useEffect(() => {
 		if (!vibeSettingsState.globalSettings.isOnboardingComplete) {
-			setPageIndex(0)
+			setPageIndex(0);
 		}
-	}, [setPageIndex, vibeSettingsState.globalSettings.isOnboardingComplete])
+	}, [setPageIndex, vibeSettingsState.globalSettings.isOnboardingComplete]);
 
 
 	const contentOfIdx: { [pageIndex: number]: React.ReactNode } = {
@@ -686,13 +687,13 @@ const VibeOnboardingContent = () => {
 			}
 			bottom={lastPagePrevAndNextButtons}
 		/>,
-	}
+	};
 
 
 	return <div key={pageIndex} className="w-full h-[80vh] text-left mx-auto flex flex-col items-center justify-center">
 		<ErrorBoundary>
 			{contentOfIdx[pageIndex]}
 		</ErrorBoundary>
-	</div>
+	</div>;
 
-}
+};

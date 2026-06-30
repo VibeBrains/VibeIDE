@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Test scaffolding for VibeIDE service tests (L.0 / 984).
@@ -18,8 +19,7 @@
  */
 
 import { Emitter, Event } from '../../../../../base/common/event.js';
-import { NullLogService } from '../../../../../platform/log/common/log.js';
-import type { ILogService } from '../../../../../platform/log/common/log.js';
+import { NullLogService, type ILogService } from '../../../../../platform/log/common/log.js';
 import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 import type { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import type { IAuditLogService, AuditEvent } from '../../common/auditLogService.js';

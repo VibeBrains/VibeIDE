@@ -1,15 +1,19 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	safeParseConfigJson,
 	parseConfigJsonOrDefaults,
 } from '../../common/vibeConfigJsonParser.js';
 
 suite('VibeConfigJsonParser', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('safeParseConfigJson', () => {
 		test('valid object → ok', () => {
@@ -65,7 +69,7 @@ suite('VibeConfigJsonParser', () => {
 		test('validator rejection → not-ok with reason "validator-rejected"', () => {
 			interface ConstraintsDoc { rules: unknown[] }
 			const isConstraints = (v: unknown): v is ConstraintsDoc =>
-				typeof v === 'object' && v !== null && Array.isArray((v as any).rules);
+				typeof v === 'object' && v !== null && Array.isArray((v as { rules?: unknown }).rules);
 			const goodResult = safeParseConfigJson<ConstraintsDoc>('{"rules":[]}', isConstraints);
 			const badResult = safeParseConfigJson<ConstraintsDoc>('{"oops":true}', isConstraints);
 			assert.strictEqual(goodResult.ok, true);
@@ -102,7 +106,7 @@ suite('VibeConfigJsonParser', () => {
 
 		test('returns defaults on validator rejection and reports reason', () => {
 			const isShape = (v: unknown): v is typeof DEFAULTS =>
-				typeof v === 'object' && v !== null && Array.isArray((v as any).rules);
+				typeof v === 'object' && v !== null && Array.isArray((v as { rules?: unknown }).rules);
 			let reason: string | undefined;
 			const r = parseConfigJsonOrDefaults('{"oops":true}', DEFAULTS, r2 => { reason = r2; }, isShape);
 			assert.strictEqual(r, DEFAULTS);

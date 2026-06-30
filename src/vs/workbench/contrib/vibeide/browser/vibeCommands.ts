@@ -1,9 +1,10 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+
+import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { ConfigurationTarget, IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -18,7 +19,6 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -37,7 +37,7 @@ import { IVibePlanBindingRegistry } from './vibePlanBindingRegistry.js';
 import { IVibePersistedPlanService } from '../common/vibePersistedPlanService.js';
 import { decodeLease, selectAllForEmergencyStop, PlanExecutionLease } from '../common/planLeaseLifecycle.js';
 import { VIBEIDE_VIEW_CONTAINER_ID } from './sidebarPane.js';
-import type { ChatMessage } from '../common/chatThreadServiceTypes.js';
+import type { ChatMessage, PlanMessage } from '../common/chatThreadServiceTypes.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
@@ -45,7 +45,6 @@ import { IAuditLogService } from '../common/auditLogService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isWindows, isMacintosh, isLinux } from '../../../../base/common/platform.js';
-import type { PlanMessage } from '../common/chatThreadServiceTypes.js';
 
 const VIBEIDE_OPEN_SIDEBAR_CMD = 'vibeide.sidebar.open';
 
@@ -589,6 +588,7 @@ registerAction2(class extends Action2 {
 			});
 			return;
 		}
+		const logService = accessor.get(ILogService);
 		const skillsRoot = joinPath(roots[0].uri, '.vibe', 'skills');
 		await filesAccessor.createFolder(skillsRoot);
 		const slug = `new-skill-${Date.now()}`;
@@ -612,7 +612,7 @@ registerAction2(class extends Action2 {
 		].join('\n');
 		await filesAccessor.writeFile(uri, VSBuffer.fromString(tpl));
 		await cmds.executeCommand('vscode.open', uri);
-		accessor.get(ILogService).info(`[VibeIDE] New skill scaffold: ${uri.fsPath}`);
+		logService.info(`[VibeIDE] New skill scaffold: ${uri.fsPath}`);
 	}
 });
 
@@ -697,6 +697,7 @@ registerAction2(class extends Action2 {
 			});
 			return;
 		}
+		const logService = accessor.get(ILogService);
 		const wf = roots[0].uri;
 		const plansDir = joinPath(wf, '.vibe', 'plans');
 		await files.createFolder(plansDir);
@@ -728,7 +729,7 @@ registerAction2(class extends Action2 {
 		].join('\n');
 		await files.writeFile(fileUri, VSBuffer.fromString(text));
 		await cmds.executeCommand('vscode.openWith', fileUri, 'vibeide.planDashboard');
-		accessor.get(ILogService).info(`[VibeIDE] New plan template: ${fileUri.fsPath}`);
+		logService.info(`[VibeIDE] New plan template: ${fileUri.fsPath}`);
 	}
 });
 

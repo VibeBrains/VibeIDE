@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Next-edit ghost-text builder (1029) — pure helper.
@@ -83,9 +84,9 @@ export function scoreJumpCandidate(
 	recentlyTouchedUris: ReadonlyArray<string>,
 	excludedUris: ReadonlySet<string> = new Set(),
 ): number {
-	if (excludedUris.has(candidate.uri)) return Infinity;
+	if (excludedUris.has(candidate.uri)) { return Infinity; }
 	const idx = recentlyTouchedUris.indexOf(candidate.uri);
-	if (idx >= 0) return idx;
+	if (idx >= 0) { return idx; }
 	return recentlyTouchedUris.length + candidate.line;
 }
 

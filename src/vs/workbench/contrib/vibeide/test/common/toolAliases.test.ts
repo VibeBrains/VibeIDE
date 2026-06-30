@@ -1,19 +1,23 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { applyParamAliases } from '../../common/prompt/toolAliases.js';
 
 suite('toolAliases — applyParamAliases', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('browse_url — canonical param is `url`, not the file-tool `uri`', () => {
 		test('a correct `url` param passes through unchanged (regression: was remapped to `uri` → undefined)', () => {
 			const out = applyParamAliases('browse_url', { url: 'https://example.com', refresh: 'true' });
 			assert.strictEqual(out.url, 'https://example.com');
 			assert.strictEqual(out.refresh, 'true');
-			assert.ok(!('uri' in out), 'must NOT produce a `uri` key the handler never reads');
+			assert.ok(!Object.hasOwn(out, 'uri'), 'must NOT produce a `uri` key the handler never reads');
 		});
 
 		test('foreign location names normalize TO `url`', () => {

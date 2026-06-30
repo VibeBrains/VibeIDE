@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
@@ -18,11 +19,14 @@ suite('chatThreadToMarkdown', () => {
 	const assistant = (displayContent: string, reasoning = ''): ChatMessage => ({
 		role: 'assistant', displayContent, reasoning, anthropicReasoning: null,
 	});
+	// The serializer only reads `name`, `type`, `content` and `result` (as unknown).
+	// `params`/`result` carry deliberately minimal test fixtures, so the structurally
+	// strict `ToolMessage<'read_file'>` shape is satisfied via a single assertion.
 	const toolMsg = (name: string, result: string): ChatMessage => ({
-		role: 'tool', type: 'success', name: name as any, id: 'id1',
+		role: 'tool', type: 'success', name, id: 'id1',
 		content: result, rawParams: { uri: 'c:/x.ts' }, mcpServerName: undefined,
-		params: {} as any, result: result as any,
-	});
+		params: {}, result,
+	}) as unknown as ChatMessage;
 
 	test('serializes user + assistant turns', () => {
 		const md = threadToMarkdown([user('привет'), assistant('ответ')]);

@@ -1,7 +1,7 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 
 // disable foreign import complaints
 /* eslint-disable */
@@ -16,7 +16,7 @@ import { GoogleAuth } from 'google-auth-library';
 export const getGoogleApiKey = async (): Promise<string> => {
 	const auth = new GoogleAuth({ scopes: `https://www.googleapis.com/auth/cloud-platform` });
 	const key = await auth.getAccessToken();
-	if (!key) throw new Error(`Google API failed to generate a key.`);
+	if (!key) { throw new Error(`Google API failed to generate a key.`); }
 	return key;
 };
 
@@ -27,7 +27,7 @@ export const getGoogleApiKey = async (): Promise<string> => {
  * Common cause: user copied the masked UI value (bullets) instead of the real API key.
  */
 export const assertHttpHeaderSafe = (fieldLabel: string, value: string | undefined | null): void => {
-	if (!value) return;
+	if (!value) { return; }
 	for (let i = 0; i < value.length; i++) {
 		const code = value.charCodeAt(i);
 		if (code > 0xFF) {

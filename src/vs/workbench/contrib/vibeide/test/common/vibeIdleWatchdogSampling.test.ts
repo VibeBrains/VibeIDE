@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Tests for `computeSamplingIntervalMs` (roadmap W.50 adaptive + 1630 burst).
@@ -12,6 +13,7 @@
  */
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	ADAPTIVE_IDLE_THRESHOLD_SEC,
 	ADAPTIVE_RATE_MULTIPLIER,
@@ -21,6 +23,8 @@ import {
 const MIN = 60 * 1000;
 
 suite('Idle Watchdog — sampling interval (W.50 / 1630)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('base interval when neither burst nor adaptive', () => {
 		const ms = computeSamplingIntervalMs({ burstTicksRemaining: 0, burstSeconds: 15, adaptive: false, intervalMinutes: 5, idleMs: 10 * 60 * 60 * 1000 });

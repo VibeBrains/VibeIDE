@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * npm scripts ↔ CLI alignment check (1137) — pure helper.
@@ -55,7 +56,7 @@ export function checkNpmCliAlignment(scripts: Readonly<Record<string, string>>):
 	let checked = 0;
 
 	for (const [name, body] of Object.entries(scripts)) {
-		if (!name.startsWith('vibe:')) continue;
+		if (!name.startsWith('vibe:')) { continue; }
 		checked++;
 		const v = inspectOne(name, body);
 		if (v) {
@@ -94,7 +95,7 @@ function inspectOne(name: string, body: string): AlignmentViolation | null {
 const VIBE_CALL_RE = /\bnode\s+\.?\/?scripts\/vibe\.js\b/;
 function findVibeCall(s: string): number {
 	const m = s.match(VIBE_CALL_RE);
-	if (!m || m.index === undefined) return -1;
+	if (!m || m.index === undefined) { return -1; }
 	// Reject calls preceded by anything other than whitespace + start.
 	const before = s.slice(0, m.index).trim();
 	return before.length === 0 ? m.index : m.index;

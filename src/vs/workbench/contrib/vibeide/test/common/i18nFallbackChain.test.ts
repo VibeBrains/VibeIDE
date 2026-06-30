@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -10,12 +11,15 @@ import {
 	normaliseLocale,
 	LocaleBundle,
 } from '../../common/i18nFallbackChain.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 function bundle(tag: string, entries: ReadonlyArray<readonly [string, string]>): LocaleBundle {
 	return { localeTag: tag, entries: new Map(entries) };
 }
 
 suite('i18n fallback chain — pure resolver', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('normaliseLocale', () => {
 		test('lowercase + dash + trim', () => {

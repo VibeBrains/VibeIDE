@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * FIM context-collection contract (1018) — pure types + budgeter.
@@ -141,7 +142,7 @@ export function reportFIMBudget(
 
 function sum(ns: ReadonlyArray<number>): number {
 	let s = 0;
-	for (const n of ns) s += n;
+	for (const n of ns) { s += n; }
 	return s;
 }
 
@@ -172,7 +173,7 @@ export function trimCurrentFileToBudget(
 		return { ...current, prefix: '', suffix: '' };
 	}
 	const total = current.prefix.length + current.suffix.length;
-	if (total <= targetChars) return current;
+	if (total <= targetChars) { return current; }
 	const halfBudget = Math.floor(targetChars / 2);
 	const prefix = current.prefix.slice(Math.max(0, current.prefix.length - halfBudget));
 	const suffix = current.suffix.slice(0, halfBudget);

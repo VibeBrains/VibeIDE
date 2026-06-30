@@ -1,24 +1,23 @@
-
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../nls.js';
 import { defaultModelsOfProvider, defaultProviderSettings, ModelOverrides } from './modelCapabilities.js';
 import { ToolApprovalType } from './toolsServiceTypes.js';
-import { VibeideSettingsState } from './vibeideSettingsService.js'
+import { VibeideSettingsState } from './vibeideSettingsService.js';
 
 
 type UnionOfKeys<T> = T extends T ? keyof T : never;
 
 
 
-export type ProviderName = keyof typeof defaultProviderSettings
-export const providerNames = Object.keys(defaultProviderSettings) as ProviderName[]
+export type ProviderName = keyof typeof defaultProviderSettings;
+export const providerNames = Object.keys(defaultProviderSettings) as ProviderName[];
 
-export const localProviderNames = ['ollama', 'vLLM', 'lmStudio'] satisfies ProviderName[] // all local names
-export const nonlocalProviderNames = providerNames.filter((name) => !(localProviderNames as string[]).includes(name)) // all non-local names
+export const localProviderNames = ['ollama', 'vLLM', 'lmStudio'] satisfies ProviderName[]; // all local names
+export const nonlocalProviderNames = providerNames.filter((name) => !(localProviderNames as string[]).includes(name)); // all non-local names
 
 /**
  * Preference order for "Auto" model resolution — when user picks
@@ -40,157 +39,157 @@ export const nonlocalProviderNames = providerNames.filter((name) => !(localProvi
  */
 export const autoModelFallbackProviderOrder = ['anthropic', 'openAI', 'gemini', 'xAI', 'mistral', 'deepseek', 'groq', 'ollama', 'vLLM', 'lmStudio', 'openAICompatible', 'openRouter', 'liteLLM', 'pollinations', 'openCodeZen', 'openCodeGo', 'minimax'] satisfies ProviderName[];
 
-type CustomSettingName = UnionOfKeys<typeof defaultProviderSettings[ProviderName]>
+type CustomSettingName = UnionOfKeys<typeof defaultProviderSettings[ProviderName]>;
 type CustomProviderSettings<providerName extends ProviderName> = {
 	[k in CustomSettingName]: k extends keyof typeof defaultProviderSettings[providerName] ? string : undefined
-}
+};
 export const customSettingNamesOfProvider = (providerName: ProviderName) => {
-	const builtin = defaultProviderSettings[providerName]
+	const builtin = defaultProviderSettings[providerName];
 	// Dynamic providers (.vibe/providers.json) have no built-in field schema; the only editable field in
 	// the Settings card is the API key (baseURL/headers stay file-owned).
-	if (!builtin) { return ['apiKey'] as CustomSettingName[] }
-	return Object.keys(builtin) as CustomSettingName[]
-}
+	if (!builtin) { return ['apiKey'] as CustomSettingName[]; }
+	return Object.keys(builtin) as CustomSettingName[];
+};
 
 
 
 export type VibeideStatefulModelInfo = { // <-- STATEFUL
-	modelName: string,
+	modelName: string;
 	type: 'default' | 'autodetected' | 'custom';
-	isHidden: boolean, // whether or not the user is hiding it (switched off)
+	isHidden: boolean; // whether or not the user is hiding it (switched off)
 	/** DYNAMIC providers only (.vibe/providers.json): marks a model whose caps are overridden by a file
 	 *  `static` entry (`override`) or defined only in the file (`manual`). Drives the «Модели» tab badge. */
-	fileNote?: 'override' | 'manual',
-}
+	fileNote?: 'override' | 'manual';
+};
 
 
 
 type CommonProviderSettings = {
-	_didFillInProviderSettings: boolean | undefined, // undefined initially, computed when user types in all fields
-	models: VibeideStatefulModelInfo[],
-}
+	_didFillInProviderSettings: boolean | undefined; // undefined initially, computed when user types in all fields
+	models: VibeideStatefulModelInfo[];
+};
 
-export type SettingsAtProvider<providerName extends ProviderName> = CustomProviderSettings<providerName> & CommonProviderSettings
+export type SettingsAtProvider<providerName extends ProviderName> = CustomProviderSettings<providerName> & CommonProviderSettings;
 
 // part of state
 export type SettingsOfProvider = {
 	[providerName in ProviderName]: SettingsAtProvider<providerName>
-}
+};
 
 
-export type SettingName = keyof SettingsAtProvider<ProviderName>
+export type SettingName = keyof SettingsAtProvider<ProviderName>;
 
 type DisplayInfoForProviderName = {
-	title: string,
-	desc?: string,
-}
+	title: string;
+	desc?: string;
+};
 
 export const displayInfoOfProviderName = (providerName: ProviderName): DisplayInfoForProviderName => {
 	if (providerName === 'anthropic') {
-		return { title: 'Anthropic', }
+		return { title: 'Anthropic', };
 	}
 	else if (providerName === 'openAI') {
-		return { title: 'OpenAI', }
+		return { title: 'OpenAI', };
 	}
 	else if (providerName === 'deepseek') {
-		return { title: 'DeepSeek', }
+		return { title: 'DeepSeek', };
 	}
 	else if (providerName === 'openRouter') {
-		return { title: 'OpenRouter', }
+		return { title: 'OpenRouter', };
 	}
 	else if (providerName === 'ollama') {
-		return { title: 'Ollama', }
+		return { title: 'Ollama', };
 	}
 	else if (providerName === 'vLLM') {
-		return { title: 'vLLM', }
+		return { title: 'vLLM', };
 	}
 	else if (providerName === 'liteLLM') {
-		return { title: 'LiteLLM', }
+		return { title: 'LiteLLM', };
 	}
 	else if (providerName === 'lmStudio') {
-		return { title: 'LM Studio', }
+		return { title: 'LM Studio', };
 	}
 	else if (providerName === 'openAICompatible') {
-		return { title: localize('vibeide.provider.openAICompatible', 'Совместимо с OpenAI API'), }
+		return { title: localize('vibeide.provider.openAICompatible', 'Совместимо с OpenAI API'), };
 	}
 	else if (providerName === 'gemini') {
-		return { title: 'Gemini', }
+		return { title: 'Gemini', };
 	}
 	else if (providerName === 'groq') {
-		return { title: 'Groq', }
+		return { title: 'Groq', };
 	}
 	else if (providerName === 'xAI') {
-		return { title: 'Grok (xAI)', }
+		return { title: 'Grok (xAI)', };
 	}
 	else if (providerName === 'mistral') {
-		return { title: 'Mistral', }
+		return { title: 'Mistral', };
 	}
 	else if (providerName === 'googleVertex') {
-		return { title: 'Google Vertex AI', }
+		return { title: 'Google Vertex AI', };
 	}
 	else if (providerName === 'microsoftAzure') {
-		return { title: 'Microsoft Azure OpenAI', }
+		return { title: 'Microsoft Azure OpenAI', };
 	}
 	else if (providerName === 'awsBedrock') {
-		return { title: 'AWS Bedrock', }
+		return { title: 'AWS Bedrock', };
 	}
 	else if (providerName === 'pollinations') {
-		return { title: 'Pollinations', }
+		return { title: 'Pollinations', };
 	}
 	else if (providerName === 'openCodeZen') {
-		return { title: 'OpenCode Zen', }
+		return { title: 'OpenCode Zen', };
 	}
 	else if (providerName === 'openCodeGo') {
-		return { title: 'OpenCode Go', }
+		return { title: 'OpenCode Go', };
 	}
 	else if (providerName === 'minimax') {
-		return { title: 'MiniMax', }
+		return { title: 'MiniMax', };
 	}
 	else if (providerName === 'lmRoute') {
-		return { title: 'LM Router', }
+		return { title: 'LM Router', };
 	}
 
 	// Dynamic providers (.vibe/providers.json) carry ids that aren't compile-time union members.
 	// Don't throw — surface the id as the title so the model picker (getOptionDropdownDetail) and any
 	// other caller render instead of crashing the subtree. The picker already shows the full name in
 	// the option label; this is just the secondary provider detail.
-	return { title: providerName }
-}
+	return { title: providerName };
+};
 
 export const subTextMdOfProviderName = (providerName: ProviderName): string => {
 
-	if (providerName === 'anthropic') return '[Ключ API](https://console.anthropic.com/settings/keys).'
-	if (providerName === 'openAI') return '[Ключ API](https://platform.openai.com/api-keys).'
-	if (providerName === 'deepseek') return '[Ключ API](https://platform.deepseek.com/api_keys).'
-	if (providerName === 'openRouter') return '[Ключ API](https://openrouter.ai/settings/keys). [Лимиты](https://openrouter.ai/docs/api-reference/limits).'
-	if (providerName === 'gemini') return '[Ключ API](https://aistudio.google.com/apikey). [Лимиты](https://ai.google.dev/gemini-api/docs/rate-limits#current-rate-limits).'
-	if (providerName === 'groq') return '[Ключ API](https://console.groq.com/keys).'
-	if (providerName === 'xAI') return '[Ключ API](https://console.x.ai).'
-	if (providerName === 'mistral') return '[Ключ API](https://console.mistral.ai/api-keys).'
-	if (providerName === 'openAICompatible') return `Любой провайдер с совместимым с OpenAI API (llama.cpp и др.).`
-	if (providerName === 'googleVertex') return 'Нужна аутентификация для Vertex. [Конечные точки](https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library), [регионы](https://cloud.google.com/vertex-ai/docs/general/locations#available-regions).'
-	if (providerName === 'microsoftAzure') return '[Конечные точки](https://learn.microsoft.com/en-us/rest/api/aifoundry/model-inference/get-chat-completions/get-chat-completions?view=rest-aifoundry-model-inference-2024-05-01-preview&tabs=HTTP), [ключ API](https://learn.microsoft.com/en-us/azure/search/search-security-api-keys?tabs=rest-use%2Cportal-find%2Cportal-query#find-existing-keys).'
-	if (providerName === 'awsBedrock') return 'Через прокси LiteLLM или AWS [Bedrock-Access-Gateway](https://github.com/aws-samples/bedrock-access-gateway). [Документация LiteLLM Bedrock](https://docs.litellm.ai/docs/providers/bedrock).'
-	if (providerName === 'ollama') return 'Про свои [конечные точки](https://github.com/ollama/ollama/blob/main/docs/faq.md#how-can-i-expose-ollama-on-my-network).'
-	if (providerName === 'vLLM') return 'Про [конечные точки](https://docs.vllm.ai/en/latest/getting_started/quickstart.html#openai-compatible-server).'
-	if (providerName === 'lmStudio') return 'Про [конечные точки OpenAI](https://lmstudio.ai/docs/app/api/endpoints/openai).'
-	if (providerName === 'liteLLM') return '[Совместимые конечные точки](https://docs.litellm.ai/docs/providers/openai_compatible).'
-	if (providerName === 'lmRoute') return 'OpenAI-совместимый агрегатор. Hosted: `https://api.lmrouter.com/openai/v1`, либо self-hosted endpoint. [Исходники](https://github.com/LMRouter/lmrouter).'
-	if (providerName === 'pollinations') return '[Ключ API](https://enter.pollinations.ai/). [Документация API](https://enter.pollinations.ai/api/docs).'
-	if (providerName === 'openCodeZen') return 'Ключ на [opencode.ai/zen](https://opencode.ai/zen). Бесплатные модели: MiniMax M2.5 Free, Ling 2.6 Flash и др. ([документация Zen](https://opencode.ai/docs/zen)).'
-	if (providerName === 'openCodeGo') return 'Подписка OpenCode Go — тот же аккаунт Zen. [Модели Go](https://dev.opencode.ai/docs/go) на opencode.ai/zen/go (Qwen, DeepSeek V4, …).'
-	if (providerName === 'minimax') return '[Ключ API](https://platform.minimax.io/user-center/basic-information/interface-key). OpenAI-совместимый API. Модели: MiniMax-M3 (контекст 1M, мультимодальная, thinking переключается), MiniMax-M2.'
+	if (providerName === 'anthropic') { return '[Ключ API](https://console.anthropic.com/settings/keys).'; }
+	if (providerName === 'openAI') { return '[Ключ API](https://platform.openai.com/api-keys).'; }
+	if (providerName === 'deepseek') { return '[Ключ API](https://platform.deepseek.com/api_keys).'; }
+	if (providerName === 'openRouter') { return '[Ключ API](https://openrouter.ai/settings/keys). [Лимиты](https://openrouter.ai/docs/api-reference/limits).'; }
+	if (providerName === 'gemini') { return '[Ключ API](https://aistudio.google.com/apikey). [Лимиты](https://ai.google.dev/gemini-api/docs/rate-limits#current-rate-limits).'; }
+	if (providerName === 'groq') { return '[Ключ API](https://console.groq.com/keys).'; }
+	if (providerName === 'xAI') { return '[Ключ API](https://console.x.ai).'; }
+	if (providerName === 'mistral') { return '[Ключ API](https://console.mistral.ai/api-keys).'; }
+	if (providerName === 'openAICompatible') { return `Любой провайдер с совместимым с OpenAI API (llama.cpp и др.).`; }
+	if (providerName === 'googleVertex') { return 'Нужна аутентификация для Vertex. [Конечные точки](https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library), [регионы](https://cloud.google.com/vertex-ai/docs/general/locations#available-regions).'; }
+	if (providerName === 'microsoftAzure') { return '[Конечные точки](https://learn.microsoft.com/en-us/rest/api/aifoundry/model-inference/get-chat-completions/get-chat-completions?view=rest-aifoundry-model-inference-2024-05-01-preview&tabs=HTTP), [ключ API](https://learn.microsoft.com/en-us/azure/search/search-security-api-keys?tabs=rest-use%2Cportal-find%2Cportal-query#find-existing-keys).'; }
+	if (providerName === 'awsBedrock') { return 'Через прокси LiteLLM или AWS [Bedrock-Access-Gateway](https://github.com/aws-samples/bedrock-access-gateway). [Документация LiteLLM Bedrock](https://docs.litellm.ai/docs/providers/bedrock).'; }
+	if (providerName === 'ollama') { return 'Про свои [конечные точки](https://github.com/ollama/ollama/blob/main/docs/faq.md#how-can-i-expose-ollama-on-my-network).'; }
+	if (providerName === 'vLLM') { return 'Про [конечные точки](https://docs.vllm.ai/en/latest/getting_started/quickstart.html#openai-compatible-server).'; }
+	if (providerName === 'lmStudio') { return 'Про [конечные точки OpenAI](https://lmstudio.ai/docs/app/api/endpoints/openai).'; }
+	if (providerName === 'liteLLM') { return '[Совместимые конечные точки](https://docs.litellm.ai/docs/providers/openai_compatible).'; }
+	if (providerName === 'lmRoute') { return 'OpenAI-совместимый агрегатор. Hosted: `https://api.lmrouter.com/openai/v1`, либо self-hosted endpoint. [Исходники](https://github.com/LMRouter/lmrouter).'; }
+	if (providerName === 'pollinations') { return '[Ключ API](https://enter.pollinations.ai/). [Документация API](https://enter.pollinations.ai/api/docs).'; }
+	if (providerName === 'openCodeZen') { return 'Ключ на [opencode.ai/zen](https://opencode.ai/zen). Бесплатные модели: MiniMax M2.5 Free, Ling 2.6 Flash и др. ([документация Zen](https://opencode.ai/docs/zen)).'; }
+	if (providerName === 'openCodeGo') { return 'Подписка OpenCode Go — тот же аккаунт Zen. [Модели Go](https://dev.opencode.ai/docs/go) на opencode.ai/zen/go (Qwen, DeepSeek V4, …).'; }
+	if (providerName === 'minimax') { return '[Ключ API](https://platform.minimax.io/user-center/basic-information/interface-key). OpenAI-совместимый API. Модели: MiniMax-M3 (контекст 1M, мультимодальная, thinking переключается), MiniMax-M2.'; }
 
 	// Dynamic providers (.vibe/providers.json) aren't in the built-in list — don't throw, just hint at
 	// where the key comes from. The provider's own docs/api-key URLs live in the file, not here.
-	return 'Провайдер из `.vibe/providers.json`. Введите ключ здесь или задайте `apiKeyEnv` в `.vibe/.env`.'
-}
+	return 'Провайдер из `.vibe/providers.json`. Введите ключ здесь или задайте `apiKeyEnv` в `.vibe/.env`.';
+};
 
 type DisplayInfo = {
 	title: string;
 	placeholder: string;
 	isPasswordField?: boolean;
-}
+};
 export const displayInfoOfSettingName = (providerName: ProviderName, settingName: SettingName): DisplayInfo => {
 	if (settingName === 'apiKey') {
 		return {
@@ -211,14 +210,14 @@ export const displayInfoOfSettingName = (providerName: ProviderName, settingName
 													providerName === 'microsoftAzure' ? 'key-...' :
 														providerName === 'awsBedrock' ? 'key-...' :
 															providerName === 'pollinations' ? 'sk-... or pk-...' :
-															providerName === 'openCodeZen' ? 'opencode-key...' :
-															providerName === 'openCodeGo' ? 'opencode-key...' :
-															providerName === 'minimax' ? 'eyJ...' :
-															providerName === 'lmRoute' ? 'lmrouter-key...' :
-																'',
+																providerName === 'openCodeZen' ? 'opencode-key...' :
+																	providerName === 'openCodeGo' ? 'opencode-key...' :
+																		providerName === 'minimax' ? 'eyJ...' :
+																			providerName === 'lmRoute' ? 'lmrouter-key...' :
+																				'',
 
 			isPasswordField: true,
-		}
+		};
 	}
 	else if (settingName === 'endpoint') {
 		return {
@@ -243,10 +242,10 @@ export const displayInfoOfSettingName = (providerName: ProviderName, settingName
 										: '(нет)',
 
 
-		}
+		};
 	}
 	else if (settingName === 'headersJSON') {
-		return { title: localize('vibeide.settings.customHeaders', 'Произвольные заголовки'), placeholder: '{ "X-Request-Id": "..." }' }
+		return { title: localize('vibeide.settings.customHeaders', 'Произвольные заголовки'), placeholder: '{ "X-Request-Id": "..." }' };
 	}
 	else if (settingName === 'region') {
 		// vertex only
@@ -256,7 +255,7 @@ export const displayInfoOfSettingName = (providerName: ProviderName, settingName
 				: providerName === 'awsBedrock'
 					? defaultProviderSettings.awsBedrock.region
 					: ''
-		}
+		};
 	}
 	else if (settingName === 'azureApiVersion') {
 		// azure only
@@ -264,7 +263,7 @@ export const displayInfoOfSettingName = (providerName: ProviderName, settingName
 			title: localize('vibeide.settings.azureApiVersion', 'Версия API'),
 			placeholder: providerName === 'microsoftAzure' ? defaultProviderSettings.microsoftAzure.azureApiVersion
 				: ''
-		}
+		};
 	}
 	else if (settingName === 'project') {
 		return {
@@ -275,7 +274,7 @@ export const displayInfoOfSettingName = (providerName: ProviderName, settingName
 				: providerName === 'googleVertex' ? 'my-project'
 					: ''
 
-		}
+		};
 
 	}
 	else if (settingName === 'publicCatalog') {
@@ -288,17 +287,17 @@ export const displayInfoOfSettingName = (providerName: ProviderName, settingName
 		return {
 			title: localize('vibeide.settings.notApplicable', '(нет)'),
 			placeholder: localize('vibeide.settings.notApplicable', '(нет)'),
-		}
+		};
 	}
 	else if (settingName === 'models') {
 		return {
 			title: localize('vibeide.settings.notApplicable', '(нет)'),
 			placeholder: localize('vibeide.settings.notApplicable', '(нет)'),
-		}
+		};
 	}
 
-	throw new Error(`displayInfo: Unknown setting name: "${settingName}"`)
-}
+	throw new Error(`displayInfo: Unknown setting name: "${settingName}"`);
+};
 
 
 const defaultCustomSettings: Record<CustomSettingName, undefined> = {
@@ -310,7 +309,7 @@ const defaultCustomSettings: Record<CustomSettingName, undefined> = {
 	headersJSON: undefined,
 	/** OpenRouter: `'1'` = fetch public /v1/models without API key */
 	publicCatalog: undefined,
-}
+};
 
 
 const modelInfoOfDefaultModelNames = (defaultModelNames: string[]): { models: VibeideStatefulModelInfo[] } => {
@@ -320,8 +319,8 @@ const modelInfoOfDefaultModelNames = (defaultModelNames: string[]): { models: Vi
 			type: 'default',
 			isHidden: defaultModelNames.length >= 10, // hide all models if there are a ton of them, and make user enable them individually
 		}))
-	}
-}
+	};
+};
 
 // used when waiting and for a type reference
 export const defaultSettingsOfProvider: SettingsOfProvider = {
@@ -451,58 +450,52 @@ export const defaultSettingsOfProvider: SettingsOfProvider = {
 		...modelInfoOfDefaultModelNames(defaultModelsOfProvider.lmRoute),
 		_didFillInProviderSettings: undefined,
 	},
-}
+};
 
 
 export type ModelSelection =
-	| { providerName: ProviderName, modelName: string }
-	| { providerName: 'auto', modelName: 'auto' } // Special "Auto" selection for automatic routing
+	| { providerName: ProviderName; modelName: string }
+	| { providerName: 'auto'; modelName: 'auto' }; // Special "Auto" selection for automatic routing
 
 export const modelSelectionsEqual = (m1: ModelSelection, m2: ModelSelection) => {
-	return m1.modelName === m2.modelName && m1.providerName === m2.providerName
-}
+	return m1.modelName === m2.modelName && m1.providerName === m2.providerName;
+};
 
 export const isAutoModelSelection = (selection: ModelSelection | null): boolean => {
-	return selection?.providerName === 'auto' && selection?.modelName === 'auto'
-}
+	return selection?.providerName === 'auto' && selection?.modelName === 'auto';
+};
 
 /**
  * Type guard to check if a ModelSelection has a valid ProviderName (not "auto")
  */
-export const isValidProviderModelSelection = (selection: ModelSelection): selection is { providerName: ProviderName, modelName: string } => {
-	return selection.providerName !== 'auto' && selection.modelName !== 'auto'
-}
+export const isValidProviderModelSelection = (selection: ModelSelection): selection is { providerName: ProviderName; modelName: string } => {
+	return selection.providerName !== 'auto' && selection.modelName !== 'auto';
+};
 
 // this is a state
-export const featureNames = ['Chat', 'Ctrl+K', 'Autocomplete', 'Apply', 'SCM'] as const
-export type ModelSelectionOfFeature = Record<(typeof featureNames)[number], ModelSelection | null>
-export type FeatureName = keyof ModelSelectionOfFeature
+export const featureNames = ['Chat', 'Ctrl+K', 'Autocomplete', 'Apply', 'SCM'] as const;
+export type ModelSelectionOfFeature = Record<(typeof featureNames)[number], ModelSelection | null>;
+export type FeatureName = keyof ModelSelectionOfFeature;
 
 export const displayInfoOfFeatureName = (featureName: FeatureName) => {
 	// editor:
-	if (featureName === 'Autocomplete')
-		return 'Автодополнение'
-	else if (featureName === 'Ctrl+K')
-		return 'Быстрое редактирование'
+	if (featureName === 'Autocomplete') { return 'Автодополнение'; }
+	else if (featureName === 'Ctrl+K') { return 'Быстрое редактирование'; }
 	// sidebar:
-	else if (featureName === 'Chat')
-		return 'Чат'
-	else if (featureName === 'Apply')
-		return 'Применить правки (Apply)'
+	else if (featureName === 'Chat') { return 'Чат'; }
+	else if (featureName === 'Apply') { return 'Применить правки (Apply)'; }
 	// source control:
-	else if (featureName === 'SCM')
-		return 'Генератор сообщений коммита'
-	else
-		throw new Error(`Feature Name ${featureName} not allowed`)
-}
+	else if (featureName === 'SCM') { return 'Генератор сообщений коммита'; }
+	else { throw new Error(`Feature Name ${featureName} not allowed`); }
+};
 
 
 // the models of these can be refreshed (in theory all can, but not all should)
-export const refreshableProviderNames = localProviderNames
-export type RefreshableProviderName = typeof refreshableProviderNames[number]
+export const refreshableProviderNames = localProviderNames;
+export type RefreshableProviderName = typeof refreshableProviderNames[number];
 
 // models that come with download buttons
-export const hasDownloadButtonsOnModelsProviderNames = ['ollama'] as const satisfies ProviderName[]
+export const hasDownloadButtonsOnModelsProviderNames = ['ollama'] as const satisfies ProviderName[];
 
 
 
@@ -511,52 +504,52 @@ export const hasDownloadButtonsOnModelsProviderNames = ['ollama'] as const satis
 // use this in isFeatuerNameDissbled
 export const isProviderNameDisabled = (providerName: ProviderName, settingsState: VibeideSettingsState) => {
 
-	const settingsAtProvider = settingsState.settingsOfProvider[providerName]
+	const settingsAtProvider = settingsState.settingsOfProvider[providerName];
 	// Dynamic providers (.vibe/providers.json) have no built-in settings entry. Their selectable
 	// models are injected (key-gated) by the dynamic-providers service, so if such a provider is the
 	// current selection it's already "connected" — treat as enabled rather than dereferencing a
 	// missing entry (was: TypeError reading 'models' on model select).
-	if (!settingsAtProvider) { return false }
-	const isAutodetected = (refreshableProviderNames as string[]).includes(providerName)
+	if (!settingsAtProvider) { return false; }
+	const isAutodetected = (refreshableProviderNames as string[]).includes(providerName);
 
-	const isDisabled = settingsAtProvider.models.length === 0
+	const isDisabled = settingsAtProvider.models.length === 0;
 	if (isDisabled) {
-		return isAutodetected ? 'providerNotAutoDetected' : (!settingsAtProvider._didFillInProviderSettings ? 'notFilledIn' : 'addModel')
+		return isAutodetected ? 'providerNotAutoDetected' : (!settingsAtProvider._didFillInProviderSettings ? 'notFilledIn' : 'addModel');
 	}
-	return false
-}
+	return false;
+};
 
 export const isFeatureNameDisabled = (featureName: FeatureName, settingsState: VibeideSettingsState) => {
 	// if has a selected provider, check if it's enabled
-	const selectedProvider = settingsState.modelSelectionOfFeature[featureName]
+	const selectedProvider = settingsState.modelSelectionOfFeature[featureName];
 
 	if (selectedProvider) {
 		// "Auto" option is always enabled (it will route to available models)
 		if (selectedProvider.providerName === 'auto' && selectedProvider.modelName === 'auto') {
-			return false
+			return false;
 		}
-		const { providerName } = selectedProvider
-		return isProviderNameDisabled(providerName, settingsState)
+		const { providerName } = selectedProvider;
+		return isProviderNameDisabled(providerName, settingsState);
 	}
 
 	// if there are any models they can turn on, tell them that
-	const canTurnOnAModel = !!providerNames.find(providerName => settingsState.settingsOfProvider[providerName].models.filter(m => m.isHidden).length !== 0)
-	if (canTurnOnAModel) return 'needToEnableModel'
+	const canTurnOnAModel = !!providerNames.find(providerName => settingsState.settingsOfProvider[providerName].models.filter(m => m.isHidden).length !== 0);
+	if (canTurnOnAModel) { return 'needToEnableModel'; }
 
 	// if there are any providers filled in, then they just need to add a model
-	const anyFilledIn = !!providerNames.find(providerName => settingsState.settingsOfProvider[providerName]._didFillInProviderSettings)
-	if (anyFilledIn) return 'addModel'
+	const anyFilledIn = !!providerNames.find(providerName => settingsState.settingsOfProvider[providerName]._didFillInProviderSettings);
+	if (anyFilledIn) { return 'addModel'; }
 
-	return 'addProvider'
-}
-
-
+	return 'addProvider';
+};
 
 
 
 
 
-export type ChatMode = 'agent' | 'gather' | 'normal' | 'plan'
+
+
+export type ChatMode = 'agent' | 'gather' | 'normal' | 'plan';
 
 
 export type GlobalSettings = {
@@ -621,7 +614,7 @@ export type GlobalSettings = {
 	createVibeReadmeOnWorkspaceInit: boolean;
 	/** When true, render date/time under each chat message and next to checkpoints. Single switch for all chat timestamps. */
 	showChatTimestamps: boolean;
-}
+};
 
 export const defaultGlobalSettings: GlobalSettings = {
 	autoRefreshModels: true,
@@ -680,10 +673,10 @@ export const defaultGlobalSettings: GlobalSettings = {
 	chatAgentAutopilot: true, // ON by default (paired with iterations counter defaulting to 0/∞); explicit user choice is persisted and wins
 	createVibeReadmeOnWorkspaceInit: true,
 	showChatTimestamps: true,
-}
+};
 
-export type GlobalSettingName = keyof GlobalSettings
-export const globalSettingNames = Object.keys(defaultGlobalSettings) as GlobalSettingName[]
+export type GlobalSettingName = keyof GlobalSettings;
+export const globalSettingNames = Object.keys(defaultGlobalSettings) as GlobalSettingName[];
 
 
 
@@ -700,15 +693,15 @@ export type ModelSelectionOptions = {
 	reasoningEnabled?: boolean;
 	reasoningBudget?: number;
 	reasoningEffort?: string;
-}
+};
 
 export type OptionsOfModelSelection = {
 	[featureName in FeatureName]: Partial<{
 		[providerName in ProviderName]: {
-			[modelName: string]: ModelSelectionOptions | undefined
+			[modelName: string]: ModelSelectionOptions | undefined;
 		}
 	}>
-}
+};
 
 
 
@@ -716,14 +709,14 @@ export type OptionsOfModelSelection = {
 
 export type OverridesOfModel = {
 	[providerName in ProviderName]: {
-		[modelName: string]: Partial<ModelOverrides> | undefined
+		[modelName: string]: Partial<ModelOverrides> | undefined;
 	}
-}
+};
 
 
-const overridesOfModel = {} as OverridesOfModel
-for (const providerName of providerNames) { overridesOfModel[providerName] = {} }
-export const defaultOverridesOfModel = overridesOfModel
+const overridesOfModel: Partial<OverridesOfModel> = {};
+for (const providerName of providerNames) { overridesOfModel[providerName] = {}; }
+export const defaultOverridesOfModel: OverridesOfModel = overridesOfModel as OverridesOfModel;
 
 
 

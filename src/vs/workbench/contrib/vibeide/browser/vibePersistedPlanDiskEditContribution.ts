@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable, DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
@@ -111,18 +112,18 @@ export class VibePersistedPlanDiskEditContribution extends Disposable implements
 		let executingPlan: PlanMessage | undefined;
 		for (const tid of Object.keys(threads)) {
 			const thread = threads[tid];
-			if (!thread) continue;
+			if (!thread) { continue; }
 			for (const msg of thread.messages) {
-				if (msg.role !== 'plan') continue;
+				if (msg.role !== 'plan') { continue; }
 				const p = msg as PlanMessage;
 				if (p.persistedPlanId === diskPlanId && p.approvalState === 'executing') {
 					executingPlan = p;
 					break;
 				}
 			}
-			if (executingPlan) break;
+			if (executingPlan) { break; }
 		}
-		if (!executingPlan) return;
+		if (!executingPlan) { return; }
 
 		const before: PlanLite = {
 			planId: diskPlanId,
@@ -156,7 +157,7 @@ export class VibePersistedPlanDiskEditContribution extends Disposable implements
 		if (stepsMatch) {
 			for (const line of stepsMatch[1].split(/\r?\n/)) {
 				const m = line.match(/^-\s+(?:~~)?(?:\[[ x]\]\s+)?Step\s+(\d+):\s*(.+?)(?:~~)?(?:\s*_\(skipped\)_\s*)?$/);
-				if (!m) continue;
+				if (!m) { continue; }
 				const status = line.includes('[x]') ? 'succeeded' : line.startsWith('- ~~') ? 'skipped' : 'queued';
 				steps.push({ id: m[1], title: localize('vibeide.planStepTitle', 'Шаг {0}: {1}', m[1], m[2].trim()), status });
 			}

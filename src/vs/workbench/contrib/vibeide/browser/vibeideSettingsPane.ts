@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
@@ -21,7 +22,7 @@ import { ServicesAccessor } from '../../../../editor/browser/editorExtensions.js
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { URI } from '../../../../base/common/uri.js';
 
-import { mountVibeSettings } from './react/out/vibe-settings-tsx/index.js'
+import { mountVibeSettings } from './react/out/vibe-settings-tsx/index.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { toDisposable } from '../../../../base/common/lifecycle.js';
 
@@ -35,7 +36,7 @@ class VibeideSettingsInput extends EditorInput {
 	static readonly RESOURCE = URI.from({
 		scheme: 'vibe',
 		path: 'settings'
-	})
+	});
 	readonly resource = VibeideSettingsInput.RESOURCE;
 
 	constructor() {
@@ -46,12 +47,12 @@ class VibeideSettingsInput extends EditorInput {
 		return VibeideSettingsInput.ID;
 	}
 
-		override getName(): string {
-			return nls.localize('vibeSettingsInputsName', 'Настройки VibeIDE');
-		}
+	override getName(): string {
+		return nls.localize('vibeSettingsInputsName', 'Настройки VibeIDE');
+	}
 
 	override getIcon() {
-		return Codicon.checklist // symbol for the actual editor pane
+		return Codicon.checklist; // symbol for the actual editor pane
 	}
 
 }
@@ -89,7 +90,7 @@ class VibeideSettingsPane extends EditorPane {
 		// Mount React into the scrollable content
 		this.instantiationService.invokeFunction(accessor => {
 			const disposeFn = mountVibeSettings(settingsElt, accessor)?.dispose;
-			this._register(toDisposable(() => disposeFn?.()))
+			this._register(toDisposable(() => disposeFn?.()));
 
 			// setTimeout(() => { // this is a complete hack and I don't really understand how scrollbar works here
 			// 	this._scrollbar?.scanDomNode();
@@ -104,7 +105,7 @@ class VibeideSettingsPane extends EditorPane {
 	}
 
 
-	override get minimumWidth() { return 700 }
+	override get minimumWidth() { return 700; }
 
 }
 
@@ -116,7 +117,7 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 
 
 // Toggle VibeIDE settings editor; surfaced from chat view title + Global Activity (not layout title strip)
-export const VIBEIDE_TOGGLE_SETTINGS_ACTION_ID = 'workbench.action.toggleVibeideSettings'
+export const VIBEIDE_TOGGLE_SETTINGS_ACTION_ID = 'workbench.action.toggleVibeideSettings';
 registerAction2(class extends Action2 {
 	constructor() {
 		super({
@@ -134,12 +135,10 @@ registerAction2(class extends Action2 {
 		// if is open, close it
 		const openEditors = editorService.findEditors(VibeideSettingsInput.RESOURCE); // should only have 0 or 1 elements...
 		if (openEditors.length !== 0) {
-			const openEditor = openEditors[0].editor
-			const isCurrentlyOpen = editorService.activeEditor?.resource?.fsPath === openEditor.resource?.fsPath
-			if (isCurrentlyOpen)
-				await editorService.closeEditors(openEditors)
-			else
-				await editorService.openEditor(openEditor)
+			const openEditor = openEditors[0].editor;
+			const isCurrentlyOpen = editorService.activeEditor?.resource?.fsPath === openEditor.resource?.fsPath;
+			if (isCurrentlyOpen) { await editorService.closeEditors(openEditors); }
+			else { await editorService.openEditor(openEditor); }
 			return;
 		}
 
@@ -149,11 +148,11 @@ registerAction2(class extends Action2 {
 
 		await editorService.openEditor(input);
 	}
-})
+});
 
 
 
-export const VIBEIDE_OPEN_SETTINGS_ACTION_ID = 'workbench.action.openVibeideSettings'
+export const VIBEIDE_OPEN_SETTINGS_ACTION_ID = 'workbench.action.openVibeideSettings';
 registerAction2(class extends Action2 {
 	constructor() {
 		super({
@@ -177,7 +176,7 @@ registerAction2(class extends Action2 {
 		const input = instantiationService.createInstance(VibeideSettingsInput);
 		await editorService.openEditor(input);
 	}
-})
+});
 
 
 

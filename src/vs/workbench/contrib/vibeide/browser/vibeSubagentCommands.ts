@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Palette commands for VibeIDE Subagent features.
@@ -88,9 +89,7 @@ registerAction2(class extends Action2 {
 		const quickInput = accessor.get(IQuickInputService);
 
 		// Get all subagents across all parent threads
-		const allEntries = (subagentSvc as any)._registry
-			? Array.from((subagentSvc as any)._registry.values())
-			: [];
+		const allEntries = subagentSvc.getAll();
 
 		if (allEntries.length === 0) {
 			const notifications = accessor.get(INotificationService);
@@ -99,7 +98,7 @@ registerAction2(class extends Action2 {
 		}
 
 		await quickInput.pick(
-			allEntries.map((e: any) => ({
+			allEntries.map(e => ({
 				label: localize('vibeide.subagent.listItemLabel', '{0} — {1}', String(e.type), String(e.status)),
 				description: e.handoff.goal.slice(0, 80),
 				detail: localize('vibeide.subagent.listItemDetail', 'id: {0} | parent: {1}', String(e.id), String(e.parentThreadId)),

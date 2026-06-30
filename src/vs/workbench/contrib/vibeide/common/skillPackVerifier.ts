@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Community skill-pack import verifier — pure helper.
@@ -48,7 +49,7 @@ const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
  * Rejects malformed shapes; never throws.
  */
 export function decodePackEnvelope(raw: unknown): DecodeResult<SkillCommunityPackEnvelope> {
-	if (raw == null || typeof raw !== 'object') return { ok: false, reason: 'not-an-object' };
+	if (raw === null || typeof raw !== 'object') { return { ok: false, reason: 'not-an-object' }; }
 	const obj = raw as Record<string, unknown>;
 	if (
 		obj.formatVersion !== 'vibe-community-skills-catalog-v1'
@@ -60,20 +61,20 @@ export function decodePackEnvelope(raw: unknown): DecodeResult<SkillCommunityPac
 	if (typeof obj.publishedAt !== 'number' || !Number.isFinite(obj.publishedAt)) {
 		return { ok: false, reason: 'publishedAt-invalid' };
 	}
-	if (!Array.isArray(obj.entries)) return { ok: false, reason: 'entries-not-array' };
-	if (obj.manifestSha256 == null || typeof obj.manifestSha256 !== 'object') {
+	if (!Array.isArray(obj.entries)) { return { ok: false, reason: 'entries-not-array' }; }
+	if (obj.manifestSha256 === null || typeof obj.manifestSha256 !== 'object') {
 		return { ok: false, reason: 'manifestSha256-missing' };
 	}
 	const entries: PackEntry[] = [];
 	const seenIds = new Set<string>();
 	for (let i = 0; i < obj.entries.length; i++) {
 		const item = obj.entries[i];
-		if (item == null || typeof item !== 'object') return { ok: false, reason: `entries[${i}]:not-an-object` };
+		if (item === null || typeof item !== 'object') { return { ok: false, reason: `entries[${i}]:not-an-object` }; }
 		const e = item as Record<string, unknown>;
-		if (typeof e.id !== 'string' || !ID_PATTERN.test(e.id)) return { ok: false, reason: `entries[${i}]:id-invalid` };
-		if (typeof e.name !== 'string' || e.name.length === 0) return { ok: false, reason: `entries[${i}]:name-missing` };
-		if (typeof e.content !== 'string' || e.content.length === 0) return { ok: false, reason: `entries[${i}]:content-missing` };
-		if (seenIds.has(e.id)) return { ok: false, reason: `entries[${i}]:duplicate-id:${e.id}` };
+		if (typeof e.id !== 'string' || !ID_PATTERN.test(e.id)) { return { ok: false, reason: `entries[${i}]:id-invalid` }; }
+		if (typeof e.name !== 'string' || e.name.length === 0) { return { ok: false, reason: `entries[${i}]:name-missing` }; }
+		if (typeof e.content !== 'string' || e.content.length === 0) { return { ok: false, reason: `entries[${i}]:content-missing` }; }
+		if (seenIds.has(e.id)) { return { ok: false, reason: `entries[${i}]:duplicate-id:${e.id}` }; }
 		seenIds.add(e.id);
 		entries.push({ id: e.id, name: e.name, content: e.content });
 	}

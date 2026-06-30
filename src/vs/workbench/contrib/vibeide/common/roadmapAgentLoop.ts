@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Roadmap-agent (I.2) — execution loop FSM
@@ -79,7 +80,7 @@ export function transitionLoop(state: LoopState, event: LoopEvent): LoopTransiti
 	});
 
 	if (event.kind === 'pause') {
-		if (state.kind === 'idle' || state.kind === 'finished') return fail(`pause-rejects-from:${state.kind}`);
+		if (state.kind === 'idle' || state.kind === 'finished') { return fail(`pause-rejects-from:${state.kind}`); }
 		const resumeWith = state.kind === 'working' ? state.currentItemId : null;
 		return { ok: true, next: { kind: 'paused', resumeWith }, note: 'paused-mid-flight' };
 	}
@@ -95,7 +96,7 @@ export function transitionLoop(state: LoopState, event: LoopEvent): LoopTransiti
 
 	switch (state.kind) {
 		case 'idle':
-			if (event.kind === 'start') return { ok: true, next: { kind: 'selecting' } };
+			if (event.kind === 'start') { return { ok: true, next: { kind: 'selecting' } }; }
 			return fail(`idle-only-accepts-start:${event.kind}`);
 		case 'selecting':
 			if (event.kind === 'item-selected') {
@@ -170,8 +171,8 @@ export function rankRoadmapItemsForExecution(items: ReadonlyArray<RoadmapItem>):
 		.filter(i => i.bucket !== 'blocked')
 		.sort((a, b) => {
 			const br = bucketRank[a.bucket] - bucketRank[b.bucket];
-			if (br !== 0) return br;
-			if (a.priority !== b.priority) return a.priority - b.priority;
+			if (br !== 0) { return br; }
+			if (a.priority !== b.priority) { return a.priority - b.priority; }
 			return a.id.localeCompare(b.id);
 		});
 }
@@ -182,12 +183,13 @@ export function rankRoadmapItemsForExecution(items: ReadonlyArray<RoadmapItem>):
 export function summarizeLoopOutcomes(
 	statuses: ReadonlyArray<RoadmapItemStatus>,
 ): LoopSummary {
-	let closed = 0, skeleton = 0, blocked = 0, skipped = 0;
+	const skeleton = 0;
+	let closed = 0, blocked = 0, skipped = 0;
 	for (const s of statuses) {
 		if (s.kind === 'completed') {
-			if (s.outcome === 'success') closed++;
-			else if (s.outcome === 'failure') skipped++;
-			else if (s.outcome === 'skipped') skipped++;
+			if (s.outcome === 'success') { closed++; }
+			else if (s.outcome === 'failure') { skipped++; }
+			else if (s.outcome === 'skipped') { skipped++; }
 		} else if (s.kind === 'blocked') {
 			blocked++;
 		}

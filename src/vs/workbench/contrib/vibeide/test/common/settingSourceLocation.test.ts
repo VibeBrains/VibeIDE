@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	decodeSourceLocation,
 	buildSettingMetadataStamp,
@@ -22,6 +24,8 @@ const validLoc = (overrides: Record<string, unknown> = {}): unknown => ({
 });
 
 suite('Settings UI Ctrl+Click — source-location metadata', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decodeSourceLocation', () => {
 		test('happy path', () => {
@@ -56,7 +60,7 @@ suite('Settings UI Ctrl+Click — source-location metadata', () => {
 
 		test('trims filePath whitespace', () => {
 			const r = decodeSourceLocation(validLoc({ filePath: '  src/foo.ts  ' }));
-			if (r.ok) assert.strictEqual(r.value.filePath, 'src/foo.ts');
+			if (r.ok) { assert.strictEqual(r.value.filePath, 'src/foo.ts'); }
 		});
 
 		test('rejects null root', () => {
@@ -156,12 +160,12 @@ suite('Settings UI Ctrl+Click — source-location metadata', () => {
 		test('rejects duplicate setting key', () => {
 			const r = indexStampsBySettingKey([a, { ...a, source: { ...a.source, lineNumber: 99 } }]);
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.reason.includes('duplicate-setting'));
+			if (!r.ok) { assert.ok(r.reason.includes('duplicate-setting')); }
 		});
 
 		test('empty input → empty index', () => {
 			const r = indexStampsBySettingKey([]);
-			if (r.ok) assert.strictEqual(r.value.size, 0);
+			if (r.ok) { assert.strictEqual(r.value.size, 0); }
 		});
 	});
 
@@ -174,7 +178,7 @@ suite('Settings UI Ctrl+Click — source-location metadata', () => {
 			const idx = (indexStampsBySettingKey([stamp]) as { ok: true; value: ReadonlyMap<string, SettingMetadataStamp> }).value;
 			const r = resolveSettingSource('a.x', idx);
 			assert.ok(r);
-			if (r) assert.strictEqual(r.filePath, 'a.ts');
+			if (r) { assert.strictEqual(r.filePath, 'a.ts'); }
 		});
 
 		test('null for unknown key', () => {

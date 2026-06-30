@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Smoke: end-to-end «selected skill → message contains instructions → agent follows»
@@ -20,6 +21,7 @@
 import * as assert from 'assert';
 import { parseSkillMarkdown } from '../../common/vibeSkillsLibraryService.js';
 import { buildSkillExpansion } from '../../common/vibeSlashCommandService.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -57,6 +59,8 @@ Do the thing.
 // ---------------------------------------------------------------------------
 
 suite('Agent Skills — end-to-end smoke (select → message → agent instructions)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	// -----------------------------------------------------------------------
 	// Step 1: skill is loadable (parseSkillMarkdown contract)

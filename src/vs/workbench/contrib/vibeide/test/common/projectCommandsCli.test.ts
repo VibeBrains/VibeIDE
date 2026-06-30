@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -10,8 +11,11 @@ import {
 	repairProjectCommandsForDoctor,
 	buildCliListJsonPayload,
 } from '../../common/projectCommandsCli.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('Project Commands — CLI argv decoder + doctor audit/repair', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decodeProjectCommandsCli', () => {
 		test('empty argv → list (default)', () => {
@@ -33,12 +37,12 @@ suite('Project Commands — CLI argv decoder + doctor audit/repair', () => {
 		test('run with no id', () => {
 			const r = decodeProjectCommandsCli(['run']);
 			assert.strictEqual(r.kind, 'error');
-			if (r.kind === 'error') assert.strictEqual(r.reason, 'run-needs-id');
+			if (r.kind === 'error') { assert.strictEqual(r.reason, 'run-needs-id'); }
 		});
 		test('run with invalid id pattern', () => {
 			const r = decodeProjectCommandsCli(['run', 'BAD ID']);
 			assert.strictEqual(r.kind, 'error');
-			if (r.kind === 'error') assert.strictEqual(r.reason, 'invalid-id');
+			if (r.kind === 'error') { assert.strictEqual(r.reason, 'invalid-id'); }
 		});
 		test('run with extra args', () => {
 			const r = decodeProjectCommandsCli(['run', 'br', 'extra']);
@@ -52,7 +56,7 @@ suite('Project Commands — CLI argv decoder + doctor audit/repair', () => {
 		test('unknown subcommand', () => {
 			const r = decodeProjectCommandsCli(['nonsense']);
 			assert.strictEqual(r.kind, 'error');
-			if (r.kind === 'error') assert.strictEqual(r.reason, 'unknown-subcommand');
+			if (r.kind === 'error') { assert.strictEqual(r.reason, 'unknown-subcommand'); }
 		});
 	});
 
@@ -119,7 +123,7 @@ suite('Project Commands — CLI argv decoder + doctor audit/repair', () => {
 		test('does not mutate input', () => {
 			const input = { commands: [] };
 			repairProjectCommandsForDoctor(input, '1.0.0');
-			assert.strictEqual('vibeVersion' in input, false);
+			assert.strictEqual(Object.hasOwn(input, 'vibeVersion'), false);
 		});
 
 		test('migrates legacy $id → id (single command)', () => {
@@ -130,7 +134,7 @@ suite('Project Commands — CLI argv decoder + doctor audit/repair', () => {
 			assert.strictEqual(r.repaired, true);
 			const cmd = (r.nextRaw as { commands: Record<string, unknown>[] }).commands[0];
 			assert.strictEqual(cmd.id, 'build-react');
-			assert.strictEqual('$id' in cmd, false);
+			assert.strictEqual(Object.hasOwn(cmd, '$id'), false);
 			assert.ok(r.notes.some(n => n.includes('migrated 1')));
 		});
 
@@ -146,7 +150,7 @@ suite('Project Commands — CLI argv decoder + doctor audit/repair', () => {
 			assert.strictEqual(r.repaired, true);
 			const cmds = (r.nextRaw as { commands: Record<string, unknown>[] }).commands;
 			assert.deepStrictEqual(cmds.map(c => c.id), ['one', 'two', 'three']);
-			assert.ok(cmds.every(c => !('$id' in c)));
+			assert.ok(cmds.every(c => !Object.hasOwn(c, '$id')));
 			assert.ok(r.notes.some(n => n.includes('migrated 2')));
 		});
 
@@ -158,7 +162,7 @@ suite('Project Commands — CLI argv decoder + doctor audit/repair', () => {
 			assert.strictEqual(r.repaired, true);
 			const cmd = (r.nextRaw as { commands: Record<string, unknown>[] }).commands[0];
 			assert.strictEqual(cmd.id, 'modern');
-			assert.strictEqual('$id' in cmd, false);
+			assert.strictEqual(Object.hasOwn(cmd, '$id'), false);
 		});
 	});
 
@@ -195,8 +199,8 @@ suite('Project Commands — CLI argv decoder + doctor audit/repair', () => {
 			assert.strictEqual(p.commands[0].id, 'a');
 			assert.strictEqual(p.commands[0].singleton, true);
 			assert.strictEqual(p.commands[0].pinned, false);
-			assert.ok(!('env' in p.commands[0]));
-			assert.ok(!('command' in p.commands[0]));
+			assert.ok(!Object.hasOwn(p.commands[0], 'env'));
+			assert.ok(!Object.hasOwn(p.commands[0], 'command'));
 		});
 
 		test('description forwarded only when present', () => {
@@ -208,7 +212,7 @@ suite('Project Commands — CLI argv decoder + doctor audit/repair', () => {
 				],
 			});
 			assert.strictEqual(p.commands[0].description, 'desc');
-			assert.ok(!('description' in p.commands[1]));
+			assert.ok(!Object.hasOwn(p.commands[1], 'description'));
 		});
 	});
 });

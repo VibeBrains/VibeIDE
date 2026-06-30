@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -11,12 +12,15 @@ import {
 	groupKeysByPrefix,
 	NlsBundleSnapshot,
 } from '../../common/nlsLiveReloadHash.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 function snap(localeTag: string, entries: Map<string, string>): NlsBundleSnapshot {
 	return buildNlsBundleSnapshot(localeTag, entries, fnv1a32);
 }
 
 suite('NLS bundle live-reload hash diff', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decideNlsLiveReload', () => {
 		test('no previous → no-op:no-prior', () => {
@@ -25,7 +29,7 @@ suite('NLS bundle live-reload hash diff', () => {
 				current: snap('ru', new Map([['a', 'А']])),
 			});
 			assert.strictEqual(r.kind, 'no-op');
-			if (r.kind === 'no-op') assert.strictEqual(r.reason, 'no-prior');
+			if (r.kind === 'no-op') { assert.strictEqual(r.reason, 'no-prior'); }
 		});
 
 		test('identical bundleHash → no-op:identical', () => {
@@ -34,7 +38,7 @@ suite('NLS bundle live-reload hash diff', () => {
 			const b = snap('ru', map);
 			const r = decideNlsLiveReload({ previous: a, current: b });
 			assert.strictEqual(r.kind, 'no-op');
-			if (r.kind === 'no-op') assert.strictEqual(r.reason, 'identical');
+			if (r.kind === 'no-op') { assert.strictEqual(r.reason, 'identical'); }
 		});
 
 		test('locale changed → full-reload:locale-changed', () => {
@@ -43,7 +47,7 @@ suite('NLS bundle live-reload hash diff', () => {
 				current: snap('de', new Map([['a', 'A']])),
 			});
 			assert.strictEqual(r.kind, 'full-reload');
-			if (r.kind === 'full-reload') assert.strictEqual(r.reason, 'locale-changed');
+			if (r.kind === 'full-reload') { assert.strictEqual(r.reason, 'locale-changed'); }
 		});
 
 		test('locale case-insensitive', () => {
@@ -71,7 +75,7 @@ suite('NLS bundle live-reload hash diff', () => {
 				previous: snap('ru', new Map([['a', 'А']])),
 				current: snap('ru', new Map([['a', 'А-обновлён']])),
 			});
-			if (r.kind === 'reload-keys') assert.deepStrictEqual([...r.modifiedKeys], ['a']);
+			if (r.kind === 'reload-keys') { assert.deepStrictEqual([...r.modifiedKeys], ['a']); }
 		});
 
 		test('removed key reported', () => {
@@ -79,7 +83,7 @@ suite('NLS bundle live-reload hash diff', () => {
 				previous: snap('ru', new Map([['a', 'А'], ['b', 'Б']])),
 				current: snap('ru', new Map([['a', 'А']])),
 			});
-			if (r.kind === 'reload-keys') assert.deepStrictEqual([...r.removedKeys], ['b']);
+			if (r.kind === 'reload-keys') { assert.deepStrictEqual([...r.removedKeys], ['b']); }
 		});
 
 		test('keys sorted in output', () => {
@@ -94,9 +98,9 @@ suite('NLS bundle live-reload hash diff', () => {
 
 		test('over-threshold → full-reload:too-many-changes', () => {
 			const prev = new Map<string, string>();
-			for (let i = 0; i < 5; i++) prev.set(`k${i}`, `v${i}`);
+			for (let i = 0; i < 5; i++) { prev.set(`k${i}`, `v${i}`); }
 			const curr = new Map<string, string>();
-			for (let i = 0; i < 70; i++) curr.set(`k${i}`, `v${i}-new`);
+			for (let i = 0; i < 70; i++) { curr.set(`k${i}`, `v${i}-new`); }
 			const r = decideNlsLiveReload({
 				previous: snap('ru', prev),
 				current: snap('ru', curr),
@@ -111,7 +115,7 @@ suite('NLS bundle live-reload hash diff', () => {
 		test('custom threshold respected', () => {
 			const prev = new Map<string, string>();
 			const curr = new Map<string, string>();
-			for (let i = 0; i < 10; i++) curr.set(`k${i}`, `v${i}`);
+			for (let i = 0; i < 10; i++) { curr.set(`k${i}`, `v${i}`); }
 			const r = decideNlsLiveReload({
 				previous: snap('ru', prev),
 				current: snap('ru', curr),
@@ -171,7 +175,7 @@ suite('NLS bundle live-reload hash diff', () => {
 			]);
 			assert.strictEqual(r.length, 2);
 			const groups: Record<string, readonly string[]> = {};
-			for (const g of r) groups[g.prefix] = g.keys;
+			for (const g of r) { groups[g.prefix] = g.keys; }
 			assert.deepStrictEqual(groups['vibeide.chat'], ['vibeide.chat.send', 'vibeide.chat.cancel']);
 			assert.deepStrictEqual(groups['vibeide.commands'], ['vibeide.commands.run']);
 		});

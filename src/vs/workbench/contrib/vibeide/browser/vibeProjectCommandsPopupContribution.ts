@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — capture-phase mousedown interceptor on the title-bar
@@ -70,9 +71,9 @@ export class VibeProjectCommandsPopupContribution extends Disposable implements 
 		// pointerdown / mousedown. Click would fire too late.
 		this._listener.add(addDisposableListener(doc, EventType.MOUSE_DOWN, (e: MouseEvent) => {
 			const target = e.target as HTMLElement | null;
-			if (!target) return;
+			if (!target) { return; }
 			const button = target.closest<HTMLElement>('.menubar-menu-button');
-			if (!button) return;
+			if (!button) { return; }
 			const ariaLabel = button.getAttribute('aria-label') ?? '';
 			if (!TARGET_ARIA_LABELS.has(ariaLabel)) {
 				// Click landed on a different menubar button. VS Code's Menubar widget
@@ -86,7 +87,7 @@ export class VibeProjectCommandsPopupContribution extends Disposable implements 
 				return;
 			}
 			// Only intercept left mouse button — context menus stay native.
-			if (e.button !== 0) return;
+			if (e.button !== 0) { return; }
 			e.preventDefault();
 			e.stopImmediatePropagation();
 

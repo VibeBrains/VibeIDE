@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Per-file model routing (929) — pure helper.
@@ -50,8 +51,8 @@ export function resolveModelForPath(
 		return { resolvedModelId: defaultModelId, source: 'fallback' };
 	}
 	for (const rule of rules) {
-		if (!rule || typeof rule.pattern !== 'string' || typeof rule.modelId !== 'string') continue;
-		if (rule.pattern.length === 0 || rule.modelId.length === 0) continue;
+		if (!rule || typeof rule.pattern !== 'string' || typeof rule.modelId !== 'string') { continue; }
+		if (rule.pattern.length === 0 || rule.modelId.length === 0) { continue; }
 		if (matchConstraintPattern(filePath, rule.pattern)) {
 			return { resolvedModelId: rule.modelId, source: 'rule', matchedPattern: rule.pattern };
 		}
@@ -64,7 +65,7 @@ export function resolveModelForPath(
  * back to "no routing" or surface a settings banner.
  */
 export function decodeRoutingRules(raw: unknown): { ok: true; value: ModelRoutingRule[] } | { ok: false; reason: string } {
-	if (raw == null) {
+	if (raw === null || raw === undefined) {
 		return { ok: true, value: [] };
 	}
 	if (!Array.isArray(raw)) {

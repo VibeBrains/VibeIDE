@@ -1,10 +1,12 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import { OutboundRecord } from '../../common/outboundConnectionsAggregator.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 // Re-import the class via the same module — registerSingleton is a side effect
 // we want to ignore in tests; reach in through the module for the class only.
@@ -28,7 +30,7 @@ function makeRecord(timestampMs: number, host: string): OutboundRecord {
 class TestRing {
 	private records: OutboundRecord[] = [];
 	private writeIdx = 0;
-	constructor(private capacity: number) {}
+	constructor(private capacity: number) { }
 	record(r: OutboundRecord): void {
 		if (this.records.length < this.capacity) {
 			this.records.push(r);
@@ -43,6 +45,9 @@ class TestRing {
 }
 
 suite('vibeOutboundRingBuffer ring semantics', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('records below capacity are appended in order', () => {
 		const r = new TestRing(3);
 		r.record(makeRecord(1, 'a.com'));

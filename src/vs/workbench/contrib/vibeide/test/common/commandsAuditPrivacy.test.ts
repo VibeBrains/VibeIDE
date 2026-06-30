@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	redactCommandForAudit,
 	redactCommandForCloudIndex,
@@ -26,6 +28,7 @@ const rec = (overrides: Partial<ProjectCommandRunRecord> = {}): ProjectCommandRu
 });
 
 suite('commandsAuditPrivacy', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('redactCommandForAudit', () => {
 		test('disabled flag → null (privacy by default)', () => {
@@ -100,13 +103,13 @@ suite('commandsAuditPrivacy', () => {
 
 		test('command body NEVER included', () => {
 			const r = redactCommandForCloudIndex(rec({ command: 'curl https://api.example.com/?token=secret' }));
-			assert.ok(!('command' in r));
+			assert.ok(!Object.hasOwn(r, 'command'));
 		});
 
 		test('env NEVER included', () => {
 			const r = redactCommandForCloudIndex(rec());
-			assert.ok(!('env' in r));
-			assert.ok(!('envKeys' in r));
+			assert.ok(!Object.hasOwn(r, 'env'));
+			assert.ok(!Object.hasOwn(r, 'envKeys'));
 		});
 	});
 

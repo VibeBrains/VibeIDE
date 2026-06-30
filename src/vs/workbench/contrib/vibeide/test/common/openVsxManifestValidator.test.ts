@@ -1,13 +1,15 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
 	validateOpenVsxManifest,
 	describeValidationResult,
 } from '../../common/openVsxManifestValidator.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const MINIMAL_OK = {
 	name: 'vibeide-sample',
@@ -22,6 +24,7 @@ const MINIMAL_OK = {
 };
 
 suite('openVsxManifestValidator — happy path', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 	test('minimal valid manifest passes', () => {
 		const r = validateOpenVsxManifest(MINIMAL_OK);
 		assert.strictEqual(r.ok, true);
@@ -30,6 +33,7 @@ suite('openVsxManifestValidator — happy path', () => {
 });
 
 suite('openVsxManifestValidator — required fields', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 	test('missing name → error', () => {
 		const m = { ...MINIMAL_OK, name: undefined };
 		const r = validateOpenVsxManifest(m);
@@ -66,6 +70,7 @@ suite('openVsxManifestValidator — required fields', () => {
 });
 
 suite('openVsxManifestValidator — license + version', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 	test('non-SemVer version → error', () => {
 		const m = { ...MINIMAL_OK, version: '0.1' };
 		const r = validateOpenVsxManifest(m);
@@ -102,6 +107,7 @@ suite('openVsxManifestValidator — license + version', () => {
 });
 
 suite('openVsxManifestValidator — categories', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 	test('empty categories → warning', () => {
 		const m = { ...MINIMAL_OK, categories: [] };
 		const r = validateOpenVsxManifest(m);
@@ -125,6 +131,7 @@ suite('openVsxManifestValidator — categories', () => {
 });
 
 suite('openVsxManifestValidator — describe', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 	test('describe lists status + counts + per-issue line', () => {
 		const m = { ...MINIMAL_OK, description: '' };
 		const r = validateOpenVsxManifest(m);

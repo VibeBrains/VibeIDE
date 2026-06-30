@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	decodeCrowdinWebhookPayload,
 	formatCrowdinPrTitle,
@@ -23,6 +25,8 @@ const valid = (overrides: Record<string, unknown> = {}): unknown => ({
 const HEX64 = 'a'.repeat(64);
 
 suite('Crowdin webhook payload decoder + PR composer', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decodeCrowdinWebhookPayload', () => {
 		test('happy path translation.updated', () => {
@@ -60,7 +64,7 @@ suite('Crowdin webhook payload decoder + PR composer', () => {
 				stringsCount: 3,
 			});
 			assert.strictEqual(a.ok, true);
-			if (a.ok) assert.strictEqual(a.value.targetLanguageId, 'de');
+			if (a.ok) { assert.strictEqual(a.value.targetLanguageId, 'de'); }
 
 			const b = decodeCrowdinWebhookPayload({
 				event: 'project.built',
@@ -69,12 +73,12 @@ suite('Crowdin webhook payload decoder + PR composer', () => {
 				stringsCount: 3,
 			});
 			assert.strictEqual(b.ok, true);
-			if (b.ok) assert.strictEqual(b.value.targetLanguageId, 'fr');
+			if (b.ok) { assert.strictEqual(b.value.targetLanguageId, 'fr'); }
 		});
 
 		test('locale lowercased', () => {
 			const r = decodeCrowdinWebhookPayload(valid({ targetLanguageId: 'RU-BY' }));
-			if (r.ok) assert.strictEqual(r.value.targetLanguageId, 'ru-by');
+			if (r.ok) { assert.strictEqual(r.value.targetLanguageId, 'ru-by'); }
 		});
 
 		test('rejects malformed locale', () => {
@@ -99,17 +103,17 @@ suite('Crowdin webhook payload decoder + PR composer', () => {
 				targetLanguageId: 'ru',
 				translatedCount: 10,
 			});
-			if (r.ok) assert.strictEqual(r.value.stringsCount, 10);
+			if (r.ok) { assert.strictEqual(r.value.stringsCount, 10); }
 		});
 
 		test('buildId optional', () => {
 			const r = decodeCrowdinWebhookPayload(valid({ buildId: 'b-42' }));
-			if (r.ok) assert.strictEqual(r.value.buildId, 'b-42');
+			if (r.ok) { assert.strictEqual(r.value.buildId, 'b-42'); }
 		});
 
 		test('url optional', () => {
 			const r = decodeCrowdinWebhookPayload(valid({ url: 'https://crowdin.com/x' }));
-			if (r.ok) assert.strictEqual(r.value.url, 'https://crowdin.com/x');
+			if (r.ok) { assert.strictEqual(r.value.url, 'https://crowdin.com/x'); }
 		});
 
 		test('rejects null root', () => {
@@ -196,19 +200,19 @@ suite('Crowdin webhook payload decoder + PR composer', () => {
 		test('mismatch detected', () => {
 			const r = verifyCrowdinSignature(HEX64, 'b'.repeat(64));
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'mismatch');
+			if (!r.ok) { assert.strictEqual(r.reason, 'mismatch'); }
 		});
 
 		test('missing → missing-signature', () => {
 			const r = verifyCrowdinSignature(undefined, HEX64);
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'missing-signature');
+			if (!r.ok) { assert.strictEqual(r.reason, 'missing-signature'); }
 		});
 
 		test('malformed (non-hex) → malformed-signature', () => {
 			const r = verifyCrowdinSignature('not-hex', HEX64);
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'malformed-signature');
+			if (!r.ok) { assert.strictEqual(r.reason, 'malformed-signature'); }
 		});
 
 		test('malformed (wrong length) → malformed-signature', () => {

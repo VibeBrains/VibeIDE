@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -53,7 +54,7 @@ class VibeDiffVirtualizationService extends Disposable implements IVibeDiffVirtu
 
 		for (const chunk of preview.chunks) {
 			const dir = chunk.filePath.split('/').slice(0, -1).join('/') || '/';
-			if (!grouped.has(dir)) grouped.set(dir, []);
+			if (!grouped.has(dir)) { grouped.set(dir, []); }
 			grouped.get(dir)!.push(chunk);
 		}
 
@@ -71,8 +72,8 @@ class VibeDiffVirtualizationService extends Disposable implements IVibeDiffVirtu
 
 	toggleDirectory(view: VirtualizedDiffView, dir: string): VirtualizedDiffView {
 		const newCollapsed = new Set(view.collapsedDirs);
-		if (newCollapsed.has(dir)) newCollapsed.delete(dir);
-		else newCollapsed.add(dir);
+		if (newCollapsed.has(dir)) { newCollapsed.delete(dir); }
+		else { newCollapsed.add(dir); }
 		return { ...view, collapsedDirs: newCollapsed };
 	}
 

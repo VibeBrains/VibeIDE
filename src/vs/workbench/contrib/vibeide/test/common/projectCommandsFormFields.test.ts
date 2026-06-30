@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -11,8 +12,11 @@ import {
 	buildProjectCommandFromForm,
 } from '../../common/projectCommandsFormFields.js';
 import { decodeProjectCommandsFile } from '../../common/projectCommandsTypes.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('Project Commands — form-based editor field validator', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('id validation', () => {
 		test('valid id → ok', () => {
@@ -175,9 +179,9 @@ suite('Project Commands — form-based editor field validator', () => {
 
 		test('omits absent optional fields', () => {
 			const cmd = buildProjectCommandFromForm({ id: 'a', name: 'A', command: 'echo' });
-			assert.ok(!('description' in cmd));
-			assert.ok(!('args' in cmd));
-			assert.ok(!('env' in cmd));
+			assert.ok(!Object.hasOwn(cmd, 'description'));
+			assert.ok(!Object.hasOwn(cmd, 'args'));
+			assert.ok(!Object.hasOwn(cmd, 'env'));
 		});
 
 		test('clones array/object — non-mutating', () => {

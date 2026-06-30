@@ -1,6 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Russian UI strings for VibeIDE onboarding (React panel).
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import type { FeatureName, ProviderName } from '../../../../common/vibeideSettingsTypes.js';
 
@@ -26,13 +28,13 @@ export const onboardingS = {
 		Paid: 'Платно',
 		Local: 'Локально',
 		'Cloud/Other': 'Облако / другое',
-	} as Record<TabName, string>,
+	} satisfies Record<TabName, string>,
 	tabDescription: {
 		Free: 'OpenCode Zen и другие провайдеры с бесплатным уровнем — OpenRouter, Gemini, Pollinations. Добавляйте сколько нужно.',
 		Paid: 'Прямое подключение к любому провайдеру (свой API-ключ).',
 		Local: 'Активные провайдеры подхватываются автоматически. Добавляйте сколько нужно.',
 		'Cloud/Other': 'Добавляйте сколько нужно. Для нестандартной конфигурации — свяжитесь с нами.',
-	} as Record<TabName, string>,
+	} satisfies Record<TabName, string>,
 	featureLabel: [
 		{ display: 'Чат', featureName: 'Chat' },
 		{ display: 'Быстрое редактирование', featureName: 'Ctrl+K' },

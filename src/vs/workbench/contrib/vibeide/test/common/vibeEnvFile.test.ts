@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Tests for the `.vibe/.env` parser (vibeEnvFile.ts): KEY=VALUE lines, comments/blanks, `export`
@@ -10,8 +11,11 @@
 
 import * as assert from 'assert';
 import { parseEnvFile } from '../../common/vibeEnvFile.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('vibeEnvFile — .vibe/.env parser', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('parses KEY=VALUE, ignores blanks and # comments', () => {
 		const r = parseEnvFile('# comment\n\nMOONSHOT_API_KEY=sk-abc\n  # spaced comment\nFOO=bar\n');

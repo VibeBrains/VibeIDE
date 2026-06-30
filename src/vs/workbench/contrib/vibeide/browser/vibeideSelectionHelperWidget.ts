@@ -23,15 +23,15 @@ const minLeftPx = 60;
 
 
 export type VibeideSelectionHelperProps = {
-	rerenderKey: number // alternates between 0 and 1
-}
+	rerenderKey: number; // alternates between 0 and 1
+};
 
 
 export class SelectionHelperContribution extends Disposable implements IEditorContribution, IOverlayWidget {
 	public static readonly ID = 'editor.contrib.vibeSelectionHelper';
 	// react
 	private _rootHTML: HTMLElement;
-	private _rerender: (props?: any) => void = () => { };
+	private _rerender: (props?: VibeideSelectionHelperProps) => void = () => { };
 	private _rerenderKey: number = 0;
 	private _reactComponentDisposable: IDisposable | null = null;
 
@@ -64,7 +64,7 @@ export class SelectionHelperContribution extends Disposable implements IEditorCo
 				this._reactComponentDisposable.dispose();
 			}
 			const res = mountVibeSelectionHelper(content, accessor);
-			if (!res) return;
+			if (!res) { return; }
 
 			this._reactComponentDisposable = res;
 			this._rerender = res.rerender;
@@ -168,31 +168,31 @@ export class SelectionHelperContribution extends Disposable implements IEditorCo
 		const { tabSize: numSpacesInTab } = model.getFormattingOptions();
 		const spaceWidth = this._editor.getOption(EditorOption.fontInfo).spaceWidth;
 		const tabWidth = numSpacesInTab * spaceWidth;
-		const numLinesModel = model.getLineCount()
+		const numLinesModel = model.getLineCount();
 
 		// Calculate right edge of visible editor area
 		const editorWidthPx = this._editor.getLayoutInfo().width;
-		const maxLeftPx = editorWidthPx - minDistanceFromRightPx
+		const maxLeftPx = editorWidthPx - minDistanceFromRightPx;
 
 		// returns the position where the box should go on the targetLine
-		const getBoxPosition = (targetLine: number): { top: number, left: number } => {
+		const getBoxPosition = (targetLine: number): { top: number; left: number } => {
 
 			const targetPosition = this._editor.getScrolledVisiblePosition({ lineNumber: targetLine, column: 1 }) ?? { left: 0, top: 0 };
 
-			const { top: targetTop, left: targetLeft } = targetPosition
+			const { top: targetTop, left: targetLeft } = targetPosition;
 
 			let targetWidth = 0;
 			for (let i = targetLine; i <= targetLine + 1; i++) {
 
 				// if not in range, continue
-				if (!(i >= 1) || !(i <= numLinesModel)) continue;
+				if (!(i >= 1) || !(i <= numLinesModel)) { continue; }
 
 				const content = model.getLineContent(i);
 				const currWidth = getLengthOfTextPx({
 					tabWidth,
 					spaceWidth,
 					content
-				})
+				});
 
 				targetWidth = Math.max(targetWidth, currWidth);
 			}
@@ -202,7 +202,7 @@ export class SelectionHelperContribution extends Disposable implements IEditorCo
 				left: targetLeft + targetWidth,
 			};
 
-		}
+		};
 
 
 		// Calculate the middle line of the selection
@@ -240,7 +240,7 @@ export class SelectionHelperContribution extends Disposable implements IEditorCo
 				}
 			}
 			if (boxPos.left > maxLeftPx) { // if still not found, make it 2 lines before
-				boxPos = getBoxPosition(targetLine - 2)
+				boxPos = getBoxPosition(targetLine - 2);
 			}
 		}
 
@@ -258,10 +258,10 @@ export class SelectionHelperContribution extends Disposable implements IEditorCo
 
 		// rerender
 		const enabled = this._vibeideSettingsService.state.globalSettings.showInlineSuggestions
-			&& this._editor.hasTextFocus() // needed since VS Code counts unfocused selections as selections, which causes this to rerender when it shouldnt (bad ux)
+			&& this._editor.hasTextFocus(); // needed since VS Code counts unfocused selections as selections, which causes this to rerender when it shouldnt (bad ux)
 
 		if (enabled) {
-			this._rerender({ rerenderKey: this._rerenderKey } satisfies VibeideSelectionHelperProps)
+			this._rerender({ rerenderKey: this._rerenderKey } satisfies VibeideSelectionHelperProps);
 			this._rerenderKey = (this._rerenderKey + 1) % 2;
 			// this._reactComponentRerender();
 		}

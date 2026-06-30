@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -10,10 +11,13 @@ import {
 	HEALTH_FAILURE_THRESHOLD,
 	SUPPRESSION_WINDOW_MS,
 } from '../../common/modelHealthTracker.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const T0 = 1_700_000_000_000;  // arbitrary epoch base
 
 suite('ModelHealthTracker — basic counting', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('empty tracker → no notification', () => {
 		const t = new ModelHealthTracker();
@@ -42,6 +46,8 @@ suite('ModelHealthTracker — basic counting', () => {
 
 suite('ModelHealthTracker — rolling window', () => {
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('failures outside window are pruned', () => {
 		const t = new ModelHealthTracker();
 		// 3 failures well in the past (before the window).
@@ -66,6 +72,8 @@ suite('ModelHealthTracker — rolling window', () => {
 });
 
 suite('ModelHealthTracker — suppression after notification', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('within suppression window → silent', () => {
 		const t = new ModelHealthTracker();
@@ -95,6 +103,8 @@ suite('ModelHealthTracker — suppression after notification', () => {
 
 suite('ModelHealthTracker — recordSuccess resets', () => {
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('success after threshold → counter cleared, no notification', () => {
 		const t = new ModelHealthTracker();
 		for (let i = 0; i < HEALTH_FAILURE_THRESHOLD; i++) {
@@ -119,6 +129,8 @@ suite('ModelHealthTracker — recordSuccess resets', () => {
 
 suite('ModelHealthTracker — isolation between combos', () => {
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('different (provider, model) tuples are tracked independently', () => {
 		const t = new ModelHealthTracker();
 		for (let i = 0; i < HEALTH_FAILURE_THRESHOLD; i++) {
@@ -134,6 +146,8 @@ suite('ModelHealthTracker — isolation between combos', () => {
 });
 
 suite('ModelHealthTracker — failure kinds tracked together', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('mix of empty-response / context-overflow / invalid-params counts toward same threshold', () => {
 		const t = new ModelHealthTracker();

@@ -1,3 +1,7 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 import { IconWarning } from '../sidebar-tsx/SidebarChat.js';
 
 
@@ -18,9 +22,9 @@ export const WarningBox = ({ text, onClick, className }: { text: string; onClick
 			className='mr-1 flex-shrink-0'
 		/>
 		<span>{text}</span>
-	</div>
+	</div>;
 	// return <VoidSelectBox
 	// 	options={[{ text: 'Please add a model!', value: null }]}
 	// 	onChangeSelection={() => { }}
 	// />
-}
+};

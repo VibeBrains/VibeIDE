@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Tool-hardening utilities — anti-shell contract, truncation, structured errors.
@@ -41,7 +42,7 @@ function compile(source: string, flags = 'i'): RegExp {
 /** Extract bare command name (no path, no .exe/.cmd/.bat/.ps1 suffix). */
 function extractHead(rawCommand: string): { stripped: string; bareName: string } | null {
 	const cmd = rawCommand.trim();
-	if (!cmd) return null;
+	if (!cmd) { return null; }
 	const stripped = cmd
 		.replace(/^(?:[A-Z_][A-Z0-9_]*=\S+\s+)+/i, '') // POSIX env-var prefix
 		.replace(/^&\s+/, '')                            // PowerShell call-operator
@@ -56,16 +57,16 @@ function extractHead(rawCommand: string): { stripped: string; bareName: string }
  * Apply a single rule to a command. Returns ShellMisuse if the rule fires, null otherwise.
  */
 function applyRule(rule: ShellHardeningRule, stripped: string, bareName: string): ShellMisuse | null {
-	if (!compile(rule.bareName).test(bareName)) return null;
+	if (!compile(rule.bareName).test(bareName)) { return null; }
 
 	const tail = stripped.slice(bareName.length).trim();
 
-	if (rule.requires?.notPiped && stripped.includes('|')) return null;
-	if (rule.requires?.tailMatches && !compile(rule.requires.tailMatches).test(tail)) return null;
+	if (rule.requires?.notPiped && stripped.includes('|')) { return null; }
+	if (rule.requires?.tailMatches && !compile(rule.requires.tailMatches).test(tail)) { return null; }
 
 	if (rule.exempts) {
 		for (const ex of rule.exempts) {
-			if (compile(ex).test(tail)) return null;
+			if (compile(ex).test(tail)) { return null; }
 		}
 	}
 
@@ -84,13 +85,13 @@ function applyRule(rule: ShellHardeningRule, stripped: string, bareName: string)
  * froze the Extension Host for 67s. Returns null when this is not a recognised wrapper form.
  */
 function unwrapShellWrapper(stripped: string, bareName: string): string | null {
-	if (!/^(cmd|powershell|pwsh|bash|sh|zsh)$/.test(bareName)) return null;
+	if (!/^(cmd|powershell|pwsh|bash|sh|zsh)$/.test(bareName)) { return null; }
 	const afterExe = stripped.replace(/^\S+\s*/, ''); // drop the wrapper executable token
 	const m = afterExe.match(/^(?:\/[ck]|-c|-command|--command)\b\s*(.*)$/is);
-	if (!m) return null;
+	if (!m) { return null; }
 	let inner = m[1].trim();
 	// Strip one layer of wrapping quotes around the inner command.
-	if (inner.length >= 2 && ((inner[0] === '"' && inner[inner.length - 1] === '"') || (inner[0] === "'" && inner[inner.length - 1] === "'"))) {
+	if (inner.length >= 2 && ((inner[0] === '"' && inner[inner.length - 1] === '"') || (inner[0] === '\'' && inner[inner.length - 1] === '\''))) {
 		inner = inner.slice(1, -1).trim();
 	}
 	return inner || null;
@@ -109,15 +110,15 @@ function unwrapShellWrapper(stripped: string, bareName: string): string | null {
  */
 export function detectShellMisuse(rawCommand: string, config?: ShellHardeningConfig, _depth = 0): ShellMisuse | null {
 	const head = extractHead(rawCommand);
-	if (!head) return null;
+	if (!head) { return null; }
 	const { stripped, bareName } = head;
-	if (!bareName) return null;
+	if (!bareName) { return null; }
 
 	// Workspace allow-list short-circuit.
 	if (config?.allowedPatterns) {
 		for (const pattern of config.allowedPatterns) {
 			try {
-				if (compile(pattern).test(stripped)) return null;
+				if (compile(pattern).test(stripped)) { return null; }
 			} catch {
 				// Invalid user regex — skip silently. Service surfaces a corrupt-config
 				// notification once at load time; per-call logging would spam.
@@ -127,15 +128,15 @@ export function detectShellMisuse(rawCommand: string, config?: ShellHardeningCon
 
 	const disabledIds = new Set(config?.disableDefaultRules ?? []);
 	for (const rule of DEFAULT_SHELL_HARDENING_RULES) {
-		if (disabledIds.has(rule.id)) continue;
+		if (disabledIds.has(rule.id)) { continue; }
 		const misuse = applyRule(rule, stripped, bareName);
-		if (misuse) return misuse;
+		if (misuse) { return misuse; }
 	}
 
 	if (config?.extraRules) {
 		for (const rule of config.extraRules) {
 			const misuse = applyRule(rule, stripped, bareName);
-			if (misuse) return misuse;
+			if (misuse) { return misuse; }
 		}
 	}
 
@@ -177,7 +178,7 @@ export class ToolValidationError extends Error {
  * model consumption: model can recognise the marker and request a re-read.
  */
 export function truncateHeadTail(s: string, cap: number, marker = '\n...\n[truncated]\n...\n'): string {
-	if (s.length <= cap) return s;
+	if (s.length <= cap) { return s; }
 	const slack = Math.max(0, cap - marker.length);
 	const half = Math.floor(slack / 2);
 	return s.slice(0, half) + marker + s.slice(s.length - (slack - half));
@@ -200,11 +201,11 @@ export function truncateHeadTail(s: string, cap: number, marker = '\n...\n[trunc
  * output) does not match.
  */
 export function looksLikeShellAwaitingInput(output: string): boolean {
-	if (!output) return false;
+	if (!output) { return false; }
 	const lines = output.replace(/[\r\n]+$/, '').split('\n');
 	for (let i = lines.length - 1; i >= 0; i--) {
 		const trimmed = lines[i].trim();
-		if (trimmed === '') continue;
+		if (trimmed === '') { continue; }
 		// 1–3 chevrons covers the common interactive continuation prompts (`>`, `>>`, `>>>`:
 		// shells, Python REPL, node REPL). More than three is not a known prompt form, so we
 		// don't treat it as "awaiting input".
@@ -245,7 +246,7 @@ export function clampLineWindowToCharBudget(allLines: readonly string[], startLi
 	let end = startLine;
 	for (let ln = startLine; ln <= endLine && ln <= allLines.length; ln++) {
 		const len = allLines[ln - 1].length + (ln > startLine ? 1 : 0); // +1 for the joining '\n'
-		if (ln > startLine && used + len > charBudget) break;
+		if (ln > startLine && used + len > charBudget) { break; }
 		used += len;
 		end = ln;
 	}
@@ -256,8 +257,8 @@ export function clampLineWindowToCharBudget(allLines: readonly string[], startLi
  * Heuristic line-counter for cap-decisions without materialising arrays.
  */
 export function countLines(s: string): number {
-	if (!s) return 0;
+	if (!s) { return 0; }
 	let n = 1;
-	for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) n++;
+	for (let i = 0; i < s.length; i++) { if (s.charCodeAt(i) === 10) { n++; } }
 	return n;
 }

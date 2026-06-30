@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -10,6 +11,7 @@ import {
 	formatRelativeTime,
 	InlineAiExplanationInput,
 } from '../../common/inlineAiExplanationFormatter.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const NOW = 1_700_000_000_000;
 
@@ -38,6 +40,8 @@ const fixt = (overrides: Partial<InlineAiExplanationInput> = {}): InlineAiExplan
 });
 
 suite('inlineAiExplanationFormatter', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('truncateInline', () => {
 		test('short string passes through', () => {

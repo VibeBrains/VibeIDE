@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { localize } from '../../../../../nls.js';
 import { IVibeideTelemetryService } from './telemetryService.js';
@@ -11,7 +12,7 @@ import { RoutingDecisionEvent, ModelRanking, RoutingPattern, TaskType } from './
  * Analytics service for computing insights from telemetry data
  */
 export class TelemetryAnalyticsService {
-	constructor(private readonly telemetryService: IVibeideTelemetryService) {}
+	constructor(private readonly telemetryService: IVibeideTelemetryService) { }
 
 	/**
 	 * Compute model rankings by composite score: (speed × quality) / cost
@@ -43,7 +44,7 @@ export class TelemetryAnalyticsService {
 		const rankings: ModelRanking[] = [];
 		for (const [key, groupEvents] of groups) {
 			const [provider, modelName] = key.split(':');
-			const isLocal = (groupEvents[0].selectedModel as any).isLocal || false;
+			const isLocal = groupEvents[0].selectedModel.isLocal || false;
 
 			const speedScore = this._computeSpeedScore(groupEvents);
 			const qualityScore = this._computeQualityScore(groupEvents);
@@ -54,7 +55,7 @@ export class TelemetryAnalyticsService {
 				model: {
 					providerName: provider as import('../vibeideSettingsTypes.js').ProviderName,
 					modelName
-				} as import('../vibeideSettingsTypes.js').ModelSelection,
+				},
 				taskType,
 				speedScore,
 				qualityScore,
@@ -72,13 +73,13 @@ export class TelemetryAnalyticsService {
 	 * Compute speed score (0-1, higher is faster)
 	 */
 	private _computeSpeedScore(events: RoutingDecisionEvent[]): number {
-		if (events.length === 0) return 0;
+		if (events.length === 0) { return 0; }
 
 		const latencies = events
 			.filter(e => e.totalLatency > 0)
 			.map(e => e.totalLatency);
 
-		if (latencies.length === 0) return 0.5; // Neutral if no data
+		if (latencies.length === 0) { return 0.5; } // Neutral if no data
 
 		const avgLatency = latencies.reduce((a, b) => a + b, 0) / latencies.length;
 		const tokensPerSecond = events
@@ -106,10 +107,10 @@ export class TelemetryAnalyticsService {
 	 * Quality = acceptance rate + (1 - normalized edit distance)
 	 */
 	private _computeQualityScore(events: RoutingDecisionEvent[]): number {
-		if (events.length === 0) return 0;
+		if (events.length === 0) { return 0; }
 
 		const eventsWithOutcome = events.filter(e => e.userAccepted !== undefined);
-		if (eventsWithOutcome.length === 0) return 0.5; // Neutral if no outcome data
+		if (eventsWithOutcome.length === 0) { return 0.5; } // Neutral if no outcome data
 
 		const acceptanceRate = eventsWithOutcome.filter(e => e.userAccepted === true).length / eventsWithOutcome.length;
 
@@ -129,7 +130,7 @@ export class TelemetryAnalyticsService {
 	 */
 	private _computeCostScore(events: RoutingDecisionEvent[], isLocal: boolean): number {
 		// Local models are free (score = 1)
-		if (isLocal) return 1.0;
+		if (isLocal) { return 1.0; }
 
 		// For cloud models, we'd need cost data
 		// For now, assume all cloud models have similar cost (score = 0.5)
@@ -207,7 +208,7 @@ export class TelemetryAnalyticsService {
 			if (taskEvents.length > 20) {
 				const modelGroups = new Map<string, RoutingDecisionEvent[]>();
 				for (const event of taskEvents) {
-					const key = `${(event.selectedModel as any).provider}:${(event.selectedModel as any).modelName}`;
+					const key = `${event.selectedModel.provider}:${event.selectedModel.modelName}`;
 					if (!modelGroups.has(key)) {
 						modelGroups.set(key, []);
 					}

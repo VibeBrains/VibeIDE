@@ -2229,4 +2229,18 @@ export default tseslint.config(
 				},
 			],
 		}
+	},
+	// VibeIDE: the React UI layer (browser/react/**) is Russian-first and renders raw JSX
+	// strings plus CSS class names; nls.localize() is not part of that layer. Test files use
+	// raw fixture/assertion strings. None of this is user-facing externalizable content, so the
+	// unexternalized-strings rule does not apply to those subtrees.
+	{
+		files: [
+			'src/vs/workbench/contrib/vibeide/browser/react/**/*.{ts,tsx}',
+			'src/vs/workbench/contrib/vibeide/**/test/**/*.ts',
+			'src/vs/workbench/contrib/vibeide/**/*.test.ts',
+		],
+		rules: {
+			'local/code-no-unexternalized-strings': 'off',
+		},
 	});

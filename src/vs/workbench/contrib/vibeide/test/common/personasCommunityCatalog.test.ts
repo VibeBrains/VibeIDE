@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	decodePersonasCatalogUrl,
 	preparePersonasImport,
@@ -35,6 +37,8 @@ function persona(overrides: Partial<PersonaLite> = {}): PersonaLite {
 
 suite('Personas marketplace — catalog URL + import orchestrator', () => {
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	suite('decodePersonasCatalogUrl', () => {
 		test('valid HTTPS → ok', () => {
 			const r = decodePersonasCatalogUrl('https://catalog.vibeide.io/personas.json');
@@ -44,7 +48,7 @@ suite('Personas marketplace — catalog URL + import orchestrator', () => {
 		test('http → invalid:not-https', () => {
 			const r = decodePersonasCatalogUrl('http://catalog.vibeide.io/');
 			assert.strictEqual(r.kind, 'invalid');
-			if (r.kind === 'invalid') assert.strictEqual(r.reason, 'not-https');
+			if (r.kind === 'invalid') { assert.strictEqual(r.reason, 'not-https'); }
 		});
 
 		test('null / undefined / empty → unset', () => {

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -10,10 +11,13 @@ import {
 	findShadowedRule,
 	ModelRoutingRule,
 } from '../../common/modelRoutingByPath.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const rule = (pattern: string, modelId: string): ModelRoutingRule => ({ pattern, modelId });
 
 suite('Per-file model routing (929)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('resolveModelForPath', () => {
 		test('first matching rule wins', () => {
@@ -85,7 +89,7 @@ suite('Per-file model routing (929)', () => {
 				{ pattern: 'src/vs/**', modelId: 'opus' },
 			]);
 			assert.strictEqual(r.ok, true);
-			if (r.ok) assert.strictEqual(r.value.length, 2);
+			if (r.ok) { assert.strictEqual(r.value.length, 2); }
 		});
 	});
 

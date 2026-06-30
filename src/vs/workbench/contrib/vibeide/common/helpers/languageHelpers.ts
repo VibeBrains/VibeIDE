@@ -1,7 +1,8 @@
-// /*--------------------------------------------------------------------------------------
-//  *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
-//  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
-//  *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { URI } from '../../../../../base/common/uri.js';
 import { ILanguageService } from '../../../../../editor/common/languages/language.js';
@@ -9,20 +10,19 @@ import { separateOutFirstLine } from './util.js';
 
 
 // this works better than model.getLanguageId()
-export function detectLanguage(languageService: ILanguageService, opts: { uri: URI | null, fileContents: string | undefined }) {
-	const firstLine = opts.fileContents ? separateOutFirstLine(opts.fileContents)?.[0] : undefined
-	const fullLang = languageService.createByFilepathOrFirstLine(opts.uri, firstLine)
-	return fullLang.languageId || 'plaintext'
+export function detectLanguage(languageService: ILanguageService, opts: { uri: URI | null; fileContents: string | undefined }) {
+	const firstLine = opts.fileContents ? separateOutFirstLine(opts.fileContents)?.[0] : undefined;
+	const fullLang = languageService.createByFilepathOrFirstLine(opts.uri, firstLine);
+	return fullLang.languageId || 'plaintext';
 }
 
 // --- conversions
 export const convertToVscodeLang = (languageService: ILanguageService, markdownLang: string) => {
-	if (markdownLang in markdownLangToVscodeLang)
-		return markdownLangToVscodeLang[markdownLang]
+	if (Object.hasOwn(markdownLangToVscodeLang, markdownLang)) { return markdownLangToVscodeLang[markdownLang]; }
 
-	const { languageId } = languageService.createById(markdownLang)
-	return languageId
-}
+	const { languageId } = languageService.createById(markdownLang);
+	return languageId;
+};
 
 
 // // eg "bash" -> "shell"

@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { useEffect, useState } from 'react';
@@ -41,7 +42,7 @@ export const VibeModalContainer: React.FC = () => {
 	useEffect(() => {
 		if (queue.length > 0 && !restoreFocusEl) {
 			const active = document.activeElement;
-			if (active instanceof HTMLElement) setRestoreFocusEl(active);
+			if (active instanceof HTMLElement) {setRestoreFocusEl(active);}
 		} else if (queue.length === 0 && restoreFocusEl) {
 			if (restoreFocusEl.isConnected) {
 				restoreFocusEl.focus?.();
@@ -63,7 +64,7 @@ export const VibeModalContainer: React.FC = () => {
 	// aria-hidden=true on (collapsed sidebar, etc) would corrupt a11y
 	// state once the modal closes.
 	useEffect(() => {
-		if (!head) return; // Effect only meaningful while a modal is active.
+		if (!head) {return;} // Effect only meaningful while a modal is active.
 		// `blocking: false` modals don't take over workbench — skip inert apply
 		// entirely. Centred floating card without backdrop, workbench stays
 		// fully interactive (the trade-off: easier to ignore than a blocking
@@ -74,12 +75,12 @@ export const VibeModalContainer: React.FC = () => {
 		}
 		const portal = document.getElementById('vibeide-modal-portal');
 		const workbench = portal?.parentElement ?? document.body;
-		if (!workbench) return;
+		if (!workbench) {return;}
 		const restores: Array<{ el: HTMLElement; inert: string | null; ariaHidden: string | null }> = [];
 		try {
 			for (const child of Array.from(workbench.children)) {
-				if (child === portal) continue;
-				if (!(child instanceof HTMLElement)) continue;
+				if (child === portal) {continue;}
+				if (!(child instanceof HTMLElement)) {continue;}
 				restores.push({
 					el: child,
 					inert: child.getAttribute('inert'),
@@ -98,10 +99,10 @@ export const VibeModalContainer: React.FC = () => {
 		return () => {
 			try {
 				for (const { el, inert, ariaHidden } of restores) {
-					if (inert === null) el.removeAttribute('inert');
-					else el.setAttribute('inert', inert);
-					if (ariaHidden === null) el.removeAttribute('aria-hidden');
-					else el.setAttribute('aria-hidden', ariaHidden);
+					if (inert === null) {el.removeAttribute('inert');}
+					else {el.setAttribute('inert', inert);}
+					if (ariaHidden === null) {el.removeAttribute('aria-hidden');}
+					else {el.setAttribute('aria-hidden', ariaHidden);}
 				}
 				vibeLog.warn('VibeModalContainer', `[VibeModalContainer] inert restored for ${restores.length} siblings (modal id=${head.id} closed)`);
 			} catch (e) {

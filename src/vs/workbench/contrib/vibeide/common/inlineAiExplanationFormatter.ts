@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Inline AI explanations — hover content formatter (pure helper).
@@ -98,17 +99,17 @@ export function formatInlineAiExplanation(input: InlineAiExplanationInput, now: 
 	const sessionSummaryLine = input.session.promptSummary
 		? `> ${truncateInline(input.session.promptSummary, 200)}`
 		: '';
-	if (sessionSummaryLine) lines.push(sessionSummaryLine);
+	if (sessionSummaryLine) { lines.push(sessionSummaryLine); }
 
 	const planLine = input.planStep
 		? `Plan **${input.planStep.planId}** step ${input.planStep.stepIdx + 1}: ${truncateInline(input.planStep.stepTitle, 120)}`
 		: '';
-	if (planLine) lines.push(planLine);
+	if (planLine) { lines.push(planLine); }
 
 	const rationaleHeader = input.rationale ? `Tool: \`${input.rationale.toolName}\`` : '';
 	const rationaleQuote = input.rationale ? `> ${truncateInline(input.rationale.rationale, 240)}` : '';
-	if (rationaleHeader) lines.push(rationaleHeader);
-	if (rationaleQuote) lines.push(rationaleQuote);
+	if (rationaleHeader) { lines.push(rationaleHeader); }
+	if (rationaleQuote) { lines.push(rationaleQuote); }
 
 	let markdown = lines.join('\n');
 	const skipped: ('rationale' | 'plan-step' | 'session-summary')[] = [];
@@ -153,9 +154,9 @@ export function formatInlineAiExplanation(input: InlineAiExplanationInput, now: 
  * non-section truncations (e.g., chevron labels). Adds `…` at the cut point.
  */
 export function truncateInline(s: string, maxChars: number): string {
-	if (typeof s !== 'string') return '';
-	if (s.length <= maxChars) return s;
-	if (maxChars <= TRUNCATION_MARK.length) return TRUNCATION_MARK;
+	if (typeof s !== 'string') { return ''; }
+	if (s.length <= maxChars) { return s; }
+	if (maxChars <= TRUNCATION_MARK.length) { return TRUNCATION_MARK; }
 	return s.slice(0, maxChars - TRUNCATION_MARK.length) + TRUNCATION_MARK;
 }
 
@@ -164,10 +165,10 @@ export function truncateInline(s: string, maxChars: number): string {
  * Negative deltas (clock skew) clamp to "только что".
  */
 export function formatRelativeTime(deltaMs: number): string {
-	if (!Number.isFinite(deltaMs) || deltaMs < 0) return 'только что';
-	if (deltaMs < 60_000) return `${Math.round(deltaMs / 1_000)}с назад`;
-	if (deltaMs < 3_600_000) return `${Math.round(deltaMs / 60_000)}м назад`;
-	if (deltaMs < 86_400_000) return `${Math.round(deltaMs / 3_600_000)}ч назад`;
+	if (!Number.isFinite(deltaMs) || deltaMs < 0) { return 'только что'; }
+	if (deltaMs < 60_000) { return `${Math.round(deltaMs / 1_000)}с назад`; }
+	if (deltaMs < 3_600_000) { return `${Math.round(deltaMs / 60_000)}м назад`; }
+	if (deltaMs < 86_400_000) { return `${Math.round(deltaMs / 3_600_000)}ч назад`; }
 	return `${Math.round(deltaMs / 86_400_000)}д назад`;
 }
 

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Startup Performance Audit
@@ -32,6 +33,27 @@ export interface StartupMetrics {
 	slowExtensions: Array<{ id: string; time: number }>; // Extensions taking >100ms
 
 	timestamp: number;
+}
+
+/**
+ * Non-standard Chrome-only `performance.memory` shape. Returns used heap in bytes.
+ */
+interface PerformanceWithMemory {
+	memory?: { usedJSHeapSize: number };
+}
+
+/**
+ * Read used JS heap size in MB from the non-standard `performance.memory` API, or undefined if unavailable.
+ */
+function readUsedHeapMB(): number | undefined {
+	if (typeof performance === 'undefined') {
+		return undefined;
+	}
+	const memory = (performance as PerformanceWithMemory).memory;
+	if (!memory) {
+		return undefined;
+	}
+	return memory.usedJSHeapSize / 1024 / 1024; // MB
 }
 
 class StartupAudit {
@@ -145,9 +167,9 @@ class StartupAudit {
 	 * Sample memory and CPU usage
 	 */
 	private sampleResources(): void {
-		if (typeof performance !== 'undefined' && (performance as any).memory) {
-			const memory = (performance as any).memory.usedJSHeapSize / 1024 / 1024; // MB
-			this.memorySamples.push(memory);
+		const initialMemory = readUsedHeapMB();
+		if (initialMemory !== undefined) {
+			this.memorySamples.push(initialMemory);
 		}
 
 		// CPU sampling is approximate - we can't directly measure CPU in browser
@@ -172,9 +194,9 @@ class StartupAudit {
 		// Sample every 100ms for first 5 seconds
 		let samples = 0;
 		const interval = setInterval(() => {
-			if (typeof performance !== 'undefined' && (performance as any).memory) {
-				const memory = (performance as any).memory.usedJSHeapSize / 1024 / 1024;
-				this.memorySamples.push(memory);
+			const sampledMemory = readUsedHeapMB();
+			if (sampledMemory !== undefined) {
+				this.memorySamples.push(sampledMemory);
 			}
 			samples++;
 			if (samples >= 50) { // 5 seconds

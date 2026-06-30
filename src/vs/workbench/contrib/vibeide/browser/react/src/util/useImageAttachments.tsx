@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 // @ts-nocheck — bundled by vibeide browser/react/build.js; excluded from vscode src typecheck hygiene
 import { useState, useCallback, useRef } from 'react';
@@ -110,7 +111,7 @@ export function useImageAttachments(): UseImageAttachmentsReturn {
 			// Simulate upload progress (since images are processed locally, not uploaded to server)
 			// We'll show progress during processing stages
 			const updateProgress = (progress: number) => {
-				if (cancelled) return;
+				if (cancelled) {return;}
 				setAttachments(prev => prev.map(att =>
 					att.id === id
 						? { ...att, uploadStatus: 'uploading' as const, uploadProgress: progress }
@@ -128,7 +129,7 @@ export function useImageAttachments(): UseImageAttachmentsReturn {
 					updateProgress(progress);
 				});
 
-				if (cancelled) return;
+				if (cancelled) {return;}
 
 				// Update attachment with processed data
 				setAttachments(prev => prev.map(att =>
@@ -185,7 +186,7 @@ export function useImageAttachments(): UseImageAttachmentsReturn {
 				// Clean up
 				cancelRef.current.delete(id);
 			} catch (error) {
-				if (cancelled) return;
+				if (cancelled) {return;}
 				const errorMessage = error instanceof Error ? error.message : 'Failed to process image';
 				setAttachments(prev => prev.map(att =>
 					att.id === id
@@ -235,7 +236,7 @@ export function useImageAttachments(): UseImageAttachmentsReturn {
 
 	const retryImage = useCallback(async (id: string) => {
 		const attachment = attachments.find(att => att.id === id);
-		if (!attachment) return;
+		if (!attachment) {return;}
 
 		// Get original file for retry
 		const originalFile = originalFilesRef.current.get(id);
@@ -271,7 +272,7 @@ export function useImageAttachments(): UseImageAttachmentsReturn {
 		cancelRef.current.set(id, cancelFn);
 
 		const updateProgress = (progress: number) => {
-			if (cancelled) return;
+			if (cancelled) {return;}
 			setAttachments(prev => prev.map(att =>
 				att.id === id
 					? { ...att, uploadStatus: 'uploading' as const, uploadProgress: progress }
@@ -286,7 +287,7 @@ export function useImageAttachments(): UseImageAttachmentsReturn {
 				updateProgress(progress);
 			});
 
-			if (cancelled) return;
+			if (cancelled) {return;}
 
 			setAttachments(prev => prev.map(att =>
 				att.id === id
@@ -304,7 +305,7 @@ export function useImageAttachments(): UseImageAttachmentsReturn {
 					: att
 			));
 		} catch (error) {
-			if (cancelled) return;
+			if (cancelled) {return;}
 			const errorMessage = error instanceof Error ? error.message : 'Failed to process image';
 			setAttachments(prev => prev.map(att =>
 				att.id === id

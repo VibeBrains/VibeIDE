@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -13,12 +14,15 @@ import {
 	pickTopBarPinned,
 } from '../../common/projectCommandsServiceContract.js';
 import { ProjectCommand, sortProjectCommandsForDisplay } from '../../common/projectCommandsTypes.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 function cmd(id: string, opts: Partial<ProjectCommand> = {}): ProjectCommand {
 	return { id, name: id, command: 'echo', ...opts };
 }
 
 suite('Project Commands — service contract: palette ids + events + top-bar pinned', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('palette ids', () => {
 		test('all values are vibeide.commands.* prefixed', () => {
@@ -102,7 +106,7 @@ suite('Project Commands — service contract: palette ids + events + top-bar pin
 		test('exitCode optional', () => {
 			const r = validateDidEndCommandEvent({ id: 'a', name: 'A', invocationId: 'i', endedAtMs: 1, outcome: 'cancelled' });
 			assert.ok(r);
-			assert.strictEqual('exitCode' in r!, false);
+			assert.strictEqual(Object.hasOwn(r!, 'exitCode'), false);
 		});
 
 		test('negative durationMs dropped silently', () => {
@@ -111,7 +115,7 @@ suite('Project Commands — service contract: palette ids + events + top-bar pin
 				endedAtMs: 1, outcome: 'success', durationMs: -1,
 			});
 			assert.ok(r);
-			assert.strictEqual('durationMs' in r!, false);
+			assert.strictEqual(Object.hasOwn(r!, 'durationMs'), false);
 		});
 	});
 

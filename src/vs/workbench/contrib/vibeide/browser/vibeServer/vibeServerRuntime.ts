@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Runtime-provider spine for Vibe Server. A runtime owns one preview-backing process:
@@ -194,7 +195,7 @@ export class DevServerRuntime extends Disposable implements IVibeServerRuntime {
 		const pkg = await this._readPackageJson();
 		const script = this._pickScript(pkg);
 		if (!script) {
-			throw new Error("В package.json не найден скрипт dev/start/serve");
+			throw new Error('В package.json не найден скрипт dev/start/serve');
 		}
 		const command = await this._packageManager();
 		const id = generateUuid();
@@ -209,7 +210,7 @@ export class DevServerRuntime extends Disposable implements IVibeServerRuntime {
 		const urlPromise = new Promise<string>((res, rej) => { resolveUrl = res; rejectUrl = rej; });
 
 		const timer = setTimeout(() => {
-			if (!settled) { settled = true; rejectUrl(new Error("Dev-server не сообщил URL вовремя")); }
+			if (!settled) { settled = true; rejectUrl(new Error('Dev-server не сообщил URL вовремя')); }
 		}, this._timeoutMs());
 		store.add(toDisposable(() => clearTimeout(timer)));
 
@@ -268,7 +269,7 @@ export class DevServerRuntime extends Disposable implements IVibeServerRuntime {
 		try {
 			return JSON.parse((await this._fileService.readFile(uri)).value.toString());
 		} catch {
-			throw new Error("Не удалось прочитать package.json в корне проекта");
+			throw new Error('Не удалось прочитать package.json в корне проекта');
 		}
 	}
 

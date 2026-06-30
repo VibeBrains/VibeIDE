@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * IPC channel exposing the Idle Watchdog write-queue + slope-alert event to
@@ -68,37 +69,37 @@ export class VibeIdleWatchdogChannelService extends Disposable implements IVibeI
 
 	async getCurrentSnapshot(): Promise<WatchdogCurrentSnapshot> {
 		const svc = getVibeIdleWatchdog();
-		if (svc === null) return { capturedAt: new Date().toISOString(), samples: [] };
+		if (svc === null) { return { capturedAt: new Date().toISOString(), samples: [] }; }
 		return svc.getCurrentSnapshot();
 	}
 
 	async triggerMainHeapSnapshot(): Promise<WatchdogSnapshotEntry | null> {
 		const svc = getVibeIdleWatchdog();
-		if (svc === null) return null;
+		if (svc === null) { return null; }
 		return svc.triggerMainHeapSnapshot();
 	}
 
 	async appendSample(line: WatchdogSampleBase): Promise<void> {
 		const svc = getVibeIdleWatchdog();
-		if (svc === null) return;
+		if (svc === null) { return; }
 		svc.acceptExternalSample(line);
 	}
 
 	async appendCrash(entry: WatchdogCrashEntry): Promise<void> {
 		const svc = getVibeIdleWatchdog();
-		if (svc === null) return;
+		if (svc === null) { return; }
 		svc.acceptExternalCrash(entry);
 	}
 
 	async appendSnapshot(entry: WatchdogSnapshotEntry): Promise<void> {
 		const svc = getVibeIdleWatchdog();
-		if (svc === null) return;
+		if (svc === null) { return; }
 		svc.acceptExternalSnapshot(entry);
 	}
 
 	async readRecentTail(maxLines: number): Promise<readonly WatchdogLine[]> {
 		const svc = getVibeIdleWatchdog();
-		if (svc === null) return [];
+		if (svc === null) { return []; }
 		return svc.readRecentTail(maxLines);
 	}
 

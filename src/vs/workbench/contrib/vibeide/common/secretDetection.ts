@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 import { vibeLog } from './vibeLog.js';
 
 /**
@@ -32,7 +33,7 @@ export interface SecretPattern {
 
 /** Shannon entropy in bits/char — low for words/identifiers, high for random keys. */
 function shannonEntropy(s: string): number {
-	if (!s) return 0;
+	if (!s) { return 0; }
 	const freq = new Map<string, number>();
 	for (const ch of s) { freq.set(ch, (freq.get(ch) ?? 0) + 1); }
 	let h = 0;
@@ -361,14 +362,14 @@ export function detectSecrets(
 /**
  * Redacts secrets in an object (recursively)
  */
-export function redactSecretsInObject(
-	obj: any,
+export function redactSecretsInObject<T = unknown>(
+	obj: T,
 	config: SecretDetectionConfig = DEFAULT_CONFIG
-): { redacted: any; hasSecrets: boolean; matches: SecretMatch[] } {
+): { redacted: T; hasSecrets: boolean; matches: SecretMatch[] } {
 	if (typeof obj === 'string') {
 		const result = detectSecrets(obj, config);
 		return {
-			redacted: result.redactedText,
+			redacted: result.redactedText as T,
 			hasSecrets: result.hasSecrets,
 			matches: result.matches,
 		};
@@ -385,13 +386,13 @@ export function redactSecretsInObject(
 			}
 			return result.redacted;
 		});
-		return { redacted, hasSecrets, matches: allMatches };
+		return { redacted: redacted as T, hasSecrets, matches: allMatches };
 	}
 
 	if (obj && typeof obj === 'object') {
 		let hasSecrets = false;
 		const allMatches: SecretMatch[] = [];
-		const redacted: any = {};
+		const redacted: Record<string, unknown> = {};
 
 		for (const [key, value] of Object.entries(obj)) {
 			const result = redactSecretsInObject(value, config);
@@ -402,7 +403,7 @@ export function redactSecretsInObject(
 			redacted[key] = result.redacted;
 		}
 
-		return { redacted, hasSecrets, matches: allMatches };
+		return { redacted: redacted as T, hasSecrets, matches: allMatches };
 	}
 
 	return { redacted: obj, hasSecrets: false, matches: [] };

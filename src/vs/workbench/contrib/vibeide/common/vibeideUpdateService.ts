@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -52,7 +53,7 @@ export class VibeideUpdateService implements IVibeideUpdateService {
 			context: explicit ? 'explicit' : 'auto',
 		});
 		return res;
-	}
+	};
 
 	downloadVerifiedReleaseAsset: IVibeideUpdateService['downloadVerifiedReleaseAsset'] = async (assetUrl, expectedSha256Hex, fileName) => {
 		return await this.vibeideUpdateService.downloadVerifiedReleaseAsset(assetUrl, expectedSha256Hex, fileName);

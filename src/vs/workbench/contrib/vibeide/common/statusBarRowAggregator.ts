@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Unified VibeIDE status-bar — pure aggregator
@@ -84,7 +85,7 @@ export function buildUnifiedStatusBarSnapshot(rows: ReadonlyArray<StatusRowDescr
 	const sorted = [...enabled].sort((a, b) => {
 		const pa = a.priority ?? 100;
 		const pb = b.priority ?? 100;
-		if (pa !== pb) return pa - pb;
+		if (pa !== pb) { return pa - pb; }
 		return a.id.localeCompare(b.id);
 	});
 
@@ -133,7 +134,7 @@ export function findDuplicateStatusRowIds(rows: ReadonlyArray<StatusRowDescripto
 	const seen = new Set<string>();
 	const dups = new Set<string>();
 	for (const r of rows) {
-		if (seen.has(r.id)) dups.add(r.id);
+		if (seen.has(r.id)) { dups.add(r.id); }
 		seen.add(r.id);
 	}
 	return [...dups].sort();

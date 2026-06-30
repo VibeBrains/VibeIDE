@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * User-defined prompt library — `.vibe/prompts/<name>.md` loader (pure helpers).
@@ -63,7 +64,7 @@ const PLACEHOLDER_RE = /\{\{(selection|file|ask:([a-zA-Z_][\w-]*))\}\}/g;
  * one — typically the basename of the source file.
  */
 export function parseUserPromptFile(raw: string, fallbackName: string): UserPrompt | null {
-	if (typeof raw !== 'string') return null;
+	if (typeof raw !== 'string') { return null; }
 	const m = FRONTMATTER_RE.exec(raw);
 	let frontmatter = '';
 	let template = '';
@@ -77,15 +78,15 @@ export function parseUserPromptFile(raw: string, fallbackName: string): UserProm
 
 	const fields = parseFrontmatterFields(frontmatter);
 	const name = (fields['name'] ?? fallbackName).trim();
-	if (!name) return null;
+	if (!name) { return null; }
 
 	const rawMode = (fields['mode'] ?? 'chat').trim().toLowerCase();
-	if (rawMode !== 'chat' && rawMode !== 'ctrl-k') return null;
+	if (rawMode !== 'chat' && rawMode !== 'ctrl-k') { return null; }
 	const mode = rawMode as UserPromptMode;
 
 	const model = fields['model']?.trim() || undefined;
 	const params = parseParamsBlock(fields['params'] ?? '');
-	if (params === null) return null;
+	if (params === null) { return null; }
 
 	return {
 		name,
@@ -101,16 +102,16 @@ export function parseUserPromptFile(raw: string, fallbackName: string): UserProm
  * substituting (e.g., shows QuickPick for each `ask:NAME`).
  */
 export function listPlaceholders(template: string): readonly ParsedPlaceholder[] {
-	if (typeof template !== 'string') return [];
+	if (typeof template !== 'string') { return []; }
 	const out: ParsedPlaceholder[] = [];
 	const seen = new Set<string>();
 	for (const m of template.matchAll(PLACEHOLDER_RE)) {
 		const raw = m[1];
-		if (seen.has(raw)) continue;
+		if (seen.has(raw)) { continue; }
 		seen.add(raw);
-		if (raw === 'selection') out.push({ kind: 'selection' });
-		else if (raw === 'file') out.push({ kind: 'file' });
-		else out.push({ kind: 'ask', arg: m[2] });
+		if (raw === 'selection') { out.push({ kind: 'selection' }); }
+		else if (raw === 'file') { out.push({ kind: 'file' }); }
+		else { out.push({ kind: 'ask', arg: m[2] }); }
 	}
 	return out;
 }
@@ -124,10 +125,10 @@ export function expandUserPrompt(
 	template: string,
 	values: Readonly<Record<string, string>>,
 ): string {
-	if (typeof template !== 'string') return '';
+	if (typeof template !== 'string') { return ''; }
 	return template.replace(PLACEHOLDER_RE, (_full, raw, _askName) => {
-		if (raw === 'selection') return values['selection'] ?? '';
-		if (raw === 'file') return values['file'] ?? '';
+		if (raw === 'selection') { return values['selection'] ?? ''; }
+		if (raw === 'file') { return values['file'] ?? ''; }
 		const askKey = `ask:${(raw as string).slice(4)}`;
 		return values[askKey] ?? '';
 	});
@@ -159,7 +160,7 @@ function parseFrontmatterFields(block: string): Record<string, string> {
 }
 
 function parseParamsBlock(raw: string): UserPromptParam[] | null {
-	if (!raw.trim()) return [];
+	if (!raw.trim()) { return []; }
 	const params: UserPromptParam[] = [];
 	let current: { name?: string; ask?: string } = {};
 	const finalize = () => {
@@ -176,7 +177,7 @@ function parseParamsBlock(raw: string): UserPromptParam[] | null {
 	for (const line of lines) {
 		const newItem = /^\s*-\s+name\s*:\s*(.+)$/.exec(line);
 		if (newItem) {
-			if (!finalize()) return null;
+			if (!finalize()) { return null; }
 			current.name = newItem[1].trim();
 			continue;
 		}
@@ -188,12 +189,12 @@ function parseParamsBlock(raw: string): UserPromptParam[] | null {
 		// Other indented lines are ignored (lenient parser — we only care about
 		// `name` + `ask` shape).
 	}
-	if (!finalize()) return null;
+	if (!finalize()) { return null; }
 	return params;
 }
 
 function stripQuotes(s: string): string {
-	if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+	if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith('\'') && s.endsWith('\''))) {
 		return s.slice(1, -1);
 	}
 	return s;

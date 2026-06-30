@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * FIM (tab-completion) privacy guard (1021, 1022).
@@ -47,7 +48,7 @@ const NOISE_PATTERNS = [
 export const NOISE_PATH_PATTERNS: ReadonlyArray<RegExp> = NOISE_PATTERNS;
 
 export function isNoisePath(filePath: string): boolean {
-	if (typeof filePath !== 'string' || filePath.length === 0) return false;
+	if (typeof filePath !== 'string' || filePath.length === 0) { return false; }
 	const normalised = filePath.replace(/\\/g, '/');
 	return NOISE_PATTERNS.some(re => re.test(normalised));
 }
@@ -84,7 +85,7 @@ export function pickFirstLocalProvider(
 	providerKinds: Readonly<Record<string, ProviderKind>>,
 ): string | undefined {
 	for (const id of candidates) {
-		if (providerKinds[id] === 'local') return id;
+		if (providerKinds[id] === 'local') { return id; }
 	}
 	return undefined;
 }

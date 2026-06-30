@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * i18n doctor report — pure aggregator + README badge formatter
@@ -72,25 +73,25 @@ export function buildI18nDoctorReport(input: DoctorI18nReportInput): DoctorI18nR
 }
 
 function computeCoveragePct(s: LocaleFreshnessSnapshot): number {
-	if (s.totalMetadataCount <= 0) return 100;
+	if (s.totalMetadataCount <= 0) { return 100; }
 	const ratio = s.translatedCount / s.totalMetadataCount;
-	if (!Number.isFinite(ratio)) return 0;
+	if (!Number.isFinite(ratio)) { return 0; }
 	return Math.max(0, Math.min(100, ratio * 100));
 }
 
 function daysSince(thenMs: number | undefined, nowMs: number): number | null {
-	if (typeof thenMs !== 'number' || !Number.isFinite(thenMs)) return null;
+	if (typeof thenMs !== 'number' || !Number.isFinite(thenMs)) { return null; }
 	const diff = nowMs - thenMs;
-	if (diff < 0) return 0;
+	if (diff < 0) { return 0; }
 	return Math.floor(diff / 86_400_000);
 }
 
 function pluralDays(n: number): string {
 	const last = n % 10;
 	const lastTwo = n % 100;
-	if (lastTwo >= 11 && lastTwo <= 14) return 'дней';
-	if (last === 1) return 'день';
-	if (last >= 2 && last <= 4) return 'дня';
+	if (lastTwo >= 11 && lastTwo <= 14) { return 'дней'; }
+	if (last === 1) { return 'день'; }
+	if (last >= 2 && last <= 4) { return 'дня'; }
 	return 'дней';
 }
 
@@ -127,15 +128,15 @@ export function formatI18nBadge(input: I18nBadgeInput): { text: string; shieldsU
 }
 
 function pickShieldsColour(snapshots: ReadonlyArray<LocaleFreshnessSnapshot>): string {
-	if (snapshots.length === 0) return 'lightgrey';
+	if (snapshots.length === 0) { return 'lightgrey'; }
 	let minPct = 100;
 	for (const s of snapshots) {
 		const pct = computeCoveragePct(s);
-		if (pct < minPct) minPct = pct;
+		if (pct < minPct) { minPct = pct; }
 	}
-	if (minPct >= 95) return 'brightgreen';
-	if (minPct >= 80) return 'green';
-	if (minPct >= 50) return 'yellow';
-	if (minPct >= 25) return 'orange';
+	if (minPct >= 95) { return 'brightgreen'; }
+	if (minPct >= 80) { return 'green'; }
+	if (minPct >= 50) { return 'yellow'; }
+	if (minPct >= 25) { return 'orange'; }
 	return 'red';
 }

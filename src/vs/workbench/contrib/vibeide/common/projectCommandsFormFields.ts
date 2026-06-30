@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — form-based editor per-field validator
@@ -100,10 +101,9 @@ export function validateProjectCommandForm(
 		'cwd', 'env', 'terminal', 'confirm', 'singleton', 'pinned',
 		'order', 'workflowId',
 	];
-	const out = {} as Record<ProjectCommandFieldName, FieldValidationIssue>;
-	for (const f of fields) {
-		out[f] = validateProjectCommandField(f, form[f]);
-	}
+	const out: Record<ProjectCommandFieldName, FieldValidationIssue> = Object.fromEntries(
+		fields.map(f => [f, validateProjectCommandField(f, form[f])]),
+	) as Record<ProjectCommandFieldName, FieldValidationIssue>;
 	return out;
 }
 
@@ -116,10 +116,10 @@ export function isProjectCommandFormSavable(
 ): boolean {
 	const required: ProjectCommandFieldName[] = ['id', 'name', 'command'];
 	for (const f of required) {
-		if (results[f].severity !== 'ok') return false;
+		if (results[f].severity !== 'ok') { return false; }
 	}
 	for (const f of Object.keys(results) as ProjectCommandFieldName[]) {
-		if (results[f].severity === 'error') return false;
+		if (results[f].severity === 'error') { return false; }
 	}
 	return true;
 }
@@ -312,21 +312,21 @@ export function buildProjectCommandFromForm(
 		name: form.name as string,
 		command: form.command as string,
 	};
-	if (typeof form.description === 'string' && form.description.length > 0) (out as { description?: string }).description = form.description;
-	if (typeof form.icon === 'string' && form.icon.length > 0) (out as { icon?: string }).icon = form.icon;
-	if (typeof form.color === 'string' && form.color.length > 0) (out as { color?: string }).color = form.color;
-	if (Array.isArray(form.args)) (out as { args?: readonly string[] }).args = form.args.slice();
-	if (typeof form.cwd === 'string' && form.cwd.length > 0) (out as { cwd?: string }).cwd = form.cwd;
+	if (typeof form.description === 'string' && form.description.length > 0) { (out as { description?: string }).description = form.description; }
+	if (typeof form.icon === 'string' && form.icon.length > 0) { (out as { icon?: string }).icon = form.icon; }
+	if (typeof form.color === 'string' && form.color.length > 0) { (out as { color?: string }).color = form.color; }
+	if (Array.isArray(form.args)) { (out as { args?: readonly string[] }).args = form.args.slice(); }
+	if (typeof form.cwd === 'string' && form.cwd.length > 0) { (out as { cwd?: string }).cwd = form.cwd; }
 	if (form.env && typeof form.env === 'object' && !Array.isArray(form.env)) {
 		(out as { env?: Record<string, string> }).env = { ...(form.env as Record<string, string>) };
 	}
 	if (form.terminal === 'integrated' || form.terminal === 'external' || form.terminal === 'background') {
 		(out as { terminal?: 'integrated' | 'external' | 'background' }).terminal = form.terminal;
 	}
-	if (typeof form.confirm === 'boolean') (out as { confirm?: boolean }).confirm = form.confirm;
-	if (typeof form.singleton === 'boolean') (out as { singleton?: boolean }).singleton = form.singleton;
-	if (typeof form.pinned === 'boolean') (out as { pinned?: boolean }).pinned = form.pinned;
-	if (typeof form.order === 'number' && Number.isFinite(form.order)) (out as { order?: number }).order = form.order;
-	if (typeof form.workflowId === 'string' && form.workflowId.length > 0) (out as { workflowId?: string }).workflowId = form.workflowId;
+	if (typeof form.confirm === 'boolean') { (out as { confirm?: boolean }).confirm = form.confirm; }
+	if (typeof form.singleton === 'boolean') { (out as { singleton?: boolean }).singleton = form.singleton; }
+	if (typeof form.pinned === 'boolean') { (out as { pinned?: boolean }).pinned = form.pinned; }
+	if (typeof form.order === 'number' && Number.isFinite(form.order)) { (out as { order?: number }).order = form.order; }
+	if (typeof form.workflowId === 'string' && form.workflowId.length > 0) { (out as { workflowId?: string }).workflowId = form.workflowId; }
 	return out;
 }

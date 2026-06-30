@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -28,9 +29,9 @@ import { scanMcpConfig, ConfigGuardFinding } from './vibeConfigGuard.js';
 
 
 type MCPServiceState = {
-	mcpServerOfName: MCPServerOfName,
-	error: string | undefined, // global parsing error
-}
+	mcpServerOfName: MCPServerOfName;
+	error: string | undefined; // global parsing error
+};
 
 export interface IMCPService {
 	readonly _serviceBrand: undefined;
@@ -42,7 +43,7 @@ export interface IMCPService {
 
 	getMCPTools(): InternalToolInfo[] | undefined;
 	callMCPTool(toolData: MCPToolCallParams): Promise<{ result: RawMCPToolCall }>;
-	stringifyResult(result: RawMCPToolCall): string
+	stringifyResult(result: RawMCPToolCall): string;
 
 	/** Config Guard findings from the last load of `mcp.json` (empty if disabled/clean). */
 	getLastGuardFindings(): readonly ConfigGuardFinding[];
@@ -53,7 +54,7 @@ export const IMCPService = createDecorator<IMCPService>('mcpConfigService');
 
 
 const MCP_CONFIG_FILE_NAME = 'mcp.json';
-const MCP_CONFIG_SAMPLE = { mcpServers: {} }
+const MCP_CONFIG_SAMPLE = { mcpServers: {} };
 const MCP_CONFIG_SAMPLE_STRING = JSON.stringify(MCP_CONFIG_SAMPLE, null, 2);
 
 /**
@@ -62,7 +63,7 @@ const MCP_CONFIG_SAMPLE_STRING = JSON.stringify(MCP_CONFIG_SAMPLE, null, 2);
  * unicode are folded to underscores. Matches Kilo's `sanitize` in
  * packages/opencode/src/mcp/index.ts.
  */
-const sanitizeMcpIdentifier = (s: string): string => s.replace(/[^a-zA-Z0-9_-]/g, '_')
+const sanitizeMcpIdentifier = (s: string): string => s.replace(/[^a-zA-Z0-9_-]/g, '_');
 
 
 // export interface MCPCallToolOfToolName {
@@ -77,13 +78,13 @@ class MCPService extends Disposable implements IMCPService {
 	_serviceBrand: undefined;
 
 
-	private readonly channel: IChannel // MCPChannel
+	private readonly channel: IChannel; // MCPChannel
 
 	// list of MCP servers pulled from mcpChannel
 	state: MCPServiceState = {
 		mcpServerOfName: {},
 		error: undefined,
-	}
+	};
 
 	// Emitters for server events
 	private readonly _onDidChangeState = new Emitter<void>();
@@ -113,13 +114,13 @@ class MCPService extends Disposable implements IMCPService {
 		@INotificationService private readonly _notificationService: INotificationService,
 	) {
 		super();
-		this.channel = this.mainProcessService.getChannel('vibe-channel-mcp')
+		this.channel = this.mainProcessService.getChannel('vibe-channel-mcp');
 
 
 		const onEvent = (e: MCPServerEventResponse) => {
 			// console.log('GOT EVENT', e)
-			this._setMCPServerState(e.response.name, e.response.newServer)
-		}
+			this._setMCPServerState(e.response.name, e.response.newServer);
+		};
 		this._register((this.channel.listen('onAdd_server') satisfies Event<MCPServerEventResponse>)(onEvent));
 		this._register((this.channel.listen('onUpdate_server') satisfies Event<MCPServerEventResponse>)(onEvent));
 		this._register((this.channel.listen('onDelete_server') satisfies Event<MCPServerEventResponse>)(onEvent));
@@ -153,7 +154,7 @@ class MCPService extends Disposable implements IMCPService {
 			this.state = {
 				...this.state,
 				mcpServerOfName: remainingServers
-			}
+			};
 		} else {
 			// Add or update the server
 			this.state = {
@@ -162,18 +163,18 @@ class MCPService extends Disposable implements IMCPService {
 					...this.state.mcpServerOfName,
 					[serverName]: newServer
 				}
-			}
+			};
 		}
 		this._onDidChangeState.fire();
-	}
+	};
 
 	private readonly _setHasError = async (errMsg: string | undefined) => {
 		this.state = {
 			...this.state,
 			error: errMsg,
-		}
+		};
 		this._onDidChangeState.fire();
-	}
+	};
 
 	// Create the file/directory if it doesn't exist
 	private async _createMCPConfigFile(mcpConfigUri: URI): Promise<void> {
@@ -187,10 +188,10 @@ class MCPService extends Disposable implements IMCPService {
 		const mcpConfigUri = await this._getMCPConfigFilePath();
 		this._register(
 			this.fileService.watch(mcpConfigUri)
-		)
+		);
 
 		this._register(this.fileService.onDidFilesChange(e => {
-			if (!e.contains(mcpConfigUri)) return;
+			if (!e.contains(mcpConfigUri)) { return; }
 			// Debounce bursts while editing mcp.json so tools refresh once without full window reload.
 			this._scheduleMcpConfigRefresh.schedule();
 		}));
@@ -214,12 +215,12 @@ class MCPService extends Disposable implements IMCPService {
 	}
 
 	public getMCPTools(): InternalToolInfo[] | undefined {
-		const allTools: InternalToolInfo[] = []
+		const allTools: InternalToolInfo[] = [];
 		for (const serverName in this.state.mcpServerOfName) {
 			const server = this.state.mcpServerOfName[serverName];
-			const sanitizedServer = sanitizeMcpIdentifier(serverName)
+			const sanitizedServer = sanitizeMcpIdentifier(serverName);
 			server.tools?.forEach(tool => {
-				const sanitizedTool = sanitizeMcpIdentifier(tool.name)
+				const sanitizedTool = sanitizeMcpIdentifier(tool.name);
 				// Model-facing identifier with collision-safe `<server>_<tool>` prefix.
 				// Two MCP servers exposing same-named tools used to alias each other —
 				// only the first by iteration won. `originalName` keeps the raw name
@@ -230,11 +231,11 @@ class MCPService extends Disposable implements IMCPService {
 					name: `${sanitizedServer}_${sanitizedTool}`,
 					originalName: tool.name,
 					mcpServerName: serverName,
-				})
-			})
+				});
+			});
 		}
-		if (allTools.length === 0) return undefined
-		return allTools
+		if (allTools.length === 0) { return undefined; }
+		return allTools;
 	}
 
 	/**
@@ -246,30 +247,31 @@ class MCPService extends Disposable implements IMCPService {
 	 */
 	public getMCPToolsDeferred(contextPercentUsed: number): InternalToolInfo[] | undefined {
 		const allTools = this.getMCPTools();
-		if (!allTools) return undefined;
+		if (!allTools) { return undefined; }
 
 		// Defer tool descriptions when context is >10% full
 		const DEFERRAL_THRESHOLD = 10;
 		if (contextPercentUsed > DEFERRAL_THRESHOLD) {
-			return allTools.map(tool => ({
+			return allTools.map((tool): InternalToolInfo & { _deferred?: boolean } => ({
 				...tool,
 				description: `[deferred — use MCPSearch to load description for "${tool.name}"]`,
 				params: {}, // omit params until requested
 				_deferred: true,
-			} as InternalToolInfo & { _deferred?: boolean }));
+			}));
 		}
 
 		return allTools;
 	}
 
-	private _transformInputSchemaToParams(inputSchema?: Record<string, any>): { [paramName: string]: { description: string } } {
+	private _transformInputSchemaToParams(inputSchema?: { properties?: Record<string, unknown> }): { [paramName: string]: { description: string } } {
 
 		// Check if inputSchema is valid
-		if (!inputSchema || !inputSchema.properties) return {};
+		const properties = inputSchema?.properties;
+		if (!properties) { return {}; }
 
 		const params: { [paramName: string]: { description: string } } = {};
-		Object.keys(inputSchema.properties).forEach(paramName => {
-			const propertyValues = inputSchema.properties[paramName];
+		Object.keys(properties).forEach(paramName => {
+			const propertyValues = properties[paramName];
 
 			// Check if propertyValues is not an object
 			if (typeof propertyValues !== 'object') {
@@ -278,18 +280,19 @@ class MCPService extends Disposable implements IMCPService {
 			}
 
 			// Add the parameter to the params object
+			const description = (propertyValues as { description?: unknown }).description;
 			params[paramName] = {
-				description: JSON.stringify(propertyValues.description || '', null, 2) || '',
-			}
+				description: JSON.stringify(description || '', null, 2) || '',
+			};
 		});
 		return params;
 	}
 
 	private async _getMCPConfigFilePath(): Promise<URI> {
-		const appName = this.productService.dataFolderName
+		const appName = this.productService.dataFolderName;
 		const userHome = await this.pathService.userHome();
-		const uri = URI.joinPath(userHome, appName, MCP_CONFIG_FILE_NAME)
-		return uri
+		const uri = URI.joinPath(userHome, appName, MCP_CONFIG_FILE_NAME);
+		return uri;
 	}
 
 	private async _configFileExists(mcpConfigUri: URI): Promise<boolean> {
@@ -314,7 +317,7 @@ class MCPService extends Disposable implements IMCPService {
 			return configFileJson as MCPConfigFileJSON;
 		} catch (error) {
 			const fullError = `Error parsing MCP config file: ${error}`;
-			this._setHasError(fullError)
+			this._setHasError(fullError);
 			return null;
 		}
 	}
@@ -353,11 +356,11 @@ class MCPService extends Disposable implements IMCPService {
 	// Handle server state changes
 	private async _refreshMCPServers(): Promise<void> {
 
-		this._setHasError(undefined)
+		this._setHasError(undefined);
 
 		const newConfigFileJSON = await this._parseMCPConfigFile();
-		if (!newConfigFileJSON) { vibeLog.info('mcp', `Not setting state: MCP config file not found`); return }
-		if (!newConfigFileJSON?.mcpServers) { vibeLog.info('mcp', `Not setting state: MCP config file did not have an 'mcpServers' field`); return }
+		if (!newConfigFileJSON) { vibeLog.info('mcp', `Not setting state: MCP config file not found`); return; }
+		if (!newConfigFileJSON?.mcpServers) { vibeLog.info('mcp', `Not setting state: MCP config file did not have an 'mcpServers' field`); return; }
 
 		// Config Guard: static-scan server entries; in block mode, drop critical-flagged servers before
 		// they start (filtering the parsed config so the rest of the refresh logic is untouched).
@@ -371,15 +374,15 @@ class MCPService extends Disposable implements IMCPService {
 		}
 
 
-		const oldConfigFileNames = Object.keys(this.state.mcpServerOfName)
-		const newConfigFileNames = Object.keys(newConfigFileJSON.mcpServers)
+		const oldConfigFileNames = Object.keys(this.state.mcpServerOfName);
+		const newConfigFileNames = Object.keys(newConfigFileJSON.mcpServers);
 
 		const addedServerNames = newConfigFileNames.filter(serverName => !oldConfigFileNames.includes(serverName)); // in new and not in old
 		const removedServerNames = oldConfigFileNames.filter(serverName => !newConfigFileNames.includes(serverName)); // in old and not in new
 
 		// set isOn to any new servers in the config
-		const addedUserStateOfName: MCPUserStateOfName = {}
-		for (const name of addedServerNames) { addedUserStateOfName[name] = { isOn: true } }
+		const addedUserStateOfName: MCPUserStateOfName = {};
+		for (const name of addedServerNames) { addedUserStateOfName[name] = { isOn: true }; }
 		await this.vibeideSettingsService.addMCPUserStateOfNames(addedUserStateOfName);
 
 		// delete isOn for any servers that no longer show up in the config
@@ -387,9 +390,9 @@ class MCPService extends Disposable implements IMCPService {
 
 		// set all servers to loading
 		for (const serverName in newConfigFileJSON.mcpServers) {
-			this._setMCPServerState(serverName, { status: 'loading', tools: [] })
+			this._setMCPServerState(serverName, { status: 'loading', tools: [] });
 		}
-		const updatedServerNames = Object.keys(newConfigFileJSON.mcpServers).filter(serverName => !addedServerNames.includes(serverName) && !removedServerNames.includes(serverName))
+		const updatedServerNames = Object.keys(newConfigFileJSON.mcpServers).filter(serverName => !addedServerNames.includes(serverName) && !removedServerNames.includes(serverName));
 
 		this.channel.call('refreshMCPServers', {
 			mcpConfigFileJSON: newConfigFileJSON,
@@ -397,7 +400,7 @@ class MCPService extends Disposable implements IMCPService {
 			removedServerNames,
 			updatedServerNames,
 			userStateOfName: this.vibeideSettingsService.state.mcpUserStateOfName,
-		})
+		});
 	}
 
 	public getLastGuardFindings(): readonly ConfigGuardFinding[] {
@@ -405,27 +408,27 @@ class MCPService extends Disposable implements IMCPService {
 	}
 
 	stringifyResult(result: RawMCPToolCall): string {
-		let toolResultStr: string
+		let toolResultStr: string;
 		if (result.event === 'text') {
-			toolResultStr = result.text
+			toolResultStr = result.text;
 		} else if (result.event === 'image') {
-			toolResultStr = `[Image: ${result.image.mimeType}]`
+			toolResultStr = `[Image: ${result.image.mimeType}]`;
 		} else if (result.event === 'audio') {
-			toolResultStr = `[Audio content]`
+			toolResultStr = `[Audio content]`;
 		} else if (result.event === 'resource') {
-			toolResultStr = `[Resource content]`
+			toolResultStr = `[Resource content]`;
 		} else {
-			toolResultStr = JSON.stringify(result)
+			toolResultStr = JSON.stringify(result);
 		}
-		return toolResultStr
+		return toolResultStr;
 	}
 
 	// toggle MCP server and update isOn in void settings
 	public async toggleServerIsOn(serverName: string, isOn: boolean): Promise<void> {
-		this._setMCPServerState(serverName, { status: 'loading', tools: [] })
+		this._setMCPServerState(serverName, { status: 'loading', tools: [] });
 
 		await this.vibeideSettingsService.setMCPServerState(serverName, { isOn });
-		this.channel.call('toggleMCPServer', { serverName, isOn })
+		this.channel.call('toggleMCPServer', { serverName, isOn });
 	}
 
 
@@ -442,7 +445,7 @@ class MCPService extends Disposable implements IMCPService {
 			context: toolData.serverName,
 		});
 		if (result.event === 'error') {
-			throw new Error(`Error: ${result.text}`)
+			throw new Error(`Error: ${result.text}`);
 		}
 		return { result };
 	}

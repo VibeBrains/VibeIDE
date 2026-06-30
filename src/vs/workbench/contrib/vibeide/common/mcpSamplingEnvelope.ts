@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * `VibeMCPSamplingService` — `sampling/createMessage` request/response envelope
@@ -66,7 +67,7 @@ const TEMPERATURE_MAX = 2;
  * shape to the user-consent flow.
  */
 export function decodeSamplingRequest(raw: unknown): DecodeResult<SamplingRequest> {
-	if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not-an-object' };
+	if (!raw || typeof raw !== 'object') { return { ok: false, reason: 'not-an-object' }; }
 	const o = raw as Record<string, unknown>;
 
 	if (!Array.isArray(o.messages) || o.messages.length === 0) {
@@ -75,21 +76,21 @@ export function decodeSamplingRequest(raw: unknown): DecodeResult<SamplingReques
 	const messages: SamplingMessage[] = [];
 	for (let i = 0; i < o.messages.length; i++) {
 		const msg = decodeMessage(o.messages[i]);
-		if (!msg.ok) return { ok: false, reason: `messages[${i}]:${msg.reason}` };
+		if (!msg.ok) { return { ok: false, reason: `messages[${i}]:${msg.reason}` }; }
 		messages.push(msg.value);
 	}
 
 	let modelPreferences: ModelPreferences | undefined;
 	if (o.modelPreferences !== undefined) {
 		const decoded = decodeModelPreferences(o.modelPreferences);
-		if (!decoded.ok) return { ok: false, reason: `modelPreferences:${decoded.reason}` };
+		if (!decoded.ok) { return { ok: false, reason: `modelPreferences:${decoded.reason}` }; }
 		modelPreferences = decoded.value;
 	}
 
 	let systemPrompt: string | undefined;
 	if (o.systemPrompt !== undefined) {
-		if (typeof o.systemPrompt !== 'string') return { ok: false, reason: 'systemPrompt-not-string' };
-		if (o.systemPrompt.length > MAX_PROMPT_LENGTH) return { ok: false, reason: 'systemPrompt-too-long' };
+		if (typeof o.systemPrompt !== 'string') { return { ok: false, reason: 'systemPrompt-not-string' }; }
+		if (o.systemPrompt.length > MAX_PROMPT_LENGTH) { return { ok: false, reason: 'systemPrompt-too-long' }; }
 		systemPrompt = o.systemPrompt;
 	}
 
@@ -147,35 +148,35 @@ export function decodeSamplingRequest(raw: unknown): DecodeResult<SamplingReques
 }
 
 function decodeMessage(raw: unknown): DecodeResult<SamplingMessage> {
-	if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not-object' };
+	if (!raw || typeof raw !== 'object') { return { ok: false, reason: 'not-object' }; }
 	const o = raw as Record<string, unknown>;
-	if (o.role !== 'user' && o.role !== 'assistant') return { ok: false, reason: 'role-invalid' };
+	if (o.role !== 'user' && o.role !== 'assistant') { return { ok: false, reason: 'role-invalid' }; }
 	const c = decodeContent(o.content);
-	if (!c.ok) return { ok: false, reason: `content:${c.reason}` };
+	if (!c.ok) { return { ok: false, reason: `content:${c.reason}` }; }
 	return { ok: true, value: { role: o.role, content: c.value } };
 }
 
 function decodeContent(raw: unknown): DecodeResult<SamplingContent> {
-	if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not-object' };
+	if (!raw || typeof raw !== 'object') { return { ok: false, reason: 'not-object' }; }
 	const o = raw as Record<string, unknown>;
 	if (o.type === 'text') {
-		if (typeof o.text !== 'string') return { ok: false, reason: 'text-not-string' };
+		if (typeof o.text !== 'string') { return { ok: false, reason: 'text-not-string' }; }
 		return { ok: true, value: { type: 'text', text: o.text } };
 	}
 	if (o.type === 'image') {
-		if (typeof o.data !== 'string' || o.data.length === 0) return { ok: false, reason: 'image-data-empty' };
-		if (typeof o.mimeType !== 'string' || !/^image\//.test(o.mimeType)) return { ok: false, reason: 'image-mime-invalid' };
+		if (typeof o.data !== 'string' || o.data.length === 0) { return { ok: false, reason: 'image-data-empty' }; }
+		if (typeof o.mimeType !== 'string' || !/^image\//.test(o.mimeType)) { return { ok: false, reason: 'image-mime-invalid' }; }
 		return { ok: true, value: { type: 'image', data: o.data, mimeType: o.mimeType } };
 	}
 	return { ok: false, reason: 'type-unknown' };
 }
 
 function decodeModelPreferences(raw: unknown): DecodeResult<ModelPreferences> {
-	if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not-object' };
+	if (!raw || typeof raw !== 'object') { return { ok: false, reason: 'not-object' }; }
 	const o = raw as Record<string, unknown>;
 	const value: { hints?: ReadonlyArray<{ name?: string }>; costPriority?: number; speedPriority?: number; intelligencePriority?: number } = {};
 	if (o.hints !== undefined) {
-		if (!Array.isArray(o.hints)) return { ok: false, reason: 'hints-not-array' };
+		if (!Array.isArray(o.hints)) { return { ok: false, reason: 'hints-not-array' }; }
 		value.hints = o.hints.map((h: unknown) => {
 			if (h && typeof h === 'object' && typeof (h as { name?: unknown }).name === 'string') {
 				return { name: (h as { name: string }).name };
@@ -200,12 +201,12 @@ function decodeModelPreferences(raw: unknown): DecodeResult<ModelPreferences> {
 // -----------------------------------------------------------------------------
 
 export function decodeSamplingResponse(raw: unknown): DecodeResult<SamplingResponse> {
-	if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not-an-object' };
+	if (!raw || typeof raw !== 'object') { return { ok: false, reason: 'not-an-object' }; }
 	const o = raw as Record<string, unknown>;
-	if (typeof o.model !== 'string' || o.model.length === 0) return { ok: false, reason: 'model-missing' };
-	if (o.role !== 'user' && o.role !== 'assistant') return { ok: false, reason: 'role-invalid' };
+	if (typeof o.model !== 'string' || o.model.length === 0) { return { ok: false, reason: 'model-missing' }; }
+	if (o.role !== 'user' && o.role !== 'assistant') { return { ok: false, reason: 'role-invalid' }; }
 	const c = decodeContent(o.content);
-	if (!c.ok) return { ok: false, reason: `content:${c.reason}` };
+	if (!c.ok) { return { ok: false, reason: `content:${c.reason}` }; }
 	const value: SamplingResponse = {
 		model: o.model,
 		role: o.role,

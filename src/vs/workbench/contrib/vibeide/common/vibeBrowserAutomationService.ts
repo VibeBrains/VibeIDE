@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * VibeBrowserAutomationService — first-class Playwright/browser automation UX.
@@ -212,9 +213,9 @@ class VibeBrowserAutomationService extends Disposable implements IVibeBrowserAut
 
 	private async _spawnPlaywrightRunner(request: BrowserRunRequest, maxMs: number): Promise<BrowserRunResult> {
 		// Dynamic import so common/ stays vscode-free at import time; Electron desktop has Node.js.
-		const { spawn } = await import('child_process' as any);
-		const path = await import('path' as any);
-		const { fileURLToPath } = await import('url' as any);
+		const { spawn } = await import('child_process');
+		const path = await import('path');
+		const { fileURLToPath } = await import('url');
 
 		const runnerScript = path.join(
 			path.dirname(fileURLToPath(import.meta.url)),

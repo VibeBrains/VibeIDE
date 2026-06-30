@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Model Registry for Image QA Pipeline
@@ -10,7 +11,7 @@
 
 export type ModelRole = 'code' | 'vlm' | 'ocr';
 export type ImageType = 'document/receipt' | 'UI/app' | 'code_screenshot' | 'terminal/log' | 'chart/diagram' | 'photo' | 'unknown';
-export type QuestionType = "what's_shown" | 'extract_text' | 'explain_error' | 'summarize_logs' | 'find_UI_element' | 'compare' | 'unknown';
+export type QuestionType = 'what\'s_shown' | 'extract_text' | 'explain_error' | 'summarize_logs' | 'find_UI_element' | 'compare' | 'unknown';
 
 export interface ModelCapability {
 	role: ModelRole;
@@ -67,37 +68,37 @@ export class ImageQAModelRegistry {
 	): ModelCapability | null {
 		const candidates = this.findByRole(role).filter(m => m.max_px >= maxPx);
 
-		if (candidates.length === 0) return null;
+		if (candidates.length === 0) { return null; }
 
 		// Score each candidate based on strengths
 		const scored = candidates.map(model => {
 			let score = 0;
 
 			// Prefer models strong at this image type
-			if (model.strong_at.includes(imageType)) score += 10;
-			if (model.strong_at.includes(questionType)) score += 10;
+			if (model.strong_at.includes(imageType)) { score += 10; }
+			if (model.strong_at.includes(questionType)) { score += 10; }
 
 			// Penalize models weak at this task
-			if (model.weak_at.includes(imageType)) score -= 5;
-			if (model.weak_at.includes(questionType)) score -= 5;
+			if (model.weak_at.includes(imageType)) { score -= 5; }
+			if (model.weak_at.includes(questionType)) { score -= 5; }
 
 			// For image and code tasks, prefer online models if preferOnline is true
 			// For OCR tasks, always prefer local (Tesseract.js)
 			if (role === 'ocr') {
 				// OCR should always prefer local (Tesseract.js)
-				if (model.cost === 0) score += 5;
+				if (model.cost === 0) { score += 5; }
 			} else if (preferOnline) {
 				// For image/code tasks, prefer online models when requested
-				if (model.cost > 0) score += 8; // Strong preference for online
-				if (model.cost === 0) score -= 3; // Penalize local
+				if (model.cost > 0) { score += 8; } // Strong preference for online
+				if (model.cost === 0) { score -= 3; } // Penalize local
 			} else {
 				// Default: prefer local models
-				if (model.cost === 0) score += 5;
+				if (model.cost === 0) { score += 5; }
 			}
 
 			// Prefer low latency
-			if (model.latency === 'low') score += 3;
-			if (model.latency === 'high') score -= 3;
+			if (model.latency === 'low') { score += 3; }
+			if (model.latency === 'high') { score -= 3; }
 
 			return { model, score };
 		});

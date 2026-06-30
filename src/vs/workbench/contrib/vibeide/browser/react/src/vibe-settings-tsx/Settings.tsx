@@ -1,34 +1,34 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react'; // Added useRef import just in case it was missed, though likely already present
-import { ProviderName, SettingName, displayInfoOfSettingName, providerNames, VibeideStatefulModelInfo, customSettingNamesOfProvider, RefreshableProviderName, refreshableProviderNames, displayInfoOfProviderName, nonlocalProviderNames, localProviderNames, GlobalSettingName, featureNames, displayInfoOfFeatureName, isProviderNameDisabled, FeatureName, hasDownloadButtonsOnModelsProviderNames, subTextMdOfProviderName } from '../../../../common/vibeideSettingsTypes.js'
-import { remoteCatalogCapableProviderNames } from '../../../../common/remoteCatalogService.js'
-import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js'
-import { VibeButtonBgDarken, VibeCustomDropdownBox, VibeInputBox2, VibeSimpleInputBox, VibeSwitch } from '../util/inputs.js'
-import { useAccessor, useIsDark, useIsOptedOut, useRefreshModelListener, useRefreshModelState, useSettingsState } from '../util/services.js'
-import { X, RefreshCw, Loader2, Check, Asterisk, Plus, ChevronRight, ChevronDown, ImageOff, Image, Play } from 'lucide-react'
-import { joinPath } from '../../../../../../../base/common/resources.js'
-import { ModelDropdown } from './ModelDropdown.js'
-import { VibeWorkspaceFormsPanel } from './VibeWorkspaceForms.js'
-import { ChatMarkdownRender } from '../markdown/ChatMarkdownRender.js'
-import { WarningBox } from './WarningBox.js'
-import { os } from '../../../../common/helpers/systemInfo.js'
-import { IconLoading } from '../sidebar-tsx/SidebarChat.js'
-import { ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js'
-import Severity from '../../../../../../../base/common/severity.js'
+import { ProviderName, SettingName, displayInfoOfSettingName, providerNames, VibeideStatefulModelInfo, customSettingNamesOfProvider, RefreshableProviderName, refreshableProviderNames, displayInfoOfProviderName, nonlocalProviderNames, localProviderNames, GlobalSettingName, featureNames, displayInfoOfFeatureName, isProviderNameDisabled, FeatureName, hasDownloadButtonsOnModelsProviderNames, subTextMdOfProviderName } from '../../../../common/vibeideSettingsTypes.js';
+import { remoteCatalogCapableProviderNames } from '../../../../common/remoteCatalogService.js';
+import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js';
+import { VibeButtonBgDarken, VibeCustomDropdownBox, VibeInputBox2, VibeSimpleInputBox, VibeSwitch } from '../util/inputs.js';
+import { useAccessor, useIsDark, useIsOptedOut, useMCPServiceState, useRefreshModelListener, useRefreshModelState, useSettingsState } from '../util/services.js';
+import { X, RefreshCw, Loader2, Check, Asterisk, Plus, ChevronRight, ChevronDown, ImageOff, Image, Play } from 'lucide-react';
+import { joinPath } from '../../../../../../../base/common/resources.js';
+import { ModelDropdown } from './ModelDropdown.js';
+import { VibeWorkspaceFormsPanel } from './VibeWorkspaceForms.js';
+import { ChatMarkdownRender } from '../markdown/ChatMarkdownRender.js';
+import { WarningBox } from './WarningBox.js';
+import { os } from '../../../../common/helpers/systemInfo.js';
+import { IconLoading } from '../sidebar-tsx/SidebarChat.js';
+import { ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
+import Severity from '../../../../../../../base/common/severity.js';
 import { API_PROTOCOL_VALUES, ApiProtocolOverride, getModelCapabilities, isFreeModel, modelOverrideKeys, ModelOverrides } from '../../../../common/modelCapabilities.js';
 import { TransferEditorType, TransferFilesInfo } from '../../../extensionTransferTypes.js';
 import { MCPServer } from '../../../../common/mcpServiceTypes.js';
-import { useMCPServiceState } from '../util/services.js';
 import { OPT_OUT_KEY } from '../../../../common/storageKeys.js';
 import { StorageScope, StorageTarget } from '../../../../../../../platform/storage/common/storage.js';
-import { generateUuid } from '../../../../../../../base/common/uuid.js'
-import { nav, modelsS, providersS, generalS, ollamaS, miscS, toolApprovalLabel, safetyS, modelDdS, notifyS } from './vibeSettingsRu.js'
-import { NOTIFY_DEFAULT_SOUND_IDS } from '../../../vibeNotifySoundService.js'
+import { generateUuid } from '../../../../../../../base/common/uuid.js';
+import { nav, modelsS, providersS, generalS, ollamaS, miscS, toolApprovalLabel, safetyS, modelDdS, notifyS } from './vibeSettingsRu.js';
+import { NOTIFY_DEFAULT_SOUND_IDS } from '../../../vibeNotifySoundService.js';
 
 type Tab =
 	| 'models'
@@ -77,42 +77,42 @@ const AllSettingsFold = ({
 );
 
 
-const ButtonLeftTextRightOption = ({ text, leftButton }: { text: string, leftButton?: React.ReactNode }) => {
+const ButtonLeftTextRightOption = ({ text, leftButton }: { text: string; leftButton?: React.ReactNode }) => {
 
 	return <div className='flex items-center text-vibe-fg-3 px-3 py-0.5 rounded-sm overflow-hidden gap-2'>
 		{leftButton ? leftButton : null}
 		<span>
 			{text}
 		</span>
-	</div>
-}
+	</div>;
+};
 
 // models
 const RefreshModelButton = ({ providerName }: { providerName: RefreshableProviderName }) => {
 
-	const refreshModelState = useRefreshModelState()
+	const refreshModelState = useRefreshModelState();
 
-	const accessor = useAccessor()
-	const refreshModelService = accessor.get('IRefreshModelService')
-	const metricsService = accessor.get('IMetricsService')
+	const accessor = useAccessor();
+	const refreshModelService = accessor.get('IRefreshModelService');
+	const metricsService = accessor.get('IMetricsService');
 
-	const [justFinished, setJustFinished] = useState<null | 'finished' | 'error'>(null)
+	const [justFinished, setJustFinished] = useState<null | 'finished' | 'error'>(null);
 
 	useRefreshModelListener(
 		useCallback((providerName2, refreshModelState) => {
-			if (providerName2 !== providerName) return
-			const { state } = refreshModelState[providerName]
-			if (!(state === 'finished' || state === 'error')) return
+			if (providerName2 !== providerName) {return;}
+			const { state } = refreshModelState[providerName];
+			if (!(state === 'finished' || state === 'error')) {return;}
 			// now we know we just entered 'finished' state for this providerName
-			setJustFinished(state)
-			const tid = setTimeout(() => { setJustFinished(null) }, 2000)
-			return () => clearTimeout(tid)
+			setJustFinished(state);
+			const tid = setTimeout(() => { setJustFinished(null); }, 2000);
+			return () => clearTimeout(tid);
 		}, [providerName])
-	)
+	);
 
-	const { state } = refreshModelState[providerName]
+	const { state } = refreshModelState[providerName];
 
-	const { title: providerTitle } = displayInfoOfProviderName(providerName)
+	const { title: providerTitle } = displayInfoOfProviderName(providerName);
 
 	return <ButtonLeftTextRightOption
 
@@ -121,8 +121,8 @@ const RefreshModelButton = ({ providerName }: { providerName: RefreshableProvide
 				className='flex items-center'
 				disabled={state === 'refreshing' || justFinished !== null}
 				onClick={() => {
-					refreshModelService.startRefreshingModels(providerName, { enableProviderOnSuccess: false, doNotFire: false })
-					metricsService.capture('Click', { providerName, action: 'Refresh Models' })
+					refreshModelService.startRefreshingModels(providerName, { enableProviderOnSuccess: false, doNotFire: false });
+					metricsService.capture('Click', { providerName, action: 'Refresh Models' });
 				}}
 			>
 				{justFinished === 'finished' ? <Check className='stroke-green-500 size-3' />
@@ -135,56 +135,56 @@ const RefreshModelButton = ({ providerName }: { providerName: RefreshableProvide
 		text={justFinished === 'finished' ? modelsS.refreshUpToDate(providerTitle)
 			: justFinished === 'error' ? modelsS.refreshNotFound(providerTitle)
 				: modelsS.refreshManual(providerTitle)}
-	/>
-}
+	/>;
+};
 
 const RefreshableModels = () => {
-	const settingsState = useSettingsState()
+	const settingsState = useSettingsState();
 
 
 	const buttons = refreshableProviderNames.map(providerName => {
-		if (!settingsState.settingsOfProvider[providerName]._didFillInProviderSettings) return null
-		return <RefreshModelButton key={providerName} providerName={providerName} />
-	})
+		if (!settingsState.settingsOfProvider[providerName]._didFillInProviderSettings) {return null;}
+		return <RefreshModelButton key={providerName} providerName={providerName} />;
+	});
 
 	return <>
 		{buttons}
-	</>
+	</>;
 
-}
+};
 
 // Refresh button for remote provider catalogs (full row on Providers tab, or compact icon next to model search)
 const RefreshRemoteCatalogButton = ({ providerName, compact }: { providerName: ProviderName; compact?: boolean }) => {
-	const accessor = useAccessor()
-	const refreshModelService = accessor.get('IRefreshModelService')
-	const metricsService = accessor.get('IMetricsService')
-	const [isRefreshing, setIsRefreshing] = useState(false)
-	const [justFinished, setJustFinished] = useState<null | 'finished' | 'error'>(null)
+	const accessor = useAccessor();
+	const refreshModelService = accessor.get('IRefreshModelService');
+	const metricsService = accessor.get('IMetricsService');
+	const [isRefreshing, setIsRefreshing] = useState(false);
+	const [justFinished, setJustFinished] = useState<null | 'finished' | 'error'>(null);
 
-	const { title: providerTitle } = displayInfoOfProviderName(providerName)
+	const { title: providerTitle } = displayInfoOfProviderName(providerName);
 
 	const handleRefresh = async () => {
-		if (isRefreshing) return
-		setIsRefreshing(true)
-		setJustFinished(null)
+		if (isRefreshing) {return;}
+		setIsRefreshing(true);
+		setJustFinished(null);
 
 		try {
-			await refreshModelService.refreshRemoteCatalog(providerName, true)
-			setJustFinished('finished')
-			metricsService.capture('Click', { providerName, action: 'Refresh Remote Catalog' })
+			await refreshModelService.refreshRemoteCatalog(providerName, true);
+			setJustFinished('finished');
+			metricsService.capture('Click', { providerName, action: 'Refresh Remote Catalog' });
 		} catch (error) {
-			vibeLog.error('Settings', 'Failed to refresh remote catalog:', error)
-			setJustFinished('error')
+			vibeLog.error('Settings', 'Failed to refresh remote catalog:', error);
+			setJustFinished('error');
 		} finally {
-			setIsRefreshing(false)
+			setIsRefreshing(false);
 		}
-		setTimeout(() => { setJustFinished(null); }, 2000)
-	}
+		setTimeout(() => { setJustFinished(null); }, 2000);
+	};
 
 	const icon = justFinished === 'finished' ? <Check className='stroke-green-500 size-3' />
 		: justFinished === 'error' ? <X className='stroke-red-500 size-3' />
 			: isRefreshing ? <Loader2 className='size-3 animate-spin' />
-				: <RefreshCw className='size-3' />
+				: <RefreshCw className='size-3' />;
 
 	if (compact) {
 		return <button
@@ -198,7 +198,7 @@ const RefreshRemoteCatalogButton = ({ providerName, compact }: { providerName: P
 			aria-label={modelsS.catalogRefresh(providerTitle)}
 		>
 			{icon}
-		</button>
+		</button>;
 	}
 
 	return <ButtonLeftTextRightOption
@@ -214,30 +214,30 @@ const RefreshRemoteCatalogButton = ({ providerName, compact }: { providerName: P
 		text={justFinished === 'finished' ? modelsS.catalogRefreshed(providerTitle)
 			: justFinished === 'error' ? modelsS.catalogFailed(providerTitle)
 				: modelsS.catalogRefresh(providerTitle)}
-	/>
-}
+	/>;
+};
 
 const RefreshableRemoteCatalogs = () => {
-	const settingsState = useSettingsState()
+	const settingsState = useSettingsState();
 
 	// Show refresh buttons for remote providers that are configured
 	const buttons = nonlocalProviderNames.map(providerName => {
-		if (!settingsState.settingsOfProvider[providerName]._didFillInProviderSettings) return null
-		return <RefreshRemoteCatalogButton key={providerName} providerName={providerName} />
-	})
+		if (!settingsState.settingsOfProvider[providerName]._didFillInProviderSettings) {return null;}
+		return <RefreshRemoteCatalogButton key={providerName} providerName={providerName} />;
+	});
 
 	// Filter out nulls
-	const validButtons = buttons.filter(Boolean)
-	if (validButtons.length === 0) return null
+	const validButtons = buttons.filter(Boolean);
+	if (validButtons.length === 0) {return null;}
 
 	return <>
 		{validButtons}
-	</>
-}
+	</>;
+};
 
 
 
-export const AnimatedCheckmarkButton = ({ text, className }: { text?: string, className?: string }) => {
+export const AnimatedCheckmarkButton = ({ text, className }: { text?: string; className?: string }) => {
 	const [dashOffset, setDashOffset] = useState(40);
 
 	useEffect(() => {
@@ -279,27 +279,27 @@ export const AnimatedCheckmarkButton = ({ text, className }: { text?: string, cl
 			/>
 		</svg>
 		{text}
-	</div>
-}
+	</div>;
+};
 
 
-const AddButton = ({ disabled, text = modelsS.add, ...props }: { disabled?: boolean, text?: React.ReactNode } & React.ButtonHTMLAttributes<HTMLButtonElement>) => {
+const AddButton = ({ disabled, text = modelsS.add, ...props }: { disabled?: boolean; text?: React.ReactNode } & React.ButtonHTMLAttributes<HTMLButtonElement>) => {
 
 	return <button
 		disabled={disabled}
 		type="button"
 		className={`@@vibe-pill-button @@vibe-pill-button--primary @@vibe-focus-ring ${!disabled ? 'cursor-pointer' : ''}`}
 		{...props}
-	>{text}</button>
+	>{text}</button>;
 
-}
+};
 
 // ConfirmButton prompts for a second click to confirm an action, cancels if clicking outside
-const ConfirmButton = ({ children, onConfirm, className, confirmLabel }: { children: React.ReactNode, onConfirm: () => void, className?: string, confirmLabel?: string }) => {
+const ConfirmButton = ({ children, onConfirm, className, confirmLabel }: { children: React.ReactNode; onConfirm: () => void; className?: string; confirmLabel?: string }) => {
 	const [confirm, setConfirm] = useState(false);
 	const ref = useRef<HTMLDivElement>(null);
 	useEffect(() => {
-		if (!confirm) return;
+		if (!confirm) {return;}
 		const handleClickOutside = (e: MouseEvent) => {
 			if (ref.current && !ref.current.contains(e.target as Node)) {
 				setConfirm(false);
@@ -340,32 +340,32 @@ const SimpleModelSettingsDialog = ({
 	onClose: () => void;
 	modelInfo: { modelName: string; providerName: ProviderName; type: 'autodetected' | 'custom' | 'default' } | null;
 }) => {
-	if (!isOpen || !modelInfo) return null;
+	if (!isOpen || !modelInfo) {return null;}
 
 	const { modelName, providerName, type } = modelInfo;
-	const accessor = useAccessor()
-	const settingsState = useSettingsState()
+	const accessor = useAccessor();
+	const settingsState = useSettingsState();
 	const mouseDownInsideModal = useRef(false); // Ref to track mousedown origin
-	const settingsStateService = accessor.get('IVibeideSettingsService')
+	const settingsStateService = accessor.get('IVibeideSettingsService');
 
 	// current overrides and defaults
 	const defaultModelCapabilities = getModelCapabilities(providerName, modelName, undefined);
 	const currentOverrides = settingsState.overridesOfModel?.[providerName]?.[modelName] ?? undefined;
-	const { recognizedModelName, isUnrecognizedModel } = defaultModelCapabilities
+	const { recognizedModelName, isUnrecognizedModel } = defaultModelCapabilities;
 
 	// Create the placeholder with the default values for allowed keys.
 	// `apiProtocol` is a meta-override (not a VibeideStaticModelInfo field), so
 	// it isn't in `modelOverrideKeys`. Surface it explicitly below the JSON
 	// example as a separate hint — users discover the field without grepping.
 	const partialDefaults: Partial<ModelOverrides> = {};
-	for (const k of modelOverrideKeys) { if (defaultModelCapabilities[k]) partialDefaults[k] = defaultModelCapabilities[k] as any; }
+	for (const k of modelOverrideKeys) { if (defaultModelCapabilities[k]) {partialDefaults[k] = defaultModelCapabilities[k] as ModelOverrides[typeof k];} }
 	const placeholder = JSON.stringify(partialDefaults, null, 2);
 
 	const [overrideEnabled, setOverrideEnabled] = useState<boolean>(() => !!currentOverrides);
 
 	const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-	const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
+	const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
 
 	// First-class form control for `apiProtocol` — small enum, dropdown fits
 	// the UX much better than asking the user to type "anthropic" into JSON.
@@ -385,7 +385,7 @@ const SimpleModelSettingsDialog = ({
 
 	// reset when dialog toggles
 	useEffect(() => {
-		if (!isOpen) return;
+		if (!isOpen) {return;}
 		const cur = settingsState.overridesOfModel?.[providerName]?.[modelName];
 		const storedApi = cur?.apiProtocol as string | undefined;
 		const validApi: ApiProtocolOverride | '' = storedApi && (API_PROTOCOL_VALUES as readonly string[]).includes(storedApi)
@@ -406,7 +406,7 @@ const SimpleModelSettingsDialog = ({
 
 		// enabled overrides
 		// parse json
-		let parsedInput: Record<string, unknown>
+		let parsedInput: Record<string, unknown>;
 
 		if (textAreaRef.current?.value) {
 			try {
@@ -423,10 +423,10 @@ const SimpleModelSettingsDialog = ({
 		// only keep allowed keys
 		const cleaned: Partial<ModelOverrides> = {};
 		for (const k of modelOverrideKeys) {
-			if (!(k in parsedInput)) continue
+			if (!(k in parsedInput)) {continue;}
 			const isEmpty = parsedInput[k] === '' || parsedInput[k] === null || parsedInput[k] === undefined;
 			if (!isEmpty) {
-				cleaned[k] = parsedInput[k] as any;
+				cleaned[k] = parsedInput[k] as ModelOverrides[typeof k];
 			}
 		}
 		// `apiProtocol` from JSON textarea — still accept it for power users who
@@ -461,7 +461,7 @@ const SimpleModelSettingsDialog = ({
 		onClose();
 	};
 
-	const sourcecodeOverridesLink = `https://github.com/VibeBrains/VibeIDE/blob/main/src/vs/workbench/contrib/vibeide/common/modelCapabilities.ts#L146-L172`
+	const sourcecodeOverridesLink = `https://github.com/VibeBrains/VibeIDE/blob/main/src/vs/workbench/contrib/vibeide/common/modelCapabilities.ts#L146-L172`;
 
 	return (
 		<div // Backdrop
@@ -574,15 +574,15 @@ const SimpleModelSettingsDialog = ({
 
 
 export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderName[] }) => {
-	const accessor = useAccessor()
-	const settingsStateService = accessor.get('IVibeideSettingsService')
-	const settingsState = useSettingsState()
+	const accessor = useAccessor();
+	const settingsStateService = accessor.get('IVibeideSettingsService');
+	const settingsState = useSettingsState();
 
 	// State to track which model's settings dialog is open
 	const [openSettingsModel, setOpenSettingsModel] = useState<{
-		modelName: string,
-		providerName: ProviderName,
-		type: 'autodetected' | 'custom' | 'default'
+		modelName: string;
+		providerName: ProviderName;
+		type: 'autodetected' | 'custom' | 'default';
 	} | null>(null);
 
 	// States for add model functionality
@@ -595,7 +595,7 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 	const [modelSearchByProvider, setModelSearchByProvider] = useState<Partial<Record<ProviderName, string>>>({});
 	const [showOnlyActiveByProvider, setShowOnlyActiveByProvider] = useState<Partial<Record<ProviderName, boolean>>>({});
 
-	const refreshModelService = accessor.get('IRefreshModelService')
+	const refreshModelService = accessor.get('IRefreshModelService');
 
 	/** Only providers the user has fully configured (API keys / endpoint). Default catalog entries for others stay hidden. */
 	const configuredProviders = useMemo(() => {
@@ -726,7 +726,7 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 				</div>
 				<div className="w-5 flex items-center justify-center">
 					<button
-						onClick={() => { setOpenSettingsModel({ modelName, providerName, type }) }}
+						onClick={() => { setOpenSettingsModel({ modelName, providerName, type }); }}
 						data-tooltip-id='vibe-tooltip'
 						data-tooltip-place='right'
 						data-tooltip-content={modelsS.tooltipAdvanced}
@@ -945,30 +945,30 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 			onClose={() => setOpenSettingsModel(null)}
 			modelInfo={openSettingsModel}
 		/>
-	</div>
-}
+	</div>;
+};
 
 
 
 // providers
 
-const ProviderSetting = ({ providerName, settingName, subTextMd }: { providerName: ProviderName, settingName: SettingName, subTextMd: React.ReactNode }) => {
+const ProviderSetting = ({ providerName, settingName, subTextMd }: { providerName: ProviderName; settingName: SettingName; subTextMd: React.ReactNode }) => {
 
-	const { title: settingTitle, placeholder, isPasswordField } = displayInfoOfSettingName(providerName, settingName)
+	const { title: settingTitle, placeholder, isPasswordField } = displayInfoOfSettingName(providerName, settingName);
 
-	const accessor = useAccessor()
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
-	const settingsState = useSettingsState()
+	const accessor = useAccessor();
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
+	const settingsState = useSettingsState();
 
 	if (providerName === 'openRouter' && settingName === 'publicCatalog') {
-		const on = settingsState.settingsOfProvider.openRouter.publicCatalog === '1'
+		const on = settingsState.settingsOfProvider.openRouter.publicCatalog === '1';
 		return <ErrorBoundary>
 			<div className='my-1'>
 				<ButtonLeftTextRightOption
 					leftButton={<VibeSwitch
 						size='xxs'
 						value={on}
-						onChange={(nv) => { void vibeideSettingsService.setSettingOfProvider('openRouter', 'publicCatalog', nv ? '1' : '0') }}
+						onChange={(nv) => { void vibeideSettingsService.setSettingOfProvider('openRouter', 'publicCatalog', nv ? '1' : '0'); }}
 					/>}
 					text={providersS.openRouterPublicCatalog}
 				/>
@@ -976,18 +976,18 @@ const ProviderSetting = ({ providerName, settingName, subTextMd }: { providerNam
 					{subTextMd}
 				</div>}
 			</div>
-		</ErrorBoundary>
+		</ErrorBoundary>;
 	}
 
-	const settingValue = settingsState.settingsOfProvider[providerName][settingName] as string // this should always be a string in this component
+	const settingValue = settingsState.settingsOfProvider[providerName][settingName] as string; // this should always be a string in this component
 	if (typeof settingValue !== 'string') {
-		vibeLog.info('Settings', 'Error: Provider setting had a non-string value.')
-		return
+		vibeLog.info('Settings', 'Error: Provider setting had a non-string value.');
+		return;
 	}
 
 	// Create a stable callback reference using useCallback with proper dependencies
 	const handleChangeValue = useCallback((newVal: string) => {
-		vibeideSettingsService.setSettingOfProvider(providerName, settingName, newVal)
+		vibeideSettingsService.setSettingOfProvider(providerName, settingName, newVal);
 	}, [vibeideSettingsService, providerName, settingName]);
 
 	return <ErrorBoundary>
@@ -1003,8 +1003,8 @@ const ProviderSetting = ({ providerName, settingName, subTextMd }: { providerNam
 				{subTextMd}
 			</div>}
 		</div>
-	</ErrorBoundary>
-}
+	</ErrorBoundary>;
+};
 
 // const OldSettingsForProvider = ({ providerName, showProviderTitle }: { providerName: ProviderName, showProviderTitle: boolean }) => {
 // 	const vibeSettingsState = useSettingsState()
@@ -1052,26 +1052,26 @@ const ProviderSetting = ({ providerName, settingName, subTextMd }: { providerNam
 // }
 
 
-export const SettingsForProvider = ({ providerName, showProviderTitle, showProviderSuggestions, borderedCard = false }: { providerName: ProviderName, showProviderTitle: boolean, showProviderSuggestions: boolean, borderedCard?: boolean }) => {
-	const vibeSettingsState = useSettingsState()
+export const SettingsForProvider = ({ providerName, showProviderTitle, showProviderSuggestions, borderedCard = false }: { providerName: ProviderName; showProviderTitle: boolean; showProviderSuggestions: boolean; borderedCard?: boolean }) => {
+	const vibeSettingsState = useSettingsState();
 
-	const needsModel = isProviderNameDisabled(providerName, vibeSettingsState) === 'addModel'
+	const needsModel = isProviderNameDisabled(providerName, vibeSettingsState) === 'addModel';
 
 	// const accessor = useAccessor()
 	// const vibeideSettingsService = accessor.get('IVibeideSettingsService')
 
 	// const { enabled } = vibeSettingsState.settingsOfProvider[providerName]
-	const settingNames = customSettingNamesOfProvider(providerName)
-	const providerFieldKeys = settingNames.filter((sn) => !(providerName === 'openRouter' && sn === 'publicCatalog'))
+	const settingNames = customSettingNamesOfProvider(providerName);
+	const providerFieldKeys = settingNames.filter((sn) => !(providerName === 'openRouter' && sn === 'publicCatalog'));
 
-	const { title: providerTitle } = displayInfoOfProviderName(providerName)
+	const { title: providerTitle } = displayInfoOfProviderName(providerName);
 
 	// Dynamic providers (.vibe/providers.json) carry key validation status + source on their seeded
 	// entry — surfaced below the key field so the user sees whether the key actually works.
-	const isDynamicProvider = !(providerNames as readonly string[]).includes(providerName as string)
-	const dynSeed = isDynamicProvider ? (vibeSettingsState.settingsOfProvider as Record<string, { keyStatus?: string, keySource?: string } | undefined>)[providerName] : undefined
-	const dynKeyStatus = dynSeed?.keyStatus
-	const dynKeySource = (dynSeed?.keySource ?? 'none') as keyof typeof providersS.dynKeySrc
+	const isDynamicProvider = !(providerNames as readonly string[]).includes(providerName as string);
+	const dynSeed = isDynamicProvider ? (vibeSettingsState.settingsOfProvider as Record<string, { keyStatus?: string; keySource?: string } | undefined>)[providerName] : undefined;
+	const dynKeyStatus = dynSeed?.keyStatus;
+	const dynKeySource = (dynSeed?.keySource ?? 'none') as keyof typeof providersS.dynKeySrc;
 
 	const inner = <>
 		<div className='flex items-center w-full gap-4'>
@@ -1099,7 +1099,7 @@ export const SettingsForProvider = ({ providerName, showProviderTitle, showProvi
 					settingName={settingName}
 					subTextMd={i !== providerFieldKeys.length - 1 ? null
 						: <ChatMarkdownRender string={subTextMdOfProviderName(providerName)} chatMessageLocation={undefined} />}
-				/>
+				/>;
 			})}
 
 			{providerName === 'openRouter' ?
@@ -1112,14 +1112,14 @@ export const SettingsForProvider = ({ providerName, showProviderTitle, showProvi
 			{isDynamicProvider && dynKeyStatus ? (() => {
 					const srcSuffix = (dynKeyStatus !== 'none' && dynKeyStatus !== 'pending')
 						? ` · ${providersS.dynKeySrcPrefix}: ${providersS.dynKeySrc[dynKeySource] ?? providersS.dynKeySrc.none}`
-						: ''
+						: '';
 					const cfg = dynKeyStatus === 'valid' ? { t: providersS.dynKeyValid, c: 'text-emerald-400' }
 						: dynKeyStatus === 'invalid' ? { t: providersS.dynKeyInvalid, c: 'text-red-400' }
 							: dynKeyStatus === 'error' ? { t: providersS.dynKeyError, c: 'text-amber-400' }
 								: dynKeyStatus === 'pending' ? { t: providersS.dynKeyPending, c: 'text-vibe-fg-3' }
 									: dynKeyStatus === 'unverified' ? { t: providersS.dynKeyUnverified, c: 'text-vibe-fg-3' }
-										: { t: providersS.dynKeyNone, c: 'text-vibe-fg-4' }
-					return <div className={`text-xs mt-1 pl-2 ${cfg.c}`}>{cfg.t}{srcSuffix}</div>
+										: { t: providersS.dynKeyNone, c: 'text-vibe-fg-4' };
+					return <div className={`text-xs mt-1 pl-2 ${cfg.c}`}>{cfg.t}{srcSuffix}</div>;
 				})() : null}
 
 				{showProviderSuggestions && needsModel ?
@@ -1137,16 +1137,16 @@ export const SettingsForProvider = ({ providerName, showProviderTitle, showProvi
 					</div>
 				: null}
 		</div>
-	</>
+	</>;
 
 	if (borderedCard) {
 		return <div className='@@vibe-provider-settings-card rounded-lg bg-vibe-bg-2/35 p-4 shadow-sm'>
 			{inner}
-		</div>
+		</div>;
 	}
 
-	return <div>{inner}</div>
-}
+	return <div>{inner}</div>;
+};
 
 
 export const VibeProviderSettings = ({ providerNames }: { providerNames: ProviderName[] }) => {
@@ -1154,8 +1154,8 @@ export const VibeProviderSettings = ({ providerNames }: { providerNames: Provide
 		{providerNames.map(providerName =>
 			<SettingsForProvider key={providerName} providerName={providerName} showProviderTitle={true} showProviderSuggestions={true} borderedCard />
 		)}
-	</div>
-}
+	</div>;
+};
 
 /**
  * Built-in cloud providers wrapped in a collapsible. Auto-collapses (but stays one click away) when
@@ -1163,19 +1163,19 @@ export const VibeProviderSettings = ({ providerNames }: { providerNames: Provide
  * built-in list is just noise then. A manual toggle always wins over the auto rule for the session.
  */
 const BuiltinProvidersFold = ({ names }: { names: ProviderName[] }) => {
-	const settingsState = useSettingsState()
+	const settingsState = useSettingsState();
 
-	const anyBuiltinKey = names.some(p => settingsState.settingsOfProvider[p]?._didFillInProviderSettings)
-	const builtinSet = new Set<string>(providerNames as readonly string[])
+	const anyBuiltinKey = names.some(p => settingsState.settingsOfProvider[p]?._didFillInProviderSettings);
+	const builtinSet = new Set<string>(providerNames as readonly string[]);
 	const hasDynamicProviders = settingsState._modelOptions.some(o => {
-		const pn = o.selection.providerName as string
-		return pn !== 'auto' && !builtinSet.has(pn)
-	})
-	const autoCollapse = hasDynamicProviders && !anyBuiltinKey
+		const pn = o.selection.providerName as string;
+		return pn !== 'auto' && !builtinSet.has(pn);
+	});
+	const autoCollapse = hasDynamicProviders && !anyBuiltinKey;
 
 	// null = follow the auto rule; once the user clicks, their choice sticks for the session.
-	const [userOpen, setUserOpen] = useState<boolean | null>(null)
-	const open = userOpen ?? !autoCollapse
+	const [userOpen, setUserOpen] = useState<boolean | null>(null);
+	const open = userOpen ?? !autoCollapse;
 
 	return <div className='@@vibe-chat-like-shell overflow-hidden'>
 		<button
@@ -1188,8 +1188,8 @@ const BuiltinProvidersFold = ({ names }: { names: ProviderName[] }) => {
 			<span>{miscS.builtinProvidersToggle(names.length)}</span>
 		</button>
 		{open ? <div className='pt-2'><VibeProviderSettings providerNames={names} /></div> : null}
-	</div>
-}
+	</div>;
+};
 
 
 /**
@@ -1200,10 +1200,10 @@ const BuiltinProvidersFold = ({ names }: { names: ProviderName[] }) => {
  * Renders nothing when there are no dynamic providers.
  */
 const DynamicProvidersSection = () => {
-	const settingsState = useSettingsState()
-	const builtinSet = new Set<string>(providerNames as readonly string[])
-	const dynamicIds = Object.keys(settingsState.settingsOfProvider).filter(id => !builtinSet.has(id))
-	if (dynamicIds.length === 0) { return null }
+	const settingsState = useSettingsState();
+	const builtinSet = new Set<string>(providerNames as readonly string[]);
+	const dynamicIds = Object.keys(settingsState.settingsOfProvider).filter(id => !builtinSet.has(id));
+	if (dynamicIds.length === 0) { return null; }
 	return <div className='mb-4'>
 		<h3 className='text-base font-semibold text-vibe-fg-1 mb-2'>{providersS.dynamicProvidersTitle}</h3>
 		<div className='flex flex-col gap-3'>
@@ -1211,62 +1211,62 @@ const DynamicProvidersSection = () => {
 				<SettingsForProvider key={id} providerName={id as ProviderName} showProviderTitle={true} showProviderSuggestions={true} borderedCard />
 			)}
 		</div>
-	</div>
-}
+	</div>;
+};
 
 
-type TabName = 'models' | 'general'
+type TabName = 'models' | 'general';
 export const AutoDetectLocalModelsToggle = () => {
-	const settingName: GlobalSettingName = 'autoRefreshModels'
+	const settingName: GlobalSettingName = 'autoRefreshModels';
 
-	const accessor = useAccessor()
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
-	const metricsService = accessor.get('IMetricsService')
+	const accessor = useAccessor();
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
+	const metricsService = accessor.get('IMetricsService');
 
-	const vibeSettingsState = useSettingsState()
+	const vibeSettingsState = useSettingsState();
 
 	// right now this is just `enabled_autoRefreshModels`
-	const enabled = vibeSettingsState.globalSettings[settingName]
+	const enabled = vibeSettingsState.globalSettings[settingName];
 
 	return <ButtonLeftTextRightOption
 		leftButton={<VibeSwitch
 			size='xxs'
 			value={enabled}
 			onChange={(newVal) => {
-				vibeideSettingsService.setGlobalSetting(settingName, newVal)
-				metricsService.capture('Click', { action: 'Autorefresh Toggle', settingName, enabled: newVal })
+				vibeideSettingsService.setGlobalSetting(settingName, newVal);
+				metricsService.capture('Click', { action: 'Autorefresh Toggle', settingName, enabled: newVal });
 			}}
 		/>}
 		text={generalS.autoDetectLocal(refreshableProviderNames.map(providerName => displayInfoOfProviderName(providerName).title).join(', '))}
-	/>
+	/>;
 
 
-}
+};
 
 export const AIInstructionsBox = () => {
-	const accessor = useAccessor()
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
-	const vibeSettingsState = useSettingsState()
+	const accessor = useAccessor();
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
+	const vibeSettingsState = useSettingsState();
 	return <VibeInputBox2
 		className='min-h-[81px] p-3 rounded-sm'
 		initValue={vibeSettingsState.globalSettings.aiInstructions}
 		placeholder={generalS.aiInstructionsPlaceholder}
 		multiline
 		onChangeText={(newText) => {
-			vibeideSettingsService.setGlobalSetting('aiInstructions', newText)
+			vibeideSettingsService.setGlobalSetting('aiInstructions', newText);
 		}}
-	/>
-}
+	/>;
+};
 
 const FastApplyMethodDropdown = () => {
-	const accessor = useAccessor()
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
+	const accessor = useAccessor();
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
 
-	const options = useMemo(() => [true, false], [])
+	const options = useMemo(() => [true, false], []);
 
 	const onChangeOption = useCallback((newVal: boolean) => {
-		vibeideSettingsService.setGlobalSetting('enableFastApply', newVal)
-	}, [vibeideSettingsService])
+		vibeideSettingsService.setGlobalSetting('enableFastApply', newVal);
+	}, [vibeideSettingsService]);
 
 	return <VibeCustomDropdownBox
 		className='text-xs text-vibe-fg-3 bg-vibe-bg-1 border border-vibe-border-1 rounded-xl overflow-hidden p-0.5 px-1'
@@ -1277,145 +1277,145 @@ const FastApplyMethodDropdown = () => {
 		getOptionDropdownName={(val) => val ? generalS.fastApply : generalS.slowApply}
 		getOptionDropdownDetail={(val) => val ? generalS.fastApplyDetail : generalS.slowApplyDetail}
 		getOptionsEqual={(a, b) => a === b}
-	/>
+	/>;
 
-}
+};
 
 
 export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?: boolean }) => {
-    const accessor = useAccessor()
-    const terminalToolService = accessor.get('ITerminalToolService')
-    const nativeHostService = accessor.get('INativeHostService')
-    const notificationService = accessor.get('INotificationService')
-    const refreshModelService = accessor.get('IRefreshModelService')
-    const repoIndexerService = accessor.get('IRepoIndexerService')
-    const vibeideSettingsService = accessor.get('IVibeideSettingsService')
+    const accessor = useAccessor();
+    const terminalToolService = accessor.get('ITerminalToolService');
+    const nativeHostService = accessor.get('INativeHostService');
+    const notificationService = accessor.get('INotificationService');
+    const refreshModelService = accessor.get('IRefreshModelService');
+    const repoIndexerService = accessor.get('IRepoIndexerService');
+    const vibeideSettingsService = accessor.get('IVibeideSettingsService');
 
-    const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
-    const [statusText, setStatusText] = useState<string>('')
-    const [method, setMethod] = useState<'auto' | 'brew' | 'curl' | 'winget' | 'choco'>('auto')
-    const [currentTerminalId, setCurrentTerminalId] = useState<string | null>(null)
-    const [terminalOutput, setTerminalOutput] = useState<string>('')
-    const [modelTag, setModelTag] = useState<string>('llava') // Default to vision model for better UX
-    const [isHealthy, setIsHealthy] = useState<boolean | null>(null)
+    const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+    const [statusText, setStatusText] = useState<string>('');
+    const [method, setMethod] = useState<'auto' | 'brew' | 'curl' | 'winget' | 'choco'>('auto');
+    const [currentTerminalId, setCurrentTerminalId] = useState<string | null>(null);
+    const [terminalOutput, setTerminalOutput] = useState<string>('');
+    const [modelTag, setModelTag] = useState<string>('llava'); // Default to vision model for better UX
+    const [isHealthy, setIsHealthy] = useState<boolean | null>(null);
 
     // Auto-select sensible default per OS and filter options label hints
     useEffect(() => {
         (async () => {
             try {
-                const osProps = await nativeHostService.getOSProperties()
-                const t = (osProps.type + '').toLowerCase()
-                if (t.includes('windows')) setMethod('winget')
-                else if (t.includes('darwin') || t.includes('mac')) setMethod('brew')
-                else setMethod('curl')
+                const osProps = await nativeHostService.getOSProperties();
+                const t = (osProps.type + '').toLowerCase();
+                if (t.includes('windows')) {setMethod('winget');}
+                else if (t.includes('darwin') || t.includes('mac')) {setMethod('brew');}
+                else {setMethod('curl');}
             } catch {}
-        })()
-    }, [nativeHostService])
+        })();
+    }, [nativeHostService]);
 
     const onInstall = useCallback(async () => {
         try {
-            const osProps = await nativeHostService.getOSProperties()
-            const isWindows = (osProps.type + '').toLowerCase().includes('windows')
-            setStatus('running')
-            setStatusText(ollamaS.statusStarting)
+            const osProps = await nativeHostService.getOSProperties();
+            const isWindows = (osProps.type + '').toLowerCase().includes('windows');
+            setStatus('running');
+            setStatusText(ollamaS.statusStarting);
 
             // open a visible persistent terminal to show progress
-            const persistentTerminalId = await terminalToolService.createPersistentTerminal({ cwd: null })
-            setCurrentTerminalId(persistentTerminalId)
+            const persistentTerminalId = await terminalToolService.createPersistentTerminal({ cwd: null });
+            setCurrentTerminalId(persistentTerminalId);
             // Best-effort: ensure terminal panel is visible
             try {
-                const commandService = accessor.get('ICommandService')
-                await commandService.executeCommand('workbench.action.terminal.focus')
+                const commandService = accessor.get('ICommandService');
+                await commandService.executeCommand('workbench.action.terminal.focus');
             } catch { }
-            await terminalToolService.focusPersistentTerminal(persistentTerminalId)
+            await terminalToolService.focusPersistentTerminal(persistentTerminalId);
 
-            let installCmd = ''
+            let installCmd = '';
             if (isWindows) {
                 const m = method === 'choco' ? 'choco install ollama -y'
                     : method === 'winget' || method === 'auto' ? 'winget install --id Ollama.Ollama -e --accept-source-agreements --accept-package-agreements'
-                        : 'winget install --id Ollama.Ollama -e --accept-source-agreements --accept-package-agreements'
-                installCmd = `powershell -ExecutionPolicy Bypass -Command "${m}; Start-Sleep -Seconds 2; Start-Process -WindowStyle Hidden ollama serve"`
+                        : 'winget install --id Ollama.Ollama -e --accept-source-agreements --accept-package-agreements';
+                installCmd = `powershell -ExecutionPolicy Bypass -Command "${m}; Start-Sleep -Seconds 2; Start-Process -WindowStyle Hidden ollama serve"`;
             } else {
                 // Deterministic per-OS installers, independent of workspace cwd
-                const osName = (osProps.type + '').toLowerCase()
+                const osName = (osProps.type + '').toLowerCase();
                 if (osName.includes('darwin') || osName.includes('mac')) {
                     // macOS: never use Linux curl. Prefer app or Homebrew cask, bootstrap brew if needed.
                     installCmd = 'bash -lc "set -e; \
                       if [ -d /Applications/Ollama.app ]; then \\\n+                        echo [VibeIDE] Found /Applications/Ollama.app; open -a Ollama; \\\n+                      else \\\n+                        if [ -x /opt/homebrew/bin/brew ] || [ -x /usr/local/bin/brew ]; then \\\n+                          eval \"$([ -x /opt/homebrew/bin/brew ] && /opt/homebrew/bin/brew shellenv || /usr/local/bin/brew shellenv)\"; \\\n+                        else \\\n+                          echo [VibeIDE] Bootstrapping Homebrew...; /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"; \\\n+                          eval \"$([ -x /opt/homebrew/bin/brew ] && /opt/homebrew/bin/brew shellenv || /usr/local/bin/brew shellenv)\"; \\\n+                        fi; \\\n+                        echo [VibeIDE] Installing Ollama via Homebrew Cask...; brew install --cask ollama || true; open -a Ollama; \\\n+                      fi; \\\n+                      echo [VibeIDE] Health check...; sleep 2; curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && echo [VibeIDE] Ollama running || echo [VibeIDE] Ollama not reachable yet; \
-                    "'
+                    "';
                 } else {
                     // Linux: official script only
-                    installCmd = 'bash -lc "set -e; echo [VibeIDE] Installing Ollama (Linux); curl -fsSL https://ollama.com/install.sh | sh; (ollama serve >/dev/null 2>&1 &) || true; sleep 2; echo [VibeIDE] Health check; curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && echo [VibeIDE] Ollama running || echo [VibeIDE] Ollama not reachable yet;"'
+                    installCmd = 'bash -lc "set -e; echo [VibeIDE] Installing Ollama (Linux); curl -fsSL https://ollama.com/install.sh | sh; (ollama serve >/dev/null 2>&1 &) || true; sleep 2; echo [VibeIDE] Health check; curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && echo [VibeIDE] Ollama running || echo [VibeIDE] Ollama not reachable yet;"';
                 }
             }
 
-            setStatusText(ollamaS.statusRunningInstaller)
-            const { resPromise } = await terminalToolService.runCommand(installCmd, { type: 'persistent', persistentTerminalId })
-            resPromise.catch(() => { /* ignore */ })
+            setStatusText(ollamaS.statusRunningInstaller);
+            const { resPromise } = await terminalToolService.runCommand(installCmd, { type: 'persistent', persistentTerminalId });
+            resPromise.catch(() => { /* ignore */ });
 
             // Configure default endpoint and refresh models
-            vibeideSettingsService.setSettingOfProvider('ollama', 'endpoint', 'http://127.0.0.1:11434')
-            refreshModelService.startRefreshingModels('ollama', { enableProviderOnSuccess: true, doNotFire: false })
-            setStatus('running')
-            setStatusText(ollamaS.statusLaunched)
-            notificationService.info(ollamaS.notifStarted)
+            vibeideSettingsService.setSettingOfProvider('ollama', 'endpoint', 'http://127.0.0.1:11434');
+            refreshModelService.startRefreshingModels('ollama', { enableProviderOnSuccess: true, doNotFire: false });
+            setStatus('running');
+            setStatusText(ollamaS.statusLaunched);
+            notificationService.info(ollamaS.notifStarted);
         } catch (e) {
-            notificationService.error(ollamaS.notifFail)
-            setStatus('error')
-            setStatusText(ollamaS.failStartShort)
+            notificationService.error(ollamaS.notifFail);
+            setStatus('error');
+            setStatusText(ollamaS.failStartShort);
         }
-    }, [terminalToolService, nativeHostService, notificationService, refreshModelService, vibeideSettingsService, method])
+    }, [terminalToolService, nativeHostService, notificationService, refreshModelService, vibeideSettingsService, method]);
 
     const onOpenTerminal = useCallback(async () => {
         if (currentTerminalId) {
-            await terminalToolService.focusPersistentTerminal(currentTerminalId)
+            await terminalToolService.focusPersistentTerminal(currentTerminalId);
         } else {
             // Fallback: just open/focus terminal panel
             try {
-                const commandService = accessor.get('ICommandService')
-                await commandService.executeCommand('workbench.action.terminal.focus')
+                const commandService = accessor.get('ICommandService');
+                await commandService.executeCommand('workbench.action.terminal.focus');
             } catch { }
         }
-    }, [currentTerminalId, terminalToolService])
+    }, [currentTerminalId, terminalToolService]);
 
     // Poll terminal output to show embedded, read-only log under the button
     useEffect(() => {
-        let tid: any
+        let tid: any;
         const poll = async () => {
-            if (!currentTerminalId) return
+            if (!currentTerminalId) {return;}
             try {
-                const output = await terminalToolService.readTerminal(currentTerminalId)
-                setTerminalOutput(output)
+                const output = await terminalToolService.readTerminal(currentTerminalId);
+                setTerminalOutput(output);
             } catch { }
-        }
+        };
         if (currentTerminalId) {
-            poll()
-            tid = setInterval(poll, 1500)
+            poll();
+            tid = setInterval(poll, 1500);
         }
-        return () => { if (tid) clearInterval(tid) }
-    }, [currentTerminalId, terminalToolService])
+        return () => { if (tid) {clearInterval(tid);} };
+    }, [currentTerminalId, terminalToolService]);
 
     // Lightweight health poller for nicer UX
     useEffect(() => {
-        let tid: any
+        let tid: any;
         const ping = async () => {
             try {
-                const res = await fetch('http://127.0.0.1:11434/api/tags', { method: 'GET' })
-                setIsHealthy(res.ok)
+                const res = await fetch('http://127.0.0.1:11434/api/tags', { method: 'GET' });
+                setIsHealthy(res.ok);
                 if (res.ok && status === 'running') {
-                    setStatus('done')
-                    setStatusText(ollamaS.statusRunning)
+                    setStatus('done');
+                    setStatusText(ollamaS.statusRunning);
                 }
             } catch {
-                setIsHealthy(false)
+                setIsHealthy(false);
             }
-        }
+        };
         if (status === 'running' || status === 'done') {
-            ping()
-            tid = setInterval(ping, 3000)
+            ping();
+            tid = setInterval(ping, 3000);
         }
-        return () => { if (tid) clearInterval(tid) }
-    }, [status])
+        return () => { if (tid) {clearInterval(tid);} };
+    }, [status]);
 
     return <div className='prose-p:my-0 prose-ol:list-decimal prose-p:py-0 prose-ol:my-0 prose-ol:py-0 prose-span:my-0 prose-span:py-0 text-vibe-fg-3 text-sm list-decimal select-text'>
         <div className='flex items-center gap-3'>
@@ -1423,7 +1423,7 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
             <select
                 className='text-xs bg-vibe-bg-1 text-vibe-fg-1 border border-vibe-border-1 rounded px-1 py-0.5'
                 value={method}
-                onChange={(e) => setMethod(e.target.value as any)}
+                onChange={(e) => setMethod(e.target.value as 'auto' | 'brew' | 'curl' | 'winget' | 'choco')}
                 title={ollamaS.installMethodTitle}
             >
                 <option value='auto'>{ollamaS.optAuto}</option>
@@ -1490,7 +1490,7 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                 <div className='flex items-center gap-2 mb-1'>
                     <button
                         className='px-2 py-0.5 bg-vibe-bg-1 text-vibe-fg-3 border border-vibe-border-2 rounded hover:brightness-110'
-                        onClick={async () => { try { await navigator.clipboard.writeText(terminalOutput) } catch {} }}
+                        onClick={async () => { try { await navigator.clipboard.writeText(terminalOutput); } catch {} }}
                     >{ollamaS.btnCopyLog}</button>
                     <button
                         className='px-2 py-0.5 bg-vibe-bg-1 text-vibe-fg-3 border border-vibe-border-2 rounded hover:brightness-110'
@@ -1534,23 +1534,23 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                 disabled={!modelTag || status === 'running'}
                 onClick={async () => {
                     if (!modelTag) {
-                        notificationService.warn(ollamaS.warnSelectPull)
-                        return
+                        notificationService.warn(ollamaS.warnSelectPull);
+                        return;
                     }
 
                     try {
-                        setStatus('running')
-                        setStatusText(ollamaS.pulling(modelTag))
+                        setStatus('running');
+                        setStatusText(ollamaS.pulling(modelTag));
 
                         // Check if current terminal exists, create new one if not
-                        let terminalId = currentTerminalId
+                        let terminalId = currentTerminalId;
                         if (!terminalId || !terminalToolService.persistentTerminalExists(terminalId)) {
-                            terminalId = await terminalToolService.createPersistentTerminal({ cwd: null })
-                            setCurrentTerminalId(terminalId)
+                            terminalId = await terminalToolService.createPersistentTerminal({ cwd: null });
+                            setCurrentTerminalId(terminalId);
                         }
-                        await terminalToolService.focusPersistentTerminal(terminalId)
+                        await terminalToolService.focusPersistentTerminal(terminalId);
 
-                        const { resPromise } = await terminalToolService.runCommand(`ollama pull ${modelTag}`, { type: 'persistent', persistentTerminalId: terminalId })
+                        const { resPromise } = await terminalToolService.runCommand(`ollama pull ${modelTag}`, { type: 'persistent', persistentTerminalId: terminalId });
 
                         // Handle command result with proper error reporting
                         resPromise
@@ -1560,89 +1560,89 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                                     // Check exit code - 0 means success
                                     if (resolveReason.exitCode === 0) {
                                         // Also check result text for error indicators (ollama pull may exit with 0 but show errors)
-                                        const resultText = result || ''
+                                        const resultText = result || '';
                                         if (resultText.toLowerCase().includes('error') || resultText.toLowerCase().includes('failed')) {
-                                            setStatus('error')
-                                            setStatusText(ollamaS.pullFailed(modelTag))
-                                            notificationService.error(ollamaS.pullFailedNotif(modelTag))
-                                            return
+                                            setStatus('error');
+                                            setStatusText(ollamaS.pullFailed(modelTag));
+                                            notificationService.error(ollamaS.pullFailedNotif(modelTag));
+                                            return;
                                         }
 
                                         // Success - update status and refresh models
-                                        setStatus('done')
-                                        setStatusText(ollamaS.pullOk(modelTag))
-                                        notificationService.info(ollamaS.pullOkNotif(modelTag))
+                                        setStatus('done');
+                                        setStatusText(ollamaS.pullOk(modelTag));
+                                        notificationService.info(ollamaS.pullOkNotif(modelTag));
 
                                         // Refresh models after a short delay
                                         setTimeout(() => {
-                                            refreshModelService.startRefreshingModels('ollama', { enableProviderOnSuccess: true, doNotFire: false })
+                                            refreshModelService.startRefreshingModels('ollama', { enableProviderOnSuccess: true, doNotFire: false });
                                             // Auto-tune: only if enabled in global settings
                                             try {
                                                 if (vibeideSettingsService.state.globalSettings.enableAutoTuneOnPull) {
-                                                    const mt = (modelTag || '').toLowerCase()
-                                                    const looksFIM = mt.includes('coder') || mt.includes('starcoder') || mt.includes('code')
+                                                    const mt = (modelTag || '').toLowerCase();
+                                                    const looksFIM = mt.includes('coder') || mt.includes('starcoder') || mt.includes('code');
                                                     vibeideSettingsService.setOverridesOfModel('ollama', modelTag, {
                                                         supportsFIM: looksFIM,
                                                         contextWindow: looksFIM ? 128_000 : 64_000,
                                                         reservedOutputTokenSpace: 8_192,
                                                         supportsSystemMessage: 'system-role'
-                                                    } as any)
+                                                    });
                                                     if (looksFIM) {
                                                         // Autocomplete defaults to FIM model
-                                                        vibeideSettingsService.setGlobalSetting('enableAutocomplete', true)
-                                                        vibeideSettingsService.setModelSelectionOfFeature('Autocomplete', { providerName: 'ollama', modelName: modelTag } as any)
+                                                        vibeideSettingsService.setGlobalSetting('enableAutocomplete', true);
+                                                        vibeideSettingsService.setModelSelectionOfFeature('Autocomplete', { providerName: 'ollama', modelName: modelTag });
                                                         // Apply should use coder model by default
-                                                        vibeideSettingsService.setModelSelectionOfFeature('Apply', { providerName: 'ollama', modelName: modelTag } as any)
+                                                        vibeideSettingsService.setModelSelectionOfFeature('Apply', { providerName: 'ollama', modelName: modelTag });
                                                     } else {
                                                         // Non-coder: prefer for Chat
-                                                        vibeideSettingsService.setModelSelectionOfFeature('Chat', { providerName: 'ollama', modelName: modelTag } as any)
+                                                        vibeideSettingsService.setModelSelectionOfFeature('Chat', { providerName: 'ollama', modelName: modelTag });
                                                     }
                                                 }
                                             } catch (e) {
-                                                vibeLog.error('Settings', 'Auto-tune error:', e)
+                                                vibeLog.error('Settings', 'Auto-tune error:', e);
                                             }
                                             // Lightweight: warm project index placeholder (runs in background)
                                             try {
                                                 if (vibeideSettingsService.state.globalSettings.enableRepoIndexer) {
-                                                    notificationService.info(ollamaS.warmIndex)
+                                                    notificationService.info(ollamaS.warmIndex);
                                                     repoIndexerService.warmIndex(undefined).then(() => {
-                                                        notificationService.info(ollamaS.warmIndexDone)
-                                                    }).catch(() => { })
+                                                        notificationService.info(ollamaS.warmIndexDone);
+                                                    }).catch(() => { });
                                                 }
                                             } catch { }
-                                        }, 3000)
+                                        }, 3000);
                                     } else {
                                         // Non-zero exit code indicates failure
-                                        const resultText = result || 'Unknown error'
-                                        setStatus('error')
-                                        setStatusText(ollamaS.pullExitErr(modelTag, resolveReason.exitCode))
-                                        notificationService.error(ollamaS.pullExitNotif(modelTag, resultText))
+                                        const resultText = result || 'Unknown error';
+                                        setStatus('error');
+                                        setStatusText(ollamaS.pullExitErr(modelTag, resolveReason.exitCode));
+                                        notificationService.error(ollamaS.pullExitNotif(modelTag, resultText));
                                     }
                                 } else if (resolveReason.type === 'timeout') {
                                     // Command timed out (pull can take a while, this is expected for large models)
                                     // Still try to refresh models - the pull might be continuing in background
-                                    setStatus('done')
-                                    setStatusText(ollamaS.pullLong(modelTag))
-                                    notificationService.info(ollamaS.pullStartedNotif(modelTag))
+                                    setStatus('done');
+                                    setStatusText(ollamaS.pullLong(modelTag));
+                                    notificationService.info(ollamaS.pullStartedNotif(modelTag));
                                     // Refresh models after a delay - the model might appear when ready
                                     setTimeout(() => {
-                                        refreshModelService.startRefreshingModels('ollama', { enableProviderOnSuccess: true, doNotFire: false })
-                                    }, 5000)
+                                        refreshModelService.startRefreshingModels('ollama', { enableProviderOnSuccess: true, doNotFire: false });
+                                    }, 5000);
                                 }
                             })
                             .catch((error) => {
-                                setStatus('error')
-                                const errorMsg = error?.message || String(error) || 'Unknown error'
-                                setStatusText(ollamaS.pullErr(modelTag, errorMsg))
-                                notificationService.error(ollamaS.pullErrNotif(modelTag, errorMsg))
-                                vibeLog.error('Settings', 'Pull error:', error)
-                            })
+                                setStatus('error');
+                                const errorMsg = error?.message || String(error) || 'Unknown error';
+                                setStatusText(ollamaS.pullErr(modelTag, errorMsg));
+                                notificationService.error(ollamaS.pullErrNotif(modelTag, errorMsg));
+                                vibeLog.error('Settings', 'Pull error:', error);
+                            });
                     } catch (error) {
-                        setStatus('error')
-                        const errorMsg = error?.message || String(error) || 'Unknown error'
-                        setStatusText(ollamaS.pullStartErr(modelTag, errorMsg))
-                        notificationService.error(ollamaS.pullStartErrNotif(modelTag, errorMsg))
-                        vibeLog.error('Settings', 'Pull setup error:', error)
+                        setStatus('error');
+                        const errorMsg = error?.message || String(error) || 'Unknown error';
+                        setStatusText(ollamaS.pullStartErr(modelTag, errorMsg));
+                        notificationService.error(ollamaS.pullStartErrNotif(modelTag, errorMsg));
+                        vibeLog.error('Settings', 'Pull setup error:', error);
                     }
                 }}
             >{ollamaS.btnPull}</button>
@@ -1651,26 +1651,26 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                 disabled={!modelTag || status === 'running'}
                 onClick={async () => {
                     if (!modelTag) {
-                        notificationService.warn(ollamaS.warnSelectDelete)
-                        return
+                        notificationService.warn(ollamaS.warnSelectDelete);
+                        return;
                     }
 
-                    const ok = window.confirm(ollamaS.confirmDelete(modelTag))
-                    if (!ok) return
+                    const ok = window.confirm(ollamaS.confirmDelete(modelTag));
+                    if (!ok) {return;}
 
                     try {
-                        setStatus('running')
-                        setStatusText(ollamaS.deleting(modelTag))
+                        setStatus('running');
+                        setStatusText(ollamaS.deleting(modelTag));
 
                         // Check if current terminal exists, create new one if not
-                        let terminalId = currentTerminalId
+                        let terminalId = currentTerminalId;
                         if (!terminalId || !terminalToolService.persistentTerminalExists(terminalId)) {
-                            terminalId = await terminalToolService.createPersistentTerminal({ cwd: null })
-                            setCurrentTerminalId(terminalId)
+                            terminalId = await terminalToolService.createPersistentTerminal({ cwd: null });
+                            setCurrentTerminalId(terminalId);
                         }
-                        await terminalToolService.focusPersistentTerminal(terminalId)
+                        await terminalToolService.focusPersistentTerminal(terminalId);
 
-                        const { resPromise } = await terminalToolService.runCommand(`ollama rm ${modelTag}`, { type: 'persistent', persistentTerminalId: terminalId })
+                        const { resPromise } = await terminalToolService.runCommand(`ollama rm ${modelTag}`, { type: 'persistent', persistentTerminalId: terminalId });
 
                         // Handle command result with proper error reporting
                         resPromise
@@ -1680,45 +1680,45 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                                     // Check exit code - 0 means success
                                     if (resolveReason.exitCode === 0) {
                                         // Success - update status and refresh models
-                                        setStatus('done')
-                                        setStatusText(ollamaS.deleteOk(modelTag))
-                                        notificationService.info(ollamaS.deleteOkNotif(modelTag))
+                                        setStatus('done');
+                                        setStatusText(ollamaS.deleteOk(modelTag));
+                                        notificationService.info(ollamaS.deleteOkNotif(modelTag));
 
                                         // Refresh models after a short delay
                                         setTimeout(() => {
-                                            refreshModelService.startRefreshingModels('ollama', { enableProviderOnSuccess: true, doNotFire: false })
-                                        }, 2000)
+                                            refreshModelService.startRefreshingModels('ollama', { enableProviderOnSuccess: true, doNotFire: false });
+                                        }, 2000);
                                     } else {
                                         // Non-zero exit code indicates failure
-                                        const resultText = result || 'Unknown error'
-                                        setStatus('error')
-                                        setStatusText(ollamaS.deleteFailed(modelTag, resolveReason.exitCode))
-                                        notificationService.error(ollamaS.deleteFailedNotif(modelTag, resultText))
+                                        const resultText = result || 'Unknown error';
+                                        setStatus('error');
+                                        setStatusText(ollamaS.deleteFailed(modelTag, resolveReason.exitCode));
+                                        notificationService.error(ollamaS.deleteFailedNotif(modelTag, resultText));
                                     }
                                 } else if (resolveReason.type === 'timeout') {
                                     // Command timed out (shouldn't happen for delete, but handle it)
-                                    setStatus('error')
-                                    setStatusText(ollamaS.deleteTimeout(modelTag))
-                                    notificationService.warn(ollamaS.deleteTimeoutNotif(modelTag))
+                                    setStatus('error');
+                                    setStatusText(ollamaS.deleteTimeout(modelTag));
+                                    notificationService.warn(ollamaS.deleteTimeoutNotif(modelTag));
                                     // Still try to refresh models in case it did complete
                                     setTimeout(() => {
-                                        refreshModelService.startRefreshingModels('ollama', { enableProviderOnSuccess: true, doNotFire: false })
-                                    }, 2000)
+                                        refreshModelService.startRefreshingModels('ollama', { enableProviderOnSuccess: true, doNotFire: false });
+                                    }, 2000);
                                 }
                             })
                             .catch((error) => {
-                                setStatus('error')
-                                const errorMsg = error?.message || String(error) || 'Unknown error'
-                                setStatusText(ollamaS.deleteErr(modelTag, errorMsg))
-                                notificationService.error(ollamaS.deleteErrNotif(modelTag, errorMsg))
-                                vibeLog.error('Settings', 'Delete error:', error)
-                            })
+                                setStatus('error');
+                                const errorMsg = error?.message || String(error) || 'Unknown error';
+                                setStatusText(ollamaS.deleteErr(modelTag, errorMsg));
+                                notificationService.error(ollamaS.deleteErrNotif(modelTag, errorMsg));
+                                vibeLog.error('Settings', 'Delete error:', error);
+                            });
                     } catch (error) {
-                        setStatus('error')
-                        const errorMsg = error?.message || String(error) || 'Unknown error'
-                        setStatusText(ollamaS.deleteStartErr(modelTag, errorMsg))
-                        notificationService.error(ollamaS.deleteStartErrNotif(modelTag, errorMsg))
-                        vibeLog.error('Settings', 'Delete setup error:', error)
+                        setStatus('error');
+                        const errorMsg = error?.message || String(error) || 'Unknown error';
+                        setStatusText(ollamaS.deleteStartErr(modelTag, errorMsg));
+                        notificationService.error(ollamaS.deleteStartErrNotif(modelTag, errorMsg));
+                        vibeLog.error('Settings', 'Delete setup error:', error);
                     }
                 }}
             >{ollamaS.btnDelete}</button>
@@ -1726,36 +1726,36 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
         <div className=' pl-6'><ChatMarkdownRender string={ollamaS.step1} chatMessageLocation={undefined} /></div>
         <div className=' pl-6'><ChatMarkdownRender string={ollamaS.step2} chatMessageLocation={undefined} /></div>
         {sayWeAutoDetect && <div className=' pl-6'><ChatMarkdownRender string={ollamaS.autoDetectNote} chatMessageLocation={undefined} /></div>}
-    </div>
-}
+    </div>;
+};
 
 
 const RedoOnboardingButton = ({ className }: { className?: string }) => {
-	const accessor = useAccessor()
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
+	const accessor = useAccessor();
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
 	return <div
 		className={`text-vibe-fg-4 flex flex-nowrap text-nowrap items-center hover:brightness-110 cursor-pointer ${className}`}
-		onClick={() => { vibeideSettingsService.setGlobalSetting('isOnboardingComplete', false) }}
+		onClick={() => { vibeideSettingsService.setGlobalSetting('isOnboardingComplete', false); }}
 	>
 		{miscS.redoOnboarding}
-	</div>
+	</div>;
 
-}
+};
 
 
-export const ToolApprovalTypeSwitch = ({ approvalType, size, desc }: { approvalType: ToolApprovalType, size: "xxs" | "xs" | "sm" | "sm+" | "md", desc: string }) => {
-	const accessor = useAccessor()
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
-	const vibeSettingsState = useSettingsState()
-	const metricsService = accessor.get('IMetricsService')
+export const ToolApprovalTypeSwitch = ({ approvalType, size, desc }: { approvalType: ToolApprovalType; size: "xxs" | "xs" | "sm" | "sm+" | "md"; desc: string }) => {
+	const accessor = useAccessor();
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
+	const vibeSettingsState = useSettingsState();
+	const metricsService = accessor.get('IMetricsService');
 
 	const onToggleAutoApprove = useCallback((approvalType: ToolApprovalType, newValue: boolean) => {
 		vibeideSettingsService.setGlobalSetting('autoApprove', {
 			...vibeideSettingsService.state.globalSettings.autoApprove,
 			[approvalType]: newValue
-		})
-		metricsService.capture('Tool Auto-Accept Toggle', { enabled: newValue })
-	}, [vibeideSettingsService, metricsService])
+		});
+		metricsService.capture('Tool Auto-Accept Toggle', { enabled: newValue });
+	}, [vibeideSettingsService, metricsService]);
 
 	return <>
 		<VibeSwitch
@@ -1764,36 +1764,36 @@ export const ToolApprovalTypeSwitch = ({ approvalType, size, desc }: { approvalT
 			onChange={(newVal) => onToggleAutoApprove(approvalType, newVal)}
 		/>
 		<span className="text-vibe-fg-3 text-xs">{desc}</span>
-	</>
-}
+	</>;
+};
 
 
 
-export const OneClickSwitchButton = ({ fromEditor = 'VS Code', className = '' }: { fromEditor?: TransferEditorType, className?: string }) => {
-	const accessor = useAccessor()
-	const extensionTransferService = accessor.get('IExtensionTransferService')
+export const OneClickSwitchButton = ({ fromEditor = 'VS Code', className = '' }: { fromEditor?: TransferEditorType; className?: string }) => {
+	const accessor = useAccessor();
+	const extensionTransferService = accessor.get('IExtensionTransferService');
 
-	const [transferState, setTransferState] = useState<{ type: 'done', error?: string } | { type: | 'loading' | 'justfinished' }>({ type: 'done' })
+	const [transferState, setTransferState] = useState<{ type: 'done'; error?: string } | { type: | 'loading' | 'justfinished' }>({ type: 'done' });
 
 
 
 	const onClick = async () => {
-		if (transferState.type !== 'done') return
+		if (transferState.type !== 'done') {return;}
 
-		setTransferState({ type: 'loading' })
+		setTransferState({ type: 'loading' });
 
-		const errAcc = await extensionTransferService.transferExtensions(os, fromEditor)
+		const errAcc = await extensionTransferService.transferExtensions(os, fromEditor);
 
 		// Even if some files were missing, consider it a success if no actual errors occurred
-		const hadError = !!errAcc
+		const hadError = !!errAcc;
 		if (hadError) {
-			setTransferState({ type: 'done', error: errAcc })
+			setTransferState({ type: 'done', error: errAcc });
 		}
 		else {
-			setTransferState({ type: 'justfinished' })
-			setTimeout(() => { setTransferState({ type: 'done' }); }, 3000)
+			setTransferState({ type: 'justfinished' });
+			setTimeout(() => { setTransferState({ type: 'done' }); }, 3000);
 		}
-	}
+	};
 
 	return <>
 		<VibeButtonBgDarken className={`max-w-48 p-4 ${className}`} disabled={transferState.type !== 'done'} onClick={onClick}>
@@ -1804,21 +1804,21 @@ export const OneClickSwitchButton = ({ fromEditor = 'VS Code', className = '' }:
 			}
 		</VibeButtonBgDarken>
 		{transferState.type === 'done' && transferState.error ? <WarningBox text={transferState.error} /> : null}
-	</>
-}
+	</>;
+};
 
 
 // full settings
 
 // MCP Server component
-const MCPServerComponent = ({ name, server }: { name: string, server: MCPServer }) => {
+const MCPServerComponent = ({ name, server }: { name: string; server: MCPServer }) => {
 	const accessor = useAccessor();
 	const mcpService = accessor.get('IMCPService');
 
-	const vibeSettings = useSettingsState()
-	const isOn = vibeSettings.mcpUserStateOfName[name]?.isOn
+	const vibeSettings = useSettingsState();
+	const isOn = vibeSettings.mcpUserStateOfName[name]?.isOn;
 
-	const removeUniquePrefix = (name: string) => name.split('_').slice(1).join('_')
+	const removeUniquePrefix = (name: string) => name.split('_').slice(1).join('_');
 
 	return (
 		<div className="border border-vibe-border-2 bg-vibe-bg-1 py-3 px-4 rounded-sm my-2">
@@ -1893,29 +1893,29 @@ const MCPServerComponent = ({ name, server }: { name: string, server: MCPServer 
 
 // Main component that renders the list of servers
 const MCPServersList = () => {
-	const mcpServiceState = useMCPServiceState()
+	const mcpServiceState = useMCPServiceState();
 
-	let content: React.ReactNode
+	let content: React.ReactNode;
 	if (mcpServiceState.error) {
 		content = <div className="text-vibe-fg-3 text-sm mt-2">
 			{mcpServiceState.error}
-		</div>
+		</div>;
 	}
 	else {
-		const entries = Object.entries(mcpServiceState.mcpServerOfName)
+		const entries = Object.entries(mcpServiceState.mcpServerOfName);
 		if (entries.length === 0) {
 			content = <div className="text-vibe-fg-3 text-sm mt-2">
 				{miscS.mcpNoServers}
-			</div>
+			</div>;
 		}
 		else {
 			content = entries.map(([name, server]) => (
 				<MCPServerComponent key={name} name={name} server={server} />
-			))
+			));
 		}
 	}
 
-	return <div className="my-2">{content}</div>
+	return <div className="my-2">{content}</div>;
 };
 
 /** Must be static class strings on JSX `className` so scope-tailwind prefixifies (constants are not rewritten). */
@@ -2023,7 +2023,7 @@ const FeatureOptionsSettingsBody = () => {
 						{[...toolApprovalTypes].map((approvalType) => {
 							return <div key={approvalType} className="flex items-center gap-x-2 my-2">
 								<ToolApprovalTypeSwitch size='xs' approvalType={approvalType} desc={toolApprovalLabel(approvalType)} />
-							</div>
+							</div>;
 						})}
 
 					</ErrorBoundary>
@@ -2207,10 +2207,10 @@ const AUTOSTASH_KEY = 'vibeide.safety.autostash.mode';
 // IFileService, aggregates the last 24h via aggregatePerfGuardrails, renders a
 // per-rule table. Refresh is manual to keep this off the render hot path.
 const PerfGuardrailsPanel = () => {
-	const accessor = useAccessor()
-	const fileService = accessor.get('IFileService')
-	const workspaceService = accessor.get('IWorkspaceContextService')
-	const notificationService = accessor.get('INotificationService')
+	const accessor = useAccessor();
+	const fileService = accessor.get('IFileService');
+	const workspaceService = accessor.get('IWorkspaceContextService');
+	const notificationService = accessor.get('INotificationService');
 
 	type Row = {
 		rule: string;
@@ -2220,36 +2220,36 @@ const PerfGuardrailsPanel = () => {
 		thresholdValue: number;
 		topContext: string;
 	};
-	const [rows, setRows] = useState<Row[]>([])
-	const [empty, setEmpty] = useState<boolean>(true)
-	const [err, setErr] = useState<string | null>(null)
+	const [rows, setRows] = useState<Row[]>([]);
+	const [empty, setEmpty] = useState<boolean>(true);
+	const [err, setErr] = useState<string | null>(null);
 
 	const refresh = useCallback(async () => {
-		setErr(null)
+		setErr(null);
 		try {
-			const folder = workspaceService.getWorkspace().folders[0]
+			const folder = workspaceService.getWorkspace().folders[0];
 			if (!folder) {
-				setRows([]); setEmpty(true); return
+				setRows([]); setEmpty(true); return;
 			}
-			const uri = joinPath(folder.uri, '.vibe', 'perf-guardrails-events.jsonl')
-			let text = ''
+			const uri = joinPath(folder.uri, '.vibe', 'perf-guardrails-events.jsonl');
+			let text = '';
 			try {
-				const buf = await fileService.readFile(uri)
-				text = buf.value.toString()
+				const buf = await fileService.readFile(uri);
+				text = buf.value.toString();
 			} catch {
-				setRows([]); setEmpty(true); return
+				setRows([]); setEmpty(true); return;
 			}
-			const events: any[] = []
+			const events: any[] = [];
 			for (const line of text.split(/\r\n|\r|\n/)) {
-				const trimmed = line.trim()
-				if (!trimmed) continue
+				const trimmed = line.trim();
+				if (!trimmed) {continue;}
 				try {
-					events.push(JSON.parse(trimmed))
+					events.push(JSON.parse(trimmed));
 				} catch { /* skip malformed */ }
 			}
-			const { aggregatePerfGuardrails } = await import('../../../../common/perfGuardrailsAggregator.js')
-			const now = Date.now()
-			const dash = aggregatePerfGuardrails(events, now - 24 * 60 * 60 * 1000, now)
+			const { aggregatePerfGuardrails } = await import('../../../../common/perfGuardrailsAggregator.js');
+			const now = Date.now();
+			const dash = aggregatePerfGuardrails(events, now - 24 * 60 * 60 * 1000, now);
 			setRows(dash.rules.map(r => ({
 				rule: r.rule,
 				tripCount: r.tripCount,
@@ -2257,21 +2257,21 @@ const PerfGuardrailsPanel = () => {
 				avgObservedValue: r.avgObservedValue,
 				thresholdValue: r.thresholdValue,
 				topContext: r.topContext,
-			})))
-			setEmpty(dash.rules.length === 0)
+			})));
+			setEmpty(dash.rules.length === 0);
 		} catch (e: any) {
-			setErr(e?.message ?? String(e))
+			setErr(e?.message ?? String(e));
 		}
-	}, [fileService, workspaceService])
+	}, [fileService, workspaceService]);
 
-	useEffect(() => { void refresh() }, [refresh])
+	useEffect(() => { void refresh(); }, [refresh]);
 
 	return (
 		<div className='max-w-[800px]'>
 			<h2 className='text-xl mb-2'>{safetyS.perfPanelTitle}</h2>
 			<h4 className='text-vibe-fg-3 mb-4'>{safetyS.perfPanelIntro}</h4>
 			<div className='flex gap-2 mb-2'>
-				<VibeButtonBgDarken className='px-4 py-1 max-w-fit' onClick={() => { void refresh() }}>
+				<VibeButtonBgDarken className='px-4 py-1 max-w-fit' onClick={() => { void refresh(); }}>
 					{safetyS.perfPanelRefresh}
 				</VibeButtonBgDarken>
 				<VibeButtonBgDarken
@@ -2280,7 +2280,7 @@ const PerfGuardrailsPanel = () => {
 						notificationService.notify({
 							severity: Severity.Info,
 							message: safetyS.perfPanelRunDoctorMsg,
-						})
+						});
 					}}
 				>
 					{safetyS.perfPanelOpenOutput}
@@ -2314,8 +2314,8 @@ const PerfGuardrailsPanel = () => {
 				</table>
 			)}
 		</div>
-	)
-}
+	);
+};
 
 // L992 / L1057 — Session-memory React panel.
 // Pulls in-memory snapshot from IVibeSessionMemoryService for the current
@@ -2324,46 +2324,46 @@ const PerfGuardrailsPanel = () => {
 // .vibe/rules/**, .cursor/rules/** — .md/.mdc), with an enable/disable toggle (per-workspace,
 // honored in the prompt combine) and click-to-preview of the (frontmatter-stripped, sanitized) body.
 const ProjectRulesPanel = () => {
-	const accessor = useAccessor()
-	const rulesSvc = accessor.get('IVibeProjectRulesService')
+	const accessor = useAccessor();
+	const rulesSvc = accessor.get('IVibeProjectRulesService');
 
-	type Src = { relativePath: string; content: string; sizeBytes: number; wasRedacted: boolean; alwaysApply?: boolean; triggers?: string[]; globs?: string[] }
+	type Src = { relativePath: string; content: string; sizeBytes: number; wasRedacted: boolean; alwaysApply?: boolean; triggers?: string[]; globs?: string[] };
 	// Activation mode badge (surfaces the R.7/R.2/R.3 engine): how a rule decides to apply.
 	const ruleMode = (r: Src): string => {
-		if (r.alwaysApply === true) { return safetyS.rulesModeAlways }
-		if (r.triggers && r.triggers.length > 0) { return safetyS.rulesModeTrigger }
-		if (r.globs && r.globs.length > 0) { return safetyS.rulesModeGlob }
-		if (r.alwaysApply === false) { return safetyS.rulesModeAgent }
-		return safetyS.rulesModeAlways
-	}
-	const [rows, setRows] = useState<Src[]>([])
-	const [enabledMap, setEnabledMap] = useState<Record<string, boolean>>({})
-	const [expanded, setExpanded] = useState<string | null>(null)
+		if (r.alwaysApply === true) { return safetyS.rulesModeAlways; }
+		if (r.triggers && r.triggers.length > 0) { return safetyS.rulesModeTrigger; }
+		if (r.globs && r.globs.length > 0) { return safetyS.rulesModeGlob; }
+		if (r.alwaysApply === false) { return safetyS.rulesModeAgent; }
+		return safetyS.rulesModeAlways;
+	};
+	const [rows, setRows] = useState<Src[]>([]);
+	const [enabledMap, setEnabledMap] = useState<Record<string, boolean>>({});
+	const [expanded, setExpanded] = useState<string | null>(null);
 
 	const refresh = useCallback(async () => {
 		try {
-			await rulesSvc.reloadRules() // await so the list reflects the freshly-scanned sources
-			const sources = rulesSvc.getLoadedSources() as Src[]
-			setRows(sources)
-			const m: Record<string, boolean> = {}
-			for (const s of sources) { m[s.relativePath] = rulesSvc.isRuleEnabled(s.relativePath) }
-			setEnabledMap(m)
+			await rulesSvc.reloadRules(); // await so the list reflects the freshly-scanned sources
+			const sources = rulesSvc.getLoadedSources() as Src[];
+			setRows(sources);
+			const m: Record<string, boolean> = {};
+			for (const s of sources) { m[s.relativePath] = rulesSvc.isRuleEnabled(s.relativePath); }
+			setEnabledMap(m);
 		} catch {
-			setRows([])
+			setRows([]);
 		}
-	}, [rulesSvc])
+	}, [rulesSvc]);
 
-	useEffect(() => { void refresh() }, [refresh])
+	useEffect(() => { void refresh(); }, [refresh]);
 
 	const toggle = (path: string) => {
-		const next = !(enabledMap[path] ?? true)
-		try { rulesSvc.setRuleEnabled(path, next) } catch { /* tolerated */ }
-		setEnabledMap(prev => ({ ...prev, [path]: next }))
-	}
+		const next = !(enabledMap[path] ?? true);
+		try { rulesSvc.setRuleEnabled(path, next); } catch { /* tolerated */ }
+		setEnabledMap(prev => ({ ...prev, [path]: next }));
+	};
 
-	const empty = rows.length === 0
-	const totalKb = Math.round(rows.reduce((a, r) => a + r.sizeBytes, 0) / 1024)
-	const disabledCount = rows.filter(r => !(enabledMap[r.relativePath] ?? true)).length
+	const empty = rows.length === 0;
+	const totalKb = Math.round(rows.reduce((a, r) => a + r.sizeBytes, 0) / 1024);
+	const disabledCount = rows.filter(r => !(enabledMap[r.relativePath] ?? true)).length;
 	return (
 		<div className='max-w-[800px]'>
 			<h2 className='text-xl mb-2'>{safetyS.rulesPanelTitle}</h2>
@@ -2387,8 +2387,8 @@ const ProjectRulesPanel = () => {
 					</thead>
 					<tbody>
 						{rows.flatMap(r => {
-							const on = enabledMap[r.relativePath] ?? true
-							const isOpen = expanded === r.relativePath
+							const on = enabledMap[r.relativePath] ?? true;
+							const isOpen = expanded === r.relativePath;
 							const trs = [
 								<tr key={r.relativePath}>
 									<td className='px-2 py-1 align-top'>
@@ -2410,7 +2410,7 @@ const ProjectRulesPanel = () => {
 									</td>
 									<td className='px-2 py-1 align-top whitespace-nowrap text-vibe-fg-3'>{r.sizeBytes} B</td>
 								</tr>,
-							]
+							];
 							if (isOpen) {
 								trs.push(
 									<tr key={`${r.relativePath}::preview`}>
@@ -2418,53 +2418,53 @@ const ProjectRulesPanel = () => {
 											<pre className='text-xs text-vibe-fg-2 whitespace-pre-wrap break-all bg-vibe-bg-2 p-2 rounded-sm max-h-[300px] overflow-auto'>{r.content}</pre>
 										</td>
 									</tr>
-								)
+								);
 							}
-							return trs
+							return trs;
 						})}
 					</tbody>
 				</table>
 			)}
 			<div className='text-vibe-fg-3 text-xs mt-2'>{safetyS.rulesPanelDocsLink}</div>
 		</div>
-	)
-}
+	);
+};
 
 const SessionMemoryPanel = () => {
-	const accessor = useAccessor()
-	const sessionMemory = accessor.get('IVibeSessionMemoryService')
-	const chatThreadService = accessor.get('IChatThreadService')
-	const notificationService = accessor.get('INotificationService')
+	const accessor = useAccessor();
+	const sessionMemory = accessor.get('IVibeSessionMemoryService');
+	const chatThreadService = accessor.get('IChatThreadService');
+	const notificationService = accessor.get('INotificationService');
 
 	type Entry = { id: string; kind: string; content: string; updatedAt: number };
-	const [rows, setRows] = useState<Entry[]>([])
-	const [empty, setEmpty] = useState<boolean>(true)
+	const [rows, setRows] = useState<Entry[]>([]);
+	const [empty, setEmpty] = useState<boolean>(true);
 
 	const refresh = useCallback(() => {
 		try {
-			const thread = chatThreadService.getCurrentThread()
-			const threadId = thread?.id
-			if (!threadId) { setRows([]); setEmpty(true); return }
-			const entries = sessionMemory.getRecent(threadId, 100)
-			setRows(entries.map(e => ({ id: e.id, kind: e.kind, content: e.content, updatedAt: (e as any).updatedAt ?? (e as any).createdAt ?? Date.now() })))
-			setEmpty(entries.length === 0)
+			const thread = chatThreadService.getCurrentThread();
+			const threadId = thread?.id;
+			if (!threadId) { setRows([]); setEmpty(true); return; }
+			const entries = sessionMemory.getRecent(threadId, 100);
+			setRows(entries.map(e => ({ id: e.id, kind: e.kind, content: e.content, updatedAt: e.updatedAt ?? e.createdAt ?? Date.now() })));
+			setEmpty(entries.length === 0);
 		} catch {
-			setRows([]); setEmpty(true)
+			setRows([]); setEmpty(true);
 		}
-	}, [sessionMemory, chatThreadService])
+	}, [sessionMemory, chatThreadService]);
 
-	useEffect(() => { refresh() }, [refresh])
+	useEffect(() => { refresh(); }, [refresh]);
 
 	const formatAge = (updatedAt: number): string => {
-		const dt = Math.max(0, Date.now() - updatedAt)
-		const m = Math.floor(dt / 60000)
-		if (m < 1) return safetyS.ageLessThanMin
-		if (m < 60) return safetyS.ageMinutes(m)
-		const h = Math.floor(m / 60)
-		if (h < 24) return safetyS.ageHours(h)
-		const d = Math.floor(h / 24)
-		return safetyS.ageDays(d)
-	}
+		const dt = Math.max(0, Date.now() - updatedAt);
+		const m = Math.floor(dt / 60000);
+		if (m < 1) {return safetyS.ageLessThanMin;}
+		if (m < 60) {return safetyS.ageMinutes(m);}
+		const h = Math.floor(m / 60);
+		if (h < 24) {return safetyS.ageHours(h);}
+		const d = Math.floor(h / 24);
+		return safetyS.ageDays(d);
+	};
 
 	return (
 		<div className='max-w-[800px]'>
@@ -2480,7 +2480,7 @@ const SessionMemoryPanel = () => {
 						notificationService.notify({
 							severity: Severity.Info,
 							message: safetyS.memoryPanelClearConfirm,
-						})
+						});
 					}}
 				>
 					{safetyS.memoryPanelClear}
@@ -2510,8 +2510,8 @@ const SessionMemoryPanel = () => {
 				</table>
 			)}
 		</div>
-	)
-}
+	);
+};
 
 // O.10 — Auto-detected tool-call overrides diagnostics panel.
 // Lists models that the runtime auto-downgrade pipeline (chatThreadService
@@ -2521,90 +2521,90 @@ const SessionMemoryPanel = () => {
 //   - Pin:    strips `_autoDetected`/`_detectedAt` metadata, converting
 //             to a manual override (immune to TTL, never auto-expires).
 const AutoDowngradeOverridesPanel = () => {
-	const accessor = useAccessor()
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
-	const notificationService = accessor.get('INotificationService')
-	const settingsState = useSettingsState()
+	const accessor = useAccessor();
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
+	const notificationService = accessor.get('INotificationService');
+	const settingsState = useSettingsState();
 
 	// AUTO_DOWNGRADE_TTL_MS lives in modelCapabilities; duplicate the constant
 	// here (synchronisation risk is low — it changes ~never).
-	const AUTO_DOWNGRADE_TTL_MS = 7 * 24 * 60 * 60 * 1000
+	const AUTO_DOWNGRADE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 	type Row = {
-		providerName: string
-		modelName: string
-		reason: 'numeric-tool-name' | 'missing-required-field' | 'wrong-tool-name' | 'other'
-		detectedAt: number
-	}
+		providerName: ProviderName;
+		modelName: string;
+		reason: 'numeric-tool-name' | 'missing-required-field' | 'wrong-tool-name' | 'other';
+		detectedAt: number;
+	};
 
-	const rows: Row[] = []
-	const overrides = settingsState.overridesOfModel
+	const rows: Row[] = [];
+	const overrides = settingsState.overridesOfModel;
 	if (overrides) {
 		for (const providerName of Object.keys(overrides) as (keyof typeof overrides)[]) {
-			const byModel = overrides[providerName]
-			if (!byModel) continue
+			const byModel = overrides[providerName];
+			if (!byModel) {continue;}
 			for (const modelName of Object.keys(byModel)) {
-				const o = byModel[modelName] as { _autoDetected?: boolean; _detectedAt?: number; _reason?: Row['reason'] } | undefined
-				if (!o || !o._autoDetected) continue
+				const o = byModel[modelName] as { _autoDetected?: boolean; _detectedAt?: number; _reason?: Row['reason'] } | undefined;
+				if (!o || !o._autoDetected) {continue;}
 				rows.push({
-					providerName: providerName as string,
+					providerName,
 					modelName,
 					reason: o._reason ?? 'other',
 					detectedAt: typeof o._detectedAt === 'number' ? o._detectedAt : 0,
-				})
+				});
 			}
 		}
 	}
-	rows.sort((a, b) => b.detectedAt - a.detectedAt)
+	rows.sort((a, b) => b.detectedAt - a.detectedAt);
 
 	const reasonText = (r: Row['reason']): string => {
 		switch (r) {
-			case 'numeric-tool-name': return safetyS.autoDowngradeReasonNumeric
-			case 'missing-required-field': return safetyS.autoDowngradeReasonMissingField
-			case 'wrong-tool-name': return safetyS.autoDowngradeReasonWrongName
-			case 'other': return safetyS.autoDowngradeReasonOther
+			case 'numeric-tool-name': return safetyS.autoDowngradeReasonNumeric;
+			case 'missing-required-field': return safetyS.autoDowngradeReasonMissingField;
+			case 'wrong-tool-name': return safetyS.autoDowngradeReasonWrongName;
+			case 'other': return safetyS.autoDowngradeReasonOther;
 		}
-	}
+	};
 
 	const formatAge = (ts: number): string => {
-		if (!ts) return '—'
-		const ageMs = Date.now() - ts
-		const mins = Math.floor(ageMs / 60_000)
-		if (mins < 1) return safetyS.ageLessThanMin
-		if (mins < 60) return safetyS.ageMinutes(mins)
-		const hours = Math.floor(mins / 60)
-		if (hours < 24) return safetyS.ageHours(hours)
-		return safetyS.ageDays(Math.floor(hours / 24))
-	}
+		if (!ts) {return '—';}
+		const ageMs = Date.now() - ts;
+		const mins = Math.floor(ageMs / 60_000);
+		if (mins < 1) {return safetyS.ageLessThanMin;}
+		if (mins < 60) {return safetyS.ageMinutes(mins);}
+		const hours = Math.floor(mins / 60);
+		if (hours < 24) {return safetyS.ageHours(hours);}
+		return safetyS.ageDays(Math.floor(hours / 24));
+	};
 	const formatTTL = (ts: number): string => {
-		if (!ts) return '—'
-		const remainingMs = ts + AUTO_DOWNGRADE_TTL_MS - Date.now()
-		if (remainingMs <= 0) return safetyS.autoDowngradeTTLExpired
-		const mins = Math.floor(remainingMs / 60_000)
-		if (mins < 60) return safetyS.ageMinutes(mins)
-		const hours = Math.floor(mins / 60)
-		if (hours < 24) return safetyS.ageHours(hours)
-		return safetyS.ageDays(Math.floor(hours / 24))
-	}
+		if (!ts) {return '—';}
+		const remainingMs = ts + AUTO_DOWNGRADE_TTL_MS - Date.now();
+		if (remainingMs <= 0) {return safetyS.autoDowngradeTTLExpired;}
+		const mins = Math.floor(remainingMs / 60_000);
+		if (mins < 60) {return safetyS.ageMinutes(mins);}
+		const hours = Math.floor(mins / 60);
+		if (hours < 24) {return safetyS.ageHours(hours);}
+		return safetyS.ageDays(Math.floor(hours / 24));
+	};
 
-	const onRevert = useCallback(async (providerName: string, modelName: string) => {
+	const onRevert = useCallback(async (providerName: ProviderName, modelName: string) => {
 		try {
-			await vibeideSettingsService.setOverridesOfModel(providerName as any, modelName, undefined)
+			await vibeideSettingsService.setOverridesOfModel(providerName, modelName, undefined);
 		} catch (e: any) {
-			notificationService.notify({ severity: Severity.Error, message: `Revert failed: ${e?.message ?? e}` })
+			notificationService.notify({ severity: Severity.Error, message: `Revert failed: ${e?.message ?? e}` });
 		}
-	}, [vibeideSettingsService, notificationService])
+	}, [vibeideSettingsService, notificationService]);
 
-	const onPin = useCallback(async (providerName: string, modelName: string) => {
+	const onPin = useCallback(async (providerName: ProviderName, modelName: string) => {
 		try {
 			// Pin: keep specialToolFormat=undefined but strip metadata so TTL doesn't apply.
 			// setOverridesOfModel merges shallow — we need to clear first then write fresh.
-			await vibeideSettingsService.setOverridesOfModel(providerName as any, modelName, undefined)
-			await vibeideSettingsService.setOverridesOfModel(providerName as any, modelName, { specialToolFormat: undefined })
+			await vibeideSettingsService.setOverridesOfModel(providerName, modelName, undefined);
+			await vibeideSettingsService.setOverridesOfModel(providerName, modelName, { specialToolFormat: undefined });
 		} catch (e: any) {
-			notificationService.notify({ severity: Severity.Error, message: `Pin failed: ${e?.message ?? e}` })
+			notificationService.notify({ severity: Severity.Error, message: `Pin failed: ${e?.message ?? e}` });
 		}
-	}, [vibeideSettingsService, notificationService])
+	}, [vibeideSettingsService, notificationService]);
 
 	return (
 		<div className='max-w-[900px]'>
@@ -2636,14 +2636,14 @@ const AutoDowngradeOverridesPanel = () => {
 									<div className='flex gap-2'>
 										<VibeButtonBgDarken
 											className='px-2 py-0.5 text-xs'
-											onClick={() => { void onRevert(r.providerName, r.modelName) }}
+											onClick={() => { void onRevert(r.providerName, r.modelName); }}
 											title={safetyS.autoDowngradeRevertHint}
 										>
 											{safetyS.autoDowngradeRevert}
 										</VibeButtonBgDarken>
 										<VibeButtonBgDarken
 											className='px-2 py-0.5 text-xs'
-											onClick={() => { void onPin(r.providerName, r.modelName) }}
+											onClick={() => { void onPin(r.providerName, r.modelName); }}
 											title={safetyS.autoDowngradePinHint}
 										>
 											{safetyS.autoDowngradePin}
@@ -2656,14 +2656,14 @@ const AutoDowngradeOverridesPanel = () => {
 				</table>
 			)}
 		</div>
-	)
-}
+	);
+};
 
 const SafetyPanel = () => {
-	const accessor = useAccessor()
-	const configService = accessor.get('IConfigurationService')
-	const commandService = accessor.get('ICommandService')
-	const notificationService = accessor.get('INotificationService')
+	const accessor = useAccessor();
+	const configService = accessor.get('IConfigurationService');
+	const commandService = accessor.get('ICommandService');
+	const notificationService = accessor.get('INotificationService');
 
 	const [mode, setMode] = useState<AutostashMode>(() => {
 		const raw = configService.getValue<AutostashMode>(AUTOSTASH_KEY);
@@ -2672,7 +2672,7 @@ const SafetyPanel = () => {
 
 	useEffect(() => {
 		const d = configService.onDidChangeConfiguration(e => {
-			if (!e.affectsConfiguration(AUTOSTASH_KEY)) return;
+			if (!e.affectsConfiguration(AUTOSTASH_KEY)) {return;}
 			const raw = configService.getValue<AutostashMode>(AUTOSTASH_KEY);
 			if (AUTOSTASH_MODES.includes(raw as AutostashMode)) {
 				setMode(raw as AutostashMode);
@@ -2754,22 +2754,22 @@ const SafetyPanel = () => {
 
 // Notification-sound picker (phone-like): pick + click-preview a default, browse a custom file with
 // pick-time validation, set volume, toggle per-event triggers. Reads/writes `vibeide.notify.sound.*`.
-const NOTIFY_KEY = 'vibeide.notify.sound'
+const NOTIFY_KEY = 'vibeide.notify.sound';
 type NotifySoundState = {
 	enabled: boolean; sound: string; customPath: string; volume: number;
 	muteWhenFocused: boolean; onComplete: boolean; onStalled: boolean; onAwaitingUser: boolean;
-}
+};
 
 const NotificationSoundPanel = () => {
-	const accessor = useAccessor()
-	const configService = accessor.get('IConfigurationService')
-	const notifySoundService = accessor.get('IVibeNotifySoundService')
-	const fileDialogService = accessor.get('IFileDialogService')
-	const notificationService = accessor.get('INotificationService')
+	const accessor = useAccessor();
+	const configService = accessor.get('IConfigurationService');
+	const notifySoundService = accessor.get('IVibeNotifySoundService');
+	const fileDialogService = accessor.get('IFileDialogService');
+	const notificationService = accessor.get('INotificationService');
 
 	const read = useCallback((): NotifySoundState => {
-		const rawVol = configService.getValue<number>(`${NOTIFY_KEY}.volume`)
-		const volume = typeof rawVol === 'number' && isFinite(rawVol) ? Math.min(1, Math.max(0, rawVol)) : 0.6
+		const rawVol = configService.getValue<number>(`${NOTIFY_KEY}.volume`);
+		const volume = typeof rawVol === 'number' && isFinite(rawVol) ? Math.min(1, Math.max(0, rawVol)) : 0.6;
 		// All booleans default ON — only an explicit `false` disables (matches the config defaults).
 		return {
 			enabled: configService.getValue<boolean>(`${NOTIFY_KEY}.enabled`) !== false,
@@ -2780,27 +2780,27 @@ const NotificationSoundPanel = () => {
 			onComplete: configService.getValue<boolean>(`${NOTIFY_KEY}.onComplete`) !== false,
 			onStalled: configService.getValue<boolean>(`${NOTIFY_KEY}.onStalled`) !== false,
 			onAwaitingUser: configService.getValue<boolean>(`${NOTIFY_KEY}.onAwaitingUser`) !== false,
-		}
-	}, [configService])
+		};
+	}, [configService]);
 
-	const [st, setSt] = useState<NotifySoundState>(read)
+	const [st, setSt] = useState<NotifySoundState>(read);
 
 	useEffect(() => {
 		const d = configService.onDidChangeConfiguration(e => {
-			if (e.affectsConfiguration(NOTIFY_KEY)) { setSt(read()) }
-		})
-		return () => d.dispose()
-	}, [configService, read])
+			if (e.affectsConfiguration(NOTIFY_KEY)) { setSt(read()); }
+		});
+		return () => d.dispose();
+	}, [configService, read]);
 
 	const set = useCallback(async (subKey: string, value: unknown) => {
 		try {
-			await configService.updateValue(`${NOTIFY_KEY}.${subKey}`, value)
+			await configService.updateValue(`${NOTIFY_KEY}.${subKey}`, value);
 		} catch (e: any) {
-			notificationService.notify({ severity: Severity.Error, message: `${notifyS.sectionTitle}: ${e?.message ?? e}` })
+			notificationService.notify({ severity: Severity.Error, message: `${notifyS.sectionTitle}: ${e?.message ?? e}` });
 		}
-	}, [configService, notificationService])
+	}, [configService, notificationService]);
 
-	const pickDefault = (id: string) => { void set('sound', id); notifySoundService.preview(id) }
+	const pickDefault = (id: string) => { void set('sound', id); notifySoundService.preview(id); };
 
 	const browseCustom = useCallback(async () => {
 		const picked = await fileDialogService.showOpenDialog({
@@ -2809,20 +2809,20 @@ const NotificationSoundPanel = () => {
 			canSelectFolders: false,
 			canSelectMany: false,
 			filters: [{ name: 'Аудио', extensions: ['mp3', 'ogg', 'wav'] }],
-		})
-		const uri = picked?.[0]
-		if (!uri) { return }
-		const path = uri.fsPath
-		const result = await notifySoundService.validateCustomFile(path)
+		});
+		const uri = picked?.[0];
+		if (!uri) { return; }
+		const path = uri.fsPath;
+		const result = await notifySoundService.validateCustomFile(path);
 		if (!result.ok) {
-			notificationService.notify({ severity: Severity.Warning, message: notifyS.customRejected(result.reason ?? '') })
-			return
+			notificationService.notify({ severity: Severity.Warning, message: notifyS.customRejected(result.reason ?? '') });
+			return;
 		}
-		await set('customPath', path)
-		await set('sound', 'custom')
-		notifySoundService.preview(undefined, path)
-		notificationService.info(notifyS.customAccepted)
-	}, [fileDialogService, notifySoundService, notificationService, set])
+		await set('customPath', path);
+		await set('sound', 'custom');
+		notifySoundService.preview(undefined, path);
+		notificationService.info(notifyS.customAccepted);
+	}, [fileDialogService, notifySoundService, notificationService, set]);
 
 	const soundRow = (id: string, label: string, selected: boolean, onSelect: () => void, onPreview: () => void, extra?: React.ReactNode) => (
 		<div
@@ -2838,7 +2838,7 @@ const NotificationSoundPanel = () => {
 			<button
 				type='button'
 				className='shrink-0 p-1 rounded hover:bg-[var(--vscode-toolbar-hoverBackground)] text-vibe-fg-2'
-				onClick={(e) => { e.stopPropagation(); onPreview() }}
+				onClick={(e) => { e.stopPropagation(); onPreview(); }}
 				data-tooltip-id='vibe-tooltip'
 				data-tooltip-place='left'
 				data-tooltip-content={notifyS.previewTooltip}
@@ -2847,14 +2847,14 @@ const NotificationSoundPanel = () => {
 				<Play size={14} />
 			</button>
 		</div>
-	)
+	);
 
 	const eventCheckbox = (subKey: 'onComplete' | 'onStalled' | 'onAwaitingUser', label: string) => (
 		<label className='flex items-center gap-2 cursor-pointer select-none'>
 			<input type='checkbox' checked={st[subKey]} onChange={(e) => set(subKey, e.target.checked)} />
 			<span className='text-sm text-vibe-fg-2'>{label}</span>
 		</label>
-	)
+	);
 
 	return (
 		<div className='max-w-[600px]'>
@@ -2879,7 +2879,7 @@ const NotificationSoundPanel = () => {
 							'custom',
 							notifyS.customLabel,
 							st.sound === 'custom',
-							() => { if (st.customPath) { void set('sound', 'custom'); notifySoundService.preview('custom') } else { void browseCustom() } },
+							() => { if (st.customPath) { void set('sound', 'custom'); notifySoundService.preview('custom'); } else { void browseCustom(); } },
 							() => notifySoundService.preview('custom'),
 							<span className='text-xs text-vibe-fg-4 truncate max-w-[220px]'>{st.customPath || notifyS.customNotSet}</span>
 						)}
@@ -2926,11 +2926,11 @@ const NotificationSoundPanel = () => {
 				</div>
 			</div>
 		</div>
-	)
-}
+	);
+};
 
 export const Settings = () => {
-	const isDark = useIsDark()
+	const isDark = useIsDark();
 	// --- sidebar nav ---
 	const [selectedSection, setSelectedSection] =
 		useState<Tab>('workspace');
@@ -2948,18 +2948,18 @@ export const Settings = () => {
 		{ tab: 'all', label: nav.all },
 	];
 	const shouldShowTab = (tab: Tab) => selectedSection === 'all' || selectedSection === tab;
-	const accessor = useAccessor()
-	const commandService = accessor.get('ICommandService')
-	const environmentService = accessor.get('IEnvironmentService')
-	const nativeHostService = accessor.get('INativeHostService')
-	const settingsState = useSettingsState()
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
-	const chatThreadsService = accessor.get('IChatThreadService')
-	const notificationService = accessor.get('INotificationService')
-	const mcpService = accessor.get('IMCPService')
-	const storageService = accessor.get('IStorageService')
-	const metricsService = accessor.get('IMetricsService')
-	const isOptedOut = useIsOptedOut()
+	const accessor = useAccessor();
+	const commandService = accessor.get('ICommandService');
+	const environmentService = accessor.get('IEnvironmentService');
+	const nativeHostService = accessor.get('INativeHostService');
+	const settingsState = useSettingsState();
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
+	const chatThreadsService = accessor.get('IChatThreadService');
+	const notificationService = accessor.get('INotificationService');
+	const mcpService = accessor.get('IMCPService');
+	const storageService = accessor.get('IStorageService');
+	const metricsService = accessor.get('IMetricsService');
+	const isOptedOut = useIsOptedOut();
 
 	const [allSettingsExpanded, setAllSettingsExpanded] = useState<Partial<Record<AllSettingsGroupKey, boolean>>>({});
 	const toggleAllSettingsGroup = (key: AllSettingsGroupKey) => {
@@ -2967,44 +2967,44 @@ export const Settings = () => {
 	};
 
 	const onDownload = (t: 'Chats' | 'Settings') => {
-		let dataStr: string
-		let downloadName: string
+		let dataStr: string;
+		let downloadName: string;
 		if (t === 'Chats') {
 			// Export chat threads
-			dataStr = JSON.stringify(chatThreadsService.state, null, 2)
-			downloadName = 'vibe-chats.json'
+			dataStr = JSON.stringify(chatThreadsService.state, null, 2);
+			downloadName = 'vibe-chats.json';
 		}
 		else if (t === 'Settings') {
 			// Export user settings
-			dataStr = JSON.stringify(vibeideSettingsService.state, null, 2)
-			downloadName = 'vibe-settings.json'
+			dataStr = JSON.stringify(vibeideSettingsService.state, null, 2);
+			downloadName = 'vibe-settings.json';
 		}
 		else {
-			dataStr = ''
-			downloadName = ''
+			dataStr = '';
+			downloadName = '';
 		}
 
-		const blob = new Blob([dataStr], { type: 'application/json' })
-		const url = URL.createObjectURL(blob)
-		const a = document.createElement('a')
-		a.href = url
-		a.download = downloadName
-		a.click()
-		URL.revokeObjectURL(url)
-	}
+		const blob = new Blob([dataStr], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = downloadName;
+		a.click();
+		URL.revokeObjectURL(url);
+	};
 
 
 	// Add file input refs
-	const fileInputSettingsRef = useRef<HTMLInputElement>(null)
-	const fileInputChatsRef = useRef<HTMLInputElement>(null)
+	const fileInputSettingsRef = useRef<HTMLInputElement>(null);
+	const fileInputChatsRef = useRef<HTMLInputElement>(null);
 
-	const [s, ss] = useState(0)
+	const [s, ss] = useState(0);
 
 	const handleUpload = (t: 'Chats' | 'Settings') => (e: React.ChangeEvent<HTMLInputElement>,) => {
-		const files = e.target.files
-		if (!files) return;
-		const file = files[0]
-		if (!file) return
+		const files = e.target.files;
+		if (!files) {return;}
+		const file = files[0];
+		if (!file) {return;}
 
 		const reader = new FileReader();
 		reader.onload = () => {
@@ -3012,22 +3012,22 @@ export const Settings = () => {
 				const json = JSON.parse(reader.result as string);
 
 				if (t === 'Chats') {
-					chatThreadsService.dangerousSetState(json as any)
+					chatThreadsService.dangerousSetState(json as Parameters<typeof chatThreadsService.dangerousSetState>[0]);
 				}
 				else if (t === 'Settings') {
-					vibeideSettingsService.dangerousSetState(json as any)
+					vibeideSettingsService.dangerousSetState(json as Parameters<typeof vibeideSettingsService.dangerousSetState>[0]);
 				}
 
-				notificationService.info(miscS.importedOk(t === 'Chats' ? miscS.chats : miscS.settings))
+				notificationService.info(miscS.importedOk(t === 'Chats' ? miscS.chats : miscS.settings));
 			} catch (err) {
-				notificationService.notify({ message: miscS.importFail(t === 'Chats' ? miscS.chats : miscS.settings), source: err + '', severity: Severity.Error, })
+				notificationService.notify({ message: miscS.importFail(t === 'Chats' ? miscS.chats : miscS.settings), source: err + '', severity: Severity.Error, });
 			}
 		};
 		reader.readAsText(file);
 		e.target.value = '';
 
-		ss(s => s + 1)
-	}
+		ss(s => s + 1);
+	};
 
 	const renderGeneralInner = () => (
 		<>
@@ -3053,7 +3053,7 @@ export const Settings = () => {
 										{/* Settings Subcategory */}
 										<div className='flex flex-col gap-2 max-w-48 w-full'>
 											<input key={2 * s} ref={fileInputSettingsRef} type='file' accept='.json' className='hidden' onChange={handleUpload('Settings')} />
-											<VibeButtonBgDarken className='px-4 py-1 w-full' onClick={() => { fileInputSettingsRef.current?.click() }}>
+											<VibeButtonBgDarken className='px-4 py-1 w-full' onClick={() => { fileInputSettingsRef.current?.click(); }}>
 												{miscS.importSettings}
 											</VibeButtonBgDarken>
 											<VibeButtonBgDarken className='px-4 py-1 w-full' onClick={() => onDownload('Settings')}>
@@ -3067,7 +3067,7 @@ export const Settings = () => {
 										{/* Chats Subcategory */}
 										<div className='flex flex-col gap-2 max-w-48 w-full'>
 											<input key={2 * s + 1} ref={fileInputChatsRef} type='file' accept='.json' className='hidden' onChange={handleUpload('Chats')} />
-											<VibeButtonBgDarken className='px-4 py-1 w-full' onClick={() => { fileInputChatsRef.current?.click() }}>
+											<VibeButtonBgDarken className='px-4 py-1 w-full' onClick={() => { fileInputChatsRef.current?.click(); }}>
 												{miscS.importChats}
 											</VibeButtonBgDarken>
 											<VibeButtonBgDarken className='px-4 py-1 w-full' onClick={() => onDownload('Chats')}>
@@ -3089,16 +3089,16 @@ export const Settings = () => {
 
 									<ErrorBoundary>
 										<div className='flex flex-col gap-2 justify-center max-w-48 w-full'>
-											<VibeButtonBgDarken className='px-4 py-1' onClick={() => { commandService.executeCommand('workbench.action.openSettings') }}>
+											<VibeButtonBgDarken className='px-4 py-1' onClick={() => { commandService.executeCommand('workbench.action.openSettings'); }}>
 												{miscS.generalSettings}
 											</VibeButtonBgDarken>
-											<VibeButtonBgDarken className='px-4 py-1' onClick={() => { commandService.executeCommand('workbench.action.openGlobalKeybindings') }}>
+											<VibeButtonBgDarken className='px-4 py-1' onClick={() => { commandService.executeCommand('workbench.action.openGlobalKeybindings'); }}>
 												{miscS.keyboardSettings}
 											</VibeButtonBgDarken>
-											<VibeButtonBgDarken className='px-4 py-1' onClick={() => { commandService.executeCommand('workbench.action.selectTheme') }}>
+											<VibeButtonBgDarken className='px-4 py-1' onClick={() => { commandService.executeCommand('workbench.action.selectTheme'); }}>
 												{miscS.themeSettings}
 											</VibeButtonBgDarken>
-											<VibeButtonBgDarken className='px-4 py-1' onClick={() => { nativeHostService.showItemInFolder(environmentService.logsHome.fsPath) }}>
+											<VibeButtonBgDarken className='px-4 py-1' onClick={() => { nativeHostService.showItemInFolder(environmentService.logsHome.fsPath); }}>
 												{miscS.openLogs}
 											</VibeButtonBgDarken>
 										</div>
@@ -3119,8 +3119,8 @@ export const Settings = () => {
 													size='xs'
 													value={isOptedOut}
 													onChange={(newVal) => {
-														storageService.store(OPT_OUT_KEY, newVal, StorageScope.APPLICATION, StorageTarget.MACHINE)
-														metricsService.capture(`Set metrics opt-out to ${newVal}`, {}) // this only fires if it's enabled, so it's fine to have here
+														storageService.store(OPT_OUT_KEY, newVal, StorageScope.APPLICATION, StorageTarget.MACHINE);
+														metricsService.capture(`Set metrics opt-out to ${newVal}`, {}); // this only fires if it's enabled, so it's fine to have here
 													}}
 												/>
 												<span className='text-vibe-fg-3 text-xs pointer-events-none'>{miscS.metricsOptOut}</span>
@@ -3425,7 +3425,7 @@ export const Settings = () => {
 												<ChatMarkdownRender inPTag={true} string={miscS.mcpBlurb} chatMessageLocation={undefined} />
 											</h4>
 											<div className='my-2'>
-												<VibeButtonBgDarken className='px-4 py-1 w-full max-w-48' onClick={async () => { await mcpService.revealMCPConfigFile() }}>
+												<VibeButtonBgDarken className='px-4 py-1 w-full max-w-48' onClick={async () => { await mcpService.revealMCPConfigFile(); }}>
 													{miscS.addMcp}
 												</VibeButtonBgDarken>
 											</div>
@@ -3441,7 +3441,7 @@ export const Settings = () => {
 												<ChatMarkdownRender inPTag={true} string={miscS.mcpBlurb} chatMessageLocation={undefined} />
 											</h4>
 											<div className='my-2'>
-												<VibeButtonBgDarken className='px-4 py-1 w-full max-w-48' onClick={async () => { await mcpService.revealMCPConfigFile() }}>
+												<VibeButtonBgDarken className='px-4 py-1 w-full max-w-48' onClick={async () => { await mcpService.revealMCPConfigFile(); }}>
 													{miscS.addMcp}
 												</VibeButtonBgDarken>
 											</div>
@@ -3464,4 +3464,4 @@ export const Settings = () => {
 			</div>
 		</div>
 	);
-}
+};

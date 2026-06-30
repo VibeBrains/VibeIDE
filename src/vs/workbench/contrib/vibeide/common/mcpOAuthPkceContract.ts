@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * `VibeMCPOAuthService` — PKCE flow contract (pure helper)
@@ -166,7 +167,7 @@ export type DecodeTokenResult =
  * missing `access_token` or with non-string `token_type`.
  */
 export function decodeTokenResponse(raw: unknown): DecodeTokenResult {
-	if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not-an-object' };
+	if (!raw || typeof raw !== 'object') { return { ok: false, reason: 'not-an-object' }; }
 	const o = raw as Record<string, unknown>;
 	if (typeof o.access_token !== 'string' || o.access_token.length === 0) {
 		return { ok: false, reason: 'access_token-missing' };
@@ -233,9 +234,9 @@ export function decideTokenRefresh(input: RefreshDecisionInput): RefreshDecision
 
 function refreshOrNoToken(token: OAuthTokenResponse, reason: 'expires-soon' | 'no-expires-known' | 'expired'): RefreshDecision {
 	if (typeof token.refreshToken !== 'string' || token.refreshToken.length === 0) {
-		if (reason === 'expired') return { kind: 'expired' };
+		if (reason === 'expired') { return { kind: 'expired' }; }
 		return { kind: 'no-refresh-token-available' };
 	}
-	if (reason === 'expired') return { kind: 'expired' };
+	if (reason === 'expired') { return { kind: 'expired' }; }
 	return { kind: 'should-refresh', reason };
 }

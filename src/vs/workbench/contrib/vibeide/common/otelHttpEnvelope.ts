@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * `VibeAgentOtelService` — OTLP/HTTP/JSON envelope builder (pure helper)
@@ -89,8 +90,8 @@ export function buildOtlpHeaders(config: OtlpEndpointConfig): OtlpHttpHeaders {
 	const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 	if (config.headers !== undefined) {
 		for (const [k, v] of Object.entries(config.headers)) {
-			if (typeof k !== 'string' || typeof v !== 'string') continue;
-			if (k.toLowerCase() === 'content-type') continue;
+			if (typeof k !== 'string' || typeof v !== 'string') { continue; }
+			if (k.toLowerCase() === 'content-type') { continue; }
 			headers[k] = v;
 		}
 	}
@@ -145,14 +146,14 @@ export function buildOtlpTracesBody(input: {
 	}
 	for (let i = 0; i < input.spans.length; i++) {
 		const s = input.spans[i];
-		if (!HEX_TRACE_ID.test(s.traceId)) return { ok: false, reason: `spans[${i}]:traceId-malformed` };
-		if (!HEX_SPAN_ID.test(s.spanId)) return { ok: false, reason: `spans[${i}]:spanId-malformed` };
+		if (!HEX_TRACE_ID.test(s.traceId)) { return { ok: false, reason: `spans[${i}]:traceId-malformed` }; }
+		if (!HEX_SPAN_ID.test(s.spanId)) { return { ok: false, reason: `spans[${i}]:spanId-malformed` }; }
 		if (s.parentSpanId !== undefined && !HEX_SPAN_ID.test(s.parentSpanId)) {
 			return { ok: false, reason: `spans[${i}]:parentSpanId-malformed` };
 		}
-		if (typeof s.name !== 'string' || s.name.length === 0) return { ok: false, reason: `spans[${i}]:name-empty` };
-		if (!isUnixNano(s.startTimeUnixNano)) return { ok: false, reason: `spans[${i}]:startTime-malformed` };
-		if (!isUnixNano(s.endTimeUnixNano)) return { ok: false, reason: `spans[${i}]:endTime-malformed` };
+		if (typeof s.name !== 'string' || s.name.length === 0) { return { ok: false, reason: `spans[${i}]:name-empty` }; }
+		if (!isUnixNano(s.startTimeUnixNano)) { return { ok: false, reason: `spans[${i}]:startTime-malformed` }; }
+		if (!isUnixNano(s.endTimeUnixNano)) { return { ok: false, reason: `spans[${i}]:endTime-malformed` }; }
 	}
 	const payload = {
 		resourceSpans: [{
@@ -174,9 +175,9 @@ function isUnixNano(s: string): boolean {
 }
 
 function toJsonAttribute(a: OtlpAttribute): { key: string; value: { stringValue: string } | { intValue: string } | { doubleValue: number } | { boolValue: boolean } } {
-	if (typeof a.value === 'string') return { key: a.key, value: { stringValue: a.value } };
-	if (typeof a.value === 'boolean') return { key: a.key, value: { boolValue: a.value } };
-	if (Number.isInteger(a.value)) return { key: a.key, value: { intValue: String(a.value) } };
+	if (typeof a.value === 'string') { return { key: a.key, value: { stringValue: a.value } }; }
+	if (typeof a.value === 'boolean') { return { key: a.key, value: { boolValue: a.value } }; }
+	if (Number.isInteger(a.value)) { return { key: a.key, value: { intValue: String(a.value) } }; }
 	return { key: a.key, value: { doubleValue: a.value } };
 }
 
@@ -189,7 +190,7 @@ function toJsonSpan(s: OtlpSpan): Record<string, unknown> {
 		startTimeUnixNano: s.startTimeUnixNano,
 		endTimeUnixNano: s.endTimeUnixNano,
 	};
-	if (s.parentSpanId !== undefined) out.parentSpanId = s.parentSpanId;
+	if (s.parentSpanId !== undefined) { out.parentSpanId = s.parentSpanId; }
 	if (s.attributes !== undefined && s.attributes.length > 0) {
 		out.attributes = s.attributes.map(toJsonAttribute);
 	}

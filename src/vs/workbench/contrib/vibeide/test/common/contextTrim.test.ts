@@ -1,12 +1,16 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import { pickHeaviestTrimmableIndex } from '../../common/prompt/contextTrim.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('pickHeaviestTrimmableIndex — context-trim victim selection (D.16)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('all weight 0 (everything pinned) → -1 (nothing trimmable)', () => {
 		assert.strictEqual(pickHeaviestTrimmableIndex([0, 0, 0]), -1);

@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	decideRunConfirm,
 	decideRunConfirmBulk,
@@ -20,6 +22,8 @@ function trust(id: string, hash = HASH_A): CommandTrustEntry {
 }
 
 suite('Project Commands — first-run trust confirm decision', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decideRunConfirm', () => {
 		test('command.confirm=true → always-confirm wins over trust', () => {

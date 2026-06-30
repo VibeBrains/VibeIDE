@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Process runner for Vibe Server (electron-main). Spawns long-running children (framework
@@ -22,7 +23,7 @@
 
 import { spawn, spawnSync, ChildProcess } from 'child_process';
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs';
-import * as path from 'path';
+import { join } from '../../../../../base/common/path.js';
 import * as net from 'net';
 import { Emitter } from '../../../../../base/common/event.js';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
@@ -65,7 +66,7 @@ export class VibeServerProcessService extends Disposable implements IVibeServerP
 		@IEnvironmentMainService environmentMainService: IEnvironmentMainService,
 	) {
 		super();
-		this._pidfile = path.join(environmentMainService.userDataPath, 'vibeServer.orphans.json');
+		this._pidfile = join(environmentMainService.userDataPath, 'vibeServer.orphans.json');
 		this._reaped = this._reapOrphans();
 	}
 

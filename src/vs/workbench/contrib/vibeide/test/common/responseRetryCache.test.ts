@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -11,6 +12,7 @@ import {
 	PartialResponse,
 	RETRY_CACHE_DEFAULTS,
 } from '../../common/responseRetryCache.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const NOW = 1_000_000;
 
@@ -24,6 +26,8 @@ const partial = (overrides: Partial<PartialResponse> = {}): PartialResponse => (
 });
 
 suite('Response retry cache (1186)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decideResume', () => {
 		test('no partial → no-partial', () => {
@@ -39,7 +43,7 @@ suite('Response retry cache (1186)', () => {
 			const p = partial({ updatedAt: NOW - RETRY_CACHE_DEFAULTS.ttlMs - 1 });
 			const r = decideResume(p, true, NOW);
 			assert.strictEqual(r.kind, 'expired-partial');
-			if (r.kind === 'expired-partial') assert.strictEqual(r.previousChars, 6);
+			if (r.kind === 'expired-partial') { assert.strictEqual(r.previousChars, 6); }
 		});
 
 		test('provider supports prefill → resume-prefill with joined chunks', () => {

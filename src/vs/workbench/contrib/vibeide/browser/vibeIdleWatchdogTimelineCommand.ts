@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Idle Watchdog Timeline viewer (roadmap W.7 / W.28).
@@ -42,6 +43,7 @@ class VibeIdleWatchdogTimelineAction extends Action2 {
 	async run(accessor: ServicesAccessor): Promise<void> {
 		const proxy = accessor.get(IVibeIdleWatchdogProxy);
 		const editorService = accessor.get(IEditorService);
+		const modelService = accessor.get(ITextModelService);
 		// Pull both the live snapshot (right edge of the timeline) and the recent
 		// tail (historical line) from main.
 		const [snapshot, tail] = await Promise.all([
@@ -53,7 +55,6 @@ class VibeIdleWatchdogTimelineAction extends Action2 {
 		// and the user can copy/share without spinning up a webview surface.
 		const uri = URI.parse(`untitled:VibeIDE-Watchdog-Timeline-${Date.now()}.md`);
 		await editorService.openEditor({ resource: uri, options: { pinned: true } });
-		const modelService = accessor.get(ITextModelService);
 		const ref = await modelService.createModelReference(uri);
 		try {
 			ref.object.textEditorModel.setValue(md);
@@ -88,7 +89,7 @@ function renderTimelineMarkdown(currentSamples: readonly WatchdogSampleBase[], t
 	lines.push('');
 	const byProc = groupByProc(tail);
 	for (const [proc, samples] of byProc.entries()) {
-		if (samples.length === 0) continue;
+		if (samples.length === 0) { continue; }
 		lines.push(`### \`${proc}\``);
 		lines.push('');
 		lines.push('```');
@@ -126,7 +127,7 @@ function groupByProc(tail: readonly WatchdogLine[]): Map<string, WatchdogSampleB
 	const out = new Map<string, WatchdogSampleBase[]>();
 	for (const line of tail) {
 		const obj = line as { type?: string; proc?: string };
-		if (obj.type !== 'sample' || !obj.proc) continue;
+		if (obj.type !== 'sample' || !obj.proc) { continue; }
 		const arr = out.get(obj.proc) ?? [];
 		arr.push(line as WatchdogSampleBase);
 		out.set(obj.proc, arr);
@@ -136,20 +137,20 @@ function groupByProc(tail: readonly WatchdogLine[]): Map<string, WatchdogSampleB
 
 function fmtMb(bytes: number): string {
 	const mb = bytes / (1024 * 1024);
-	if (Math.abs(mb) < 1024) return `${mb.toFixed(1)} MB`;
+	if (Math.abs(mb) < 1024) { return `${mb.toFixed(1)} MB`; }
 	return `${(mb / 1024).toFixed(2)} GB`;
 }
 
 function fmtSec(sec: number): string {
-	if (sec < 60) return `${sec}s`;
-	if (sec < 3600) return `${Math.round(sec / 60)}m`;
+	if (sec < 60) { return `${sec}s`; }
+	if (sec < 3600) { return `${Math.round(sec / 60)}m`; }
 	return `${(sec / 3600).toFixed(1)}h`;
 }
 
 const SPARK_CHARS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
 function sparkline(values: readonly number[]): string {
-	if (values.length === 0) return '';
+	if (values.length === 0) { return ''; }
 	const min = Math.min(...values);
 	const max = Math.max(...values);
 	const range = max - min || 1;

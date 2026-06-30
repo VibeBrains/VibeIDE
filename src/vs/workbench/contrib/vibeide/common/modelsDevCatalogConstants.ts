@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Shared constants for the models.dev catalog pipeline. Imported by both
@@ -29,8 +30,8 @@ export type ModelsDevCatalogSource = 'exeDir' | 'bundled' | 'userData';
  */
 export const labelOfSource = (source: ModelsDevCatalogSource): string => {
 	switch (source) {
-		case 'exeDir':   return 'снимок, который вы положили рядом с VibeIDE.exe';
-		case 'bundled':  return 'встроенный снимок (из ресурсов установки)';
+		case 'exeDir': return 'снимок, который вы положили рядом с VibeIDE.exe';
+		case 'bundled': return 'встроенный снимок (из ресурсов установки)';
 		case 'userData': return 'кэшированный снимок из пользовательских данных';
 	}
 };

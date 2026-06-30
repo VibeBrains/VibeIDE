@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -10,6 +11,7 @@ import {
 	urgencyToElectronOptions,
 	DesktopNotificationDraft,
 } from '../../common/desktopNotificationSpec.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 function draft(overrides: Partial<DesktopNotificationDraft> = {}): DesktopNotificationDraft {
 	return {
@@ -20,6 +22,8 @@ function draft(overrides: Partial<DesktopNotificationDraft> = {}): DesktopNotifi
 }
 
 suite('VibeDesktopNotificationService — spec validator', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('validateDesktopNotification', () => {
 		test('happy path on linux', () => {
@@ -35,50 +39,54 @@ suite('VibeDesktopNotificationService — spec validator', () => {
 		test('rejects empty title', () => {
 			const r = validateDesktopNotification(draft({ title: '' }), 'linux');
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.issues.includes('title-empty'));
+			if (!r.ok) { assert.ok(r.issues.includes('title-empty')); }
 		});
 
 		test('rejects empty body', () => {
 			const r = validateDesktopNotification(draft({ body: '   ' }), 'linux');
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.issues.includes('body-empty'));
+			if (!r.ok) { assert.ok(r.issues.includes('body-empty')); }
 		});
 
 		test('rejects over-long title', () => {
 			const r = validateDesktopNotification(draft({ title: 'a'.repeat(100) }), 'linux');
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.issues.includes('title-too-long'));
+			if (!r.ok) { assert.ok(r.issues.includes('title-too-long')); }
 		});
 
 		test('rejects over-long body', () => {
 			const r = validateDesktopNotification(draft({ body: 'a'.repeat(300) }), 'linux');
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.issues.includes('body-too-long'));
+			if (!r.ok) { assert.ok(r.issues.includes('body-too-long')); }
 		});
 
 		test('Windows caps actions at 3', () => {
 			const r = validateDesktopNotification(
-				draft({ actions: [
-					{ id: 'a', label: 'A' },
-					{ id: 'b', label: 'B' },
-					{ id: 'c', label: 'C' },
-					{ id: 'd', label: 'D' },
-				] }),
+				draft({
+					actions: [
+						{ id: 'a', label: 'A' },
+						{ id: 'b', label: 'B' },
+						{ id: 'c', label: 'C' },
+						{ id: 'd', label: 'D' },
+					]
+				}),
 				'win32',
 			);
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.issues.includes('too-many-actions'));
+			if (!r.ok) { assert.ok(r.issues.includes('too-many-actions')); }
 		});
 
 		test('macOS allows up to 5 actions', () => {
 			const r = validateDesktopNotification(
-				draft({ actions: [
-					{ id: 'a', label: 'A' },
-					{ id: 'b', label: 'B' },
-					{ id: 'c', label: 'C' },
-					{ id: 'd', label: 'D' },
-					{ id: 'e', label: 'E' },
-				] }),
+				draft({
+					actions: [
+						{ id: 'a', label: 'A' },
+						{ id: 'b', label: 'B' },
+						{ id: 'c', label: 'C' },
+						{ id: 'd', label: 'D' },
+						{ id: 'e', label: 'E' },
+					]
+				}),
 				'darwin',
 			);
 			assert.strictEqual(r.ok, true);
@@ -90,7 +98,7 @@ suite('VibeDesktopNotificationService — spec validator', () => {
 				'linux',
 			);
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.issues.includes('action-id-malformed'));
+			if (!r.ok) { assert.ok(r.issues.includes('action-id-malformed')); }
 		});
 
 		test('rejects empty action label', () => {
@@ -99,7 +107,7 @@ suite('VibeDesktopNotificationService — spec validator', () => {
 				'linux',
 			);
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.issues.includes('action-label-empty'));
+			if (!r.ok) { assert.ok(r.issues.includes('action-label-empty')); }
 		});
 
 		test('rejects too-long action label', () => {
@@ -108,7 +116,7 @@ suite('VibeDesktopNotificationService — spec validator', () => {
 				'linux',
 			);
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.issues.includes('action-label-too-long'));
+			if (!r.ok) { assert.ok(r.issues.includes('action-label-too-long')); }
 		});
 
 		test('rejects unknown urgency value', () => {
@@ -117,7 +125,7 @@ suite('VibeDesktopNotificationService — spec validator', () => {
 				'linux',
 			);
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.issues.includes('urgency-invalid'));
+			if (!r.ok) { assert.ok(r.issues.includes('urgency-invalid')); }
 		});
 
 		test('icon path must be absolute', () => {
@@ -126,7 +134,7 @@ suite('VibeDesktopNotificationService — spec validator', () => {
 				'linux',
 			);
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.issues.includes('icon-path-not-absolute'));
+			if (!r.ok) { assert.ok(r.issues.includes('icon-path-not-absolute')); }
 		});
 
 		test('absolute icon paths accepted (POSIX, Windows, file://)', () => {
@@ -142,7 +150,7 @@ suite('VibeDesktopNotificationService — spec validator', () => {
 				'linux',
 			);
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.issues.length >= 3);
+			if (!r.ok) { assert.ok(r.issues.length >= 3); }
 		});
 
 		test('normalises trimmed title/body', () => {
@@ -158,12 +166,12 @@ suite('VibeDesktopNotificationService — spec validator', () => {
 
 		test('silent default false', () => {
 			const r = validateDesktopNotification(draft(), 'linux');
-			if (r.ok) assert.strictEqual(r.spec.silent, false);
+			if (r.ok) { assert.strictEqual(r.spec.silent, false); }
 		});
 
 		test('silent flag forwarded', () => {
 			const r = validateDesktopNotification(draft({ silent: true }), 'linux');
-			if (r.ok) assert.strictEqual(r.spec.silent, true);
+			if (r.ok) { assert.strictEqual(r.spec.silent, true); }
 		});
 	});
 

@@ -1,11 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------
- *
- * Command Center (title bar): neon editor glow toggle (tooltip only; no visible label).
- * Uses IActionViewItemService so MenuWorkbenchToolBar renders a real switch (see commandCenterControl.ts).
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { append, EventHelper, type EventLike } from '../../../../base/browser/dom.js';
 import { BaseActionViewItem, IActionViewItemOptions } from '../../../../base/browser/ui/actionbar/actionViewItems.js';
@@ -153,7 +150,7 @@ registerAction2(class VibeideToggleNeonEditorGlow extends Action2 {
 			title: localize2('vibeide.toggleNeonEditorGlow', 'Переключить неоновое свечение редактора Vibe Neon'),
 			tooltip: localize(
 				'vibeide.toggleNeonEditorGlowTooltip',
-				'Toggle neon glow on editor text (Vibe Neon theme).',
+				'Переключить неоновое свечение текста редактора (тема Vibe Neon).',
 			),
 			category: Categories.View,
 			f1: true,

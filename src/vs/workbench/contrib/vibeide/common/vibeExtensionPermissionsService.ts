@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -59,14 +60,14 @@ class VibeExtensionPermissionsService extends Disposable implements IVibeExtensi
 		const ext = this._extensionService.extensions.find(
 			e => e.identifier.value.toLowerCase() === extensionId.toLowerCase()
 		);
-		if (!ext) return null;
+		if (!ext) { return null; }
 
 		// Analyze extension manifest for capabilities
 		const caps: string[] = [];
-		const manifest = ext as any;
+		const extensionKind = Array.isArray(ext.extensionKind) ? ext.extensionKind : ext.extensionKind ? [ext.extensionKind] : [];
 
-		if (manifest.extensionKind?.includes('workspace')) caps.push('filesystem');
-		if (manifest.contributes?.commands?.some((c: any) => c.command?.includes('terminal'))) caps.push('terminal');
+		if (extensionKind.includes('workspace')) { caps.push('filesystem'); }
+		if (ext.contributes?.commands?.some(c => c.command.includes('terminal'))) { caps.push('terminal'); }
 
 		const riskLevel = caps.some(c => HIGH_RISK_CAPS.includes(c)) ? 'high'
 			: caps.some(c => MEDIUM_RISK_CAPS.includes(c)) ? 'medium' : 'low';
@@ -81,7 +82,7 @@ class VibeExtensionPermissionsService extends Disposable implements IVibeExtensi
 
 	showPermissionsOnInstall(extensionId: string): void {
 		const caps = this.getExtensionCapabilities(extensionId);
-		if (!caps) return;
+		if (!caps) { return; }
 
 		if (caps.riskLevel !== 'low') {
 			this._notificationService.notify({

@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Cursor-style rule file (`.mdc`) frontmatter parsing for `.vibe/rules/` and `.cursor/rules/`
@@ -79,7 +80,7 @@ export function isAlwaysApply(frontmatter: Readonly<Record<string, string>>): bo
  * "conditional/agent-requested", while ABSENT means "plain rule → always inject" (back-compat).
  */
 export function parseAlwaysApply(frontmatter: Readonly<Record<string, string>>): boolean | undefined {
-	if (!('alwaysapply' in frontmatter)) { return undefined; }
+	if (!Object.hasOwn(frontmatter, 'alwaysapply')) { return undefined; }
 	return frontmatter['alwaysapply'].trim().toLowerCase() === 'true';
 }
 
@@ -114,7 +115,7 @@ export function matchesAnyTrigger(triggers: readonly string[], text: string): bo
 	if (!text) { return false; }
 	for (const t of triggers) {
 		if (!t) { continue; }
-		// eslint-disable-next-line local/code-no-unexternalized-strings
+
 		const re = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(t)}(?![\\p{L}\\p{N}])`, 'iu');
 		if (re.test(text)) { return true; }
 	}

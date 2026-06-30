@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Background agent — IPC envelope decoder + lifecycle FSM
@@ -66,7 +67,7 @@ const OUTBOUND_TYPES: ReadonlySet<BgAgentOutboundType> = new Set([
  */
 export function decodeInboundEnvelope(raw: unknown): DecodeResult<BgAgentEnvelope<BgAgentInboundType>> {
 	const generic = decodeGenericEnvelope(raw);
-	if (!generic.ok) return generic;
+	if (!generic.ok) { return generic; }
 	if (!INBOUND_TYPES.has(generic.value.type as BgAgentInboundType)) {
 		return { ok: false, reason: `type-not-inbound:${generic.value.type}` };
 	}
@@ -78,7 +79,7 @@ export function decodeInboundEnvelope(raw: unknown): DecodeResult<BgAgentEnvelop
  */
 export function decodeOutboundEnvelope(raw: unknown): DecodeResult<BgAgentEnvelope<BgAgentOutboundType>> {
 	const generic = decodeGenericEnvelope(raw);
-	if (!generic.ok) return generic;
+	if (!generic.ok) { return generic; }
 	if (!OUTBOUND_TYPES.has(generic.value.type as BgAgentOutboundType)) {
 		return { ok: false, reason: `type-not-outbound:${generic.value.type}` };
 	}
@@ -86,9 +87,9 @@ export function decodeOutboundEnvelope(raw: unknown): DecodeResult<BgAgentEnvelo
 }
 
 function decodeGenericEnvelope(raw: unknown): DecodeResult<BgAgentEnvelope<string>> {
-	if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not-an-object' };
+	if (!raw || typeof raw !== 'object') { return { ok: false, reason: 'not-an-object' }; }
 	const o = raw as Record<string, unknown>;
-	if (typeof o.type !== 'string' || o.type.length === 0) return { ok: false, reason: 'type-missing' };
+	if (typeof o.type !== 'string' || o.type.length === 0) { return { ok: false, reason: 'type-missing' }; }
 	if (o.version !== BACKGROUND_AGENT_PROTOCOL_VERSION) {
 		return { ok: false, reason: `version-mismatch:${String(o.version)}` };
 	}
@@ -116,19 +117,17 @@ export function buildOutboundEnvelope<T extends BgAgentOutboundType>(
 	correlationId: string,
 	payload: unknown,
 ): DecodeResult<BgAgentEnvelope<T>> {
-	if (!OUTBOUND_TYPES.has(type)) return { ok: false, reason: `type-not-outbound:${type}` };
+	if (!OUTBOUND_TYPES.has(type)) { return { ok: false, reason: `type-not-outbound:${type}` }; }
 	if (typeof correlationId !== 'string' || !CORRELATION_ID_PATTERN.test(correlationId)) {
 		return { ok: false, reason: 'correlationId-malformed' };
 	}
-	return {
-		ok: true,
-		value: {
-			type,
-			version: BACKGROUND_AGENT_PROTOCOL_VERSION,
-			correlationId,
-			payload,
-		} as BgAgentEnvelope<T>,
+	const value: BgAgentEnvelope<T> = {
+		type,
+		version: BACKGROUND_AGENT_PROTOCOL_VERSION,
+		correlationId,
+		payload,
 	};
+	return { ok: true, value };
 }
 
 // -----------------------------------------------------------------------------
@@ -167,18 +166,18 @@ export function transitionBgAgent(state: BgAgentState, event: BgAgentEvent): BgA
 	});
 	switch (state.kind) {
 		case 'idle':
-			if (event.kind === 'start') return { ok: true, next: { kind: 'starting', startedAtMs: event.nowMs } };
+			if (event.kind === 'start') { return { ok: true, next: { kind: 'starting', startedAtMs: event.nowMs } }; }
 			return fail('idle-only-accepts-start');
 		case 'starting':
-			if (event.kind === 'ready') return { ok: true, next: { kind: 'running', startedAtMs: state.startedAtMs, stepsCompleted: 0 } };
-			if (event.kind === 'abort') return { ok: true, next: { kind: 'aborting', abortReason: event.reason } };
+			if (event.kind === 'ready') { return { ok: true, next: { kind: 'running', startedAtMs: state.startedAtMs, stepsCompleted: 0 } }; }
+			if (event.kind === 'abort') { return { ok: true, next: { kind: 'aborting', abortReason: event.reason } }; }
 			return fail('starting-only-accepts-ready-or-abort');
 		case 'running':
 			if (event.kind === 'progress') {
 				return { ok: true, next: { kind: 'running', startedAtMs: state.startedAtMs, stepsCompleted: Math.max(state.stepsCompleted, event.stepsCompleted) } };
 			}
-			if (event.kind === 'pause') return { ok: true, next: { kind: 'paused', pausedAtMs: event.nowMs, stepsCompleted: state.stepsCompleted } };
-			if (event.kind === 'abort') return { ok: true, next: { kind: 'aborting', abortReason: event.reason } };
+			if (event.kind === 'pause') { return { ok: true, next: { kind: 'paused', pausedAtMs: event.nowMs, stepsCompleted: state.stepsCompleted } }; }
+			if (event.kind === 'abort') { return { ok: true, next: { kind: 'aborting', abortReason: event.reason } }; }
 			if (event.kind === 'done') {
 				return { ok: true, next: { kind: 'done', endedAtMs: event.nowMs, stepsCompleted: state.stepsCompleted, outcome: event.outcome } };
 			}
@@ -187,7 +186,7 @@ export function transitionBgAgent(state: BgAgentState, event: BgAgentEvent): BgA
 			if (event.kind === 'resume') {
 				return { ok: true, next: { kind: 'running', startedAtMs: event.nowMs, stepsCompleted: state.stepsCompleted } };
 			}
-			if (event.kind === 'abort') return { ok: true, next: { kind: 'aborting', abortReason: event.reason } };
+			if (event.kind === 'abort') { return { ok: true, next: { kind: 'aborting', abortReason: event.reason } }; }
 			return fail('paused-only-accepts-resume-or-abort');
 		case 'aborting':
 			if (event.kind === 'done') {

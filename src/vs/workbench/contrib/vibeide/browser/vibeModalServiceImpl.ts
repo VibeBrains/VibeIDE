@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../common/vibeLog.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
@@ -28,7 +29,7 @@ interface InternalQueueEntry<TButtonId extends string> {
  * the modal flow. Called from every code path that resolves a queue entry.
  */
 function safeOnClose(options: VibeModalOptions, result: { buttonId: string; inputValue?: string; checked?: boolean }): void {
-	if (!options.onClose) return;
+	if (!options.onClose) { return; }
 	try {
 		options.onClose(result);
 	} catch (e) {
@@ -90,7 +91,7 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 
 	resolveHead(buttonId: string, inputValue?: string): void {
 		const head = this._queue.shift();
-		if (!head) return;
+		if (!head) { return; }
 		const result = inputValue !== undefined
 			? { buttonId, inputValue, ...checkedFor(head.options) }
 			: { buttonId, ...checkedFor(head.options) };
@@ -101,9 +102,9 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 
 	dismissHead(): void {
 		const head = this._queue[0];
-		if (!head) return;
+		if (!head) { return; }
 		// `dismissible` defaults to true. Reject dismiss only when explicitly false.
-		if (head.options.dismissible === false) return;
+		if (head.options.dismissible === false) { return; }
 		this._queue.shift();
 		const result = { buttonId: VIBE_MODAL_DISMISS_ID, ...checkedFor(head.options) };
 		head.resolve(result);
@@ -113,8 +114,8 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 
 	async dismissHeadWithVeto(): Promise<boolean> {
 		const head = this._queue[0];
-		if (!head) return false;
-		if (head.options.dismissible === false) return false;
+		if (!head) { return false; }
+		if (head.options.dismissible === false) { return false; }
 		const veto = head.options.onBeforeDismiss;
 		if (veto) {
 			// Wrap with a timeout so a hung callback can't trap the user.
@@ -138,7 +139,7 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 					timeoutHandle = setTimeout(() => { timedOut = true; resolve(timeoutSentinel); }, timeoutMs);
 				});
 				raceResult = await Promise.race([vetoCall, timeoutPromise]);
-				if (timeoutHandle !== null) clearTimeout(timeoutHandle);
+				if (timeoutHandle !== null) { clearTimeout(timeoutHandle); }
 			} else {
 				raceResult = await vetoCall;
 			}
@@ -150,7 +151,7 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 				return false;
 			}
 			// Head might have been resolved during the async callback wait.
-			if (this._queue[0] !== head) return false;
+			if (this._queue[0] !== head) { return false; }
 		}
 		this._queue.shift();
 		const result = { buttonId: VIBE_MODAL_DISMISS_ID, ...checkedFor(head.options) };
@@ -162,7 +163,7 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 
 	closeHead(buttonId?: string, inputValue?: string): void {
 		const head = this._queue.shift();
-		if (!head) return;
+		if (!head) { return; }
 		const finalId = buttonId ?? VIBE_MODAL_DISMISS_ID;
 		const result = inputValue !== undefined
 			? { buttonId: finalId, inputValue, ...checkedFor(head.options) }
@@ -178,7 +179,7 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 
 	updateHeadOptions(partial: Partial<VibeModalOptions>): boolean {
 		const head = this._queue[0];
-		if (!head) return false;
+		if (!head) { return false; }
 		// Cheap no-op detection — if every key in `partial` matches existing,
 		// skip the change-event to avoid spurious React re-renders.
 		let changed = false;
@@ -190,7 +191,7 @@ export class VibeModalService extends Disposable implements IVibeModalService {
 				break;
 			}
 		}
-		if (!changed) return false;
+		if (!changed) { return false; }
 		head.options = { ...head.options, ...partial };
 		this._onDidChangeQueue.fire();
 		return true;

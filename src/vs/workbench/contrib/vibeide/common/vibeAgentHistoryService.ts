@@ -1,14 +1,15 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { IAuditLogService } from './auditLogService.js';
+import { AuditEvent, IAuditLogService } from './auditLogService.js';
 
 export interface AgentHistoryEntry {
 	id: string;
@@ -83,7 +84,7 @@ class VibeAgentHistoryService extends Disposable implements IVibeAgentHistorySer
 		if (this._auditLogService.isEnabled()) {
 			this._auditLogService.append({
 				ts: full.timestamp,
-				action: entry.action as any,
+				action: entry.action as AuditEvent['action'],
 				files: entry.files,
 				ok: true,
 				meta: {

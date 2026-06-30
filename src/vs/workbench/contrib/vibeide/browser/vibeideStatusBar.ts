@@ -1,18 +1,18 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 
+
+import { mainWindow } from '../../../../base/browser/window.js';
 import { Disposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { localize } from '../../../../nls.js';
-import { IWorkbenchContribution } from '../../../common/contributions.js';
+import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IStatusbarEntry, IStatusbarEntryAccessor, IStatusbarService, StatusbarAlignment } from '../../../services/statusbar/browser/statusbar.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { metricsCollector } from '../common/metricsCollector.js';
-import { registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IChatThreadService } from './chatThreadService.js';
-import { localProviderNames } from '../common/vibeideSettingsTypes.js';
-import { ProviderName } from '../common/vibeideSettingsTypes.js';
+import { localProviderNames, ProviderName } from '../common/vibeideSettingsTypes.js';
 
 export class VibeideStatusBarContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.vibeideStatusBar';
@@ -74,17 +74,17 @@ export class VibeideStatusBarContribution extends Disposable implements IWorkben
 		// `privacyEntry` are still kept fresh by `onDidChangeStreamState`
 		// + `onDidChangeState` events above; only the latency clock needs
 		// polling during active requests.
-		const latencyUpdateInterval = setInterval(() => {
+		const latencyUpdateInterval = mainWindow.setInterval(() => {
 			const streamState = this.chatThreadService.streamState;
 			const currentThreadId = this.chatThreadService.state.currentThreadId;
 			const isRunning = currentThreadId ? streamState[currentThreadId]?.isRunning : undefined;
-			if (!isRunning) return;
+			if (!isRunning) { return; }
 			this.latencyEntry?.update(this.getLatencyEntryProps());
 			this.modelEntry?.update(this.getModelEntryProps());
 			this.privacyEntry?.update(this.getPrivacyEntryProps());
 		}, 500);
 
-		this._register({ dispose: () => clearInterval(latencyUpdateInterval) });
+		this._register({ dispose: () => mainWindow.clearInterval(latencyUpdateInterval) });
 	}
 
 	private getModelEntryProps(): IStatusbarEntry {

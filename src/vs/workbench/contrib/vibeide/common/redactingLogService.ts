@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { ILogService, LogLevel } from '../../../../platform/log/common/log.js';
 import { Event } from '../../../../base/common/event.js';
@@ -43,7 +44,7 @@ export class RedactingLogService extends Disposable implements ILogService {
 		return result.hasSecrets ? result.redactedText : message;
 	}
 
-	private redactArgs(args: any[]): any[] {
+	private redactArgs(args: unknown[]): unknown[] {
 		const config = this.secretDetectionService.getConfig();
 		if (!config.enabled) {
 			return args;
@@ -61,23 +62,23 @@ export class RedactingLogService extends Disposable implements ILogService {
 		});
 	}
 
-	trace(message: string, ...args: any[]): void {
+	trace(message: string, ...args: unknown[]): void {
 		this.logService.trace(this.redactMessage(message), ...this.redactArgs(args));
 	}
 
-	debug(message: string, ...args: any[]): void {
+	debug(message: string, ...args: unknown[]): void {
 		this.logService.debug(this.redactMessage(message), ...this.redactArgs(args));
 	}
 
-	info(message: string, ...args: any[]): void {
+	info(message: string, ...args: unknown[]): void {
 		this.logService.info(this.redactMessage(message), ...this.redactArgs(args));
 	}
 
-	warn(message: string, ...args: any[]): void {
+	warn(message: string, ...args: unknown[]): void {
 		this.logService.warn(this.redactMessage(message), ...this.redactArgs(args));
 	}
 
-	error(message: string | Error, ...args: any[]): void {
+	error(message: string | Error, ...args: unknown[]): void {
 		if (message instanceof Error) {
 			// Redact error message
 			const redactedMessage = this.redactMessage(message.message);

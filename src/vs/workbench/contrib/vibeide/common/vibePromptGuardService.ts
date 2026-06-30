@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -28,7 +29,7 @@ const INJECTION_PATTERNS = [
 ];
 
 // Zero-width chars: U+200B, U+200C, U+200D, U+FEFF, U+00AD
-const ZERO_WIDTH_PATTERN = /[​‌‍﻿­]/g;
+const ZERO_WIDTH_PATTERN = /\u200B|\u200C|\u200D|\uFEFF|\u00AD/g;
 
 // Unicode Bidi override chars: U+202A-U+202E, U+2066-U+2069, U+200E, U+200F
 const BIDI_OVERRIDE_PATTERN = /[‪-‮⁦-⁩‎‏]/g;

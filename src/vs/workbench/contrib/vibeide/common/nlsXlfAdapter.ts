@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * VS Code NLS (`@vscode/l10n-dev`) adapter — typed contract
@@ -41,7 +42,7 @@ export type DecodeResult<T> =
  * Pure — caller has parsed the XML into an object via the upstream lib.
  */
 export function decodeXlfFile(raw: unknown): DecodeResult<XlfFile> {
-	if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not-an-object' };
+	if (!raw || typeof raw !== 'object') { return { ok: false, reason: 'not-an-object' }; }
 	const o = raw as Record<string, unknown>;
 
 	if (typeof o.sourceLocale !== 'string' || !LOCALE_TAG_PATTERN.test(o.sourceLocale)) {
@@ -61,8 +62,8 @@ export function decodeXlfFile(raw: unknown): DecodeResult<XlfFile> {
 	const seenKeys = new Set<string>();
 	for (let i = 0; i < o.transUnits.length; i++) {
 		const u = decodeTransUnit(o.transUnits[i]);
-		if (!u.ok) return { ok: false, reason: `transUnits[${i}]:${u.reason}` };
-		if (seenKeys.has(u.value.key)) return { ok: false, reason: `transUnits[${i}]:duplicate-key:${u.value.key}` };
+		if (!u.ok) { return { ok: false, reason: `transUnits[${i}]:${u.reason}` }; }
+		if (seenKeys.has(u.value.key)) { return { ok: false, reason: `transUnits[${i}]:duplicate-key:${u.value.key}` }; }
 		seenKeys.add(u.value.key);
 		units.push(u.value);
 	}
@@ -79,12 +80,12 @@ export function decodeXlfFile(raw: unknown): DecodeResult<XlfFile> {
 }
 
 function decodeTransUnit(raw: unknown): DecodeResult<XlfTransUnit> {
-	if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not-object' };
+	if (!raw || typeof raw !== 'object') { return { ok: false, reason: 'not-object' }; }
 	const o = raw as Record<string, unknown>;
-	if (typeof o.key !== 'string' || !KEY_PATTERN.test(o.key)) return { ok: false, reason: 'key-invalid' };
-	if (typeof o.source !== 'string') return { ok: false, reason: 'source-not-string' };
-	if (o.target !== undefined && typeof o.target !== 'string') return { ok: false, reason: 'target-not-string' };
-	if (o.note !== undefined && typeof o.note !== 'string') return { ok: false, reason: 'note-not-string' };
+	if (typeof o.key !== 'string' || !KEY_PATTERN.test(o.key)) { return { ok: false, reason: 'key-invalid' }; }
+	if (typeof o.source !== 'string') { return { ok: false, reason: 'source-not-string' }; }
+	if (o.target !== undefined && typeof o.target !== 'string') { return { ok: false, reason: 'target-not-string' }; }
+	if (o.note !== undefined && typeof o.note !== 'string') { return { ok: false, reason: 'note-not-string' }; }
 	const out: XlfTransUnit = {
 		key: o.key,
 		source: o.source,
@@ -128,7 +129,7 @@ export function buildXlfFile(input: {
 	const sortedKeys = [...input.metadataEnglish.keys()].sort();
 	const transUnits: XlfTransUnit[] = [];
 	for (const key of sortedKeys) {
-		if (!KEY_PATTERN.test(key)) continue;
+		if (!KEY_PATTERN.test(key)) { continue; }
 		const source = input.metadataEnglish.get(key)!;
 		const target = input.translations?.get(key);
 		transUnits.push({
@@ -162,7 +163,7 @@ export function buildXlfFile(input: {
 export function extractTranslationsFromXlf(file: XlfFile): ReadonlyMap<string, string> {
 	const out = new Map<string, string>();
 	for (const u of file.transUnits) {
-		if (typeof u.target !== 'string' || u.target.length === 0) continue;
+		if (typeof u.target !== 'string' || u.target.length === 0) { continue; }
 		out.set(u.key, u.target);
 	}
 	return out;
@@ -185,7 +186,7 @@ export function diffXlfFiles(
 		|| previous.targetLocale !== current.targetLocale;
 
 	const prevByKey = new Map<string, XlfTransUnit>();
-	for (const u of previous.transUnits) prevByKey.set(u.key, u);
+	for (const u of previous.transUnits) { prevByKey.set(u.key, u); }
 
 	const added: string[] = [];
 	const modified: string[] = [];

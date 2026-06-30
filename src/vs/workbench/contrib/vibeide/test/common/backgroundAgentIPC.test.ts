@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -13,6 +14,7 @@ import {
 	BACKGROUND_AGENT_PROTOCOL_VERSION,
 	BgAgentState,
 } from '../../common/backgroundAgentIPC.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const VALID_CID = 'corr-001';
 
@@ -26,11 +28,13 @@ const env = (overrides: Record<string, unknown> = {}): unknown => ({
 
 suite('Background agent IPC envelope + lifecycle FSM', () => {
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	suite('decodeInboundEnvelope', () => {
 		test('happy path', () => {
 			const r = decodeInboundEnvelope(env());
 			assert.strictEqual(r.ok, true);
-			if (r.ok) assert.strictEqual(r.value.type, 'start');
+			if (r.ok) { assert.strictEqual(r.value.type, 'start'); }
 		});
 
 		test('rejects unknown inbound type', () => {
@@ -41,13 +45,13 @@ suite('Background agent IPC envelope + lifecycle FSM', () => {
 		test('rejects version mismatch', () => {
 			const r = decodeInboundEnvelope(env({ version: 99 }));
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.reason.includes('version-mismatch'));
+			if (!r.ok) { assert.ok(r.reason.includes('version-mismatch')); }
 		});
 
 		test('rejects malformed correlationId', () => {
 			const r = decodeInboundEnvelope(env({ correlationId: 'short' }));
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'correlationId-malformed');
+			if (!r.ok) { assert.strictEqual(r.reason, 'correlationId-malformed'); }
 		});
 
 		test('rejects null', () => {
@@ -56,7 +60,7 @@ suite('Background agent IPC envelope + lifecycle FSM', () => {
 
 		test('payload is null when omitted', () => {
 			const r = decodeInboundEnvelope(env({ payload: undefined }));
-			if (r.ok) assert.strictEqual(r.value.payload, null);
+			if (r.ok) { assert.strictEqual(r.value.payload, null); }
 		});
 
 		test('all 6 inbound types accepted', () => {
@@ -114,7 +118,7 @@ suite('Background agent IPC envelope + lifecycle FSM', () => {
 			assert.strictEqual(r.ok, true);
 			if (r.ok) {
 				assert.strictEqual(r.next.kind, 'starting');
-				if (r.next.kind === 'starting') assert.strictEqual(r.next.startedAtMs, 1);
+				if (r.next.kind === 'starting') { assert.strictEqual(r.next.startedAtMs, 1); }
 			}
 		});
 
@@ -136,14 +140,14 @@ suite('Background agent IPC envelope + lifecycle FSM', () => {
 				{ kind: 'running', startedAtMs: 1, stepsCompleted: 5 },
 				{ kind: 'progress', stepsCompleted: 7 },
 			);
-			if (r1.ok && r1.next.kind === 'running') assert.strictEqual(r1.next.stepsCompleted, 7);
+			if (r1.ok && r1.next.kind === 'running') { assert.strictEqual(r1.next.stepsCompleted, 7); }
 
 			// progress with lower stepsCompleted does NOT decrement
 			const r2 = transitionBgAgent(
 				{ kind: 'running', startedAtMs: 1, stepsCompleted: 5 },
 				{ kind: 'progress', stepsCompleted: 3 },
 			);
-			if (r2.ok && r2.next.kind === 'running') assert.strictEqual(r2.next.stepsCompleted, 5);
+			if (r2.ok && r2.next.kind === 'running') { assert.strictEqual(r2.next.stepsCompleted, 5); }
 		});
 
 		test('running + pause → paused', () => {
@@ -162,7 +166,7 @@ suite('Background agent IPC envelope + lifecycle FSM', () => {
 				{ kind: 'paused', pausedAtMs: 1, stepsCompleted: 3 },
 				{ kind: 'resume', nowMs: 2 },
 			);
-			if (r.ok && r.next.kind === 'running') assert.strictEqual(r.next.stepsCompleted, 3);
+			if (r.ok && r.next.kind === 'running') { assert.strictEqual(r.next.stepsCompleted, 3); }
 		});
 
 		test('paused + progress → refused (must resume first)', () => {
@@ -178,7 +182,7 @@ suite('Background agent IPC envelope + lifecycle FSM', () => {
 				{ kind: 'running', startedAtMs: 1, stepsCompleted: 0 },
 				{ kind: 'abort', reason: 'user-cancel' },
 			);
-			if (r.ok && r.next.kind === 'aborting') assert.strictEqual(r.next.abortReason, 'user-cancel');
+			if (r.ok && r.next.kind === 'aborting') { assert.strictEqual(r.next.abortReason, 'user-cancel'); }
 		});
 
 		test('aborting + done → done with outcome=aborted', () => {
@@ -186,7 +190,7 @@ suite('Background agent IPC envelope + lifecycle FSM', () => {
 				{ kind: 'aborting', abortReason: 'x' },
 				{ kind: 'done', nowMs: 5, outcome: 'success' },
 			);
-			if (r.ok && r.next.kind === 'done') assert.strictEqual(r.next.outcome, 'aborted');
+			if (r.ok && r.next.kind === 'done') { assert.strictEqual(r.next.outcome, 'aborted'); }
 		});
 
 		test('running + done → done with reported outcome', () => {
@@ -245,7 +249,7 @@ suite('Background agent IPC envelope + lifecycle FSM', () => {
 				{ kind: 'resume', nowMs: 5 },
 				{ kind: 'progress', stepsCompleted: 7 },
 			]);
-			if (r.final.kind === 'running') assert.strictEqual(r.final.stepsCompleted, 7);
+			if (r.final.kind === 'running') { assert.strictEqual(r.final.stepsCompleted, 7); }
 		});
 	});
 });

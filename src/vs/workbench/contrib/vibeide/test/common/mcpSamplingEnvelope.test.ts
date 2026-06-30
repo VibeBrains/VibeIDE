@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	decodeSamplingRequest,
 	decodeSamplingResponse,
@@ -17,11 +19,13 @@ const MIN_REQ = {
 
 suite('MCP sampling envelope — pure decoder + consent decision', () => {
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	suite('decodeSamplingRequest', () => {
 		test('minimal happy path', () => {
 			const r = decodeSamplingRequest(MIN_REQ);
 			assert.strictEqual(r.ok, true);
-			if (r.ok) assert.strictEqual(r.value.messages.length, 1);
+			if (r.ok) { assert.strictEqual(r.value.messages.length, 1); }
 		});
 
 		test('full request with all optional fields', () => {
@@ -52,7 +56,7 @@ suite('MCP sampling envelope — pure decoder + consent decision', () => {
 		test('rejects empty messages', () => {
 			const r = decodeSamplingRequest({ messages: [] });
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'messages-empty');
+			if (!r.ok) { assert.strictEqual(r.reason, 'messages-empty'); }
 		});
 
 		test('rejects message with invalid role', () => {
@@ -60,7 +64,7 @@ suite('MCP sampling envelope — pure decoder + consent decision', () => {
 				messages: [{ role: 'system', content: { type: 'text', text: 'x' } }],
 			});
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.reason.includes('role-invalid'));
+			if (!r.ok) { assert.ok(r.reason.includes('role-invalid')); }
 		});
 
 		test('image content with valid mime', () => {
@@ -87,7 +91,7 @@ suite('MCP sampling envelope — pure decoder + consent decision', () => {
 		test('rejects temperature out of [0,2]', () => {
 			const r = decodeSamplingRequest({ ...MIN_REQ, temperature: 3 });
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'temperature-out-of-range');
+			if (!r.ok) { assert.strictEqual(r.reason, 'temperature-out-of-range'); }
 		});
 
 		test('rejects negative temperature', () => {
@@ -153,7 +157,7 @@ suite('MCP sampling envelope — pure decoder + consent decision', () => {
 				content: { type: 'text', text: 'x' },
 			});
 			assert.strictEqual(r.ok, true);
-			if (r.ok) assert.strictEqual(r.value.stopReason, undefined);
+			if (r.ok) { assert.strictEqual(r.value.stopReason, undefined); }
 		});
 
 		test('rejects empty model', () => {
@@ -199,7 +203,7 @@ suite('MCP sampling envelope — pure decoder + consent decision', () => {
 				perServerSamplingApproved: true,
 			});
 			assert.strictEqual(r.kind, 'require-confirm');
-			if (r.kind === 'require-confirm') assert.strictEqual(r.reason, 'image-content');
+			if (r.kind === 'require-confirm') { assert.strictEqual(r.reason, 'image-content'); }
 		});
 
 		test('cross-server context → require-confirm', () => {
@@ -209,7 +213,7 @@ suite('MCP sampling envelope — pure decoder + consent decision', () => {
 				perServerSamplingApproved: true,
 			});
 			assert.strictEqual(r.kind, 'require-confirm');
-			if (r.kind === 'require-confirm') assert.strictEqual(r.reason, 'context-cross-server');
+			if (r.kind === 'require-confirm') { assert.strictEqual(r.reason, 'context-cross-server'); }
 		});
 
 		test('untrusted server → require-confirm: first-time-server', () => {
@@ -219,7 +223,7 @@ suite('MCP sampling envelope — pure decoder + consent decision', () => {
 				perServerSamplingApproved: false,
 			});
 			assert.strictEqual(r.kind, 'require-confirm');
-			if (r.kind === 'require-confirm') assert.strictEqual(r.reason, 'first-time-server');
+			if (r.kind === 'require-confirm') { assert.strictEqual(r.reason, 'first-time-server'); }
 		});
 
 		test('high token budget → require-confirm: high-token-budget', () => {
@@ -229,7 +233,7 @@ suite('MCP sampling envelope — pure decoder + consent decision', () => {
 				perServerSamplingApproved: true,
 			});
 			assert.strictEqual(r.kind, 'require-confirm');
-			if (r.kind === 'require-confirm') assert.strictEqual(r.reason, 'high-token-budget');
+			if (r.kind === 'require-confirm') { assert.strictEqual(r.reason, 'high-token-budget'); }
 		});
 
 		test('custom highTokenThreshold respected', () => {
@@ -251,7 +255,7 @@ suite('MCP sampling envelope — pure decoder + consent decision', () => {
 				serverTrustState: 'trusted',
 				perServerSamplingApproved: true,
 			});
-			if (r.kind === 'require-confirm') assert.strictEqual(r.reason, 'image-content');
+			if (r.kind === 'require-confirm') { assert.strictEqual(r.reason, 'image-content'); }
 		});
 
 		test('auto-allow with includeContext:none → reason context-none', () => {
@@ -261,7 +265,7 @@ suite('MCP sampling envelope — pure decoder + consent decision', () => {
 				perServerSamplingApproved: true,
 			});
 			assert.strictEqual(r.kind, 'auto-allow');
-			if (r.kind === 'auto-allow') assert.strictEqual(r.reason, 'context-none');
+			if (r.kind === 'auto-allow') { assert.strictEqual(r.reason, 'context-none'); }
 		});
 
 		test('auto-allow with includeContext:thisServer → reason server-trusted', () => {
@@ -271,7 +275,7 @@ suite('MCP sampling envelope — pure decoder + consent decision', () => {
 				perServerSamplingApproved: true,
 			});
 			assert.strictEqual(r.kind, 'auto-allow');
-			if (r.kind === 'auto-allow') assert.strictEqual(r.reason, 'server-trusted');
+			if (r.kind === 'auto-allow') { assert.strictEqual(r.reason, 'server-trusted'); }
 		});
 	});
 });

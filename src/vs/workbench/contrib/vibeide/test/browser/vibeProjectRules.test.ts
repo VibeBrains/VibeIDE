@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Unit / integration stubs for § H.1.3 Project Rules loading.
@@ -19,6 +20,7 @@
  */
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 // ── Standalone helpers (mirrored from vibeProjectRulesService.ts for testability) ──
 
@@ -43,6 +45,8 @@ function truncateRuleContent(content: string, maxBytes: number): string {
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
 suite('Project Rules — source ordering and labeling (§ H.1.3)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('labels each source with [Source: path]', () => {
 		const sources = [

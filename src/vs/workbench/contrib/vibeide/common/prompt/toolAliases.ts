@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 // Cross-ecosystem tool-call aliases. Models trained on Anthropic / Cursor /
 // Kilo Code / OpenAI tool catalogs emit names and param fields specific to
@@ -208,14 +209,14 @@ export const applyParamAliases = (
 	rawParams: { [k: string]: unknown },
 ): { [k: string]: unknown } => {
 	const map = PARAM_ALIASES_BY_TOOL[canonicalToolName];
-	if (!map) return rawParams;
+	if (!map) { return rawParams; }
 	const out: { [k: string]: unknown } = {};
 	for (const k of Object.keys(rawParams)) {
 		const lower = k.toLowerCase();
 		const canonical = map[lower] ?? k;
 		// First-wins: if the canonical name is already populated (e.g. model sent
 		// both `path` and `uri`), don't overwrite the canonical with the alias.
-		if (canonical in out) continue;
+		if (Object.hasOwn(out, canonical)) { continue; }
 		out[canonical] = rawParams[k];
 	}
 	return out;
@@ -235,11 +236,11 @@ export const resolveToolNameAlias = (
 	rawName: string,
 	isCanonical: (name: string) => boolean,
 ): string | null => {
-	if (isCanonical(rawName)) return rawName;
+	if (isCanonical(rawName)) { return rawName; }
 	const lowered = rawName.toLowerCase();
-	if (lowered !== rawName && isCanonical(lowered)) return lowered;
+	if (lowered !== rawName && isCanonical(lowered)) { return lowered; }
 	const aliasTarget = TOOL_NAME_ALIASES[lowered];
-	if (aliasTarget && isCanonical(aliasTarget)) return aliasTarget;
+	if (aliasTarget && isCanonical(aliasTarget)) { return aliasTarget; }
 	return null;
 };
 
@@ -288,9 +289,9 @@ export const detectToolByParamShape = (
 	params: { readonly [k: string]: unknown } | undefined,
 	requestedToolName: string,
 ): string | undefined => {
-	if (!params || typeof params !== 'object') return undefined;
+	if (!params || typeof params !== 'object') { return undefined; }
 	const keys = Object.keys(params);
-	if (keys.length === 0) return undefined;
+	if (keys.length === 0) { return undefined; }
 	const hasStr = (k: string) => typeof params[k] === 'string' && (params[k] as string).length > 0;
 
 	// {command, cwd?, timeout_ms?, run_in_background?} → run_command.
@@ -307,14 +308,14 @@ export const detectToolByParamShape = (
 	}
 	// {query, search_in_folder?, is_regex?, page_number?} WITHOUT uri → search_for_files
 	// (search_in_file pairs query WITH uri, so the `!uri` guard disambiguates it).
-	if (hasStr('query') && !('uri' in params) && keys.every(k => k === 'query' || k === 'search_in_folder' || k === 'is_regex' || k === 'page_number')) {
+	if (hasStr('query') && !Object.hasOwn(params, 'uri') && keys.every(k => k === 'query' || k === 'search_in_folder' || k === 'is_regex' || k === 'page_number')) {
 		return QUERY_OWNING_TOOLS.has(requestedToolName) ? undefined : 'search_for_files';
 	}
 	// {pattern[, search_in_folder, page_number]} WITHOUT uri -> glob/grep by pattern syntax
 	// (roadmap 3226 / #014). Only this MINIMAL shared shape triggers: a real grep carrying
 	// output_mode/file_type/glob/... won't satisfy keys.every(...), so rich grep calls pass
 	// through untouched. Never re-route FROM glob/grep -- they own `pattern`.
-	if (hasStr('pattern') && !('uri' in params)
+	if (hasStr('pattern') && !Object.hasOwn(params, 'uri')
 		&& keys.every(k => k === 'pattern' || k === 'search_in_folder' || k === 'page_number')) {
 		return PATTERN_OWNING_TOOLS.has(requestedToolName) ? undefined : classifyPatternTool(params['pattern'] as string);
 	}
@@ -325,13 +326,13 @@ export const detectToolByParamShape = (
 	// uri routes to ls_dir while a file path falls through to it. Trailing slash is the ONLY
 	// directory signal used: a name without an extension (LICENSE, Makefile, Dockerfile) is a
 	// FILE, so "no extension" is deliberately NOT treated as a directory (would misroute reads).
-	if (hasStr('uri') && !hasStr('command') && !hasStr('query') && !('pattern' in params)
+	if (hasStr('uri') && !hasStr('command') && !hasStr('query') && !Object.hasOwn(params, 'pattern')
 		&& keys.every(k => k === 'uri' || k === 'page_number')
 		&& NON_URI_TOOLS.has(requestedToolName)
 		&& /[/\\]\s*$/.test(params['uri'] as string)) {
 		return 'ls_dir';
 	}
-	if (hasStr('uri') && !hasStr('command') && !hasStr('query') && !('pattern' in params)
+	if (hasStr('uri') && !hasStr('command') && !hasStr('query') && !Object.hasOwn(params, 'pattern')
 		&& keys.every(k => k === 'uri' || k === 'start_line' || k === 'end_line' || k === 'page_number' || k === 'line_limit' || k === 'with_line_numbers')
 		&& NON_URI_TOOLS.has(requestedToolName)) {
 		return 'read_file';

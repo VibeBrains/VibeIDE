@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -88,7 +89,7 @@ class VibeAgentTaskQueueService extends Disposable implements IVibeAgentTaskQueu
 
 	cancel(taskId: string): void {
 		const task = this._tasks.find(t => t.id === taskId);
-		if (!task) return;
+		if (!task) { return; }
 		if (task.status === 'running' || task.status === 'queued') {
 			task.status = 'cancelled';
 			this._onTaskStatusChanged.fire(task);

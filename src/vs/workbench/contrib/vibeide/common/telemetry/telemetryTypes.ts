@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 // Types imported from other modules
 
@@ -133,6 +134,12 @@ export interface OptimizationImpactEvent extends TelemetryEvent {
 		contextLost?: number; // tokens removed
 	};
 }
+
+/**
+ * Discriminated union of all concrete telemetry events. Persisted events are
+ * read back as one of these variants; narrow on `type` to access variant fields.
+ */
+export type AnyTelemetryEvent = RoutingDecisionEvent | ModelPerformanceEvent | OptimizationImpactEvent;
 
 /**
  * Query interface for telemetry storage

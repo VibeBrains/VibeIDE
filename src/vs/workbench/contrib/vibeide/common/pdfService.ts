@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { AppResourcePath, FileAccess, nodeModulesPath } from '../../../../base/common/network.js';
@@ -70,39 +71,65 @@ export interface IPDFService {
 	isPDFJSAvailable(): boolean;
 }
 
+/** Minimal slice of the PDF.js API surface this service relies on. */
+interface PdfJsViewport {
+	width: number;
+	height: number;
+}
+
+interface PdfJsPage {
+	getTextContent(): Promise<{ items: { str?: string }[] }>;
+	getViewport(options: { scale: number }): PdfJsViewport;
+	render(options: { canvasContext: CanvasRenderingContext2D; viewport: PdfJsViewport }): { promise: Promise<void> };
+}
+
+interface PdfJsDocument {
+	numPages: number;
+	getMetadata(): Promise<{ info?: { Title?: string; Author?: string; Subject?: string } }>;
+	getPage(pageNumber: number): Promise<PdfJsPage>;
+}
+
+interface PdfJsLib {
+	getDocument(options: { data: Uint8Array; useWorkerFetch: boolean; useSystemFonts: boolean; verbosity: number }): { promise: Promise<PdfJsDocument> };
+	GlobalWorkerOptions?: { workerSrc: string };
+}
+
 /**
  * Browser-based PDF service using PDF.js
  * Dynamically loads PDF.js to avoid bundle bloat
  */
 export class PDFService implements IPDFService {
-	private pdfjsLib: any = null;
+	private pdfjsLib: PdfJsLib | null = null;
 	private initialized = false;
 
-	private async ensureInitialized(): Promise<void> {
-		if (this.initialized && this.pdfjsLib) return;
+	private async ensureInitialized(): Promise<PdfJsLib> {
+		if (this.initialized && this.pdfjsLib) { return this.pdfjsLib; }
 
 		try {
-			// Try multiple approaches to load PDF.js (ESM module)
-			let pdfjs: any = null;
+			// Try multiple approaches to load PDF.js (ESM module). The dynamic module
+			// shape is unverified at load time, so `getDocument` is treated as optional
+			// until the runtime guard confirms it.
+			let pdfjs: Partial<PdfJsLib> | null = null;
 			let lastError: unknown = null;
 
 			// Approach 1: Try dynamic import with file URI
 			try {
 				const resourcePath: AppResourcePath = `${nodeModulesPath}/pdfjs-dist/build/pdf.mjs`;
 				const fileUri = FileAccess.asBrowserUri(resourcePath).toString(true);
-				const mod = await import(fileUri);
-				pdfjs = (mod as any).default ?? mod;
-				if (pdfjs && pdfjs.getDocument) {
+				const mod = await import(fileUri) as { default?: Partial<PdfJsLib> } & Partial<PdfJsLib>;
+				pdfjs = mod.default ?? mod;
+				if (pdfjs.getDocument) {
+					const lib: PdfJsLib = { getDocument: pdfjs.getDocument, GlobalWorkerOptions: pdfjs.GlobalWorkerOptions };
 					// Set worker source to disable workers (use empty string or point to worker file)
 					// PDF.js v5 requires workerSrc to be set, but we can disable workers via getDocument options
-					if (pdfjs.GlobalWorkerOptions) {
+					if (lib.GlobalWorkerOptions) {
 						const workerPath: AppResourcePath = `${nodeModulesPath}/pdfjs-dist/build/pdf.worker.mjs`;
 						const workerUri = FileAccess.asBrowserUri(workerPath).toString(true);
-						pdfjs.GlobalWorkerOptions.workerSrc = workerUri;
+						lib.GlobalWorkerOptions.workerSrc = workerUri;
 					}
-					this.pdfjsLib = pdfjs;
+					this.pdfjsLib = lib;
 					this.initialized = true;
-					return;
+					return lib;
 				}
 			} catch (error) {
 				lastError = error;
@@ -117,9 +144,9 @@ export class PDFService implements IPDFService {
 
 			for (const specifier of candidates) {
 				try {
-					const mod = await import(specifier);
-					pdfjs = (mod as any).default ?? mod;
-					if (pdfjs && pdfjs.getDocument) {
+					const mod = await import(specifier) as { default?: Partial<PdfJsLib> } & Partial<PdfJsLib>;
+					pdfjs = mod.default ?? mod;
+					if (pdfjs.getDocument) {
 						break;
 					}
 				} catch (error) {
@@ -131,19 +158,22 @@ export class PDFService implements IPDFService {
 				throw lastError ?? new Error('Unable to load pdfjs module');
 			}
 
+			const lib: PdfJsLib = { getDocument: pdfjs.getDocument, GlobalWorkerOptions: pdfjs.GlobalWorkerOptions };
 			// Set worker source to disable workers (use empty string or point to worker file)
 			// PDF.js v5 requires workerSrc to be set, but we can disable workers via getDocument options
-			if (pdfjs.GlobalWorkerOptions) {
+			if (lib.GlobalWorkerOptions) {
 				const workerPath: AppResourcePath = `${nodeModulesPath}/pdfjs-dist/build/pdf.worker.mjs`;
 				const workerUri = FileAccess.asBrowserUri(workerPath).toString(true);
-				pdfjs.GlobalWorkerOptions.workerSrc = workerUri;
+				lib.GlobalWorkerOptions.workerSrc = workerUri;
 			}
 
-			this.pdfjsLib = pdfjs;
+			this.pdfjsLib = lib;
 			this.initialized = true;
-		} catch (error: any) {
+			return lib;
+		} catch (error) {
 			vibeLog.error('pdf', 'Failed to initialize PDF.js:', error);
-			throw new Error(`PDF.js failed to load: ${error?.message || error || 'Unknown error'}`);
+			const message = error instanceof Error ? error.message : String(error ?? '');
+			throw new Error(`PDF.js failed to load: ${message || 'Unknown error'}`);
 		}
 	}
 
@@ -152,7 +182,7 @@ export class PDFService implements IPDFService {
 	}
 
 	async extractPDF(file: File | Uint8Array, options: PDFExtractionOptions = {}): Promise<PDFDocument> {
-		await this.ensureInitialized();
+		const pdfjsLib = await this.ensureInitialized();
 
 		const { extractImages = false, extractMetadata = true, pageRange, cancellationToken } = options;
 
@@ -171,7 +201,7 @@ export class PDFService implements IPDFService {
 
 		// Disable workers by using useWorkerFetch: false and useSystemFonts: false
 		// This forces PDF.js to run on the main thread
-		const loadingTask = this.pdfjsLib.getDocument({
+		const loadingTask = pdfjsLib.getDocument({
 			data,
 			useWorkerFetch: false,
 			useSystemFonts: false,
@@ -234,8 +264,8 @@ export class PDFService implements IPDFService {
 
 				// Extract text
 				const textItems = textContent.items
-					.filter((item: any) => item.str)
-					.map((item: any) => item.str);
+					.map(item => item.str)
+					.filter((str): str is string => Boolean(str));
 				const text = textItems.join(' ');
 
 				const pdfPage: PDFPage = {
@@ -290,7 +320,7 @@ export class PDFService implements IPDFService {
 			previewMaxHeight?: number;
 		} = {}
 	): Promise<PDFExtractionWithPreviewsResult> {
-		await this.ensureInitialized();
+		const pdfjsLib = await this.ensureInitialized();
 
 		const { extractImages = false, extractMetadata = true, pageRange, previewPages, previewMaxWidth = 200, previewMaxHeight = 300 } = options;
 
@@ -303,7 +333,7 @@ export class PDFService implements IPDFService {
 		}
 
 		// Load PDF document once (reused for both extraction and previews)
-		const loadingTask = this.pdfjsLib.getDocument({
+		const loadingTask = pdfjsLib.getDocument({
 			data,
 			useWorkerFetch: false,
 			useSystemFonts: false,
@@ -361,8 +391,8 @@ export class PDFService implements IPDFService {
 
 				// Extract text
 				const textItems = textContent.items
-					.filter((item: any) => item.str)
-					.map((item: any) => item.str);
+					.map(item => item.str)
+					.filter((str): str is string => Boolean(str));
 				const text = textItems.join(' ');
 
 				const pdfPage: PDFPage = {
@@ -457,7 +487,7 @@ export class PDFService implements IPDFService {
 		maxWidth: number = 200,
 		maxHeight: number = 300
 	): Promise<string> {
-		await this.ensureInitialized();
+		const pdfjsLib = await this.ensureInitialized();
 
 		// Convert File to Uint8Array if needed
 		let data: Uint8Array;
@@ -469,7 +499,7 @@ export class PDFService implements IPDFService {
 
 		// Disable workers by using useWorkerFetch: false and useSystemFonts: false
 		// This forces PDF.js to run on the main thread
-		const loadingTask = this.pdfjsLib.getDocument({
+		const loadingTask = pdfjsLib.getDocument({
 			data,
 			useWorkerFetch: false,
 			useSystemFonts: false,

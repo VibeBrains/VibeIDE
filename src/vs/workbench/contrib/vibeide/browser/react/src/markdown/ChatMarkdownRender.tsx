@@ -1,49 +1,50 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 
-import React, { JSX, useMemo, useState, useEffect, useRef } from 'react'
-import { marked, MarkedToken, Token } from 'marked'
+
+import React, { JSX, useMemo, useState, useEffect, useRef } from 'react';
+import { marked, MarkedToken, Token } from 'marked';
 
 // Type declarations for requestIdleCallback (fallback for older browsers)
 declare global {
 	interface Window {
-		requestIdleCallback?: (callback: (deadline: { timeRemaining: () => number, didTimeout: boolean }) => void, options?: { timeout?: number }) => number
-		cancelIdleCallback?: (id: number) => void
+		requestIdleCallback?: (callback: (deadline: { timeRemaining: () => number; didTimeout: boolean }) => void, options?: { timeout?: number }) => number;
+		cancelIdleCallback?: (id: number) => void;
 	}
 }
 
-import { convertToVscodeLang, detectLanguage } from '../../../../common/helpers/languageHelpers.js'
-import { BlockCodeApplyWrapper } from './ApplyBlockHoverButtons.js'
-import { useAccessor } from '../util/services.js'
-import { URI } from '../../../../../../../base/common/uri.js'
-import { isAbsolute } from '../../../../../../../base/common/path.js'
-import { separateOutFirstLine } from '../../../../common/helpers/util.js'
-import { BlockCode } from '../util/inputs.js'
-import { CodespanLocationLink } from '../../../../common/chatThreadServiceTypes.js'
-import { getBasename, getRelative, voidOpenFileFn } from '../sidebar-tsx/SidebarChat.js'
-import { chatMarkdownRenderS } from '../vibe-settings-tsx/vibeSettingsRu.js'
+import { convertToVscodeLang, detectLanguage } from '../../../../common/helpers/languageHelpers.js';
+import { BlockCodeApplyWrapper } from './ApplyBlockHoverButtons.js';
+import { useAccessor } from '../util/services.js';
+import { URI } from '../../../../../../../base/common/uri.js';
+import { isAbsolute } from '../../../../../../../base/common/path.js';
+import { separateOutFirstLine } from '../../../../common/helpers/util.js';
+import { BlockCode } from '../util/inputs.js';
+import { CodespanLocationLink } from '../../../../common/chatThreadServiceTypes.js';
+import { getBasename, getRelative, voidOpenFileFn } from '../sidebar-tsx/SidebarChat.js';
+import { chatMarkdownRenderS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 
 
 export type ChatMessageLocation = {
 	threadId: string;
 	messageIdx: number;
-}
+};
 
-type ApplyBoxLocation = ChatMessageLocation & { tokenIdx: string }
+type ApplyBoxLocation = ChatMessageLocation & { tokenIdx: string };
 
 export const getApplyBoxId = ({ threadId, messageIdx, tokenIdx }: ApplyBoxLocation) => {
-	return `${threadId}-${messageIdx}-${tokenIdx}`
-}
+	return `${threadId}-${messageIdx}-${tokenIdx}`;
+};
 
 function isValidUri(s: string): boolean {
-	return s.length > 5 && isAbsolute(s) && !s.includes('//') && !s.includes('/*') // common case that is a false positive is comments like //
+	return s.length > 5 && isAbsolute(s) && !s.includes('//') && !s.includes('/*'); // common case that is a false positive is comments like //
 }
 
 // renders contiguous string of latex eg $e^{i\pi}$
 const LatexRender = ({ latex }: { latex: string }) => {
-	return <span className="katex-error text-red-500">{latex}</span>
+	return <span className="katex-error text-red-500">{latex}</span>;
 	// try {
 	// 	let formula = latex;
 	// 	let displayMode = false;
@@ -96,9 +97,9 @@ const LatexRender = ({ latex }: { latex: string }) => {
 	// 	console.error('KaTeX rendering error:', error);
 	// 	return <span className="katex-error text-red-500">{latex}</span>;
 	// }
-}
+};
 
-const Codespan = ({ text, className, onClick, tooltip }: { text: string, className?: string, onClick?: () => void, tooltip?: string }) => {
+const Codespan = ({ text, className, onClick, tooltip }: { text: string; className?: string; onClick?: () => void; tooltip?: string }) => {
 
 	// TODO compute this once for efficiency. we should use `labels.ts/shorten` to display duplicates properly
 
@@ -112,67 +113,67 @@ const Codespan = ({ text, className, onClick, tooltip }: { text: string, classNa
 		} : {}}
 	>
 		{text}
-	</code>
+	</code>;
 
-}
+};
 
-const CodespanWithLink = ({ text, rawText, chatMessageLocation }: { text: string, rawText: string, chatMessageLocation: ChatMessageLocation }) => {
+const CodespanWithLink = ({ text, rawText, chatMessageLocation }: { text: string; rawText: string; chatMessageLocation: ChatMessageLocation }) => {
 
-	const accessor = useAccessor()
+	const accessor = useAccessor();
 
-	const chatThreadService = accessor.get('IChatThreadService')
-	const commandService = accessor.get('ICommandService')
-	const editorService = accessor.get('ICodeEditorService')
+	const chatThreadService = accessor.get('IChatThreadService');
+	const commandService = accessor.get('ICommandService');
+	const editorService = accessor.get('ICodeEditorService');
 
-	const { messageIdx, threadId } = chatMessageLocation
+	const { messageIdx, threadId } = chatMessageLocation;
 
-	const [didComputeCodespanLink, setDidComputeCodespanLink] = useState<boolean>(false)
+	const [didComputeCodespanLink, setDidComputeCodespanLink] = useState<boolean>(false);
 
-	let link: CodespanLocationLink | undefined = undefined
-	let tooltip: string | undefined = undefined
-	let displayText = text
+	let link: CodespanLocationLink | undefined = undefined;
+	let tooltip: string | undefined = undefined;
+	let displayText = text;
 
 
 	if (rawText.endsWith('`')) {
 		// get link from cache
-		link = chatThreadService.getCodespanLink({ codespanStr: text, messageIdx, threadId })
+		link = chatThreadService.getCodespanLink({ codespanStr: text, messageIdx, threadId });
 
 		if (link === undefined) {
 			// if no link, generate link and add to cache
 			chatThreadService.generateCodespanLink({ codespanStr: text, threadId })
 				.then(link => {
-					chatThreadService.addCodespanLink({ newLinkText: text, newLinkLocation: link, messageIdx, threadId })
-					setDidComputeCodespanLink(true) // rerender
-				})
+					chatThreadService.addCodespanLink({ newLinkText: text, newLinkLocation: link, messageIdx, threadId });
+					setDidComputeCodespanLink(true); // rerender
+				});
 		}
 
 		if (link?.displayText) {
-			displayText = link.displayText
+			displayText = link.displayText;
 		}
 
 		if (isValidUri(displayText)) {
-			tooltip = getRelative(URI.file(displayText), accessor)  // Full path as tooltip
-			displayText = getBasename(displayText)
+			tooltip = getRelative(URI.file(displayText), accessor);  // Full path as tooltip
+			displayText = getBasename(displayText);
 		}
 	}
 
 
 	const onClick = () => {
-		if (!link) return;
+		if (!link) {return;}
 		// Use the updated voidOpenFileFn to open the file and handle selection
 		if (link.selection)
-			voidOpenFileFn(link.uri, accessor, [link.selection.startLineNumber, link.selection.endLineNumber]);
+			{voidOpenFileFn(link.uri, accessor, [link.selection.startLineNumber, link.selection.endLineNumber]);}
 		else
-			voidOpenFileFn(link.uri, accessor);
-	}
+			{voidOpenFileFn(link.uri, accessor);}
+	};
 
 	return <Codespan
 		text={displayText}
 		onClick={onClick}
 		className={link ? 'underline hover:brightness-90 transition-all duration-200 cursor-pointer' : ''}
 		tooltip={tooltip || undefined}
-	/>
-}
+	/>;
+};
 
 
 const paragraphToLatexSegments = (paragraphText: string) => {
@@ -271,69 +272,69 @@ const paragraphToLatexSegments = (paragraphText: string) => {
 	}
 
 
-	return segments
-}
+	return segments;
+};
 
 
-export type RenderTokenOptions = { isApplyEnabled?: boolean, isLinkDetectionEnabled?: boolean }
-const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ...options }: { token: Token | string, inPTag?: boolean, codeURI?: URI, chatMessageLocation?: ChatMessageLocation, tokenIdx: string, } & RenderTokenOptions): React.ReactNode => {
-	const accessor = useAccessor()
-	const languageService = accessor.get('ILanguageService')
+export type RenderTokenOptions = { isApplyEnabled?: boolean; isLinkDetectionEnabled?: boolean };
+const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ...options }: { token: Token | string; inPTag?: boolean; codeURI?: URI; chatMessageLocation?: ChatMessageLocation; tokenIdx: string } & RenderTokenOptions): React.ReactNode => {
+	const accessor = useAccessor();
+	const languageService = accessor.get('ILanguageService');
 
 	// deal with built-in tokens first (assume marked token)
-	const t = token as MarkedToken
+	const t = token as MarkedToken;
 
 	if (t.raw.trim() === '') {
 		return null;
 	}
 
 	if (t.type === 'space') {
-		return <span>{t.raw}</span>
+		return <span>{t.raw}</span>;
 	}
 
 	if (t.type === 'code') {
-		const [firstLine, remainingContents] = separateOutFirstLine(t.text)
-		const firstLineIsURI = isValidUri(firstLine) && !codeURI
-		let contents = firstLineIsURI ? (remainingContents?.trimStart() || '') : t.text // exclude first-line URI from contents
+		const [firstLine, remainingContents] = separateOutFirstLine(t.text);
+		const firstLineIsURI = isValidUri(firstLine) && !codeURI;
+		let contents = firstLineIsURI ? (remainingContents?.trimStart() || '') : t.text; // exclude first-line URI from contents
 
-		if (!contents) return null
+		if (!contents) {return null;}
 
 		// Redact secrets in code block contents
-		const secretDetectionService = accessor.get('ISecretDetectionService')
-		const config = secretDetectionService.getConfig()
+		const secretDetectionService = accessor.get('ISecretDetectionService');
+		const config = secretDetectionService.getConfig();
 		if (config.enabled) {
-			const detection = secretDetectionService.detectSecrets(contents)
-			contents = detection.redactedText
+			const detection = secretDetectionService.detectSecrets(contents);
+			contents = detection.redactedText;
 		}
 
 		// figure out langauge and URI
-		let uri: URI | null
-		let language: string
+		let uri: URI | null;
+		let language: string;
 		if (codeURI) {
-			uri = codeURI
+			uri = codeURI;
 		}
 		else if (firstLineIsURI) { // get lang from the uri in the first line of the markdown
-			uri = URI.file(firstLine)
+			uri = URI.file(firstLine);
 		}
 		else {
-			uri = null
+			uri = null;
 		}
 
 		if (t.lang) { // a language was provided. empty string is common so check truthy, not just undefined
-			language = convertToVscodeLang(languageService, t.lang) // convert markdown language to language that vscode recognizes (eg markdown doesn't know bash but it does know shell)
+			language = convertToVscodeLang(languageService, t.lang); // convert markdown language to language that vscode recognizes (eg markdown doesn't know bash but it does know shell)
 		}
 		else { // no language provided - fallback - get lang from the uri and contents
-			language = detectLanguage(languageService, { uri, fileContents: contents })
+			language = detectLanguage(languageService, { uri, fileContents: contents });
 		}
 
 		if (options.isApplyEnabled && chatMessageLocation) {
-			const isCodeblockClosed = t.raw.trimEnd().endsWith('```') // user should only be able to Apply when the code has been closed (t.raw ends with '```')
+			const isCodeblockClosed = t.raw.trimEnd().endsWith('```'); // user should only be able to Apply when the code has been closed (t.raw ends with '```')
 
 			const applyBoxId = getApplyBoxId({
 				threadId: chatMessageLocation.threadId,
 				messageIdx: chatMessageLocation.messageIdx,
 				tokenIdx: tokenIdx,
-			})
+			});
 			return <BlockCodeApplyWrapper
 				canApply={isCodeblockClosed}
 				applyBoxId={applyBoxId}
@@ -345,22 +346,22 @@ const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ..
 					initValue={contents.trimEnd()} // \n\n adds a permanent newline which creates a flash
 					language={language}
 				/>
-			</BlockCodeApplyWrapper>
+			</BlockCodeApplyWrapper>;
 		}
 
 		return <BlockCode
 			initValue={contents}
 			language={language}
-		/>
+		/>;
 	}
 
 	if (t.type === 'heading') {
 
-		const HeadingTag = `h${t.depth}` as keyof JSX.IntrinsicElements
+		const HeadingTag = `h${t.depth}` as keyof JSX.IntrinsicElements;
 
 		return <HeadingTag>
 			<ChatMarkdownRender chatMessageLocation={chatMessageLocation} string={t.text} inPTag={true} codeURI={codeURI} {...options} />
-		</HeadingTag>
+		</HeadingTag>;
 	}
 
 	if (t.type === 'table') {
@@ -390,7 +391,7 @@ const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ..
 					</tbody>
 				</table>
 			</div>
-		)
+		);
 		// return (
 		// 	<div>
 		// 		<table className={'min-w-full border border-vibe-bg-2'}>
@@ -428,11 +429,11 @@ const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ..
 	}
 
 	if (t.type === 'hr') {
-		return <hr />
+		return <hr />;
 	}
 
 	if (t.type === 'blockquote') {
-		return <blockquote>{t.text}</blockquote>
+		return <blockquote>{t.text}</blockquote>;
 	}
 
 	if (t.type === 'list_item') {
@@ -441,11 +442,11 @@ const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ..
 			<span>
 				<ChatMarkdownRender chatMessageLocation={chatMessageLocation} string={t.text} inPTag={true} codeURI={codeURI} {...options} />
 			</span>
-		</li>
+		</li>;
 	}
 
 	if (t.type === 'list') {
-		const ListTag = t.ordered ? 'ol' : 'ul'
+		const ListTag = t.ordered ? 'ol' : 'ul';
 
 		return (
 			<ListTag start={t.start ? t.start : undefined}>
@@ -460,13 +461,13 @@ const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ..
 					</li>
 				))}
 			</ListTag>
-		)
+		);
 	}
 
 	if (t.type === 'paragraph') {
 
 		// check for latex
-		const latexSegments = paragraphToLatexSegments(t.raw)
+		const latexSegments = paragraphToLatexSegments(t.raw);
 		if (latexSegments.length !== 0) {
 			if (inPTag) {
 				return <span className='block'>{latexSegments}</span>;
@@ -485,81 +486,81 @@ const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ..
 					{...options}
 				/>
 			))}
-		</>
+		</>;
 
-		if (inPTag) return <span className='block'>{contents}</span>
-		return <p>{contents}</p>
+		if (inPTag) {return <span className='block'>{contents}</span>;}
+		return <p>{contents}</p>;
 	}
 
 	if (t.type === 'text' || t.type === 'escape' || t.type === 'html') {
-		return <span>{t.raw}</span>
+		return <span>{t.raw}</span>;
 	}
 
 	if (t.type === 'def') {
-		return <></> // Definitions are typically not rendered
+		return <></>; // Definitions are typically not rendered
 	}
 
 	if (t.type === 'link') {
 		// Redact secrets in link href and text
-		const secretDetectionService = accessor.get('ISecretDetectionService')
-		const config = secretDetectionService.getConfig()
-		let href = t.href
-		let text = t.text
+		const secretDetectionService = accessor.get('ISecretDetectionService');
+		const config = secretDetectionService.getConfig();
+		let href = t.href;
+		let text = t.text;
 		if (config.enabled) {
-			const hrefDetection = secretDetectionService.detectSecrets(href)
-			href = hrefDetection.redactedText
-			const textDetection = secretDetectionService.detectSecrets(text)
-			text = textDetection.redactedText
+			const hrefDetection = secretDetectionService.detectSecrets(href);
+			href = hrefDetection.redactedText;
+			const textDetection = secretDetectionService.detectSecrets(text);
+			text = textDetection.redactedText;
 		}
 		return (
 			<a
-				onClick={() => { window.open(href) }}
+				onClick={() => { window.open(href); }}
 				href={href}
 				title={t.title ?? undefined}
 				className='underline cursor-pointer hover:brightness-90 transition-all duration-200 text-vibe-fg-2'
 			>
 				{text}
 			</a>
-		)
+		);
 	}
 
 	if (t.type === 'image') {
 		// Redact secrets in image src URL
-		const secretDetectionService = accessor.get('ISecretDetectionService')
-		const config = secretDetectionService.getConfig()
-		let src = t.href
-		let alt = t.text
+		const secretDetectionService = accessor.get('ISecretDetectionService');
+		const config = secretDetectionService.getConfig();
+		let src = t.href;
+		let alt = t.text;
 		if (config.enabled) {
-			const srcDetection = secretDetectionService.detectSecrets(src)
-			src = srcDetection.redactedText
-			const altDetection = secretDetectionService.detectSecrets(alt)
-			alt = altDetection.redactedText
+			const srcDetection = secretDetectionService.detectSecrets(src);
+			src = srcDetection.redactedText;
+			const altDetection = secretDetectionService.detectSecrets(alt);
+			alt = altDetection.redactedText;
 		}
 		return <img
 			src={src}
 			alt={alt}
 			title={t.title ?? undefined}
 
-		/>
+		/>;
 	}
 
 	if (t.type === 'strong') {
-		return <strong>{t.text}</strong>
+		return <strong>{t.text}</strong>;
 	}
 
 	if (t.type === 'em') {
-		return <em>{t.text}</em>
+		return <em>{t.text}</em>;
 	}
 
 	// inline code
 	if (t.type === 'codespan') {
 		// Redact secrets in inline code
-		const secretDetectionService = accessor.get('ISecretDetectionService')
-		const config = secretDetectionService.getConfig()
-		let text = t.text
+		const secretDetectionService = accessor.get('ISecretDetectionService');
+		const config = secretDetectionService.getConfig();
+		let text = t.text;
 		if (config.enabled) {
-			const detection = secretDetectionService.detectSecrets(text)
-			text = detection.redactedText
+			const detection = secretDetectionService.detectSecrets(text);
+			text = detection.redactedText;
 		}
 
 		if (options.isLinkDetectionEnabled && chatMessageLocation) {
@@ -567,78 +568,78 @@ const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ..
 				text={text}
 				rawText={t.raw}
 				chatMessageLocation={chatMessageLocation}
-			/>
+			/>;
 
 		}
 
-		return <Codespan text={text} />
+		return <Codespan text={text} />;
 	}
 
 	if (t.type === 'br') {
-		return <br />
+		return <br />;
 	}
 
 	// strikethrough
 	if (t.type === 'del') {
-		return <del>{t.text}</del>
+		return <del>{t.text}</del>;
 	}
 	// default
 	return (
 		<div className='bg-orange-50 rounded-sm overflow-hidden p-2'>
 			<span className='text-sm text-orange-500'>{chatMarkdownRenderS.unknownToken}</span>
 		</div>
-	)
-}
+	);
+};
 
 
-export const ChatMarkdownRender = ({ string, inPTag = false, chatMessageLocation, ...options }: { string: string, inPTag?: boolean, codeURI?: URI, chatMessageLocation: ChatMessageLocation | undefined } & RenderTokenOptions) => {
-	const accessor = useAccessor()
-	const secretDetectionService = accessor.get('ISecretDetectionService')
+export const ChatMarkdownRender = ({ string, inPTag = false, chatMessageLocation, ...options }: { string: string; inPTag?: boolean; codeURI?: URI; chatMessageLocation: ChatMessageLocation | undefined } & RenderTokenOptions) => {
+	const accessor = useAccessor();
+	const secretDetectionService = accessor.get('ISecretDetectionService');
 
 	// Redact secrets before rendering
 	const redactedString = useMemo(() => {
-		const config = secretDetectionService.getConfig()
+		const config = secretDetectionService.getConfig();
 		if (!config.enabled) {
-			return string.replaceAll('\n•', '\n\n•')
+			return string.replaceAll('\n•', '\n\n•');
 		}
-		const detection = secretDetectionService.detectSecrets(string)
-		return detection.redactedText.replaceAll('\n•', '\n\n•')
-	}, [string, secretDetectionService])
+		const detection = secretDetectionService.detectSecrets(string);
+		return detection.redactedText.replaceAll('\n•', '\n\n•');
+	}, [string, secretDetectionService]);
 
 	// Optimize: Use requestAnimationFrame to sync with browser repaint cycle
 	// This reduces parsing overhead and aligns with throttled state updates
-	const [debouncedString, setDebouncedString] = useState(redactedString)
-	const rafRef = useRef<number | undefined>()
-	const lastUpdateRef = useRef<string>(redactedString)
+	const [debouncedString, setDebouncedString] = useState(redactedString);
+	const rafRef = useRef<number | undefined>();
+	const lastUpdateRef = useRef<string>(redactedString);
 
 	useEffect(() => {
 		// Update ref immediately to track latest content
-		lastUpdateRef.current = redactedString
+		lastUpdateRef.current = redactedString;
 
 		// For very short strings, update immediately (likely complete)
 		if (redactedString.length < 500) {
-			setDebouncedString(redactedString)
-			return
+			setDebouncedString(redactedString);
+			return;
 		}
 
 		// For longer strings, batch updates using requestAnimationFrame
 		// This syncs with browser repaint (60fps) and reduces parsing overhead
 		if (rafRef.current) {
-			cancelAnimationFrame(rafRef.current)
+			cancelAnimationFrame(rafRef.current);
 		}
 
 		rafRef.current = requestAnimationFrame(() => {
 			// Use the latest content at the time of the frame
-			setDebouncedString(lastUpdateRef.current)
-			rafRef.current = undefined
-		})
+			setDebouncedString(lastUpdateRef.current);
+			rafRef.current = undefined;
+		});
 
 		return () => {
 			if (rafRef.current) {
-				cancelAnimationFrame(rafRef.current)
+				cancelAnimationFrame(rafRef.current);
 			}
-		}
-	}, [redactedString])
+		};
+	}, [redactedString]);
 
 	// Parse markdown tokens (debounced + optimized for streaming)
 	// Use incremental parsing: only parse new content when string grows significantly
@@ -648,14 +649,14 @@ export const ChatMarkdownRender = ({ string, inPTag = false, chatMessageLocation
 		if (debouncedString.length > 10_000) {
 			// For long content, use marked's async option if available, otherwise sync
 			try {
-				return marked.lexer(debouncedString, { async: false })
+				return marked.lexer(debouncedString, { async: false });
 			} catch (e) {
 				// Fallback: return empty tokens on error
-				return []
+				return [];
 			}
 		}
-		return marked.lexer(debouncedString)
-	}, [debouncedString])
+		return marked.lexer(debouncedString);
+	}, [debouncedString]);
 
 	return (
 		<>
@@ -663,5 +664,5 @@ export const ChatMarkdownRender = ({ string, inPTag = false, chatMessageLocation
 				<RenderToken key={index} token={token} inPTag={inPTag} chatMessageLocation={chatMessageLocation} tokenIdx={index + ''} {...options} />
 			))}
 		</>
-	)
-}
+	);
+};

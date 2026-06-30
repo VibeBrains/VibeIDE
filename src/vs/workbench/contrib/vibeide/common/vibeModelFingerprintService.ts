@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -66,7 +67,7 @@ class VibeModelFingerprintService extends Disposable implements IVibeModelFinger
 		// Evict oldest when at capacity
 		if (this._fingerprints.size >= this.MAX_STORED) {
 			const firstKey = this._fingerprints.keys().next().value;
-			if (firstKey) this._fingerprints.delete(firstKey);
+			if (firstKey) { this._fingerprints.delete(firstKey); }
 		}
 
 		this._fingerprints.set(fingerprint.requestId, fingerprint);

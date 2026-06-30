@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands sanitizer (335 / 336) — pure helpers.
@@ -115,8 +116,8 @@ export function checkCwdWithinWorkspace(
 	}
 	const cwd = resolvedCwd.replace(/\\/g, '/').replace(/\/+$/, '');
 	const root = resolvedWorkspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '');
-	if (cwd === root) return null;
-	if (cwd.startsWith(root + '/')) return null;
+	if (cwd === root) { return null; }
+	if (cwd.startsWith(root + '/')) { return null; }
 	return { kind: 'cwd-outside-workspace', resolvedCwd };
 }
 

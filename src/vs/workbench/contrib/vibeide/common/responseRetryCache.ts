@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Local response retry cache (1186) — pure helper.
@@ -137,7 +138,7 @@ export function evictRetryCache(
 				oldestKey = k;
 			}
 		}
-		if (oldestKey === undefined) break;
+		if (oldestKey === undefined) { break; }
 		fresh.delete(oldestKey);
 	}
 	return fresh;

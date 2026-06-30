@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — `IVibeCustomCommandsService` contract: palette command
@@ -81,27 +82,27 @@ const FINITE_NUM = (v: unknown): v is number => typeof v === 'number' && Number.
  * malformation — caller can decide whether to log + skip or surface a banner.
  */
 export function validateDidChangeCommandsEvent(raw: unknown): DidChangeCommandsEvent | null {
-	if (!raw || typeof raw !== 'object') return null;
+	if (!raw || typeof raw !== 'object') { return null; }
 	const o = raw as Record<string, unknown>;
-	if (!Array.isArray(o.commands)) return null;
-	if (o.source !== 'fs-change' && o.source !== 'manual-reload' && o.source !== 'global-paths-change' && o.source !== 'init') return null;
+	if (!Array.isArray(o.commands)) { return null; }
+	if (o.source !== 'fs-change' && o.source !== 'manual-reload' && o.source !== 'global-paths-change' && o.source !== 'init') { return null; }
 	return { commands: o.commands as readonly ProjectCommand[], source: o.source };
 }
 
 export function validateDidStartCommandEvent(raw: unknown): DidStartCommandEvent | null {
-	if (!raw || typeof raw !== 'object') return null;
+	if (!raw || typeof raw !== 'object') { return null; }
 	const o = raw as Record<string, unknown>;
-	if (!NON_EMPTY_STR(o.id) || !NON_EMPTY_STR(o.name) || !NON_EMPTY_STR(o.invocationId)) return null;
-	if (!FINITE_NUM(o.startedAtMs)) return null;
+	if (!NON_EMPTY_STR(o.id) || !NON_EMPTY_STR(o.name) || !NON_EMPTY_STR(o.invocationId)) { return null; }
+	if (!FINITE_NUM(o.startedAtMs)) { return null; }
 	return { id: o.id, name: o.name, invocationId: o.invocationId, startedAtMs: o.startedAtMs };
 }
 
 export function validateDidEndCommandEvent(raw: unknown): DidEndCommandEvent | null {
-	if (!raw || typeof raw !== 'object') return null;
+	if (!raw || typeof raw !== 'object') { return null; }
 	const o = raw as Record<string, unknown>;
-	if (!NON_EMPTY_STR(o.id) || !NON_EMPTY_STR(o.name) || !NON_EMPTY_STR(o.invocationId)) return null;
-	if (!FINITE_NUM(o.endedAtMs)) return null;
-	if (o.outcome !== 'success' && o.outcome !== 'failure' && o.outcome !== 'cancelled') return null;
+	if (!NON_EMPTY_STR(o.id) || !NON_EMPTY_STR(o.name) || !NON_EMPTY_STR(o.invocationId)) { return null; }
+	if (!FINITE_NUM(o.endedAtMs)) { return null; }
+	if (o.outcome !== 'success' && o.outcome !== 'failure' && o.outcome !== 'cancelled') { return null; }
 	const exitCode = FINITE_NUM(o.exitCode) ? o.exitCode : undefined;
 	const durationMs = FINITE_NUM(o.durationMs) && o.durationMs >= 0 ? o.durationMs : undefined;
 	return {

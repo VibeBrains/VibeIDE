@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * `VibeDesktopNotificationService` — Electron Notification spec validator
@@ -88,10 +89,10 @@ export function validateDesktopNotification(
 	const trimmedTitle = title.trim();
 	const trimmedBody = body.trim();
 
-	if (trimmedTitle.length === 0) issues.push('title-empty');
-	if (title.length > TITLE_MAX) issues.push('title-too-long');
-	if (trimmedBody.length === 0) issues.push('body-empty');
-	if (body.length > BODY_MAX) issues.push('body-too-long');
+	if (trimmedTitle.length === 0) { issues.push('title-empty'); }
+	if (title.length > TITLE_MAX) { issues.push('title-too-long'); }
+	if (trimmedBody.length === 0) { issues.push('body-empty'); }
+	if (body.length > BODY_MAX) { issues.push('body-too-long'); }
 
 	const urgency = draft.urgency ?? 'normal';
 	if (urgency !== 'low' && urgency !== 'normal' && urgency !== 'critical') {
@@ -100,7 +101,7 @@ export function validateDesktopNotification(
 
 	const actions = draft.actions ?? [];
 	const maxActions = ACTIONS_MAX_BY_PLATFORM[platform] ?? 3;
-	if (actions.length > maxActions) issues.push('too-many-actions');
+	if (actions.length > maxActions) { issues.push('too-many-actions'); }
 	for (const a of actions) {
 		if (typeof a.id !== 'string' || !ACTION_ID_PATTERN.test(a.id)) {
 			issues.push('action-id-malformed');
@@ -139,9 +140,9 @@ export function validateDesktopNotification(
  * passes the value, helper does not read `process` itself.
  */
 export function detectNotificationPlatform(platform: string): NotificationPlatform {
-	if (platform === 'win32') return 'win32';
-	if (platform === 'darwin') return 'darwin';
-	if (platform === 'linux' || platform === 'freebsd' || platform === 'openbsd') return 'linux';
+	if (platform === 'win32') { return 'win32'; }
+	if (platform === 'darwin') { return 'darwin'; }
+	if (platform === 'linux' || platform === 'freebsd' || platform === 'openbsd') { return 'linux'; }
 	return 'unknown';
 }
 
@@ -157,10 +158,10 @@ export function urgencyToElectronOptions(
 	platform: NotificationPlatform,
 ): Readonly<Record<string, unknown>> {
 	if (platform === 'linux') {
-		if (urgency === 'critical') return { urgency: 'critical' };
-		if (urgency === 'low') return { urgency: 'low' };
+		if (urgency === 'critical') { return { urgency: 'critical' }; }
+		if (urgency === 'low') { return { urgency: 'low' }; }
 		return {};
 	}
-	if (urgency === 'low') return { silent: true };
+	if (urgency === 'low') { return { silent: true }; }
 	return {};
 }

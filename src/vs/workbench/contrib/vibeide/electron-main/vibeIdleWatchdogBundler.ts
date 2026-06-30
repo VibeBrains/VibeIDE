@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Crash report bundler (roadmap W.11).
@@ -19,11 +20,11 @@
  * @see common/vibeIdleWatchdogTypes.ts — `WatchdogBundleResult`.
  */
 
-import * as fs from 'original-fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from '../../../../base/common/path.js';
 import * as yazl from 'yazl';
-import { product } from '../../../../../bootstrap-meta.js';
+import product from '../../../../platform/product/common/product.js';
 import type { WatchdogBundleResult } from '../common/vibeIdleWatchdogTypes.js';
 
 const MAX_DAYS = 3;
@@ -33,7 +34,7 @@ const PER_SESSION_INTERESTING_FILES = ['main.log'];
 
 function listJsonlFiles(watchdogDir: string): string[] {
 	try {
-		if (!fs.existsSync(watchdogDir)) return [];
+		if (!fs.existsSync(watchdogDir)) { return []; }
 		return fs.readdirSync(watchdogDir)
 			.filter(f => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f))
 			.sort()
@@ -47,7 +48,7 @@ function listJsonlFiles(watchdogDir: string): string[] {
 
 function listSnapshots(snapshotsDir: string): string[] {
 	try {
-		if (!fs.existsSync(snapshotsDir)) return [];
+		if (!fs.existsSync(snapshotsDir)) { return []; }
 		// Freshness gate mirrors the jsonl window (MAX_DAYS): a bundle documents the CURRENT
 		// incident, and a week-old 130MB+ heapsnapshot from a long-fixed investigation only
 		// bloats every export (observed: two May snapshots riding along in June bundles,
@@ -67,7 +68,7 @@ function listSnapshots(snapshotsDir: string): string[] {
 
 function listRecentSessions(logsRoot: string): string[] {
 	try {
-		if (!fs.existsSync(logsRoot)) return [];
+		if (!fs.existsSync(logsRoot)) { return []; }
 		return fs.readdirSync(logsRoot)
 			.filter(f => /^\d{8}T\d{6}$/.test(f))
 			.sort()
@@ -83,7 +84,7 @@ function gatherSessionFiles(sessionDir: string): string[] {
 	const out: string[] = [];
 	for (const name of PER_SESSION_INTERESTING_FILES) {
 		const full = path.join(sessionDir, name);
-		if (fs.existsSync(full)) out.push(full);
+		if (fs.existsSync(full)) { out.push(full); }
 	}
 	// Multi-window setups create `window1/`, `window2/`, ... per workbench window.
 	// Pre-W.22 hardcoded `window1` and silently dropped renderer.log of windows 2+,
@@ -91,12 +92,12 @@ function gatherSessionFiles(sessionDir: string): string[] {
 	try {
 		const entries = fs.readdirSync(sessionDir, { withFileTypes: true });
 		for (const entry of entries) {
-			if (!entry.isDirectory() || !/^window\d+$/.test(entry.name)) continue;
+			if (!entry.isDirectory() || !/^window\d+$/.test(entry.name)) { continue; }
 			const windowDir = path.join(sessionDir, entry.name);
 			const rendererLog = path.join(windowDir, 'renderer.log');
-			if (fs.existsSync(rendererLog)) out.push(rendererLog);
+			if (fs.existsSync(rendererLog)) { out.push(rendererLog); }
 			const exthostLog = path.join(windowDir, 'exthost', 'exthost.log');
-			if (fs.existsSync(exthostLog)) out.push(exthostLog);
+			if (fs.existsSync(exthostLog)) { out.push(exthostLog); }
 		}
 	} catch {
 		// Unreadable session dir — best-effort; skip.
@@ -130,8 +131,8 @@ function buildSystemInfo(): AnonymisedSystemInfo {
 		totalMemoryBytes: os.totalmem(),
 		freeMemoryBytes: os.freemem(),
 		versions: process.versions,
-		vibeVersion: (product as { vibeVersion?: string }).vibeVersion,
-		productNameShort: (product as { nameShort?: string }).nameShort,
+		vibeVersion: product.vibeVersion,
+		productNameShort: product.nameShort,
 	};
 }
 

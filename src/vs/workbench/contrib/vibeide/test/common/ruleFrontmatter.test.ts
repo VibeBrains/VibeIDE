@@ -1,12 +1,16 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import { parseRuleFrontmatter, isRuleFileName, isAlwaysApply, parseAlwaysApply, parseTriggers, parseGlobs, matchesAnyTrigger, decideRuleActivation, ruleGlobsMatchAnyFile, extractToolFilePaths, toWorkspaceRelative, ruleNameFromPath, parseRuleInvocations } from '../../common/prompt/ruleFrontmatter.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('ruleFrontmatter — .mdc frontmatter parsing (R.1)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('no frontmatter → empty meta, body unchanged', () => {
 		const r = parseRuleFrontmatter('# Rule\n\nDo the thing.');
@@ -58,6 +62,8 @@ suite('ruleFrontmatter — .mdc frontmatter parsing (R.1)', () => {
 });
 
 suite('ruleFrontmatter — activation engine (R.7 / R.3)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('parseAlwaysApply tri-state: true / false / absent', () => {
 		assert.strictEqual(parseAlwaysApply({ alwaysapply: 'true' }), true);
@@ -137,6 +143,8 @@ suite('ruleFrontmatter — activation engine (R.7 / R.3)', () => {
 });
 
 suite('ruleFrontmatter — @rule invocation + naming (R.5)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('ruleNameFromPath: basename without extension, lowercased', () => {
 		assert.strictEqual(ruleNameFromPath('.vibe/rules/dev-engine.mdc'), 'dev-engine');

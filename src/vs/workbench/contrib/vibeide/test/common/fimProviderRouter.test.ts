@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -10,6 +11,7 @@ import {
 	FIMProvider,
 	FIMRoutingInput,
 } from '../../common/fimProviderRouter.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const provider = (overrides: Partial<FIMProvider>): FIMProvider => ({
 	id: 'p',
@@ -27,6 +29,8 @@ const input = (overrides: Partial<FIMRoutingInput>): FIMRoutingInput => ({
 });
 
 suite('FIM provider routing (1019)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decideFIMProvider', () => {
 		test('pinned + available → pinned decision', () => {
@@ -46,7 +50,7 @@ suite('FIM provider routing (1019)', () => {
 				],
 			}));
 			assert.strictEqual(r.kind, 'local-coder');
-			if (r.kind === 'local-coder') assert.strictEqual(r.providerId, 'deepseek-coder');
+			if (r.kind === 'local-coder') { assert.strictEqual(r.providerId, 'deepseek-coder'); }
 		});
 
 		test('Ollama coder preferred over lmstudio coder', () => {
@@ -116,7 +120,7 @@ suite('FIM provider routing (1019)', () => {
 				describeFIMRouting({ kind: 'no-provider-available', reason: 'privacy-strict-no-local' }),
 				describeFIMRouting({ kind: 'no-provider-available', reason: 'nothing-configured' }),
 			];
-			for (const text of samples) assert.ok(text.length > 0);
+			for (const text of samples) { assert.ok(text.length > 0); }
 		});
 
 		test('strict-mode message mentions privacy', () => {

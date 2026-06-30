@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	decideOnboardingHint,
 	markOnboardingHintShown,
@@ -23,6 +25,7 @@ function input(overrides: Partial<OnboardingHintInput> = {}): OnboardingHintInpu
 }
 
 suite('Project Commands — first-success onboarding hint', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decideOnboardingHint', () => {
 		test('happy path → show', () => {
@@ -32,25 +35,25 @@ suite('Project Commands — first-success onboarding hint', () => {
 		test('already shown → skip:already-shown', () => {
 			const r = decideOnboardingHint(input({ state: { hintShown: true } }));
 			assert.strictEqual(r.kind, 'skip');
-			if (r.kind === 'skip') assert.strictEqual(r.reason, 'already-shown');
+			if (r.kind === 'skip') { assert.strictEqual(r.reason, 'already-shown'); }
 		});
 
 		test('no successful run yet → skip:no-success-yet', () => {
 			const r = decideOnboardingHint(input({ hadSuccessfulRun: false }));
 			assert.strictEqual(r.kind, 'skip');
-			if (r.kind === 'skip') assert.strictEqual(r.reason, 'no-success-yet');
+			if (r.kind === 'skip') { assert.strictEqual(r.reason, 'no-success-yet'); }
 		});
 
 		test('already has pinned command → skip:already-pinned', () => {
 			const r = decideOnboardingHint(input({ hasPinnedCommand: true }));
 			assert.strictEqual(r.kind, 'skip');
-			if (r.kind === 'skip') assert.strictEqual(r.reason, 'already-pinned');
+			if (r.kind === 'skip') { assert.strictEqual(r.reason, 'already-pinned'); }
 		});
 
 		test('user interacted with pin → skip:user-interacted', () => {
 			const r = decideOnboardingHint(input({ userHasInteractedWithPin: true }));
 			assert.strictEqual(r.kind, 'skip');
-			if (r.kind === 'skip') assert.strictEqual(r.reason, 'user-interacted');
+			if (r.kind === 'skip') { assert.strictEqual(r.reason, 'user-interacted'); }
 		});
 
 		test('order: already-shown wins over no-success-yet', () => {
@@ -59,7 +62,7 @@ suite('Project Commands — first-success onboarding hint', () => {
 				hadSuccessfulRun: false,
 			}));
 			assert.strictEqual(r.kind, 'skip');
-			if (r.kind === 'skip') assert.strictEqual(r.reason, 'already-shown');
+			if (r.kind === 'skip') { assert.strictEqual(r.reason, 'already-shown'); }
 		});
 
 		test('order: no-success-yet wins over already-pinned', () => {
@@ -68,7 +71,7 @@ suite('Project Commands — first-success onboarding hint', () => {
 				hasPinnedCommand: true,
 			}));
 			assert.strictEqual(r.kind, 'skip');
-			if (r.kind === 'skip') assert.strictEqual(r.reason, 'no-success-yet');
+			if (r.kind === 'skip') { assert.strictEqual(r.reason, 'no-success-yet'); }
 		});
 
 		test('order: already-pinned wins over user-interacted', () => {
@@ -77,7 +80,7 @@ suite('Project Commands — first-success onboarding hint', () => {
 				userHasInteractedWithPin: true,
 			}));
 			assert.strictEqual(r.kind, 'skip');
-			if (r.kind === 'skip') assert.strictEqual(r.reason, 'already-pinned');
+			if (r.kind === 'skip') { assert.strictEqual(r.reason, 'already-pinned'); }
 		});
 	});
 

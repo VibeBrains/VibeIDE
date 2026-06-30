@@ -1,19 +1,19 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../vibeLog.js';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../../platform/instantiation/common/extensions.js';
 import { TaskContext, RoutingDecision, TaskType } from '../modelRouter.js';
-import { ModelSelection, ProviderName } from '../vibeideSettingsTypes.js';
-import { IVibeideSettingsService } from '../vibeideSettingsService.js';
+import { ModelSelection, ProviderName, localProviderNames } from '../vibeideSettingsTypes.js';
+import { IVibeideSettingsService, VibeideSettingsState } from '../vibeideSettingsService.js';
 import { IVibeideTelemetryService } from '../telemetry/telemetryService.js';
 import { TelemetryAnalyticsService } from '../telemetry/telemetryAnalytics.js';
 import { getModelCapabilities } from '../modelCapabilities.js';
-import { localProviderNames } from '../vibeideSettingsTypes.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
 
 export const IAdaptiveModelRouter = createDecorator<IAdaptiveModelRouter>('AdaptiveModelRouter');
@@ -142,17 +142,17 @@ export class AdaptiveModelRouter extends Disposable implements IAdaptiveModelRou
 		for (const taskType of taskTypes) {
 			const rankings = await this.analytics.computeModelRankings(taskType);
 
-		// Update learned adjustments based on actual performance
-		rankings.forEach((modelPerf, index) => {
-			const key = this._makeAdjustmentKey(modelPerf.model as ModelSelection, { taskType });
+			// Update learned adjustments based on actual performance
+			rankings.forEach((modelPerf, index) => {
+				const key = this._makeAdjustmentKey(modelPerf.model as ModelSelection, { taskType });
 
 				// Compute adjustment: reward high-quality models, penalize low-quality
 				// Top model: +50, second: +25, third: 0, rest: negative
 				let adjustment = 0;
-				if (index === 0) adjustment = 50;
-				else if (index === 1) adjustment = 25;
-				else if (index === 2) adjustment = 0;
-				else adjustment = -25 * (index - 2);
+				if (index === 0) { adjustment = 50; }
+				else if (index === 1) { adjustment = 25; }
+				else if (index === 2) { adjustment = 0; }
+				else { adjustment = -25 * (index - 2); }
 
 				// Weight by sample size (more data = more confidence)
 				const confidence = Math.min(modelPerf.sampleSize / 100, 1);
@@ -217,16 +217,16 @@ export class AdaptiveModelRouter extends Disposable implements IAdaptiveModelRou
 	/**
 	 * Get candidate models for routing
 	 */
-	private _getCandidateModels(context: TaskContext, settingsState: any): ModelSelection[] {
+	private _getCandidateModels(context: TaskContext, settingsState: VibeideSettingsState): ModelSelection[] {
 		const models: ModelSelection[] = [];
 
 		// Get all configured models from settings
-		for (const providerName of Object.keys(settingsState.providers) as ProviderName[]) {
-			const providerSettings = settingsState.providers[providerName];
-			if (!providerSettings || !providerSettings._didFillInProviderSettings) continue;
+		for (const providerName of Object.keys(settingsState.settingsOfProvider) as ProviderName[]) {
+			const providerSettings = settingsState.settingsOfProvider[providerName];
+			if (!providerSettings || !providerSettings._didFillInProviderSettings) { continue; }
 
 			for (const modelInfo of providerSettings.models || []) {
-				if (modelInfo.isHidden) continue;
+				if (modelInfo.isHidden) { continue; }
 
 				models.push({
 					providerName,
@@ -241,7 +241,7 @@ export class AdaptiveModelRouter extends Disposable implements IAdaptiveModelRou
 	/**
 	 * SIMPLIFIED BASE SCORING (100 lines total, not 632)
 	 */
-	private _computeBaseScore(model: ModelSelection, context: TaskContext, settingsState: any): number {
+	private _computeBaseScore(model: ModelSelection, context: TaskContext, settingsState: VibeideSettingsState): number {
 		let score = 0;
 
 		const capabilities = getModelCapabilities(
@@ -257,15 +257,15 @@ export class AdaptiveModelRouter extends Disposable implements IAdaptiveModelRou
 		// Note: Vision/PDF support is determined by provider, not model capabilities
 		// For now, we'll check provider name (simplified)
 		const isVisionProvider = model.providerName === 'anthropic' || model.providerName === 'openAI' || model.providerName === 'gemini';
-		if (context.hasImages && !isVisionProvider) score -= 100;
-		if (context.hasPDFs && !isVisionProvider) score -= 100;
-		if (context.requiresComplexReasoning && !capabilities.reasoningCapabilities) score -= 50;
-		if (context.hasCode && capabilities.supportsFIM) score += 30;
+		if (context.hasImages && !isVisionProvider) { score -= 100; }
+		if (context.hasPDFs && !isVisionProvider) { score -= 100; }
+		if (context.requiresComplexReasoning && !capabilities.reasoningCapabilities) { score -= 50; }
+		if (context.hasCode && capabilities.supportsFIM) { score += 30; }
 
 		// 3. Context window fit (10 lines)
 		const estimatedTokens = context.contextSize || 0;
-		if (estimatedTokens > capabilities.contextWindow) score -= 200;
-		if (estimatedTokens > capabilities.contextWindow * 0.8) score -= 50;
+		if (estimatedTokens > capabilities.contextWindow) { score -= 200; }
+		if (estimatedTokens > capabilities.contextWindow * 0.8) { score -= 50; }
 
 		// 4. Cost consideration (10 lines)
 		const isLocal = (localProviderNames as readonly string[]).includes(model.providerName);
@@ -278,7 +278,7 @@ export class AdaptiveModelRouter extends Disposable implements IAdaptiveModelRou
 
 		// 5. Latency consideration (10 lines)
 		const expectedLatency = this._estimateLatency(capabilities, context);
-		if (expectedLatency > 10_000) score -= 30; // Penalize slow models
+		if (expectedLatency > 10_000) { score -= 30; } // Penalize slow models
 
 		// 6. Local-first mode bonus
 		const localFirstAI = settingsState.globalSettings.localFirstAI ?? false;
@@ -294,10 +294,10 @@ export class AdaptiveModelRouter extends Disposable implements IAdaptiveModelRou
 	 */
 	private _getQualityTier(capabilities: ReturnType<typeof getModelCapabilities>): number {
 		// Simplified: estimate from context window and reasoning capabilities
-		if (capabilities.contextWindow >= 200_000) return 50; // Large context = high tier
-		if (capabilities.contextWindow >= 100_000) return 40;
-		if (capabilities.reasoningCapabilities) return 45; // Reasoning = high tier
-		if (capabilities.contextWindow >= 32_000) return 30;
+		if (capabilities.contextWindow >= 200_000) { return 50; } // Large context = high tier
+		if (capabilities.contextWindow >= 100_000) { return 40; }
+		if (capabilities.reasoningCapabilities) { return 45; } // Reasoning = high tier
+		if (capabilities.contextWindow >= 32_000) { return 30; }
 		return 10;
 	}
 
@@ -353,9 +353,9 @@ export class AdaptiveModelRouter extends Disposable implements IAdaptiveModelRou
 	 * Estimate quality tier
 	 */
 	private _estimateQualityTier(score: number): 'cheap_fast' | 'standard' | 'escalate' | 'abstain' {
-		if (score < 0) return 'abstain';
-		if (score < 30) return 'cheap_fast';
-		if (score < 70) return 'standard';
+		if (score < 0) { return 'abstain'; }
+		if (score < 30) { return 'cheap_fast'; }
+		if (score < 70) { return 'standard'; }
 		return 'escalate';
 	}
 
@@ -396,14 +396,14 @@ export class AdaptiveModelRouter extends Disposable implements IAdaptiveModelRou
 				provider: best.model.providerName,
 				modelName: best.model.modelName,
 				isLocal: (localProviderNames as readonly string[]).includes(best.model.providerName)
-			} as any,
+			},
 			routingScore: best.finalScore,
 			routingConfidence: Math.min(1.0, best.finalScore / 100),
 			routingReasoning: `Score: ${best.finalScore.toFixed(0)}`,
 			fallbackChain: scored.slice(1, 4).map(s => ({
 				provider: s.model.providerName,
 				modelName: s.model.modelName
-			})) as any,
+			})),
 			cacheHit: false,
 			localFirstMode: this.settingsService.state.globalSettings.localFirstAI ?? false,
 			privacyMode: context.requiresPrivacy || false,

@@ -1,19 +1,19 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../../../../common/vibeLog.js';
-import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
-import { useAccessor, useChatThreadsState, useChatThreadsStreamState, useCommandBarState, useCommandBarURIListener, useSettingsState } from '../util/services.js'
-import { usePromise, useRefState } from '../util/helpers.js'
-import { isFeatureNameDisabled } from '../../../../common/vibeideSettingsTypes.js'
-import { URI } from '../../../../../../../base/common/uri.js'
-import { FileSymlink, LucideIcon, RotateCw, Terminal } from 'lucide-react'
-import { Check, X, Square, Copy, Play, } from 'lucide-react'
-import { getBasename, ListableToolItem, voidOpenFileFn } from '../sidebar-tsx/SidebarChat.js'
-import { PlacesType, VariantType } from 'react-tooltip'
-import { markdownApplyS } from '../vibe-settings-tsx/vibeSettingsRu.js'
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+import { useAccessor, useChatThreadsState, useChatThreadsStreamState, useCommandBarState, useCommandBarURIListener, useSettingsState } from '../util/services.js';
+import { usePromise, useRefState } from '../util/helpers.js';
+import { isFeatureNameDisabled } from '../../../../common/vibeideSettingsTypes.js';
+import { URI } from '../../../../../../../base/common/uri.js';
+import { Check, Copy, FileSymlink, LucideIcon, Play, RotateCw, Square, Terminal, X } from 'lucide-react';
+import { getBasename, ListableToolItem, voidOpenFileFn } from '../sidebar-tsx/SidebarChat.js';
+import { PlacesType, VariantType } from 'react-tooltip';
+import { markdownApplyS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 
 enum CopyButtonText {
 	Idle = 'idle',
@@ -28,8 +28,8 @@ const copyButtonLabel = (s: CopyButtonText): string =>
 
 
 type IconButtonProps = {
-	Icon: LucideIcon
-}
+	Icon: LucideIcon;
+};
 
 export const IconShell1 = ({ onClick, Icon, disabled, className, ...props }: IconButtonProps & React.ButtonHTMLAttributes<HTMLButtonElement>) => {
 
@@ -53,8 +53,8 @@ export const IconShell1 = ({ onClick, Icon, disabled, className, ...props }: Ico
 		{...props}
 	>
 		<Icon />
-	</button>
-}
+	</button>;
+};
 
 
 // export const IconShell2 = ({ onClick, title, Icon, disabled, className }: IconButtonProps) => (
@@ -75,55 +75,55 @@ export const IconShell1 = ({ onClick, Icon, disabled, className, ...props }: Ico
 // 	</button>
 // )
 
-const COPY_FEEDBACK_TIMEOUT = 1500 // amount of time to say 'Copied!'
+const COPY_FEEDBACK_TIMEOUT = 1500; // amount of time to say 'Copied!'
 
-export const CopyButton = ({ codeStr, toolTipName }: { codeStr: string | (() => Promise<string> | string), toolTipName: string }) => {
-	const accessor = useAccessor()
+export const CopyButton = ({ codeStr, toolTipName }: { codeStr: string | (() => Promise<string> | string); toolTipName: string }) => {
+	const accessor = useAccessor();
 
-	const metricsService = accessor.get('IMetricsService')
-	const clipboardService = accessor.get('IClipboardService')
-	const [copyButtonText, setCopyButtonText] = useState(CopyButtonText.Idle)
+	const metricsService = accessor.get('IMetricsService');
+	const clipboardService = accessor.get('IClipboardService');
+	const [copyButtonText, setCopyButtonText] = useState(CopyButtonText.Idle);
 
 	useEffect(() => {
-		if (copyButtonText === CopyButtonText.Idle) return
+		if (copyButtonText === CopyButtonText.Idle) {return;}
 		setTimeout(() => {
-			setCopyButtonText(CopyButtonText.Idle)
-		}, COPY_FEEDBACK_TIMEOUT)
-	}, [copyButtonText])
+			setCopyButtonText(CopyButtonText.Idle);
+		}, COPY_FEEDBACK_TIMEOUT);
+	}, [copyButtonText]);
 
 	const onCopy = useCallback(async () => {
 		clipboardService.writeText(typeof codeStr === 'string' ? codeStr : await codeStr())
-			.then(() => { setCopyButtonText(CopyButtonText.Copied) })
-			.catch(() => { setCopyButtonText(CopyButtonText.Error) })
-		metricsService.capture('Copy Code', { length: codeStr.length }) // capture the length only
-	}, [metricsService, clipboardService, codeStr, setCopyButtonText])
+			.then(() => { setCopyButtonText(CopyButtonText.Copied); })
+			.catch(() => { setCopyButtonText(CopyButtonText.Error); });
+		metricsService.capture('Copy Code', { length: codeStr.length }); // capture the length only
+	}, [metricsService, clipboardService, codeStr, setCopyButtonText]);
 
 	return <IconShell1
 		Icon={copyButtonText === CopyButtonText.Copied ? Check : copyButtonText === CopyButtonText.Error ? X : Copy}
 		onClick={onCopy}
 		{...tooltipPropsForApplyBlock({ tooltipName: toolTipName })}
-	/>
-}
+	/>;
+};
 
 
 
 
 export const JumpToFileButton = ({ uri, ...props }: { uri: URI | 'current' } & React.ButtonHTMLAttributes<HTMLButtonElement>) => {
-	const accessor = useAccessor()
-	const commandService = accessor.get('ICommandService')
+	const accessor = useAccessor();
+	const commandService = accessor.get('ICommandService');
 
 	const jumpToFileButton = uri !== 'current' && (
 		<IconShell1
 			Icon={FileSymlink}
 			onClick={() => {
-				voidOpenFileFn(uri, accessor)
+				voidOpenFileFn(uri, accessor);
 			}}
 			{...tooltipPropsForApplyBlock({ tooltipName: markdownApplyS.goToFile })}
 			{...props}
 		/>
-	)
-	return jumpToFileButton
-}
+	);
+	return jumpToFileButton;
+};
 
 
 
@@ -133,52 +133,52 @@ export const JumpToTerminalButton = ({ onClick }: { onClick: () => void }) => {
 			Icon={Terminal}
 			onClick={onClick}
 		/>
-	)
-}
+	);
+};
 
 
 // state persisted for duration of react only
 // TODO change this to use type `ChatThreads.applyBoxState[applyBoxId]`
-const _applyingURIOfApplyBoxIdRef: { current: { [applyBoxId: string]: URI | undefined } } = { current: {} }
+const _applyingURIOfApplyBoxIdRef: { current: { [applyBoxId: string]: URI | undefined } } = { current: {} };
 
 const getUriBeingApplied = (applyBoxId: string) => {
-	return _applyingURIOfApplyBoxIdRef.current[applyBoxId] ?? null
-}
+	return _applyingURIOfApplyBoxIdRef.current[applyBoxId] ?? null;
+};
 
 
 export const useApplyStreamState = ({ applyBoxId }: { applyBoxId: string }) => {
-	const accessor = useAccessor()
-	const vibeideCommandBarService = accessor.get('IVibeideCommandBarService')
+	const accessor = useAccessor();
+	const vibeideCommandBarService = accessor.get('IVibeideCommandBarService');
 
 	const getStreamState = useCallback(() => {
-		const uri = getUriBeingApplied(applyBoxId)
-		if (!uri) return 'idle-no-changes'
-		return vibeideCommandBarService.getStreamState(uri)
-	}, [vibeideCommandBarService, applyBoxId])
+		const uri = getUriBeingApplied(applyBoxId);
+		if (!uri) {return 'idle-no-changes';}
+		return vibeideCommandBarService.getStreamState(uri);
+	}, [vibeideCommandBarService, applyBoxId]);
 
 
-	const [currStreamStateRef, setStreamState] = useRefState(getStreamState())
+	const [currStreamStateRef, setStreamState] = useRefState(getStreamState());
 
 	const setApplying = useCallback((uri: URI | undefined) => {
-		_applyingURIOfApplyBoxIdRef.current[applyBoxId] = uri ?? undefined
-		setStreamState(getStreamState())
-	}, [setStreamState, getStreamState, applyBoxId])
+		_applyingURIOfApplyBoxIdRef.current[applyBoxId] = uri ?? undefined;
+		setStreamState(getStreamState());
+	}, [setStreamState, getStreamState, applyBoxId]);
 
 	// listen for stream updates on this box
 	useCommandBarURIListener(useCallback((uri_) => {
-		const uri = getUriBeingApplied(applyBoxId)
+		const uri = getUriBeingApplied(applyBoxId);
 		if (uri?.fsPath === uri_.fsPath) {
-			setStreamState(getStreamState())
+			setStreamState(getStreamState());
 		}
-	}, [setStreamState, applyBoxId, getStreamState]))
+	}, [setStreamState, applyBoxId, getStreamState]));
 
 
-	return { currStreamStateRef, setApplying }
-}
+	return { currStreamStateRef, setApplying };
+};
 
 
-type IndicatorColor = 'green' | 'orange' | 'dark' | 'yellow' | null
-export const StatusIndicator = ({ indicatorColor, title, className, ...props }: { indicatorColor: IndicatorColor, title?: React.ReactNode, className?: string } & React.HTMLAttributes<HTMLDivElement>) => {
+type IndicatorColor = 'green' | 'orange' | 'dark' | 'yellow' | null;
+export const StatusIndicator = ({ indicatorColor, title, className, ...props }: { indicatorColor: IndicatorColor; title?: React.ReactNode; className?: string } & React.HTMLAttributes<HTMLDivElement>) => {
 	return (
 		<div className={`flex flex-row text-vibe-fg-3 text-xs items-center gap-1.5 ${className}`} {...props}>
 			{title && <span className='opacity-80'>{title}</span>}
@@ -196,30 +196,30 @@ export const StatusIndicator = ({ indicatorColor, title, className, ...props }: 
 	);
 };
 
-const tooltipPropsForApplyBlock = ({ tooltipName, color = undefined, position = 'top', offset = undefined }: { tooltipName: string, color?: IndicatorColor, position?: PlacesType, offset?: number }) => ({
+const tooltipPropsForApplyBlock = ({ tooltipName, color = undefined, position = 'top', offset = undefined }: { tooltipName: string; color?: IndicatorColor; position?: PlacesType; offset?: number }) => ({
 	'data-tooltip-id': color === 'orange' ? `vibe-tooltip-orange` : color === 'green' ? 'vibe-tooltip-green' : 'vibe-tooltip',
 	'data-tooltip-place': position as PlacesType,
 	'data-tooltip-content': `${tooltipName}`,
 	'data-tooltip-offset': offset,
-})
+});
 
-export const useEditToolStreamState = ({ applyBoxId, uri }: { applyBoxId: string, uri: URI }) => {
-	const accessor = useAccessor()
-	const vibeideCommandBarService = accessor.get('IVibeideCommandBarService')
-	const [streamState, setStreamState] = useState(vibeideCommandBarService.getStreamState(uri))
+export const useEditToolStreamState = ({ applyBoxId, uri }: { applyBoxId: string; uri: URI }) => {
+	const accessor = useAccessor();
+	const vibeideCommandBarService = accessor.get('IVibeideCommandBarService');
+	const [streamState, setStreamState] = useState(vibeideCommandBarService.getStreamState(uri));
 	// listen for stream updates on this box
 	useCommandBarURIListener(useCallback((uri_) => {
-		const shouldUpdate = uri.fsPath === uri_.fsPath
-		if (shouldUpdate) { setStreamState(vibeideCommandBarService.getStreamState(uri)) }
-	}, [vibeideCommandBarService, applyBoxId, uri]))
+		const shouldUpdate = uri.fsPath === uri_.fsPath;
+		if (shouldUpdate) { setStreamState(vibeideCommandBarService.getStreamState(uri)); }
+	}, [vibeideCommandBarService, applyBoxId, uri]));
 
-	return { streamState, }
-}
+	return { streamState, };
+};
 
-export const StatusIndicatorForApplyButton = ({ applyBoxId, uri }: { applyBoxId: string, uri: URI | 'current' } & React.HTMLAttributes<HTMLDivElement>) => {
+export const StatusIndicatorForApplyButton = ({ applyBoxId, uri }: { applyBoxId: string; uri: URI | 'current' } & React.HTMLAttributes<HTMLDivElement>) => {
 
-	const { currStreamStateRef } = useApplyStreamState({ applyBoxId })
-	const currStreamState = currStreamStateRef.current
+	const { currStreamStateRef } = useApplyStreamState({ applyBoxId });
+	const currStreamState = currStreamStateRef.current;
 
 
 	const color = (
@@ -227,23 +227,23 @@ export const StatusIndicatorForApplyButton = ({ applyBoxId, uri }: { applyBoxId:
 			currStreamState === 'streaming' ? 'orange' :
 				currStreamState === 'idle-has-changes' ? 'green' :
 					null
-	)
+	);
 
 	const tooltipName = (
 		currStreamState === 'idle-no-changes' ? markdownApplyS.done :
 			currStreamState === 'streaming' ? markdownApplyS.applying :
 				currStreamState === 'idle-has-changes' ? markdownApplyS.done :
 					''
-	)
+	);
 
 	const statusIndicatorHTML = <StatusIndicator
 		key={currStreamState}
 		className='mx-2'
 		indicatorColor={color}
 		{...tooltipPropsForApplyBlock({ tooltipName, color, position: 'top', offset: 12 })}
-	/>
-	return statusIndicatorHTML
-}
+	/>;
+	return statusIndicatorHTML;
+};
 
 
 const terminalLanguages = new Set([
@@ -259,7 +259,7 @@ const terminalLanguages = new Set([
 	'ksh',
 	'xonsh',
 	'elvish',
-])
+]);
 
 const ApplyButtonsForTerminal = ({
 	codeStr,
@@ -267,37 +267,37 @@ const ApplyButtonsForTerminal = ({
 	uri,
 	language,
 }: {
-	codeStr: string,
-	applyBoxId: string,
-	language?: string,
+	codeStr: string;
+	applyBoxId: string;
+	language?: string;
 	uri: URI | 'current';
 }) => {
-	const accessor = useAccessor()
-	const metricsService = accessor.get('IMetricsService')
-	const terminalToolService = accessor.get('ITerminalToolService')
+	const accessor = useAccessor();
+	const metricsService = accessor.get('IMetricsService');
+	const terminalToolService = accessor.get('ITerminalToolService');
 
-	const settingsState = useSettingsState()
+	const settingsState = useSettingsState();
 
-	const [isShellRunning, setIsShellRunning] = useState<boolean>(false)
-	const interruptToolRef = useRef<(() => void) | null>(null)
-	const isDisabled = isShellRunning
+	const [isShellRunning, setIsShellRunning] = useState<boolean>(false);
+	const interruptToolRef = useRef<(() => void) | null>(null);
+	const isDisabled = isShellRunning;
 
 	const onClickSubmit = useCallback(async () => {
-		if (isShellRunning) return
+		if (isShellRunning) {return;}
 		try {
-			setIsShellRunning(true)
-			const terminalId = await terminalToolService.createPersistentTerminal({ cwd: null })
+			setIsShellRunning(true);
+			const terminalId = await terminalToolService.createPersistentTerminal({ cwd: null });
 			const { interrupt } = await terminalToolService.runCommand(
 				codeStr,
 				{ type: 'persistent', persistentTerminalId: terminalId }
 			);
-			interruptToolRef.current = interrupt
-			metricsService.capture('Execute Shell', { length: codeStr.length })
+			interruptToolRef.current = interrupt;
+			metricsService.capture('Execute Shell', { length: codeStr.length });
 		} catch (e) {
-			setIsShellRunning(false)
-			vibeLog.error('ApplyBlockHoverButtons', 'Failed to execute in terminal:', e)
+			setIsShellRunning(false);
+			vibeLog.error('ApplyBlockHoverButtons', 'Failed to execute in terminal:', e);
 		}
-	}, [codeStr, uri, applyBoxId, metricsService, terminalToolService, isShellRunning])
+	}, [codeStr, uri, applyBoxId, metricsService, terminalToolService, isShellRunning]);
 
 	if (isShellRunning) {
 		return (
@@ -312,14 +312,14 @@ const ApplyButtonsForTerminal = ({
 		);
 	}
 	if (isDisabled) {
-		return null
+		return null;
 	}
 	return <IconShell1
 		Icon={Play}
 		onClick={onClickSubmit}
 		{...tooltipPropsForApplyBlock({ tooltipName: markdownApplyS.apply })}
-	/>
-}
+	/>;
+};
 
 
 
@@ -329,86 +329,86 @@ const ApplyButtonsForEdit = ({
 	uri,
 	language,
 }: {
-	codeStr: string,
-	applyBoxId: string,
-	language?: string,
+	codeStr: string;
+	applyBoxId: string;
+	language?: string;
 	uri: URI | 'current';
 }) => {
-	const accessor = useAccessor()
-	const editCodeService = accessor.get('IEditCodeService')
-	const metricsService = accessor.get('IMetricsService')
-	const notificationService = accessor.get('INotificationService')
+	const accessor = useAccessor();
+	const editCodeService = accessor.get('IEditCodeService');
+	const metricsService = accessor.get('IMetricsService');
+	const notificationService = accessor.get('INotificationService');
 
-	const settingsState = useSettingsState()
-	const isDisabled = !!isFeatureNameDisabled('Apply', settingsState) || !applyBoxId
+	const settingsState = useSettingsState();
+	const isDisabled = !!isFeatureNameDisabled('Apply', settingsState) || !applyBoxId;
 
-	const { currStreamStateRef, setApplying } = useApplyStreamState({ applyBoxId })
+	const { currStreamStateRef, setApplying } = useApplyStreamState({ applyBoxId });
 
 	const onClickSubmit = useCallback(async () => {
-		if (currStreamStateRef.current === 'streaming') return
+		if (currStreamStateRef.current === 'streaming') {return;}
 
-		await editCodeService.callBeforeApplyOrEdit(uri)
+		await editCodeService.callBeforeApplyOrEdit(uri);
 
 		const [newApplyingUri, applyDonePromise] = editCodeService.startApplying({
 			from: 'ClickApply',
 			applyStr: codeStr,
 			uri: uri,
 			startBehavior: 'reject-conflicts',
-		}) ?? []
-		setApplying(newApplyingUri)
+		}) ?? [];
+		setApplying(newApplyingUri);
 
 		if (!applyDonePromise) {
-				notificationService.info(uri === 'current' ? markdownApplyS.applyErrorNoFile : markdownApplyS.applyErrorFile(uri.fsPath))
+				notificationService.info(uri === 'current' ? markdownApplyS.applyErrorNoFile : markdownApplyS.applyErrorFile(uri.fsPath));
 		}
 
 		// catch any errors by interrupting the stream
 		applyDonePromise?.catch(e => {
-			const uri = getUriBeingApplied(applyBoxId)
-			if (uri) editCodeService.interruptURIStreaming({ uri: uri })
-			notificationService.info(markdownApplyS.applyErrorRuntime(`${e}`))
+			const uri = getUriBeingApplied(applyBoxId);
+			if (uri) {editCodeService.interruptURIStreaming({ uri: uri });}
+			notificationService.info(markdownApplyS.applyErrorRuntime(`${e}`));
 
-		})
-		metricsService.capture('Apply Code', { length: codeStr.length }) // capture the length only
+		});
+		metricsService.capture('Apply Code', { length: codeStr.length }); // capture the length only
 
-	}, [setApplying, currStreamStateRef, editCodeService, codeStr, uri, applyBoxId, metricsService, notificationService])
+	}, [setApplying, currStreamStateRef, editCodeService, codeStr, uri, applyBoxId, metricsService, notificationService]);
 
 
 	const onClickStop = useCallback(() => {
-		if (currStreamStateRef.current !== 'streaming') return
-		const uri = getUriBeingApplied(applyBoxId)
-		if (!uri) return
+		if (currStreamStateRef.current !== 'streaming') {return;}
+		const uri = getUriBeingApplied(applyBoxId);
+		if (!uri) {return;}
 
-		editCodeService.interruptURIStreaming({ uri })
-		metricsService.capture('Stop Apply', {})
-	}, [currStreamStateRef, applyBoxId, editCodeService, metricsService])
+		editCodeService.interruptURIStreaming({ uri });
+		metricsService.capture('Stop Apply', {});
+	}, [currStreamStateRef, applyBoxId, editCodeService, metricsService]);
 
 	const onAccept = useCallback(() => {
-		const uri = getUriBeingApplied(applyBoxId)
-		if (uri) editCodeService.acceptOrRejectAllDiffAreas({ uri: uri, behavior: 'accept', removeCtrlKs: false })
-	}, [uri, applyBoxId, editCodeService])
+		const uri = getUriBeingApplied(applyBoxId);
+		if (uri) {editCodeService.acceptOrRejectAllDiffAreas({ uri: uri, behavior: 'accept', removeCtrlKs: false });}
+	}, [uri, applyBoxId, editCodeService]);
 
 	const onReject = useCallback(() => {
-		const uri = getUriBeingApplied(applyBoxId)
-		if (uri) editCodeService.acceptOrRejectAllDiffAreas({ uri: uri, behavior: 'reject', removeCtrlKs: false })
-	}, [uri, applyBoxId, editCodeService])
+		const uri = getUriBeingApplied(applyBoxId);
+		if (uri) {editCodeService.acceptOrRejectAllDiffAreas({ uri: uri, behavior: 'reject', removeCtrlKs: false });}
+	}, [uri, applyBoxId, editCodeService]);
 
-	const currStreamState = currStreamStateRef.current
+	const currStreamState = currStreamStateRef.current;
 	if (currStreamState === 'streaming') {
 		return <IconShell1
 			Icon={Square}
 			onClick={onClickStop}
 			{...tooltipPropsForApplyBlock({ tooltipName: markdownApplyS.stop })}
-		/>
+		/>;
 	}
 	if (isDisabled) {
-		return null
+		return null;
 	}
 	if (currStreamState === 'idle-no-changes') {
 		return <IconShell1
 			Icon={Play}
 			onClick={onClickSubmit}
 			{...tooltipPropsForApplyBlock({ tooltipName: markdownApplyS.apply })}
-		/>
+		/>;
 	}
 	if (currStreamState === 'idle-has-changes') {
 		return <Fragment>
@@ -422,30 +422,30 @@ const ApplyButtonsForEdit = ({
 				onClick={onAccept}
 				{...tooltipPropsForApplyBlock({ tooltipName: markdownApplyS.keep })}
 			/>
-		</Fragment>
+		</Fragment>;
 	}
-}
+};
 
 
 
 
 
 export const ApplyButtonsHTML = (params: {
-	codeStr: string,
-	applyBoxId: string,
-	language?: string,
+	codeStr: string;
+	applyBoxId: string;
+	language?: string;
 	uri: URI | 'current';
 }) => {
-	const { language } = params
-	const isShellLanguage = !!language && terminalLanguages.has(language)
+	const { language } = params;
+	const isShellLanguage = !!language && terminalLanguages.has(language);
 
 	if (isShellLanguage) {
-		return <ApplyButtonsForTerminal {...params} />
+		return <ApplyButtonsForTerminal {...params} />;
 	}
 	else {
-		return <ApplyButtonsForEdit {...params} />
+		return <ApplyButtonsForEdit {...params} />;
 	}
-}
+};
 
 
 
@@ -458,42 +458,42 @@ export const EditToolAcceptRejectButtonsHTML = ({
 	type,
 	threadId,
 }: {
-	codeStr: string,
-	applyBoxId: string,
+	codeStr: string;
+	applyBoxId: string;
 } & ({
-	uri: URI,
-	type: 'edit_file' | 'rewrite_file',
-	threadId: string,
+	uri: URI;
+	type: 'edit_file' | 'rewrite_file';
+	threadId: string;
 })
 ) => {
-	const accessor = useAccessor()
-	const editCodeService = accessor.get('IEditCodeService')
-	const metricsService = accessor.get('IMetricsService')
+	const accessor = useAccessor();
+	const editCodeService = accessor.get('IEditCodeService');
+	const metricsService = accessor.get('IMetricsService');
 
-	const { streamState } = useEditToolStreamState({ applyBoxId, uri })
-	const settingsState = useSettingsState()
+	const { streamState } = useEditToolStreamState({ applyBoxId, uri });
+	const settingsState = useSettingsState();
 
-	const chatThreadsStreamState = useChatThreadsStreamState(threadId)
-	const isRunning = chatThreadsStreamState?.isRunning
+	const chatThreadsStreamState = useChatThreadsStreamState(threadId);
+	const isRunning = chatThreadsStreamState?.isRunning;
 
-	const isDisabled = !!isFeatureNameDisabled('Chat', settingsState) || !applyBoxId
+	const isDisabled = !!isFeatureNameDisabled('Chat', settingsState) || !applyBoxId;
 
 	const onAccept = useCallback(() => {
-		editCodeService.acceptOrRejectAllDiffAreas({ uri, behavior: 'accept', removeCtrlKs: false })
-	}, [uri, applyBoxId, editCodeService])
+		editCodeService.acceptOrRejectAllDiffAreas({ uri, behavior: 'accept', removeCtrlKs: false });
+	}, [uri, applyBoxId, editCodeService]);
 
 	const onReject = useCallback(() => {
-		editCodeService.acceptOrRejectAllDiffAreas({ uri, behavior: 'reject', removeCtrlKs: false })
-	}, [uri, applyBoxId, editCodeService])
+		editCodeService.acceptOrRejectAllDiffAreas({ uri, behavior: 'reject', removeCtrlKs: false });
+	}, [uri, applyBoxId, editCodeService]);
 
-	if (isDisabled) return null
+	if (isDisabled) {return null;}
 
 	if (streamState === 'idle-no-changes') {
-		return null
+		return null;
 	}
 
 	if (streamState === 'idle-has-changes') {
-		if (isRunning === 'LLM' || isRunning === 'tool') return null
+		if (isRunning === 'LLM' || isRunning === 'tool') {return null;}
 
 		return <>
 			<IconShell1
@@ -506,10 +506,10 @@ export const EditToolAcceptRejectButtonsHTML = ({
 				onClick={onAccept}
 				{...tooltipPropsForApplyBlock({ tooltipName: markdownApplyS.keep })}
 			/>
-		</>
+		</>;
 	}
 
-}
+};
 
 export const BlockCodeApplyWrapper = ({
 	children,
@@ -524,12 +524,12 @@ export const BlockCodeApplyWrapper = ({
 	applyBoxId: string;
 	canApply: boolean;
 	language: string;
-	uri: URI | 'current',
+	uri: URI | 'current';
 }) => {
-	const accessor = useAccessor()
-	const commandService = accessor.get('ICommandService')
-	const { currStreamStateRef } = useApplyStreamState({ applyBoxId })
-	const currStreamState = currStreamStateRef.current
+	const accessor = useAccessor();
+	const commandService = accessor.get('ICommandService');
+	const { currStreamStateRef } = useApplyStreamState({ applyBoxId });
+	const currStreamState = currStreamStateRef.current;
 
 
 	const name = uri !== 'current' ?
@@ -537,9 +537,9 @@ export const BlockCodeApplyWrapper = ({
 			name={<span className='not-italic'>{getBasename(uri.fsPath)}</span>}
 			isSmall={true}
 			showDot={false}
-			onClick={() => { voidOpenFileFn(uri, accessor) }}
+			onClick={() => { voidOpenFileFn(uri, accessor); }}
 		/>
-		: <span>{language}</span>
+		: <span>{language}</span>;
 
 
 	return <div className='border border-vibe-border-3 rounded overflow-hidden bg-vibe-bg-3 my-1'>
@@ -564,6 +564,6 @@ export const BlockCodeApplyWrapper = ({
 				{children}
 			</div>
 		</div>
-	</div>
+	</div>;
 
-}
+};

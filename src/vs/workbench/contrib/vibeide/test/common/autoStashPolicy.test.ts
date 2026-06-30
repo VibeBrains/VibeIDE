@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -9,6 +10,7 @@ import {
 	decodeAutoStashSetting,
 	AutoStashSetting,
 } from '../../common/autoStashPolicy.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const decide = (
 	setting: AutoStashSetting,
@@ -18,6 +20,8 @@ const decide = (
 ) => decideAutoStash({ setting, editTargets, dirtyFiles, perFilePermissions });
 
 suite('Auto-stash policy (1058)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decideAutoStash', () => {
 		test('"always" stashes regardless of dirty state', () => {

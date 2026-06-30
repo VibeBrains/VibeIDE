@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Multi-window coordinator — pure decision helper.
@@ -83,12 +84,12 @@ export function decideWindowRole(input: WindowRoleInput): WindowRole {
  * on any malformation. Use to bridge between `safeParseConfigJson` and `decideWindowRole`.
  */
 export function decodeWindowLock(raw: unknown): WindowLock | null {
-	if (!raw || typeof raw !== 'object') return null;
+	if (!raw || typeof raw !== 'object') { return null; }
 	const r = raw as Record<string, unknown>;
 	const pid = typeof r.pid === 'number' && Number.isFinite(r.pid) && r.pid > 0 ? r.pid : null;
 	const startedAtMs = typeof r.startedAtMs === 'number' && Number.isFinite(r.startedAtMs) ? r.startedAtMs : null;
 	const lastHeartbeatAtMs = typeof r.lastHeartbeatAtMs === 'number' && Number.isFinite(r.lastHeartbeatAtMs) ? r.lastHeartbeatAtMs : null;
-	if (pid === null || startedAtMs === null || lastHeartbeatAtMs === null) return null;
+	if (pid === null || startedAtMs === null || lastHeartbeatAtMs === null) { return null; }
 	const windowId = typeof r.windowId === 'string' && r.windowId.length > 0 ? r.windowId : undefined;
 	return { pid, startedAtMs, lastHeartbeatAtMs, windowId };
 }

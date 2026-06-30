@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * VibeIDE language-pack VSIX builder — pure shapes + IO orchestrator.
@@ -48,7 +49,7 @@ export type DecodeResult<T> =
 	| { readonly ok: false; readonly reason: string };
 
 export function decodeLanguagePackContribution(raw: unknown): DecodeResult<LanguagePackContribution> {
-	if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not-an-object' };
+	if (!raw || typeof raw !== 'object') { return { ok: false, reason: 'not-an-object' }; }
 	const o = raw as Record<string, unknown>;
 	if (typeof o.id !== 'string' || !SUPPORTED_LOCALE_TAG_PATTERN.test(o.id)) {
 		return { ok: false, reason: 'id-invalid' };
@@ -63,11 +64,11 @@ export function decodeLanguagePackContribution(raw: unknown): DecodeResult<Langu
 	const seenIds = new Set<string>();
 	for (let i = 0; i < o.translations.length; i++) {
 		const t = o.translations[i];
-		if (!t || typeof t !== 'object') return { ok: false, reason: `translations[${i}]:not-object` };
+		if (!t || typeof t !== 'object') { return { ok: false, reason: `translations[${i}]:not-object` }; }
 		const e = t as Record<string, unknown>;
-		if (typeof e.id !== 'string' || e.id.length === 0) return { ok: false, reason: `translations[${i}]:id-missing` };
-		if (typeof e.path !== 'string' || e.path.length === 0) return { ok: false, reason: `translations[${i}]:path-missing` };
-		if (seenIds.has(e.id)) return { ok: false, reason: `translations[${i}]:duplicate-id:${e.id}` };
+		if (typeof e.id !== 'string' || e.id.length === 0) { return { ok: false, reason: `translations[${i}]:id-missing` }; }
+		if (typeof e.path !== 'string' || e.path.length === 0) { return { ok: false, reason: `translations[${i}]:path-missing` }; }
+		if (seenIds.has(e.id)) { return { ok: false, reason: `translations[${i}]:duplicate-id:${e.id}` }; }
 		seenIds.add(e.id);
 		translations.push({ id: e.id, path: e.path });
 	}
@@ -183,7 +184,7 @@ export function writeLanguagePackLayout(
 		const safeRel = relPath.replace(/^[/\\]+/, '').replace(/[\\]/g, '/');
 		const absPath = io.joinPath(mainDir, ...safeRel.split('/'));
 		const dir = absPath.slice(0, absPath.length - safeRel.split('/').slice(-1)[0].length);
-		if (dir.length > 0) io.mkdirRecursive(dir);
+		if (dir.length > 0) { io.mkdirRecursive(dir); }
 		io.writeFileUtf8(absPath, stringifySortedMap(map));
 		written.push(absPath);
 	}
@@ -210,7 +211,7 @@ export function writeLanguagePackLayout(
 function stringifySortedMap(map: ReadonlyMap<string, string>): string {
 	const sorted = [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
 	const obj: Record<string, string> = {};
-	for (const [k, v] of sorted) obj[k] = v;
+	for (const [k, v] of sorted) { obj[k] = v; }
 	return JSON.stringify(obj, null, '\t') + '\n';
 }
 
@@ -302,7 +303,7 @@ export function planLanguagePackRelease(input: {
 			throw new LanguagePackNotImplementedError(`planLanguagePackRelease(invalid-locale=${String(raw)})`);
 		}
 		const tag = raw.toLowerCase();
-		if (seen.has(tag)) continue;
+		if (seen.has(tag)) { continue; }
 		seen.add(tag);
 		assets.push({ localeTag: tag, assetName: buildLanguagePackAssetName(tag, input.vibeVersion) });
 	}

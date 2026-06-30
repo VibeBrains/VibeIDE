@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Crash-clustering pure helper (roadmap W.48).
@@ -42,12 +43,12 @@ function signatureFor(crash: WatchdogCrashEntry, rssBucketMB: number = RSS_BUCKE
 export function clusterCrashes(lines: readonly WatchdogLine[]): readonly CrashCluster[] {
 	const map = new Map<string, { count: number; lastSeen: string; proc: string; reason: string | undefined }>();
 	for (const line of lines) {
-		if (!isCrash(line)) continue;
+		if (!isCrash(line)) { continue; }
 		const sig = signatureFor(line);
 		const existing = map.get(sig);
 		if (existing) {
 			existing.count += 1;
-			if (line.ts > existing.lastSeen) existing.lastSeen = line.ts;
+			if (line.ts > existing.lastSeen) { existing.lastSeen = line.ts; }
 		} else {
 			map.set(sig, { count: 1, lastSeen: line.ts, proc: line.proc, reason: line.reason });
 		}

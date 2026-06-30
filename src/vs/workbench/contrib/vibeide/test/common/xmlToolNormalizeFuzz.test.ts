@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * X.3 / X.15.9 — deterministic property-based fuzz tests for the XML
@@ -17,6 +18,7 @@
  */
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	normalizeAlternativeToolSyntax,
 	stripUnclaimedToolTags,
@@ -99,6 +101,8 @@ const ITERATIONS_PER_SEED = 20;
 const MAX_EXPLOSION_RATIO = 10;
 
 suite('XML normalize — fuzz / property tests (X.3 / X.15.9)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('normalize: never throws across 200 random inputs', () => {
 		for (const seed of SEEDS) {

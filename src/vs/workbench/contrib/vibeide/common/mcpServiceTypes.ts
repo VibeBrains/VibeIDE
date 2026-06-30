@@ -1,22 +1,8 @@
-/**
- * mcp-response-types.ts
- * --------------------------------------------------
- * **Pure** TypeScript interfaces (no external imports)
- * describing the JSON-RPC response shapes for:
- *
- *   1. tools/list      -> ToolsListResponse
- *   2. prompts/list    -> PromptsListResponse
- *   3. tools/call      -> ToolCallResponse
- *
- * They are distilled directly from the official MCP
- * 2025‑03‑26 specification:
- *   • Tools list response examples
- *   • Prompts list response examples
- *   • Tool call response examples
- *
- * Use them to get full IntelliSense when working with
- * @modelcontextprotocol/inspector‑cli responses.
- */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 
 /* -------------------------------------------------- */
@@ -174,16 +160,16 @@ export interface MCPConfigFileJSON {
 
 export type MCPServer = {
 	// Command-based server properties
-	tools: MCPTool[],
-	status: 'loading' | 'success' | 'offline',
-	command?: string,
-	error?: string,
+	tools: MCPTool[];
+	status: 'loading' | 'success' | 'offline';
+	command?: string;
+	error?: string;
 } | {
-	tools?: undefined,
-	status: 'error',
-	command?: string,
-	error: string,
-}
+	tools?: undefined;
+	status: 'error';
+	command?: string;
+	error: string;
+};
 
 export interface MCPServerOfName {
 	[serverName: string]: MCPServer;
@@ -193,14 +179,14 @@ export type MCPServerEvent = {
 	name: string;
 	prevServer?: MCPServer;
 	newServer?: MCPServer;
-}
-export type MCPServerEventResponse = { response: MCPServerEvent }
+};
+export type MCPServerEventResponse = { response: MCPServerEvent };
 
 export interface MCPConfigFileParseErrorResponse {
 	response: {
 		type: 'config-file-error';
 		error: string | null;
-	}
+	};
 }
 
 
@@ -254,8 +240,8 @@ type MCPToolResponseConstraints = {
 	'resource': {
 		text?: never;
 		image?: never;
-	}
-}
+	};
+};
 
 type MCPToolEventResponse<T extends MCPToolResponseType> = Omit<MCPToolResponseBase, 'event' | keyof MCPToolResponseConstraints> & MCPToolResponseConstraints[T] & { event: T };
 
@@ -283,6 +269,6 @@ export interface MCPToolCallParams {
  * unchanged if it contains no underscore (i.e. nothing to strip).
  */
 export const removeMCPToolNamePrefix = (name: string) => {
-	const stripped = name.split('_').slice(1).join('_')
-	return stripped || name
-}
+	const stripped = name.split('_').slice(1).join('_');
+	return stripped || name;
+};

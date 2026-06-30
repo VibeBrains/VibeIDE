@@ -1,15 +1,18 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	checkNpmCliAlignment,
 	renderAlignmentReport,
 } from '../../common/npmCliAlignmentCheck.js';
 
 suite('npm scripts ↔ CLI alignment check (1137)', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('checkNpmCliAlignment', () => {
 		test('empty scripts → empty report', () => {

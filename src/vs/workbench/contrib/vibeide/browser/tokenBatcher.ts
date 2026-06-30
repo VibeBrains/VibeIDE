@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Token Batcher for smooth 60 FPS streaming updates
@@ -10,10 +11,13 @@
  * without blocking the UI thread.
  */
 
+import { getActiveWindow } from '../../../../base/browser/dom.js';
+import { RawToolCallObj } from '../common/sendLLMMessageTypes.js';
+
 export interface BatchedUpdate {
 	fullText: string;
 	fullReasoning: string;
-	toolCall?: any;
+	toolCall?: RawToolCallObj;
 }
 
 export type TokenUpdateCallback = (update: BatchedUpdate) => void;
@@ -38,7 +42,7 @@ export class TokenBatcher {
 
 		// Schedule batch flush if not already scheduled
 		if (this._rafId === null) {
-			this._rafId = requestAnimationFrame(() => this._flush());
+			this._rafId = getActiveWindow().requestAnimationFrame(() => this._flush());
 		}
 	}
 
@@ -47,7 +51,7 @@ export class TokenBatcher {
 	 */
 	flush(): void {
 		if (this._rafId !== null) {
-			cancelAnimationFrame(this._rafId);
+			getActiveWindow().cancelAnimationFrame(this._rafId);
 			this._rafId = null;
 		}
 		this._flush();
@@ -90,7 +94,7 @@ export class TokenBatcher {
 	 */
 	dispose(): void {
 		if (this._rafId !== null) {
-			cancelAnimationFrame(this._rafId);
+			getActiveWindow().cancelAnimationFrame(this._rafId);
 			this._rafId = null;
 		}
 		this._pendingUpdate = null;

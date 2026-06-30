@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — Settings → Workspace → Project Commands "Add new" form policy.
@@ -150,14 +151,14 @@ export function buildProjectCommandFromDraft(draft: AddCommandDraft): ProjectCom
 		command: draft.command.trim(),
 	};
 	const description = draft.description.trim();
-	if (description) cmd.description = description;
-	if (args.length > 0) cmd.args = args;
+	if (description) { cmd.description = description; }
+	if (args.length > 0) { cmd.args = args; }
 	const cwd = draft.cwd.trim();
-	if (cwd) cmd.cwd = cwd;
+	if (cwd) { cmd.cwd = cwd; }
 	if (draft.terminal === 'integrated' || draft.terminal === 'external' || draft.terminal === 'background') {
 		cmd.terminal = draft.terminal;
 	}
-	if (draft.pinned) cmd.pinned = true;
+	if (draft.pinned) { cmd.pinned = true; }
 	const orderText = draft.orderText.trim();
 	if (orderText) {
 		const n = Number(orderText);
@@ -244,7 +245,7 @@ export function replaceCommandInFile(
 	updated: ProjectCommand,
 ): { file: ProjectCommandsFile; serialized: string } | null {
 	const idx = file.commands.findIndex(c => c.id === id);
-	if (idx < 0) return null;
+	if (idx < 0) { return null; }
 	const next = [...file.commands];
 	next[idx] = updated;
 	const updatedFile: ProjectCommandsFile = {
@@ -264,7 +265,7 @@ export function setPinnedInFile(
 	id: string,
 	pinned: boolean,
 ): { file: ProjectCommandsFile; serialized: string } | null {
-	if (!file.commands.some(c => c.id === id)) return null;
+	if (!file.commands.some(c => c.id === id)) { return null; }
 	const updated: ProjectCommandsFile = {
 		vibeVersion: file.vibeVersion,
 		commands: file.commands.map(c => c.id === id ? { ...c, pinned } : c),
@@ -279,7 +280,7 @@ export function removeCommandFromFile(
 	file: ProjectCommandsFile,
 	id: string,
 ): { file: ProjectCommandsFile; serialized: string } | null {
-	if (!file.commands.some(c => c.id === id)) return null;
+	if (!file.commands.some(c => c.id === id)) { return null; }
 	const updated: ProjectCommandsFile = {
 		vibeVersion: file.vibeVersion,
 		commands: file.commands.filter(c => c.id !== id),

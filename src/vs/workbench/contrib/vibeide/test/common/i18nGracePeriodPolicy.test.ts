@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -10,6 +11,7 @@ import {
 	describeI18nGate,
 	I18nLocaleSnapshot,
 } from '../../common/i18nGracePeriodPolicy.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 function snapshot(translated: readonly string[], needs: readonly string[] = []): I18nLocaleSnapshot {
 	return {
@@ -19,6 +21,8 @@ function snapshot(translated: readonly string[], needs: readonly string[] = []):
 }
 
 suite('i18n CI gate — grace-period policy', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decideI18nGate', () => {
 		test('all translated → ok, 100%', () => {
@@ -208,7 +212,7 @@ suite('i18n CI gate — grace-period policy', () => {
 
 		test('truncates after 20 keys with «…и ещё N»', () => {
 			const meta: string[] = [];
-			for (let i = 0; i < 25; i++) meta.push(`k${String(i).padStart(2, '0')}`);
+			for (let i = 0; i < 25; i++) { meta.push(`k${String(i).padStart(2, '0')}`); }
 			const dec = decideI18nGate({
 				metadataKeys: new Set(meta),
 				baseSnapshot: snapshot([]),

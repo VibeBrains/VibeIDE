@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { addDisposableListener } from '../../../../base/browser/dom.js';
@@ -185,7 +186,8 @@ class VibeNotifySoundService extends Disposable implements IVibeNotifySoundServi
 	private _ensureCtx(): AudioContext | undefined {
 		if (!this._audioCtx) {
 			try {
-				const Ctor: typeof AudioContext | undefined = (globalThis as any).AudioContext ?? (globalThis as any).webkitAudioContext;
+				const audioGlobal = globalThis as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
+				const Ctor: typeof AudioContext | undefined = audioGlobal.AudioContext ?? audioGlobal.webkitAudioContext;
 				if (!Ctor) { return undefined; }
 				this._audioCtx = new Ctor();
 			} catch (err) {

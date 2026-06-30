@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
@@ -82,7 +83,7 @@ class ModelsDevCatalogRecheckAction extends Action2 {
 		let status: ModelsDevCatalogStatus;
 		try {
 			const result = await Promise.race([statusSvc.recheck(), timeoutPromise]);
-			if (timeoutHandle !== null) clearTimeout(timeoutHandle);
+			if (timeoutHandle !== null) { clearTimeout(timeoutHandle); }
 			if (result === timeoutSentinel) {
 				modalSvc.closeHead();
 				await showLoading;
@@ -99,7 +100,7 @@ class ModelsDevCatalogRecheckAction extends Action2 {
 			}
 			status = result;
 		} catch (e) {
-			if (timeoutHandle !== null) clearTimeout(timeoutHandle);
+			if (timeoutHandle !== null) { clearTimeout(timeoutHandle); }
 			modalSvc.closeHead();
 			await showLoading;
 			void modalSvc.errorModal({
@@ -155,7 +156,7 @@ class ModelsDevCatalogRecheckAction extends Action2 {
 					{ id: 'ok', label: localize('vibeide.modal.gotIt', 'Понятно'), role: 'primary' },
 				],
 			}).then(async r => {
-				if (r.buttonId === 'copyUrl') await clipboard.writeText(MODELS_DEV_URL);
+				if (r.buttonId === 'copyUrl') { await clipboard.writeText(MODELS_DEV_URL); }
 			});
 			return;
 		}
@@ -180,8 +181,8 @@ class ModelsDevCatalogRecheckAction extends Action2 {
 					{ id: 'openUrl', label: localize('vibeide.modelsDev.openUrl', 'Открыть models.dev/api.json'), role: 'primary' },
 				],
 			}).then(async r => {
-				if (r.buttonId === 'openUrl') await opener.open(URI.parse(MODELS_DEV_URL));
-				else if (r.buttonId === 'copyUrl') await clipboard.writeText(MODELS_DEV_URL);
+				if (r.buttonId === 'openUrl') { await opener.open(URI.parse(MODELS_DEV_URL)); }
+				else if (r.buttonId === 'copyUrl') { await clipboard.writeText(MODELS_DEV_URL); }
 			});
 			return;
 		}

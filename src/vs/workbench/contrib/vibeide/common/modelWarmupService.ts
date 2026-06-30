@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -9,7 +10,7 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 import { ILLMMessageService } from './sendLLMMessageService.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { ModelSelection, ProviderName, FeatureName } from './vibeideSettingsTypes.js';
-import { isLocalProvider } from '../browser/convertToLLMMessageService.js';
+import { isLocalProvider } from './isLocalProvider.js';
 
 export interface IModelWarmupService {
 	readonly _serviceBrand: undefined;
@@ -31,7 +32,7 @@ export const IModelWarmupService = createDecorator<IModelWarmupService>('ModelWa
  * to keep local models ready, reducing first-request latency.
  */
 export class ModelWarmupService extends Disposable implements IModelWarmupService {
-	static readonly ID = 'vibeide.modelWarmupService'
+	static readonly ID = 'vibeide.modelWarmupService';
 
 	_serviceBrand: undefined;
 
@@ -39,19 +40,19 @@ export class ModelWarmupService extends Disposable implements IModelWarmupServic
 	 * Track last warm-up time per (providerName, modelName).
 	 * Key format: `${providerName}:${modelName}`
 	 */
-	private readonly _lastWarmupTime = new Map<string, number>()
+	private readonly _lastWarmupTime = new Map<string, number>();
 
 	/**
 	 * Cooldown period in milliseconds (60-120 seconds as specified).
 	 * Models won't be warmed up more than once per cooldown period.
 	 */
-	private readonly WARMUP_COOLDOWN_MS = 90_000 // 90 seconds
+	private readonly WARMUP_COOLDOWN_MS = 90_000; // 90 seconds
 
 	constructor(
 		@ILLMMessageService private readonly _llmMessageService: ILLMMessageService,
 		@IVibeideSettingsService private readonly _settingsService: IVibeideSettingsService,
 	) {
-		super()
+		super();
 	}
 
 	/**
@@ -60,35 +61,35 @@ export class ModelWarmupService extends Disposable implements IModelWarmupServic
 	 */
 	warmupModelIfNeeded(providerName: ProviderName, modelName: string, featureName: FeatureName): void {
 		// Only warm up local providers
-		const settingsOfProvider = this._settingsService.state.settingsOfProvider
+		const settingsOfProvider = this._settingsService.state.settingsOfProvider;
 		if (!isLocalProvider(providerName, settingsOfProvider)) {
-			return // Skip cloud providers
+			return; // Skip cloud providers
 		}
 
 		// Skip "auto" model (providerName is already validated by isLocalProvider check above)
 		if (modelName === 'auto') {
-			return
+			return;
 		}
 
-		const cacheKey = `${providerName}:${modelName}`
-		const lastWarmup = this._lastWarmupTime.get(cacheKey)
-		const now = Date.now()
+		const cacheKey = `${providerName}:${modelName}`;
+		const lastWarmup = this._lastWarmupTime.get(cacheKey);
+		const now = Date.now();
 
 		// Check cooldown
 		if (lastWarmup && (now - lastWarmup) < this.WARMUP_COOLDOWN_MS) {
-			return // Still in cooldown period
+			return; // Still in cooldown period
 		}
 
 		// Update warm-up time immediately to prevent duplicate warm-ups
-		this._lastWarmupTime.set(cacheKey, now)
+		this._lastWarmupTime.set(cacheKey, now);
 
 		// Fire tiny background request (1 token, minimal prompt)
 		// This is fire-and-forget - we don't wait for it or handle errors
 		this._warmupModelBackground(providerName, modelName, featureName).catch(() => {
 			// Silently ignore errors - warm-up failures shouldn't affect user experience
 			// Reset warm-up time on error so we can retry next time
-			this._lastWarmupTime.delete(cacheKey)
-		})
+			this._lastWarmupTime.delete(cacheKey);
+		});
 	}
 
 	/**
@@ -96,11 +97,11 @@ export class ModelWarmupService extends Disposable implements IModelWarmupServic
 	 * Uses minimal prompt (just ".") and 1 token to minimize overhead.
 	 */
 	private async _warmupModelBackground(providerName: ProviderName, modelName: string, featureName: FeatureName): Promise<void> {
-		const modelSelection: ModelSelection = { providerName, modelName }
-		const overridesOfModel = this._settingsService.state.overridesOfModel
+		const modelSelection: ModelSelection = { providerName, modelName };
+		const overridesOfModel = this._settingsService.state.overridesOfModel;
 
 		// Use FIM for autocomplete, chat for others (minimal prompt)
-		const isAutocomplete = featureName === 'Autocomplete'
+		const isAutocomplete = featureName === 'Autocomplete';
 
 		if (isAutocomplete) {
 			// For FIM, use minimal prefix/suffix

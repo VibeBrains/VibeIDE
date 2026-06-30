@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -10,13 +11,16 @@ import {
 	buildPackageJsonAdditions,
 	ensureHuskyInstalled,
 } from '../../common/huskyLintStagedSkeleton.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('Husky / lint-staged config skeleton + sentinel', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('buildLintStagedConfig', () => {
 		test('returns config with vibeide TS glob', () => {
 			const c = buildLintStagedConfig();
-			assert.ok('src/vs/workbench/contrib/vibeide/**/*.{ts,tsx,js}' in c);
+			assert.ok(Object.hasOwn(c, 'src/vs/workbench/contrib/vibeide/**/*.{ts,tsx,js}'));
 		});
 
 		test('vibeide TS glob runs eslint --fix', () => {
@@ -27,12 +31,12 @@ suite('Husky / lint-staged config skeleton + sentinel', () => {
 
 		test('extensions glob included', () => {
 			const c = buildLintStagedConfig();
-			assert.ok('extensions/vibeide-*/**/*.{ts,js}' in c);
+			assert.ok(Object.hasOwn(c, 'extensions/vibeide-*/**/*.{ts,js}'));
 		});
 
 		test('skill SKILL.md glob included for validator', () => {
 			const c = buildLintStagedConfig();
-			assert.ok('.vibe/skills/**/SKILL.md' in c);
+			assert.ok(Object.hasOwn(c, '.vibe/skills/**/SKILL.md'));
 			const cmds = c['.vibe/skills/**/SKILL.md'];
 			assert.ok(cmds.some(cmd => cmd.includes('vibe-skills-validate')));
 		});

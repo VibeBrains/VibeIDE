@@ -1,7 +1,9 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+import { importAMDNodeModule } from '../../../../../amdX.js';
 import { vibeLog } from '../vibeLog.js';
 
 /**
@@ -31,6 +33,29 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
 	return buffer;
 }
 
+/** Minimal subset of a Tesseract.js word used during block grouping. */
+interface TesseractWord {
+	text: string;
+	confidence: number;
+	bbox: { x0: number; y0: number; x1: number; y1: number };
+}
+
+/** Minimal subset of the Tesseract.js `recognize` result we consume. */
+interface TesseractRecognizeResult {
+	data: { text?: string; words?: TesseractWord[] };
+}
+
+/** Minimal subset of the Tesseract.js worker API used by this service. */
+interface TesseractWorker {
+	recognize(image: Uint8Array): Promise<TesseractRecognizeResult>;
+	terminate(): Promise<unknown>;
+}
+
+/** Minimal subset of the Tesseract.js module entry used by this service. */
+interface TesseractModule {
+	createWorker(lang: string): Promise<TesseractWorker>;
+}
+
 /**
  * OCR Service interface
  */
@@ -58,36 +83,39 @@ export interface IOCRService {
  * Dynamically loaded to avoid bundle size bloat
  */
 export class TesseractOCRService implements IOCRService {
-	private tesseractWorker: any = null;
+	private tesseractWorker: TesseractWorker | null = null;
 	private workerInitialized = false;
 
-	private async ensureWorker(): Promise<void> {
-		if (this.workerInitialized && this.tesseractWorker) return;
+	private async ensureWorker(): Promise<TesseractWorker> {
+		if (this.workerInitialized && this.tesseractWorker) { return this.tesseractWorker; }
 
 		try {
 			// Dynamic import to avoid bundle bloat — kept guarded in case the package fails to load at runtime.
 			// The previous .catch swallowed the real reason silently; surface it once so failures can be diagnosed.
 			let importError: unknown = null;
-			const tesseractModule = await import('tesseract.js').catch((err) => { importError = err; return null; });
+			const tesseractModule = await importAMDNodeModule<TesseractModule>('tesseract.js', 'dist/tesseract.min.js').catch((err) => { importError = err; return null; });
 			if (!tesseractModule) {
 				const reason = importError instanceof Error ? importError.message : String(importError);
 				vibeLog.warn('ocr', '[OCR] tesseract.js dynamic import failed:', reason);
 				throw new Error(`tesseract.js failed to load: ${reason}`);
 			}
 			const { createWorker } = tesseractModule;
-			this.tesseractWorker = await createWorker('eng');
+			const worker = await createWorker('eng');
+			this.tesseractWorker = worker;
 			this.workerInitialized = true;
-		} catch (error: any) {
+			return worker;
+		} catch (error: unknown) {
 			vibeLog.error('ocr', 'Failed to initialize Tesseract worker:', error);
-			throw new Error(`OCR service unavailable: ${error.message || 'Tesseract.js failed to load'}`);
+			const message = error instanceof Error ? error.message : '';
+			throw new Error(`OCR service unavailable: ${message || 'Tesseract.js failed to load'}`);
 		}
 	}
 
 	async extract(imageData: Uint8Array, mimeType: string): Promise<OCRResult> {
-		await this.ensureWorker();
+		const tesseractWorker = await this.ensureWorker();
 
 		try {
-			const result = await this.tesseractWorker.recognize(imageData);
+			const result = await tesseractWorker.recognize(imageData);
 
 			// Parse Tesseract result into structured format
 			const blocks: OCRBlock[] = [];
@@ -123,7 +151,7 @@ export class TesseractOCRService implements IOCRService {
 
 					// Simple grouping: merge words on same line
 					if (!currentBlock || Math.abs(bbox.y - currentBlock.bbox.y) > bbox.height * 0.5) {
-						if (currentBlock) blocks.push(currentBlock);
+						if (currentBlock) { blocks.push(currentBlock); }
 						currentBlock = { ...block };
 					} else {
 						currentBlock.text += ' ' + block.text;
@@ -137,7 +165,7 @@ export class TesseractOCRService implements IOCRService {
 					}
 				}
 
-				if (currentBlock) blocks.push(currentBlock);
+				if (currentBlock) { blocks.push(currentBlock); }
 			}
 
 			// Extract full text
@@ -151,12 +179,13 @@ export class TesseractOCRService implements IOCRService {
 				fullText,
 				totalChars: fullText.length,
 			};
-		} catch (error: any) {
+		} catch (error: unknown) {
+			const message = error instanceof Error ? error.message : '';
 			return {
 				blocks: [],
 				tables: [],
 				code_blocks: [],
-				errors: [error.message || 'OCR failed'],
+				errors: [message || 'OCR failed'],
 				fullText: '',
 				totalChars: 0,
 			};
@@ -198,8 +227,8 @@ export class TesseractOCRService implements IOCRService {
 					// Convert canvas to blob then to Uint8Array
 					const croppedBlob = await new Promise<Blob>((res, rej) => {
 						canvas.toBlob((blob) => {
-							if (blob) res(blob);
-							else rej(new Error('Failed to create blob'));
+							if (blob) { res(blob); }
+							else { rej(new Error('Failed to create blob')); }
 						}, mimeType);
 					});
 

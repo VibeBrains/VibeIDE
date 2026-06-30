@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { useMemo, useState, useCallback, useLayoutEffect, useEffect, useRef, memo } from 'react';
 import { useFloating, autoUpdate, offset, flip, shift, size } from '@floating-ui/react';
@@ -19,7 +20,7 @@ import { DisposableStore } from '../../../../../../../base/common/lifecycle.js';
 export type HistoryScope = { showAll: boolean; currentWorkspaceId: string };
 
 
-const numInitialThreads = 3
+const numInitialThreads = 3;
 
 /**
  * Shared history-scope state: current workspace id + the persisted
@@ -27,27 +28,27 @@ const numInitialThreads = 3
  * re-renders instantly; the service persists it across windows.
  */
 export const useHistoryScope = () => {
-	const accessor = useAccessor()
-	const chatThreadsService = accessor.get('IChatThreadService')
-	const storageService = accessor.get('IStorageService')
-	const [showAll, setShowAllState] = useState(() => chatThreadsService.getHistoryShowAllProjects())
-	const wsId = chatThreadsService.getCurrentWorkspaceId()
+	const accessor = useAccessor();
+	const chatThreadsService = accessor.get('IChatThreadService');
+	const storageService = accessor.get('IStorageService');
+	const [showAll, setShowAllState] = useState(() => chatThreadsService.getHistoryShowAllProjects());
+	const wsId = chatThreadsService.getCurrentWorkspaceId();
 
 	// React to the persisted toggle so every mounted history list (and other
 	// windows) stay in sync — not just the component that flipped it.
 	useEffect(() => {
-		const store = new DisposableStore()
+		const store = new DisposableStore();
 		store.add(storageService.onDidChangeValue(StorageScope.PROFILE, HISTORY_SHOW_ALL_PROJECTS_KEY, store)(() => {
-			setShowAllState(chatThreadsService.getHistoryShowAllProjects())
-		}))
-		return () => store.dispose()
-	}, [storageService, chatThreadsService])
+			setShowAllState(chatThreadsService.getHistoryShowAllProjects());
+		}));
+		return () => store.dispose();
+	}, [storageService, chatThreadsService]);
 
 	const setShowAll = useCallback((v: boolean) => {
-		chatThreadsService.setHistoryShowAllProjects(v) // storage write → onDidChangeValue → all hooks update
-	}, [chatThreadsService])
-	return { showAll, setShowAll, wsId }
-}
+		chatThreadsService.setHistoryShowAllProjects(v); // storage write → onDidChangeValue → all hooks update
+	}, [chatThreadsService]);
+	return { showAll, setShowAll, wsId };
+};
 
 /** Compact "This project / All projects" segmented toggle for the history lists. */
 export const HistoryScopeToggle = ({ showAll, setShowAll, otherCount = 0, className = '' }: { showAll: boolean; setShowAll: (v: boolean) => void; otherCount?: number; className?: string }) => {
@@ -70,48 +71,48 @@ export const HistoryScopeToggle = ({ showAll, setShowAll, otherCount = 0, classN
 				)}
 			</button>
 		</div>
-	)
-}
+	);
+};
 
 export const PastThreadsList = ({ className = '', onAfterSwitch }: { className?: string; onAfterSwitch?: () => void }) => {
 	// List-expansion (show all threads vs the first few). Distinct from the
 	// project-scope `showAll` below — keep separate names to avoid shadowing.
 	const [expanded, setExpanded] = useState(false);
 
-	const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
+	const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
-	const threadsState = useChatThreadsState()
-	const { allThreads } = threadsState
+	const threadsState = useChatThreadsState();
+	const { allThreads } = threadsState;
 
-	const streamState = useFullChatThreadsStreamState()
-	const { showAll, setShowAll, wsId } = useHistoryScope()
+	const streamState = useFullChatThreadsStreamState();
+	const { showAll, setShowAll, wsId } = useHistoryScope();
 
 	// Memoize runningThreadIds computation to avoid recalculating on every render
 	const runningThreadIds = useMemo(() => {
-		const result: { [threadId: string]: IsRunningType | undefined } = {}
+		const result: { [threadId: string]: IsRunningType | undefined } = {};
 		for (const threadId in streamState) {
-			const isRunning = streamState[threadId]?.isRunning
-			if (isRunning) { result[threadId] = isRunning }
+			const isRunning = streamState[threadId]?.isRunning;
+			if (isRunning) { result[threadId] = isRunning; }
 		}
-		return result
-	}, [streamState])
+		return result;
+	}, [streamState]);
 
 	// Message-bearing thread ids, newest first (before workspace scoping).
 	const messageThreadIds = useMemo(() => {
 		return Object.keys(allThreads ?? {})
 			.sort((threadId1, threadId2) => (allThreads?.[threadId1]?.lastModified ?? 0) > (allThreads?.[threadId2]?.lastModified ?? 0) ? -1 : 1)
-			.filter(threadId => (allThreads?.[threadId]?.messages.length ?? 0) !== 0)
-	}, [allThreads])
+			.filter(threadId => (allThreads?.[threadId]?.messages.length ?? 0) !== 0);
+	}, [allThreads]);
 
 	// Scoped to the current project unless the user opted into "all projects".
 	const sortedThreadIds = useMemo(() => {
-		return messageThreadIds.filter(threadId => threadMatchesWorkspace(allThreads![threadId]!, wsId, showAll))
-	}, [messageThreadIds, allThreads, wsId, showAll])
+		return messageThreadIds.filter(threadId => threadMatchesWorkspace(allThreads![threadId]!, wsId, showAll));
+	}, [messageThreadIds, allThreads, wsId, showAll]);
 
 	// Count of history in OTHER projects — drives the toggle visibility + "+N" hint.
 	const otherProjectsCount = useMemo(() => {
-		return messageThreadIds.filter(threadId => !threadMatchesWorkspace(allThreads![threadId]!, wsId, false)).length
-	}, [messageThreadIds, allThreads, wsId])
+		return messageThreadIds.filter(threadId => !threadMatchesWorkspace(allThreads![threadId]!, wsId, false)).length;
+	}, [messageThreadIds, allThreads, wsId]);
 
 	if (!allThreads) {
 		return <div key="error" className="p-1">{chatS.historyError}</div>;
@@ -202,24 +203,24 @@ const formatTime = (date: Date) => {
 
 
 const DuplicateButton = ({ threadId }: { threadId: string }) => {
-	const accessor = useAccessor()
-	const chatThreadsService = accessor.get('IChatThreadService')
+	const accessor = useAccessor();
+	const chatThreadsService = accessor.get('IChatThreadService');
 	return <IconShell1
 		Icon={Copy}
 		className='size-[11px]'
 		onClick={() => { chatThreadsService.duplicateThread(threadId); }}
 	>
-	</IconShell1>
+	</IconShell1>;
 
-}
+};
 
 const TrashButton = ({ threadId, onPressedChange }: { threadId: string; onPressedChange?: (pressed: boolean) => void }) => {
 
-	const accessor = useAccessor()
-	const chatThreadsService = accessor.get('IChatThreadService')
+	const accessor = useAccessor();
+	const chatThreadsService = accessor.get('IChatThreadService');
 
 
-	const [isTrashPressed, setIsTrashPressed] = useState(false)
+	const [isTrashPressed, setIsTrashPressed] = useState(false);
 
 	const setPressed = (v: boolean) => {
 		setIsTrashPressed(v);
@@ -244,8 +245,8 @@ const TrashButton = ({ threadId, onPressedChange }: { threadId: string; onPresse
 			className='size-[11px]'
 			onClick={() => { setPressed(true); }}
 		/>
-	)
-}
+	);
+};
 
 // memo-wrapped: during a state-storm re-render of the history list, only the row whose
 // `pastThread` ref actually changed re-renders; the other 100+ rows bail on shallow-equal
@@ -262,19 +263,19 @@ export const PastThreadElement = memo(({
 	isActive = false,
 	scope,
 }: {
-	pastThread: ThreadType,
-	idx: number,
-	hoveredIdx: number | null,
-	setHoveredIdx: (idx: number | null) => void,
-	isRunning: IsRunningType | undefined,
-	onAfterSwitch?: () => void,
-	isActive?: boolean,
-	scope?: HistoryScope,
+	pastThread: ThreadType;
+	idx: number;
+	hoveredIdx: number | null;
+	setHoveredIdx: (idx: number | null) => void;
+	isRunning: IsRunningType | undefined;
+	onAfterSwitch?: () => void;
+	isActive?: boolean;
+	scope?: HistoryScope;
 }) => {
 
 
-	const accessor = useAccessor()
-	const chatThreadsService = accessor.get('IChatThreadService')
+	const accessor = useAccessor();
+	const chatThreadsService = accessor.get('IChatThreadService');
 
 	const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
 
@@ -329,7 +330,7 @@ export const PastThreadElement = memo(({
 		>
 			{numMessages}<span className='opacity-50 mx-1'>·</span><span className='opacity-80'>{formatDate(new Date(pastThread.lastModified))}</span>
 		</span>
-	)
+	);
 
 	return <div
 		key={pastThread.id}

@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	decideRotationAction,
 	decideRotationsForAll,
@@ -25,6 +27,8 @@ const token = (overrides: Partial<MCPTokenRecord> = {}): MCPTokenRecord => ({
 const known = (...ids: string[]) => new Set(ids);
 
 suite('MCP token rotation policy (920)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decideRotationAction', () => {
 		test('fresh token in known server → no-op', () => {
@@ -90,7 +94,7 @@ suite('MCP token rotation policy (920)', () => {
 			);
 			// Both conditions true, but expires-soon is more urgent.
 			assert.strictEqual(r.kind, 'remind');
-			if (r.kind === 'remind') assert.strictEqual(r.reason, 'expires-soon');
+			if (r.kind === 'remind') { assert.strictEqual(r.reason, 'expires-soon'); }
 		});
 
 		test('lastUsedAt null falls back to storedAt for idle calc', () => {

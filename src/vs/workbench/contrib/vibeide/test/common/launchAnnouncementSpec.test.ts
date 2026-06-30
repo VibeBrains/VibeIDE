@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -10,6 +11,7 @@ import {
 	renderChannelPreview,
 	LaunchAnnouncement,
 } from '../../common/launchAnnouncementSpec.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const BASE: LaunchAnnouncement = {
 	title: 'VibeIDE 0.4 — privacy-first AI IDE forked from VS Code',
@@ -21,6 +23,9 @@ const BASE: LaunchAnnouncement = {
 };
 
 suite('launchAnnouncementSpec — channel validation', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('all channels happy path', () => {
 		const r = validateAnnouncement(BASE, ['hn', 'reddit-rprogramming', 'reddit-rvscode', 'twitter', 'discord', 'mastodon', 'lobsters']);
 		assert.strictEqual(r.ok, true);
@@ -77,6 +82,9 @@ suite('launchAnnouncementSpec — channel validation', () => {
 });
 
 suite('launchAnnouncementSpec — render preview', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('HN preview prefixes "Show HN:" and surfaces URL field separately', () => {
 		const text = renderChannelPreview(BASE, 'hn');
 		assert.match(text, /Title: Show HN: VibeIDE/);
@@ -103,6 +111,9 @@ suite('launchAnnouncementSpec — render preview', () => {
 });
 
 suite('launchAnnouncementSpec — describe', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('describe lists pass + counts when ok', () => {
 		const r = validateAnnouncement(BASE, ['hn']);
 		const text = describeChannelValidation(r);

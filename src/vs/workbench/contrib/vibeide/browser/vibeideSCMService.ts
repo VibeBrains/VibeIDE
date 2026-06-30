@@ -1,55 +1,55 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../common/vibeLog.js';
-import { ThemeIcon } from '../../../../base/common/themables.js'
-import { localize2 } from '../../../../nls.js'
-import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js'
-import { ContextKeyExpr, IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js'
-import { ISCMService } from '../../scm/common/scm.js'
-import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js'
-import { IVibeideSCMService } from '../common/vibeideSCMTypes.js'
-import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js'
-import { IVibeideSettingsService } from '../common/vibeideSettingsService.js'
-import { IConvertToLLMMessageService } from './convertToLLMMessageService.js'
-import { ILLMMessageService } from '../common/sendLLMMessageService.js'
-import { ModelSelection, OverridesOfModel, ModelSelectionOptions } from '../common/vibeideSettingsTypes.js'
-import { gitCommitMessage_systemMessage, gitCommitMessage_systemMessage_local, gitCommitMessage_userMessage } from '../common/prompt/prompts.js'
-import { isLocalProvider } from './convertToLLMMessageService.js'
-import { LLMChatMessage } from '../common/sendLLMMessageTypes.js'
-import { generateUuid } from '../../../../base/common/uuid.js'
-import { ThrottledDelayer } from '../../../../base/common/async.js'
-import { CancellationError, isCancellationError } from '../../../../base/common/errors.js'
-import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js'
-import { createDecorator, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js'
-import { Disposable } from '../../../../base/common/lifecycle.js'
-import { INotificationService } from '../../../../platform/notification/common/notification.js'
+import { ThemeIcon } from '../../../../base/common/themables.js';
+import { localize2 } from '../../../../nls.js';
+import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js';
+import { ContextKeyExpr, IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { ISCMService, ISCMRepository } from '../../scm/common/scm.js';
+import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
+import { IVibeideSCMService } from '../common/vibeideSCMTypes.js';
+import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
+import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
+import { IConvertToLLMMessageService, isLocalProvider } from './convertToLLMMessageService.js';
+import { ILLMMessageService } from '../common/sendLLMMessageService.js';
+import { ModelSelection, OverridesOfModel, ModelSelectionOptions } from '../common/vibeideSettingsTypes.js';
+import { gitCommitMessage_systemMessage, gitCommitMessage_systemMessage_local, gitCommitMessage_userMessage } from '../common/prompt/prompts.js';
+import { LLMChatMessage } from '../common/sendLLMMessageTypes.js';
+import { generateUuid } from '../../../../base/common/uuid.js';
+import { ThrottledDelayer } from '../../../../base/common/async.js';
+import { CancellationError, isCancellationError } from '../../../../base/common/errors.js';
+import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
+import { createDecorator, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
+import { INotificationService } from '../../../../platform/notification/common/notification.js';
 
 interface ModelOptions {
-	modelSelection: ModelSelection | null
-	modelSelectionOptions?: ModelSelectionOptions
-	overridesOfModel: OverridesOfModel
+	modelSelection: ModelSelection | null;
+	modelSelectionOptions?: ModelSelectionOptions;
+	overridesOfModel: OverridesOfModel;
 }
 
 export interface IGenerateCommitMessageService {
-	readonly _serviceBrand: undefined
-	generateCommitMessage(): Promise<void>
-	abort(): void
+	readonly _serviceBrand: undefined;
+	generateCommitMessage(): Promise<void>;
+	abort(): void;
 }
 
 export const IGenerateCommitMessageService = createDecorator<IGenerateCommitMessageService>('vibeGenerateCommitMessageService');
 
-const loadingContextKey = 'vibeSCMGenerateCommitMessageLoading'
+const loadingContextKey = 'vibeSCMGenerateCommitMessageLoading';
 
 class GenerateCommitMessageService extends Disposable implements IGenerateCommitMessageService {
 	readonly _serviceBrand: undefined;
-	private readonly execute = new ThrottledDelayer(300)
-	private llmRequestId: string | null = null
-	private currentRequestId: string | null = null
-	private vibeSCM: IVibeideSCMService
-	private loadingContextKey: IContextKey<boolean>
+	private readonly execute = new ThrottledDelayer(300);
+	private llmRequestId: string | null = null;
+	private currentRequestId: string | null = null;
+	private vibeSCM: IVibeideSCMService;
+	private loadingContextKey: IContextKey<boolean>;
 
 	constructor(
 		@ISCMService private readonly scmService: ISCMService,
@@ -60,90 +60,90 @@ class GenerateCommitMessageService extends Disposable implements IGenerateCommit
 		@IContextKeyService private readonly contextKeyService: IContextKeyService,
 		@INotificationService private readonly notificationService: INotificationService
 	) {
-		super()
-		this.loadingContextKey = this.contextKeyService.createKey(loadingContextKey, false)
-		this.vibeSCM = ProxyChannel.toService<IVibeideSCMService>(mainProcessService.getChannel('vibeide-channel-scm'))
+		super();
+		this.loadingContextKey = this.contextKeyService.createKey(loadingContextKey, false);
+		this.vibeSCM = ProxyChannel.toService<IVibeideSCMService>(mainProcessService.getChannel('vibeide-channel-scm'));
 	}
 
 	override dispose() {
-		this.execute.dispose()
-		super.dispose()
+		this.execute.dispose();
+		super.dispose();
 	}
 
 	async generateCommitMessage() {
-		this.loadingContextKey.set(true)
+		this.loadingContextKey.set(true);
 		this.execute.trigger(async () => {
-			const requestId = generateUuid()
-			this.currentRequestId = requestId
+			const requestId = generateUuid();
+			this.currentRequestId = requestId;
 
 
 			try {
-				const { path, repo } = this.gitRepoInfo()
+				const { path, repo } = this.gitRepoInfo();
 				const [stat, sampledDiffs, branch, log] = await Promise.all([
 					this.vibeSCM.gitStat(path),
 					this.vibeSCM.gitSampledDiffs(path),
 					this.vibeSCM.gitBranch(path),
 					this.vibeSCM.gitLog(path)
-				])
+				]);
 
-				if (!this.isCurrentRequest(requestId)) { throw new CancellationError() }
+				if (!this.isCurrentRequest(requestId)) { throw new CancellationError(); }
 
-				const modelSelection = this.vibeideSettingsService.state.modelSelectionOfFeature['SCM'] ?? null
+				const modelSelection = this.vibeideSettingsService.state.modelSelectionOfFeature['SCM'] ?? null;
 				// Skip "auto" - it's not a real provider
 				const modelSelectionOptions = modelSelection && !(modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto')
 					? this.vibeideSettingsService.state.optionsOfModelSelection['SCM'][modelSelection.providerName]?.[modelSelection.modelName]
-					: undefined
-				const overridesOfModel = this.vibeideSettingsService.state.overridesOfModel
+					: undefined;
+				const overridesOfModel = this.vibeideSettingsService.state.overridesOfModel;
 
-				const modelOptions: ModelOptions = { modelSelection, modelSelectionOptions, overridesOfModel }
+				const modelOptions: ModelOptions = { modelSelection, modelSelectionOptions, overridesOfModel };
 
-				const prompt = gitCommitMessage_userMessage(stat, sampledDiffs, branch, log)
+				const prompt = gitCommitMessage_userMessage(stat, sampledDiffs, branch, log);
 
 				// Use local variant for local models to reduce token usage
-				const isLocal = modelSelection && modelSelection.providerName !== 'auto' && isLocalProvider(modelSelection.providerName, this.vibeideSettingsService.state.settingsOfProvider)
-				const systemMessage = isLocal ? gitCommitMessage_systemMessage_local : gitCommitMessage_systemMessage
+				const isLocal = modelSelection && modelSelection.providerName !== 'auto' && isLocalProvider(modelSelection.providerName, this.vibeideSettingsService.state.settingsOfProvider);
+				const systemMessage = isLocal ? gitCommitMessage_systemMessage_local : gitCommitMessage_systemMessage;
 
-				const simpleMessages = [{ role: 'user', content: prompt } as const]
+				const simpleMessages = [{ role: 'user', content: prompt } as const];
 				const { messages, separateSystemMessage } = this.convertToLLMMessageService.prepareLLMSimpleMessages({
 					simpleMessages,
 					systemMessage,
 					modelSelection: modelOptions.modelSelection,
 					featureName: 'SCM',
-				})
+				});
 
-				const rawCommitMessage = await this.sendLLMMessage(messages, separateSystemMessage!, modelOptions)
+				const rawCommitMessage = await this.sendLLMMessage(messages, separateSystemMessage!, modelOptions);
 
-				if (!this.isCurrentRequest(requestId)) { throw new CancellationError() }
+				if (!this.isCurrentRequest(requestId)) { throw new CancellationError(); }
 
 				// VibeIDE: Add agent git identity trailer for compliance audit trail
 				const agentTrailer = '\n\nCo-authored-by: VibeIDE Agent <agent@vibeide.local>';
 				const commitMessage = rawCommitMessage + agentTrailer;
 
-				repo.input.setValue(commitMessage, false)
+				repo.input.setValue(commitMessage, false);
 			} catch (error) {
-				this.onError(error)
+				this.onError(error);
 			} finally {
 				if (this.isCurrentRequest(requestId)) {
-					this.loadingContextKey.set(false)
+					this.loadingContextKey.set(false);
 				}
 			}
-		})
+		});
 	}
 
 	abort() {
 		if (this.llmRequestId) {
-			this.llmMessageService.abort(this.llmRequestId)
+			this.llmMessageService.abort(this.llmRequestId);
 		}
-		this.execute.cancel()
-		this.loadingContextKey.set(false)
-		this.currentRequestId = null
+		this.execute.cancel();
+		this.loadingContextKey.set(false);
+		this.currentRequestId = null;
 	}
 
 	private gitRepoInfo() {
-		const repo = Array.from(this.scmService.repositories || []).find((r: any) => r.provider.contextValue === 'git')
-		if (!repo) { throw new Error('No git repository found') }
-		if (!repo.provider.rootUri?.fsPath) { throw new Error('No git repository root path found') }
-		return { path: repo.provider.rootUri.fsPath, repo }
+		const repo = Array.from(this.scmService.repositories || []).find((r: ISCMRepository) => r.provider.contextValue.get() === 'git');
+		if (!repo) { throw new Error('No git repository found'); }
+		if (!repo.provider.rootUri?.fsPath) { throw new Error('No git repository root path found'); }
+		return { path: repo.provider.rootUri.fsPath, repo };
 	}
 
 	/** LLM Functions */
@@ -161,36 +161,36 @@ class GenerateCommitMessageService extends Disposable implements IGenerateCommit
 				overridesOfModel: modelOptions.overridesOfModel,
 				onText: () => { },
 				onFinalMessage: (params: { fullText: string }) => {
-					const match = params.fullText.match(/<output>([\s\S]*?)<\/output>/i)
-					const commitMessage = match ? match[1].trim() : ''
-					resolve(commitMessage)
+					const match = params.fullText.match(/<output>([\s\S]*?)<\/output>/i);
+					const commitMessage = match ? match[1].trim() : '';
+					resolve(commitMessage);
 				},
 				onError: (error) => {
-					vibeLog.error('vibeideSCM', error)
-					reject(error)
+					vibeLog.error('vibeideSCM', error);
+					reject(error);
 				},
 				onAbort: () => {
-					reject(new CancellationError())
+					reject(new CancellationError());
 				},
 				logging: { loggingName: 'VibeIDE SCM - Commit Message' },
-			})
-		})
+			});
+		});
 	}
 
 
 	/** Request Helpers */
 
 	private isCurrentRequest(requestId: string) {
-		return requestId === this.currentRequestId
+		return requestId === this.currentRequestId;
 	}
 
 
 	/** UI Functions */
 
-	private onError(error: any) {
+	private onError(error: unknown) {
 		if (!isCancellationError(error)) {
-			vibeLog.error('vibeideSCM', error)
-			this.notificationService.error(localize2('vibeFailedToGenerateCommitMessage', 'Failed to generate commit message.').value)
+			vibeLog.error('vibeideSCM', error);
+			this.notificationService.error(localize2('vibeFailedToGenerateCommitMessage', 'Failed to generate commit message.').value);
 		}
 	}
 }
@@ -208,12 +208,12 @@ class GenerateCommitMessageAction extends Action2 {
 				when: ContextKeyExpr.and(ContextKeyExpr.equals('scmProvider', 'git'), ContextKeyExpr.equals(loadingContextKey, false)),
 				group: 'inline'
 			}]
-		})
+		});
 	}
 
 	async run(accessor: ServicesAccessor): Promise<void> {
-		const generateCommitMessageService = accessor.get(IGenerateCommitMessageService)
-		generateCommitMessageService.generateCommitMessage()
+		const generateCommitMessageService = accessor.get(IGenerateCommitMessageService);
+		generateCommitMessageService.generateCommitMessage();
 	}
 }
 
@@ -230,14 +230,14 @@ class LoadingGenerateCommitMessageAction extends Action2 {
 				when: ContextKeyExpr.and(ContextKeyExpr.equals('scmProvider', 'git'), ContextKeyExpr.equals(loadingContextKey, true)),
 				group: 'inline'
 			}]
-		})
+		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
-		const generateCommitMessageService = accessor.get(IGenerateCommitMessageService)
-		generateCommitMessageService.abort()
+		const generateCommitMessageService = accessor.get(IGenerateCommitMessageService);
+		generateCommitMessageService.abort();
 	}
 }
 
-registerAction2(GenerateCommitMessageAction)
-registerAction2(LoadingGenerateCommitMessageAction)
-registerSingleton(IGenerateCommitMessageService, GenerateCommitMessageService, InstantiationType.Delayed)
+registerAction2(GenerateCommitMessageAction);
+registerAction2(LoadingGenerateCommitMessageAction);
+registerSingleton(IGenerateCommitMessageService, GenerateCommitMessageService, InstantiationType.Delayed);

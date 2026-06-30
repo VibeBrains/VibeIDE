@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -79,7 +80,8 @@ export const VibeNotifySounds: React.FC = () => {
 	const ensureCtx = useCallback((): AudioContext | null => {
 		if (!audioCtxRef.current) {
 			try {
-				const Ctor: typeof AudioContext | undefined = (globalThis as any).AudioContext ?? (globalThis as any).webkitAudioContext;
+				const g = globalThis as typeof globalThis & { webkitAudioContext?: typeof AudioContext };
+				const Ctor: typeof AudioContext | undefined = g.AudioContext ?? g.webkitAudioContext;
 				audioCtxRef.current = Ctor ? new Ctor() : null;
 			} catch { audioCtxRef.current = null; }
 		}

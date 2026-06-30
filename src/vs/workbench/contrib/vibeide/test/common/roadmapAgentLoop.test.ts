@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -11,6 +12,7 @@ import {
 	LoopState,
 	RoadmapItem,
 } from '../../common/roadmapAgentLoop.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const idle: LoopState = { kind: 'idle' };
 const selecting: LoopState = { kind: 'selecting' };
@@ -28,11 +30,13 @@ function item(overrides: Partial<RoadmapItem>): RoadmapItem {
 
 suite('Roadmap-agent execution loop FSM', () => {
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	suite('transitionLoop', () => {
 		test('idle + start → selecting', () => {
 			const r = transitionLoop(idle, { kind: 'start' });
 			assert.strictEqual(r.ok, true);
-			if (r.ok) assert.strictEqual(r.next.kind, 'selecting');
+			if (r.ok) { assert.strictEqual(r.next.kind, 'selecting'); }
 		});
 
 		test('idle + anything-else → refused', () => {
@@ -80,7 +84,7 @@ suite('Roadmap-agent execution loop FSM', () => {
 				{ kind: 'working', currentItemId: 'i1', status: { kind: 'awaiting-approval', invocationId: 'inv1' } },
 				{ kind: 'user-approved', invocationId: 'inv1' },
 			);
-			if (r.ok && r.next.kind === 'working') assert.strictEqual(r.next.status.kind, 'executing');
+			if (r.ok && r.next.kind === 'working') { assert.strictEqual(r.next.status.kind, 'executing'); }
 		});
 
 		test('working + user-rejected → back to selecting', () => {
@@ -147,7 +151,7 @@ suite('Roadmap-agent execution loop FSM', () => {
 
 		test('paused + resume with null → selecting', () => {
 			const r = transitionLoop({ kind: 'paused', resumeWith: null }, { kind: 'resume' });
-			if (r.ok) assert.strictEqual(r.next.kind, 'selecting');
+			if (r.ok) { assert.strictEqual(r.next.kind, 'selecting'); }
 		});
 
 		test('paused + non-resume → refused', () => {

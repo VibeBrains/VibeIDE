@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -27,10 +28,10 @@ const DEFAULT_MAX_ITEMS_PER_DIR = 3;
 export interface IDirectoryStrService {
 	readonly _serviceBrand: undefined;
 
-	getDirectoryStrTool(uri: URI, opts?: { budgetMs?: number }): Promise<string>
-	getAllDirectoriesStr(opts: { cutOffMessage: string }): Promise<string>
+	getDirectoryStrTool(uri: URI, opts?: { budgetMs?: number }): Promise<string>;
+	getAllDirectoriesStr(opts: { cutOffMessage: string }): Promise<string>;
 
-	getAllURIsInDirectory(uri: URI, opts: { maxResults: number }): Promise<URI[]>
+	getAllURIsInDirectory(uri: URI, opts: { maxResults: number }): Promise<URI[]>;
 
 }
 export const IDirectoryStrService = createDecorator<IDirectoryStrService>('vibeDirectoryStrService');
@@ -74,11 +75,11 @@ const shouldExcludeDirectory = (name: string) => {
 		return true;
 	}
 
-	if (name.match(/\bout\b/)) return true
-	if (name.match(/\bbuild\b/)) return true
+	if (name.match(/\bout\b/)) { return true; }
+	if (name.match(/\bbuild\b/)) { return true; }
 
 	return false;
-}
+};
 
 // ---------- ONE LAYER DEEP ----------
 
@@ -148,29 +149,29 @@ export const stringifyDirectoryTree1Deep = (params: BuiltinToolCallParams['ls_di
 // ---------- IN GENERAL ----------
 
 const resolveChildren = async (children: undefined | IFileStat[], fileService: IFileService): Promise<IFileStat[]> => {
-	const list = children ?? []
+	const list = children ?? [];
 	// D.29: only DIRECTORIES need re-resolving (to fetch their children for recursion). Files already
 	// carry name/isDirectory/isSymbolicLink from the parent's resolve and the tree renderer needs
 	// nothing more — re-resolving them was a wasted IFileService round-trip per file. On a dir with
 	// many files this cut the resolve count from O(all entries) to O(subdirs), the proven cause of
 	// get_dir_tree being ~100–3700× slower than native readdir (FS itself enumerates .vibe in 25ms).
-	const toResolve = list.filter(c => c.isDirectory)
-	if (toResolve.length === 0) { return list }
-	const res = await fileService.resolveAll(toResolve)
-	const resolved = new Map<string, IFileStat>()
-	res.forEach((s, i) => { if (s.success && s.stat) { resolved.set(toResolve[i].resource.toString(), s.stat) } })
+	const toResolve = list.filter(c => c.isDirectory);
+	if (toResolve.length === 0) { return list; }
+	const res = await fileService.resolveAll(toResolve);
+	const resolved = new Map<string, IFileStat>();
+	res.forEach((s, i) => { if (s.success && s.stat) { resolved.set(toResolve[i].resource.toString(), s.stat); } });
 	// Preserve original ordering; swap each directory for its resolved (children-populated) stat.
-	return list.map(c => c.isDirectory ? (resolved.get(c.resource.toString()) ?? c) : c)
-}
+	return list.map(c => c.isDirectory ? (resolved.get(c.resource.toString()) ?? c) : c);
+};
 
 // D.31: synchronous counterpart of resolveChildren backed by a prefetched map (see
 // prefetchDirectoryTree). Swaps each directory child for its already-resolved (children-populated)
 // stat with ZERO I/O. A miss (node beyond the prefetch's depth/node-cap) keeps the bare child, which
 // the renderer treats as a leaf — same graceful degradation as a depth cutoff.
 const resolveChildrenSync = (children: undefined | IFileStat[], prefetch: Map<string, IFileStat>): IFileStat[] => {
-	const list = children ?? []
-	return list.map(c => c.isDirectory ? (prefetch.get(c.resource.toString()) ?? c) : c)
-}
+	const list = children ?? [];
+	return list.map(c => c.isDirectory ? (prefetch.get(c.resource.toString()) ?? c) : c);
+};
 
 // D.31: breadth-first prefetch of the directory tree with ONE batched resolveAll per LEVEL (all
 // directories at a depth resolved together), instead of the recursion's one-resolveAll-per-node
@@ -182,39 +183,39 @@ const resolveChildrenSync = (children: undefined | IFileStat[], prefetch: Map<st
 const prefetchDirectoryTree = async (
 	root: IFileStat,
 	fileService: IFileService,
-	opts: { maxDepth: number, deadline?: number, nodeCap: number }
+	opts: { maxDepth: number; deadline?: number; nodeCap: number }
 ): Promise<Map<string, IFileStat>> => {
-	const map = new Map<string, IFileStat>()
-	map.set(root.resource.toString(), root)
-	let level: IFileStat[] = [root] // dirs whose children are already known
-	let depth = 0
-	let nodes = 1
+	const map = new Map<string, IFileStat>();
+	map.set(root.resource.toString(), root);
+	let level: IFileStat[] = [root]; // dirs whose children are already known
+	let depth = 0;
+	let nodes = 1;
 	while (level.length > 0 && depth < opts.maxDepth) {
-		if (opts.deadline && Date.now() > opts.deadline) { break }
-		if (nodes >= opts.nodeCap) { break }
+		if (opts.deadline && Date.now() > opts.deadline) { break; }
+		if (nodes >= opts.nodeCap) { break; }
 		// Gather every subdirectory of this level that still needs its children fetched.
-		const next: IFileStat[] = []
+		const next: IFileStat[] = [];
 		for (const dir of level) {
 			for (const child of dir.children ?? []) {
-				if (child.isDirectory && !shouldExcludeDirectory(child.name)) { next.push(child) }
+				if (child.isDirectory && !shouldExcludeDirectory(child.name)) { next.push(child); }
 			}
 		}
-		if (next.length === 0) { break }
-		const capped = next.slice(0, Math.max(0, opts.nodeCap - nodes))
-		nodes += capped.length
-		const res = await fileService.resolveAll(capped)
-		const resolved: IFileStat[] = []
+		if (next.length === 0) { break; }
+		const capped = next.slice(0, Math.max(0, opts.nodeCap - nodes));
+		nodes += capped.length;
+		const res = await fileService.resolveAll(capped);
+		const resolved: IFileStat[] = [];
 		res.forEach((s, i) => {
 			if (s.success && s.stat) {
-				map.set(capped[i].resource.toString(), s.stat)
-				resolved.push(s.stat)
+				map.set(capped[i].resource.toString(), s.stat);
+				resolved.push(s.stat);
 			}
-		})
-		level = resolved
-		depth++
+		});
+		level = resolved;
+		depth++;
 	}
-	return map
-}
+	return map;
+};
 
 // Remove the old computeDirectoryTree function and replace with a combined version that handles both computation and rendering
 const computeAndStringifyDirectoryTree = async (
@@ -222,8 +223,8 @@ const computeAndStringifyDirectoryTree = async (
 	fileService: IFileService,
 	MAX_CHARS: number,
 	fileCount: { count: number } = { count: 0 },
-	options: { maxDepth?: number, currentDepth?: number, maxItemsPerDir?: number, deadline?: number, prefetch?: Map<string, IFileStat> } = {}
-): Promise<{ content: string, wasCutOff: boolean }> => {
+	options: { maxDepth?: number; currentDepth?: number; maxItemsPerDir?: number; deadline?: number; prefetch?: Map<string, IFileStat> } = {}
+): Promise<{ content: string; wasCutOff: boolean }> => {
 	// Set default values for options
 	const maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
 	const currentDepth = options.currentDepth ?? 0;
@@ -261,7 +262,7 @@ const computeAndStringifyDirectoryTree = async (
 
 	let content = nodeLine;
 	let wasCutOff = false;
-	let remainingChars = MAX_CHARS - nodeLine.length;
+	const remainingChars = MAX_CHARS - nodeLine.length;
 
 	// Check if it's a directory we should skip
 	const isGitIgnoredDirectory = eItem.isDirectory && shouldExcludeDirectory(eItem.name);
@@ -272,7 +273,7 @@ const computeAndStringifyDirectoryTree = async (
 		// D.31: read children from the prefetched map (zero I/O) when available; else resolve lazily.
 		const eChildren = options.prefetch
 			? resolveChildrenSync(eItem.children, options.prefetch)
-			: await resolveChildren(eItem.children, fileService)
+			: await resolveChildren(eItem.children, fileService);
 
 		// Then recursively add all children with proper tree formatting
 		if (eChildren && eChildren.length > 0) {
@@ -299,8 +300,8 @@ const renderChildrenCombined = async (
 	parentPrefix: string,
 	fileService: IFileService,
 	fileCount: { count: number },
-	options: { maxDepth: number, currentDepth: number, maxItemsPerDir?: number, deadline?: number, prefetch?: Map<string, IFileStat> }
-): Promise<{ childrenContent: string, childrenCutOff: boolean }> => {
+	options: { maxDepth: number; currentDepth: number; maxItemsPerDir?: number; deadline?: number; prefetch?: Map<string, IFileStat> }
+): Promise<{ childrenContent: string; childrenCutOff: boolean }> => {
 	const { maxDepth, currentDepth } = options; // Remove maxItemsPerDir from destructuring
 	// Get maxItemsPerDir separately and make sure we use it
 	// For first level (currentDepth = 0), always use Infinity regardless of what was passed
@@ -362,7 +363,7 @@ const renderChildrenCombined = async (
 			// Fetch children with Modified sort order to show recently modified first
 			const eChildren = options.prefetch
 				? resolveChildrenSync(child.children, options.prefetch)
-				: await resolveChildren(child.children, fileService)
+				: await resolveChildren(child.children, fileService);
 
 			if (eChildren && eChildren.length > 0) {
 				const {
@@ -427,7 +428,7 @@ export async function getAllUrisInDirectory(
 				return true;
 			}
 
-			const eChildren = await resolveChildren(folderStat.children, fileService)
+			const eChildren = await resolveChildren(folderStat.children, fileService);
 
 			// Process files first (common convention to list files before directories)
 			for (const child of eChildren) {
@@ -443,7 +444,7 @@ export async function getAllUrisInDirectory(
 
 			// Then process directories recursively
 			for (const child of eChildren) {
-				const isGitIgnored = shouldExcludeDirectory(child.name)
+				const isGitIgnored = shouldExcludeDirectory(child.name);
 				if (child.isDirectory && !isGitIgnored) {
 					const shouldContinue = await visitAll(child);
 					if (!shouldContinue) {
@@ -459,7 +460,7 @@ export async function getAllUrisInDirectory(
 		}
 	}
 
-	const rootStat = await fileService.resolve(directoryUri)
+	const rootStat = await fileService.resolve(directoryUri);
 	await visitAll(rootStat);
 	return result;
 }
@@ -480,12 +481,12 @@ class DirectoryStrService extends Disposable implements IDirectoryStrService {
 	}
 
 	async getAllURIsInDirectory(uri: URI, opts: { maxResults: number }): Promise<URI[]> {
-		return getAllUrisInDirectory(uri, opts.maxResults, this.fileService)
+		return getAllUrisInDirectory(uri, opts.maxResults, this.fileService);
 	}
 
 	async getDirectoryStrTool(uri: URI, opts?: { budgetMs?: number }) {
-		const eRoot = await this.fileService.resolve(uri)
-		if (!eRoot) throw new Error(`The folder ${uri.fsPath} does not exist.`)
+		const eRoot = await this.fileService.resolve(uri);
+		if (!eRoot) { throw new Error(`The folder ${uri.fsPath} does not exist.`); }
 
 		const maxItemsPerDir = START_MAX_ITEMS_PER_DIR; // Use START_MAX_ITEMS_PER_DIR
 		// D.20: single wall-clock deadline shared by both passes (EH-freeze guard on huge/root dirs).
@@ -524,33 +525,32 @@ class DirectoryStrService extends Disposable implements IDirectoryStrService {
 			wasCutOff = initialCutOff;
 		}
 
-		let c = content.substring(0, MAX_DIRSTR_CHARS_TOTAL_TOOL)
-		c = `Directory of ${uri.fsPath}:\n${content}`
-		if (wasCutOff) c = `${c}\n...Result was truncated...`
+		let c = content.substring(0, MAX_DIRSTR_CHARS_TOTAL_TOOL);
+		c = `Directory of ${uri.fsPath}:\n${content}`;
+		if (wasCutOff) { c = `${c}\n...Result was truncated...`; }
 
-		return c
+		return c;
 	}
 
-	async getAllDirectoriesStr({ cutOffMessage, }: { cutOffMessage: string, }) {
+	async getAllDirectoriesStr({ cutOffMessage, }: { cutOffMessage: string }) {
 		let str: string = '';
 		let cutOff = false;
 		const folders = this.workspaceContextService.getWorkspace().folders;
-		if (folders.length === 0)
-			return '(NO WORKSPACE OPEN)';
+		if (folders.length === 0) { return '(NO WORKSPACE OPEN)'; }
 
 		// Use START_MAX_ITEMS_PER_DIR if not specified
 		const startMaxItemsPerDir = START_MAX_ITEMS_PER_DIR;
 
 		for (let i = 0; i < folders.length; i += 1) {
-			if (i > 0) str += '\n';
+			if (i > 0) { str += '\n'; }
 
 			// this prioritizes filling 1st workspace before any other, etc
 			const f = folders[i];
 			str += `Directory of ${f.uri.fsPath}:\n`;
 			const rootURI = f.uri;
 
-			const eRoot = await this.fileService.resolve(rootURI)
-			if (!eRoot) continue;
+			const eRoot = await this.fileService.resolve(rootURI);
+			if (!eRoot) { continue; }
 
 			// D.31: prefetch this folder's tree once (level-batched), reused by both passes. Bounded by
 			// a wall-clock deadline (EH guard) and node cap, same as the tool path.
@@ -590,8 +590,8 @@ class DirectoryStrService extends Disposable implements IDirectoryStrService {
 			}
 		}
 
-		const ans = cutOff ? `${str.trimEnd()}\n${cutOffMessage}` : str
-		return ans
+		const ans = cutOff ? `${str.trimEnd()}\n${cutOffMessage}` : str;
+		return ans;
 	}
 }
 

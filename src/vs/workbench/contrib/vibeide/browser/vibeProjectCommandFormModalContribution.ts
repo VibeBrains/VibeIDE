@@ -1,11 +1,13 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { ILayoutService } from '../../../../platform/layout/browser/layoutService.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IVibeProjectCommandFormModalService } from '../common/vibeProjectCommandFormModalService.js';
 import { mountVibeProjectCommandFormModal } from './react/out/commands-form-tsx/index.js';
@@ -24,6 +26,7 @@ export class VibeProjectCommandFormModalRootContribution extends Disposable impl
 	constructor(
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
 		@IVibeProjectCommandFormModalService private readonly _formModalService: IVibeProjectCommandFormModalService,
+		@ILayoutService private readonly _layoutService: ILayoutService,
 	) {
 		super();
 
@@ -37,13 +40,13 @@ export class VibeProjectCommandFormModalRootContribution extends Disposable impl
 	}
 
 	private _tryMount(): void {
-		const workbench = document.querySelector<HTMLElement>('.monaco-workbench') ?? document.body;
+		const workbench = this._layoutService.activeContainer;
 		if (!workbench) {
 			vibeLog.warn('vibeProjectCommandFormModalRoot', '[VibeProjectCommandFormModalRoot] no .monaco-workbench root; modal not mounted');
 			return;
 		}
 
-		const portal = document.createElement('div');
+		const portal = workbench.ownerDocument.createElement('div');
 		portal.id = 'vibeide-project-command-form-portal';
 		workbench.appendChild(portal);
 		this._portalEl = portal;

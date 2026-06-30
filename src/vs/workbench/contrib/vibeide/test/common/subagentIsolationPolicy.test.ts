@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -10,6 +11,7 @@ import {
 	checkIsolationCapability,
 	SubagentIsolationInput,
 } from '../../common/subagentIsolationPolicy.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 function input(overrides: Partial<SubagentIsolationInput> = {}): SubagentIsolationInput {
 	return {
@@ -22,6 +24,8 @@ function input(overrides: Partial<SubagentIsolationInput> = {}): SubagentIsolati
 }
 
 suite('Subagent isolation policy', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decideSubagentIsolation — backend selection', () => {
 		test('worker preferred when supported', () => {

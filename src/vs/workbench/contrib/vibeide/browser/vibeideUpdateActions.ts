@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import Severity from '../../../../base/common/severity.js';
@@ -22,12 +23,12 @@ import { IAction } from '../../../../base/common/actions.js';
 
 
 const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, notifService: INotificationService, updateService: IUpdateService, vibeideUpdateService: IVibeideUpdateService, progressService: IProgressService): INotificationHandle => {
-	const message = res?.message || 'This is a very old version. Please download the latest VibeIDE!'
+	const message = res?.message || 'This is a very old version. Please download the latest VibeIDE!';
 
-	let actions: INotificationActions | undefined
+	let actions: INotificationActions | undefined;
 
 	if (res?.action) {
-		const primary: IAction[] = []
+		const primary: IAction[] = [];
 
 		if (res.action === 'reinstall') {
 			primary.push({
@@ -67,9 +68,9 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 				tooltip: '',
 				class: undefined,
 				run: () => {
-					updateService.downloadUpdate(true)
+					updateService.downloadUpdate(true);
 				}
-			})
+			});
 		}
 
 
@@ -81,9 +82,9 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 				tooltip: '',
 				class: undefined,
 				run: () => {
-					updateService.applyUpdate()
+					updateService.applyUpdate();
 				}
-			})
+			});
 		}
 
 		if (res.action === 'restart') {
@@ -94,9 +95,9 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 				tooltip: '',
 				class: undefined,
 				run: () => {
-					updateService.quitAndInstall()
+					updateService.quitAndInstall();
 				}
-			})
+			});
 		}
 
 		primary.push({
@@ -106,10 +107,10 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 			tooltip: '',
 			class: undefined,
 			run: () => {
-				const { window } = dom.getActiveWindow()
-				window.open('https://openvibeide.com')
+				const { window } = dom.getActiveWindow();
+				window.open('https://openvibeide.com');
 			}
-		})
+		});
 
 		actions = {
 			primary: primary,
@@ -120,13 +121,13 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 				tooltip: '',
 				class: undefined,
 				run: () => {
-					notifController.close()
+					notifController.close();
 				}
 			}]
-		}
+		};
 	}
 	else {
-		actions = undefined
+		actions = undefined;
 	}
 
 	const notifController = notifService.notify({
@@ -135,23 +136,23 @@ const notifyUpdate = (res: VibeideCheckUpdateResponse & { message: string }, not
 		sticky: true,
 		progress: actions ? { worked: 0, total: 100 } : undefined,
 		actions: actions,
-	})
+	});
 
-	return notifController
+	return notifController;
 	// const d = notifController.onDidClose(() => {
 	// 	notifyYesUpdate(notifService, res)
 	// 	d.dispose()
 	// })
-}
+};
 const notifyErrChecking = (notifService: INotificationService): INotificationHandle => {
-	const message = `There was an error checking for updates. If this persists, please reinstall VibeIDE.`
+	const message = `There was an error checking for updates. If this persists, please reinstall VibeIDE.`;
 	const notifController = notifService.notify({
 		severity: Severity.Info,
 		message: message,
 		sticky: true,
-	})
-	return notifController
-}
+	});
+	return notifController;
+};
 
 
 const performVibeCheck = async (
@@ -163,14 +164,14 @@ const performVibeCheck = async (
 	progressService: IProgressService,
 ): Promise<INotificationHandle | null> => {
 
-	const metricsTag = explicit ? 'Manual' : 'Auto'
+	const metricsTag = explicit ? 'Manual' : 'Auto';
 
-	metricsService.capture(`VibeIDE Update ${metricsTag}: Checking...`, {})
-	const res = await vibeideUpdateService.check(explicit)
+	metricsService.capture(`VibeIDE Update ${metricsTag}: Checking...`, {});
+	const res = await vibeideUpdateService.check(explicit);
 	if (!res) {
 		const notifController = notifyErrChecking(notifService);
-		metricsService.capture(`VibeIDE Update ${metricsTag}: Error`, { res })
-		return notifController
+		metricsService.capture(`VibeIDE Update ${metricsTag}: Error`, { res });
+		return notifController;
 	}
 	else {
 		if (res.message) {
@@ -179,15 +180,15 @@ const performVibeCheck = async (
 			return notifController;
 		}
 		else {
-			metricsService.capture(`VibeIDE Update ${metricsTag}: No`, { res })
-			return null
+			metricsService.capture(`VibeIDE Update ${metricsTag}: No`, { res });
+			return null;
 		}
 	}
-}
+};
 
 
 // Action
-let lastNotifController: INotificationHandle | null = null
+let lastNotifController: INotificationHandle | null = null;
 
 
 registerAction2(class extends Action2 {
@@ -210,15 +211,15 @@ registerAction2(class extends Action2 {
 		const newController = await performVibeCheck(true, notifService, vibeideUpdateService, metricsService, updateService, progressService);
 
 		if (newController) {
-			currNotifController?.close()
-			lastNotifController = newController
+			currNotifController?.close();
+			lastNotifController = newController;
 		}
 	}
-})
+});
 
 // on mount
 class VibeUpdateWorkbenchContribution extends Disposable implements IWorkbenchContribution {
-	static readonly ID = 'workbench.contrib.vibe.update'
+	static readonly ID = 'workbench.contrib.vibe.update';
 	constructor(
 		@IVibeideUpdateService vibeideUpdateService: IVibeideUpdateService,
 		@IMetricsService metricsService: IMetricsService,
@@ -226,22 +227,22 @@ class VibeUpdateWorkbenchContribution extends Disposable implements IWorkbenchCo
 		@IUpdateService updateService: IUpdateService,
 		@IProgressService progressService: IProgressService,
 	) {
-		super()
+		super();
 
 		const autoCheck = () => {
-			performVibeCheck(false, notifService, vibeideUpdateService, metricsService, updateService, progressService)
-		}
+			performVibeCheck(false, notifService, vibeideUpdateService, metricsService, updateService, progressService);
+		};
 
 		// check once 5 seconds after mount
 		// check every 3 hours
-		const { window } = dom.getActiveWindow()
+		const { window } = dom.getActiveWindow();
 
-		const initId = window.setTimeout(() => autoCheck(), 5 * 1000)
-		this._register({ dispose: () => window.clearTimeout(initId) })
+		const initId = window.setTimeout(() => autoCheck(), 5 * 1000);
+		this._register({ dispose: () => window.clearTimeout(initId) });
 
 
-		const intervalId = window.setInterval(() => autoCheck(), 3 * 60 * 60 * 1000) // every 3 hrs
-		this._register({ dispose: () => window.clearInterval(intervalId) })
+		const intervalId = window.setInterval(() => autoCheck(), 3 * 60 * 60 * 1000); // every 3 hrs
+		this._register({ dispose: () => window.clearInterval(intervalId) });
 
 	}
 }

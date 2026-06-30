@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Performance Guardrails runtime persistence (roadmap L991 / closes L1056
@@ -81,7 +82,7 @@ class VibePerfGuardrailsService extends Disposable implements IVibePerfGuardrail
 
 	private _eventsUri(): URI | undefined {
 		const folder = this._workspace.getWorkspace().folders[0];
-		if (!folder) return undefined;
+		if (!folder) { return undefined; }
 		return joinPath(folder.uri, ...EVENTS_FILE_NAME.split('/'));
 	}
 

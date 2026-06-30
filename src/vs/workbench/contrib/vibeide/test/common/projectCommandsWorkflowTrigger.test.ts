@@ -1,15 +1,19 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
 	decideWorkflowTrigger,
 	summarizeWorkflowTriggers,
 } from '../../common/projectCommandsWorkflowTrigger.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('Project Commands ↔ VibeWorkflowService — entry-point trigger', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decideWorkflowTrigger', () => {
 		test('no workflowId → launch-shell', () => {
@@ -26,7 +30,7 @@ suite('Project Commands ↔ VibeWorkflowService — entry-point trigger', () => 
 				knownWorkflowIds: new Set(['release-flow', 'other']),
 			});
 			assert.strictEqual(r.kind, 'launch-workflow');
-			if (r.kind === 'launch-workflow') assert.strictEqual(r.workflowId, 'release-flow');
+			if (r.kind === 'launch-workflow') { assert.strictEqual(r.workflowId, 'release-flow'); }
 		});
 
 		test('malformed workflowId → refused: workflow-id-malformed', () => {
@@ -35,7 +39,7 @@ suite('Project Commands ↔ VibeWorkflowService — entry-point trigger', () => 
 				knownWorkflowIds: new Set(),
 			});
 			assert.strictEqual(r.kind, 'refused');
-			if (r.kind === 'refused') assert.strictEqual(r.reason, 'workflow-id-malformed');
+			if (r.kind === 'refused') { assert.strictEqual(r.reason, 'workflow-id-malformed'); }
 		});
 
 		test('upper-case rejected', () => {
@@ -68,7 +72,7 @@ suite('Project Commands ↔ VibeWorkflowService — entry-point trigger', () => 
 				knownWorkflowIds: new Set(['known-flow']),
 			});
 			assert.strictEqual(r.kind, 'refused');
-			if (r.kind === 'refused') assert.strictEqual(r.reason, 'workflow-not-found');
+			if (r.kind === 'refused') { assert.strictEqual(r.reason, 'workflow-not-found'); }
 		});
 
 		test('workflowId null treated as undefined', () => {

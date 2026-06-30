@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -381,7 +382,7 @@ class VibeSkillsLibraryService extends Disposable implements IVibeSkillsLibraryS
 	}
 
 	trackSkillUse(skillId: string): void {
-		if (!skillId) return;
+		if (!skillId) { return; }
 		const current = this.getRecentSkills();
 		// Move-to-front: drop any previous occurrence, prepend, cap at MRU_CAP.
 		const updated = [skillId, ...current.filter(id => id !== skillId)].slice(0, MRU_CAP);

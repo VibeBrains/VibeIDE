@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Chat-input slash commands (pure helper, no DI, no I/O). Parses the user's
@@ -37,11 +38,11 @@ const SLASH_LEADER_RE = /^\s*\/([a-z][a-z0-9_-]*)(?:\s+([\s\S]+))?$/i;
  * `/commit --push some scope hint` → `flags=['push']`, `args='some scope hint'`).
  */
 export function parseChatSlashCommand(text: string): ChatSlashCommandParseResult {
-	if (typeof text !== 'string') return { matched: false };
+	if (typeof text !== 'string') { return { matched: false }; }
 	const m = SLASH_LEADER_RE.exec(text);
-	if (!m) return { matched: false };
+	if (!m) { return { matched: false }; }
 	const name = m[1].toLowerCase();
-	if (!KNOWN_COMMANDS.has(name as ChatSlashCommandName)) return { matched: false };
+	if (!KNOWN_COMMANDS.has(name as ChatSlashCommandName)) { return { matched: false }; }
 
 	const rest = (m[2] ?? '').trim();
 	const flags: string[] = [];
@@ -72,5 +73,5 @@ export const CHAT_SLASH_COMMANDS: ReadonlyArray<{
 	readonly name: ChatSlashCommandName;
 	readonly description: string;
 }> = [
-	{ name: 'commit', description: 'Generate a Conventional Commit from staged changes' },
-];
+		{ name: 'commit', description: 'Generate a Conventional Commit from staged changes' },
+	];

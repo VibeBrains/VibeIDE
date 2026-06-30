@@ -1,15 +1,19 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	buildMetadataContextEntry,
 	buildMetadataIndex,
 } from '../../common/i18nMetadataContext.js';
 
 suite('i18n metadata source-context attacher — pure helper', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('buildMetadataContextEntry', () => {
 		test('happy path with source + snippet + screenshot', () => {

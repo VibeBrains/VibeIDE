@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Persisted-plan diff comparator — pure helper.
@@ -110,9 +111,9 @@ export function diffPlans(before: PlanLite, after: PlanLite): PlanDiff {
 
 function compareStepFields(a: PlanStepLite, b: PlanStepLite): Array<'title' | 'description' | 'status'> {
 	const fields: Array<'title' | 'description' | 'status'> = [];
-	if (a.title !== b.title) fields.push('title');
-	if ((a.description ?? '') !== (b.description ?? '')) fields.push('description');
-	if ((a.status ?? '') !== (b.status ?? '')) fields.push('status');
+	if (a.title !== b.title) { fields.push('title'); }
+	if ((a.description ?? '') !== (b.description ?? '')) { fields.push('description'); }
+	if ((a.status ?? '') !== (b.status ?? '')) { fields.push('status'); }
 	return fields;
 }
 
@@ -121,11 +122,11 @@ function compareStepFields(a: PlanStepLite, b: PlanStepLite): Array<'title' | 'd
  */
 export function renderPlanDiffSummary(diff: PlanDiff): string {
 	const parts: string[] = [];
-	if (diff.totalAdded > 0) parts.push(`+${diff.totalAdded}`);
-	if (diff.totalRemoved > 0) parts.push(`−${diff.totalRemoved}`);
-	if (diff.totalChanged > 0) parts.push(`~${diff.totalChanged}`);
-	if (diff.totalReordered > 0) parts.push(`↕${diff.totalReordered}`);
-	if (diff.titleChanged) parts.unshift('title changed');
-	if (parts.length === 0) return 'no changes';
+	if (diff.totalAdded > 0) { parts.push(`+${diff.totalAdded}`); }
+	if (diff.totalRemoved > 0) { parts.push(`−${diff.totalRemoved}`); }
+	if (diff.totalChanged > 0) { parts.push(`~${diff.totalChanged}`); }
+	if (diff.totalReordered > 0) { parts.push(`↕${diff.totalReordered}`); }
+	if (diff.titleChanged) { parts.unshift('title changed'); }
+	if (parts.length === 0) { return 'no changes'; }
 	return parts.join(' / ');
 }

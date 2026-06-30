@@ -1,13 +1,15 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
 	aggregateCompletionEvents,
 	CompletionEvent,
 } from '../../common/completionOutcomeStats.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const NOW = 1_750_000_000_000;
 const DAY = 24 * 60 * 60 * 1000;
@@ -21,6 +23,8 @@ const event = (overrides: Partial<CompletionEvent>): CompletionEvent => ({
 });
 
 suite('Completion outcome stats (1024)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('aggregateCompletionEvents', () => {
 		test('empty input → zero totals', () => {

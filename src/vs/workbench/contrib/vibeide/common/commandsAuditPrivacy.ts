@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — stealth / privacy redaction (pure helper).
@@ -82,7 +83,7 @@ export function redactCommandForAudit(
 	record: ProjectCommandRunRecord,
 	flags: AuditFlags,
 ): CommandAuditShape | null {
-	if (!flags.enabled) return null;
+	if (!flags.enabled) { return null; }
 	const envKeys = record.env ? Object.keys(record.env).sort() : [];
 	return {
 		id: record.id,
@@ -129,7 +130,7 @@ export function redactCommandForCloudIndex(record: ProjectCommandRunRecord): Com
  * separators preserved.
  */
 export function redactStreamForAudit(stream: string): string {
-	if (typeof stream !== 'string' || stream.length === 0) return stream;
+	if (typeof stream !== 'string' || stream.length === 0) { return stream; }
 	const lines = stream.split('\n');
 	const redacted: string[] = [];
 	for (const line of lines) {
@@ -146,8 +147,8 @@ const SECRET_PREFIX_RE = /\b(?:ghp_|gho_|ghu_|ghs_|sk-(?:ant-)?[A-Za-z0-9_-]{12,
 const HEADER_RE = /(?:^|\s)(?:authorization|x-api-key|cookie|proxy-authorization|anthropic-api-key|x-aws-access-token):\s*\S+/i;
 
 function looksLikeSecretLine(line: string): boolean {
-	if (SECRET_PREFIX_RE.test(line)) return true;
-	if (HEADER_RE.test(line)) return true;
+	if (SECRET_PREFIX_RE.test(line)) { return true; }
+	if (HEADER_RE.test(line)) { return true; }
 	// Long-token heuristic: trim, check length + variety + no whitespace.
 	const trimmed = line.trim();
 	if (trimmed.length >= 32 && !/\s/.test(trimmed)) {
@@ -156,7 +157,7 @@ function looksLikeSecretLine(line: string): boolean {
 		const hasDigit = /[0-9]/.test(trimmed);
 		const hasSpecial = /[._\-+/=]/.test(trimmed);
 		const variety = [hasLower, hasUpper, hasDigit, hasSpecial].filter(Boolean).length;
-		if (variety >= 3) return true;
+		if (variety >= 3) { return true; }
 	}
 	return false;
 }
@@ -168,7 +169,7 @@ function looksLikeSecretLine(line: string): boolean {
  * to false even when `enabled` is true.
  */
 export function decodeAuditFlags(raw: unknown): AuditFlags {
-	if (!raw || typeof raw !== 'object') return { enabled: false, includeStdout: false };
+	if (!raw || typeof raw !== 'object') { return { enabled: false, includeStdout: false }; }
 	const r = raw as Record<string, unknown>;
 	return {
 		enabled: r.enabled === true,

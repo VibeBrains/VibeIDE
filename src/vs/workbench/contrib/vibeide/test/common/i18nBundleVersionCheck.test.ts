@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	checkBundleVersionSync,
 	describeBundleVersionVerdict,
@@ -11,11 +13,13 @@ import {
 
 suite('i18n bundle ↔ vibeVersion sync check — pure helper', () => {
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	suite('checkBundleVersionSync', () => {
 		test('exact match → in-sync', () => {
 			const r = checkBundleVersionSync({ ideVersion: '1.2.3', bundleVersion: '1.2.3' });
 			assert.strictEqual(r.kind, 'in-sync');
-			if (r.kind === 'in-sync') assert.strictEqual(r.version, '1.2.3');
+			if (r.kind === 'in-sync') { assert.strictEqual(r.version, '1.2.3'); }
 		});
 
 		test('whitespace trimmed before compare', () => {
@@ -26,66 +30,66 @@ suite('i18n bundle ↔ vibeVersion sync check — pure helper', () => {
 		test('major drift', () => {
 			const r = checkBundleVersionSync({ ideVersion: '2.0.0', bundleVersion: '1.0.0' });
 			assert.strictEqual(r.kind, 'mismatch');
-			if (r.kind === 'mismatch') assert.strictEqual(r.drift, 'major');
+			if (r.kind === 'mismatch') { assert.strictEqual(r.drift, 'major'); }
 		});
 
 		test('minor drift', () => {
 			const r = checkBundleVersionSync({ ideVersion: '1.5.0', bundleVersion: '1.4.0' });
 			assert.strictEqual(r.kind, 'mismatch');
-			if (r.kind === 'mismatch') assert.strictEqual(r.drift, 'minor');
+			if (r.kind === 'mismatch') { assert.strictEqual(r.drift, 'minor'); }
 		});
 
 		test('patch drift', () => {
 			const r = checkBundleVersionSync({ ideVersion: '1.0.5', bundleVersion: '1.0.4' });
 			assert.strictEqual(r.kind, 'mismatch');
-			if (r.kind === 'mismatch') assert.strictEqual(r.drift, 'patch');
+			if (r.kind === 'mismatch') { assert.strictEqual(r.drift, 'patch'); }
 		});
 
 		test('major dominates minor and patch difference', () => {
 			const r = checkBundleVersionSync({ ideVersion: '2.5.7', bundleVersion: '1.4.6' });
 			assert.strictEqual(r.kind, 'mismatch');
-			if (r.kind === 'mismatch') assert.strictEqual(r.drift, 'major');
+			if (r.kind === 'mismatch') { assert.strictEqual(r.drift, 'major'); }
 		});
 
 		test('pre-release suffix allowed and ignored for drift', () => {
 			const r = checkBundleVersionSync({ ideVersion: '1.0.0-beta.1', bundleVersion: '1.0.0' });
 			assert.strictEqual(r.kind, 'mismatch');
 			// numeric major.minor.patch identical → drift bucket = patch (else branch fallthrough)
-			if (r.kind === 'mismatch') assert.strictEqual(r.drift, 'patch');
+			if (r.kind === 'mismatch') { assert.strictEqual(r.drift, 'patch'); }
 		});
 
 		test('unparseable strings → mismatch:unparseable', () => {
 			const r = checkBundleVersionSync({ ideVersion: 'next', bundleVersion: '1.0.0' });
 			assert.strictEqual(r.kind, 'mismatch');
-			if (r.kind === 'mismatch') assert.strictEqual(r.drift, 'unparseable');
+			if (r.kind === 'mismatch') { assert.strictEqual(r.drift, 'unparseable'); }
 		});
 
 		test('undefined ide → invalid-input ide-missing', () => {
 			const r = checkBundleVersionSync({ ideVersion: undefined, bundleVersion: '1.0.0' });
 			assert.strictEqual(r.kind, 'invalid-input');
-			if (r.kind === 'invalid-input') assert.strictEqual(r.reason, 'ide-missing');
+			if (r.kind === 'invalid-input') { assert.strictEqual(r.reason, 'ide-missing'); }
 		});
 
 		test('undefined bundle → invalid-input bundle-missing', () => {
 			const r = checkBundleVersionSync({ ideVersion: '1.0.0', bundleVersion: undefined });
 			assert.strictEqual(r.kind, 'invalid-input');
-			if (r.kind === 'invalid-input') assert.strictEqual(r.reason, 'bundle-missing');
+			if (r.kind === 'invalid-input') { assert.strictEqual(r.reason, 'bundle-missing'); }
 		});
 
 		test('non-string types rejected', () => {
 			const a = checkBundleVersionSync({ ideVersion: 1, bundleVersion: '1.0.0' });
 			assert.strictEqual(a.kind, 'invalid-input');
-			if (a.kind === 'invalid-input') assert.strictEqual(a.reason, 'ide-not-string');
+			if (a.kind === 'invalid-input') { assert.strictEqual(a.reason, 'ide-not-string'); }
 
 			const b = checkBundleVersionSync({ ideVersion: '1.0.0', bundleVersion: { v: '1.0.0' } });
 			assert.strictEqual(b.kind, 'invalid-input');
-			if (b.kind === 'invalid-input') assert.strictEqual(b.reason, 'bundle-not-string');
+			if (b.kind === 'invalid-input') { assert.strictEqual(b.reason, 'bundle-not-string'); }
 		});
 
 		test('whitespace-only string → malformed', () => {
 			const r = checkBundleVersionSync({ ideVersion: '   ', bundleVersion: '1.0.0' });
 			assert.strictEqual(r.kind, 'invalid-input');
-			if (r.kind === 'invalid-input') assert.strictEqual(r.reason, 'ide-malformed');
+			if (r.kind === 'invalid-input') { assert.strictEqual(r.reason, 'ide-malformed'); }
 		});
 	});
 

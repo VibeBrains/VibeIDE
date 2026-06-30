@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — first-run trust confirmation policy
@@ -77,7 +78,7 @@ export function decideRunConfirmBulk(
 	trust: ReadonlyArray<CommandTrustEntry>,
 ): readonly { readonly id: string; readonly decision: RunConfirmDecision }[] {
 	const trustById = new Map<string, CommandTrustEntry>();
-	for (const t of trust) trustById.set(t.id, t);
+	for (const t of trust) { trustById.set(t.id, t); }
 	return commands.map(({ command, currentHash }) => ({
 		id: command.id,
 		decision: decideRunConfirm({ command, currentHash, trustEntry: trustById.get(command.id) }),

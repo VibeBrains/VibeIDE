@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -63,21 +64,22 @@ export interface AuditEvent {
 	ts: number;
 	user?: string;
 	action: 'prompt' | 'reply' | 'diff_preview' | 'apply' | 'undo' | 'rollback' | 'snapshot:create' | 'snapshot:restore' | 'snapshot:discard' | 'git:stash' | 'git:stash:restore' | 'skill_suggestion'
-		| 'plan_started' | 'plan_step_completed' | 'plan_failed' | 'plan_resumed'
-		| 'advisory_territorial_lock'
-		| 'subagent_spawned' | 'subagent_completed' | 'agent_route_started'
-		| 'browser_run_proposed'
-		| 'mcp_sampling_request'
-		| 'background_job_budget_exceeded'
-		| 'job_pr_creation'
-		| 'run_tests:start' | 'run_tests:complete'
-		| 'project_command:start' | 'project_command:complete' | 'project_command:trust_granted' | 'project_command:trust_revoked';
+	| 'plan_started' | 'plan_step_completed' | 'plan_failed' | 'plan_resumed'
+	| 'advisory_territorial_lock'
+	| 'subagent_spawned' | 'subagent_completed' | 'agent_route_started'
+	| 'browser_run_proposed'
+	| 'mcp_sampling_request'
+	| 'background_job_budget_exceeded'
+	| 'provider_failover_switch'
+	| 'job_pr_creation'
+	| 'run_tests:start' | 'run_tests:complete'
+	| 'project_command:start' | 'project_command:complete' | 'project_command:trust_granted' | 'project_command:trust_revoked';
 	files?: string[];
 	diffStats?: { linesAdded: number; linesRemoved: number; hunks: number };
 	model?: string;
 	latencyMs?: number;
 	ok: boolean;
-	meta?: Record<string, any>;
+	meta?: Record<string, unknown>;
 }
 
 export const IAuditLogService = createDecorator<IAuditLogService>('auditLogService');
@@ -156,7 +158,7 @@ class AuditLogService extends Disposable implements IAuditLogService {
 
 	/** VibeIDE: Export all audit log entries as JSON (GDPR data portability) */
 	async exportAll(): Promise<string> {
-		if (!this._logPath) return '[]';
+		if (!this._logPath) { return '[]'; }
 		try {
 			// Flush pending writes first
 			await this._flushWrites();
@@ -173,7 +175,7 @@ class AuditLogService extends Disposable implements IAuditLogService {
 
 	/** VibeIDE: Delete all audit log files (GDPR right to erasure) */
 	async deleteAll(): Promise<void> {
-		if (!this._logPath) return;
+		if (!this._logPath) { return; }
 		try {
 			await this._flushWrites();
 			// Delete main log file
@@ -199,7 +201,7 @@ class AuditLogService extends Disposable implements IAuditLogService {
 
 	/** VibeIDE: Query recent audit events */
 	async queryRecent(limit: number = 100): Promise<AuditEvent[]> {
-		if (!this._logPath) return [];
+		if (!this._logPath) { return []; }
 		try {
 			await this._flushWrites();
 			const content = await this._fileService.readFile(this._logPath);
@@ -223,7 +225,7 @@ class AuditLogService extends Disposable implements IAuditLogService {
 	}
 
 	private async _initializeLogFile(): Promise<void> {
-		if (!this._logPath) return;
+		if (!this._logPath) { return; }
 
 		const parentDir = this._logPath.with({ path: this._logPath.path.replace(/\/[^/]*$/, '') });
 		try {
@@ -276,7 +278,7 @@ class AuditLogService extends Disposable implements IAuditLogService {
 	}
 
 	private async _rotateLogFile(): Promise<void> {
-		if (!this._logPath) return;
+		if (!this._logPath) { return; }
 
 		try {
 			// Read current file

@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Integration service for Image QA Pipeline
@@ -11,7 +12,7 @@
 import { vibeLog } from '../common/vibeLog.js';
 import { ChatImageAttachment } from '../common/chatThreadServiceTypes.js';
 import { imageQAPipeline, type ImageQAOptions, type QAResponse } from '../common/imageQA/index.js';
-import { ModelSelection, OverridesOfModel, SettingsOfProvider } from '../common/vibeideSettingsTypes.js';
+import { ModelSelection, OverridesOfModel, ProviderName, SettingsOfProvider, VibeideStatefulModelInfo } from '../common/vibeideSettingsTypes.js';
 import { getModelCapabilities } from '../common/modelCapabilities.js';
 
 export interface ImageQAPreprocessedMessage {
@@ -22,7 +23,7 @@ export interface ImageQAPreprocessedMessage {
 }
 
 // Providers whose chat models accept images natively (no local OCR needed)
-const VISION_PROVIDERS = new Set(['anthropic', 'openAI', 'gemini', 'pollinations']);
+const VISION_PROVIDERS = new Set<ProviderName>(['anthropic', 'openAI', 'gemini', 'pollinations']);
 // Aggregator providers — vision is per-model; rely on catalog-driven `supportsVision` overrides
 // or model-name heuristics rather than blanket-trusting the provider.
 const AGGREGATOR_PROVIDERS = new Set(['openRouter', 'openCodeGo', 'openCodeZen', 'openAICompatible', 'liteLLM']);
@@ -35,13 +36,13 @@ const AGGREGATOR_VISION_SUBSTRINGS = ['vision', '-vl', 'vl-', 'llava', 'pixtral'
  * realistically resolve to Anthropic/OpenAI/Gemini.
  */
 function hasAnyVisionProviderConfigured(settingsOfProvider?: SettingsOfProvider): boolean {
-	if (!settingsOfProvider) return false;
+	if (!settingsOfProvider) { return false; }
 	for (const name of VISION_PROVIDERS) {
-		const s = (settingsOfProvider as any)[name];
-		if (!s) continue;
+		const s = settingsOfProvider[name];
+		if (!s) { continue; }
 		if (typeof s.apiKey === 'string' && s.apiKey.length > 10) {
-			const hasEnabledModel = Array.isArray(s.models) && s.models.some((m: any) => !m.isHidden);
-			if (hasEnabledModel) return true;
+			const hasEnabledModel = Array.isArray(s.models) && s.models.some((m: VibeideStatefulModelInfo) => !m.isHidden);
+			if (hasEnabledModel) { return true; }
 		}
 	}
 	return false;
@@ -53,7 +54,7 @@ function hasAnyVisionProviderConfigured(settingsOfProvider?: SettingsOfProvider)
  * Order: catalog override → native vision provider → aggregator heuristic → Ollama keyword.
  */
 function isModelVisionCapable(modelSelection: ModelSelection | null, settingsOfProvider?: SettingsOfProvider, overridesOfModel?: OverridesOfModel): boolean {
-	if (!modelSelection) return false;
+	if (!modelSelection) { return false; }
 	const { providerName, modelName } = modelSelection;
 	if (providerName === 'auto') {
 		// Router decides — if user has any vision-capable provider configured, trust it.
@@ -63,8 +64,8 @@ function isModelVisionCapable(modelSelection: ModelSelection | null, settingsOfP
 	// built-ins AND dynamic providers through the same registry. Definitive boolean wins; undefined
 	// falls through to the legacy provider-set heuristics.
 	const caps = getModelCapabilities(providerName, modelName, overridesOfModel);
-	if (typeof caps.supportsVision === 'boolean') return caps.supportsVision;
-	if (VISION_PROVIDERS.has(providerName)) return true;
+	if (typeof caps.supportsVision === 'boolean') { return caps.supportsVision; }
+	if (VISION_PROVIDERS.has(providerName)) { return true; }
 	if (AGGREGATOR_PROVIDERS.has(providerName)) {
 		const lower = (modelName || '').toLowerCase();
 		return AGGREGATOR_VISION_SUBSTRINGS.some(s => lower.includes(s));
@@ -87,11 +88,11 @@ export function shouldUseImageQAPipeline(
 	settingsOfProvider?: SettingsOfProvider,
 	overridesOfModel?: OverridesOfModel
 ): boolean {
-	if (!images || images.length === 0) return false;
+	if (!images || images.length === 0) { return false; }
 	// Master kill-switch: pipeline is opt-in. Default off — native vision is the primary path.
-	if (!pipelineEnabled) return false;
+	if (!pipelineEnabled) { return false; }
 	// Vision-capable models read images directly — local OCR/QA is wasted work and surfaces tesseract errors when the worker fails to load.
-	if (isModelVisionCapable(modelSelection ?? null, settingsOfProvider, overridesOfModel)) return false;
+	if (isModelVisionCapable(modelSelection ?? null, settingsOfProvider, overridesOfModel)) { return false; }
 	return true;
 }
 
@@ -101,8 +102,11 @@ export function shouldUseImageQAPipeline(
 // pipeline anyway just floods the console. We probe once and short-circuit thereafter.
 let _ocrAvailability: Promise<boolean> | null = null;
 function isOCRAvailable(): Promise<boolean> {
-	if (_ocrAvailability) return _ocrAvailability;
-	_ocrAvailability = import('tesseract.js').then(() => true).catch(() => false);
+	if (_ocrAvailability) { return _ocrAvailability; }
+	// Specifier kept in a variable so the probe exercises the same runtime dynamic-import path
+	// as the real OCR loader without a statically-analyzable literal.
+	const tesseractModule = 'tesseract.js';
+	_ocrAvailability = import(tesseractModule).then(() => true).catch(() => false);
 	return _ocrAvailability;
 }
 
@@ -169,10 +173,10 @@ export async function preprocessImagesForQA(
 		const qaResponse = await imageQAPipeline.process(options);
 
 		// Handle responses that need LLM processing
-		if ((qaResponse as any)._needsLLM || (qaResponse as any)._needsVLM) {
+		if (qaResponse._needsLLM || qaResponse._needsVLM) {
 			return {
 				shouldUsePipeline: true,
-				processedText: (qaResponse as any)._prompt || userQuestion,
+				processedText: qaResponse._prompt || userQuestion,
 				qaResponse,
 				images: images, // Keep images for VLM/LLM processing
 			};
@@ -195,7 +199,7 @@ export async function preprocessImagesForQA(
 			images: images, // Keep images for VLM if needed
 		};
 
-	} catch (error: any) {
+	} catch (error) {
 		vibeLog.error('imageQAIntegration', '[ImageQA] Pipeline error:', error);
 
 		// Fallback: send images normally

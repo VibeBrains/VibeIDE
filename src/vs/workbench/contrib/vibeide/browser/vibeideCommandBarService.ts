@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
@@ -71,7 +72,7 @@ export type CommandBarStateType = undefined | {
 	isStreaming: boolean; // is any diffZone streaming in this URI
 
 	diffIdx: number | null; // must refresh whenever sortedDiffIds does so it's valid
-}
+};
 
 
 
@@ -80,18 +81,18 @@ const defaultState: NonNullable<CommandBarStateType> = {
 	sortedDiffIds: [],
 	isStreaming: false,
 	diffIdx: null,
-}
+};
 
 
 export class VibeideCommandBarService extends Disposable implements IVibeideCommandBarService {
 	_serviceBrand: undefined;
 
-	static readonly ID: 'vibeide.VibeideCommandBarService'
+	static readonly ID: 'vibeide.VibeideCommandBarService';
 
 	// depends on uri -> diffZone -> {streaming, diffs}
-	public stateOfURI: { [uri: string]: CommandBarStateType } = {}
-	public sortedURIs: URI[] = [] // keys of state (depends on diffZones in the uri)
-	private readonly _listenToTheseURIs = new Set<URI>() // uriFsPaths
+	public stateOfURI: { [uri: string]: CommandBarStateType } = {};
+	public sortedURIs: URI[] = []; // keys of state (depends on diffZones in the uri)
+	private readonly _listenToTheseURIs = new Set<URI>(); // uriFsPaths
 
 	// Emits when a URI's stream state changes between idle, streaming, and acceptRejectAll
 	private readonly _onDidChangeState = new Emitter<{ uri: URI }>();
@@ -113,16 +114,16 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 		super();
 
 
-		const registeredModelURIs = new Set<string>()
+		const registeredModelURIs = new Set<string>();
 		const initializeModel = async (model: ITextModel) => {
 			// do not add listeners to the same model twice - important, or will see duplicates
-			if (registeredModelURIs.has(model.uri.fsPath)) return
-			registeredModelURIs.add(model.uri.fsPath)
-			this._listenToTheseURIs.add(model.uri)
-		}
+			if (registeredModelURIs.has(model.uri.fsPath)) { return; }
+			registeredModelURIs.add(model.uri.fsPath);
+			this._listenToTheseURIs.add(model.uri);
+		};
 		// initialize all existing models + initialize when a new model mounts
-		this._modelService.getModels().forEach(model => { initializeModel(model) })
-		this._register(this._modelService.onModelAdded(model => { initializeModel(model) }));
+		this._modelService.getModels().forEach(model => { initializeModel(model); });
+		this._register(this._modelService.onModelAdded(model => { initializeModel(model); }));
 
 
 
@@ -148,54 +149,54 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 			const d1 = this._instantiationService.createInstance(AcceptRejectAllFloatingWidget, { editor });
 			disposablesOfEditorId[id].push(d1);
 			const d2 = editor.onDidChangeModel((e) => {
-				if (e.newModelUrl?.scheme !== 'file') return
+				if (e.newModelUrl?.scheme !== 'file') { return; }
 				this.activeURI = e.newModelUrl;
-				this._onDidChangeActiveURI.fire({ uri: e.newModelUrl })
-			})
+				this._onDidChangeActiveURI.fire({ uri: e.newModelUrl });
+			});
 			disposablesOfEditorId[id].push(d2);
-		}
+		};
 		const onCodeEditorRemove = (editor: ICodeEditor) => {
 			const id = editor.getId();
 			if (disposablesOfEditorId[id]) {
 				disposablesOfEditorId[id].forEach(d => d.dispose());
 				delete disposablesOfEditorId[id];
 			}
-		}
-		this._register(this._codeEditorService.onCodeEditorAdd((editor) => { onCodeEditorAdd(editor) }))
-		this._register(this._codeEditorService.onCodeEditorRemove((editor) => { onCodeEditorRemove(editor) }))
-		this._codeEditorService.listCodeEditors().forEach(editor => { onCodeEditorAdd(editor) })
+		};
+		this._register(this._codeEditorService.onCodeEditorAdd((editor) => { onCodeEditorAdd(editor); }));
+		this._register(this._codeEditorService.onCodeEditorRemove((editor) => { onCodeEditorRemove(editor); }));
+		this._codeEditorService.listCodeEditors().forEach(editor => { onCodeEditorAdd(editor); });
 
 		// state updaters
 		this._register(this._editCodeService.onDidAddOrDeleteDiffZones(e => {
 			for (const uri of this._listenToTheseURIs) {
-				if (e.uri.fsPath !== uri.fsPath) continue
+				if (e.uri.fsPath !== uri.fsPath) { continue; }
 				// --- sortedURIs: delete if empty, add if not in state yet
-				const diffZones = this._getDiffZonesOnURI(uri)
+				const diffZones = this._getDiffZonesOnURI(uri);
 				if (diffZones.length === 0) {
-					this._deleteURIEntryFromState(uri)
-					this._onDidChangeState.fire({ uri })
-					continue // deleted, so done
+					this._deleteURIEntryFromState(uri);
+					this._onDidChangeState.fire({ uri });
+					continue; // deleted, so done
 				}
 				if (!this.sortedURIs.find(uri2 => uri2.fsPath === uri.fsPath)) {
-					this._addURIEntryToState(uri)
+					this._addURIEntryToState(uri);
 				}
 
-				const currState = this.stateOfURI[uri.fsPath]
-				if (!currState) continue // should never happen
+				const currState = this.stateOfURI[uri.fsPath];
+				if (!currState) { continue; } // should never happen
 				// update state of the diffZones on this URI
-				const oldDiffZones = currState.sortedDiffZoneIds
-				const currentDiffZones = this._editCodeService.diffAreasOfURI[uri.fsPath] || [] // a Set
-				const { addedDiffZones, deletedDiffZones } = this._getDiffZoneChanges(oldDiffZones, currentDiffZones || [])
+				const oldDiffZones = currState.sortedDiffZoneIds;
+				const currentDiffZones = this._editCodeService.diffAreasOfURI[uri.fsPath] || []; // a Set
+				const { addedDiffZones, deletedDiffZones } = this._getDiffZoneChanges(oldDiffZones, currentDiffZones || []);
 
-				const diffZonesWithoutDeleted = oldDiffZones.filter(olddiffareaid => !deletedDiffZones.has(olddiffareaid))
+				const diffZonesWithoutDeleted = oldDiffZones.filter(olddiffareaid => !deletedDiffZones.has(olddiffareaid));
 
 				// --- new state:
 				const newSortedDiffZoneIds = [
 					...diffZonesWithoutDeleted,
 					...addedDiffZones,
-				]
-				const newSortedDiffIds = this._computeSortedDiffs(newSortedDiffZoneIds)
-				const isStreaming = this._isAnyDiffZoneStreaming(currentDiffZones)
+				];
+				const newSortedDiffIds = this._computeSortedDiffs(newSortedDiffZoneIds);
+				const isStreaming = this._isAnyDiffZoneStreaming(currentDiffZones);
 
 				// When diffZones are added/removed, reset the diffIdx to 0 if we have diffs
 				const newDiffIdx = newSortedDiffIds.length > 0 ? 0 : null;
@@ -205,22 +206,22 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 					sortedDiffIds: newSortedDiffIds,
 					isStreaming: isStreaming,
 					diffIdx: newDiffIdx
-				})
-				this._onDidChangeState.fire({ uri })
+				});
+				this._onDidChangeState.fire({ uri });
 			}
 
-		}))
+		}));
 		this._register(this._editCodeService.onDidChangeDiffsInDiffZoneNotStreaming(e => {
 			for (const uri of this._listenToTheseURIs) {
-				if (e.uri.fsPath !== uri.fsPath) continue
+				if (e.uri.fsPath !== uri.fsPath) { continue; }
 				// --- sortedURIs: no change
 				// --- state:
 				// sortedDiffIds gets a change to it, so gets recomputed
-				const currState = this.stateOfURI[uri.fsPath]
-				if (!currState) continue // should never happen
-				const { sortedDiffZoneIds } = currState
+				const currState = this.stateOfURI[uri.fsPath];
+				if (!currState) { continue; } // should never happen
+				const { sortedDiffZoneIds } = currState;
 				const oldSortedDiffIds = currState.sortedDiffIds;
-				const newSortedDiffIds = this._computeSortedDiffs(sortedDiffZoneIds)
+				const newSortedDiffIds = this._computeSortedDiffs(sortedDiffZoneIds);
 
 				// Handle diffIdx adjustment when diffs change
 				let newDiffIdx = currState.diffIdx;
@@ -239,26 +240,26 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 					diffIdx: newDiffIdx
 					// sortedDiffZoneIds, // no change
 					// isStreaming, // no change
-				})
-				this._onDidChangeState.fire({ uri })
+				});
+				this._onDidChangeState.fire({ uri });
 			}
-		}))
+		}));
 		this._register(this._editCodeService.onDidChangeStreamingInDiffZone(e => {
 			for (const uri of this._listenToTheseURIs) {
-				if (e.uri.fsPath !== uri.fsPath) continue
+				if (e.uri.fsPath !== uri.fsPath) { continue; }
 				// --- sortedURIs: no change
 				// --- state:
-				const currState = this.stateOfURI[uri.fsPath]
-				if (!currState) continue // should never happen
-				const { sortedDiffZoneIds } = currState
+				const currState = this.stateOfURI[uri.fsPath];
+				if (!currState) { continue; } // should never happen
+				const { sortedDiffZoneIds } = currState;
 				this._setState(uri, {
 					isStreaming: this._isAnyDiffZoneStreaming(sortedDiffZoneIds),
 					// sortedDiffIds, // no change
 					// sortedDiffZoneIds, // no change
-				})
-				this._onDidChangeState.fire({ uri })
+				});
+				this._onDidChangeState.fire({ uri });
 			}
-		}))
+		}));
 
 	}
 
@@ -270,14 +271,14 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 
 
 	getStreamState(uri: URI) {
-		const { isStreaming, sortedDiffZoneIds } = this.stateOfURI[uri.fsPath] ?? {}
+		const { isStreaming, sortedDiffZoneIds } = this.stateOfURI[uri.fsPath] ?? {};
 		if (isStreaming) {
-			return 'streaming'
+			return 'streaming';
 		}
 		if ((sortedDiffZoneIds?.length ?? 0) > 0) {
-			return 'idle-has-changes'
+			return 'idle-has-changes';
 		}
-		return 'idle-no-changes'
+		return 'idle-no-changes';
 	}
 
 
@@ -326,7 +327,7 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 			}
 		}
 
-		return { addedDiffZones: addedDiffZoneIds, deletedDiffZones: deletedDiffZoneIds }
+		return { addedDiffZones: addedDiffZoneIds, deletedDiffZones: deletedDiffZoneIds };
 	}
 
 	_isAnyDiffZoneStreaming(diffareaids: Iterable<string>) {
@@ -339,7 +340,7 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 				return true;
 			}
 		}
-		return false
+		return false;
 	}
 
 
@@ -347,18 +348,18 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 		const newState = {
 			...this.stateOfURI[uri.fsPath] ?? deepClone(defaultState),
 			...opts
-		}
+		};
 
 		// make sure diffIdx is always correct
 		if (newState.diffIdx !== null && newState.diffIdx > newState.sortedDiffIds.length) {
-			newState.diffIdx = newState.sortedDiffIds.length
-			if (newState.diffIdx <= 0) newState.diffIdx = null
+			newState.diffIdx = newState.sortedDiffIds.length;
+			if (newState.diffIdx <= 0) { newState.diffIdx = null; }
 		}
 
 		this.stateOfURI = {
 			...this.stateOfURI,
 			[uri.fsPath]: newState
-		}
+		};
 	}
 
 
@@ -367,22 +368,22 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 		this.sortedURIs = [
 			...this.sortedURIs,
 			uri
-		]
+		];
 
 		// add to state
-		this.stateOfURI[uri.fsPath] = deepClone(defaultState)
+		this.stateOfURI[uri.fsPath] = deepClone(defaultState);
 	}
 
 	_deleteURIEntryFromState(uri: URI) {
 		// delete this from sortedURIs
-		const i = this.sortedURIs.findIndex(uri2 => uri2.fsPath === uri.fsPath)
-		if (i === -1) return
+		const i = this.sortedURIs.findIndex(uri2 => uri2.fsPath === uri.fsPath);
+		if (i === -1) { return; }
 		this.sortedURIs = [
 			...this.sortedURIs.slice(0, i),
 			...this.sortedURIs.slice(i + 1, Infinity),
-		]
+		];
 		// delete from state
-		delete this.stateOfURI[uri.fsPath]
+		delete this.stateOfURI[uri.fsPath];
 	}
 
 
@@ -390,26 +391,26 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 	private _getDiffZonesOnURI(uri: URI) {
 		const diffZones = [...this._editCodeService.diffAreasOfURI[uri.fsPath]?.values() ?? []]
 			.map(diffareaid => this._editCodeService.diffAreaOfId[diffareaid])
-			.filter(diffArea => !!diffArea && diffArea.type === 'DiffZone')
-		return diffZones
+			.filter(diffArea => !!diffArea && diffArea.type === 'DiffZone');
+		return diffZones;
 	}
 
 
 	anyFileIsStreaming() {
-		return this.sortedURIs.some(uri => this.getStreamState(uri) === 'streaming')
+		return this.sortedURIs.some(uri => this.getStreamState(uri) === 'streaming');
 	}
 
 	getNextDiffIdx(step: 1 | -1): number | null {
 		// If no active URI, return null
-		if (!this.activeURI) return null;
+		if (!this.activeURI) { return null; }
 
 		const state = this.stateOfURI[this.activeURI.fsPath];
-		if (!state) return null;
+		if (!state) { return null; }
 
 		const { diffIdx, sortedDiffIds } = state;
 
 		// If no diffs, return null
-		if (sortedDiffIds.length === 0) return null;
+		if (sortedDiffIds.length === 0) { return null; }
 
 		// Calculate next index with wrapping
 		const nextIdx = ((diffIdx ?? 0) + step + sortedDiffIds.length) % sortedDiffIds.length;
@@ -418,7 +419,7 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 
 	getNextUriIdx(step: 1 | -1): number | null {
 		// If no URIs with changes, return null
-		if (this.sortedURIs.length === 0) return null;
+		if (this.sortedURIs.length === 0) { return null; }
 
 		// If no active URI, return first or last based on step
 		if (!this.activeURI) {
@@ -440,26 +441,26 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 
 	goToDiffIdx(idx: number | null): void {
 		// If null or no active URI, return
-		if (idx === null || !this.activeURI) return;
+		if (idx === null || !this.activeURI) { return; }
 
 		// Get state for the current URI
 		const state = this.stateOfURI[this.activeURI.fsPath];
-		if (!state) return;
+		if (!state) { return; }
 
 		const { sortedDiffIds } = state;
 
 		// Find the diff at the specified index
 		const diffid = sortedDiffIds[idx];
-		if (diffid === undefined) return;
+		if (diffid === undefined) { return; }
 
 		// Get the diff object
 		const diff = this._editCodeService.diffOfId[diffid];
-		if (!diff) return;
+		if (!diff) { return; }
 
 		// Find an active editor to focus
 		const editor = this._codeEditorService.getFocusedCodeEditor() ||
 			this._codeEditorService.getActiveCodeEditor();
-		if (!editor) return;
+		if (!editor) { return; }
 
 		// Reveal the line in the editor
 		editor.revealLineNearTop(diff.startLine - 1, ScrollType.Immediate);
@@ -470,20 +471,20 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 
 	async goToURIIdx(idx: number | null): Promise<void> {
 		// If null or no URIs, return
-		if (idx === null || this.sortedURIs.length === 0) return;
+		if (idx === null || this.sortedURIs.length === 0) { return; }
 
 		// Get the URI at the specified index
 		const nextURI = this.sortedURIs[idx];
-		if (!nextURI) return;
+		if (!nextURI) { return; }
 
 		// Get the model for this URI
 		const { model } = await this._vibeideModelService.getModelSafe(nextURI);
-		if (!model) return;
+		if (!model) { return; }
 
 		// Find an editor to use
 		const editor = this._codeEditorService.getFocusedCodeEditor() ||
 			this._codeEditorService.getActiveCodeEditor();
-		if (!editor) return;
+		if (!editor) { return; }
 
 		// Open the URI in the editor
 		await this._codeEditorService.openCodeEditor(
@@ -493,12 +494,12 @@ export class VibeideCommandBarService extends Disposable implements IVibeideComm
 	}
 
 	acceptOrRejectAllFiles(opts: { behavior: 'reject' | 'accept' }) {
-		const { behavior } = opts
+		const { behavior } = opts;
 		// if anything is streaming, do nothing
-		const anyIsStreaming = this.anyFileIsStreaming()
-		if (anyIsStreaming) return
+		const anyIsStreaming = this.anyFileIsStreaming();
+		if (anyIsStreaming) { return; }
 		for (const uri of this.sortedURIs) {
-			this._editCodeService.acceptOrRejectAllDiffAreas({ uri, behavior, removeCtrlKs: false })
+			this._editCodeService.acceptOrRejectAllDiffAreas({ uri, behavior, removeCtrlKs: false });
 		}
 	}
 
@@ -511,7 +512,7 @@ registerSingleton(IVibeideCommandBarService, VibeideCommandBarService, Instantia
 export type VibeideCommandBarProps = {
 	uri: URI | null;
 	editor: ICodeEditor;
-}
+};
 
 
 
@@ -521,9 +522,9 @@ class AcceptRejectAllFloatingWidget extends Widget implements IOverlayWidget {
 	private readonly editor: ICodeEditor;
 	private readonly ID: string;
 
-	_height = 0
+	_height = 0;
 
-	constructor({ editor }: { editor: ICodeEditor, },
+	constructor({ editor }: { editor: ICodeEditor },
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 	) {
 		super();
@@ -555,21 +556,21 @@ class AcceptRejectAllFloatingWidget extends Widget implements IOverlayWidget {
 
 		// Execute async operation, then invoke with fresh accessor
 		(async () => {
-			const uri = editor.getModel()?.uri || null
+			const uri = editor.getModel()?.uri || null;
 			const mountVibeCommandBar = await mountVibeCommandBarPromise;
 
 			// Re-invoke to get a fresh accessor for the mount function
 			// This ensures the accessor is valid during the entire synchronous execution
 			this.instantiationService.invokeFunction(accessor => {
-				const res = mountVibeCommandBar(root, accessor, { uri, editor } satisfies VibeideCommandBarProps)
-				if (!res) return
-				this._register(toDisposable(() => res.dispose?.()))
+				const res = mountVibeCommandBar(root, accessor, { uri, editor } satisfies VibeideCommandBarProps);
+				if (!res) { return; }
+				this._register(toDisposable(() => res.dispose?.()));
 				this._register(editor.onWillChangeModel((model) => {
-					const uri = model.newModelUrl
-					res.rerender({ uri, editor } satisfies VibeideCommandBarProps)
-				}))
-			})
-		})()
+					const uri = model.newModelUrl;
+					res.rerender({ uri, editor } satisfies VibeideCommandBarProps);
+				}));
+			});
+		})();
 	}
 
 
@@ -584,7 +585,7 @@ class AcceptRejectAllFloatingWidget extends Widget implements IOverlayWidget {
 	public getPosition() {
 		return {
 			preference: OverlayWidgetPositionPreference.BOTTOM_RIGHT_CORNER
-		}
+		};
 	}
 
 	public override dispose(): void {
@@ -615,14 +616,14 @@ registerAction2(class extends Action2 {
 
 
 		const activeURI = commandBarService.activeURI;
-		if (!activeURI) return;
+		if (!activeURI) { return; }
 
 		const commandBarState = commandBarService.stateOfURI[activeURI.fsPath];
-		if (!commandBarState) return;
+		if (!commandBarState) { return; }
 		const diffIdx = commandBarState.diffIdx ?? 0;
 
 		const diffid = commandBarState.sortedDiffIds[diffIdx];
-		if (!diffid) return;
+		if (!diffid) { return; }
 
 		metricsService.capture('Accept Diff', { diffid, keyboard: true });
 		editCodeService.acceptDiff({ diffid: parseInt(diffid) });
@@ -657,14 +658,14 @@ registerAction2(class extends Action2 {
 		const metricsService = accessor.get(IMetricsService);
 
 		const activeURI = commandBarService.activeURI;
-		if (!activeURI) return;
+		if (!activeURI) { return; }
 
 		const commandBarState = commandBarService.stateOfURI[activeURI.fsPath];
-		if (!commandBarState) return;
+		if (!commandBarState) { return; }
 		const diffIdx = commandBarState.diffIdx ?? 0;
 
 		const diffid = commandBarState.sortedDiffIds[diffIdx];
-		if (!diffid) return;
+		if (!diffid) { return; }
 
 		metricsService.capture('Reject Diff', { diffid, keyboard: true });
 		editCodeService.rejectDiff({ diffid: parseInt(diffid) });
@@ -697,7 +698,7 @@ registerAction2(class extends Action2 {
 		const metricsService = accessor.get(IMetricsService);
 
 		const nextDiffIdx = commandBarService.getNextDiffIdx(1);
-		if (nextDiffIdx === null) return;
+		if (nextDiffIdx === null) { return; }
 
 		metricsService.capture('Navigate Diff', { direction: 'next', keyboard: true });
 		commandBarService.goToDiffIdx(nextDiffIdx);
@@ -724,7 +725,7 @@ registerAction2(class extends Action2 {
 		const metricsService = accessor.get(IMetricsService);
 
 		const prevDiffIdx = commandBarService.getNextDiffIdx(-1);
-		if (prevDiffIdx === null) return;
+		if (prevDiffIdx === null) { return; }
 
 		metricsService.capture('Navigate Diff', { direction: 'previous', keyboard: true });
 		commandBarService.goToDiffIdx(prevDiffIdx);
@@ -751,7 +752,7 @@ registerAction2(class extends Action2 {
 		const metricsService = accessor.get(IMetricsService);
 
 		const nextUriIdx = commandBarService.getNextUriIdx(1);
-		if (nextUriIdx === null) return;
+		if (nextUriIdx === null) { return; }
 
 		metricsService.capture('Navigate URI', { direction: 'next', keyboard: true });
 		await commandBarService.goToURIIdx(nextUriIdx);
@@ -778,7 +779,7 @@ registerAction2(class extends Action2 {
 		const metricsService = accessor.get(IMetricsService);
 
 		const prevUriIdx = commandBarService.getNextUriIdx(-1);
-		if (prevUriIdx === null) return;
+		if (prevUriIdx === null) { return; }
 
 		metricsService.capture('Navigate URI', { direction: 'previous', keyboard: true });
 		await commandBarService.goToURIIdx(prevUriIdx);
@@ -805,7 +806,7 @@ registerAction2(class extends Action2 {
 		const metricsService = accessor.get(IMetricsService);
 
 		const activeURI = commandBarService.activeURI;
-		if (!activeURI) return;
+		if (!activeURI) { return; }
 
 		metricsService.capture('Accept File', { keyboard: true });
 		editCodeService.acceptOrRejectAllDiffAreas({
@@ -836,7 +837,7 @@ registerAction2(class extends Action2 {
 		const metricsService = accessor.get(IMetricsService);
 
 		const activeURI = commandBarService.activeURI;
-		if (!activeURI) return;
+		if (!activeURI) { return; }
 
 		metricsService.capture('Reject File', { keyboard: true });
 		editCodeService.acceptOrRejectAllDiffAreas({
@@ -865,7 +866,7 @@ registerAction2(class extends Action2 {
 		const commandBarService = accessor.get(IVibeideCommandBarService);
 		const metricsService = accessor.get(IMetricsService);
 
-		if (commandBarService.anyFileIsStreaming()) return;
+		if (commandBarService.anyFileIsStreaming()) { return; }
 
 		metricsService.capture('Accept All Files', { keyboard: true });
 		commandBarService.acceptOrRejectAllFiles({ behavior: 'accept' });
@@ -890,7 +891,7 @@ registerAction2(class extends Action2 {
 		const commandBarService = accessor.get(IVibeideCommandBarService);
 		const metricsService = accessor.get(IMetricsService);
 
-		if (commandBarService.anyFileIsStreaming()) return;
+		if (commandBarService.anyFileIsStreaming()) { return; }
 
 		metricsService.capture('Reject All Files', { keyboard: true });
 		commandBarService.acceptOrRejectAllFiles({ behavior: 'reject' });

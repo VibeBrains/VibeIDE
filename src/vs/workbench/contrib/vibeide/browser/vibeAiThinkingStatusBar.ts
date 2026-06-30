@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * AI thinking indicator — status-bar contribution (roadmap L290).
@@ -27,6 +28,7 @@ import { IChatThreadService } from './chatThreadService.js';
 import { buildThinkingIndicator, ThinkingPhase } from '../common/aiThinkingIndicator.js';
 import { IVibeUnifiedStatusBarService } from '../common/vibeUnifiedStatusBarService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { mainWindow } from '../../../../base/browser/window.js';
 
 const STATUSBAR_ENTRY_ID = 'vibeide.aiThinkingIndicator';
 const TICK_MS = 1_000;
@@ -38,7 +40,7 @@ export class VibeAiThinkingStatusBarContribution extends Disposable implements I
 	private _unifiedRow: IDisposable | undefined;
 	private _phase: ThinkingPhase = 'idle';
 	private _phaseStartMs = 0;
-	private _tickHandle: ReturnType<typeof setInterval> | undefined;
+	private _tickHandle: number | undefined;
 
 	constructor(
 		@IChatThreadService private readonly _chat: IChatThreadService,
@@ -66,13 +68,13 @@ export class VibeAiThinkingStatusBarContribution extends Disposable implements I
 		let newPhase: ThinkingPhase = 'idle';
 
 		for (const threadState of Object.values(streamState)) {
-			if (!threadState) continue;
+			if (!threadState) { continue; }
 			const running = threadState.isRunning;
 			if (running === 'LLM' || running === 'preparing' || running === 'tool') {
 				newPhase = 'thinking';
 				break;
 			}
-			if (running === undefined && 'error' in threadState && threadState.error) {
+			if (running === undefined && threadState.error) {
 				newPhase = 'failed';
 				break;
 			}
@@ -90,11 +92,11 @@ export class VibeAiThinkingStatusBarContribution extends Disposable implements I
 	private _startOrStopTick(): void {
 		if (this._phase === 'idle' || this._phase === 'completed') {
 			if (this._tickHandle !== undefined) {
-				clearInterval(this._tickHandle);
+				mainWindow.clearInterval(this._tickHandle);
 				this._tickHandle = undefined;
 			}
 		} else if (this._tickHandle === undefined) {
-			this._tickHandle = setInterval(() => this._render(), TICK_MS);
+			this._tickHandle = mainWindow.setInterval(() => this._render(), TICK_MS);
 		}
 	}
 
@@ -149,7 +151,7 @@ export class VibeAiThinkingStatusBarContribution extends Disposable implements I
 
 	override dispose(): void {
 		if (this._tickHandle !== undefined) {
-			clearInterval(this._tickHandle);
+			mainWindow.clearInterval(this._tickHandle);
 		}
 		this._unifiedRow?.dispose();
 		super.dispose();

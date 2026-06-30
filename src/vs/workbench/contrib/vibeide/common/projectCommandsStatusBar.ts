@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — status-bar indicator formatter
@@ -61,8 +62,8 @@ function buildTooltip(n: number, names: ReadonlyArray<string>): string {
 function pluralCommands(n: number): string {
 	const lastTwo = n % 100;
 	const last = n % 10;
-	if (lastTwo >= 11 && lastTwo <= 14) return 'команд';
-	if (last === 1) return 'команда';
-	if (last >= 2 && last <= 4) return 'команды';
+	if (lastTwo >= 11 && lastTwo <= 14) { return 'команд'; }
+	if (last === 1) { return 'команда'; }
+	if (last >= 2 && last <= 4) { return 'команды'; }
 	return 'команд';
 }

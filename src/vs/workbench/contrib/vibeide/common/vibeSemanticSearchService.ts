@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -63,11 +64,11 @@ class VibeSemanticSearchService extends Disposable implements IVibeSemanticSearc
 			const results = await this._vectorStore.query(queryEmbedding, limit);
 
 			return results.map(r => ({
-				filePath: r.metadata?.filePath || r.id.split(':')[0],
+				filePath: (r.metadata?.filePath as string | undefined) || r.id.split(':')[0],
 				snippet: r.text.slice(0, 200),
 				score: r.score,
-				lineStart: r.metadata?.lineStart,
-				lineEnd: r.metadata?.lineEnd,
+				lineStart: r.metadata?.lineStart as number | undefined,
+				lineEnd: r.metadata?.lineEnd as number | undefined,
 			}));
 		} catch (e) {
 			vibeLog.error('SemanticSearch', 'Search failed:', e);

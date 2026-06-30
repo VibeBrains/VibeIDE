@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	filterLocksForDisposal,
 	buildLockReleaseAuditEntries,
@@ -14,13 +16,15 @@ import {
 
 const NOW = Date.parse('2026-05-08T12:00:00Z');
 const FUTURE = '2026-05-08T13:00:00Z';
-const PAST   = '2026-05-08T11:00:00Z';
+const PAST = '2026-05-08T11:00:00Z';
 
 const lock = (holder: string, paths: string[], until: string, reason?: string): AgentLockEntry => ({
 	holder, paths, until, ...(reason ? { reason } : {}),
 });
 
 suite('agentLockDisposal', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('filterLocksForDisposal', () => {
 		test('disposed holder → released (reason: holder-disposed)', () => {
@@ -136,7 +140,7 @@ suite('agentLockDisposal', () => {
 			assert.deepStrictEqual(audit[0].paths, ['src/**']);
 			assert.strictEqual(audit[0].reason, 'holder-disposed');
 			// original entry's `reason` field NOT included (could leak path-style secrets)
-			assert.ok(!('originalReason' in audit[0]));
+			assert.ok(!Object.hasOwn(audit[0], 'originalReason'));
 		});
 	});
 

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Completion outcome aggregator (1024) — pure helper.
@@ -86,10 +87,10 @@ export function aggregateCompletionEvents(
 	let acceptsInPeriod = 0;
 
 	for (const event of events) {
-		if (!isValid(event)) continue;
-		if (event.timestamp < periodStart || event.timestamp > periodEnd) continue;
+		if (!isValid(event)) { continue; }
+		if (event.timestamp < periodStart || event.timestamp > periodEnd) { continue; }
 		totalInPeriod++;
-		if (event.outcome === 'accept') acceptsInPeriod++;
+		if (event.outcome === 'accept') { acceptsInPeriod++; }
 
 		const b = buckets.get(event.modelId) ?? {
 			totalEvents: 0, accepts: 0, rejects: 0, ignores: 0,
@@ -99,9 +100,9 @@ export function aggregateCompletionEvents(
 		};
 		b.totalEvents++;
 		b.suggestionLengthSum += event.suggestionLength;
-		if (event.outcome === 'accept') b.accepts++;
-		else if (event.outcome === 'reject') b.rejects++;
-		else b.ignores++;
+		if (event.outcome === 'accept') { b.accepts++; }
+		else if (event.outcome === 'reject') { b.rejects++; }
+		else { b.ignores++; }
 		if (typeof event.latencyMs === 'number' && Number.isFinite(event.latencyMs)) {
 			b.latencySum += event.latencyMs;
 			b.latencyCount++;
@@ -155,7 +156,7 @@ export function aggregateCompletionEvents(
 }
 
 function isValid(e: unknown): e is CompletionEvent {
-	if (!e || typeof e !== 'object') return false;
+	if (!e || typeof e !== 'object') { return false; }
 	const obj = e as Record<string, unknown>;
 	return typeof obj.timestamp === 'number'
 		&& Number.isFinite(obj.timestamp)

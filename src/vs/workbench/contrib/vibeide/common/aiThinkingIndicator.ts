@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { localize } from '../../../../nls.js';
 
@@ -67,34 +68,34 @@ export function buildThinkingIndicator(input: ThinkingIndicatorInput): ThinkingI
 		case 'thinking':
 			return {
 				visible: true,
-				text: localize('vibeide.aiThinking.thinking', "$(loading~spin) Думает…"),
+				text: `$(loading~spin) ${localize('vibeide.aiThinking.thinking', "Думает…")}`,
 				severity: 'info',
 				...(maybeHint(input.lastChunkAgoMs)),
 			};
 		case 'waiting':
 			return {
 				visible: true,
-				text: localize('vibeide.aiThinking.waiting', "$(loading~spin) Ожидание ответа…"),
+				text: `$(loading~spin) ${localize('vibeide.aiThinking.waiting', "Ожидание ответа…")}`,
 				severity: 'warn',
 				...(maybeHint(input.lastChunkAgoMs)),
 			};
 		case 'retrying-1':
 			return {
 				visible: true,
-				text: localize('vibeide.aiThinking.retrying1', "$(sync~spin) Переподключение… (попытка 1/2)"),
+				text: `$(sync~spin) ${localize('vibeide.aiThinking.retrying1', "Переподключение… (попытка 1/2)")}`,
 				severity: 'warn',
 			};
 		case 'retrying-2':
 			return {
 				visible: true,
-				text: localize('vibeide.aiThinking.retrying2', "$(sync~spin) Переподключение… (попытка 2/2)"),
+				text: `$(sync~spin) ${localize('vibeide.aiThinking.retrying2', "Переподключение… (попытка 2/2)")}`,
 				severity: 'warn',
 			};
 		case 'failed': {
 			const reason = input.failedReason ?? 'gap-timeout';
 			return {
 				visible: true,
-				text: localize('vibeide.aiThinking.failed', "$(error) Соединение прервано"),
+				text: `$(error) ${localize('vibeide.aiThinking.failed', "Соединение прервано")}`,
 				hint: failedHint(reason),
 				severity: 'error',
 			};
@@ -116,13 +117,13 @@ function maybeHint(ms: number | undefined): { hint: string } | object {
  * label reads naturally without `Intl.RelativeTimeFormat` overhead.
  */
 export function formatRelativeRu(ms: number): string {
-	if (ms < SECOND) return 'только что';
+	if (ms < SECOND) { return 'только что'; }
 	if (ms < MINUTE) {
 		const sec = Math.floor(ms / SECOND);
 		return `${sec} ${pluralSec(sec)} назад`;
 	}
 	const min = Math.floor(ms / MINUTE);
-	if (min < 60) return `${min} ${pluralMin(min)} назад`;
+	if (min < 60) { return `${min} ${pluralMin(min)} назад`; }
 	const hours = Math.floor(min / 60);
 	return `${hours} ${pluralHour(hours)} назад`;
 }
@@ -141,26 +142,26 @@ function failedHint(reason: 'gap-timeout' | 'cancelled' | 'provider-error'): str
 function pluralSec(n: number): string {
 	const last = n % 10;
 	const lastTwo = n % 100;
-	if (lastTwo >= 11 && lastTwo <= 14) return 'секунд';
-	if (last === 1) return 'секунду';
-	if (last >= 2 && last <= 4) return 'секунды';
+	if (lastTwo >= 11 && lastTwo <= 14) { return 'секунд'; }
+	if (last === 1) { return 'секунду'; }
+	if (last >= 2 && last <= 4) { return 'секунды'; }
 	return 'секунд';
 }
 
 function pluralMin(n: number): string {
 	const last = n % 10;
 	const lastTwo = n % 100;
-	if (lastTwo >= 11 && lastTwo <= 14) return 'минут';
-	if (last === 1) return 'минуту';
-	if (last >= 2 && last <= 4) return 'минуты';
+	if (lastTwo >= 11 && lastTwo <= 14) { return 'минут'; }
+	if (last === 1) { return 'минуту'; }
+	if (last >= 2 && last <= 4) { return 'минуты'; }
 	return 'минут';
 }
 
 function pluralHour(n: number): string {
 	const last = n % 10;
 	const lastTwo = n % 100;
-	if (lastTwo >= 11 && lastTwo <= 14) return 'часов';
-	if (last === 1) return 'час';
-	if (last >= 2 && last <= 4) return 'часа';
+	if (lastTwo >= 11 && lastTwo <= 14) { return 'часов'; }
+	if (last === 1) { return 'час'; }
+	if (last >= 2 && last <= 4) { return 'часа'; }
 	return 'часов';
 }

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * `.vscode/tasks.json` → Project Commands importer (317) — pure mapper.
@@ -13,8 +14,7 @@
  * vscode-free: no imports beyond standard lib + ProjectCommand types.
  */
 
-import type { ProjectCommand, ProjectCommandTerminal } from './projectCommandsTypes.js';
-import { PROJECT_COMMAND_ID_PATTERN } from './projectCommandsTypes.js';
+import { PROJECT_COMMAND_ID_PATTERN, type ProjectCommand, type ProjectCommandTerminal } from './projectCommandsTypes.js';
 
 export interface VsCodeTask {
 	label?: string;
@@ -41,7 +41,7 @@ export function importTasksJson(parsed: unknown): ImportPreview {
 	const imported: { command: ProjectCommand; sourceLabel: string }[] = [];
 	const skipped: { sourceLabel: string; reason: string }[] = [];
 
-	if (parsed == null || typeof parsed !== 'object') {
+	if (parsed === null || typeof parsed !== 'object') {
 		return { imported, skipped: [{ sourceLabel: '<root>', reason: 'not-an-object' }] };
 	}
 	const root = parsed as { tasks?: unknown };
@@ -92,24 +92,24 @@ function mapOneTask(
 		name: task.label,
 		command: task.command,
 	};
-	if (args && args.length > 0) cmd.args = args;
+	if (args && args.length > 0) { cmd.args = args; }
 	if (task.options?.cwd && typeof task.options.cwd === 'string') {
 		cmd.cwd = task.options.cwd;
 	}
 	if (task.options?.env && typeof task.options.env === 'object') {
 		const env: Record<string, string> = {};
 		for (const [k, v] of Object.entries(task.options.env)) {
-			if (typeof v === 'string') env[k] = v;
+			if (typeof v === 'string') { env[k] = v; }
 		}
-		if (Object.keys(env).length > 0) cmd.env = env;
+		if (Object.keys(env).length > 0) { cmd.env = env; }
 	}
 	cmd.terminal = mapTerminalKind(task.type);
 	return { ok: true, value: cmd };
 }
 
 function mapTerminalKind(type: VsCodeTask['type']): ProjectCommandTerminal {
-	if (type === 'shell') return 'integrated';
-	if (type === 'process') return 'integrated';
+	if (type === 'shell') { return 'integrated'; }
+	if (type === 'process') { return 'integrated'; }
 	return 'integrated';
 }
 

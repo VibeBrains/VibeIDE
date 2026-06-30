@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { ButtonHTMLAttributes, FormEvent, FormHTMLAttributes, Fragment, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -23,12 +24,12 @@ import { PastThreadsList, ChatHistoryToolbarDropdown } from './SidebarThreadSele
 import { TokenBudgetInline } from './SidebarHistory.js';
 import { VIBEIDE_CTRL_L_ACTION_ID } from '../../../actionIDs.js';
 import { VIBEIDE_OPEN_SETTINGS_ACTION_ID } from '../../../vibeideSettingsPane.js';
-import { ChatMode, displayInfoOfProviderName, FeatureName, isFeatureNameDisabled, isValidProviderModelSelection } from '../../../../../../../workbench/contrib/vibeide/common/vibeideSettingsTypes.js';
+import { ChatMode, displayInfoOfProviderName, FeatureName, isFeatureNameDisabled, isValidProviderModelSelection, ProviderName, providerNames } from '../../../../../../../workbench/contrib/vibeide/common/vibeideSettingsTypes.js';
 import { ICommandService } from '../../../../../../../platform/commands/common/commands.js';
 import { WarningBox } from '../vibe-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputTokenSpace } from '../../../../common/modelCapabilities.js';
 import { AlertTriangle, File, Ban, Check, ChevronRight, ChevronDown, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Image as ImageIcon, FileText, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward } from 'lucide-react';
-import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, PlanStep, StepStatus, PlanApprovalState } from '../../../../common/chatThreadServiceTypes.js';
+import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment } from '../../../../common/chatThreadServiceTypes.js';
 import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER } from '../../../../common/chatTimestampFormatter.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../../../../common/prompt/tools/index.js';
@@ -49,13 +50,23 @@ import { useImageAttachments } from '../util/useImageAttachments.js';
 import { usePDFAttachments } from '../util/usePDFAttachments.js';
 import { PDFAttachmentList } from '../util/PDFAttachmentList.js';
 import { ImageAttachmentList } from '../util/ImageAttachmentList.js';
-import { ChatImageAttachment, ChatPDFAttachment } from '../../../../common/chatThreadServiceTypes.js';
 import { ImageMessageRenderer } from '../util/ImageMessageRenderer.js';
 import { PDFMessageRenderer } from '../util/PDFMessageRenderer.js';
 
 
+const CHAT_MODES: readonly ChatMode[] = ['normal', 'gather', 'plan', 'agent'];
 
-export const IconX = ({ size, className = '', ...props }: { size: number, className?: string } & React.SVGProps<SVGSVGElement>) => {
+/** Narrow a persisted thread-config string to the `ProviderName` union. */
+function isProviderName(value: string): value is ProviderName {
+	return (providerNames as readonly string[]).includes(value);
+}
+
+/** Narrow a persisted thread-config string to the `ChatMode` union. */
+function isChatMode(value: string): value is ChatMode {
+	return (CHAT_MODES as readonly string[]).includes(value);
+}
+
+export const IconX = ({ size, className = '', ...props }: { size: number; className?: string } & React.SVGProps<SVGSVGElement>) => {
 	return (
 		<svg
 			xmlns='http://www.w3.org/2000/svg'
@@ -85,11 +96,11 @@ const NEON_TIMESTAMP_STYLE: React.CSSProperties = {
 
 const ChatTimestamp = ({ ts, align, streaming }: { ts: number | undefined; align: 'left' | 'right' | 'inline'; streaming?: boolean }) => {
 	const settingsState = useSettingsState();
-	if (settingsState.globalSettings.showChatTimestamps === false) return null;
+	if (settingsState.globalSettings.showChatTimestamps === false) {return null;}
 	const validTs = typeof ts === 'number' && Number.isFinite(ts);
 	// Streaming placeholder: occupies same width as a real timestamp so the surrounding
 	// layout does not shift when the first chunk arrives and `ts` becomes valid.
-	if (!validTs && !streaming) return null;
+	if (!validTs && !streaming) {return null;}
 	const text = validTs ? formatChatTimestamp(ts) : CHAT_TIMESTAMP_STREAMING_PLACEHOLDER;
 	// NOTE: the session-token budget warning pulse lives on the SESSION line in the footer
 	// (TokenBudgetFooter, SidebarHistory.tsx) — NOT here. Chat timestamps stay neutral.
@@ -104,7 +115,7 @@ const ChatTimestamp = ({ ts, align, streaming }: { ts: number | undefined; align
 	</div>;
 };
 
-const IconArrowUp = ({ size, className = '' }: { size: number, className?: string }) => {
+const IconArrowUp = ({ size, className = '' }: { size: number; className?: string }) => {
 	return (
 		<svg
 			width={size}
@@ -125,7 +136,7 @@ const IconArrowUp = ({ size, className = '' }: { size: number, className?: strin
 };
 
 
-const IconSquare = ({ size, className = '' }: { size: number, className?: string }) => {
+const IconSquare = ({ size, className = '' }: { size: number; className?: string }) => {
 	return (
 		<svg
 			className={className}
@@ -143,7 +154,7 @@ const IconSquare = ({ size, className = '' }: { size: number, className?: string
 };
 
 
-export const IconWarning = ({ size, className = '' }: { size: number, className?: string }) => {
+export const IconWarning = ({ size, className = '' }: { size: number; className?: string }) => {
 	return (
 		<svg
 			className={className}
@@ -175,7 +186,7 @@ const formatTokenCount = (count: number): string => {
 		return `${(count / 1000).toFixed(1)}k`;
 	}
 	return count.toString();
-}
+};
 
 // Frames are drawn as inline SVG (not characters) so all four glyphs share the same
 // 24×24 coordinate system: the dot at (12,12) is exactly the center of the plus, the
@@ -211,10 +222,10 @@ export const IconLoading = ({
 	state = 'default',
 	inline = false
 }: {
-	className?: string,
-	showTokenCount?: number,
-	state?: LoadingState,
-	inline?: boolean
+	className?: string;
+	showTokenCount?: number;
+	state?: LoadingState;
+	inline?: boolean;
 }) => {
 	const [prevTokenCount, setPrevTokenCount] = useState<number | undefined>(undefined);
 	const [shouldPulse, setShouldPulse] = useState(false);
@@ -271,7 +282,7 @@ export const IconLoading = ({
 			)}
 		</div>
 	);
-}
+};
 
 // Inline banner shown when the LLM stream watchdog detects a stall (no new tokens for too long).
 // Lets the user abort or re-send the last user message without leaving the chat.
@@ -280,9 +291,9 @@ const StallBanner = ({
 	onAbort,
 	onRetry,
 }: {
-	stalledAt: number,
-	onAbort: () => void,
-	onRetry: () => void,
+	stalledAt: number;
+	onAbort: () => void;
+	onRetry: () => void;
 }) => {
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
@@ -314,7 +325,7 @@ const StallBanner = ({
 			</button>
 		</div>
 	);
-}
+};
 
 // Inline banner shown while a provider rate-limit auto-pause counts down to an automatic resume.
 // The run already schedules the resume itself; this just makes the wait visible and offers to skip it.
@@ -324,10 +335,10 @@ const RateLimitPauseBanner = ({
 	maxAttempts,
 	onResumeNow,
 }: {
-	resumeAtMs: number,
-	attempt: number,
-	maxAttempts: number,
-	onResumeNow: () => void,
+	resumeAtMs: number;
+	attempt: number;
+	maxAttempts: number;
+	onResumeNow: () => void;
 }) => {
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
@@ -359,7 +370,7 @@ const RateLimitPauseBanner = ({
 			</button>
 		</div>
 	);
-}
+};
 
 // Spinner — rotating ring shown while model is generating (before first token arrives)
 export const Spinner = ({ className = '', size = 15 }: { className?: string; size?: number }) => (
@@ -368,7 +379,7 @@ export const Spinner = ({ className = '', size = 15 }: { className?: string; siz
 		className={`animate-spin flex-shrink-0 ${className}`}
 		aria-hidden="true"
 	/>
-)
+);
 
 // Typing cursor component for inline use at end of streaming content
 export const TypingCursor = ({ className = '' }: { className?: string }) => {
@@ -378,33 +389,33 @@ export const TypingCursor = ({ className = '' }: { className?: string }) => {
 			aria-hidden="true"
 		/>
 	);
-}
+};
 
 
 
 // SLIDER ONLY:
 const ReasoningOptionSlider = ({ featureName }: { featureName: FeatureName }) => {
-	const accessor = useAccessor()
+	const accessor = useAccessor();
 
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
-	const vibeSettingsState = useSettingsState()
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
+	const vibeSettingsState = useSettingsState();
 
-	const modelSelection = vibeSettingsState.modelSelectionOfFeature[featureName]
-	const overridesOfModel = vibeSettingsState.overridesOfModel
+	const modelSelection = vibeSettingsState.modelSelectionOfFeature[featureName];
+	const overridesOfModel = vibeSettingsState.overridesOfModel;
 
-	if (!modelSelection) return null
+	if (!modelSelection) {return null;}
 
 	// Skip "auto" - it's not a real provider
 	if (!isValidProviderModelSelection(modelSelection)) {
 		return null;
 	}
 
-	const { modelName, providerName } = modelSelection
-	const { reasoningCapabilities } = getModelCapabilities(providerName, modelName, overridesOfModel)
-	const { canTurnOffReasoning, reasoningSlider: reasoningBudgetSlider } = reasoningCapabilities || {}
+	const { modelName, providerName } = modelSelection;
+	const { reasoningCapabilities } = getModelCapabilities(providerName, modelName, overridesOfModel);
+	const { canTurnOffReasoning, reasoningSlider: reasoningBudgetSlider } = reasoningCapabilities || {};
 
-	const modelSelectionOptions = vibeSettingsState.optionsOfModelSelection[featureName][providerName]?.[modelName]
-	const isReasoningEnabled = getIsReasoningEnabledState(featureName, providerName, modelName, modelSelectionOptions, overridesOfModel)
+	const modelSelectionOptions = vibeSettingsState.optionsOfModelSelection[featureName][providerName]?.[modelName];
+	const isReasoningEnabled = getIsReasoningEnabledState(featureName, providerName, modelName, modelSelectionOptions, overridesOfModel);
 
 	// Pill container matches the neighbouring toolbar controls («подпин.», autopilot…) —
 	// previously this control had no border and a fixed 40px label that overflowed onto
@@ -416,23 +427,23 @@ const ReasoningOptionSlider = ({ featureName }: { featureName: FeatureName }) =>
 				size='xxs'
 				value={isReasoningEnabled}
 				onChange={(newVal) => {
-					const isOff = canTurnOffReasoning && !newVal
-					vibeideSettingsService.setOptionsOfModelSelection(featureName, modelSelection.providerName, modelSelection.modelName, { reasoningEnabled: !isOff })
+					const isOff = canTurnOffReasoning && !newVal;
+					vibeideSettingsService.setOptionsOfModelSelection(featureName, modelSelection.providerName, modelSelection.modelName, { reasoningEnabled: !isOff });
 				}}
 			/>
-		</div>
+		</div>;
 	}
 
 	if (reasoningBudgetSlider?.type === 'budget_slider') { // if it's a slider
-		const { min: min_, max, default: defaultVal } = reasoningBudgetSlider
+		const { min: min_, max, default: defaultVal } = reasoningBudgetSlider;
 
-		const nSteps = 8 // only used in calculating stepSize, stepSize is what actually matters
-		const stepSize = Math.round((max - min_) / nSteps)
+		const nSteps = 8; // only used in calculating stepSize, stepSize is what actually matters
+		const stepSize = Math.round((max - min_) / nSteps);
 
-		const valueIfOff = min_ - stepSize
-		const min = canTurnOffReasoning ? valueIfOff : min_
+		const valueIfOff = min_ - stepSize;
+		const min = canTurnOffReasoning ? valueIfOff : min_;
 		const value = isReasoningEnabled ? vibeSettingsState.optionsOfModelSelection[featureName][modelSelection.providerName]?.[modelSelection.modelName]?.reasoningBudget ?? defaultVal
-			: valueIfOff
+			: valueIfOff;
 
 		return <div className='@@vibe-toolbar-pill flex items-center gap-x-2 flex-shrink-0 rounded-xl py-0.5 px-1.5'>
 			<span className='text-vibe-fg-3 text-xs pointer-events-none whitespace-nowrap'>{chatS.thinkingLabel}</span>
@@ -444,27 +455,27 @@ const ReasoningOptionSlider = ({ featureName }: { featureName: FeatureName }) =>
 				step={stepSize}
 				value={value}
 				onChange={(newVal) => {
-					if (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') return;
-					const isOff = canTurnOffReasoning && newVal === valueIfOff
-					vibeideSettingsService.setOptionsOfModelSelection(featureName, modelSelection.providerName, modelSelection.modelName, { reasoningEnabled: !isOff, reasoningBudget: newVal })
+					if (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') {return;}
+					const isOff = canTurnOffReasoning && newVal === valueIfOff;
+					vibeideSettingsService.setOptionsOfModelSelection(featureName, modelSelection.providerName, modelSelection.modelName, { reasoningEnabled: !isOff, reasoningBudget: newVal });
 				}}
 			/>
 			<span className='text-vibe-fg-3 text-xs pointer-events-none whitespace-nowrap'>{isReasoningEnabled ? `${value} ${chatS.tokensSuffix}` : chatS.thinkingDisabled}</span>
-		</div>
+		</div>;
 	}
 
 	if (reasoningBudgetSlider?.type === 'effort_slider') {
 
-		const { values, default: defaultVal } = reasoningBudgetSlider
+		const { values, default: defaultVal } = reasoningBudgetSlider;
 
-		const min = canTurnOffReasoning ? -1 : 0
-		const max = values.length - 1
+		const min = canTurnOffReasoning ? -1 : 0;
+		const max = values.length - 1;
 
-		const currentEffort = vibeSettingsState.optionsOfModelSelection[featureName][modelSelection.providerName]?.[modelSelection.modelName]?.reasoningEffort ?? defaultVal
-		const valueIfOff = -1
-		const value = isReasoningEnabled && currentEffort ? values.indexOf(currentEffort) : valueIfOff
+		const currentEffort = vibeSettingsState.optionsOfModelSelection[featureName][modelSelection.providerName]?.[modelSelection.modelName]?.reasoningEffort ?? defaultVal;
+		const valueIfOff = -1;
+		const value = isReasoningEnabled && currentEffort ? values.indexOf(currentEffort) : valueIfOff;
 
-		const currentEffortCapitalized = currentEffort.charAt(0).toUpperCase() + currentEffort.slice(1, Infinity)
+		const currentEffortCapitalized = currentEffort.charAt(0).toUpperCase() + currentEffort.slice(1, Infinity);
 
 		return <div className='@@vibe-toolbar-pill flex items-center gap-x-2 flex-shrink-0 rounded-xl py-0.5 px-1.5'>
 			<span className='text-vibe-fg-3 text-xs pointer-events-none whitespace-nowrap'>{chatS.thinkingLabel}</span>
@@ -476,33 +487,33 @@ const ReasoningOptionSlider = ({ featureName }: { featureName: FeatureName }) =>
 				step={1}
 				value={value}
 				onChange={(newVal) => {
-					if (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') return;
-					const isOff = canTurnOffReasoning && newVal === valueIfOff
-					vibeideSettingsService.setOptionsOfModelSelection(featureName, modelSelection.providerName, modelSelection.modelName, { reasoningEnabled: !isOff, reasoningEffort: values[newVal] ?? undefined })
+					if (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') {return;}
+					const isOff = canTurnOffReasoning && newVal === valueIfOff;
+					vibeideSettingsService.setOptionsOfModelSelection(featureName, modelSelection.providerName, modelSelection.modelName, { reasoningEnabled: !isOff, reasoningEffort: values[newVal] ?? undefined });
 				}}
 			/>
 			<span className='text-vibe-fg-3 text-xs pointer-events-none whitespace-nowrap'>{isReasoningEnabled ? `${currentEffortCapitalized}` : chatS.thinkingDisabled}</span>
-		</div>
+		</div>;
 	}
 
-	return null
-}
+	return null;
+};
 
 
 
 
 
 const ChatModeDropdown = ({ className }: { className: string }) => {
-	const accessor = useAccessor()
+	const accessor = useAccessor();
 
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
-	const settingsState = useSettingsState()
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
+	const settingsState = useSettingsState();
 
-	const options: ChatMode[] = useMemo(() => ['normal', 'gather', 'plan', 'agent'], [])
+	const options: ChatMode[] = useMemo(() => ['normal', 'gather', 'plan', 'agent'], []);
 
 	const onChangeOption = useCallback((newVal: ChatMode) => {
-		vibeideSettingsService.setGlobalSetting('chatMode', newVal)
-	}, [vibeideSettingsService])
+		vibeideSettingsService.setGlobalSetting('chatMode', newVal);
+	}, [vibeideSettingsService]);
 
 	return <VibeCustomDropdownBox
 		className={className}
@@ -514,29 +525,29 @@ const ChatModeDropdown = ({ className }: { className: string }) => {
 		getOptionDropdownDetail={(val) => chatModeDetail[val]}
 		getOptionsEqual={(a, b) => a === b}
 		detailPresentation="tooltip"
-	/>
+	/>;
 
-}
+};
 
 /** Toolbar: auto-run all agent tools without per-step approval (incl. deletes & terminal). Off = confirm each tool. */
 const ChatAgentAutopilotToggle = ({ className }: { className?: string }) => {
-	const accessor = useAccessor()
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
-	const configurationService = accessor.get('IConfigurationService')
-	const metricsService = accessor.get('IMetricsService')
-	const settingsState = useSettingsState()
+	const accessor = useAccessor();
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
+	const configurationService = accessor.get('IConfigurationService');
+	const metricsService = accessor.get('IMetricsService');
+	const settingsState = useSettingsState();
 
 	const onChange = useCallback((v: boolean) => {
-		vibeideSettingsService.setGlobalSetting('chatAgentAutopilot', v)
+		vibeideSettingsService.setGlobalSetting('chatAgentAutopilot', v);
 		// #5 — couple with the iterations counter: full autonomy ON → no pause (counter 0); OFF →
 		// controlled mode (bounded counter, pause + confirmations). Mirror of ChatAgentIterationsControl.
-		configurationService.updateValue(SOFT_CHECKPOINT_KEY, v ? 0 : SOFT_CHECKPOINT_CONTROLLED)
-		metricsService.capture('Chat Agent Autopilot Toggle', { enabled: v })
-	}, [vibeideSettingsService, configurationService, metricsService])
+		configurationService.updateValue(SOFT_CHECKPOINT_KEY, v ? 0 : SOFT_CHECKPOINT_CONTROLLED);
+		metricsService.capture('Chat Agent Autopilot Toggle', { enabled: v });
+	}, [vibeideSettingsService, configurationService, metricsService]);
 
-	const mode = settingsState.globalSettings.chatMode
+	const mode = settingsState.globalSettings.chatMode;
 	if (mode !== 'agent' && mode !== 'plan') {
-		return null
+		return null;
 	}
 
 	return (
@@ -547,37 +558,37 @@ const ChatAgentAutopilotToggle = ({ className }: { className?: string }) => {
 			<VibeSwitch size='xs' value={settingsState.globalSettings.chatAgentAutopilot === true} onChange={onChange} />
 			<span className='text-vibe-fg-3 text-xs whitespace-nowrap select-none pointer-events-none'>{chatS.autopilotLabel}</span>
 		</div>
-	)
-}
+	);
+};
 
-const PROJECT_RULES_RESOLVE_LINKS_KEY = 'vibeide.projectRules.resolveLinks'
-const PROJECT_RULES_RESOLVE_LINKS_RECURSIVE_KEY = 'vibeide.projectRules.resolveLinksRecursive'
+const PROJECT_RULES_RESOLVE_LINKS_KEY = 'vibeide.projectRules.resolveLinks';
+const PROJECT_RULES_RESOLVE_LINKS_RECURSIVE_KEY = 'vibeide.projectRules.resolveLinksRecursive';
 
 /** Toolbar mirror of `vibeide.projectRules.resolveLinksRecursive` — recursive following of links in
  *  project rules. Pure duplicate of the setting (config is the source of truth). Hidden when link
  *  resolution itself (`resolveLinks`) is off, since recursion is then moot. */
 const ChatRuleLinksRecursiveToggle = ({ className }: { className?: string }) => {
-	const accessor = useAccessor()
-	const configurationService = accessor.get('IConfigurationService')
+	const accessor = useAccessor();
+	const configurationService = accessor.get('IConfigurationService');
 
-	const readValue = useCallback((): boolean => configurationService.getValue<boolean>(PROJECT_RULES_RESOLVE_LINKS_RECURSIVE_KEY) === true, [configurationService])
-	const readEnabled = useCallback((): boolean => (configurationService.getValue<boolean>(PROJECT_RULES_RESOLVE_LINKS_KEY) ?? true) === true, [configurationService])
+	const readValue = useCallback((): boolean => configurationService.getValue<boolean>(PROJECT_RULES_RESOLVE_LINKS_RECURSIVE_KEY) === true, [configurationService]);
+	const readEnabled = useCallback((): boolean => (configurationService.getValue<boolean>(PROJECT_RULES_RESOLVE_LINKS_KEY) ?? true) === true, [configurationService]);
 
-	const [value, setValue] = useState<boolean>(readValue)
-	const [enabled, setEnabled] = useState<boolean>(readEnabled)
+	const [value, setValue] = useState<boolean>(readValue);
+	const [enabled, setEnabled] = useState<boolean>(readEnabled);
 	useEffect(() => {
 		const d = configurationService.onDidChangeConfiguration(e => {
-			if (e.affectsConfiguration(PROJECT_RULES_RESOLVE_LINKS_RECURSIVE_KEY)) { setValue(readValue()) }
-			if (e.affectsConfiguration(PROJECT_RULES_RESOLVE_LINKS_KEY)) { setEnabled(readEnabled()) }
-		})
-		return () => d.dispose()
-	}, [configurationService, readValue, readEnabled])
+			if (e.affectsConfiguration(PROJECT_RULES_RESOLVE_LINKS_RECURSIVE_KEY)) { setValue(readValue()); }
+			if (e.affectsConfiguration(PROJECT_RULES_RESOLVE_LINKS_KEY)) { setEnabled(readEnabled()); }
+		});
+		return () => d.dispose();
+	}, [configurationService, readValue, readEnabled]);
 
 	const onChange = useCallback((v: boolean) => {
-		configurationService.updateValue(PROJECT_RULES_RESOLVE_LINKS_RECURSIVE_KEY, v)
-	}, [configurationService])
+		configurationService.updateValue(PROJECT_RULES_RESOLVE_LINKS_RECURSIVE_KEY, v);
+	}, [configurationService]);
 
-	if (!enabled) { return null }
+	if (!enabled) { return null; }
 
 	return (
 		<div
@@ -587,8 +598,8 @@ const ChatRuleLinksRecursiveToggle = ({ className }: { className?: string }) => 
 			<VibeSwitch size='xs' value={value} onChange={onChange} />
 			<span className='text-vibe-fg-3 text-xs whitespace-nowrap select-none pointer-events-none'>{chatS.rulesLinksRecursiveLabel}</span>
 		</div>
-	)
-}
+	);
+};
 
 
 /**
@@ -597,22 +608,22 @@ const ChatRuleLinksRecursiveToggle = ({ className }: { className?: string }) => 
  * Autopilot toggle for quick access; tooltip shows the current spend so the click is informed.
  */
 const ChatSessionResetButton = ({ className }: { className?: string }) => {
-	const accessor = useAccessor()
-	const commandService = accessor.get('ICommandService')
-	const budgetService = accessor.get('IVibeTokenBudgetService')
-	const settingsState = useSettingsState()
-	const [used, setUsed] = useState<number>(() => budgetService.getStatus().sessionTokensUsed)
+	const accessor = useAccessor();
+	const commandService = accessor.get('ICommandService');
+	const budgetService = accessor.get('IVibeTokenBudgetService');
+	const settingsState = useSettingsState();
+	const [used, setUsed] = useState<number>(() => budgetService.getStatus().sessionTokensUsed);
 	useEffect(() => {
-		const d = budgetService.onBudgetStatusChanged(s => setUsed(s.sessionTokensUsed))
-		return () => d.dispose()
-	}, [budgetService])
+		const d = budgetService.onBudgetStatusChanged(s => setUsed(s.sessionTokensUsed));
+		return () => d.dispose();
+	}, [budgetService]);
 
 	const onClick = useCallback(() => {
-		void commandService.executeCommand('vibeide.tokenBudget.reset')
-	}, [commandService])
+		void commandService.executeCommand('vibeide.tokenBudget.reset');
+	}, [commandService]);
 
-	const mode = settingsState.globalSettings.chatMode
-	if (mode !== 'agent' && mode !== 'plan') { return null }
+	const mode = settingsState.globalSettings.chatMode;
+	if (mode !== 'agent' && mode !== 'plan') { return null; }
 	return (
 		<div className={`@@vibe-toolbar-pill flex items-center flex-shrink-0 rounded-xl py-0.5 px-1.5 ${className ?? ''}`}>
 			<button
@@ -625,20 +636,20 @@ const ChatSessionResetButton = ({ className }: { className?: string }) => {
 				<RotateCcw size={12} />
 			</button>
 		</div>
-	)
-}
+	);
+};
 
 
 /** Single agent-iterations control = soft-checkpoint pause (`vibeide.agent.softCheckpointIterations`). 0 = run to completion. */
-const SOFT_CHECKPOINT_DEFAULT = 0 // mirrors the registered config default: ∞ / no pauses (autopilot-on world)
-const SOFT_CHECKPOINT_CONTROLLED = 25 // value the counter snaps to when the user flips Autopilot OFF (controlled mode)
-const SOFT_CHECKPOINT_UPPER = 500
-const SOFT_CHECKPOINT_KEY = 'vibeide.agent.softCheckpointIterations'
+const SOFT_CHECKPOINT_DEFAULT = 0; // mirrors the registered config default: ∞ / no pauses (autopilot-on world)
+const SOFT_CHECKPOINT_CONTROLLED = 25; // value the counter snaps to when the user flips Autopilot OFF (controlled mode)
+const SOFT_CHECKPOINT_UPPER = 500;
+const SOFT_CHECKPOINT_KEY = 'vibeide.agent.softCheckpointIterations';
 /** Auto-continue nudges control (`vibeide.agent.autoContinueMaxNudges`): how many CONSECUTIVE
  * text-only turns autopilot auto-nudges the model to continue. 0 = off (stop immediately). */
-const AUTO_NUDGES_DEFAULT = 2
-const AUTO_NUDGES_UPPER = 10
-const AUTO_NUDGES_KEY = 'vibeide.agent.autoContinueMaxNudges'
+const AUTO_NUDGES_DEFAULT = 2;
+const AUTO_NUDGES_UPPER = 10;
+const AUTO_NUDGES_KEY = 'vibeide.agent.autoContinueMaxNudges';
 
 /**
  * Reusable numeric stepper bound to a config key: [−] [input] [+] [label]. 0 renders an off-label.
@@ -646,77 +657,77 @@ const AUTO_NUDGES_KEY = 'vibeide.agent.autoContinueMaxNudges'
  * back to the chat textarea the moment you interact with these controls (the reported focus-steal bug).
  */
 const NumberStepperControl = ({ className, configKey, defaultValue, upper, label, offLabel, offHint, title, presets, onValueCommitted }: {
-	className?: string
-	configKey: string
-	defaultValue: number
-	upper: number
-	label: string
-	offLabel: string
-	offHint: string
-	title: string
-	presets?: number[]
-	onValueCommitted?: (value: number) => void
+	className?: string;
+	configKey: string;
+	defaultValue: number;
+	upper: number;
+	label: string;
+	offLabel: string;
+	offHint: string;
+	title: string;
+	presets?: number[];
+	onValueCommitted?: (value: number) => void;
 }) => {
-	const accessor = useAccessor()
-	const configurationService = accessor.get('IConfigurationService')
+	const accessor = useAccessor();
+	const configurationService = accessor.get('IConfigurationService');
 
 	const readValue = useCallback((): number => {
-		const raw = configurationService.getValue<unknown>(configKey)
+		const raw = configurationService.getValue<unknown>(configKey);
 		if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 0) {
-			return Math.min(upper, Math.floor(raw))
+			return Math.min(upper, Math.floor(raw));
 		}
-		return defaultValue
-	}, [configurationService, configKey, defaultValue, upper])
+		return defaultValue;
+	}, [configurationService, configKey, defaultValue, upper]);
 
-	const [value, setValue] = useState<number>(readValue)
-	const [draft, setDraft] = useState<string>(() => String(readValue()))
+	const [value, setValue] = useState<number>(readValue);
+	const [draft, setDraft] = useState<string>(() => String(readValue()));
 
 	useEffect(() => {
 		const d = configurationService.onDidChangeConfiguration(e => {
-			if (!e.affectsConfiguration(configKey)) return
-			const next = readValue()
-			setValue(next)
-			setDraft(String(next))
-		})
-		return () => d.dispose()
-	}, [configurationService, readValue, configKey])
+			if (!e.affectsConfiguration(configKey)) {return;}
+			const next = readValue();
+			setValue(next);
+			setDraft(String(next));
+		});
+		return () => d.dispose();
+	}, [configurationService, readValue, configKey]);
 
 	const commit = useCallback((next: number) => {
-		const clamped = Math.max(0, Math.min(upper, Math.floor(next)))
-		setValue(clamped)
-		setDraft(String(clamped))
-		configurationService.updateValue(configKey, clamped)
-		onValueCommitted?.(clamped)
-	}, [configurationService, configKey, upper, onValueCommitted])
+		const clamped = Math.max(0, Math.min(upper, Math.floor(next)));
+		setValue(clamped);
+		setDraft(String(clamped));
+		configurationService.updateValue(configKey, clamped);
+		onValueCommitted?.(clamped);
+	}, [configurationService, configKey, upper, onValueCommitted]);
 
 	const onInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-		setDraft(e.target.value)
-	}, [])
+		setDraft(e.target.value);
+	}, []);
 
 	const onBlur = useCallback(() => {
-		const parsed = parseInt(draft, 10)
+		const parsed = parseInt(draft, 10);
 		if (Number.isFinite(parsed)) {
-			commit(parsed)
+			commit(parsed);
 		} else {
-			setDraft(String(value))
+			setDraft(String(value));
 		}
-	}, [draft, value, commit])
+	}, [draft, value, commit]);
 
 	const onKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
 		if (e.key === 'Enter') {
-			(e.target as HTMLInputElement).blur()
+			(e.target as HTMLInputElement).blur();
 		} else if (e.key === 'Escape') {
 			setDraft(String(value))
-			;(e.target as HTMLInputElement).blur()
+			;(e.target as HTMLInputElement).blur();
 		}
-	}, [value])
+	}, [value]);
 
 	// Focus-steal fix: keep pointer events from reaching the composer's refocus handlers.
-	const stop = useCallback((e: React.SyntheticEvent) => { e.stopPropagation() }, [])
+	const stop = useCallback((e: React.SyntheticEvent) => { e.stopPropagation(); }, []);
 
-	const isDisabled = value === 0
-	const titleSuffix = isDisabled ? ` (${offHint})` : ` — ${value}`
-	const btnCls = 'flex items-center justify-center w-4 h-4 rounded text-vibe-fg-3 leading-none select-none cursor-pointer hover:bg-vibe-bg-2 disabled:opacity-40 disabled:cursor-default'
+	const isDisabled = value === 0;
+	const titleSuffix = isDisabled ? ` (${offHint})` : ` — ${value}`;
+	const btnCls = 'flex items-center justify-center w-4 h-4 rounded text-vibe-fg-3 leading-none select-none cursor-pointer hover:bg-vibe-bg-2 disabled:opacity-40 disabled:cursor-default';
 
 	return (
 		<div
@@ -731,7 +742,7 @@ const NumberStepperControl = ({ className, configKey, defaultValue, upper, label
 				aria-label={chatS.iterStepperDec}
 				disabled={value <= 0}
 				onMouseDown={stop}
-				onClick={(e) => { stop(e); commit(value - 1) }}
+				onClick={(e) => { stop(e); commit(value - 1); }}
 			>−</button>
 			<input
 				type='number'
@@ -753,7 +764,7 @@ const NumberStepperControl = ({ className, configKey, defaultValue, upper, label
 				aria-label={chatS.iterStepperInc}
 				disabled={value >= upper}
 				onMouseDown={stop}
-				onClick={(e) => { stop(e); commit(value + 1) }}
+				onClick={(e) => { stop(e); commit(value + 1); }}
 			>+</button>
 			<span className='text-vibe-fg-3 text-xs whitespace-nowrap select-none pointer-events-none ml-0.5'>
 				{isDisabled ? offLabel : label}
@@ -767,14 +778,14 @@ const NumberStepperControl = ({ className, configKey, defaultValue, upper, label
 							className={`px-1 rounded text-[10px] leading-none select-none cursor-pointer ${p === value ? 'text-vibe-fg-1 bg-vibe-bg-2' : 'text-vibe-fg-4 hover:text-vibe-fg-2'}`}
 							title={p === 0 ? offLabel : `${label} ${p}`}
 							onMouseDown={stop}
-							onClick={(e) => { stop(e); commit(p) }}
+							onClick={(e) => { stop(e); commit(p); }}
 						>{p === 0 ? '∞' : p}</button>
 					))}
 				</span>
 			)}
 		</div>
-	)
-}
+	);
+};
 
 /**
  * Single agent-iterations control. Bound to the soft-checkpoint (`vibeide.agent.softCheckpointIterations`):
@@ -784,20 +795,20 @@ const NumberStepperControl = ({ className, configKey, defaultValue, upper, label
  * Autopilot ON (full autonomy: no pause + auto-approve); any value >0 turns it OFF (controlled mode).
  */
 const ChatAgentIterationsControl = ({ className }: { className?: string }) => {
-	const accessor = useAccessor()
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
-	const settingsState = useSettingsState()
+	const accessor = useAccessor();
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
+	const settingsState = useSettingsState();
 
 	const onValueCommitted = useCallback((n: number) => {
 		// Two-way coupling: counter 0 ⟺ Autopilot ON (full autonomy). >0 ⟺ controlled (pause + confirm).
-		const autopilot = n === 0
+		const autopilot = n === 0;
 		if ((settingsState.globalSettings.chatAgentAutopilot === true) !== autopilot) {
-			vibeideSettingsService.setGlobalSetting('chatAgentAutopilot', autopilot)
+			vibeideSettingsService.setGlobalSetting('chatAgentAutopilot', autopilot);
 		}
-	}, [vibeideSettingsService, settingsState.globalSettings.chatAgentAutopilot])
+	}, [vibeideSettingsService, settingsState.globalSettings.chatAgentAutopilot]);
 
-	const mode = settingsState.globalSettings.chatMode
-	if (mode !== 'agent' && mode !== 'plan') { return null }
+	const mode = settingsState.globalSettings.chatMode;
+	if (mode !== 'agent' && mode !== 'plan') { return null; }
 	return (
 		<NumberStepperControl
 			className={className}
@@ -811,8 +822,8 @@ const ChatAgentIterationsControl = ({ className }: { className?: string }) => {
 			presets={[0, 25, 50, 100]}
 			onValueCommitted={onValueCommitted}
 		/>
-	)
-}
+	);
+};
 
 /**
  * Auto-continue nudges control («автоподпинывание»). Bound to `vibeide.agent.autoContinueMaxNudges`:
@@ -822,10 +833,10 @@ const ChatAgentIterationsControl = ({ className }: { className?: string }) => {
  * to the iterations counter; global setting, not part of the per-tab chat config.
  */
 const ChatAgentNudgesControl = ({ className }: { className?: string }) => {
-	const settingsState = useSettingsState()
+	const settingsState = useSettingsState();
 
-	const mode = settingsState.globalSettings.chatMode
-	if (mode !== 'agent' && mode !== 'plan') { return null }
+	const mode = settingsState.globalSettings.chatMode;
+	if (mode !== 'agent' && mode !== 'plan') { return null; }
 	return (
 		<NumberStepperControl
 			className={className}
@@ -838,8 +849,8 @@ const ChatAgentNudgesControl = ({ className }: { className?: string }) => {
 			title={chatS.autoNudgesTitle}
 			presets={[0, 2, 5]}
 		/>
-	)
-}
+	);
+};
 
 /**
  * Question-nudge control («подпин?»). Bound to `vibeide.agent.autoContinueOnQuestion`: under
@@ -847,15 +858,15 @@ const ChatAgentNudgesControl = ({ className }: { className?: string }) => {
  * nudge budget on the left. N = max CONSECUTIVE question-nudges (counter resets on every executed
  * tool call); `0` = unlimited (∞) — inverse of «подпин.» where 0 means off. Default 3.
  */
-const QUESTION_NUDGES_DEFAULT = 3
-const QUESTION_NUDGES_UPPER = 10
-const QUESTION_NUDGES_KEY = 'vibeide.agent.autoContinueOnQuestion'
+const QUESTION_NUDGES_DEFAULT = 3;
+const QUESTION_NUDGES_UPPER = 10;
+const QUESTION_NUDGES_KEY = 'vibeide.agent.autoContinueOnQuestion';
 
 const ChatAgentQuestionNudgesControl = ({ className }: { className?: string }) => {
-	const settingsState = useSettingsState()
+	const settingsState = useSettingsState();
 
-	const mode = settingsState.globalSettings.chatMode
-	if (mode !== 'agent' && mode !== 'plan') { return null }
+	const mode = settingsState.globalSettings.chatMode;
+	if (mode !== 'agent' && mode !== 'plan') { return null; }
 	return (
 		<NumberStepperControl
 			className={className}
@@ -868,8 +879,8 @@ const ChatAgentQuestionNudgesControl = ({ className }: { className?: string }) =
 			title={chatS.questionNudgesTitle}
 			presets={[0, 5, 10]}
 		/>
-	)
-}
+	);
+};
 
 
 
@@ -891,8 +902,8 @@ interface VibeideChatAreaProps {
 	showProspectiveSelections?: boolean;
 	loadingIcon?: React.ReactNode;
 
-	selections?: StagingSelectionItem[]
-	setSelections?: (s: StagingSelectionItem[]) => void
+	selections?: StagingSelectionItem[];
+	setSelections?: (s: StagingSelectionItem[]) => void;
 	// selections?: any[];
 	// onSelectionsChange?: (selections: any[]) => void;
 
@@ -919,25 +930,25 @@ interface VibeideChatAreaProps {
 }
 
 /** Config-backed text for the quick-continue button — also used as its tooltip. */
-const CONTINUE_TEXT_KEY = 'vibeide.chat.continueButtonText'
-const CONTINUE_TEXT_DEFAULT = 'продолжи'
+const CONTINUE_TEXT_KEY = 'vibeide.chat.continueButtonText';
+const CONTINUE_TEXT_DEFAULT = 'продолжи';
 
 const ChatContinueButton = ({ onSend }: { onSend: (text: string) => void }) => {
-	const accessor = useAccessor()
-	const configurationService = accessor.get('IConfigurationService')
+	const accessor = useAccessor();
+	const configurationService = accessor.get('IConfigurationService');
 
 	const readText = useCallback((): string => {
-		const raw = configurationService.getValue<unknown>(CONTINUE_TEXT_KEY)
-		return (typeof raw === 'string' && raw.trim().length > 0) ? raw.trim() : CONTINUE_TEXT_DEFAULT
-	}, [configurationService])
+		const raw = configurationService.getValue<unknown>(CONTINUE_TEXT_KEY);
+		return (typeof raw === 'string' && raw.trim().length > 0) ? raw.trim() : CONTINUE_TEXT_DEFAULT;
+	}, [configurationService]);
 
-	const [text, setText] = useState<string>(readText)
+	const [text, setText] = useState<string>(readText);
 	useEffect(() => {
 		const d = configurationService.onDidChangeConfiguration(e => {
-			if (e.affectsConfiguration(CONTINUE_TEXT_KEY)) { setText(readText()) }
-		})
-		return () => d.dispose()
-	}, [configurationService, readText])
+			if (e.affectsConfiguration(CONTINUE_TEXT_KEY)) { setText(readText()); }
+		});
+		return () => d.dispose();
+	}, [configurationService, readText]);
 
 	return (
 		<button
@@ -949,8 +960,8 @@ const ChatContinueButton = ({ onSend }: { onSend: (text: string) => void }) => {
 		>
 			<StepForward size={16} />
 		</button>
-	)
-}
+	);
+};
 
 /** CDN catalog hint next to Chat model picker (training / data-use). */
 const ChatTrainingPolicyBadge: React.FC = () => {
@@ -989,7 +1000,7 @@ const ChatTrainingPolicyBadge: React.FC = () => {
  *  degrading (3099): a series of provider errors (520/529, rate/usage limit, overload, stream
  *  stall) within ~10 min. Clicking the chip opens the model list as usual — the warning sits right
  *  where you switch models, so no separate status-bar item or extra command is needed. */
-const ChatModelHealthDropdown: React.FC<{ featureName: FeatureName, className: string }> = ({ featureName, className }) => {
+const ChatModelHealthDropdown: React.FC<{ featureName: FeatureName; className: string }> = ({ featureName, className }) => {
 	const accessor = useAccessor();
 	const settingsState = useSettingsState();
 	const chatThreadsService = accessor.get('IChatThreadService');
@@ -1142,8 +1153,8 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 				// Don't pull focus back to the textarea when the click landed on an interactive
 				// control inside the composer (iterations <input>, model dropdown, buttons) — the
 				// click-release refocus otherwise steals focus and those inputs can't be edited.
-				if ((e.target as HTMLElement).closest('input,textarea,select,button,[contenteditable]')) { return }
-				onClickAnywhere?.()
+				if ((e.target as HTMLElement).closest('input,textarea,select,button,[contenteditable]')) { return; }
+				onClickAnywhere?.();
 			}}
 			onDragOver={handleDragOver}
 			onDragLeave={handleDragLeave}
@@ -1272,7 +1283,7 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 
 
 
-type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement>
+type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement>;
 const DEFAULT_BUTTON_SIZE = 22;
 export const ButtonSubmit = ({ className, disabled, ...props }: ButtonProps & Required<Pick<ButtonProps, 'disabled'>>) => {
 
@@ -1291,8 +1302,8 @@ export const ButtonSubmit = ({ className, disabled, ...props }: ButtonProps & Re
 		{...props}
 	>
 		<IconArrowUp size={DEFAULT_BUTTON_SIZE} className="stroke-[2] p-[2px]" />
-	</button>
-}
+	</button>;
+};
 
 export const ButtonStop = ({ className, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => {
 	return <button
@@ -1305,8 +1316,8 @@ export const ButtonStop = ({ className, ...props }: ButtonHTMLAttributes<HTMLBut
 		{...props}
 	>
 		<IconSquare size={DEFAULT_BUTTON_SIZE} className="stroke-[3] p-[7px] text-red-600" />
-	</button>
-}
+	</button>;
+};
 
 
 
@@ -1343,40 +1354,40 @@ const ChatScroller = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLD
 );
 
 export const getRelative = (uri: URI, accessor: ReturnType<typeof useAccessor>) => {
-	const workspaceContextService = accessor.get('IWorkspaceContextService')
-	let path: string
-	const isInside = workspaceContextService.isInsideWorkspace(uri)
+	const workspaceContextService = accessor.get('IWorkspaceContextService');
+	let path: string;
+	const isInside = workspaceContextService.isInsideWorkspace(uri);
 	if (isInside) {
-		const f = workspaceContextService.getWorkspace().folders.find(f => uri.fsPath?.startsWith(f.uri.fsPath))
-		if (f) { path = uri.fsPath.replace(f.uri.fsPath, '') }
-		else { path = uri.fsPath }
+		const f = workspaceContextService.getWorkspace().folders.find(f => uri.fsPath?.startsWith(f.uri.fsPath));
+		if (f) { path = uri.fsPath.replace(f.uri.fsPath, ''); }
+		else { path = uri.fsPath; }
 	}
 	else {
-		path = uri.fsPath
+		path = uri.fsPath;
 	}
-	return path || undefined
-}
+	return path || undefined;
+};
 
 export const getFolderName = (pathStr: string) => {
 	// 'unixify' path
-	pathStr = pathStr.replace(/[/\\]+/g, '/') // replace any / or \ or \\ with /
-	const parts = pathStr.split('/') // split on /
+	pathStr = pathStr.replace(/[/\\]+/g, '/'); // replace any / or \ or \\ with /
+	const parts = pathStr.split('/'); // split on /
 	// Filter out empty parts (the last element will be empty if path ends with /)
-	const nonEmptyParts = parts.filter(part => part.length > 0)
-	if (nonEmptyParts.length === 0) return '/' // Root directory
-	if (nonEmptyParts.length === 1) return nonEmptyParts[0] + '/' // Only one folder
+	const nonEmptyParts = parts.filter(part => part.length > 0);
+	if (nonEmptyParts.length === 0) {return '/';} // Root directory
+	if (nonEmptyParts.length === 1) {return nonEmptyParts[0] + '/';} // Only one folder
 	// Get the last two parts
-	const lastTwo = nonEmptyParts.slice(-2)
-	return lastTwo.join('/') + '/'
-}
+	const lastTwo = nonEmptyParts.slice(-2);
+	return lastTwo.join('/') + '/';
+};
 
 export const getBasename = (pathStr: string, parts: number = 1) => {
 	// 'unixify' path
-	pathStr = pathStr.replace(/[/\\]+/g, '/') // replace any / or \ or \\ with /
-	const allParts = pathStr.split('/') // split on /
-	if (allParts.length === 0) return pathStr
-	return allParts.slice(-parts).join('/')
-}
+	pathStr = pathStr.replace(/[/\\]+/g, '/'); // replace any / or \ or \\ with /
+	const allParts = pathStr.split('/'); // split on /
+	if (allParts.length === 0) {return pathStr;}
+	return allParts.slice(-parts).join('/');
+};
 
 
 
@@ -1386,8 +1397,8 @@ export const voidOpenFileFn = (
 	accessor: ReturnType<typeof useAccessor>,
 	range?: [number, number]
 ) => {
-	const commandService = accessor.get('ICommandService')
-	const editorService = accessor.get('ICodeEditorService')
+	const commandService = accessor.get('ICommandService');
+	const editorService = accessor.get('ICodeEditorService');
 
 	// Get editor selection from CodeSelection range
 	let editorSelection = undefined;
@@ -1407,48 +1418,48 @@ export const voidOpenFileFn = (
 
 		// select the text
 		setTimeout(() => {
-			if (!editorSelection) return;
+			if (!editorSelection) {return;}
 
-			const editor = editorService.getActiveCodeEditor()
-			if (!editor) return;
+			const editor = editorService.getActiveCodeEditor();
+			if (!editor) {return;}
 
-			editor.setSelection(editorSelection)
-			editor.revealRange(editorSelection, ScrollType.Immediate)
+			editor.setSelection(editorSelection);
+			editor.revealRange(editorSelection, ScrollType.Immediate);
 
-		}, 50) // needed when document was just opened and needs to initialize
+		}, 50); // needed when document was just opened and needs to initialize
 
-	})
+	});
 
 };
 
 
 export const SelectedFiles = (
 	{ type, selections, setSelections, showProspectiveSelections, messageIdx, }:
-		| { type: 'past', selections: StagingSelectionItem[]; setSelections?: undefined, showProspectiveSelections?: undefined, messageIdx: number, }
-		| { type: 'staging', selections: StagingSelectionItem[]; setSelections: ((newSelections: StagingSelectionItem[]) => void), showProspectiveSelections?: boolean, messageIdx?: number }
+		| { type: 'past'; selections: StagingSelectionItem[]; setSelections?: undefined; showProspectiveSelections?: undefined; messageIdx: number }
+		| { type: 'staging'; selections: StagingSelectionItem[]; setSelections: ((newSelections: StagingSelectionItem[]) => void); showProspectiveSelections?: boolean; messageIdx?: number }
 ) => {
 
-	const accessor = useAccessor()
-	const commandService = accessor.get('ICommandService')
-	const modelReferenceService = accessor.get('IVibeideModelService')
+	const accessor = useAccessor();
+	const commandService = accessor.get('ICommandService');
+	const modelReferenceService = accessor.get('IVibeideModelService');
 
 
 
 
 	// state for tracking prospective files
-	const { uri: currentURI } = useActiveURI()
-	const [recentUris, setRecentUris] = useState<URI[]>([])
-	const maxRecentUris = 10
-	const maxProspectiveFiles = 3
+	const { uri: currentURI } = useActiveURI();
+	const [recentUris, setRecentUris] = useState<URI[]>([]);
+	const maxRecentUris = 10;
+	const maxProspectiveFiles = 3;
 	useEffect(() => { // handle recent files
-		if (!currentURI) return
+		if (!currentURI) {return;}
 		setRecentUris(prev => {
-			const withoutCurrent = prev.filter(uri => uri.fsPath !== currentURI.fsPath) // remove duplicates
-			const withCurrent = [currentURI, ...withoutCurrent]
-			return withCurrent.slice(0, maxRecentUris)
-		})
-	}, [currentURI])
-	const [prospectiveSelections, setProspectiveSelections] = useState<StagingSelectionItem[]>([])
+			const withoutCurrent = prev.filter(uri => uri.fsPath !== currentURI.fsPath); // remove duplicates
+			const withCurrent = [currentURI, ...withoutCurrent];
+			return withCurrent.slice(0, maxRecentUris);
+		});
+	}, [currentURI]);
+	const [prospectiveSelections, setProspectiveSelections] = useState<StagingSelectionItem[]>([]);
 
 
 	// handle prospective files
@@ -1456,34 +1467,34 @@ export const SelectedFiles = (
 		const computeRecents = async () => {
 			const prospectiveURIs = recentUris
 				.filter(uri => !selections.find(s => s.type === 'File' && s.uri.fsPath === uri.fsPath))
-				.slice(0, maxProspectiveFiles)
+				.slice(0, maxProspectiveFiles);
 
-			const answer: StagingSelectionItem[] = []
+			const answer: StagingSelectionItem[] = [];
 			for (const uri of prospectiveURIs) {
 				answer.push({
 					type: 'File',
 					uri: uri,
 					language: (await modelReferenceService.getModelSafe(uri)).model?.getLanguageId() || 'plaintext',
 					state: { wasAddedAsCurrentFile: false },
-				})
+				});
 			}
-			return answer
-		}
+			return answer;
+		};
 
 		// add a prospective file if type === 'staging' and if the user is in a file, and if the file is not selected yet
 		if (type === 'staging' && showProspectiveSelections) {
-			computeRecents().then((a) => setProspectiveSelections(a))
+			computeRecents().then((a) => setProspectiveSelections(a));
 		}
 		else {
-			setProspectiveSelections([])
+			setProspectiveSelections([]);
 		}
-	}, [recentUris, selections, type, showProspectiveSelections])
+	}, [recentUris, selections, type, showProspectiveSelections]);
 
 
-	const allSelections = [...selections, ...prospectiveSelections]
+	const allSelections = [...selections, ...prospectiveSelections];
 
 	if (allSelections.length === 0) {
-		return null
+		return null;
 	}
 
 	return (
@@ -1491,19 +1502,19 @@ export const SelectedFiles = (
 
 			{allSelections.map((selection, i) => {
 
-				const isThisSelectionProspective = i > selections.length - 1
+				const isThisSelectionProspective = i > selections.length - 1;
 
 				const thisKey = selection.type === 'CodeSelection' ? selection.type + selection.language + selection.range + selection.state.wasAddedAsCurrentFile + selection.uri.fsPath
 					: selection.type === 'File' ? selection.type + selection.language + selection.state.wasAddedAsCurrentFile + selection.uri.fsPath
 						: selection.type === 'Folder' ? selection.type + selection.language + selection.state + selection.uri.fsPath
-							: i
+							: i;
 
 				const SelectionIcon = (
 					selection.type === 'File' ? File
 						: selection.type === 'Folder' ? Folder
 							: selection.type === 'CodeSelection' ? Text
 								: (undefined as never)
-				)
+				);
 
 				return <div // container for summarybox and code
 					key={thisKey}
@@ -1534,22 +1545,22 @@ export const SelectedFiles = (
 								transition-all duration-150
 							`}
 							onClick={() => {
-								if (type !== 'staging') return; // (never)
+								if (type !== 'staging') {return;} // (never)
 								if (isThisSelectionProspective) { // add prospective selection to selections
-									setSelections([...selections, selection])
+									setSelections([...selections, selection]);
 								}
 								else if (selection.type === 'File') { // open files
 									voidOpenFileFn(selection.uri, accessor);
 
-									const wasAddedAsCurrentFile = selection.state.wasAddedAsCurrentFile
+									const wasAddedAsCurrentFile = selection.state.wasAddedAsCurrentFile;
 									if (wasAddedAsCurrentFile) {
 										// make it so the file is added permanently, not just as the current file
-										const newSelection: StagingSelectionItem = { ...selection, state: { ...selection.state, wasAddedAsCurrentFile: false } }
+										const newSelection: StagingSelectionItem = { ...selection, state: { ...selection.state, wasAddedAsCurrentFile: false } };
 										setSelections([
 											...selections.slice(0, i),
 											newSelection,
 											...selections.slice(i + 1)
-										])
+										]);
 									}
 								}
 								else if (selection.type === 'CodeSelection') {
@@ -1579,8 +1590,8 @@ export const SelectedFiles = (
 									className='cursor-pointer z-1 self-stretch flex items-center justify-center'
 									onClick={(e) => {
 										e.stopPropagation(); // don't open/close selection
-										if (type !== 'staging') return;
-										setSelections([...selections.slice(0, i), ...selections.slice(i + 1)])
+										if (type !== 'staging') {return;}
+										setSelections([...selections.slice(0, i), ...selections.slice(i + 1)]);
 									}}
 								>
 									<IconX
@@ -1592,15 +1603,15 @@ export const SelectedFiles = (
 							}
 						</div>
 					</span>
-				</div>
+				</div>;
 
 			})}
 
 
 		</div>
 
-	)
-}
+	);
+};
 
 
 type ToolHeaderParams = {
@@ -1621,7 +1632,7 @@ type ToolHeaderParams = {
 	desc2OnClick?: () => void;
 	isOpen?: boolean;
 	className?: string;
-}
+};
 
 const ToolHeaderWrapper = ({
 	icon,
@@ -1644,12 +1655,12 @@ const ToolHeaderWrapper = ({
 }: ToolHeaderParams) => {
 
 	const [isOpen_, setIsOpen] = useState(false);
-	const isExpanded = isOpen !== undefined ? isOpen : isOpen_
+	const isExpanded = isOpen !== undefined ? isOpen : isOpen_;
 
-	const isDropdown = children !== undefined // null ALLOWS dropdown
-	const isClickable = !!(isDropdown || onClick)
+	const isDropdown = children !== undefined; // null ALLOWS dropdown
+	const isClickable = !!(isDropdown || onClick);
 
-	const isDesc1Clickable = !!desc1OnClick
+	const isDesc1Clickable = !!desc1OnClick;
 
 	const desc1HTML = <span
 		className={`text-vibe-fg-4 text-xs italic truncate ml-2
@@ -1662,7 +1673,7 @@ const ToolHeaderWrapper = ({
 			'data-tooltip-place': 'top',
 			'data-tooltip-delay-show': 1000,
 		} : {}}
-	>{desc1}</span>
+	>{desc1}</span>;
 
 	return (<div className=''>
 		<div className={`w-full border border-vibe-border-3 rounded px-2 py-1 bg-vibe-bg-3 overflow-hidden ${className}`}>
@@ -1749,21 +1760,21 @@ const ToolHeaderWrapper = ({
 
 
 const EditTool = ({ toolMessage, threadId, messageIdx, content }: Parameters<ResultWrapper<'edit_file' | 'rewrite_file'>>[0] & { content: string }) => {
-	const accessor = useAccessor()
-	const isError = false
-	const isRejected = toolMessage.type === 'rejected'
+	const accessor = useAccessor();
+	const isError = false;
+	const isRejected = toolMessage.type === 'rejected';
 
-	const title = getTitle(toolMessage)
+	const title = getTitle(toolMessage);
 
-	const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
-	const icon = null
+	const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor);
+	const icon = null;
 
-	const { rawParams, params, name } = toolMessage
-	const desc1OnClick = () => voidOpenFileFn(params.uri, accessor)
-	const componentParams: ToolHeaderParams = { title, desc1, desc1OnClick, desc1Info, isError, icon, isRejected, }
+	const { rawParams, params, name } = toolMessage;
+	const desc1OnClick = () => voidOpenFileFn(params.uri, accessor);
+	const componentParams: ToolHeaderParams = { title, desc1, desc1OnClick, desc1Info, isError, icon, isRejected, };
 
 
-	const editToolType = toolMessage.name === 'edit_file' ? 'diff' : 'rewrite'
+	const editToolType = toolMessage.name === 'edit_file' ? 'diff' : 'rewrite';
 	if (toolMessage.type === 'running_now' || toolMessage.type === 'tool_request') {
 		componentParams.children = <ToolChildrenWrapper className='bg-vibe-bg-3'>
 			<EditToolChildren
@@ -1771,7 +1782,7 @@ const EditTool = ({ toolMessage, threadId, messageIdx, content }: Parameters<Res
 				code={content}
 				type={editToolType}
 			/>
-		</ToolChildrenWrapper>
+		</ToolChildrenWrapper>;
 		// JumpToFileButton removed in favor of FileLinkText
 	}
 	else if (toolMessage.type === 'success' || toolMessage.type === 'rejected' || toolMessage.type === 'tool_error') {
@@ -1780,14 +1791,14 @@ const EditTool = ({ toolMessage, threadId, messageIdx, content }: Parameters<Res
 			threadId: threadId,
 			messageIdx: messageIdx,
 			tokenIdx: 'N/A',
-		})
+		});
 		componentParams.desc2 = <EditToolHeaderButtons
 			applyBoxId={applyBoxId}
 			uri={params.uri}
 			codeStr={content}
 			toolName={name}
 			threadId={threadId}
-		/>
+		/>;
 
 		// add children
 		componentParams.children = <ToolChildrenWrapper className='bg-vibe-bg-3'>
@@ -1796,29 +1807,29 @@ const EditTool = ({ toolMessage, threadId, messageIdx, content }: Parameters<Res
 				code={content}
 				type={editToolType}
 			/>
-		</ToolChildrenWrapper>
+		</ToolChildrenWrapper>;
 
 		if (toolMessage.type === 'success' || toolMessage.type === 'rejected') {
-			const { result } = toolMessage
+			const { result } = toolMessage;
 			componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenLintErrors}>
 				{result?.lintErrors?.map((error, i) => (
 					<div key={i} className='whitespace-nowrap'>Lines {error.startLineNumber}-{error.endLineNumber}: {error.message}</div>
 				))}
-			</BottomChildren>
+			</BottomChildren>;
 		}
 		else if (toolMessage.type === 'tool_error') {
 			// error
-			const { result } = toolMessage
+			const { result } = toolMessage;
 			componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenError}>
 				<CodeChildren>
 					{result}
 				</CodeChildren>
-			</BottomChildren>
+			</BottomChildren>;
 		}
 	}
 
-	return <ToolHeaderWrapper {...componentParams} />
-}
+	return <ToolHeaderWrapper {...componentParams} />;
+};
 
 const SimplifiedToolHeader = ({
 	title,
@@ -1878,7 +1889,7 @@ const SKILL_PILL_INLINE_STYLE: React.CSSProperties = {
 	textShadow: 'var(--vibe-skill-pill-glow, none)',
 };
 const renderWithSkillHighlights = (text: string): React.ReactNode => {
-	if (!text || !text.includes('/')) return text;
+	if (!text || !text.includes('/')) {return text;}
 	const out: React.ReactNode[] = [];
 	let lastIdx = 0;
 	let m: RegExpExecArray | null;
@@ -1886,89 +1897,89 @@ const renderWithSkillHighlights = (text: string): React.ReactNode => {
 	while ((m = SLASH_COMMAND_RE.exec(text)) !== null) {
 		const [, leading, cmd] = m;
 		const cmdStart = m.index + leading.length;
-		if (cmdStart > lastIdx) out.push(text.slice(lastIdx, cmdStart));
+		if (cmdStart > lastIdx) {out.push(text.slice(lastIdx, cmdStart));}
 		out.push(<span key={cmdStart} className="vibe-skill-pill" style={SKILL_PILL_INLINE_STYLE}>{cmd}</span>);
 		lastIdx = cmdStart + cmd.length;
 	}
-	if (lastIdx === 0) return text;
-	if (lastIdx < text.length) out.push(text.slice(lastIdx));
+	if (lastIdx === 0) {return text;}
+	if (lastIdx < text.length) {out.push(text.slice(lastIdx));}
 	return <>{out}</>;
 };
 
 
-const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, currCheckpointIdx, _scrollToBottom }: { chatMessage: ChatMessage & { role: 'user' }, messageIdx: number, currCheckpointIdx: number | undefined, isCheckpointGhost: boolean, _scrollToBottom: (() => void) | null }) => {
+const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, currCheckpointIdx, _scrollToBottom }: { chatMessage: ChatMessage & { role: 'user' }; messageIdx: number; currCheckpointIdx: number | undefined; isCheckpointGhost: boolean; _scrollToBottom: (() => void) | null }) => {
 
-	const accessor = useAccessor()
-	const chatThreadsService = accessor.get('IChatThreadService')
+	const accessor = useAccessor();
+	const chatThreadsService = accessor.get('IChatThreadService');
 
 	// Subscribe to thread state changes properly
-	const chatThreadsState = useChatThreadsState()
-	const currentThreadId = chatThreadsState.currentThreadId
+	const chatThreadsState = useChatThreadsState();
+	const currentThreadId = chatThreadsState.currentThreadId;
 
 	// global state
-	let isBeingEdited = false
-	let stagingSelections: StagingSelectionItem[] = []
-	let setIsBeingEdited = (_: boolean) => { }
-	let setStagingSelections = (_: StagingSelectionItem[]) => { }
+	let isBeingEdited = false;
+	let stagingSelections: StagingSelectionItem[] = [];
+	let setIsBeingEdited = (_: boolean) => { };
+	let setStagingSelections = (_: StagingSelectionItem[]) => { };
 
 	if (messageIdx !== undefined) {
-		const _state = chatThreadsService.getCurrentMessageState(messageIdx)
-		isBeingEdited = _state.isBeingEdited
-		stagingSelections = _state.stagingSelections
-		setIsBeingEdited = (v) => chatThreadsService.setCurrentMessageState(messageIdx, { isBeingEdited: v })
-		setStagingSelections = (s) => chatThreadsService.setCurrentMessageState(messageIdx, { stagingSelections: s })
+		const _state = chatThreadsService.getCurrentMessageState(messageIdx);
+		isBeingEdited = _state.isBeingEdited;
+		stagingSelections = _state.stagingSelections;
+		setIsBeingEdited = (v) => chatThreadsService.setCurrentMessageState(messageIdx, { isBeingEdited: v });
+		setStagingSelections = (s) => chatThreadsService.setCurrentMessageState(messageIdx, { stagingSelections: s });
 	}
 
 
 	// local state
-	const mode: ChatBubbleMode = isBeingEdited ? 'edit' : 'display'
-	const [isFocused, setIsFocused] = useState(false)
-	const [isHovered, setIsHovered] = useState(false)
-	const [isDisabled, setIsDisabled] = useState(false)
-	const [textAreaRefState, setTextAreaRef] = useState<HTMLTextAreaElement | null>(null)
-	const textAreaFnsRef = useRef<TextAreaFns | null>(null)
+	const mode: ChatBubbleMode = isBeingEdited ? 'edit' : 'display';
+	const [isFocused, setIsFocused] = useState(false);
+	const [isHovered, setIsHovered] = useState(false);
+	const [isDisabled, setIsDisabled] = useState(false);
+	const [textAreaRefState, setTextAreaRef] = useState<HTMLTextAreaElement | null>(null);
+	const textAreaFnsRef = useRef<TextAreaFns | null>(null);
 	// initialize on first render, and when edit was just enabled
-	const _mustInitialize = useRef(true)
-	const _justEnabledEdit = useRef(false)
+	const _mustInitialize = useRef(true);
+	const _justEnabledEdit = useRef(false);
 	useEffect(() => {
-		const canInitialize = mode === 'edit' && textAreaRefState
-		const shouldInitialize = _justEnabledEdit.current || _mustInitialize.current
+		const canInitialize = mode === 'edit' && textAreaRefState;
+		const shouldInitialize = _justEnabledEdit.current || _mustInitialize.current;
 		if (canInitialize && shouldInitialize) {
 			setStagingSelections(
 				(chatMessage.selections || []).map(s => { // quick hack so we dont have to do anything more
-					if (s.type === 'File') return { ...s, state: { ...s.state, wasAddedAsCurrentFile: false, } }
-					else return s
+					if (s.type === 'File') {return { ...s, state: { ...s.state, wasAddedAsCurrentFile: false, } };}
+					else {return s;}
 				})
-			)
+			);
 
 			if (textAreaFnsRef.current)
-				textAreaFnsRef.current.setValue(chatMessage.displayContent || '')
+				{textAreaFnsRef.current.setValue(chatMessage.displayContent || '');}
 
 			textAreaRefState.focus();
 
-			_justEnabledEdit.current = false
-			_mustInitialize.current = false
+			_justEnabledEdit.current = false;
+			_mustInitialize.current = false;
 		}
 
-	}, [chatMessage, mode, textAreaRefState, setStagingSelections])
+	}, [chatMessage, mode, textAreaRefState, setStagingSelections]);
 
 	const onOpenEdit = () => {
-		setIsBeingEdited(true)
-		chatThreadsService.setCurrentlyFocusedMessageIdx(messageIdx)
-		_justEnabledEdit.current = true
-	}
+		setIsBeingEdited(true);
+		chatThreadsService.setCurrentlyFocusedMessageIdx(messageIdx);
+		_justEnabledEdit.current = true;
+	};
 	const onCloseEdit = () => {
-		setIsFocused(false)
-		setIsHovered(false)
-		setIsBeingEdited(false)
-		chatThreadsService.setCurrentlyFocusedMessageIdx(undefined)
+		setIsFocused(false);
+		setIsHovered(false);
+		setIsBeingEdited(false);
+		chatThreadsService.setCurrentlyFocusedMessageIdx(undefined);
 
-	}
+	};
 
-	const EditSymbol = mode === 'display' ? Pencil : X
+	const EditSymbol = mode === 'display' ? Pencil : X;
 
 
-	let chatbubbleContents: React.ReactNode
+	let chatbubbleContents: React.ReactNode;
 	if (mode === 'display') {
 		const hasImages = chatMessage.images && chatMessage.images.length > 0;
 		const hasPDFs = chatMessage.pdfs && chatMessage.pdfs.length > 0;
@@ -1993,62 +2004,62 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			{chatMessage.displayContent && (
 				<span className='px-0.5'>{renderWithSkillHighlights(chatMessage.displayContent)}</span>
 			)}
-		</>
+		</>;
 	}
 	else if (mode === 'edit') {
 
 		const onSubmit = async () => {
 
-			if (isDisabled) return;
-			if (!textAreaRefState) return;
-			if (messageIdx === undefined) return;
+			if (isDisabled) {return;}
+			if (!textAreaRefState) {return;}
+			if (messageIdx === undefined) {return;}
 
 			// cancel any streams on this thread - use subscribed state
-			const threadId = currentThreadId
+			const threadId = currentThreadId;
 
 			// Defensive check: verify the message is still a user message before editing
-			const thread = chatThreadsState.allThreads[threadId]
+			const thread = chatThreadsState.allThreads[threadId];
 			if (!thread || !thread.messages || thread.messages[messageIdx]?.role !== 'user') {
-				vibeLog.error('SidebarChat', 'Error while editing message: Message is not a user message or no longer exists')
-				setIsBeingEdited(false)
-				chatThreadsService.setCurrentlyFocusedMessageIdx(undefined)
-				return
+				vibeLog.error('SidebarChat', 'Error while editing message: Message is not a user message or no longer exists');
+				setIsBeingEdited(false);
+				chatThreadsService.setCurrentlyFocusedMessageIdx(undefined);
+				return;
 			}
 
-			await chatThreadsService.abortRunning(threadId)
+			await chatThreadsService.abortRunning(threadId);
 
 			// update state
-			setIsBeingEdited(false)
-			chatThreadsService.setCurrentlyFocusedMessageIdx(undefined)
+			setIsBeingEdited(false);
+			chatThreadsService.setCurrentlyFocusedMessageIdx(undefined);
 
 			// stream the edit
 			const userMessage = textAreaRefState.value;
 			try {
-				await chatThreadsService.editUserMessageAndStreamResponse({ userMessage, messageIdx, threadId })
+				await chatThreadsService.editUserMessageAndStreamResponse({ userMessage, messageIdx, threadId });
 			} catch (e) {
-				vibeLog.error('SidebarChat', 'Error while editing message:', e)
+				vibeLog.error('SidebarChat', 'Error while editing message:', e);
 			}
-			await chatThreadsService.focusCurrentChat()
-			requestAnimationFrame(() => _scrollToBottom?.())
-		}
+			await chatThreadsService.focusCurrentChat();
+			requestAnimationFrame(() => _scrollToBottom?.());
+		};
 
 		const onAbort = async () => {
 			// use subscribed state
-			const threadId = currentThreadId
-			await chatThreadsService.abortRunning(threadId)
-		}
+			const threadId = currentThreadId;
+			await chatThreadsService.abortRunning(threadId);
+		};
 
 		const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
 			if (e.key === 'Escape') {
-				onCloseEdit()
+				onCloseEdit();
 			}
 			if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-				onSubmit()
+				onSubmit();
 			}
-		}
+		};
 
 		if (!chatMessage.content) { // don't show if empty and not loading (if loading, want to show).
-			return null
+			return null;
 		}
 
 		chatbubbleContents = <VibeChatArea
@@ -2071,20 +2082,20 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 				placeholder={chatS.placeholderFull}
 				onChangeText={(text) => setIsDisabled(!text)}
 				onFocus={() => {
-					setIsFocused(true)
+					setIsFocused(true);
 					chatThreadsService.setCurrentlyFocusedMessageIdx(messageIdx);
 				}}
 				onBlur={() => {
-					setIsFocused(false)
+					setIsFocused(false);
 				}}
 				onKeyDown={onKeyDown}
 				fnsRef={textAreaFnsRef}
 				multiline={true}
 			/>
-		</VibeChatArea>
+		</VibeChatArea>;
 	}
 
-	const isMsgAfterCheckpoint = currCheckpointIdx !== undefined && currCheckpointIdx === messageIdx - 1
+	const isMsgAfterCheckpoint = currCheckpointIdx !== undefined && currCheckpointIdx === messageIdx - 1;
 
 	return <div
 		// align chatbubble accoridng to role
@@ -2108,11 +2119,11 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 				}
         `}
 			onClick={() => {
-				if (mode !== 'display') return
+				if (mode !== 'display') {return;}
 				// Don't open edit mode if the user is selecting text inside the bubble.
-				const sel = typeof window !== 'undefined' ? window.getSelection() : null
-				if (sel && !sel.isCollapsed && sel.toString().length > 0) return
-				onOpenEdit()
+				const sel = typeof window !== 'undefined' ? window.getSelection() : null;
+				if (sel && !sel.isCollapsed && sel.toString().length > 0) {return;}
+				onOpenEdit();
 			}}
 		>
 			{chatbubbleContents}
@@ -2138,8 +2149,8 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
                 `}
 					style={chatMessage.pinned ? { color: 'var(--vscode-vibeide-chatGroup-activeBorder, #fc28a8)' } : undefined}
 					onClick={(e) => {
-						e.stopPropagation()
-						chatThreadsService.toggleMessagePinned({ threadId: currentThreadId, messageIdx })
+						e.stopPropagation();
+						chatThreadsService.toggleMessagePinned({ threadId: currentThreadId, messageIdx });
 					}}
 				/>
 			)}
@@ -2154,18 +2165,18 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
                 `}
 				onClick={() => {
 					if (mode === 'display') {
-						onOpenEdit()
+						onOpenEdit();
 					} else if (mode === 'edit') {
-						onCloseEdit()
+						onCloseEdit();
 					}
 				}}
 			/>
 		</div>
 
 
-	</div>
+	</div>;
 
-}
+};
 
 const SmallProseWrapper = ({ children }: { children: React.ReactNode }) => {
 	return <div className='
@@ -2227,8 +2238,8 @@ prose-pre:my-2
 prose-table:text-[13px]
 '>
 		{children}
-	</div>
-}
+	</div>;
+};
 
 const ProseWrapper = ({ children }: { children: React.ReactNode }) => {
 	return <div className='
@@ -2259,12 +2270,12 @@ max-w-none
 '
 	>
 		{children}
-	</div>
-}
-const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, isCommitted, messageIdx }: { chatMessage: ChatMessage & { role: 'assistant' }, isCheckpointGhost: boolean, messageIdx: number, isCommitted: boolean }) => {
+	</div>;
+};
+const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, isCommitted, messageIdx }: { chatMessage: ChatMessage & { role: 'assistant' }; isCheckpointGhost: boolean; messageIdx: number; isCommitted: boolean }) => {
 
-	const accessor = useAccessor()
-	const chatThreadsService = accessor.get('IChatThreadService')
+	const accessor = useAccessor();
+	const chatThreadsService = accessor.get('IChatThreadService');
 
 	// Render-layer safety net: scrub any complete tool-call tags that leaked into
 	// user-visible text (e.g. a 2nd tool emission past the parser's first, or a
@@ -2272,31 +2283,31 @@ const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, 
 	// `<run_command>…</run_command>` for a polite placeholder. Memoized so it only
 	// recomputes when the underlying text changes.
 	const reasoningStr = useMemo(() => {
-		const r = chatMessage.reasoning?.trim() || null
-		return r ? stripUnclaimedToolTags(r) : null
-	}, [chatMessage.reasoning])
-	const displayContent = useMemo(() => stripUnclaimedToolTags(chatMessage.displayContent || ''), [chatMessage.displayContent])
-	const hasReasoning = !!reasoningStr
-	const isDoneReasoning = !!chatMessage.displayContent
-	const thread = chatThreadsService.getCurrentThread()
+		const r = chatMessage.reasoning?.trim() || null;
+		return r ? stripUnclaimedToolTags(r) : null;
+	}, [chatMessage.reasoning]);
+	const displayContent = useMemo(() => stripUnclaimedToolTags(chatMessage.displayContent || ''), [chatMessage.displayContent]);
+	const hasReasoning = !!reasoningStr;
+	const isDoneReasoning = !!chatMessage.displayContent;
+	const thread = chatThreadsService.getCurrentThread();
 
 
 	const chatMessageLocation: ChatMessageLocation = useMemo(() => ({
 		threadId: thread.id,
 		messageIdx: messageIdx,
-	}), [thread.id, messageIdx])
+	}), [thread.id, messageIdx]);
 
 	// Premature-stop affordance: the agent appends a notice (agentStoppedNoToolCall) when it
 	// halts because the model returned text with no tool call and Autopilot is off. Offer a
 	// one-click «Продолжить» — but only while this is still the thread's last message and the
 	// thread is idle (so historical notices don't keep a live button).
-	const threadIsRunning = useChatThreadsStreamState(thread.id)?.isRunning
-	const threadIsIdle = threadIsRunning === undefined || threadIsRunning === 'idle'
-	const isLastMessage = messageIdx === (thread.messages.length - 1)
-	const showContinueAffordance = chatMessage.agentStoppedNoToolCall === true && isLastMessage && threadIsIdle && !isCheckpointGhost
+	const threadIsRunning = useChatThreadsStreamState(thread.id)?.isRunning;
+	const threadIsIdle = threadIsRunning === undefined || threadIsRunning === 'idle';
+	const isLastMessage = messageIdx === (thread.messages.length - 1);
+	const showContinueAffordance = chatMessage.agentStoppedNoToolCall === true && isLastMessage && threadIsIdle && !isCheckpointGhost;
 
-	const isEmpty = !chatMessage.displayContent && !chatMessage.reasoning
-	if (isEmpty) return null
+	const isEmpty = !chatMessage.displayContent && !chatMessage.reasoning;
+	if (isEmpty) {return null;}
 
 	return <>
 		{/* reasoning token */}
@@ -2349,14 +2360,14 @@ const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, 
 					type="button"
 					title={chatS.agentContinueTitle}
 					aria-label={chatS.agentContinueLabel}
-					onClick={() => { void chatThreadsService.addUserMessageAndStreamResponse({ userMessage: 'продолжи', threadId: thread.id }) }}
+					onClick={() => { void chatThreadsService.addUserMessageAndStreamResponse({ userMessage: 'продолжи', threadId: thread.id }); }}
 					className="px-3 py-1.5 text-xs rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/40"
 				>
 					{chatS.agentContinueLabel}
 				</button>
 			</div>
 		)}
-	</>
+	</>;
 
 }, (prev, next) => {
 	// Custom comparison: only re-render if message content, checkpoint state, or committed state changes
@@ -2364,21 +2375,21 @@ const AssistantMessageComponent = React.memo(({ chatMessage, isCheckpointGhost, 
 		prev.chatMessage.reasoning === next.chatMessage.reasoning &&
 		prev.isCheckpointGhost === next.isCheckpointGhost &&
 		prev.isCommitted === next.isCommitted &&
-		prev.messageIdx === next.messageIdx
-})
+		prev.messageIdx === next.messageIdx;
+});
 
-const ReasoningWrapper = ({ isDoneReasoning, isStreaming, children }: { isDoneReasoning: boolean, isStreaming: boolean, children: React.ReactNode }) => {
-	const isDone = isDoneReasoning || !isStreaming
-	const isWriting = !isDone
-	const [isOpen, setIsOpen] = useState(false)
+const ReasoningWrapper = ({ isDoneReasoning, isStreaming, children }: { isDoneReasoning: boolean; isStreaming: boolean; children: React.ReactNode }) => {
+	const isDone = isDoneReasoning || !isStreaming;
+	const isWriting = !isDone;
+	const [isOpen, setIsOpen] = useState(false);
 	return <ToolHeaderWrapper title={chatS.reasoningHeader} desc1={isWriting ? <IconLoading state="thinking" inline /> : ''} isOpen={isOpen} onClick={() => setIsOpen(v => !v)}>
 		<ToolChildrenWrapper>
 			<div className='!select-text cursor-auto'>
 				{children}
 			</div>
 		</ToolChildrenWrapper>
-	</ToolHeaderWrapper>
-}
+	</ToolHeaderWrapper>;
+};
 
 
 
@@ -2389,8 +2400,8 @@ const loadingTitleWrapper = (item: React.ReactNode): React.ReactNode => {
 	return <span className='flex items-center flex-nowrap gap-1'>
 		{item}
 		<IconLoading state="processing" inline className='w-3 text-sm' />
-	</span>
-}
+	</span>;
+};
 
 const titleOfBuiltinToolName = {
 	'read_file': { done: 'Read file', proposed: 'Read file', running: loadingTitleWrapper('Reading file') },
@@ -2413,11 +2424,11 @@ const titleOfBuiltinToolName = {
 	'web_search': { done: 'Searched the web', proposed: 'Search the web', running: loadingTitleWrapper('Searching the web') },
 	'browse_url': { done: 'Fetched web page', proposed: 'Fetch web page', running: loadingTitleWrapper('Fetching web page') },
 	'vibe_complete': { done: 'Завершил ход', proposed: 'Завершить ход', running: loadingTitleWrapper('Завершает ход') },
-} as const satisfies Record<BuiltinToolName, { done: any, proposed: any, running: any }>
+} as const satisfies Record<BuiltinToolName, { done: any; proposed: any; running: any }>;
 
 
 const getTitle = (toolMessage: Pick<ChatMessage & { role: 'tool' }, 'name' | 'type' | 'mcpServerName'>): React.ReactNode => {
-	const t = toolMessage
+	const t = toolMessage;
 
 	// non-built-in title
 	if (!builtinToolNames.includes(t.name as BuiltinToolName)) {
@@ -2429,33 +2440,33 @@ const getTitle = (toolMessage: Pick<ChatMessage & { role: 'tool' }, 'name' | 'ty
 						: t.type === 'rejected' ? 'Call'
 							: t.type === 'invalid_params' ? 'Call'
 								: t.type === 'tool_error' ? 'Call'
-									: 'Call'
+									: 'Call';
 
 
-		const title = `${descriptor} ${toolMessage.mcpServerName || 'MCP'}`
+		const title = `${descriptor} ${toolMessage.mcpServerName || 'MCP'}`;
 		if (t.type === 'running_now' || t.type === 'tool_request')
-			return loadingTitleWrapper(title)
-		return title
+			{return loadingTitleWrapper(title);}
+		return title;
 	}
 
 	// built-in title
 	else {
-		const toolName = t.name as BuiltinToolName
-		const titles = titleOfBuiltinToolName[toolName]
+		const toolName = t.name as BuiltinToolName;
+		const titles = titleOfBuiltinToolName[toolName];
 		// titleOfBuiltinToolName can lag behind BuiltinToolName when tools are
 		// added to the type but not to the title map — fall back to the raw
 		// name instead of crashing the React tree.
-		if (!titles) return t.name
-		if (t.type === 'success') return titles.done
-		if (t.type === 'running_now') return titles.running
-		return titles.proposed
+		if (!titles) {return t.name;}
+		if (t.type === 'success') {return titles.done;}
+		if (t.type === 'running_now') {return titles.running;}
+		return titles.proposed;
 	}
-}
+};
 
 
 const toolNameToDesc = (toolName: BuiltinToolName, _toolParams: BuiltinToolCallParams[BuiltinToolName] | undefined, accessor: ReturnType<typeof useAccessor>): {
-	desc1: React.ReactNode,
-	desc1Info?: string,
+	desc1: React.ReactNode;
+	desc1Info?: string;
 } => {
 
 	if (!_toolParams) {
@@ -2464,30 +2475,30 @@ const toolNameToDesc = (toolName: BuiltinToolName, _toolParams: BuiltinToolCallP
 
 	const x = {
 		'read_file': () => {
-			const toolParams = _toolParams as BuiltinToolCallParams['read_file']
+			const toolParams = _toolParams as BuiltinToolCallParams['read_file'];
 			return {
 				desc1: getBasename(toolParams.uri.fsPath),
 				desc1Info: getRelative(toolParams.uri, accessor),
 			};
 		},
 		'ls_dir': () => {
-			const toolParams = _toolParams as BuiltinToolCallParams['ls_dir']
+			const toolParams = _toolParams as BuiltinToolCallParams['ls_dir'];
 			return {
 				desc1: getFolderName(toolParams.uri.fsPath),
 				desc1Info: getRelative(toolParams.uri, accessor),
 			};
 		},
 		'search_pathnames_only': () => {
-			const toolParams = _toolParams as BuiltinToolCallParams['search_pathnames_only']
+			const toolParams = _toolParams as BuiltinToolCallParams['search_pathnames_only'];
 			return {
 				desc1: `"${toolParams.query}"`,
-			}
+			};
 		},
 		'search_for_files': () => {
-			const toolParams = _toolParams as BuiltinToolCallParams['search_for_files']
+			const toolParams = _toolParams as BuiltinToolCallParams['search_for_files'];
 			return {
 				desc1: `"${toolParams.query}"`,
-			}
+			};
 		},
 		'search_in_file': () => {
 			const toolParams = _toolParams as BuiltinToolCallParams['search_in_file'];
@@ -2499,116 +2510,116 @@ const toolNameToDesc = (toolName: BuiltinToolName, _toolParams: BuiltinToolCallP
 			};
 		},
 		'create_file_or_folder': () => {
-			const toolParams = _toolParams as BuiltinToolCallParams['create_file_or_folder']
+			const toolParams = _toolParams as BuiltinToolCallParams['create_file_or_folder'];
 			return {
 				desc1: toolParams.isFolder ? getFolderName(toolParams.uri.fsPath) ?? '/' : getBasename(toolParams.uri.fsPath),
 				desc1Info: getRelative(toolParams.uri, accessor),
-			}
+			};
 		},
 		'delete_file_or_folder': () => {
-			const toolParams = _toolParams as BuiltinToolCallParams['delete_file_or_folder']
+			const toolParams = _toolParams as BuiltinToolCallParams['delete_file_or_folder'];
 			return {
 				desc1: toolParams.isFolder ? getFolderName(toolParams.uri.fsPath) ?? '/' : getBasename(toolParams.uri.fsPath),
 				desc1Info: getRelative(toolParams.uri, accessor),
-			}
+			};
 		},
 		'rewrite_file': () => {
-			const toolParams = _toolParams as BuiltinToolCallParams['rewrite_file']
+			const toolParams = _toolParams as BuiltinToolCallParams['rewrite_file'];
 			return {
 				desc1: getBasename(toolParams.uri.fsPath),
 				desc1Info: getRelative(toolParams.uri, accessor),
-			}
+			};
 		},
 		'edit_file': () => {
-			const toolParams = _toolParams as BuiltinToolCallParams['edit_file']
+			const toolParams = _toolParams as BuiltinToolCallParams['edit_file'];
 			return {
 				desc1: getBasename(toolParams.uri.fsPath),
 				desc1Info: getRelative(toolParams.uri, accessor),
-			}
+			};
 		},
 		'run_command': () => {
-			const toolParams = _toolParams as BuiltinToolCallParams['run_command']
+			const toolParams = _toolParams as BuiltinToolCallParams['run_command'];
 			return {
 				desc1: `"${toolParams.command}"`,
-			}
+			};
 		},
 		'run_persistent_command': () => {
-			const toolParams = _toolParams as BuiltinToolCallParams['run_persistent_command']
+			const toolParams = _toolParams as BuiltinToolCallParams['run_persistent_command'];
 			return {
 				desc1: `"${toolParams.command}"`,
-			}
+			};
 		},
 		'open_persistent_terminal': () => {
-			const toolParams = _toolParams as BuiltinToolCallParams['open_persistent_terminal']
-			return { desc1: '' }
+			const toolParams = _toolParams as BuiltinToolCallParams['open_persistent_terminal'];
+			return { desc1: '' };
 		},
 		'kill_persistent_terminal': () => {
-			const toolParams = _toolParams as BuiltinToolCallParams['kill_persistent_terminal']
-			return { desc1: toolParams.persistentTerminalId }
+			const toolParams = _toolParams as BuiltinToolCallParams['kill_persistent_terminal'];
+			return { desc1: toolParams.persistentTerminalId };
 		},
 		'get_dir_tree': () => {
-			const toolParams = _toolParams as BuiltinToolCallParams['get_dir_tree']
+			const toolParams = _toolParams as BuiltinToolCallParams['get_dir_tree'];
 			return {
 				desc1: getFolderName(toolParams.uri.fsPath) ?? '/',
 				desc1Info: getRelative(toolParams.uri, accessor),
-			}
+			};
 		},
 		'read_lint_errors': () => {
-			const toolParams = _toolParams as BuiltinToolCallParams['read_lint_errors']
+			const toolParams = _toolParams as BuiltinToolCallParams['read_lint_errors'];
 			return {
 				desc1: getBasename(toolParams.uri.fsPath),
 				desc1Info: getRelative(toolParams.uri, accessor),
-			}
+			};
 		},
 		'web_search': () => {
-			const toolParams = _toolParams as BuiltinToolCallParams['web_search']
+			const toolParams = _toolParams as BuiltinToolCallParams['web_search'];
 			return {
 				desc1: `"${toolParams.query}"`,
-			}
+			};
 		},
 		'browse_url': () => {
-			const toolParams = _toolParams as BuiltinToolCallParams['browse_url']
+			const toolParams = _toolParams as BuiltinToolCallParams['browse_url'];
 			return {
 				desc1: toolParams.url,
 				desc1Info: new URL(toolParams.url).hostname,
-			}
+			};
 		}
-	}
+	};
 
 	try {
-		return x[toolName]?.() || { desc1: '' }
+		return x[toolName]?.() || { desc1: '' };
 	}
 	catch {
-		return { desc1: '' }
+		return { desc1: '' };
 	}
-}
+};
 
 const ToolRequestAcceptRejectButtons = ({ toolName }: { toolName: ToolName }) => {
-	const accessor = useAccessor()
-	const chatThreadsService = accessor.get('IChatThreadService')
-	const metricsService = accessor.get('IMetricsService')
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
-	const vibeSettingsState = useSettingsState()
+	const accessor = useAccessor();
+	const chatThreadsService = accessor.get('IChatThreadService');
+	const metricsService = accessor.get('IMetricsService');
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
+	const vibeSettingsState = useSettingsState();
 
 	// Subscribe to thread state changes properly
-	const chatThreadsState = useChatThreadsState()
-	const currentThreadId = chatThreadsState.currentThreadId
+	const chatThreadsState = useChatThreadsState();
+	const currentThreadId = chatThreadsState.currentThreadId;
 
 	const onAccept = useCallback(() => {
 		try { // this doesn't need to be wrapped in try/catch anymore
 			// use subscribed state
-			chatThreadsService.approveLatestToolRequest(currentThreadId)
-			metricsService.capture('Tool Request Accepted', {})
-		} catch (e) { vibeLog.error('SidebarChat', 'Error while approving message in chat:', e) }
-	}, [chatThreadsService, metricsService, currentThreadId])
+			chatThreadsService.approveLatestToolRequest(currentThreadId);
+			metricsService.capture('Tool Request Accepted', {});
+		} catch (e) { vibeLog.error('SidebarChat', 'Error while approving message in chat:', e); }
+	}, [chatThreadsService, metricsService, currentThreadId]);
 
 	const onReject = useCallback(() => {
 		try {
 			// use subscribed state
-			chatThreadsService.rejectLatestToolRequest(currentThreadId)
-		} catch (e) { vibeLog.error('SidebarChat', 'Error while approving message in chat:', e) }
-		metricsService.capture('Tool Request Rejected', {})
-	}, [chatThreadsService, metricsService, currentThreadId])
+			chatThreadsService.rejectLatestToolRequest(currentThreadId);
+		} catch (e) { vibeLog.error('SidebarChat', 'Error while approving message in chat:', e); }
+		metricsService.capture('Tool Request Rejected', {});
+	}, [chatThreadsService, metricsService, currentThreadId]);
 
 	const approveButton = (
 		<button
@@ -2624,7 +2635,7 @@ const ToolRequestAcceptRejectButtons = ({ toolName }: { toolName: ToolName }) =>
 		>
 			Approve
 		</button>
-	)
+	);
 
 	const cancelButton = (
 		<button
@@ -2640,36 +2651,36 @@ const ToolRequestAcceptRejectButtons = ({ toolName }: { toolName: ToolName }) =>
 		>
 			Cancel
 		</button>
-	)
+	);
 
-	const approvalType = isABuiltinToolName(toolName) ? approvalTypeOfBuiltinToolName[toolName] : 'MCP tools'
+	const approvalType = isABuiltinToolName(toolName) ? approvalTypeOfBuiltinToolName[toolName] : 'MCP tools';
 	const approvalToggle = approvalType ? <div key={approvalType} className="flex items-center ml-2 gap-x-1" title={'Deletes and other high-risk edits always require confirmation unless Autopilot is enabled (next to the model). This switch only auto-approves lower-risk steps when turned on.'}>
 		<ToolApprovalTypeSwitch size='xs' approvalType={approvalType} desc={`Auto ${approvalType}`} />
-	</div> : null
+	</div> : null;
 
 	return <div className="flex gap-2 mx-0.5 items-center">
 		{approveButton}
 		{cancelButton}
 		{approvalToggle}
-	</div>
-}
+	</div>;
+};
 
-export const ToolChildrenWrapper = ({ children, className }: { children: React.ReactNode, className?: string }) => {
+export const ToolChildrenWrapper = ({ children, className }: { children: React.ReactNode; className?: string }) => {
 	return <div className={`${className ? className : ''} cursor-default select-none`}>
 		<div className='px-2 min-w-full overflow-hidden'>
 			{children}
 		</div>
-	</div>
-}
-export const CodeChildren = ({ children, className }: { children: React.ReactNode, className?: string }) => {
+	</div>;
+};
+export const CodeChildren = ({ children, className }: { children: React.ReactNode; className?: string }) => {
 	return <div className={`${className ?? ''} p-1 rounded-sm overflow-auto text-sm`}>
 		<div className='!select-text cursor-auto'>
 			{children}
 		</div>
-	</div>
-}
+	</div>;
+};
 
-export const ListableToolItem = ({ name, onClick, isSmall, className, showDot }: { name: React.ReactNode, onClick?: () => void, isSmall?: boolean, className?: string, showDot?: boolean }) => {
+export const ListableToolItem = ({ name, onClick, isSmall, className, showDot }: { name: React.ReactNode; onClick?: () => void; isSmall?: boolean; className?: string; showDot?: boolean }) => {
 	return <div
 		className={`
 			${onClick ? 'hover:brightness-125 hover:cursor-pointer transition-all duration-200 ' : ''}
@@ -2680,24 +2691,24 @@ export const ListableToolItem = ({ name, onClick, isSmall, className, showDot }:
 	>
 		{showDot === false ? null : <div className="flex-shrink-0"><svg className="w-1 h-1 opacity-60 mr-1.5 fill-current" viewBox="0 0 100 40"><rect x="0" y="15" width="100" height="10" /></svg></div>}
 		<div className={`${isSmall ? 'italic text-vibe-fg-4 flex items-center' : ''}`}>{name}</div>
-	</div>
-}
+	</div>;
+};
 
 
 
-const EditToolChildren = ({ uri, code, type }: { uri: URI | undefined, code: string, type: 'diff' | 'rewrite' }) => {
+const EditToolChildren = ({ uri, code, type }: { uri: URI | undefined; code: string; type: 'diff' | 'rewrite' }) => {
 
 	const content = type === 'diff' ?
 		<VibeDiffEditor uri={uri} searchReplaceBlocks={code} />
-		: <ChatMarkdownRender string={`\`\`\`\n${code}\n\`\`\``} codeURI={uri} chatMessageLocation={undefined} />
+		: <ChatMarkdownRender string={`\`\`\`\n${code}\n\`\`\``} codeURI={uri} chatMessageLocation={undefined} />;
 
 	return <div className='!select-text cursor-auto'>
 		<SmallProseWrapper>
 			{content}
 		</SmallProseWrapper>
-	</div>
+	</div>;
 
-}
+};
 
 
 const LintErrorChildren = ({ lintErrors }: { lintErrors: LintErrorItem[] }) => {
@@ -2705,12 +2716,12 @@ const LintErrorChildren = ({ lintErrors }: { lintErrors: LintErrorItem[] }) => {
 		{lintErrors.map((error, i) => (
 			<div key={i}>Lines {error.startLineNumber}-{error.endLineNumber}: {error.message}</div>
 		))}
-	</div>
-}
+	</div>;
+};
 
-const BottomChildren = ({ children, title }: { children: React.ReactNode, title: string }) => {
+const BottomChildren = ({ children, title }: { children: React.ReactNode; title: string }) => {
 	const [isOpen, setIsOpen] = useState(false);
-	if (!children) return null;
+	if (!children) {return null;}
 	return (
 		<div className="w-full px-2 mt-0.5">
 			<div
@@ -2732,89 +2743,89 @@ const BottomChildren = ({ children, title }: { children: React.ReactNode, title:
 			</div>
 		</div>
 	);
-}
+};
 
 
-const EditToolHeaderButtons = ({ applyBoxId, uri, codeStr, toolName, threadId }: { threadId: string, applyBoxId: string, uri: URI, codeStr: string, toolName: 'edit_file' | 'rewrite_file' }) => {
-	const { streamState } = useEditToolStreamState({ applyBoxId, uri })
+const EditToolHeaderButtons = ({ applyBoxId, uri, codeStr, toolName, threadId }: { threadId: string; applyBoxId: string; uri: URI; codeStr: string; toolName: 'edit_file' | 'rewrite_file' }) => {
+	const { streamState } = useEditToolStreamState({ applyBoxId, uri });
 	return <div className='flex items-center gap-1'>
 		{/* <StatusIndicatorForApplyButton applyBoxId={applyBoxId} uri={uri} /> */}
 		{/* <JumpToFileButton uri={uri} /> */}
 		{streamState === 'idle-no-changes' && <CopyButton codeStr={codeStr} toolTipName='Copy' />}
 		<EditToolAcceptRejectButtonsHTML type={toolName} codeStr={codeStr} applyBoxId={applyBoxId} uri={uri} threadId={threadId} />
-	</div>
-}
+	</div>;
+};
 
 
 
-const InvalidTool = ({ toolName, message, mcpServerName }: { toolName: ToolName, message: string, mcpServerName: string | undefined }) => {
-	const accessor = useAccessor()
-	const title = getTitle({ name: toolName, type: 'invalid_params', mcpServerName })
-	const desc1 = 'Invalid parameters'
-	const icon = null
-	const isError = true
-	const componentParams: ToolHeaderParams = { title, desc1, isError, icon }
+const InvalidTool = ({ toolName, message, mcpServerName }: { toolName: ToolName; message: string; mcpServerName: string | undefined }) => {
+	const accessor = useAccessor();
+	const title = getTitle({ name: toolName, type: 'invalid_params', mcpServerName });
+	const desc1 = 'Invalid parameters';
+	const icon = null;
+	const isError = true;
+	const componentParams: ToolHeaderParams = { title, desc1, isError, icon };
 
 	componentParams.children = <ToolChildrenWrapper>
 		<CodeChildren className='bg-vibe-bg-3'>
 			{message}
 		</CodeChildren>
-	</ToolChildrenWrapper>
-	return <ToolHeaderWrapper {...componentParams} />
-}
+	</ToolChildrenWrapper>;
+	return <ToolHeaderWrapper {...componentParams} />;
+};
 
-const CanceledTool = ({ toolName, mcpServerName }: { toolName: ToolName, mcpServerName: string | undefined }) => {
-	const accessor = useAccessor()
-	const title = getTitle({ name: toolName, type: 'rejected', mcpServerName })
-	const desc1 = ''
-	const icon = null
-	const isRejected = true
-	const componentParams: ToolHeaderParams = { title, desc1, icon, isRejected }
-	return <ToolHeaderWrapper {...componentParams} />
-}
+const CanceledTool = ({ toolName, mcpServerName }: { toolName: ToolName; mcpServerName: string | undefined }) => {
+	const accessor = useAccessor();
+	const title = getTitle({ name: toolName, type: 'rejected', mcpServerName });
+	const desc1 = '';
+	const icon = null;
+	const isRejected = true;
+	const componentParams: ToolHeaderParams = { title, desc1, icon, isRejected };
+	return <ToolHeaderWrapper {...componentParams} />;
+};
 
 
 const CommandTool = ({ toolMessage, type, threadId }: { threadId: string } & ({
-	toolMessage: Exclude<ToolMessage<'run_command'>, { type: 'invalid_params' }>
-	type: 'run_command'
+	toolMessage: Exclude<ToolMessage<'run_command'>, { type: 'invalid_params' }>;
+	type: 'run_command';
 } | {
-	toolMessage: Exclude<ToolMessage<'run_persistent_command'>, { type: 'invalid_params' }>
-	type: | 'run_persistent_command'
+	toolMessage: Exclude<ToolMessage<'run_persistent_command'>, { type: 'invalid_params' }>;
+	type: | 'run_persistent_command';
 })) => {
-	const accessor = useAccessor()
+	const accessor = useAccessor();
 
-	const commandService = accessor.get('ICommandService')
-	const terminalToolsService = accessor.get('ITerminalToolService')
-	const toolsService = accessor.get('IToolsService')
-	const isError = false
-	const title = getTitle(toolMessage)
-	const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
-	const icon = null
-	const streamState = useChatThreadsStreamState(threadId)
+	const commandService = accessor.get('ICommandService');
+	const terminalToolsService = accessor.get('ITerminalToolService');
+	const toolsService = accessor.get('IToolsService');
+	const isError = false;
+	const title = getTitle(toolMessage);
+	const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor);
+	const icon = null;
+	const streamState = useChatThreadsStreamState(threadId);
 
-	const divRef = useRef<HTMLDivElement | null>(null)
+	const divRef = useRef<HTMLDivElement | null>(null);
 
-	const isRejected = toolMessage.type === 'rejected'
-	const { rawParams, params } = toolMessage
-	const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+	const isRejected = toolMessage.type === 'rejected';
+	const { rawParams, params } = toolMessage;
+	const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, };
 
 
 	const effect = async () => {
-		if (streamState?.isRunning !== 'tool') return
-		if (type !== 'run_command' || toolMessage.type !== 'running_now') return;
+		if (streamState?.isRunning !== 'tool') {return;}
+		if (type !== 'run_command' || toolMessage.type !== 'running_now') {return;}
 
 		// wait for the interruptor so we know it's running
 
-		await streamState?.interrupt
+		await streamState?.interrupt;
 		const container = divRef.current;
-		if (!container) return;
+		if (!container) {return;}
 
 		const terminal = terminalToolsService.getTemporaryTerminal(toolMessage.params.terminalId);
-		if (!terminal) return;
+		if (!terminal) {return;}
 
 		try {
 			terminal.attachToElement(container);
-			terminal.setVisible(true)
+			terminal.setVisible(true);
 		} catch {
 		}
 
@@ -2828,106 +2839,106 @@ const CommandTool = ({ toolMessage, type, threadId }: { threadId: string } & ({
 		});
 
 		resizeObserver.observe(container);
-		return () => { terminal.detachFromElement(); resizeObserver?.disconnect(); }
-	}
+		return () => { terminal.detachFromElement(); resizeObserver?.disconnect(); };
+	};
 
 	useEffect(() => {
-		effect()
+		effect();
 	}, [terminalToolsService, toolMessage, toolMessage.type, type]);
 
 	if (toolMessage.type === 'success') {
-		const { result } = toolMessage
+		const { result } = toolMessage;
 
 		// it's unclear that this is a button and not an icon.
 		// componentParams.desc2 = <JumpToTerminalButton
 		// 	onClick={() => { terminalToolsService.openTerminal(terminalId) }}
 		// />
 
-		let msg: string
-		if (type === 'run_command') msg = toolsService.stringOfResult['run_command'](toolMessage.params, result)
-		else msg = toolsService.stringOfResult['run_persistent_command'](toolMessage.params, result)
+		let msg: string;
+		if (type === 'run_command') {msg = toolsService.stringOfResult['run_command'](toolMessage.params, result);}
+		else {msg = toolsService.stringOfResult['run_persistent_command'](toolMessage.params, result);}
 
 		if (type === 'run_persistent_command') {
-			componentParams.info = persistentTerminalNameOfId(toolMessage.params.persistentTerminalId)
+			componentParams.info = persistentTerminalNameOfId(toolMessage.params.persistentTerminalId);
 		}
 
 		componentParams.children = <ToolChildrenWrapper className='whitespace-pre text-nowrap overflow-auto text-sm'>
 			<div className='!select-text cursor-auto'>
 				<BlockCode initValue={`${msg.trim()}`} language='shellscript' />
 			</div>
-		</ToolChildrenWrapper>
+		</ToolChildrenWrapper>;
 	}
 	else if (toolMessage.type === 'tool_error') {
-		const { result } = toolMessage
+		const { result } = toolMessage;
 		componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenError}>
 			<CodeChildren>
 				{result}
 			</CodeChildren>
-		</BottomChildren>
+		</BottomChildren>;
 	}
 	else if (toolMessage.type === 'running_now') {
 		if (type === 'run_command')
-			componentParams.children = <div ref={divRef} className='relative h-[300px] text-sm' />
+			{componentParams.children = <div ref={divRef} className='relative h-[300px] text-sm' />;}
 	}
 	else if (toolMessage.type === 'rejected' || toolMessage.type === 'tool_request') {
 	}
 
 	return <>
 		<ToolHeaderWrapper {...componentParams} isOpen={type === 'run_command' && toolMessage.type === 'running_now' ? true : undefined} />
-	</>
-}
+	</>;
+};
 
-type WrapperProps<T extends ToolName> = { toolMessage: Exclude<ToolMessage<T>, { type: 'invalid_params' }>, messageIdx: number, threadId: string }
+type WrapperProps<T extends ToolName> = { toolMessage: Exclude<ToolMessage<T>, { type: 'invalid_params' }>; messageIdx: number; threadId: string };
 const MCPToolWrapper = ({ toolMessage }: WrapperProps<string>) => {
-	const accessor = useAccessor()
-	const mcpService = accessor.get('IMCPService')
+	const accessor = useAccessor();
+	const mcpService = accessor.get('IMCPService');
 
-	const title = getTitle(toolMessage)
-	const desc1 = removeMCPToolNamePrefix(toolMessage.name)
-	const icon = null
+	const title = getTitle(toolMessage);
+	const desc1 = removeMCPToolNamePrefix(toolMessage.name);
+	const icon = null;
 
 
-	if (toolMessage.type === 'running_now') return null // do not show running
+	if (toolMessage.type === 'running_now') {return null;} // do not show running
 
-	const isError = false
-	const isRejected = toolMessage.type === 'rejected'
-	const { rawParams, params } = toolMessage
+	const isError = false;
+	const isRejected = toolMessage.type === 'rejected';
+	const { rawParams, params } = toolMessage;
 
 	// Redact sensitive values in params before display/copy
 	const redactParams = (value: any): any => {
-		const SENSITIVE_KEYS = new Set(['token', 'apiKey', 'apikey', 'password', 'authorization', 'auth', 'secret', 'clientSecret', 'accessToken', 'bearer'])
-		const redactValue = (v: any) => (typeof v === 'string' ? (v.length > 6 ? v.slice(0, 3) + '***' + v.slice(-2) : '***') : v)
-		if (Array.isArray(value)) return value.map(redactParams)
+		const SENSITIVE_KEYS = new Set(['token', 'apiKey', 'apikey', 'password', 'authorization', 'auth', 'secret', 'clientSecret', 'accessToken', 'bearer']);
+		const redactValue = (v: any) => (typeof v === 'string' ? (v.length > 6 ? v.slice(0, 3) + '***' + v.slice(-2) : '***') : v);
+		if (Array.isArray(value)) {return value.map(redactParams);}
 		if (value && typeof value === 'object') {
-			const out: any = Array.isArray(value) ? [] : {}
+			const out: any = Array.isArray(value) ? [] : {};
 			for (const k of Object.keys(value)) {
-				if (SENSITIVE_KEYS.has(k.toLowerCase())) out[k] = redactValue(value[k])
-				else out[k] = redactParams(value[k])
+				if (SENSITIVE_KEYS.has(k.toLowerCase())) {out[k] = redactValue(value[k]);}
+				else {out[k] = redactParams(value[k]);}
 			}
-			return out
+			return out;
 		}
-		return value
-	}
-	const componentParams: ToolHeaderParams = { title, desc1, isError, icon, isRejected, }
+		return value;
+	};
+	const componentParams: ToolHeaderParams = { title, desc1, isError, icon, isRejected, };
 
-	const redactedParams = redactParams(params)
-	const paramsStr = JSON.stringify(redactedParams, null, 2)
-	componentParams.desc2 = <CopyButton codeStr={paramsStr} toolTipName={`Copy inputs (redacted): ${paramsStr}`} />
+	const redactedParams = redactParams(params);
+	const paramsStr = JSON.stringify(redactedParams, null, 2);
+	componentParams.desc2 = <CopyButton codeStr={paramsStr} toolTipName={`Copy inputs (redacted): ${paramsStr}`} />;
 
-	componentParams.info = !toolMessage.mcpServerName ? 'MCP tool not found' : undefined
+	componentParams.info = !toolMessage.mcpServerName ? 'MCP tool not found' : undefined;
 
 	// Add copy inputs button in desc2
 
 
 	if (toolMessage.type === 'success' || toolMessage.type === 'tool_request') {
-		const { result } = toolMessage
+		const { result } = toolMessage;
 		if (result) {
-			const resultStr = mcpService.stringifyResult(result)
+			const resultStr = mcpService.stringifyResult(result);
 			// Check if result is text (not JSON) - text events return plain text, others return JSON
 			// Type guard: check if result has 'event' property and it's 'text'
-			const isTextResult = typeof result === 'object' && result !== null && 'event' in result && (result as any).event === 'text'
+			const isTextResult = typeof result === 'object' && result !== null && (result as Readonly<Record<string, unknown>>).event === 'text';
 			// If it's text, display as markdown; otherwise display as JSON code block
-			const displayContent = isTextResult ? resultStr : `\`\`\`json\n${resultStr}\n\`\`\``
+			const displayContent = isTextResult ? resultStr : `\`\`\`json\n${resultStr}\n\`\`\``;
 			componentParams.children = <ToolChildrenWrapper>
 				<SmallProseWrapper>
 					<ChatMarkdownRender
@@ -2937,101 +2948,101 @@ const MCPToolWrapper = ({ toolMessage }: WrapperProps<string>) => {
 						isLinkDetectionEnabled={true}
 					/>
 				</SmallProseWrapper>
-			</ToolChildrenWrapper>
+			</ToolChildrenWrapper>;
 		}
 	}
 	else if (toolMessage.type === 'tool_error') {
-		const { result } = toolMessage
+		const { result } = toolMessage;
 		componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenError}>
 			<CodeChildren>
 				{result}
 			</CodeChildren>
-		</BottomChildren>
+		</BottomChildren>;
 	}
 
-	return <ToolHeaderWrapper {...componentParams} />
+	return <ToolHeaderWrapper {...componentParams} />;
 
-}
+};
 
-type ResultWrapper<T extends ToolName> = (props: WrapperProps<T>) => React.ReactNode
+type ResultWrapper<T extends ToolName> = (props: WrapperProps<T>) => React.ReactNode;
 
-const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: ResultWrapper<T>, } } = {
+const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: ResultWrapper<T> } } = {
 	'read_file': {
 		resultWrapper: ({ toolMessage }) => {
-			const accessor = useAccessor()
-			const commandService = accessor.get('ICommandService')
+			const accessor = useAccessor();
+			const commandService = accessor.get('ICommandService');
 
-			const title = getTitle(toolMessage)
+			const title = getTitle(toolMessage);
 
 			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor);
-			const icon = null
+			const icon = null;
 
-			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
+			if (toolMessage.type === 'tool_request') {return null;} // do not show past requests
+			if (toolMessage.type === 'running_now') {return null;} // do not show running
 
-			const isError = false
-			const isRejected = toolMessage.type === 'rejected'
-			const { rawParams, params } = toolMessage
-			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+			const isError = false;
+			const isRejected = toolMessage.type === 'rejected';
+			const { rawParams, params } = toolMessage;
+			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, };
 
-			let range: [number, number] | undefined = undefined
+			let range: [number, number] | undefined = undefined;
 			if (toolMessage.params.startLine !== null || toolMessage.params.endLine !== null) {
-				const start = toolMessage.params.startLine === null ? `1` : `${toolMessage.params.startLine}`
-				const end = toolMessage.params.endLine === null ? `` : `${toolMessage.params.endLine}`
-				const addStr = `(${start}-${end})`
-				componentParams.desc1 += ` ${addStr}`
-				range = [params.startLine || 1, params.endLine || 1]
+				const start = toolMessage.params.startLine === null ? `1` : `${toolMessage.params.startLine}`;
+				const end = toolMessage.params.endLine === null ? `` : `${toolMessage.params.endLine}`;
+				const addStr = `(${start}-${end})`;
+				componentParams.desc1 += ` ${addStr}`;
+				range = [params.startLine || 1, params.endLine || 1];
 			}
 
 			if (toolMessage.type === 'success') {
-				const { result } = toolMessage
-				componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor, range) }
+				const { result } = toolMessage;
+				componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor, range); };
 				if (result.hasNextPage && params.pageNumber === 1 && range === undefined)  // first page of a full-file read (not a line-range slice)
 					// Honest partial-read label: truncation can now happen well before the 500k page cap
 					// (line limit or the large-file char budget), so report the actual window instead.
-					componentParams.desc2 = result.endLineReturned && result.totalNumLines
+					{componentParams.desc2 = result.endLineReturned && result.totalNumLines
 						? `(partial: lines 1-${result.endLineReturned} of ${result.totalNumLines})`
-						: `(partial read)`
+						: `(partial read)`;}
 				else if (params.pageNumber > 1) // subsequent pages
-					componentParams.desc2 = `(part ${params.pageNumber})`
+					{componentParams.desc2 = `(part ${params.pageNumber})`;}
 			}
 			else if (toolMessage.type === 'tool_error') {
-				const { result } = toolMessage
+				const { result } = toolMessage;
 				// JumpToFileButton removed in favor of FileLinkText
 				componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenError}>
 					<CodeChildren>
 						{result}
 					</CodeChildren>
-				</BottomChildren>
+				</BottomChildren>;
 			}
 
-			return <ToolHeaderWrapper {...componentParams} />
+			return <ToolHeaderWrapper {...componentParams} />;
 		},
 	},
 	'get_dir_tree': {
 		resultWrapper: ({ toolMessage }) => {
-			const accessor = useAccessor()
-			const commandService = accessor.get('ICommandService')
+			const accessor = useAccessor();
+			const commandService = accessor.get('ICommandService');
 
-			const title = getTitle(toolMessage)
-			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
-			const icon = null
+			const title = getTitle(toolMessage);
+			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor);
+			const icon = null;
 
-			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
+			if (toolMessage.type === 'tool_request') {return null;} // do not show past requests
+			if (toolMessage.type === 'running_now') {return null;} // do not show running
 
-			const isError = false
-			const isRejected = toolMessage.type === 'rejected'
-			const { rawParams, params } = toolMessage
-			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+			const isError = false;
+			const isRejected = toolMessage.type === 'rejected';
+			const { rawParams, params } = toolMessage;
+			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, };
 
 			if (params.uri) {
-				const rel = getRelative(params.uri, accessor)
-				if (rel) componentParams.info = `Only search in ${rel}`
+				const rel = getRelative(params.uri, accessor);
+				if (rel) {componentParams.info = `Only search in ${rel}`;}
 			}
 
 			if (toolMessage.type === 'success') {
-				const { result } = toolMessage
+				const { result } = toolMessage;
 				componentParams.children = <ToolChildrenWrapper>
 					<SmallProseWrapper>
 						<ChatMarkdownRender
@@ -3041,54 +3052,54 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: Res
 							isLinkDetectionEnabled={true}
 						/>
 					</SmallProseWrapper>
-				</ToolChildrenWrapper>
+				</ToolChildrenWrapper>;
 			}
 			else if (toolMessage.type === 'tool_error') {
-				const { result } = toolMessage
+				const { result } = toolMessage;
 				componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenError}>
 					<CodeChildren>
 						{result}
 					</CodeChildren>
-				</BottomChildren>
+				</BottomChildren>;
 			}
 
-			return <ToolHeaderWrapper {...componentParams} />
+			return <ToolHeaderWrapper {...componentParams} />;
 
 		}
 	},
 	'ls_dir': {
 		resultWrapper: ({ toolMessage }) => {
-			const accessor = useAccessor()
-			const commandService = accessor.get('ICommandService')
-			const explorerService = accessor.get('IExplorerService')
-			const title = getTitle(toolMessage)
-			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
-			const icon = null
+			const accessor = useAccessor();
+			const commandService = accessor.get('ICommandService');
+			const explorerService = accessor.get('IExplorerService');
+			const title = getTitle(toolMessage);
+			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor);
+			const icon = null;
 
-			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
+			if (toolMessage.type === 'tool_request') {return null;} // do not show past requests
+			if (toolMessage.type === 'running_now') {return null;} // do not show running
 
-			const isError = false
-			const isRejected = toolMessage.type === 'rejected'
-			const { rawParams, params } = toolMessage
-			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+			const isError = false;
+			const isRejected = toolMessage.type === 'rejected';
+			const { rawParams, params } = toolMessage;
+			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, };
 
 			if (params.uri) {
-				const rel = getRelative(params.uri, accessor)
-				if (rel) componentParams.info = `Only search in ${rel}`
+				const rel = getRelative(params.uri, accessor);
+				if (rel) {componentParams.info = `Only search in ${rel}`;}
 			}
 
 			if (toolMessage.type === 'success') {
-				const { result } = toolMessage
-				componentParams.numResults = result.children?.length
-				componentParams.hasNextPage = result.hasNextPage
+				const { result } = toolMessage;
+				componentParams.numResults = result.children?.length;
+				componentParams.hasNextPage = result.hasNextPage;
 				componentParams.children = !result.children || (result.children.length ?? 0) === 0 ? undefined
 					: <ToolChildrenWrapper>
 						{result.children.map((child, i) => (<ListableToolItem key={i}
 							name={`${child.name}${child.isDirectory ? '/' : ''}`}
 							className='w-full overflow-auto'
 							onClick={() => {
-								voidOpenFileFn(child.uri, accessor)
+								voidOpenFileFn(child.uri, accessor);
 								// commandService.executeCommand('workbench.view.explorer'); // open in explorer folders view instead
 								// explorerService.select(child.uri, true);
 							}}
@@ -3096,121 +3107,121 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: Res
 						{result.hasNextPage &&
 							<ListableToolItem name={`Results truncated (${result.itemsRemaining} remaining).`} isSmall={true} className='w-full overflow-auto' />
 						}
-					</ToolChildrenWrapper>
+					</ToolChildrenWrapper>;
 			}
 			else if (toolMessage.type === 'tool_error') {
-				const { result } = toolMessage
+				const { result } = toolMessage;
 				componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenError}>
 					<CodeChildren>
 						{result}
 					</CodeChildren>
-				</BottomChildren>
+				</BottomChildren>;
 			}
 
-			return <ToolHeaderWrapper {...componentParams} />
+			return <ToolHeaderWrapper {...componentParams} />;
 		}
 	},
 	'search_pathnames_only': {
 		resultWrapper: ({ toolMessage }) => {
-			const accessor = useAccessor()
-			const commandService = accessor.get('ICommandService')
-			const isError = false
-			const isRejected = toolMessage.type === 'rejected'
-			const title = getTitle(toolMessage)
-			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
-			const icon = null
+			const accessor = useAccessor();
+			const commandService = accessor.get('ICommandService');
+			const isError = false;
+			const isRejected = toolMessage.type === 'rejected';
+			const title = getTitle(toolMessage);
+			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor);
+			const icon = null;
 
-			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
+			if (toolMessage.type === 'tool_request') {return null;} // do not show past requests
+			if (toolMessage.type === 'running_now') {return null;} // do not show running
 
-			const { rawParams, params } = toolMessage
-			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+			const { rawParams, params } = toolMessage;
+			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, };
 
 			if (params.includePattern) {
-				componentParams.info = `Only search in ${params.includePattern}`
+				componentParams.info = `Only search in ${params.includePattern}`;
 			}
 
 			if (toolMessage.type === 'success') {
-				const { result, rawParams } = toolMessage
-				componentParams.numResults = result.uris.length
-				componentParams.hasNextPage = result.hasNextPage
+				const { result, rawParams } = toolMessage;
+				componentParams.numResults = result.uris.length;
+				componentParams.hasNextPage = result.hasNextPage;
 				componentParams.children = result.uris.length === 0 ? undefined
 					: <ToolChildrenWrapper>
 						{result.uris.map((uri, i) => (<ListableToolItem key={i}
 							name={getBasename(uri.fsPath)}
 							className='w-full overflow-auto'
-							onClick={() => { voidOpenFileFn(uri, accessor) }}
+							onClick={() => { voidOpenFileFn(uri, accessor); }}
 						/>))}
 						{result.hasNextPage &&
 							<ListableToolItem name={'Results truncated.'} isSmall={true} className='w-full overflow-auto' />
 						}
 
-					</ToolChildrenWrapper>
+					</ToolChildrenWrapper>;
 			}
 			else if (toolMessage.type === 'tool_error') {
-				const { result } = toolMessage
+				const { result } = toolMessage;
 				componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenError}>
 					<CodeChildren>
 						{result}
 					</CodeChildren>
-				</BottomChildren>
+				</BottomChildren>;
 			}
 
-			return <ToolHeaderWrapper {...componentParams} />
+			return <ToolHeaderWrapper {...componentParams} />;
 		}
 	},
 	'search_for_files': {
 		resultWrapper: ({ toolMessage }) => {
-			const accessor = useAccessor()
-			const commandService = accessor.get('ICommandService')
-			const isError = false
-			const isRejected = toolMessage.type === 'rejected'
-			const title = getTitle(toolMessage)
-			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
-			const icon = null
+			const accessor = useAccessor();
+			const commandService = accessor.get('ICommandService');
+			const isError = false;
+			const isRejected = toolMessage.type === 'rejected';
+			const title = getTitle(toolMessage);
+			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor);
+			const icon = null;
 
-			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
+			if (toolMessage.type === 'tool_request') {return null;} // do not show past requests
+			if (toolMessage.type === 'running_now') {return null;} // do not show running
 
-			const { rawParams, params } = toolMessage
-			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+			const { rawParams, params } = toolMessage;
+			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, };
 
 			if (params.searchInFolder || params.isRegex) {
-				let info: string[] = []
+				const info: string[] = [];
 				if (params.searchInFolder) {
-					const rel = getRelative(params.searchInFolder, accessor)
-					if (rel) info.push(`Only search in ${rel}`)
+					const rel = getRelative(params.searchInFolder, accessor);
+					if (rel) {info.push(`Only search in ${rel}`);}
 				}
-				if (params.isRegex) { info.push(`Uses regex search`) }
-				componentParams.info = info.join('; ')
+				if (params.isRegex) { info.push(`Uses regex search`); }
+				componentParams.info = info.join('; ');
 			}
 
 			if (toolMessage.type === 'success') {
-				const { result, rawParams } = toolMessage
-				componentParams.numResults = result.uris.length
-				componentParams.hasNextPage = result.hasNextPage
+				const { result, rawParams } = toolMessage;
+				componentParams.numResults = result.uris.length;
+				componentParams.hasNextPage = result.hasNextPage;
 				componentParams.children = result.uris.length === 0 ? undefined
 					: <ToolChildrenWrapper>
 						{result.uris.map((uri, i) => (<ListableToolItem key={i}
 							name={getBasename(uri.fsPath)}
 							className='w-full overflow-auto'
-							onClick={() => { voidOpenFileFn(uri, accessor) }}
+							onClick={() => { voidOpenFileFn(uri, accessor); }}
 						/>))}
 						{result.hasNextPage &&
 							<ListableToolItem name={`Results truncated.`} isSmall={true} className='w-full overflow-auto' />
 						}
 
-					</ToolChildrenWrapper>
+					</ToolChildrenWrapper>;
 			}
 			else if (toolMessage.type === 'tool_error') {
-				const { result } = toolMessage
+				const { result } = toolMessage;
 				componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenError}>
 					<CodeChildren>
 						{result}
 					</CodeChildren>
-				</BottomChildren>
+				</BottomChildren>;
 			}
-			return <ToolHeaderWrapper {...componentParams} />
+			return <ToolHeaderWrapper {...componentParams} />;
 		}
 	},
 
@@ -3219,22 +3230,22 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: Res
 			const accessor = useAccessor();
 			const toolsService = accessor.get('IToolsService');
 			const title = getTitle(toolMessage);
-			const isError = false
-			const isRejected = toolMessage.type === 'rejected'
+			const isError = false;
+			const isRejected = toolMessage.type === 'rejected';
 			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor);
 			const icon = null;
 
-			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
+			if (toolMessage.type === 'tool_request') {return null;} // do not show past requests
+			if (toolMessage.type === 'running_now') {return null;} // do not show running
 
 			const { rawParams, params } = toolMessage;
 			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected };
 
-			const infoarr: string[] = []
-			const uriStr = getRelative(params.uri, accessor)
-			if (uriStr) infoarr.push(uriStr)
-			if (params.isRegex) infoarr.push('Uses regex search')
-			componentParams.info = infoarr.join('; ')
+			const infoarr: string[] = [];
+			const uriStr = getRelative(params.uri, accessor);
+			if (uriStr) {infoarr.push(uriStr);}
+			if (params.isRegex) {infoarr.push('Uses regex search');}
+			componentParams.info = infoarr.join('; ');
 
 			if (toolMessage.type === 'success') {
 				const { result } = toolMessage; // result is array of snippets
@@ -3246,7 +3257,7 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: Res
 								{toolsService.stringOfResult['search_in_file'](params, result)}
 							</pre>
 						</CodeChildren>
-					</ToolChildrenWrapper>
+					</ToolChildrenWrapper>;
 			}
 			else if (toolMessage.type === 'tool_error') {
 				const { result } = toolMessage;
@@ -3254,7 +3265,7 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: Res
 					<CodeChildren>
 						{result}
 					</CodeChildren>
-				</BottomChildren>
+				</BottomChildren>;
 			}
 
 			return <ToolHeaderWrapper {...componentParams} />;
@@ -3263,45 +3274,45 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: Res
 
 	'read_lint_errors': {
 		resultWrapper: ({ toolMessage }) => {
-			const accessor = useAccessor()
-			const commandService = accessor.get('ICommandService')
+			const accessor = useAccessor();
+			const commandService = accessor.get('ICommandService');
 
-			const title = getTitle(toolMessage)
+			const title = getTitle(toolMessage);
 
-			const { uri } = toolMessage.params ?? {}
-			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
-			const icon = null
+			const { uri } = toolMessage.params ?? {};
+			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor);
+			const icon = null;
 
-			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
+			if (toolMessage.type === 'tool_request') {return null;} // do not show past requests
+			if (toolMessage.type === 'running_now') {return null;} // do not show running
 
-			const isError = false
-			const isRejected = toolMessage.type === 'rejected'
-			const { rawParams, params } = toolMessage
-			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+			const isError = false;
+			const isRejected = toolMessage.type === 'rejected';
+			const { rawParams, params } = toolMessage;
+			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, };
 
-			componentParams.info = getRelative(uri, accessor) // full path
+			componentParams.info = getRelative(uri, accessor); // full path
 
 			if (toolMessage.type === 'success') {
-				const { result } = toolMessage
-				componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor) }
+				const { result } = toolMessage;
+				componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor); };
 				if (result.lintErrors)
-					componentParams.children = <LintErrorChildren lintErrors={result.lintErrors} />
+					{componentParams.children = <LintErrorChildren lintErrors={result.lintErrors} />;}
 				else
-					componentParams.children = `No lint errors found.`
+					{componentParams.children = `No lint errors found.`;}
 
 			}
 			else if (toolMessage.type === 'tool_error') {
-				const { result } = toolMessage
+				const { result } = toolMessage;
 				// JumpToFileButton removed in favor of FileLinkText
 				componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenError}>
 					<CodeChildren>
 						{result}
 					</CodeChildren>
-				</BottomChildren>
+				</BottomChildren>;
 			}
 
-			return <ToolHeaderWrapper {...componentParams} />
+			return <ToolHeaderWrapper {...componentParams} />;
 		},
 	},
 
@@ -3309,35 +3320,35 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: Res
 
 	'create_file_or_folder': {
 		resultWrapper: ({ toolMessage }) => {
-			const accessor = useAccessor()
-			const commandService = accessor.get('ICommandService')
-			const isError = false
-			const isRejected = toolMessage.type === 'rejected'
-			const title = getTitle(toolMessage)
-			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
-			const icon = null
+			const accessor = useAccessor();
+			const commandService = accessor.get('ICommandService');
+			const isError = false;
+			const isRejected = toolMessage.type === 'rejected';
+			const title = getTitle(toolMessage);
+			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor);
+			const icon = null;
 
 
-			const { rawParams, params } = toolMessage
-			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+			const { rawParams, params } = toolMessage;
+			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, };
 
-			componentParams.info = getRelative(params.uri, accessor) // full path
+			componentParams.info = getRelative(params.uri, accessor); // full path
 
 			if (toolMessage.type === 'success') {
-				const { result } = toolMessage
-				componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor) }
+				const { result } = toolMessage;
+				componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor); };
 			}
 			else if (toolMessage.type === 'rejected') {
-				componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor) }
+				componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor); };
 			}
 			else if (toolMessage.type === 'tool_error') {
-				const { result } = toolMessage
-				if (params) { componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor) } }
+				const { result } = toolMessage;
+				if (params) { componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor); }; }
 				componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenError}>
 					<CodeChildren>
 						{result}
 					</CodeChildren>
-				</BottomChildren>
+				</BottomChildren>;
 			}
 			else if (toolMessage.type === 'running_now') {
 				// nothing more is needed
@@ -3346,61 +3357,61 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: Res
 				// nothing more is needed
 			}
 
-			return <ToolHeaderWrapper {...componentParams} />
+			return <ToolHeaderWrapper {...componentParams} />;
 		}
 	},
 	'delete_file_or_folder': {
 		resultWrapper: ({ toolMessage }) => {
-			const accessor = useAccessor()
-			const commandService = accessor.get('ICommandService')
-			const isFolder = toolMessage.params?.isFolder ?? false
-			const isError = false
-			const isRejected = toolMessage.type === 'rejected'
-			const title = getTitle(toolMessage)
-			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
-			const icon = null
+			const accessor = useAccessor();
+			const commandService = accessor.get('ICommandService');
+			const isFolder = toolMessage.params?.isFolder ?? false;
+			const isError = false;
+			const isRejected = toolMessage.type === 'rejected';
+			const title = getTitle(toolMessage);
+			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor);
+			const icon = null;
 
-			const { rawParams, params } = toolMessage
-			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+			const { rawParams, params } = toolMessage;
+			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, };
 
-			componentParams.info = getRelative(params.uri, accessor) // full path
+			componentParams.info = getRelative(params.uri, accessor); // full path
 
 			if (toolMessage.type === 'success') {
-				const { result } = toolMessage
-				componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor) }
+				const { result } = toolMessage;
+				componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor); };
 			}
 			else if (toolMessage.type === 'rejected') {
-				componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor) }
+				componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor); };
 			}
 			else if (toolMessage.type === 'tool_error') {
-				const { result } = toolMessage
-				if (params) { componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor) } }
+				const { result } = toolMessage;
+				if (params) { componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor); }; }
 				componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenError}>
 					<CodeChildren>
 						{result}
 					</CodeChildren>
-				</BottomChildren>
+				</BottomChildren>;
 			}
 			else if (toolMessage.type === 'running_now') {
-				const { result } = toolMessage
-				componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor) }
+				const { result } = toolMessage;
+				componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor); };
 			}
 			else if (toolMessage.type === 'tool_request') {
-				const { result } = toolMessage
-				componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor) }
+				const { result } = toolMessage;
+				componentParams.onClick = () => { voidOpenFileFn(params.uri, accessor); };
 			}
 
-			return <ToolHeaderWrapper {...componentParams} />
+			return <ToolHeaderWrapper {...componentParams} />;
 		}
 	},
 	'rewrite_file': {
 		resultWrapper: (params) => {
-			return <EditTool {...params} content={params.toolMessage.params.newContent} />
+			return <EditTool {...params} content={params.toolMessage.params.newContent} />;
 		}
 	},
 	'edit_file': {
 		resultWrapper: (params) => {
-			return <EditTool {...params} content={params.toolMessage.params.searchReplaceBlocks} />
+			return <EditTool {...params} content={params.toolMessage.params.searchReplaceBlocks} />;
 		}
 	},
 
@@ -3408,122 +3419,122 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: Res
 
 	'run_command': {
 		resultWrapper: (params) => {
-			return <CommandTool {...params} type='run_command' />
+			return <CommandTool {...params} type='run_command' />;
 		}
 	},
 
 	'run_persistent_command': {
 		resultWrapper: (params) => {
-			return <CommandTool {...params} type='run_persistent_command' />
+			return <CommandTool {...params} type='run_persistent_command' />;
 		}
 	},
 	'open_persistent_terminal': {
 		resultWrapper: ({ toolMessage }) => {
-			const accessor = useAccessor()
-			const terminalToolsService = accessor.get('ITerminalToolService')
+			const accessor = useAccessor();
+			const terminalToolsService = accessor.get('ITerminalToolService');
 
-			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
-			const title = getTitle(toolMessage)
-			const icon = null
+			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor);
+			const title = getTitle(toolMessage);
+			const icon = null;
 
-			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
+			if (toolMessage.type === 'tool_request') {return null;} // do not show past requests
+			if (toolMessage.type === 'running_now') {return null;} // do not show running
 
-			const isError = false
-			const isRejected = toolMessage.type === 'rejected'
-			const { rawParams, params } = toolMessage
-			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+			const isError = false;
+			const isRejected = toolMessage.type === 'rejected';
+			const { rawParams, params } = toolMessage;
+			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, };
 
-			const relativePath = params.cwd ? getRelative(URI.file(params.cwd), accessor) : ''
-			componentParams.info = relativePath ? `Running in ${relativePath}` : undefined
+			const relativePath = params.cwd ? getRelative(URI.file(params.cwd), accessor) : '';
+			componentParams.info = relativePath ? `Running in ${relativePath}` : undefined;
 
 			if (toolMessage.type === 'success') {
-				const { result } = toolMessage
-				const { persistentTerminalId } = result
-				componentParams.desc1 = persistentTerminalNameOfId(persistentTerminalId)
-				componentParams.onClick = () => terminalToolsService.focusPersistentTerminal(persistentTerminalId)
+				const { result } = toolMessage;
+				const { persistentTerminalId } = result;
+				componentParams.desc1 = persistentTerminalNameOfId(persistentTerminalId);
+				componentParams.onClick = () => terminalToolsService.focusPersistentTerminal(persistentTerminalId);
 			}
 			else if (toolMessage.type === 'tool_error') {
-				const { result } = toolMessage
+				const { result } = toolMessage;
 				componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenError}>
 					<CodeChildren>
 						{result}
 					</CodeChildren>
-				</BottomChildren>
+				</BottomChildren>;
 			}
 
-			return <ToolHeaderWrapper {...componentParams} />
+			return <ToolHeaderWrapper {...componentParams} />;
 		},
 	},
 	'kill_persistent_terminal': {
 		resultWrapper: ({ toolMessage }) => {
-			const accessor = useAccessor()
-			const commandService = accessor.get('ICommandService')
-			const terminalToolsService = accessor.get('ITerminalToolService')
+			const accessor = useAccessor();
+			const commandService = accessor.get('ICommandService');
+			const terminalToolsService = accessor.get('ITerminalToolService');
 
-			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
-			const title = getTitle(toolMessage)
-			const icon = null
+			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor);
+			const title = getTitle(toolMessage);
+			const icon = null;
 
-			if (toolMessage.type === 'tool_request') return null // do not show past requests
-			if (toolMessage.type === 'running_now') return null // do not show running
+			if (toolMessage.type === 'tool_request') {return null;} // do not show past requests
+			if (toolMessage.type === 'running_now') {return null;} // do not show running
 
-			const isError = false
-			const isRejected = toolMessage.type === 'rejected'
-			const { rawParams, params } = toolMessage
-			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+			const isError = false;
+			const isRejected = toolMessage.type === 'rejected';
+			const { rawParams, params } = toolMessage;
+			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, };
 
 			if (toolMessage.type === 'success') {
-				const { persistentTerminalId } = params
-				componentParams.desc1 = persistentTerminalNameOfId(persistentTerminalId)
-				componentParams.onClick = () => terminalToolsService.focusPersistentTerminal(persistentTerminalId)
+				const { persistentTerminalId } = params;
+				componentParams.desc1 = persistentTerminalNameOfId(persistentTerminalId);
+				componentParams.onClick = () => terminalToolsService.focusPersistentTerminal(persistentTerminalId);
 			}
 			else if (toolMessage.type === 'tool_error') {
-				const { result } = toolMessage
+				const { result } = toolMessage;
 				componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenError}>
 					<CodeChildren>
 						{result}
 					</CodeChildren>
-				</BottomChildren>
+				</BottomChildren>;
 			}
 
-			return <ToolHeaderWrapper {...componentParams} />
+			return <ToolHeaderWrapper {...componentParams} />;
 		},
 	},
 	'web_search': {
 		resultWrapper: ({ toolMessage }) => {
-			const accessor = useAccessor()
-			const toolsService = accessor.get('IToolsService')
-			const title = getTitle(toolMessage)
-			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
-			const icon = null
+			const accessor = useAccessor();
+			const toolsService = accessor.get('IToolsService');
+			const title = getTitle(toolMessage);
+			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor);
+			const icon = null;
 
-			if (toolMessage.type === 'tool_request') return null // do not show past requests
+			if (toolMessage.type === 'tool_request') {return null;} // do not show past requests
 			if (toolMessage.type === 'running_now') {
 				// Show loading indicator
-				const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError: false, icon, isRejected: false }
+				const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError: false, icon, isRejected: false };
 				componentParams.children = <ToolChildrenWrapper>
 					<div className='flex items-center gap-2 text-sm text-vibe-fg-3'>
 						<IconLoading state="processing" inline />
 						<span>Searching the web...</span>
 					</div>
-				</ToolChildrenWrapper>
-				return <ToolHeaderWrapper {...componentParams} />
+				</ToolChildrenWrapper>;
+				return <ToolHeaderWrapper {...componentParams} />;
 			}
 
-			const isError = false
-			const isRejected = toolMessage.type === 'rejected'
-			const { rawParams, params } = toolMessage
-			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+			const isError = false;
+			const isRejected = toolMessage.type === 'rejected';
+			const { rawParams, params } = toolMessage;
+			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, };
 
 			if (toolMessage.type === 'success') {
-				const { result } = toolMessage
-				componentParams.numResults = result.results?.length || 0
+				const { result } = toolMessage;
+				componentParams.numResults = result.results?.length || 0;
 
 				if (result.results && result.results.length > 0) {
 					componentParams.children = <ToolChildrenWrapper>
 						<div className='space-y-3'>
-							{result.results.map((r: { title: string, snippet: string, url: string }, i: number) => (
+							{result.results.map((r: { title: string; snippet: string; url: string }, i: number) => (
 								<div key={i} className='border border-vibe-border-2 bg-vibe-bg-2 rounded p-3 hover:bg-vibe-bg-3 transition-colors'>
 									<a
 										href={r.url}
@@ -3544,68 +3555,68 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: Res
 								</div>
 							))}
 						</div>
-					</ToolChildrenWrapper>
+					</ToolChildrenWrapper>;
 				} else {
 					componentParams.children = <ToolChildrenWrapper>
 						<div className='text-sm text-vibe-fg-3'>
 							No search results found.
 						</div>
-					</ToolChildrenWrapper>
+					</ToolChildrenWrapper>;
 				}
 			}
 			else if (toolMessage.type === 'tool_error') {
-				const { result } = toolMessage
+				const { result } = toolMessage;
 				componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenError}>
 					<CodeChildren>
 						{result}
 					</CodeChildren>
-				</BottomChildren>
+				</BottomChildren>;
 			}
 
-			return <ToolHeaderWrapper {...componentParams} />
+			return <ToolHeaderWrapper {...componentParams} />;
 		},
 	},
 	'browse_url': {
 		resultWrapper: ({ toolMessage }) => {
-			const accessor = useAccessor()
-			const toolsService = accessor.get('IToolsService')
-			const title = getTitle(toolMessage)
-			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor)
-			const icon = null
+			const accessor = useAccessor();
+			const toolsService = accessor.get('IToolsService');
+			const title = getTitle(toolMessage);
+			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor);
+			const icon = null;
 
-			if (toolMessage.type === 'tool_request') return null // do not show past requests
+			if (toolMessage.type === 'tool_request') {return null;} // do not show past requests
 			if (toolMessage.type === 'running_now') {
 				// Show loading indicator
-				const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError: false, icon, isRejected: false }
+				const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError: false, icon, isRejected: false };
 				componentParams.children = <ToolChildrenWrapper>
 					<div className='flex items-center gap-2 text-sm text-vibe-fg-3'>
 						<IconLoading state="processing" inline />
 						<span>Fetching content from URL...</span>
 					</div>
-				</ToolChildrenWrapper>
-				return <ToolHeaderWrapper {...componentParams} />
+				</ToolChildrenWrapper>;
+				return <ToolHeaderWrapper {...componentParams} />;
 			}
 
-			const isError = false
-			const isRejected = toolMessage.type === 'rejected'
-			const { rawParams, params } = toolMessage
-			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
+			const isError = false;
+			const isRejected = toolMessage.type === 'rejected';
+			const { rawParams, params } = toolMessage;
+			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, };
 
 			if (toolMessage.type === 'success') {
-				const { result } = toolMessage
-				const urlStr = result.url || params.url
+				const { result } = toolMessage;
+				const urlStr = result.url || params.url;
 
 				componentParams.onClick = () => {
 					if (urlStr) {
-						window.open(urlStr, '_blank', 'noopener,noreferrer')
+						window.open(urlStr, '_blank', 'noopener,noreferrer');
 					}
-				}
-				componentParams.info = urlStr ? `Source: ${new URL(urlStr).hostname}` : undefined
+				};
+				componentParams.info = urlStr ? `Source: ${new URL(urlStr).hostname}` : undefined;
 
 				if (result.content) {
 					const contentPreview = result.content.length > 2000
 						? result.content.substring(0, 2000) + '\n\n... (content truncated)'
-						: result.content
+						: result.content;
 
 					componentParams.children = <ToolChildrenWrapper>
 						<div className='space-y-3'>
@@ -3633,47 +3644,47 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: Res
 								{contentPreview}
 							</div>
 						</div>
-					</ToolChildrenWrapper>
+					</ToolChildrenWrapper>;
 				} else {
 					componentParams.children = <ToolChildrenWrapper>
 						<div className='text-sm text-vibe-fg-3'>
 							No content extracted from URL.
 						</div>
-					</ToolChildrenWrapper>
+					</ToolChildrenWrapper>;
 				}
 			}
 			else if (toolMessage.type === 'tool_error') {
-				const { result } = toolMessage
+				const { result } = toolMessage;
 				componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenError}>
 					<CodeChildren>
 						{result}
 					</CodeChildren>
-				</BottomChildren>
+				</BottomChildren>;
 			}
 
-			return <ToolHeaderWrapper {...componentParams} />
+			return <ToolHeaderWrapper {...componentParams} />;
 		},
 	},
 };
 
 
-const Checkpoint = ({ message, threadId, messageIdx, isCheckpointGhost, threadIsRunning }: { message: CheckpointEntry, threadId: string; messageIdx: number, isCheckpointGhost: boolean, threadIsRunning: boolean }) => {
-	const accessor = useAccessor()
-	const chatThreadService = accessor.get('IChatThreadService')
-	const streamState = useFullChatThreadsStreamState()
+const Checkpoint = ({ message, threadId, messageIdx, isCheckpointGhost, threadIsRunning }: { message: CheckpointEntry; threadId: string; messageIdx: number; isCheckpointGhost: boolean; threadIsRunning: boolean }) => {
+	const accessor = useAccessor();
+	const chatThreadService = accessor.get('IChatThreadService');
+	const streamState = useFullChatThreadsStreamState();
 
 	// Subscribe to thread state changes properly
-	const chatThreadsState = useChatThreadsState()
+	const chatThreadsState = useChatThreadsState();
 
-	const isRunning = useChatThreadsStreamState(threadId)?.isRunning
+	const isRunning = useChatThreadsStreamState(threadId)?.isRunning;
 	const isDisabled = useMemo(() => {
-		if (isRunning) return true
+		if (isRunning) {return true;}
 		// Use Object.values().some() instead of Object.keys().find() for better performance
-		return Object.values(streamState).some(threadState => threadState?.isRunning)
-	}, [isRunning, streamState])
+		return Object.values(streamState).some(threadState => threadState?.isRunning);
+	}, [isRunning, streamState]);
 
 	// Memoize message count lookup to avoid direct state access in render
-	const threadMessagesLength = chatThreadsState.allThreads[threadId]?.messages.length ?? 0
+	const threadMessagesLength = chatThreadsState.allThreads[threadId]?.messages.length ?? 0;
 
 	return <div
 		className={`flex items-center justify-center px-2 `}
@@ -3688,13 +3699,13 @@ const Checkpoint = ({ message, threadId, messageIdx, isCheckpointGhost, threadIs
                 `}
 			style={{ position: 'relative', display: 'inline-block' }} // allow absolute icon
 			onClick={() => {
-				if (threadIsRunning) return
-				if (isDisabled) return
+				if (threadIsRunning) {return;}
+				if (isDisabled) {return;}
 				void chatThreadService.jumpToCheckpointBeforeMessageIdx({
 					threadId,
 					messageIdx,
 					jumpToUserModified: messageIdx === threadMessagesLength - 1
-				})
+				});
 			}}
 			{...isDisabled ? {
 				'data-tooltip-id': 'vibe-tooltip',
@@ -3704,73 +3715,73 @@ const Checkpoint = ({ message, threadId, messageIdx, isCheckpointGhost, threadIs
 		>
 			Checkpoint<ChatTimestamp ts={message.createdAt} align='inline' />
 		</div>
-	</div>
-}
+	</div>;
+};
 
 
-type ChatBubbleMode = 'display' | 'edit'
+type ChatBubbleMode = 'display' | 'edit';
 type ChatBubbleProps = {
-	chatMessage: ChatMessage,
-	messageIdx: number,
-	isCommitted: boolean,
-	chatIsRunning: IsRunningType,
-	threadId: string,
-	currCheckpointIdx: number | undefined,
-	_scrollToBottom: (() => void) | null,
-}
+	chatMessage: ChatMessage;
+	messageIdx: number;
+	isCommitted: boolean;
+	chatIsRunning: IsRunningType;
+	threadId: string;
+	currCheckpointIdx: number | undefined;
+	_scrollToBottom: (() => void) | null;
+};
 
 // Plan Component - Shows structured execution plan as a todo list
 // Plan Component - Shows structured execution plan as a todo list
-const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messageIdx }: { message: PlanMessage, isCheckpointGhost: boolean, threadId: string, messageIdx: number }) => {
-	const accessor = useAccessor()
-	const chatThreadService = accessor.get('IChatThreadService')
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
-	const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set())
-	const [isCollapsed, setIsCollapsed] = useState(false)
+const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messageIdx }: { message: PlanMessage; isCheckpointGhost: boolean; threadId: string; messageIdx: number }) => {
+	const accessor = useAccessor();
+	const chatThreadService = accessor.get('IChatThreadService');
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
+	const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set());
+	const [isCollapsed, setIsCollapsed] = useState(false);
 
 	// Subscribe to thread state changes properly
-	const chatThreadsState = useChatThreadsState()
-	const settingsState = useSettingsState()
-    const approvalState = message.approvalState || 'pending'
-    const isRunning = useChatThreadsStreamState(threadId)?.isRunning
-    const isBusy = isRunning === 'LLM' || isRunning === 'tool' || isRunning === 'preparing'
-    const isIdleLike = isRunning === undefined || isRunning === 'idle'
+	const chatThreadsState = useChatThreadsState();
+	const settingsState = useSettingsState();
+    const approvalState = message.approvalState || 'pending';
+    const isRunning = useChatThreadsStreamState(threadId)?.isRunning;
+    const isBusy = isRunning === 'LLM' || isRunning === 'tool' || isRunning === 'preparing';
+    const isIdleLike = isRunning === undefined || isRunning === 'idle';
 	// True when the chat was in Plan mode when this plan was created
-	const isPlanMode = settingsState.globalSettings.chatMode === 'plan'
+	const isPlanMode = settingsState.globalSettings.chatMode === 'plan';
 
 	// Get thread messages with proper subscription
-	const thread = chatThreadsState.allThreads[threadId]
-	const threadMessages = thread?.messages ?? []
+	const thread = chatThreadsState.allThreads[threadId];
+	const threadMessages = thread?.messages ?? [];
 
 	// Memoize tool message lookup map for O(1) access instead of O(n) searches
 	const toolMessagesMap = useMemo(() => {
-		const map = new Map<string, ToolMessage<any>>()
+		const map = new Map<string, ToolMessage<any>>();
 		for (const msg of threadMessages) {
 			if (msg.role === 'tool') {
-				const toolMsg = msg as ToolMessage<any>
-				map.set(toolMsg.id, toolMsg)
+				const toolMsg = msg as ToolMessage<any>;
+				map.set(toolMsg.id, toolMsg);
 			}
 		}
-		return map
-	}, [threadMessages])
+		return map;
+	}, [threadMessages]);
 
 	// Calculate progress - memoize to avoid recalculating on every render
-	const totalSteps = message.steps.length
+	const totalSteps = message.steps.length;
 	const completedSteps = useMemo(() =>
 		message.steps.filter(s => s.status === 'succeeded' || s.status === 'skipped').length
-	, [message.steps])
+	, [message.steps]);
 	const progressText = useMemo(() =>
 		`${completedSteps} of ${totalSteps} ${totalSteps === 1 ? 'Step' : 'Steps'} Completed`
-	, [completedSteps, totalSteps])
+	, [completedSteps, totalSteps]);
 
 	// Memoize hasPausedSteps to avoid recalculating on every render
 	const hasPausedSteps = useMemo(() =>
 		message.steps.some(s => s.status === 'paused')
-	, [message.steps])
+	, [message.steps]);
 
 	const getCheckmarkIcon = (status?: StepStatus, isDisabled?: boolean) => {
 		if (isDisabled) {
-			return <div className="w-5 h-5 rounded-full border-2 border-vibe-fg-4 flex items-center justify-center opacity-40" />
+			return <div className="w-5 h-5 rounded-full border-2 border-vibe-fg-4 flex items-center justify-center opacity-40" />;
 		}
 
 		switch (status) {
@@ -3779,88 +3790,88 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 					<div className="w-5 h-5 rounded-full border-2 border-green-500 bg-green-500/20 flex items-center justify-center">
 						<Check size={12} className="text-green-400" strokeWidth={3} />
 					</div>
-				)
+				);
 			case 'failed':
 				return (
 					<div className="w-5 h-5 rounded-full border-2 border-red-500 bg-red-500/20 flex items-center justify-center">
 						<X size={12} className="text-red-400" strokeWidth={3} />
 					</div>
-				)
+				);
 			case 'running':
 				return (
 					<div className="w-5 h-5 rounded-full border-2 border-yellow-500 bg-yellow-500/20 flex items-center justify-center">
 						<CircleEllipsis size={12} className="text-yellow-400 animate-spin" />
 					</div>
-				)
+				);
 			case 'paused':
 				return (
 					<div className="w-5 h-5 rounded-full border-2 border-orange-500 bg-orange-500/20 flex items-center justify-center">
 						<Dot size={12} className="text-orange-400" />
 					</div>
-				)
+				);
 			case 'skipped':
 				return (
 					<div className="w-5 h-5 rounded-full border-2 border-gray-500 bg-gray-500/20 flex items-center justify-center opacity-60">
 						<Ban size={12} className="text-gray-400" />
 					</div>
-				)
+				);
 			default: // queued
 				return (
 					<div className="w-5 h-5 rounded-full border-2 border-vibe-fg-3 flex items-center justify-center">
 						<div className="w-1.5 h-1.5 rounded-full bg-vibe-fg-3 opacity-60" />
 					</div>
-				)
+				);
 		}
-	}
+	};
 
 	const toggleStepExpanded = (stepNumber: number) => {
 		setExpandedSteps(prev => {
-			const next = new Set(prev)
+			const next = new Set(prev);
 			if (next.has(stepNumber)) {
-				next.delete(stepNumber)
+				next.delete(stepNumber);
 			} else {
-				next.add(stepNumber)
+				next.add(stepNumber);
 			}
-			return next
-		})
-	}
+			return next;
+		});
+	};
 
     const handleApprove = () => {
-        if (isCheckpointGhost || isBusy) return
-		chatThreadService.approvePlan({ threadId, messageIdx })
-	}
+        if (isCheckpointGhost || isBusy) {return;}
+		chatThreadService.approvePlan({ threadId, messageIdx });
+	};
 
 	const handleReject = () => {
-        if (isCheckpointGhost || isBusy) return
-		chatThreadService.rejectPlan({ threadId, messageIdx })
-	}
+        if (isCheckpointGhost || isBusy) {return;}
+		chatThreadService.rejectPlan({ threadId, messageIdx });
+	};
 
 	const handleToggleStep = (stepNumber: number) => {
-        if (isCheckpointGhost || isBusy) return
-		chatThreadService.toggleStepDisabled({ threadId, messageIdx, stepNumber })
-	}
+        if (isCheckpointGhost || isBusy) {return;}
+		chatThreadService.toggleStepDisabled({ threadId, messageIdx, stepNumber });
+	};
 
 	// Switch to Agent mode first, then approve — "Execute in Agent" for Plan Mode
 	const handleExecuteInAgent = () => {
-		if (isCheckpointGhost || isBusy) return
-		vibeideSettingsService.setGlobalSetting('chatMode', 'agent')
-		chatThreadService.approvePlan({ threadId, messageIdx })
-	}
+		if (isCheckpointGhost || isBusy) {return;}
+		vibeideSettingsService.setGlobalSetting('chatMode', 'agent');
+		chatThreadService.approvePlan({ threadId, messageIdx });
+	};
 
 	const getStatusBadge = (status?: StepStatus) => {
 		switch (status) {
 			case 'running':
-				return <span className="px-1.5 py-0.5 text-xs rounded bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">Running</span>
+				return <span className="px-1.5 py-0.5 text-xs rounded bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">Running</span>;
 			case 'failed':
-				return <span className="px-1.5 py-0.5 text-xs rounded bg-red-500/20 text-red-400 border border-red-500/30">Failed</span>
+				return <span className="px-1.5 py-0.5 text-xs rounded bg-red-500/20 text-red-400 border border-red-500/30">Failed</span>;
 			case 'paused':
-				return <span className="px-1.5 py-0.5 text-xs rounded bg-orange-500/20 text-orange-400 border border-orange-500/30">Paused</span>
+				return <span className="px-1.5 py-0.5 text-xs rounded bg-orange-500/20 text-orange-400 border border-orange-500/30">Paused</span>;
 			case 'skipped':
-				return <span className="px-1.5 py-0.5 text-xs rounded bg-gray-500/20 text-gray-400 border border-gray-500/30">Skipped</span>
+				return <span className="px-1.5 py-0.5 text-xs rounded bg-gray-500/20 text-gray-400 border border-gray-500/30">Skipped</span>;
 			default:
-				return null
+				return null;
 		}
-	}
+	};
 
 	return (
 		<div
@@ -3982,11 +3993,11 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 				{!isCollapsed && (
 					<ul id="vibe-plan-steps-list" className="list-none m-0 p-0 py-2" role="list">
 						{message.steps.map((step) => {
-							const isExpanded = expandedSteps.has(step.stepNumber)
-							const isDisabled = step.disabled
-							const status = step.status || 'queued'
-							const hasDetails = step.tools || step.files || step.error || step.toolCalls
-							const stepAria = chatS.planStepAria(step.stepNumber, status, (step.description || '').slice(0, 400))
+							const isExpanded = expandedSteps.has(step.stepNumber);
+							const isDisabled = step.disabled;
+							const status = step.status || 'queued';
+							const hasDetails = step.tools || step.files || step.error || step.toolCalls;
+							const stepAria = chatS.planStepAria(step.stepNumber, status, (step.description || '').slice(0, 400));
 
 							return (
 								<li
@@ -4050,7 +4061,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 								<button
 									type="button"
 									aria-label={`Rollback step ${step.stepNumber}`}
-									onClick={() => { if (confirm('Rollback to the checkpoint before this step?')) chatThreadService.rollbackToStep({ threadId, messageIdx, stepNumber: step.stepNumber }) }}
+									onClick={() => { if (confirm('Rollback to the checkpoint before this step?')) {chatThreadService.rollbackToStep({ threadId, messageIdx, stepNumber: step.stepNumber });} }}
 																className="px-2 py-0.5 text-xs rounded bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 border border-orange-500/20 transition-colors"
 															>
 																Rollback
@@ -4099,11 +4110,11 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 														<div className="space-y-1.5">
 															{step.toolCalls.map((toolId, i) => {
 																// Use memoized map for O(1) lookup instead of O(n) find
-																const toolMsg = toolMessagesMap.get(toolId)
-																if (!toolMsg) return null
+																const toolMsg = toolMessagesMap.get(toolId);
+																if (!toolMsg) {return null;}
 
-																const isSuccess = toolMsg.type === 'success'
-																const isError = toolMsg.type === 'tool_error'
+																const isSuccess = toolMsg.type === 'success';
+																const isError = toolMsg.type === 'tool_error';
 
 																return (
 																	<div key={toolId} className={`p-2 rounded border text-xs ${
@@ -4140,7 +4151,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 																			</details>
 																		)}
 																	</div>
-																)
+																);
 															})}
 														</div>
 													</div>
@@ -4178,7 +4189,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 										)}
 									</div>
 								</li>
-							)
+							);
 						})}
 					</ul>
 				)}
@@ -4190,11 +4201,11 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 	return prev.message === next.message &&
 		prev.isCheckpointGhost === next.isCheckpointGhost &&
 		prev.threadId === next.threadId &&
-		prev.messageIdx === next.messageIdx
+		prev.messageIdx === next.messageIdx;
 });
 
 // Review Component - Shows summary after execution
-const ReviewComponent = ({ message, isCheckpointGhost }: { message: ReviewMessage, isCheckpointGhost: boolean }) => {
+const ReviewComponent = ({ message, isCheckpointGhost }: { message: ReviewMessage; isCheckpointGhost: boolean }) => {
 	return (
 		<div className={`${isCheckpointGhost ? 'opacity-50' : ''} my-2`}>
 			<div className={`border rounded-lg p-4 ${
@@ -4302,7 +4313,7 @@ const ChatBubble = React.memo((props: ChatBubbleProps) => {
 		<div className="message-enter">
 			<_ChatBubble {...props} />
 		</div>
-	</ErrorBoundary>
+	</ErrorBoundary>;
 }, (prev, next) => {
 	// Custom comparison: only re-render if props actually changed
 	return prev.chatMessage === next.chatMessage &&
@@ -4311,13 +4322,13 @@ const ChatBubble = React.memo((props: ChatBubbleProps) => {
 		prev.chatIsRunning === next.chatIsRunning &&
 		prev.currCheckpointIdx === next.currCheckpointIdx &&
 		prev.threadId === next.threadId &&
-		prev._scrollToBottom === next._scrollToBottom
-})
+		prev._scrollToBottom === next._scrollToBottom;
+});
 
 const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCommitted, messageIdx, chatIsRunning, _scrollToBottom }: ChatBubbleProps) => {
-	const role = chatMessage.role
+	const role = chatMessage.role;
 
-	const isCheckpointGhost = messageIdx > (currCheckpointIdx ?? Infinity) && !chatIsRunning // whether to show as gray (if chat is running, for good measure just dont show any ghosts)
+	const isCheckpointGhost = messageIdx > (currCheckpointIdx ?? Infinity) && !chatIsRunning; // whether to show as gray (if chat is running, for good measure just dont show any ghosts)
 
 	if (role === 'user') {
 		return <UserMessageComponent
@@ -4326,7 +4337,7 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 			currCheckpointIdx={currCheckpointIdx}
 			messageIdx={messageIdx}
 			_scrollToBottom={_scrollToBottom}
-		/>
+		/>;
 	}
 	else if (role === 'assistant') {
 		return <AssistantMessageComponent
@@ -4334,23 +4345,23 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 			isCheckpointGhost={isCheckpointGhost}
 			messageIdx={messageIdx}
 			isCommitted={isCommitted}
-		/>
+		/>;
 	}
 	else if (role === 'tool') {
 
 		if (chatMessage.type === 'invalid_params') {
 			return <div className={`${isCheckpointGhost ? 'opacity-50' : ''}`}>
 				<InvalidTool toolName={chatMessage.name} message={chatMessage.content} mcpServerName={chatMessage.mcpServerName} />
-			</div>
+			</div>;
 		}
 
-		const toolName = chatMessage.name
-		const isBuiltInTool = isABuiltinToolName(toolName)
+		const toolName = chatMessage.name;
+		const isBuiltInTool = isABuiltinToolName(toolName);
 		const ToolResultWrapper = isBuiltInTool ? builtinToolNameToComponent[toolName]?.resultWrapper as ResultWrapper<ToolName>
-			: MCPToolWrapper as ResultWrapper<ToolName>
+			: MCPToolWrapper as ResultWrapper<ToolName>;
 
 		if (ToolResultWrapper)
-			return <>
+			{return <>
 				<div className={`${isCheckpointGhost ? 'opacity-50' : ''}`}>
 					<ToolResultWrapper
 						toolMessage={chatMessage}
@@ -4362,14 +4373,14 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 					<div className={`${isCheckpointGhost ? 'opacity-50 pointer-events-none' : ''}`}>
 						<ToolRequestAcceptRejectButtons toolName={chatMessage.name} />
 					</div> : null}
-			</>
-		return null
+			</>;}
+		return null;
 	}
 
 	else if (role === 'interrupted_streaming_tool') {
 		return <div className={`${isCheckpointGhost ? 'opacity-50' : ''}`}>
 			<CanceledTool toolName={chatMessage.name} mcpServerName={chatMessage.mcpServerName} />
-		</div>
+		</div>;
 	}
 
 	else if (role === 'checkpoint') {
@@ -4379,7 +4390,7 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 			messageIdx={messageIdx}
 			isCheckpointGhost={isCheckpointGhost}
 			threadIsRunning={!!chatIsRunning}
-		/>
+		/>;
 	}
 
 	else if (role === 'plan') {
@@ -4388,14 +4399,14 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 			isCheckpointGhost={isCheckpointGhost}
 			threadId={threadId}
 			messageIdx={messageIdx}
-		/>
+		/>;
 	}
 
 	else if (role === 'review') {
 		return <ReviewComponent
 			message={chatMessage}
 			isCheckpointGhost={isCheckpointGhost}
-		/>
+		/>;
 	}
 
 }, (prev, next) => {
@@ -4406,48 +4417,48 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 		prev.chatIsRunning === next.chatIsRunning &&
 		prev.currCheckpointIdx === next.currCheckpointIdx &&
 		prev.threadId === next.threadId &&
-		prev._scrollToBottom === next._scrollToBottom
-})
+		prev._scrollToBottom === next._scrollToBottom;
+});
 
 const CommandBarInChat = () => {
-	const { stateOfURI: commandBarStateOfURI, sortedURIs: sortedCommandBarURIs } = useCommandBarState()
-	const numFilesChanged = sortedCommandBarURIs.length
+	const { stateOfURI: commandBarStateOfURI, sortedURIs: sortedCommandBarURIs } = useCommandBarState();
+	const numFilesChanged = sortedCommandBarURIs.length;
 
-	const accessor = useAccessor()
-	const editCodeService = accessor.get('IEditCodeService')
-	const commandService = accessor.get('ICommandService')
-	const chatThreadsState = useChatThreadsState()
-	const commandBarState = useCommandBarState()
-	const chatThreadsStreamState = useChatThreadsStreamState(chatThreadsState.currentThreadId)
+	const accessor = useAccessor();
+	const editCodeService = accessor.get('IEditCodeService');
+	const commandService = accessor.get('ICommandService');
+	const chatThreadsState = useChatThreadsState();
+	const commandBarState = useCommandBarState();
+	const chatThreadsStreamState = useChatThreadsStreamState(chatThreadsState.currentThreadId);
 
 	// Chat → Markdown: Copy keeps tool-results truncated (small clipboard payload), Export writes
 	// the full log to a .md file. Both serialize collapsed reasoning blocks regardless of UI state.
-	const clipboardService = accessor.get('IClipboardService')
-	const fileDialogService = accessor.get('IFileDialogService')
-	const cmdBarFileService = accessor.get('IFileService')
-	const cmdBarNotificationService = accessor.get('INotificationService')
+	const clipboardService = accessor.get('IClipboardService');
+	const fileDialogService = accessor.get('IFileDialogService');
+	const cmdBarFileService = accessor.get('IFileService');
+	const cmdBarNotificationService = accessor.get('INotificationService');
 	const exportThreadMarkdown = async (mode: 'copy' | 'export') => {
-		const threadId = chatThreadsState.currentThreadId
-		const messages = (threadId ? chatThreadsState.allThreads[threadId]?.messages : undefined) ?? []
-		if (!messages.length) { cmdBarNotificationService.info(chatS.exportChatEmpty); return }
-		const md = threadToMarkdown(messages, { truncateToolResults: mode === 'copy' })
+		const threadId = chatThreadsState.currentThreadId;
+		const messages = (threadId ? chatThreadsState.allThreads[threadId]?.messages : undefined) ?? [];
+		if (!messages.length) { cmdBarNotificationService.info(chatS.exportChatEmpty); return; }
+		const md = threadToMarkdown(messages, { truncateToolResults: mode === 'copy' });
 		try {
 			if (mode === 'copy') {
-				await clipboardService.writeText(md)
-				cmdBarNotificationService.info(chatS.exportChatCopied)
+				await clipboardService.writeText(md);
+				cmdBarNotificationService.info(chatS.exportChatCopied);
 			} else {
 				const target = await fileDialogService.showSaveDialog({
 					title: chatS.exportChatSaveTitle,
 					filters: [{ name: 'Markdown', extensions: ['md'] }],
-				})
-				if (!target) { return }
-				await cmdBarFileService.writeFile(target, VSBuffer.fromString(md))
-				cmdBarNotificationService.info(chatS.exportChatSaved)
+				});
+				if (!target) { return; }
+				await cmdBarFileService.writeFile(target, VSBuffer.fromString(md));
+				cmdBarNotificationService.info(chatS.exportChatSaved);
 			}
 		} catch {
-			cmdBarNotificationService.error(chatS.exportChatFailed)
+			cmdBarNotificationService.error(chatS.exportChatFailed);
 		}
-	}
+	};
 
 	// (
 	// 	<IconShell1
@@ -4467,13 +4478,13 @@ const CommandBarInChat = () => {
 		// close the file details if there are no files
 		// this converts 'user-closed' to 'auto-closed'
 		if (numFilesChanged === 0) {
-			setFileDetailsOpenedState('auto-closed')
+			setFileDetailsOpenedState('auto-closed');
 		}
 		// open the file details if it hasnt been closed
 		if (numFilesChanged > 0 && fileDetailsOpenedState !== 'user-closed') {
-			setFileDetailsOpenedState('auto-opened')
+			setFileDetailsOpenedState('auto-opened');
 		}
-	}, [fileDetailsOpenedState, setFileDetailsOpenedState, numFilesChanged])
+	}, [fileDetailsOpenedState, setFileDetailsOpenedState, numFilesChanged]);
 
 
 	const isFinishedMakingThreadChanges = (
@@ -4481,7 +4492,7 @@ const CommandBarInChat = () => {
 		commandBarState.sortedURIs.length !== 0
 		// none of the files are streaming
 		&& commandBarState.sortedURIs.every(uri => !commandBarState.stateOfURI[uri.fsPath]?.isStreaming)
-	)
+	);
 
 	// ======== status of agent ========
 	// This icon answers the question "is the LLM doing work on this thread?"
@@ -4496,10 +4507,10 @@ const CommandBarInChat = () => {
             : (chatThreadsStreamState?.isRunning === 'LLM' || chatThreadsStreamState?.isRunning === 'tool' || chatThreadsStreamState?.isRunning === 'preparing')
                 ? { title: chatThreadsStreamState?.isRunning === 'preparing' ? chatS.statusPreparing : chatS.statusRunning, color: 'orange', } as const
                 : { title: chatS.statusDone, color: 'dark', } as const
-    )
+    );
 
 
-	const threadStatusHTML = <StatusIndicator className='mx-1' indicatorColor={threadStatus.color} title={threadStatus.title} />
+	const threadStatusHTML = <StatusIndicator className='mx-1' indicatorColor={threadStatus.color} title={threadStatus.title} />;
 
 
 	// ======== info about changes ========
@@ -4507,7 +4518,7 @@ const CommandBarInChat = () => {
 	// acceptall + rejectall
 	// popup info about each change (each with num changes + acceptall + rejectall of their own)
 
-	const numFilesChangedStr = chatFilesWithChangesLabel(numFilesChanged)
+	const numFilesChangedStr = chatFilesWithChangesLabel(numFilesChanged);
 
 
 
@@ -4562,23 +4573,23 @@ const CommandBarInChat = () => {
 
 
 
-	</div>
+	</div>;
 
 
 	// !select-text cursor-auto
 	const fileDetailsContent = <div className="px-2 gap-1 w-full overflow-y-auto">
 		{sortedCommandBarURIs.map((uri, i) => {
-			const basename = getBasename(uri.fsPath)
+			const basename = getBasename(uri.fsPath);
 
-			const { sortedDiffIds, isStreaming } = commandBarStateOfURI[uri.fsPath] ?? {}
-			const isFinishedMakingFileChanges = !isStreaming
+			const { sortedDiffIds, isStreaming } = commandBarStateOfURI[uri.fsPath] ?? {};
+			const isFinishedMakingFileChanges = !isStreaming;
 
-			const numDiffs = sortedDiffIds?.length || 0
+			const numDiffs = sortedDiffIds?.length || 0;
 
 			const fileStatus = (isFinishedMakingFileChanges
 				? { title: chatS.statusDone, color: 'dark', } as const
 				: { title: chatS.statusRunning, color: 'orange', } as const
-			)
+			);
 
 			const fileNameHTML = <div
 				className="flex items-center gap-1.5 text-vibe-fg-3 hover:brightness-125 transition-all duration-200 cursor-pointer"
@@ -4586,14 +4597,14 @@ const CommandBarInChat = () => {
 			>
 				{/* <FileIcon size={14} className="text-vibe-fg-3" /> */}
 				<span className="text-vibe-fg-3">{basename}</span>
-			</div>
+			</div>;
 
 
 
 
 			const detailsContent = <div className='flex px-4'>
 				<span className="text-vibe-fg-3 opacity-80">{chatDiffCountLabel(numDiffs)}</span>
-			</div>
+			</div>;
 
 			const acceptRejectButtons = <div
 				// Match the top-level command bar: when hidden, collapse WIDTH (not just opacity) so the
@@ -4625,9 +4636,9 @@ const CommandBarInChat = () => {
 					data-tooltip-content={chatS.acceptFileTooltip}
 				/>
 
-			</div>
+			</div>;
 
-			const fileStatusHTML = <StatusIndicator className='mx-1' indicatorColor={fileStatus.color} title={fileStatus.title} />
+			const fileStatusHTML = <StatusIndicator className='mx-1' indicatorColor={fileStatus.color} title={fileStatus.title} />;
 
 			return (
 				// name, details
@@ -4643,9 +4654,9 @@ const CommandBarInChat = () => {
 						{acceptRejectButtons}
 					</div>
 				</div>
-			)
+			);
 		})}
-	</div>
+	</div>;
 
 	const fileDetailsButton = (
 		<button
@@ -4664,7 +4675,7 @@ const CommandBarInChat = () => {
 			</svg>
 			{numFilesChangedStr}
 		</button>
-	)
+	);
 
 	return (
 		<>
@@ -4699,14 +4710,14 @@ const CommandBarInChat = () => {
 					{fileDetailsButton}
 					<IconShell1
 						Icon={CopyIcon}
-						onClick={() => { void exportThreadMarkdown('copy') }}
+						onClick={() => { void exportThreadMarkdown('copy'); }}
 						data-tooltip-id='vibe-tooltip'
 						data-tooltip-place='top'
 						data-tooltip-content={chatS.exportChatCopyTooltip}
 					/>
 					<IconShell1
 						Icon={FileDown}
-						onClick={() => { void exportThreadMarkdown('export') }}
+						onClick={() => { void exportThreadMarkdown('export'); }}
 						data-tooltip-id='vibe-tooltip'
 						data-tooltip-place='top'
 						data-tooltip-content={chatS.exportChatExportTooltip}
@@ -4722,30 +4733,30 @@ const CommandBarInChat = () => {
 				</div>
 			</div>
 		</>
-	)
-}
+	);
+};
 
 
 
 const EditToolSoFar = ({ toolCallSoFar, }: { toolCallSoFar: RawToolCallObj }) => {
 
-	if (!isABuiltinToolName(toolCallSoFar.name)) return null
+	if (!isABuiltinToolName(toolCallSoFar.name)) {return null;}
 
-	const accessor = useAccessor()
+	const accessor = useAccessor();
 
-	const uri = toolCallSoFar.rawParams.uri ? URI.file(toolCallSoFar.rawParams.uri) : undefined
+	const uri = toolCallSoFar.rawParams.uri ? URI.file(toolCallSoFar.rawParams.uri) : undefined;
 
-	const title = titleOfBuiltinToolName[toolCallSoFar.name]?.proposed ?? toolCallSoFar.name
+	const title = titleOfBuiltinToolName[toolCallSoFar.name]?.proposed ?? toolCallSoFar.name;
 
-	const uriDone = toolCallSoFar.doneParams.includes('uri')
+	const uriDone = toolCallSoFar.doneParams.includes('uri');
 	const desc1 = <span className='flex items-center gap-1'>
 		{uriDone ?
 			getBasename(toolCallSoFar.rawParams['uri'] ?? 'unknown')
 			: `Generating`}
 		<IconLoading state="processing" inline />
-	</span>
+	</span>;
 
-	const desc1OnClick = () => { uri && voidOpenFileFn(uri, accessor) }
+	const desc1OnClick = () => { if (uri) { voidOpenFileFn(uri, accessor); } };
 
 	// If URI has not been specified
 	return <ToolHeaderWrapper
@@ -4759,47 +4770,47 @@ const EditToolSoFar = ({ toolCallSoFar, }: { toolCallSoFar: RawToolCallObj }) =>
 			type={'rewrite'} // as it streams, show in rewrite format, don't make a diff editor
 		/>
 		<IconLoading state="processing" inline />
-	</ToolHeaderWrapper>
+	</ToolHeaderWrapper>;
 
-}
+};
 
 
 export const SidebarChat = () => {
-	trackRenderLoop('SidebarChat')
-	const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
-	const textAreaFnsRef = useRef<TextAreaFns | null>(null)
+	trackRenderLoop('SidebarChat');
+	const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
+	const textAreaFnsRef = useRef<TextAreaFns | null>(null);
 
-	const accessor = useAccessor()
-	const commandService = accessor.get('ICommandService')
-	const chatThreadsService = accessor.get('IChatThreadService')
-	const notificationService = accessor.get('INotificationService')
+	const accessor = useAccessor();
+	const commandService = accessor.get('ICommandService');
+	const chatThreadsService = accessor.get('IChatThreadService');
+	const notificationService = accessor.get('INotificationService');
 
-	const settingsState = useSettingsState()
+	const settingsState = useSettingsState();
 	// ----- HIGHER STATE -----
 
 	// threads state
-	const chatThreadsState = useChatThreadsState()
+	const chatThreadsState = useChatThreadsState();
 
-	const currentThread = chatThreadsService.getCurrentThread()
-	const previousMessages = currentThread?.messages ?? []
+	const currentThread = chatThreadsService.getCurrentThread();
+	const previousMessages = currentThread?.messages ?? [];
 
-	const selections = currentThread.state.stagingSelections
-	const setSelections = (s: StagingSelectionItem[]) => { chatThreadsService.setCurrentThreadState({ stagingSelections: s }) }
+	const selections = currentThread.state.stagingSelections;
+	const setSelections = (s: StagingSelectionItem[]) => { chatThreadsService.setCurrentThreadState({ stagingSelections: s }); };
 
 	// stream state
-	const currThreadStreamState = useChatThreadsStreamState(chatThreadsState.currentThreadId)
-	const isRunning = currThreadStreamState?.isRunning
-	const latestError = currThreadStreamState?.error
-	const { displayContentSoFar, toolCallSoFar, reasoningSoFar } = currThreadStreamState?.llmInfo ?? {}
+	const currThreadStreamState = useChatThreadsStreamState(chatThreadsState.currentThreadId);
+	const isRunning = currThreadStreamState?.isRunning;
+	const latestError = currThreadStreamState?.error;
+	const { displayContentSoFar, toolCallSoFar, reasoningSoFar } = currThreadStreamState?.llmInfo ?? {};
 
 	// this is just if it's currently being generated, NOT if it's currently running
-	const toolIsGenerating = toolCallSoFar && !toolCallSoFar.isDone // show loading for slow tools (right now just edit)
+	const toolIsGenerating = toolCallSoFar && !toolCallSoFar.isDone; // show loading for slow tools (right now just edit)
 
 	// ----- SIDEBAR CHAT state (local) -----
 
 	// state of current message
-	const initVal = ''
-	const [instructionsAreEmpty, setInstructionsAreEmpty] = useState(!initVal)
+	const initVal = '';
+	const [instructionsAreEmpty, setInstructionsAreEmpty] = useState(!initVal);
 
 	// Per-thread composer draft. The chat is ONE mounted component shared across tabs (refactor B),
 	// so on tab switch we save the outgoing thread's unsent text and restore the incoming thread's.
@@ -4807,66 +4818,68 @@ export const SidebarChat = () => {
 	useEffect(() => {
 		// Restore this thread's draft into the composer on mount/switch. Drafts are saved on each
 		// keystroke (onChangeText) + cleared on send, so no unmount-time save is needed here.
-		const saved = chatThreadsService.getThreadDraft(chatThreadsState.currentThreadId)
-		textAreaFnsRef.current?.setValue(saved)
-		setInstructionsAreEmpty(!saved)
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [chatThreadsState.currentThreadId])
+		const saved = chatThreadsService.getThreadDraft(chatThreadsState.currentThreadId);
+		textAreaFnsRef.current?.setValue(saved);
+		setInstructionsAreEmpty(!saved);
+	}, [chatThreadsState.currentThreadId]);
 
 	// ── Per-tab chat config (model / mode / autopilot / iterations) ──────────────────────────────
 	// Each chat tab keeps its own config. SidebarChat is keyed by thread (see Sidebar.tsx), so this
 	// instance == one tab: on mount we APPLY the tab's saved config to the global stores (or snapshot
 	// the current globals if the tab has none yet); on any control change we SAVE the globals back into
 	// this tab. Writes go to the thread (not the globals), so there's no apply→save→apply loop.
-	const vibeideSettingsService = accessor.get('IVibeideSettingsService')
-	const configurationService = accessor.get('IConfigurationService')
-	const SOFT_CHECKPOINT_ITER_KEY = 'vibeide.agent.softCheckpointIterations'
+	const vibeideSettingsService = accessor.get('IVibeideSettingsService');
+	const configurationService = accessor.get('IConfigurationService');
+	const SOFT_CHECKPOINT_ITER_KEY = 'vibeide.agent.softCheckpointIterations';
 	const readIter = useCallback((): number => {
-		const r = configurationService.getValue<unknown>(SOFT_CHECKPOINT_ITER_KEY)
+		const r = configurationService.getValue<unknown>(SOFT_CHECKPOINT_ITER_KEY);
 		// Fallback mirrors the registered config default (0 = ∞ / no pauses).
-		return (typeof r === 'number' && Number.isFinite(r) && r >= 0) ? Math.floor(r) : 0
-	}, [configurationService])
-	const [iterValue, setIterValue] = useState<number>(readIter)
+		return (typeof r === 'number' && Number.isFinite(r) && r >= 0) ? Math.floor(r) : 0;
+	}, [configurationService]);
+	const [iterValue, setIterValue] = useState<number>(readIter);
 	useEffect(() => {
 		const d = configurationService.onDidChangeConfiguration(e => {
-			if (e.affectsConfiguration(SOFT_CHECKPOINT_ITER_KEY)) { setIterValue(readIter()) }
-		})
-		return () => d.dispose()
-	}, [configurationService, readIter])
+			if (e.affectsConfiguration(SOFT_CHECKPOINT_ITER_KEY)) { setIterValue(readIter()); }
+		});
+		return () => d.dispose();
+	}, [configurationService, readIter]);
 
-	const curModelSel = settingsState.modelSelectionOfFeature['Chat'] ?? null
-	const curChatMode = settingsState.globalSettings.chatMode
-	const curAutopilot = settingsState.globalSettings.chatAgentAutopilot === true
+	const curModelSel = settingsState.modelSelectionOfFeature['Chat'] ?? null;
+	const curChatMode = settingsState.globalSettings.chatMode;
+	const curAutopilot = settingsState.globalSettings.chatAgentAutopilot === true;
 	const readChatConfig = useCallback(() => ({
 		model: curModelSel ? { providerName: curModelSel.providerName, modelName: curModelSel.modelName } : null,
 		chatMode: curChatMode as string,
 		autopilot: curAutopilot,
 		iterations: iterValue,
-	}), [curModelSel, curChatMode, curAutopilot, iterValue])
+	}), [curModelSel, curChatMode, curAutopilot, iterValue]);
 
 	// Apply saved config (or snapshot current) once on mount/tab-switch.
 	useEffect(() => {
-		const cfg = chatThreadsService.getCurrentThread()?.chatConfig
+		const cfg = chatThreadsService.getCurrentThread()?.chatConfig;
 		if (cfg) {
-			if (cfg.model) { void vibeideSettingsService.setModelSelectionOfFeature('Chat', { providerName: cfg.model.providerName, modelName: cfg.model.modelName } as any) }
-			void vibeideSettingsService.setGlobalSetting('chatMode', cfg.chatMode as any)
-			void vibeideSettingsService.setGlobalSetting('chatAgentAutopilot', cfg.autopilot)
-			void configurationService.updateValue(SOFT_CHECKPOINT_ITER_KEY, cfg.iterations)
+			const model = cfg.model;
+			if (model && isProviderName(model.providerName)) {
+				void vibeideSettingsService.setModelSelectionOfFeature('Chat', { providerName: model.providerName, modelName: model.modelName });
+			}
+			if (isChatMode(cfg.chatMode)) {
+				void vibeideSettingsService.setGlobalSetting('chatMode', cfg.chatMode);
+			}
+			void vibeideSettingsService.setGlobalSetting('chatAgentAutopilot', cfg.autopilot);
+			void configurationService.updateValue(SOFT_CHECKPOINT_ITER_KEY, cfg.iterations);
 		} else {
-			chatThreadsService.setThreadChatConfig(currentThread.id, readChatConfig())
+			chatThreadsService.setThreadChatConfig(currentThread.id, readChatConfig());
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [])
+	}, []);
 
 	// Save config into this tab on any control change. Skip the first run (mount) so the apply above
 	// can propagate; the second run (triggered by the apply's global changes) writes the applied config
 	// back — a no-op via the service's JSON-equality guard. Genuine user changes are saved thereafter.
-	const skipFirstCfgSaveRef = useRef(true)
+	const skipFirstCfgSaveRef = useRef(true);
 	useEffect(() => {
-		if (skipFirstCfgSaveRef.current) { skipFirstCfgSaveRef.current = false; return }
-		chatThreadsService.setThreadChatConfig(currentThread.id, readChatConfig())
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [curModelSel?.providerName, curModelSel?.modelName, curChatMode, curAutopilot, iterValue])
+		if (skipFirstCfgSaveRef.current) { skipFirstCfgSaveRef.current = false; return; }
+		chatThreadsService.setThreadChatConfig(currentThread.id, readChatConfig());
+	}, [curModelSel?.providerName, curModelSel?.modelName, curChatMode, curAutopilot, iterValue]);
 
 	// Image attachments management
 	const {
@@ -4919,7 +4932,7 @@ export const SidebarChat = () => {
 		const currentModelSel = settingsState.modelSelectionOfFeature['Chat'];
 
 		// In auto mode the router picks a vision-capable model — no warning needed
-		if (currentModelSel?.providerName === 'auto' && currentModelSel?.modelName === 'auto') return;
+		if (currentModelSel?.providerName === 'auto' && currentModelSel?.modelName === 'auto') {return;}
 
 		const { isSelectedModelVisionCapable, checkOllamaModelVisionCapable, isOllamaAccessible } = await import('../util/visionModelHelper.js');
 
@@ -4953,114 +4966,114 @@ export const SidebarChat = () => {
 
 	// Compute isDisabled - ensure it's reactive to settings changes
 	const isDisabled = useMemo(() => {
-		return (instructionsAreEmpty && imageAttachments.length === 0 && pdfAttachments.length === 0) || !!isFeatureNameDisabled('Chat', settingsState)
-	}, [instructionsAreEmpty, imageAttachments.length, pdfAttachments.length, settingsState])
+		return (instructionsAreEmpty && imageAttachments.length === 0 && pdfAttachments.length === 0) || !!isFeatureNameDisabled('Chat', settingsState);
+	}, [instructionsAreEmpty, imageAttachments.length, pdfAttachments.length, settingsState]);
 
-	const sidebarRef = useRef<HTMLDivElement>(null)
-	const virtuosoRef = useRef<VirtuosoHandle | null>(null)
+	const sidebarRef = useRef<HTMLDivElement>(null);
+	const virtuosoRef = useRef<VirtuosoHandle | null>(null);
 
 	// Tracks whether the user is scrolled to (or near) the bottom. Used by
 	// `followOutput` so streaming chunks only auto-scroll when the user hasn't
 	// scrolled up to read earlier history. Virtuoso fires this via `atBottomStateChange`.
-	const isAtBottomRef = useRef(true)
+	const isAtBottomRef = useRef(true);
 	// Reactive mirror of the ref — drives the floating "jump to bottom" button. Virtuoso fires
 	// atBottomStateChange only on transitions (not every pixel), so the setState is cheap.
-	const [atBottom, setAtBottom] = useState(true)
+	const [atBottom, setAtBottom] = useState(true);
 	const handleAtBottomStateChange = useCallback((isBottom: boolean) => {
-		isAtBottomRef.current = isBottom
-		setAtBottom(isBottom)
-	}, [])
+		isAtBottomRef.current = isBottom;
+		setAtBottom(isBottom);
+	}, []);
 
 	// Same callback signature as before (called by `chatThreadService.whenMounted.then(m => m.scrollToBottom())`
 	// after a user message is sent, and by `UserMessageComponent` inside requestAnimationFrame).
 	// Internally now scrolls Virtuoso to the last item; this is async (one frame later)
 	// but the callers are fire-and-forget, so the contract is preserved.
 	const scrollToBottomCallback = useCallback(() => {
-		virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'auto', align: 'end' })
-	}, [])
+		virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'auto', align: 'end' });
+	}, []);
 
 	const onSubmit = useCallback(async (_forceSubmit?: string) => {
 
-		if (isDisabled && !_forceSubmit) return
-		if (isRunning) return
+		if (isDisabled && !_forceSubmit) {return;}
+		if (isRunning) {return;}
 
 		// use subscribed state - currentThread.id is already from subscribed state
-		const threadId = currentThread.id
+		const threadId = currentThread.id;
 
 		// hoisted: used both inside the @-resolver try-block and later in vision/PDF validation
-		const notificationService = accessor.get('INotificationService')
+		const notificationService = accessor.get('INotificationService');
 
 		// send message to LLM
-		const userMessage = _forceSubmit || textAreaRef.current?.value || ''
+		const userMessage = _forceSubmit || textAreaRef.current?.value || '';
 
 			// Resolve @references in the input into staging selections before sending
 			// Supports tokens like: @"src/app/file.ts", @path/to/file.ts, @folder, @workspace, @recent, @selection, @agent
 			try {
-				const toolsService = accessor.get('IToolsService')
-				const workspaceService = accessor.get('IWorkspaceContextService')
-				const editorService = accessor.get('IEditorService')
-				const languageService = accessor.get('ILanguageService')
-				const historyService = accessor.get('IHistoryService')
-				const fileService = accessor.get('IFileService')
-				let outlineService: any = undefined
-				try { outlineService = accessor.get('IOutlineModelService') } catch {}
+				const toolsService = accessor.get('IToolsService');
+				const workspaceService = accessor.get('IWorkspaceContextService');
+				const editorService = accessor.get('IEditorService');
+				const languageService = accessor.get('ILanguageService');
+				const historyService = accessor.get('IHistoryService');
+				const fileService = accessor.get('IFileService');
+				let outlineService: any = undefined;
+				try { outlineService = accessor.get('IOutlineModelService'); } catch {}
 
 			// Collect existing URIs to avoid duplicate attachments
-			const existing = new Set<string>()
-			const existingSelections = chatThreadsState.allThreads[currentThread.id]?.state?.stagingSelections || []
-			for (const s of existingSelections) existing.add(s.uri?.fsPath || '')
+			const existing = new Set<string>();
+			const existingSelections = chatThreadsState.allThreads[currentThread.id]?.state?.stagingSelections || [];
+			for (const s of existingSelections) {existing.add(s.uri?.fsPath || '');}
 
 			const addFileSelection = async (uri: any) => {
-				if (!uri) return
-				const key = uri.fsPath || uri.path || ''
-				if (key && existing.has(key)) return
-				existing.add(key)
+				if (!uri) {return;}
+				const key = uri.fsPath || uri.path || '';
+				if (key && existing.has(key)) {return;}
+				existing.add(key);
 				const newSel = {
 					type: 'File',
 					uri,
 					language: languageService.guessLanguageIdByFilepathOrFirstLine(uri) || '',
 					state: { wasAddedAsCurrentFile: false },
-				}
-				await chatThreadsService.addNewStagingSelection(newSel)
-			}
+				};
+				await chatThreadsService.addNewStagingSelection(newSel);
+			};
 
 			const addFolderSelection = async (uri: any) => {
-				if (!uri) return
-				const key = uri.fsPath || uri.path || ''
-				if (key && existing.has(key)) return
-				existing.add(key)
+				if (!uri) {return;}
+				const key = uri.fsPath || uri.path || '';
+				if (key && existing.has(key)) {return;}
+				existing.add(key);
 				const newSel = {
 					type: 'Folder',
 					uri,
 					language: undefined,
 					state: undefined,
-				}
-				await chatThreadsService.addNewStagingSelection(newSel)
-			}
+				};
+				await chatThreadsService.addNewStagingSelection(newSel);
+			};
 
-			const tokens: string[] = []
+			const tokens: string[] = [];
 			{
 				// Extract quoted paths first: @"..."
-				const quoted = [...userMessage.matchAll(/@"([^"]+)"/g)].map(m => m[1])
-				tokens.push(...quoted)
+				const quoted = [...userMessage.matchAll(/@"([^"]+)"/g)].map(m => m[1]);
+				tokens.push(...quoted);
 				// Extract bare @word-like tokens (stop at whitespace or punctuation)
 				for (const m of userMessage.matchAll(/@([\w\.\-_/]+(?::\d+(?:-\d+)?)?)/g)) {
-					const t = m[1]
-					if (t) tokens.push(t)
+					const t = m[1];
+					if (t) {tokens.push(t);}
 				}
 			}
 
-			const special = new Set(['selection', 'workspace', 'recent', 'folder', 'agent'])
+			const special = new Set(['selection', 'workspace', 'recent', 'folder', 'agent']);
 
 			// Track unresolved references for error reporting
-			const unresolvedRefs: string[] = []
+			const unresolvedRefs: string[] = [];
 
 			for (const raw of tokens) {
 				// Handle special tokens
 				if (raw === 'selection') {
-					const active = editorService.activeTextEditorControl
-					const activeResource = editorService.activeEditor?.resource
-					const sel = active?.getSelection?.()
+					const active = editorService.activeTextEditorControl;
+					const activeResource = editorService.activeEditor?.resource;
+					const sel = active?.getSelection?.();
 					if (activeResource && sel && !sel.isEmpty()) {
 						const newSel = {
 							type: 'File',
@@ -5068,124 +5081,124 @@ export const SidebarChat = () => {
 							language: languageService.guessLanguageIdByFilepathOrFirstLine(activeResource) || '',
 							state: { wasAddedAsCurrentFile: false },
 							range: sel,
-						}
-						const key = activeResource.fsPath || ''
+						};
+						const key = activeResource.fsPath || '';
 						if (!existing.has(key)) {
-							existing.add(key)
-							await chatThreadsService.addNewStagingSelection(newSel)
+							existing.add(key);
+							await chatThreadsService.addNewStagingSelection(newSel);
 						}
 					} else {
-						unresolvedRefs.push('@selection (no active selection)')
+						unresolvedRefs.push('@selection (no active selection)');
 					}
-					continue
+					continue;
 				}
 				if (raw === 'workspace') {
 					for (const folder of workspaceService.getWorkspace().folders) {
-						await addFolderSelection(folder.uri)
+						await addFolderSelection(folder.uri);
 					}
-					continue
+					continue;
 				}
 				if (raw === 'agent') {
 					for (const folder of workspaceService.getWorkspace().folders) {
 						const candidates = [
 							URI.joinPath(folder.uri, 'AGENTS.md'),
 							URI.joinPath(folder.uri, '.vibe', 'rules.md'),
-						]
+						];
 						for (const uri of candidates) {
 							try {
 								if (await fileService.exists(uri)) {
-									await addFileSelection(uri)
+									await addFileSelection(uri);
 								}
 							} catch {
 								// ignore missing or inaccessible paths
 							}
 						}
 					}
-					continue
+					continue;
 				}
 				if (raw === 'recent') {
 					for (const h of historyService.getHistory()) {
-						if (h.resource) await addFileSelection(h.resource)
+						if (h.resource) {await addFileSelection(h.resource);}
 					}
-					continue
+					continue;
 				}
 
 				// Handle explicit symbol: @sym:Name or @symbol:Name
 				if (raw.startsWith('sym:') || raw.startsWith('symbol:')) {
-					const symName = raw.replace(/^symbol?:/,'')
-					let symbolFound = false
+					const symName = raw.replace(/^symbol?:/,'');
+					let symbolFound = false;
 					if (outlineService && typeof outlineService.getCachedModels === 'function') {
 						try {
-							const models = outlineService.getCachedModels()
+							const models = outlineService.getCachedModels();
 							for (const om of models) {
-								const list = typeof om.asListOfDocumentSymbols === 'function' ? om.asListOfDocumentSymbols() : []
+								const list = typeof om.asListOfDocumentSymbols === 'function' ? om.asListOfDocumentSymbols() : [];
 								for (const s of list) {
 									if ((s?.name || '').toLowerCase() === symName.toLowerCase()) {
-										symbolFound = true
-										const uri = om.uri
-										const range = s.range
-										const key = uri?.fsPath || ''
+										symbolFound = true;
+										const uri = om.uri;
+										const range = s.range;
+										const key = uri?.fsPath || '';
 										if (!existing.has(key)) {
-											existing.add(key)
+											existing.add(key);
 											await chatThreadsService.addNewStagingSelection({
 												type: 'File',
 												uri,
 												language: languageService.guessLanguageIdByFilepathOrFirstLine(uri) || '',
 												state: { wasAddedAsCurrentFile: false },
 												range,
-											})
+											});
 										}
 									}
 								}
 							}
 						} catch (err) {
 							// Service error - log but continue
-							vibeLog.warn('SidebarChat', 'Error resolving symbol:', err)
+							vibeLog.warn('SidebarChat', 'Error resolving symbol:', err);
 						}
 					}
 					if (!symbolFound) {
-						unresolvedRefs.push(`@${raw} (symbol not found)`)
+						unresolvedRefs.push(`@${raw} (symbol not found)`);
 					}
-					continue
+					continue;
 				}
 
 				// Handle explicit folder keyword like: @folder:path or plain name that matches a folder
-				let query = raw
-				let isFolderHint = false
+				let query = raw;
+				let isFolderHint = false;
 				if (raw.startsWith('folder:')) {
-					isFolderHint = true
-					query = raw.slice('folder:'.length)
+					isFolderHint = true;
+					query = raw.slice('folder:'.length);
 				}
 
 				// Use tools service to resolve best match in workspace
-				let resolved = false
+				let resolved = false;
 				try {
-					const res = await (await toolsService.callTool.search_pathnames_only({ query, includePattern: null, pageNumber: 1 })).result
-					const [first] = res.uris || []
+					const res = await (await toolsService.callTool.search_pathnames_only({ query, includePattern: null, pageNumber: 1 })).result;
+					const [first] = res.uris || [];
 					if (first) {
-						resolved = true
+						resolved = true;
 						// Heuristic: if hint says folder or resolved path ends with '/', treat as folder
-						if (isFolderHint) await addFolderSelection(first)
-						else await addFileSelection(first)
+						if (isFolderHint) {await addFolderSelection(first);}
+						else {await addFileSelection(first);}
 					}
 				} catch (err) {
 					// Service error - log but continue
-					vibeLog.warn('SidebarChat', 'Error resolving reference:', err)
+					vibeLog.warn('SidebarChat', 'Error resolving reference:', err);
 				}
 				if (!resolved) {
-					unresolvedRefs.push(`@${raw}`)
+					unresolvedRefs.push(`@${raw}`);
 				}
 			}
 
 			// Report unresolved references to user
 			if (unresolvedRefs.length > 0) {
-				const refList = unresolvedRefs.slice(0, 3).join(', ')
-				const moreText = unresolvedRefs.length > 3 ? ` and ${unresolvedRefs.length - 3} more` : ''
-				notificationService.warn(`Could not resolve reference${unresolvedRefs.length > 1 ? 's' : ''}: ${refList}${moreText}. Please check the file path or symbol name.`)
+				const refList = unresolvedRefs.slice(0, 3).join(', ');
+				const moreText = unresolvedRefs.length > 3 ? ` and ${unresolvedRefs.length - 3} more` : '';
+				notificationService.warn(`Could not resolve reference${unresolvedRefs.length > 1 ? 's' : ''}: ${refList}${moreText}. Please check the file path or symbol name.`);
 			}
 		} catch (err) {
 			// Best-effort; do not block send, but log error
-			vibeLog.warn('SidebarChat', 'Error resolving @references:', err)
+			vibeLog.warn('SidebarChat', 'Error resolving @references:', err);
 		}
 
 		// Convert image attachments to ChatImageAttachment format
@@ -5272,89 +5285,89 @@ export const SidebarChat = () => {
 		}
 
 		// Capture staging selections BEFORE clearing them, so they're included in the message
-		const stagingSelections = chatThreadsState.allThreads[currentThread.id]?.state?.stagingSelections || []
+		const stagingSelections = chatThreadsState.allThreads[currentThread.id]?.state?.stagingSelections || [];
 
 		// Optimistic UI: Clear input and attachments immediately for perceived responsiveness
-		setSelections([]) // clear staging
+		setSelections([]); // clear staging
 		if (textAreaFnsRef.current) {
-			textAreaFnsRef.current.setValue('')
+			textAreaFnsRef.current.setValue('');
 		}
-		chatThreadsService.setThreadDraft(currentThread.id, '') // drop the saved draft once sent
-		clearImages() // clear image attachments
-		clearPDFs() // clear PDF attachments
-		textAreaRef.current?.focus() // focus input after submit
+		chatThreadsService.setThreadDraft(currentThread.id, ''); // drop the saved draft once sent
+		clearImages(); // clear image attachments
+		clearPDFs(); // clear PDF attachments
+		textAreaRef.current?.focus(); // focus input after submit
 
 		// Send message (non-blocking for UI responsiveness)
 		try {
-			await chatThreadsService.addUserMessageAndStreamResponse({ userMessage, threadId, images, pdfs, _chatSelections: stagingSelections })
+			await chatThreadsService.addUserMessageAndStreamResponse({ userMessage, threadId, images, pdfs, _chatSelections: stagingSelections });
 		} catch (e) {
-			vibeLog.error('SidebarChat', 'Error while sending message in chat:', e)
+			vibeLog.error('SidebarChat', 'Error while sending message in chat:', e);
 		}
 
-	}, [chatThreadsService, isDisabled, isRunning, textAreaRef, textAreaFnsRef, setSelections, settingsState, imageAttachments, pdfAttachments, clearImages, clearPDFs, currentThread.id])
+	}, [chatThreadsService, isDisabled, isRunning, textAreaRef, textAreaFnsRef, setSelections, settingsState, imageAttachments, pdfAttachments, clearImages, clearPDFs, currentThread.id]);
 
 	const onAbort = async () => {
-		const threadId = currentThread.id
-		await chatThreadsService.abortRunning(threadId)
-	}
+		const threadId = currentThread.id;
+		await chatThreadsService.abortRunning(threadId);
+	};
 
 	// Queue the typed text as context for the agent's NEXT hop WITHOUT aborting the running turn.
 	// Drained into a real user message at the top of the next hop (chatThreadService).
 	// See docs/knowledge/chat-ux/chat-interrupt-and-inject.md.
 	const onInject = useCallback(() => {
-		const threadId = currentThread.id
-		const val = textAreaRef.current?.value ?? ''
-		if (!val.trim()) { return }
+		const threadId = currentThread.id;
+		const val = textAreaRef.current?.value ?? '';
+		if (!val.trim()) { return; }
 		// Queue the note; it surfaces immediately as a pinned "queued" chip above the input (see the
 		// pendingInjections strip below), so no toast is needed.
-		chatThreadsService.addPendingInjection(threadId, val)
-		if (textAreaFnsRef.current) { textAreaFnsRef.current.setValue('') }
-		chatThreadsService.setThreadDraft(threadId, '')
-		textAreaRef.current?.focus()
-	}, [chatThreadsService, currentThread.id, textAreaRef, textAreaFnsRef])
+		chatThreadsService.addPendingInjection(threadId, val);
+		if (textAreaFnsRef.current) { textAreaFnsRef.current.setValue(''); }
+		chatThreadsService.setThreadDraft(threadId, '');
+		textAreaRef.current?.focus();
+	}, [chatThreadsService, currentThread.id, textAreaRef, textAreaFnsRef]);
 
-	const keybindingString = accessor.get('IKeybindingService').lookupKeybinding(VIBEIDE_CTRL_L_ACTION_ID)?.getLabel()
+	const keybindingString = accessor.get('IKeybindingService').lookupKeybinding(VIBEIDE_CTRL_L_ACTION_ID)?.getLabel();
 
-	const threadId = currentThread.id
-	const currCheckpointIdx = chatThreadsState.allThreads[threadId]?.state?.currCheckpointIdx ?? undefined  // if not exist, treat like checkpoint is last message (infinity)
+	const threadId = currentThread.id;
+	const currCheckpointIdx = chatThreadsState.allThreads[threadId]?.state?.currCheckpointIdx ?? undefined;  // if not exist, treat like checkpoint is last message (infinity)
 	// Notes the user queued mid-run (via onInject). Shown as a pinned "queued" strip above the input until
 	// the agent drains them into a real message on its next hop (then pendingInjections clears → strip gone).
-	const pendingInjections = chatThreadsState.allThreads[threadId]?.state?.pendingInjections ?? []
+	const pendingInjections = chatThreadsState.allThreads[threadId]?.state?.pendingInjections ?? [];
 
 
 
 	// resolve mount info
 	// Accessing .current is safe - refs don't trigger re-renders when changed
-	const mountedInfo = chatThreadsState.allThreads[threadId]?.state.mountedInfo
-	const isResolved = mountedInfo?.mountedIsResolvedRef.current
+	const mountedInfo = chatThreadsState.allThreads[threadId]?.state.mountedInfo;
+	const isResolved = mountedInfo?.mountedIsResolvedRef.current;
 	useEffect(() => {
-		if (isResolved) return
+		if (isResolved) {return;}
 		mountedInfo?._whenMountedResolver?.({
 			textAreaRef: textAreaRef,
 			scrollToBottom: scrollToBottomCallback,
-		})
+		});
 
-	}, [threadId, textAreaRef, isResolved, mountedInfo, scrollToBottomCallback])
-
-
+	}, [threadId, textAreaRef, isResolved, mountedInfo, scrollToBottomCallback]);
 
 
-	const streamingChatIdx = previousMessages.length
+
+
+	const streamingChatIdx = previousMessages.length;
 	// Memoize chatMessage object to avoid recreating on every render
 	const streamingChatMessage = useMemo(() => ({
 		role: 'assistant' as const,
 		displayContent: displayContentSoFar ?? '',
 		reasoning: reasoningSoFar ?? '',
 		anthropicReasoning: null,
-	}), [displayContentSoFar, reasoningSoFar])
+	}), [displayContentSoFar, reasoningSoFar]);
 
 	// Only show streaming message when actively streaming (LLM, tool, or preparing)
 	// Don't show when idle/undefined to prevent duplicate messages and never-ending loading
 	// Only show stop button when actively running (LLM, tool, preparing), not when idle
-	const isActivelyStreaming = isRunning === 'LLM' || isRunning === 'tool' || isRunning === 'preparing'
+	const isActivelyStreaming = isRunning === 'LLM' || isRunning === 'tool' || isRunning === 'preparing';
 	const isWaitingForModelSentinel = isActivelyStreaming
 		&& displayContentSoFar === WAITING_FOR_MODEL_RESPONSE_SENTINEL
-		&& !reasoningSoFar
+		&& !reasoningSoFar;
 	const currStreamingMessageHTML = isWaitingForModelSentinel ?
 		<ProseWrapper key={'curr-streaming-msg'}>
 			<div
@@ -5377,7 +5390,7 @@ export const SidebarChat = () => {
 				chatIsRunning={isRunning}
 				threadId={threadId}
 				_scrollToBottom={null}
-			/> : null
+			/> : null;
 
 
 	// the tool currently being generated
@@ -5387,7 +5400,7 @@ export const SidebarChat = () => {
 			toolCallSoFar={toolCallSoFar}
 		/>
 			: null
-		: null
+		: null;
 
 	// Build a single virtualized data array: real messages + transient extras
 	// (streaming bubble, stall banner, generating tool, loading indicator, escape
@@ -5395,18 +5408,19 @@ export const SidebarChat = () => {
 	// auto-pin the viewport to the bottom whenever the last item grows during
 	// streaming — no Footer measurement workarounds needed.
 	const chatItems = useMemo(() => {
-		const items: Array<{ key: string; render: () => React.ReactNode }> = []
+		const items: Array<{ key: string; render: () => React.ReactNode }> = [];
 
 		// Real history. Defensive: thread state can occasionally produce two messages
 		// with the same id (e.g. a tool message duplicated by a retry/resume path).
 		// React requires globally unique keys, so we suffix repeats with #N — the
 		// first occurrence keeps the bare id for stable reconciliation.
-		const seen = new Map<string, number>()
+		const seen = new Map<string, number>();
 		previousMessages.forEach((message, i) => {
-			const baseKey = (message as any).id || `msg-${i}`
-			const count = seen.get(baseKey) ?? 0
-			seen.set(baseKey, count + 1)
-			const key = count === 0 ? baseKey : `${baseKey}#${count}`
+			const messageId = (message as Readonly<Record<string, unknown>>).id;
+			const baseKey = (typeof messageId === 'string' && messageId) || `msg-${i}`;
+			const count = seen.get(baseKey) ?? 0;
+			seen.set(baseKey, count + 1);
+			const key = count === 0 ? baseKey : `${baseKey}#${count}`;
 			items.push({
 				key,
 				render: () => <ChatBubble
@@ -5418,44 +5432,44 @@ export const SidebarChat = () => {
 					threadId={threadId}
 					_scrollToBottom={scrollToBottomCallback}
 				/>
-			})
-		})
+			});
+		});
 
 		// Streaming bubble (assistant response in progress) or "waiting for model" sentinel.
 		if (currStreamingMessageHTML) {
-			items.push({ key: 'curr-streaming-msg', render: () => currStreamingMessageHTML })
+			items.push({ key: 'curr-streaming-msg', render: () => currStreamingMessageHTML });
 		}
 
 		// Stall recovery banner — when LLM watchdog detects no new tokens within EARLY_STALL_MS.
 		if (currThreadStreamState?.isRunning === 'LLM' && currThreadStreamState.stallInfo) {
-			const stalledAt = currThreadStreamState.stallInfo.stalledAt
+			const stalledAt = currThreadStreamState.stallInfo.stalledAt;
 			items.push({
 				key: 'stall-banner',
 				render: () => <StallBanner
 					stalledAt={stalledAt}
-					onAbort={() => { chatThreadsService.abortRunning(threadId) }}
-					onRetry={() => { chatThreadsService.retryStalledStream(threadId) }}
+					onAbort={() => { chatThreadsService.abortRunning(threadId); }}
+					onRetry={() => { chatThreadsService.retryStalledStream(threadId); }}
 				/>
-			})
+			});
 		}
 
 		// Rate-limit auto-pause countdown — provider asked us to wait; the run resumes automatically.
 		if (currThreadStreamState?.isRunning === undefined && currThreadStreamState?.pauseInfo) {
-			const { resumeAtMs, attempt, maxAttempts } = currThreadStreamState.pauseInfo
+			const { resumeAtMs, attempt, maxAttempts } = currThreadStreamState.pauseInfo;
 			items.push({
 				key: 'rate-limit-pause-banner',
 				render: () => <RateLimitPauseBanner
 					resumeAtMs={resumeAtMs}
 					attempt={attempt}
 					maxAttempts={maxAttempts}
-					onResumeNow={() => { chatThreadsService.resumeRateLimitPauseNow(threadId) }}
+					onResumeNow={() => { chatThreadsService.resumeRateLimitPauseNow(threadId); }}
 				/>
-			})
+			});
 		}
 
 		// Generating-tool preview (edit_file / rewrite_file in progress).
 		if (generatingTool) {
-			items.push({ key: 'generating-tool', render: () => generatingTool })
+			items.push({ key: 'generating-tool', render: () => generatingTool });
 		}
 
 		// Loading indicator — only when no content is streaming yet.
@@ -5479,7 +5493,7 @@ export const SidebarChat = () => {
 						</div>
 					</div>
 				</ProseWrapper>
-			})
+			});
 		}
 
 		// Escape hint when streaming.
@@ -5487,23 +5501,23 @@ export const SidebarChat = () => {
 			items.push({
 				key: 'escape-hint',
 				render: () => <p className="text-xs text-vibe-fg-3 opacity-60 mt-1" role="status">Press Escape to cancel</p>
-			})
+			});
 		}
 
 		// Error block.
 		if (latestError !== undefined) {
-			const _err = latestError as { message: string; fullError: Error | null; recoverable?: 'dismissPlan' | 'forceReset' | 'switchModel' | 'retry' }
-			const isPendingPlanGate = _err.recoverable === 'dismissPlan'
-			const isForceReset = _err.recoverable === 'forceReset'
-			const isSwitchModel = _err.recoverable === 'switchModel'
-			const isRetry = _err.recoverable === 'retry'
+			const _err = latestError as { message: string; fullError: Error | null; recoverable?: 'dismissPlan' | 'forceReset' | 'switchModel' | 'retry' };
+			const isPendingPlanGate = _err.recoverable === 'dismissPlan';
+			const isForceReset = _err.recoverable === 'forceReset';
+			const isSwitchModel = _err.recoverable === 'switchModel';
+			const isRetry = _err.recoverable === 'retry';
 			items.push({
 				key: 'error-block',
 				render: () => <div className='px-2 my-1 message-enter space-y-2'>
 					<ErrorDisplay
 						message={_err.message}
 						fullError={_err.fullError}
-						onDismiss={() => { chatThreadsService.dismissStreamError(currentThread.id) }}
+						onDismiss={() => { chatThreadsService.dismissStreamError(currentThread.id); }}
 						showDismiss={true}
 					/>
 					{isPendingPlanGate ? (
@@ -5513,7 +5527,7 @@ export const SidebarChat = () => {
 						// the command resets streamState.
 						<WarningBox
 							className='text-sm my-1 mx-3'
-							onClick={() => { commandService.executeCommand('vibeide.chat.dismissPendingPlan') }}
+							onClick={() => { commandService.executeCommand('vibeide.chat.dismissPendingPlan'); }}
 							text='Сбросить план и продолжить'
 						/>
 					) : isForceReset ? (
@@ -5523,7 +5537,7 @@ export const SidebarChat = () => {
 						// indirection — keeps the recovery path single-file).
 						<WarningBox
 							className='text-sm my-1 mx-3'
-							onClick={() => { chatThreadsService.forceResetChatState(currentThread.id) }}
+							onClick={() => { chatThreadsService.forceResetChatState(currentThread.id); }}
 							text='Сбросить состояние чата'
 						/>
 					) : isSwitchModel ? (
@@ -5531,7 +5545,7 @@ export const SidebarChat = () => {
 						// replies from the same model. Open Settings so user can switch.
 						<WarningBox
 							className='text-sm my-1 mx-3'
-							onClick={() => { commandService.executeCommand(VIBEIDE_OPEN_SETTINGS_ACTION_ID) }}
+							onClick={() => { commandService.executeCommand(VIBEIDE_OPEN_SETTINGS_ACTION_ID); }}
 							text='Открыть настройки и выбрать другую модель'
 						/>
 					) : isRetry ? (
@@ -5541,36 +5555,36 @@ export const SidebarChat = () => {
 						<>
 							<WarningBox
 								className='text-sm my-1 mx-3'
-								onClick={() => { chatThreadsService.retryStalledStream(currentThread.id) }}
+								onClick={() => { chatThreadsService.retryStalledStream(currentThread.id); }}
 								text='Повторить запрос'
 							/>
 							<WarningBox
 								className='text-sm my-1 mx-3'
-								onClick={() => { chatThreadsService.retryStalledStreamWithDiagnostics(currentThread.id) }}
+								onClick={() => { chatThreadsService.retryStalledStreamWithDiagnostics(currentThread.id); }}
 								text='Повторить с диагностикой'
 							/>
 							<WarningBox
 								className='text-sm my-1 mx-3'
-								onClick={() => { commandService.executeCommand('vibeide.chat.collectStallDiagnostics') }}
+								onClick={() => { commandService.executeCommand('vibeide.chat.collectStallDiagnostics'); }}
 								text='Собрать диагностику'
 							/>
 							<WarningBox
 								className='text-sm my-1 mx-3'
-								onClick={() => { commandService.executeCommand(VIBEIDE_OPEN_SETTINGS_ACTION_ID) }}
+								onClick={() => { commandService.executeCommand(VIBEIDE_OPEN_SETTINGS_ACTION_ID); }}
 								text='Открыть настройки'
 							/>
 						</>
 					) : (
 						<>
 							<p className="text-sm text-vibe-fg-3 px-1">Можно повторить попытку или сменить модель в настройках.</p>
-							<WarningBox className='text-sm my-1 mx-3' onClick={() => { commandService.executeCommand(VIBEIDE_OPEN_SETTINGS_ACTION_ID) }} text='Открыть настройки' />
+							<WarningBox className='text-sm my-1 mx-3' onClick={() => { commandService.executeCommand(VIBEIDE_OPEN_SETTINGS_ACTION_ID); }} text='Открыть настройки' />
 						</>
 					)}
 				</div>
-			})
+			});
 		}
 
-		return items
+		return items;
 	}, [
 		previousMessages,
 		currCheckpointIdx,
@@ -5586,7 +5600,7 @@ export const SidebarChat = () => {
 		chatThreadsService,
 		commandService,
 		currentThread.id,
-	])
+	]);
 
 	const messagesHTML = (
 		<Virtuoso
@@ -5617,7 +5631,7 @@ export const SidebarChat = () => {
 			// measurement while it grows.
 			increaseViewportBy={{ top: 0, bottom: 400 }}
 		/>
-	)
+	);
 
 
 	// ----- /skill: autocomplete ---------------------------------------------------
@@ -5626,16 +5640,16 @@ export const SidebarChat = () => {
 	// filter-as-you-type, arrow/Tab/Enter to insert, Escape to dismiss. The trigger is
 	// detected from text-before-cursor on every onChangeText; we re-derive open state
 	// rather than tracking it imperatively so it always reflects current cursor context.
-	type SkillCmd = { name: string; description: string; category: 'skill' }
-	const [skillCmds, setSkillCmds] = useState<SkillCmd[]>([])
-	const [skillMenuOpen, setSkillMenuOpen] = useState(false)
-	const [skillFilter, setSkillFilter] = useState('')
-	const [skillIdx, setSkillIdx] = useState(0)
+	type SkillCmd = { name: string; description: string; category: 'skill' };
+	const [skillCmds, setSkillCmds] = useState<SkillCmd[]>([]);
+	const [skillMenuOpen, setSkillMenuOpen] = useState(false);
+	const [skillFilter, setSkillFilter] = useState('');
+	const [skillIdx, setSkillIdx] = useState(0);
 	// Anchor rect captured at trigger time. Stored as full top/bottom so we can pick
 	// the dropdown side (above/below textarea) based on available viewport space.
-	const [skillAnchorRect, setSkillAnchorRect] = useState<{ left: number; top: number; bottom: number; width: number } | null>(null)
+	const [skillAnchorRect, setSkillAnchorRect] = useState<{ left: number; top: number; bottom: number; width: number } | null>(null);
 	// Refs for keyboard scroll-into-view: array of item DIVs keyed by index.
-	const skillItemRefs = useRef<Array<HTMLDivElement | null>>([])
+	const skillItemRefs = useRef<Array<HTMLDivElement | null>>([]);
 
 	// Fetch the skill list. Called on mount AND every time the `/skill:` menu opens — the skills
 	// library scans `.vibe/skills/` lazily and can finish AFTER this component mounts (e.g. `.vibe`
@@ -5644,137 +5658,137 @@ export const SidebarChat = () => {
 	// and self-invalidates on `.vibe/skills/` file events, so this is cheap. Both services are guarded
 	// — if either isn't registered the autocomplete stays empty rather than crashing the SidebarChat tree.
 	const loadSkillCmds = useCallback(() => {
-		const slashSvc = accessor.get('IVibeSlashCommandService')
-		const skillsSvc = accessor.get('IVibeSkillsLibraryService')
-		if (!slashSvc || !skillsSvc) return
+		const slashSvc = accessor.get('IVibeSlashCommandService');
+		const skillsSvc = accessor.get('IVibeSkillsLibraryService');
+		if (!slashSvc || !skillsSvc) {return;}
 		slashSvc.getCommands().then(cmds => {
-			const skills = cmds.filter((c): c is SkillCmd => c.category === 'skill')
-			const recent = skillsSvc.getRecentSkills()
-			const recentKeys = new Set(recent.map(id => `skill:${id}`))
+			const skills = cmds.filter((c): c is SkillCmd => c.category === 'skill');
+			const recent = skillsSvc.getRecentSkills();
+			const recentKeys = new Set(recent.map(id => `skill:${id}`));
 			const recentList = recent
 				.map(id => skills.find(s => s.name === `skill:${id}`))
-				.filter((s): s is SkillCmd => !!s)
+				.filter((s): s is SkillCmd => !!s);
 			const rest = skills
 				.filter(s => !recentKeys.has(s.name))
-				.sort((a, b) => a.name.localeCompare(b.name))
-			const next = [...recentList, ...rest]
+				.sort((a, b) => a.name.localeCompare(b.name));
+			const next = [...recentList, ...rest];
 			// Avoid re-render churn: the menu re-fetches on every keystroke, so only update when the set changed.
-			setSkillCmds(prev => (prev.length === next.length && prev.every((p, i) => p.name === next[i].name)) ? prev : next)
-		}).catch(() => { /* skills service not ready or no skills — leave list empty */ })
-	}, [accessor])
+			setSkillCmds(prev => (prev.length === next.length && prev.every((p, i) => p.name === next[i].name)) ? prev : next);
+		}).catch(() => { /* skills service not ready or no skills — leave list empty */ });
+	}, [accessor]);
 
-	useEffect(() => { loadSkillCmds() }, [loadSkillCmds])
+	useEffect(() => { loadSkillCmds(); }, [loadSkillCmds]);
 
 	// Keep the highlighted dropdown item visible when the user navigates with arrows.
 	// Without this, ArrowDown past the visible window leaves the highlight off-screen.
 	useEffect(() => {
-		if (!skillMenuOpen) return
-		const el = skillItemRefs.current[skillIdx]
-		el?.scrollIntoView({ block: 'nearest' })
-	}, [skillIdx, skillMenuOpen])
+		if (!skillMenuOpen) {return;}
+		const el = skillItemRefs.current[skillIdx];
+		el?.scrollIntoView({ block: 'nearest' });
+	}, [skillIdx, skillMenuOpen]);
 
 	// Filtered list shown in dropdown.
 	const filteredSkillCmds = useMemo(() => {
-		if (!skillFilter) return skillCmds
-		const q = skillFilter.toLowerCase()
-		return skillCmds.filter(c => c.name.toLowerCase().includes(q) || (c.description ?? '').toLowerCase().includes(q))
-	}, [skillCmds, skillFilter])
+		if (!skillFilter) {return skillCmds;}
+		const q = skillFilter.toLowerCase();
+		return skillCmds.filter(c => c.name.toLowerCase().includes(q) || (c.description ?? '').toLowerCase().includes(q));
+	}, [skillCmds, skillFilter]);
 
 	// Insert the selected skill at the `/skill:` trigger position.
 	const insertSelectedSkill = useCallback((cmd: SkillCmd) => {
-		const ta = textAreaRef.current
-		if (!ta) return
-		const text = ta.value
-		const cursorPos = ta.selectionStart
-		const before = text.slice(0, cursorPos)
-		const after = text.slice(cursorPos)
-		const m = /\/skill:([\w.-]*)$/.exec(before)
-		if (!m) return
-		const insertion = '/' + cmd.name + ' '
-		const newText = before.slice(0, m.index) + insertion + after
-		const newCursor = m.index + insertion.length
+		const ta = textAreaRef.current;
+		if (!ta) {return;}
+		const text = ta.value;
+		const cursorPos = ta.selectionStart;
+		const before = text.slice(0, cursorPos);
+		const after = text.slice(cursorPos);
+		const m = /\/skill:([\w.-]*)$/.exec(before);
+		if (!m) {return;}
+		const insertion = '/' + cmd.name + ' ';
+		const newText = before.slice(0, m.index) + insertion + after;
+		const newCursor = m.index + insertion.length;
 		// Synthetic native setter so React picks up the change and onChange fires.
-		const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
-		setter?.call(ta, newText)
-		ta.dispatchEvent(new Event('input', { bubbles: true }))
-		ta.setSelectionRange(newCursor, newCursor)
-		ta.focus()
-		setSkillMenuOpen(false)
-	}, [])
+		const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+		setter?.call(ta, newText);
+		ta.dispatchEvent(new Event('input', { bubbles: true }));
+		ta.setSelectionRange(newCursor, newCursor);
+		ta.focus();
+		setSkillMenuOpen(false);
+	}, []);
 
 	const onChangeText = useCallback((newStr: string) => {
-		setInstructionsAreEmpty(!newStr)
+		setInstructionsAreEmpty(!newStr);
 		// Persist the draft on every keystroke so switching chat tabs preserves unsent text.
 		// (Saving on unmount is unreliable: with the per-thread key the composer unmounts before
 		// the parent cleanup runs, and the rich input's value isn't on textAreaRef.value.)
-		chatThreadsService.setThreadDraft(chatThreadsState.currentThreadId, newStr)
+		chatThreadsService.setThreadDraft(chatThreadsState.currentThreadId, newStr);
 		// Detect `/skill:` trigger near cursor and open/close menu accordingly.
-		const ta = textAreaRef.current
-		if (!ta) { setSkillMenuOpen(false); return }
-		const cursorPos = ta.selectionStart
-		const before = newStr.slice(0, cursorPos)
-		const m = /\/skill:([\w.-]*)$/.exec(before)
+		const ta = textAreaRef.current;
+		if (!ta) { setSkillMenuOpen(false); return; }
+		const cursorPos = ta.selectionStart;
+		const before = newStr.slice(0, cursorPos);
+		const m = /\/skill:([\w.-]*)$/.exec(before);
 		if (m) {
-			loadSkillCmds() // refresh on open so late-seeded/changed skills appear (cached → cheap)
-			setSkillFilter(m[1])
-			setSkillIdx(0)
-			setSkillMenuOpen(true)
-			const rect = ta.getBoundingClientRect()
-			setSkillAnchorRect({ left: rect.left, top: rect.top, bottom: rect.bottom, width: rect.width })
+			loadSkillCmds(); // refresh on open so late-seeded/changed skills appear (cached → cheap)
+			setSkillFilter(m[1]);
+			setSkillIdx(0);
+			setSkillMenuOpen(true);
+			const rect = ta.getBoundingClientRect();
+			setSkillAnchorRect({ left: rect.left, top: rect.top, bottom: rect.bottom, width: rect.width });
 		} else {
-			setSkillMenuOpen(false)
+			setSkillMenuOpen(false);
 		}
-	}, [setInstructionsAreEmpty, chatThreadsService, chatThreadsState.currentThreadId, loadSkillCmds])
+	}, [setInstructionsAreEmpty, chatThreadsService, chatThreadsState.currentThreadId, loadSkillCmds]);
 
 	const onKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
 		// Skill menu takes precedence over Enter/Escape submit/abort when it's open.
 		if (skillMenuOpen && filteredSkillCmds.length > 0) {
 			if (e.key === 'ArrowDown') {
-				e.preventDefault()
-				setSkillIdx(i => Math.min(filteredSkillCmds.length - 1, i + 1))
-				return
+				e.preventDefault();
+				setSkillIdx(i => Math.min(filteredSkillCmds.length - 1, i + 1));
+				return;
 			}
 			if (e.key === 'ArrowUp') {
-				e.preventDefault()
-				setSkillIdx(i => Math.max(0, i - 1))
-				return
+				e.preventDefault();
+				setSkillIdx(i => Math.max(0, i - 1));
+				return;
 			}
 			if (e.key === 'Enter' || e.key === 'Tab') {
-				e.preventDefault()
-				insertSelectedSkill(filteredSkillCmds[skillIdx])
-				return
+				e.preventDefault();
+				insertSelectedSkill(filteredSkillCmds[skillIdx]);
+				return;
 			}
 			if (e.key === 'Escape') {
-				e.preventDefault()
-				setSkillMenuOpen(false)
-				return
+				e.preventDefault();
+				setSkillMenuOpen(false);
+				return;
 			}
 		}
 		if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
 			// Check isDisabled again at the time of key press (not closure value)
 			if (!isDisabled && !isRunning) {
-				onSubmit()
+				onSubmit();
 			} else if (isRunning) {
 				// Agent is running → Enter queues the typed text as context for the NEXT hop (no abort).
 				// See docs/knowledge/chat-ux/chat-interrupt-and-inject.md.
-				e.preventDefault()
-				onInject()
+				e.preventDefault();
+				onInject();
 			}
 		} else if (e.key === 'Escape' && isRunning) {
-			onAbort()
+			onAbort();
 		}
-	}, [onSubmit, onAbort, onInject, isRunning, isDisabled, skillMenuOpen, filteredSkillCmds, skillIdx, insertSelectedSkill])
+	}, [onSubmit, onAbort, onInject, isRunning, isDisabled, skillMenuOpen, filteredSkillCmds, skillIdx, insertSelectedSkill]);
 
 	// Context usage calculation + warning (partially memoized - draft tokens calculated on each render)
-	const [ctxWarned, setCtxWarned] = useState(false)
-	const estimateTokens = useCallback((s: string) => Math.ceil((s || '').length / 4), [])
-	const modelSel = settingsState.modelSelectionOfFeature['Chat']
+	const [ctxWarned, setCtxWarned] = useState(false);
+	const estimateTokens = useCallback((s: string) => Math.ceil((s || '').length / 4), []);
+	const modelSel = settingsState.modelSelectionOfFeature['Chat'];
 
 	// Provider-reported usage from the last finished assistant turn in this thread.
 	// AI SDK exposes input/output/total via `finish` parts; chatThreadService persists
 	// them on `state.lastUsage` in onFinalMessage. When present this is the authoritative
 	// input-token count and replaces all heuristic paths.
-	const lastUsage = currentThread?.state?.lastUsage
+	const lastUsage = currentThread?.state?.lastUsage;
 
 	// Live "full prompt" estimate from IVibeContextGuardService.
 	// `convertToLLMMessageService.prepareLLMChatMessages` calls `updateUsage(beforeTokens, contextWindow)`
@@ -5784,57 +5798,57 @@ export const SidebarChat = () => {
 	// "Контекст: X / Y" panel and the bottom status bar show realistic numbers while our
 	// own previousMessages.reduce(length/4) under-counted by 10-50×. We subscribe to
 	// onUsageUpdated so the chat-pane indicator stays in sync with the same source.
-	const contextGuardService = accessor.get('IVibeContextGuardService')
-	const [guardCurrentTokens, setGuardCurrentTokens] = useState(() => contextGuardService?.getStatus().currentTokens ?? 0)
+	const contextGuardService = accessor.get('IVibeContextGuardService');
+	const [guardCurrentTokens, setGuardCurrentTokens] = useState(() => contextGuardService?.getStatus().currentTokens ?? 0);
 	// D.9: learned estimate→real token-calibration factor, for the context-indicator tooltip.
-	const [guardCalibration, setGuardCalibration] = useState<number | undefined>(() => contextGuardService?.getStatus().calibrationFactor)
+	const [guardCalibration, setGuardCalibration] = useState<number | undefined>(() => contextGuardService?.getStatus().calibrationFactor);
 	// Budget-fill transparency: kept-full vs summarized message counts from the last prompt build.
-	const [guardTruncation, setGuardTruncation] = useState<{ kept?: number, summarized?: number }>(() => {
-		const st = contextGuardService?.getStatus()
-		return { kept: st?.keptMessages, summarized: st?.summarizedMessages }
-	})
+	const [guardTruncation, setGuardTruncation] = useState<{ kept?: number; summarized?: number }>(() => {
+		const st = contextGuardService?.getStatus();
+		return { kept: st?.keptMessages, summarized: st?.summarizedMessages };
+	});
 	useEffect(() => {
-		if (!contextGuardService) return
+		if (!contextGuardService) {return;}
 		const d = contextGuardService.onUsageUpdated(s => {
-			setGuardCurrentTokens(s.currentTokens)
-			setGuardTruncation({ kept: s.keptMessages, summarized: s.summarizedMessages })
-			setGuardCalibration(s.calibrationFactor)
-		})
+			setGuardCurrentTokens(s.currentTokens);
+			setGuardTruncation({ kept: s.keptMessages, summarized: s.summarizedMessages });
+			setGuardCalibration(s.calibrationFactor);
+		});
 		// Seed from current status in case an update fired before mount.
-		const st = contextGuardService.getStatus()
-		setGuardCurrentTokens(st.currentTokens ?? 0)
-		setGuardTruncation({ kept: st.keptMessages, summarized: st.summarizedMessages })
-		setGuardCalibration(st.calibrationFactor)
-		return () => d.dispose()
-	}, [contextGuardService])
+		const st = contextGuardService.getStatus();
+		setGuardCurrentTokens(st.currentTokens ?? 0);
+		setGuardTruncation({ kept: st.keptMessages, summarized: st.summarizedMessages });
+		setGuardCalibration(st.calibrationFactor);
+		return () => d.dispose();
+	}, [contextGuardService]);
 
 	// Memoize context budget and messages tokens (only recalculate when messages or model changes)
 	const { contextBudget, messagesTokens } = useMemo(() => {
-		let budget = 0
-		let tokens = 0
+		let budget = 0;
+		let tokens = 0;
 		if (modelSel && isValidProviderModelSelection(modelSel)) {
-			const { providerName, modelName } = modelSel
+			const { providerName, modelName } = modelSel;
 			// Pull catalog hint (provider-reported contextWindow / supportsVision) so the
 			// UI counter uses the same authoritative numbers as the request pipeline.
-			const catalogSvc = accessor.get('IRemoteCatalogService')
-			const catalogInfo = catalogSvc?.getCachedModelInfo(providerName, modelName)
-			const caps = getModelCapabilities(providerName, modelName, settingsState.overridesOfModel, catalogInfo)
-			const contextWindow = caps.contextWindow
-			const msOpts = settingsState.optionsOfModelSelection['Chat'][providerName]?.[modelName]
-			const isReasoningEnabled2 = getIsReasoningEnabledState('Chat', providerName, modelName, msOpts, settingsState.overridesOfModel)
-			const rot = getReservedOutputTokenSpace(providerName, modelName, { isReasoningEnabled: isReasoningEnabled2, overridesOfModel: settingsState.overridesOfModel }) || 0
-			budget = Math.max(256, Math.floor(contextWindow * 0.8) - rot)
+			const catalogSvc = accessor.get('IRemoteCatalogService');
+			const catalogInfo = catalogSvc?.getCachedModelInfo(providerName, modelName);
+			const caps = getModelCapabilities(providerName, modelName, settingsState.overridesOfModel, catalogInfo);
+			const contextWindow = caps.contextWindow;
+			const msOpts = settingsState.optionsOfModelSelection['Chat'][providerName]?.[modelName];
+			const isReasoningEnabled2 = getIsReasoningEnabledState('Chat', providerName, modelName, msOpts, settingsState.overridesOfModel);
+			const rot = getReservedOutputTokenSpace(providerName, modelName, { isReasoningEnabled: isReasoningEnabled2, overridesOfModel: settingsState.overridesOfModel }) || 0;
+			budget = Math.max(256, Math.floor(contextWindow * 0.8) - rot);
 			tokens = previousMessages.reduce((acc, m) => {
-				if (m.role === 'user') return acc + estimateTokens(m.content || '')
-				if (m.role === 'assistant') return acc + estimateTokens((m.displayContent as string) || (m.content || '') || '')
-				return acc
-			}, 0)
+				if (m.role === 'user') {return acc + estimateTokens(m.content || '');}
+				if (m.role === 'assistant') {return acc + estimateTokens((m.displayContent as string) || (m.content || '') || '');}
+				return acc;
+			}, 0);
 		}
-		return { contextBudget: budget, messagesTokens: tokens }
-	}, [modelSel, previousMessages, settingsState.overridesOfModel, estimateTokens])
+		return { contextBudget: budget, messagesTokens: tokens };
+	}, [modelSel, previousMessages, settingsState.overridesOfModel, estimateTokens]);
 
 	// Calculate draft tokens and total on each render (draft changes frequently)
-	const draftTokens = estimateTokens(textAreaRef.current?.value || '')
+	const draftTokens = estimateTokens(textAreaRef.current?.value || '');
 	// Token count source priority (most accurate first):
 	//   1. lastUsage from provider (real input+output for the previous turn).
 	//   2. contextGuardService.currentTokens — heuristic but over the FULL prompt
@@ -5843,20 +5857,20 @@ export const SidebarChat = () => {
 	//      first request is built).
 	// Draft tokens are added on top via heuristic for live-update while typing.
 	const realBaseTokens = (typeof lastUsage?.promptTokens === 'number' ? lastUsage.promptTokens : 0)
-		+ (typeof lastUsage?.completionTokens === 'number' ? lastUsage.completionTokens : 0)
-	const hasRealUsage = realBaseTokens > 0
+		+ (typeof lastUsage?.completionTokens === 'number' ? lastUsage.completionTokens : 0);
+	const hasRealUsage = realBaseTokens > 0;
 	const baseTokens = hasRealUsage ? realBaseTokens
-		: (guardCurrentTokens > 0 ? guardCurrentTokens : messagesTokens)
-	const contextTotal = baseTokens + draftTokens
-	const contextPct = contextBudget > 0 ? contextTotal / contextBudget : 0
+		: (guardCurrentTokens > 0 ? guardCurrentTokens : messagesTokens);
+	const contextTotal = baseTokens + draftTokens;
+	const contextPct = contextBudget > 0 ? contextTotal / contextBudget : 0;
 
 	useEffect(() => {
 		if (contextPct > 0.8 && contextPct < 1 && !ctxWarned) {
-			try { accessor.get('INotificationService').info(chatS.contextNearLimit(contextTotal, contextBudget)) } catch {}
-			setCtxWarned(true)
+			try { accessor.get('INotificationService').info(chatS.contextNearLimit(contextTotal, contextBudget)); } catch {}
+			setCtxWarned(true);
 		}
-		if (contextPct < 0.6 && ctxWarned) setCtxWarned(false)
-	}, [contextPct, ctxWarned, contextTotal, contextBudget, accessor])
+		if (contextPct < 0.6 && ctxWarned) {setCtxWarned(false);}
+	}, [contextPct, ctxWarned, contextTotal, contextBudget, accessor]);
 
 	// Pending-injection strip lives ABOVE the .relative input wrapper — otherwise the absolute
 	// maximize/zen toolbar (anchored top/right of .relative) floats over the strip instead of the input.
@@ -5919,7 +5933,7 @@ export const SidebarChat = () => {
 				</div>
 			))}
 		</div>
-	) : null
+	) : null;
 
 	const inputChatArea = <>
 		{pendingInjectionsStrip}
@@ -5991,7 +6005,7 @@ export const SidebarChat = () => {
 		// showProspectiveSelections={previousMessagesHTML.length === 0}
 		selections={selections}
 		setSelections={setSelections}
-		onClickAnywhere={() => { textAreaRef.current?.focus() }}
+		onClickAnywhere={() => { textAreaRef.current?.focus(); }}
 		imageAttachments={
 			imageAttachments.length > 0 ? (
 				<>
@@ -6040,16 +6054,16 @@ export const SidebarChat = () => {
 			placeholder={chatS.placeholderShort}
 			onChangeText={onChangeText}
 			onKeyDown={onKeyDown}
-			onFocus={() => { chatThreadsService.setCurrentlyFocusedMessageIdx(undefined) }}
+			onFocus={() => { chatThreadsService.setCurrentlyFocusedMessageIdx(undefined); }}
 			ref={textAreaRef}
 			fnsRef={textAreaFnsRef}
 			multiline={true}
 			highlightSlashCommands={true}
 			onPasteFiles={(files) => {
-				const images = files.filter(f => f.type.startsWith('image/'))
-				const pdfs = files.filter(f => f.type === 'application/pdf')
-				if (images.length > 0) addImages(images)
-				if (pdfs.length > 0) addPDFs(pdfs)
+				const images = files.filter(f => f.type.startsWith('image/'));
+				const pdfs = files.filter(f => f.type === 'application/pdf');
+				if (images.length > 0) {addImages(images);}
+				if (pdfs.length > 0) {addPDFs(pdfs);}
 			}}
 		/>
 
@@ -6058,27 +6072,27 @@ export const SidebarChat = () => {
 		    flips below if more space is available there (e.g. chat pane docked near the
 		    top of the window). */}
 		{skillMenuOpen && skillAnchorRect && (() => {
-			const GAP = 4
-			const MAX_DROPDOWN_H = 320
-			const spaceAbove = skillAnchorRect.top
-			const spaceBelow = window.innerHeight - skillAnchorRect.bottom
+			const GAP = 4;
+			const MAX_DROPDOWN_H = 320;
+			const spaceAbove = skillAnchorRect.top;
+			const spaceBelow = window.innerHeight - skillAnchorRect.bottom;
 			// Open upward if there's at least 160px above OR more space above than below.
-			const openUpward = spaceAbove >= 160 || spaceAbove >= spaceBelow
-			const availableH = openUpward ? spaceAbove - GAP : spaceBelow - GAP
-			const dropdownH = Math.min(MAX_DROPDOWN_H, Math.max(140, availableH))
+			const openUpward = spaceAbove >= 160 || spaceAbove >= spaceBelow;
+			const availableH = openUpward ? spaceAbove - GAP : spaceBelow - GAP;
+			const dropdownH = Math.min(MAX_DROPDOWN_H, Math.max(140, availableH));
 			const positionStyle: React.CSSProperties = openUpward
 				? { bottom: window.innerHeight - skillAnchorRect.top + GAP }
-				: { top: skillAnchorRect.bottom + GAP }
-			const HEADER_H = 24
+				: { top: skillAnchorRect.bottom + GAP };
+			const HEADER_H = 24;
 			// Sanitize description: strip YAML folded-scalar markers (`>-`, `>+`, `>`,
 			// `|-`, `|+`, `|`, `-` list bullet), collapse newlines and runs of whitespace,
 			// trim, truncate. Without this we render literal YAML noise as the subtitle.
 			const sanitizeDesc = (raw: string | undefined): string => {
-				if (!raw) return ''
-				let s = raw.replace(/^\s*[>|][+-]?\s*/g, '').replace(/\s+/g, ' ').trim()
-				if (s.length > 120) s = s.slice(0, 117) + '…'
-				return s
-			}
+				if (!raw) {return '';}
+				let s = raw.replace(/^\s*[>|][+-]?\s*/g, '').replace(/\s+/g, ' ').trim();
+				if (s.length > 120) {s = s.slice(0, 117) + '…';}
+				return s;
+			};
 			return (
 				<div
 					className='fixed z-50 @@skill-menu-dropdown rounded-2xl shadow-xl overflow-hidden'
@@ -6088,7 +6102,7 @@ export const SidebarChat = () => {
 						maxHeight: dropdownH,
 						...positionStyle,
 					}}
-					onMouseDown={(e) => { e.preventDefault() /* keep textarea focus */ }}
+					onMouseDown={(e) => { e.preventDefault(); /* keep textarea focus */ }}
 				>
 					<div className='px-3 py-1 text-[10px] uppercase tracking-wide text-vibe-fg-3 border-b border-vibe-border-1'>
 						Skills:
@@ -6102,11 +6116,11 @@ export const SidebarChat = () => {
 							</div>
 						)}
 						{filteredSkillCmds.map((cmd, i) => {
-							const desc = sanitizeDesc(cmd.description)
+							const desc = sanitizeDesc(cmd.description);
 							return (
 								<div
 									key={cmd.name}
-									ref={(el) => { skillItemRefs.current[i] = el }}
+									ref={(el) => { skillItemRefs.current[i] = el; }}
 									className='@@skill-menu-item px-3 py-1.5 cursor-pointer'
 									data-active={i === skillIdx ? '' : undefined}
 									onMouseEnter={() => setSkillIdx(i)}
@@ -6115,11 +6129,11 @@ export const SidebarChat = () => {
 									<div className='@@skill-menu-item-title text-vibe-fg-1 text-[13px] font-semibold truncate'>/{cmd.name}</div>
 									{desc && <div className='text-vibe-fg-3 text-[11px] truncate mt-0.5'>{desc}</div>}
 								</div>
-							)
+							);
 						})}
 					</div>
 				</div>
-			)
+			);
 		})()}
 
 		{/* Context chips for current selections were rendered here as a SECOND copy of the
@@ -6130,10 +6144,10 @@ export const SidebarChat = () => {
 
 	</VibeChatArea>
 	</div>
-	</>
+	</>;
 
 
-	const isLandingPage = previousMessages.length === 0
+	const isLandingPage = previousMessages.length === 0;
 
 	const initiallySuggestedPromptsHTML =					<div className='flex flex-col gap-2 w-full text-nowrap text-vibe-fg-3 select-none'>
 		{[
@@ -6151,7 +6165,7 @@ export const SidebarChat = () => {
 				{text}
 			</button>
 		))}
-	</div>
+	</div>;
 
 
 
@@ -6165,41 +6179,41 @@ export const SidebarChat = () => {
 			{/* Context usage indicator */}
 			{modelSel ? (
 				(() => {
-					const pctNum = Math.max(0, Math.min(100, Math.round(contextPct * 100)))
-					const color = contextPct >= 1 ? 'text-red-500' : contextPct > 0.8 ? 'text-amber-500' : 'text-vibe-fg-3'
-					const barColor = contextPct >= 1 ? 'bg-red-500' : contextPct > 0.8 ? 'bg-amber-500' : 'bg-vibe-fg-3/60'
+					const pctNum = Math.max(0, Math.min(100, Math.round(contextPct * 100)));
+					const color = contextPct >= 1 ? 'text-red-500' : contextPct > 0.8 ? 'text-amber-500' : 'text-vibe-fg-3';
+					const barColor = contextPct >= 1 ? 'bg-red-500' : contextPct > 0.8 ? 'bg-amber-500' : 'bg-vibe-fg-3/60';
 					return <div className='mt-1'>
 						<div title={guardCalibration && guardCalibration > 1 ? `Калибровка ×${guardCalibration.toFixed(2)}: показ контекста скорректирован под реальные токены провайдера (грубая оценка длина/4 их занижает)` : undefined} className={`text-[10px] ${color} flex items-center flex-wrap`}><span>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}{(guardTruncation.summarized ?? 0) > 0 ? chatS.budgetFillSuffix(guardTruncation.kept ?? 0, guardTruncation.summarized ?? 0) : ''}</span><TokenBudgetInline /></div>
 						<div className='h-[3px] w-full bg-vibe-border-3 rounded mt-0.5'>
 							<div className={`h-[3px] ${barColor} rounded`} style={{ width: `${pctNum}%` }} aria-label={chatS.contextUsageAria(pctNum)} />
 						</div>
-					</div>
+					</div>;
 				})()
 			) : null}
 		</div>
-	</div>
+	</div>;
 
 	const landingPageInput = <div>
 		<div className='pt-8'>
 			{inputChatArea}
 			{modelSel ? (
 				(() => {
-					const pctNum = Math.max(0, Math.min(100, Math.round(contextPct * 100)))
-					const color = contextPct >= 1 ? 'text-red-500' : contextPct > 0.8 ? 'text-amber-500' : 'text-vibe-fg-3'
-					const barColor = contextPct >= 1 ? 'bg-red-500' : contextPct > 0.8 ? 'bg-amber-500' : 'bg-vibe-fg-3/60'
+					const pctNum = Math.max(0, Math.min(100, Math.round(contextPct * 100)));
+					const color = contextPct >= 1 ? 'text-red-500' : contextPct > 0.8 ? 'text-amber-500' : 'text-vibe-fg-3';
+					const barColor = contextPct >= 1 ? 'bg-red-500' : contextPct > 0.8 ? 'bg-amber-500' : 'bg-vibe-fg-3/60';
 					return <div className='mt-1 px-2'>
 						<div title={guardCalibration && guardCalibration > 1 ? `Калибровка ×${guardCalibration.toFixed(2)}: показ контекста скорректирован под реальные токены провайдера (грубая оценка длина/4 их занижает)` : undefined} className={`text-[10px] ${color} flex items-center flex-wrap`}><span>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}{(guardTruncation.summarized ?? 0) > 0 ? chatS.budgetFillSuffix(guardTruncation.kept ?? 0, guardTruncation.summarized ?? 0) : ''}</span><TokenBudgetInline /></div>
 						<div className='h-[3px] w-full bg-vibe-border-3 rounded mt-0.5'>
 							<div className={`h-[3px] ${barColor} rounded`} style={{ width: `${pctNum}%` }} aria-label={chatS.contextUsageAria(pctNum)} />
 						</div>
-					</div>
+					</div>;
 				})()
 			) : null}
 		</div>
-	</div>
+	</div>;
 
-    const keybindingService = accessor.get('IKeybindingService')
-    const quickActions: { id: string, label: string }[] = [
+    const keybindingService = accessor.get('IKeybindingService');
+    const quickActions: { id: string; label: string }[] = [
         { id: 'vibe.explainCode', label: chatS.quickExplain },
         { id: 'vibe.refactorCode', label: chatS.quickRefactor },
         { id: 'vibe.addTests', label: chatS.quickAddTests },
@@ -6207,12 +6221,12 @@ export const SidebarChat = () => {
         { id: 'vibe.writeDocstring', label: chatS.quickDocstring },
         { id: 'vibe.optimizeCode', label: chatS.quickOptimize },
         { id: 'vibe.debugCode', label: chatS.quickDebug },
-    ]
+    ];
 
     const QuickActionsBar = () => (
         <div className='w-full flex items-center justify-center gap-2 flex-wrap mt-3 select-none px-1'>
             {quickActions.map(({ id, label }) => {
-                const kb = keybindingService.lookupKeybinding(id)?.getLabel()
+                const kb = keybindingService.lookupKeybinding(id)?.getLabel();
                 return (
                     <button
                         key={id}
@@ -6224,21 +6238,21 @@ export const SidebarChat = () => {
                         <span>{label}</span>
                         {kb && <span className='ml-1 px-1 rounded bg-[var(--vscode-keybindingLabel-background)] text-[var(--vscode-keybindingLabel-foreground)] border border-[var(--vscode-keybindingLabel-border)]'>{kb}</span>}
                     </button>
-                )
+                );
             })}
         </div>
-    )
+    );
 
     // Lightweight context chips: active file and model
     const ContextChipsBar = () => {
-        const editorService = accessor.get('IEditorService')
-        const activeEditor = editorService?.activeEditor
+        const editorService = accessor.get('IEditorService');
+        const activeEditor = editorService?.activeEditor;
         // Try best-effort file label
-        const activeResource = activeEditor?.resource
-        const activeFileLabel = activeResource ? activeResource.path?.split('/').pop() : undefined
-        const modelSel = settingsState.modelSelectionOfFeature['Chat']
-        const modelLabel = modelSel ? `${displayInfoOfProviderName(modelSel.providerName).title}:${modelSel.modelName}` : undefined
-        if (!activeFileLabel && !modelLabel) return null
+        const activeResource = activeEditor?.resource;
+        const activeFileLabel = activeResource ? activeResource.path?.split('/').pop() : undefined;
+        const modelSel = settingsState.modelSelectionOfFeature['Chat'];
+        const modelLabel = modelSel ? `${displayInfoOfProviderName(modelSel.providerName).title}:${modelSel.modelName}` : undefined;
+        if (!activeFileLabel && !modelLabel) {return null;}
         return (
             <div className='w-full flex items-center gap-2 flex-wrap mt-2 mb-1 px-1'>
                 {activeFileLabel && (
@@ -6254,8 +6268,8 @@ export const SidebarChat = () => {
                     </span>
                 )}
             </div>
-        )
-    }
+        );
+    };
 
     const landingPageContent = <div
 		ref={sidebarRef}
@@ -6286,7 +6300,7 @@ export const SidebarChat = () => {
 				{initiallySuggestedPromptsHTML}
 			</ErrorBoundary>
 		}
-	</div>
+	</div>;
 
 
 	// const threadPageContent = <div>
@@ -6314,7 +6328,7 @@ export const SidebarChat = () => {
 			{!atBottom && chatItems.length > 0 && (
 				<button
 					type='button'
-					onClick={() => { isAtBottomRef.current = true; setAtBottom(true); scrollToBottomCallback() }}
+					onClick={() => { isAtBottomRef.current = true; setAtBottom(true); scrollToBottomCallback(); }}
 					title='Вниз, к последнему сообщению'
 					aria-label='Прокрутить вниз'
 					className='@@vibe-focus-ring'
@@ -6346,7 +6360,7 @@ export const SidebarChat = () => {
 		<ErrorBoundary>
 			{threadPageInput}
 		</ErrorBoundary>
-	</div>
+	</div>;
 
 
 	return (
@@ -6356,5 +6370,5 @@ export const SidebarChat = () => {
 				landingPageContent
 				: threadPageContent}
 		</Fragment>
-	)
-}
+	);
+};

@@ -1,9 +1,10 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { vibeLog } from './vibeLog.js';
+
+import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { localize } from '../../../../nls.js';
@@ -12,7 +13,7 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 
 import { ITerminalService } from '../../../contrib/terminal/browser/terminal.js';
-import { IAuditLogService } from './auditLogService.js';
+import { IAuditLogService } from '../common/auditLogService.js';
 
 export interface TestRunResult {
 	command: string;
@@ -60,7 +61,7 @@ class VibeRunTestsAfterApplyService extends Disposable implements IVibeRunTestsA
 	}
 
 	async runTests(): Promise<TestRunResult | null> {
-		if (!this.isEnabled()) return null;
+		if (!this.isEnabled()) { return null; }
 
 		const command = this._configurationService.getValue<string>('vibeide.agent.runTestsAfterApply.command') ?? 'npm test';
 		vibeLog.info('RunTests', `Running: ${command}`);

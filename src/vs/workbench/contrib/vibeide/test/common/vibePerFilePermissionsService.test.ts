@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -9,8 +10,11 @@ import {
 	canWriteWithPermissions,
 	matchPermissionPattern,
 } from '../../common/vibePerFilePermissionsService.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('VibePerFilePermissionsService — pure helpers', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('matchPermissionPattern', () => {
 		test('exact filename matches', () => {

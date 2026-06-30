@@ -1,12 +1,16 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { threadMatchesWorkspace, threadOwnedBy, HISTORY_SHOW_ALL_PROJECTS_KEY, HISTORY_DEFAULT_SHOW_ALL_KEY } from '../../common/chatHistoryScope.js';
 
 suite('chatHistoryScope — project-scoped history visibility (CH.1/CH.10)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	const WS = 'workspace-aaa';
 

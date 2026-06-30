@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — secret-aware placeholder resolver (pure helper).
@@ -168,7 +169,7 @@ export function resolveProjectCommandSecrets(input: ResolverInput, lookups: Secr
  * safe to log.
  */
 export function describeUnresolvedPlaceholders(unresolved: readonly UnresolvedPlaceholder[]): string {
-	if (unresolved.length === 0) return '';
+	if (unresolved.length === 0) { return ''; }
 	const lines = ['Команда не запущена — следующие плейсхолдеры не разрешены:'];
 	for (const u of unresolved) {
 		const where = u.index !== undefined ? `${u.field}[${u.index}]` : u.field;
@@ -212,13 +213,13 @@ export function findSuspiciousLiteralSecrets(input: ResolverInput): readonly { f
 }
 
 function looksLikeSecret(s: string): boolean {
-	if (typeof s !== 'string' || s.length < 32) return false;
+	if (typeof s !== 'string' || s.length < 32) { return false; }
 	// Skip strings that are mostly placeholders — the resolver handles those.
 	if (PLACEHOLDER_RE.test(s)) {
 		PLACEHOLDER_RE.lastIndex = 0;
 		return false;
 	}
-	if (/\s/.test(s)) return false;
+	if (/\s/.test(s)) { return false; }
 	const hasLower = /[a-z]/.test(s);
 	const hasUpper = /[A-Z]/.test(s);
 	const hasDigit = /[0-9]/.test(s);

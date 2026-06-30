@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -9,6 +10,7 @@ import {
 	prepareCommandsPackImport,
 } from '../../common/projectCommandsCommunityCatalog.js';
 import { ProjectCommandLite } from '../../common/commandsImportDiff.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const sha = (c: string) => c.repeat(64);
 
@@ -24,6 +26,8 @@ function envelope(overrides: Record<string, unknown> = {}): unknown {
 
 suite('Project Commands — community catalog URL + import orchestrator', () => {
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	suite('decodeCommunityCatalogUrl', () => {
 		test('undefined / null / empty / whitespace → unset', () => {
 			assert.strictEqual(decodeCommunityCatalogUrl(undefined).kind, 'unset');
@@ -35,19 +39,19 @@ suite('Project Commands — community catalog URL + import orchestrator', () => 
 		test('valid HTTPS → ok', () => {
 			const r = decodeCommunityCatalogUrl('https://catalog.vibeide.io/commands.json');
 			assert.strictEqual(r.kind, 'ok');
-			if (r.kind === 'ok') assert.ok(r.url.startsWith('https://catalog.vibeide.io/'));
+			if (r.kind === 'ok') { assert.ok(r.url.startsWith('https://catalog.vibeide.io/')); }
 		});
 
 		test('http (not https) → invalid', () => {
 			const r = decodeCommunityCatalogUrl('http://catalog.vibeide.io/');
 			assert.strictEqual(r.kind, 'invalid');
-			if (r.kind === 'invalid') assert.strictEqual(r.reason, 'not-https');
+			if (r.kind === 'invalid') { assert.strictEqual(r.reason, 'not-https'); }
 		});
 
 		test('non-string → invalid', () => {
 			const r = decodeCommunityCatalogUrl(42);
 			assert.strictEqual(r.kind, 'invalid');
-			if (r.kind === 'invalid') assert.strictEqual(r.reason, 'not-string');
+			if (r.kind === 'invalid') { assert.strictEqual(r.reason, 'not-string'); }
 		});
 
 		test('malformed URL → invalid', () => {
@@ -69,7 +73,7 @@ suite('Project Commands — community catalog URL + import orchestrator', () => 
 		test('javascript: rejected (not-https)', () => {
 			const r = decodeCommunityCatalogUrl('javascript:alert(1)');
 			assert.strictEqual(r.kind, 'invalid');
-			if (r.kind === 'invalid') assert.strictEqual(r.reason, 'not-https');
+			if (r.kind === 'invalid') { assert.strictEqual(r.reason, 'not-https'); }
 		});
 	});
 
@@ -99,7 +103,7 @@ suite('Project Commands — community catalog URL + import orchestrator', () => 
 				incomingCommandsByPackId: new Map([['a', { id: 'a', command: 'echo' }]]),
 			});
 			assert.strictEqual(r.kind, 'wrong-format');
-			if (r.kind === 'wrong-format') assert.strictEqual(r.actual, 'vibe-community-skills-catalog-v1');
+			if (r.kind === 'wrong-format') { assert.strictEqual(r.actual, 'vibe-community-skills-catalog-v1'); }
 		});
 
 		test('envelope decode fails → envelope-invalid', () => {
@@ -120,7 +124,7 @@ suite('Project Commands — community catalog URL + import orchestrator', () => 
 				incomingCommandsByPackId: new Map([['a', { id: 'a', command: 'echo' }]]),
 			});
 			assert.strictEqual(r.kind, 'verify-failed');
-			if (r.kind === 'verify-failed') assert.strictEqual(r.reason, 'sha-mismatch');
+			if (r.kind === 'verify-failed') { assert.strictEqual(r.reason, 'sha-mismatch'); }
 		});
 
 		test('caller did not provide incoming command for envelope id → missing-incoming-command', () => {
@@ -131,7 +135,7 @@ suite('Project Commands — community catalog URL + import orchestrator', () => 
 				incomingCommandsByPackId: new Map(),
 			});
 			assert.strictEqual(r.kind, 'missing-incoming-command');
-			if (r.kind === 'missing-incoming-command') assert.strictEqual(r.id, 'a');
+			if (r.kind === 'missing-incoming-command') { assert.strictEqual(r.id, 'a'); }
 		});
 
 		test('diff reports modifications when current has same id with different command', () => {

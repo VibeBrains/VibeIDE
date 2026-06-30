@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -102,7 +103,7 @@ class RollbackSnapshotService extends Disposable implements IRollbackSnapshotSer
 	private async _initPersistence(): Promise<void> {
 		try {
 			const workspaceFolders = this._workspaceContextService.getWorkspace().folders;
-			if (workspaceFolders.length === 0) return;
+			if (workspaceFolders.length === 0) { return; }
 
 			const workspaceRoot = workspaceFolders[0].uri;
 			this._snapshotsDirUri = joinPath(workspaceRoot, '.vibe', 'snapshots');
@@ -142,7 +143,7 @@ class RollbackSnapshotService extends Disposable implements IRollbackSnapshotSer
 
 	/** VibeIDE: Persist a snapshot to .vibe/snapshots/ */
 	private async _persistSnapshot(snapshot: Snapshot): Promise<void> {
-		if (!this._snapshotsDirUri || !this._persistenceReady) return;
+		if (!this._snapshotsDirUri || !this._persistenceReady) { return; }
 		try {
 			const snapshotUri = joinPath(this._snapshotsDirUri, `${snapshot.id}.json`);
 			await this._fileService.writeFile(snapshotUri, VSBuffer.fromString(JSON.stringify(snapshot, null, 2)));
@@ -153,7 +154,7 @@ class RollbackSnapshotService extends Disposable implements IRollbackSnapshotSer
 
 	/** VibeIDE: Remove a snapshot file from disk */
 	private async _deleteSnapshotFile(id: string): Promise<void> {
-		if (!this._snapshotsDirUri) return;
+		if (!this._snapshotsDirUri) { return; }
 		try {
 			const snapshotUri = joinPath(this._snapshotsDirUri, `${id}.json`);
 			await this._fileService.del(snapshotUri);

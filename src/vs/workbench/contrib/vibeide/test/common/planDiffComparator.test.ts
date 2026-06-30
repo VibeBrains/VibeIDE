@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	diffPlans,
 	renderPlanDiffSummary,
@@ -22,6 +24,8 @@ const plan = (id: string, steps: PlanStepLite[], title?: string): PlanLite => ({
 });
 
 suite('Plan diff comparator', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('diffPlans', () => {
 		test('identical plans → no changes', () => {

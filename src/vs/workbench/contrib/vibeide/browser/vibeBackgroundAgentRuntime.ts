@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Background agent runtime (roadmap §L884).
@@ -205,7 +206,7 @@ class VibeBackgroundAgentRuntime extends Disposable implements IVibeBackgroundAg
 			const line = s.lineBuf.slice(0, nl).trim();
 			s.lineBuf = s.lineBuf.slice(nl + 1);
 			nl = s.lineBuf.indexOf('\n');
-			if (line.length === 0) continue;
+			if (line.length === 0) { continue; }
 			try {
 				const parsed = JSON.parse(line);
 				const decoded = decodeOutboundEnvelope(parsed);

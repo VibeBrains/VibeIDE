@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	initFailoverState,
 	processOutcome,
@@ -20,6 +22,8 @@ const cfg = (overrides: Partial<FailoverConfig> = {}): FailoverConfig => ({
 });
 
 suite('Provider failover FSM (1187)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('processOutcome — success / 4xx / cancelled paths', () => {
 		test('success with no prior failures → no-op', () => {

@@ -68,6 +68,11 @@ export const unicodeFilter = Object.freeze<string[]>([
 	'!src/vs/base/browser/dompurify/**',
 	'!src/vs/workbench/services/keybinding/browser/keyboardLayouts/**',
 	'!src/vs/workbench/contrib/terminal/common/scripts/psreadline/**',
+
+	// VibeIDE source is Russian-first and deliberately embeds rich Unicode (math
+	// operators, box-drawing, emoji, Greek) in UI strings, logs and test fixtures.
+	// The upstream homoglyph check does not apply to the fork's own authored code.
+	'!src/vs/workbench/contrib/vibeide/**',
 ]);
 
 export const indentationFilter = Object.freeze<string[]>([
@@ -153,6 +158,11 @@ export const indentationFilter = Object.freeze<string[]>([
 	'!extensions/ipynb/notebook-out/**',
 	'!extensions/notebook-renderers/renderer-out/*.js',
 	'!extensions/simple-browser/media/*.js',
+
+	// VibeIDE: large template literals (system prompts, test fixtures) carry
+	// space-indented string data by design; tab indentation of actual code is
+	// enforced by the formatter (tsfmt) instead.
+	'!src/vs/workbench/contrib/vibeide/**',
 ]);
 
 export const copyrightFilter = Object.freeze<string[]>([

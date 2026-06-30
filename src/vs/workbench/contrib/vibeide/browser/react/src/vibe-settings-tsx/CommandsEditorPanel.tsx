@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — form-based editor with JSON toggle (roadmap §L316).
@@ -67,18 +68,18 @@ function serialize(file: ProjectCommandsFile): string {
 /** Pure: project a typed ProjectCommand into the form's editable shape. */
 function toEditable(c: ProjectCommand): EditableCommand {
 	const out: EditableCommand = { id: c.id, name: c.name, command: c.command };
-	if (c.description !== undefined) out.description = c.description;
-	if (c.icon !== undefined) out.icon = c.icon;
-	if (c.color !== undefined) out.color = c.color;
-	if (c.args !== undefined) out.args = c.args;
-	if (c.cwd !== undefined) out.cwd = c.cwd;
-	if (c.env !== undefined) out.env = c.env;
-	if (c.terminal !== undefined) out.terminal = c.terminal;
-	if (c.confirm !== undefined) out.confirm = c.confirm;
-	if (c.singleton !== undefined) out.singleton = c.singleton;
-	if (c.pinned !== undefined) out.pinned = c.pinned;
-	if (c.order !== undefined) out.order = c.order;
-	if (c.workflowId !== undefined) out.workflowId = c.workflowId;
+	if (c.description !== undefined) {out.description = c.description;}
+	if (c.icon !== undefined) {out.icon = c.icon;}
+	if (c.color !== undefined) {out.color = c.color;}
+	if (c.args !== undefined) {out.args = c.args;}
+	if (c.cwd !== undefined) {out.cwd = c.cwd;}
+	if (c.env !== undefined) {out.env = c.env;}
+	if (c.terminal !== undefined) {out.terminal = c.terminal;}
+	if (c.confirm !== undefined) {out.confirm = c.confirm;}
+	if (c.singleton !== undefined) {out.singleton = c.singleton;}
+	if (c.pinned !== undefined) {out.pinned = c.pinned;}
+	if (c.order !== undefined) {out.order = c.order;}
+	if (c.workflowId !== undefined) {out.workflowId = c.workflowId;}
 	return out;
 }
 
@@ -89,18 +90,18 @@ function fromEditable(e: EditableCommand): ProjectCommand {
 		name: String(e.name ?? ''),
 		command: String(e.command ?? ''),
 	};
-	if (typeof e.description === 'string' && e.description.length > 0) out.description = e.description;
-	if (typeof e.icon === 'string' && e.icon.length > 0) out.icon = e.icon;
-	if (typeof e.color === 'string' && e.color.length > 0) out.color = e.color;
-	if (Array.isArray(e.args) && e.args.length > 0) out.args = e.args as readonly string[];
-	if (typeof e.cwd === 'string' && e.cwd.length > 0) out.cwd = e.cwd;
-	if (e.env && typeof e.env === 'object') out.env = e.env as Readonly<Record<string, string>>;
-	if (e.terminal === 'integrated' || e.terminal === 'external' || e.terminal === 'background') out.terminal = e.terminal;
-	if (e.confirm === true) out.confirm = true;
-	if (e.singleton === true) out.singleton = true;
-	if (e.pinned === true) out.pinned = true;
-	if (typeof e.order === 'number' && Number.isFinite(e.order)) out.order = e.order;
-	if (typeof e.workflowId === 'string' && e.workflowId.length > 0) out.workflowId = e.workflowId;
+	if (typeof e.description === 'string' && e.description.length > 0) {out.description = e.description;}
+	if (typeof e.icon === 'string' && e.icon.length > 0) {out.icon = e.icon;}
+	if (typeof e.color === 'string' && e.color.length > 0) {out.color = e.color;}
+	if (Array.isArray(e.args) && e.args.length > 0) {out.args = e.args as readonly string[];}
+	if (typeof e.cwd === 'string' && e.cwd.length > 0) {out.cwd = e.cwd;}
+	if (e.env && typeof e.env === 'object') {out.env = e.env as Readonly<Record<string, string>>;}
+	if (e.terminal === 'integrated' || e.terminal === 'external' || e.terminal === 'background') {out.terminal = e.terminal;}
+	if (e.confirm === true) {out.confirm = true;}
+	if (e.singleton === true) {out.singleton = true;}
+	if (e.pinned === true) {out.pinned = true;}
+	if (typeof e.order === 'number' && Number.isFinite(e.order)) {out.order = e.order;}
+	if (typeof e.workflowId === 'string' && e.workflowId.length > 0) {out.workflowId = e.workflowId;}
 	return out;
 }
 
@@ -167,9 +168,9 @@ export const CommandsEditorPanel: React.FC = () => {
 
 	// Validation: per-field issues for the currently-active form command.
 	const activeIssues = useMemo(() => {
-		if (mode !== 'form' || activeIdx === null) return null;
+		if (mode !== 'form' || activeIdx === null) {return null;}
 		const cmd = commands[activeIdx];
-		if (!cmd) return null;
+		if (!cmd) {return null;}
 		const issues: Partial<Record<ProjectCommandFieldName, string>> = {};
 		const fields: ProjectCommandFieldName[] = ['id', 'name', 'command', 'cwd', 'icon', 'color', 'terminal'];
 		for (const f of fields) {
@@ -182,7 +183,7 @@ export const CommandsEditorPanel: React.FC = () => {
 	}, [mode, activeIdx, commands]);
 
 	const hasFormErrors = useMemo(() => {
-		if (mode !== 'form') return false;
+		if (mode !== 'form') {return false;}
 		for (const cmd of commands) {
 			const idIssue = validateProjectCommandField('id', cmd.id);
 			const nameIssue = validateProjectCommandField('name', cmd.name);
@@ -215,7 +216,7 @@ export const CommandsEditorPanel: React.FC = () => {
 	}, []);
 
 	const saveFromForm = useCallback(async () => {
-		if (!fileUri) return;
+		if (!fileUri) {return;}
 		const file: ProjectCommandsFile = {
 			vibeVersion: vibeVersion || '1.0.0',
 			commands: commands.map(fromEditable),
@@ -241,7 +242,7 @@ export const CommandsEditorPanel: React.FC = () => {
 	}, [fileUri, vibeVersion, commands, fileService, notify, commandService, checkSaveBlock]);
 
 	const saveFromJson = useCallback(async () => {
-		if (!fileUri) return;
+		if (!fileUri) {return;}
 		const parsed = safeParseConfigJson(jsonDraft);
 		if (!parsed.ok) {
 			notify.notify({ severity: Severity.Error, message: `${commandsEditorS.jsonParseFailed}: ${parsed.reason}` });
@@ -400,7 +401,7 @@ const CommandForm: React.FC<CommandFormProps> = ({ cmd, issues, onChange, onDele
 		[cmd.args],
 	);
 	const envText = useMemo(() => {
-		if (!cmd.env || typeof cmd.env !== 'object') return '';
+		if (!cmd.env || typeof cmd.env !== 'object') {return '';}
 		return Object.entries(cmd.env as Record<string, string>)
 			.map(([k, v]) => `${k}=${v}`).join('\n');
 	}, [cmd.env]);

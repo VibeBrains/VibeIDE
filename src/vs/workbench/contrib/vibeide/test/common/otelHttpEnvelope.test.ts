@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -10,6 +11,7 @@ import {
 	buildOtlpTracesBody,
 	OtlpSpan,
 } from '../../common/otelHttpEnvelope.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const VALID_TRACE_ID = 'a'.repeat(32);
 const VALID_SPAN_ID = 'b'.repeat(16);
@@ -28,17 +30,19 @@ function span(overrides: Partial<OtlpSpan> = {}): OtlpSpan {
 
 suite('OTLP/HTTP/JSON envelope builder — pure', () => {
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	suite('resolveOtlpUrl', () => {
 		test('base endpoint + traces signal → appends /v1/traces', () => {
 			const r = resolveOtlpUrl({ endpoint: 'https://otel.example.com' }, 'traces');
 			assert.strictEqual(r.ok, true);
-			if (r.ok) assert.ok(r.url.endsWith('/v1/traces'));
+			if (r.ok) { assert.ok(r.url.endsWith('/v1/traces')); }
 		});
 
 		test('endpoint already with /v1/traces → use as-is', () => {
 			const r = resolveOtlpUrl({ endpoint: 'https://otel.example.com/v1/traces' }, 'traces');
 			assert.strictEqual(r.ok, true);
-			if (r.ok) assert.strictEqual(new URL(r.url).pathname, '/v1/traces');
+			if (r.ok) { assert.strictEqual(new URL(r.url).pathname, '/v1/traces'); }
 		});
 
 		test('per-signal paths', () => {
@@ -54,13 +58,13 @@ suite('OTLP/HTTP/JSON envelope builder — pure', () => {
 
 		test('endpoint with base path → appends to base', () => {
 			const r = resolveOtlpUrl({ endpoint: 'https://otel.example.com/api/' }, 'traces');
-			if (r.ok) assert.ok(r.url.includes('/api/v1/traces'));
+			if (r.ok) { assert.ok(r.url.includes('/api/v1/traces')); }
 		});
 
 		test('empty endpoint → reject', () => {
 			const r = resolveOtlpUrl({ endpoint: '' }, 'traces');
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'endpoint-empty');
+			if (!r.ok) { assert.strictEqual(r.reason, 'endpoint-empty'); }
 		});
 
 		test('non-http scheme → reject', () => {
@@ -95,7 +99,7 @@ suite('OTLP/HTTP/JSON envelope builder — pure', () => {
 				headers: { 'content-type': 'application/x-protobuf' },
 			});
 			assert.strictEqual(r.headers['Content-Type'], 'application/json');
-			assert.strictEqual('content-type' in r.headers, false);
+			assert.strictEqual(Object.hasOwn(r.headers, 'content-type'), false);
 		});
 
 		test('gzip compression adds Content-Encoding', () => {
@@ -105,7 +109,7 @@ suite('OTLP/HTTP/JSON envelope builder — pure', () => {
 
 		test('compression none does not add header', () => {
 			const r = buildOtlpHeaders({ endpoint: 'http://x', compression: 'none' });
-			assert.strictEqual('Content-Encoding' in r.headers, false);
+			assert.strictEqual(Object.hasOwn(r.headers, 'Content-Encoding'), false);
 		});
 	});
 
@@ -156,7 +160,7 @@ suite('OTLP/HTTP/JSON envelope builder — pure', () => {
 				scopeName: 'x',
 			});
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.reason.includes('traceId-malformed'));
+			if (!r.ok) { assert.ok(r.reason.includes('traceId-malformed')); }
 		});
 
 		test('rejects malformed spanId', () => {
@@ -203,7 +207,7 @@ suite('OTLP/HTTP/JSON envelope builder — pure', () => {
 			});
 			if (r.ok) {
 				const sp = JSON.parse(r.body).resourceSpans[0].scopeSpans[0].spans[0];
-				assert.strictEqual('parentSpanId' in sp, false);
+				assert.strictEqual(Object.hasOwn(sp, 'parentSpanId'), false);
 			}
 		});
 
@@ -227,7 +231,7 @@ suite('OTLP/HTTP/JSON envelope builder — pure', () => {
 			});
 			if (r.ok) {
 				const scope = JSON.parse(r.body).resourceSpans[0].scopeSpans[0].scope;
-				assert.strictEqual('version' in scope, false);
+				assert.strictEqual(Object.hasOwn(scope, 'version'), false);
 			}
 		});
 	});

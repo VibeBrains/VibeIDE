@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Snapshot integrity check (1037) — pure helper.
@@ -62,7 +63,7 @@ export function checkSnapshotsIntegrity(entries: ReadonlyArray<RawSnapshotInput>
  * decides whether to log or suppress the parse error.
  */
 export function parseSnapshotHeader(raw: unknown): { ok: true; value: SnapshotEntryHeader } | { ok: false; reason: string } {
-	if (raw == null || typeof raw !== 'object') {
+	if (raw === null || raw === undefined || typeof raw !== 'object') {
 		return { ok: false, reason: 'not-an-object' };
 	}
 	const obj = raw as Record<string, unknown>;
@@ -82,7 +83,7 @@ export function parseSnapshotHeader(raw: unknown): { ok: true; value: SnapshotEn
  * input list is empty.
  */
 export function renderCorruptSnapshotReport(corrupt: ReadonlyArray<{ id: string; reason: string; rawSize?: number }>): string {
-	if (corrupt.length === 0) return '';
+	if (corrupt.length === 0) { return ''; }
 	const lines: string[] = [];
 	lines.push(`# Corrupt snapshot entries (${corrupt.length})`);
 	lines.push('');

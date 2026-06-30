@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — CLI argv decoder + `vibe doctor` validator
@@ -242,9 +243,9 @@ export function repairProjectCommandsForDoctor(raw: unknown, vibeVersion: string
  * each `$id` as the id-for-reporting (since the decoder won't see `id`).
  */
 function collectLegacyDollarIds(raw: unknown): string[] {
-	if (raw === null || typeof raw !== 'object') return [];
+	if (raw === null || typeof raw !== 'object') { return []; }
 	const commands = (raw as Record<string, unknown>).commands;
-	if (!Array.isArray(commands)) return [];
+	if (!Array.isArray(commands)) { return []; }
 	const out: string[] = [];
 	for (const item of commands) {
 		if (item && typeof item === 'object' && !Array.isArray(item)) {

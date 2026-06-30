@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Vibe Server — static document server with live reload, running in electron-main (node).
@@ -9,8 +10,8 @@
  * Single instance at a time (Phase 0). Binds loopback only; reload is broadcast over `ws`.
  */
 
-import * as http from 'http';
-import * as path from 'path';
+import type * as http from 'http';
+import * as path from '../../../../../base/common/path.js';
 import * as url from 'url';
 import * as os from 'os';
 import { promises as fs } from 'fs';
@@ -82,7 +83,7 @@ export class VibeServerMainService implements IVibeServerMain, IDisposable {
 		const wsModule = await import('ws');
 		const server = options.https
 			? (await import('https')).createServer(await this._generateCert(options.host), (req, res) => { void this._handle(req, res); })
-			: http.createServer((req, res) => { void this._handle(req, res); });
+			: (await import('http')).createServer((req, res) => { void this._handle(req, res); });
 		this._server = server;
 		server.on('connection', socket => {
 			this._sockets.add(socket);

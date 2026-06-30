@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -71,7 +72,7 @@ class VibeAutocompleteExplainService extends Disposable implements IVibeAutocomp
 		suggestion: string,
 		context: { prefix: string; suffix: string; language: string }
 	): Promise<string> {
-		if (!this.isEnabled()) return '';
+		if (!this.isEnabled()) { return ''; }
 
 		// Phase 1: heuristic explanation based on suggestion type
 		// Phase 2: lightweight LLM call (flash/haiku) for semantic explanation
@@ -86,7 +87,7 @@ class VibeAutocompleteExplainService extends Disposable implements IVibeAutocomp
 		if (trimmed.includes('try') && trimmed.includes('catch')) {
 			return 'Error handling pattern suggested based on async operation context.';
 		}
-		if (trimmed.match(/^\w+\(/) ) {
+		if (trimmed.match(/^\w+\(/)) {
 			const funcName = trimmed.split('(')[0];
 			return `Function call suggested based on ${funcName} usage pattern in codebase.`;
 		}

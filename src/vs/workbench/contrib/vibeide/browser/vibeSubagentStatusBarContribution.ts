@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * VibeSubagentStatusBarContribution — UI for active subagents in the status bar.
@@ -42,11 +43,9 @@ class VibeSubagentStatusBarContribution extends Disposable {
 
 	private _getActiveEntries(): SubagentEntry[] {
 		// Get all registry entries (non-disposed)
-		const registry: Map<string, SubagentEntry> = (this._subagentSvc as any)._registry;
-		if (!registry) { return []; }
 		const seen = new Set<string>();
 		const result: SubagentEntry[] = [];
-		for (const entry of registry.values()) {
+		for (const entry of this._subagentSvc.getAll()) {
 			if (!seen.has(entry.id) && entry.status !== 'disposed') {
 				seen.add(entry.id);
 				result.push(entry);

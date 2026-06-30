@@ -1,12 +1,13 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 
 import { useAccessor, useActiveURI, useIsDark, useSettingsState } from '../util/services.js';
 
-import '../styles.css'
+import '../styles.css';
 import { VIBEIDE_CTRL_K_ACTION_ID, VIBEIDE_CTRL_L_ACTION_ID } from '../../../actionIDs.js';
 import { Circle, MoreVertical } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -18,36 +19,36 @@ import { selectionHelperS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 
 export const VibeSelectionHelperMain = (props: VibeideSelectionHelperProps) => {
 
-	const isDark = useIsDark()
+	const isDark = useIsDark();
 
 	return <div
 		className={`@@vibe-scope @@vibe-react-input-surfaces ${isDark ? 'dark' : ''}`}
 	>
 		<VibeSelectionHelper {...props} />
-	</div>
-}
+	</div>;
+};
 
 
 
 const VibeSelectionHelper = ({ rerenderKey }: VibeideSelectionHelperProps) => {
 
 
-	const accessor = useAccessor()
-	const keybindingService = accessor.get('IKeybindingService')
-	const commandService = accessor.get('ICommandService')
+	const accessor = useAccessor();
+	const keybindingService = accessor.get('IKeybindingService');
+	const commandService = accessor.get('ICommandService');
 
-	const ctrlLKeybind = keybindingService.lookupKeybinding(VIBEIDE_CTRL_L_ACTION_ID)
-	const ctrlKKeybind = keybindingService.lookupKeybinding(VIBEIDE_CTRL_K_ACTION_ID)
+	const ctrlLKeybind = keybindingService.lookupKeybinding(VIBEIDE_CTRL_L_ACTION_ID);
+	const ctrlKKeybind = keybindingService.lookupKeybinding(VIBEIDE_CTRL_K_ACTION_ID);
 
-	const dividerHTML = <div className='w-[0.5px] bg-vibe-border-3'></div>
+	const dividerHTML = <div className='w-[0.5px] bg-vibe-border-3'></div>;
 
-	const [reactRerenderCount, setReactRerenderKey] = useState(rerenderKey)
-	const [clickState, setClickState] = useState<'init' | 'clickedOption' | 'clickedMore'>('init')
+	const [reactRerenderCount, setReactRerenderKey] = useState(rerenderKey);
+	const [clickState, setClickState] = useState<'init' | 'clickedOption' | 'clickedMore'>('init');
 
 	useEffect(() => {
 		const disposable = commandService.onWillExecuteCommand(e => {
 			if (e.commandId === VIBEIDE_CTRL_L_ACTION_ID || e.commandId === VIBEIDE_CTRL_K_ACTION_ID) {
-				setClickState('clickedOption')
+				setClickState('clickedOption');
 			}
 		});
 
@@ -59,8 +60,8 @@ const VibeSelectionHelper = ({ rerenderKey }: VibeideSelectionHelperProps) => {
 
 	// rerender when the key changes
 	if (reactRerenderCount !== rerenderKey) {
-		setReactRerenderKey(rerenderKey)
-		setClickState('init')
+		setReactRerenderKey(rerenderKey);
+		setClickState('init');
 	}
 	// useEffect(() => {
 	// }, [rerenderKey, reactRerenderCount, setReactRerenderKey, setClickState])
@@ -69,7 +70,7 @@ const VibeSelectionHelper = ({ rerenderKey }: VibeideSelectionHelperProps) => {
 
 
 	if (clickState === 'clickedOption') {
-		return null
+		return null;
 	}
 
 	const defaultHTML = <>
@@ -80,7 +81,7 @@ const VibeSelectionHelper = ({ rerenderKey }: VibeideSelectionHelperProps) => {
 					cursor-pointer
 				'
 				onClick={() => {
-					commandService.executeCommand(VIBEIDE_CTRL_L_ACTION_ID)
+					commandService.executeCommand(VIBEIDE_CTRL_L_ACTION_ID);
 					setClickState('clickedOption');
 				}}
 			>
@@ -100,7 +101,7 @@ const VibeSelectionHelper = ({ rerenderKey }: VibeideSelectionHelperProps) => {
 					cursor-pointer
 				'
 				onClick={() => {
-					commandService.executeCommand(VIBEIDE_CTRL_K_ACTION_ID)
+					commandService.executeCommand(VIBEIDE_CTRL_K_ACTION_ID);
 					setClickState('clickedOption');
 				}}
 			>
@@ -124,7 +125,7 @@ const VibeSelectionHelper = ({ rerenderKey }: VibeideSelectionHelperProps) => {
 		>
 			<MoreVertical className="w-4" />
 		</div>
-	</>
+	</>;
 
 
 	const moreOptionsHTML = <>
@@ -154,7 +155,7 @@ const VibeSelectionHelper = ({ rerenderKey }: VibeideSelectionHelperProps) => {
 		>
 			<MoreVertical className="w-4" />
 		</div>
-	</>
+	</>;
 
 	return <div className='
 		pointer-events-auto select-none
@@ -167,5 +168,5 @@ const VibeSelectionHelper = ({ rerenderKey }: VibeideSelectionHelperProps) => {
 			: clickState === 'clickedMore' ? moreOptionsHTML
 				: <></>
 		}
-	</div>
-}
+	</div>;
+};

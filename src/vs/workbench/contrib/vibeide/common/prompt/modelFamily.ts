@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Coarse-grained classification of the upstream LLM family. Used as a single
@@ -47,9 +48,9 @@ export const detectModelFamily = (
 	// 2. Aggregator path — sniff the model name. Lowercase once.
 	const m = (modelName ?? '').toLowerCase();
 	if (m) {
-		if (m.includes('claude') || m.includes('anthropic')) return 'anthropic';
-		if (m.includes('gemini') || m.includes('palm') || m.includes('bison')) return 'gemini';
-		if (m.includes('gpt') || m.includes('o1') || m.includes('o3') || m.includes('o4') || m.includes('chatgpt')) return 'gpt';
+		if (m.includes('claude') || m.includes('anthropic')) { return 'anthropic'; }
+		if (m.includes('gemini') || m.includes('palm') || m.includes('bison')) { return 'gemini'; }
+		if (m.includes('gpt') || m.includes('o1') || m.includes('o3') || m.includes('o4') || m.includes('chatgpt')) { return 'gpt'; }
 	}
 
 	// 3. Last-resort hint from specialToolFormat. Coarse, but better than nothing.

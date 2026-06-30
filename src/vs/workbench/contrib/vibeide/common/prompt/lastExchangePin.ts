@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Budget-fill truncation pin for the most recent assistant↔tool exchange (roadmap 3074).
@@ -42,7 +43,7 @@ export function computeLastExchangePinSet(messages: readonly PinnableMessage[], 
 	for (let i = messages.length - 1; i >= 0; i--) {
 		if (messages[i].role === 'tool') { lastToolIdx = i; break; }
 	}
-	if (lastToolIdx === -1) return pin; // no tool exchange → nothing to protect
+	if (lastToolIdx === -1) { return pin; } // no tool exchange → nothing to protect
 
 	// Nearest preceding assistant turn — the one that issued the tool_use.
 	let assistantIdx = -1;
@@ -54,9 +55,9 @@ export function computeLastExchangePinSet(messages: readonly PinnableMessage[], 
 		+ (assistantIdx >= 0 ? messages[assistantIdx].content.length : 0);
 
 	// Safety valve: an over-budget pair must remain trimmable.
-	if (budgetChars > 0 && pairLen > budgetChars) return pin;
+	if (budgetChars > 0 && pairLen > budgetChars) { return pin; }
 
 	pin.add(lastToolIdx);
-	if (assistantIdx >= 0) pin.add(assistantIdx);
+	if (assistantIdx >= 0) { pin.add(assistantIdx); }
 	return pin;
 }

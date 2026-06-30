@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Tests for the `.vibe/providers.json` format layer (vibeProvidersFile.ts): JSONC parsing,
@@ -16,8 +17,11 @@ import {
 	mergeProviderEntry,
 	VibeProviderEntry,
 } from '../../common/vibeProvidersFile.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('vibeProvidersFile — .vibe/providers.json format', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('parseProvidersFile', () => {
 		test('parses JSONC with // comments and trailing fields', () => {
@@ -80,10 +84,12 @@ suite('vibeProvidersFile — .vibe/providers.json format', () => {
 			id: 'openRouter',
 			baseURL: 'https://openrouter.ai/api/v1',
 			timeoutMs: 180000,
-			models: { fetch: true, static: [
-				{ id: 'a/x', active: true },
-				{ id: 'b/y', active: true },
-			] },
+			models: {
+				fetch: true, static: [
+					{ id: 'a/x', active: true },
+					{ id: 'b/y', active: true },
+				]
+			},
 		};
 
 		test('top-level fields: override wins, others inherited', () => {
@@ -93,10 +99,14 @@ suite('vibeProvidersFile — .vibe/providers.json format', () => {
 		});
 
 		test('models merge BY ID — patch matching, append new, base ids kept', () => {
-			const merged = mergeProviderEntry(base, { id: 'openRouter', models: { static: [
-				{ id: 'a/x', active: false },        // patch existing
-				{ id: 'c/z', active: true },         // new
-			] } });
+			const merged = mergeProviderEntry(base, {
+				id: 'openRouter', models: {
+					static: [
+						{ id: 'a/x', active: false },        // patch existing
+						{ id: 'c/z', active: true },         // new
+					]
+				}
+			});
 			const m = merged.models!.static!;
 			const byId = Object.fromEntries(m.map(e => [e.id, e]));
 			assert.strictEqual(m.length, 3);

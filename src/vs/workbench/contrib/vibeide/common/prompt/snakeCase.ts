@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 // Pure type-level utilities. Leaf module — no imports — so any other module can
 // pull these in without risking an import cycle.
@@ -16,6 +17,6 @@ export type SnakeCase<S extends string> =
 	? `${C extends Lowercase<C> ? C : `_${Lowercase<C>}`}${SnakeCase<Rest>}`
 	: S;
 
-export type SnakeCaseKeys<T extends Record<string, any>> = {
+export type SnakeCaseKeys<T extends Record<string, unknown>> = {
 	[K in keyof T as SnakeCase<Extract<K, string>>]: T[K]
 };

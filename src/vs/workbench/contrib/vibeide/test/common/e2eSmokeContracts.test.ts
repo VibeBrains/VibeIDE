@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -10,8 +11,12 @@ import {
 	verifyMultiWindowLockInvariants,
 	E2ESmokeNotImplementedError,
 } from '../../common/e2eSmokeContracts.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('e2eSmokeContracts — locale (§522-524, §505)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('ru locale flags English text in vibeide.* settings', () => {
 		const findings = inspectLocaleScreens('ru', [
 			{ screen: 'settings', text: 'Open Recent' },
@@ -56,6 +61,9 @@ suite('e2eSmokeContracts — locale (§522-524, §505)', () => {
 });
 
 suite('e2eSmokeContracts — chat tab drag-drop (§948)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('preserves chatId across drag-drop', () => {
 		const before = [
 			{ chatId: 'A', groupId: 1, editorIndex: 0 },
@@ -96,6 +104,9 @@ suite('e2eSmokeContracts — chat tab drag-drop (§948)', () => {
 });
 
 suite('e2eSmokeContracts — multi-window locks (§1065)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('two windows with disjoint locks: ok', () => {
 		const r = verifyMultiWindowLockInvariants([
 			{ windowId: 'W1', heldLocks: ['workspace-A.lock'], pid: 100, startedAtMs: 1 },
@@ -130,6 +141,9 @@ suite('e2eSmokeContracts — multi-window locks (§1065)', () => {
 });
 
 suite('e2eSmokeContracts — sentinel', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('E2ESmokeNotImplementedError carries scenario name and reference', () => {
 		const err = new E2ESmokeNotImplementedError('locale-ru');
 		assert.strictEqual(err.name, 'E2ESmokeNotImplementedError');

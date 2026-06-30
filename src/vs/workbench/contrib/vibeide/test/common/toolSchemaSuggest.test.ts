@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Tests for cross-tool argument suggestion (X.11.4 / X.13.7 / X.14.2).
@@ -18,6 +19,7 @@
  */
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { CROSS_TOOL_ARG_HINTS, scoreToolMatch, suggestAlternateTool, suggestByArgHints, ToolCandidate } from '../../common/toolSchemaSuggest.js';
 
 const readFile: ToolCandidate = { name: 'read_file', params: { required: ['uri'] } };
@@ -29,6 +31,8 @@ const noRequired: ToolCandidate = { name: 'list_workspaces', params: { required:
 const ALL_TOOLS = [readFile, runNlCommand, searchForFiles, editFile, noRequired];
 
 suite('toolSchemaSuggest', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('scoreToolMatch', () => {
 

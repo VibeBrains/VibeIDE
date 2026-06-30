@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -50,7 +51,7 @@ class ImageQARegistryContribution extends Disposable implements IWorkbenchContri
 
 			for (const modelId of modelIds) {
 				const model = this.languageModelsService.lookupLanguageModel(modelId);
-				if (!model) continue;
+				if (!model) { continue; }
 
 				// Try to extract provider and model name from identifier
 				// Format could be "provider/model" or just a model name

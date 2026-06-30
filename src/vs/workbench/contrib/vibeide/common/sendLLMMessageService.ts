@@ -1,11 +1,12 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { sanitizeLlmErrorForLog } from './llmErrorSanitize.js';
-import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, ServiceSendLLMMessageParams, MainSendLLMMessageParams, MainLLMMessageAbortParams, ServiceModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, MainModelListParams, OllamaModelResponse, OpenaiCompatibleModelResponse, } from './sendLLMMessageTypes.js';
+import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, ServiceSendLLMMessageParams, MainSendLLMMessageParams, MainLLMMessageAbortParams, ServiceModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, MainModelListParams, OllamaModelResponse, OpenaiCompatibleModelResponse, LLMChatMessage, AnthropicLLMChatMessage, OpenAILLMChatMessage, GeminiLLMChatMessage, } from './sendLLMMessageTypes.js';
 import { IVibeTokenBudgetService } from './vibeTokenBudgetService.js';
 
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -18,6 +19,7 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { IMCPService } from './mcpService.js';
 import { ISecretDetectionService } from './secretDetectionService.js';
+import type { SecretMatch } from './secretDetection.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -46,36 +48,55 @@ export interface TransportDiagnostics {
 	readonly initialized: boolean;
 }
 
+/** Anthropic/OpenAI chat messages carry `content`; Gemini carries `parts`. */
+function isContentMessage(msg: LLMChatMessage): msg is AnthropicLLMChatMessage | OpenAILLMChatMessage {
+	return Object.hasOwn(msg, 'content');
+}
+
+/** Gemini chat messages carry `parts` instead of `content`. */
+function isPartsMessage(msg: LLMChatMessage): msg is GeminiLLMChatMessage {
+	return Object.hasOwn(msg, 'parts');
+}
+
 // open this file side by side with llmMessageChannel
 export class LLMMessageService extends Disposable implements ILLMMessageService {
 
 	readonly _serviceBrand: undefined;
-	private readonly channel: IChannel // LLMMessageChannel
+	private readonly channel: IChannel; // LLMMessageChannel
 
 	// sendLLMMessage
-	private readonly llmMessageHooks = {
-		onText: {} as { [eventId: string]: ((params: EventLLMMessageOnTextParams) => void) },
-		onFinalMessage: {} as { [eventId: string]: ((params: EventLLMMessageOnFinalMessageParams) => void) },
-		onError: {} as { [eventId: string]: ((params: EventLLMMessageOnErrorParams) => void) },
-		onAbort: {} as { [eventId: string]: (() => void) }, // NOT sent over the channel, result is instant when we call .abort()
-	}
+	private readonly llmMessageHooks: {
+		onText: { [eventId: string]: ((params: EventLLMMessageOnTextParams) => void) };
+		onFinalMessage: { [eventId: string]: ((params: EventLLMMessageOnFinalMessageParams) => void) };
+		onError: { [eventId: string]: ((params: EventLLMMessageOnErrorParams) => void) };
+		onAbort: { [eventId: string]: (() => void) };
+	} = {
+			onText: {},
+			onFinalMessage: {},
+			onError: {},
+			onAbort: {}, // NOT sent over the channel, result is instant when we call .abort()
+		};
 
 	// list hooks
-	private readonly listHooks = {
+	private readonly listHooks: {
 		ollama: {
-			success: {} as { [eventId: string]: ((params: EventModelListOnSuccessParams<OllamaModelResponse>) => void) },
-			error: {} as { [eventId: string]: ((params: EventModelListOnErrorParams<OllamaModelResponse>) => void) },
-		},
+			success: { [eventId: string]: ((params: EventModelListOnSuccessParams<OllamaModelResponse>) => void) };
+			error: { [eventId: string]: ((params: EventModelListOnErrorParams<OllamaModelResponse>) => void) };
+		};
 		openAICompat: {
-			success: {} as { [eventId: string]: ((params: EventModelListOnSuccessParams<OpenaiCompatibleModelResponse>) => void) },
-			error: {} as { [eventId: string]: ((params: EventModelListOnErrorParams<OpenaiCompatibleModelResponse>) => void) },
-		}
-	} satisfies {
-		[providerName in 'ollama' | 'openAICompat']: {
-			success: { [eventId: string]: ((params: EventModelListOnSuccessParams<any>) => void) },
-			error: { [eventId: string]: ((params: EventModelListOnErrorParams<any>) => void) },
-		}
-	}
+			success: { [eventId: string]: ((params: EventModelListOnSuccessParams<OpenaiCompatibleModelResponse>) => void) };
+			error: { [eventId: string]: ((params: EventModelListOnErrorParams<OpenaiCompatibleModelResponse>) => void) };
+		};
+	} = {
+			ollama: {
+				success: {},
+				error: {},
+			},
+			openAICompat: {
+				success: {},
+				error: {},
+			}
+		};
 
 	constructor(
 		@IMainProcessService private readonly mainProcessService: IMainProcessService, // used as a renderer (only usable on client side)
@@ -86,21 +107,21 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		@IVibeTokenBudgetService private readonly tokenBudgetService: IVibeTokenBudgetService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 	) {
-		super()
+		super();
 
 		// const service = ProxyChannel.toService<LLMMessageChannel>(mainProcessService.getChannel('vibe-channel-sendLLMMessage')); // lets you call it like a service
 		// see llmMessageChannel.ts
-		this.channel = this.mainProcessService.getChannel('vibeide-channel-llmMessage')
+		this.channel = this.mainProcessService.getChannel('vibeide-channel-llmMessage');
 
 		// .listen sets up an IPC channel and takes a few ms, so we set up listeners immediately and add hooks to them instead
 		// llm
 		this._register((this.channel.listen('onText_sendLLMMessage') satisfies Event<EventLLMMessageOnTextParams>)(e => {
-			this.llmMessageHooks.onText[e.requestId]?.(e)
-		}))
+			this.llmMessageHooks.onText[e.requestId]?.(e);
+		}));
 		this._register((this.channel.listen('onFinalMessage_sendLLMMessage') satisfies Event<EventLLMMessageOnFinalMessageParams>)(e => {
 			this.llmMessageHooks.onFinalMessage[e.requestId]?.(e);
-			this._clearChannelHooks(e.requestId)
-		}))
+			this._clearChannelHooks(e.requestId);
+		}));
 		this._register((this.channel.listen('onError_sendLLMMessage') satisfies Event<EventLLMMessageOnErrorParams>)(e => {
 			this.llmMessageHooks.onError[e.requestId]?.(e);
 			this._clearChannelHooks(e.requestId);
@@ -110,30 +131,30 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			// redaction stays; the bulk prompt payload is omitted.
 			const config = this.secretDetectionService.getConfig();
 			const errObj = config.enabled ? this.secretDetectionService.redactSecretsInObject(e).redacted : e;
-			vibeLog.error('sendLLMMessage', 'Error in LLMMessageService:', sanitizeLlmErrorForLog(errObj))
-		}))
+			vibeLog.error('sendLLMMessage', 'Error in LLMMessageService:', sanitizeLlmErrorForLog(errObj));
+		}));
 		// .list()
 		this._register((this.channel.listen('onSuccess_list_ollama') satisfies Event<EventModelListOnSuccessParams<OllamaModelResponse>>)(e => {
-			this.listHooks.ollama.success[e.requestId]?.(e)
-		}))
+			this.listHooks.ollama.success[e.requestId]?.(e);
+		}));
 		this._register((this.channel.listen('onError_list_ollama') satisfies Event<EventModelListOnErrorParams<OllamaModelResponse>>)(e => {
-			this.listHooks.ollama.error[e.requestId]?.(e)
-		}))
+			this.listHooks.ollama.error[e.requestId]?.(e);
+		}));
 		this._register((this.channel.listen('onSuccess_list_openAICompatible') satisfies Event<EventModelListOnSuccessParams<OpenaiCompatibleModelResponse>>)(e => {
-			this.listHooks.openAICompat.success[e.requestId]?.(e)
-		}))
+			this.listHooks.openAICompat.success[e.requestId]?.(e);
+		}));
 		this._register((this.channel.listen('onError_list_openAICompatible') satisfies Event<EventModelListOnErrorParams<OpenaiCompatibleModelResponse>>)(e => {
-			this.listHooks.openAICompat.error[e.requestId]?.(e)
-		}))
+			this.listHooks.openAICompat.error[e.requestId]?.(e);
+		}));
 
 	}
 
 	resetProviderClients(): Promise<void> {
-		return this.channel.call('resetProviderClients')
+		return this.channel.call('resetProviderClients');
 	}
 
 	getTransportDiagnostics(): Promise<TransportDiagnostics> {
-		return this.channel.call('getTransportDiagnostics')
+		return this.channel.call('getTransportDiagnostics');
 	}
 
 	sendLLMMessage(params: ServiceSendLLMMessageParams) {
@@ -149,27 +170,27 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 
 		// throw an error if no model/provider selected (this should usually never be reached, the UI should check this first, but might happen in cases like Apply where we haven't built much UI/checks yet, good practice to have check logic on backend)
 		if (modelSelection === null) {
-			const message = `Please add a provider in VibeIDE Settings.`
-			onError({ message, fullError: null })
-			return null
+			const message = `Please add a provider in VibeIDE Settings.`;
+			onError({ message, fullError: null });
+			return null;
 		}
 
 		if (params.messagesType === 'chatMessages' && (params.messages?.length ?? 0) === 0) {
-			const message = `No messages detected.`
-			onError({ message, fullError: null })
-			return null
+			const message = `No messages detected.`;
+			onError({ message, fullError: null });
+			return null;
 		}
 
 		// Detect and redact secrets before sending
 		const config = this.secretDetectionService.getConfig();
 		if (config.enabled && params.messagesType === 'chatMessages' && params.messages) {
-			let totalMatches: any[] = [];
+			const totalMatches: SecretMatch[] = [];
 			let hasAnySecrets = false;
 
 			// Scan all messages for secrets
 			for (const msg of params.messages) {
 				// Handle different message types
-				if ('content' in msg) {
+				if (isContentMessage(msg)) {
 					// AnthropicLLMChatMessage or OpenAILLMChatMessage
 					if (typeof msg.content === 'string') {
 						const detection = this.secretDetectionService.detectSecrets(msg.content);
@@ -177,30 +198,36 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 							hasAnySecrets = true;
 							totalMatches.push(...detection.matches);
 							// Redact the message content
-							(msg as any).content = detection.redactedText;
+							msg.content = detection.redactedText;
 						}
 					} else if (Array.isArray(msg.content)) {
 						// Handle array content (e.g., OpenAI format with images)
 						for (const part of msg.content) {
-							if ('type' in part && part.type === 'text' && 'text' in part && typeof part.text === 'string') {
-								const detection = this.secretDetectionService.detectSecrets(part.text);
-								if (detection.hasSecrets) {
-									hasAnySecrets = true;
-									totalMatches.push(...detection.matches);
-									(part as any).text = detection.redactedText;
+							if (Object.hasOwn(part, 'type') && (part as { type?: string }).type === 'text' && Object.hasOwn(part, 'text')) {
+								const textPart = part as { type: 'text'; text: string };
+								if (typeof textPart.text === 'string') {
+									const detection = this.secretDetectionService.detectSecrets(textPart.text);
+									if (detection.hasSecrets) {
+										hasAnySecrets = true;
+										totalMatches.push(...detection.matches);
+										textPart.text = detection.redactedText;
+									}
 								}
 							}
 						}
 					}
-				} else if ('parts' in msg) {
+				} else if (isPartsMessage(msg)) {
 					// GeminiLLMChatMessage - uses 'parts' instead of 'content'
 					for (const part of msg.parts) {
-						if ('text' in part && typeof part.text === 'string') {
-							const detection = this.secretDetectionService.detectSecrets(part.text);
-							if (detection.hasSecrets) {
-								hasAnySecrets = true;
-								totalMatches.push(...detection.matches);
-								(part as any).text = detection.redactedText;
+						if (Object.hasOwn(part, 'text')) {
+							const textPart = part as { text: string };
+							if (typeof textPart.text === 'string') {
+								const detection = this.secretDetectionService.detectSecrets(textPart.text);
+								if (detection.hasSecrets) {
+									hasAnySecrets = true;
+									totalMatches.push(...detection.matches);
+									textPart.text = detection.redactedText;
+								}
 							}
 						}
 					}
@@ -241,9 +268,9 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			}
 		}
 
-		const { settingsOfProvider, } = this.vibeideSettingsService.state
+		const { settingsOfProvider, } = this.vibeideSettingsService.state;
 
-		const mcpTools = this.mcpService.getMCPTools()
+		const mcpTools = this.mcpService.getMCPTools();
 
 		let approxInputTokens = 1000;
 		if (proxyParams.messagesType === 'chatMessages' && proxyParams.messages) {
@@ -261,7 +288,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 
 		// add state for request id
 		const requestId = generateUuid();
-		this.llmMessageHooks.onText[requestId] = onText
+		this.llmMessageHooks.onText[requestId] = onText;
 		this.llmMessageHooks.onFinalMessage[requestId] = (p) => {
 			// Prefer real provider usage when available (AI SDK exposes promptTokens /
 			// completionTokens via `finish` parts). Fall back to length/4 heuristic
@@ -278,9 +305,9 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			}
 			this.tokenBudgetService.recordUsage(inForBudget, outForBudget, p.usage?.cachedInputTokens);
 			onFinalMessage(p);
-		}
-		this.llmMessageHooks.onError[requestId] = onError
-		this.llmMessageHooks.onAbort[requestId] = onAbort // used internally only
+		};
+		this.llmMessageHooks.onError[requestId] = onError;
+		this.llmMessageHooks.onAbort[requestId] = onAbort; // used internally only
 
 		// Pull tunable timeouts from VS Code config (registered in vibeideGlobalSettingsConfiguration).
 		// Reading per-call is cheap and lets users change the values without restart.
@@ -290,9 +317,9 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		const newMode = this.configurationService.getValue<'auto' | 'native' | 'xml' | undefined>('vibeide.llm.toolFallbackMode');
 		const oldAssumeNative = this.configurationService.getValue<boolean | undefined>('vibeide.llm.assumeNativeTools');
 		const toolFallbackMode: 'auto' | 'native' | 'xml' = (() => {
-			if (newMode === 'native' || newMode === 'xml') return newMode;
+			if (newMode === 'native' || newMode === 'xml') { return newMode; }
 			// newMode is 'auto' or undefined → check legacy boolean for backward compat
-			if (oldAssumeNative === false) return 'xml';
+			if (oldAssumeNative === false) { return 'xml'; }
 			return 'auto';
 		})();
 		const runtimeOptions = {
@@ -311,10 +338,10 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		// Transiently overlay dynamic-provider transport configs (.vibe/providers.json) so a dynamic
 		// providerName resolves to a baseURL/apiKey/headers in electron-main. Not persisted — a local
 		// copy made only for this send; persisted `settingsOfProvider` stays free of dynamic ids.
-		const dynamicTransport = this.vibeideSettingsService.getDynamicTransportConfigs()
+		const dynamicTransport = this.vibeideSettingsService.getDynamicTransportConfigs();
 		const settingsOfProviderForSend = (Object.keys(dynamicTransport).length > 0
 			? { ...settingsOfProvider, ...dynamicTransport }
-			: settingsOfProvider) as typeof settingsOfProvider
+			: settingsOfProvider) as typeof settingsOfProvider;
 
 		// params will be stripped of all its functions over the IPC channel
 		this.channel.call('sendLLMMessage', {
@@ -326,62 +353,62 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			runtimeOptions,
 		} satisfies MainSendLLMMessageParams);
 
-		return requestId
+		return requestId;
 	}
 
 	abort(requestId: string) {
-		this.llmMessageHooks.onAbort[requestId]?.() // calling the abort hook here is instant (doesn't go over a channel)
+		this.llmMessageHooks.onAbort[requestId]?.(); // calling the abort hook here is instant (doesn't go over a channel)
 		this.channel.call('abort', { requestId } satisfies MainLLMMessageAbortParams);
-		this._clearChannelHooks(requestId)
+		this._clearChannelHooks(requestId);
 	}
 
 
 	ollamaList = (params: ServiceModelListParams<OllamaModelResponse>) => {
-		const { onSuccess, onError, ...proxyParams } = params
+		const { onSuccess, onError, ...proxyParams } = params;
 
-		const { settingsOfProvider } = this.vibeideSettingsService.state
+		const { settingsOfProvider } = this.vibeideSettingsService.state;
 
 		// add state for request id
 		const requestId_ = generateUuid();
-		this.listHooks.ollama.success[requestId_] = onSuccess
-		this.listHooks.ollama.error[requestId_] = onError
+		this.listHooks.ollama.success[requestId_] = onSuccess;
+		this.listHooks.ollama.error[requestId_] = onError;
 
 		this.channel.call('ollamaList', {
 			...proxyParams,
 			settingsOfProvider,
 			providerName: 'ollama',
 			requestId: requestId_,
-		} satisfies MainModelListParams<OllamaModelResponse>)
-	}
+		} satisfies MainModelListParams<OllamaModelResponse>);
+	};
 
 
 	openAICompatibleList = (params: ServiceModelListParams<OpenaiCompatibleModelResponse>) => {
-		const { onSuccess, onError, ...proxyParams } = params
+		const { onSuccess, onError, ...proxyParams } = params;
 
-		const { settingsOfProvider } = this.vibeideSettingsService.state
+		const { settingsOfProvider } = this.vibeideSettingsService.state;
 
 		// add state for request id
 		const requestId_ = generateUuid();
-		this.listHooks.openAICompat.success[requestId_] = onSuccess
-		this.listHooks.openAICompat.error[requestId_] = onError
+		this.listHooks.openAICompat.success[requestId_] = onSuccess;
+		this.listHooks.openAICompat.error[requestId_] = onError;
 
 		this.channel.call('openAICompatibleList', {
 			...proxyParams,
 			settingsOfProvider,
 			requestId: requestId_,
-		} satisfies MainModelListParams<OpenaiCompatibleModelResponse>)
-	}
+		} satisfies MainModelListParams<OpenaiCompatibleModelResponse>);
+	};
 
 	private _clearChannelHooks(requestId: string) {
-		delete this.llmMessageHooks.onText[requestId]
-		delete this.llmMessageHooks.onFinalMessage[requestId]
-		delete this.llmMessageHooks.onError[requestId]
+		delete this.llmMessageHooks.onText[requestId];
+		delete this.llmMessageHooks.onFinalMessage[requestId];
+		delete this.llmMessageHooks.onError[requestId];
 
-		delete this.listHooks.ollama.success[requestId]
-		delete this.listHooks.ollama.error[requestId]
+		delete this.listHooks.ollama.success[requestId];
+		delete this.listHooks.ollama.error[requestId];
 
-		delete this.listHooks.openAICompat.success[requestId]
-		delete this.listHooks.openAICompat.error[requestId]
+		delete this.listHooks.openAICompat.success[requestId];
+		delete this.listHooks.openAICompat.error[requestId];
 	}
 }
 

@@ -1,9 +1,12 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import { Disposable, IDisposable } from '../../../../base/common/lifecycle.js';
+import { disposableWindowInterval } from '../../../../base/browser/dom.js';
+import { mainWindow } from '../../../../base/browser/window.js';
 import { localize } from '../../../../nls.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IStatusbarEntry, IStatusbarEntryAccessor, IStatusbarService, StatusbarAlignment } from '../../../services/statusbar/browser/statusbar.js';
@@ -41,8 +44,7 @@ export class VibeMultiAgentObservationStatusBarContribution extends Disposable i
 		this._register(this._config.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration('vibeide.statusBar.unifiedOnly')) { this._wire(); }
 		}));
-		const h = window.setInterval(() => this._refresh.schedule(), 4000);
-		this._register({ dispose: () => clearInterval(h) });
+		this._register(disposableWindowInterval(mainWindow, () => this._refresh.schedule(), 4000));
 		this._refresh.schedule();
 	}
 

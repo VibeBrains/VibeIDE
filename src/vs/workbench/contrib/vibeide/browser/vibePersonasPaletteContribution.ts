@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Personas marketplace palette commands (roadmap §L1052).
@@ -55,12 +56,12 @@ registerAction2(class extends Action2 {
 			prompt: localize('vibeide.personas.importFromUrl.prompt', 'Введите HTTPS URL файла community personas pack'),
 			validateInput: async v => {
 				const t = v.trim();
-				if (!t) return null;
-				if (!t.startsWith('https://')) return localize('vibeide.personas.importFromUrl.notHttps', 'Разрешены только HTTPS URL.');
+				if (!t) { return null; }
+				if (!t.startsWith('https://')) { return localize('vibeide.personas.importFromUrl.notHttps', 'Разрешены только HTTPS URL.'); }
 				return null;
 			},
 		});
-		if (!rawUrl?.trim()) return;
+		if (!rawUrl?.trim()) { return; }
 
 		const urlResult = decodePersonasCatalogUrl(rawUrl.trim());
 		if (urlResult.kind !== 'ok') {
@@ -155,7 +156,7 @@ registerAction2(class extends Action2 {
 			detail: renderPersonasDiffMarkdown(result.diff) + systemPromptWarning,
 			primaryButton: localize('vibeide.personas.importFromUrl.confirmBtn', 'Импортировать'),
 		});
-		if (!confirmed.confirmed) return;
+		if (!confirmed.confirmed) { return; }
 
 		const folder = workspace.getWorkspace().folders[0];
 		if (!folder) {

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Embedded Vibe Browser (roadmap VS.3): a webview editor that hosts the preview in an
@@ -199,11 +200,11 @@ export class VibeBrowserManager extends Disposable {
 		// server origin (frame-src). connect-src stays 'none' — the iframe's own ws lives in its
 		// own origin context, not the chrome document.
 		const csp = [
-			"default-src 'none'",
+			`default-src 'none'`,
 			`frame-src ${frameOrigin}`,
 			`img-src ${frameOrigin} https: data:`,
-			"style-src 'nonce-" + nonce + "'",
-			"script-src 'nonce-" + nonce + "'",
+			`style-src 'nonce-${nonce}'`,
+			`script-src 'nonce-${nonce}'`,
 			'font-src data:',
 		].join('; ');
 

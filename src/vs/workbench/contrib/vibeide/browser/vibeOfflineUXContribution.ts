@@ -1,8 +1,10 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
+import { mainWindow } from '../../../../base/browser/window.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize } from '../../../../nls.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
@@ -29,7 +31,7 @@ export class VibeOfflineUXContribution extends Disposable implements IWorkbenchC
 	}
 
 	private _setupNetworkMonitoring(): void {
-		if (typeof window === 'undefined') return;
+		if (typeof mainWindow === 'undefined') { return; }
 
 		const onOffline = () => {
 			this._showOfflineIndicator();
@@ -51,19 +53,21 @@ export class VibeOfflineUXContribution extends Disposable implements IWorkbenchC
 			});
 		};
 
-		window.addEventListener('offline', onOffline);
-		window.addEventListener('online', onOnline);
+		mainWindow.addEventListener('offline', onOffline);
+		mainWindow.addEventListener('online', onOnline);
 
-		this._register({ dispose: () => {
-			window.removeEventListener('offline', onOffline);
-			window.removeEventListener('online', onOnline);
-		}});
+		this._register({
+			dispose: () => {
+				mainWindow.removeEventListener('offline', onOffline);
+				mainWindow.removeEventListener('online', onOnline);
+			}
+		});
 	}
 
 	private _showOfflineIndicator(): void {
 		const props: IStatusbarEntry = {
 			name: localize('vibeOfflineStatus', 'VibeIDE офлайн'),
-			text: localize('vibeOfflineStatusText', '$(cloud-offline) Офлайн'),
+			text: `$(cloud-offline) ${localize('vibeOfflineStatusText', 'Офлайн')}`,
 			tooltip: localize('vibeOfflineTooltip', 'VibeIDE офлайн. Облачный AI недоступен. Ollama работает локально.'),
 			ariaLabel: localize('vibeOfflineStatusAria', 'VibeIDE работает офлайн'),
 		};

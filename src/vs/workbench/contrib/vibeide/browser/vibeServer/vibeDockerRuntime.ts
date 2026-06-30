@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Docker runtime (roadmap VS.5): brings up the project's environment for preview.
@@ -10,6 +11,7 @@
  * environment down on stop. Scope is "spin up a runtime to preview it" — not Dev Containers.
  */
 
+import { localize } from '../../../../../nls.js';
 import { Emitter } from '../../../../../base/common/event.js';
 import { Disposable, DisposableStore, MutableDisposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
@@ -127,7 +129,7 @@ export class DockerRuntime extends Disposable implements IVibeServerRuntime {
 		if (await this._exists('Dockerfile')) {
 			return this._startDockerfile();
 		}
-		throw new Error("В корне проекта нет docker-compose.yml или Dockerfile");
+		throw new Error(localize('vibeide.dockerRuntime.noComposeOrDockerfile', "В корне проекта нет docker-compose.yml или Dockerfile"));
 	}
 
 	async stop(): Promise<void> {
@@ -151,7 +153,7 @@ export class DockerRuntime extends Disposable implements IVibeServerRuntime {
 	}
 
 	private async _startCompose(): Promise<IVibeServerStarted> {
-		this._onDidLog.fire("docker compose up -d --build…");
+		this._onDidLog.fire('docker compose up -d --build…');
 		const up = await runToCompletion(this._proc, this._spec(['compose', 'up', '-d', '--build']));
 		if (up.code !== 0) {
 			throw new Error(`docker compose up завершился с ошибкой: ${(up.stderr || up.stdout).trim().slice(-400)}`);
@@ -168,7 +170,7 @@ export class DockerRuntime extends Disposable implements IVibeServerRuntime {
 		}
 		const port = pickPort(ports);
 		if (!port) {
-			throw new Error("Не удалось определить опубликованный порт контейнера");
+			throw new Error(localize('vibeide.dockerRuntime.noPublishedPort', "Не удалось определить опубликованный порт контейнера"));
 		}
 
 		await this._awaitReady(port);
@@ -194,7 +196,7 @@ export class DockerRuntime extends Disposable implements IVibeServerRuntime {
 		const portInfo = await runToCompletion(this._proc, this._spec(['port', name]));
 		const port = parseDockerPort(portInfo.stdout);
 		if (!port) {
-			throw new Error("Контейнер не опубликовал ни одного порта (нет EXPOSE/-p)");
+			throw new Error(localize('vibeide.dockerRuntime.containerNoPort', "Контейнер не опубликовал ни одного порта (нет EXPOSE/-p)"));
 		}
 
 		await this._awaitReady(port);
@@ -229,7 +231,7 @@ export class DockerRuntime extends Disposable implements IVibeServerRuntime {
 	private async _assertDockerAvailable(): Promise<void> {
 		const result = await runToCompletion(this._proc, this._spec(['version']));
 		if (result.code !== 0) {
-			throw new Error("Docker недоступен — установите и запустите Docker Desktop");
+			throw new Error(localize('vibeide.dockerRuntime.dockerUnavailable', "Docker недоступен — установите и запустите Docker Desktop"));
 		}
 	}
 

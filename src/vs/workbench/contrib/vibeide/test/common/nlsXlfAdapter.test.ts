@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	decodeXlfFile,
 	buildXlfFile,
@@ -21,6 +23,8 @@ const valid = (overrides: Record<string, unknown> = {}): unknown => ({
 });
 
 suite('VS Code NLS XLF adapter — typed contract', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decodeXlfFile', () => {
 		test('happy path', () => {
@@ -51,7 +55,7 @@ suite('VS Code NLS XLF adapter — typed contract', () => {
 				],
 			}));
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.reason.includes('duplicate-key'));
+			if (!r.ok) { assert.ok(r.reason.includes('duplicate-key')); }
 		});
 
 		test('rejects malformed key pattern', () => {
@@ -73,14 +77,14 @@ suite('VS Code NLS XLF adapter — typed contract', () => {
 			const r = decodeXlfFile(valid({
 				transUnits: [{ key: 'a', source: 'A', target: 'А' }],
 			}));
-			if (r.ok) assert.strictEqual(r.value.transUnits[0].target, 'А');
+			if (r.ok) { assert.strictEqual(r.value.transUnits[0].target, 'А'); }
 		});
 
 		test('note field passed through', () => {
 			const r = decodeXlfFile(valid({
 				transUnits: [{ key: 'a', source: 'A', note: 'context hint' }],
 			}));
-			if (r.ok) assert.strictEqual(r.value.transUnits[0].note, 'context hint');
+			if (r.ok) { assert.strictEqual(r.value.transUnits[0].note, 'context hint'); }
 		});
 
 		test('rejects null root', () => {
@@ -120,7 +124,7 @@ suite('VS Code NLS XLF adapter — typed contract', () => {
 				metadataEnglish: new Map(),
 			});
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'source-and-target-equal');
+			if (!r.ok) { assert.strictEqual(r.reason, 'source-and-target-equal'); }
 		});
 
 		test('keys sorted in output', () => {
@@ -155,7 +159,7 @@ suite('VS Code NLS XLF adapter — typed contract', () => {
 				metadataEnglish: new Map([['a', 'A']]),
 				translations: new Map([['a', '']]),
 			});
-			if (r.ok) assert.strictEqual(r.value.transUnits[0].target, undefined);
+			if (r.ok) { assert.strictEqual(r.value.transUnits[0].target, undefined); }
 		});
 	});
 

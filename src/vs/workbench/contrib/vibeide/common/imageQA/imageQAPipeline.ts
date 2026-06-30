@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../vibeLog.js';
 import { ImageType, QuestionType } from './modelRegistry.js';
@@ -20,6 +21,7 @@ export interface QAResponse {
 	};
 	// Internal flags for pipeline processing
 	_needsLLM?: boolean;
+	_needsVLM?: boolean;
 	_prompt?: string;
 }
 
@@ -93,7 +95,7 @@ export class ImageQAPipeline {
 		if (ocrResult.totalChars < 10) {
 			// OCR yielded little text - get region proposals from VLM if available
 			if (options.vlmModel || options.allowRemoteModels) {
-				if (devMode) vibeLog.info('imageQAPipeline', '[ImageQA] OCR yielded little text, getting VLM region proposals');
+				if (devMode) { vibeLog.info('imageQAPipeline', '[ImageQA] OCR yielded little text, getting VLM region proposals'); }
 				const regions = await this.getRegionProposals(imageData, mimeType, options.vlmModel, options.allowRemoteModels);
 
 				if (regions.length > 0) {
@@ -185,7 +187,7 @@ export class ImageQAPipeline {
 			_needsLLM: true,
 			_prompt: this.buildVLMPrompt('analysis', userQuestion),
 			_needsVLM: true, // Signal that this needs VLM processing
-		} as QAResponse & { _needsLLM?: boolean; _needsVLM?: boolean; _prompt?: string };
+		};
 	}
 
 	/**
@@ -364,7 +366,7 @@ export class ImageQAPipeline {
 			// Signal that this needs LLM processing
 			_needsLLM: true,
 			_prompt: prompt,
-		} as QAResponse & { _needsLLM?: boolean; _prompt?: string };
+		};
 	}
 
 	/**

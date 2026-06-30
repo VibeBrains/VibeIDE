@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * GDPR palette commands — N.2 roadmap (lines 1177-1178).
@@ -45,7 +46,7 @@ CommandsRegistry.registerCommand({
 			detail: body,
 			primaryButton: localize('vibeide.gdpr.export.primary', 'Экспортировать'),
 		});
-		if (!confirmed.confirmed) return;
+		if (!confirmed.confirmed) { return; }
 
 		const t = await terminal.createTerminal({
 			location: TerminalLocation.Panel,
@@ -79,7 +80,7 @@ CommandsRegistry.registerCommand({
 			detail: body,
 			primaryButton: localize('vibeide.gdpr.delete.primary', 'Продолжить'),
 		});
-		if (!confirmed.confirmed) return;
+		if (!confirmed.confirmed) { return; }
 
 		// If any items are irreversible, require the user to type "DELETE" to confirm.
 		if (irreversibleCount > 0) {
@@ -93,7 +94,7 @@ CommandsRegistry.registerCommand({
 					? undefined
 					: localize('vibeide.gdpr.delete.wrongInput', 'Введите DELETE заглавными буквами'),
 			});
-			if (typed !== 'DELETE') return;
+			if (typed !== 'DELETE') { return; }
 		}
 
 		const t = await terminal.createTerminal({

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -85,7 +86,7 @@ class VibeContextEvictionService extends Disposable implements IVibeContextEvict
 
 	autoCompress(targetTokens: number): { evicted: ContextItem[]; saved: number } {
 		const current = this.getTotalTokens();
-		if (current <= targetTokens) return { evicted: [], saved: 0 };
+		if (current <= targetTokens) { return { evicted: [], saved: 0 }; }
 
 		// Evict oldest, smallest, non-pinned items first
 		const evictable = Array.from(this._items.values())
@@ -96,7 +97,7 @@ class VibeContextEvictionService extends Disposable implements IVibeContextEvict
 		let saved = 0;
 
 		for (const item of evictable) {
-			if (current - saved <= targetTokens) break;
+			if (current - saved <= targetTokens) { break; }
 			this._items.delete(item.id);
 			evicted.push(item);
 			saved += item.tokenCount;

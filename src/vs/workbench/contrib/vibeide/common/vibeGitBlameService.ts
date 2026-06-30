@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -63,7 +64,7 @@ class VibeGitBlameService extends Disposable implements IVibeGitBlameService {
 				message: string;
 			}>('git.getLineBlame', filePath, lineNumber);
 
-			if (!blameInfo) return null;
+			if (!blameInfo) { return null; }
 
 			return {
 				filePath,

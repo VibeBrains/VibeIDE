@@ -1,6 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Russian UI strings for VibeIDE Settings (React panel).
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import type { ChatMode } from '../../../../common/vibeideSettingsTypes.js';
 import { VIBE_WORKSPACE_FORMAT_VERSION } from '../../../../common/vibeDefaultWorkspaceReadme.js';
@@ -834,7 +836,7 @@ export const providersS = {
 	dynKeyUnverified: 'Ключ не проверяется (static-список)',
 	dynKeyNone: 'Ключ не задан',
 	dynKeySrcPrefix: 'источник',
-	dynKeySrc: { gui: 'введён в IDE', env: '.vibe/.env', ref: 'apiKeyRef', none: '—' } as Record<string, string>,
+	dynKeySrc: { gui: 'введён в IDE', env: '.vibe/.env', ref: 'apiKeyRef', none: '—' } satisfies Record<string, string>,
 	warnOllama: 'Установите модель Ollama — мы её подхватим автоматически.',
 	warnAddModel: (providerTitle: string) =>
 		`Добавьте модель для ${providerTitle} (раздел «Модели»).`,
@@ -883,7 +885,7 @@ export const notifyS = {
 		chatUserActionRequired: 'Требуется действие',
 		terminalBell: 'Звонок терминала',
 		break: 'Короткий сигнал',
-	} as Record<string, string>,
+	} satisfies Record<string, string>,
 	// «VibeIDE Звуки» modal (brain menu)
 	modalTitle: 'VibeIDE Звуки',
 	deleteTooltip: 'Удалить',

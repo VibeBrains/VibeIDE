@@ -1,16 +1,21 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../vibeLog.js';
-import { TelemetryEvent, TelemetryQuery } from './telemetryTypes.js';
-import { promisify } from 'util';
-import { gzip, gunzip } from 'zlib';
-import * as path from 'path';
+import { TelemetryEvent, RoutingDecisionEvent, AnyTelemetryEvent, TelemetryQuery } from './telemetryTypes.js';
 
-const gzipAsync = promisify(gzip);
-const gunzipAsync = promisify(gunzip);
+// Node builtins are loaded lazily via require() because this module lives in the
+// layer-agnostic `common/**` folder, which forbids static node imports. The service
+// is only functional in node/electron-main contexts (gated on `this.fs`).
+const nodeUtil: typeof import('util') = require('util');
+const nodeZlib: typeof import('zlib') = require('zlib');
+const path: typeof import('path') = require('path');
+
+const gzipAsync = nodeUtil.promisify(nodeZlib.gzip);
+const gunzipAsync = nodeUtil.promisify(nodeZlib.gunzip);
 
 /**
  * Storage service for telemetry data
@@ -20,18 +25,20 @@ export class TelemetryStorageService {
 	private readonly storageDir: string;
 	private readonly maxStorageSize: number = 500 * 1024 * 1024; // 500MB
 	private readonly retentionDays: number = 30;
-	private readonly fs: typeof import('fs');
+	private readonly fs: typeof import('fs') | null;
 
 	constructor() {
 		// Use Node.js fs (only available in electron-main context)
 		// For browser context, we'll need to use IndexedDB or similar
 		// For now, this will only work in electron-main
+		let fsModule: typeof import('fs') | null;
 		try {
-			this.fs = require('fs');
+			fsModule = require('fs');
 		} catch {
 			// Browser context - will need alternative storage
-			this.fs = null as any;
+			fsModule = null;
 		}
+		this.fs = fsModule;
 
 		// Get storage directory from environment or use default
 		const userDataPath = process.env.VSCODE_USER_DATA_PATH ||
@@ -46,7 +53,7 @@ export class TelemetryStorageService {
 	}
 
 	private _ensureStorageDir(): void {
-		if (!this.fs) return; // Browser context - skip
+		if (!this.fs) { return; } // Browser context - skip
 		if (!this.fs.existsSync(this.storageDir)) {
 			this.fs.mkdirSync(this.storageDir, { recursive: true });
 		}
@@ -58,7 +65,7 @@ export class TelemetryStorageService {
 	 * One JSON object per line (JSONL)
 	 */
 	async writeEvents(events: TelemetryEvent[]): Promise<void> {
-		if (events.length === 0) return;
+		if (events.length === 0) { return; }
 		if (!this.fs) {
 			// Browser context - would need IndexedDB implementation
 			vibeLog.warn('telemetryStorage', '[TelemetryStorage] File system not available in browser context');
@@ -97,10 +104,10 @@ export class TelemetryStorageService {
 	/**
 	 * Query events with filters
 	 */
-	async queryEvents(query: TelemetryQuery): Promise<TelemetryEvent[]> {
-		if (!this.fs) return []; // Browser context
+	async queryEvents(query: TelemetryQuery): Promise<AnyTelemetryEvent[]> {
+		if (!this.fs) { return []; } // Browser context
 
-		const results: TelemetryEvent[] = [];
+		const results: AnyTelemetryEvent[] = [];
 		const files = this._getTelemetryFiles();
 
 		for (const file of files) {
@@ -116,12 +123,17 @@ export class TelemetryStorageService {
 				const events = await this._readEventsFromFile(file);
 
 				for (const event of events) {
-					// Apply filters
-					if (query.eventType && event.type !== query.eventType) continue;
-					if (query.taskType && 'taskType' in event && (event as any).taskType !== query.taskType) continue;
-					if (query.provider && 'selectedModel' in event && (event as any).selectedModel?.provider !== query.provider) continue;
-					if (query.modelName && 'selectedModel' in event && (event as any).selectedModel?.modelName !== query.modelName) continue;
-					if (query.isLocal !== undefined && 'selectedModel' in event && (event as any).selectedModel?.isLocal !== query.isLocal) continue;
+					// Apply filters. Narrow on the `type` discriminator so variant-only
+					// fields (`taskType`, `selectedModel`) are accessed type-safely.
+					if (query.eventType && event.type !== query.eventType) { continue; }
+
+					const hasTaskType = event.type === 'routing' || event.type === 'model_performance';
+					if (query.taskType && (!hasTaskType || event.taskType !== query.taskType)) { continue; }
+
+					const isRouting = event.type === 'routing';
+					if (query.provider && (!isRouting || event.selectedModel.provider !== query.provider)) { continue; }
+					if (query.modelName && (!isRouting || event.selectedModel.modelName !== query.modelName)) { continue; }
+					if (query.isLocal !== undefined && (!isRouting || event.selectedModel.isLocal !== query.isLocal)) { continue; }
 
 					results.push(event);
 
@@ -140,14 +152,14 @@ export class TelemetryStorageService {
 	/**
 	 * Read events from a single compressed file
 	 */
-	private async _readEventsFromFile(filepath: string): Promise<TelemetryEvent[]> {
-		if (!this.fs || !this.fs.existsSync(filepath)) return [];
+	private async _readEventsFromFile(filepath: string): Promise<AnyTelemetryEvent[]> {
+		if (!this.fs || !this.fs.existsSync(filepath)) { return []; }
 
 		try {
 			const compressed = this.fs.readFileSync(filepath);
 			const decompressed = await gunzipAsync(compressed);
 			const lines = decompressed.toString().split('\n').filter(line => line.trim());
-			return lines.map(line => JSON.parse(line) as TelemetryEvent);
+			return lines.map(line => JSON.parse(line) as AnyTelemetryEvent);
 		} catch (error) {
 			vibeLog.warn('telemetryStorage', `[TelemetryStorage] Failed to read file ${filepath}:`, error);
 			return [];
@@ -158,7 +170,7 @@ export class TelemetryStorageService {
 	 * Get all telemetry files sorted by date (newest first)
 	 */
 	private _getTelemetryFiles(): string[] {
-		if (!this.fs || !this.fs.existsSync(this.storageDir)) return [];
+		if (!this.fs || !this.fs.existsSync(this.storageDir)) { return []; }
 
 		const files = this.fs.readdirSync(this.storageDir)
 			.filter(f => f.startsWith('telemetry-') && f.endsWith('.jsonl.gz'))
@@ -188,7 +200,7 @@ export class TelemetryStorageService {
 	 * Delete files older than retentionDays
 	 */
 	async rotateOldFiles(): Promise<void> {
-		if (!this.fs) return; // Browser context
+		if (!this.fs) { return; } // Browser context
 
 		const cutoffDate = Date.now() - (this.retentionDays * 24 * 60 * 60 * 1000);
 		const files = this._getTelemetryFiles();
@@ -212,7 +224,7 @@ export class TelemetryStorageService {
 	 * Enforce storage size limit by compressing or deleting oldest files
 	 */
 	private async _enforceStorageLimit(): Promise<void> {
-		if (!this.fs) return; // Browser context
+		if (!this.fs) { return; } // Browser context
 
 		const files = this._getTelemetryFiles();
 		let totalSize = 0;
@@ -231,7 +243,7 @@ export class TelemetryStorageService {
 			for (const file of files.reverse()) { // Start with oldest
 				try {
 					const stats = this.fs.statSync(file);
-					if (totalSize <= this.maxStorageSize) break;
+					if (totalSize <= this.maxStorageSize) { break; }
 
 					this.fs.unlinkSync(file);
 					totalSize -= stats.size;
@@ -253,8 +265,8 @@ export class TelemetryStorageService {
 		}
 
 		// CSV export (simplified - just routing events)
-		const routingEvents = events.filter(e => e.type === 'routing') as any[];
-		if (routingEvents.length === 0) return '';
+		const routingEvents = events.filter((e): e is RoutingDecisionEvent => e.type === 'routing');
+		if (routingEvents.length === 0) { return ''; }
 
 		const headers = [
 			'timestamp', 'taskType', 'provider', 'modelName', 'isLocal',
@@ -303,8 +315,8 @@ export class TelemetryStorageService {
 				const stats = this.fs.statSync(file);
 				totalSize += stats.size;
 				const fileDate = this._extractDateFromFilename(file);
-				if (!oldestDate || fileDate < oldestDate) oldestDate = fileDate;
-				if (!newestDate || fileDate > newestDate) newestDate = fileDate;
+				if (!oldestDate || fileDate < oldestDate) { oldestDate = fileDate; }
+				if (!newestDate || fileDate > newestDate) { newestDate = fileDate; }
 			} catch (error) {
 				// File might have been deleted
 			}

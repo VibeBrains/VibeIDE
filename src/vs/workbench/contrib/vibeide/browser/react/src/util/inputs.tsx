@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { forwardRef, ForwardRefExoticComponent, MutableRefObject, RefAttributes, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -27,7 +28,7 @@ import { createTrustedTypesPolicy } from '../../../../../../../base/browser/trus
 type _BlockCodeTTP = Pick<TrustedTypePolicy, 'name' | 'createHTML'> | undefined;
 const _vibeideBlockCodeTTP: _BlockCodeTTP = (() => {
 	const g = globalThis as unknown as { __vibeideBlockCodeTTP?: _BlockCodeTTP };
-	if ('__vibeideBlockCodeTTP' in g) return g.__vibeideBlockCodeTTP;
+	if ('__vibeideBlockCodeTTP' in g) {return g.__vibeideBlockCodeTTP;}
 	const policy = createTrustedTypesPolicy('vibeideBlockCodeTokenizer', {
 		createHTML(html: string) { return html; }
 	});
@@ -49,27 +50,27 @@ import { detectLanguage } from '../../../../common/helpers/languageHelpers.js';
 import { inputsS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 
 
-type GenerateNextOptions = (optionText: string) => Promise<Option[]>
+type GenerateNextOptions = (optionText: string) => Promise<Option[]>;
 
 type Option = {
-	fullName: string,
-	abbreviatedName: string,
-	iconInMenu: ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>, // type for lucide-react components
+	fullName: string;
+	abbreviatedName: string;
+	iconInMenu: ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>; // type for lucide-react components
 } & (
-		| { leafNodeType?: undefined, nextOptions: Option[], generateNextOptions?: undefined, }
-		| { leafNodeType?: undefined, nextOptions?: undefined, generateNextOptions: GenerateNextOptions, }
-		| { leafNodeType: 'File' | 'Folder', uri: URI, range?: any, nextOptions?: undefined, generateNextOptions?: undefined, }
-	)
+		| { leafNodeType?: undefined; nextOptions: Option[]; generateNextOptions?: undefined }
+		| { leafNodeType?: undefined; nextOptions?: undefined; generateNextOptions: GenerateNextOptions }
+		| { leafNodeType: 'File' | 'Folder'; uri: URI; range?: any; nextOptions?: undefined; generateNextOptions?: undefined }
+	);
 
 
 const isSubsequence = (text: string, pattern: string): boolean => {
 
-	text = text.toLowerCase()
-	pattern = pattern.toLowerCase()
+	text = text.toLowerCase();
+	pattern = pattern.toLowerCase();
 
-	if (pattern === '') return true;
-	if (text === '') return false;
-	if (pattern.length > text.length) return false;
+	if (pattern === '') {return true;}
+	if (text === '') {return false;}
+	if (pattern.length > text.length) {return false;}
 
 	const seq: boolean[][] = Array(pattern.length + 1)
 		.fill(null)
@@ -93,7 +94,7 @@ const isSubsequence = (text: string, pattern: string): boolean => {
 
 
 const scoreSubsequence = (text: string, pattern: string): number => {
-	if (pattern === '') return 0;
+	if (pattern === '') {return 0;}
 
 	text = text.toLowerCase();
 	pattern = pattern.toLowerCase();
@@ -126,7 +127,7 @@ const scoreSubsequence = (text: string, pattern: string): number => {
 	}
 
 	return maxConsecutive;
-}
+};
 
 
 function getRelativeWorkspacePath(accessor: ReturnType<typeof useAccessor>, uri: URI): string {
@@ -169,18 +170,18 @@ function getRelativeWorkspacePath(accessor: ReturnType<typeof useAccessor>, uri:
 
 
 
-const numOptionsToShow = 100
+const numOptionsToShow = 100;
 
 
 
 // TODO make this unique based on other options
 const getAbbreviatedName = (relativePath: string) => {
-	return getBasename(relativePath, 1)
-}
+	return getBasename(relativePath, 1);
+};
 
 const getOptionsAtPath = async (accessor: ReturnType<typeof useAccessor>, path: string[], optionText: string): Promise<Option[]> => {
 
-	const toolsService = accessor.get('IToolsService')
+	const toolsService = accessor.get('IToolsService');
 
 
 
@@ -191,20 +192,20 @@ const getOptionsAtPath = async (accessor: ReturnType<typeof useAccessor>, path: 
 				query: t,
 				includePattern: null,
 				pageNumber: 1,
-			})).result).uris
+			})).result).uris;
 
 			if (searchFor === 'files') {
 				const res: Option[] = searchResults.map(uri => {
-					const relativePath = getRelativeWorkspacePath(accessor, uri)
+					const relativePath = getRelativeWorkspacePath(accessor, uri);
 					return {
 						leafNodeType: 'File',
 						uri: uri,
 						iconInMenu: File,
 						fullName: relativePath,
 						abbreviatedName: getAbbreviatedName(relativePath),
-					}
-				})
-				return res
+					};
+				});
+				return res;
 			}
 
 			else if (searchFor === 'folders') {
@@ -212,10 +213,10 @@ const getOptionsAtPath = async (accessor: ReturnType<typeof useAccessor>, path: 
 				const directoryMap = new Map<string, URI>();
 
 				for (const uri of searchResults) {
-					if (!uri) continue;
+					if (!uri) {continue;}
 
 					// Get the full path and extract directories
-					const relativePath = getRelativeWorkspacePath(accessor, uri)
+					const relativePath = getRelativeWorkspacePath(accessor, uri);
 					const pathParts = relativePath.split('/');
 
 					// Get workspace info
@@ -282,14 +283,14 @@ const getOptionsAtPath = async (accessor: ReturnType<typeof useAccessor>, path: 
 			iconInMenu: File,
 			generateNextOptions: async (_t) => {
 				try {
-					const editorService = accessor.get('IEditorService')
-					const languageService = accessor.get('ILanguageService')
-					const active = editorService.activeTextEditorControl
-					const activeResource = editorService.activeEditor?.resource
-					const sel = active?.getSelection?.()
+					const editorService = accessor.get('IEditorService');
+					const languageService = accessor.get('ILanguageService');
+					const active = editorService.activeTextEditorControl;
+					const activeResource = editorService.activeEditor?.resource;
+					const sel = active?.getSelection?.();
 					if (activeResource && sel && !sel.isEmpty()) {
-						const basename = getAbbreviatedName(getRelativeWorkspacePath(accessor, activeResource))
-						const label = `${basename}:${sel.startLineNumber}-${sel.endLineNumber}`
+						const basename = getAbbreviatedName(getRelativeWorkspacePath(accessor, activeResource));
+						const label = `${basename}:${sel.startLineNumber}-${sel.endLineNumber}`;
 						return [{
 							leafNodeType: 'File',
 							uri: activeResource,
@@ -297,10 +298,10 @@ const getOptionsAtPath = async (accessor: ReturnType<typeof useAccessor>, path: 
 							iconInMenu: File,
 							fullName: label,
 							abbreviatedName: 'selection',
-						}]
+						}];
 					}
 				} catch {}
-				return []
+				return [];
 			},
 		},
 		{
@@ -309,23 +310,23 @@ const getOptionsAtPath = async (accessor: ReturnType<typeof useAccessor>, path: 
 			iconInMenu: File,
 			generateNextOptions: async (t) => {
 				try {
-					const historyService = accessor.get('IHistoryService')
-					const items = historyService.getHistory().filter((h: any) => h.resource).map((h: any) => h.resource)
+					const historyService = accessor.get('IHistoryService');
+					const items = historyService.getHistory().filter((h: any) => h.resource).map((h: any) => h.resource);
 					const options = items.map((uri: URI) => {
-						const relativePath = getRelativeWorkspacePath(accessor, uri)
+						const relativePath = getRelativeWorkspacePath(accessor, uri);
 						return {
 							leafNodeType: 'File',
 							uri,
 							iconInMenu: File,
 							fullName: relativePath,
 							abbreviatedName: getAbbreviatedName(relativePath),
-						} satisfies Option
-					})
+						} satisfies Option;
+					});
 
 					// simple filter
-					return options.filter(o => isSubsequence(o.fullName, t))
+					return options.filter(o => isSubsequence(o.fullName, t));
 				} catch {
-					return []
+					return [];
 				}
 			},
 		},
@@ -335,15 +336,15 @@ const getOptionsAtPath = async (accessor: ReturnType<typeof useAccessor>, path: 
 			iconInMenu: Folder,
 			generateNextOptions: async (_t) => {
 				try {
-					const workspaceService = accessor.get('IWorkspaceContextService')
+					const workspaceService = accessor.get('IWorkspaceContextService');
 					return workspaceService.getWorkspace().folders.map((f: any) => ({
 						leafNodeType: 'Folder',
 						uri: f.uri,
 						iconInMenu: Folder,
 						fullName: getRelativeWorkspacePath(accessor, f.uri) || '/',
 						abbreviatedName: getFolderName(getRelativeWorkspacePath(accessor, f.uri) || '/')
-					})) as Option[]
-				} catch { return [] }
+					})) as Option[];
+				} catch { return []; }
 			},
 		},
 		{
@@ -358,33 +359,33 @@ const getOptionsAtPath = async (accessor: ReturnType<typeof useAccessor>, path: 
 			iconInMenu: Folder,
 			generateNextOptions: async (t) => (await searchForFilesOrFolders(t, 'folders')) || [],
 		},
-	]
+	];
 
 	// follow the path in the optionsTree (until the last path element)
 
-	let nextOptionsAtPath = allOptions
-	let generateNextOptionsAtPath: GenerateNextOptions | undefined = undefined
+	let nextOptionsAtPath = allOptions;
+	let generateNextOptionsAtPath: GenerateNextOptions | undefined = undefined;
 
 	for (const pn of path) {
 
-		const selectedOption = nextOptionsAtPath.find(o => o.fullName.toLowerCase() === pn.toLowerCase())
+		const selectedOption = nextOptionsAtPath.find(o => o.fullName.toLowerCase() === pn.toLowerCase());
 
-		if (!selectedOption) return [];
+		if (!selectedOption) {return [];}
 
-		nextOptionsAtPath = selectedOption.nextOptions! // assume nextOptions exists until we hit the very last option (the path will never contain the last possible option)
-		generateNextOptionsAtPath = selectedOption.generateNextOptions
+		nextOptionsAtPath = selectedOption.nextOptions!; // assume nextOptions exists until we hit the very last option (the path will never contain the last possible option)
+		generateNextOptionsAtPath = selectedOption.generateNextOptions;
 
 	}
 
 
 	if (generateNextOptionsAtPath) {
 
-		nextOptionsAtPath = await generateNextOptionsAtPath(optionText)
+		nextOptionsAtPath = await generateNextOptionsAtPath(optionText);
 	}
 	else if (path.length === 0 && optionText.trim().length > 0) { // (special case): directly search for both files and folders if optionsPath is empty and there's a search term
 		const filesResults = await searchForFilesOrFolders(optionText, 'files') || [];
 		const foldersResults = await searchForFilesOrFolders(optionText, 'folders') || [];
-		nextOptionsAtPath = [...foldersResults, ...filesResults,]
+		nextOptionsAtPath = [...foldersResults, ...filesResults,];
 	}
 
 	const optionsAtPath = nextOptionsAtPath
@@ -394,15 +395,15 @@ const getOptionsAtPath = async (accessor: ReturnType<typeof useAccessor>, path: 
 			const scoreB = scoreSubsequence(b.fullName, optionText);
 			return scoreB - scoreA;
 		})
-		.slice(0, numOptionsToShow) // should go last because sorting/filtering should happen on all datapoints
+		.slice(0, numOptionsToShow); // should go last because sorting/filtering should happen on all datapoints
 
-	return optionsAtPath
+	return optionsAtPath;
 
-}
+};
 
 
 
-export type TextAreaFns = { setValue: (v: string) => void, enable: () => void, disable: () => void }
+export type TextAreaFns = { setValue: (v: string) => void; enable: () => void; disable: () => void };
 type InputBox2Props = {
 	initValue?: string | null;
 	placeholder: string;
@@ -422,17 +423,17 @@ type InputBox2Props = {
 	 *  `/skill:name` / `/skill-name`. Caret + selection stay on the (transparent-text)
 	 *  textarea; pills are painted by the overlay div in sync with text + scroll. */
 	highlightSlashCommands?: boolean;
-}
+};
 export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(function X({ initValue, placeholder, multiline, enableAtToMention, fnsRef, className = '', appearance = 'default', style, onKeyDown, onFocus, onBlur, onChangeText, onPasteFiles, highlightSlashCommands }, ref) {
 
 
 	// mirrors whatever is in ref
-	const accessor = useAccessor()
+	const accessor = useAccessor();
 
-	const chatThreadService = accessor.get('IChatThreadService')
-	const languageService = accessor.get('ILanguageService')
+	const chatThreadService = accessor.get('IChatThreadService');
+	const languageService = accessor.get('ILanguageService');
 
-	const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
+	const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
 	const overlayRef = useRef<HTMLDivElement | null>(null);
 	// Live mirror of textarea.value for the overlay. Kept as state (not derived from
 	// the textarea each render) so highlightSlashCommands re-renders the pills as the
@@ -440,7 +441,7 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 	const [overlayText, setOverlayText] = useState('');
 	const syncOverlayScroll = useCallback(() => {
 		const ta = textAreaRef.current; const ov = overlayRef.current;
-		if (!ta || !ov) return;
+		if (!ta || !ov) {return;}
 		ov.scrollTop = ta.scrollTop;
 		ov.scrollLeft = ta.scrollLeft;
 	}, []);
@@ -449,7 +450,7 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 	const setIsMenuOpen: typeof _setIsMenuOpen = (value) => {
 		if (!enableAtToMention) { return; } // never open menu if not enabled
 		_setIsMenuOpen(value);
-	}
+	};
 
 	// logic for @ to mention vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 	const [optionPath, setOptionPath] = useState<string[]>([]);
@@ -461,12 +462,12 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 	const currentPathRef = useRef<string>(JSON.stringify([]));
 
 	// dont show breadcrums if first page and user hasnt typed anything
-	const isTypingEnabled = true
-	const isBreadcrumbsShowing = optionPath.length === 0 && !optionText ? false : true
+	const isTypingEnabled = true;
+	const isBreadcrumbsShowing = optionPath.length === 0 && !optionText ? false : true;
 
 	const insertTextAtCursor = (text: string) => {
 		const textarea = textAreaRef.current;
-		if (!textarea) return;
+		if (!textarea) {return;}
 
 		// Focus the textarea first
 		textarea.focus();
@@ -501,93 +502,93 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 		if (!options.length) { return; }
 
 		const option = options[optionIdx];
-		const newPath = [...optionPath, option.fullName]
-		const isLastOption = !option.generateNextOptions && !option.nextOptions
-		setDidLoadInitialOptions(false)
+		const newPath = [...optionPath, option.fullName];
+		const isLastOption = !option.generateNextOptions && !option.nextOptions;
+		setDidLoadInitialOptions(false);
 		if (isLastOption) {
-			setIsMenuOpen(false)
-			insertTextAtCursor(option.abbreviatedName)
+			setIsMenuOpen(false);
+			insertTextAtCursor(option.abbreviatedName);
 
-			let newSelection: StagingSelectionItem
-			if (option.leafNodeType === 'File') newSelection = {
+			let newSelection: StagingSelectionItem;
+			if (option.leafNodeType === 'File') {newSelection = {
 				type: 'File',
 				uri: option.uri,
 				language: languageService.guessLanguageIdByFilepathOrFirstLine(option.uri) || '',
 				state: { wasAddedAsCurrentFile: false },
-			}
-			else if (option.leafNodeType === 'Folder') newSelection = {
+			};}
+			else if (option.leafNodeType === 'Folder') {newSelection = {
 				type: 'Folder',
 				uri: option.uri,
 				language: undefined,
 				state: undefined,
-			}
-			else throw new Error(`Unexpected leafNodeType ${option.leafNodeType}`)
+			};}
+			else {throw new Error(`Unexpected leafNodeType ${option.leafNodeType}`);}
 
-			chatThreadService.addNewStagingSelection(newSelection)
+			chatThreadService.addNewStagingSelection(newSelection);
 		}
 		else {
 
 
 			currentPathRef.current = JSON.stringify(newPath);
-			const newOpts = await getOptionsAtPath(accessor, newPath, '') || []
+			const newOpts = await getOptionsAtPath(accessor, newPath, '') || [];
 			if (currentPathRef.current !== JSON.stringify(newPath)) { return; }
-			setOptionPath(newPath)
-			setOptionText('')
-			setOptionIdx(0)
-			setOptions(newOpts)
-			setDidLoadInitialOptions(true)
+			setOptionPath(newPath);
+			setOptionText('');
+			setOptionIdx(0);
+			setOptions(newOpts);
+			setDidLoadInitialOptions(true);
 		}
-	}
+	};
 
 	const onRemoveOption = async () => {
-		const newPath = [...optionPath.slice(0, optionPath.length - 1)]
+		const newPath = [...optionPath.slice(0, optionPath.length - 1)];
 		currentPathRef.current = JSON.stringify(newPath);
-		const newOpts = await getOptionsAtPath(accessor, newPath, '') || []
+		const newOpts = await getOptionsAtPath(accessor, newPath, '') || [];
 		if (currentPathRef.current !== JSON.stringify(newPath)) { return; }
-		setOptionPath(newPath)
-		setOptionText('')
-		setOptionIdx(0)
-		setOptions(newOpts)
-	}
+		setOptionPath(newPath);
+		setOptionText('');
+		setOptionIdx(0);
+		setOptions(newOpts);
+	};
 
 	const onOpenOptionMenu = async () => {
-		const newPath: [] = []
+		const newPath: [] = [];
 		currentPathRef.current = JSON.stringify([]);
-		const newOpts = await getOptionsAtPath(accessor, [], '') || []
+		const newOpts = await getOptionsAtPath(accessor, [], '') || [];
 		if (currentPathRef.current !== JSON.stringify([])) { return; }
-		setOptionPath(newPath)
-		setOptionText('')
+		setOptionPath(newPath);
+		setOptionText('');
 		setIsMenuOpen(true);
 		setOptionIdx(0);
 		setOptions(newOpts);
-	}
+	};
 	const onCloseOptionMenu = () => {
 		setIsMenuOpen(false);
-	}
+	};
 
 	const onNavigateUp = (step = 1, periodic = true) => {
-		if (options.length === 0) return;
+		if (options.length === 0) {return;}
 		setOptionIdx((prevIdx) => {
 			const newIdx = prevIdx - step;
 			return periodic ? (newIdx + options.length) % options.length : Math.max(0, newIdx);
 		});
-	}
+	};
 	const onNavigateDown = (step = 1, periodic = true) => {
-		if (options.length === 0) return;
+		if (options.length === 0) {return;}
 		setOptionIdx((prevIdx) => {
 			const newIdx = prevIdx + step;
 			return periodic ? newIdx % options.length : Math.min(options.length - 1, newIdx);
 		});
-	}
+	};
 
 	const onNavigateToTop = () => {
-		if (options.length === 0) return;
+		if (options.length === 0) {return;}
 		setOptionIdx(0);
-	}
+	};
 	const onNavigateToBottom = () => {
-		if (options.length === 0) return;
+		if (options.length === 0) {return;}
 		setOptionIdx(options.length - 1);
-	}
+	};
 
 	const debounceTimerRef = useRef<number | null>(null);
 
@@ -637,7 +638,7 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 
 		if (e.key === 'ArrowUp') {
 			if (isCommandKeyPressed) {
-				onNavigateToTop()
+				onNavigateToTop();
 			} else {
 				if (e.altKey) {
 					onNavigateUp(10, false);
@@ -647,7 +648,7 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 			}
 		} else if (e.key === 'ArrowDown') {
 			if (isCommandKeyPressed) {
-				onNavigateToBottom()
+				onNavigateToBottom();
 			} else {
 				if (e.altKey) {
 					onNavigateDown(10, false);
@@ -662,22 +663,22 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 		} else if (e.key === 'Enter') {
 			onSelectOption();
 		} else if (e.key === 'Escape') {
-			onCloseOptionMenu()
+			onCloseOptionMenu();
 		} else if (e.key === 'Backspace') {
 
 			if (!optionText) { // No text remaining
 				if (optionPath.length === 0) {
-					onCloseOptionMenu()
+					onCloseOptionMenu();
 					return; // don't prevent defaults (backspaces the @ symbol)
 				} else {
 					onRemoveOption();
 				}
 			}
 			else if (isCommandKeyPressed) { // Ctrl+Backspace
-				onPathTextChange('')
+				onPathTextChange('');
 			}
 			else { // Backspace
-				onPathTextChange(optionText.slice(0, -1))
+				onPathTextChange(optionText.slice(0, -1));
 			}
 		} else if (e.key.length === 1) {
 			if (isCommandKeyPressed) { // Ctrl+letter
@@ -685,7 +686,7 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 			}
 			else { // letter
 				if (isTypingEnabled) {
-					onPathTextChange(optionText + e.key)
+					onPathTextChange(optionText + e.key);
 				}
 			}
 		}
@@ -707,8 +708,8 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 	}, [optionIdx, isMenuOpen, optionText, selectedOptionRef]);
 
 	const measureRef = useRef<HTMLDivElement>(null);
-	const gapPx = 2
-	const offsetPx = 2
+	const gapPx = 2;
+	const offsetPx = 2;
 	const {
 		x,
 		y,
@@ -750,7 +751,7 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 		strategy: 'fixed',
 	});
 	useEffect(() => {
-		if (!isMenuOpen) return;
+		if (!isMenuOpen) {return;}
 
 		const handleClickOutside = (event: MouseEvent) => {
 			const target = event.target as Node;
@@ -775,18 +776,18 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 	// logic for @ to mention ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 
-	const [isEnabled, setEnabled] = useState(true)
+	const [isEnabled, setEnabled] = useState(true);
 
 	const adjustHeight = useCallback(() => {
-		const r = textAreaRef.current
-		if (!r) return
+		const r = textAreaRef.current;
+		if (!r) {return;}
 
-		r.style.height = 'auto' // set to auto to reset height, then set to new height
+		r.style.height = 'auto'; // set to auto to reset height, then set to new height
 
-		if (r.scrollHeight === 0) return requestAnimationFrame(adjustHeight)
-		const h = r.scrollHeight
-		const newHeight = Math.min(h + 1, 500) // plus one to avoid scrollbar appearing when it shouldn't
-		r.style.height = `${newHeight}px`
+		if (r.scrollHeight === 0) {return requestAnimationFrame(adjustHeight);}
+		const h = r.scrollHeight;
+		const newHeight = Math.min(h + 1, 500); // plus one to avoid scrollbar appearing when it shouldn't
+		r.style.height = `${newHeight}px`;
 
 		// The highlight overlay paints the VISIBLE text while the (transparent) textarea owns the caret +
 		// selection — so both MUST wrap line-for-line. They only do if their content boxes are identical.
@@ -794,24 +795,24 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 		// scrollbar's width as extra right padding when one is showing (overflow-y:auto). Any leftover
 		// sub-pixel / scrollbar difference makes a word wrap in one layer but not the other — stranding the
 		// caret at the end of the previous line and skewing the selection highlight (the reported bug).
-		const ov = overlayRef.current
+		const ov = overlayRef.current;
 		if (ov) {
-			const cs = getComputedStyle(r)
+			const cs = getComputedStyle(r);
 			// Solid transparent border whose per-side WIDTH equals the textarea's computed border (0 when
 			// the textarea is borderless — dark chat). border-width alone is ignored without a style.
-			ov.style.borderStyle = 'solid'
-			ov.style.borderColor = 'transparent'
-			ov.style.borderTopWidth = cs.borderTopWidth
-			ov.style.borderBottomWidth = cs.borderBottomWidth
-			ov.style.borderLeftWidth = cs.borderLeftWidth
-			ov.style.borderRightWidth = cs.borderRightWidth
-			ov.style.paddingTop = cs.paddingTop
-			ov.style.paddingBottom = cs.paddingBottom
-			ov.style.paddingLeft = cs.paddingLeft
+			ov.style.borderStyle = 'solid';
+			ov.style.borderColor = 'transparent';
+			ov.style.borderTopWidth = cs.borderTopWidth;
+			ov.style.borderBottomWidth = cs.borderBottomWidth;
+			ov.style.borderLeftWidth = cs.borderLeftWidth;
+			ov.style.borderRightWidth = cs.borderRightWidth;
+			ov.style.paddingTop = cs.paddingTop;
+			ov.style.paddingBottom = cs.paddingBottom;
+			ov.style.paddingLeft = cs.paddingLeft;
 			// Reserve the vertical scrollbar's width (when present) as extra right padding so the overlay's
 			// text column matches the textarea's (its clientWidth already excludes the scrollbar).
-			const scrollbar = r.offsetWidth - r.clientWidth - (parseFloat(cs.borderLeftWidth) || 0) - (parseFloat(cs.borderRightWidth) || 0)
-			ov.style.paddingRight = `${(parseFloat(cs.paddingRight) || 0) + Math.max(0, scrollbar)}px`
+			const scrollbar = r.offsetWidth - r.clientWidth - (parseFloat(cs.borderLeftWidth) || 0) - (parseFloat(cs.borderRightWidth) || 0);
+			ov.style.paddingRight = `${(parseFloat(cs.paddingRight) || 0) + Math.max(0, scrollbar)}px`;
 		}
 	}, []);
 
@@ -819,31 +820,31 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 
 	const fns: TextAreaFns = useMemo(() => ({
 		setValue: (val) => {
-			const r = textAreaRef.current
-			if (!r) return
-			r.value = val
-			setOverlayText(val)
-			onChangeText?.(r.value)
-			adjustHeight()
+			const r = textAreaRef.current;
+			if (!r) {return;}
+			r.value = val;
+			setOverlayText(val);
+			onChangeText?.(r.value);
+			adjustHeight();
 		},
-		enable: () => { setEnabled(true) },
-		disable: () => { setEnabled(false) },
-	}), [onChangeText, adjustHeight])
+		enable: () => { setEnabled(true); },
+		disable: () => { setEnabled(false); },
+	}), [onChangeText, adjustHeight]);
 
 
 
 	useEffect(() => {
 		if (initValue)
-			fns.setValue(initValue)
-	}, [initValue])
+			{fns.setValue(initValue);}
+	}, [initValue]);
 
 
 
 
-	const isChatDark = appearance === 'chatDark'
+	const isChatDark = appearance === 'chatDark';
 	const appearanceClasses = isChatDark
 		? 'text-white placeholder:text-white/40'
-		: 'text-vibe-fg-1 placeholder:text-vibe-fg-3'
+		: 'text-vibe-fg-1 placeholder:text-vibe-fg-3';
 
 	const baseStyle: React.CSSProperties = isChatDark
 		? {
@@ -855,7 +856,7 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 		: {
 			background: asCssVariable(inputBackground),
 			color: asCssVariable(inputForeground),
-		}
+		};
 
 	// Caret-color must stay visible even when we make textarea text transparent for the
 	// overlay-trick. Mirrors the textarea's normal foreground per appearance variant.
@@ -873,14 +874,14 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 			autoFocus={false}
 			ref={useCallback((r: HTMLTextAreaElement | null) => {
 				if (fnsRef)
-					fnsRef.current = fns
+					{fnsRef.current = fns;}
 
-				refs.setReference(r)
+				refs.setReference(r);
 
-				textAreaRef.current = r
-				if (typeof ref === 'function') ref(r)
-				else if (ref) ref.current = r
-				adjustHeight()
+				textAreaRef.current = r;
+				if (typeof ref === 'function') {ref(r);}
+				else if (ref) {ref.current = r;}
+				adjustHeight();
 			}, [fnsRef, fns, setEnabled, adjustHeight, ref, refs])}
 
 			onFocus={onFocus}
@@ -888,18 +889,18 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 			onScroll={highlightSlashCommands ? syncOverlayScroll : undefined}
 
 			onPaste={useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-				if (!onPasteFiles) return
-				const items = Array.from(e.clipboardData?.items || [])
-				const files: File[] = []
+				if (!onPasteFiles) {return;}
+				const items = Array.from(e.clipboardData?.items || []);
+				const files: File[] = [];
 				for (const item of items) {
 					if (item.kind === 'file' && (item.type.startsWith('image/') || item.type === 'application/pdf')) {
-						const f = item.getAsFile()
-						if (f) files.push(f)
+						const f = item.getAsFile();
+						if (f) {files.push(f);}
 					}
 				}
 				if (files.length > 0) {
-					e.preventDefault()
-					onPasteFiles(files)
+					e.preventDefault();
+					onPasteFiles(files);
 				}
 			}, [onPasteFiles])}
 
@@ -912,42 +913,42 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 				const latestChange = (event.nativeEvent as InputEvent).data;
 
 				if (latestChange === '@') {
-					onOpenOptionMenu()
+					onOpenOptionMenu();
 				}
 
 			}, [onOpenOptionMenu, accessor])}
 
 			onChange={useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-				const r = textAreaRef.current
-				if (!r) return
-				setOverlayText(r.value)
-				onChangeText?.(r.value)
-				adjustHeight()
+				const r = textAreaRef.current;
+				if (!r) {return;}
+				setOverlayText(r.value);
+				onChangeText?.(r.value);
+				adjustHeight();
 			}, [onChangeText, adjustHeight])}
 
 			onKeyDown={useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
 
 				if (isMenuOpen) {
-					onMenuKeyDown(e)
+					onMenuKeyDown(e);
 					return;
 				}
 
 				if (e.key === 'Backspace') { // TODO allow user to undo this.
 					if (!e.currentTarget.value || (e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0)) { // if there is no text or cursor is at position 0, remove a selection
 						if (e.metaKey || e.ctrlKey) { // Ctrl+Backspace = remove all
-							chatThreadService.popStagingSelections(Number.MAX_SAFE_INTEGER)
+							chatThreadService.popStagingSelections(Number.MAX_SAFE_INTEGER);
 						} else { // Backspace = pop 1 selection
-							chatThreadService.popStagingSelections(1)
+							chatThreadService.popStagingSelections(1);
 						}
 						return;
 					}
 				}
 				if (e.key === 'Enter') {
 					// Shift + Enter when multiline = newline
-					const shouldAddNewline = e.shiftKey && multiline
-					if (!shouldAddNewline) e.preventDefault(); // prevent newline from being created
+					const shouldAddNewline = e.shiftKey && multiline;
+					if (!shouldAddNewline) {e.preventDefault();} // prevent newline from being created
 				}
-				onKeyDown?.(e)
+				onKeyDown?.(e);
 			}, [onKeyDown, onMenuKeyDown, multiline])}
 
 			rows={1}
@@ -973,7 +974,7 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 		textShadow: 'var(--vibe-skill-pill-glow, none)',
 	};
 	const renderOverlayChildren = (text: string): React.ReactNode => {
-		if (!text) return null;
+		if (!text) {return null;}
 		// Only `/skill:NAME` — backend expands no other slash form, so highlighting
 		// generic `/foo` would lie about behavior (and pill paths like `/var/lib`).
 		const re = /(^|\s)(\/skill:[\w.-]+)/g;
@@ -982,16 +983,16 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 		let m: RegExpExecArray | null;
 		while ((m = re.exec(text)) !== null) {
 			const cmdStart = m.index + m[1].length;
-			if (cmdStart > lastIdx) out.push(text.slice(lastIdx, cmdStart));
+			if (cmdStart > lastIdx) {out.push(text.slice(lastIdx, cmdStart));}
 			out.push(<span key={cmdStart} className="vibe-skill-pill" style={skillPillInlineStyle}>{m[2]}</span>);
 			lastIdx = cmdStart + m[2].length;
 		}
-		if (lastIdx === 0) return text;
-		if (lastIdx < text.length) out.push(text.slice(lastIdx));
+		if (lastIdx === 0) {return text;}
+		if (lastIdx < text.length) {out.push(text.slice(lastIdx));}
 		// Trailing newline guard: a final `\n` in textarea creates an extra blank line
 		// that the overlay <div> doesn't reserve (textareas implicitly add it). Append
 		// a zero-width char so the overlay's last line matches the textarea's height.
-		if (text.endsWith('\n')) out.push('​');
+		if (text.endsWith('\n')) {out.push('​');}
 		return <>{out}</>;
 	};
 
@@ -1088,7 +1089,7 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 											${oIdx === optionIdx ? 'bg-blue-500 text-white/80' : 'bg-vibe-bg-2-alt text-vibe-fg-1'}
 										`}
 										onClick={() => { onSelectOption(); }}
-										onMouseMove={() => { setOptionIdx(oIdx) }}
+										onMouseMove={() => { setOptionIdx(oIdx); }}
 									>
 										{<o.iconInMenu size={12} />}
 
@@ -1101,16 +1102,16 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 										) : null}
 
 									</div>
-								)
+								);
 							})
 						}
 					</div>
 				</div>
 			</div>
 		)}
-	</>
+	</>;
 
-})
+});
 
 
 export const VibeSimpleInputBox = ({ value, onChangeValue, placeholder, className, disabled, passwordBlur, compact, ...inputProps }: {
@@ -1126,7 +1127,7 @@ export const VibeSimpleInputBox = ({ value, onChangeValue, placeholder, classNam
 	const inputRef = useRef<HTMLInputElement>(null);
 
 	// Track if we need to restore selection
-	const selectionRef = useRef<{ start: number | null, end: number | null }>({
+	const selectionRef = useRef<{ start: number | null; end: number | null }>({
 		start: null,
 		end: null
 	});
@@ -1179,7 +1180,7 @@ export const VibeSimpleInputBox = ({ value, onChangeValue, placeholder, classNam
 
 export const VibeInputBox = ({ onChangeText, onCreateInstance, inputBoxRef, placeholder, isPasswordField, multiline }: {
 	onChangeText: (value: string) => void;
-	styles?: Partial<IInputBoxStyles>,
+	styles?: Partial<IInputBoxStyles>;
 	onCreateInstance?: (instance: InputBox) => void | IDisposable[];
 	inputBoxRef?: { current: InputBox | null };
 	placeholder: string;
@@ -1187,9 +1188,9 @@ export const VibeInputBox = ({ onChangeText, onCreateInstance, inputBoxRef, plac
 	multiline: boolean;
 }) => {
 
-	const accessor = useAccessor()
+	const accessor = useAccessor();
 
-	const contextViewProvider = accessor.get('IContextViewService')
+	const contextViewProvider = accessor.get('IContextViewService');
 	return <WidgetComponent
 		className='
 			bg-vibe-bg-1
@@ -1215,24 +1216,24 @@ export const VibeInputBox = ({ onChangeText, onCreateInstance, inputBoxRef, plac
 			}
 		] as const, [contextViewProvider, placeholder, multiline])}
 		dispose={useCallback((instance: InputBox) => {
-			instance.dispose()
-			instance.element.remove()
+			instance.dispose();
+			instance.element.remove();
 		}, [])}
 		onCreateInstance={useCallback((instance: InputBox) => {
-			const disposables: IDisposable[] = []
+			const disposables: IDisposable[] = [];
 			disposables.push(
 				instance.onDidChange((newText) => onChangeText(newText))
-			)
+			);
 			if (onCreateInstance) {
-				const ds = onCreateInstance(instance) ?? []
-				disposables.push(...ds)
+				const ds = onCreateInstance(instance) ?? [];
+				disposables.push(...ds);
 			}
 			if (inputBoxRef)
-				inputBoxRef.current = instance;
+				{inputBoxRef.current = instance;}
 
-			return disposables
+			return disposables;
 		}, [onChangeText, onCreateInstance, inputBoxRef])}
-	/>
+	/>;
 };
 
 
@@ -1265,7 +1266,7 @@ export const VibeSlider = ({
 
 	// Handle track click
 	const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
-		if (disabled) return;
+		if (disabled) {return;}
 
 		const rect = e.currentTarget.getBoundingClientRect();
 		const clickPosition = e.clientX - rect.left;
@@ -1290,7 +1291,7 @@ export const VibeSlider = ({
 
 	// Helper function to handle thumb dragging that respects steps and max
 	const handleThumbDrag = (moveEvent: MouseEvent, track: Element) => {
-		if (!track) return;
+		if (!track) {return;}
 
 		const rect = (track as HTMLElement).getBoundingClientRect();
 		const movePosition = moveEvent.clientX - rect.left;
@@ -1369,7 +1370,7 @@ export const VibeSlider = ({
 							border border-vibe-fg-1`}
 						style={{ left: `${percentage}%`, zIndex: 2 }}  // Ensure thumb is above the invisible clickable area
 						onMouseDown={(e) => {
-							if (disabled) return;
+							if (disabled) {return;}
 
 							const track = e.currentTarget.previousElementSibling;
 
@@ -1452,37 +1453,37 @@ export const VibeSwitch = ({
 
 
 
-export const VibeCheckBox = ({ label, value, onClick, className }: { label: string, value: boolean, onClick: (checked: boolean) => void, className?: string }) => {
-	const divRef = useRef<HTMLDivElement | null>(null)
-	const instanceRef = useRef<Checkbox | null>(null)
+export const VibeCheckBox = ({ label, value, onClick, className }: { label: string; value: boolean; onClick: (checked: boolean) => void; className?: string }) => {
+	const divRef = useRef<HTMLDivElement | null>(null);
+	const instanceRef = useRef<Checkbox | null>(null);
 
 	useEffect(() => {
-		if (!instanceRef.current) return
-		instanceRef.current.checked = value
-	}, [value])
+		if (!instanceRef.current) {return;}
+		instanceRef.current.checked = value;
+	}, [value]);
 
 
 	return <WidgetComponent
 		className={className ?? ''}
 		ctor={Checkbox}
 		propsFn={useCallback((container: HTMLDivElement) => {
-			divRef.current = container
-			return [label, value, defaultCheckboxStyles] as const
+			divRef.current = container;
+			return [label, value, defaultCheckboxStyles] as const;
 		}, [label, value])}
 		onCreateInstance={useCallback((instance: Checkbox) => {
 			instanceRef.current = instance;
-			divRef.current?.append(instance.domNode)
-			const d = instance.onChange(() => onClick(instance.checked))
-			return [d]
+			divRef.current?.append(instance.domNode);
+			const d = instance.onChange(() => onClick(instance.checked));
+			return [d];
 		}, [onClick])}
 		dispose={useCallback((instance: Checkbox) => {
-			instance.dispose()
-			instance.domNode.remove()
+			instance.dispose();
+			instance.domNode.remove();
 		}, [])}
 
-	/>
+	/>;
 
-}
+};
 
 
 
@@ -1590,7 +1591,7 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 			}),
 			size({
 				apply({ availableHeight, elements, rects }) {
-					const maxHeight = Math.min(availableHeight)
+					const maxHeight = Math.min(availableHeight);
 
 					Object.assign(elements.floating.style, {
 						maxHeight: `${maxHeight}px`,
@@ -1625,18 +1626,18 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 	// parent's option list), retrying every render is an infinite setState→re-render loop.
 	// With a large sibling tree (e.g. a long un-virtualized history list) that loop freezes
 	// the renderer ("Окно не отвечает"). One-shot auto-select is the correct initialization.
-	const didAutoSelectRef = useRef(false)
+	const didAutoSelectRef = useRef(false);
 	useEffect(() => {
-		if (didAutoSelectRef.current) return
-		if (options.length === 0) return
-		if (selectedOption !== undefined) return
-		didAutoSelectRef.current = true
-		onChangeOption(options[0])
-	}, [selectedOption, onChangeOption, options])
+		if (didAutoSelectRef.current) {return;}
+		if (options.length === 0) {return;}
+		if (selectedOption !== undefined) {return;}
+		didAutoSelectRef.current = true;
+		onChangeOption(options[0]);
+	}, [selectedOption, onChangeOption, options]);
 
 	// Handle clicks outside
 	useEffect(() => {
-		if (!isOpen) return;
+		if (!isOpen) {return;}
 
 		const handleClickOutside = (event: MouseEvent) => {
 			const target = event.target as Node;
@@ -1660,7 +1661,7 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 	}, [isOpen, refs.floating, refs.reference]);
 
 	if (selectedOption === undefined)
-		return null
+		{return null;}
 
 	return (
 		<div className={`inline-block relative ${className}`}>
@@ -1843,13 +1844,13 @@ export const _VibeSelectBox = <T,>({ onChangeSelection, onCreateInstance, select
 	onChangeSelection: (value: T) => void;
 	onCreateInstance?: ((instance: SelectBox) => void | IDisposable[]);
 	selectBoxRef?: React.MutableRefObject<SelectBox | null>;
-	options: readonly { text: string, value: T }[];
+	options: readonly { text: string; value: T }[];
 	className?: string;
 }) => {
-	const accessor = useAccessor()
-	const contextViewProvider = accessor.get('IContextViewService')
+	const accessor = useAccessor();
+	const contextViewProvider = accessor.get('IContextViewService');
 
-	let containerRef = useRef<HTMLDivElement | null>(null);
+	const containerRef = useRef<HTMLDivElement | null>(null);
 
 	return <WidgetComponent
 		className={`
@@ -1861,7 +1862,7 @@ export const _VibeSelectBox = <T,>({ onChangeSelection, onCreateInstance, select
 		`}
 		ctor={SelectBox}
 		propsFn={useCallback((container) => {
-			containerRef.current = container
+			containerRef.current = container;
 			const defaultIndex = 0;
 			return [
 				options.map(opt => ({ text: opt.text })),
@@ -1874,26 +1875,26 @@ export const _VibeSelectBox = <T,>({ onChangeSelection, onCreateInstance, select
 		dispose={useCallback((instance: SelectBox) => {
 			instance.dispose();
 			containerRef.current?.childNodes.forEach(child => {
-				containerRef.current?.removeChild(child)
-			})
+				containerRef.current?.removeChild(child);
+			});
 		}, [containerRef])}
 
 		onCreateInstance={useCallback((instance: SelectBox) => {
-			const disposables: IDisposable[] = []
+			const disposables: IDisposable[] = [];
 
 			if (containerRef.current)
-				instance.render(containerRef.current)
+				{instance.render(containerRef.current);}
 
 			disposables.push(
 				instance.onDidSelect(e => { onChangeSelection(options[e.index].value); })
-			)
+			);
 
 			if (onCreateInstance) {
-				const ds = onCreateInstance(instance) ?? []
-				disposables.push(...ds)
+				const ds = onCreateInstance(instance) ?? [];
+				disposables.push(...ds);
 			}
 			if (selectBoxRef)
-				selectBoxRef.current = instance;
+				{selectBoxRef.current = instance;}
 
 			return disposables;
 		}, [containerRef, onChangeSelection, options, onCreateInstance, selectBoxRef])}
@@ -1903,13 +1904,13 @@ export const _VibeSelectBox = <T,>({ onChangeSelection, onCreateInstance, select
 
 // makes it so that code in the sidebar isnt too tabbed out
 const normalizeIndentation = (code: string): string => {
-	const lines = code.split('\n')
+	const lines = code.split('\n');
 
-	let minLeadingSpaces = Infinity
+	let minLeadingSpaces = Infinity;
 
 	// find the minimum number of leading spaces
 	for (const line of lines) {
-		if (line.trim() === '') continue;
+		if (line.trim() === '') {continue;}
 		let leadingSpaces = 0;
 		for (let i = 0; i < line.length; i++) {
 			const char = line[i];
@@ -1917,12 +1918,12 @@ const normalizeIndentation = (code: string): string => {
 				leadingSpaces += 1;
 			} else { break; }
 		}
-		minLeadingSpaces = Math.min(minLeadingSpaces, leadingSpaces)
+		minLeadingSpaces = Math.min(minLeadingSpaces, leadingSpaces);
 	}
 
 	// remove the leading spaces
 	return lines.map(line => {
-		if (line.trim() === '') return line;
+		if (line.trim() === '') {return line;}
 
 		let spacesToRemove = minLeadingSpaces;
 		let i = 0;
@@ -1936,22 +1937,22 @@ const normalizeIndentation = (code: string): string => {
 
 		return line.slice(i);
 
-	}).join('\n')
+	}).join('\n');
 
-}
+};
 
 
-export type BlockCodeProps = { initValue: string, language?: string, maxHeight?: number, showScrollbars?: boolean }
+export type BlockCodeProps = { initValue: string; language?: string; maxHeight?: number; showScrollbars?: boolean };
 export const BlockCode = ({ initValue, language, maxHeight, showScrollbars }: BlockCodeProps) => {
 
-	initValue = normalizeIndentation(initValue)
+	initValue = normalizeIndentation(initValue);
 
 	const MAX_HEIGHT = maxHeight ?? Infinity;
 	const SHOW_SCROLLBARS = showScrollbars ?? false;
 	const languageId = language || 'plaintext';
 
-	const accessor = useAccessor()
-	const languageService = accessor.get('ILanguageService')
+	const accessor = useAccessor();
+	const languageService = accessor.get('ILanguageService');
 
 	// Read-only chat code previews used to mount a full Monaco `CodeEditorWidget` per
 	// block. With long chat histories that meant hundreds of editors live at once,
@@ -1960,30 +1961,30 @@ export const BlockCode = ({ initValue, language, maxHeight, showScrollbars }: Bl
 	// syntax-highlighted HTML, which `tokenizeToString` produces in O(text) and at
 	// a fraction of the memory cost. Same approach VS Code uses for hover/markdown
 	// code blocks (see editorMarkdownCodeBlockRenderer + markdownDocumentRenderer).
-	const innerRef = useRef<HTMLDivElement | null>(null)
+	const innerRef = useRef<HTMLDivElement | null>(null);
 
 	useEffect(() => {
-		let cancelled = false
+		let cancelled = false;
 		// Debounce 50ms so streaming chunks don't trigger a re-tokenize on every keystroke
 		// of content arriving from the LLM. The last value wins; intermediates are dropped.
 		const t = setTimeout(() => {
 			tokenizeToString(languageService, initValue, languageId).then(html => {
-				if (cancelled || !innerRef.current) return
+				if (cancelled || !innerRef.current) {return;}
 				// Workbench enforces Trusted Types — assigning a raw string to innerHTML
 				// throws. Route through the TT policy created at module load (or fall back
 				// to the raw string for browsers without TT).
-				const trusted = _vibeideBlockCodeTTP ? _vibeideBlockCodeTTP.createHTML(html) ?? html : html
-				innerRef.current.innerHTML = trusted as string
-			})
-		}, 50)
-		return () => { cancelled = true; clearTimeout(t) }
-	}, [initValue, languageId, languageService])
+				const trusted = _vibeideBlockCodeTTP ? _vibeideBlockCodeTTP.createHTML(html) ?? html : html;
+				innerRef.current.innerHTML = trusted as string;
+			});
+		}, 50);
+		return () => { cancelled = true; clearTimeout(t); };
+	}, [initValue, languageId, languageService]);
 
 	const outerStyle: React.CSSProperties = {
 		maxHeight: MAX_HEIGHT === Infinity ? undefined : MAX_HEIGHT,
 		overflowY: SHOW_SCROLLBARS ? 'auto' : 'hidden',
 		overflowX: 'auto',
-	}
+	};
 
 	// `.monaco-tokenized-source` is the same class VS Code uses for tokenized HTML
 	// (themed via the workbench color theme, so colors stay consistent with the editor).
@@ -1994,9 +1995,9 @@ export const BlockCode = ({ initValue, language, maxHeight, showScrollbars }: Bl
 			className='monaco-tokenized-source @@bg-editor-style-override'
 			style={{ whiteSpace: 'pre', fontFamily: 'var(--monaco-monospace-font)' }}
 		/>
-	</div>
+	</div>;
 
-}
+};
 
 
 export const VibeButtonBgDarken = ({ children, disabled, onClick, className, variant = 'secondary' }: { children: React.ReactNode; disabled?: boolean; onClick: () => void; className?: string; variant?: 'primary' | 'secondary' }) => {
@@ -2004,8 +2005,8 @@ export const VibeButtonBgDarken = ({ children, disabled, onClick, className, var
 		type="button"
 		className={`@@vibe-pill-button @@vibe-focus-ring ${variant === 'primary' ? '@@vibe-pill-button--primary' : '@@vibe-pill-button--secondary'} overflow-hidden whitespace-nowrap flex items-center justify-center ${className || ''}`}
 		onClick={onClick}
-	>{children}</button>
-}
+	>{children}</button>;
+};
 
 // export const VoidScrollableElt = ({ options, children }: { options: ScrollableElementCreationOptions, children: React.ReactNode }) => {
 // 	const instanceRef = useRef<DomScrollableElement | null>(null);
@@ -2131,7 +2132,7 @@ export const VibeButtonBgDarken = ({ children, disabled, onClick, className, var
 
 
 
-const SingleDiffEditor = ({ block, lang }: { block: ExtractedSearchReplaceBlock, lang: string | undefined }) => {
+const SingleDiffEditor = ({ block, lang }: { block: ExtractedSearchReplaceBlock; lang: string | undefined }) => {
 	const accessor = useAccessor();
 	const modelService = accessor.get('IModelService');
 	const instantiationService = accessor.get('IInstantiationService');
@@ -2158,7 +2159,7 @@ const SingleDiffEditor = ({ block, lang }: { block: ExtractedSearchReplaceBlock,
 	const editorRef = useRef<any>(null);
 
 	useEffect(() => {
-		if (!divRef.current) return;
+		if (!divRef.current) {return;}
 		// Create the diff editor instance
 		const editor = instantiationService.createInstance(
 			DiffEditorWidget,
@@ -2245,7 +2246,7 @@ const SingleDiffEditor = ({ block, lang }: { block: ExtractedSearchReplaceBlock,
  *   - searchReplaceBlocks: string in search/replace format (from LLM)
  *   - language?: string (optional, fallback to 'plaintext')
  */
-export const VibeDiffEditor = ({ uri, searchReplaceBlocks, language }: { uri?: any, searchReplaceBlocks: string, language?: string }) => {
+export const VibeDiffEditor = ({ uri, searchReplaceBlocks, language }: { uri?: any; searchReplaceBlocks: string; language?: string }) => {
 	const accessor = useAccessor();
 	const languageService = accessor.get('ILanguageService');
 

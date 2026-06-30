@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -55,7 +56,7 @@ class VibePartialRollbackService extends Disposable implements IVibePartialRollb
 
 	async getSnapshotFiles(snapshotId: string): Promise<string[]> {
 		const snapshot = this._snapshotService.getLastSnapshot();
-		if (!snapshot || snapshot.id !== snapshotId) return [];
+		if (!snapshot || snapshot.id !== snapshotId) { return []; }
 		return snapshot.files.map(f => f.path);
 	}
 

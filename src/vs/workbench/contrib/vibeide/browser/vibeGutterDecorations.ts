@@ -1,15 +1,16 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { createStyleSheet } from '../../../../base/browser/domStylesheets.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
 import { IVibeGutterIndicatorService } from './vibeGutterIndicatorService.js';
 import { ModelDecorationOptions } from '../../../../editor/common/model/textModel.js';
-import { IModelDeltaDecoration, TrackedRangeStickiness } from '../../../../editor/common/model.js';
-import { OverviewRulerLane } from '../../../../editor/common/model.js';
+import { IModelDeltaDecoration, TrackedRangeStickiness, OverviewRulerLane } from '../../../../editor/common/model.js';
 
 // Color for agent-written lines in gutter (different from git diff blue/green/red)
 const AGENT_WRITTEN_CLASS = 'vibeide-agent-written-gutter';
@@ -46,20 +47,19 @@ export class VibeGutterDecorationsContribution extends Disposable implements IWo
 	}
 
 	private _setupCSS(): void {
-		const styleId = 'vibeide-gutter-decorations';
-		if (document.getElementById(styleId)) return;
-
-		const style = document.createElement('style');
-		style.id = styleId;
-		style.textContent = `
-			.${AGENT_WRITTEN_CLASS} {
-				background: linear-gradient(to right, #f92aad, transparent);
-				width: 3px !important;
-				margin-left: 2px;
-				border-radius: 1px;
-			}
-		`;
-		document.head.appendChild(style);
+		// createStyleSheet appends to mainWindow.document.head and tracks the
+		// stylesheet so auxiliary windows clone it; disposal removes it cleanly.
+		createStyleSheet(undefined, style => {
+			style.id = 'vibeide-gutter-decorations';
+			style.textContent = `
+				.${AGENT_WRITTEN_CLASS} {
+					background: linear-gradient(to right, #f92aad, transparent);
+					width: 3px !important;
+					margin-left: 2px;
+					border-radius: 1px;
+				}
+			`;
+		}, this._store);
 	}
 
 	private _registerListeners(): void {
@@ -77,11 +77,11 @@ export class VibeGutterDecorationsContribution extends Disposable implements IWo
 	private _updateDecorations(): void {
 		for (const editor of this._codeEditorService.listCodeEditors()) {
 			const model = editor.getModel();
-			if (!model) continue;
+			if (!model) { continue; }
 
 			const filePath = model.uri.fsPath;
 			const ranges = this._gutterService.getAgentRanges(filePath);
-			if (ranges.length === 0) continue;
+			if (ranges.length === 0) { continue; }
 
 			const decorations: IModelDeltaDecoration[] = ranges.map(r => ({
 				range: {

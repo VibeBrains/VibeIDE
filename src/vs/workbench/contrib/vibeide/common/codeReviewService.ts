@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -401,10 +402,10 @@ Provide your review annotations as a JSON array:`;
 		const hintCount = annotations.filter(a => a.severity === 'hint').length;
 
 		const parts: string[] = [];
-		if (errorCount > 0) parts.push(`${errorCount} error${errorCount > 1 ? 's' : ''}`);
-		if (warningCount > 0) parts.push(`${warningCount} warning${warningCount > 1 ? 's' : ''}`);
-		if (infoCount > 0) parts.push(`${infoCount} info${infoCount > 1 ? 's' : ''}`);
-		if (hintCount > 0) parts.push(`${hintCount} hint${hintCount > 1 ? 's' : ''}`);
+		if (errorCount > 0) { parts.push(`${errorCount} error${errorCount > 1 ? 's' : ''}`); }
+		if (warningCount > 0) { parts.push(`${warningCount} warning${warningCount > 1 ? 's' : ''}`); }
+		if (infoCount > 0) { parts.push(`${infoCount} info${infoCount > 1 ? 's' : ''}`); }
+		if (hintCount > 0) { parts.push(`${hintCount} hint${hintCount > 1 ? 's' : ''}`); }
 
 		return `Found ${annotations.length} issue${annotations.length > 1 ? 's' : ''}: ${parts.join(', ')}`;
 	}

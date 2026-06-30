@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Quality checker for early token evaluation
@@ -54,12 +55,12 @@ export function checkEarlyTokenQuality(
 
 	// Generic/unhelpful phrases
 	const genericPhrases = [
-		"i'm sorry, i cannot",
-		"i don't have access to",
-		"i'm not able to",
-		"i cannot help with",
-		"as an ai",
-		"i'm an ai",
+		'i\'m sorry, i cannot',
+		'i don\'t have access to',
+		'i\'m not able to',
+		'i cannot help with',
+		'as an ai',
+		'i\'m an ai',
 	];
 	if (genericPhrases.some(phrase => lowerText.includes(phrase))) {
 		score -= 0.4;

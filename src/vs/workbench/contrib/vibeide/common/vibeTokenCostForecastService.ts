@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -106,7 +107,7 @@ class VibeTokenCostForecastService extends Disposable implements IVibeTokenCostF
 
 	recordActual(modelId: string, inputTokens: number, outputTokens: number, cachedTokens: number): void {
 		const pricing = this.getPricing(modelId);
-		if (!pricing) return;
+		if (!pricing) { return; }
 
 		const actualCost =
 			((inputTokens - cachedTokens) / 1000) * pricing.inputPer1kTokens +
@@ -118,7 +119,7 @@ class VibeTokenCostForecastService extends Disposable implements IVibeTokenCostF
 
 	getPricing(modelId: string): ModelPricing | null {
 		// Try exact match first
-		if (PRICING_TABLE[modelId]) return PRICING_TABLE[modelId];
+		if (PRICING_TABLE[modelId]) { return PRICING_TABLE[modelId]; }
 
 		// Try partial match (e.g., 'claude-3-5-sonnet-20241022' → 'claude-3-5-sonnet')
 		const entry = Object.entries(PRICING_TABLE).find(([key]) =>

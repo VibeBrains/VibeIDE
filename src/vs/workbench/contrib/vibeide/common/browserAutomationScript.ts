@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * `VibeBrowserAutomationService` — script schema decoder + safety validator
@@ -68,9 +69,9 @@ const ACTION_KINDS: ReadonlySet<string> = new Set([
  *   - over-budget text / urls / selectors / timeouts
  */
 export function decodeAutomationScript(raw: unknown): DecodeResult<AutomationScript> {
-	if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not-an-object' };
+	if (!raw || typeof raw !== 'object') { return { ok: false, reason: 'not-an-object' }; }
 	const o = raw as Record<string, unknown>;
-	if (o.version !== 1) return { ok: false, reason: 'version-not-1' };
+	if (o.version !== 1) { return { ok: false, reason: 'version-not-1' }; }
 	if (typeof o.description !== 'string' || o.description.length === 0) {
 		return { ok: false, reason: 'description-missing' };
 	}
@@ -81,8 +82,8 @@ export function decodeAutomationScript(raw: unknown): DecodeResult<AutomationScr
 	const seenIds = new Set<string>();
 	for (let i = 0; i < o.steps.length; i++) {
 		const step = decodeStep(o.steps[i]);
-		if (!step.ok) return { ok: false, reason: `steps[${i}]:${step.reason}` };
-		if (seenIds.has(step.value.id)) return { ok: false, reason: `steps[${i}]:duplicate-id:${step.value.id}` };
+		if (!step.ok) { return { ok: false, reason: `steps[${i}]:${step.reason}` }; }
+		if (seenIds.has(step.value.id)) { return { ok: false, reason: `steps[${i}]:duplicate-id:${step.value.id}` }; }
 		seenIds.add(step.value.id);
 		steps.push(step.value);
 	}
@@ -90,23 +91,23 @@ export function decodeAutomationScript(raw: unknown): DecodeResult<AutomationScr
 }
 
 function decodeStep(raw: unknown): DecodeResult<AutomationStep> {
-	if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not-an-object' };
+	if (!raw || typeof raw !== 'object') { return { ok: false, reason: 'not-an-object' }; }
 	const o = raw as Record<string, unknown>;
-	if (typeof o.id !== 'string' || !STEP_ID_PATTERN.test(o.id)) return { ok: false, reason: 'id-invalid' };
-	if (typeof o.kind !== 'string' || !ACTION_KINDS.has(o.kind)) return { ok: false, reason: `kind-unknown:${String(o.kind)}` };
+	if (typeof o.id !== 'string' || !STEP_ID_PATTERN.test(o.id)) { return { ok: false, reason: 'id-invalid' }; }
+	if (typeof o.kind !== 'string' || !ACTION_KINDS.has(o.kind)) { return { ok: false, reason: `kind-unknown:${String(o.kind)}` }; }
 	const kind = o.kind as AutomationActionKind;
 
 	let target: string | undefined;
 	let value: string | undefined;
 
 	if (o.target !== undefined) {
-		if (typeof o.target !== 'string') return { ok: false, reason: 'target-not-string' };
-		if (o.target.length > MAX_SELECTOR_LEN) return { ok: false, reason: 'target-too-long' };
+		if (typeof o.target !== 'string') { return { ok: false, reason: 'target-not-string' }; }
+		if (o.target.length > MAX_SELECTOR_LEN) { return { ok: false, reason: 'target-too-long' }; }
 		target = o.target;
 	}
 	if (o.value !== undefined) {
-		if (typeof o.value !== 'string') return { ok: false, reason: 'value-not-string' };
-		if (o.value.length > MAX_TEXT_LEN) return { ok: false, reason: 'value-too-long' };
+		if (typeof o.value !== 'string') { return { ok: false, reason: 'value-not-string' }; }
+		if (o.value.length > MAX_TEXT_LEN) { return { ok: false, reason: 'value-too-long' }; }
 		value = o.value;
 	}
 
@@ -192,11 +193,11 @@ export function checkNavigationUrl(rawUrl: string, config: UrlAllowConfig): UrlA
 	const host = parsed.hostname.toLowerCase();
 	const allowed = config.allowedHosts.some(h => {
 		const norm = h.trim().toLowerCase();
-		if (norm === host) return true;
-		if (norm.startsWith('*.') && host.endsWith(norm.slice(1))) return true;
+		if (norm === host) { return true; }
+		if (norm.startsWith('*.') && host.endsWith(norm.slice(1))) { return true; }
 		return false;
 	});
-	if (!allowed) return { ok: false, reason: 'not-allowlisted' };
+	if (!allowed) { return { ok: false, reason: 'not-allowlisted' }; }
 	return { ok: true, url: parsed.toString() };
 }
 

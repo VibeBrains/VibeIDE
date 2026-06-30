@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { trimThreadMessages, capToolResultSizes } from '../../common/chatThreadTrim.js';
 import type { ChatMessage } from '../../common/chatThreadServiceTypes.js';
 
@@ -19,6 +21,8 @@ const assts = (n: number, prefix = 'a') => Array.from({ length: n }, (_, i) => a
 const CAP = 200, HEADROOM = 100;
 
 suite('trimThreadMessages — bound thread memory, pin original task (model-stalls #012)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('returns null when length <= cap', () => {
 		assert.strictEqual(trimThreadMessages([user('task'), ...assts(150)], CAP, HEADROOM), null);
@@ -95,6 +99,8 @@ const errTool = (id: string, len: number) => ({ role: 'tool', type: 'tool_error'
 const NOTE = 'усечён';
 
 suite('capToolResultSizes — bound per-result size (renderer/disk memory)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('returns null when nothing exceeds the threshold', () => {
 		assert.strictEqual(capToolResultSizes([user('q'), bigContentTool('t', 500), asst('a')], MAXCH, 0), null);

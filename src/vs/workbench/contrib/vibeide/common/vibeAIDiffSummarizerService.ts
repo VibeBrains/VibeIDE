@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -50,7 +51,7 @@ class VibeAIDiffSummarizerService extends Disposable implements IVibeAIDiffSumma
 		for (const line of lines) {
 			if (line.startsWith('diff --git')) {
 				const match = line.match(/b\/(.+)$/);
-				if (match) changedFiles.add(match[1]);
+				if (match) { changedFiles.add(match[1]); }
 			} else if (line.startsWith('+') && !line.startsWith('+++')) {
 				insertions++;
 			} else if (line.startsWith('-') && !line.startsWith('---')) {

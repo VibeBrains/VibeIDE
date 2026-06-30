@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Pure helpers for reading `.vibe/*.json` config files in a way that does NOT crash a
@@ -40,7 +41,7 @@ function stripJsoncComments(s: string): string {
 	let i = 0;
 	const n = s.length;
 	let inString = false;
-	let stringQuote: '"' | "'" | null = null;
+	let stringQuote: '"' | '\'' | null = null;
 	while (i < n) {
 		const c = s[i];
 		const next = s[i + 1];
@@ -60,18 +61,18 @@ function stripJsoncComments(s: string): string {
 		}
 		if (c === '"' || c === '\'') {
 			inString = true;
-			stringQuote = c as '"' | "'";
+			stringQuote = c as '"' | '\'';
 			out += c;
 			i++;
 			continue;
 		}
 		if (c === '/' && next === '/') {
-			while (i < n && s[i] !== '\n') i++;
+			while (i < n && s[i] !== '\n') { i++; }
 			continue;
 		}
 		if (c === '/' && next === '*') {
 			i += 2;
-			while (i + 1 < n && !(s[i] === '*' && s[i + 1] === '/')) i++;
+			while (i + 1 < n && !(s[i] === '*' && s[i + 1] === '/')) { i++; }
 			i += 2;
 			continue;
 		}
@@ -110,8 +111,9 @@ export function safeParseConfigJson<T = unknown>(
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(stripJsoncComments(raw));
-	} catch (e: any) {
-		return { ok: false, reason: `json-parse: ${e?.message ?? 'unknown'}` };
+	} catch (e: unknown) {
+		const message = e instanceof Error ? e.message : 'unknown';
+		return { ok: false, reason: `json-parse: ${message}` };
 	}
 	if (parsed === undefined || parsed === null) {
 		return { ok: false, reason: 'null-root' };

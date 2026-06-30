@@ -1,17 +1,17 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { localize, localize2 } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
-import { IErrorDetectionService } from '../common/errorDetectionService.js';
+import { IErrorDetectionService, DetectedError } from '../common/errorDetectionService.js';
 import { IProgressService, IProgress, IProgressStep, ProgressLocation } from '../../../../platform/progress/common/progress.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { URI } from '../../../../base/common/uri.js';
-import { DetectedError } from '../common/errorDetectionService.js';
 import { ErrorDetectionEditorContribution } from './errorDetectionEditorContribution.js';
 import { CancellationTokenSource, CancellationToken } from '../../../../base/common/cancellation.js';
 

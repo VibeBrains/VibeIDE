@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Pure mapping from edit risk score → diff confidence color (1057).
@@ -83,9 +84,9 @@ export function isAutoBlockedByConfidence(
 
 /** Clamp a possibly out-of-range / non-finite score into [0, 1]. */
 function clampScore(score: number): number {
-	if (typeof score !== 'number' || !Number.isFinite(score)) return 0;
-	if (score < 0) return 0;
-	if (score > 1) return 1;
+	if (typeof score !== 'number' || !Number.isFinite(score)) { return 0; }
+	if (score < 0) { return 0; }
+	if (score > 1) { return 1; }
 	return score;
 }
 

@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 // Render-loop tripwire. A genuine setState/effect loop re-renders the same component
 // dozens of times within a frame, which surfaces to the user as a silent renderer freeze
@@ -26,7 +27,7 @@ export function trackRenderLoop(tag: string): void {
 	while (ticks.length && now - ticks[0] > RENDER_WINDOW_MS) { ticks.shift(); }
 	if (ticks.length >= RENDER_LOOP_THRESHOLD && !_firedTags.has(tag)) {
 		_firedTags.add(tag);
-		// eslint-disable-next-line no-console
+
 		console.error(`[VibeIDE/RenderLoop] "${tag}" re-rendered ${ticks.length} times within ${RENDER_WINDOW_MS}ms — probable setState/effect loop (precedes a renderer freeze "Окно не отвечает").`);
 	}
 }

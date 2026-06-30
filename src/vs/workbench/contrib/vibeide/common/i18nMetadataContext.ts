@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * i18n metadata source-context attacher — pure helper
@@ -71,8 +72,8 @@ export function buildMetadataContextEntry(input: MetadataContextInput): Metadata
 	if (input.sourceContext) {
 		const head = formatSourceHeader(input.sourceContext);
 		const snippet = formatSnippet(input.sourceContext.snippet);
-		if (head.length > 0) parts.push(head);
-		if (snippet.length > 0) parts.push(snippet);
+		if (head.length > 0) { parts.push(head); }
+		if (snippet.length > 0) { parts.push(snippet); }
 	}
 
 	if (input.screenshots && input.screenshots.length > 0) {
@@ -90,7 +91,7 @@ export function buildMetadataContextEntry(input: MetadataContextInput): Metadata
 
 function formatSourceHeader(ctx: SourceLineContext): string {
 	const path = typeof ctx.filePath === 'string' ? ctx.filePath.trim() : '';
-	if (path.length === 0) return '';
+	if (path.length === 0) { return ''; }
 	if (typeof ctx.lineNumber !== 'number' || !Number.isFinite(ctx.lineNumber) || ctx.lineNumber < 1) {
 		return path;
 	}
@@ -98,13 +99,13 @@ function formatSourceHeader(ctx: SourceLineContext): string {
 }
 
 function formatSnippet(raw: string): string {
-	if (typeof raw !== 'string' || raw.length === 0) return '';
+	if (typeof raw !== 'string' || raw.length === 0) { return ''; }
 	const lines = raw.replace(/\r\n/g, '\n').split('\n');
 	// Drop leading and trailing empty lines.
-	while (lines.length > 0 && lines[0].trim() === '') lines.shift();
-	while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
+	while (lines.length > 0 && lines[0].trim() === '') { lines.shift(); }
+	while (lines.length > 0 && lines[lines.length - 1].trim() === '') { lines.pop(); }
 	const clipped = lines.slice(0, MAX_SNIPPET_LINES).map(l => {
-		if (l.length <= MAX_SNIPPET_LINE_LEN) return l;
+		if (l.length <= MAX_SNIPPET_LINE_LEN) { return l; }
 		return l.slice(0, MAX_SNIPPET_LINE_LEN) + '…';
 	});
 	return clipped.join('\n');
@@ -115,8 +116,8 @@ function dedupScreenshotNames(refs: ReadonlyArray<ScreenshotReference>): string[
 	const out: string[] = [];
 	for (const r of refs) {
 		const name = typeof r.screenName === 'string' ? r.screenName.trim() : '';
-		if (name.length === 0) continue;
-		if (seen.has(name)) continue;
+		if (name.length === 0) { continue; }
+		if (seen.has(name)) { continue; }
 		seen.add(name);
 		out.push(name);
 	}
@@ -136,7 +137,7 @@ export function buildMetadataIndex(
 ): ReadonlyMap<string, MetadataContextEntry> {
 	const out = new Map<string, MetadataContextEntry>();
 	for (const r of rows) {
-		if (typeof r.key !== 'string' || r.key.length === 0) continue;
+		if (typeof r.key !== 'string' || r.key.length === 0) { continue; }
 		out.set(r.key, buildMetadataContextEntry(r));
 	}
 	return out;

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -11,6 +12,7 @@ import {
 	UpdaterArgs,
 	UpdaterState,
 } from '../../common/updaterSilentArgs.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const baseArgs: UpdaterArgs = {
 	waitPid: 1234,
@@ -21,6 +23,8 @@ const baseArgs: UpdaterArgs = {
 };
 
 suite('Updater silent-installer args + lifecycle FSM', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decodeUpdaterArgs', () => {
 		test('happy path — pid + installer', () => {
@@ -36,22 +40,22 @@ suite('Updater silent-installer args + lifecycle FSM', () => {
 
 		test('--silent flag', () => {
 			const r = decodeUpdaterArgs(['--wait-pid', '1', '--installer', 'x', '--silent'], 'win32');
-			if (r.ok) assert.strictEqual(r.value.silent, true);
+			if (r.ok) { assert.strictEqual(r.value.silent, true); }
 		});
 
 		test('--no-auto-launch overrides default', () => {
 			const r = decodeUpdaterArgs(['--wait-pid', '1', '--installer', 'x', '--no-auto-launch'], 'win32');
-			if (r.ok) assert.strictEqual(r.value.autoLaunch, false);
+			if (r.ok) { assert.strictEqual(r.value.autoLaunch, false); }
 		});
 
 		test('--log path', () => {
 			const r = decodeUpdaterArgs(['--wait-pid', '1', '--installer', 'x', '--log', '/tmp/u.log'], 'linux');
-			if (r.ok) assert.strictEqual(r.value.logPath, '/tmp/u.log');
+			if (r.ok) { assert.strictEqual(r.value.logPath, '/tmp/u.log'); }
 		});
 
 		test('--timeout-seconds in range', () => {
 			const r = decodeUpdaterArgs(['--wait-pid', '1', '--installer', 'x', '--timeout-seconds', '300'], 'win32');
-			if (r.ok) assert.strictEqual(r.value.timeoutSeconds, 300);
+			if (r.ok) { assert.strictEqual(r.value.timeoutSeconds, 300); }
 		});
 
 		test('rejects timeout out of range', () => {
@@ -77,13 +81,13 @@ suite('Updater silent-installer args + lifecycle FSM', () => {
 		test('rejects required-flag absent', () => {
 			const r = decodeUpdaterArgs(['--silent'], 'win32');
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.reason.includes('required'));
+			if (!r.ok) { assert.ok(r.reason.includes('required')); }
 		});
 
 		test('rejects unknown flag', () => {
 			const r = decodeUpdaterArgs(['--wait-pid', '1', '--installer', 'x', '--evil'], 'win32');
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.reason.includes('unknown-flag'));
+			if (!r.ok) { assert.ok(r.reason.includes('unknown-flag')); }
 		});
 
 		test('rejects too-long log path', () => {
@@ -96,7 +100,7 @@ suite('Updater silent-installer args + lifecycle FSM', () => {
 
 		test('os passed through', () => {
 			const r = decodeUpdaterArgs(['--wait-pid', '1', '--installer', 'x'], 'darwin');
-			if (r.ok) assert.strictEqual(r.value.os, 'darwin');
+			if (r.ok) { assert.strictEqual(r.value.os, 'darwin'); }
 		});
 	});
 
@@ -166,7 +170,7 @@ suite('Updater silent-installer args + lifecycle FSM', () => {
 				{ kind: 'waiting-pid', pid: 1234, waitStartedAtMs: 1 },
 				{ kind: 'pid-released', nowMs: 2 },
 			);
-			if (r.ok) assert.strictEqual(r.next.kind, 'installing');
+			if (r.ok) { assert.strictEqual(r.next.kind, 'installing'); }
 		});
 
 		test('installing + install-completed (autoLaunch=true) → launching', () => {
@@ -175,7 +179,7 @@ suite('Updater silent-installer args + lifecycle FSM', () => {
 				{ kind: 'install-completed', nowMs: 5 },
 				{ ...baseArgs, autoLaunch: true },
 			);
-			if (r.ok) assert.strictEqual(r.next.kind, 'launching');
+			if (r.ok) { assert.strictEqual(r.next.kind, 'launching'); }
 		});
 
 		test('installing + install-completed (autoLaunch=false) → done:success', () => {
@@ -184,7 +188,7 @@ suite('Updater silent-installer args + lifecycle FSM', () => {
 				{ kind: 'install-completed', nowMs: 5 },
 				{ ...baseArgs, autoLaunch: false },
 			);
-			if (r.ok && r.next.kind === 'done') assert.strictEqual(r.next.outcome, 'success');
+			if (r.ok && r.next.kind === 'done') { assert.strictEqual(r.next.outcome, 'success'); }
 		});
 
 		test('installing + install-failed → done:install-failed', () => {
@@ -192,7 +196,7 @@ suite('Updater silent-installer args + lifecycle FSM', () => {
 				{ kind: 'installing', startedAtMs: 1 },
 				{ kind: 'install-failed', nowMs: 5 },
 			);
-			if (r.ok && r.next.kind === 'done') assert.strictEqual(r.next.outcome, 'install-failed');
+			if (r.ok && r.next.kind === 'done') { assert.strictEqual(r.next.outcome, 'install-failed'); }
 		});
 
 		test('launching + launch-completed → done:success', () => {
@@ -200,7 +204,7 @@ suite('Updater silent-installer args + lifecycle FSM', () => {
 				{ kind: 'launching', installEndedAtMs: 1 },
 				{ kind: 'launch-completed', nowMs: 5 },
 			);
-			if (r.ok && r.next.kind === 'done') assert.strictEqual(r.next.outcome, 'success');
+			if (r.ok && r.next.kind === 'done') { assert.strictEqual(r.next.outcome, 'success'); }
 		});
 
 		test('launching + launch-failed → done:launch-failed', () => {
@@ -208,7 +212,7 @@ suite('Updater silent-installer args + lifecycle FSM', () => {
 				{ kind: 'launching', installEndedAtMs: 1 },
 				{ kind: 'launch-failed', nowMs: 5 },
 			);
-			if (r.ok && r.next.kind === 'done') assert.strictEqual(r.next.outcome, 'launch-failed');
+			if (r.ok && r.next.kind === 'done') { assert.strictEqual(r.next.outcome, 'launch-failed'); }
 		});
 
 		test('timeout from running → done:timeout', () => {
@@ -216,7 +220,7 @@ suite('Updater silent-installer args + lifecycle FSM', () => {
 				{ kind: 'installing', startedAtMs: 1 },
 				{ kind: 'timeout', nowMs: 5 },
 			);
-			if (r.ok && r.next.kind === 'done') assert.strictEqual(r.next.outcome, 'timeout');
+			if (r.ok && r.next.kind === 'done') { assert.strictEqual(r.next.outcome, 'timeout'); }
 		});
 
 		test('timeout from idle → refused', () => {
@@ -229,7 +233,7 @@ suite('Updater silent-installer args + lifecycle FSM', () => {
 				{ kind: 'launching', installEndedAtMs: 1 },
 				{ kind: 'abort', nowMs: 5 },
 			);
-			if (r.ok && r.next.kind === 'done') assert.strictEqual(r.next.outcome, 'aborted');
+			if (r.ok && r.next.kind === 'done') { assert.strictEqual(r.next.outcome, 'aborted'); }
 		});
 
 		test('done is terminal', () => {

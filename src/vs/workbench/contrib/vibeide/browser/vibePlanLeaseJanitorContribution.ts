@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Plan-lease periodic janitor (roadmap K.1 L903).
@@ -16,6 +17,7 @@
  */
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { mainWindow } from '../../../../base/browser/window.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
@@ -34,7 +36,7 @@ const JANITOR_INTERVAL_MS = 30_000;
 export class VibePlanLeaseJanitorContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.vibePlanLeaseJanitor';
 
-	private _timer: ReturnType<typeof setInterval> | null = null;
+	private _timer: number | null = null;
 
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
@@ -47,8 +49,8 @@ export class VibePlanLeaseJanitorContribution extends Disposable implements IWor
 		// pure helper is cheap; the actual cost is the FS resolve which is
 		// bounded by the number of workspace folders × leases/folder (typically 0-3).
 		void this._scan();
-		this._timer = setInterval(() => { void this._scan(); }, JANITOR_INTERVAL_MS);
-		this._register({ dispose: () => { if (this._timer) { clearInterval(this._timer); this._timer = null; } } });
+		this._timer = mainWindow.setInterval(() => { void this._scan(); }, JANITOR_INTERVAL_MS);
+		this._register({ dispose: () => { if (this._timer) { mainWindow.clearInterval(this._timer); this._timer = null; } } });
 	}
 
 	private async _scan(): Promise<void> {

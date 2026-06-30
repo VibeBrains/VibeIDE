@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * VibeUnexpectedErrorLoggingContribution.
@@ -43,7 +44,7 @@ class VibeUnexpectedErrorLoggingContribution extends Disposable {
 					// DOM Event (e.g. a resource-load `error` on <script>/<img>, or an
 					// ErrorEvent). JSON.stringify on these yields a useless `{"isTrusted":true}`
 					// because their fields are non-enumerable — extract the useful bits by hand.
-					const ev = err as any;
+					const ev = err as Event & { message?: unknown; filename?: unknown; error?: unknown; target?: { src?: unknown; href?: unknown } | null };
 					const parts: string[] = [`Event(${ev.type ?? 'unknown'})`];
 					if (ev.message) { parts.push(String(ev.message)); }
 					const src = ev.filename || ev.target?.src || ev.target?.href;

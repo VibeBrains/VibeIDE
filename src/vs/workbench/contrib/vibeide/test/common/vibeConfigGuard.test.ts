@@ -1,12 +1,14 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import { scanProviderConfig, scanMcpConfig, ConfigGuardFinding } from '../../common/vibeConfigGuard.js';
 import { VibeProviderEntry } from '../../common/vibeProvidersFile.js';
 import { MCPConfigFileEntryJSON } from '../../common/mcpServiceTypes.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const ruleIds = (fs: readonly ConfigGuardFinding[]): string[] => fs.map(f => f.ruleId).sort();
 const has = (fs: readonly ConfigGuardFinding[], ruleId: string): boolean => fs.some(f => f.ruleId === ruleId);
@@ -15,6 +17,8 @@ const sevOf = (fs: readonly ConfigGuardFinding[], ruleId: string): string | unde
 const provider = (e: Partial<VibeProviderEntry> & { id: string }): VibeProviderEntry => e as VibeProviderEntry;
 
 suite('VibeConfigGuard — providers.json', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('clean https provider → no findings', () => {
 		const fs = scanProviderConfig([provider({ id: 'acme', baseURL: 'https://api.acme.ai/v1', apiKeyEnv: 'ACME_KEY' })]);
@@ -69,6 +73,8 @@ suite('VibeConfigGuard — providers.json', () => {
 const server = (e: MCPConfigFileEntryJSON): Record<string, MCPConfigFileEntryJSON> => ({ srv: e });
 
 suite('VibeConfigGuard — mcp.json', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('clean pinned stdio server → no findings', () => {
 		const fs = scanMcpConfig(server({ command: 'node', args: ['./server.js'] }));

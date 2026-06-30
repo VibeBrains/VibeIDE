@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * VibeDiagramContextContribution — @diagram mention: picker + LLM context injection.
@@ -25,7 +26,7 @@
  */
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
-import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { createDecorator, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -35,7 +36,10 @@ import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { localize } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
-import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
+import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { IVibeStealthModeService } from '../common/vibeStealthModeService.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
@@ -288,11 +292,8 @@ registerAction2(class extends Action2 {
 
 	async run(accessor: ServicesAccessor): Promise<void> {
 		const diagramSvc = accessor.get(IVibeDiagramContextService);
-		const quickInput = (await import('../../../../platform/quickinput/common/quickInput.js')).IQuickInputService;
-		const quickInputSvc = accessor.get(quickInput);
-		const notifications = (await import('../../../../platform/notification/common/notification.js')).INotificationService;
-		const notifSvc = accessor.get(notifications);
-		const Severity = (await import('../../../../platform/notification/common/notification.js')).Severity;
+		const quickInputSvc = accessor.get(IQuickInputService);
+		const notifSvc = accessor.get(INotificationService);
 
 		// Scan workspace for diagram files
 		notifSvc.notify({ severity: Severity.Info, message: localize('vibeide.context.pickDiagram.scanning', 'Сканирование рабочего пространства на диаграммы...') });
@@ -351,11 +352,9 @@ registerAction2(class extends Action2 {
 
 	async run(accessor: ServicesAccessor): Promise<void> {
 		const diagramSvc = accessor.get(IVibeDiagramContextService);
-		const quickInput = (await import('../../../../platform/quickinput/common/quickInput.js')).IQuickInputService;
-		const quickInputSvc = accessor.get(quickInput);
-		const { IEditorService } = await import('../../../services/editor/common/editorService.js');
-		const { URI: URI_ } = await import('../../../../base/common/uri.js');
-		const { ITextModelService } = await import('../../../../editor/common/services/resolverService.js');
+		const quickInputSvc = accessor.get(IQuickInputService);
+		const editorSvc = accessor.get(IEditorService);
+		const modelSvc = accessor.get(ITextModelService);
 
 		const path = await quickInputSvc.input({
 			prompt: localize('vibeide.context.previewDiagram.prompt', 'Введите путь к диаграмме или URL для предпросмотра'),
@@ -378,11 +377,10 @@ registerAction2(class extends Action2 {
 			block.content.length > 2000 ? `\n... [truncated, total ${block.content.length} chars]` : '',
 		].join('\n');
 
-		const uri = URI_.parse(`untitled://diagram-preview-${Date.now()}.md`);
-		const modelSvc = accessor.get(ITextModelService);
+		const uri = URI.parse(`untitled://diagram-preview-${Date.now()}.md`);
 		const ref = await modelSvc.createModelReference(uri);
 		ref.object.textEditorModel?.setValue(preview);
 		ref.dispose();
-		await accessor.get(IEditorService).openEditor({ resource: uri });
+		await editorSvc.openEditor({ resource: uri });
 	}
 });

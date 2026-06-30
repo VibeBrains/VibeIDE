@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * VibeNlsLiveReload — dev-only watcher that hot-reloads VibeIDE NLS bundles
@@ -102,7 +103,7 @@ class VibeNlsLiveReloadService extends Disposable implements IVibeNlsLiveReloadS
 		const entries = new Map<string, string>();
 		for (const k of Object.keys(raw)) {
 			const v = raw[k];
-			if (typeof v === 'string') entries.set(k, v);
+			if (typeof v === 'string') { entries.set(k, v); }
 		}
 		const next = buildNlsBundleSnapshot(localeTag, entries, fnv1a32);
 		const verdict = decideNlsLiveReload({ previous: this._snapshot, current: next });

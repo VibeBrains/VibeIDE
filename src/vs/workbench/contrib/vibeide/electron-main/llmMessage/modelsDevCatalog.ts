@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 // models.dev catalog — data-driven AI SDK package routing for aggregator providers.
 //
@@ -39,7 +40,7 @@
 import { vibeLog } from '../../common/vibeLog.js';
 import { fetch as undiciFetch } from 'undici';
 import * as fs from 'fs';
-import * as path from 'path';
+import * as path from '../../../../../base/common/path.js';
 import { LOCAL_SNAPSHOT_FILENAME, MODELS_DEV_URL } from '../../common/modelsDevCatalogConstants.js';
 
 const FETCH_TIMEOUT_MS = 10_000;
@@ -56,9 +57,9 @@ const FETCH_TIMEOUT_MS = 10_000;
 const DEFAULT_DISK_CACHE_TTL_HOURS = 24;
 const resolveDiskCacheTtlMs = (): number => {
 	const raw = process.env.VIBEIDE_MODELS_DEV_CACHE_TTL_HOURS;
-	if (!raw) return DEFAULT_DISK_CACHE_TTL_HOURS * 60 * 60 * 1000;
+	if (!raw) { return DEFAULT_DISK_CACHE_TTL_HOURS * 60 * 60 * 1000; }
 	const parsed = Number(raw);
-	if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_DISK_CACHE_TTL_HOURS * 60 * 60 * 1000;
+	if (!Number.isFinite(parsed) || parsed <= 0) { return DEFAULT_DISK_CACHE_TTL_HOURS * 60 * 60 * 1000; }
 	// Clamp to the same range as the setting (1h..720h = 30 days).
 	const clamped = Math.max(1, Math.min(720, parsed));
 	return clamped * 60 * 60 * 1000;
@@ -87,18 +88,18 @@ const NEGATIVE_RETRY_COOLDOWN_MS = 5 * 60 * 1000;
 const normaliseUrl = (url: string): string => url.replace(/\/+$/, '');
 
 const indexJson = (json: unknown): CatalogIndex | null => {
-	if (!json || typeof json !== 'object') return null;
+	if (!json || typeof json !== 'object') { return null; }
 	const byApiUrl = new Map<string, { providerId: string; defaultNpm: string; models: ProviderModelNpmMap }>();
 	for (const providerId of Object.keys(json as Record<string, unknown>)) {
 		const provider = (json as Record<string, unknown>)[providerId];
-		if (!provider || typeof provider !== 'object') continue;
+		if (!provider || typeof provider !== 'object') { continue; }
 		const p = provider as { api?: unknown; npm?: unknown; models?: unknown };
-		if (typeof p.api !== 'string' || typeof p.npm !== 'string') continue;
+		if (typeof p.api !== 'string' || typeof p.npm !== 'string') { continue; }
 		const modelNpm = new Map<string, string>();
 		if (p.models && typeof p.models === 'object') {
 			for (const modelId of Object.keys(p.models as Record<string, unknown>)) {
 				const m = (p.models as Record<string, unknown>)[modelId];
-				if (!m || typeof m !== 'object') continue;
+				if (!m || typeof m !== 'object') { continue; }
 				const override = (m as { provider?: { npm?: unknown } }).provider?.npm;
 				if (typeof override === 'string') {
 					modelNpm.set(modelId.toLowerCase(), override);
@@ -141,7 +142,7 @@ const fetchAndIndex = async (): Promise<{ index: CatalogIndex; rawText: string }
 // optimisation, not a correctness requirement.
 const persistSnapshotToUserData = async (rawText: string): Promise<void> => {
 	const userData = resolveUserDataDir();
-	if (!userData) return;
+	if (!userData) { return; }
 	try {
 		await fs.promises.mkdir(userData, { recursive: true });
 		await fs.promises.writeFile(path.join(userData, LOCAL_SNAPSHOT_FILENAME), rawText, 'utf-8');
@@ -152,7 +153,7 @@ const persistSnapshotToUserData = async (rawText: string): Promise<void> => {
 // dependency-free module without pulling in IEnvironmentMainService DI.
 const resolveUserDataDir = (): string | null => {
 	const envOverride = process.env.VSCODE_USER_DATA_PATH;
-	if (envOverride) return envOverride;
+	if (envOverride) { return envOverride; }
 	if (process.platform === 'darwin' && process.env.HOME) {
 		return path.join(process.env.HOME, 'Library', 'Application Support', 'VibeIDE');
 	}
@@ -182,15 +183,16 @@ const localSnapshotCandidates = (): { path: string; source: 'exeDir' | 'bundled'
 	const out: { path: string; source: 'exeDir' | 'bundled' | 'userData' }[] = [];
 	try {
 		const exeDir = path.dirname(process.execPath);
-		if (exeDir) out.push({ path: path.join(exeDir, LOCAL_SNAPSHOT_FILENAME), source: 'exeDir' });
+		if (exeDir) { out.push({ path: path.join(exeDir, LOCAL_SNAPSHOT_FILENAME), source: 'exeDir' }); }
 	} catch { /* process.execPath unavailable — skip */ }
-	const resourcesPath: string | undefined = (process as any).resourcesPath;
+	// `resourcesPath` is injected by Electron and absent from the Node `process` typings.
+	const resourcesPath: unknown = (process as NodeJS.Process & { resourcesPath?: unknown }).resourcesPath;
 	if (typeof resourcesPath === 'string' && resourcesPath) {
 		out.push({ path: path.join(resourcesPath, 'app', 'resources', 'vibeide', LOCAL_SNAPSHOT_FILENAME), source: 'bundled' });
 		out.push({ path: path.join(resourcesPath, 'vibeide', LOCAL_SNAPSHOT_FILENAME), source: 'bundled' });
 	}
 	const userData = resolveUserDataDir();
-	if (userData) out.push({ path: path.join(userData, LOCAL_SNAPSHOT_FILENAME), source: 'userData' });
+	if (userData) { out.push({ path: path.join(userData, LOCAL_SNAPSHOT_FILENAME), source: 'userData' }); }
 	return out;
 };
 
@@ -199,7 +201,7 @@ const tryReadLocalSnapshot = async (): Promise<{ catalog: CatalogIndex; from: st
 		try {
 			const raw = await fs.promises.readFile(p, 'utf-8');
 			const indexed = indexJson(JSON.parse(raw));
-			if (indexed) return { catalog: indexed, from: p, source };
+			if (indexed) { return { catalog: indexed, from: p, source }; }
 		} catch { /* missing / invalid — try next candidate */ }
 	}
 	return null;
@@ -232,7 +234,7 @@ const tryReadFastPathSnapshot = async (): Promise<{ catalog: CatalogIndex; from:
 			if (source === 'userData') {
 				const stat = await fs.promises.stat(p);
 				const ageMs = Date.now() - stat.mtimeMs;
-				if (ageMs > resolveDiskCacheTtlMs()) return null;
+				if (ageMs > resolveDiskCacheTtlMs()) { return null; }
 				raw = await fs.promises.readFile(p, 'utf-8');
 				const indexed = indexJson(JSON.parse(raw));
 				if (!indexed) {
@@ -251,7 +253,7 @@ const tryReadFastPathSnapshot = async (): Promise<{ catalog: CatalogIndex; from:
 		}
 		try {
 			const indexed = indexJson(JSON.parse(raw));
-			if (indexed) return { catalog: indexed, from: p, source };
+			if (indexed) { return { catalog: indexed, from: p, source }; }
 			vibeLog.warn('modelsDevCatalog', `[modelsDevCatalog] fast-path: snapshot at ${p} (${source}) parsed but lacks indexable providers; trying next candidate`);
 		} catch (e) {
 			vibeLog.warn('modelsDevCatalog', `[modelsDevCatalog] fast-path: invalid JSON at ${p} (${source}) — fix or delete the file; trying next candidate`, e);
@@ -266,7 +268,7 @@ const tryReadFastPathSnapshot = async (): Promise<{ catalog: CatalogIndex; from:
 // means the next start will retry. Never runs concurrently with itself.
 let backgroundRefreshRunning = false;
 const refreshInBackground = (): void => {
-	if (backgroundRefreshRunning) return;
+	if (backgroundRefreshRunning) { return; }
 	backgroundRefreshRunning = true;
 	void (async () => {
 		try {
@@ -285,8 +287,8 @@ const refreshInBackground = (): void => {
 };
 
 const getCatalog = (): Promise<CatalogIndex | null> => {
-	if (cachedCatalog) return Promise.resolve(cachedCatalog);
-	if (inFlight) return inFlight;
+	if (cachedCatalog) { return Promise.resolve(cachedCatalog); }
+	if (inFlight) { return inFlight; }
 	if (lastFailureAt > 0 && Date.now() - lastFailureAt < NEGATIVE_RETRY_COOLDOWN_MS) {
 		return Promise.resolve(null);
 	}
@@ -340,7 +342,7 @@ const getCatalog = (): Promise<CatalogIndex | null> => {
 		vibeLog.warn(
 			'modelsDevCatalog', `[modelsDevCatalog] network fetch failed and no local snapshot found. ` +
 			`Per-model SDK routing falls back to openai-compatible (aggregator-proxied minimax/qwen may return empty responses). ` +
-			`Download ${MODELS_DEV_URL} and save as "${LOCAL_SNAPSHOT_FILENAME}" in one of: ${localSnapshotCandidates().map(c => c.path).join(' | ')}`
+		`Download ${MODELS_DEV_URL} and save as "${LOCAL_SNAPSHOT_FILENAME}" in one of: ${localSnapshotCandidates().map(c => c.path).join(' | ')}`
 		);
 		inFlight = null;
 		return null;
@@ -363,9 +365,9 @@ const getCatalog = (): Promise<CatalogIndex | null> => {
  */
 export const getModelSdkNpm = async (baseURL: string, modelName: string): Promise<string | undefined> => {
 	const catalog = await getCatalog();
-	if (!catalog) return undefined;
+	if (!catalog) { return undefined; }
 	const provider = catalog.byApiUrl.get(normaliseUrl(baseURL));
-	if (!provider) return undefined;
+	if (!provider) { return undefined; }
 	return provider.models.get(modelName.toLowerCase()) ?? provider.defaultNpm;
 };
 

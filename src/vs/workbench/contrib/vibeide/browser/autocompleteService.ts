@@ -26,13 +26,12 @@ import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
 import { isWindows } from '../../../../base/common/platform.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
-import { FeatureName } from '../common/vibeideSettingsTypes.js';
-import { IConvertToLLMMessageService } from './convertToLLMMessageService.js';
+import { FeatureName, ProviderName } from '../common/vibeideSettingsTypes.js';
+import { IConvertToLLMMessageService, isLocalProvider } from './convertToLLMMessageService.js';
 import { getPerformanceHarness } from '../common/performanceHarness.js';
-import { isLocalProvider } from './convertToLLMMessageService.js';
 import { IModelWarmupService } from '../common/modelWarmupService.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
-import { decideFIMProvider, describeFIMRouting, type FIMProvider } from '../common/fimProviderRouter.js';
+import { decideFIMProvider, describeFIMRouting, type FIMProvider, type FIMProviderKind } from '../common/fimProviderRouter.js';
 import { CompletionCache, makeCompletionCacheKey, hashCompletionPrefix } from '../common/completionCache.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
@@ -200,7 +199,7 @@ const MAX_PENDING_REQUESTS = 2;
 // Detect if text contains syntax from a different programming language
 const detectLanguageMismatch = (text: string, expectedLanguage: string): boolean => {
 	const trimmed = text.trim();
-	if (!trimmed) return false;
+	if (!trimmed) { return false; }
 
 	// Language-specific syntax patterns
 	const languagePatterns: Record<string, RegExp[]> = {
@@ -234,7 +233,7 @@ const detectLanguageMismatch = (text: string, expectedLanguage: string): boolean
 	};
 
 	const patterns = languagePatterns[expectedLanguage];
-	if (!patterns) return false;
+	if (!patterns) { return false; }
 
 	// Check if text contains syntax from a different language
 	for (const pattern of patterns) {
@@ -258,7 +257,7 @@ const filterNonCodeContent = (text: string, languageId?: string): string => {
 		// Remove Chinese/Japanese/Korean characters from comments (common issue)
 		// Pattern: code followed by // or /* with non-ASCII characters
 		const hasNonAsciiInComment = /\/\/.*[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/.test(line) ||
-		                              /\/\*.*[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af].*\*\//.test(line);
+			/\/\*.*[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af].*\*\//.test(line);
 
 		if (hasNonAsciiInComment) {
 			// Remove the comment part, keep only the code
@@ -483,7 +482,7 @@ const postprocessAutocompletion = ({ autocompletionMatchup, autocompletion, pref
 
 	return completionStr;
 
-}
+};
 
 // returns the text in the autocompletion to display, assuming the prefix is already matched
 const toInlineCompletions = ({ autocompletionMatchup, autocompletion, prefixAndSuffix, position, debug }: { autocompletionMatchup: AutocompletionMatchupBounds; autocompletion: Autocompletion; prefixAndSuffix: PrefixAndSuffixInfo; position: Position; debug?: boolean }): { insertText: string; range: Range }[] => {
@@ -521,7 +520,7 @@ const toInlineCompletions = ({ autocompletionMatchup, autocompletion, prefixAndS
 		range: rangeToReplace,
 	}];
 
-}
+};
 
 
 
@@ -563,15 +562,15 @@ const getPrefixAndSuffixInfo = (model: ITextModel, position: Position): PrefixAn
 
 	return { prefix, suffix, prefixLines, suffixLines, prefixToTheLeftOfCursor, suffixToTheRightOfCursor };
 
-}
+};
 
 const getIndex = (str: string, line: number, char: number) => {
 	return str.split(_ln).slice(0, line).join(_ln).length + (line > 0 ? 1 : 0) + char;
-}
+};
 const getLastLine = (s: string): string => {
 	const matches = s.match(new RegExp(`[^${_ln}]*$`));
 	return matches ? matches[0] : '';
-}
+};
 
 type AutocompletionMatchupBounds = {
 	startLine: number;
@@ -593,7 +592,7 @@ const getAutocompletionMatchup = ({ prefix, autocompletion }: { prefix: string; 
 
 	if (trimmedCurrentPrefix.length < trimmedCompletionPrefix.length) { // user must write text beyond the original prefix at generation time
 		// console.log('@undefined1')
-		return undefined
+		return undefined;
 	}
 
 	if ( // check that completion starts with the prefix
@@ -601,7 +600,7 @@ const getAutocompletionMatchup = ({ prefix, autocompletion }: { prefix: string; 
 			.startsWith(trimmedCurrentPrefix)
 	) {
 		// console.log('@undefined2')
-		return undefined
+		return undefined;
 	}
 
 	// reverse map to find position wrt `autocompletion.result`
@@ -613,36 +612,36 @@ const getAutocompletionMatchup = ({ prefix, autocompletion }: { prefix: string; 
 		// Prefix changed during typing — caller handles undefined as cancellation. Silent by design.
 		return undefined;
 	}
-	const currentPrefixLine = getLastLine(trimmedCurrentPrefix)
-	const completionPrefixLine = lineStart === 0 ? getLastLine(trimmedCompletionPrefix) : ''
-	const completionMiddleLine = autocompletion.insertText.split(_ln)[lineStart]
-	const fullCompletionLine = completionPrefixLine + completionMiddleLine
+	const currentPrefixLine = getLastLine(trimmedCurrentPrefix);
+	const completionPrefixLine = lineStart === 0 ? getLastLine(trimmedCompletionPrefix) : '';
+	const completionMiddleLine = autocompletion.insertText.split(_ln)[lineStart];
+	const fullCompletionLine = completionPrefixLine + completionMiddleLine;
 
 	// console.log('currentPrefixLine', currentPrefixLine)
 	// console.log('completionPrefixLine', completionPrefixLine)
 	// console.log('completionMiddleLine', completionMiddleLine)
 
-	const charMatchIdx = fullCompletionLine.indexOf(currentPrefixLine)
+	const charMatchIdx = fullCompletionLine.indexOf(currentPrefixLine);
 	if (charMatchIdx < 0) {
 		// Prefix diverged from cached completion — caller handles undefined as cancellation. Silent by design.
-		return undefined
+		return undefined;
 	}
 
 	const character = (charMatchIdx +
 		currentPrefixLine.length
 		- completionPrefixLine.length
-	)
+	);
 
-	const startIdx = getIndex(autocompletion.insertText, lineStart, character)
+	const startIdx = getIndex(autocompletion.insertText, lineStart, character);
 
 	return {
 		startLine: lineStart,
 		startCharacter: character,
 		startIdx,
-	}
+	};
 
 
-}
+};
 
 
 type CompletionOptions = {
@@ -659,7 +658,7 @@ const getCompletionOptions = (prefixAndSuffix: PrefixAndSuffixInfo, relevantCont
 	// trim prefix and suffix to not be very large
 	// For local providers, use smaller limits (10-15 lines) to reduce token count before FIM token capping
 	// This helps local models respond faster by reducing input size
-	const maxLines = isLocalProvider ? 12 : 25 // 12 lines for local (conservative), 25 for cloud
+	const maxLines = isLocalProvider ? 12 : 25; // 12 lines for local (conservative), 25 for cloud
 	suffixLines = suffix.split(_ln).slice(0, maxLines);
 	prefixLines = prefix.split(_ln).slice(-maxLines);
 	prefix = prefixLines.join(_ln);
@@ -729,7 +728,7 @@ const getCompletionOptions = (prefixAndSuffix: PrefixAndSuffixInfo, relevantCont
 
 	return completionOptions;
 
-}
+};
 
 export interface IAutocompleteService {
 	readonly _serviceBrand: undefined;
@@ -739,19 +738,19 @@ export const IAutocompleteService = createDecorator<IAutocompleteService>('Autoc
 
 export class AutocompleteService extends Disposable implements IAutocompleteService {
 
-	static readonly ID = 'vibe.autocompleteService'
+	static readonly ID = 'vibe.autocompleteService';
 
 	_serviceBrand: undefined;
 
 	private _autocompletionId: number = 0;
-	private _autocompletionsOfDocument: { [docUriStr: string]: LRUCache<number, Autocompletion> } = {}
+	private _autocompletionsOfDocument: { [docUriStr: string]: LRUCache<number, Autocompletion> } = {};
 
-	private _lastCompletionStart = 0
-	private _lastCompletionAccept = 0
-	private _hasShownNoModelWarning = false
-	private _loggedDisabled = false // one-shot guard: avoid logging "disabled" on every keystroke
+	private _lastCompletionStart = 0;
+	private _lastCompletionAccept = 0;
+	private _hasShownNoModelWarning = false;
+	private _loggedDisabled = false; // one-shot guard: avoid logging "disabled" on every keystroke
 	/** Prefix-hash cache — fast O(1) hit check before the O(n) LRU scan. Exposes hit/miss/eviction stats for vibe doctor. */
-	private readonly _prefixCache = new CompletionCache<Autocompletion>({ maxEntries: 256, ttlMs: 5 * 60_000 })
+	private readonly _prefixCache = new CompletionCache<Autocompletion>({ maxEntries: 256, ttlMs: 5 * 60_000 });
 	// private _lastPrefix: string = ''
 
 	// used internally by vscode
@@ -761,22 +760,22 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		position: Position,
 	): Promise<InlineCompletion[]> {
 		const startTime = performance.now();
-		const isEnabled = this._settingsService.state.globalSettings.enableAutocomplete
+		const isEnabled = this._settingsService.state.globalSettings.enableAutocomplete;
 		if (!isEnabled) {
 			// Log once per disabled-streak (provider fires on every keystroke) — reset when re-enabled.
 			if (!this._loggedDisabled) {
-				vibeLog.debug('autocomplete', '[Autocomplete] Disabled in settings. Enable it in VibeIDE Settings > Feature Options > Autocomplete')
-				this._loggedDisabled = true
+				vibeLog.debug('autocomplete', '[Autocomplete] Disabled in settings. Enable it in VibeIDE Settings > Feature Options > Autocomplete');
+				this._loggedDisabled = true;
 			}
-			return []
+			return [];
 		}
-		this._loggedDisabled = false
+		this._loggedDisabled = false;
 
 		// Performance optimization: Early returns for long lines or binary files
 		const lineLength = model.getValueLengthInRange(new Range(1, 1, position.lineNumber, position.column));
 		if (lineLength > 500) {
 			// Skip autocomplete for very long lines (>500 chars)
-			vibeLog.debug('autocomplete', '[Autocomplete] Skipped: Line too long (>500 chars)')
+			vibeLog.debug('autocomplete', '[Autocomplete] Skipped: Line too long (>500 chars)');
 			return [];
 		}
 
@@ -784,14 +783,14 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		const languageId = model.getLanguageId();
 		const codeLanguages = ['typescript', 'javascript', 'typescriptreact', 'javascriptreact', 'python', 'java', 'go', 'rust', 'cpp', 'c', 'cs', 'ruby', 'php', 'swift', 'kotlin', 'scala', 'dart'];
 		if (!codeLanguages.includes(languageId)) {
-			vibeLog.debug('autocomplete', `[Autocomplete] Skipped: Language "${languageId}" not supported. Supported: ${codeLanguages.join(', ')}`)
+			vibeLog.debug('autocomplete', `[Autocomplete] Skipped: Language "${languageId}" not supported. Supported: ${codeLanguages.join(', ')}`);
 			return [];
 		}
 
 		const docUriStr = model.uri.fsPath;
 
-		const prefixAndSuffix = getPrefixAndSuffixInfo(model, position)
-		const { prefix, suffix } = prefixAndSuffix
+		const prefixAndSuffix = getPrefixAndSuffixInfo(model, position);
+		const { prefix, suffix } = prefixAndSuffix;
 
 		// initialize cache if it doesnt exist
 		// note that whenever an autocompletion is accepted, it is removed from cache
@@ -802,12 +801,12 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 					// Only abort if request is still pending (don't abort finished or accepted requests)
 					// This prevents aborting requests that have already completed successfully or been accepted
 					if (autocompletion.status === 'pending' && autocompletion.requestId) {
-						vibeLog.debug('autocomplete', `[Autocomplete] Aborting request ${autocompletion.id} due to cache eviction`)
-						this._llmMessageService.abort(autocompletion.requestId)
+						vibeLog.debug('autocomplete', `[Autocomplete] Aborting request ${autocompletion.id} due to cache eviction`);
+						this._llmMessageService.abort(autocompletion.requestId);
 					}
 					// If status is 'finished' or 'error', the request is already done, so no need to abort
 				}
-			)
+			);
 		}
 		// this._lastPrefix = prefix
 
@@ -823,18 +822,18 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		const prefixCacheHit = this._prefixCache.get(cacheKey, _now);
 
 		// get autocompletion from cache
-		let cachedAutocompletion: Autocompletion | undefined = prefixCacheHit
-		let autocompletionMatchup: AutocompletionMatchupBounds | undefined = undefined
+		let cachedAutocompletion: Autocompletion | undefined = prefixCacheHit;
+		let autocompletionMatchup: AutocompletionMatchupBounds | undefined = undefined;
 		if (cachedAutocompletion) {
 			autocompletionMatchup = getAutocompletionMatchup({ prefix, autocompletion: cachedAutocompletion });
-			if (!autocompletionMatchup) cachedAutocompletion = undefined; // hash collision — fall through
+			if (!autocompletionMatchup) { cachedAutocompletion = undefined; } // hash collision — fall through
 		}
 		if (!cachedAutocompletion) {
 			for (const autocompletion of this._autocompletionsOfDocument[docUriStr].items.values()) {
 				// if the user's change matches with the autocompletion
-				autocompletionMatchup = getAutocompletionMatchup({ prefix, autocompletion })
+				autocompletionMatchup = getAutocompletionMatchup({ prefix, autocompletion });
 				if (autocompletionMatchup !== undefined) {
-					cachedAutocompletion = autocompletion
+					cachedAutocompletion = autocompletion;
 					// Populate prefix cache for future fast lookups
 					this._prefixCache.set(cacheKey, autocompletion, _now);
 					break;
@@ -847,31 +846,31 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 			const providerStartTime = performance.now();
 
 			if (cachedAutocompletion.status === 'finished') {
-				const inlineCompletions = toInlineCompletions({ autocompletionMatchup, autocompletion: cachedAutocompletion, prefixAndSuffix, position, debug: true })
+				const inlineCompletions = toInlineCompletions({ autocompletionMatchup, autocompletion: cachedAutocompletion, prefixAndSuffix, position, debug: true });
 
 				// Record performance metrics (cache hit)
 				const providerTime = performance.now() - providerStartTime;
 				const totalTime = performance.now() - startTime;
 				this._recordAutocompleteMetrics(providerTime, totalTime, true);
 
-				return inlineCompletions
+				return inlineCompletions;
 
 			} else if (cachedAutocompletion.status === 'pending') {
 				try {
 					await cachedAutocompletion.llmPromise;
-					const inlineCompletions = toInlineCompletions({ autocompletionMatchup, autocompletion: cachedAutocompletion, prefixAndSuffix, position })
+					const inlineCompletions = toInlineCompletions({ autocompletionMatchup, autocompletion: cachedAutocompletion, prefixAndSuffix, position });
 
 					// Record performance metrics (cache hit, but had to wait)
 					const providerTime = performance.now() - providerStartTime;
 					const totalTime = performance.now() - startTime;
 					this._recordAutocompleteMetrics(providerTime, totalTime, true);
 
-					return inlineCompletions
+					return inlineCompletions;
 
 				} catch (e) {
-					this._autocompletionsOfDocument[docUriStr].delete(cachedAutocompletion.id)
-					const errorMessage = e instanceof Error ? e.message : String(e)
-					vibeLog.error('Autocomplete', 'cached autocompletion error:', errorMessage)
+					this._autocompletionsOfDocument[docUriStr].delete(cachedAutocompletion.id);
+					const errorMessage = e instanceof Error ? e.message : String(e);
+					vibeLog.error('Autocomplete', 'cached autocompletion error:', errorMessage);
 					// Don't show notification for cached completion errors (less critical)
 				}
 
@@ -879,7 +878,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 				// Error state, skip
 			}
 
-			return []
+			return [];
 		}
 
 		// else if no more typing happens, then go forwards with the request
@@ -889,36 +888,36 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		const debounceMs = perfSettings?.autoCompleteDebounceMs ?? DEBOUNCE_TIME;
 
 		// wait debounce time for the user to stop typing
-		const thisTime = Date.now()
+		const thisTime = Date.now();
 
-		const justAcceptedAutocompletion = thisTime - this._lastCompletionAccept < 500
+		const justAcceptedAutocompletion = thisTime - this._lastCompletionAccept < 500;
 
-		this._lastCompletionStart = thisTime
+		this._lastCompletionStart = thisTime;
 		const didTypingHappenDuringDebounce = await new Promise<boolean>((resolve) =>
 			setTimeout(() => {
 				if (this._lastCompletionStart === thisTime) {
-					resolve(false)
+					resolve(false);
 				} else {
-					resolve(true)
+					resolve(true);
 				}
 			}, debounceMs)
-		)
+		);
 
 		// if more typing happened, then do not go forwards with the request
 		if (didTypingHappenDuringDebounce) {
-			return []
+			return [];
 		}
 
 
 		// if there are too many pending requests, cancel the oldest one
 		// But only cancel if we're about to create a new one (not if we're just checking cache)
-		let numPending = 0
-		let oldestPending: Autocompletion | undefined = undefined
+		let numPending = 0;
+		let oldestPending: Autocompletion | undefined = undefined;
 		for (const autocompletion of this._autocompletionsOfDocument[docUriStr].items.values()) {
 			if (autocompletion.status === 'pending') {
-				numPending += 1
+				numPending += 1;
 				if (oldestPending === undefined) {
-					oldestPending = autocompletion
+					oldestPending = autocompletion;
 				}
 			}
 		}
@@ -927,8 +926,8 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		// (This check happens after we've already checked the cache, so we know we need a new request)
 		if (numPending >= MAX_PENDING_REQUESTS && oldestPending) {
 			// cancel the oldest pending request and remove it from cache
-			vibeLog.debug('autocomplete', `[Autocomplete] Cancelling oldest pending request (${oldestPending.id}) to make room for new one`)
-			this._autocompletionsOfDocument[docUriStr].delete(oldestPending.id)
+			vibeLog.debug('autocomplete', `[Autocomplete] Cancelling oldest pending request (${oldestPending.id}) to make room for new one`);
+			this._autocompletionsOfDocument[docUriStr].delete(oldestPending.id);
 		}
 
 
@@ -937,31 +936,31 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		// const relevantSnippetsList = this._contextGatheringService.getCachedSnippets();
 		// const relevantSnippets = relevantSnippetsList.map((text) => `${text}`).join('\n-------------------------------\n')
 		// console.log('@@---------------------\n' + relevantSnippets)
-		const relevantContext = ''
+		const relevantContext = '';
 
 		// Detect if using local provider for prefix/suffix optimization
-		const featureName: FeatureName = 'Autocomplete'
+		const featureName: FeatureName = 'Autocomplete';
 		const modelSelection = this._settingsService.resolveAutoModelSelection(
 			this._settingsService.state.modelSelectionOfFeature[featureName]
-		)
+		);
 
 		if (!modelSelection || modelSelection.providerName === 'auto') {
 			// No model available - skip autocomplete
 			// Only show notification once per session to avoid spam
 			if (!this._hasShownNoModelWarning) {
-				this._hasShownNoModelWarning = true
-				this._notificationService.warn(localize('vibeide.autocomplete.requiresFimModel', 'Автодополнение требует модель с поддержкой FIM (Fill-In-the-Middle). Выберите модель в VibeIDE Settings > Feature Options > Autocomplete. Облако: Mistral codestral-latest. Локально: Ollama qwen2.5-coder.'))
+				this._hasShownNoModelWarning = true;
+				this._notificationService.warn(localize('vibeide.autocomplete.requiresFimModel', 'Автодополнение требует модель с поддержкой FIM (Fill-In-the-Middle). Выберите модель в VibeIDE Settings > Feature Options > Autocomplete. Облако: Mistral codestral-latest. Локально: Ollama qwen2.5-coder.'));
 			}
-			return []
+			return [];
 		}
 
-		const isLocal = isLocalProvider(modelSelection.providerName, this._settingsService.state.settingsOfProvider)
+		const isLocal = isLocalProvider(modelSelection.providerName, this._settingsService.state.settingsOfProvider);
 
-		const { shouldGenerate, predictionType, llmPrefix, llmSuffix, stopTokens } = getCompletionOptions(prefixAndSuffix, relevantContext, justAcceptedAutocompletion, isLocal)
+		const { shouldGenerate, predictionType, llmPrefix, llmSuffix, stopTokens } = getCompletionOptions(prefixAndSuffix, relevantContext, justAcceptedAutocompletion, isLocal);
 
 		if (!shouldGenerate) {
-			vibeLog.debug('autocomplete', '[Autocomplete] Skipped: shouldGenerate=false (likely cursor position or context not suitable for completion)')
-			return []
+			vibeLog.debug('autocomplete', '[Autocomplete] Skipped: shouldGenerate=false (likely cursor position or context not suitable for completion)');
+			return [];
 		}
 
 		// VibeIDE: Block FIM requests that contain secrets in prefix or suffix
@@ -973,15 +972,16 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 
 		// VibeIDE: FIM provider routing via decideFIMProvider
 		const settingsState = this._settingsService.state;
-		const fimProviders: FIMProvider[] = Object.entries(settingsState.settingsOfProvider ?? {}).map(([id, _cfg]) => {
-			const isLocal = isLocalProvider(id as any, settingsState.settingsOfProvider);
-			const kind = id === 'ollama' ? 'local-ollama' : id === 'lmStudio' ? 'local-lmstudio' : 'cloud' as any;
+		const providerIds = Object.keys(settingsState.settingsOfProvider ?? {}) as ProviderName[];
+		const fimProviders: FIMProvider[] = providerIds.map(id => {
+			const isLocal = isLocalProvider(id, settingsState.settingsOfProvider);
+			const kind: FIMProviderKind = id === 'ollama' ? 'local-ollama' : id === 'lmStudio' ? 'local-lmstudio' : 'cloud';
 			const hasCoderModel = (settingsState.modelSelectionOfFeature?.['Autocomplete']?.modelName ?? '').toLowerCase().includes('coder');
 			return { id, kind, available: true, hasCoderModel: isLocal && hasCoderModel };
 		});
 		const fimDecision = decideFIMProvider({
 			pinnedModelId: modelSelection.modelName ?? '',
-			privacyStrict: !!(settingsState.globalSettings as any)?.privacyMode,
+			privacyStrict: !!(settingsState.globalSettings as { privacyMode?: boolean })?.privacyMode,
 			providers: fimProviders,
 			chatDefaultProviderId: modelSelection.providerName ?? '',
 		});
@@ -1028,16 +1028,16 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 			insertText: '',
 			requestId: null,
 			_newlineCount: 0,
-		}
+		};
 
-		vibeLog.trace('Autocomplete', 'starting autocomplete:', predictionType)
+		vibeLog.trace('Autocomplete', 'starting autocomplete:', predictionType);
 
-		const overridesOfModel = this._settingsService.state.overridesOfModel
+		const overridesOfModel = this._settingsService.state.overridesOfModel;
 		// Model selection is already resolved above, so we can safely access options
-		const modelSelectionOptions = this._settingsService.state.optionsOfModelSelection[featureName]?.[modelSelection.providerName]?.[modelSelection.modelName]
+		const modelSelectionOptions = this._settingsService.state.optionsOfModelSelection[featureName]?.[modelSelection.providerName]?.[modelSelection.modelName];
 
 		// Warm up local model in background (fire-and-forget, doesn't block)
-		this._modelWarmupService.warmupModelIfNeeded(modelSelection.providerName, modelSelection.modelName, featureName)
+		this._modelWarmupService.warmupModelIfNeeded(modelSelection.providerName, modelSelection.modelName, featureName);
 
 		// set parameters of `newAutocompletion` appropriately
 		newAutocompletion.llmPromise = new Promise((resolve, reject) => {
@@ -1066,28 +1066,28 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 					// This allows local models to show completions as they generate, improving perceived responsiveness
 					try {
 						// Process the streamed text (same processing as final message)
-						const [text, _] = extractCodeFromRegular({ text: fullText, recentlyAddedTextLen: 0 })
+						const [text, _] = extractCodeFromRegular({ text: fullText, recentlyAddedTextLen: 0 });
 
 						// Filter out non-code content and wrong language syntax
 						const languageId = model.getLanguageId();
-						const filteredText = filterNonCodeContent(text, languageId)
+						const filteredText = filterNonCodeContent(text, languageId);
 
-						const processedText = processStartAndEndSpaces(filteredText)
+						const processedText = processStartAndEndSpaces(filteredText);
 
 						// Update the autocompletion with partial text
 						// Note: This doesn't trigger UI refresh automatically, but ensures the final result is ready
 						// The UI will update when the promise resolves or when VS Code re-requests completions
-						newAutocompletion.insertText = processedText
+						newAutocompletion.insertText = processedText;
 
 						// Count newlines for safety (prevent excessive multiline completions)
-						const numNewlines = (fullText.match(/\n|\r\n/g) || []).length
-						newAutocompletion._newlineCount = numNewlines
+						const numNewlines = (fullText.match(/\n|\r\n/g) || []).length;
+						newAutocompletion._newlineCount = numNewlines;
 
 						// Safety: If too many newlines during streaming, we could truncate, but let's wait for final
 						// The final handler will do proper truncation
 					} catch (e) {
 						// If streaming processing fails, log but don't break - fall back to final text
-						vibeLog.debug('autocomplete', '[Autocomplete] Error processing streamed text:', e)
+						vibeLog.debug('autocomplete', '[Autocomplete] Error processing streamed text:', e);
 						// Continue - onFinalMessage will handle the final text
 					}
 				},
@@ -1095,106 +1095,106 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 
 					// console.log('____res: ', JSON.stringify(newAutocompletion.insertText))
 
-					newAutocompletion.endTime = Date.now()
-					newAutocompletion.status = 'finished'
-					const [text, _] = extractCodeFromRegular({ text: fullText, recentlyAddedTextLen: 0 })
+					newAutocompletion.endTime = Date.now();
+					newAutocompletion.status = 'finished';
+					const [text, _] = extractCodeFromRegular({ text: fullText, recentlyAddedTextLen: 0 });
 
 					// Filter out suspicious non-code content (e.g., Chinese characters, wrong language syntax)
 					// This helps prevent models from outputting explanatory text or non-code content
 					const languageId = model.getLanguageId();
-					const filteredText = filterNonCodeContent(text, languageId)
+					const filteredText = filterNonCodeContent(text, languageId);
 
 					// Final check: reject if the entire completion is in the wrong language
 					if (detectLanguageMismatch(filteredText, languageId)) {
 						// Reject this completion silently - it will be filtered out
-						newAutocompletion.status = 'error'
-						newAutocompletion.insertText = ''
-						reject('Autocomplete returned code in wrong language')
-						return
+						newAutocompletion.status = 'error';
+						newAutocompletion.insertText = '';
+						reject('Autocomplete returned code in wrong language');
+						return;
 					}
 
-					newAutocompletion.insertText = processStartAndEndSpaces(filteredText)
+					newAutocompletion.insertText = processStartAndEndSpaces(filteredText);
 
 					// handle special case for predicting starting on the next line, add a newline character
 					if (newAutocompletion.type === 'multi-line-start-on-next-line') {
-						newAutocompletion.insertText = _ln + newAutocompletion.insertText
+						newAutocompletion.insertText = _ln + newAutocompletion.insertText;
 					}
 
-					resolve(newAutocompletion.insertText)
+					resolve(newAutocompletion.insertText);
 
 				},
 				onError: ({ message }) => {
-					newAutocompletion.endTime = Date.now()
-					newAutocompletion.status = 'error'
-					reject(message)
+					newAutocompletion.endTime = Date.now();
+					newAutocompletion.status = 'error';
+					reject(message);
 				},
-				onAbort: () => { reject('Aborted autocomplete') },
-			})
-			newAutocompletion.requestId = requestId
+				onAbort: () => { reject('Aborted autocomplete'); },
+			});
+			newAutocompletion.requestId = requestId;
 
 			// if the request hasnt resolved in TIMEOUT_TIME seconds, reject it
 			const timeoutId = setTimeout(() => {
 				if (newAutocompletion.status === 'pending') {
-					newAutocompletion.status = 'error'
+					newAutocompletion.status = 'error';
 					if (newAutocompletion.requestId) {
-						this._llmMessageService.abort(newAutocompletion.requestId)
+						this._llmMessageService.abort(newAutocompletion.requestId);
 					}
-					reject('Timeout receiving message to LLM.')
+					reject('Timeout receiving message to LLM.');
 				}
-			}, TIMEOUT_TIME)
+			}, TIMEOUT_TIME);
 
 			// Clear timeout if promise resolves/rejects before timeout
 			if (newAutocompletion.llmPromise) {
-				newAutocompletion.llmPromise.finally(() => clearTimeout(timeoutId))
+				newAutocompletion.llmPromise.finally(() => clearTimeout(timeoutId));
 			}
 
-		})
+		});
 
 
 
 		// add autocompletion to cache
-		this._autocompletionsOfDocument[docUriStr].set(newAutocompletion.id, newAutocompletion)
+		this._autocompletionsOfDocument[docUriStr].set(newAutocompletion.id, newAutocompletion);
 
 		// show autocompletion
 		const providerStartTime = performance.now();
 		try {
-			await newAutocompletion.llmPromise
+			await newAutocompletion.llmPromise;
 			// console.log('id: ' + newAutocompletion.id)
 
 			// Recalculate prefix and suffix in case user typed more while waiting for LLM response
-			const currentPrefixAndSuffix = getPrefixAndSuffixInfo(model, position)
-			const currentPrefix = currentPrefixAndSuffix.prefix
+			const currentPrefixAndSuffix = getPrefixAndSuffixInfo(model, position);
+			const currentPrefix = currentPrefixAndSuffix.prefix;
 
 			// Validate that completion text is reasonable
 			if (!newAutocompletion.insertText || newAutocompletion.insertText.trim().length === 0) {
-				this._autocompletionsOfDocument[docUriStr].delete(newAutocompletion.id)
-				return []
+				this._autocompletionsOfDocument[docUriStr].delete(newAutocompletion.id);
+				return [];
 			}
 
 			// Check if prefix changed significantly (user typed a lot while waiting)
-			const prefixDiff = Math.abs(currentPrefix.length - newAutocompletion.prefix.length)
+			const prefixDiff = Math.abs(currentPrefix.length - newAutocompletion.prefix.length);
 			if (prefixDiff > 50) { // More than 50 chars difference suggests significant editing
-				this._autocompletionsOfDocument[docUriStr].delete(newAutocompletion.id)
-				return []
+				this._autocompletionsOfDocument[docUriStr].delete(newAutocompletion.id);
+				return [];
 			}
 
 			// Calculate the matchup bounds - this determines where in the generated text to start showing the completion
-			const autocompletionMatchup = getAutocompletionMatchup({ prefix: currentPrefix, autocompletion: newAutocompletion })
+			const autocompletionMatchup = getAutocompletionMatchup({ prefix: currentPrefix, autocompletion: newAutocompletion });
 
 			// If matchup is undefined, the prefix has changed too much (user typed beyond the completion)
 			// In this case, return empty completions
 			if (!autocompletionMatchup) {
-				this._autocompletionsOfDocument[docUriStr].delete(newAutocompletion.id)
-				return []
+				this._autocompletionsOfDocument[docUriStr].delete(newAutocompletion.id);
+				return [];
 			}
 
-			const inlineCompletions = toInlineCompletions({ autocompletionMatchup, autocompletion: newAutocompletion, prefixAndSuffix: currentPrefixAndSuffix, position })
+			const inlineCompletions = toInlineCompletions({ autocompletionMatchup, autocompletion: newAutocompletion, prefixAndSuffix: currentPrefixAndSuffix, position });
 
 			// Final validation: ensure completion text is reasonable length
 			if (inlineCompletions.length > 0 && inlineCompletions[0].insertText.length > 10000) {
 				// Completion is suspiciously long, likely an error
-				this._autocompletionsOfDocument[docUriStr].delete(newAutocompletion.id)
-				return []
+				this._autocompletionsOfDocument[docUriStr].delete(newAutocompletion.id);
+				return [];
 			}
 
 			// Record performance metrics
@@ -1202,18 +1202,18 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 			const totalTime = performance.now() - startTime;
 			this._recordAutocompleteMetrics(providerTime, totalTime, false);
 
-			return inlineCompletions
+			return inlineCompletions;
 
 		} catch (e) {
-			this._autocompletionsOfDocument[docUriStr].delete(newAutocompletion.id)
-			const errorMessage = e instanceof Error ? e.message : String(e)
-			vibeLog.error('Autocomplete', 'error creating autocompletion:', errorMessage)
+			this._autocompletionsOfDocument[docUriStr].delete(newAutocompletion.id);
+			const errorMessage = e instanceof Error ? e.message : String(e);
+			vibeLog.error('Autocomplete', 'error creating autocompletion:', errorMessage);
 
 			// Show user-friendly error for persistent failures (not timeouts or aborts)
 			if (!errorMessage.includes('Timeout') && !errorMessage.includes('Aborted')) {
 				// Only show error notification occasionally to avoid spam
 				if (Math.random() < 0.1) { // 10% chance to show notification
-					this._notificationService.warn(localize('vibeide.autocomplete.error', 'Ошибка автодополнения: {0}. Подробности — в консоли.', errorMessage))
+					this._notificationService.warn(localize('vibeide.autocomplete.error', 'Ошибка автодополнения: {0}. Подробности — в консоли.', errorMessage));
 				}
 			}
 
@@ -1222,7 +1222,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 			const totalTime = performance.now() - startTime;
 			this._recordAutocompleteMetrics(providerTime, totalTime, false);
 
-			return []
+			return [];
 		}
 
 	}
@@ -1242,7 +1242,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		@IVibeFimContextCollector private readonly _fimContextCollector: IVibeFimContextCollector,
 		// @IContextGatheringService private readonly _contextGatheringService: IContextGatheringService,
 	) {
-		super()
+		super();
 
 		// Invalidate prefix cache entries when a model is removed (cache keys use fsPath).
 		this._register(this._modelService.onModelRemoved(model => {
@@ -1251,38 +1251,38 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 
 		this._register(this._langFeatureService.inlineCompletionsProvider.register('*', {
 			provideInlineCompletions: async (model, position, context, token) => {
-				const items = await this._provideInlineCompletionItems(model, position)
+				const items = await this._provideInlineCompletionItems(model, position);
 
 				// console.log('item: ', items?.[0]?.insertText)
-				return { items: items, }
+				return { items: items, };
 			},
 			disposeInlineCompletions: () => {
 				// get the `docUriStr` and the `position` of the cursor
 				const activePane = this._editorService.activeEditorPane;
-				if (!activePane) return;
+				if (!activePane) { return; }
 				const control = activePane.getControl();
-				if (!control || !isCodeEditor(control)) return;
+				if (!control || !isCodeEditor(control)) { return; }
 				const position = control.getPosition();
-				if (!position) return;
+				if (!position) { return; }
 				const resource = EditorResourceAccessor.getCanonicalUri(this._editorService.activeEditor);
-				if (!resource) return;
-				const model = this._modelService.getModel(resource)
-				if (!model) return;
+				if (!resource) { return; }
+				const model = this._modelService.getModel(resource);
+				if (!model) { return; }
 				const docUriStr = resource.fsPath;
-				if (!this._autocompletionsOfDocument[docUriStr]) return;
+				if (!this._autocompletionsOfDocument[docUriStr]) { return; }
 
-				const { prefix, } = getPrefixAndSuffixInfo(model, position)
+				const { prefix, } = getPrefixAndSuffixInfo(model, position);
 
 				// go through cached items and remove matching ones
 				// autocompletion.prefix + autocompletion.insertedText ~== insertedText
 				this._autocompletionsOfDocument[docUriStr].items.forEach((autocompletion: Autocompletion) => {
 
 					// we can do this more efficiently, I just didn't want to deal with all of the edge cases
-					const matchup = removeAllWhitespace(prefix) === removeAllWhitespace(autocompletion.prefix + autocompletion.insertText)
+					const matchup = removeAllWhitespace(prefix) === removeAllWhitespace(autocompletion.prefix + autocompletion.insertText);
 
 					if (matchup) {
-						vibeLog.trace('Autocomplete', 'ACCEPT', autocompletion.id)
-						this._lastCompletionAccept = Date.now()
+						vibeLog.trace('Autocomplete', 'ACCEPT', autocompletion.id);
+						this._lastCompletionAccept = Date.now();
 
 						// L1021: record accept event for `vibe doctor --completion-stats`
 						const featureSel = this._settingsService.resolveAutoModelSelection(
@@ -1298,13 +1298,13 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 
 						// Mark as finished before deleting to prevent abort in dispose callback
 						// The dispose callback only aborts if status is 'pending'
-						const wasPending = autocompletion.status === 'pending'
-						autocompletion.status = 'finished'
+						const wasPending = autocompletion.status === 'pending';
+						autocompletion.status = 'finished';
 
 						// Only abort if the request was still pending (not if it's already finished)
 						// This prevents aborting requests that have already completed successfully
 						if (wasPending && autocompletion.requestId) {
-							this._llmMessageService.abort(autocompletion.requestId)
+							this._llmMessageService.abort(autocompletion.requestId);
 						}
 
 						// Remove from cache (dispose callback will see status='finished' and won't abort)
@@ -1313,7 +1313,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 				});
 
 			},
-		}))
+		}));
 	}
 
 	/** Expose CompletionCache stats for `vibe doctor --completion-stats`. */
@@ -1325,7 +1325,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 	private async _appendCompletionEvent(event: CompletionEvent): Promise<void> {
 		try {
 			const folders = this._workspaceContext.getWorkspace().folders;
-			if (folders.length === 0) return;
+			if (folders.length === 0) { return; }
 			const fileUri = joinPath(folders[0].uri, '.vibe', 'completion-events.jsonl');
 			let existing = '';
 			try {

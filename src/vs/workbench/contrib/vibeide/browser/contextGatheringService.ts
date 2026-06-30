@@ -1,3 +1,7 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 import { vibeLog } from '../common/vibeLog.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Position } from '../../../../editor/common/core/position.js';
@@ -153,7 +157,7 @@ class ContextGatheringService extends Disposable implements IContextGatheringSer
 		snippets: Set<string>,
 		visited: IVisitedInterval[]
 	): Promise<void> {
-		if (depth <= 0) return;
+		if (depth <= 0) { return; }
 
 		const startLine = Math.max(pos.lineNumber - numLines, 1);
 		const endLine = Math.min(pos.lineNumber + numLines, model.getLineCount());
@@ -183,10 +187,10 @@ class ContextGatheringService extends Disposable implements IContextGatheringSer
 		snippets: Set<string>,
 		visited: IVisitedInterval[]
 	): Promise<void> {
-		if (depth <= 0) return;
+		if (depth <= 0) { return; }
 
 		const container = await this._findContainerFunction(model, pos);
-		if (!container) return;
+		if (!container) { return; }
 
 		const containerRange = container.kind === SymbolKind.Method ? container.selectionRange : container.range;
 		this._addSnippetIfNotOverlapping(model, containerRange, snippets, visited);
@@ -253,13 +257,13 @@ class ContextGatheringService extends Disposable implements IContextGatheringSer
 		const endLine = Math.max(1, Math.min(range.endLineNumber, lineCount));
 		for (let line = startLine; line <= endLine; line++) {
 			// Double-check line is valid before accessing
-			if (line < 1 || line > lineCount) continue;
+			if (line < 1 || line > lineCount) { continue; }
 			const content = model.getLineContent(line);
 			const words = content.match(/[a-zA-Z_]\w*/g) || [];
 			for (const word of words) {
 				const startColumn = content.indexOf(word) + 1;
 				const pos = new Position(line, startColumn);
-				if (!this._positionInRange(pos, range)) continue;
+				if (!this._positionInRange(pos, range)) { continue; }
 				for (const provider of refProviders) {
 					try {
 						const refs = await provider.provideReferences(model, pos, { includeDeclaration: true }, CancellationToken.None);
@@ -347,7 +351,7 @@ class ContextGatheringService extends Disposable implements IContextGatheringSer
 		// Validate position to prevent "Illegal value for lineNumber" errors
 		const lineCount = model.getLineCount();
 		const validLineNumber = Math.max(1, Math.min(pos.lineNumber, lineCount));
-		if (validLineNumber < 1 || validLineNumber > lineCount) return null;
+		if (validLineNumber < 1 || validLineNumber > lineCount) { return null; }
 
 		const searchRange = new Range(
 			Math.max(validLineNumber - 1, 1), 1,
@@ -359,9 +363,9 @@ class ContextGatheringService extends Disposable implements IContextGatheringSer
 			(s.kind === SymbolKind.Function || s.kind === SymbolKind.Method) &&
 			this._positionInRange(pos, s.range)
 		);
-		if (!funcs.length) return null;
+		if (!funcs.length) { return null; }
 		return funcs.reduce((innermost, current) => {
-			if (!innermost) return current;
+			if (!innermost) { return current; }
 			const moreInner =
 				(current.range.startLineNumber > innermost.range.startLineNumber ||
 					(current.range.startLineNumber === innermost.range.startLineNumber &&

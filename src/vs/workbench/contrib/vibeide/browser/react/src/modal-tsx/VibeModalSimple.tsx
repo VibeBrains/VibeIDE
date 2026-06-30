@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -23,7 +24,7 @@ let _autoDismissClampWarned = false;
  * match in the label.
  */
 const renderButtonLabel = (label: string, hotkey?: string): React.ReactNode => {
-	if (!hotkey || hotkey.length === 0) return label;
+	if (!hotkey || hotkey.length === 0) {return label;}
 	const idx = label.toLowerCase().indexOf(hotkey.toLowerCase());
 	if (idx === -1) {
 		// Show hotkey hint at end for accessibility: «Apply (Y)».
@@ -85,7 +86,7 @@ export const VibeModalSimple: React.FC<{ entry: VibeModalQueueEntry }> = ({ entr
 	// Initial focus: input → first primary button → ANY first button (audit
 	// fallback for modals with only secondary/danger buttons and no input).
 	useEffect(() => {
-		if (options.loading) return; // don't grab focus while loading; buttons are disabled
+		if (options.loading) {return;} // don't grab focus while loading; buttons are disabled
 		if (inputRef.current) { inputRef.current.focus(); return; }
 		if (firstFocusableRef.current) { firstFocusableRef.current.focus(); return; }
 		// Fallback — focus the first interactive element we can find inside modal.
@@ -96,12 +97,11 @@ export const VibeModalSimple: React.FC<{ entry: VibeModalQueueEntry }> = ({ entr
 	// onMount lifecycle — fire once per modal instance, after first focus is set.
 	// Errors swallowed so a buggy hook can't break the modal flow.
 	useEffect(() => {
-		if (!options.onMount) return;
+		if (!options.onMount) {return;}
 		try { options.onMount(); }
 		catch (e) { vibeLog.warn('VibeModalSimple', '[VibeModalSimple] onMount threw', e); }
-		// eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally
-		// only fires on entry.id change; options.onMount changes shouldn't refire
-		// (caller expectation: «mount» = once per showModal call).
+		// Intentionally only fires on entry.id change; options.onMount changes
+		// shouldn't refire (caller expectation: «mount» = once per showModal call).
 	}, [entry.id]);
 
 	// ESC + hotkey handler. ESC honors dismissible + loading + onBeforeDismiss.
@@ -120,13 +120,13 @@ export const VibeModalSimple: React.FC<{ entry: VibeModalQueueEntry }> = ({ entr
 				return;
 			}
 			// Hotkey activation — skip when modifier keys held or input is focused.
-			if (e.ctrlKey || e.altKey || e.metaKey || options.loading) return;
+			if (e.ctrlKey || e.altKey || e.metaKey || options.loading) {return;}
 			const targetIsInput = (e.target instanceof HTMLElement)
 				&& (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
-			if (targetIsInput) return;
+			if (targetIsInput) {return;}
 			const btn = hotkeyMap.get(e.key.toLowerCase());
-			if (!btn || btn.disabled) return;
-			if (btn.role === 'primary' && validationError) return;
+			if (!btn || btn.disabled) {return;}
+			if (btn.role === 'primary' && validationError) {return;}
 			e.preventDefault();
 			modalService.resolveHead(btn.id, options.input ? inputValue : undefined);
 		};
@@ -139,9 +139,9 @@ export const VibeModalSimple: React.FC<{ entry: VibeModalQueueEntry }> = ({ entr
 	// hover/focus inside the modal — active reading should not be timed out.
 	useEffect(() => {
 		const rawMs = options.autoDismissAfterMs;
-		if (!rawMs || rawMs <= 0) return;
-		if (options.loading) return; // paused during async
-		if (options.dismissible === false) return; // can't dismiss anyway
+		if (!rawMs || rawMs <= 0) {return;}
+		if (options.loading) {return;} // paused during async
+		if (options.dismissible === false) {return;} // can't dismiss anyway
 		// Clamp to a sensible minimum — anything shorter is a visual flash.
 		const ms = Math.max(VIBE_MODAL_MIN_AUTO_DISMISS_MS, rawMs);
 		if (rawMs < VIBE_MODAL_MIN_AUTO_DISMISS_MS && !_autoDismissClampWarned) {
@@ -156,16 +156,16 @@ export const VibeModalSimple: React.FC<{ entry: VibeModalQueueEntry }> = ({ entr
 		const start = () => {
 			startedAt = Date.now();
 			timerId = setTimeout(() => {
-				if (cancelled) return;
+				if (cancelled) {return;}
 				void modalService.dismissHeadWithVeto();
 			}, remaining);
 		};
 		const pause = () => {
-			if (timerId === null) return;
+			if (timerId === null) {return;}
 			clearTimeout(timerId);
 			timerId = null;
 			remaining -= Date.now() - startedAt;
-			if (remaining < MIN_REMAINING_MS_AFTER_PAUSE) remaining = MIN_REMAINING_MS_AFTER_PAUSE;
+			if (remaining < MIN_REMAINING_MS_AFTER_PAUSE) {remaining = MIN_REMAINING_MS_AFTER_PAUSE;}
 		};
 		const onEnter = () => { pausedByHover = true; pause(); };
 		const onLeave = () => { if (pausedByHover) { pausedByHover = false; start(); } };
@@ -177,7 +177,7 @@ export const VibeModalSimple: React.FC<{ entry: VibeModalQueueEntry }> = ({ entr
 		start();
 		return () => {
 			cancelled = true;
-			if (timerId !== null) clearTimeout(timerId);
+			if (timerId !== null) {clearTimeout(timerId);}
 			el?.removeEventListener('mouseenter', onEnter);
 			el?.removeEventListener('mouseleave', onLeave);
 			el?.removeEventListener('focusin', onEnter);
@@ -186,15 +186,15 @@ export const VibeModalSimple: React.FC<{ entry: VibeModalQueueEntry }> = ({ entr
 	}, [options.autoDismissAfterMs, options.loading, options.dismissible, entry.id, modalService]);
 
 	const onButtonClick = useCallback((btn: VibeModalButton) => {
-		if (btn.disabled) return;
-		if (options.loading) return;
-		if (btn.role === 'primary' && validationError) return;
+		if (btn.disabled) {return;}
+		if (options.loading) {return;}
+		if (btn.role === 'primary' && validationError) {return;}
 		modalService.resolveHead(btn.id, options.input ? inputValue : undefined);
 	}, [modalService, options.input, options.loading, inputValue, validationError]);
 
 	const onBackdropClick = useCallback(() => {
-		if (options.dismissible === false) return;
-		if (options.loading) return;
+		if (options.dismissible === false) {return;}
+		if (options.loading) {return;}
 		void modalService.dismissHeadWithVeto();
 	}, [modalService, options.dismissible, options.loading]);
 
@@ -213,11 +213,11 @@ export const VibeModalSimple: React.FC<{ entry: VibeModalQueueEntry }> = ({ entr
 	// Focus trap: cycle Tab within modal. Implementation captures focusable
 	// elements at render time; for v1 that's input + buttons.
 	const onTrapKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-		if (e.key !== 'Tab' || !modalRef.current) return;
+		if (e.key !== 'Tab' || !modalRef.current) {return;}
 		const focusables = Array.from(
 			modalRef.current.querySelectorAll<HTMLElement>('input, textarea, button:not(:disabled)'),
 		);
-		if (focusables.length === 0) return;
+		if (focusables.length === 0) {return;}
 		const first = focusables[0];
 		const last = focusables[focusables.length - 1];
 		const active = document.activeElement as HTMLElement | null;
@@ -329,7 +329,7 @@ export const VibeModalSimple: React.FC<{ entry: VibeModalQueueEntry }> = ({ entr
 							|| !!options.loading
 							|| (role === 'primary' && !!validationError);
 						const ref = !assignedPrimary && role === 'primary' ? firstFocusableRef : null;
-						if (ref) assignedPrimary = true;
+						if (ref) {assignedPrimary = true;}
 						return (
 							<button
 								key={btn.id}
@@ -414,7 +414,7 @@ const buildKeyboardHint = (options: VibeModalQueueEntry['options']): Array<{ key
 	}
 	if (!options.loading) {
 		for (const b of options.buttons) {
-			if (!b.hotkey || b.disabled) continue;
+			if (!b.hotkey || b.disabled) {continue;}
 			// Skip duplicate of primary if Enter already covers it AND there's no
 			// separate hotkey-binding intent (same action twice in the hint is noise).
 			parts.push({ key: b.hotkey.toUpperCase(), action: b.label.toLowerCase() });
@@ -424,6 +424,6 @@ const buildKeyboardHint = (options: VibeModalQueueEntry['options']): Array<{ key
 };
 
 const isMacLike = (): boolean => {
-	if (typeof navigator === 'undefined') return false;
+	if (typeof navigator === 'undefined') {return false;}
 	return /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
 };

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands runtime — `IVibeCustomCommandsService`.
@@ -62,7 +63,7 @@ import {
 	DidEndCommandEvent,
 	DidStartCommandEvent,
 } from '../common/projectCommandsServiceContract.js';
-import { resolveProjectCommandSecrets } from '../common/projectCommandSecretsResolver.js';
+import { resolveProjectCommandSecrets, PLACEHOLDER_RE, findSuspiciousLiteralSecrets } from '../common/projectCommandSecretsResolver.js';
 import {
 	decideRunConfirm,
 	describeConfirmReason,
@@ -87,7 +88,6 @@ import { ISecretStorageService } from '../../../../platform/secrets/common/secre
 import { decideProjectCommandLaunch, detectLaunchOS } from '../common/projectCommandsTerminalPolicy.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import Severity from '../../../../base/common/severity.js';
-import { PLACEHOLDER_RE, findSuspiciousLiteralSecrets } from '../common/projectCommandSecretsResolver.js';
 import { safeParseConfigJson } from '../common/vibeConfigJsonParser.js';
 import { IVibeConstraintsService } from '../common/vibeConstraintsService.js';
 import {
@@ -286,7 +286,7 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		const nextIds = new Set(suspectsByCmd.map(s => s.id));
 		const newOnes = suspectsByCmd.filter(s => !this._lastSuspectIds.has(s.id));
 		this._lastSuspectIds = nextIds;
-		if (newOnes.length === 0) return;
+		if (newOnes.length === 0) { return; }
 		const first = newOnes[0];
 		this._notification.notify({
 			severity: Severity.Warning,
@@ -340,10 +340,10 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 
 	private async _pruneTrustOnLoad(): Promise<void> {
 		const trust = await this._readTrustEntries();
-		if (trust.length === 0) return;
+		if (trust.length === 0) { return; }
 		const commands = this._merged.map(c => ({ id: c.id, commandShapeHash: hashCommandShape(c) }));
 		const result = decideTrustRevocations({ trust, commands });
-		if (result.revoke.length === 0) return;
+		if (result.revoke.length === 0) { return; }
 		await this._writeTrustEntries(result.keep);
 		for (const entry of buildTrustRevokeAuditEntries(result)) {
 			void this._audit.append({
@@ -437,13 +437,13 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		const scanRe = new RegExp(PLACEHOLDER_RE.source, 'g');
 		for (const s of allStrings) {
 			for (let m = scanRe.exec(s); m !== null; m = scanRe.exec(s)) {
-				if (m[1] === 'secret') secretKeys.add(m[2]);
+				if (m[1] === 'secret') { secretKeys.add(m[2]); }
 			}
 		}
 		const secretMap = new Map<string, string>();
 		for (const key of secretKeys) {
 			const val = await this._secrets.get(`vibeide.commands.secret.${key}`);
-			if (val !== undefined) secretMap.set(key, val);
+			if (val !== undefined) { secretMap.set(key, val); }
 		}
 
 		// Resolve ${env:NAME} / ${secret:KEY} placeholders.
@@ -657,7 +657,7 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 				await terminal.sendText(fullCommand, true);
 				const onExitDispose = terminal.onExit((exitInfo) => {
 					try {
-						const exitCode = typeof exitInfo === 'object' && exitInfo !== null && 'code' in exitInfo
+						const exitCode = typeof exitInfo === 'object' && exitInfo !== null && Object.hasOwn(exitInfo, 'code')
 							? (exitInfo as { code?: number }).code
 							: typeof exitInfo === 'number' ? exitInfo : undefined;
 						_fireEnd(exitCode);
@@ -681,7 +681,7 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 				await terminal.sendText(externalCmd, true);
 				const onExitDispose = terminal.onExit((exitInfo) => {
 					try {
-						const exitCode = typeof exitInfo === 'object' && exitInfo !== null && 'code' in exitInfo
+						const exitCode = typeof exitInfo === 'object' && exitInfo !== null && Object.hasOwn(exitInfo, 'code')
 							? (exitInfo as { code?: number }).code
 							: typeof exitInfo === 'number' ? exitInfo : undefined;
 						_fireEnd(exitCode);
@@ -702,7 +702,7 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 			await terminal.sendText(fullCommand, true);
 			const onExitDispose = terminal.onExit((exitInfo) => {
 				try {
-					const exitCode = typeof exitInfo === 'object' && exitInfo !== null && 'code' in exitInfo
+					const exitCode = typeof exitInfo === 'object' && exitInfo !== null && Object.hasOwn(exitInfo, 'code')
 						? (exitInfo as { code?: number }).code
 						: typeof exitInfo === 'number' ? exitInfo : undefined;
 					_fireEnd(exitCode);
@@ -745,7 +745,7 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 	/** Best-effort POSIX/PowerShell-friendly quoting. */
 	private _quoteShellArg(arg: string): string {
 		if (arg.length === 0) {
-			return "''";
+			return `''`;
 		}
 		if (/^[A-Za-z0-9_.@:/=+-]+$/.test(arg)) {
 			return arg;
@@ -761,13 +761,13 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 
 	private _trustUri(): URI | undefined {
 		const folder = this._workspace.getWorkspace().folders[0];
-		if (!folder) return undefined;
+		if (!folder) { return undefined; }
 		return joinPath(folder.uri, ...TRUST_FILE_NAME.split('/'));
 	}
 
 	private async _readTrustEntries(): Promise<readonly CommandTrustEntry[]> {
 		const uri = this._trustUri();
-		if (!uri) return [];
+		if (!uri) { return []; }
 		let buf;
 		try {
 			buf = await this._fileService.readFile(uri);
@@ -810,7 +810,7 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 
 	private async _writeTrustEntries(entries: readonly CommandTrustEntry[]): Promise<void> {
 		const uri = this._trustUri();
-		if (!uri) return;
+		if (!uri) { return; }
 		try {
 			await this._fileService.writeFile(uri, VSBuffer.fromString(JSON.stringify(entries, null, '\t') + '\n'));
 		} catch (e) {

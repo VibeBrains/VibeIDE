@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Updater silent-installer args decoder + lifecycle FSM (pure helper)
@@ -64,15 +65,15 @@ export function decodeUpdaterArgs(argv: ReadonlyArray<string>, os: ProjectComman
 		switch (tok) {
 			case '--wait-pid': {
 				const v = argv[++i];
-				if (v === undefined) return { ok: false, reason: 'wait-pid-missing-value' };
+				if (v === undefined) { return { ok: false, reason: 'wait-pid-missing-value' }; }
 				const n = Number(v);
-				if (!Number.isInteger(n) || n <= 0) return { ok: false, reason: 'wait-pid-invalid' };
+				if (!Number.isInteger(n) || n <= 0) { return { ok: false, reason: 'wait-pid-invalid' }; }
 				waitPid = n;
 				break;
 			}
 			case '--installer': {
 				const v = argv[++i];
-				if (v === undefined || v.length === 0) return { ok: false, reason: 'installer-missing-value' };
+				if (v === undefined || v.length === 0) { return { ok: false, reason: 'installer-missing-value' }; }
 				installerPath = v;
 				break;
 			}
@@ -87,16 +88,16 @@ export function decodeUpdaterArgs(argv: ReadonlyArray<string>, os: ProjectComman
 				break;
 			case '--log': {
 				const v = argv[++i];
-				if (v === undefined || v.length === 0) return { ok: false, reason: 'log-missing-value' };
-				if (v.length > MAX_LOG_PATH_LEN) return { ok: false, reason: 'log-too-long' };
+				if (v === undefined || v.length === 0) { return { ok: false, reason: 'log-missing-value' }; }
+				if (v.length > MAX_LOG_PATH_LEN) { return { ok: false, reason: 'log-too-long' }; }
 				logPath = v;
 				break;
 			}
 			case '--timeout-seconds': {
 				const v = argv[++i];
-				if (v === undefined) return { ok: false, reason: 'timeout-missing-value' };
+				if (v === undefined) { return { ok: false, reason: 'timeout-missing-value' }; }
 				const n = Number(v);
-				if (!Number.isInteger(n) || n < 1 || n > 3600) return { ok: false, reason: 'timeout-out-of-range' };
+				if (!Number.isInteger(n) || n < 1 || n > 3600) { return { ok: false, reason: 'timeout-out-of-range' }; }
 				timeoutSeconds = n;
 				break;
 			}
@@ -105,8 +106,8 @@ export function decodeUpdaterArgs(argv: ReadonlyArray<string>, os: ProjectComman
 		}
 	}
 
-	if (waitPid === undefined) return { ok: false, reason: 'wait-pid-required' };
-	if (installerPath === undefined) return { ok: false, reason: 'installer-required' };
+	if (waitPid === undefined) { return { ok: false, reason: 'wait-pid-required' }; }
+	if (installerPath === undefined) { return { ok: false, reason: 'installer-required' }; }
 
 	return {
 		ok: true,
@@ -212,11 +213,11 @@ export type UpdaterTransition =
 
 export function transitionUpdater(state: UpdaterState, event: UpdaterEvent, args?: Pick<UpdaterArgs, 'autoLaunch' | 'waitPid'>): UpdaterTransition {
 	if (event.kind === 'abort') {
-		if (state.kind === 'done') return { ok: false, reason: 'done-is-terminal' };
+		if (state.kind === 'done') { return { ok: false, reason: 'done-is-terminal' }; }
 		return { ok: true, next: { kind: 'done', endedAtMs: event.nowMs, outcome: 'aborted' } };
 	}
 	if (event.kind === 'timeout') {
-		if (state.kind === 'done' || state.kind === 'idle') return { ok: false, reason: 'timeout-from-non-running' };
+		if (state.kind === 'done' || state.kind === 'idle') { return { ok: false, reason: 'timeout-from-non-running' }; }
 		return { ok: true, next: { kind: 'done', endedAtMs: event.nowMs, outcome: 'timeout' } };
 	}
 	switch (state.kind) {

@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 // registered in app.ts
 // can't make a service responsible for this, because it needs
@@ -10,13 +11,10 @@
 import { vibeLog } from '../common/vibeLog.js';
 import { IServerChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+// MCP SDK client/transport modules are heavy and electron-main start-up sensitive; they are
+// loaded lazily via `await import(...)` inside `_createClientUnsafe`. Type-only positions use
+// inline `import('...')` type expressions so no value import reaches module scope.
 import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, RawMCPToolCall, MCPToolErrorResponse, MCPServerEventResponse, MCPToolCallParams } from '../common/mcpServiceTypes.js';
-import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { MCPUserStateOfName } from '../common/vibeideSettingsTypes.js';
 
 const getClientConfig = (serverName: string) => {
@@ -24,32 +22,32 @@ const getClientConfig = (serverName: string) => {
 		name: `${serverName}-client`,
 		version: '0.1.0',
 		// debug: true,
-	}
-}
+	};
+};
 
-type MCPServerNonError = MCPServer & { status: Omit<MCPServer['status'], 'error'> }
-type MCPServerError = MCPServer & { status: 'error' }
+type MCPServerNonError = MCPServer & { status: Omit<MCPServer['status'], 'error'> };
+type MCPServerError = MCPServer & { status: 'error' };
 
 
 
 type ClientInfo = {
-	_client: Client, // _client is the client that connects with an mcp client. We're calling mcp clients "server" everywhere except here for naming consistency.
-	mcpServerEntryJSON: MCPConfigFileEntryJSON,
-	mcpServer: MCPServerNonError,
+	_client: import('@modelcontextprotocol/sdk/client/index.js').Client; // _client is the client that connects with an mcp client. We're calling mcp clients "server" everywhere except here for naming consistency.
+	mcpServerEntryJSON: MCPConfigFileEntryJSON;
+	mcpServer: MCPServerNonError;
 } | {
-	_client?: undefined,
-	mcpServerEntryJSON: MCPConfigFileEntryJSON,
-	mcpServer: MCPServerError,
-}
+	_client?: undefined;
+	mcpServerEntryJSON: MCPConfigFileEntryJSON;
+	mcpServer: MCPServerError;
+};
 
 type InfoOfClientId = {
-	[clientId: string]: ClientInfo
-}
+	[clientId: string]: ClientInfo;
+};
 
 export class MCPChannel implements IServerChannel {
 
-	private readonly infoOfClientId: InfoOfClientId = {}
-	private readonly _refreshingServerNames: Set<string> = new Set()
+	private readonly infoOfClientId: InfoOfClientId = {};
+	private readonly _refreshingServerNames: Set<string> = new Set();
 
 	// mcp emitters
 	private readonly mcpEmitters = {
@@ -60,60 +58,65 @@ export class MCPChannel implements IServerChannel {
 		}
 	} satisfies {
 		serverEvent: {
-			onAdd: Emitter<MCPServerEventResponse>,
-			onUpdate: Emitter<MCPServerEventResponse>,
-			onDelete: Emitter<MCPServerEventResponse>,
-		}
-	}
+			onAdd: Emitter<MCPServerEventResponse>;
+			onUpdate: Emitter<MCPServerEventResponse>;
+			onDelete: Emitter<MCPServerEventResponse>;
+		};
+	};
 
 	constructor(
 	) { }
 
 	// browser uses this to listen for changes
-	listen(_: unknown, event: string): Event<any> {
+	listen<T>(_: unknown, event: string): Event<T> {
 
 		// server events
-		if (event === 'onAdd_server') return this.mcpEmitters.serverEvent.onAdd.event;
-		else if (event === 'onUpdate_server') return this.mcpEmitters.serverEvent.onUpdate.event;
-		else if (event === 'onDelete_server') return this.mcpEmitters.serverEvent.onDelete.event;
+		if (event === 'onAdd_server') { return this.mcpEmitters.serverEvent.onAdd.event as Event<T>; }
+		else if (event === 'onUpdate_server') { return this.mcpEmitters.serverEvent.onUpdate.event as Event<T>; }
+		else if (event === 'onDelete_server') { return this.mcpEmitters.serverEvent.onDelete.event as Event<T>; }
 		// else if (event === 'onLoading_server') return this.mcpEmitters.serverEvent.onChangeLoading.event;
 
 		// tool call events
 
 		// handle unknown events
-		else throw new Error(`Event not found: ${event}`);
+		else { throw new Error(`Event not found: ${event}`); }
 	}
 
 	// browser uses this to call (see this.channel.call() in mcpConfigService.ts for all usages)
-	async call(_: unknown, command: string, params: any): Promise<any> {
+	async call<T>(_: unknown, command: string, params: unknown): Promise<T> {
 		try {
 			if (command === 'refreshMCPServers') {
-				await this._refreshMCPServers(params)
+				await this._refreshMCPServers(params as Parameters<MCPChannel['_refreshMCPServers']>[0]);
+				return undefined as T;
 			}
 			else if (command === 'closeAllMCPServers') {
-				await this._closeAllMCPServers()
+				await this._closeAllMCPServers();
+				return undefined as T;
 			}
 			else if (command === 'toggleMCPServer') {
-				await this._toggleMCPServer(params.serverName, params.isOn)
+				const p = params as { serverName: string; isOn: boolean };
+				await this._toggleMCPServer(p.serverName, p.isOn);
+				return undefined as T;
 			}
 			else if (command === 'callTool') {
-				const p: MCPToolCallParams = params
-				const response = await this._safeCallTool(p.serverName, p.toolName, p.params)
-				return response
+				const p = params as MCPToolCallParams;
+				const response = await this._safeCallTool(p.serverName, p.toolName, p.params);
+				return response as T;
 			}
 			else {
-				throw new Error(`VibeIDE: command "${command}" not recognized.`)
+				throw new Error(`VibeIDE: command "${command}" not recognized.`);
 			}
 		}
 		catch (e) {
-			vibeLog.error('mcpChannel', 'mcp channel: Call Error:', e)
+			vibeLog.error('mcpChannel', 'mcp channel: Call Error:', e);
+			return undefined as T;
 		}
 	}
 
 	// server functions
 
 
-	private async _refreshMCPServers(params: { mcpConfigFileJSON: MCPConfigFileJSON, userStateOfName: MCPUserStateOfName, addedServerNames: string[], removedServerNames: string[], updatedServerNames: string[] }) {
+	private async _refreshMCPServers(params: { mcpConfigFileJSON: MCPConfigFileJSON; userStateOfName: MCPUserStateOfName; addedServerNames: string[]; removedServerNames: string[]; updatedServerNames: string[] }) {
 
 		const {
 			mcpConfigFileJSON,
@@ -121,15 +124,15 @@ export class MCPChannel implements IServerChannel {
 			addedServerNames,
 			removedServerNames,
 			updatedServerNames,
-		} = params
+		} = params;
 
-		const { mcpServers: mcpServersJSON } = mcpConfigFileJSON
+		const { mcpServers: mcpServersJSON } = mcpConfigFileJSON;
 
-		const allChanges: { type: 'added' | 'removed' | 'updated', serverName: string }[] = [
+		const allChanges: { type: 'added' | 'removed' | 'updated'; serverName: string }[] = [
 			...addedServerNames.map(n => ({ serverName: n, type: 'added' }) as const),
 			...removedServerNames.map(n => ({ serverName: n, type: 'removed' }) as const),
 			...updatedServerNames.map(n => ({ serverName: n, type: 'updated' }) as const),
-		]
+		];
 
 		// Per-server try/finally ensures `_refreshingServerNames` is cleaned even if any
 		// _createClient / _closeClient rejects (Promise.all otherwise short-circuits and
@@ -139,30 +142,30 @@ export class MCPChannel implements IServerChannel {
 			allChanges.map(async ({ serverName, type }) => {
 
 				// check if already refreshing
-				if (this._refreshingServerNames.has(serverName)) return
-				this._refreshingServerNames.add(serverName)
+				if (this._refreshingServerNames.has(serverName)) { return; }
+				this._refreshingServerNames.add(serverName);
 
 				try {
 					const prevServer = this.infoOfClientId[serverName]?.mcpServer;
 
 					// close and delete the old client
 					if (type === 'removed' || type === 'updated') {
-						await this._closeClient(serverName)
-						delete this.infoOfClientId[serverName]
-						this.mcpEmitters.serverEvent.onDelete.fire({ response: { prevServer, name: serverName, } })
+						await this._closeClient(serverName);
+						delete this.infoOfClientId[serverName];
+						this.mcpEmitters.serverEvent.onDelete.fire({ response: { prevServer, name: serverName, } });
 					}
 
 					// create a new client
 					if (type === 'added' || type === 'updated') {
-						const clientInfo = await this._createClient(mcpServersJSON[serverName], serverName, userStateOfName[serverName]?.isOn)
-						this.infoOfClientId[serverName] = clientInfo
-						this.mcpEmitters.serverEvent.onAdd.fire({ response: { newServer: clientInfo.mcpServer, name: serverName, } })
+						const clientInfo = await this._createClient(mcpServersJSON[serverName], serverName, userStateOfName[serverName]?.isOn);
+						this.infoOfClientId[serverName] = clientInfo;
+						this.mcpEmitters.serverEvent.onAdd.fire({ response: { newServer: clientInfo.mcpServer, name: serverName, } });
 					}
 				} finally {
-					this._refreshingServerNames.delete(serverName)
+					this._refreshingServerNames.delete(serverName);
 				}
 			})
-		)
+		);
 
 	}
 
@@ -203,7 +206,7 @@ export class MCPChannel implements IServerChannel {
 					throw new Error(`[VibeIDE MCP] Port conflict: MCP server "${serverName}" tries to connect to ${urlKey} which is already used by another active MCP server. Use different ports.`);
 				}
 			} catch (e) {
-				if ((e as Error).message.startsWith('[VibeIDE MCP]')) throw e;
+				if ((e as Error).message.startsWith('[VibeIDE MCP]')) { throw e; }
 				throw new Error(`[VibeIDE MCP] Invalid URL for MCP server "${serverName}": ${urlStr}`);
 			}
 		}
@@ -236,9 +239,15 @@ export class MCPChannel implements IServerChannel {
 		// VibeIDE: Validate server config before connecting
 		this._validateMCPServer(server, serverName);
 
-		const clientConfig = getClientConfig(serverName)
-		const client = new Client(clientConfig)
-		let transport: Transport;
+		// Lazy-load the heavy MCP SDK modules only when a client is actually created.
+		const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+		const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
+		const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+		const { SSEClientTransport } = await import('@modelcontextprotocol/sdk/client/sse.js');
+
+		const clientConfig = getClientConfig(serverName);
+		const client = new Client(clientConfig);
+		let transport: import('@modelcontextprotocol/sdk/shared/transport.js').Transport;
 		let info: MCPServerNonError;
 
 		if (server.url) {
@@ -263,12 +272,12 @@ export class MCPChannel implements IServerChannel {
 					transport = new SSEClientTransport(url);
 					await client.connect(transport);
 					vibeLog.info('mcpChannel', `Connected via SSE to ${serverName}`);
-					const { tools } = await client.listTools()
+					const { tools } = await client.listTools();
 					info = {
 						status: isOn ? 'success' : 'offline',
 						tools: tools,
 						command: urlString,
-					}
+					};
 				} catch (sseErr) {
 					throw new Error(`Failed to connect to SSE server at ${urlString}: ${sseErr instanceof Error ? sseErr.message : String(sseErr)}`);
 				}
@@ -279,12 +288,12 @@ export class MCPChannel implements IServerChannel {
 					transport = new StreamableHTTPClientTransport(url);
 					await client.connect(transport);
 					vibeLog.info('mcpChannel', `Connected via HTTP to ${serverName}`);
-					const { tools } = await client.listTools()
+					const { tools } = await client.listTools();
 					info = {
 						status: isOn ? 'success' : 'offline',
 						tools: tools,
 						command: urlString,
-					}
+					};
 				} catch (httpErr) {
 					throw new Error(`Failed to connect to HTTP server at ${urlString}: ${httpErr instanceof Error ? httpErr.message : String(httpErr)}`);
 				}
@@ -295,65 +304,70 @@ export class MCPChannel implements IServerChannel {
 					transport = new StreamableHTTPClientTransport(url);
 					await client.connect(transport);
 					vibeLog.info('mcpChannel', `Connected via HTTP to ${serverName}`);
-					const { tools } = await client.listTools()
+					const { tools } = await client.listTools();
 					info = {
 						status: isOn ? 'success' : 'offline',
 						tools: tools,
 						command: urlString,
-					}
+					};
 				} catch (httpErr) {
 					vibeLog.warn('mcpChannel', `HTTP failed for ${serverName}, trying SSE…`, httpErr);
 					transport = new SSEClientTransport(url);
 					await client.connect(transport);
-					const { tools } = await client.listTools()
+					const { tools } = await client.listTools();
 					vibeLog.info('mcpChannel', `Connected via SSE to ${serverName}`);
 					info = {
 						status: isOn ? 'success' : 'offline',
 						tools: tools,
 						command: urlString,
-					}
+					};
 				}
 			}
 		} else if (server.command) {
 			// console.log('ENV DATA: ', server.env)
+			// process.env values are `string | undefined`; filter out undefined so the
+			// merged env is a genuine Record<string, string> without a hiding assertion.
+			const mergedEnv: Record<string, string> = { ...server.env };
+			for (const [key, value] of Object.entries(process.env)) {
+				if (value !== undefined) {
+					mergedEnv[key] = value;
+				}
+			}
 			transport = new StdioClientTransport({
 				command: server.command,
 				args: server.args,
-				env: {
-					...server.env,
-					...process.env
-				} as Record<string, string>,
+				env: mergedEnv,
 			});
 
-			await client.connect(transport)
+			await client.connect(transport);
 
 			// Get the tools from the server
-			const { tools } = await client.listTools()
+			const { tools } = await client.listTools();
 
 			// Create a full command string for display
-			const fullCommand = `${server.command} ${server.args?.join(' ') || ''}`
+			const fullCommand = `${server.command} ${server.args?.join(' ') || ''}`;
 
 			// Format server object
 			info = {
 				status: isOn ? 'success' : 'offline',
 				tools: tools,
 				command: fullCommand,
-			}
+			};
 
 		} else {
 			throw new Error(`No url or command for server ${serverName}`);
 		}
 
 
-		return { _client: client, mcpServerEntryJSON: server, mcpServer: info }
+		return { _client: client, mcpServerEntryJSON: server, mcpServer: info };
 	}
 
 	private async _createClient(serverConfig: MCPConfigFileEntryJSON, serverName: string, isOn = true): Promise<ClientInfo> {
 		try {
-			const c: ClientInfo = await this._createClientUnsafe(serverConfig, serverName, isOn)
+			const c: ClientInfo = await this._createClientUnsafe(serverConfig, serverName, isOn);
 			// VibeIDE: Register URL after successful connection for port conflict tracking
 			this._registerActiveUrl(serverConfig);
-			return c
+			return c;
 		} catch (err) {
 			vibeLog.error('mcpChannel', `❌ Failed to connect to server "${serverName}":`, err);
 			const fullCommand = !serverConfig.command ? '' : `${serverConfig.command} ${serverConfig.args?.join(' ') || ''}`;
@@ -447,7 +461,7 @@ export class MCPChannel implements IServerChannel {
 			name: toolName,
 			arguments: params
 		});
-		const { content } = response as CallToolResult;
+		const { content } = response as import('@modelcontextprotocol/sdk/types.js').CallToolResult;
 		const returnValue = content[0];
 
 		if (returnValue.type === 'text') {

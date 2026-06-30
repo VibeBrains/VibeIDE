@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -12,6 +13,7 @@ import {
 	SecretLookups,
 	UnresolvedPlaceholder,
 } from '../../common/projectCommandSecretsResolver.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const lookups = (env: Record<string, string> = {}, secret: Record<string, string> = {}): SecretLookups => ({
 	env: name => env[name],
@@ -19,6 +21,8 @@ const lookups = (env: Record<string, string> = {}, secret: Record<string, string
 });
 
 suite('projectCommandSecretsResolver', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('resolveStringPlaceholders', () => {
 		test('all resolved → no collector entries, redacted form has [REDACTED]', () => {

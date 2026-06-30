@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { serializePlanMarkdown } from '../../common/vibePersistedPlanService.js';
 import type { PlanMessage } from '../../common/chatThreadServiceTypes.js';
 
@@ -22,6 +24,8 @@ const plan = {
 } as unknown as PlanMessage;
 
 suite('serializePlanMarkdown — reflect step statuses + lifecycle status', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('completed plan: checkboxes + markers reflect each step status', () => {
 		const md = serializePlanMarkdown(plan, meta, 'completed');

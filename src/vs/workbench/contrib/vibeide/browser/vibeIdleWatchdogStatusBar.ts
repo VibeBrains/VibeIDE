@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Watchdog status bar widget (roadmap W.6 / W.29).
@@ -13,6 +14,7 @@
  * Setting: `vibeide.diagnostics.idleWatchdog.showStatusBar` (default false).
  */
 
+import { mainWindow } from '../../../../base/browser/window.js';
 import { Disposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IStatusbarEntry, IStatusbarService, StatusbarAlignment } from '../../../services/statusbar/browser/statusbar.js';
@@ -25,9 +27,9 @@ const REFRESH_INTERVAL_MS = 60_000;
 const STATUS_ID = 'vibeide.watchdog.statusbar';
 
 function fmt(bytes: number | undefined): string {
-	if (!bytes || bytes <= 0) return '–';
+	if (!bytes || bytes <= 0) { return '–'; }
 	const mb = bytes / (1024 * 1024);
-	if (mb < 1024) return `${Math.round(mb)}M`;
+	if (mb < 1024) { return `${Math.round(mb)}M`; }
 	return `${(mb / 1024).toFixed(1)}G`;
 }
 
@@ -44,7 +46,7 @@ export class VibeIdleWatchdogStatusBarContribution extends Disposable implements
 	) {
 		super();
 		this._register(this._config.onDidChangeConfiguration(e => {
-			if (e.affectsConfiguration(CONFIG_KEY)) this._reconfigure();
+			if (e.affectsConfiguration(CONFIG_KEY)) { this._reconfigure(); }
 		}));
 		this._reconfigure();
 	}
@@ -56,11 +58,11 @@ export class VibeIdleWatchdogStatusBarContribution extends Disposable implements
 			this._refreshTimer.clear();
 			return;
 		}
-		if (this._entry.value) return; // already shown
+		if (this._entry.value) { return; } // already shown
 		const entry = this._statusbar.addEntry(this._buildEntry({}), STATUS_ID, StatusbarAlignment.RIGHT, 50);
 		this._entry.value = entry;
-		const handle = setInterval(() => void this._refresh(), REFRESH_INTERVAL_MS);
-		this._refreshTimer.value = { dispose: () => clearInterval(handle) };
+		const handle = mainWindow.setInterval(() => void this._refresh(), REFRESH_INTERVAL_MS);
+		this._refreshTimer.value = { dispose: () => mainWindow.clearInterval(handle) };
 		void this._refresh();
 	}
 

@@ -1,3 +1,7 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable, IDisposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
@@ -9,6 +13,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
+import { DocumentSymbol } from '../../../../editor/common/languages.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
@@ -46,6 +51,42 @@ interface IndexChunk {
 	endLine: number;
 	tokens?: Set<string>; // Pre-computed tokens for faster scoring
 	embedding?: number[]; // Vector embedding for this chunk (optional)
+}
+
+/**
+ * On-disk (JSON) shapes of the index. Sets are serialized as arrays; all fields are optional
+ * because the file is untrusted input and must be validated before use.
+ */
+interface SerializedIndexChunk {
+	text?: string;
+	startLine?: number;
+	endLine?: number;
+	tokens?: string[] | Set<string>;
+	embedding?: number[];
+}
+
+interface SerializedIndexEntry {
+	uri?: string;
+	symbols?: string[];
+	snippet?: string;
+	snippetStartLine?: number;
+	snippetEndLine?: number;
+	chunks?: SerializedIndexChunk[];
+	snippetTokens?: string[] | Set<string>;
+	uriTokens?: string[] | Set<string>;
+	symbolTokens?: string[] | Set<string>;
+	importedSymbols?: string[];
+	importedFrom?: string[];
+	snippetEmbedding?: number[];
+	chunkEmbeddings?: number[][];
+}
+
+/**
+ * Narrows an untrusted JSON value to the serialized index array shape. Element-level validation
+ * (required fields) is performed by the callers; this only confirms the top-level is an array.
+ */
+function isSerializedIndexArray(value: unknown): value is SerializedIndexEntry[] {
+	return Array.isArray(value);
 }
 
 export interface QueryMetrics {
@@ -247,7 +288,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 	private _getIndexPath(): URI | null {
 		const workspace = this.workspaceContextService.getWorkspace();
-		if (!workspace.id) return null;
+		if (!workspace.id) { return null; }
 		// Store index outside workspace in workspaceStorageHome, similar to how Cursor does it
 		// This keeps the workspace clean and prevents index files from being visible to users
 		return joinPath(this.environmentService.workspaceStorageHome, workspace.id, 'codebase-index.json');
@@ -255,15 +296,15 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 	private async _loadIndex(): Promise<void> {
 		const indexPath = this._getIndexPath();
-		if (!indexPath) return;
+		if (!indexPath) { return; }
 		try {
 			const content = await this.fileService.readFile(indexPath);
-			const data = JSON.parse(content.value.toString());
-			if (Array.isArray(data)) {
+			const data: unknown = JSON.parse(content.value.toString());
+			if (isSerializedIndexArray(data)) {
 				// PERFORMANCE: Process entries in chunks to avoid blocking UI for large indexes
 				// Chunk size: 1000 entries per chunk (yield to UI thread between chunks)
 				const CHUNK_SIZE = 1000;
-				const filteredData = data.filter((entry: any) =>
+				const filteredData = data.filter(entry =>
 					entry &&
 					typeof entry.uri === 'string' &&
 					Array.isArray(entry.symbols) &&
@@ -273,14 +314,21 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				this._index = [];
 				for (let i = 0; i < filteredData.length; i += CHUNK_SIZE) {
 					const chunk = filteredData.slice(i, i + CHUNK_SIZE);
-					const processedChunk = chunk.map((entry: any) => ({
+					const processedChunk = chunk.map((entry): IndexEntry => ({
 						...entry,
+						// Required fields — validated by the filter above
+						uri: entry.uri!,
+						symbols: entry.symbols!,
+						snippet: entry.snippet!,
 						// Convert arrays back to Sets for fast lookups
 						snippetTokens: entry.snippetTokens ? new Set(entry.snippetTokens) : undefined,
 						uriTokens: entry.uriTokens ? new Set(entry.uriTokens) : undefined,
 						symbolTokens: entry.symbolTokens ? new Set(entry.symbolTokens) : undefined,
-						chunks: entry.chunks?.map((chunk: any) => ({
+						chunks: entry.chunks?.map((chunk): IndexChunk => ({
 							...chunk,
+							text: chunk.text!,
+							startLine: chunk.startLine!,
+							endLine: chunk.endLine!,
 							tokens: chunk.tokens ? new Set(chunk.tokens) : undefined,
 							embedding: chunk.embedding && Array.isArray(chunk.embedding) ? chunk.embedding : undefined
 						})),
@@ -311,26 +359,33 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 	private async _tryMigrateFromOldLocation(): Promise<void> {
 		const workspace = this.workspaceContextService.getWorkspace().folders[0]?.uri;
-		if (!workspace) return;
+		if (!workspace) { return; }
 
 		const oldIndexPath = workspace.with({ path: `${workspace.path}/.vibeide/index.json` });
 		try {
 			const content = await this.fileService.readFile(oldIndexPath);
-			const data = JSON.parse(content.value.toString());
-			if (Array.isArray(data)) {
+			const data: unknown = JSON.parse(content.value.toString());
+			if (isSerializedIndexArray(data)) {
 				// Validate and migrate index entries (convert arrays to Sets if present)
-				this._index = data.filter((entry: any) =>
+				this._index = data.filter(entry =>
 					entry &&
 					typeof entry.uri === 'string' &&
 					Array.isArray(entry.symbols) &&
 					typeof entry.snippet === 'string'
-				).map((entry: any) => ({
+				).map((entry): IndexEntry => ({
 					...entry,
+					// Required fields — validated by the filter above
+					uri: entry.uri!,
+					symbols: entry.symbols!,
+					snippet: entry.snippet!,
 					snippetTokens: entry.snippetTokens ? (Array.isArray(entry.snippetTokens) ? new Set(entry.snippetTokens) : entry.snippetTokens) : undefined,
 					uriTokens: entry.uriTokens ? (Array.isArray(entry.uriTokens) ? new Set(entry.uriTokens) : entry.uriTokens) : undefined,
 					symbolTokens: entry.symbolTokens ? (Array.isArray(entry.symbolTokens) ? new Set(entry.symbolTokens) : entry.symbolTokens) : undefined,
-					chunks: entry.chunks?.map((chunk: any) => ({
+					chunks: entry.chunks?.map((chunk): IndexChunk => ({
 						...chunk,
+						text: chunk.text!,
+						startLine: chunk.startLine!,
+						endLine: chunk.endLine!,
 						tokens: chunk.tokens ? (Array.isArray(chunk.tokens) ? new Set(chunk.tokens) : chunk.tokens) : undefined
 					})),
 					// Import information is already arrays, no conversion needed
@@ -352,19 +407,19 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 	private async _saveIndex(): Promise<void> {
 		const indexPath = this._getIndexPath();
-		if (!indexPath) return;
+		if (!indexPath) { return; }
 		try {
 			// Serialize with Set conversion for JSON compatibility
 			// Optimize: remove undefined/null fields and use compact format
 			const serializableIndex = this._index.map(entry => {
-				const result: any = {
+				const result: SerializedIndexEntry = {
 					uri: entry.uri,
 					symbols: entry.symbols,
 					snippet: entry.snippet
 				};
 				// Only include optional fields if they exist
-				if (entry.snippetStartLine) result.snippetStartLine = entry.snippetStartLine;
-				if (entry.snippetEndLine) result.snippetEndLine = entry.snippetEndLine;
+				if (entry.snippetStartLine) { result.snippetStartLine = entry.snippetStartLine; }
+				if (entry.snippetEndLine) { result.snippetEndLine = entry.snippetEndLine; }
 				if (entry.snippetTokens && entry.snippetTokens.size > 0) {
 					result.snippetTokens = Array.from(entry.snippetTokens);
 				}
@@ -376,7 +431,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				}
 				if (entry.chunks && entry.chunks.length > 0) {
 					result.chunks = entry.chunks.map(chunk => {
-						const chunkResult: any = {
+						const chunkResult: SerializedIndexChunk = {
 							text: chunk.text,
 							startLine: chunk.startLine,
 							endLine: chunk.endLine
@@ -445,7 +500,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 			try {
 				const entries = await this.fileService.resolve(dir);
-				if (!entries.children) return;
+				if (!entries.children) { return; }
 
 				// PERFORMANCE: Yield to event loop periodically to avoid blocking UI
 				directoryCount++;
@@ -463,7 +518,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 						return;
 					}
 
-					if (shouldIgnore(child.resource.path)) continue;
+					if (shouldIgnore(child.resource.path)) { continue; }
 
 					if (child.isDirectory) {
 						await walk(child.resource);
@@ -492,21 +547,21 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			// Only extract symbols if model is already loaded (to avoid expensive model initialization)
 			// During rebuild, symbols will only be extracted for files that are already open/loaded
 			const model = this.modelService.getModel(uri);
-			if (!model) return symbols;
+			if (!model) { return symbols; }
 
 			const docSymbols = await this.languageFeaturesService.documentSymbolProvider.ordered(model);
-			if (!docSymbols || docSymbols.length === 0) return symbols;
+			if (!docSymbols || docSymbols.length === 0) { return symbols; }
 
 			for (const provider of docSymbols) {
-				const docSymbols_ = await provider.provideDocumentSymbols(model, {} as any);
+				const docSymbols_ = await provider.provideDocumentSymbols(model, CancellationToken.None);
 				if (docSymbols_) {
-					const extract = (sym: any): void => {
+					const extract = (sym: DocumentSymbol): void => {
 						const name = sym.name || '';
 						if (name && !symbols.includes(name)) {
 							symbols.push(name);
 						}
 						if (sym.children) {
-							for (const child of sym.children) extract(child);
+							for (const child of sym.children) { extract(child); }
 						}
 					};
 					for (const sym of docSymbols_) {
@@ -658,7 +713,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				currentPos += chunkSize - chunkOverlap;
 				chunkIndex++;
 
-				if (chunkEndPos >= text.length) break;
+				if (chunkEndPos >= text.length) { break; }
 			}
 
 			// If no chunks generated, use first snippet as single chunk
@@ -771,7 +826,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			const batch = filesToIndex.slice(i, i + RepoIndexerService.BATCH_SIZE);
 
 			const results = await Promise.allSettled(
-				batch.map(async (uri) => {
+				batch.map(async (uri): Promise<IndexEntry> => {
 					// Check cancellation before processing each file
 					if (token.isCancellationRequested) {
 						throw new Error('Cancelled');
@@ -799,7 +854,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 							chunkEmbeddings,
 							importedSymbols: importedSymbols.length > 0 ? importedSymbols : undefined,
 							importedFrom: importedFrom.length > 0 ? importedFrom : undefined
-						} as IndexEntry;
+						};
 					} catch (error) {
 						failedCount++;
 						throw error;
@@ -833,7 +888,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	}
 
 	async warmIndex(workspaceRoot?: URI): Promise<void> {
-		if (this._isWarmed) return;
+		if (this._isWarmed) { return; }
 
 		const workspace = this.workspaceContextService.getWorkspace();
 		if (!workspace.id) {
@@ -1073,13 +1128,13 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 					const entryIndex = entriesToScore[i];
 					const entry = this._index[entryIndex];
-					if (!entry) continue;
+					if (!entry) { continue; }
 
 					// Score main snippet (using pre-computed tokens for faster matching)
 					const mainScore = this._scoreEntryFast(q, qTokens, entry);
 					if (mainScore > 0) {
 						scoredItems.push({ entry, score: mainScore, isChunk: false });
-						if (mainScore >= 5) highScoreCount++;
+						if (mainScore >= 5) { highScoreCount++; }
 					}
 
 					// Lazy chunk evaluation: only score chunks if main snippet score is promising
@@ -1091,7 +1146,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 							const chunkScore = this._scoreChunkFast(q, qTokens, chunk);
 							if (chunkScore > 0) {
 								scoredItems.push({ entry, chunk, score: chunkScore, isChunk: true });
-								if (chunkScore >= 5) highScoreCount++;
+								if (chunkScore >= 5) { highScoreCount++; }
 							}
 						}
 					}
@@ -1106,7 +1161,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 			// Race between scoring and timeout
 			const raceResult = await Promise.race([scoringPromise, timeoutPromise]);
-			if (raceResult && 'timedOut' in raceResult && raceResult.timedOut) {
+			if (typeof raceResult === 'object' && raceResult !== null && raceResult.timedOut) {
 				timedOut = true;
 			}
 
@@ -1385,8 +1440,8 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	 * Optimized BM25 reranking with pre-computed tokens and cached term frequencies
 	 */
 	private _rerankBM25Fast(query: string, qTokens: Set<string>, items: Array<{ entry: IndexEntry; chunk?: IndexChunk; score: number; isChunk: boolean }>, k: number): typeof items {
-		if (items.length === 0) return items;
-		if (qTokens.size === 0) return items;
+		if (items.length === 0) { return items; }
+		if (qTokens.size === 0) { return items; }
 
 		// Use cached average document length (much faster than computing per query)
 		const avgDocLength = this._getAvgDocLength() || items.reduce((sum, item) => {
@@ -1491,7 +1546,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		items: Array<{ entry: IndexEntry; chunk?: IndexChunk; score: number; isChunk: boolean }>,
 		k: number
 	): typeof items {
-		if (items.length === 0) return items;
+		if (items.length === 0) { return items; }
 
 		// If no query embedding, fall back to BM25-only
 		if (!queryEmbedding || queryEmbedding.length === 0) {
@@ -1543,7 +1598,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		vectorResults: Array<{ id: string; score: number }>,
 		k: number
 	): typeof items {
-		if (items.length === 0) return items;
+		if (items.length === 0) { return items; }
 
 		// Create a map of vector store scores by document ID (O(1) lookups)
 		const vectorScoreMap = new Map<string, number>();
@@ -1612,7 +1667,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		const heapifyUp = (idx: number) => {
 			while (idx > 0) {
 				const parent = Math.floor((idx - 1) / 2);
-				if (heap[parent].score <= heap[idx].score) break;
+				if (heap[parent].score <= heap[idx].score) { break; }
 				[heap[parent], heap[idx]] = [heap[idx], heap[parent]];
 				idx = parent;
 			}
@@ -1630,7 +1685,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 				if (right < heap.length && heap[right].score < heap[smallest].score) {
 					smallest = right;
 				}
-				if (smallest === idx) break;
+				if (smallest === idx) { break; }
 				[heap[idx], heap[smallest]] = [heap[smallest], heap[idx]];
 				idx = smallest;
 			}
@@ -1663,8 +1718,8 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	 * Optimized: Use sorted arrays with binary search for large sets (faster than Set.has)
 	 */
 	private _setIntersection(sets: Set<number>[]): Set<number> {
-		if (sets.length === 0) return new Set();
-		if (sets.length === 1) return new Set(sets[0]);
+		if (sets.length === 0) { return new Set(); }
+		if (sets.length === 1) { return new Set(sets[0]); }
 
 		// Start with the smallest set for efficiency
 		sets.sort((a, b) => a.size - b.size);
@@ -1704,7 +1759,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			}
 
 			result = newResult;
-			if (result.size === 0) break; // Early exit
+			if (result.size === 0) { break; } // Early exit
 		}
 
 		return result;
@@ -1731,7 +1786,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		}
 
 		const workspace = this.workspaceContextService.getWorkspace().folders[0]?.uri;
-		if (!workspace) return;
+		if (!workspace) { return; }
 
 		// Watch workspace for file changes (recursive, with exclusions)
 		const watcher = this.fileService.watch(workspace, {
@@ -1762,7 +1817,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 
 	private _handleFileChanges(e: FileChangesEvent): void {
 		const workspace = this.workspaceContextService.getWorkspace().folders[0]?.uri;
-		if (!workspace) return;
+		if (!workspace) { return; }
 
 		// Process deleted files (immediate removal)
 		for (const resource of e.rawDeleted) {
@@ -1775,10 +1830,10 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			const isOverviewDoc = base === 'readme.md' || base === 'package.json' || base === 'product.json';
 
 			const shouldIndex = (ext && codeExts.includes(ext)) || isOverviewDoc;
-			if (!shouldIndex) continue;
+			if (!shouldIndex) { continue; }
 
 			// Skip if not in workspace
-			if (!path.startsWith(workspace.fsPath)) continue;
+			if (!path.startsWith(workspace.fsPath)) { continue; }
 
 			// Find and remove from index
 			const entryIndex = this._index.findIndex(entry => entry.uri === path);
@@ -1804,10 +1859,10 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			const isOverviewDoc = base === 'readme.md' || base === 'package.json' || base === 'product.json';
 
 			const shouldIndex = (ext && codeExts.includes(ext)) || isOverviewDoc;
-			if (!shouldIndex) continue;
+			if (!shouldIndex) { continue; }
 
 			// Skip if not in workspace
-			if (!path.startsWith(workspace.fsPath)) continue;
+			if (!path.startsWith(workspace.fsPath)) { continue; }
 
 			// Invalidate file content cache for updated files (will be refreshed on next read)
 			this._fileContentCache.delete(path);
@@ -1823,7 +1878,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	}
 
 	private async _processPendingUpdates(): Promise<void> {
-		if (this._pendingUpdates.size === 0) return;
+		if (this._pendingUpdates.size === 0) { return; }
 
 		const urisToUpdate = Array.from(this._pendingUpdates);
 		this._pendingUpdates.clear();
@@ -1946,7 +2001,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			} else if (entry.symbolTokens) {
 				// Token overlap in symbol name (using pre-computed tokens)
 				for (const token of qTokens) {
-					if (entry.symbolTokens.has(token)) score += 2;
+					if (entry.symbolTokens.has(token)) { score += 2; }
 				}
 			}
 		}
@@ -1961,7 +2016,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 			}
 		} else {
 			const uriLower = entry.uri.toLowerCase();
-			if (uriLower.includes(qLower)) score += 3;
+			if (uriLower.includes(qLower)) { score += 3; }
 		}
 
 		// Lexical overlap in snippet (weighted by token matches) - use pre-computed snippet tokens
@@ -2006,7 +2061,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 		// very naive token overlap
 		const qt = new Set(q.split(/[^a-z0-9_]+/g).filter(Boolean));
 		let score = 0;
-		for (const t of qt) if (doc.includes(t)) score += 1;
+		for (const t of qt) { if (doc.includes(t)) { score += 1; } }
 		return score;
 	}
 
@@ -2430,7 +2485,7 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	 */
 	private _removeFromInvertedIndexes(entryIndex: number): void {
 		const entry = this._index[entryIndex];
-		if (!entry) return;
+		if (!entry) { return; }
 
 		// Remove from path index
 		this._pathIndex.delete(entry.uri.toLowerCase());

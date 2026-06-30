@@ -1,13 +1,15 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAccessor } from '../util/services.js';
 import { VibeModalForm } from '../components/VibeModalForm.js';
 import type { ProviderDiagnosticsTarget } from '../../../vibeDynamicProvidersService.js';
+import type { ProviderName } from '../../../../common/vibeideSettingsTypes.js';
 
 /**
  * «Проверка провайдеров» — resizable diagnostics window (brain menu → under «VibeIDE Команды»).
@@ -22,7 +24,7 @@ import type { ProviderDiagnosticsTarget } from '../../../vibeDynamicProvidersSer
 
 type LayerStatus = 'idle' | 'pending' | 'ok' | 'warn' | 'fail' | 'skip';
 
-interface LayerResult { status: LayerStatus; detail?: string; }
+interface LayerResult { status: LayerStatus; detail?: string }
 
 interface ProviderRow {
 	id: string;
@@ -163,7 +165,7 @@ export const VibeProviderDiagnostics: React.FC = () => {
 			} else {
 				// Built-in: fetchCatalog probes the provider's endpoint with the stored key.
 				const start = performance.now();
-				const models = await catalog.fetchCatalog(row.id as any, true);
+				const models = await catalog.fetchCatalog(row.id as ProviderName, true);
 				latencyMs = Math.round(performance.now() - start);
 				layers.network = { status: 'ok' };
 				layers.auth = { status: 'ok' };
@@ -225,7 +227,7 @@ export const VibeProviderDiagnostics: React.FC = () => {
 		for (const r of rows) {
 			const L = r.layers;
 			const sel = r.selectedModelPresent === null ? '—' : (r.selectedModelPresent ? 'в каталоге ✓' : 'НЕ в каталоге ✗');
-			lines.push(`| ${r.name} | ${r.kind} | ${KEY_SOURCE_LABEL[r.keySource] ?? r.keySource} | ${STATUS_GLYPH[L.config.status]} | ${STATUS_GLYPH[L.network.status]} | ${STATUS_GLYPH[L.auth.status]} | ${STATUS_GLYPH[L.models.status]}${r.modelCount != null ? ` (${r.modelCount})` : ''} | ${r.latencyMs != null ? r.latencyMs + ' мс' : '—'} | ${sel} |`);
+			lines.push(`| ${r.name} | ${r.kind} | ${KEY_SOURCE_LABEL[r.keySource] ?? r.keySource} | ${STATUS_GLYPH[L.config.status]} | ${STATUS_GLYPH[L.network.status]} | ${STATUS_GLYPH[L.auth.status]} | ${STATUS_GLYPH[L.models.status]}${r.modelCount !== undefined ? ` (${r.modelCount})` : ''} | ${r.latencyMs !== undefined ? r.latencyMs + ' мс' : '—'} | ${sel} |`);
 		}
 		lines.push('');
 		// Per-provider detail (errors etc.)
@@ -287,7 +289,7 @@ export const VibeProviderDiagnostics: React.FC = () => {
 							<span className="@@vibeide-provdiag-kind">{r.kind === 'dynamic' ? 'свой' : 'встроенный'}</span>
 							<span className="@@vibeide-provdiag-key">ключ: {KEY_SOURCE_LABEL[r.keySource] ?? r.keySource}</span>
 							<span className="@@vibeide-provdiag-spacer" />
-							{r.latencyMs != null && <span className="@@vibeide-provdiag-latency">{r.latencyMs} мс</span>}
+							{r.latencyMs !== undefined && <span className="@@vibeide-provdiag-latency">{r.latencyMs} мс</span>}
 							<button className="@@vibeide-provdiag-recheck" disabled={r.checking || busy} onClick={() => recheckOne(r.id)}>↻</button>
 						</div>
 						<div className="@@vibeide-provdiag-layers">

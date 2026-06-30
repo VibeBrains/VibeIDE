@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -74,7 +75,7 @@ class VibeDebugPromptService extends Disposable implements IVibeDebugPromptServi
 		// Evict oldest
 		if (this._recentIds.length >= this.MAX_STORED) {
 			const oldest = this._recentIds.shift();
-			if (oldest) this._snapshots.delete(oldest);
+			if (oldest) { this._snapshots.delete(oldest); }
 		}
 		this._snapshots.set(snapshot.requestId, snapshot);
 		this._recentIds.push(snapshot.requestId);
@@ -98,7 +99,7 @@ class VibeDebugPromptService extends Disposable implements IVibeDebugPromptServi
 	getContextDiff(requestId1: string, requestId2: string) {
 		const s1 = this._snapshots.get(requestId1);
 		const s2 = this._snapshots.get(requestId2);
-		if (!s1 || !s2) return null;
+		if (!s1 || !s2) { return null; }
 
 		const files1 = new Set(s1.contextFiles);
 		const files2 = new Set(s2.contextFiles);

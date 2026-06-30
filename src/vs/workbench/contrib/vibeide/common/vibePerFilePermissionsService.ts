@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -110,7 +111,7 @@ class VibePerFilePermissionsService extends Disposable implements IVibePerFilePe
 
 	async reload(): Promise<void> {
 		const folders = this._workspaceContextService.getWorkspace().folders;
-		if (folders.length === 0) return;
+		if (folders.length === 0) { return; }
 
 		const uri = joinPath(folders[0].uri, '.vibe', 'permissions.json');
 		let raw: string | undefined;
@@ -134,7 +135,7 @@ class VibePerFilePermissionsService extends Disposable implements IVibePerFilePe
 
 	private _reportCorruptPermissions(uri: URI, reason: string): void {
 		// Empty file = "no permissions saved yet" — a normal state, no banner.
-		if (reason === 'empty') return;
+		if (reason === 'empty') { return; }
 		vibeLog.warn('Permissions', `.vibe/permissions.json corrupt (${reason}) — using safe defaults (allow all)`);
 		this._notificationService.notify({
 			severity: Severity.Warning,

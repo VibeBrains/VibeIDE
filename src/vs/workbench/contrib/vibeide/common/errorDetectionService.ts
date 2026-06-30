@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { localize } from '../../../../nls.js';
@@ -11,16 +12,23 @@ import { ILanguageFeaturesService } from '../../../../editor/common/services/lan
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { Range } from '../../../../editor/common/core/range.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
-import { CodeActionContext, CodeActionTriggerType, IWorkspaceTextEdit } from '../../../../editor/common/languages.js';
+import { CodeActionContext, CodeActionTriggerType, IWorkspaceTextEdit, TextEdit, WorkspaceEdit } from '../../../../editor/common/languages.js';
 import { URI } from '../../../../base/common/uri.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { ILLMMessageService } from './sendLLMMessageService.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { ITextModel } from '../../../../editor/common/model.js';
-import { TextEdit } from '../../../../editor/common/languages.js';
-import { autoModelFallbackProviderOrder, isValidProviderModelSelection } from './vibeideSettingsTypes.js';
+import { autoModelFallbackProviderOrder, isValidProviderModelSelection, ModelSelection } from './vibeideSettingsTypes.js';
 
 export const IErrorDetectionService = createDecorator<IErrorDetectionService>('errorDetectionService');
+
+/**
+ * Narrows a workspace-edit element to a text edit (as opposed to a file edit
+ * or a custom edit), which is the only kind this service applies to the model.
+ */
+function isWorkspaceTextEdit(edit: WorkspaceEdit['edits'][number]): edit is IWorkspaceTextEdit {
+	return Object.hasOwn(edit, 'resource') && Object.hasOwn(edit, 'textEdit');
+}
 
 export interface DetectedError {
 	id: string;
@@ -126,7 +134,7 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 			model = modelRef.object.textEditorModel;
 
 			for (const marker of relevantMarkers) {
-				if (token.isCancellationRequested) break;
+				if (token.isCancellationRequested) { break; }
 
 				const range = new Range(
 					marker.startLineNumber,
@@ -227,7 +235,7 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 			};
 
 			for (const provider of providers) {
-				if (token.isCancellationRequested) break;
+				if (token.isCancellationRequested) { break; }
 
 				try {
 					const actions = await provider.provideCodeActions(model, range, context, token);
@@ -236,11 +244,11 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 							if (action.isPreferred && action.edit) {
 								// Convert workspace edit to TextEdit[]
 								const edits: TextEdit[] = [];
-								if ('edits' in action.edit) {
+								if (Array.isArray(action.edit.edits)) {
 									for (const edit of action.edit.edits) {
 										// Check if it's a text edit (not a file edit)
-										if ('resource' in edit && 'textEdit' in edit) {
-											const textEdit = edit as IWorkspaceTextEdit;
+										if (isWorkspaceTextEdit(edit)) {
+											const textEdit = edit;
 											if (textEdit.resource.toString() === model.uri.toString()) {
 												edits.push({
 													range: textEdit.textEdit.range,
@@ -298,7 +306,7 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 
 			// Get model selection
 			const settings = this.settingsService.state;
-			let modelSelection = settings.modelSelectionOfFeature['Chat'] || { providerName: 'auto', modelName: 'auto' };
+			let modelSelection: ModelSelection = settings.modelSelectionOfFeature['Chat'] || { providerName: 'auto', modelName: 'auto' };
 
 			// Resolve auto model selection
 			if (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') {
@@ -308,7 +316,7 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 						const models = providerSettings.models || [];
 						const firstModel = models.find(m => !m.isHidden);
 						if (firstModel) {
-							modelSelection = { providerName, modelName: firstModel.modelName } as any;
+							modelSelection = { providerName, modelName: firstModel.modelName };
 							break;
 						}
 					}

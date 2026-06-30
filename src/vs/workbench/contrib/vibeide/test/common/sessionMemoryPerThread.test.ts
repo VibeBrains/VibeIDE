@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -15,10 +16,13 @@ import {
 	SESSION_MEMORY_MAX_PER_THREAD,
 	SESSION_MEMORY_MAX_CONTENT_CHARS,
 } from '../../common/sessionMemoryPerThread.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const NOW = 1_750_000_000_000;
 
 suite('Session memory per thread — pure helpers (K.3 / 934)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decodeSessionMemoryStore', () => {
 		test('empty store round-trips', () => {

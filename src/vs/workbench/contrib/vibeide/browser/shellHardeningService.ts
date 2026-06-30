@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -65,13 +66,13 @@ class ShellHardeningService extends Disposable implements IShellHardeningService
 
 	private _getConfigUri(): URI | null {
 		const folders = this._workspaceContextService.getWorkspace().folders;
-		if (folders.length === 0) return null;
+		if (folders.length === 0) { return null; }
 		return joinPath(folders[0].uri, '.vibe', 'shell-hardening.json');
 	}
 
 	private _initWatcher(): void {
 		const uri = this._getConfigUri();
-		if (!uri) return;
+		if (!uri) { return; }
 		try {
 			const watcher = this._fileService.watch(uri);
 			this._register(watcher);
@@ -126,7 +127,7 @@ class ShellHardeningService extends Disposable implements IShellHardeningService
 
 	private _reportCorruptConfig(uri: URI, reason: string): void {
 		// Empty file is the "no overrides yet" state — never warn for that.
-		if (reason === 'empty') return;
+		if (reason === 'empty') { return; }
 		vibeLog.warn('ShellHardening', `.vibe/shell-hardening.json corrupt (${reason}) — using bundled defaults only`);
 		this._notificationService.notify({
 			severity: Severity.Warning,

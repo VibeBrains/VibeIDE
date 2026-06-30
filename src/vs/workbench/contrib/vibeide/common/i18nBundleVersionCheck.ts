@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * i18n bundle ↔ `product.json:vibeVersion` sync check — pure helper
@@ -53,8 +54,8 @@ export function checkBundleVersionSync(input: BundleVersionCheckInput): BundleVe
 	}
 	const ide = input.ideVersion.trim();
 	const bundle = input.bundleVersion.trim();
-	if (ide.length === 0) return { kind: 'invalid-input', reason: 'ide-malformed' };
-	if (bundle.length === 0) return { kind: 'invalid-input', reason: 'bundle-malformed' };
+	if (ide.length === 0) { return { kind: 'invalid-input', reason: 'ide-malformed' }; }
+	if (bundle.length === 0) { return { kind: 'invalid-input', reason: 'bundle-malformed' }; }
 
 	if (ide === bundle) {
 		return { kind: 'in-sync', version: ide };
@@ -70,9 +71,9 @@ export function checkBundleVersionSync(input: BundleVersionCheckInput): BundleVe
 	const [, bMajor, bMinor] = bundleParts;
 
 	let drift: 'major' | 'minor' | 'patch';
-	if (iMajor !== bMajor) drift = 'major';
-	else if (iMinor !== bMinor) drift = 'minor';
-	else drift = 'patch';
+	if (iMajor !== bMajor) { drift = 'major'; }
+	else if (iMinor !== bMinor) { drift = 'minor'; }
+	else { drift = 'patch'; }
 
 	return { kind: 'mismatch', ideVersion: ide, bundleVersion: bundle, drift };
 }

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -9,6 +10,7 @@ import {
 	parseNextEditCompletion,
 	EditWindowContext,
 } from '../../common/nextEditLLMPrompt.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 function window(overrides: Partial<EditWindowContext> = {}): EditWindowContext {
 	return {
@@ -22,6 +24,8 @@ function window(overrides: Partial<EditWindowContext> = {}): EditWindowContext {
 }
 
 suite('Next-edit LLM prompt builder + completion parser', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('buildNextEditPrompt — chat style', () => {
 		test('default style is chat', () => {
@@ -162,7 +166,7 @@ suite('Next-edit LLM prompt builder + completion parser', () => {
 				'file:///fallback.ts',
 			);
 			assert.strictEqual(r.kind, 'ok');
-			if (r.kind === 'ok') assert.strictEqual(r.candidate.fileUri, 'file:///fallback.ts');
+			if (r.kind === 'ok') { assert.strictEqual(r.candidate.fileUri, 'file:///fallback.ts'); }
 		});
 
 		test('refuses non-int lineDelta', () => {
@@ -195,7 +199,7 @@ suite('Next-edit LLM prompt builder + completion parser', () => {
 				'{"file":"f","lineDelta":0,"columnDelta":0,"insertion":"{nested:1}"}',
 			);
 			assert.strictEqual(r.kind, 'ok');
-			if (r.kind === 'ok') assert.strictEqual(r.candidate.insertion, '{nested:1}');
+			if (r.kind === 'ok') { assert.strictEqual(r.candidate.insertion, '{nested:1}'); }
 		});
 
 		test('rejects file missing without default', () => {

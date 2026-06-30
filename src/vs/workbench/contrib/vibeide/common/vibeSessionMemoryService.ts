@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Session memory per chat thread — DI wrapper around the pure helper
@@ -125,7 +126,7 @@ class VibeSessionMemoryService extends Disposable implements IVibeSessionMemoryS
 	}
 
 	releaseThread(threadId: string): void {
-		if (!(threadId in this._memory.byThread)) {
+		if (!Object.hasOwn(this._memory.byThread, threadId)) {
 			return;
 		}
 		const next: SessionMemoryStore = {

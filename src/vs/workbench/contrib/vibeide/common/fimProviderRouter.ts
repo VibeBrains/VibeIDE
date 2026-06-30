@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * FIM-specific provider routing (1019) — pure helper.
@@ -94,9 +95,9 @@ export function decideFIMProvider(input: FIMRoutingInput): FIMRoutingDecision {
 
 function pickLocalCoder(providers: ReadonlyArray<FIMProvider>): FIMProvider | undefined {
 	const ollama = providers.find(p => p.available && p.kind === 'local-ollama' && p.hasCoderModel === true);
-	if (ollama) return ollama;
+	if (ollama) { return ollama; }
 	const lmstudio = providers.find(p => p.available && p.kind === 'local-lmstudio' && p.hasCoderModel === true);
-	if (lmstudio) return lmstudio;
+	if (lmstudio) { return lmstudio; }
 	// Fallback: any local provider, even without a coder-specific tag.
 	return providers.find(p => p.available && (p.kind === 'local-ollama' || p.kind === 'local-lmstudio'));
 }

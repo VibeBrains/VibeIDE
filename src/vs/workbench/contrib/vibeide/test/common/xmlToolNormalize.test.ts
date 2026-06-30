@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Tests for `normalizeAlternativeToolSyntax` + `stripUnclaimedToolTags` +
@@ -27,6 +28,7 @@
  */
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	getNormalizeCounters,
 	normalizeAlternativeToolSyntax,
@@ -38,6 +40,8 @@ import {
 } from '../../common/xmlToolNormalize.js';
 
 suite('XML tool normalization (v0.13.10)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('normalizeAlternativeToolSyntax — preservation', () => {
 
@@ -524,8 +528,8 @@ suite('XML tool normalization (v0.13.10)', () => {
 			const out = stripUnclaimedToolTags(input);
 			assert.doesNotMatch(out, /<read_file>/);
 			// Structural check (placeholder shape `\n*[localized text]*\n`) — robust
-// against future translations. Don't assert specific language.
-assert.match(out, /\*\[.+\]\*/);
+			// against future translations. Don't assert specific language.
+			assert.match(out, /\*\[.+\]\*/);
 		});
 
 		test('self-closing form not claimed by parser gets placeholder (v0.13.10)', () => {
@@ -533,8 +537,8 @@ assert.match(out, /\*\[.+\]\*/);
 			const out = stripUnclaimedToolTags(input);
 			assert.doesNotMatch(out, /<read_file[^>]*\/>/);
 			// Structural check (placeholder shape `\n*[localized text]*\n`) — robust
-// against future translations. Don't assert specific language.
-assert.match(out, /\*\[.+\]\*/);
+			// against future translations. Don't assert specific language.
+			assert.match(out, /\*\[.+\]\*/);
 		});
 
 		test('canonical block AND self-closing in same text — both stripped', () => {

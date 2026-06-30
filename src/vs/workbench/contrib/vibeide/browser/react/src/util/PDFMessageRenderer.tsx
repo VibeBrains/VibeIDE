@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import React from 'react';
 import { ChatPDFAttachment } from '../../../../common/chatThreadServiceTypes.js';
@@ -9,8 +10,8 @@ import { FileText } from 'lucide-react';
 import { attachmentsS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 
 const formatFileSize = (bytes: number): string => {
-	if (bytes < 1024) return `${bytes} B`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+	if (bytes < 1024) {return `${bytes} B`;}
+	if (bytes < 1024 * 1024) {return `${(bytes / 1024).toFixed(1)} KB`;}
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 

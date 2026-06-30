@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -48,16 +49,16 @@ class VibePromptLibraryService extends Disposable implements IVibePromptLibraryS
 
 	async getPrompts(): Promise<PromptTemplate[]> {
 		const folders = this._workspaceContextService.getWorkspace().folders;
-		if (folders.length === 0) return [];
+		if (folders.length === 0) { return []; }
 
 		const promptsDir = joinPath(folders[0].uri, '.vibe', 'prompts');
 		try {
 			const dir = await this._fileService.resolve(promptsDir);
-			if (!dir.children) return [];
+			if (!dir.children) { return []; }
 
 			const templates: PromptTemplate[] = [];
 			for (const child of dir.children) {
-				if (!child.name.endsWith('.md')) continue;
+				if (!child.name.endsWith('.md')) { continue; }
 				try {
 					const content = await this._fileService.readFile(child.resource);
 					const text = content.value.toString();

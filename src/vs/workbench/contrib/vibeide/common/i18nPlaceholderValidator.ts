@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * i18n placeholder round-trip validator (506 / 507) — pure helper.
@@ -31,13 +32,13 @@ const PLACEHOLDER_RE = /\{(\d+)\}/g;
  * (numeric, not strings) in the order they appear; duplicates included.
  */
 export function extractPlaceholders(s: string): number[] {
-	if (typeof s !== 'string') return [];
+	if (typeof s !== 'string') { return []; }
 	const out: number[] = [];
 	const re = new RegExp(PLACEHOLDER_RE.source, 'g');
 	let m: RegExpExecArray | null;
 	while ((m = re.exec(s)) !== null) {
 		const n = Number(m[1]);
-		if (Number.isFinite(n)) out.push(n);
+		if (Number.isFinite(n)) { out.push(n); }
 	}
 	return out;
 }

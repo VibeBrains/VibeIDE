@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Renderer-side Idle Watchdog (roadmap W.1).
@@ -68,23 +69,23 @@ interface RendererGcObserver { snapshot(): RendererGcMetrics; dispose(): void }
  */
 function attachRendererGcObserver(): RendererGcObserver | undefined {
 	const PerfObs = (globalThis as unknown as { PerformanceObserver?: typeof PerformanceObserver }).PerformanceObserver;
-	if (typeof PerfObs !== 'function') return undefined;
+	if (typeof PerfObs !== 'function') { return undefined; }
 	// Skip when this Chromium build doesn't expose the 'gc' performance entry type.
 	// `observe({ entryTypes: ['gc'] })` does NOT throw on an unsupported type — it
 	// silently observes nothing AND makes Chrome print a non-interceptable console
 	// warning ("The entry type 'gc' does not exist or isn't supported.") that bypasses
 	// console.* (so it can never carry our datetime prefix). Gate on supportedEntryTypes.
 	const supported = (PerfObs as unknown as { supportedEntryTypes?: readonly string[] }).supportedEntryTypes;
-	if (Array.isArray(supported) && !supported.includes('gc')) return undefined;
+	if (Array.isArray(supported) && !supported.includes('gc')) { return undefined; }
 	try {
 		const metrics: RendererGcMetrics = { count: 0, majorCount: 0, totalMs: 0 };
 		const obs = new PerfObs((list) => {
 			for (const entry of list.getEntries()) {
-				if (entry.entryType !== 'gc') continue;
+				if (entry.entryType !== 'gc') { continue; }
 				metrics.count += 1;
 				metrics.totalMs += entry.duration;
 				const detail = (entry as unknown as { detail?: { kind?: number } }).detail;
-				if (detail && (detail.kind === 2 || detail.kind === 15)) metrics.majorCount += 1;
+				if (detail && (detail.kind === 2 || detail.kind === 15)) { metrics.majorCount += 1; }
 			}
 		});
 		obs.observe({ entryTypes: ['gc'], buffered: false });
@@ -159,7 +160,7 @@ export class VibeIdleWatchdogRendererContribution extends Disposable implements 
 		@ICommandService private readonly _commandService: ICommandService,
 	) {
 		super();
-		if (!this._isEnabled()) return;
+		if (!this._isEnabled()) { return; }
 
 		this._workspaceHash = this._computeWorkspaceHash();
 		this._gcObserver = attachRendererGcObserver();
@@ -204,13 +205,13 @@ export class VibeIdleWatchdogRendererContribution extends Disposable implements 
 	}
 
 	private _scheduleInterval(): void {
-		const handle = setInterval(() => this._tick(), this._intervalMs());
-		this._intervalTimer.value = { dispose: () => clearInterval(handle) };
+		const handle = mainWindow.setInterval(() => this._tick(), this._intervalMs());
+		this._intervalTimer.value = { dispose: () => mainWindow.clearInterval(handle) };
 	}
 
 	private _reschedule(): void {
 		this._intervalTimer.clear();
-		if (this._isEnabled()) this._scheduleInterval();
+		if (this._isEnabled()) { this._scheduleInterval(); }
 	}
 
 	private _installActivityListeners(): void {
@@ -232,12 +233,12 @@ export class VibeIdleWatchdogRendererContribution extends Disposable implements 
 
 	private _computeWorkspaceHash(): string | undefined {
 		const folders = this._workspace.getWorkspace().folders;
-		if (folders.length === 0) return undefined;
+		if (folders.length === 0) { return undefined; }
 		return djb2(folders.map(f => f.uri.toString()).join('|'));
 	}
 
 	private async _tick(note?: string): Promise<void> {
-		if (this._disposed) return;
+		if (this._disposed) { return; }
 		try {
 			const sample = this._buildSample(note);
 			await this._proxy.appendSample(sample);
@@ -254,12 +255,12 @@ export class VibeIdleWatchdogRendererContribution extends Disposable implements 
 		// renderer. Treat them like non-renderer alerts below: focus-gated, single window.
 		const isCommit = alert.metric === 'commit';
 		// Renderer-specific RSS alerts belong to a single window; skip if not ours.
-		if (alert.proc === 'renderer' && !isCommit && alert.windowId !== undefined && alert.windowId !== this._windowId) return;
+		if (alert.proc === 'renderer' && !isCommit && alert.windowId !== undefined && alert.windowId !== this._windowId) { return; }
 		// Non-renderer alerts (main, exthost, gpu, utility) AND commit-metric alerts can
 		// fire on any window. To avoid N duplicate toasts in a multi-window setup, only
 		// the focused window surfaces them. Edge case: no window focused — alert is
 		// silently dropped on this side; the .jsonl still records growth for offline review.
-		if ((alert.proc !== 'renderer' || isCommit) && !this._hostService.hasFocus) return;
+		if ((alert.proc !== 'renderer' || isCommit) && !this._hostService.hasFocus) { return; }
 
 		const procLabel = this._procLabel(alert.proc);
 		this._notifications.notify({
@@ -355,8 +356,8 @@ export class VibeIdleWatchdogRendererContribution extends Disposable implements 
 	}
 
 	private _handlePreOomAlert(alert: WatchdogPreOomAlert): void {
-		if (alert.proc === 'renderer' && alert.windowId !== undefined && alert.windowId !== this._windowId) return;
-		if (alert.proc !== 'renderer' && !this._hostService.hasFocus) return;
+		if (alert.proc === 'renderer' && alert.windowId !== undefined && alert.windowId !== this._windowId) { return; }
+		if (alert.proc !== 'renderer' && !this._hostService.hasFocus) { return; }
 		// W.17 — opt-in DevTools auto-open on pre-OOM. Helps user manually capture
 		// heap snapshot in Chrome DevTools Memory panel before V8 aborts.
 		if (this._configService.getValue<boolean>('vibeide.diagnostics.idleWatchdog.autoOpenDevToolsOnPreOom') === true

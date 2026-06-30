@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -11,8 +12,11 @@ import {
 	describeGDPRDeleteConfirm,
 	countIrreversibleDeleteItems,
 } from '../../common/gdprWizardManifest.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('gdprWizardManifest', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('buildGDPRExportManifest', () => {
 		test('contains all six categories in stable order', () => {
@@ -96,7 +100,7 @@ suite('gdprWizardManifest', () => {
 			const m = buildGDPRExportManifest();
 			const text = describeGDPRExportConfirm(m);
 			for (const it of m) {
-				if (it.included) assert.ok(text.includes(it.label), `missing label: ${it.label}`);
+				if (it.included) { assert.ok(text.includes(it.label), `missing label: ${it.label}`); }
 			}
 		});
 

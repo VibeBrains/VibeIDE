@@ -1,10 +1,12 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import { findLinesTolerant } from '../../common/helpers/fuzzyLineMatch.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const FILE = [
 	'function greet(name) {',          // 1
@@ -19,6 +21,8 @@ const FILE = [
 ].join('\n');
 
 suite('fuzzyLineMatch — tolerant line matching', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('exact match → its line range (1-indexed inclusive)', () => {
 		assert.deepStrictEqual(findLinesTolerant('    console.log(msg);', FILE), [3, 3]);

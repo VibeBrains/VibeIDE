@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -11,6 +12,7 @@ import {
 	AUTOMATION_DEFAULT_TIMEOUT_MS,
 	AUTOMATION_HARD_TIMEOUT_CAP_MS,
 } from '../../common/browserAutomationScript.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const minScript = (overrides: Record<string, unknown> = {}): unknown => ({
 	version: 1,
@@ -21,6 +23,8 @@ const minScript = (overrides: Record<string, unknown> = {}): unknown => ({
 
 suite('VibeBrowserAutomationService — script schema decoder + safety', () => {
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	suite('decodeAutomationScript', () => {
 		test('happy path', () => {
 			const r = decodeAutomationScript(minScript());
@@ -30,7 +34,7 @@ suite('VibeBrowserAutomationService — script schema decoder + safety', () => {
 		test('rejects non-1 version', () => {
 			const r = decodeAutomationScript(minScript({ version: 2 }));
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'version-not-1');
+			if (!r.ok) { assert.strictEqual(r.reason, 'version-not-1'); }
 		});
 
 		test('rejects empty steps', () => {
@@ -43,7 +47,7 @@ suite('VibeBrowserAutomationService — script schema decoder + safety', () => {
 				steps: [{ id: 'evil', kind: 'evaluate', value: 'window.x = 1' }],
 			}));
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.reason.includes('kind-unknown:evaluate'));
+			if (!r.ok) { assert.ok(r.reason.includes('kind-unknown:evaluate')); }
 		});
 
 		test('rejects evaluate / addScriptTag / exposeFunction (not in allowlist)', () => {
@@ -63,7 +67,7 @@ suite('VibeBrowserAutomationService — script schema decoder + safety', () => {
 				],
 			}));
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.reason.includes('duplicate-id'));
+			if (!r.ok) { assert.ok(r.reason.includes('duplicate-id')); }
 		});
 
 		test('rejects malformed step id', () => {
@@ -155,7 +159,7 @@ suite('VibeBrowserAutomationService — script schema decoder + safety', () => {
 				allowedHosts: ['example.com'],
 			});
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'not-https');
+			if (!r.ok) { assert.strictEqual(r.reason, 'not-https'); }
 		});
 
 		test('http on localhost with flag on → ok', () => {
@@ -178,7 +182,7 @@ suite('VibeBrowserAutomationService — script schema decoder + safety', () => {
 				allowedHosts: ['safe.example'],
 			});
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'not-allowlisted');
+			if (!r.ok) { assert.strictEqual(r.reason, 'not-allowlisted'); }
 		});
 
 		test('wildcard host matches subdomain', () => {
@@ -199,13 +203,13 @@ suite('VibeBrowserAutomationService — script schema decoder + safety', () => {
 		test('malformed URL → malformed', () => {
 			const r = checkNavigationUrl('not-a-url', { allowedHosts: ['x'] });
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'malformed');
+			if (!r.ok) { assert.strictEqual(r.reason, 'malformed'); }
 		});
 
 		test('javascript: scheme rejected', () => {
 			const r = checkNavigationUrl('javascript:alert(1)', { allowedHosts: ['x'] });
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'not-https');
+			if (!r.ok) { assert.strictEqual(r.reason, 'not-https'); }
 		});
 
 		test('host case-insensitive', () => {

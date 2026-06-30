@@ -1,12 +1,15 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { parseSkillMarkdown, orderedTransitiveDependencySkillIds, serializeSkillMarkdown } from '../../common/vibeSkillsLibraryService.js';
 
 suite('Agent Skills — parseSkillMarkdown', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 	test('parses YAML frontmatter with vibeVersion', () => {
 		const raw = `---
 name: demo-skill

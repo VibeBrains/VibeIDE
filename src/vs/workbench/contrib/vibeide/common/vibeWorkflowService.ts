@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -82,16 +83,16 @@ class VibeWorkflowService extends Disposable implements IVibeWorkflowService {
 
 	async getWorkflows(): Promise<VibeWorkflow[]> {
 		const folders = this._workspaceContextService.getWorkspace().folders;
-		if (folders.length === 0) return [];
+		if (folders.length === 0) { return []; }
 
 		const workflowsDir = joinPath(folders[0].uri, '.vibe', 'workflows');
 		try {
 			const dir = await this._fileService.resolve(workflowsDir);
-			if (!dir.children) return [];
+			if (!dir.children) { return []; }
 
 			const workflows: VibeWorkflow[] = [];
 			for (const child of dir.children) {
-				if (!child.name.endsWith('.json') && !child.name.endsWith('.yaml')) continue;
+				if (!child.name.endsWith('.json') && !child.name.endsWith('.yaml')) { continue; }
 				try {
 					const content = await this._fileService.readFile(child.resource);
 					const text = content.value.toString();

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Pure helpers for plan execution lease lifecycle (K.1 / 904 stale lease janitor,
@@ -38,7 +39,7 @@ export function isLeaseStale(
 	now: number,
 	ttl: number = PLAN_EXECUTION_LEASE_STALE_AFTER_MS,
 ): boolean {
-	if (!lease) return true;
+	if (!lease) { return true; }
 	return now - lease.lastHeartbeat > ttl;
 }
 
@@ -86,15 +87,15 @@ export function selectAllForEmergencyStop(
  * may have a half-written tail.
  */
 export function decodeLease(raw: unknown): { ok: true; value: PlanExecutionLease } | { ok: false; reason: string } {
-	if (raw == null || typeof raw !== 'object') {
+	if (raw === null || raw === undefined || typeof raw !== 'object') {
 		return { ok: false, reason: 'not-an-object' };
 	}
 	const obj = raw as Record<string, unknown>;
-	if (typeof obj.planId !== 'string' || obj.planId.length === 0) return { ok: false, reason: 'planId-missing' };
-	if (typeof obj.threadId !== 'string' || obj.threadId.length === 0) return { ok: false, reason: 'threadId-missing' };
-	if (typeof obj.holderNonce !== 'string' || obj.holderNonce.length === 0) return { ok: false, reason: 'holderNonce-missing' };
-	if (typeof obj.startedAt !== 'number' || !Number.isFinite(obj.startedAt)) return { ok: false, reason: 'startedAt-invalid' };
-	if (typeof obj.lastHeartbeat !== 'number' || !Number.isFinite(obj.lastHeartbeat)) return { ok: false, reason: 'lastHeartbeat-invalid' };
+	if (typeof obj.planId !== 'string' || obj.planId.length === 0) { return { ok: false, reason: 'planId-missing' }; }
+	if (typeof obj.threadId !== 'string' || obj.threadId.length === 0) { return { ok: false, reason: 'threadId-missing' }; }
+	if (typeof obj.holderNonce !== 'string' || obj.holderNonce.length === 0) { return { ok: false, reason: 'holderNonce-missing' }; }
+	if (typeof obj.startedAt !== 'number' || !Number.isFinite(obj.startedAt)) { return { ok: false, reason: 'startedAt-invalid' }; }
+	if (typeof obj.lastHeartbeat !== 'number' || !Number.isFinite(obj.lastHeartbeat)) { return { ok: false, reason: 'lastHeartbeat-invalid' }; }
 	const lease: PlanExecutionLease = {
 		planId: obj.planId,
 		threadId: obj.threadId,

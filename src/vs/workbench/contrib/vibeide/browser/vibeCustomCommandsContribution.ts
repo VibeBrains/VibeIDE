@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — palette + status-bar contribution.
@@ -38,7 +39,7 @@ import { localize } from '../../../../nls.js';
 import { IVibeCustomCommandsService } from './vibeCustomCommandsService.js';
 import { PROJECT_COMMANDS_PALETTE_IDS } from '../common/projectCommandsServiceContract.js';
 import { buildProjectCommandsInitTemplate, PROJECT_COMMANDS_INIT_EXAMPLE_ID, serializeProjectCommandsInitTemplate } from '../common/projectCommandsInitTemplate.js';
-import { describeUnresolvedPlaceholders } from '../common/projectCommandSecretsResolver.js';
+import { describeUnresolvedPlaceholders, findSuspiciousLiteralSecrets } from '../common/projectCommandSecretsResolver.js';
 import { commandIdToRegistryId, formatProjectCommandKeybindingLabel } from '../common/projectCommandsRegistryId.js';
 import { allocateDefaultChords } from '../common/projectCommandsKeybindings.js';
 import { importTasksJson } from '../common/vscodeTasksJsonImporter.js';
@@ -57,7 +58,6 @@ import {
 import { VIBE_WORKSPACE_FORMAT_VERSION } from '../common/vibeDefaultWorkspaceReadme.js';
 import { IVibeProjectCommandFormModalService } from '../common/vibeProjectCommandFormModalService.js';
 import { safeParseConfigJson } from '../common/vibeConfigJsonParser.js';
-import { findSuspiciousLiteralSecrets } from '../common/projectCommandSecretsResolver.js';
 import { KeybindingsRegistry, KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { KeyMod, KeyCode } from '../../../../base/common/keyCodes.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
@@ -344,10 +344,10 @@ CommandsRegistry.registerCommand({
 			list.map(c => ({ label: c.name, description: c.id, commandId: c.id })),
 			{ placeHolder: localize('vibeide.commands.edit.placeholder', 'Выберите команду для редактирования') },
 		);
-		if (!picked) return;
+		if (!picked) { return; }
 
 		const folder = workspace.getWorkspace().folders[0];
-		if (!folder) return;
+		if (!folder) { return; }
 		const uri = joinPath(folder.uri, '.vibe', 'commands.json');
 		// Open the file editor; ids are unique within the doc so users find
 		// the picked command via Find quickly. A proper "Reveal id N" jump
@@ -374,10 +374,10 @@ CommandsRegistry.registerCommand({
 			list.map(c => ({ label: c.name, description: c.id, commandId: c.id })),
 			{ placeHolder: localize('vibeide.commands.delete.placeholder', 'Выберите команду для удаления') },
 		);
-		if (!picked) return;
+		if (!picked) { return; }
 
 		const folder = workspace.getWorkspace().folders[0];
-		if (!folder) return;
+		if (!folder) { return; }
 		const commandsUri = joinPath(folder.uri, '.vibe', 'commands.json');
 		let raw: ProjectCommandsFile | null = null;
 		try {
@@ -385,7 +385,7 @@ CommandsRegistry.registerCommand({
 			const parsed = safeParseConfigJson(buf.value.toString());
 			if (parsed.ok) {
 				const decoded = decodeProjectCommandsFile(parsed.value);
-				if (decoded.ok) raw = decoded.value;
+				if (decoded.ok) { raw = decoded.value; }
 			}
 		} catch { /* fall through */ }
 		if (raw === null) {
@@ -437,7 +437,7 @@ CommandsRegistry.registerCommand({
 			}),
 			{ placeHolder: localize('vibeide.commands.copy.placeholder', 'Выберите команду — её shell-строка скопируется в буфер'), matchOnDetail: true },
 		);
-		if (!picked) return;
+		if (!picked) { return; }
 		await clipboard.writeText(picked.full);
 		notifications.notify({
 			severity: Severity.Info,
@@ -474,9 +474,10 @@ function registerPinTogglePalette(targetPinned: boolean): void {
 			}
 			const picked = await quickInput.pick(
 				candidates.map(c => ({ label: c.name, description: c.id, commandId: c.id })),
-				{ placeHolder: targetPinned
-					? localize('vibeide.commands.pin.placeholder', 'Выберите команду, чтобы закрепить')
-					: localize('vibeide.commands.unpin.placeholder', 'Выберите команду, чтобы открепить'),
+				{
+					placeHolder: targetPinned
+						? localize('vibeide.commands.pin.placeholder', 'Выберите команду, чтобы закрепить')
+						: localize('vibeide.commands.unpin.placeholder', 'Выберите команду, чтобы открепить'),
 				},
 			);
 			if (!picked) {
@@ -484,7 +485,7 @@ function registerPinTogglePalette(targetPinned: boolean): void {
 			}
 
 			const folder = workspace.getWorkspace().folders[0];
-			if (!folder) return;
+			if (!folder) { return; }
 			const commandsUri = joinPath(folder.uri, '.vibe', 'commands.json');
 			let raw: ProjectCommandsFile | null = null;
 			try {
@@ -492,7 +493,7 @@ function registerPinTogglePalette(targetPinned: boolean): void {
 				const parsed = safeParseConfigJson(buf.value.toString());
 				if (parsed.ok) {
 					const decoded = decodeProjectCommandsFile(parsed.value);
-					if (decoded.ok) raw = decoded.value;
+					if (decoded.ok) { raw = decoded.value; }
 				}
 			} catch { /* fallthrough */ }
 			if (raw === null) {
@@ -542,7 +543,7 @@ CommandsRegistry.registerCommand({
 		const picked = await quickInput.pick(items, {
 			placeHolder: localize('vibeide.commands.revokeTrust.placeholder', 'Выберите команду для отзыва доверия'),
 		});
-		if (!picked) return;
+		if (!picked) { return; }
 
 		await commands.revokeTrust(picked.commandId);
 		notifications.notify({
@@ -570,12 +571,12 @@ CommandsRegistry.registerCommand({
 			prompt: localize('vibeide.commands.importFromUrl.prompt', 'Введите HTTPS URL файла community commands pack'),
 			validateInput: async v => {
 				const t = v.trim();
-				if (!t) return null;
-				if (!t.startsWith('https://')) return localize('vibeide.commands.importFromUrl.notHttps', 'Разрешены только HTTPS URL.');
+				if (!t) { return null; }
+				if (!t.startsWith('https://')) { return localize('vibeide.commands.importFromUrl.notHttps', 'Разрешены только HTTPS URL.'); }
 				return null;
 			},
 		});
-		if (!rawUrl?.trim()) return;
+		if (!rawUrl?.trim()) { return; }
 		const url = rawUrl.trim();
 		if (!url.startsWith('https://')) {
 			notifications.notify({ severity: Severity.Warning, message: localize('vibeide.commands.importFromUrl.notHttps', 'Разрешены только HTTPS URL.') });
@@ -693,7 +694,7 @@ CommandsRegistry.registerCommand({
 			detail: renderImportDiffMarkdown(result.diff) + dangerLine,
 			primaryButton: localize('vibeide.commands.importFromUrl.confirmBtn', 'Импортировать'),
 		});
-		if (!confirmed.confirmed) return;
+		if (!confirmed.confirmed) { return; }
 
 		const folder = workspace.getWorkspace().folders[0];
 		if (!folder) {
@@ -707,7 +708,7 @@ CommandsRegistry.registerCommand({
 			const parsed = safeParseConfigJson(buf.value.toString());
 			if (parsed.ok) {
 				const dec = decodeProjectCommandsFile(parsed.value);
-				if (dec.ok) existing = dec.value;
+				if (dec.ok) { existing = dec.value; }
 			}
 		} catch { /* missing → treated as empty */ }
 
@@ -733,7 +734,7 @@ CommandsRegistry.registerCommand({
 
 		const folder = workspace.getWorkspace().folders[0];
 		if (!folder) {
-			notifications.notify({ severity: Severity.Warning, message: localize('vibeide.commands.add.noWorkspace', 'Откройте рабочую папку для добавления команды.') });
+			notifications.notify({ severity: Severity.Warning, message: localize('vibeide.commands.import.noWorkspace', 'Откройте рабочую папку для добавления команды.') });
 			return;
 		}
 		const commandsUri = joinPath(folder.uri, '.vibe', 'commands.json');
@@ -832,7 +833,7 @@ CommandsRegistry.registerCommand({
 		const workspace = accessor.get(IWorkspaceContextService);
 		const fileService = accessor.get(IFileService);
 
-		if (typeof commandId !== 'string' || !commandId) return;
+		if (typeof commandId !== 'string' || !commandId) { return; }
 		const folder = workspace.getWorkspace().folders[0];
 		if (!folder) {
 			notifications.notify({
@@ -884,9 +885,9 @@ CommandsRegistry.registerCommand({
 		const dialogService = accessor.get(IDialogService);
 		const commands = accessor.get(IVibeCustomCommandsService);
 
-		if (typeof commandId !== 'string' || !commandId) return;
+		if (typeof commandId !== 'string' || !commandId) { return; }
 		const folder = workspace.getWorkspace().folders[0];
-		if (!folder) return;
+		if (!folder) { return; }
 
 		const commandsUri = joinPath(folder.uri, '.vibe', 'commands.json');
 		let existing: ProjectCommandsFile | null = null;
@@ -895,7 +896,7 @@ CommandsRegistry.registerCommand({
 			const parsed = safeParseConfigJson(buf.value.toString());
 			if (parsed.ok) {
 				const decoded = decodeProjectCommandsFile(parsed.value);
-				if (decoded.ok) existing = decoded.value;
+				if (decoded.ok) { existing = decoded.value; }
 			}
 		} catch { /* missing → treated as empty */ }
 
@@ -914,10 +915,10 @@ CommandsRegistry.registerCommand({
 			primaryButton: localize('vibeide.commands.delete.ok', 'Удалить'),
 			type: 'warning',
 		});
-		if (!confirm.confirmed) return;
+		if (!confirm.confirmed) { return; }
 
 		const removed = removeCommandFromFile(existing, commandId);
-		if (!removed) return;
+		if (!removed) { return; }
 		try {
 			await fileService.writeFile(commandsUri, VSBuffer.fromString(removed.serialized));
 		} catch (e) {
@@ -966,7 +967,7 @@ CommandsRegistry.registerCommand({
 			matchOnDescription: true,
 			matchOnDetail: true,
 		});
-		if (!picked) return;
+		if (!picked) { return; }
 		await commandService.executeCommand('vibeide.commands.editById', picked.commandId);
 	},
 });
@@ -998,7 +999,7 @@ CommandsRegistry.registerCommand({
 			matchOnDescription: true,
 			matchOnDetail: true,
 		});
-		if (!picked) return;
+		if (!picked) { return; }
 		await commandService.executeCommand('vibeide.commands.deleteById', picked.commandId);
 	},
 });
@@ -1038,7 +1039,7 @@ CommandsRegistry.registerCommand({
 			const parsed = safeParseConfigJson(buf.value.toString());
 			if (parsed.ok) {
 				const decoded = decodeProjectCommandsFile(parsed.value);
-				if (decoded.ok) existing = decoded.value;
+				if (decoded.ok) { existing = decoded.value; }
 			}
 		} catch { /* missing — handled below */ }
 
@@ -1076,7 +1077,7 @@ CommandsRegistry.registerCommand({
 		} catch (e) {
 			notifications.notify({
 				severity: Severity.Error,
-				message: localize('vibeide.commands.seedDemo.writeFailed', 'Не удалось записать .vibe/commands.json: {0}', String((e as Error)?.message ?? e)),
+				message: localize('vibeide.commands.seedDemo.appendFailed', 'Не удалось записать .vibe/commands.json: {0}', String((e as Error)?.message ?? e)),
 			});
 			return;
 		}
@@ -1183,13 +1184,13 @@ CommandsRegistry.registerCommand({
 			1, TOTAL,
 			v => {
 				const trimmed = v.trim();
-				if (!trimmed) return idErrLabel(ADD_COMMAND_ERROR.idMissing);
-				if (!PROJECT_COMMAND_ID_PATTERN.test(trimmed)) return idErrLabel(ADD_COMMAND_ERROR.idPattern);
-				if (existingIds.has(trimmed)) return idErrLabel(ADD_COMMAND_ERROR.idDuplicate);
+				if (!trimmed) { return idErrLabel(ADD_COMMAND_ERROR.idMissing); }
+				if (!PROJECT_COMMAND_ID_PATTERN.test(trimmed)) { return idErrLabel(ADD_COMMAND_ERROR.idPattern); }
+				if (existingIds.has(trimmed)) { return idErrLabel(ADD_COMMAND_ERROR.idDuplicate); }
 				return null;
 			},
 		);
-		if (id === undefined) return;
+		if (id === undefined) { return; }
 		draft.id = id.trim();
 
 		// Step 2: name
@@ -1199,7 +1200,7 @@ CommandsRegistry.registerCommand({
 			2, TOTAL,
 			v => v.trim() ? null : localize('vibeide.commands.add.err.nameMissing', 'Имя обязательно'),
 		);
-		if (name === undefined) return;
+		if (name === undefined) { return; }
 		draft.name = name.trim();
 
 		// Step 3: description
@@ -1208,7 +1209,7 @@ CommandsRegistry.registerCommand({
 			localize('vibeide.commands.add.descPrompt', 'Краткое описание команды.'),
 			3, TOTAL,
 		);
-		if (description === undefined) return;
+		if (description === undefined) { return; }
 		draft.description = description;
 
 		// Step 4: command
@@ -1218,7 +1219,7 @@ CommandsRegistry.registerCommand({
 			4, TOTAL,
 			v => v.trim() ? null : localize('vibeide.commands.add.err.commandMissing', 'Команда обязательна'),
 		);
-		if (command === undefined) return;
+		if (command === undefined) { return; }
 		draft.command = command.trim();
 
 		// Step 5: args — single-line, comma-or-space separated, converted to newline-separated for the draft.
@@ -1227,7 +1228,7 @@ CommandsRegistry.registerCommand({
 			localize('vibeide.commands.add.argsPrompt', 'Аргументы (через пробел или запятую). Пустое поле — без аргументов.'),
 			5, TOTAL,
 		);
-		if (argsLine === undefined) return;
+		if (argsLine === undefined) { return; }
 		draft.argsText = argsLine
 			.split(/[,\s]+/)
 			.map(s => s.trim())
@@ -1241,13 +1242,13 @@ CommandsRegistry.registerCommand({
 			6, TOTAL,
 			v => {
 				const trimmed = v.trim();
-				if (!trimmed) return null;
-				if (trimmed.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(trimmed)) return idErrLabel(ADD_COMMAND_ERROR.cwdAbsolute);
-				if (trimmed.split(/[\\/]+/).some(s => s === '..')) return idErrLabel(ADD_COMMAND_ERROR.cwdTraversal);
+				if (!trimmed) { return null; }
+				if (trimmed.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(trimmed)) { return idErrLabel(ADD_COMMAND_ERROR.cwdAbsolute); }
+				if (trimmed.split(/[\\/]+/).some(s => s === '..')) { return idErrLabel(ADD_COMMAND_ERROR.cwdTraversal); }
 				return null;
 			},
 		);
-		if (cwd === undefined) return;
+		if (cwd === undefined) { return; }
 		draft.cwd = cwd;
 
 		// Step 7: terminal — quickPick
@@ -1260,7 +1261,7 @@ CommandsRegistry.registerCommand({
 			localize('vibeide.commands.add.terminalPrompt', 'Шаг 7/8: где запускать команду'),
 			7, TOTAL,
 		);
-		if (terminal === undefined) return;
+		if (terminal === undefined) { return; }
 		draft.terminal = terminal;
 
 		// Step 8: pinned — quickPick
@@ -1272,7 +1273,7 @@ CommandsRegistry.registerCommand({
 			localize('vibeide.commands.add.pinPrompt', 'Шаг 8/8: закрепление'),
 			8, TOTAL,
 		);
-		if (pinned === undefined) return;
+		if (pinned === undefined) { return; }
 		draft.pinned = pinned;
 
 		const validation = validateAddCommandDraft(draft, existingIds);
@@ -1292,7 +1293,7 @@ CommandsRegistry.registerCommand({
 			const parsed = safeParseConfigJson(buf.value.toString());
 			if (parsed.ok) {
 				const decoded = decodeProjectCommandsFile(parsed.value);
-				if (decoded.ok) existing = decoded.value;
+				if (decoded.ok) { existing = decoded.value; }
 			}
 		} catch {
 			// File missing — start fresh.
@@ -1361,7 +1362,7 @@ CommandsRegistry.registerCommand({
 		const picked = await quickInput.pick(items, {
 			placeHolder: localize('vibeide.commands.cancel.placeholder', 'Выберите команду для отмены (отменяет активную сессию в терминале)'),
 		});
-		if (!picked) return;
+		if (!picked) { return; }
 		// The run method re-runs; cancellation of a running terminal process is
 		// handled by the terminal itself. Notify the user to use the terminal × button.
 		notifications.notify({

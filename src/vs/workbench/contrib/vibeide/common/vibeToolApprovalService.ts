@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -101,7 +102,7 @@ class VibeToolApprovalService extends Disposable implements IVibeToolApprovalSer
 
 	approve(requestId: string): void {
 		const pending = this._pending.get(requestId);
-		if (!pending) return;
+		if (!pending) { return; }
 		this._pending.delete(requestId);
 		vibeLog.debug('ToolApproval', `Approved: ${pending.request.toolName}`);
 		pending.resolve('approved');
@@ -110,7 +111,7 @@ class VibeToolApprovalService extends Disposable implements IVibeToolApprovalSer
 
 	reject(requestId: string): void {
 		const pending = this._pending.get(requestId);
-		if (!pending) return;
+		if (!pending) { return; }
 		this._pending.delete(requestId);
 		vibeLog.debug('ToolApproval', `Rejected: ${pending.request.toolName}`);
 		pending.resolve('rejected');

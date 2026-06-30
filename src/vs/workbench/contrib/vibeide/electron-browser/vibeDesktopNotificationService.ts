@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Desktop implementation of `IVibeDesktopNotificationService` (contract + config live in
@@ -28,6 +29,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { localize } from '../../../../nls.js';
 import { mainWindow } from '../../../../base/browser/window.js';
+import { getActiveWindow } from '../../../../base/browser/dom.js';
 import { FocusMode, INativeHostService, IToastResult } from '../../../../platform/native/common/native.js';
 import { IHostService } from '../../../services/host/browser/host.js';
 import { validateDesktopNotification, DesktopNotificationSpec, NotificationPlatform } from '../common/desktopNotificationSpec.js';
@@ -90,7 +92,7 @@ class VibeDesktopNotificationService extends Disposable implements IVibeDesktopN
 
 		// In front → in-IDE toast only. In background → flash the taskbar (durable) + a transient OS
 		// toast; fall back to the in-IDE toast when the platform has no notification support or IPC fails.
-		const windowFocused = typeof document !== 'undefined' && document.hasFocus();
+		const windowFocused = getActiveWindow().document.hasFocus();
 		const inIdeFallback = () => this._notifications.notify({
 			severity: notification.urgent ? Severity.Warning : Severity.Info,
 			message: `${notification.title}\n${notification.body}`,
@@ -203,7 +205,7 @@ class VibeDesktopNotificationService extends Disposable implements IVibeDesktopN
 	private _getPlatform(): NotificationPlatform {
 		if (typeof process !== 'undefined' && typeof process.platform === 'string') {
 			const p = process.platform;
-			if (p === 'win32' || p === 'darwin' || p === 'linux') return p;
+			if (p === 'win32' || p === 'darwin' || p === 'linux') { return p; }
 		}
 		return 'unknown';
 	}

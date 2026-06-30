@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -14,8 +15,11 @@ import {
 	TOKEN_CALIBRATION_MIN,
 	TOKEN_CALIBRATION_MAX,
 } from '../../common/tokenCalibration.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('tokenCalibration', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('updateTokenCalibration', () => {
 		test('first sample seeds the factor with the raw ratio', () => {
@@ -81,8 +85,8 @@ suite('tokenCalibration', () => {
 			const m = new Map<string, number>([['a', 1.2], ['b', NaN], ['c', Infinity]]);
 			const obj = JSON.parse(serializeCalibration(m));
 			assert.strictEqual(obj.a, 1.2);
-			assert.ok(!('b' in obj));
-			assert.ok(!('c' in obj));
+			assert.ok(!Object.hasOwn(obj, 'b'));
+			assert.ok(!Object.hasOwn(obj, 'c'));
 		});
 
 		test('deserialize returns empty map on undefined / garbage / wrong-type', () => {

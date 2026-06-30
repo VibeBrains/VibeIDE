@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Distribution signing policy — pure decision helper that turns the available
@@ -181,7 +182,7 @@ export function evaluateReadinessGate(
 	for (const p of platforms) {
 		const decision = decideSigning({ platform: p, credentials, buildKind: 'release' });
 		if (decision.action !== 'sign') {
-			missing.push({ platform: p, reason: 'reason' in decision ? decision.reason : 'release-mode-but-no-credentials', remediation: decision.remediation });
+			missing.push({ platform: p, reason: decision.reason, remediation: decision.remediation });
 		}
 	}
 	if (missing.length === 0) {

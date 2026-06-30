@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * CLI ↔ IDE version mismatch detection (1136) — pure helper.
@@ -33,9 +34,9 @@ export interface SemverParts {
  * standard `major.minor.patch[-prerelease]` triple.
  */
 export function parseSemver(raw: unknown): SemverParts | null {
-	if (typeof raw !== 'string') return null;
+	if (typeof raw !== 'string') { return null; }
 	const m = raw.trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/);
-	if (!m) return null;
+	if (!m) { return null; }
 	const major = Number(m[1]);
 	const minor = Number(m[2]);
 	const patch = Number(m[3]);
@@ -52,14 +53,14 @@ export function parseSemver(raw: unknown): SemverParts | null {
  * Compare two parsed semver structures. Returns -1 / 0 / 1. Pure.
  */
 export function compareSemver(a: SemverParts, b: SemverParts): -1 | 0 | 1 {
-	if (a.major !== b.major) return a.major < b.major ? -1 : 1;
-	if (a.minor !== b.minor) return a.minor < b.minor ? -1 : 1;
-	if (a.patch !== b.patch) return a.patch < b.patch ? -1 : 1;
+	if (a.major !== b.major) { return a.major < b.major ? -1 : 1; }
+	if (a.minor !== b.minor) { return a.minor < b.minor ? -1 : 1; }
+	if (a.patch !== b.patch) { return a.patch < b.patch ? -1 : 1; }
 	// Per SemVer 2.0: a version with a prerelease is LOWER than the same
 	// version without one (1.0.0-rc < 1.0.0).
-	if (a.prerelease === b.prerelease) return 0;
-	if (a.prerelease === '') return 1;  // a is the release, b is prerelease → a > b
-	if (b.prerelease === '') return -1; // mirror
+	if (a.prerelease === b.prerelease) { return 0; }
+	if (a.prerelease === '') { return 1; }  // a is the release, b is prerelease → a > b
+	if (b.prerelease === '') { return -1; } // mirror
 	// Both have prerelease — lexicographic compare on the tag string.
 	return a.prerelease < b.prerelease ? -1 : 1;
 }

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -150,7 +151,7 @@ class VibeConstraintsService extends Disposable implements IVibeConstraintsServi
 
 	private async _initWatcher(): Promise<void> {
 		const constraintsUri = this._getConstraintsUri();
-		if (!constraintsUri) return;
+		if (!constraintsUri) { return; }
 
 		try {
 			// Watch for changes to .vibe/constraints.json
@@ -169,13 +170,13 @@ class VibeConstraintsService extends Disposable implements IVibeConstraintsServi
 
 	private _getConstraintsUri(): URI | null {
 		const folders = this._workspaceContextService.getWorkspace().folders;
-		if (folders.length === 0) return null;
+		if (folders.length === 0) { return null; }
 		return joinPath(folders[0].uri, '.vibe', 'constraints.json');
 	}
 
 	async reload(): Promise<void> {
 		const uri = this._getConstraintsUri();
-		if (!uri) return;
+		if (!uri) { return; }
 
 		// Load constraints.json
 		let raw: string | undefined;
@@ -228,7 +229,7 @@ class VibeConstraintsService extends Disposable implements IVibeConstraintsServi
 
 	private _reportCorruptConfig(label: string, uri: URI, reason: string): void {
 		// Empty file is a normal "no rules saved yet" state — never warn for that.
-		if (reason === 'empty') return;
+		if (reason === 'empty') { return; }
 		vibeLog.warn('Constraints', `${label} corrupt (${reason}) — using safe defaults`);
 		this._notificationService.notify({
 			severity: Severity.Warning,

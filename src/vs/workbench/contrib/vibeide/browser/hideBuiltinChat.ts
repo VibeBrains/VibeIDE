@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Hides VS Code's built-in Copilot Chat panel surfaces from the workbench UI.
@@ -19,6 +20,7 @@
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { createStyleSheet } from '../../../../base/browser/domStylesheets.js';
+import { mainWindow } from '../../../../base/browser/window.js';
 
 /** VS Code built-in chat container id (stable since 1.90, still correct in 1.118+). */
 const CHAT_VIEW_CONTAINER_ID = 'workbench.panel.chat';
@@ -94,7 +96,7 @@ class HideBuiltinChatContribution extends Disposable implements IWorkbenchContri
 
 	constructor() {
 		super();
-		const styleEl = createStyleSheet(document.head, el => { el.textContent = HIDE_CSS; });
+		const styleEl = createStyleSheet(mainWindow.document.head, el => { el.textContent = HIDE_CSS; });
 		this._register(toDisposable(() => styleEl.remove()));
 	}
 }

@@ -1,31 +1,32 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 
-import { InternalToolInfo } from './prompt/prompts.js'
-import { ToolName, ToolParamName } from './toolsServiceTypes.js'
-import { ChatMode, ModelSelection, ModelSelectionOptions, OverridesOfModel, ProviderName, RefreshableProviderName, SettingsOfProvider } from './vibeideSettingsTypes.js'
+
+import { InternalToolInfo } from './prompt/prompts.js';
+import { ToolName, ToolParamName } from './toolsServiceTypes.js';
+import { ChatMode, ModelSelection, ModelSelectionOptions, OverridesOfModel, ProviderName, RefreshableProviderName, SettingsOfProvider } from './vibeideSettingsTypes.js';
 
 
 export const errorDetails = (fullError: Error | null): string | null => {
 	if (fullError === null) {
-		return null
+		return null;
 	}
 	else if (typeof fullError === 'object') {
-		if (Object.keys(fullError).length === 0) return null
-		return JSON.stringify(fullError, null, 2)
+		if (Object.keys(fullError).length === 0) { return null; }
+		return JSON.stringify(fullError, null, 2);
 	}
 	else if (typeof fullError === 'string') {
-		return null
+		return null;
 	}
-	return null
-}
+	return null;
+};
 
 export const getErrorMessage: (error: unknown) => string = (error) => {
-	if (error instanceof Error) return `${error.name}: ${error.message}`
-	return error + ''
-}
+	if (error instanceof Error) { return `${error.name}: ${error.message}`; }
+	return error + '';
+};
 
 /**
  * Canonical "Empty response from provider/model" error message. Used by every
@@ -38,7 +39,7 @@ export const getErrorMessage: (error: unknown) => string = (error) => {
  * Adding fields = append, never reorder.
  */
 export const buildEmptyResponseError = (providerName: string, modelName: string, reason: string): string =>
-	`VibeIDE: Empty response from ${providerName}/${modelName} (reason: ${reason}).`
+	`VibeIDE: Empty response from ${providerName}/${modelName} (reason: ${reason}).`;
 
 /**
  * Inverse of `buildEmptyResponseError`. Returns parsed (providerName, modelName)
@@ -49,10 +50,10 @@ export const buildEmptyResponseError = (providerName: string, modelName: string,
  * matches what `buildEmptyResponseError` produces for any allowed provider id.
  */
 export const parseEmptyResponseError = (message: string): { providerName: string; modelName: string } | null => {
-	const m = message.match(/^VibeIDE: Empty response from ([^/\s]+)\/([^/\s]+) \(/)
-	if (!m) return null
-	return { providerName: m[1], modelName: m[2] }
-}
+	const m = message.match(/^VibeIDE: Empty response from ([^/\s]+)\/([^/\s]+) \(/);
+	if (!m) { return null; }
+	return { providerName: m[1], modelName: m[2] };
+};
 
 /**
  * Context-overflow signature patterns ported from opencode upstream
@@ -94,9 +95,9 @@ export const OVERFLOW_PATTERNS: readonly RegExp[] = [
  * snippet. Returns false for empty / undefined input.
  */
 export const isContextOverflow = (text: string | null | undefined): boolean => {
-	if (!text) return false
-	return OVERFLOW_PATTERNS.some((p) => p.test(text))
-}
+	if (!text) { return false; }
+	return OVERFLOW_PATTERNS.some((p) => p.test(text));
+};
 
 /**
  * Specialized error message for context-window overflow. Distinct from
@@ -106,9 +107,9 @@ export const isContextOverflow = (text: string | null | undefined): boolean => {
  * Format is STABLE — `parseContextOverflowError` below depends on it.
  */
 export const buildContextOverflowError = (providerName: string, modelName: string, detail?: string): string => {
-	const tail = detail ? ` — ${detail}` : ''
-	return `VibeIDE: Context overflow on ${providerName}/${modelName}${tail}. The chat exceeded the model's context window — compact the history or switch to a higher-context model.`
-}
+	const tail = detail ? ` — ${detail}` : '';
+	return `VibeIDE: Context overflow on ${providerName}/${modelName}${tail}. The chat exceeded the model's context window — compact the history or switch to a higher-context model.`;
+};
 
 /**
  * Inverse of `buildContextOverflowError`. Returns parsed (providerName, modelName)
@@ -116,25 +117,25 @@ export const buildContextOverflowError = (providerName: string, modelName: strin
  * UI surface model-specific guidance without inline regex drift.
  */
 export const parseContextOverflowError = (message: string): { providerName: string; modelName: string } | null => {
-	const m = message.match(/^VibeIDE: Context overflow on ([^/\s]+)\/([^/\s]+)/)
-	if (!m) return null
-	return { providerName: m[1], modelName: m[2] }
-}
+	const m = message.match(/^VibeIDE: Context overflow on ([^/\s]+)\/([^/\s]+)/);
+	if (!m) { return null; }
+	return { providerName: m[1], modelName: m[2] };
+};
 
 
 
 export type AnthropicLLMChatMessage = {
-	role: 'assistant',
+	role: 'assistant';
 	content: string | (AnthropicReasoning | { type: 'text'; text: string }
-		| { type: 'tool_use'; name: string; input: Record<string, any>; id: string; }
+		| { type: 'tool_use'; name: string; input: Record<string, unknown>; id: string }
 	)[];
 } | {
-	role: 'user',
+	role: 'user';
 	content: string | (
-		{ type: 'text'; text: string; } | { type: 'tool_result'; tool_use_id: string; content: string; }
+		{ type: 'text'; text: string } | { type: 'tool_result'; tool_use_id: string; content: string }
 		| { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
-	)[]
-}
+	)[];
+};
 export type OpenAILLMChatMessage = {
 	role: 'system' | 'developer';
 	content: string;
@@ -142,31 +143,31 @@ export type OpenAILLMChatMessage = {
 	role: 'user';
 	content: string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>;
 } | {
-	role: 'assistant',
+	role: 'assistant';
 	content: string | (AnthropicReasoning | { type: 'text'; text: string })[];
-	tool_calls?: { type: 'function'; id: string; function: { name: string; arguments: string; } }[];
+	tool_calls?: { type: 'function'; id: string; function: { name: string; arguments: string } }[];
 } | {
-	role: 'tool',
+	role: 'tool';
 	content: string;
 	tool_call_id: string;
-}
+};
 
 export type GeminiLLMChatMessage = {
-	role: 'model'
+	role: 'model';
 	parts: (
-		| { text: string; }
-		| { functionCall: { id: string; name: ToolName, args: Record<string, unknown> } }
+		| { text: string }
+		| { functionCall: { id: string; name: ToolName; args: Record<string, unknown> } }
 	)[];
 } | {
 	role: 'user';
 	parts: (
-		| { text: string; }
+		| { text: string }
 		| { inlineData: { mimeType: string; data: string } }
-		| { functionResponse: { id: string; name: ToolName, response: { output: string } } }
+		| { functionResponse: { id: string; name: ToolName; response: { output: string } } }
 	)[];
-}
+};
 
-export type LLMChatMessage = AnthropicLLMChatMessage | OpenAILLMChatMessage | GeminiLLMChatMessage
+export type LLMChatMessage = AnthropicLLMChatMessage | OpenAILLMChatMessage | GeminiLLMChatMessage;
 
 
 
@@ -174,12 +175,12 @@ export type LLMFIMMessage = {
 	prefix: string;
 	suffix: string;
 	stopTokens: string[];
-}
+};
 
 
 export type RawToolParamsObj = {
 	[paramName in ToolParamName<ToolName>]?: string;
-}
+};
 export type RawToolCallObj = {
 	name: ToolName;
 	rawParams: RawToolParamsObj;
@@ -188,7 +189,7 @@ export type RawToolCallObj = {
 	isDone: boolean;
 };
 
-export type AnthropicReasoning = ({ type: 'thinking'; thinking: any; signature: string; } | { type: 'redacted_thinking', data: any })
+export type AnthropicReasoning = ({ type: 'thinking'; thinking: string; signature: string } | { type: 'redacted_thinking'; data: string });
 
 // Provider-normalized token usage from the LLM response. AI SDK exposes these as
 // promptTokens / completionTokens / totalTokens; legacy OpenAI / Anthropic shapes
@@ -197,13 +198,13 @@ export type AnthropicReasoning = ({ type: 'thinking'; thinking: any; signature: 
 // `cachedInputTokens` — provider-reported prompt-cache hits (subset of promptTokens);
 // surfaced so the TokenBudget log shows whether cache-friendly prompt assembly works
 // (knowledge/roadmap/token-economy.md, A).
-export type LLMTokenUsage = { promptTokens?: number; completionTokens?: number; totalTokens?: number; cachedInputTokens?: number }
+export type LLMTokenUsage = { promptTokens?: number; completionTokens?: number; totalTokens?: number; cachedInputTokens?: number };
 
-export type OnText = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj }) => void
-export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; usage?: LLMTokenUsage }) => void // id is tool_use_id
-export type OnError = (p: { message: string; fullError: Error | null }) => void
-export type OnAbort = () => void
-export type AbortRef = { current: (() => void) | null }
+export type OnText = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj }) => void;
+export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; usage?: LLMTokenUsage }) => void; // id is tool_use_id
+export type OnError = (p: { message: string; fullError: Error | null }) => void;
+export type OnAbort = () => void;
+export type AbortRef = { current: (() => void) | null };
 
 
 // service types
@@ -217,12 +218,12 @@ type SendLLMType = {
 	messages: LLMFIMMessage;
 	separateSystemMessage?: undefined;
 	chatMode?: undefined;
-}
+};
 export type ServiceSendLLMMessageParams = {
 	onText: OnText;
 	onFinalMessage: OnFinalMessage;
 	onError: OnError;
-	logging: { loggingName: string, loggingExtras?: { [k: string]: any } };
+	logging: { loggingName: string; loggingExtras?: { [k: string]: unknown } };
 	modelSelection: ModelSelection | null;
 	modelSelectionOptions: ModelSelectionOptions | undefined;
 	overridesOfModel: OverridesOfModel | undefined;
@@ -268,14 +269,14 @@ export type LLMRuntimeOptions = {
 	 * calling `vibe_complete`). No effect in XML-fallback mode (no native `tools` are sent).
 	 * Default off. See `vibeide.agent.forceToolUseOnNudge`. */
 	forceToolUse?: boolean;
-}
+};
 
 // params to the true sendLLMMessage function
 export type SendLLMMessageParams = {
 	onText: OnText;
 	onFinalMessage: OnFinalMessage;
 	onError: OnError;
-	logging: { loggingName: string, loggingExtras?: { [k: string]: any } };
+	logging: { loggingName: string; loggingExtras?: { [k: string]: unknown } };
 	abortRef: AbortRef;
 
 	modelSelection: ModelSelection;
@@ -285,19 +286,19 @@ export type SendLLMMessageParams = {
 	settingsOfProvider: SettingsOfProvider;
 	mcpTools: InternalToolInfo[] | undefined;
 	runtimeOptions?: LLMRuntimeOptions;
-} & SendLLMType
+} & SendLLMType;
 
 
 
 // can't send functions across a proxy, use listeners instead
-export type BlockedMainLLMMessageParams = 'onText' | 'onFinalMessage' | 'onError' | 'abortRef'
-export type MainSendLLMMessageParams = Omit<SendLLMMessageParams, BlockedMainLLMMessageParams> & { requestId: string } & SendLLMType
+export type BlockedMainLLMMessageParams = 'onText' | 'onFinalMessage' | 'onError' | 'abortRef';
+export type MainSendLLMMessageParams = Omit<SendLLMMessageParams, BlockedMainLLMMessageParams> & { requestId: string } & SendLLMType;
 
-export type MainLLMMessageAbortParams = { requestId: string }
+export type MainLLMMessageAbortParams = { requestId: string };
 
-export type EventLLMMessageOnTextParams = Parameters<OnText>[0] & { requestId: string }
-export type EventLLMMessageOnFinalMessageParams = Parameters<OnFinalMessage>[0] & { requestId: string }
-export type EventLLMMessageOnErrorParams = Parameters<OnError>[0] & { requestId: string }
+export type EventLLMMessageOnTextParams = Parameters<OnText>[0] & { requestId: string };
+export type EventLLMMessageOnFinalMessageParams = Parameters<OnFinalMessage>[0] & { requestId: string };
+export type EventLLMMessageOnErrorParams = Parameters<OnError>[0] & { requestId: string };
 
 // service -> main -> internal -> event (back to main)
 // (browser)
@@ -328,14 +329,14 @@ export type OllamaModelResponse = {
 	details: OllamaModelDetails;
 	expires_at: Date;
 	size_vram: number;
-}
+};
 
 export type OpenaiCompatibleModelResponse = {
 	id: string;
 	created: number;
 	object: 'model';
 	owned_by: string;
-}
+};
 
 
 
@@ -345,20 +346,20 @@ export type ModelListParams<ModelResponse> = {
 	settingsOfProvider: SettingsOfProvider;
 	onSuccess: (param: { models: ModelResponse[] }) => void;
 	onError: (param: { error: string }) => void;
-}
+};
 
 // params to the service
 export type ServiceModelListParams<modelResponse> = {
 	providerName: RefreshableProviderName;
 	onSuccess: (param: { models: modelResponse[] }) => void;
-	onError: (param: { error: any }) => void;
-}
+	onError: (param: { error: unknown }) => void;
+};
 
-type BlockedMainModelListParams = 'onSuccess' | 'onError'
-export type MainModelListParams<modelResponse> = Omit<ModelListParams<modelResponse>, BlockedMainModelListParams> & { providerName: RefreshableProviderName, requestId: string }
+type BlockedMainModelListParams = 'onSuccess' | 'onError';
+export type MainModelListParams<modelResponse> = Omit<ModelListParams<modelResponse>, BlockedMainModelListParams> & { providerName: RefreshableProviderName; requestId: string };
 
-export type EventModelListOnSuccessParams<modelResponse> = Parameters<ModelListParams<modelResponse>['onSuccess']>[0] & { requestId: string }
-export type EventModelListOnErrorParams<modelResponse> = Parameters<ModelListParams<modelResponse>['onError']>[0] & { requestId: string }
+export type EventModelListOnSuccessParams<modelResponse> = Parameters<ModelListParams<modelResponse>['onSuccess']>[0] & { requestId: string };
+export type EventModelListOnErrorParams<modelResponse> = Parameters<ModelListParams<modelResponse>['onError']>[0] & { requestId: string };
 
 
 

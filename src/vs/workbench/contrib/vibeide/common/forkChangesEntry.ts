@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * `FORK_CHANGES.md` entry formatter + dedup
@@ -35,7 +36,7 @@ export type DecodeResult<T> =
  * the documented form `#NNN` or `org/repo#NNN`.
  */
 export function decodeForkChangeEntry(raw: unknown): DecodeResult<ForkChangeEntry> {
-	if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not-an-object' };
+	if (!raw || typeof raw !== 'object') { return { ok: false, reason: 'not-an-object' }; }
 	const o = raw as Record<string, unknown>;
 	if (typeof o.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(o.date)) {
 		return { ok: false, reason: 'date-malformed' };
@@ -78,7 +79,7 @@ export function formatForkChangeLine(entry: ForkChangeEntry): string {
 
 function formatPrRef(ref: string): string {
 	const trimmed = ref.trim();
-	if (/^\d+$/.test(trimmed)) return `#${trimmed}`;
+	if (/^\d+$/.test(trimmed)) { return `#${trimmed}`; }
 	return trimmed;
 }
 
@@ -91,7 +92,7 @@ export function dedupeForkChangeEntries(entries: ReadonlyArray<ForkChangeEntry>)
 	const out: ForkChangeEntry[] = [];
 	for (const e of entries) {
 		const key = e.prRef !== undefined ? `pr:${normalisePrRef(e.prRef)}` : `s:${e.date}|${e.service}|${e.summary}`;
-		if (seen.has(key)) continue;
+		if (seen.has(key)) { continue; }
 		seen.add(key);
 		out.push(e);
 	}
@@ -100,7 +101,7 @@ export function dedupeForkChangeEntries(entries: ReadonlyArray<ForkChangeEntry>)
 
 function normalisePrRef(ref: string): string {
 	const trimmed = ref.trim();
-	if (/^\d+$/.test(trimmed)) return `#${trimmed}`;
+	if (/^\d+$/.test(trimmed)) { return `#${trimmed}`; }
 	return trimmed.toLowerCase();
 }
 

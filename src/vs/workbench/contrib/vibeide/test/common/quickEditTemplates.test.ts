@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -9,8 +10,11 @@ import {
 	expandQuickEditSlashCommand,
 	quickEditSlashHintNames,
 } from '../../common/quickEditTemplates.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('Ctrl+K Quick Edit slash-command templates — pure', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('QUICK_EDIT_SLASH_COMMANDS catalog', () => {
 		test('contains the seven built-in commands', () => {
@@ -60,13 +64,13 @@ suite('Ctrl+K Quick Edit slash-command templates — pure', () => {
 		test('is case-insensitive on the command name', () => {
 			const r = expandQuickEditSlashCommand('/DOC');
 			assert.strictEqual(r.matched, true);
-			if (r.matched) assert.strictEqual(r.command, 'doc');
+			if (r.matched) { assert.strictEqual(r.command, 'doc'); }
 		});
 
 		test('trims surrounding whitespace before matching', () => {
 			const r = expandQuickEditSlashCommand('   /refactor   ');
 			assert.strictEqual(r.matched, true);
-			if (r.matched) assert.strictEqual(r.command, 'refactor');
+			if (r.matched) { assert.strictEqual(r.command, 'refactor'); }
 		});
 	});
 

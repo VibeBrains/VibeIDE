@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Settings UI — Ctrl+Click → source-location metadata builder
@@ -40,7 +41,7 @@ const SETTING_KEY_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*)*$
  * Refuses non-positive line numbers, empty paths, malformed localize keys.
  */
 export function decodeSourceLocation(raw: unknown): DecodeResult<SourceLocation> {
-	if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not-an-object' };
+	if (!raw || typeof raw !== 'object') { return { ok: false, reason: 'not-an-object' }; }
 	const o = raw as Record<string, unknown>;
 	if (typeof o.filePath !== 'string' || o.filePath.trim().length === 0) {
 		return { ok: false, reason: 'filePath-empty' };
@@ -80,7 +81,7 @@ export function buildSettingMetadataStamp(input: {
 		lineNumber: input.lineNumber,
 		localizeKey: input.localizeKey,
 	});
-	if (!src.ok) return { ok: false, reason: src.reason };
+	if (!src.ok) { return { ok: false, reason: src.reason }; }
 	return {
 		ok: true,
 		value: { settingKey: input.settingKey, source: src.value },
@@ -163,10 +164,10 @@ export function findSiblingSettings(
 	index: ReadonlyMap<string, SettingMetadataStamp>,
 ): readonly string[] {
 	const stamp = index.get(settingKey);
-	if (stamp === undefined) return [];
+	if (stamp === undefined) { return []; }
 	const out: string[] = [];
 	for (const [k, s] of index) {
-		if (k === settingKey) continue;
+		if (k === settingKey) { continue; }
 		if (s.source.filePath === stamp.source.filePath && s.source.lineNumber === stamp.source.lineNumber) {
 			out.push(k);
 		}

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -9,10 +10,13 @@ import {
 	buildDefaultAllowlist,
 	OutboundAllowlistEntry,
 } from '../../common/outboundAllowlist.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const allowEntry = (pattern: string, kind: OutboundAllowlistEntry['kind']): OutboundAllowlistEntry => ({ pattern, kind });
 
 suite('Outbound allowlist (1047)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('evaluateOutbound — privacy off', () => {
 		test('every URL allowed when privacyStrict=false', () => {

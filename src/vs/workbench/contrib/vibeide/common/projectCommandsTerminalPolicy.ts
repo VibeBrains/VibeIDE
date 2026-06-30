@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — terminal-mode launch policy
@@ -147,8 +148,8 @@ export function buildExternalLaunchSpec(os: ProjectCommandLaunchOS): { command: 
  * passes the value, helper does not read `process` itself.
  */
 export function detectLaunchOS(platform: string): ProjectCommandLaunchOS {
-	if (platform === 'win32') return 'win32';
-	if (platform === 'darwin') return 'darwin';
-	if (platform === 'linux' || platform === 'freebsd' || platform === 'openbsd' || platform === 'sunos' || platform === 'aix') return 'linux';
+	if (platform === 'win32') { return 'win32'; }
+	if (platform === 'darwin') { return 'darwin'; }
+	if (platform === 'linux' || platform === 'freebsd' || platform === 'openbsd' || platform === 'sunos' || platform === 'aix') { return 'linux'; }
 	return 'unknown';
 }

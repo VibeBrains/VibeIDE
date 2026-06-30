@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -10,7 +11,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { Diff, DiffArea, VibeideFileSnapshot } from '../common/editCodeServiceTypes.js';
 
 
-export type StartBehavior = 'accept-conflicts' | 'reject-conflicts' | 'keep-conflicts'
+export type StartBehavior = 'accept-conflicts' | 'reject-conflicts' | 'keep-conflicts';
 
 export type CallBeforeStartApplyingOpts = {
 	from: 'QuickEdit';
@@ -18,7 +19,7 @@ export type CallBeforeStartApplyingOpts = {
 } | {
 	from: 'ClickApply';
 	uri: 'current' | URI;
-}
+};
 
 export type StartApplyingOpts = {
 	from: 'QuickEdit';
@@ -29,13 +30,13 @@ export type StartApplyingOpts = {
 	applyStr: string;
 	uri: 'current' | URI;
 	startBehavior: StartBehavior;
-}
+};
 
 export type AddCtrlKOpts = {
-	startLine: number,
-	endLine: number,
-	editor: ICodeEditor,
-}
+	startLine: number;
+	endLine: number;
+	editor: ICodeEditor;
+};
 
 export const IEditCodeService = createDecorator<IEditCodeService>('editCodeService');
 
@@ -55,7 +56,7 @@ export interface IEditCodeService {
 	diffAreasOfURI: Record<string, Set<string> | undefined>;
 	diffOfId: Record<string, Diff>;
 
-	acceptOrRejectAllDiffAreas(opts: { uri: URI, removeCtrlKs: boolean, behavior: 'reject' | 'accept', _addToHistory?: boolean }): Promise<void>;
+	acceptOrRejectAllDiffAreas(opts: { uri: URI; removeCtrlKs: boolean; behavior: 'reject' | 'accept'; _addToHistory?: boolean }): Promise<void>;
 	acceptDiff({ diffid }: { diffid: number }): void;
 	rejectDiff({ diffid }: { diffid: number }): void;
 	toggleDiffEnabled({ diffid, enabled }: { diffid: number; enabled: boolean }): void;

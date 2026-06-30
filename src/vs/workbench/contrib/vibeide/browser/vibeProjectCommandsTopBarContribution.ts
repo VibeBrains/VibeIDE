@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — top-bar pinned buttons contribution (roadmap §L321).
@@ -32,7 +33,7 @@
  */
 
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
-import { addDisposableListener, EventType, getActiveDocument } from '../../../../base/browser/dom.js';
+import { addDisposableListener, EventType, getActiveDocument, getWindow } from '../../../../base/browser/dom.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IStatusbarEntry, IStatusbarEntryAccessor, IStatusbarService, ITooltipWithCommands, StatusbarAlignment } from '../../../services/statusbar/browser/statusbar.js';
 import { IVibeCustomCommandsService } from './vibeCustomCommandsService.js';
@@ -49,7 +50,6 @@ import { IContextMenuService } from '../../../../platform/contextview/browser/co
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { Action, IAction } from '../../../../base/common/actions.js';
 import { StandardMouseEvent } from '../../../../base/browser/mouseEvent.js';
-import { getWindow } from '../../../../base/browser/dom.js';
 
 // Hard ceiling (schema also enforces this). Beyond ~20 buttons the status-bar
 // loses the rest to the overflow chevron, so widening the cap would hide
@@ -65,8 +65,8 @@ function decodeMaxPinned(raw: unknown): number {
 		return MAX_TOP_BAR_BUTTONS_DEFAULT;
 	}
 	const n = Math.floor(raw);
-	if (n < 1) return 1;
-	if (n > MAX_TOP_BAR_BUTTONS_HARD_CEILING) return MAX_TOP_BAR_BUTTONS_HARD_CEILING;
+	if (n < 1) { return 1; }
+	if (n > MAX_TOP_BAR_BUTTONS_HARD_CEILING) { return MAX_TOP_BAR_BUTTONS_HARD_CEILING; }
 	return n;
 }
 
@@ -220,16 +220,16 @@ export class VibeProjectCommandsTopBarContribution extends Disposable implements
 		const doc = getActiveDocument();
 		this._contextMenuListener.add(addDisposableListener(doc, EventType.CONTEXT_MENU, (e: MouseEvent) => {
 			const target = e.target as HTMLElement | null;
-			if (!target) return;
+			if (!target) { return; }
 			const item = target.closest<HTMLElement>('.statusbar-item');
-			if (!item) return;
+			if (!item) { return; }
 			const entryId = item.id;
-			if (!entryId.startsWith(ENTRY_ID_PREFIX)) return;
+			if (!entryId.startsWith(ENTRY_ID_PREFIX)) { return; }
 			// Anchor entry has no backing ProjectCommand; let default right-click pass.
-			if (entryId === ANCHOR_ENTRY_ID) return;
+			if (entryId === ANCHOR_ENTRY_ID) { return; }
 			const commandId = entryId.slice(ENTRY_ID_PREFIX.length);
 			const cmd = this._commands.getCommand(commandId);
-			if (!cmd) return;
+			if (!cmd) { return; }
 			// Hijack the event so the status-bar part listener does not fire.
 			e.preventDefault();
 			e.stopPropagation();

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Multi-line completion accept policy (1023) — pure decision.
@@ -73,7 +74,7 @@ export function decidePartialThroughBlock(suggestion: string): AcceptDecision {
 	let depth = 0;
 	for (let i = firstBrace; i < suggestion.length; i++) {
 		const c = suggestion[i];
-		if (c === '{') depth++;
+		if (c === '{') { depth++; }
 		else if (c === '}') {
 			depth--;
 			if (depth === 0) {

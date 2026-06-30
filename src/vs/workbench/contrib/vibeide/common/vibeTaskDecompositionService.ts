@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -137,7 +138,7 @@ class VibeTaskDecompositionService extends Disposable implements IVibeTaskDecomp
 			steps: steps.map(s => ({ ...s, status: 'pending' })),
 			currentStepIndex: 0,
 		};
-		if (task.steps.length > 0) task.steps[0].status = 'running';
+		if (task.steps.length > 0) { task.steps[0].status = 'running'; }
 		this._tasks.set(taskId, task);
 		vibeLog.info('TaskDecomp', `Started: ${title} (${steps.length} steps)`);
 		this._onTaskUpdated.fire(task);
@@ -146,7 +147,7 @@ class VibeTaskDecompositionService extends Disposable implements IVibeTaskDecomp
 
 	advanceStep(taskId: string, result: 'done' | 'failed' | 'skipped'): void {
 		const task = this._tasks.get(taskId);
-		if (!task) return;
+		if (!task) { return; }
 		task.steps[task.currentStepIndex].status = result;
 		if (task.currentStepIndex < task.steps.length - 1) {
 			task.currentStepIndex++;

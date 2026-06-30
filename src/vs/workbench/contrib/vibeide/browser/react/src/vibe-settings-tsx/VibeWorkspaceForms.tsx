@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAccessor } from '../util/services.js';
@@ -1535,8 +1536,8 @@ const ProjectCommandsPanel: React.FC<{ openAddTick?: number }> = ({ openAddTick 
 			return;
 		}
 		const clamped = Math.max(1, Math.min(20, parsed));
-		if (clamped !== parsed) setMaxPinnedDraft(String(clamped));
-		if (clamped === maxPinned) return;
+		if (clamped !== parsed) {setMaxPinnedDraft(String(clamped));}
+		if (clamped === maxPinned) {return;}
 		try {
 			await config.updateValue('vibeide.commands.toolbar.maxPinned', clamped);
 		} catch {
@@ -1560,7 +1561,7 @@ const ProjectCommandsPanel: React.FC<{ openAddTick?: number }> = ({ openAddTick 
 	const displaySorted = useMemo(() => sortProjectCommandsForDisplay(snapshot), [snapshot]);
 	const filtered = useMemo(() => {
 		const q = filter.trim().toLowerCase();
-		if (!q) return displaySorted;
+		if (!q) {return displaySorted;}
 		return displaySorted.filter(c => {
 			const argsLine = (c.args ?? []).join(' ').toLowerCase();
 			return c.id.toLowerCase().includes(q)
@@ -1576,7 +1577,7 @@ const ProjectCommandsPanel: React.FC<{ openAddTick?: number }> = ({ openAddTick 
 		// Build a preview even when the draft is incomplete — gives the user a
 		// "what will land in JSON" hint that updates as they type. We only need
 		// id+name+command to be non-empty for the preview to be meaningful.
-		if (!draft.id.trim() || !draft.name.trim() || !draft.command.trim()) return null;
+		if (!draft.id.trim() || !draft.name.trim() || !draft.command.trim()) {return null;}
 		try {
 			return buildProjectCommandFromDraft(draft);
 		} catch {
@@ -1613,7 +1614,7 @@ const ProjectCommandsPanel: React.FC<{ openAddTick?: number }> = ({ openAddTick 
 		try {
 			const buf = await fileService.readFile(uri);
 			const parsed = safeParseConfigJson(buf.value.toString());
-			if (!parsed.ok) return null;
+			if (!parsed.ok) {return null;}
 			const decoded = decodeProjectCommandsFile(parsed.value);
 			return decoded.ok ? decoded.value : null;
 		} catch {
@@ -1638,7 +1639,7 @@ const ProjectCommandsPanel: React.FC<{ openAddTick?: number }> = ({ openAddTick 
 
 	const onPinToggleRow = useCallback(async (cmd: ProjectCommand) => {
 		const folderUri = firstWorkspaceFolder();
-		if (!folderUri) return;
+		if (!folderUri) {return;}
 		const uri = joinPath(folderUri, '.vibe', 'commands.json');
 		const file = await readCommandsFile(uri);
 		if (!file) {
@@ -1658,11 +1659,11 @@ const ProjectCommandsPanel: React.FC<{ openAddTick?: number }> = ({ openAddTick 
 		// Use native confirm — settings panel already lives inside the editor
 		// surface and we want a synchronous yes/no without spinning up dialog
 		// service plumbing (which would require an extra `IDialogService` import).
-		// eslint-disable-next-line no-restricted-globals
+		 
 		const confirmed = typeof window !== 'undefined' ? window.confirm(workspaceS.pcRowDeleteConfirm(cmd.name)) : false;
-		if (!confirmed) return;
+		if (!confirmed) {return;}
 		const folderUri = firstWorkspaceFolder();
-		if (!folderUri) return;
+		if (!folderUri) {return;}
 		const uri = joinPath(folderUri, '.vibe', 'commands.json');
 		const file = await readCommandsFile(uri);
 		if (!file) {
@@ -1679,7 +1680,7 @@ const ProjectCommandsPanel: React.FC<{ openAddTick?: number }> = ({ openAddTick 
 	}, [firstWorkspaceFolder, readCommandsFile, fileService, commands, notifications]);
 
 	const onSaveAdd = useCallback(async () => {
-		if (!validation.isValid || saveBusy) return;
+		if (!validation.isValid || saveBusy) {return;}
 		setSaveBusy(true);
 		try {
 			const folderUri = firstWorkspaceFolder();

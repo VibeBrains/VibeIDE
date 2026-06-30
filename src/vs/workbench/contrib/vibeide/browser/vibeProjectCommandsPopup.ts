@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — custom popup widget that replaces the native "Команды"
@@ -77,7 +78,7 @@ function renderPopup(
 		// Wipe and re-render on every commands change — popup is short-lived
 		// but onDidChangeCommands during open (e.g. after Pin click) needs
 		// to refresh visible state.
-		while (root.firstChild) root.removeChild(root.firstChild);
+		while (root.firstChild) { root.removeChild(root.firstChild); }
 
 		// ── Add / SeedDemo ────────────────────────────────────────────────
 		root.appendChild(buildActionRow({
@@ -164,7 +165,7 @@ function buildCommandRow(
 	const row = $('div.vibe-cmd-popup-row.vibe-cmd-popup-row--command');
 	row.setAttribute('role', 'menuitem');
 	row.tabIndex = 0;
-	if (isPinned) row.classList.add('vibe-cmd-popup-row--pinned');
+	if (isPinned) { row.classList.add('vibe-cmd-popup-row--pinned'); }
 
 	// ── Left: pin toggle ─────────────────────────────────────────────────
 	const pinBtn = $('button.vibe-cmd-popup-row__pin.codicon.codicon-pinned');
@@ -214,7 +215,7 @@ function buildCommandRow(
 	disposables.add(addDisposableListener(row, EventType.MOUSE_DOWN, (e: MouseEvent) => {
 		// Only fire when the click happened outside the inline buttons.
 		const target = e.target as HTMLElement;
-		if (target.closest('button')) return;
+		if (target.closest('button')) { return; }
 		e.preventDefault();
 		e.stopPropagation();
 		closePopup();
@@ -247,9 +248,9 @@ async function togglePinned(
 	try {
 		const buf = await services.fileService.readFile(uri);
 		const parsed = safeParseConfigJson(buf.value.toString());
-		if (!parsed.ok) return;
+		if (!parsed.ok) { return; }
 		const decoded = decodeProjectCommandsFile(parsed.value);
-		if (!decoded.ok) return;
+		if (!decoded.ok) { return; }
 		const next = setPinnedInFile(decoded.value, cmd.id, nextPinned);
 		if (!next) {
 			services.notifications.notify({
@@ -269,4 +270,4 @@ async function togglePinned(
 }
 
 /** No-op base class export so callers can use `instanceof` if ever needed. */
-export class ProjectCommandsPopup extends Disposable {}
+export class ProjectCommandsPopup extends Disposable { }

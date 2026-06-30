@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import React, { useEffect, useState } from 'react';
 import { AlertCircle, ChevronDown, ChevronUp, X, RotateCcw, RefreshCw, FileText } from 'lucide-react';
@@ -20,13 +21,13 @@ export const ErrorDisplay = ({
 	onRollback,
 	onOpenLogs,
 }: {
-	message: string,
-	fullError: Error | null,
-	onDismiss: (() => void) | null,
-	showDismiss?: boolean,
-	onRetry?: (() => void) | null,
-	onRollback?: (() => void) | null,
-	onOpenLogs?: (() => void) | null,
+	message: string;
+	fullError: Error | null;
+	onDismiss: (() => void) | null;
+	showDismiss?: boolean;
+	onRetry?: (() => void) | null;
+	onRollback?: (() => void) | null;
+	onOpenLogs?: (() => void) | null;
 }) => {
 	const [isExpanded, setIsExpanded] = useState(false);
 
@@ -48,7 +49,7 @@ export const ErrorDisplay = ({
 	const details = isExpanded && fullError ? errorDetails(fullError) : null;
 	const isExpandable = !!fullError && (fullError.stack || (fullError.message && fullError.message !== normalizedMessage));
 
-	const message = normalizedMessage + ''
+	const message = normalizedMessage + '';
 
 	return (
 		<div className={`rounded-lg border border-red-200 bg-red-50 p-4 overflow-auto error-display-enter shadow-sm`}>

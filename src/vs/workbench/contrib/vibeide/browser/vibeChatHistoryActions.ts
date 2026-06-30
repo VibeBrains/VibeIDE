@@ -1,13 +1,15 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { IChatThreadService, ThreadType } from './chatThreadService.js';
+import { ChatMessage } from '../common/chatThreadServiceTypes.js';
 import { IFileDialogService, IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
@@ -45,9 +47,22 @@ registerAction2(class ClaimUntaggedThreadsAction extends Action2 {
 
 const safeSlug = (s: string): string => (s || 'project').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'project';
 
+// Extract the user-visible body of a message, regardless of role variant.
+// Mirrors the legacy `displayContent || content || ''` precedence: user/assistant
+// expose `displayContent`, tool exposes `content`, and structural messages
+// (plan/review/checkpoint/interrupted) have no body text.
+const messageBodyText = (m: ChatMessage): string => {
+	switch (m.role) {
+		case 'user': return m.displayContent || m.content;
+		case 'assistant': return m.displayContent;
+		case 'tool': return m.content;
+		default: return '';
+	}
+};
+
 const threadTitle = (t: ThreadType): string => {
-	const fu = t.messages.find(m => m.role === 'user') as any;
-	const text = ((fu?.displayContent || fu?.content || '') + '').replace(/\s+/g, ' ').trim();
+	const fu = t.messages.find(m => m.role === 'user');
+	const text = (fu ? messageBodyText(fu) : '').replace(/\s+/g, ' ').trim();
 	return text ? (text.length > 80 ? text.slice(0, 80) + '…' : text) : t.id;
 };
 
@@ -73,8 +88,8 @@ const threadsToMarkdown = (threads: ThreadType[], project: string): string => {
 	const lines: string[] = [`# VibeIDE — история чата: ${project}`, '', `> Экспортировано: ${new Date().toISOString()} · тредов: ${threads.length}`, ''];
 	for (const t of threads) {
 		lines.push(`## ${threadTitle(t)}`, '', `<sub>${t.lastModified}</sub>`, '');
-		for (const m of t.messages as any[]) {
-			const body = ((m.displayContent || m.content || '') + '').trim();
+		for (const m of t.messages) {
+			const body = messageBodyText(m).trim();
 			if (!body && m.role !== 'user' && m.role !== 'assistant') { continue; }
 			lines.push(`**${m.role}:** ${body}`, '');
 		}

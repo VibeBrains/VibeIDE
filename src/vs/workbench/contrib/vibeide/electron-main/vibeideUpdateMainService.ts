@@ -1,13 +1,13 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { createHash, randomBytes } from 'crypto';
 import { createWriteStream, existsSync, unlinkSync } from 'fs';
-import * as https from 'https';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join } from '../../../../base/common/path.js';
 import { URL } from 'url';
 import { shell } from 'electron';
 
@@ -118,7 +118,7 @@ export class VibeideMainUpdateService extends Disposable implements IVibeideUpda
 
 	async check(explicit: boolean): Promise<VibeideCheckUpdateResponse> {
 
-		const isDevMode = !this._envMainService.isBuilt // found in abstractUpdateService.ts
+		const isDevMode = !this._envMainService.isBuilt; // found in abstractUpdateService.ts
 
 		if (isDevMode) {
 			return { message: null } as const;
@@ -131,7 +131,7 @@ export class VibeideMainUpdateService extends Disposable implements IVibeideUpda
 			}
 		}
 
-		this._updateService.checkForUpdates(false) // implicity check, then handle result ourselves
+		this._updateService.checkForUpdates(false); // implicity check, then handle result ourselves
 
 		if (this._updateService.state.type === StateType.Uninitialized) {
 			// The update service hasn't been initialized yet
@@ -334,6 +334,7 @@ export class VibeideMainUpdateService extends Disposable implements IVibeideUpda
 		if (depth > 10) {
 			throw new Error('Too many redirects');
 		}
+		const https = await import('https');
 		return new Promise((resolve, reject) => {
 			https.get(urlStr, { headers: { 'User-Agent': 'VibeIDE-Updater', 'Accept': '*/*' } }, (res) => {
 				if (res.statusCode !== undefined && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {

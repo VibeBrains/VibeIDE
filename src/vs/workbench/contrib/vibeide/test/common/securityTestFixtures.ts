@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Security test fixtures (DoD L.7/1067).
@@ -125,7 +126,7 @@ export const PROMPT_INJECTION_PATTERNS: readonly string[] = [
  * embedded inside an otherwise-innocent string.
  */
 export function interleaveZeroWidth(base: string, char: string = ZERO_WIDTH_CHARS.zeroWidthSpace): string {
-	if (base.length === 0) return '';
+	if (base.length === 0) { return ''; }
 	return base.split('').join(char);
 }
 
@@ -153,7 +154,7 @@ export function findUnsafeInvisibleChars(s: string): ReadonlyArray<{ readonly ch
 export function findSecretCanaries(s: string): readonly string[] {
 	const found: string[] = [];
 	for (const [name, canary] of Object.entries(SECRET_CANARIES)) {
-		if (s.includes(canary)) found.push(name);
+		if (s.includes(canary)) { found.push(name); }
 	}
 	return found;
 }

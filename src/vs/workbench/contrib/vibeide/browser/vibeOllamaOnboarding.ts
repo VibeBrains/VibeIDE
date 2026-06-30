@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
@@ -35,7 +36,7 @@ export class VibeOllamaOnboardingContribution extends Disposable implements IWor
 
 	private async _detectLocalModels(): Promise<void> {
 		// Probe at most once per profile.
-		if (this._storageService.get(OLLAMA_PROBED_KEY, StorageScope.APPLICATION)) return;
+		if (this._storageService.get(OLLAMA_PROBED_KEY, StorageScope.APPLICATION)) { return; }
 
 		// Mark probed up-front so a crash mid-probe still prevents repeats.
 		this._storageService.store(OLLAMA_PROBED_KEY, 'true', StorageScope.APPLICATION, StorageTarget.MACHINE);
@@ -43,7 +44,7 @@ export class VibeOllamaOnboardingContribution extends Disposable implements IWor
 		try {
 			// Probe runs in main process via Node net.connect — no Chromium DevTools network log on failure.
 			const result = await this._ollamaInstaller.probe();
-			if (!result.running) return;
+			if (!result.running) { return; }
 
 			this._notificationService.notify({
 				severity: Severity.Info,

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Session memory per chat thread (K.3 / 934) — short-term brain.
@@ -48,14 +49,14 @@ export function createEmptySessionMemoryStore(): SessionMemoryStore {
  * malformed `unknown` (typical for storage that survived a schema change).
  */
 export function decodeSessionMemoryStore(raw: unknown): { ok: true; value: SessionMemoryStore } | { ok: false; reason: string } {
-	if (raw == null || typeof raw !== 'object') {
+	if (raw === null || raw === undefined || typeof raw !== 'object') {
 		return { ok: false, reason: 'not-an-object' };
 	}
 	const obj = raw as Record<string, unknown>;
 	if (obj.v !== 1) {
 		return { ok: false, reason: `unsupported-version:${String(obj.v)}` };
 	}
-	if (obj.byThread == null || typeof obj.byThread !== 'object') {
+	if (obj.byThread === null || obj.byThread === undefined || typeof obj.byThread !== 'object') {
 		return { ok: false, reason: 'byThread-missing' };
 	}
 	const byThread: Record<string, SessionMemoryEntry[]> = {};
@@ -76,7 +77,7 @@ export function decodeSessionMemoryStore(raw: unknown): { ok: true; value: Sessi
 }
 
 function isValidEntry(item: unknown): item is SessionMemoryEntry {
-	if (item == null || typeof item !== 'object') return false;
+	if (item === null || item === undefined || typeof item !== 'object') { return false; }
 	const e = item as Record<string, unknown>;
 	return typeof e.id === 'string'
 		&& typeof e.threadId === 'string'
@@ -128,7 +129,7 @@ export function touchSessionMemory(
 	now: number,
 ): SessionMemoryStore {
 	const list = store.byThread[threadId];
-	if (!list) return store;
+	if (!list) { return store; }
 	const next = list.map(e => e.id === entryId ? { ...e, updatedAt: now } : e);
 	return { v: 1, byThread: { ...store.byThread, [threadId]: next } };
 }

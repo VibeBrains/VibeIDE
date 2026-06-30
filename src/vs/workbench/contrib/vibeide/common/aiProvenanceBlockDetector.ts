@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * AI provenance block detector (roadmap §L1179) — pure helper.
@@ -40,14 +41,14 @@ export function detectProvenanceBlocks(lines: ReadonlyArray<string>): Provenance
 	const out: ProvenanceBlock[] = [];
 	for (let i = 0; i < lines.length; i++) {
 		const m = MARKER_RE.exec(lines[i]);
-		if (!m) continue;
+		if (!m) { continue; }
 		const markerLine = i + 1;
 		const modelId = m[1];
 		const timestamp = m[2];
 		let end = i;
 		for (let j = i + 1; j < lines.length; j++) {
-			if (lines[j].trim() === '') break;
-			if (MARKER_RE.test(lines[j])) break;
+			if (lines[j].trim() === '') { break; }
+			if (MARKER_RE.test(lines[j])) { break; }
 			end = j;
 		}
 		out.push({

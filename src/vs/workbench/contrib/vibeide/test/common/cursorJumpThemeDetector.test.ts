@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	detectCursorJumpTheme,
 	trimEditLog,
@@ -23,6 +25,7 @@ const OTHER = (ts: number): EditEvent => ({
 });
 
 suite('Cursor-jump theme detector (1029)', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('detectCursorJumpTheme', () => {
 		test('empty log → no-theme', () => {
@@ -79,7 +82,7 @@ suite('Cursor-jump theme detector (1029)', () => {
 			]);
 			// 3 'foo→bar' renames → still detected, the 'baz→qux' is outside the streak.
 			assert.strictEqual(r.kind, 'theme-detected');
-			if (r.kind === 'theme-detected') assert.strictEqual(r.eventCount, 3);
+			if (r.kind === 'theme-detected') { assert.strictEqual(r.eventCount, 3); }
 		});
 
 		test('mixed kinds break the streak', () => {

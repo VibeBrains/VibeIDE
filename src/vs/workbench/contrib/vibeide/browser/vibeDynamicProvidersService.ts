@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Reads & resolves `.vibe/providers.json` into a runtime view: which providers are DEFINED
@@ -26,11 +27,10 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { scanProviderConfig, ConfigGuardFinding } from '../common/vibeConfigGuard.js';
-import { providerNames } from '../common/vibeideSettingsTypes.js';
+import { providerNames, ProviderName, VibeideStatefulModelInfo } from '../common/vibeideSettingsTypes.js';
 import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig, DynamicProviderSeed } from '../common/vibeideSettingsService.js';
 import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo } from '../common/modelCapabilities.js';
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
-import { VibeideStatefulModelInfo } from '../common/vibeideSettingsTypes.js';
 import { parseProvidersFile, mergeProviderEntry, VibeProviderEntry, VibeProviderModelEntry } from '../common/vibeProvidersFile.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
 import { ILifecycleService, LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
@@ -548,7 +548,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				// are hidden until the user enables them in «Модели». An explicit user toggle wins.
 				const hidden = hiddenOverrides?.[id] ?? !fileNote;
 				if (!hidden) {
-					dynamicModelOptions.push({ name: `${name} (${label})`, selection: { providerName: p.id as any, modelName: id }, ...(fileNote ? { fileNote } : {}) });
+					dynamicModelOptions.push({ name: `${name} (${label})`, selection: { providerName: p.id as ProviderName, modelName: id }, ...(fileNote ? { fileNote } : {}) });
 				}
 				seedModels.push({ modelName: id, type: 'autodetected', isHidden: hidden, ...(fileNote ? { fileNote } : {}) });
 			};

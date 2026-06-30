@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -116,7 +117,7 @@ export class VibeConfigInitContribution extends Disposable implements IWorkbench
 
 	private async _initVibeDirectory(): Promise<void> {
 		const workspaceFolders = this._workspaceContextService.getWorkspace().folders;
-		if (workspaceFolders.length === 0) return;
+		if (workspaceFolders.length === 0) { return; }
 
 		const workspaceRoot = workspaceFolders[0].uri;
 		const vibeDir = joinPath(workspaceRoot, '.vibe');

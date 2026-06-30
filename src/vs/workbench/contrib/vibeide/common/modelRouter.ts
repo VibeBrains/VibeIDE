@@ -1,13 +1,13 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
-import { ProviderName, ModelSelection } from './vibeideSettingsTypes.js';
+import { ProviderName, ModelSelection, localProviderNames } from './vibeideSettingsTypes.js';
 import { getModelCapabilities, VibeideStaticModelInfo } from './modelCapabilities.js';
-import { IVibeideSettingsService } from './vibeideSettingsService.js';
-import { localProviderNames } from './vibeideSettingsTypes.js';
+import { IVibeideSettingsService, VibeideSettingsState } from './vibeideSettingsService.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -26,25 +26,25 @@ import { getPerformanceHarness } from './performanceHarness.js';
 // `{ token, unless }` hint matches `token` UNLESS `unless` is also present — e.g.
 // "7b" is fast UNLESS it's "70b"; "llama3"/"mistral" are slow UNLESS the small
 // "8b"/"7b" variant. Mirrors the original `a || (b && !c) || …` precedence exactly.
-type ModelNameHint = string | { readonly token: string; readonly unless: string }
+type ModelNameHint = string | { readonly token: string; readonly unless: string };
 const matchesNameHint = (lowerName: string, hints: readonly ModelNameHint[]): boolean =>
 	hints.some(h => typeof h === 'string'
 		? lowerName.includes(h)
-		: lowerName.includes(h.token) && !lowerName.includes(h.unless))
+		: lowerName.includes(h.token) && !lowerName.includes(h.unless));
 
 // Fast/small local models — low param count, quick on consumer hardware.
 const FAST_LOCAL_HINTS: readonly ModelNameHint[] = [
 	'fast', 'small', 'tiny', '1b', '3b', { token: '7b', unless: '70b' },
 	'qwen2.5-0.5b', 'qwen2.5-1.5b', 'phi-3-mini', 'gemma-2b',
-]
+];
 // Slow/large local models — heavy, high latency on consumer hardware.
 const SLOW_LOCAL_HINTS: readonly ModelNameHint[] = [
 	'13b', '70b', { token: 'llama3', unless: '8b' }, { token: 'mistral', unless: '7b' }, 'mixtral',
-]
+];
 /** `true` if the lowercased model name looks like a fast/small local model. */
-const matchesFastLocalHints = (lowerName: string): boolean => matchesNameHint(lowerName, FAST_LOCAL_HINTS)
+const matchesFastLocalHints = (lowerName: string): boolean => matchesNameHint(lowerName, FAST_LOCAL_HINTS);
 /** `true` if the lowercased model name looks like a slow/large local model. */
-const matchesSlowLocalHints = (lowerName: string): boolean => matchesNameHint(lowerName, SLOW_LOCAL_HINTS)
+const matchesSlowLocalHints = (lowerName: string): boolean => matchesNameHint(lowerName, SLOW_LOCAL_HINTS);
 
 /**
  * Task types for automatic model selection
@@ -137,7 +137,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	 */
 	private getCachedCapabilities(
 		modelSelection: ModelSelection,
-		settingsState: any
+		settingsState: VibeideSettingsState
 	): ReturnType<typeof getModelCapabilities> {
 		const key = `${modelSelection.providerName}:${modelSelection.modelName}:${this.capabilityCacheVersion}`;
 		if (this.capabilityCache.has(key)) {
@@ -250,7 +250,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 
 		// Check if online models are available (for codebase questions, we strongly prefer online models)
 		const hasOnlineModels = availableModels.some(m => {
-			if (m.providerName === 'auto') return false;
+			if (m.providerName === 'auto') { return false; }
 			return !(localProviderNames as readonly ProviderName[]).includes(m.providerName as ProviderName);
 		});
 
@@ -260,11 +260,11 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			(context.taskType === 'code' && context.isLongMessage && !context.hasCode);
 		if (isCodebaseQuestionCheck) {
 			const onlineModels = availableModels.filter(m => {
-				if (m.providerName === 'auto') return false;
+				if (m.providerName === 'auto') { return false; }
 				return !(localProviderNames as readonly ProviderName[]).includes(m.providerName as ProviderName);
 			});
 			const localModels = availableModels.filter(m => {
-				if (m.providerName === 'auto') return false;
+				if (m.providerName === 'auto') { return false; }
 				return (localProviderNames as readonly ProviderName[]).includes(m.providerName as ProviderName);
 			});
 			vibeLog.info('modelRouter', '[ModelRouter] Codebase question detected:', {
@@ -283,7 +283,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		if (context.isSimpleQuestion && !context.hasImages && !context.hasPDFs && !context.requiresComplexReasoning && !context.contextSize) {
 			// Quick heuristic: prefer fast online models for simple questions
 			const fastModels = availableModels.filter(m => {
-				if (m.providerName === 'auto') return false;
+				if (m.providerName === 'auto') { return false; }
 				const name = m.modelName.toLowerCase();
 				return name.includes('mini') || name.includes('haiku') || name.includes('flash') || name.includes('nano') || name.includes('3.5-turbo');
 			});
@@ -306,7 +306,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		// Ultra-fast path: Vision tasks → vision model (skip all scoring)
 		if ((context.taskType === 'vision' || context.hasImages) && !context.requiresComplexReasoning && !context.contextSize) {
 			const visionModels = availableModels.filter(m => {
-				if (m.providerName === 'auto') return false;
+				if (m.providerName === 'auto') { return false; }
 				const capabilities = this.getCachedCapabilities(m, settingsState);
 				return this.isVisionCapable(m, capabilities);
 			});
@@ -343,7 +343,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			// This ensures we never select local models for codebase questions when better options exist
 			const beforeFilter = candidateModels.length;
 			candidateModels = candidateModels.filter(model => {
-				if (model.providerName === 'auto') return false;
+				if (model.providerName === 'auto') { return false; }
 				const isLocal = (localProviderNames as readonly ProviderName[]).includes(model.providerName as ProviderName);
 				return !isLocal;
 			});
@@ -370,7 +370,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		// Filter by vision requirement
 		if (context.taskType === 'vision' || context.hasImages || context.taskType === 'pdf' || context.hasPDFs) {
 			candidateModels = candidateModels.filter(model => {
-				if (model.providerName === 'auto') return false;
+				if (model.providerName === 'auto') { return false; }
 				const capabilities = this.getCachedCapabilities(model, settingsState);
 				return this.isVisionCapable(model, capabilities);
 			});
@@ -384,7 +384,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		if (context.contextSize) {
 			const requiredContextSize = context.contextSize; // Narrow type for TypeScript
 			candidateModels = candidateModels.filter(model => {
-				if (model.providerName === 'auto') return false;
+				if (model.providerName === 'auto') { return false; }
 				const capabilities = this.getCachedCapabilities(model, settingsState);
 				const availableContext = capabilities.contextWindow - (capabilities.reservedOutputTokenSpace || 4096);
 				return availableContext >= requiredContextSize;
@@ -589,7 +589,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	 */
 	private findFastCheapModel(
 		models: ModelSelection[],
-		settingsState: any
+		settingsState: VibeideSettingsState
 	): ModelSelection | null {
 		// Filter out 'auto' provider
 		const validModels = models.filter(m => m.providerName !== 'auto');
@@ -684,7 +684,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	/**
 	 * Get per-model timeout based on task and model characteristics
 	 */
-	private getModelTimeout(model: ModelSelection, context: TaskContext, settingsState: any): number {
+	private getModelTimeout(model: ModelSelection, context: TaskContext, settingsState: VibeideSettingsState): number {
 		// Skip 'auto' provider
 		if (model.providerName === 'auto') {
 			return 60_000; // Default timeout
@@ -745,11 +745,11 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		parts.push(`Task: ${context.taskType}`);
 
 		// Add key context
-		if (context.hasImages) parts.push('with images');
-		if (context.hasPDFs) parts.push('with PDFs');
-		if (context.hasCode) parts.push('with code');
-		if (context.requiresComplexReasoning) parts.push('complex reasoning');
-		if (context.contextSize) parts.push(`~${Math.round(context.contextSize / 1000)}k tokens`);
+		if (context.hasImages) { parts.push('with images'); }
+		if (context.hasPDFs) { parts.push('with PDFs'); }
+		if (context.hasCode) { parts.push('with code'); }
+		if (context.requiresComplexReasoning) { parts.push('complex reasoning'); }
+		if (context.contextSize) { parts.push(`~${Math.round(context.contextSize / 1000)}k tokens`); }
 
 		// Add quality tier
 		if (decision.qualityTier) {
@@ -768,12 +768,12 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	/**
 	 * Get all available models from settings
 	 */
-	private getAvailableModels(settingsState: any): ModelSelection[] {
+	private getAvailableModels(settingsState: VibeideSettingsState): ModelSelection[] {
 		const models: ModelSelection[] = [];
 
 		for (const providerName of Object.keys(settingsState.settingsOfProvider) as ProviderName[]) {
 			const providerSettings = settingsState.settingsOfProvider[providerName];
-			if (!providerSettings._didFillInProviderSettings) continue;
+			if (!providerSettings._didFillInProviderSettings) { continue; }
 
 			for (const modelInfo of providerSettings.models) {
 				if (!modelInfo.isHidden) {
@@ -795,7 +795,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	private scoreModel(
 		modelSelection: ModelSelection,
 		context: TaskContext,
-		settingsState: any,
+		settingsState: VibeideSettingsState,
 		hasOnlineModels: boolean = false,
 		localFirstAI?: boolean // PERFORMANCE: Pre-computed localFirstAI passed as parameter to avoid repeated lookup
 	): number {
@@ -1210,11 +1210,11 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 				(context.isLongMessage ? 4000 : 1000) +
 				(context.hasImages ? 2000 : 0) +
 				(context.hasPDFs ? 5000 : 0) +
-				(context.requiresComplexReasoning ? 3000 : 0)
+				(context.requiresComplexReasoning ? 3000 : 0);
 
 			// Threshold for "heavy" tasks that should prefer cloud even in local-first mode
-			const maxSafeLocalTokens = 4000 // Tasks over 4k tokens are heavy for local models
-			const isHeavyTask = estimatedPromptTokens > maxSafeLocalTokens
+			const maxSafeLocalTokens = 4000; // Tasks over 4k tokens are heavy for local models
+			const isHeavyTask = estimatedPromptTokens > maxSafeLocalTokens;
 
 			if (isLocal) {
 				if (isHeavyTask) {
@@ -1420,25 +1420,25 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		const provider = modelSelection.providerName.toLowerCase();
 
 		// Known vision-capable models
-		if (provider === 'gemini') return true; // all Gemini models support vision
+		if (provider === 'gemini') { return true; } // all Gemini models support vision
 		if (provider === 'anthropic') {
 			return name.includes('3.5') || name.includes('3.7') || name.includes('4') || name.includes('opus') || name.includes('sonnet');
 		}
 		if (provider === 'openai') {
 			// GPT-5 series (all variants support vision)
-			if (name.includes('gpt-5') || name.includes('gpt-5.1')) return true;
+			if (name.includes('gpt-5') || name.includes('gpt-5.1')) { return true; }
 			// GPT-4.1 series
-			if (name.includes('4.1')) return true;
+			if (name.includes('4.1')) { return true; }
 			// GPT-4o series
-			if (name.includes('4o')) return true;
+			if (name.includes('4o')) { return true; }
 			// o-series reasoning models (o1, o3, o4-mini support vision)
-			if (name.startsWith('o1') || name.startsWith('o3') || name.startsWith('o4')) return true;
+			if (name.startsWith('o1') || name.startsWith('o3') || name.startsWith('o4')) { return true; }
 			// Legacy GPT-4 models
-			if (name.includes('gpt-4')) return true;
+			if (name.includes('gpt-4')) { return true; }
 		}
 		if (provider === 'mistral') {
 			// Pixtral models support vision
-			if (name.includes('pixtral')) return true;
+			if (name.includes('pixtral')) { return true; }
 		}
 		if (provider === 'ollama' || provider === 'vllm') {
 			return name.includes('llava') || name.includes('bakllava') || name.includes('vision');
@@ -1458,7 +1458,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		// Collect available local models
 		for (const providerName of localProviderNames) {
 			const providerSettings = settingsState.settingsOfProvider[providerName];
-			if (!providerSettings._didFillInProviderSettings) continue;
+			if (!providerSettings._didFillInProviderSettings) { continue; }
 
 			for (const modelInfo of providerSettings.models) {
 				if (!modelInfo.isHidden) {
@@ -1511,7 +1511,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		modelSelection: ModelSelection,
 		context: TaskContext,
 		score: number,
-		settingsState: any
+		settingsState: VibeideSettingsState
 	): string {
 		// Guard: "auto" is not a real model
 		if (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') {

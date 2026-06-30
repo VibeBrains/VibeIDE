@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Cursor-jump theme detector (1029) — pure heuristic.
@@ -81,12 +82,12 @@ export function detectCursorJumpTheme(
 	let lastTs = head.timestamp;
 	for (let i = headIdx - 1; i >= 0; i--) {
 		const e = events[i];
-		if (e.kind === 'other') continue;
-		if (e.kind !== head.kind) break;
-		if (e.subject !== head.subject) break;
-		if (e.subjectReplacement !== head.subjectReplacement) break;
+		if (e.kind === 'other') { continue; }
+		if (e.kind !== head.kind) { break; }
+		if (e.subject !== head.subject) { break; }
+		if (e.subjectReplacement !== head.subjectReplacement) { break; }
 		const gap = lastTs - e.timestamp;
-		if (gap > config.maxGapMs) break;
+		if (gap > config.maxGapMs) { break; }
 		count++;
 		lastTs = e.timestamp;
 	}

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { Codicon } from '../../../../../base/common/codicons.js';
 import { URI } from '../../../../../base/common/uri.js';
@@ -34,8 +35,6 @@ import {
 	VIBE_SERVER_VIEWLET_ID,
 } from './vibeServerConstants.js';
 
-import './vibeServerService.js';
-
 const vibeCategory = localize2('vibeCategory', 'VibeIDE');
 
 const whenServerView = ContextKeyExpr.equals('view', VIBE_SERVER_VIEW_ID);
@@ -49,13 +48,13 @@ const whenHtmlResource = ContextKeyExpr.or(
 /** FA6 Free Solid server () — reads as a running local server. */
 const vibeServerActivityGlyph = registerVibeideFaSolidIcon(
 	'vibeide-vibe-server-activity',
-	'',
+	'\uf233',
 	localize('vibeServer.activityIcon', 'Иконка Vibe Server на панели активности'),
 );
 
 const vibeServerViewTabIcon = registerVibeideFaSolidIcon(
 	'vibeide-vibe-server-view-tab',
-	'',
+	'\uf233',
 	localize('vibeServer.viewTab', 'Вкладка представления Vibe Server'),
 );
 

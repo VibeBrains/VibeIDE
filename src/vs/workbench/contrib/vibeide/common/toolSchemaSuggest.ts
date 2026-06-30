@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Pure helper for cross-tool argument suggestion (X.11.4 / X.13.7 / X.14).
@@ -60,9 +61,9 @@ export const suggestByArgHints = (
 ): string | null => {
 	for (const key of rawParamKeys) {
 		const candidates = CROSS_TOOL_ARG_HINTS[key.toLowerCase()];
-		if (!candidates) continue;
+		if (!candidates) { continue; }
 		for (const candidate of candidates) {
-			if (availableNames.has(candidate)) return candidate;
+			if (availableNames.has(candidate)) { return candidate; }
 		}
 	}
 	return null;
@@ -76,11 +77,11 @@ export const scoreToolMatch = (
 	requiredParams: readonly string[],
 	rawKeys: readonly string[],
 ): number => {
-	if (requiredParams.length === 0) return 0;
+	if (requiredParams.length === 0) { return 0; }
 	const rawSet = new Set(rawKeys.map(k => k.toLowerCase()));
 	let hits = 0;
 	for (const required of requiredParams) {
-		if (rawSet.has(required.toLowerCase())) hits += 1;
+		if (rawSet.has(required.toLowerCase())) { hits += 1; }
 	}
 	return hits / requiredParams.length;
 };
@@ -100,7 +101,7 @@ export const suggestAlternateTool = (
 	rawParamKeys: readonly string[],
 	minScore: number = 0.6,
 ): string | null => {
-	if (rawParamKeys.length === 0) return null;
+	if (rawParamKeys.length === 0) { return null; }
 	// X.11.4 — direct hint short-circuit. If any rawParamKey is a known
 	// strong signal for a specific tool, return it without scoring. Beats
 	// the shape-match algorithm when called tool's required params don't
@@ -108,15 +109,15 @@ export const suggestAlternateTool = (
 	const availableNames = new Set(candidates.map(c => c.name));
 	availableNames.add(calledTool.name);
 	const hinted = suggestByArgHints(rawParamKeys, availableNames);
-	if (hinted && hinted !== calledTool.name) return hinted;
+	if (hinted && hinted !== calledTool.name) { return hinted; }
 	const calledScore = scoreToolMatch(calledTool.params.required, rawParamKeys);
 	let best: { name: string; score: number; required: number } | null = null;
 	for (const candidate of candidates) {
-		if (candidate.name === calledTool.name) continue;
-		if (candidate.params.required.length === 0) continue;
+		if (candidate.name === calledTool.name) { continue; }
+		if (candidate.params.required.length === 0) { continue; }
 		const score = scoreToolMatch(candidate.params.required, rawParamKeys);
-		if (score < minScore) continue;
-		if (score <= calledScore) continue;
+		if (score < minScore) { continue; }
+		if (score <= calledScore) { continue; }
 		const required = candidate.params.required.length;
 		// Tie-break: equal score → prefer the more specific candidate (covers more
 		// required params), so a tool whose full shape is used wins over one whose

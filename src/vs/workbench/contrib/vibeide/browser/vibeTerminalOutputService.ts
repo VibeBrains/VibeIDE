@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -74,9 +75,9 @@ class VibeTerminalOutputService extends Disposable implements IVibeTerminalOutpu
 
 		// Listen to terminal data events
 		this._register(this._terminalService.onDidChangeActiveInstance(terminal => {
-			if (!terminal) return;
+			if (!terminal) { return; }
 			this._register(terminal.onData(data => {
-				if (!this._enabled) return;
+				if (!this._enabled) { return; }
 				this._latestOutput = (this._latestOutput + data).slice(-50_000); // keep last 50KB
 				this._onTerminalOutput.fire({
 					terminalId: terminal.instanceId.toString(),
@@ -92,7 +93,7 @@ class VibeTerminalOutputService extends Disposable implements IVibeTerminalOutpu
 	}
 
 	getLatestOutput(maxChars: number = 5000): string | null {
-		if (!this._enabled) return null;
+		if (!this._enabled) { return null; }
 		return this._latestOutput.slice(-maxChars);
 	}
 }

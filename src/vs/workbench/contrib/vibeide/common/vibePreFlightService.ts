@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -104,7 +105,7 @@ class VibePreFlightService extends Disposable implements IVibePreFlightService {
 
 	approve(planId: string): void {
 		const pending = this._pending.get(planId);
-		if (!pending) return;
+		if (!pending) { return; }
 		this._pending.delete(planId);
 		const result: PreFlightResult = {
 			plan: pending.plan,
@@ -117,7 +118,7 @@ class VibePreFlightService extends Disposable implements IVibePreFlightService {
 
 	cancel(planId: string): void {
 		const pending = this._pending.get(planId);
-		if (!pending) return;
+		if (!pending) { return; }
 		this._pending.delete(planId);
 		const result: PreFlightResult = {
 			plan: pending.plan,

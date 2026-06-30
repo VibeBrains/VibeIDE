@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Roadmap-agent executor (roadmap §L885).
@@ -128,7 +129,7 @@ class VibeRoadmapAgentExecutor extends Disposable implements IVibeRoadmapAgentEx
 				break;
 			}
 			const item = queue.shift()!;
-			if (!apply({ kind: 'item-selected', itemId: item.id })) continue;
+			if (!apply({ kind: 'item-selected', itemId: item.id })) { continue; }
 
 			const subagentKind: SubagentKind = opts.subagentKind ?? this._kindForBucket(item.bucket);
 			const handle = this._subagentRuntime.invoke({
@@ -158,8 +159,8 @@ class VibeRoadmapAgentExecutor extends Disposable implements IVibeRoadmapAgentEx
 
 			const outcome: RoadmapExecutionRecord['outcome'] =
 				result.outcome === 'success' ? 'success'
-				: result.outcome === 'aborted' ? 'skipped'
-				: 'failure';
+					: result.outcome === 'aborted' ? 'skipped'
+						: 'failure';
 
 			records.push({
 				itemId: item.id,

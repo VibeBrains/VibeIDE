@@ -1,13 +1,14 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Event } from '../../../../base/common/event.js';
 import { IServerChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import type { IHeaders } from '../../../../base/parts/request/common/request.js';
 import { IRequestService, asTextOrError, asText } from '../../../../platform/request/common/request.js';
-import { GoogleAuth } from 'google-auth-library';
 
 /** Node-backed GET for remote model catalogs — bypasses Chromium CORS in the workbench renderer. */
 export class RemoteCatalogFetchChannel implements IServerChannel {
@@ -50,11 +51,13 @@ export class RemoteCatalogFetchChannel implements IServerChannel {
 			const status = context.res.statusCode ?? 0;
 			let body: string | null = null;
 			try { body = await asText(context); } catch { body = null; }
-			return { status, body } as T;
+			const probeResult: { status: number; body: string | null } = { status, body };
+			return probeResult as T;
 		}
 		if (command === 'getGoogleAccessToken') {
 			// Uses Application Default Credentials: gcloud auth application-default login,
 			// GOOGLE_APPLICATION_CREDENTIALS env, or workload identity.
+			const { GoogleAuth } = await import('google-auth-library');
 			const auth = new GoogleAuth({ scopes: 'https://www.googleapis.com/auth/cloud-platform' });
 			const token = await auth.getAccessToken();
 			if (!token) {

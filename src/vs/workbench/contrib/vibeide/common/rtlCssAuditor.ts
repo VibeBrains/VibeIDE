@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * RTL-preparation CSS auditor — pure linter
@@ -111,7 +112,7 @@ const COMMENT_LINE = /\/\/[^\n]*/g;
  * snapshot tests.
  */
 export function auditCssForRtl(filePath: string, content: string): readonly RtlAuditFinding[] {
-	if (typeof content !== 'string' || content.length === 0) return [];
+	if (typeof content !== 'string' || content.length === 0) { return []; }
 	const stripped = content.replace(COMMENT_BLOCK, m => ' '.repeat(m.length)).replace(COMMENT_LINE, m => ' '.repeat(m.length));
 
 	const findings: RtlAuditFinding[] = [];
@@ -149,7 +150,7 @@ export function auditCssForRtl(filePath: string, content: string): readonly RtlA
 	}
 
 	findings.sort((a, b) => {
-		if (a.line !== b.line) return a.line - b.line;
+		if (a.line !== b.line) { return a.line - b.line; }
 		return a.column - b.column;
 	});
 	return findings;
@@ -220,7 +221,7 @@ export function renderRtlAuditMarkdown(
 	lines.push('');
 	lines.push('## By category');
 	for (const [cat, n] of Object.entries(summary.byCategory)) {
-		if (n > 0) lines.push(`- ${cat}: ${n}`);
+		if (n > 0) { lines.push(`- ${cat}: ${n}`); }
 	}
 	if (findings.length === 0) {
 		lines.push('');

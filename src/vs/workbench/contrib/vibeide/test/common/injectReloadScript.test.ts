@@ -1,14 +1,18 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { injectReloadScript, VIBE_RELOAD_WS_PATH } from '../../common/vibeServer/injectReloadScript.js';
 
 const MARKER = 'data-vibe-server-reload';
 
 suite('Vibe Server — reload script injection', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('injects before </body> and carries the ws path', () => {
 		const out = injectReloadScript('<html><body><h1>Hi</h1></body></html>');

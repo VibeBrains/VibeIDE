@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as DOM from '../../../../base/browser/dom.js';
 import { extname } from '../../../../base/common/path.js';
@@ -20,8 +21,7 @@ import { IContextKeyService } from '../../../../platform/contextkey/common/conte
 import { IViewDescriptorService } from '../../../common/views.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
-import { WorkbenchList } from '../../../../platform/list/browser/listService.js';
-import { IWorkbenchListOptions } from '../../../../platform/list/browser/listService.js';
+import { WorkbenchList, IWorkbenchListOptions } from '../../../../platform/list/browser/listService.js';
 import { IListAccessibilityProvider } from '../../../../base/browser/ui/list/listWidget.js';
 import { localize } from '../../../../nls.js';
 import { ViewPane, IViewPaneOptions } from '../../../browser/parts/views/viewPane.js';

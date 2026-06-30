@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -17,7 +18,7 @@ export interface IMetricsPollService {
 }
 
 
-const PING_EVERY_MS = 15 * 1000 * 60  // 15 minutes
+const PING_EVERY_MS = 15 * 1000 * 60;  // 15 minutes
 
 export const IMetricsPollService = createDecorator<IMetricsPollService>('vibeMetricsPollService');
 class MetricsPollService extends Disposable implements IMetricsPollService {
@@ -26,28 +27,28 @@ class MetricsPollService extends Disposable implements IMetricsPollService {
 	static readonly ID = 'vibeMetricsPollService';
 
 
-	private readonly intervalID: number
+	private readonly intervalID: number;
 	constructor(
 		@IMetricsService private readonly metricsService: IMetricsService,
 	) {
-		super()
+		super();
 
 		// initial state
-		const { window } = dom.getActiveWindow()
-		let i = 1
+		const { window } = dom.getActiveWindow();
+		let i = 1;
 
 		this.intervalID = window.setInterval(() => {
-			this.metricsService.capture('Alive', { iv1: i })
-			i += 1
-		}, PING_EVERY_MS)
+			this.metricsService.capture('Alive', { iv1: i });
+			i += 1;
+		}, PING_EVERY_MS);
 
 
 	}
 
 	override dispose() {
-		super.dispose()
-		const { window } = dom.getActiveWindow()
-		window.clearInterval(this.intervalID)
+		super.dispose();
+		const { window } = dom.getActiveWindow();
+		window.clearInterval(this.intervalID);
 	}
 
 

@@ -1,13 +1,15 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { localize2 } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { ILayoutService } from '../../../../platform/layout/browser/layoutService.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IVibeCommandsPaletteService } from '../common/vibeCommandsPaletteService.js';
 import { mountVibeCommandsPalette } from './react/out/commands-palette-tsx/index.js';
@@ -48,6 +50,7 @@ export class VibeCommandsPaletteRootContribution extends Disposable implements I
 	constructor(
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
 		@IVibeCommandsPaletteService private readonly _paletteService: IVibeCommandsPaletteService,
+		@ILayoutService private readonly _layoutService: ILayoutService,
 	) {
 		super();
 
@@ -61,13 +64,13 @@ export class VibeCommandsPaletteRootContribution extends Disposable implements I
 	}
 
 	private _tryMount(): void {
-		const workbench = document.querySelector<HTMLElement>('.monaco-workbench') ?? document.body;
+		const workbench = this._layoutService.activeContainer;
 		if (!workbench) {
 			vibeLog.warn('vibeCommandsPaletteRoot', '[VibeCommandsPaletteRoot] no .monaco-workbench root; palette not mounted');
 			return;
 		}
 
-		const portal = document.createElement('div');
+		const portal = workbench.ownerDocument.createElement('div');
 		portal.id = 'vibeide-commands-palette-portal';
 		workbench.appendChild(portal);
 		this._portalEl = portal;

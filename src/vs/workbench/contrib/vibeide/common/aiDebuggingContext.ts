@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * `VibeAIDebuggingService` — breakpoint context formatter (pure helper)
@@ -137,13 +138,13 @@ export function buildDebugContextForAgent(snap: DebugSessionSnapshot): DebugCont
 }
 
 function looksSecret(name: string): boolean {
-	if (typeof name !== 'string') return false;
+	if (typeof name !== 'string') { return false; }
 	return SECRET_PATTERNS.some(re => re.test(name));
 }
 
 function truncate(s: string, n: number): string {
-	if (typeof s !== 'string') return '';
-	if (s.length <= n) return s;
+	if (typeof s !== 'string') { return ''; }
+	if (s.length <= n) { return s; }
 	return s.slice(0, n - 1) + '…';
 }
 
@@ -198,7 +199,7 @@ export function rankBreakpointsForAgent(
 		out.push({ id: bp.id, score, reasons });
 	}
 	return out.sort((a, b) => {
-		if (a.score !== b.score) return b.score - a.score;
+		if (a.score !== b.score) { return b.score - a.score; }
 		return a.id.localeCompare(b.id);
 	});
 }

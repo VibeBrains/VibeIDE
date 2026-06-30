@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * VibeProviderProxyService — optional local HTTP(S) debug proxy for AI providers.
@@ -21,7 +22,7 @@
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
-import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { createDecorator, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -31,8 +32,11 @@ import { localize } from '../../../../nls.js';
 import { IVibeOutboundRingBuffer } from '../common/vibeOutboundRingBuffer.js';
 import { evaluateOutbound, buildDefaultAllowlist } from '../common/outboundAllowlist.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
-import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
+import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
+import { URI } from '../../../../base/common/uri.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -271,7 +275,6 @@ registerAction2(class extends Action2 {
 		const proxy = accessor.get(IVibeProviderProxyService);
 		if (!proxy.isEnabled()) {
 			// Prompt user to enable via setting
-			const { INotificationService } = await import('../../../../platform/notification/common/notification.js');
 			accessor.get(INotificationService).info(
 				localize('vibeide.debug.proxyDisabled', 'Захват прокси провайдера отключён (и ещё не подключён к пути отправки). Чтобы захватить полный LLM-запрос, включите настройку «vibeide.debug.dumpFullPrompt» и воспроизведите — лог пишется в канал [VibeIDE/promptDump].')
 			);
@@ -282,15 +285,15 @@ registerAction2(class extends Action2 {
 			? '// Provider-proxy request capture is not wired yet (the LLM request is made in the main process, this proxy lives in the renderer).\n// To capture the full request, enable setting `vibeide.debug.dumpFullPrompt` and reproduce — it dumps system + per-message content/reasoning/tool into the [VibeIDE/promptDump] log (secrets redacted).'
 			: JSON.stringify(entries, null, 2);
 
-		const { ITextModelService } = await import('../../../../editor/common/services/resolverService.js');
-		const { URI } = await import('../../../../base/common/uri.js');
-		const { IEditorService } = await import('../../../services/editor/common/editorService.js');
-		const uri = URI.parse(`untitled://provider-proxy-log-${Date.now()}.json`);
+		// Resolve services synchronously before the first await — the accessor is only valid
+		// during the synchronous portion of the action handler.
 		const modelService = accessor.get(ITextModelService);
+		const editorService = accessor.get(IEditorService);
+		const uri = URI.parse(`untitled://provider-proxy-log-${Date.now()}.json`);
 		const ref = await modelService.createModelReference(uri);
 		ref.object.textEditorModel?.setValue(content);
 		ref.dispose();
-		await accessor.get(IEditorService).openEditor({ resource: uri });
+		await editorService.openEditor({ resource: uri });
 	}
 });
 

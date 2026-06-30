@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
@@ -131,7 +132,7 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 		@IVibeideSettingsService private readonly settingsService: IVibeideSettingsService,
 		@IRequestService private readonly requestService: IRequestService,
 		@IMainProcessService private readonly mainProcessService: IMainProcessService,
-	) {}
+	) { }
 
 	/**
 	 * Workbench IRequestService uses `fetch()` (see requestImpl.ts) — CORS still blocks opencode.ai etc.
@@ -176,16 +177,16 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 
 	getCachedModelInfo(providerName: ProviderName, modelId: string): RemoteModelInfo | undefined {
 		const cached = this.cache.get(providerName);
-		if (!cached) return undefined;
+		if (!cached) { return undefined; }
 		// Allow lookups even after the TTL expires — capability resolution should
 		// keep working between refreshes. The Settings UI is responsible for
 		// triggering re-fetches; here we just expose what we have.
 		const lc = modelId.toLowerCase();
 		for (const m of cached.models) {
-			if (typeof m.id === 'string' && m.id.toLowerCase() === lc) return m;
+			if (typeof m.id === 'string' && m.id.toLowerCase() === lc) { return m; }
 		}
 		for (const m of cached.models) {
-			if (typeof m.name === 'string' && m.name.toLowerCase() === lc) return m;
+			if (typeof m.name === 'string' && m.name.toLowerCase() === lc) { return m; }
 		}
 		return undefined;
 	}

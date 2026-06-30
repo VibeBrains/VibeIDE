@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Subagent isolation runtime (roadmap §L883).
@@ -293,7 +294,7 @@ class VibeSubagentIsolationRuntime extends Disposable implements IVibeSubagentIs
 	}
 
 	private _materialiseHandoff(handoff: SubagentIsolationDecision['parentHandoff'], raw: string | undefined): string {
-		if (handoff === 'none' || handoff === 'task-only') return '';
+		if (handoff === 'none' || handoff === 'task-only') { return ''; }
 		const ctx = raw ?? '';
 		if (handoff === 'summarised') {
 			const MAX = 4 * 1024;

@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	decodeLanguagePackContribution,
 	buildLanguagePackLayout,
@@ -16,6 +18,7 @@ import {
 } from '../../common/i18nLanguagePackBuilder.js';
 
 suite('VibeIDE language-pack VSIX builder — shapes + IO orchestrator', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decodeLanguagePackContribution', () => {
 		test('happy path', () => {
@@ -38,7 +41,7 @@ suite('VibeIDE language-pack VSIX builder — shapes + IO orchestrator', () => {
 				translations: [{ id: 'vscode', path: './x' }],
 			});
 			assert.strictEqual(r.ok, true);
-			if (r.ok) assert.strictEqual(r.value.id, 'ru-by');
+			if (r.ok) { assert.strictEqual(r.value.id, 'ru-by'); }
 		});
 
 		test('rejects malformed locale id', () => {
@@ -48,7 +51,7 @@ suite('VibeIDE language-pack VSIX builder — shapes + IO orchestrator', () => {
 				translations: [{ id: 'a', path: 'b' }],
 			});
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'id-invalid');
+			if (!r.ok) { assert.strictEqual(r.reason, 'id-invalid'); }
 		});
 
 		test('rejects empty localizedLanguageName', () => {
@@ -67,7 +70,7 @@ suite('VibeIDE language-pack VSIX builder — shapes + IO orchestrator', () => {
 				translations: [],
 			});
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'translations-empty');
+			if (!r.ok) { assert.strictEqual(r.reason, 'translations-empty'); }
 		});
 
 		test('rejects duplicate translation id', () => {
@@ -80,7 +83,7 @@ suite('VibeIDE language-pack VSIX builder — shapes + IO orchestrator', () => {
 				],
 			});
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.ok(r.reason.includes('duplicate-id'));
+			if (!r.ok) { assert.ok(r.reason.includes('duplicate-id')); }
 		});
 
 		test('rejects null root', () => {
@@ -109,8 +112,8 @@ suite('VibeIDE language-pack VSIX builder — shapes + IO orchestrator', () => {
 				extensionPackageEntries: [['vibeide-neon', new Map([['title', 'Тема']])]],
 			});
 			assert.strictEqual(r.localeTag, 'ru-by');
-			assert.ok('parts/foo.i18n.json' in r.mainBundles);
-			assert.ok('vibeide-neon' in r.extensionPackageBundles);
+			assert.ok(Object.hasOwn(r.mainBundles, 'parts/foo.i18n.json'));
+			assert.ok(Object.hasOwn(r.extensionPackageBundles, 'vibeide-neon'));
 		});
 
 		test('empty inputs accepted', () => {

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Release manifest unifier (N.0) — pure helper.
@@ -100,7 +101,7 @@ export function composeUnifiedManifest(input: ManifestComposeInput): ManifestCom
 }
 
 function decodeArtefact(raw: unknown): { ok: true; value: ReleaseArtefact } | { ok: false; reason: string } {
-	if (raw == null || typeof raw !== 'object') return { ok: false, reason: 'not-an-object' };
+	if (raw === null || raw === undefined || typeof raw !== 'object') { return { ok: false, reason: 'not-an-object' }; }
 	const obj = raw as Record<string, unknown>;
 	if (obj.platform !== 'win32' && obj.platform !== 'darwin' && obj.platform !== 'linux') {
 		return { ok: false, reason: 'platform-invalid' };

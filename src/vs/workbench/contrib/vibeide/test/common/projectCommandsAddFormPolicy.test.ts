@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	ADD_COMMAND_DRAFT_EMPTY,
 	ADD_COMMAND_ERROR,
@@ -38,6 +40,8 @@ const sampleFile: ProjectCommandsFile = Object.freeze({
 }) as ProjectCommandsFile;
 
 suite('Project Commands — Add-form policy: validation', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('empty draft → id and name and command missing', () => {
 		const r = validateAddCommandDraft(ADD_COMMAND_DRAFT_EMPTY, new Set());
@@ -139,6 +143,8 @@ suite('Project Commands — Add-form policy: validation', () => {
 
 suite('Project Commands — Add-form policy: build', () => {
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('build → minimal command (no optional fields)', () => {
 		const cmd = buildProjectCommandFromDraft({
 			...ADD_COMMAND_DRAFT_EMPTY,
@@ -159,9 +165,9 @@ suite('Project Commands — Add-form policy: build', () => {
 			argsText: '',
 			cwd: '  ',
 		});
-		assert.strictEqual('description' in cmd, false);
-		assert.strictEqual('args' in cmd, false);
-		assert.strictEqual('cwd' in cmd, false);
+		assert.strictEqual(Object.hasOwn(cmd, 'description'), false);
+		assert.strictEqual(Object.hasOwn(cmd, 'args'), false);
+		assert.strictEqual(Object.hasOwn(cmd, 'cwd'), false);
 	});
 
 	test('build → trims fields and parses args by newline', () => {
@@ -185,7 +191,7 @@ suite('Project Commands — Add-form policy: build', () => {
 		const pinned = buildProjectCommandFromDraft({ ...baseDraft, pinned: true });
 		assert.strictEqual(pinned.pinned, true);
 		const notPinned = buildProjectCommandFromDraft({ ...baseDraft, pinned: false });
-		assert.strictEqual('pinned' in notPinned, false);
+		assert.strictEqual(Object.hasOwn(notPinned, 'pinned'), false);
 	});
 
 	test('build → order=0 preserved', () => {
@@ -195,7 +201,7 @@ suite('Project Commands — Add-form policy: build', () => {
 
 	test('build → invalid order text silently dropped (validator gates this earlier)', () => {
 		const cmd = buildProjectCommandFromDraft({ ...baseDraft, orderText: 'oops' });
-		assert.strictEqual('order' in cmd, false);
+		assert.strictEqual(Object.hasOwn(cmd, 'order'), false);
 	});
 
 	test('build → round-trip through strict decoder', () => {
@@ -207,6 +213,8 @@ suite('Project Commands — Add-form policy: build', () => {
 });
 
 suite('Project Commands — Add-form policy: preview + file mutations', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('previewProjectCommandJson → pretty JSON, no trailing newline', () => {
 		const text = previewProjectCommandJson(buildProjectCommandFromDraft(baseDraft));

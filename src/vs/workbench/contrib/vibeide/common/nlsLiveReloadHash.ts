@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * NLS bundle live-reload — hash diff helper
@@ -94,12 +95,12 @@ export function decideNlsLiveReload(input: NlsLiveReloadInput): NlsReloadVerdict
 }
 
 function normalise(s: string): string {
-	if (typeof s !== 'string') return '';
+	if (typeof s !== 'string') { return ''; }
 	return s.trim().toLowerCase().replace(/_/g, '-');
 }
 
 function clampThreshold(raw: number | undefined): number {
-	if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 1) return DEFAULT_FULL_RELOAD_THRESHOLD;
+	if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 1) { return DEFAULT_FULL_RELOAD_THRESHOLD; }
 	return Math.floor(raw);
 }
 
@@ -160,8 +161,8 @@ export function groupKeysByPrefix(
 		const parts = k.split('.');
 		const head = parts.slice(0, depth).join('.');
 		const arr = map.get(head);
-		if (arr === undefined) map.set(head, [k]);
-		else arr.push(k);
+		if (arr === undefined) { map.set(head, [k]); }
+		else { arr.push(k); }
 	}
 	return [...map].sort(([a], [b]) => a.localeCompare(b)).map(([prefix, keys]) => ({ prefix, keys }));
 }

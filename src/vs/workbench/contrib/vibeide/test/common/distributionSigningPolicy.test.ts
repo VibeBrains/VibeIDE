@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	decideSigning,
 	evaluateReadinessGate,
@@ -39,6 +41,7 @@ const ALL_FULL: SigningCredentials = {
 };
 
 suite('distributionSigningPolicy — Windows', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 	test('release without EV cert blocks', () => {
 		const d = decideSigning({ platform: 'win32-x64', credentials: NO_CREDS, buildKind: 'release' });
 		assert.strictEqual(d.action, 'block-release');
@@ -74,6 +77,7 @@ suite('distributionSigningPolicy — Windows', () => {
 });
 
 suite('distributionSigningPolicy — macOS', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 	test('partial credentials (no app password) blocks', () => {
 		const partial = { ...MAC_FULL, macAppPasswordPresent: false };
 		const d = decideSigning({ platform: 'darwin-x64', credentials: partial, buildKind: 'release' });
@@ -91,6 +95,7 @@ suite('distributionSigningPolicy — macOS', () => {
 });
 
 suite('distributionSigningPolicy — Linux', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 	test('no GPG key skips with non-blocking reason', () => {
 		const d = decideSigning({ platform: 'linux-x64', credentials: NO_CREDS, buildKind: 'release' });
 		assert.strictEqual(d.action, 'skip-unsigned');
@@ -108,6 +113,7 @@ suite('distributionSigningPolicy — Linux', () => {
 });
 
 suite('distributionSigningPolicy — dev build short-circuit', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 	test('dev build always skip-unsigned regardless of credentials', () => {
 		const d = decideSigning({ platform: 'win32-x64', credentials: ALL_FULL, buildKind: 'dev' });
 		assert.strictEqual(d.action, 'skip-unsigned');
@@ -116,6 +122,7 @@ suite('distributionSigningPolicy — dev build short-circuit', () => {
 });
 
 suite('distributionSigningPolicy — readiness gate', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 	test('all-platform with no creds: not-ready, lists missing', () => {
 		const r = evaluateReadinessGate(
 			['win32-x64', 'darwin-universal', 'linux-arm64', 'darwin-arm64'],
@@ -149,6 +156,7 @@ suite('distributionSigningPolicy — readiness gate', () => {
 });
 
 suite('distributionSigningPolicy — describe', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 	test('describe sign decision reads as one line', () => {
 		const d = decideSigning({ platform: 'win32-x64', credentials: WIN_FULL, buildKind: 'release' });
 		const text = describeDecision(d);

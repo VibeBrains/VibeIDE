@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -11,6 +12,7 @@ import {
 	renderOutboundConnectionsMarkdown,
 	OutboundRecord,
 } from '../../common/outboundConnectionsAggregator.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const NOW = 1_700_000_000_000;
 
@@ -23,6 +25,8 @@ const rec = (overrides: Partial<OutboundRecord> = {}): OutboundRecord => ({
 });
 
 suite('outboundConnectionsAggregator', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('redactOutboundUrl', () => {
 		test('strips userinfo', () => {

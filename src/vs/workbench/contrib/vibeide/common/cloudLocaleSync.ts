@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * VibeIDE Cloud locale sync — pure decision helper
@@ -107,7 +108,7 @@ export function decideLocaleSync(input: LocaleSyncInput): LocaleSyncDecision {
 }
 
 function normaliseLocale(s: string): string {
-	if (typeof s !== 'string') return '';
+	if (typeof s !== 'string') { return ''; }
 	return s.trim().toLowerCase().replace(/_/g, '-');
 }
 

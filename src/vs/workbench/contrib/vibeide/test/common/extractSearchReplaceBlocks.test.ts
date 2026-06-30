@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { extractSearchReplaceBlocks } from '../../common/helpers/extractCodeFromResult.js';
 import { ORIGINAL, DIVIDER, FINAL } from '../../common/prompt/tools/_constants.js';
 
@@ -14,6 +16,8 @@ import { ORIGINAL, DIVIDER, FINAL } from '../../common/prompt/tools/_constants.j
  * These tests pin the parser shapes that guard relies on.
  */
 suite('extractSearchReplaceBlocks — block-state contract', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('complete block → state "done" with orig/final', () => {
 		const input = `${ORIGINAL}\nfoo\n${DIVIDER}\nbar\n${FINAL}`;

@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { IVibeideTelemetryService } from '../telemetry/telemetryService.js';
 import { RoutingDecisionEvent } from '../telemetry/telemetryTypes.js';
@@ -24,7 +25,7 @@ export interface EscalationAnalysis {
  * Tracks speculative escalation effectiveness and recommends enable/disable
  */
 export class SpeculativeEscalationValidator {
-	constructor(private readonly telemetryService: IVibeideTelemetryService) {}
+	constructor(private readonly telemetryService: IVibeideTelemetryService) { }
 
 	/**
 	 * Analyze speculative escalation effectiveness
@@ -108,14 +109,14 @@ export class SpeculativeEscalationValidator {
 		escalationEvents: RoutingDecisionEvent[],
 		allEvents: RoutingDecisionEvent[]
 	): number {
-		if (escalationEvents.length === 0) return 0;
+		if (escalationEvents.length === 0) { return 0; }
 
 		// Compare escalated events to similar non-escalated events
 		const escalatedLatencies = escalationEvents
 			.filter(e => e.totalLatency > 0)
 			.map(e => e.totalLatency);
 
-		if (escalatedLatencies.length === 0) return 0;
+		if (escalatedLatencies.length === 0) { return 0; }
 
 		const avgEscalatedLatency = escalatedLatencies.reduce((a, b) => a + b, 0) / escalatedLatencies.length;
 
@@ -125,7 +126,7 @@ export class SpeculativeEscalationValidator {
 			e.totalLatency > 0
 		);
 
-		if (nonEscalatedEvents.length === 0) return 0;
+		if (nonEscalatedEvents.length === 0) { return 0; }
 
 		const avgNonEscalatedLatency = nonEscalatedEvents
 			.map(e => e.totalLatency)
@@ -141,7 +142,7 @@ export class SpeculativeEscalationValidator {
 		escalationEvents: RoutingDecisionEvent[],
 		allEvents: RoutingDecisionEvent[]
 	): number {
-		if (escalationEvents.length === 0) return 0;
+		if (escalationEvents.length === 0) { return 0; }
 
 		// Acceptance rate for escalated events
 		const escalatedAccepted = escalationEvents.filter(e => e.userAccepted === true).length;

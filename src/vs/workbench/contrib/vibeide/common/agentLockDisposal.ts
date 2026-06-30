@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Agent territorial locks — disposal policy (pure helper).
@@ -100,7 +101,7 @@ export function filterLocksForDisposal(input: DisposalInput): DisposalResult {
  * so the caller never has to special-case it.
  */
 export function parseIsoMs(iso: string): number | null {
-	if (typeof iso !== 'string' || iso.length === 0) return null;
+	if (typeof iso !== 'string' || iso.length === 0) { return null; }
 	const ms = Date.parse(iso);
 	return Number.isFinite(ms) ? ms : null;
 }
@@ -127,15 +128,15 @@ export function buildLockReleaseAuditEntries(
  * disposal policy.
  */
 export function decodeAgentLocks(raw: unknown): readonly AgentLockEntry[] | null {
-	if (!Array.isArray(raw)) return null;
+	if (!Array.isArray(raw)) { return null; }
 	const out: AgentLockEntry[] = [];
 	for (const r of raw) {
-		if (!r || typeof r !== 'object') return null;
+		if (!r || typeof r !== 'object') { return null; }
 		const o = r as Record<string, unknown>;
 		const holder = typeof o.holder === 'string' && o.holder.length > 0 ? o.holder : null;
 		const paths = Array.isArray(o.paths) && o.paths.every(p => typeof p === 'string') ? o.paths as string[] : null;
 		const until = typeof o.until === 'string' && o.until.length > 0 ? o.until : null;
-		if (holder === null || paths === null || until === null) return null;
+		if (holder === null || paths === null || until === null) { return null; }
 		const reason = typeof o.reason === 'string' && o.reason.length > 0 ? o.reason : undefined;
 		out.push({ holder, paths, until, ...(reason ? { reason } : {}) });
 	}

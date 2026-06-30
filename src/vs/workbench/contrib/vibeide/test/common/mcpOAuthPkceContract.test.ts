@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -11,12 +12,15 @@ import {
 	decodeTokenResponse,
 	decideTokenRefresh,
 } from '../../common/mcpOAuthPkceContract.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const VALID_VERIFIER = 'a'.repeat(43);
 const VALID_CHALLENGE = 'b'.repeat(43);
 const VALID_STATE = 'c'.repeat(16);
 
 suite('MCP OAuth PKCE contract — pure helpers', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('buildPkcePair', () => {
 		test('happy path', () => {
@@ -31,7 +35,7 @@ suite('MCP OAuth PKCE contract — pure helpers', () => {
 		test('verifier too short → reject', () => {
 			const r = buildPkcePair({ codeVerifier: 'short', codeChallenge: VALID_CHALLENGE });
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'verifier-malformed');
+			if (!r.ok) { assert.strictEqual(r.reason, 'verifier-malformed'); }
 		});
 
 		test('verifier too long → reject', () => {
@@ -47,7 +51,7 @@ suite('MCP OAuth PKCE contract — pure helpers', () => {
 		test('challenge non-base64url → reject', () => {
 			const r = buildPkcePair({ codeVerifier: VALID_VERIFIER, codeChallenge: 'a'.repeat(42) + '!' });
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'challenge-malformed');
+			if (!r.ok) { assert.strictEqual(r.reason, 'challenge-malformed'); }
 		});
 
 		test('challenge too short → reject', () => {
@@ -86,7 +90,7 @@ suite('MCP OAuth PKCE contract — pure helpers', () => {
 				clientId: 'c', redirectUri: 'r', state: VALID_STATE, pair,
 			});
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'endpoint-not-https');
+			if (!r.ok) { assert.strictEqual(r.reason, 'endpoint-not-https'); }
 		});
 
 		test('rejects empty client id', () => {
@@ -95,7 +99,7 @@ suite('MCP OAuth PKCE contract — pure helpers', () => {
 				clientId: '', redirectUri: 'r', state: VALID_STATE, pair,
 			});
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'client-id-empty');
+			if (!r.ok) { assert.strictEqual(r.reason, 'client-id-empty'); }
 		});
 
 		test('rejects malformed state', () => {
@@ -104,7 +108,7 @@ suite('MCP OAuth PKCE contract — pure helpers', () => {
 				clientId: 'c', redirectUri: 'r', state: 'short', pair,
 			});
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'state-malformed');
+			if (!r.ok) { assert.strictEqual(r.reason, 'state-malformed'); }
 		});
 
 		test('omits scope when not set', () => {
@@ -127,7 +131,7 @@ suite('MCP OAuth PKCE contract — pure helpers', () => {
 				VALID_STATE,
 			);
 			assert.strictEqual(r.kind, 'ok');
-			if (r.kind === 'ok') assert.strictEqual(r.code, 'auth-code-x');
+			if (r.kind === 'ok') { assert.strictEqual(r.code, 'auth-code-x'); }
 		});
 
 		test('state mismatch → state-mismatch (CSRF defence)', () => {
@@ -192,7 +196,7 @@ suite('MCP OAuth PKCE contract — pure helpers', () => {
 		test('rejects missing access_token', () => {
 			const r = decodeTokenResponse({ token_type: 'Bearer' });
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'access_token-missing');
+			if (!r.ok) { assert.strictEqual(r.reason, 'access_token-missing'); }
 		});
 
 		test('rejects missing token_type', () => {
@@ -203,12 +207,12 @@ suite('MCP OAuth PKCE contract — pure helpers', () => {
 		test('non-finite expires_in dropped', () => {
 			const r = decodeTokenResponse({ access_token: 'a', token_type: 'Bearer', expires_in: NaN });
 			assert.strictEqual(r.ok, true);
-			if (r.ok) assert.strictEqual(r.value.expiresInSeconds, undefined);
+			if (r.ok) { assert.strictEqual(r.value.expiresInSeconds, undefined); }
 		});
 
 		test('floors fractional expires_in', () => {
 			const r = decodeTokenResponse({ access_token: 'a', token_type: 'Bearer', expires_in: 3600.7 });
-			if (r.ok) assert.strictEqual(r.value.expiresInSeconds, 3600);
+			if (r.ok) { assert.strictEqual(r.value.expiresInSeconds, 3600); }
 		});
 	});
 
@@ -231,7 +235,7 @@ suite('MCP OAuth PKCE contract — pure helpers', () => {
 				nowMs: NOW + 50_000,
 			});
 			assert.strictEqual(r.kind, 'should-refresh');
-			if (r.kind === 'should-refresh') assert.strictEqual(r.reason, 'expires-soon');
+			if (r.kind === 'should-refresh') { assert.strictEqual(r.reason, 'expires-soon'); }
 		});
 
 		test('expired → expired (regardless of refresh token)', () => {
@@ -250,7 +254,7 @@ suite('MCP OAuth PKCE contract — pure helpers', () => {
 				nowMs: NOW + 1000,
 			});
 			assert.strictEqual(r.kind, 'should-refresh');
-			if (r.kind === 'should-refresh') assert.strictEqual(r.reason, 'no-expires-known');
+			if (r.kind === 'should-refresh') { assert.strictEqual(r.reason, 'no-expires-known'); }
 		});
 
 		test('expires-soon without refresh token → no-refresh-token-available', () => {

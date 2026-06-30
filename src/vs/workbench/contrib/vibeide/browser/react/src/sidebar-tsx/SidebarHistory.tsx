@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useIsDark, useAccessor, useChatThreadsState, useFullChatThreadsStreamState } from '../util/services.js';
@@ -11,6 +12,7 @@ import '../styles.css';
 import ErrorBoundary from './ErrorBoundary.js';
 import { Search, RotateCcw, Settings as SettingsIcon } from 'lucide-react';
 import { IsRunningType, ThreadType } from '../../../chatThreadService.js';
+import type { ChatMessage } from '../../../../common/chatThreadServiceTypes.js';
 import { threadMatchesWorkspace } from '../../../../common/chatHistoryScope.js';
 import { chatS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 import type { TokenBudgetStatus } from '../../../../common/vibeTokenBudgetService.js';
@@ -239,7 +241,7 @@ const HistoryContent = () => {
 
 	// currentThreadId is part of the service state; read it on every render so
 	// it stays in sync with thread switches (threadsState changes trigger re-render).
-	const currentThreadId: string | undefined = (chatThreadsService as any).state?.currentThreadId;
+	const currentThreadId: string | undefined = chatThreadsService.state?.currentThreadId;
 
 	const runningThreadIds = useMemo(() => {
 		const result: Record<string, IsRunningType | undefined> = {};
@@ -274,8 +276,8 @@ const HistoryContent = () => {
 	const scope = useMemo((): HistoryScope => ({ showAll, currentWorkspaceId: wsId }), [showAll, wsId]);
 
 	const threadMatchesQuery = useCallback((t: ThreadType, q: string): boolean => {
-		const fu = t.messages.find(m => m.role === 'user') as any;
-		return ((fu?.displayContent || fu?.content || '') as string).toLowerCase().includes(q);
+		const fu = t.messages.find((m): m is ChatMessage & { role: 'user' } => m.role === 'user');
+		return (fu?.displayContent || fu?.content || '').toLowerCase().includes(q);
 	}, []);
 
 	const filteredThreads = useMemo(() => {

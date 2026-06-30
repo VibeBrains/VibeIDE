@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Cost-forecast confirm decision (926) — pure helper.
@@ -93,7 +94,7 @@ export function describeCostDecision(
 	forecast: CostForecast,
 	decision: CostConfirmDecision,
 ): string {
-	if (decision.kind === 'auto-allow') return '';
+	if (decision.kind === 'auto-allow') { return ''; }
 	const usd = forecast.estimatedUSD.toFixed(2);
 	const tokens = forecast.estimatedTokens.toLocaleString('en-US');
 	switch (decision.reason) {

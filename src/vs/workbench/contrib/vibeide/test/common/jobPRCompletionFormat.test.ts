@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -9,8 +10,11 @@ import {
 	buildPrTitle,
 	buildPrBody,
 } from '../../common/jobPRCompletionFormat.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('VibeJobPRCompletionService — branch + PR formatter', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('buildBranchName', () => {
 		test('happy path', () => {
@@ -24,7 +28,7 @@ suite('VibeJobPRCompletionService — branch + PR formatter', () => {
 
 		test('custom prefix', () => {
 			const r = buildBranchName({ prefix: 'agent', summary: 'Fix bug', runId: 'r1' });
-			if (r.ok) assert.ok(r.branch.startsWith('agent/'));
+			if (r.ok) { assert.ok(r.branch.startsWith('agent/')); }
 		});
 
 		test('cyrillic / non-ASCII summary slugified to empty → reject', () => {
@@ -34,18 +38,18 @@ suite('VibeJobPRCompletionService — branch + PR formatter', () => {
 
 		test('summary with mixed special chars sanitised', () => {
 			const r = buildBranchName({ summary: 'Hello, World! @#$', runId: 'r1' });
-			if (r.ok) assert.strictEqual(r.slug, 'hello-world');
+			if (r.ok) { assert.strictEqual(r.slug, 'hello-world'); }
 		});
 
 		test('multiple consecutive separators collapsed', () => {
 			const r = buildBranchName({ summary: 'a   b---c', runId: 'r1' });
-			if (r.ok) assert.strictEqual(r.slug, 'a-b-c');
+			if (r.ok) { assert.strictEqual(r.slug, 'a-b-c'); }
 		});
 
 		test('rejects empty summary', () => {
 			const r = buildBranchName({ summary: '', runId: 'r1' });
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'summary-empty');
+			if (!r.ok) { assert.strictEqual(r.reason, 'summary-empty'); }
 		});
 
 		test('rejects whitespace-only summary', () => {
@@ -56,39 +60,39 @@ suite('VibeJobPRCompletionService — branch + PR formatter', () => {
 		test('rejects malformed runId', () => {
 			const r = buildBranchName({ summary: 'x', runId: 'has space' });
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'run-id-malformed');
+			if (!r.ok) { assert.strictEqual(r.reason, 'run-id-malformed'); }
 		});
 
 		test('default prefix is vibe', () => {
 			const r = buildBranchName({ summary: 'x', runId: 'r1' });
-			if (r.ok) assert.ok(r.branch.startsWith('vibe/'));
+			if (r.ok) { assert.ok(r.branch.startsWith('vibe/')); }
 		});
 
 		test('over-long summary truncated', () => {
 			const r = buildBranchName({ summary: 'a'.repeat(500), runId: 'r1' });
-			if (r.ok) assert.ok(r.branch.length < 250);
+			if (r.ok) { assert.ok(r.branch.length < 250); }
 		});
 
 		test('prefix with spaces sanitised', () => {
 			const r = buildBranchName({ prefix: 'My Agent', summary: 'x', runId: 'r1' });
-			if (r.ok) assert.ok(r.branch.startsWith('my-agent/'));
+			if (r.ok) { assert.ok(r.branch.startsWith('my-agent/')); }
 		});
 	});
 
 	suite('buildPrTitle', () => {
 		test('plain summary', () => {
 			const r = buildPrTitle({ summary: 'Add login flow' });
-			if (r.ok) assert.strictEqual(r.title, 'Add login flow');
+			if (r.ok) { assert.strictEqual(r.title, 'Add login flow'); }
 		});
 
 		test('conventional commit prefix', () => {
 			const r = buildPrTitle({ summary: 'Add login', conventionalCommitType: 'feat', scope: 'auth' });
-			if (r.ok) assert.strictEqual(r.title, 'feat(auth): Add login');
+			if (r.ok) { assert.strictEqual(r.title, 'feat(auth): Add login'); }
 		});
 
 		test('conventional without scope', () => {
 			const r = buildPrTitle({ summary: 'Refactor', conventionalCommitType: 'refactor' });
-			if (r.ok) assert.strictEqual(r.title, 'refactor: Refactor');
+			if (r.ok) { assert.strictEqual(r.title, 'refactor: Refactor'); }
 		});
 
 		test('truncates to 72 chars with ellipsis', () => {

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -12,6 +13,7 @@ import {
 	PLAN_EXECUTION_LEASE_STALE_AFTER_MS,
 	PlanExecutionLease,
 } from '../../common/planLeaseLifecycle.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const lease = (planId: string, lastHeartbeat: number, threadId: string = 't1'): PlanExecutionLease => ({
 	planId,
@@ -25,6 +27,8 @@ const NOW = 1_750_000_000_000;
 const STALE = PLAN_EXECUTION_LEASE_STALE_AFTER_MS;
 
 suite('Plan lease lifecycle — pure helpers (K.1 / 904, 907)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('isLeaseStale', () => {
 		test('undefined lease is stale (no holder)', () => {
@@ -101,7 +105,7 @@ suite('Plan lease lifecycle — pure helpers (K.1 / 904, 907)', () => {
 				startedAt: NOW, lastHeartbeat: NOW, windowId: 42,
 			});
 			assert.strictEqual(r.ok, true);
-			if (r.ok) assert.strictEqual(r.value.windowId, 42);
+			if (r.ok) { assert.strictEqual(r.value.windowId, 42); }
 		});
 
 		test('drops windowId when not finite', () => {
@@ -110,7 +114,7 @@ suite('Plan lease lifecycle — pure helpers (K.1 / 904, 907)', () => {
 				startedAt: NOW, lastHeartbeat: NOW, windowId: 'oops',
 			});
 			assert.strictEqual(r.ok, true);
-			if (r.ok) assert.strictEqual(r.value.windowId, undefined);
+			if (r.ok) { assert.strictEqual(r.value.windowId, undefined); }
 		});
 
 		test('rejects non-object', () => {

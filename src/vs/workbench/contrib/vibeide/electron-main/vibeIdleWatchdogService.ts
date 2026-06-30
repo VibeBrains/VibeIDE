@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Idle Watchdog — diagnostic sampler for VibeIDE processes.
@@ -32,11 +33,23 @@
  * @see docs/roadmap.md (section W)
  */
 
-import * as path from 'node:path';
-import * as fs from 'original-fs';
-import * as v8 from 'node:v8';
-import * as zlib from 'node:zlib';
-import { PerformanceObserver } from 'node:perf_hooks';
+import * as path from '../../../../base/common/path.js';
+import * as fs from 'fs';
+import { createRequire } from 'node:module';
+import * as zlib from 'zlib';
+import { PerformanceObserver } from 'perf_hooks';
+
+/** Minimal view of the `v8` builtin used here (heap-snapshot writer + heap-limit query). */
+interface V8HeapSnapshotModule {
+	writeHeapSnapshot(filename?: string): string;
+	getHeapStatistics(): { heap_size_limit: number };
+}
+
+// `v8` is not on the allowed static-import list for this layer, and `writeHeapSnapshot`
+// is called from synchronous code paths (IPC-driven snapshot triggers) where switching
+// to `await import('v8')` would change the public contract. Resolve it once via a
+// synchronous CJS require, keeping behavior identical.
+const v8: V8HeapSnapshotModule = createRequire(import.meta.url)('v8');
 import { app, webContents, powerMonitor } from 'electron';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { parse as parseJsonc } from '../../../../base/common/jsonc.js';
@@ -48,7 +61,7 @@ import { parse as parseJsonc } from '../../../../base/common/jsonc.js';
 type TimerHandle = ReturnType<typeof setTimeout>;
 function unrefTimer(handle: TimerHandle | null): void {
 	const h = handle as unknown as { unref?: () => void };
-	if (typeof h?.unref === 'function') h.unref();
+	if (typeof h?.unref === 'function') { h.unref(); }
 }
 import type {
 	WatchdogCrashEntry,
@@ -158,7 +171,7 @@ const PERSISTED_STATE_FILE = 'state.json';
 
 function clampInt(v: unknown, min: number, max: number, fallback: number): number {
 	const n = typeof v === 'number' ? v : Number(v);
-	if (!Number.isFinite(n)) return fallback;
+	if (!Number.isFinite(n)) { return fallback; }
 	return Math.max(min, Math.min(max, Math.round(n)));
 }
 
@@ -168,7 +181,7 @@ function clampBool(v: unknown, fallback: boolean): boolean {
 
 function clampFloat(v: unknown, min: number, max: number, fallback: number): number {
 	const n = typeof v === 'number' ? v : Number(v);
-	if (!Number.isFinite(n)) return fallback;
+	if (!Number.isFinite(n)) { return fallback; }
 	return Math.max(min, Math.min(max, n));
 }
 
@@ -246,7 +259,7 @@ interface ProcessReportRoot {
 function buildProcessReportSubset(): WatchdogProcessReportSubset | undefined {
 	const proc = process as unknown as { report?: { getReport?: () => unknown } };
 	const getReport = proc.report?.getReport;
-	if (typeof getReport !== 'function') return undefined;
+	if (typeof getReport !== 'function') { return undefined; }
 	let report: ProcessReportRoot;
 	try {
 		report = getReport() as ProcessReportRoot;
@@ -333,7 +346,7 @@ class SlopeWatcher {
 		const first = this._samples[0];
 		const last = this._samples[this._samples.length - 1];
 		const dtMin = (last.ts - first.ts) / 60_000;
-		if (dtMin <= 0) return { slopeMBPerMin: 0, samples: this._samples.length, outlier: false };
+		if (dtMin <= 0) { return { slopeMBPerMin: 0, samples: this._samples.length, outlier: false }; }
 		const slope = ((last.rss - first.rss) / (1024 * 1024)) / dtMin;
 
 		// W.33: rolling history of slope values for statistical detection.
@@ -372,7 +385,7 @@ interface GcMetrics {
 }
 
 function attachGcObserver(): { snapshot: () => GcMetrics; dispose: () => void } | undefined {
-	if (typeof PerformanceObserver !== 'function') return undefined;
+	if (typeof PerformanceObserver !== 'function') { return undefined; }
 	const metrics: GcMetrics = { count: 0, majorCount: 0, totalMs: 0 };
 	try {
 		const obs = new PerformanceObserver((list) => {
@@ -388,7 +401,7 @@ function attachGcObserver(): { snapshot: () => GcMetrics; dispose: () => void } 
 				// Pre-W.41 also counted kind=4 as major, inflating `gcMajorCount` and
 				// triggering false positives in pre-OOM heuristic (W.34).
 				const detail = (entry as unknown as { detail?: { kind?: number } }).detail;
-				if (detail && (detail.kind === 2 || detail.kind === 15)) metrics.majorCount += 1;
+				if (detail && (detail.kind === 2 || detail.kind === 15)) { metrics.majorCount += 1; }
 			}
 		});
 		obs.observe({ entryTypes: ['gc'], buffered: false });
@@ -417,16 +430,16 @@ class WriteQueue {
 	private _flushing = false;
 	private _disposed = false;
 
-	constructor(private readonly _resolveFile: () => string) {}
+	constructor(private readonly _resolveFile: () => string) { }
 
 	enqueue(jsonLine: string): void {
-		if (this._disposed) return;
+		if (this._disposed) { return; }
 		this._queue.push(jsonLine);
 		void this._drain();
 	}
 
 	private async _drain(): Promise<void> {
-		if (this._flushing) return;
+		if (this._flushing) { return; }
 		this._flushing = true;
 		try {
 			while (this._queue.length > 0 && !this._disposed) {
@@ -434,7 +447,7 @@ class WriteQueue {
 				const filePath = this._resolveFile();
 				try {
 					const dir = path.dirname(filePath);
-					if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+					if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
 				} catch { /* directory creation best-effort */ }
 				await new Promise<void>((resolve) => {
 					fs.appendFile(filePath, batch, () => resolve());
@@ -451,14 +464,14 @@ class WriteQueue {
 	 * versus losing the final samples on Ctrl+C / hard kill.
 	 */
 	dispose(): void {
-		if (this._disposed) return;
+		if (this._disposed) { return; }
 		if (this._queue.length > 0) {
 			const finalBatch = this._queue.join('');
 			this._queue = [];
 			const filePath = this._resolveFile();
 			try {
 				const dir = path.dirname(filePath);
-				if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+				if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
 				fs.appendFileSync(filePath, finalBatch);
 			} catch {
 				// Best-effort; never throw from dispose.
@@ -556,7 +569,7 @@ export class VibeIdleWatchdogService {
 	get snapshotsDir(): string { return this._snapshotsDir; }
 
 	start(): void {
-		if (!this._config.enabled) return;
+		if (!this._config.enabled) { return; }
 		// 1630 — any growth / pre-OOM alert kicks the sampler into burst mode so the
 		// imminent spike is captured at second-resolution instead of slipping between
 		// two base-interval samples. Listeners are released when the emitters are
@@ -633,7 +646,7 @@ export class VibeIdleWatchdogService {
 	 * unavailable. Windows has no native SIGUSR2; harmless no-op there.
 	 */
 	private _installSignalHandler(): void {
-		if (process.platform === 'win32') return;
+		if (process.platform === 'win32') { return; }
 		try {
 			process.on('SIGUSR2', () => {
 				this.captureMainHeapSnapshot('signal');
@@ -804,7 +817,7 @@ export class VibeIdleWatchdogService {
 			const pidStr = parts[2];
 			// `pidStr === 'x'` means the key didn't carry a pid (pre-W.0 lines /
 			// callers that omit). Skip — we can't reconcile what we don't know.
-			if (pidStr === 'x') continue;
+			if (pidStr === 'x') { continue; }
 			const pid = Number(pidStr);
 			if (Number.isFinite(pid) && pid !== process.pid && !livePids.has(pid)) {
 				this._cleanupKey(key);
@@ -817,7 +830,7 @@ export class VibeIdleWatchdogService {
 	 */
 	captureMainHeapSnapshot(trigger: WatchdogSnapshotEntry['trigger']): WatchdogSnapshotEntry | null {
 		try {
-			if (!fs.existsSync(this._snapshotsDir)) fs.mkdirSync(this._snapshotsDir, { recursive: true });
+			if (!fs.existsSync(this._snapshotsDir)) { fs.mkdirSync(this._snapshotsDir, { recursive: true }); }
 			const ts = new Date();
 			const ymd = ts.toISOString().slice(0, 19).replace(/[-:T]/g, '').slice(0, 15);
 			const fileName = `${ymd}-main-${process.pid}.heapsnapshot`;
@@ -962,7 +975,7 @@ export class VibeIdleWatchdogService {
 	 * immediately so the speed-up doesn't wait for the next (slow) tick to land.
 	 */
 	private _enterBurst(): void {
-		if (!this._config.burstSamplingEnabled) return;
+		if (!this._config.burstSamplingEnabled) { return; }
 		this._burstTicksRemaining = this._config.burstDurationTicks;
 		this._maybeReschedule();
 	}
@@ -974,7 +987,7 @@ export class VibeIdleWatchdogService {
 	 * which `_scheduleInterval()` keeps in sync.
 	 */
 	private _maybeReschedule(): void {
-		if (this._intervalTimer === null) return;
+		if (this._intervalTimer === null) { return; }
 		const targetMs = this._effectiveIntervalMs();
 		if (targetMs !== this._currentIntervalMs) {
 			this._clearTimer('_intervalTimer');
@@ -999,7 +1012,7 @@ export class VibeIdleWatchdogService {
 	private _watchSettings(): void {
 		try {
 			const settingsPath = path.join(this._userDataPath, 'User', 'settings.json');
-			if (!fs.existsSync(settingsPath)) return;
+			if (!fs.existsSync(settingsPath)) { return; }
 			this._settingsWatcher = fs.watch(settingsPath, () => {
 				// Use the instance field instead of a closure-local so `stop()` can
 				// cancel a pending debounced reload — pre-W.41 the timer was only
@@ -1026,7 +1039,7 @@ export class VibeIdleWatchdogService {
 		this._config = next;
 		if (prev.intervalMinutes !== next.intervalMinutes) {
 			this._clearTimer('_intervalTimer');
-			if (next.enabled) this._scheduleInterval();
+			if (next.enabled) { this._scheduleInterval(); }
 		}
 		if (prev.enabled !== next.enabled) {
 			if (!next.enabled) {
@@ -1046,8 +1059,8 @@ export class VibeIdleWatchdogService {
 		const self = this as unknown as Record<typeof key, TimerHandle | null>;
 		const t = self[key];
 		if (t !== null) {
-			if (key === '_intervalTimer') clearInterval(t);
-			else clearTimeout(t);
+			if (key === '_intervalTimer') { clearInterval(t); }
+			else { clearTimeout(t); }
 			self[key] = null;
 		}
 	}
@@ -1072,7 +1085,7 @@ export class VibeIdleWatchdogService {
 			// W.50/1630 — re-arm if the effective interval changed (idle/active flip or burst enter/exit).
 			this._maybeReschedule();
 			// W.26 — periodic budget check (cheap; just sums sizes once per tick).
-			if (this._tickCounter % 12 === 0) this._enforceLogSizeCap();
+			if (this._tickCounter % 12 === 0) { this._enforceLogSizeCap(); }
 		} catch {
 			// Never throw from a timer callback — keeps the IDE event loop healthy.
 		}
@@ -1090,7 +1103,7 @@ export class VibeIdleWatchdogService {
 		const includeTypes = this._config.includeChildProcessTypes;
 		for (const m of metrics) {
 			livePids.add(m.pid);
-			if (m.pid === process.pid) continue;             // main — already sampled
+			if (m.pid === process.pid) { continue; }             // main — already sampled
 			// Renderers (`Tab`) used to be skipped here (covered by the W.1 renderer-side
 			// self-sample). But that self-sample reads `performance.memory` — JS heap only,
 			// no commit — and carries a bogus pid (-1). The renderer OOM 2026-05-30 was a
@@ -1100,7 +1113,7 @@ export class VibeIdleWatchdogService {
 			// for renderers too. They are exempt from `includeChildProcessTypes` (that filter
 			// targets helper utilities, not the renderer we most need to watch).
 			const isRenderer = m.type === 'Tab';
-			if (!isRenderer && !includeTypes.includes(m.type)) continue; // user-configurable filter (W.22)
+			if (!isRenderer && !includeTypes.includes(m.type)) { continue; } // user-configurable filter (W.22)
 			const proc = mapElectronTypeToProc(m.type);
 			// `workingSetSize` is in KILOBYTES per Electron docs; multiply to bytes for
 			// schema consistency with `process.memoryUsage().rss`.
@@ -1112,9 +1125,9 @@ export class VibeIdleWatchdogService {
 			// Tag renderer probes so readers don't confuse them with the heap-bearing W.1
 			// self-sample of the same window.
 			const tickNote = isRenderer ? (note ? `${note} commit-probe` : 'commit-probe') : note;
-				// A: label renderers with their webview identity (type + host/title) so a future
-				// commit-charge balloon is attributable to a specific process, not a bare pid.
-				const rendererLabel = isRenderer ? this._rendererLabel(m.pid) : undefined;
+			// A: label renderers with their webview identity (type + host/title) so a future
+			// commit-charge balloon is attributable to a specific process, not a bare pid.
+			const rendererLabel = isRenderer ? this._rendererLabel(m.pid) : undefined;
 			const uptimeSec = m.creationTime ? Math.round((Date.now() - m.creationTime) / 1000) : 0;
 			const sample: WatchdogSampleBase = {
 				v: 1,
@@ -1153,7 +1166,7 @@ export class VibeIdleWatchdogService {
 		const sanitize = (s: string | undefined): string | undefined => s?.replace(/[\r\n\t]/g, ' ').replace(/;+/g, ',').trim() || undefined;
 		const cleanTick = sanitize(tickNote);
 		const cleanLabel = sanitize(serviceName) ?? sanitize(name);
-		if (cleanTick && cleanLabel) return `${cleanTick}; ${cleanLabel}`;
+		if (cleanTick && cleanLabel) { return `${cleanTick}; ${cleanLabel}`; }
 		return cleanTick ?? cleanLabel ?? undefined;
 	}
 
@@ -1171,9 +1184,9 @@ export class VibeIdleWatchdogService {
 		// W.52: every main sample after a renderer death. 1630: samples taken while burst
 		// sampling is active.
 		const markers: string[] = [];
-		if (note) markers.push(note);
-		if (this._rendererCrashSeen) markers.push('post-renderer-crash');
-		if (this._burstTicksRemaining > 0) markers.push('burst');
+		if (note) { markers.push(note); }
+		if (this._rendererCrashSeen) { markers.push('post-renderer-crash'); }
+		if (this._burstTicksRemaining > 0) { markers.push('burst'); }
 		const effectiveNote = markers.length > 0 ? markers.join(' ') : undefined;
 		const sample: WatchdogSampleBase = {
 			v: 1,
@@ -1291,11 +1304,11 @@ export class VibeIdleWatchdogService {
 			&& prevRssMB !== undefined
 			&& (rssMB - prevRssMB) >= this._config.snapshotGrowthDeltaMB;
 
-		if (!overThreshold && !rapidGrowth) return;
+		if (!overThreshold && !rapidGrowth) { return; }
 		const last = this._lastSnapshotByKey.get(k) ?? 0;
 		const cooldownMs = this._config.snapshotCooldownMinutes * 60 * 1000;
 		const now = Date.now();
-		if (now - last < cooldownMs) return;
+		if (now - last < cooldownMs) { return; }
 		this._lastSnapshotByKey.set(k, now);
 		// Only main can snapshot itself synchronously; renderer/exthost snapshots are triggered
 		// by their own contributions (see W.4). For those the growth signal still lands in the
@@ -1307,7 +1320,7 @@ export class VibeIdleWatchdogService {
 
 	private _rotateSnapshots(): void {
 		try {
-			if (!fs.existsSync(this._snapshotsDir)) return;
+			if (!fs.existsSync(this._snapshotsDir)) { return; }
 			const files = fs.readdirSync(this._snapshotsDir)
 				.filter(f => f.endsWith('.heapsnapshot'))
 				.map(f => ({ name: f, full: path.join(this._snapshotsDir, f), mtime: fs.statSync(path.join(this._snapshotsDir, f)).mtimeMs }))
@@ -1323,13 +1336,13 @@ export class VibeIdleWatchdogService {
 
 	private _cleanupOldLogs(): void {
 		try {
-			if (!fs.existsSync(this._logsDir)) return;
+			if (!fs.existsSync(this._logsDir)) { return; }
 			const cutoffMs = Date.now() - this._config.retentionDays * 24 * 60 * 60 * 1000;
 			for (const file of fs.readdirSync(this._logsDir)) {
 				const m = file.match(/^(\d{4}-\d{2}-\d{2})\.jsonl(\.gz)?$/);
-				if (!m) continue;
+				if (!m) { continue; }
 				const fileDateMs = Date.parse(`${m[1]}T00:00:00.000Z`);
-				if (!Number.isFinite(fileDateMs)) continue;
+				if (!Number.isFinite(fileDateMs)) { continue; }
 				if (fileDateMs < cutoffMs) {
 					try { fs.unlinkSync(path.join(this._logsDir, file)); } catch { /* ignore */ }
 				}
@@ -1341,7 +1354,7 @@ export class VibeIdleWatchdogService {
 			// June 6 bundles, 45MB per export). Runs at startup + periodic tick alongside log cleanup.
 			if (fs.existsSync(this._snapshotsDir)) {
 				for (const file of fs.readdirSync(this._snapshotsDir)) {
-					if (!file.endsWith('.heapsnapshot')) continue;
+					if (!file.endsWith('.heapsnapshot')) { continue; }
 					const full = path.join(this._snapshotsDir, file);
 					try {
 						if (fs.statSync(full).mtimeMs < cutoffMs) { fs.unlinkSync(full); }
@@ -1359,16 +1372,16 @@ export class VibeIdleWatchdogService {
 	 * highly compressible). Compatible with readers via `.jsonl.gz` extension check.
 	 */
 	private _compressOldJsonl(): void {
-		if (!this._config.compressOldJsonl) return;
+		if (!this._config.compressOldJsonl) { return; }
 		try {
-			if (!fs.existsSync(this._logsDir)) return;
+			if (!fs.existsSync(this._logsDir)) { return; }
 			const todayFile = path.basename(currentLogFile(this._logsDir));
 			for (const file of fs.readdirSync(this._logsDir)) {
-				if (!/^\d{4}-\d{2}-\d{2}\.jsonl$/.test(file)) continue;
-				if (file === todayFile) continue; // active file
+				if (!/^\d{4}-\d{2}-\d{2}\.jsonl$/.test(file)) { continue; }
+				if (file === todayFile) { continue; } // active file
 				const srcPath = path.join(this._logsDir, file);
 				const dstPath = `${srcPath}.gz`;
-				if (fs.existsSync(dstPath)) continue; // already compressed (race-safe)
+				if (fs.existsSync(dstPath)) { continue; } // already compressed (race-safe)
 				try {
 					const data = fs.readFileSync(srcPath);
 					const compressed = zlib.gzipSync(data, { level: 9 });
@@ -1391,12 +1404,12 @@ export class VibeIdleWatchdogService {
 	 */
 	private _enforceLogSizeCap(): void {
 		try {
-			if (!fs.existsSync(this._logsDir)) return;
+			if (!fs.existsSync(this._logsDir)) { return; }
 			const budgetBytes = this._config.maxLogsTotalMB * 1024 * 1024;
 			interface FileInfo { full: string; size: number; mtime: number; kind: 'snapshot' | 'jsonl' | 'gz' | 'other' }
 			const files: FileInfo[] = [];
 			const visit = (dir: string): void => {
-				if (!fs.existsSync(dir)) return;
+				if (!fs.existsSync(dir)) { return; }
 				for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
 					const full = path.join(dir, entry.name);
 					if (entry.isDirectory()) { visit(full); continue; }
@@ -1412,7 +1425,7 @@ export class VibeIdleWatchdogService {
 			};
 			visit(this._logsDir);
 			let total = files.reduce((s, f) => s + f.size, 0);
-			if (total <= budgetBytes) return;
+			if (total <= budgetBytes) { return; }
 			// Prune priority: oldest snapshots first, then oldest .jsonl.gz, then
 			// oldest .jsonl (never the today file).
 			const todayFile = path.basename(currentLogFile(this._logsDir));
@@ -1420,11 +1433,11 @@ export class VibeIdleWatchdogService {
 				.filter(f => path.basename(f.full) !== todayFile)
 				.sort((a, b) => {
 					const order = { snapshot: 0, gz: 1, jsonl: 2, other: 3 };
-					if (order[a.kind] !== order[b.kind]) return order[a.kind] - order[b.kind];
+					if (order[a.kind] !== order[b.kind]) { return order[a.kind] - order[b.kind]; }
 					return a.mtime - b.mtime;
 				});
 			for (const f of sorted) {
-				if (total <= budgetBytes) break;
+				if (total <= budgetBytes) { break; }
 				try {
 					fs.unlinkSync(f.full);
 					total -= f.size;
@@ -1450,7 +1463,7 @@ export class VibeIdleWatchdogService {
 	private _persistState(): void {
 		try {
 			const statePath = path.join(this._logsDir, PERSISTED_STATE_FILE);
-			if (!fs.existsSync(this._logsDir)) fs.mkdirSync(this._logsDir, { recursive: true });
+			if (!fs.existsSync(this._logsDir)) { fs.mkdirSync(this._logsDir, { recursive: true }); }
 			const payload = {
 				v: 1,
 				savedAt: new Date().toISOString(),
@@ -1466,17 +1479,17 @@ export class VibeIdleWatchdogService {
 	private _loadPersistedState(): void {
 		try {
 			const statePath = path.join(this._logsDir, PERSISTED_STATE_FILE);
-			if (!fs.existsSync(statePath)) return;
+			if (!fs.existsSync(statePath)) { return; }
 			const raw = fs.readFileSync(statePath, 'utf-8');
 			const parsed = JSON.parse(raw) as { lastTickTsByKey?: Record<string, string>; lastSnapshotByKey?: Record<string, number> };
 			if (parsed?.lastTickTsByKey) {
 				for (const [k, v] of Object.entries(parsed.lastTickTsByKey)) {
-					if (typeof k === 'string' && typeof v === 'string') this._lastTickTsByKey.set(k, v);
+					if (typeof k === 'string' && typeof v === 'string') { this._lastTickTsByKey.set(k, v); }
 				}
 			}
 			if (parsed?.lastSnapshotByKey) {
 				for (const [k, v] of Object.entries(parsed.lastSnapshotByKey)) {
-					if (typeof k === 'string' && typeof v === 'number') this._lastSnapshotByKey.set(k, v);
+					if (typeof k === 'string' && typeof v === 'number') { this._lastSnapshotByKey.set(k, v); }
 				}
 			}
 		} catch {
@@ -1492,7 +1505,7 @@ export class VibeIdleWatchdogService {
 	 */
 	private _evaluatePreOom(sample: WatchdogSampleBase, currentSlopeMBPerMin: number): void {
 		const k = keyFor({ proc: sample.proc, windowId: sample.windowId, pid: sample.pid });
-		if (this._preOomNotified.has(k)) return;
+		if (this._preOomNotified.has(k)) { return; }
 		const ratio = (sample.heapUsed !== undefined && sample.heapLimit !== undefined && sample.heapLimit > 0)
 			? sample.heapUsed / sample.heapLimit
 			: undefined;
@@ -1506,7 +1519,7 @@ export class VibeIdleWatchdogService {
 		const heuristicCommit = this._config.commitAlertMB > 0
 			&& commitMB !== undefined
 			&& commitMB >= this._config.commitAlertMB;
-		if (!heuristicRatio && !heuristicGc && !heuristicCommit) return;
+		if (!heuristicRatio && !heuristicGc && !heuristicCommit) { return; }
 		this._preOomNotified.add(k);
 		const alert: WatchdogPreOomAlert = {
 			proc: sample.proc,
@@ -1535,12 +1548,12 @@ export class VibeIdleWatchdogService {
 	 */
 	readRecentTail(maxLines = 50): WatchdogLine[] {
 		try {
-			if (!fs.existsSync(this._logsDir)) return [];
+			if (!fs.existsSync(this._logsDir)) { return []; }
 			const files = fs.readdirSync(this._logsDir)
 				.filter(f => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f))
 				.sort()
 				.reverse();
-			if (files.length === 0) return [];
+			if (files.length === 0) { return []; }
 			const latestPath = path.join(this._logsDir, files[0]);
 			const text = fs.readFileSync(latestPath, 'utf-8');
 			const lines = text.split('\n').filter(Boolean);
@@ -1571,7 +1584,7 @@ let _instance: VibeIdleWatchdogService | null = null;
  * `app.setPath('userData', ...)` so `userDataPath` is authoritative.
  */
 export function startVibeIdleWatchdog(userDataPath: string): VibeIdleWatchdogService | null {
-	if (_instance !== null) return _instance;
+	if (_instance !== null) { return _instance; }
 	const svc = new VibeIdleWatchdogService(userDataPath);
 	svc.start();
 	_instance = svc;
@@ -1582,7 +1595,7 @@ export function startVibeIdleWatchdog(userDataPath: string): VibeIdleWatchdogSer
  * Stop the watchdog. Used in tests and clean shutdown.
  */
 export function stopVibeIdleWatchdog(): void {
-	if (_instance === null) return;
+	if (_instance === null) { return; }
 	_instance.stop();
 	_instance = null;
 }

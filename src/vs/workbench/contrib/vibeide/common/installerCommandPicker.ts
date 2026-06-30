@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Pure helper: pick the right "copy to clipboard" install command for the
@@ -105,10 +106,10 @@ function escapePowerShell(s: string): string {
  */
 export function detectInstallerOS(extension: string, platform: string): InstallerOS {
 	const ext = extension.toLowerCase();
-	if (ext === '.exe' || (platform === 'win32' && ext === '')) return 'win32';
-	if (ext === '.pkg' || ext === '.dmg' || (platform === 'darwin' && ext === '')) return 'darwin';
-	if (ext === '.deb') return 'linux-deb';
-	if (ext === '.rpm') return 'linux-rpm';
-	if (ext === '.appimage') return 'linux-appimage';
+	if (ext === '.exe' || (platform === 'win32' && ext === '')) { return 'win32'; }
+	if (ext === '.pkg' || ext === '.dmg' || (platform === 'darwin' && ext === '')) { return 'darwin'; }
+	if (ext === '.deb') { return 'linux-deb'; }
+	if (ext === '.rpm') { return 'linux-rpm'; }
+	if (ext === '.appimage') { return 'linux-appimage'; }
 	return 'unknown';
 }

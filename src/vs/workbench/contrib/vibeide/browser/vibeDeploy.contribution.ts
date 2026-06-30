@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Vibe Deploy — native seam (roadmap VD.3). A thin bridge that hands the deploy task to the
@@ -18,7 +19,7 @@ import { ServicesAccessor } from '../../../../editor/browser/editorExtensions.js
 import { IChatThreadService } from './chatThreadService.js';
 import { VIBE_SERVER_VIEW_ID } from './vibeServer/vibeServerConstants.js';
 
-const DEPLOY_REQUEST = "Задеплой этот проект, используя скилл vibe-deploy. Сначала проанализируй проект и покажи план; не выполняй внешних действий (создание инфраструктуры, push, смена DNS) без моего подтверждения.";
+const DEPLOY_REQUEST = localize('vibeide.vibeDeploy.request', "Задеплой этот проект, используя скилл vibe-deploy. Сначала проанализируй проект и покажи план; не выполняй внешних действий (создание инфраструктуры, push, смена DNS) без моего подтверждения.");
 
 registerAction2(
 	class VibeDeployRun extends Action2 {

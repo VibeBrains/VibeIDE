@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Performance Harness for VibeIDE
@@ -166,7 +167,7 @@ export class PerformanceHarness {
 	 * Record a render frame with batch information
 	 */
 	recordRenderFrame(requestId: string, batchSize: number, batchMs: number, framesDropped: number = 0): void {
-		if (!this.enabled) return;
+		if (!this.enabled) { return; }
 
 		// Use microtask to avoid blocking UI thread
 		Promise.resolve().then(() => {
@@ -184,7 +185,7 @@ export class PerformanceHarness {
 	 * Record a chat pipeline checkpoint
 	 */
 	recordChatCheckpoint(requestId: string, checkpoint: ChatCheckpoint, timestamp?: number): void {
-		if (!this.enabled) return;
+		if (!this.enabled) { return; }
 
 		const now = timestamp ?? performance.now();
 		const request = this.chatRequests.get(requestId) ?? {};
@@ -199,7 +200,7 @@ export class PerformanceHarness {
 		// total churn is bounded by MAX_TRACKED_CHAT_REQUESTS.
 		if (this.chatRequests.size > PerformanceHarness.MAX_TRACKED_CHAT_REQUESTS) {
 			const oldestKey = this.chatRequests.keys().next().value;
-			if (oldestKey !== undefined) this.chatRequests.delete(oldestKey);
+			if (oldestKey !== undefined) { this.chatRequests.delete(oldestKey); }
 		}
 
 		// Calculate elapsed time from onPrompt
@@ -220,7 +221,7 @@ export class PerformanceHarness {
 	 * Record autocomplete metrics
 	 */
 	recordAutocomplete(providerTime: number, totalTime: number, cacheHit: boolean = false): void {
-		if (!this.enabled) return;
+		if (!this.enabled) { return; }
 
 		// Use microtask to avoid blocking UI thread
 		Promise.resolve().then(() => {
@@ -237,7 +238,7 @@ export class PerformanceHarness {
 	 * Record indexer metrics
 	 */
 	recordIndexer(filesPerSec: number, avgParseMs: number, cpuBudgetHit: boolean = false): void {
-		if (!this.enabled) return;
+		if (!this.enabled) { return; }
 
 		// Use microtask to avoid blocking UI thread
 		Promise.resolve().then(() => {
@@ -254,7 +255,7 @@ export class PerformanceHarness {
 	 * Record router metrics
 	 */
 	recordRouter(decisionTime: number, cacheHit: boolean = false): void {
-		if (!this.enabled) return;
+		if (!this.enabled) { return; }
 
 		// Use microtask to avoid blocking UI thread
 		Promise.resolve().then(() => {
@@ -278,7 +279,7 @@ export class PerformanceHarness {
 
 		// Calculate percentiles helper
 		const percentile = (values: number[], p: number): number => {
-			if (values.length === 0) return 0;
+			if (values.length === 0) { return 0; }
 			const sorted = [...values].sort((a, b) => a - b);
 			const index = Math.floor(sorted.length * p);
 			return sorted[index] ?? 0;
@@ -301,9 +302,9 @@ export class PerformanceHarness {
 
 		for (const metric of chatAll) {
 			const req = requestMap.get(metric.requestId) ?? {};
-			if (metric.checkpoint === 'onPrompt') req.onPrompt = metric.elapsedMs === 0 ? metric.timestamp : undefined;
-			if (metric.checkpoint === 'firstToken') req.firstToken = metric.timestamp;
-			if (metric.checkpoint === 'lastToken') req.lastToken = metric.timestamp;
+			if (metric.checkpoint === 'onPrompt') { req.onPrompt = metric.elapsedMs === 0 ? metric.timestamp : undefined; }
+			if (metric.checkpoint === 'firstToken') { req.firstToken = metric.timestamp; }
+			if (metric.checkpoint === 'lastToken') { req.lastToken = metric.timestamp; }
 			requestMap.set(metric.requestId, req);
 		}
 

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Provider auto-failover contribution (roadmap § N.3 / line 1184).
@@ -83,7 +84,7 @@ export class VibeProviderFailoverContribution extends Disposable implements IWor
 		const failoverOutcome = toFailoverOutcome(event.outcome);
 		const config = { ...FAILOVER_DEFAULTS, chain };
 
-		let state = this._states.get(event.providerName) ?? initFailoverState(event.providerName);
+		const state = this._states.get(event.providerName) ?? initFailoverState(event.providerName);
 		const { state: nextState, decision } = processOutcome(state, failoverOutcome, Date.now(), config);
 		this._states.set(event.providerName, nextState);
 
@@ -98,7 +99,7 @@ export class VibeProviderFailoverContribution extends Disposable implements IWor
 					decision.to,
 				),
 			});
-			void this._audit.append({ ts: Date.now(), action: 'provider_failover_switch' as any, ok: true, meta: { from: decision.from, to: decision.to } });
+			void this._audit.append({ ts: Date.now(), action: 'provider_failover_switch', ok: true, meta: { from: decision.from, to: decision.to } });
 		} else if (decision.kind === 'chain-exhausted') {
 			this._log.error(`[ProviderFailover] All providers exhausted — last tried: ${decision.lastTriedProviderId}`);
 			this._notifications.notify({

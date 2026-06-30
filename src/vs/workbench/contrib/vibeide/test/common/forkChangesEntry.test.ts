@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	decodeForkChangeEntry,
 	formatForkChangeLine,
@@ -20,6 +22,8 @@ const valid: ForkChangeEntry = {
 };
 
 suite('FORK_CHANGES.md entry formatter + dedup', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decodeForkChangeEntry', () => {
 		test('happy path', () => {
@@ -54,13 +58,13 @@ suite('FORK_CHANGES.md entry formatter + dedup', () => {
 
 		test('trims summary whitespace', () => {
 			const r = decodeForkChangeEntry({ ...valid, summary: '  Add PKCE  ' });
-			if (r.ok) assert.strictEqual(r.value.summary, 'Add PKCE');
+			if (r.ok) { assert.strictEqual(r.value.summary, 'Add PKCE'); }
 		});
 
 		test('prRef optional', () => {
 			const r = decodeForkChangeEntry({ ...valid, prRef: undefined });
 			assert.strictEqual(r.ok, true);
-			if (r.ok) assert.strictEqual(r.value.prRef, undefined);
+			if (r.ok) { assert.strictEqual(r.value.prRef, undefined); }
 		});
 
 		test('prRef numeric form accepted', () => {
@@ -148,13 +152,13 @@ suite('FORK_CHANGES.md entry formatter + dedup', () => {
 		test('append when not present', () => {
 			const r = decideForkChangeAppend(valid, '');
 			assert.strictEqual(r.action, 'append');
-			if (r.action === 'append') assert.ok(r.line.includes('VibeMCPOAuthService'));
+			if (r.action === 'append') { assert.ok(r.line.includes('VibeMCPOAuthService')); }
 		});
 
 		test('skip when prRef already present', () => {
 			const r = decideForkChangeAppend(valid, 'previous entry: (#123)\n');
 			assert.strictEqual(r.action, 'skip');
-			if (r.action === 'skip') assert.strictEqual(r.reason, 'duplicate-pr');
+			if (r.action === 'skip') { assert.strictEqual(r.reason, 'duplicate-pr'); }
 		});
 
 		test('skip when composite key matches and no prRef', () => {

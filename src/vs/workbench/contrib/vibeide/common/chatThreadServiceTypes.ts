@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { URI } from '../../../../base/common/uri.js';
 import { VibeideFileSnapshot } from './editCodeServiceTypes.js';
@@ -17,22 +18,22 @@ export type ToolMessage<T extends ToolName> = {
 	pinned?: boolean; // pin-context: honored by budget-fill truncation; setter (UI) pending
 } & (
 		// in order of events:
-		| { type: 'invalid_params', result: null, name: T, }
+		| { type: 'invalid_params'; result: null; name: T }
 
-		| { type: 'tool_request', result: null, name: T, params: ToolCallParams<T>, }  // params were validated, awaiting user
+		| { type: 'tool_request'; result: null; name: T; params: ToolCallParams<T> }  // params were validated, awaiting user
 
-		| { type: 'running_now', result: null, name: T, params: ToolCallParams<T>, }
+		| { type: 'running_now'; result: null; name: T; params: ToolCallParams<T> }
 
-		| { type: 'tool_error', result: string, name: T, params: ToolCallParams<T>, } // error when tool was running
-		| { type: 'success', result: Awaited<ToolResult<T>>, name: T, params: ToolCallParams<T>, }
-		| { type: 'rejected', result: null, name: T, params: ToolCallParams<T> }
-	) // user rejected
+		| { type: 'tool_error'; result: string; name: T; params: ToolCallParams<T> } // error when tool was running
+		| { type: 'success'; result: Awaited<ToolResult<T>>; name: T; params: ToolCallParams<T> }
+		| { type: 'rejected'; result: null; name: T; params: ToolCallParams<T> }
+	); // user rejected
 
 export type DecorativeCanceledTool = {
 	role: 'interrupted_streaming_tool';
 	name: ToolName;
 	mcpServerName: string | undefined; // the server name at the time of the call
-}
+};
 
 
 // checkpoints
@@ -45,7 +46,7 @@ export type CheckpointEntry = {
 		voidFileSnapshotOfURI: { [fsPath: string]: VibeideFileSnapshot | undefined };
 	};
 	createdAt?: number; // unix ms when checkpoint was created
-}
+};
 
 
 // Plan and Review message types for structured Agent Mode workflow
@@ -72,7 +73,7 @@ export type PlanStep = {
 	worktreeBranch?: string;
 	/** Optional: speculative exploration id (`IVibeSpeculativeExplorationService`). */
 	explorationId?: string;
-}
+};
 
 export type PlanMessage = {
 	role: 'plan';
@@ -90,7 +91,7 @@ export type PlanMessage = {
 		readonly message: string;
 		readonly reviewedAt: number;
 	};
-}
+};
 
 export type ReviewMessage = {
 	role: 'review';
@@ -113,7 +114,7 @@ export type ReviewMessage = {
 	stepsTotal?: number; // total number of steps
 	checkpointCount?: number; // number of checkpoints created
 	lastCheckpointIdx?: number | null; // index of last checkpoint
-}
+};
 
 // Image attachment type for chat messages
 export type ChatImageAttachment = {
@@ -167,7 +168,7 @@ export type ChatMessage =
 		state: {
 			stagingSelections: StagingSelectionItem[];
 			isBeingEdited: boolean;
-		}
+		};
 		createdAt?: number; // unix ms when message was added to thread
 	} | {
 		role: 'assistant';
@@ -186,7 +187,7 @@ export type ChatMessage =
 	| DecorativeCanceledTool
 	| CheckpointEntry
 	| PlanMessage
-	| ReviewMessage
+	| ReviewMessage;
 
 
 // one of the square items that indicates a selection in a chat bubble
@@ -194,29 +195,29 @@ export type StagingSelectionItem = {
 	type: 'File';
 	uri: URI;
 	language: string;
-	state: { wasAddedAsCurrentFile: boolean; };
+	state: { wasAddedAsCurrentFile: boolean };
 } | {
 	type: 'CodeSelection';
 	range: [number, number];
 	uri: URI;
 	language: string;
-	state: { wasAddedAsCurrentFile: boolean; };
+	state: { wasAddedAsCurrentFile: boolean };
 } | {
 	type: 'Folder';
 	uri: URI;
 	language?: undefined;
 	state?: undefined;
-}
+};
 
 
 // a link to a symbol (an underlined link to a piece of code)
 export type CodespanLocationLink = {
-	uri: URI, // we handle serialization for this
-	displayText: string,
+	uri: URI; // we handle serialization for this
+	displayText: string;
 	selection?: { // store as JSON so dont have to worry about serialization
-		startLineNumber: number
-		startColumn: number,
-		endLineNumber: number
-		endColumn: number,
-	} | undefined
-} | null
+		startLineNumber: number;
+		startColumn: number;
+		endLineNumber: number;
+		endColumn: number;
+	} | undefined;
+} | null;

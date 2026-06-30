@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * `vibeide.watchdog.bundleCrashReport` — Action2 for manually exporting a
@@ -47,7 +48,7 @@ class VibeIdleWatchdogBundleAction extends Action2 {
 			defaultUri,
 			filters: [{ name: 'ZIP', extensions: ['zip'] }],
 		});
-		if (!target) return;
+		if (!target) { return; }
 		try {
 			const result = await proxy.bundleCrashReport(target.fsPath);
 			notifications.notify({

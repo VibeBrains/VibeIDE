@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 // Scope contract: references/v1/telemetry-service-scope.md
 // Local audit channel — no outbound calls.  Rename to RoutingAuditService is a backlog item.
@@ -167,7 +168,8 @@ export class VibeideTelemetryService extends Disposable implements IVibeideTelem
 		// Compute aggregate metrics
 		const performanceEvents: ModelPerformanceEvent[] = [];
 		for (const [key, groupEvents] of groups) {
-			const [provider, modelName, taskType] = key.split(':');
+			const [provider, modelName] = key.split(':');
+			const taskType = groupEvents[0].taskType;
 			const isLocal = groupEvents[0].selectedModel.isLocal;
 
 			const totalRequests = groupEvents.length;
@@ -196,7 +198,7 @@ export class VibeideTelemetryService extends Disposable implements IVibeideTelem
 			const qualityScores = groupEvents
 				.filter(e => e.userAccepted !== undefined)
 				.map(e => {
-					if (!e.userAccepted) return 0;
+					if (!e.userAccepted) { return 0; }
 					if (e.editDistance !== undefined) {
 						return Math.max(0, 1 - (e.editDistance / 100)); // Normalize edit distance
 					}
@@ -220,7 +222,7 @@ export class VibeideTelemetryService extends Disposable implements IVibeideTelem
 				provider,
 				modelName,
 				isLocal,
-				taskType: taskType as any,
+				taskType,
 				totalRequests,
 				successRate,
 				avgLatency,
@@ -266,7 +268,7 @@ export class VibeideTelemetryService extends Disposable implements IVibeideTelem
 	 * Flush events to storage (async, non-blocking)
 	 */
 	private async _flushAsync(): Promise<void> {
-		if (this.eventQueue.length === 0) return;
+		if (this.eventQueue.length === 0) { return; }
 
 		const eventsToFlush = [...this.eventQueue];
 		this.eventQueue = [];

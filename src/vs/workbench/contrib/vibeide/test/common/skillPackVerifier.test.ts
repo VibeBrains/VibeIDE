@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -9,6 +10,7 @@ import {
 	verifyPackHashes,
 	SkillCommunityPackEnvelope,
 } from '../../common/skillPackVerifier.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 const sha = (c: string) => c.repeat(64);
 
@@ -22,11 +24,13 @@ const validEnvelope = (overrides: Partial<SkillCommunityPackEnvelope> = {}): Ski
 
 suite('Community skill-pack verifier', () => {
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	suite('decodePackEnvelope', () => {
 		test('happy path', () => {
 			const r = decodePackEnvelope(validEnvelope());
 			assert.strictEqual(r.ok, true);
-			if (r.ok) assert.strictEqual(r.value.entries.length, 1);
+			if (r.ok) { assert.strictEqual(r.value.entries.length, 1); }
 		});
 
 		test('rejects unknown formatVersion', () => {
@@ -40,7 +44,7 @@ suite('Community skill-pack verifier', () => {
 				entries: [{ id: 'BAD ID', name: 'x', content: 'y' }],
 			});
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'entries[0]:id-invalid');
+			if (!r.ok) { assert.strictEqual(r.reason, 'entries[0]:id-invalid'); }
 		});
 
 		test('rejects empty content', () => {
@@ -49,7 +53,7 @@ suite('Community skill-pack verifier', () => {
 				entries: [{ id: 'a', name: 'x', content: '' }],
 			});
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'entries[0]:content-missing');
+			if (!r.ok) { assert.strictEqual(r.reason, 'entries[0]:content-missing'); }
 		});
 
 		test('rejects duplicate id', () => {
@@ -62,7 +66,7 @@ suite('Community skill-pack verifier', () => {
 				manifestSha256: { a: sha('1') },
 			});
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.match(r.reason, /^entries\[1\]:duplicate-id:a$/);
+			if (!r.ok) { assert.match(r.reason, /^entries\[1\]:duplicate-id:a$/); }
 		});
 
 		test('rejects malformed sha256 in manifest', () => {
@@ -71,13 +75,13 @@ suite('Community skill-pack verifier', () => {
 				manifestSha256: { a: 'too-short' },
 			});
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.match(r.reason, /manifestSha256\.a:invalid-sha256/);
+			if (!r.ok) { assert.match(r.reason, /manifestSha256\.a:invalid-sha256/); }
 		});
 
 		test('lowercases sha256 in output', () => {
 			const r = decodePackEnvelope({ ...validEnvelope(), manifestSha256: { a: 'A'.repeat(64) } });
 			assert.strictEqual(r.ok, true);
-			if (r.ok) assert.strictEqual(r.value.manifestSha256.a, 'a'.repeat(64));
+			if (r.ok) { assert.strictEqual(r.value.manifestSha256.a, 'a'.repeat(64)); }
 		});
 	});
 
@@ -121,7 +125,7 @@ suite('Community skill-pack verifier', () => {
 				{ id: 'b', sha256: sha('2') },
 			]);
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'manifest-incomplete');
+			if (!r.ok) { assert.strictEqual(r.reason, 'manifest-incomplete'); }
 		});
 
 		test('duplicate id in computed → duplicate-id', () => {
@@ -131,7 +135,7 @@ suite('Community skill-pack verifier', () => {
 				{ id: 'a', sha256: sha('2') },
 			]);
 			assert.strictEqual(r.ok, false);
-			if (!r.ok) assert.strictEqual(r.reason, 'duplicate-id');
+			if (!r.ok) { assert.strictEqual(r.reason, 'duplicate-id'); }
 		});
 
 		test('case-insensitive sha comparison', () => {

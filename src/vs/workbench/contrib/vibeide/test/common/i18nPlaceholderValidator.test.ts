@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	extractPlaceholders,
 	validatePlaceholderParity,
@@ -11,6 +13,8 @@ import {
 } from '../../common/i18nPlaceholderValidator.js';
 
 suite('i18n placeholder validator (506 / 507)', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('extractPlaceholders', () => {
 		test('extracts {0} {1} {2}', () => {
@@ -99,7 +103,7 @@ suite('i18n placeholder validator (506 / 507)', () => {
 
 		test('translation has extra key with placeholder → extra-placeholder', () => {
 			const r = validateBundlePlaceholders(
-				{ },
+				{},
 				{ orphan: '{0} обр' },
 			);
 			assert.strictEqual(r.violations.length, 1);
@@ -109,7 +113,7 @@ suite('i18n placeholder validator (506 / 507)', () => {
 		test('source-only key (no translation) is silently skipped', () => {
 			const r = validateBundlePlaceholders(
 				{ a: '{0}' },
-				{ },
+				{},
 			);
 			assert.strictEqual(r.violations.length, 0);
 			assert.strictEqual(r.checked, 1);

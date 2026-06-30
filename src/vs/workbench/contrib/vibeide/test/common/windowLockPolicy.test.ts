@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	decideWindowRole,
 	decodeWindowLock,
@@ -24,6 +26,8 @@ const lockAt = (overrides: Partial<WindowLock> = {}): WindowLock => ({
 
 suite('windowLockPolicy', () => {
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	suite('decideWindowRole', () => {
 		test('no lock → first-owner', () => {
 			const r = decideWindowRole({ now: NOW, currentPid: 999, lock: null });
@@ -33,7 +37,7 @@ suite('windowLockPolicy', () => {
 		test('lock present with same pid → owner (pid-match)', () => {
 			const r = decideWindowRole({ now: NOW, currentPid: 1234, lock: lockAt() });
 			assert.strictEqual(r.role, 'owner');
-			if (r.role === 'owner') assert.strictEqual(r.reason, 'pid-match');
+			if (r.role === 'owner') { assert.strictEqual(r.reason, 'pid-match'); }
 		});
 
 		test('lock present with same windowId → owner (window-id-match) even if pid differs', () => {
@@ -44,7 +48,7 @@ suite('windowLockPolicy', () => {
 				lock: lockAt({ pid: 1234, windowId: 'w-1' }),
 			});
 			assert.strictEqual(r.role, 'owner');
-			if (r.role === 'owner') assert.strictEqual(r.reason, 'window-id-match');
+			if (r.role === 'owner') { assert.strictEqual(r.reason, 'window-id-match'); }
 		});
 
 		test('foreign pid + fresh heartbeat → observer', () => {
@@ -83,7 +87,7 @@ suite('windowLockPolicy', () => {
 				isPidAlive: () => false,
 			});
 			assert.strictEqual(r.role, 'takeover-candidate');
-			if (r.role === 'takeover-candidate') assert.strictEqual(r.reason, 'pid-vanished');
+			if (r.role === 'takeover-candidate') { assert.strictEqual(r.reason, 'pid-vanished'); }
 		});
 
 		test('default ttl is 60s when not provided', () => {
@@ -112,7 +116,7 @@ suite('windowLockPolicy', () => {
 				currentPid: 9999,
 				lock: lockAt({ pid: 1234, lastHeartbeatAtMs: NOW + 5_000 }),
 			});
-			if (r.role === 'observer') assert.strictEqual(r.heartbeatAgeMs, 0);
+			if (r.role === 'observer') { assert.strictEqual(r.heartbeatAgeMs, 0); }
 		});
 	});
 

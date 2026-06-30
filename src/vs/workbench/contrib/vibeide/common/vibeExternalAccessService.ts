@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { URI } from '../../../../base/common/uri.js';
 import { isWindows } from '../../../../base/common/platform.js';
@@ -53,7 +54,7 @@ export const isPathAllowed = (targetPath: string, allowedFolders: readonly strin
 // ── Service ─────────────────────────────────────────────────────────────────────
 
 export type ExternalAccessScope = 'session' | 'workspace';
-export interface ExternalAccessEntry { readonly path: string; readonly scope: ExternalAccessScope; }
+export interface ExternalAccessEntry { readonly path: string; readonly scope: ExternalAccessScope }
 
 export interface IVibeExternalAccessService {
 	readonly _serviceBrand: undefined;

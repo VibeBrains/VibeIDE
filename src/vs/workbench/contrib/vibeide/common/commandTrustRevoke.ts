@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — trust revocation policy (pure helper).
@@ -73,7 +74,7 @@ export interface TrustRevocationInput {
  */
 export function decideTrustRevocations(input: TrustRevocationInput): TrustRevocationResult {
 	const byId = new Map<string, CommandShape>();
-	for (const c of input.commands) byId.set(c.id, c);
+	for (const c of input.commands) { byId.set(c.id, c); }
 
 	const keep: CommandTrustEntry[] = [];
 	const revoke: RevocationDecision[] = [];
@@ -106,15 +107,15 @@ export function decideTrustRevocations(input: TrustRevocationInput): TrustRevoca
  * malformation. Bridges between `safeParseConfigJson` and the policy.
  */
 export function decodeCommandTrustEntries(raw: unknown): readonly CommandTrustEntry[] | null {
-	if (!Array.isArray(raw)) return null;
+	if (!Array.isArray(raw)) { return null; }
 	const out: CommandTrustEntry[] = [];
 	for (const r of raw) {
-		if (!r || typeof r !== 'object') return null;
+		if (!r || typeof r !== 'object') { return null; }
 		const o = r as Record<string, unknown>;
 		const id = typeof o.id === 'string' && o.id.length > 0 ? o.id : null;
 		const commandShapeHash = typeof o.commandShapeHash === 'string' && o.commandShapeHash.length > 0 ? o.commandShapeHash : null;
 		const trustedAtMs = typeof o.trustedAtMs === 'number' && Number.isFinite(o.trustedAtMs) ? o.trustedAtMs : null;
-		if (id === null || commandShapeHash === null || trustedAtMs === null) return null;
+		if (id === null || commandShapeHash === null || trustedAtMs === null) { return null; }
 		const lastUsedAtMs = typeof o.lastUsedAtMs === 'number' && Number.isFinite(o.lastUsedAtMs) ? o.lastUsedAtMs : undefined;
 		out.push({ id, commandShapeHash, trustedAtMs, ...(lastUsedAtMs !== undefined ? { lastUsedAtMs } : {}) });
 	}

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Three-state status bar entry for Vibe Server: idle ("Go Live"), starting (spinner),
@@ -71,14 +72,14 @@ export class VibeServerStatusBarContribution extends Disposable implements IWork
 		if (status.state === 'starting') {
 			return {
 				name,
-				text: localize('vibeServer.statusStarting', "$(sync~spin) Запуск…"),
+				text: `$(sync~spin) ${localize('vibeServer.statusStarting', "Запуск…")}`,
 				ariaLabel: localize('vibeServer.statusStartingAria', "Vibe Server запускается"),
 				tooltip: localize('vibeServer.statusStartingTooltip', "Vibe Server запускается"),
 			};
 		}
 		return {
 			name,
-			text: localize('vibeServer.statusIdle', "$(play-circle) Go Live"),
+			text: `$(play-circle) ${localize('vibeServer.statusIdle', "Go Live")}`,
 			ariaLabel: localize('vibeServer.statusIdleAria', "Запустить Vibe Server"),
 			tooltip: localize('vibeServer.statusIdleTooltip', "Запустить Vibe Server"),
 			command: VibeServerCommands.start,

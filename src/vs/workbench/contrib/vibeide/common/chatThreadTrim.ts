@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import type { ChatMessage } from './chatThreadServiceTypes.js';
 
@@ -147,7 +148,8 @@ export function capToolResultSizes(
 		if (typeof r === 'string' && r.length > safeMax) {
 			const capped = truncateStored(r, safeMax);
 			charsCut += r.length - capped.length;
-			next = { ...next, result: capped } as Extract<ChatMessage, { role: 'tool' }>;
+			const updated: unknown = { ...next, result: capped };
+			next = updated as Extract<ChatMessage, { role: 'tool' }>;
 			touched = true;
 		} else if (r && typeof r === 'object') {
 			let cappedObj: Record<string, unknown> | null = null;
@@ -161,7 +163,8 @@ export function capToolResultSizes(
 				}
 			}
 			if (cappedObj) {
-				next = { ...next, result: cappedObj } as Extract<ChatMessage, { role: 'tool' }>;
+				const updated: unknown = { ...next, result: cappedObj };
+				next = updated as Extract<ChatMessage, { role: 'tool' }>;
 				touched = true;
 			}
 		}

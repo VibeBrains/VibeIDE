@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { localize } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
@@ -34,10 +35,10 @@ class ExplainThisLineAction extends Action2 {
 		const notificationService = accessor.get(INotificationService);
 
 		const editor = editorService.getActiveCodeEditor();
-		if (!editor) return;
+		if (!editor) { return; }
 
 		const position = editor.getPosition();
-		if (!position) return;
+		if (!position) { return; }
 
 		const model = editor.getModel();
 		const lineContent = model?.getLineContent(position.lineNumber) || '';
@@ -82,12 +83,12 @@ class FreezeThisCodeAction extends Action2 {
 		const notificationService = accessor.get(INotificationService);
 
 		const editor = editorService.getActiveCodeEditor();
-		if (!editor) return;
+		if (!editor) { return; }
 
 		const model = editor.getModel();
 		const filePath = model?.uri.fsPath || '';
 
-		if (!filePath) return;
+		if (!filePath) { return; }
 
 		notificationService.notify({
 			severity: Severity.Info,
@@ -139,7 +140,7 @@ class PauseAndExplainAction extends Action2 {
 					class: undefined,
 					enabled: true,
 					checked: false,
-					run: () => {}, // Phase 2: resume agent
+					run: () => { }, // Phase 2: resume agent
 				}],
 				secondary: [],
 			}

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Ctrl+K Quick Edit — slash-command prompt templates (pure helpers, no DI, no I/O).
@@ -82,12 +83,12 @@ export function expandQuickEditSlashCommand(
 	text: string,
 	extraCommands?: Readonly<Record<string, string>>,
 ): QuickEditSlashExpansion {
-	if (typeof text !== 'string') return { matched: false };
+	if (typeof text !== 'string') { return { matched: false }; }
 	const trimmed = text.trim();
-	if (!trimmed.startsWith('/')) return { matched: false };
+	if (!trimmed.startsWith('/')) { return { matched: false }; }
 
 	const m = SLASH_COMMAND_RE.exec(trimmed);
-	if (!m) return { matched: false };
+	if (!m) { return { matched: false }; }
 
 	const rawName = m[1].toLowerCase();
 	const extraContext = (m[2] ?? '').trim();
@@ -95,7 +96,7 @@ export function expandQuickEditSlashCommand(
 	const workspaceTemplate = extraCommands ? extraCommands[rawName] : undefined;
 	const builtin = QUICK_EDIT_SLASH_COMMANDS.find(c => c.name === rawName);
 	const template = workspaceTemplate ?? builtin?.prompt;
-	if (!template) return { matched: false };
+	if (!template) { return { matched: false }; }
 
 	const expanded = extraContext
 		? `${template}\n\nAdditional instructions: ${extraContext}`

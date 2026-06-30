@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -211,7 +212,7 @@ class VibeTokenBudgetService extends Disposable implements IVibeTokenBudgetServi
 	}
 
 	checkBudget(): void {
-		if (!this._enabled) return;
+		if (!this._enabled) { return; }
 		const status = this.getStatus();
 		if (status.isExceeded) {
 			// Autopilot mode: user has opted into unattended execution. Throwing here would

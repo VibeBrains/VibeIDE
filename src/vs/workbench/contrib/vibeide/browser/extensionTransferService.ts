@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../common/vibeLog.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
@@ -16,8 +17,8 @@ import { TransferEditorType, TransferFilesInfo } from './extensionTransferTypes.
 
 export interface IExtensionTransferService {
 	readonly _serviceBrand: undefined; // services need this, just leave it undefined
-	transferExtensions(os: 'mac' | 'windows' | 'linux' | null, fromEditor: TransferEditorType): Promise<string | undefined>
-	deleteBlacklistExtensions(os: 'mac' | 'windows' | 'linux' | null): Promise<void>
+	transferExtensions(os: 'mac' | 'windows' | 'linux' | null, fromEditor: TransferEditorType): Promise<string | undefined>;
+	deleteBlacklistExtensions(os: 'mac' | 'windows' | 'linux' | null): Promise<void>;
 
 }
 
@@ -44,8 +45,8 @@ const extensionBlacklist = [
 
 
 const isBlacklisted = (fsPath: string | undefined) => {
-	return extensionBlacklist.find(bItem => fsPath?.includes(bItem))
-}
+	return extensionBlacklist.find(bItem => fsPath?.includes(bItem));
+};
 
 class ExtensionTransferService extends Disposable implements IExtensionTransferService {
 	_serviceBrand: undefined;
@@ -53,92 +54,92 @@ class ExtensionTransferService extends Disposable implements IExtensionTransferS
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
 	) {
-		super()
+		super();
 	}
 
 	async transferExtensions(os: 'mac' | 'windows' | 'linux' | null, fromEditor: TransferEditorType) {
-		const transferTheseFiles = transferTheseFilesOfOS(os, fromEditor)
-		const fileService = this._fileService
+		const transferTheseFiles = transferTheseFilesOfOS(os, fromEditor);
+		const fileService = this._fileService;
 
-		let errAcc = ''
+		let errAcc = '';
 
 		for (const { from, to, isExtensions } of transferTheseFiles) {
 			// Check if the source file exists before attempting to copy
 			try {
 				if (!isExtensions) {
-					vibeLog.info('extensionTransfer', 'transferring item', from, to)
+					vibeLog.info('extensionTransfer', 'transferring item', from, to);
 
-					const exists = await fileService.exists(from)
+					const exists = await fileService.exists(from);
 					if (exists) {
 						// Ensure the destination directory exists
-						const toParent = URI.joinPath(to, '..')
-						const toParentExists = await fileService.exists(toParent)
+						const toParent = URI.joinPath(to, '..');
+						const toParentExists = await fileService.exists(toParent);
 						if (!toParentExists) {
-							await fileService.createFolder(toParent)
+							await fileService.createFolder(toParent);
 						}
-						await fileService.copy(from, to, true)
+						await fileService.copy(from, to, true);
 					} else {
-						vibeLog.info('extensionTransfer', `Skipping file that doesn't exist: ${from.toString()}`)
+						vibeLog.info('extensionTransfer', `Skipping file that doesn't exist: ${from.toString()}`);
 					}
 				}
 				// extensions folder
 				else {
-					vibeLog.info('extensionTransfer', 'transferring extensions...', from, to)
-					const exists = await fileService.exists(from)
+					vibeLog.info('extensionTransfer', 'transferring extensions...', from, to);
+					const exists = await fileService.exists(from);
 					if (exists) {
-						const stat = await fileService.resolve(from)
-						const toParent = URI.joinPath(to) // extensions/
-						const toParentExists = await fileService.exists(toParent)
+						const stat = await fileService.resolve(from);
+						const toParent = URI.joinPath(to); // extensions/
+						const toParentExists = await fileService.exists(toParent);
 						if (!toParentExists) {
-							await fileService.createFolder(toParent)
+							await fileService.createFolder(toParent);
 						}
 						for (const extensionFolder of stat.children ?? []) {
-							const from = extensionFolder.resource
-							const to = URI.joinPath(toParent, extensionFolder.name)
-							const toStat = await fileService.resolve(from)
+							const from = extensionFolder.resource;
+							const to = URI.joinPath(toParent, extensionFolder.name);
+							const toStat = await fileService.resolve(from);
 
 							if (toStat.isDirectory) {
 								if (!isBlacklisted(extensionFolder.resource.fsPath)) {
-									await fileService.copy(from, to, true)
+									await fileService.copy(from, to, true);
 								}
 							}
 							else if (toStat.isFile) {
 								if (extensionFolder.name === 'extensions.json') {
 									try {
-										const contentsStr = await fileService.readFile(from)
-										const json: any = JSON.parse(contentsStr.value.toString())
-										const j2 = json.filter((entry: { identifier?: { id?: string } }) => !isBlacklisted(entry?.identifier?.id))
-										const jsonStr = JSON.stringify(j2)
-										await fileService.writeFile(to, VSBuffer.fromString(jsonStr))
+										const contentsStr = await fileService.readFile(from);
+										const json = JSON.parse(contentsStr.value.toString()) as Array<{ identifier?: { id?: string } }>;
+										const j2 = json.filter(entry => !isBlacklisted(entry?.identifier?.id));
+										const jsonStr = JSON.stringify(j2);
+										await fileService.writeFile(to, VSBuffer.fromString(jsonStr));
 									}
 									catch {
-										vibeLog.info('extensionTransfer', 'Error copying extensions.json, skipping')
+										vibeLog.info('extensionTransfer', 'Error copying extensions.json, skipping');
 									}
 								}
 							}
 						}
 
 					} else {
-						vibeLog.info('extensionTransfer', `Skipping file that doesn't exist: ${from.toString()}`)
+						vibeLog.info('extensionTransfer', `Skipping file that doesn't exist: ${from.toString()}`);
 					}
-					vibeLog.info('extensionTransfer', 'done transferring extensions.')
+					vibeLog.info('extensionTransfer', 'done transferring extensions.');
 				}
 			}
 			catch (e) {
-				vibeLog.error('extensionTransfer', 'Error copying file:', e)
-				errAcc += `Error copying ${from.toString()}: ${e}\n`
+				vibeLog.error('extensionTransfer', 'Error copying file:', e);
+				errAcc += `Error copying ${from.toString()}: ${e}\n`;
 			}
 		}
 
-		if (errAcc) return errAcc
-		return undefined
+		if (errAcc) { return errAcc; }
+		return undefined;
 	}
 
 	async deleteBlacklistExtensions(os: 'mac' | 'windows' | 'linux' | null) {
-		const fileService = this._fileService
-		const extensionsURI = getExtensionsFolder(os)
-		if (!extensionsURI) return
-		const eURI = await fileService.resolve(extensionsURI)
+		const fileService = this._fileService;
+		const extensionsURI = getExtensionsFolder(os);
+		if (!extensionsURI) { return; }
+		const eURI = await fileService.resolve(extensionsURI);
 		for (const child of eURI.children ?? []) {
 
 
@@ -146,30 +147,30 @@ class ExtensionTransferService extends Disposable implements IExtensionTransferS
 				if (child.isDirectory) {
 					// if is blacklisted
 					if (isBlacklisted(child.resource.fsPath)) {
-						vibeLog.info('extensionTransfer', 'Deleting extension', child.resource.fsPath)
-						await fileService.del(child.resource, { recursive: true, useTrash: true })
+						vibeLog.info('extensionTransfer', 'Deleting extension', child.resource.fsPath);
+						await fileService.del(child.resource, { recursive: true, useTrash: true });
 					}
 				}
 				else if (child.isFile) {
 					// if is extensions.json
 
 					if (child.name === 'extensions.json') {
-						vibeLog.info('extensionTransfer', 'Updating extensions.json', child.resource.fsPath)
+						vibeLog.info('extensionTransfer', 'Updating extensions.json', child.resource.fsPath);
 						try {
-							const contentsStr = await fileService.readFile(child.resource)
-							const json: any = JSON.parse(contentsStr.value.toString())
-							const j2 = json.filter((entry: { identifier?: { id?: string } }) => !isBlacklisted(entry?.identifier?.id))
-							const jsonStr = JSON.stringify(j2)
-							await fileService.writeFile(child.resource, VSBuffer.fromString(jsonStr))
+							const contentsStr = await fileService.readFile(child.resource);
+							const json = JSON.parse(contentsStr.value.toString()) as Array<{ identifier?: { id?: string } }>;
+							const j2 = json.filter(entry => !isBlacklisted(entry?.identifier?.id));
+							const jsonStr = JSON.stringify(j2);
+							await fileService.writeFile(child.resource, VSBuffer.fromString(jsonStr));
 						}
 						catch {
-							vibeLog.info('extensionTransfer', 'Error copying extensions.json, skipping')
+							vibeLog.info('extensionTransfer', 'Error copying extensions.json, skipping');
 						}
 					}
 				}
 			}
 			catch (e) {
-				vibeLog.error('extensionTransfer', 'Could not delete extension', child.resource.fsPath, e)
+				vibeLog.error('extensionTransfer', 'Could not delete extension', child.resource.fsPath, e);
 			}
 		}
 	}
@@ -187,11 +188,10 @@ registerSingleton(IExtensionTransferService, ExtensionTransferService, Instantia
 
 
 const transferTheseFilesOfOS = (os: 'mac' | 'windows' | 'linux' | null, fromEditor: TransferEditorType = 'VS Code'): TransferFilesInfo => {
-	if (os === null)
-		throw new Error(`One-click switch is not possible in this environment.`)
+	if (os === null) { throw new Error(`One-click switch is not possible in this environment.`); }
 	if (os === 'mac') {
-		const homeDir = env['HOME']
-		if (!homeDir) throw new Error(`$HOME not found`)
+		const homeDir = env['HOME'];
+		if (!homeDir) { throw new Error(`$HOME not found`); }
 
 		if (fromEditor === 'VS Code') {
 			return [{
@@ -204,7 +204,7 @@ const transferTheseFilesOfOS = (os: 'mac' | 'windows' | 'linux' | null, fromEdit
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.vscode', 'extensions'),
 				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.vibeide-editor', 'extensions'),
 				isExtensions: true,
-			}]
+			}];
 		} else if (fromEditor === 'Cursor') {
 			return [{
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', 'Cursor', 'User', 'settings.json'),
@@ -216,7 +216,7 @@ const transferTheseFilesOfOS = (os: 'mac' | 'windows' | 'linux' | null, fromEdit
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.cursor', 'extensions'),
 				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.vibeide-editor', 'extensions'),
 				isExtensions: true,
-			}]
+			}];
 		} else if (fromEditor === 'Windsurf') {
 			return [{
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, 'Library', 'Application Support', 'Windsurf', 'User', 'settings.json'),
@@ -228,13 +228,13 @@ const transferTheseFilesOfOS = (os: 'mac' | 'windows' | 'linux' | null, fromEdit
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.windsurf', 'extensions'),
 				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.vibeide-editor', 'extensions'),
 				isExtensions: true,
-			}]
+			}];
 		}
 	}
 
 	if (os === 'linux') {
-		const homeDir = env['HOME']
-		if (!homeDir) throw new Error(`variable for $HOME location not found`)
+		const homeDir = env['HOME'];
+		if (!homeDir) { throw new Error(`variable for $HOME location not found`); }
 
 		if (fromEditor === 'VS Code') {
 			return [{
@@ -247,7 +247,7 @@ const transferTheseFilesOfOS = (os: 'mac' | 'windows' | 'linux' | null, fromEdit
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.vscode', 'extensions'),
 				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.vibeide-editor', 'extensions'),
 				isExtensions: true,
-			}]
+			}];
 		} else if (fromEditor === 'Cursor') {
 			return [{
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', 'Cursor', 'User', 'settings.json'),
@@ -259,7 +259,7 @@ const transferTheseFilesOfOS = (os: 'mac' | 'windows' | 'linux' | null, fromEdit
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.cursor', 'extensions'),
 				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.vibeide-editor', 'extensions'),
 				isExtensions: true,
-			}]
+			}];
 		} else if (fromEditor === 'Windsurf') {
 			return [{
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.config', 'Windsurf', 'User', 'settings.json'),
@@ -271,15 +271,15 @@ const transferTheseFilesOfOS = (os: 'mac' | 'windows' | 'linux' | null, fromEdit
 				from: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.windsurf', 'extensions'),
 				to: URI.joinPath(URI.from({ scheme: 'file' }), homeDir, '.vibeide-editor', 'extensions'),
 				isExtensions: true,
-			}]
+			}];
 		}
 	}
 
 	if (os === 'windows') {
-		const appdata = env['APPDATA']
-		if (!appdata) throw new Error(`variable for %APPDATA% location not found`)
-		const userprofile = env['USERPROFILE']
-		if (!userprofile) throw new Error(`variable for %USERPROFILE% location not found`)
+		const appdata = env['APPDATA'];
+		if (!appdata) { throw new Error(`variable for %APPDATA% location not found`); }
+		const userprofile = env['USERPROFILE'];
+		if (!userprofile) { throw new Error(`variable for %USERPROFILE% location not found`); }
 
 		if (fromEditor === 'VS Code') {
 			return [{
@@ -292,7 +292,7 @@ const transferTheseFilesOfOS = (os: 'mac' | 'windows' | 'linux' | null, fromEdit
 				from: URI.joinPath(URI.from({ scheme: 'file' }), userprofile, '.vscode', 'extensions'),
 				to: URI.joinPath(URI.from({ scheme: 'file' }), userprofile, '.vibeide-editor', 'extensions'),
 				isExtensions: true,
-			}]
+			}];
 		} else if (fromEditor === 'Cursor') {
 			return [{
 				from: URI.joinPath(URI.from({ scheme: 'file' }), appdata, 'Cursor', 'User', 'settings.json'),
@@ -304,7 +304,7 @@ const transferTheseFilesOfOS = (os: 'mac' | 'windows' | 'linux' | null, fromEdit
 				from: URI.joinPath(URI.from({ scheme: 'file' }), userprofile, '.cursor', 'extensions'),
 				to: URI.joinPath(URI.from({ scheme: 'file' }), userprofile, '.vibeide-editor', 'extensions'),
 				isExtensions: true,
-			}]
+			}];
 		} else if (fromEditor === 'Windsurf') {
 			return [{
 				from: URI.joinPath(URI.from({ scheme: 'file' }), appdata, 'Windsurf', 'User', 'settings.json'),
@@ -316,15 +316,15 @@ const transferTheseFilesOfOS = (os: 'mac' | 'windows' | 'linux' | null, fromEdit
 				from: URI.joinPath(URI.from({ scheme: 'file' }), userprofile, '.windsurf', 'extensions'),
 				to: URI.joinPath(URI.from({ scheme: 'file' }), userprofile, '.vibeide-editor', 'extensions'),
 				isExtensions: true,
-			}]
+			}];
 		}
 	}
 
-	throw new Error(`os '${os}' not recognized or editor type '${fromEditor}' not supported for this OS`)
-}
+	throw new Error(`os '${os}' not recognized or editor type '${fromEditor}' not supported for this OS`);
+};
 
 
 const getExtensionsFolder = (os: 'mac' | 'windows' | 'linux' | null) => {
-	const t = transferTheseFilesOfOS(os, 'VS Code') // from editor doesnt matter
-	return t.find(f => f.isExtensions)?.to
-}
+	const t = transferTheseFilesOfOS(os, 'VS Code'); // from editor doesnt matter
+	return t.find(f => f.isExtensions)?.to;
+};

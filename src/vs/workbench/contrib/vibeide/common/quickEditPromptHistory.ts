@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Pure helpers for the Ctrl+K Quick Edit prompt history (roadmap §"prompt
@@ -26,16 +27,16 @@ export function appendPromptToHistory(
 	newPrompt: string,
 	maxSize: number = QUICK_EDIT_HISTORY_DEFAULT_MAX,
 ): string[] {
-	if (typeof newPrompt !== 'string') return [...history];
+	if (typeof newPrompt !== 'string') { return [...history]; }
 	const trimmed = newPrompt.trim();
-	if (!trimmed) return [...history];
+	if (!trimmed) { return [...history]; }
 	if (history.length > 0 && history[history.length - 1] === trimmed) {
 		return [...history];
 	}
 	const filtered = history.filter(h => h !== trimmed);
 	filtered.push(trimmed);
 	const overshoot = filtered.length - Math.max(1, maxSize);
-	if (overshoot > 0) filtered.splice(0, overshoot);
+	if (overshoot > 0) { filtered.splice(0, overshoot); }
 	return filtered;
 }
 
@@ -60,17 +61,17 @@ export function navigateHistory(
 	currentIndex: number,
 	direction: -1 | 1,
 ): HistoryNavigationStep {
-	if (history.length === 0) return { value: null, newIndex: currentIndex };
+	if (history.length === 0) { return { value: null, newIndex: currentIndex }; }
 	const clampedIdx = Math.max(0, Math.min(currentIndex, history.length));
 	const nextIdx = clampedIdx + direction;
 
 	if (direction === -1) {
 		// Up — move toward older entries.
-		if (nextIdx < 0) return { value: null, newIndex: clampedIdx };
+		if (nextIdx < 0) { return { value: null, newIndex: clampedIdx }; }
 		return { value: history[nextIdx], newIndex: nextIdx };
 	}
 	// direction === 1, Down — move toward newer entries / present.
-	if (nextIdx > history.length) return { value: null, newIndex: clampedIdx };
+	if (nextIdx > history.length) { return { value: null, newIndex: clampedIdx }; }
 	if (nextIdx === history.length) {
 		// Past the most-recent entry → return-to-present marker.
 		return { value: '', newIndex: history.length };

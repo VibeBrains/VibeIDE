@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -139,15 +140,15 @@ class VibeDeadMansSwitchService extends Disposable implements IVibeDeadMansSwitc
 	}
 
 	start(taskId: string): void {
-		if (!this._enabled) return;
+		if (!this._enabled) { return; }
 		this._clearTimer(taskId);
 		this._scheduleTimer(taskId);
 		vibeLog.debug('DMS', `Started for task ${taskId} (timeout: ${this._timeoutMs / 60000} min)`);
 	}
 
 	approve(taskId: string): void {
-		if (!this._enabled) return;
-		if (this._excluded.has(taskId)) return;
+		if (!this._enabled) { return; }
+		if (this._excluded.has(taskId)) { return; }
 		this._clearTimer(taskId);
 		this._scheduleTimer(taskId);
 		vibeLog.debug('DMS', `Approved / timer reset for task ${taskId}`);

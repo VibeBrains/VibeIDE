@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — standalone form (Add or Edit a single command).
@@ -42,6 +43,9 @@ import { workspaceS } from './vibeSettingsRu.js';
 
 export type VibeProjectCommandFormMode = 'add' | 'edit';
 
+/** Draft keys whose value is a string — the only fields rendered as text inputs. */
+type StringDraftKey = { [K in keyof AddCommandDraft]: AddCommandDraft[K] extends string ? K : never }[keyof AddCommandDraft];
+
 export interface VibeProjectCommandFormProps {
 	readonly mode: VibeProjectCommandFormMode;
 	/** For edit: the original id (immutable in the form). For add: empty. */
@@ -78,14 +82,14 @@ export const VibeProjectCommandForm: React.FC<VibeProjectCommandFormProps> = (pr
 
 	const existingIds = useMemo(() => {
 		const s = new Set(snapshot.map(c => c.id));
-		if (isEdit && commandIdForEdit) s.delete(commandIdForEdit);
+		if (isEdit && commandIdForEdit) {s.delete(commandIdForEdit);}
 		return s;
 	}, [snapshot, isEdit, commandIdForEdit]);
 
 	const validation = useMemo(() => validateAddCommandDraft(draft, existingIds), [draft, existingIds]);
 
 	const previewCommand = useMemo(() => {
-		if (!draft.id.trim() || !draft.name.trim() || !draft.command.trim()) return null;
+		if (!draft.id.trim() || !draft.name.trim() || !draft.command.trim()) {return null;}
 		try { return buildProjectCommandFromDraft(draft); } catch { return null; }
 	}, [draft]);
 
@@ -112,7 +116,7 @@ export const VibeProjectCommandForm: React.FC<VibeProjectCommandFormProps> = (pr
 	}, [commandService, props]);
 
 	const onSave = useCallback(async () => {
-		if (!validation.isValid || saveBusy) return;
+		if (!validation.isValid || saveBusy) {return;}
 		const folder = workspace.getWorkspace().folders[0];
 		if (!folder) {
 			notifications.notify({ severity: 2 /* Warning */, message: workspaceS.pcAddNoWorkspace });
@@ -127,7 +131,7 @@ export const VibeProjectCommandForm: React.FC<VibeProjectCommandFormProps> = (pr
 				const parsed = safeParseConfigJson(buf.value.toString());
 				if (parsed.ok) {
 					const decoded = decodeProjectCommandsFile(parsed.value);
-					if (decoded.ok) existing = decoded.value;
+					if (decoded.ok) {existing = decoded.value;}
 				}
 			} catch {
 				// File missing — start fresh below.
@@ -182,7 +186,7 @@ export const VibeProjectCommandForm: React.FC<VibeProjectCommandFormProps> = (pr
 	// the wrapped input, then either an error or a hint. All classNames must be
 	// inline (scope-tailwind doesn't rewrite them when stored in variables).
 	const renderField = (
-		key: keyof AddCommandDraft,
+		key: StringDraftKey,
 		label: string,
 		opts: {
 			required?: boolean;
@@ -194,7 +198,7 @@ export const VibeProjectCommandForm: React.FC<VibeProjectCommandFormProps> = (pr
 		},
 	) => {
 		const id = `vibeide-pc-form-${String(key)}`;
-		const value = (draft as any)[key] as string;
+		const value: string = draft[key];
 		const errMsg = errLabel(opts.err ?? null);
 		return (
 			<div className='flex flex-col gap-1.5'>

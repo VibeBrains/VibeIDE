@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Crowdin webhook payload decoder + PR title formatter
@@ -42,7 +43,7 @@ export type DecodeResult<T> =
  * decoder handles `translation.updated`/`file.translated`/`project.built`.
  */
 export function decodeCrowdinWebhookPayload(raw: unknown): DecodeResult<CrowdinTranslationsUpdatedPayload> {
-	if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not-an-object' };
+	if (!raw || typeof raw !== 'object') { return { ok: false, reason: 'not-an-object' }; }
 	const o = raw as Record<string, unknown>;
 
 	const event = o.event;
@@ -111,7 +112,7 @@ const PR_TITLE_MAX = 72;
 export function formatCrowdinPrTitle(payload: CrowdinTranslationsUpdatedPayload): string {
 	const noun = payload.stringsCount === 1 ? 'string' : 'strings';
 	const title = `i18n: sync ${payload.targetLanguageId} translations from Crowdin (${payload.stringsCount} ${noun})`;
-	if (title.length <= PR_TITLE_MAX) return title;
+	if (title.length <= PR_TITLE_MAX) { return title; }
 	return title.slice(0, PR_TITLE_MAX - 1) + '…';
 }
 
@@ -126,8 +127,8 @@ export function formatCrowdinPrBody(payload: CrowdinTranslationsUpdatedPayload):
 	lines.push(`- Project: \`${payload.project}\``);
 	lines.push(`- Locale: \`${payload.targetLanguageId}\``);
 	lines.push(`- Strings updated: **${payload.stringsCount}**`);
-	if (payload.buildId !== undefined) lines.push(`- Build id: \`${payload.buildId}\``);
-	if (payload.url !== undefined) lines.push(`- Crowdin: ${payload.url}`);
+	if (payload.buildId !== undefined) { lines.push(`- Build id: \`${payload.buildId}\``); }
+	if (payload.url !== undefined) { lines.push(`- Crowdin: ${payload.url}`); }
 	lines.push('');
 	lines.push('🤖 Auto-generated from Crowdin webhook. Review for translation quality before merge.');
 	return lines.join('\n');
@@ -162,7 +163,7 @@ export function verifyCrowdinSignature(
 		return { ok: false, reason: 'malformed-signature' };
 	}
 	const exp = expectedHex.trim().toLowerCase();
-	if (cleaned.length !== exp.length) return { ok: false, reason: 'mismatch' };
+	if (cleaned.length !== exp.length) { return { ok: false, reason: 'mismatch' }; }
 	let diff = 0;
 	for (let i = 0; i < cleaned.length; i++) {
 		diff |= cleaned.charCodeAt(i) ^ exp.charCodeAt(i);

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * `qps-ploc` pseudo-locale transformer (pure helper)
@@ -37,15 +38,15 @@ export interface PseudoLocaleOptions {
  * style. Pure — deterministic.
  */
 export function pseudoLocalise(source: string, options: PseudoLocaleOptions = {}): string {
-	if (typeof source !== 'string') return '';
-	if (source.length === 0) return source;
+	if (typeof source !== 'string') { return ''; }
+	if (source.length === 0) { return source; }
 	const preservePlaceholders = options.preservePlaceholders !== false;
 	const addBrackets = options.addBrackets !== false;
 
 	const leadingWs = source.match(/^\s*/)?.[0] ?? '';
 	const trailingWs = source.match(/\s*$/)?.[0] ?? '';
 	const core = source.slice(leadingWs.length, source.length - trailingWs.length);
-	if (core.length === 0) return source;
+	if (core.length === 0) { return source; }
 
 	let inner: string;
 	if (preservePlaceholders) {
@@ -96,7 +97,7 @@ const PSEUDO_LOCALE_PATTERN = /^\s*\[!!_.*_!!\]\s*$/;
  *   - matches `[!!_..._!!]` envelope → true
  */
 export function looksPseudoLocalised(rendered: string): boolean {
-	if (typeof rendered !== 'string' || rendered.trim().length === 0) return false;
+	if (typeof rendered !== 'string' || rendered.trim().length === 0) { return false; }
 	return PSEUDO_LOCALE_PATTERN.test(rendered);
 }
 
@@ -112,11 +113,11 @@ export function looksPseudoLocalised(rendered: string): boolean {
 export function findEnglishLeaksInSnapshot(strings: ReadonlyArray<string>): readonly string[] {
 	const out: string[] = [];
 	for (const s of strings) {
-		if (typeof s !== 'string') continue;
+		if (typeof s !== 'string') { continue; }
 		const trimmed = s.trim();
-		if (trimmed.length === 0) continue;
-		if (/^[\d\s\W]+$/.test(trimmed)) continue;
-		if (looksPseudoLocalised(s)) continue;
+		if (trimmed.length === 0) { continue; }
+		if (/^[\d\s\W]+$/.test(trimmed)) { continue; }
+		if (looksPseudoLocalised(s)) { continue; }
 		// Letters present but no envelope → likely English remnant.
 		out.push(s);
 	}
@@ -125,9 +126,9 @@ export function findEnglishLeaksInSnapshot(strings: ReadonlyArray<string>): read
 
 /** Strip the qps-ploc envelope, returning the inner cased string. */
 export function stripPseudoLocaleEnvelope(rendered: string): string | null {
-	if (typeof rendered !== 'string') return null;
+	if (typeof rendered !== 'string') { return null; }
 	const m = /^\s*\[!!_(.*)_!!\]\s*$/.exec(rendered);
-	if (m === null) return null;
+	if (m === null) { return null; }
 	return m[1];
 }
 

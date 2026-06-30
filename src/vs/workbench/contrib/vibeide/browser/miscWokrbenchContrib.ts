@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
@@ -26,11 +27,11 @@ export class MiscWorkbenchContribs extends Disposable implements IWorkbenchContr
 	private initialize(): void {
 
 		// delete blacklisted extensions once (this is for people who already installed them)
-		const deleteExtensionsStorageId = 'vibe-deleted-blacklist-2'
-		const alreadyDeleted = this.storageService.get(deleteExtensionsStorageId, StorageScope.APPLICATION)
+		const deleteExtensionsStorageId = 'vibe-deleted-blacklist-2';
+		const alreadyDeleted = this.storageService.get(deleteExtensionsStorageId, StorageScope.APPLICATION);
 		if (!alreadyDeleted) {
-			this.storageService.store(deleteExtensionsStorageId, 'true', StorageScope.APPLICATION, StorageTarget.MACHINE)
-			this.extensionTransferService.deleteBlacklistExtensions(os)
+			this.storageService.store(deleteExtensionsStorageId, 'true', StorageScope.APPLICATION, StorageTarget.MACHINE);
+			this.extensionTransferService.deleteBlacklistExtensions(os);
 		}
 
 
@@ -39,9 +40,9 @@ export class MiscWorkbenchContribs extends Disposable implements IWorkbenchContr
 			// Get the active window reference for multi-window support
 			const targetWindow = getActiveWindow();
 			// Trigger a window resize event to ensure proper layout calculations
-			targetWindow.dispatchEvent(new Event('resize'))
+			targetWindow.dispatchEvent(new Event('resize'));
 
-		})
+		});
 
 	}
 }

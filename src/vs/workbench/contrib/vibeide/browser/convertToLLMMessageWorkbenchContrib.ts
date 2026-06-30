@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -11,7 +12,7 @@ import { IVibeideModelService } from '../common/vibeideModelService.js';
 import { IVibeProjectRulesService } from './vibeProjectRulesService.js';
 
 class ConvertContribWorkbenchContribution extends Disposable implements IWorkbenchContribution {
-	static readonly ID = 'workbench.contrib.vibe.convertcontrib'
+	static readonly ID = 'workbench.contrib.vibe.convertcontrib';
 	_serviceBrand: undefined;
 
 	constructor(
@@ -19,27 +20,27 @@ class ConvertContribWorkbenchContribution extends Disposable implements IWorkben
 		@IWorkspaceContextService private readonly workspaceContext: IWorkspaceContextService,
 		@IVibeProjectRulesService private readonly projectRulesService: IVibeProjectRulesService,
 	) {
-		super()
+		super();
 
 		const initializeURI = (uri: URI) => {
-			this.workspaceContext.getWorkspace()
-			const vibeRulesMdURI = URI.joinPath(uri, '.vibe', 'rules.md')
-			void this.vibeideModelService.initializeModel(vibeRulesMdURI)
-			const agentsMdURI = URI.joinPath(uri, 'AGENTS.md')
-			void this.vibeideModelService.initializeModel(agentsMdURI)
-		}
+			this.workspaceContext.getWorkspace();
+			const vibeRulesMdURI = URI.joinPath(uri, '.vibe', 'rules.md');
+			void this.vibeideModelService.initializeModel(vibeRulesMdURI);
+			const agentsMdURI = URI.joinPath(uri, 'AGENTS.md');
+			void this.vibeideModelService.initializeModel(agentsMdURI);
+		};
 
 		// call
 		this._register(this.workspaceContext.onDidChangeWorkspaceFolders((e) => {
-			[...e.changed, ...e.added].forEach(w => { initializeURI(w.uri) })
-		}))
-		this.workspaceContext.getWorkspace().folders.forEach(w => { initializeURI(w.uri) })
+			[...e.changed, ...e.added].forEach(w => { initializeURI(w.uri); });
+		}));
+		this.workspaceContext.getWorkspace().folders.forEach(w => { initializeURI(w.uri); });
 
 		// Load project rules (.vibe/rules.md, AGENTS.md) into cache
-		void this.projectRulesService.reloadRules()
+		void this.projectRulesService.reloadRules();
 		this._register(this.workspaceContext.onDidChangeWorkspaceFolders(() => {
-			void this.projectRulesService.reloadRules()
-		}))
+			void this.projectRulesService.reloadRules();
+		}));
 	}
 }
 

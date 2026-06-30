@@ -1,13 +1,14 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILLMMessageService } from './sendLLMMessageService.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
-import { autoModelFallbackProviderOrder, isValidProviderModelSelection } from './vibeideSettingsTypes.js';
+import { autoModelFallbackProviderOrder, isValidProviderModelSelection, ModelSelection } from './vibeideSettingsTypes.js';
 import { analyzeNLShellSafety } from './nlShellSafetyAnalyzer.js';
 
 export const INLShellParserService = createDecorator<INLShellParserService>('nlShellParserService');
@@ -70,7 +71,7 @@ class NLShellParserService implements INLShellParserService {
 		// If auto is selected, try to find a fallback model
 		if (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') {
 			// Try to find the first available configured model (prefer online models first, then local)
-			let fallbackModel: { providerName: string; modelName: string } | null = null;
+			let fallbackModel: ModelSelection | null = null;
 
 			for (const providerName of autoModelFallbackProviderOrder) {
 				const providerSettings = settings.settingsOfProvider[providerName];
@@ -85,7 +86,7 @@ class NLShellParserService implements INLShellParserService {
 			}
 
 			if (fallbackModel) {
-				modelSelection = fallbackModel as any;
+				modelSelection = fallbackModel;
 			} else {
 				throw new Error('No model provider configured. Please configure a model provider in VibeIDE Settings.');
 			}

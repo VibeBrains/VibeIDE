@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * One-click «починить связь с провайдерами» — a status-bar wrench that resets the
@@ -29,7 +30,7 @@ import { registerVibeideFaSolidIcon } from './vibeideFontAwesomeSolid.js';
 // FA6 Solid fa-wrench (U+F0AD) — reads as "repair / починить". See vibeideFontAwesomeSolid.ts.
 const providerFixIcon = registerVibeideFaSolidIcon(
 	'vibeide-provider-fix',
-	'',
+	'\uf0ad',
 	localize('vibeide.providerFix.icon', 'Иконка кнопки починки связи с провайдерами.'),
 );
 

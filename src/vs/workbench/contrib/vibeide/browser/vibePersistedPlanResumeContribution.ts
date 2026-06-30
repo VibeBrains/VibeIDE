@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -75,14 +76,14 @@ export class VibePersistedPlanResumeContribution extends Disposable implements I
 
 	private async _checkForInterruptedPlans(): Promise<void> {
 		const folders = this._workspaceContextService.getWorkspace().folders;
-		if (folders.length === 0) return;
+		if (folders.length === 0) { return; }
 
 		const plansDir = joinPath(folders[0].uri, '.vibe', 'plans');
 
 		let planFiles: { name: string }[];
 		try {
 			const stat = await this._fileService.resolve(plansDir);
-			if (!stat.children) return;
+			if (!stat.children) { return; }
 			planFiles = stat.children.filter(c => !c.isDirectory && c.name.endsWith('.plan.md'));
 		} catch {
 			// Plans directory doesn't exist yet — nothing to resume
@@ -96,7 +97,7 @@ export class VibePersistedPlanResumeContribution extends Disposable implements I
 			try {
 				const content = (await this._fileService.readFile(fileUri)).value.toString();
 				const parsed = this._parsePlanFile(content);
-				if (!parsed) continue;
+				if (!parsed) { continue; }
 
 				if (parsed.machineData.status === 'running') {
 					interrupted.push({
@@ -121,7 +122,7 @@ export class VibePersistedPlanResumeContribution extends Disposable implements I
 	private _parsePlanFile(content: string): Omit<FoundPlan, 'fileName' | 'fileUriStr' | 'rawContent'> | null {
 		// Extract JSON block: <!-- vibe-plan-machine-context: JSON canonical for tooling / resume -->
 		const jsonMatch = content.match(/```json\s*([\s\S]*?)```/);
-		if (!jsonMatch) return null;
+		if (!jsonMatch) { return null; }
 
 		let machineData: PersistedPlanMachineData;
 		try {
@@ -130,7 +131,7 @@ export class VibePersistedPlanResumeContribution extends Disposable implements I
 			return null;
 		}
 
-		if (machineData.planKind !== 'vibeide.agent-plan') return null;
+		if (machineData.planKind !== 'vibeide.agent-plan') { return null; }
 
 		// Extract summary from markdown
 		const summaryMatch = content.match(/## Summary\s*\n+([\s\S]*?)\n+## /);
@@ -310,7 +311,7 @@ export class VibePersistedPlanResumeContribution extends Disposable implements I
 		// Update the .plan.md file status to 'paused' so it won't nag again
 		try {
 			const folders = this._workspaceContextService.getWorkspace().folders;
-			if (folders.length === 0) return;
+			if (folders.length === 0) { return; }
 
 			const wf = folders[0].uri;
 			const fileUri = joinPath(this._persistedPlanService.plansDirectoryUri(wf), plan.fileName);

@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	transitionPlan,
 	isTerminalState,
@@ -13,6 +15,8 @@ import {
 } from '../../common/planLifecycleStateMachine.js';
 
 suite('planLifecycleStateMachine', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('isTerminalState', () => {
 		test('done / failed / aborted are terminal', () => {
@@ -42,13 +46,13 @@ suite('planLifecycleStateMachine', () => {
 		test('ready + approve → ready (idempotent)', () => {
 			const r = transitionPlan('ready', { kind: 'approve' });
 			assert.ok(r.ok && r.next === 'ready');
-			if (r.ok) assert.strictEqual(r.note, 'idempotent-approve');
+			if (r.ok) { assert.strictEqual(r.note, 'idempotent-approve'); }
 		});
 
 		test('running + step-completed (remaining > 0) → running with note', () => {
 			const r = transitionPlan('running', { kind: 'step-completed', remaining: 2 });
 			assert.ok(r.ok && r.next === 'running');
-			if (r.ok) assert.strictEqual(r.note, 'step advanced');
+			if (r.ok) { assert.strictEqual(r.note, 'step advanced'); }
 		});
 
 		test('running + step-completed (remaining 0) → done', () => {
@@ -64,7 +68,7 @@ suite('planLifecycleStateMachine', () => {
 		test('running + step-failed (retries available) → running with note', () => {
 			const r = transitionPlan('running', { kind: 'step-failed', retriesExhausted: false });
 			assert.ok(r.ok && r.next === 'running');
-			if (r.ok) assert.strictEqual(r.note, 'retry pending');
+			if (r.ok) { assert.strictEqual(r.note, 'retry pending'); }
 		});
 
 		test('running + pause → paused', () => {
@@ -80,7 +84,7 @@ suite('planLifecycleStateMachine', () => {
 		test('paused + step-completed → paused with background-catchup note', () => {
 			const r = transitionPlan('paused', { kind: 'step-completed', remaining: 1 });
 			assert.ok(r.ok && r.next === 'paused');
-			if (r.ok) assert.strictEqual(r.note, 'background catch-up; remain paused');
+			if (r.ok) { assert.strictEqual(r.note, 'background catch-up; remain paused'); }
 		});
 	});
 
@@ -222,7 +226,7 @@ suite('planLifecycleStateMachine', () => {
 				seen.add(r.finalStatus);
 				for (const t of r.transitions) {
 					seen.add(t.from);
-					if (t.result.ok) seen.add(t.result.next);
+					if (t.result.ok) { seen.add(t.result.next); }
 				}
 			}
 			// All non-terminal states must be exercised; terminal includes done/failed/aborted.

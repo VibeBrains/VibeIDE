@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -9,6 +10,7 @@ import {
 	describeLocaleSyncDecision,
 	LocaleSyncInput,
 } from '../../common/cloudLocaleSync.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 function input(overrides: Partial<LocaleSyncInput> = {}): LocaleSyncInput {
 	return {
@@ -24,29 +26,31 @@ function input(overrides: Partial<LocaleSyncInput> = {}): LocaleSyncInput {
 
 suite('VibeIDE Cloud locale sync — decision helper', () => {
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	suite('decideLocaleSync', () => {
 		test('cloud disabled → no-op:cloud-disabled', () => {
 			const r = decideLocaleSync(input({ cloudEnabled: false }));
 			assert.strictEqual(r.kind, 'no-op');
-			if (r.kind === 'no-op') assert.strictEqual(r.reason, 'cloud-disabled');
+			if (r.kind === 'no-op') { assert.strictEqual(r.reason, 'cloud-disabled'); }
 		});
 
 		test('identical → no-op:identical', () => {
 			const r = decideLocaleSync(input());
 			assert.strictEqual(r.kind, 'no-op');
-			if (r.kind === 'no-op') assert.strictEqual(r.reason, 'identical');
+			if (r.kind === 'no-op') { assert.strictEqual(r.reason, 'identical'); }
 		});
 
 		test('no remote + local set → push-local:first-push', () => {
 			const r = decideLocaleSync(input({ remoteLocale: null }));
 			assert.strictEqual(r.kind, 'push-local');
-			if (r.kind === 'push-local') assert.strictEqual(r.reason, 'first-push');
+			if (r.kind === 'push-local') { assert.strictEqual(r.reason, 'first-push'); }
 		});
 
 		test('no remote + no local → no-op:no-remote', () => {
 			const r = decideLocaleSync(input({ remoteLocale: null, localLocale: '' }));
 			assert.strictEqual(r.kind, 'no-op');
-			if (r.kind === 'no-op') assert.strictEqual(r.reason, 'no-remote');
+			if (r.kind === 'no-op') { assert.strictEqual(r.reason, 'no-remote'); }
 		});
 
 		test('first sync ever → apply-remote:first-pull', () => {
@@ -56,7 +60,7 @@ suite('VibeIDE Cloud locale sync — decision helper', () => {
 				lastSyncedLocale: null,
 			}));
 			assert.strictEqual(r.kind, 'apply-remote');
-			if (r.kind === 'apply-remote') assert.strictEqual(r.reason, 'first-pull');
+			if (r.kind === 'apply-remote') { assert.strictEqual(r.reason, 'first-pull'); }
 		});
 
 		test('only remote changed → apply-remote:remote-newer', () => {
@@ -66,7 +70,7 @@ suite('VibeIDE Cloud locale sync — decision helper', () => {
 				lastSyncedLocale: 'ru',
 			}));
 			assert.strictEqual(r.kind, 'apply-remote');
-			if (r.kind === 'apply-remote') assert.strictEqual(r.reason, 'remote-newer');
+			if (r.kind === 'apply-remote') { assert.strictEqual(r.reason, 'remote-newer'); }
 		});
 
 		test('only local changed → push-local:local-newer', () => {
@@ -102,7 +106,7 @@ suite('VibeIDE Cloud locale sync — decision helper', () => {
 				remoteUpdatedAtMs: 100_000,
 			}));
 			assert.strictEqual(r.kind, 'apply-remote');
-			if (r.kind === 'apply-remote') assert.strictEqual(r.reason, 'remote-newer');
+			if (r.kind === 'apply-remote') { assert.strictEqual(r.reason, 'remote-newer'); }
 		});
 
 		test('custom tolerance respected', () => {

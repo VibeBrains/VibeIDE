@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
@@ -31,7 +32,7 @@ export class VibeKeybindingConflictResolverContribution extends Disposable imple
 
 	private _checkConflicts(): void {
 		// Phase 1: detect common conflicting extensions
-		const KNOWN_CONFLICTS: Record<string, Array<{key: string; command: string}>> = {
+		const KNOWN_CONFLICTS: Record<string, Array<{ key: string; command: string }>> = {
 			'vscodevim.vim': [
 				{ key: 'ctrl+shift+t', command: 'vim toggle' },
 			],
@@ -43,7 +44,7 @@ export class VibeKeybindingConflictResolverContribution extends Disposable imple
 		const extensions = this._extensionService.extensions;
 		for (const ext of extensions) {
 			const conflicts_list = KNOWN_CONFLICTS[ext.identifier.value.toLowerCase()];
-			if (!conflicts_list) continue;
+			if (!conflicts_list) { continue; }
 
 			const conflicts = this._keyboardService.checkConflicts(conflicts_list);
 			if (conflicts.length > 0) {

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * MCP OAuth token rotation wrapper (roadmap §K.2 / line 919).
@@ -20,6 +21,7 @@
  */
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { mainWindow } from '../../../../base/browser/window.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
@@ -36,7 +38,7 @@ const ROTATION_SCAN_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 export class VibeMCPTokenRotationContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.vibeMCPTokenRotation';
 
-	private _scanTimer: ReturnType<typeof setInterval> | null = null;
+	private _scanTimer: number | null = null;
 
 	constructor(
 		@IVibeMCPOAuthService private readonly _oauthService: IVibeMCPOAuthService,
@@ -50,8 +52,8 @@ export class VibeMCPTokenRotationContribution extends Disposable implements IWor
 		void this._scan();
 
 		// Periodic scan.
-		this._scanTimer = setInterval(() => { void this._scan(); }, ROTATION_SCAN_INTERVAL_MS);
-		this._register({ dispose: () => { if (this._scanTimer) { clearInterval(this._scanTimer); this._scanTimer = null; } } });
+		this._scanTimer = mainWindow.setInterval(() => { void this._scan(); }, ROTATION_SCAN_INTERVAL_MS);
+		this._register({ dispose: () => { if (this._scanTimer) { mainWindow.clearInterval(this._scanTimer); this._scanTimer = null; } } });
 
 		// Re-scan when MCP server list changes (catches server-removed case promptly).
 		this._register(this._mcpService.onDidChangeState(() => { void this._scan(); }));

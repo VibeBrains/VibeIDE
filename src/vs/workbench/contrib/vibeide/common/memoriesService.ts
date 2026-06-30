@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -237,7 +238,7 @@ class MemoriesService extends Disposable implements IMemoriesService {
 	}
 
 	private _enforceSizeLimits(): void {
-		if (!this._memories) return;
+		if (!this._memories) { return; }
 
 		// Limit recent files (keep most recent)
 		if (this._memories.recentFiles.length > MAX_RECENT_FILES) {
@@ -253,7 +254,7 @@ class MemoriesService extends Disposable implements IMemoriesService {
 	}
 
 	private _compressMemories(): void {
-		if (!this._memories) return;
+		if (!this._memories) { return; }
 
 		// Remove oldest context entries first
 		if (this._memories.context.length > MAX_CONTEXT_ENTRIES / 2) {

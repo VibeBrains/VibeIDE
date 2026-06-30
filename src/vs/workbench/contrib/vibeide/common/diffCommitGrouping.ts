@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * AI commit grouping (932) — pure heuristic splitter.
@@ -55,7 +56,7 @@ export function groupDiffByCommitType(changes: ReadonlyArray<DiffFileChange>): C
 	const order: string[] = [];
 
 	for (const change of changes) {
-		if (!change || typeof change.path !== 'string' || change.path.length === 0) continue;
+		if (!change || typeof change.path !== 'string' || change.path.length === 0) { continue; }
 		const { type, scope } = classifyChange(change.path);
 		const key = `${type}|${scope ?? ''}`;
 		if (!buckets.has(key)) {
@@ -122,8 +123,8 @@ export function renderGroupStub(group: CommitGroup): string {
 
 function pickVerb(files: ReadonlyArray<DiffFileChange>): string {
 	const allNew = files.length > 0 && files.every(f => f.isNew);
-	if (allNew) return 'add';
+	if (allNew) { return 'add'; }
 	const allDeleted = files.length > 0 && files.every(f => f.isDeleted);
-	if (allDeleted) return 'remove';
+	if (allDeleted) { return 'remove'; }
 	return 'edit';
 }

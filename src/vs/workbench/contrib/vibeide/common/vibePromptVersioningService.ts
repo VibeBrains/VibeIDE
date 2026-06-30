@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -74,7 +75,7 @@ class VibePromptVersioningService extends Disposable implements IVibePromptVersi
 	getDiff(version1: string, version2: string): string | null {
 		const v1 = this._versions.find(v => v.version === version1);
 		const v2 = this._versions.find(v => v.version === version2);
-		if (!v1 || !v2) return null;
+		if (!v1 || !v2) { return null; }
 
 		if (v1.systemPromptHash === v2.systemPromptHash) {
 			return `No changes between v${version1} and v${version2}`;

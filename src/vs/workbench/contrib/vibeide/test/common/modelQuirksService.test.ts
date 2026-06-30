@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	matchQuirks,
 	validateCatalog,
@@ -11,9 +13,13 @@ import {
 	EMPTY_QUIRKS,
 	ModelQuirksRule,
 	ModelQuirksCatalog,
+	ResolvedModelQuirks,
 } from '../../common/modelQuirks/modelQuirksTypes.js';
 
 suite('ModelQuirks — matchQuirks', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 
 	const rules: ModelQuirksRule[] = [
 		{ match: 'kimi-k2.6', temperature: 1.0, topP: 0.95, mirrorReasoningContent: true },
@@ -59,13 +65,15 @@ suite('ModelQuirks — matchQuirks', () => {
 	test('match field stripped from returned quirks', () => {
 		const q = matchQuirks(rules, 'qwen3.6-plus');
 		assert.ok(q);
-		assert.ok(!('match' in q));
-		assert.ok(!('note' in q));
+		assert.ok(!Object.hasOwn(q, 'match'));
+		assert.ok(!Object.hasOwn(q, 'note'));
 		assert.strictEqual(q?.forceToolCallFormat, 'xml');
 	});
 });
 
 suite('ModelQuirks — matchQuirks per-provider', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	const rules: ModelQuirksRule[] = [
 		// Provider-scoped rule for kimi via openCodeGo goes BEFORE unscoped kimi rule.
@@ -104,7 +112,7 @@ suite('ModelQuirks — matchQuirks per-provider', () => {
 	test('provider field stripped from returned quirks', () => {
 		const q = matchQuirks(rules, 'kimi-k2.6', 'openCodeGo');
 		assert.ok(q);
-		assert.ok(!('provider' in q));
+		assert.ok(!Object.hasOwn(q, 'provider'));
 	});
 
 	test('field-merge: provider rule (toolFormat) + family rule (reasoning) BOTH apply (model-stalls #009)', () => {
@@ -135,6 +143,8 @@ suite('ModelQuirks — matchQuirks per-provider', () => {
 });
 
 suite('ModelQuirks — validateCatalog', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('valid catalog parses', () => {
 		const raw = { version: 1, rules: [{ match: 'foo', temperature: 0.5 }] };
@@ -193,7 +203,7 @@ suite('ModelQuirks — validateCatalog', () => {
 		});
 		assert.strictEqual(cat.rules[0].match, 'a');
 		assert.strictEqual(cat.rules[0].temperature, 0.5);
-		assert.strictEqual((cat.rules[0] as any).futureField, undefined);
+		assert.strictEqual((cat.rules[0] as unknown as Record<string, unknown>).futureField, undefined);
 	});
 
 	test('forceToolCallFormat enum validation', () => {
@@ -222,6 +232,8 @@ suite('ModelQuirks — validateCatalog', () => {
 });
 
 suite('ModelQuirks — applyUserOverride', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('user fields override catalog per-field', () => {
 		const catalog = { temperature: 1.0, topP: 0.95, topK: 40 };
@@ -265,6 +277,8 @@ suite('ModelQuirks — applyUserOverride', () => {
 
 suite('ModelQuirks — end-to-end integration via bundled rules', () => {
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	// Verify the actual rules in resources/model-quirks.json work as expected.
 	// Re-construct the rule list here (kept in sync with the JSON catalog).
 	const bundled: ModelQuirksCatalog = {
@@ -286,14 +300,14 @@ suite('ModelQuirks — end-to-end integration via bundled rules', () => {
 		],
 	};
 
-	const cases: Array<[string, Partial<ReturnType<typeof matchQuirks>>]> = [
+	const cases: Array<[string, ResolvedModelQuirks | null]> = [
 		['qwen3.6-plus', { temperature: 0.55, topP: 1.0, forceToolCallFormat: 'xml' }],
 		['deepseek-v4-pro', { forceEmptyReasoning: true, mirrorReasoningContent: true }],
 		['kimi-k2.6', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
 		['minimax-m2.7', { temperature: 1.0, topP: 0.95, topK: 40 }],
 		['glm-5.1', { temperature: 1.0 }],
-		['mimo-v2-pro', null as any],   // no match — provider defaults
-		['hy3-preview', null as any],   // no match — provider defaults
+		['mimo-v2-pro', null],   // no match — provider defaults
+		['hy3-preview', null],   // no match — provider defaults
 	];
 
 	for (const [modelId, expected] of cases) {
@@ -304,8 +318,9 @@ suite('ModelQuirks — end-to-end integration via bundled rules', () => {
 				return;
 			}
 			assert.ok(q, `expected match for ${modelId}`);
-			for (const [k, v] of Object.entries(expected as object)) {
-				assert.strictEqual((q as any)[k], v, `field ${k} mismatch for ${modelId}`);
+			const resolved: Record<string, unknown> = q;
+			for (const [k, v] of Object.entries(expected)) {
+				assert.strictEqual(resolved[k], v, `field ${k} mismatch for ${modelId}`);
 			}
 		});
 	}

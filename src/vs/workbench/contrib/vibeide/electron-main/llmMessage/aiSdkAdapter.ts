@@ -1,7 +1,7 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 
 // disable foreign import complaints
 /* eslint-disable */
@@ -11,7 +11,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { API_PROTOCOL_TO_SDK_NPM, ApiProtocolOverride } from '../../common/modelCapabilities.js';
+import { API_PROTOCOL_TO_SDK_NPM, ApiProtocolOverride, getModelCapabilities, getProviderCapabilities, getSendableReasoningInfo } from '../../common/modelCapabilities.js';
 
 // Module-level memo for SDK-selection diagnostic logs. Keys are
 // `${providerName}|${modelName}|${sdkNpm}|${source}` — log once per unique
@@ -28,7 +28,6 @@ import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js
 import { TOOL_NAME_ALIASES, applyParamAliases } from '../../common/prompt/toolAliases.js';
 import { lenientJsonParseObject } from '../../common/lenientJson.js';
 import { getModelSdkNpm } from './modelsDevCatalog.js';
-import { getModelCapabilities, getProviderCapabilities, getSendableReasoningInfo } from '../../common/modelCapabilities.js';
 import { buildContextOverflowError, buildEmptyResponseError, isContextOverflow, LLMChatMessage, LLMTokenUsage, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
 import { getModelQuirks } from '../modelQuirks/modelQuirksService.js';
 import { SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
@@ -45,6 +44,64 @@ export type AiSdkProviderName =
 	| 'deepseek' | 'mistral' | 'xAI' | 'groq' | 'awsBedrock' | 'googleVertex' | 'microsoftAzure';
 
 const EMPTY_CONTENT_PLACEHOLDER = '(no content)';
+
+// Loose runtime shapes for the heterogeneous chat messages this adapter probes.
+// `LLMChatMessage` is a discriminated union across three provider dialects
+// (Anthropic / OpenAI / Gemini); the conversion below intentionally reads fields
+// that live on different union members (e.g. `tool_calls` from the OpenAI shape
+// AND `content[].type === 'tool_use'` from the Anthropic shape) on the same
+// `msg`. Rather than narrow per-branch (which the runtime data does not cleanly
+// support — messages arrive partially-normalized), we describe the superset of
+// readable fields here and access through these optional-everything views.
+interface ContentPartView {
+	type?: string;
+	text?: string;
+	image_url?: { url?: string };
+	source?: { data?: string; media_type?: string };
+	tool_use_id?: string;
+	content?: string | ContentPartView[];
+	id?: string;
+	name?: string;
+	input?: Record<string, unknown>;
+}
+interface ToolCallView {
+	id?: string;
+	function?: { name?: string; arguments?: string };
+}
+interface ChatMessageView {
+	role?: string;
+	content?: string | ContentPartView[];
+	tool_calls?: ToolCallView[];
+	tool_call_id?: string;
+	reasoning_content?: string;
+	reasoning?: string;
+}
+
+// AI SDK content-part element types, derived from the exported `ModelMessage`
+// union (the underlying `UserContent` / `AssistantContent` aliases are not
+// exported). Used to type the `parts` accumulators built per role below so they
+// stay assignable to `ModelMessage.content` without `any`.
+type ModelMessageOfRole<R extends string> = Extract<ModelMessage, { role: R }>;
+type ContentArrayElement<R extends string> = Extract<ModelMessageOfRole<R>['content'], readonly unknown[]>[number];
+type UserContentPart = ContentArrayElement<'user'>;
+type AssistantContentPart = ContentArrayElement<'assistant'>;
+// `providerOptions` carrier type, taken straight from the SDK message union so
+// the prompt-cache breakpoint markers below stay assignable without `any`.
+type MessageProviderOptions = NonNullable<ModelMessageOfRole<'system'>['providerOptions']>;
+
+// Loose view over the heterogeneous error objects the AI SDK throws (retry
+// wrappers, nested API-call errors, pre-parsed body). All fields optional and
+// self-referential so the catch handler can probe `.lastError` / `.errors[]`
+// for the real HTTP status without `any`.
+interface AiSdkErrorView {
+	message?: string;
+	statusCode?: number;
+	status?: number;
+	responseBody?: string;
+	data?: { error?: { message?: unknown } };
+	lastError?: AiSdkErrorView;
+	errors?: AiSdkErrorView[];
+}
 
 // IDs for opencode.ai aggregator headers. opencode CLI computes
 // `x-opencode-project` from a workspace-stable source (`InstanceState.context.project.id`)
@@ -95,8 +152,15 @@ const RATE_LIMIT_FAIL_FAST_RETRY_AFTER_SECONDS = 10;
 // fetch wrapper that pins the corporate-CA-aware undici dispatcher. We cannot
 // pass `dispatcher` directly to streamText() — AI SDK only accepts a standard
 // fetch — so we wrap undici.fetch and surface it as a global-fetch lookalike.
-const customFetch: typeof globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-	const response = await (undiciFetch(input as any, { ...(init as any), dispatcher: ensureSystemCADispatcher() }) as unknown as Promise<Response>);
+// undici's fetch input/init types diverge from the DOM lib types the public
+// `typeof globalThis.fetch` contract uses (undici Request vs DOM Request). The
+// boundary conversion is genuinely cross-type, so it goes through `unknown` —
+// the only place in this wrapper where a non-narrowing cast is unavoidable.
+type UndiciFetchParams = Parameters<typeof undiciFetch>;
+const customFetch: typeof globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+	const undiciInput = input as unknown as UndiciFetchParams[0];
+	const undiciInit = { ...(init as unknown as UndiciFetchParams[1]), dispatcher: ensureSystemCADispatcher() };
+	const response = await (undiciFetch(undiciInput, undiciInit) as unknown as Promise<Response>);
 	if (response.status === 429) {
 		const retryAfterSec = Number(response.headers.get('retry-after'));
 		if (Number.isFinite(retryAfterSec) && retryAfterSec >= RATE_LIMIT_FAIL_FAST_RETRY_AFTER_SECONDS) {
@@ -110,17 +174,18 @@ const customFetch: typeof globalThis.fetch = (async (input: RequestInfo | URL, i
 		}
 	}
 	return response;
-}) as any;
+};
 
 const parseHeadersJSON = (s: string | undefined): Record<string, string> | undefined => {
-	if (!s) return undefined;
+	if (!s) { return undefined; }
 	try {
-		const obj = JSON.parse(s);
+		const obj: unknown = JSON.parse(s);
 		if (obj && typeof obj === 'object') {
+			const record = obj as Record<string, unknown>;
 			const out: Record<string, string> = {};
-			for (const k of Object.keys(obj)) {
-				const v = (obj as any)[k];
-				if (typeof v === 'string') out[k] = v;
+			for (const k of Object.keys(record)) {
+				const v = record[k];
+				if (typeof v === 'string') { out[k] = v; }
 			}
 			return out;
 		}
@@ -273,7 +338,7 @@ const resolveEndpoint = async (
 		case 'awsBedrock': {
 			const c = settingsOfProvider.awsBedrock;
 			let baseURL = c?.endpoint || 'http://localhost:4000/v1';
-			if (!baseURL.endsWith('/v1')) baseURL = baseURL.replace(/\/+$/, '') + '/v1';
+			if (!baseURL.endsWith('/v1')) { baseURL = baseURL.replace(/\/+$/, '') + '/v1'; }
 			return { baseURL, apiKey: c?.apiKey ?? '' };
 		}
 		case 'googleVertex': {
@@ -326,12 +391,12 @@ const resolveEndpoint = async (
 // AI SDK's ToolResultPart requires toolName, which our message format does not carry.
 const buildToolNameLookup = (messages: LLMChatMessage[]): Map<string, string> => {
 	const map = new Map<string, string>();
-	for (const msg of messages as any[]) {
+	for (const msg of messages as ChatMessageView[]) {
 		if (msg?.role !== 'assistant') { continue; }
 		// OpenAI shape: assistant.tool_calls[].
 		if (Array.isArray(msg.tool_calls)) {
 			for (const tc of msg.tool_calls) {
-				if (tc?.id && tc?.function?.name) map.set(tc.id, tc.function.name);
+				if (tc?.id && tc?.function?.name) { map.set(tc.id, tc.function.name); }
 			}
 		}
 		// Anthropic shape: assistant.content[] with { type: 'tool_use', id, name } blocks.
@@ -340,18 +405,18 @@ const buildToolNameLookup = (messages: LLMChatMessage[]): Map<string, string> =>
 		// whole tool history was silently dropped below — see the get_dir_tree replay bug.)
 		if (Array.isArray(msg.content)) {
 			for (const p of msg.content) {
-				if (p?.type === 'tool_use' && typeof p?.id === 'string' && typeof p?.name === 'string') map.set(p.id, p.name);
+				if (p?.type === 'tool_use' && typeof p?.id === 'string' && typeof p?.name === 'string') { map.set(p.id, p.name); }
 			}
 		}
 	}
 	return map;
 };
 
-const flattenTextContent = (c: any): string => {
-	if (typeof c === 'string') return c;
+const flattenTextContent = (c: string | ContentPartView[] | undefined): string => {
+	if (typeof c === 'string') { return c; }
 	if (Array.isArray(c)) {
 		return c
-			.map((p: any) => (p?.type === 'text' && typeof p?.text === 'string') ? p.text : '')
+			.map(p => (p?.type === 'text' && typeof p?.text === 'string') ? p.text : '')
 			.join('');
 	}
 	return '';
@@ -388,7 +453,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 	const needsInterleavedMirror = quirks.mirrorReasoningContent === true;
 
 	for (let i = 0; i < messages.length; i++) {
-		const msg = messages[i] as any;
+		const msg = messages[i] as ChatMessageView;
 		const isLastAndAssistant = i === lastIdx && msg.role === 'assistant';
 		const role = msg.role;
 
@@ -407,7 +472,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 			if (typeof content === 'string') {
 				out.push({ role: 'user', content: content.trim() ? content : EMPTY_CONTENT_PLACEHOLDER });
 			} else if (Array.isArray(content)) {
-				const parts: any[] = [];
+				const parts: UserContentPart[] = [];
 				for (const p of content) {
 					if (p?.type === 'text' && typeof p?.text === 'string') {
 						parts.push({ type: 'text', text: p.text });
@@ -445,7 +510,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 				// by the role:'tool' messages pushed above — don't emit an empty user turn.
 				if (parts.length > 0) {
 					out.push({ role: 'user', content: parts });
-				} else if (out.length === 0 || (out[out.length - 1] as any).role !== 'tool') {
+				} else if (out.length === 0 || out[out.length - 1].role !== 'tool') {
 					out.push({ role: 'user', content: EMPTY_CONTENT_PLACEHOLDER });
 				}
 			} else {
@@ -455,7 +520,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 		}
 
 		if (role === 'assistant') {
-			const parts: any[] = [];
+			const parts: AssistantContentPart[] = [];
 			const content = msg.content;
 			// AI SDK 4.x supports `{ type: 'reasoning', text }` parts inside assistant
 			// messages. Providers that natively understand thinking-mode roundtrip
@@ -464,7 +529,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 			// without it the provider rejects continuation with HTTP 400 "must be
 			// passed back". Surface it FIRST (before text/tool-call parts) so the SDK
 			// emits it in the right slot.
-			const reasoningPayload: string | undefined = (msg as any).reasoning_content || (msg as any).reasoning;
+			const reasoningPayload: string | undefined = msg.reasoning_content || msg.reasoning;
 			let reasoningText = '';
 			if (typeof reasoningPayload === 'string' && reasoningPayload.length > 0) {
 				parts.push({ type: 'reasoning', text: reasoningPayload });
@@ -493,7 +558,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 			}
 			if (Array.isArray(msg.tool_calls)) {
 				for (const tc of msg.tool_calls) {
-					let input: any = {};
+					let input: unknown = {};
 					try { input = JSON.parse(tc?.function?.arguments ?? '{}'); }
 					catch { input = lenientJsonParseObject(tc?.function?.arguments) ?? {}; } // roadmap 1708: recover malformed JSON args instead of dropping them
 					parts.push({
@@ -520,7 +585,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 						providerOptions: {
 							openaiCompatible: { reasoning_content: reasoningText },
 						},
-					} as any);
+					});
 				} else {
 					out.push({ role: 'assistant', content: parts });
 				}
@@ -551,9 +616,9 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 			//     we know a corresponding assistant existed — no DeepSeek reasoning
 			//     requirement applies because original source-level structure is intact.
 			let hasMatchingInSource = false;
-			for (const m of messages as any[]) {
+			for (const m of messages as ChatMessageView[]) {
 				if (m?.role === 'assistant' && Array.isArray(m.tool_calls)) {
-					if (m.tool_calls.some((tc: any) => tc?.id === callId)) {
+					if (m.tool_calls.some(tc => tc?.id === callId)) {
 						hasMatchingInSource = true;
 						break;
 					}
@@ -562,14 +627,14 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 
 			let hasMatchingInOut = false;
 			for (let j = out.length - 1; j >= 0; j--) {
-				const m: any = out[j];
+				const m = out[j];
 				if (m.role === 'assistant' && Array.isArray(m.content)) {
-					if (m.content.some((p: any) => p?.type === 'tool-call' && p?.toolCallId === callId)) {
+					if (m.content.some(p => p.type === 'tool-call' && p.toolCallId === callId)) {
 						hasMatchingInOut = true;
 					}
 					break;
 				}
-				if (m.role === 'user') break;
+				if (m.role === 'user') { break; }
 			}
 
 			// True orphan from auto-summary: no matching assistant.tool_call exists in
@@ -584,7 +649,7 @@ const convertMessagesToModelMessages = (messages: LLMChatMessage[], modelName: s
 			// "result was discarded by summary" message so the model knows not to retry.
 			if (!hasMatchingInSource) {
 				const orphanReasoningText = '(reasoning omitted during conversation summarization)';
-				const orphanAssistant: any = {
+				const orphanAssistant: ModelMessageOfRole<'assistant'> = {
 					role: 'assistant',
 					content: [
 						// Non-empty placeholder satisfies DeepSeek's "reasoning_content must
@@ -729,7 +794,7 @@ const convertToolsToAiSdkToolSet = (
 			: Object.values(allowed);
 		for (const t of toolsArray) {
 			const name = t.name;
-			if (!name) continue;
+			if (!name) { continue; }
 			const properties: Record<string, { description: string; type: 'string' }> = {};
 			const required: string[] = [];
 			for (const k of Object.keys(t.params)) {
@@ -739,26 +804,28 @@ const convertToolsToAiSdkToolSet = (
 					required.push(k);
 				}
 			}
+			const inputSchema: JSONSchema7 = {
+				type: 'object',
+				properties,
+				...(required.length > 0 ? { required } : {}),
+			};
 			out[name] = tool({
 				description: t.description,
-				inputSchema: jsonSchema({
-					type: 'object',
-					properties,
-					...(required.length > 0 ? { required } : {}),
-				} as JSONSchema7),
+				inputSchema: jsonSchema(inputSchema),
 			});
 		}
 	}
 	if (includeInvalidTool) {
+		const invalidToolSchema: JSONSchema7 = {
+			type: 'object',
+			properties: {
+				tool: { type: 'string', description: 'Original tool name the model attempted.' },
+				error: { type: 'string', description: 'Why the call was considered invalid.' },
+			},
+		};
 		out[INVALID_TOOL_NAME] = tool({
 			description: 'Do not use. Reserved for repair routing.',
-			inputSchema: jsonSchema({
-				type: 'object',
-				properties: {
-					tool: { type: 'string', description: 'Original tool name the model attempted.' },
-					error: { type: 'string', description: 'Why the call was considered invalid.' },
-				},
-			} as JSONSchema7),
+			inputSchema: jsonSchema(invalidToolSchema),
 			execute: async (args: unknown) => {
 				const a = (args ?? {}) as { tool?: string; error?: string };
 				const reason = (typeof a.error === 'string' && a.error) ? a.error : 'Unknown tool call';
@@ -817,18 +884,18 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	const specialToolFormat = (() => {
 		// Tier 1: model-quirks override. Applies regardless of aggregator-synth status —
 		// these overrides are explicitly curated for the model.
-		if (quirks.forceToolCallFormat === 'native') return 'openai-style' as const;
-		if (quirks.forceToolCallFormat === 'xml') return undefined;
+		if (quirks.forceToolCallFormat === 'native') { return 'openai-style' as const; }
+		if (quirks.forceToolCallFormat === 'xml') { return undefined; }
 		// Tier 2 (existing): only for aggregator-synthesized fallbacks.
-		if (!isAggregatorSynthesized) return caps.specialToolFormat;
-		if (toolFallbackMode === 'native') return 'openai-style' as const;
-		if (toolFallbackMode === 'xml') return undefined;
-		if (runtimeOptions?.assumeNativeTools === false) return undefined;
+		if (!isAggregatorSynthesized) { return caps.specialToolFormat; }
+		if (toolFallbackMode === 'native') { return 'openai-style' as const; }
+		if (toolFallbackMode === 'xml') { return undefined; }
+		if (runtimeOptions?.assumeNativeTools === false) { return undefined; }
 		return caps.specialToolFormat;
 	})();
 
 	// Open-source think-tag reasoning: wrap callbacks to extract <think>...</think>.
-	const openSourceThinkTags = (reasoningCapabilities && (reasoningCapabilities as any).openSourceThinkTags) as [string, string] | undefined;
+	const openSourceThinkTags = reasoningCapabilities ? reasoningCapabilities.openSourceThinkTags : undefined;
 	let onText = onText_;
 	let onFinalMessage = onFinalMessage_;
 	// Universal safety net, applied INNERMOST (runs last, on the final text handed to the consumer):
@@ -848,7 +915,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// Native-reasoning models that ALSO duplicate the CoT as inline <think> in content
 	// (MiniMax-M3): strip the duplicate from the body WITHOUT touching the native reasoning
 	// channel (it stays authoritative for the fold + export). See stripThinkTagsWrapper.
-	const stripThinkTags = (reasoningCapabilities && (reasoningCapabilities as any).stripThinkTagsFromContent) as [string, string] | undefined;
+	const stripThinkTags = reasoningCapabilities ? reasoningCapabilities.stripThinkTagsFromContent : undefined;
 	if (stripThinkTags) {
 		const wrapped = stripThinkTagsWrapper(onText, onFinalMessage, stripThinkTags);
 		onText = wrapped.newOnText;
@@ -864,8 +931,8 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	let resolved: ResolvedEndpoint;
 	try {
 		resolved = await resolveEndpoint(providerName as AiSdkProviderName, modelName, settingsOfProvider);
-	} catch (e: any) {
-		onError({ message: e?.message ?? String(e), fullError: e instanceof Error ? e : null });
+	} catch (e) {
+		onError({ message: e instanceof Error ? e.message : String(e), fullError: e instanceof Error ? e : null });
 		return;
 	}
 	const { baseURL, apiKey, headers, queryParams } = resolved;
@@ -917,7 +984,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				// `interleaved-thinking` flag is for reasoning models.
 				'anthropic-beta': 'interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14',
 			},
-			fetch: customFetch as any,
+			fetch: customFetch,
 		})(modelName)
 		: sdkNpm === '@ai-sdk/openai'
 			? // Native OpenAI SDK. Default `.chat()` shape — chat-completions endpoint
@@ -930,7 +997,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				baseURL,
 				apiKey,
 				headers,
-				fetch: customFetch as any,
+				fetch: customFetch,
 			}).chat(modelName)
 			: sdkNpm === '@ai-sdk/google'
 				? // Native Google Generative AI (Gemini). Activated when models.dev
@@ -947,7 +1014,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 					baseURL,
 					apiKey,
 					headers,
-					fetch: customFetch as any,
+					fetch: customFetch,
 				})(modelName)
 				: createOpenAICompatible({
 					name: providerName,
@@ -955,7 +1022,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 					apiKey,
 					headers,
 					queryParams,
-					fetch: customFetch as any,
+					fetch: customFetch,
 					includeUsage: true,
 					transformRequestBody: Object.keys(openAICompatExtraBody).length
 						? (body) => ({ ...body, ...openAICompatExtraBody })
@@ -974,12 +1041,13 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// Harmless when a proxy (openCodeGo Zen) strips the field — it is purely additive.
 	let systemForCall: string | undefined = separateSystemMessage;
 	if (sdkNpm === '@ai-sdk/anthropic') {
-		const cacheCtl = { anthropic: { cacheControl: { type: 'ephemeral' } } };
+		const cacheCtl: MessageProviderOptions = { anthropic: { cacheControl: { type: 'ephemeral' } } };
 		if (systemForCall) {
-			modelMessages = [{ role: 'system', content: systemForCall, providerOptions: cacheCtl } as any, ...modelMessages];
+			const systemMsg: ModelMessageOfRole<'system'> = { role: 'system', content: systemForCall, providerOptions: cacheCtl };
+			modelMessages = [systemMsg, ...modelMessages];
 			systemForCall = undefined;
 		}
-		const lastMsg = modelMessages[modelMessages.length - 1] as any;
+		const lastMsg = modelMessages[modelMessages.length - 1];
 		if (lastMsg) { lastMsg.providerOptions = { ...(lastMsg.providerOptions ?? {}), ...cacheCtl }; }
 	} else if (providerName === 'openRouter' && /claude/i.test(modelName)) {
 		// OpenRouter (OpenAI-shape API) forwards Anthropic `cache_control` markers for
@@ -990,16 +1058,19 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		// breakpoints as the native route: system + the last message. EXPERIMENT status:
 		// whether OpenRouter honors message-level (vs part-level) placement is confirmed
 		// by the `cached:` numbers in the TokenBudget log — harmless if ignored.
-		const orCacheCtl = { openaiCompatible: { cache_control: { type: 'ephemeral' } } };
+		const orCacheCtl: MessageProviderOptions = { openaiCompatible: { cache_control: { type: 'ephemeral' } } };
 		if (systemForCall) {
-			modelMessages = [{ role: 'system', content: systemForCall, providerOptions: orCacheCtl } as any, ...modelMessages];
+			const systemMsg: ModelMessageOfRole<'system'> = { role: 'system', content: systemForCall, providerOptions: orCacheCtl };
+			modelMessages = [systemMsg, ...modelMessages];
 			systemForCall = undefined;
 		}
-		const lastMsg = modelMessages[modelMessages.length - 1] as any;
+		const lastMsg = modelMessages[modelMessages.length - 1];
 		if (lastMsg) {
 			if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
 				// Part-level marker (documented OpenRouter shape) when the message has parts.
-				const lastPart = lastMsg.content[lastMsg.content.length - 1];
+				// All real content parts carry an optional `providerOptions`; narrow to that
+				// carrier shape since the broad union also nominally includes approval parts.
+				const lastPart = lastMsg.content[lastMsg.content.length - 1] as { providerOptions?: MessageProviderOptions };
 				lastPart.providerOptions = { ...(lastPart.providerOptions ?? {}), ...orCacheCtl };
 			} else {
 				lastMsg.providerOptions = { ...(lastMsg.providerOptions ?? {}), ...orCacheCtl };
@@ -1076,28 +1147,29 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// that's what falsely killed deepseek/minimax mid-reasoning and triggered the
 	// abort→retry churn. The overall cap + the content idle-timer cover real hangs.
 	const markConnected = () => {
-		if (firstTokenReceived) return;
+		if (firstTokenReceived) { return; }
 		firstTokenReceived = true;
 		if (firstTokenTimeoutId) { clearTimeout(firstTokenTimeoutId); firstTokenTimeoutId = null; }
 	};
 
 	const buildPartialToolCallObj = (): RawToolCallObj | undefined => {
-		if (!toolName) return undefined;
-		return { name: toolName as any, rawParams: {} as RawToolParamsObj, doneParams: [], id: toolId, isDone: false };
+		if (!toolName) { return undefined; }
+		const rawParams: RawToolParamsObj = {};
+		return { name: toolName, rawParams, doneParams: [], id: toolId, isDone: false };
 	};
 
 	const finalizeToolCall = (): RawToolCallObj | null => {
-		if (!toolName) return null;
+		if (!toolName) { return null; }
 		let input: unknown;
 		try { input = JSON.parse(toolParamsStr || '{}'); }
 		catch { input = lenientJsonParseObject(toolParamsStr); } // roadmap 1708: recover malformed JSON args instead of dropping the whole call
-		if (input === null || typeof input !== 'object') return null;
+		if (input === null || typeof input !== 'object') { return null; }
 		const rawParams = input as RawToolParamsObj;
 		return {
 			id: toolId || generateUuid(),
-			name: toolName as any,
+			name: toolName,
 			rawParams,
-			doneParams: Object.keys(rawParams) as any,
+			doneParams: Object.keys(rawParams),
 			isDone: true,
 		};
 	};
@@ -1110,14 +1182,14 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// until the [VibeIDE/llmTurn] trace shows how openCodeGo actually streams (early
 	// `start` part vs buffering ~60s); then we tune the number from data, not guesses.
 	firstTokenTimeoutId = setTimeout(() => {
-		if (!firstTokenReceived) abortController.abort(new Error('Connection timeout (no stream parts received).'));
+		if (!firstTokenReceived) { abortController.abort(new Error('Connection timeout (no stream parts received).')); }
 	}, connectionMs);
 
 	// Shared hard-timeout handler for BOTH the overall wall-clock cap and the idle
 	// timer. Delivers any partial content (so a stalled-but-started tool-call still
 	// surfaces) or an error, then aborts. Guarded so it runs at most once.
 	const handleHardTimeout = (errMessage: string) => {
-		if (timeoutFired) return;
+		if (timeoutFired) { return; }
 		timeoutFired = true;
 		if (fullTextSoFar || fullReasoningSoFar || toolName) {
 			timeoutDeliveredPartial = true;
@@ -1142,7 +1214,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// gaps); the silent pre-content reasoning warmup is intentionally NOT covered
 	// (it's a thinking model, not a stall) — only the overall cap bounds that.
 	const resetIdle = () => {
-		if (timeoutFired) return;
+		if (timeoutFired) { return; }
 		if (idleTimeoutId) { clearTimeout(idleTimeoutId); }
 		idleTimeoutId = setTimeout(() => handleHardTimeout(`Стрим завис — нет токенов ${idleMs / 1000}с после начала ответа.`), idleMs);
 	};
@@ -1156,9 +1228,9 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		// unconditionally for matched models and are a no-op for everything else.
 		// User can override per-model via `vibeide.modelQuirks` setting.
 		const modelParams: { temperature?: number; topP?: number; topK?: number } = {};
-		if (quirks.temperature !== undefined) modelParams.temperature = quirks.temperature;
-		if (quirks.topP !== undefined) modelParams.topP = quirks.topP;
-		if (quirks.topK !== undefined) modelParams.topK = quirks.topK;
+		if (quirks.temperature !== undefined) { modelParams.temperature = quirks.temperature; }
+		if (quirks.topP !== undefined) { modelParams.topP = quirks.topP; }
+		if (quirks.topK !== undefined) { modelParams.topK = quirks.topK; }
 
 		const result = streamText({
 			model: languageModel,
@@ -1210,9 +1282,9 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			// Without stages 1-4 the SDK would throw NoSuchTool/InvalidToolArguments
 			// for recoverable calls. Pattern from Kilo Code (extended 3 + 4).
 			experimental_repairToolCall: async ({ toolCall, tools: registeredTools, error }) => {
-				if (!registeredTools) return null;
+				if (!registeredTools) { return null; }
 				const has = (n: string) => Object.prototype.hasOwnProperty.call(registeredTools, n);
-				const raw = (toolCall as { toolName?: string }).toolName ?? '';
+				const raw = toolCall.toolName ?? '';
 				const lowered = raw.toLowerCase();
 
 				// Stages 1-3: resolve the canonical tool NAME.
@@ -1238,36 +1310,40 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				// confusion / fundamentally wrong args), fall through to `invalid` so
 				// the model gets a clean error rather than an identically-failing retry.
 				if (resolved && resolved !== INVALID_TOOL_NAME) {
-					const { input: repairedInput, changed } = repairToolArgsViaAliases(resolved, (toolCall as { input?: unknown }).input);
+					const { input: repairedInput, changed } = repairToolArgsViaAliases(resolved, toolCall.input);
 					if (resolved !== raw || changed) {
-						return { ...toolCall, toolName: resolved, input: repairedInput } as typeof toolCall;
+						// `repairToolArgsViaAliases` returns the original `input` string when no
+						// change applied, or a re-serialized JSON string when it did — both are
+						// strings here since `toolCall.input` is a string.
+						const repairedInputStr = typeof repairedInput === 'string' ? repairedInput : toolCall.input;
+						return { ...toolCall, toolName: resolved, input: repairedInputStr };
 					}
 				}
 
 				// Stage 5: route to `invalid` pseudo-tool.
-				const errMsg = (error as { message?: string } | undefined)?.message ?? 'Unknown tool name';
+				const errMsg = error?.message ?? 'Unknown tool name';
 				return {
 					...toolCall,
 					toolName: INVALID_TOOL_NAME,
 					input: JSON.stringify({ tool: raw, error: errMsg }),
-				} as typeof toolCall;
+				};
 			},
 		});
 
-		for await (const part of result.fullStream as AsyncIterable<TextStreamPart<any>>) {
-			if (timeoutFired) break;
+		for await (const part of result.fullStream as AsyncIterable<TextStreamPart<ToolSet>>) {
+			if (timeoutFired) { break; }
 			markConnected(); // ANY part means the upstream answered → clear connection timeout
 
 			switch (part.type) {
 				case 'text-delta': {
 					resetIdle(); // content flowing → (re)arm the inter-token stall timer
-					fullTextSoFar += (part as any).text ?? '';
+					fullTextSoFar += part.text ?? '';
 					onText({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, toolCall: buildPartialToolCallObj() });
 					break;
 				}
 				case 'reasoning-delta': {
 					resetIdle();
-					fullReasoningSoFar += (part as any).text ?? '';
+					fullReasoningSoFar += part.text ?? '';
 					onText({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, toolCall: buildPartialToolCallObj() });
 					break;
 				}
@@ -1275,27 +1351,27 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 					// Single-slot accumulator (parity with existing _sendOpenAICompatibleChat).
 					// Additional tool calls in the same response are intentionally ignored
 					// — the consumer pipeline downstream only handles one tool per turn.
-					if (toolName) break;
-					toolName = (part as any).toolName ?? '';
-					toolId = (part as any).id ?? '';
+					if (toolName) { break; }
+					toolName = part.toolName ?? '';
+					toolId = part.id ?? '';
 					resetIdle();
 					onText({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, toolCall: buildPartialToolCallObj() });
 					break;
 				}
 				case 'tool-input-delta': {
-					if (toolId && (part as any).id !== toolId) break;
-					toolParamsStr += (part as any).delta ?? '';
+					if (toolId && part.id !== toolId) { break; }
+					toolParamsStr += part.delta ?? '';
 					onText({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, toolCall: buildPartialToolCallObj() });
 					break;
 				}
 				case 'tool-call': {
 					// SDK delivers the fully-parsed input. Prefer it for the final call;
 					// keeps us correct even when tool-input-delta wasn't emitted at all.
-					if (!toolName && (part as any).toolName) {
-						toolName = (part as any).toolName;
-						toolId = (part as any).toolCallId ?? toolId;
+					if (!toolName && part.toolName) {
+						toolName = part.toolName;
+						toolId = part.toolCallId ?? toolId;
 					}
-					const input = (part as any).input;
+					const input = part.input;
 					if (input !== undefined) {
 						try { toolParamsStr = JSON.stringify(input); }
 						catch { /* keep accumulated */ }
@@ -1304,7 +1380,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				}
 				case 'finish-step':
 				case 'finish': {
-					lastFinishReason = (part as any).finishReason ?? lastFinishReason;
+					lastFinishReason = part.finishReason ?? lastFinishReason;
 					// AI SDK v5+ (we are on `ai: ^6.0.182`) renamed `promptTokens`→`inputTokens`
 					// and `completionTokens`→`outputTokens`. Old field names are kept as
 					// fallback for any provider/path still on v4 shape. `finish-step` fires
@@ -1312,7 +1388,8 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 					// latter wins for totals; keep last seen on this combined branch.
 					// Also try `totalUsage` (some SDK versions surface aggregate on `finish`
 					// under a separate field).
-					const u = ((part as any).usage ?? (part as any).totalUsage) as {
+					const usageSource = part.type === 'finish-step' ? part.usage : part.totalUsage;
+					const u = usageSource as {
 						inputTokens?: number; outputTokens?: number; totalTokens?: number;
 						promptTokens?: number; completionTokens?: number;
 						cachedInputTokens?: number;
@@ -1346,12 +1423,12 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 					break;
 				}
 				case 'error': {
-					throw (part as any).error;
+					throw part.error;
 				}
 			}
 		}
 
-		if (timeoutFired) return;
+		if (timeoutFired) { return; }
 		clearAllTimers();
 
 		if (!fullTextSoFar && !fullReasoningSoFar && !toolName) {
@@ -1382,34 +1459,38 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			...(tc ? { toolCall: tc } : {}),
 			...(lastUsage ? { usage: lastUsage } : {}),
 		});
-	} catch (error: any) {
+	} catch (error) {
 		clearAllTimers();
-		if (timeoutDeliveredPartial) return;
+		if (timeoutDeliveredPartial) { return; }
 		if (abortController.signal.aborted && !timeoutFired) {
 			// User-initiated abort — propagate nothing, the caller already knows.
 			return;
 		}
+		// AI SDK error objects expose a loose, version-dependent surface (retry
+		// wrappers, nested API errors, parsed body). Read them through an
+		// optional-everything view rather than `any`.
+		const errorView = (error ?? {}) as AiSdkErrorView;
 		// AI SDK wraps exhausted retries in an AI_RetryError whose own `.message`
 		// is "Failed after N attempts. Last error: <none>" and which carries NO
 		// `statusCode` — the real HTTP status (e.g. 520 from a Cloudflare-fronted
 		// aggregator origin) lives on the nested AI_APICallError in `.lastError` /
 		// `.errors[]`. Unwrap to that inner error so the status mapping below sees
 		// the truth instead of surfacing the useless "<none>" wrapper text.
-		const inner: any = error?.lastError
-			?? (Array.isArray(error?.errors) && error.errors.length > 0 ? error.errors[error.errors.length - 1] : undefined);
-		const status = error?.statusCode ?? error?.status ?? inner?.statusCode ?? inner?.status;
+		const inner: AiSdkErrorView | undefined = errorView.lastError
+			?? (Array.isArray(errorView.errors) && errorView.errors.length > 0 ? errorView.errors[errorView.errors.length - 1] : undefined);
+		const status = errorView.statusCode ?? errorView.status ?? inner?.statusCode ?? inner?.status;
 		const innerMsg: string | undefined = typeof inner?.message === 'string' ? inner.message : undefined;
-		const outerMsg: string = error?.message ?? String(error);
+		const outerMsg: string = errorView.message ?? String(error);
 		// Prefer the inner error's message when the outer one is the retry wrapper.
 		const errMsg: string = (innerMsg && innerMsg.trim().length > 0) ? innerMsg : outerMsg;
-		const errBody: string = typeof error?.responseBody === 'string' ? error.responseBody
+		const errBody: string = typeof errorView.responseBody === 'string' ? errorView.responseBody
 			: (typeof inner?.responseBody === 'string' ? inner.responseBody : '');
 		// The provider's response BODY often carries the REAL reason while the status code
 		// lies (observed: openCodeGo 401 with body «Free promotion has ended for Qwen3.6 Plus
 		// Free…» — a static «Invalid API key» message hid it). Prefer `data.error.message`
 		// (AI SDK pre-parses it) with a raw-JSON-body fallback.
 		const bodyErrMsg: string | undefined = (() => {
-			const data = (error?.data ?? inner?.data) as { error?: { message?: unknown } } | undefined;
+			const data = errorView.data ?? inner?.data;
 			if (typeof data?.error?.message === 'string' && data.error.message.trim().length > 0) { return data.error.message.trim(); }
 			if (errBody) {
 				try {

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * AI debugging context adapter (roadmap §L881).
@@ -78,7 +79,7 @@ class VibeAIDebuggingService extends Disposable implements IVibeAIDebuggingServi
 		}
 		try {
 			const snap = this._buildSnapshot();
-			if (!snap) return;
+			if (!snap) { return; }
 			this._lastContext = buildDebugContextForAgent(snap);
 			this._onDidChangeContext.fire();
 		} catch (e) {
@@ -89,7 +90,7 @@ class VibeAIDebuggingService extends Disposable implements IVibeAIDebuggingServi
 	private _buildSnapshot(): DebugSessionSnapshot | null {
 		const model = this._debugService.getModel();
 		const rawBps = model.getBreakpoints();
-		if (rawBps.length === 0) return null;
+		if (rawBps.length === 0) { return null; }
 
 		const bps: BreakpointSnapshot[] = rawBps.map(bp => ({
 			id: bp.getId(),

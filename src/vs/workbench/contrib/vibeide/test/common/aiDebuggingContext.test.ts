@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -11,6 +12,7 @@ import {
 	DebugSessionSnapshot,
 	StackFrameSnapshot,
 } from '../../common/aiDebuggingContext.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 function bp(overrides: Partial<BreakpointSnapshot> = {}): BreakpointSnapshot {
 	return {
@@ -43,6 +45,8 @@ function session(overrides: Partial<DebugSessionSnapshot> = {}): DebugSessionSna
 }
 
 suite('VibeAIDebuggingService — debug context formatter', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('buildDebugContextForAgent', () => {
 		test('renders session heading + thread', () => {
@@ -88,7 +92,7 @@ suite('VibeAIDebuggingService — debug context formatter', () => {
 
 		test('truncates call stack to 10 frames with «…and N more frames»', () => {
 			const frames: StackFrameSnapshot[] = [];
-			for (let i = 0; i < 15; i++) frames.push(frame({ id: `f${i}`, name: `frame${i}` }));
+			for (let i = 0; i < 15; i++) { frames.push(frame({ id: `f${i}`, name: `frame${i}` })); }
 			const r = buildDebugContextForAgent(session({ frames }));
 			assert.ok(r.markdownBody.includes('and 5 more frames'));
 		});

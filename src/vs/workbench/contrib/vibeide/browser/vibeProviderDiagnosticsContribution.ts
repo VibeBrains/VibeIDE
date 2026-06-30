@@ -1,10 +1,12 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { ILayoutService } from '../../../../platform/layout/browser/layoutService.js';
 import { localize2 } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
@@ -48,6 +50,7 @@ export class VibeProviderDiagnosticsRootContribution extends Disposable implemen
 	constructor(
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
 		@IVibeProviderDiagnosticsService private readonly _diagService: IVibeProviderDiagnosticsService,
+		@ILayoutService private readonly _layoutService: ILayoutService,
 	) {
 		super();
 
@@ -61,7 +64,7 @@ export class VibeProviderDiagnosticsRootContribution extends Disposable implemen
 	}
 
 	private _tryMount(): void {
-		const workbench = document.querySelector<HTMLElement>('.monaco-workbench') ?? document.body;
+		const workbench = this._layoutService.mainContainer;
 		if (!workbench) {
 			vibeLog.warn('vibeProviderDiagnosticsRoot', '[VibeProviderDiagnosticsRoot] no .monaco-workbench root; modal not mounted');
 			return;

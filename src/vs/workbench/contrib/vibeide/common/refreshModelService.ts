@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
@@ -21,18 +22,18 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 type TimerHandle = ReturnType<typeof setTimeout>;
 
 type RefreshableState = ({
-	state: 'init',
-	timeoutId: null,
+	state: 'init';
+	timeoutId: null;
 } | {
-	state: 'refreshing',
-	timeoutId: TimerHandle | null, // the timeoutId of the most recent call to refreshModels
+	state: 'refreshing';
+	timeoutId: TimerHandle | null; // the timeoutId of the most recent call to refreshModels
 } | {
-	state: 'finished',
-	timeoutId: null,
+	state: 'finished';
+	timeoutId: null;
 } | {
-	state: 'error',
-	timeoutId: null,
-})
+	state: 'error';
+	timeoutId: null;
+});
 
 
 /*
@@ -44,7 +45,7 @@ user click -> error -> fire(error)
 poll -> do not fire
 
 */
-export type RefreshModelStateOfProvider = Record<RefreshableProviderName, RefreshableState>
+export type RefreshModelStateOfProvider = Record<RefreshableProviderName, RefreshableState>;
 
 
 
@@ -53,23 +54,23 @@ const refreshBasedOn: { [k in RefreshableProviderName]: (keyof SettingsOfProvide
 	vLLM: ['_didFillInProviderSettings', 'endpoint'],
 	lmStudio: ['_didFillInProviderSettings', 'endpoint'],
 	// openAICompatible: ['_didFillInProviderSettings', 'endpoint', 'apiKey'],
-}
-const REFRESH_INTERVAL = 5_000
+};
+const REFRESH_INTERVAL = 5_000;
 // const COOLDOWN_TIMEOUT = 300
 
-const autoOptions = { enableProviderOnSuccess: true, doNotFire: true }
+const autoOptions = { enableProviderOnSuccess: true, doNotFire: true };
 
 // element-wise equals
 function eq<T>(a: T[], b: T[]): boolean {
-	if (a.length !== b.length) return false
+	if (a.length !== b.length) { return false; }
 	for (let i = 0; i < a.length; i++) {
-		if (a[i] !== b[i]) return false
+		if (a[i] !== b[i]) { return false; }
 	}
-	return true
+	return true;
 }
 export interface IRefreshModelService {
 	readonly _serviceBrand: undefined;
-	startRefreshingModels: (providerName: RefreshableProviderName, options: { enableProviderOnSuccess: boolean, doNotFire: boolean }) => void;
+	startRefreshingModels: (providerName: RefreshableProviderName, options: { enableProviderOnSuccess: boolean; doNotFire: boolean }) => void;
 	refreshRemoteCatalog: (providerName: ProviderName, forceRefresh?: boolean) => Promise<void>;
 	onDidChangeState: Event<RefreshableProviderName>;
 	state: RefreshModelStateOfProvider;
@@ -90,38 +91,38 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 		@ILLMMessageService private readonly llmMessageService: ILLMMessageService,
 		@IRemoteCatalogService private readonly remoteCatalogService: IRemoteCatalogService,
 	) {
-		super()
+		super();
 
 
-		const disposables: Set<IDisposable> = new Set()
+		const disposables: Set<IDisposable> = new Set();
 
 		const initializeAutoPollingAndOnChange = () => {
-			this._clearAllTimeouts()
-			disposables.forEach(d => d.dispose())
-			disposables.clear()
+			this._clearAllTimeouts();
+			disposables.forEach(d => d.dispose());
+			disposables.clear();
 
-			if (!vibeideSettingsService.state.globalSettings.autoRefreshModels) return
+			if (!vibeideSettingsService.state.globalSettings.autoRefreshModels) { return; }
 
 			for (const providerName of refreshableProviderNames) {
 
 				// const { '_didFillInProviderSettings': enabled } = this.vibeideSettingsService.state.settingsOfProvider[providerName]
-				this.startRefreshingModels(providerName, autoOptions)
+				this.startRefreshingModels(providerName, autoOptions);
 
 				// every time providerName.enabled changes, refresh models too, like a useEffect
-				let relevantVals = () => refreshBasedOn[providerName].map(settingName => vibeideSettingsService.state.settingsOfProvider[providerName][settingName])
-				let prevVals = relevantVals() // each iteration of a for loop has its own context and vars, so this is ok
+				const relevantVals = () => refreshBasedOn[providerName].map(settingName => vibeideSettingsService.state.settingsOfProvider[providerName][settingName]);
+				let prevVals = relevantVals(); // each iteration of a for loop has its own context and vars, so this is ok
 				disposables.add(
 					vibeideSettingsService.onDidChangeState(() => { // we might want to debounce this
-						const newVals = relevantVals()
+						const newVals = relevantVals();
 						if (!eq(prevVals, newVals)) {
 
-							const prevEnabled = prevVals[0] as boolean
-							const enabled = newVals[0] as boolean
+							const prevEnabled = prevVals[0] as boolean;
+							const enabled = newVals[0] as boolean;
 
 							// if it was just enabled, or there was a change and it wasn't to the enabled state, refresh
 							if ((enabled && !prevEnabled) || (!enabled && !prevEnabled)) {
 								// if user just clicked enable, refresh
-								this.startRefreshingModels(providerName, autoOptions)
+								this.startRefreshingModels(providerName, autoOptions);
 							}
 							else {
 								// else if user just clicked disable, don't refresh
@@ -130,20 +131,20 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 								// const timeoutId = setTimeout(() => this.refreshModels(providerName, !enabled), COOLDOWN_TIMEOUT)
 								// this._setTimeoutId(providerName, timeoutId)
 							}
-							prevVals = newVals
+							prevVals = newVals;
 						}
 					})
-				)
+				);
 			}
-		}
+		};
 
 		// on mount (when get init settings state), and if a relevant feature flag changes, start refreshing models
 		vibeideSettingsService.waitForInitState.then(() => {
-			initializeAutoPollingAndOnChange()
+			initializeAutoPollingAndOnChange();
 			this._register(
-				vibeideSettingsService.onDidChangeState((type) => { if (typeof type === 'object' && type[1] === 'autoRefreshModels') initializeAutoPollingAndOnChange() })
-			)
-		})
+				vibeideSettingsService.onDidChangeState((type) => { if (typeof type === 'object' && type[1] === 'autoRefreshModels') { initializeAutoPollingAndOnChange(); } })
+			);
+		});
 
 	}
 
@@ -151,77 +152,77 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 		ollama: { state: 'init', timeoutId: null },
 		vLLM: { state: 'init', timeoutId: null },
 		lmStudio: { state: 'init', timeoutId: null },
-	}
+	};
 
 
 	// start listening for models (and don't stop)
 	startRefreshingModels: IRefreshModelService['startRefreshingModels'] = (providerName, options) => {
 
-		this._clearProviderTimeout(providerName)
+		this._clearProviderTimeout(providerName);
 
-		this._setRefreshState(providerName, 'refreshing', options)
+		this._setRefreshState(providerName, 'refreshing', options);
 
 		const autoPoll = () => {
 			if (this.vibeideSettingsService.state.globalSettings.autoRefreshModels) {
 				// resume auto-polling
-				const timeoutId = setTimeout(() => this.startRefreshingModels(providerName, autoOptions), REFRESH_INTERVAL)
-				this._setTimeoutId(providerName, timeoutId)
+				const timeoutId = setTimeout(() => this.startRefreshingModels(providerName, autoOptions), REFRESH_INTERVAL);
+				this._setTimeoutId(providerName, timeoutId);
 			}
-		}
+		};
 		const listFn = providerName === 'ollama' ? this.llmMessageService.ollamaList
-			: this.llmMessageService.openAICompatibleList
+			: this.llmMessageService.openAICompatibleList;
 
 		listFn({
 			providerName,
-		onSuccess: async ({ models }) => {
+			onSuccess: async ({ models }) => {
 				// set the models to the detected models
 				await this.vibeideSettingsService.setAutodetectedModels(
 					providerName,
 					models.map(model => {
-						if (providerName === 'ollama') return (model as OllamaModelResponse).name;
-						else if (providerName === 'vLLM') return (model as OpenaiCompatibleModelResponse).id;
-						else if (providerName === 'lmStudio') return (model as OpenaiCompatibleModelResponse).id;
-						else throw new Error('refreshMode fn: unknown provider', providerName);
+						if (providerName === 'ollama') { return (model as OllamaModelResponse).name; }
+						else if (providerName === 'vLLM') { return (model as OpenaiCompatibleModelResponse).id; }
+						else if (providerName === 'lmStudio') { return (model as OpenaiCompatibleModelResponse).id; }
+						else { throw new Error('refreshMode fn: unknown provider', providerName); }
 					}),
 					{ enableProviderOnSuccess: options.enableProviderOnSuccess, hideRefresh: options.doNotFire, defaultHiddenForNew: false }
-				)
+				);
 
-				if (options.enableProviderOnSuccess) this.vibeideSettingsService.setSettingOfProvider(providerName, '_didFillInProviderSettings', true)
+				if (options.enableProviderOnSuccess) { this.vibeideSettingsService.setSettingOfProvider(providerName, '_didFillInProviderSettings', true); }
 
-				this._setRefreshState(providerName, 'finished', options)
-				autoPoll()
+				this._setRefreshState(providerName, 'finished', options);
+				autoPoll();
 			},
 			onError: ({ error }) => {
-				this._setRefreshState(providerName, 'error', options)
-				autoPoll()
+				this._setRefreshState(providerName, 'error', options);
+				autoPoll();
 			}
-		})
+		});
 
 
-	}
+	};
 
 	_clearAllTimeouts() {
 		for (const providerName of refreshableProviderNames) {
-			this._clearProviderTimeout(providerName)
+			this._clearProviderTimeout(providerName);
 		}
 	}
 
 	_clearProviderTimeout(providerName: RefreshableProviderName) {
 		// cancel any existing poll
 		if (this.state[providerName].timeoutId) {
-			clearTimeout(this.state[providerName].timeoutId)
-			this._setTimeoutId(providerName, null)
+			clearTimeout(this.state[providerName].timeoutId);
+			this._setTimeoutId(providerName, null);
 		}
 	}
 
 	private _setTimeoutId(providerName: RefreshableProviderName, timeoutId: TimerHandle | null) {
-		this.state[providerName].timeoutId = timeoutId
+		this.state[providerName].timeoutId = timeoutId;
 	}
 
 	private _setRefreshState(providerName: RefreshableProviderName, state: RefreshableState['state'], options?: { doNotFire: boolean }) {
-		if (options?.doNotFire) return
-		this.state[providerName].state = state
-		this._onDidChangeState.fire(providerName)
+		if (options?.doNotFire) { return; }
+		this.state[providerName].state = state;
+		this._onDidChangeState.fire(providerName);
 	}
 
 	/**
@@ -255,9 +256,9 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 
 			const overrideUpdates: Record<string, Partial<ModelOverrides>> = {};
 			for (const m of models) {
-				if (m.deprecated) continue;
+				if (m.deprecated) { continue; }
 				const id = m.id || m.name;
-				if (!id) continue;
+				if (!id) { continue; }
 				const partial: Partial<ModelOverrides> = {};
 				if (typeof m.contextWindow === 'number' && m.contextWindow > 0) {
 					partial.contextWindow = m.contextWindow;
@@ -284,7 +285,7 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 			vibeLog.error('refreshModel', `Failed to refresh remote catalog for ${providerName}:`, error);
 			throw error;
 		}
-	}
+	};
 }
 
 registerSingleton(IRefreshModelService, RefreshModelService, InstantiationType.Eager);

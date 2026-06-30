@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * i18n fallback chain — pure resolver
@@ -60,11 +61,11 @@ export function resolveLocalized(input: ResolveLocalizedInput): ResolveLocalized
 	const target = normaliseLocale(input.requestedLocale);
 	if (target.length > 0) {
 		const direct = lookupInBundles(input.bundles, target, input.key);
-		if (direct !== null) return { value: direct, source: 'requested-locale' };
+		if (direct !== null) { return { value: direct, source: 'requested-locale' }; }
 		const base = baseLocaleOf(target);
 		if (base !== null && base !== target) {
 			const baseHit = lookupInBundles(input.bundles, base, input.key);
-			if (baseHit !== null) return { value: baseHit, source: 'base-locale' };
+			if (baseHit !== null) { return { value: baseHit, source: 'base-locale' }; }
 		}
 	}
 	if (typeof input.englishDefault === 'string' && input.englishDefault.length > 0) {
@@ -80,15 +81,15 @@ export function resolveLocalized(input: ResolveLocalizedInput): ResolveLocalized
 export function baseLocaleOf(localeTag: string): string | null {
 	const tag = normaliseLocale(localeTag);
 	const sep = tag.indexOf('-');
-	if (sep === -1) return null;
+	if (sep === -1) { return null; }
 	const base = tag.slice(0, sep);
-	if (base.length === 0) return null;
+	if (base.length === 0) { return null; }
 	return base;
 }
 
 /** Normalise `RU_by` / `RU-BY` / `  ru-BY ` → `ru-by`. Pure. */
 export function normaliseLocale(localeTag: string): string {
-	if (typeof localeTag !== 'string') return '';
+	if (typeof localeTag !== 'string') { return ''; }
 	return localeTag.trim().toLowerCase().replace(/_/g, '-');
 }
 
@@ -100,11 +101,11 @@ function lookupInBundles(
 	key: string,
 ): string | null {
 	for (const b of bundles) {
-		if (normaliseLocale(b.localeTag) !== wantTag) continue;
+		if (normaliseLocale(b.localeTag) !== wantTag) { continue; }
 		const v = b.entries.get(key);
-		if (typeof v !== 'string') return null;
-		if (v.length === 0) return null;
-		if (v.startsWith(NEEDS_TRANSLATION_PREFIX)) return null;
+		if (typeof v !== 'string') { return null; }
+		if (v.length === 0) { return null; }
+		if (v.startsWith(NEEDS_TRANSLATION_PREFIX)) { return null; }
 		return v;
 	}
 	return null;

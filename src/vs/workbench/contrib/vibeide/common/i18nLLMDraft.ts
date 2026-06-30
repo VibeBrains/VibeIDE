@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * i18n LLM-assisted draft translations — pure helpers
@@ -113,8 +114,8 @@ export function buildI18nDraftRequest(input: I18nDraftRequestInput): I18nDraftRe
 
 function clampBatchSize(raw: number | undefined): number {
 	const v = typeof raw === 'number' && Number.isFinite(raw) ? Math.floor(raw) : 25;
-	if (v < 1) return 1;
-	if (v > 100) return 100;
+	if (v < 1) { return 1; }
+	if (v > 100) { return 100; }
 	return v;
 }
 
@@ -176,9 +177,9 @@ export function parseI18nDraftResponse(
 
 function extractJsonArray(s: string): string | null {
 	const start = s.indexOf('[');
-	if (start === -1) return null;
+	if (start === -1) { return null; }
 	const end = s.lastIndexOf(']');
-	if (end === -1 || end < start) return null;
+	if (end === -1 || end < start) { return null; }
 	return s.slice(start, end + 1);
 }
 

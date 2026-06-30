@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Project Commands — workspace-first shell shortcuts (roadmap §"Project Commands").
@@ -60,7 +61,7 @@ export type DecodeResult<T> = { ok: true; value: T } | { ok: false; reason: stri
  * or refuse to register dynamic commands.
  */
 export function decodeProjectCommandsFile(raw: unknown): DecodeResult<ProjectCommandsFile> {
-	if (raw == null || typeof raw !== 'object') {
+	if (raw === null || raw === undefined || typeof raw !== 'object') {
 		return { ok: false, reason: 'not-an-object' };
 	}
 	const obj = raw as Record<string, unknown>;
@@ -88,7 +89,7 @@ export function decodeProjectCommandsFile(raw: unknown): DecodeResult<ProjectCom
 }
 
 function decodeProjectCommand(raw: unknown): DecodeResult<ProjectCommand> {
-	if (raw == null || typeof raw !== 'object') {
+	if (raw === null || raw === undefined || typeof raw !== 'object') {
 		return { ok: false, reason: 'not-an-object' };
 	}
 	const obj = raw as Record<string, unknown>;
@@ -122,19 +123,19 @@ function decodeProjectCommand(raw: unknown): DecodeResult<ProjectCommand> {
 		name: obj.name,
 		command: obj.command,
 	};
-	if (typeof obj.description === 'string') cmd.description = obj.description;
-	if (typeof obj.icon === 'string') cmd.icon = obj.icon;
-	if (typeof obj.color === 'string') cmd.color = obj.color;
-	if (Array.isArray(obj.args)) cmd.args = obj.args.slice() as string[];
-	if (typeof obj.cwd === 'string') cmd.cwd = obj.cwd;
-	if (obj.env && typeof obj.env === 'object') cmd.env = { ...(obj.env as Record<string, string>) };
-	if (obj.terminal === 'integrated' || obj.terminal === 'external' || obj.terminal === 'background') cmd.terminal = obj.terminal;
-	if (typeof obj.shell === 'boolean') cmd.shell = obj.shell;
-	if (typeof obj.confirm === 'boolean') cmd.confirm = obj.confirm;
-	if (typeof obj.singleton === 'boolean') cmd.singleton = obj.singleton;
-	if (typeof obj.pinned === 'boolean') cmd.pinned = obj.pinned;
-	if (typeof obj.order === 'number' && Number.isFinite(obj.order)) cmd.order = obj.order;
-	if (typeof obj.workflowId === 'string') cmd.workflowId = obj.workflowId;
+	if (typeof obj.description === 'string') { cmd.description = obj.description; }
+	if (typeof obj.icon === 'string') { cmd.icon = obj.icon; }
+	if (typeof obj.color === 'string') { cmd.color = obj.color; }
+	if (Array.isArray(obj.args)) { cmd.args = obj.args.slice() as string[]; }
+	if (typeof obj.cwd === 'string') { cmd.cwd = obj.cwd; }
+	if (obj.env && typeof obj.env === 'object') { cmd.env = { ...(obj.env as Record<string, string>) }; }
+	if (obj.terminal === 'integrated' || obj.terminal === 'external' || obj.terminal === 'background') { cmd.terminal = obj.terminal; }
+	if (typeof obj.shell === 'boolean') { cmd.shell = obj.shell; }
+	if (typeof obj.confirm === 'boolean') { cmd.confirm = obj.confirm; }
+	if (typeof obj.singleton === 'boolean') { cmd.singleton = obj.singleton; }
+	if (typeof obj.pinned === 'boolean') { cmd.pinned = obj.pinned; }
+	if (typeof obj.order === 'number' && Number.isFinite(obj.order)) { cmd.order = obj.order; }
+	if (typeof obj.workflowId === 'string') { cmd.workflowId = obj.workflowId; }
 	return { ok: true, value: cmd };
 }
 
@@ -146,7 +147,7 @@ export function sortProjectCommandsForDisplay(commands: ReadonlyArray<ProjectCom
 	return [...commands].sort((a, b) => {
 		const oa = a.order ?? Number.MAX_SAFE_INTEGER;
 		const ob = b.order ?? Number.MAX_SAFE_INTEGER;
-		if (oa !== ob) return oa - ob;
+		if (oa !== ob) { return oa - ob; }
 		return a.name.localeCompare(b.name);
 	});
 }

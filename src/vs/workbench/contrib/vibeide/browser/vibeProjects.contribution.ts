@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { Codicon } from '../../../../base/common/codicons.js';
 import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
@@ -43,8 +44,6 @@ import { extname } from '../../../../base/common/path.js';
 import { IFolderToOpen, IWorkspaceToOpen } from '../../../../platform/window/common/window.js';
 import { IPreferencesService } from '../../../services/preferences/common/preferences.js';
 
-import './vibeProjectsService.js';
-
 const whenVibeProjectsViewTitle = ContextKeyExpr.equals('view', VIBE_PROJECTS_VIEW_ID);
 
 const ViewAsListKey = new RawContextKey<boolean>(VIBE_PROJECTS_VIEW_AS_LIST_CONTEXT_KEY, true);
@@ -60,7 +59,7 @@ class VibeProjectsContextKeysContribution extends Disposable implements IWorkben
 }
 registerWorkbenchContribution2(VibeProjectsContextKeysContribution.ID, VibeProjectsContextKeysContribution, WorkbenchPhase.BlockRestore);
 
-/** FA6 Free Solid layer-group () — stacked layers, reads as a projects collection. */
+/** FA6 Free Solid layer-group (U+F5FD) — stacked layers, reads as a projects collection. */
 const vibeProjectsActivityGlyph = registerVibeideFaSolidIcon(
 	'vibeide-vibe-projects-activity',
 	'\uf5fd',

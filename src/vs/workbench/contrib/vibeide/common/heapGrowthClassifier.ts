@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Memory profiler — heap growth classifier (pure helper).
@@ -140,13 +141,13 @@ export function classifyHeapGrowth(
  * calling `classifyHeapGrowth`.
  */
 export function decodeHeapSnapshot(raw: unknown): HeapSnapshot | null {
-	if (!raw || typeof raw !== 'object') return null;
+	if (!raw || typeof raw !== 'object') { return null; }
 	const r = raw as Record<string, unknown>;
 	const capturedAtMs = num(r.capturedAtMs);
 	const heapUsedBytes = num(r.heapUsedBytes);
 	const heapTotalBytes = num(r.heapTotalBytes);
-	if (capturedAtMs === null || heapUsedBytes === null || heapTotalBytes === null) return null;
-	if (heapUsedBytes < 0 || heapTotalBytes < 0) return null;
+	if (capturedAtMs === null || heapUsedBytes === null || heapTotalBytes === null) { return null; }
+	if (heapUsedBytes < 0 || heapTotalBytes < 0) { return null; }
 	const externalBytes = num(r.externalBytes) ?? undefined;
 	const arrayBuffersBytes = num(r.arrayBuffersBytes) ?? undefined;
 	const label = typeof r.label === 'string' && r.label.length > 0 ? r.label : undefined;
@@ -186,7 +187,7 @@ function num(v: unknown): number | null {
 }
 
 function roundPct(p: number): number {
-	if (!Number.isFinite(p)) return 0;
+	if (!Number.isFinite(p)) { return 0; }
 	return Math.round(p * 1000) / 1000;
 }
 
@@ -200,7 +201,7 @@ function signed(v: number): string {
 }
 
 function formatDurationMs(ms: number): string {
-	if (ms < 60_000) return `${Math.round(ms / 1_000)}s`;
-	if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+	if (ms < 60_000) { return `${Math.round(ms / 1_000)}s`; }
+	if (ms < 3_600_000) { return `${Math.round(ms / 60_000)}m`; }
 	return `${Math.round(ms / 3_600_000)}h`;
 }

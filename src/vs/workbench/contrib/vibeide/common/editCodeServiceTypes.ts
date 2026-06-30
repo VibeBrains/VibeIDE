@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { URI } from '../../../../base/common/uri.js';
 
@@ -29,7 +30,7 @@ export type ComputedDiff = {
 	// code: string;
 	startLine: number; // deletion starts on column 0 of this
 	// endLine: number;
-}
+};
 
 // ---------- Diff types ----------
 
@@ -40,7 +41,7 @@ export type CommonZoneProps = {
 
 	_URI: URI; // typically we get the URI from model
 
-}
+};
 
 
 export type CtrlKZone = {
@@ -51,13 +52,13 @@ export type CtrlKZone = {
 
 	// _ means anything we don't include if we clone it
 	_mountInfo: null | {
-		textAreaRef: { current: HTMLTextAreaElement | null }
+		textAreaRef: { current: HTMLTextAreaElement | null };
 		dispose: () => void;
 		refresh: () => void;
-	}
+	};
 	_linkedStreamingDiffZone: number | null; // diffareaid of the diffZone currently streaming here
-	_removeStylesFns: Set<Function> // these don't remove diffs or this diffArea, only their styles
-} & CommonZoneProps
+	_removeStylesFns: Set<Function>; // these don't remove diffs or this diffArea, only their styles
+} & CommonZoneProps;
 
 
 export type TrackingZone<T> = {
@@ -66,22 +67,22 @@ export type TrackingZone<T> = {
 	originalCode?: undefined;
 	editorId?: undefined;
 	_removeStylesFns?: undefined;
-} & CommonZoneProps
+} & CommonZoneProps;
 
 
 // called DiffArea for historical purposes, we can rename to something like TextRegion if we want
-export type DiffArea = CtrlKZone | DiffZone | TrackingZone<any>
+export type DiffArea = CtrlKZone | DiffZone | TrackingZone<unknown>;
 
 
 export type Diff = {
 	diffid: number;
 	diffareaid: number; // the diff area this diff belongs to, "computed"
 	enabled?: boolean; // whether this hunk is enabled for application (default: true)
-} & ComputedDiff
+} & ComputedDiff;
 
 
 export type DiffZone = {
-	type: 'DiffZone',
+	type: 'DiffZone';
 	originalCode: string;
 	_diffOfId: Record<string, Diff>; // diffid -> diff in this DiffArea
 	_streamState: {
@@ -95,8 +96,8 @@ export type DiffZone = {
 	};
 	editorId?: undefined;
 	linkedStreamingDiffZone?: undefined;
-	_removeStylesFns: Set<Function> // these don't remove diffs or this diffArea, only their styles
-} & CommonZoneProps
+	_removeStylesFns: Set<Function>; // these don't remove diffs or this diffArea, only their styles
+} & CommonZoneProps;
 
 
 export const diffAreaSnapshotKeys = [
@@ -107,14 +108,14 @@ export const diffAreaSnapshotKeys = [
 	'endLine',
 	'editorId',
 
-] as const satisfies (keyof DiffArea)[]
+] as const satisfies (keyof DiffArea)[];
 
 
 
-export type DiffAreaSnapshotEntry<DiffAreaType extends DiffArea = DiffArea> = Pick<DiffAreaType, typeof diffAreaSnapshotKeys[number]>
+export type DiffAreaSnapshotEntry<DiffAreaType extends DiffArea = DiffArea> = Pick<DiffAreaType, typeof diffAreaSnapshotKeys[number]>;
 
 export type VibeideFileSnapshot = {
 	snapshottedDiffAreaOfId: Record<string, DiffAreaSnapshotEntry>;
 	entireFileCode: string;
-}
+};
 

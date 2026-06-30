@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from '../../../../common/vibeLog.js';
 import { SettingsOfProvider, ModelSelection, ProviderName, OverridesOfModel } from '../../../../common/vibeideSettingsTypes.js';
@@ -80,14 +81,14 @@ export function hasVisionCapableApiKey(settingsOfProvider: SettingsOfProvider, c
 	// Aggregators: vision is per-model — accept only when at least one enabled model is flagged or matches heuristic
 	for (const providerName of AGGREGATOR_PROVIDERS) {
 		const providerSettings = settingsOfProvider[providerName];
-		if (!providerSettings.apiKey || providerSettings.apiKey.length <= 10) continue;
+		if (!providerSettings.apiKey || providerSettings.apiKey.length <= 10) { continue; }
 		const hasVisionModel = providerSettings.models.some(m => {
-			if (m.isHidden) return false;
+			if (m.isHidden) { return false; }
 			const override = readSupportsVisionOverride(overridesOfModel, providerName, m.modelName);
-			if (typeof override === 'boolean') return override;
+			if (typeof override === 'boolean') { return override; }
 			return aggregatorVisionHeuristic(providerName, m.modelName);
 		});
-		if (hasVisionModel) return true;
+		if (hasVisionModel) { return true; }
 	}
 
 	return false;
@@ -108,12 +109,12 @@ export function isVisionModelName(modelName: string): boolean {
 export async function hasOllamaVisionModel(): Promise<boolean> {
 	try {
 		const res = await fetch('http://127.0.0.1:11434/api/tags', { method: 'GET' });
-		if (!res.ok) return false;
-		const data = await res.json();
+		if (!res.ok) { return false; }
+		const data = await res.json() as { models?: { name?: string }[] };
 		const models = data.models || [];
 		// Check for common vision model names
 		// Ollama API returns models with 'name' field
-		return models.some((m: any) => {
+		return models.some(m => {
 			const name = (m.name || '').toLowerCase();
 			return isVisionModelName(name);
 		});
@@ -133,7 +134,7 @@ export async function checkOllamaModelVisionCapable(modelName: string): Promise<
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ name: modelName }),
 		});
-		if (!res.ok) return false;
+		if (!res.ok) { return false; }
 		const modelInfo = await res.json();
 		// Check if model has vision capabilities in its details
 		// Ollama vision models typically have "multimodal" or "vision" in details
@@ -150,25 +151,25 @@ export async function checkOllamaModelVisionCapable(modelName: string): Promise<
  * Order: catalog-driven `supportsVision` override → native-vision provider → aggregator heuristic → Ollama vision-name match.
  */
 export function isSelectedModelVisionCapable(currentModelSelection: ModelSelection | null, settingsOfProvider: SettingsOfProvider, overridesOfModel?: OverridesOfModel): boolean {
-	if (!currentModelSelection) return false;
+	if (!currentModelSelection) { return false; }
 
 	const { providerName, modelName } = currentModelSelection;
 
 	// Skip "auto" - it's not a real provider
-	if (providerName === 'auto') return false;
+	if (providerName === 'auto') { return false; }
 
 	// Unified capability resolution (hardcoded modelOptions → name recognition for claude/gpt/gemini/
 	// minimax/… → catalog hint → user override): covers built-ins AND dynamic providers (.vibe/providers
 	// .json) through the SAME registry. A definitive boolean is authoritative; `undefined` (model the
 	// registry can't classify) falls through to the legacy provider-set heuristics below.
 	const caps = getModelCapabilities(providerName, modelName, overridesOfModel);
-	if (typeof caps.supportsVision === 'boolean') return caps.supportsVision;
+	if (typeof caps.supportsVision === 'boolean') { return caps.supportsVision; }
 
 	// Check if it's a vision-capable API provider with a valid key
 	if (VISION_PROVIDERS.includes(providerName)) {
 		const providerSettings = settingsOfProvider[providerName];
 		if (providerSettings.apiKey && providerSettings.apiKey.length > 10) {
-		// Check if the selected model is actually available (not hidden)
+			// Check if the selected model is actually available (not hidden)
 			const modelExists = providerSettings.models.some(m =>
 				m.modelName === modelName && !m.isHidden
 			);
@@ -201,7 +202,7 @@ export function isSelectedModelVisionCapable(currentModelSelection: ModelSelecti
 
 		// Check if any model in settings matches (might be stored with different tag)
 		const matchingModel = providerSettings.models.find(m => {
-			if (m.isHidden) return false;
+			if (m.isHidden) { return false; }
 			// Check exact match or if base names match
 			const modelBaseName = m.modelName.split(':')[0].toLowerCase();
 			if (m.modelName === modelName || modelBaseName === baseModelName) {

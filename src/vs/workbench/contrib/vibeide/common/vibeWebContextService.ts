@@ -1,15 +1,15 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { IRequestService } from '../../../../platform/request/common/request.js';
+import { asText, IRequestService } from '../../../../platform/request/common/request.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
-import { asText } from '../../../../platform/request/common/request.js';
 
 export interface WebSearchResult {
 	url: string;
@@ -66,7 +66,7 @@ class VibeWebContextService extends Disposable implements IVibeWebContextService
 			}, CancellationToken.None);
 
 			const text = await asText(context);
-			if (!text) return [];
+			if (!text) { return []; }
 
 			const data = JSON.parse(text);
 			const results: WebSearchResult[] = [];

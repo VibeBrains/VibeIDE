@@ -1,9 +1,11 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	decideEHCrashRecovery,
 	describeEHCrashRecovery,
@@ -19,11 +21,13 @@ const baseInput: EHRecoveryInput = {
 
 suite('extensionHostCrashRecovery', () => {
 
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	suite('decideEHCrashRecovery', () => {
 		test('idle at crash → silent', () => {
 			const r = decideEHCrashRecovery(baseInput);
 			assert.strictEqual(r.action, 'silent');
-			if (r.action === 'silent') assert.strictEqual(r.reason, 'idle-at-crash');
+			if (r.action === 'silent') { assert.strictEqual(r.reason, 'idle-at-crash'); }
 		});
 
 		test('plan-executing wins over everything → integrate-plan-resume', () => {
@@ -88,7 +92,7 @@ suite('extensionHostCrashRecovery', () => {
 		test('streaming-llm always → pause-and-prompt-resume regardless of checkpoint', () => {
 			const noCp = decideEHCrashRecovery({ ...baseInput, phase: 'streaming-llm' });
 			assert.strictEqual(noCp.action, 'pause-and-prompt-resume');
-			if (noCp.action === 'pause-and-prompt-resume') assert.strictEqual(noCp.reason, 'streaming-interrupted');
+			if (noCp.action === 'pause-and-prompt-resume') { assert.strictEqual(noCp.reason, 'streaming-interrupted'); }
 
 			const withCp = decideEHCrashRecovery({
 				...baseInput,

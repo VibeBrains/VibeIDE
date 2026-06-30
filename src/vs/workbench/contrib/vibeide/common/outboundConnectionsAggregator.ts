@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Network policy panel — outbound connection aggregator (pure helper).
@@ -88,7 +89,7 @@ const DEFAULT_WINDOW_MS = 5 * 60 * 1_000;
  * malformed input so the caller can drop the record entirely.
  */
 export function redactOutboundUrl(rawUrl: string): { redactedUrl: string; host: string; wasRedacted: boolean } | null {
-	if (typeof rawUrl !== 'string' || rawUrl.length === 0) return null;
+	if (typeof rawUrl !== 'string' || rawUrl.length === 0) { return null; }
 	let parsed: URL;
 	try {
 		parsed = new URL(rawUrl);
@@ -109,7 +110,7 @@ export function redactOutboundUrl(rawUrl: string): { redactedUrl: string; host: 
 			touchedQs = true;
 		}
 	}
-	if (touchedQs) wasRedacted = true;
+	if (touchedQs) { wasRedacted = true; }
 	return { redactedUrl: parsed.toString(), host: parsed.host, wasRedacted };
 }
 
@@ -119,7 +120,7 @@ export function redactOutboundUrl(rawUrl: string): { redactedUrl: string; host: 
  */
 export function redactOutboundRecord(record: OutboundRecord): RedactedOutboundRecord | null {
 	const r = redactOutboundUrl(record.url);
-	if (!r) return null;
+	if (!r) { return null; }
 	return { ...record, url: r.redactedUrl, host: r.host, redacted: r.wasRedacted };
 }
 
@@ -143,9 +144,9 @@ export function aggregateOutboundConnections(
 	let totalRecords = 0;
 
 	for (const r of records) {
-		if (r.timestampMs < cutoff) continue;
+		if (r.timestampMs < cutoff) { continue; }
 		const sane = redactOutboundRecord(r);
-		if (!sane) continue;
+		if (!sane) { continue; }
 		totalRecords++;
 		perSource[sane.source]++;
 		const key = `${sane.host}|${sane.source}`;
@@ -169,11 +170,11 @@ export function aggregateOutboundConnections(
 			if (typeof e.statusCode === 'number') {
 				histogram[e.statusCode] = (histogram[e.statusCode] ?? 0) + 1;
 			}
-			if (typeof e.bytesIn === 'number') totalBytesIn += e.bytesIn;
-			if (typeof e.bytesOut === 'number') totalBytesOut += e.bytesOut;
-			if (e.timestampMs < firstAtMs) firstAtMs = e.timestampMs;
-			if (e.timestampMs > lastAtMs) lastAtMs = e.timestampMs;
-			if (e.context) contextSet.add(e.context);
+			if (typeof e.bytesIn === 'number') { totalBytesIn += e.bytesIn; }
+			if (typeof e.bytesOut === 'number') { totalBytesOut += e.bytesOut; }
+			if (e.timestampMs < firstAtMs) { firstAtMs = e.timestampMs; }
+			if (e.timestampMs > lastAtMs) { lastAtMs = e.timestampMs; }
+			if (e.context) { contextSet.add(e.context); }
 		}
 		groups.push({
 			host: b.host,
@@ -222,13 +223,13 @@ export function renderOutboundConnectionsMarkdown(aggregate: OutboundAggregate):
 }
 
 function formatWindowMs(ms: number): string {
-	if (ms < 60_000) return `${Math.round(ms / 1_000)}s`;
-	if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+	if (ms < 60_000) { return `${Math.round(ms / 1_000)}s`; }
+	if (ms < 3_600_000) { return `${Math.round(ms / 60_000)}m`; }
 	return `${Math.round(ms / 3_600_000)}h`;
 }
 
 function formatStatusHistogram(h: Readonly<Record<number, number>>): string {
 	const codes = Object.keys(h).map(Number).sort((a, b) => a - b);
-	if (codes.length === 0) return '—';
+	if (codes.length === 0) { return '—'; }
 	return codes.map(c => `${c}×${h[c]}`).join(', ');
 }

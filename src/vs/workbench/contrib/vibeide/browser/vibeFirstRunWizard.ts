@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize } from '../../../../nls.js';
@@ -42,7 +43,7 @@ export class VibeFirstRunWizardContribution extends Disposable implements IWorkb
 
 	private _checkFirstRun(): void {
 		const completed = this._storageService.get(FIRST_RUN_KEY, StorageScope.APPLICATION);
-		if (completed === WIZARD_VERSION) return; // Already completed
+		if (completed === WIZARD_VERSION) { return; } // Already completed
 
 		this._showWelcome();
 	}
@@ -83,7 +84,7 @@ export class VibeFirstRunWizardContribution extends Disposable implements IWorkb
 
 	private _runWizard(): void {
 		// Phase 1: open settings at VibeIDE section
-		this._commandService.executeCommand('workbench.action.openSettings', 'vibeide').catch(() => {});
+		this._commandService.executeCommand('workbench.action.openSettings', 'vibeide').catch(() => { });
 
 		// Show quick setup notifications
 		setTimeout(() => {

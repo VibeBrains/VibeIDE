@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Minimal `.vibe/.env` parser — a local secrets source for `apiKeyEnv` in `.vibe/providers.json`
@@ -36,7 +37,7 @@ export function parseEnvFile(raw: string | undefined | null): Record<string, str
 		if (value.length >= 2) {
 			const first = value[0];
 			const last = value[value.length - 1];
-			if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+			if ((first === '"' && last === '"') || (first === '\'' && last === '\'')) {
 				value = value.slice(1, -1);
 			}
 		}

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * `VibeSpecDrivenContextService` — parser-aware spec-drift diffs
@@ -146,7 +147,7 @@ export function diffGraphql(input: { oldSpec: string; newSpec: string }): SpecDi
 	let findBreakingChanges: ((old: unknown, next: unknown) => Array<{ description: string }>) | undefined;
 	let buildSchema: ((sdl: string) => unknown) | undefined;
 	try {
-		// eslint-disable-next-line @typescript-eslint/no-require-imports
+
 		const gql = require('graphql') as { buildSchema: typeof buildSchema; findBreakingChanges: typeof findBreakingChanges };
 		buildSchema = gql.buildSchema;
 		findBreakingChanges = gql.findBreakingChanges;

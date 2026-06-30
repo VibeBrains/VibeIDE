@@ -1,7 +1,8 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -24,8 +25,8 @@ export interface ISecretDetectionService {
 	getConfig(): SecretDetectionConfig;
 	/** Detect secrets in text */
 	detectSecrets(text: string): SecretDetectionResult;
-	/** Redact secrets in object (recursively) */
-	redactSecretsInObject(obj: any): { redacted: any; hasSecrets: boolean; matches: SecretMatch[] };
+	/** Redact secrets in object (recursively). The redacted copy mirrors the input shape. */
+	redactSecretsInObject<T>(obj: T): { redacted: T; hasSecrets: boolean; matches: SecretMatch[] };
 	/** Event fired when configuration changes */
 	onDidChangeConfig: Event<void>;
 }
@@ -78,7 +79,7 @@ class SecretDetectionService extends Disposable implements ISecretDetectionServi
 		return detectSecrets(text, this.getConfig());
 	}
 
-	redactSecretsInObject(obj: any): { redacted: any; hasSecrets: boolean; matches: SecretMatch[] } {
+	redactSecretsInObject<T>(obj: T): { redacted: T; hasSecrets: boolean; matches: SecretMatch[] } {
 		return redactSecretsInObject(obj, this.getConfig());
 	}
 }

@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -9,8 +10,11 @@ import {
 	partitionPathsByExclusion,
 	I18N_EXCLUSION_REASONS,
 } from '../../common/i18nExtractionPolicy.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('i18n extraction policy — path classifier', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('decideI18nExclusion', () => {
 		test('skill SKILL.md → excluded:skill-prompt-template', () => {

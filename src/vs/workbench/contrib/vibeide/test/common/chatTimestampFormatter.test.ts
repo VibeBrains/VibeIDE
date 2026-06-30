@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import * as assert from 'assert';
 import {
@@ -9,8 +10,11 @@ import {
 	chatTimestampToISO,
 	CHAT_TIMESTAMP_STREAMING_PLACEHOLDER,
 } from '../../common/chatTimestampFormatter.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('Chat timestamp formatter — pure helpers', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
 
 	suite('formatChatTimestamp', () => {
 		// Pick a fixed unix-ms value: 2026-05-08T14:32:07 — values are local-time

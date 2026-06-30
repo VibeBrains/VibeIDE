@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -93,13 +94,13 @@ class VibeInlineDiffService extends Disposable implements IVibeInlineDiffService
 
 	acceptAll(sessionId: string): void {
 		const session = this._sessions.get(sessionId);
-		if (!session) return;
+		if (!session) { return; }
 		session.chunks.filter(c => !c.decision).forEach(c => this._decideChunk(sessionId, c.id, 'accept'));
 	}
 
 	rejectAll(sessionId: string): void {
 		const session = this._sessions.get(sessionId);
-		if (!session) return;
+		if (!session) { return; }
 		session.chunks.filter(c => !c.decision).forEach(c => this._decideChunk(sessionId, c.id, 'reject'));
 	}
 
@@ -110,7 +111,7 @@ class VibeInlineDiffService extends Disposable implements IVibeInlineDiffService
 	private _decideChunk(sessionId: string, chunkId: string, decision: InlineDiffDecision): void {
 		const session = this._sessions.get(sessionId);
 		const chunk = session?.chunks.find(c => c.id === chunkId);
-		if (!chunk) return;
+		if (!chunk) { return; }
 
 		chunk.decision = decision;
 		this._onChunkDecided.fire({ chunkId, filePath: session!.filePath, decision, timestamp: Date.now() });

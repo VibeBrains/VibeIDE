@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Multi-window coordinator (roadmap L.4 L1032).
@@ -17,6 +18,7 @@
  * Atomic writes use IFileService `{ atomic: { postfix: '.vibe-tmp' } }`.
  */
 
+import { mainWindow } from '../../../../base/browser/window.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
@@ -45,7 +47,7 @@ export class VibeMultiWindowCoordinatorContribution extends Disposable implement
 
 	private readonly _windowId = generateUuid();
 	private _lock: WindowLock | null = null;
-	private _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+	private _heartbeatTimer: number | null = null;
 
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
@@ -141,7 +143,7 @@ export class VibeMultiWindowCoordinatorContribution extends Disposable implement
 	}
 
 	private _startHeartbeat(lockUri: URI): void {
-		this._heartbeatTimer = setInterval(() => {
+		this._heartbeatTimer = mainWindow.setInterval(() => {
 			if (!this._lock) {
 				return;
 			}
@@ -153,7 +155,7 @@ export class VibeMultiWindowCoordinatorContribution extends Disposable implement
 		this._register({
 			dispose: () => {
 				if (this._heartbeatTimer !== null) {
-					clearInterval(this._heartbeatTimer);
+					mainWindow.clearInterval(this._heartbeatTimer);
 					this._heartbeatTimer = null;
 				}
 			},

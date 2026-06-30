@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -55,7 +56,7 @@ class VibeMemoryDecayService extends Disposable implements IVibeMemoryDecayServi
 	) {
 		super();
 		this._sessionId = `session-${Date.now()}`;
-		this.load().catch(() => {});
+		this.load().catch(() => { });
 	}
 
 	addMemory(entry: Omit<MemoryEntry, 'timestamp'>): void {
@@ -86,7 +87,7 @@ class VibeMemoryDecayService extends Disposable implements IVibeMemoryDecayServi
 
 	async persist(): Promise<void> {
 		const folders = this._workspaceContextService.getWorkspace().folders;
-		if (folders.length === 0) return;
+		if (folders.length === 0) { return; }
 
 		const contextUri = joinPath(folders[0].uri, '.vibe', 'context.md');
 		const highImportance = this._memories.filter(m => m.importance === 'high');
@@ -122,7 +123,7 @@ class VibeMemoryDecayService extends Disposable implements IVibeMemoryDecayServi
 
 	async load(): Promise<void> {
 		const folders = this._workspaceContextService.getWorkspace().folders;
-		if (folders.length === 0) return;
+		if (folders.length === 0) { return; }
 
 		const contextUri = joinPath(folders[0].uri, '.vibe', 'context.md');
 		try {
@@ -131,9 +132,9 @@ class VibeMemoryDecayService extends Disposable implements IVibeMemoryDecayServi
 			const lines = content.value.toString().split('\n');
 			let type: MemoryEntry['type'] = 'context';
 			for (const line of lines) {
-				if (line.startsWith('## Key Decisions')) type = 'decision';
-				else if (line.startsWith('## Preferences')) type = 'preference';
-				else if (line.startsWith('## ')) type = 'context';
+				if (line.startsWith('## Key Decisions')) { type = 'decision'; }
+				else if (line.startsWith('## Preferences')) { type = 'preference'; }
+				else if (line.startsWith('## ')) { type = 'context'; }
 				else if (line.startsWith('- ') && line.length > 4) {
 					this._memories.push({
 						timestamp: Date.now(),

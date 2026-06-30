@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Performance guardrails dashboard aggregator (1059) — pure helper.
@@ -65,8 +66,8 @@ export function aggregatePerfGuardrails(
 
 	let totalTrips = 0;
 	for (const event of events) {
-		if (!isValidEvent(event)) continue;
-		if (event.timestamp < periodStart || event.timestamp > periodEnd) continue;
+		if (!isValidEvent(event)) { continue; }
+		if (event.timestamp < periodStart || event.timestamp > periodEnd) { continue; }
 
 		totalTrips++;
 		const b = buckets.get(event.rule) ?? {
@@ -113,7 +114,7 @@ export function aggregatePerfGuardrails(
 }
 
 function isValidEvent(e: unknown): e is GuardrailTripEvent {
-	if (!e || typeof e !== 'object') return false;
+	if (!e || typeof e !== 'object') { return false; }
 	const obj = e as Record<string, unknown>;
 	const validRules: GuardrailRule[] = ['chunk-gap', 'main-thread-block', 'memory-delta', 'fps-drop', 'startup-time'];
 	return typeof obj.timestamp === 'number'

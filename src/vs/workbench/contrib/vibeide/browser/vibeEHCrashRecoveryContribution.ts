@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 
 /**
  * Extension host crash / disconnect UX (roadmap L.4 L1033).
@@ -124,7 +125,7 @@ export class VibeEHCrashRecoveryContribution extends Disposable implements IWork
 
 		// Approximate checkpoint age as time elapsed since the run started.
 		const startMs = this._runStartMs.get(runningThreadId);
-		const lastCheckpointAgeMs = startMs != null ? now - startMs : null;
+		const lastCheckpointAgeMs = startMs !== undefined ? now - startMs : null;
 
 		// Check for an executing plan in this thread.
 		let planCtx: PlanContext | null = null;
