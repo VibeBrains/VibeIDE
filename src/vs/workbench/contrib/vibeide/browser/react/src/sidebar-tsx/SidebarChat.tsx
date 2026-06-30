@@ -29,7 +29,7 @@ import { ICommandService } from '../../../../../../../platform/commands/common/c
 import { WarningBox } from '../vibe-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputTokenSpace } from '../../../../common/modelCapabilities.js';
 import { AlertTriangle, File, Ban, Check, ChevronRight, ChevronDown, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Image as ImageIcon, FileText, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward } from 'lucide-react';
-import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment } from '../../../../common/chatThreadServiceTypes.js';
+import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment, normalizePendingInjections } from '../../../../common/chatThreadServiceTypes.js';
 import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER } from '../../../../common/chatTimestampFormatter.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../../../../common/prompt/tools/index.js';
@@ -4774,6 +4774,37 @@ const EditToolSoFar = ({ toolCallSoFar, }: { toolCallSoFar: RawToolCallObj }) =>
 
 };
 
+/** Map composer image attachments to the wire `ChatImageAttachment` shape (drop still-pending/failed, strip status fields). */
+function toChatImages(imageAttachments: ChatImageAttachment[]): ChatImageAttachment[] {
+	return imageAttachments
+		.filter(att => att.uploadStatus === 'success' || !att.uploadStatus)
+		.map(att => ({
+			id: att.id,
+			data: att.data,
+			mimeType: att.mimeType,
+			filename: att.filename,
+			width: att.width,
+			height: att.height,
+			size: att.size,
+		}));
+}
+
+/** Map composer PDF attachments to the wire `ChatPDFAttachment` shape (drop only failed; keep processing for partial data). */
+function toChatPDFs(pdfAttachments: ChatPDFAttachment[]): ChatPDFAttachment[] {
+	return pdfAttachments
+		.filter(att => att.uploadStatus !== 'failed')
+		.map(att => ({
+			id: att.id,
+			data: att.data,
+			filename: att.filename,
+			size: att.size,
+			pageCount: att.pageCount,
+			selectedPages: att.selectedPages,
+			extractedText: att.extractedText,
+			pagePreviews: att.pagePreviews,
+		}));
+}
+
 
 export const SidebarChat = () => {
 	trackRenderLoop('SidebarChat');
@@ -5202,17 +5233,7 @@ export const SidebarChat = () => {
 		}
 
 		// Convert image attachments to ChatImageAttachment format
-		const images: ChatImageAttachment[] = imageAttachments
-			.filter(att => att.uploadStatus === 'success' || !att.uploadStatus)
-			.map(att => ({
-				id: att.id,
-				data: att.data,
-				mimeType: att.mimeType,
-				filename: att.filename,
-				width: att.width,
-				height: att.height,
-				size: att.size,
-			}));
+		const images: ChatImageAttachment[] = toChatImages(imageAttachments);
 
 		// Check if any PDFs are still processing
 		const processingPDFs = pdfAttachments.filter(
@@ -5227,18 +5248,7 @@ export const SidebarChat = () => {
 		// Convert PDF attachments to ChatPDFAttachment format
 		// Include PDFs that are successful, have no status, or are still processing (they might have partial data)
 		// Exclude only failed PDFs
-		const pdfs: ChatPDFAttachment[] = pdfAttachments
-			.filter(att => att.uploadStatus !== 'failed')
-			.map(att => ({
-				id: att.id,
-				data: att.data,
-				filename: att.filename,
-				size: att.size,
-				pageCount: att.pageCount,
-				selectedPages: att.selectedPages,
-				extractedText: att.extractedText,
-				pagePreviews: att.pagePreviews,
-			}));
+		const pdfs: ChatPDFAttachment[] = toChatPDFs(pdfAttachments);
 
 		// Validate that model supports vision/PDFs if attachments are present
 		const currentModelSel = settingsState.modelSelectionOfFeature['Chat'];
@@ -5317,14 +5327,20 @@ export const SidebarChat = () => {
 	const onInject = useCallback(() => {
 		const threadId = currentThread.id;
 		const val = textAreaRef.current?.value ?? '';
-		if (!val.trim()) { return; }
+		// Carry staged image/PDF attachments into the queued note (same wire mapping as onSubmit), so
+		// they ride the next agent hop instead of being silently dropped.
+		const images = toChatImages(imageAttachments);
+		const pdfs = toChatPDFs(pdfAttachments);
+		if (!val.trim() && images.length === 0 && pdfs.length === 0) { return; }
 		// Queue the note; it surfaces immediately as a pinned "queued" chip above the input (see the
 		// pendingInjections strip below), so no toast is needed.
-		chatThreadsService.addPendingInjection(threadId, val);
+		chatThreadsService.addPendingInjection(threadId, val, images, pdfs);
 		if (textAreaFnsRef.current) { textAreaFnsRef.current.setValue(''); }
 		chatThreadsService.setThreadDraft(threadId, '');
+		clearImages(); // clear staged image attachments now they're queued
+		clearPDFs(); // clear staged PDF attachments now they're queued
 		textAreaRef.current?.focus();
-	}, [chatThreadsService, currentThread.id, textAreaRef, textAreaFnsRef]);
+	}, [chatThreadsService, currentThread.id, textAreaRef, textAreaFnsRef, imageAttachments, pdfAttachments, clearImages, clearPDFs]);
 
 	const keybindingString = accessor.get('IKeybindingService').lookupKeybinding(VIBEIDE_CTRL_L_ACTION_ID)?.getLabel();
 
@@ -5332,7 +5348,8 @@ export const SidebarChat = () => {
 	const currCheckpointIdx = chatThreadsState.allThreads[threadId]?.state?.currCheckpointIdx ?? undefined;  // if not exist, treat like checkpoint is last message (infinity)
 	// Notes the user queued mid-run (via onInject). Shown as a pinned "queued" strip above the input until
 	// the agent drains them into a real message on its next hop (then pendingInjections clears → strip gone).
-	const pendingInjections = chatThreadsState.allThreads[threadId]?.state?.pendingInjections ?? [];
+	// normalizePendingInjections tolerates legacy text-only (string) entries from older persisted threads.
+	const pendingInjections = normalizePendingInjections(chatThreadsState.allThreads[threadId]?.state?.pendingInjections);
 
 
 
@@ -5891,23 +5908,38 @@ export const SidebarChat = () => {
 				<Pin size={12} />
 				<span>В очереди — подмешается в следующем ходе агента ({pendingInjections.length})</span>
 			</div>
-			{pendingInjections.map((note, i) => (
+			{pendingInjections.map((note, i) => {
+				const imgCount = note.images?.length ?? 0;
+				const pdfCount = note.pdfs?.length ?? 0;
+				const attachmentLabel = [
+					imgCount > 0 ? `🖼 ${imgCount}` : null,
+					pdfCount > 0 ? `📄 ${pdfCount}` : null,
+				].filter(Boolean).join(' · ');
+				return (
 				<div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-					<div
-						className="text-xs text-vibe-fg-2"
-						title={note}
-						style={{
-							flex: 1,
-							minWidth: 0,
-							whiteSpace: 'pre-wrap',
-							overflow: 'hidden',
-							display: '-webkit-box',
-							WebkitLineClamp: 3,
-							WebkitBoxOrient: 'vertical',
-							opacity: 0.9,
-						}}
-					>
-						{note}
+					<div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+						{note.text ? (
+							<div
+								className="text-xs text-vibe-fg-2"
+								title={note.text}
+								style={{
+									minWidth: 0,
+									whiteSpace: 'pre-wrap',
+									overflow: 'hidden',
+									display: '-webkit-box',
+									WebkitLineClamp: 3,
+									WebkitBoxOrient: 'vertical',
+									opacity: 0.9,
+								}}
+							>
+								{note.text}
+							</div>
+						) : null}
+						{attachmentLabel ? (
+							<div className="text-xs text-vibe-fg-3" style={{ opacity: 0.85 }}>
+								{attachmentLabel}
+							</div>
+						) : null}
 					</div>
 					<button
 						type="button"
@@ -5931,7 +5963,8 @@ export const SidebarChat = () => {
 						<X size={12} />
 					</button>
 				</div>
-			))}
+				);
+			})}
 		</div>
 	) : null;
 

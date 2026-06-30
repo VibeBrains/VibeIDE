@@ -145,6 +145,23 @@ export type ChatPDFAttachment = {
 	pagePreviews?: string[]; // data URLs for page thumbnails
 };
 
+// A note the user queued WHILE a turn is running (drained into a real user message at the top of the
+// next agent hop). Carries the typed text plus any image/PDF attachments staged at queue time.
+export type PendingInjection = {
+	text: string;
+	images?: ChatImageAttachment[];
+	pdfs?: ChatPDFAttachment[];
+};
+
+/**
+ * Coerce persisted pending-injection entries into the current object shape. Threads saved before
+ * attachments were supported stored plain strings; map those to `{ text }` so reads stay uniform.
+ */
+export function normalizePendingInjections(raw: readonly (string | PendingInjection)[] | undefined): PendingInjection[] {
+	if (!raw) { return []; }
+	return raw.map(entry => typeof entry === 'string' ? { text: entry } : entry);
+}
+
 // WARNING: changing this format is a big deal!!!!!! need to migrate old format to new format on users' computers so people don't get errors.
 // `pinned?: boolean` (pin-context feature): HONORED by budget-fill truncation in
 // convertToLLMMessageService (pinned messages are kept verbatim instead of summarized, and
