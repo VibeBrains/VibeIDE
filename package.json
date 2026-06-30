@@ -358,12 +358,6 @@
     "windows-foreground-love": "0.6.1"
   },
   "lint-staged": {
-    "src/vs/workbench/contrib/vibeide/**/*.{ts,tsx,js}": [
-      "npm run eslint -- --fix"
-    ],
-    "extensions/vibeide-*/**/*.{ts,js}": [
-      "npm run eslint -- --fix"
-    ],
     "**/*.md": [
       "echo \"[lint-staged] markdown changes detected — link check at PR-time\""
     ],
