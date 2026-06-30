@@ -33,7 +33,7 @@ import { approvalTypeOfBuiltinToolName } from '../common/prompt/tools/index.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
-import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage } from '../common/chatThreadServiceTypes.js';
+import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage, PendingInjection, normalizePendingInjections } from '../common/chatThreadServiceTypes.js';
 import { trimThreadMessages, capToolResultSizes } from '../common/chatThreadTrim.js';
 import { Position } from '../../../../editor/common/core/position.js';
 import { IMetricsService } from '../common/metricsService.js';
@@ -371,8 +371,9 @@ export type ThreadType = {
 
 		stagingSelections: StagingSelectionItem[];
 		/** Context the user queued WHILE a turn is running — drained into a user message at the top of the
-		 *  next agent hop (no abort needed). See docs/knowledge/chat-ux/chat-interrupt-and-inject.md. */
-		pendingInjections?: string[];
+		 *  next agent hop (no abort needed). See docs/knowledge/chat-ux/chat-interrupt-and-inject.md.
+		 *  `string` entries are legacy (text-only) and tolerated on read via normalizePendingInjections. */
+		pendingInjections?: (string | PendingInjection)[];
 		focusedMessageIdx: number | undefined; // index of the user message that is being edited (undefined if none)
 
 		linksOfMessageIdx: { // eg. link = linksOfMessageIdx[4]['RangeFunction']
@@ -623,7 +624,7 @@ export interface IChatThreadService {
 	// call to add a message
 	addUserMessageAndStreamResponse({ userMessage, threadId, images, noPlan, displayContent }: { userMessage: string; threadId: string; images?: ChatImageAttachment[]; noPlan?: boolean; displayContent?: string }): Promise<void>;
 	/** Queue context to be merged into the NEXT agent hop without aborting the running turn. */
-	addPendingInjection(threadId: string, text: string): void;
+	addPendingInjection(threadId: string, text: string, images?: ChatImageAttachment[], pdfs?: ChatPDFAttachment[]): void;
 	/** Remove a still-queued injection by index (user cancelled it before it was drained into context). */
 	removePendingInjection(threadId: string, index: number): void;
 
@@ -5569,6 +5570,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// Track if message is done to prevent late onText updates
 				let messageIsDone = false;
 
+				// Set by onHardStall when it aborts this stream and takes ownership of the turn's
+				// fate (schedules a fresh re-send, or surfaces a terminal error). The parked agent
+				// loop below checks it after messageIsDonePromise resolves and bails WITHOUT touching
+				// state — so a stale stream unwinding late can't double-process the turn or clobber a
+				// newer run / error banner. Per-iteration: a fresh stream starts clean.
+				let hardStallHandled = false;
+
 				// Track network request start (when we actually send to the LLM)
 				chatLatencyAudit.markNetworkStart(finalRequestId);
 				// Track network start time for timeout fallback (if no tokens arrive)
@@ -5635,6 +5643,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					// observed repeatedly on 40-90k-token requests; a fresh attempt usually goes
 					// through) or surface the error so the user can retry / switch models.
 					try { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } } catch { /* already aborted */ }
+					// Neutralize the wedged stream: mark it done so any late callbacks (a buffered
+					// onText arriving after the abort) short-circuit instead of recording a phantom
+					// first-activity, corrupting the retry cache, or clobbering the UI of the turn we
+					// are about to re-send. Mark it handled so the parked loop awaiting
+					// messageIsDonePromise bails instead of double-processing / clobbering a newer run.
+					// (Both observed in stall reports: duplicate llmTurn:first-activity and interleaved
+					// iteration counters.)
+					messageIsDone = true;
+					hardStallHandled = true;
 					clearTimeout(earlyStallTimer); earlyStallTimer = undefined;
 					clearTimeout(firstTokenStallTimer); firstTokenStallTimer = undefined;
 					clearTimeout(midStreamStallTimer); midStreamStallTimer = undefined;
@@ -5795,6 +5812,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// surfaces in DevTools. Measures the silent reasoning-warmup gap (start →
 				// first-activity) that has been mistaken for a hang.
 				const _turnStartMs = Date.now();
+				// Each iteration is a brand-new network stream, so reset the per-stream first-token
+				// flag (declared run-level for the stream-error resume cache). Without this a retry
+				// after an attempt that DID get tokens would skip its own llmTurn:first-activity and
+				// report anyToken=true on a hard-stall even when this attempt received nothing — the
+				// telemetry inaccuracy seen in the stall reports. The latency audit's mark* calls are
+				// idempotent (first attempt wins), so re-arming here can't skew TTFS metrics.
+				firstTokenReceived = false;
 				vibeLog.debug('llmTurn', 'start', { iter: nMessagesSent, msgs: messages.length, model: modelSelection?.modelName, provider: modelSelection?.providerName, chatMode }); recordChatTrace('llmTurn:start', { iter: nMessagesSent, msgs: messages.length, model: modelSelection?.modelName, provider: modelSelection?.providerName });
 				// Consume the one-shot force flag (set by the premature-stop nudge below): this turn
 				// requests tool_choice=required so a weak caller can't return prose again.
@@ -6316,6 +6340,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					// console.log('Chat thread interrupted by a newer chat thread', this.streamState[threadId]?.isRunning)
 					return;
 				}
+
+				// Hard-stall ownership: onHardStall already aborted this stream and either scheduled a
+				// fresh re-send or surfaced a terminal error. This loop is only now unwinding from that
+				// superseded stream — bail before processing its late result, whatever it is (aborted /
+				// done / error). Without this, once the scheduled re-send has set isRunning back to
+				// 'LLM' the check above passes and the stale loop would double-process the turn and
+				// clobber the newer run.
+				if (hardStallHandled) { return; }
 
 				// llm res aborted
 				if (llmRes.type === 'llmAborted') {
@@ -8923,11 +8955,15 @@ We only need to do it for files that were edited since `from`, ie files between 
 	// — keeps trim runs amortised, no need for two separate settings.
 	private static readonly TRIM_HEADROOM = 100;
 
-	addPendingInjection(threadId: string, text: string): void {
+	addPendingInjection(threadId: string, text: string, images?: ChatImageAttachment[], pdfs?: ChatPDFAttachment[]): void {
 		const t = text.trim();
-		if (!t) { return; }
+		const imgs = images ?? [];
+		const docs = pdfs ?? [];
+		// Allow queueing an attachment-only note (no text) — otherwise images/PDFs would be silently dropped.
+		if (!t && imgs.length === 0 && docs.length === 0) { return; }
 		const cur = this.state.allThreads[threadId]?.state.pendingInjections ?? [];
-		this._setThreadState(threadId, { pendingInjections: [...cur, t] });
+		const note: PendingInjection = { text: t, images: imgs.length ? imgs : undefined, pdfs: docs.length ? docs : undefined };
+		this._setThreadState(threadId, { pendingInjections: [...cur, note] });
 	}
 
 	removePendingInjection(threadId: string, index: number): void {
@@ -8939,12 +8975,15 @@ We only need to do it for files that were edited since `from`, ie files between 
 	/** Drain queued mid-run context into a real user message so the model sees it on this hop and it
 	 *  shows in the transcript. Cleared FIRST to avoid a re-entrant double-inject. */
 	private _drainPendingInjections(threadId: string): void {
-		const pending = this.state.allThreads[threadId]?.state.pendingInjections;
-		if (!pending || pending.length === 0) { return; }
-		const content = '[Контекст, добавленный в ходе выполнения]\n' + pending.join('\n\n');
+		const pending = normalizePendingInjections(this.state.allThreads[threadId]?.state.pendingInjections);
+		if (pending.length === 0) { return; }
+		const texts = pending.map(p => p.text).filter(t => t.length > 0);
+		const images = pending.flatMap(p => p.images ?? []);
+		const pdfs = pending.flatMap(p => p.pdfs ?? []);
+		const content = '[Контекст, добавленный в ходе выполнения]\n' + texts.join('\n\n');
 		this._setThreadState(threadId, { pendingInjections: [] });
-		this._addMessageToThread(threadId, { role: 'user', content, displayContent: content, selections: [], images: [], pdfs: [], state: defaultMessageState });
-		vibeLog.warn('chatThreadService', `[inject] подмешан контекст к следующему хопу (${pending.length} заметок)`);
+		this._addMessageToThread(threadId, { role: 'user', content, displayContent: content, selections: [], images, pdfs, state: defaultMessageState });
+		vibeLog.warn('chatThreadService', `[inject] подмешан контекст к следующему хопу (${pending.length} заметок, ${images.length} изобр., ${pdfs.length} PDF)`);
 	}
 
 	/** Run ended (genuine completion / «Продолжить» stall) but context the user queued mid-run never got
@@ -8952,14 +8991,16 @@ We only need to do it for files that were edited since `from`, ie files between 
 	 *  Called from the _setStreamState transition funnel, which already excludes error / abort / awaiting-user. */
 	private _autoSendPendingInjectionsAsNewTurn(threadId: string): void {
 		if (this._configurationService.getValue<boolean>('vibeide.chat.autoSendPendingInjections') === false) { return; }
-		const pending = this.state.allThreads[threadId]?.state.pendingInjections;
-		if (!pending || pending.length === 0) { return; }
-		const content = pending.join('\n\n');
+		const pending = normalizePendingInjections(this.state.allThreads[threadId]?.state.pendingInjections);
+		if (pending.length === 0) { return; }
+		const content = pending.map(p => p.text).filter(t => t.length > 0).join('\n\n');
+		const images = pending.flatMap(p => p.images ?? []);
+		const pdfs = pending.flatMap(p => p.pdfs ?? []);
 		this._setThreadState(threadId, { pendingInjections: [] }); // clear FIRST to avoid a re-entrant double-send
-		vibeLog.warn('chatThreadService', `[inject] ход завершён с непустым буфером — досылаю как новый ход (${pending.length} заметок)`);
+		vibeLog.warn('chatThreadService', `[inject] ход завершён с непустым буфером — досылаю как новый ход (${pending.length} заметок, ${images.length} изобр., ${pdfs.length} PDF)`);
 		// Deferred: we are inside the _setStreamState funnel; let the current state update settle before
 		// starting a new turn (which re-enters _setStreamState).
-		queueMicrotask(() => { void this._addUserMessageAndStreamResponse({ userMessage: content, threadId, displayContent: content }); });
+		queueMicrotask(() => { void this._addUserMessageAndStreamResponse({ userMessage: content, threadId, displayContent: content, images, pdfs }); });
 	}
 
 	private _addMessageToThread(threadId: string, message: ChatMessage) {
