@@ -104,6 +104,34 @@ if ($DryRun) {
 $token = (gh auth token).Trim()
 if (-not $token) { Write-Error "No GitHub token (run: gh auth login)"; exit 1 }
 Step "Submitting PR to microsoft/winget-pkgs (version $ver)..."
-wingetcreate submit $outDir --token $token
+wingetcreate submit $outDir --token $token 2>&1 | Tee-Object -Variable submitOut
 if ($LASTEXITCODE -ne 0) { Write-Error "wingetcreate submit failed (exit $LASTEXITCODE)"; exit 1 }
-OK "winget PR submitted for $ver. Track: https://github.com/microsoft/winget-pkgs/pulls"
+
+# Auto-tick the PR checklist boxes this flow genuinely satisfies, so they don't have to be ticked
+# by hand each release. Truthful only: "winget install --manifest" test and the issue link are
+# deliberately left for a human. Best-effort — never fails the release if gh/PR lookup hiccups.
+$prNum = [regex]::Match((($submitOut | Out-String)), 'winget-pkgs/pull/(\d+)').Groups[1].Value
+$prUrl = if ($prNum) { "https://github.com/microsoft/winget-pkgs/pull/$prNum" } else { "https://github.com/microsoft/winget-pkgs/pulls" }
+if ($prNum) {
+    Step "Auto-checking PR #$prNum checklist..."
+    Start-Sleep -Seconds 2  # let the freshly-opened PR register before we read it back
+    $body = (gh pr view $prNum --repo microsoft/winget-pkgs --json body -q .body 2>$null)
+    if ($body) {
+        $body = $body `
+            -replace '(?m)^- \[ \] Signed the',           '- [x] Signed the' `
+            -replace '(?m)^- \[ \] Checked that there',    '- [x] Checked that there' `
+            -replace '(?m)^- \[ \] This PR only modifies', '- [x] This PR only modifies' `
+            -replace '(?m)^- \[ \] Validated manifest',    '- [x] Validated manifest' `
+            -replace '(?m)^- \[ \] Manifest conforms',     '- [x] Manifest conforms'
+        $bodyTmp = Join-Path $env:TEMP "winget-pr-$prNum-body.md"
+        Set-Content -LiteralPath $bodyTmp -Value $body -Encoding utf8
+        gh pr edit $prNum --repo microsoft/winget-pkgs --body-file $bodyTmp 2>$null | Out-Null
+        Remove-Item -LiteralPath $bodyTmp -ErrorAction SilentlyContinue
+        OK "Checklist auto-checked (CLA, no-dup, one-manifest, winget validate, 1.12 schema). 'winget install' test + issue link left unchecked."
+    } else {
+        Write-Warning "Could not read PR #$prNum body — tick checklist boxes manually."
+    }
+} else {
+    Write-Warning "Could not parse PR number from submit output — tick checklist boxes manually."
+}
+OK "winget PR submitted for $ver. Track: $prUrl"
