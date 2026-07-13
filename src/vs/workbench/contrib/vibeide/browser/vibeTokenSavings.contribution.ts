@@ -15,7 +15,7 @@ registerAction2(
 		constructor() {
 			super({
 				id: 'vibeide.tokenSavings.report',
-				title: localize2('vibeide.tokenSavings.report', 'VibeIDE: Экономия на сжатии вывода'),
+				title: localize2('vibeide.tokenSavings.report', 'Экономия на сжатии вывода'),
 				category: localize2('vibeCategory', 'VibeIDE'),
 				f1: true,
 			});
