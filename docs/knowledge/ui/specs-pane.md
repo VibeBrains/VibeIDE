@@ -24,6 +24,8 @@
 
 **Статус спеки — детерминированно, не эвристикой.** Пилюля (draft/approved/implemented) читается из YAML-фронтматтера `status:` в PRODUCT.md, а не угадывается по наличию файлов/кода. Петлю замкнуть обязательно, иначе UI мёртвый: seed «Новой спеки» и `PRODUCT.skeleton.md` пишут `status: draft`, скиллы `write-product-spec`/`implement-specs` доводят до `implemented`. Урок: **не добавлять UI, читающий поле, которое никто не пишет** — сначала завести источник значения.
 
+**«Спека из задачи» → чат, не своя механика.** Кнопка, отдающая задачу агенту: `views.openViewContainer(VIBEIDE_VIEW_CONTAINER_ID)` + `IChatThreadService.addUserMessageAndStreamResponse({userMessage, threadId})` (threadId из `chat.state.currentThreadId`, иначе `openNewThread()`). Образец — `vibeDeploy.contribution.ts`. Промпт натравливает агента на скилл `write-product-spec` — не изобретать параллельный генератор спек в UI.
+
 **Отложено (осознанно):** дрейф-от-спеки через механизм план-дрейфа, дерево с подпапками — отдельный слой.
 
 **Применение:** любую новую боковую панель vibeide начинать с дублирования этого квартета файлов Vibe Projects/Спеки, а не с нуля.

@@ -15,4 +15,5 @@ export const VIBE_SPECS_TECH_FILE = 'TECH.md';
 export const enum VibeSpecsCommands {
 	refresh = 'vibeide.vibeSpecs.refresh',
 	newSpec = 'vibeide.vibeSpecs.newSpec',
+	specFromTask = 'vibeide.vibeSpecs.specFromTask',
 }

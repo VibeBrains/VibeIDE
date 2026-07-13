@@ -35,6 +35,9 @@ import { IQuickInputService } from '../../../../platform/quickinput/common/quick
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import { IViewsService } from '../../../services/views/common/viewsService.js';
+import { IChatThreadService } from './chatThreadService.js';
+import { VIBEIDE_VIEW_CONTAINER_ID } from './sidebarPane.js';
 
 const whenVibeSpecsViewTitle = ContextKeyExpr.equals('view', VIBE_SPECS_VIEW_ID);
 
@@ -85,7 +88,8 @@ vibeSpecsViewsRegistry.registerViews(
 vibeSpecsViewsRegistry.registerViewWelcomeContent(VIBE_SPECS_VIEW_ID, {
 	content: localize(
 		'vibeSpecs.welcome',
-		'Спек пока нет.\nСпеки живут в `specs/<id>/` и описывают фичу до кода (PRODUCT.md — поведение, TECH.md — реализация).\n[Новая спека](command:{0})',
+		'Спек пока нет.\nСпеки живут в `specs/<id>/` и описывают фичу до кода (PRODUCT.md — поведение, TECH.md — реализация).\n[Спека из задачи](command:{0})\n[Новая спека (пустая)](command:{1})',
+		VibeSpecsCommands.specFromTask,
 		VibeSpecsCommands.newSpec,
 	),
 	when: 'default',
@@ -116,17 +120,75 @@ registerAction2(
 	},
 );
 
+const SPEC_FROM_TASK_REQUEST = (task: string) => localize(
+	'vibeSpecs.specFromTask.request',
+	"Напиши продуктовую спеку для задачи: «{0}».\nИспользуй скилл write-product-spec: выбери `<id>` по правилам spec-driven-implementation и создай `specs/<id>/PRODUCT.md` с фронтматтером `status: draft`, описав поведение нумерованными проверяемыми инвариантами (без деталей реализации). Сначала собери недостающий контекст вопросами, если он критичен. После согласования предложи следующий шаг — write-tech-spec.",
+	task,
+);
+
+registerAction2(
+	class VibeSpecsSpecFromTask extends Action2 {
+		constructor() {
+			super({
+				id: VibeSpecsCommands.specFromTask,
+				title: localize2('vibeSpecs.specFromTask', 'Спеки: Спека из задачи'),
+				icon: Codicon.sparkle,
+				category: vibeCategory,
+				f1: true,
+				menu: [
+					{ id: MenuId.ViewTitle, group: 'navigation', order: 11, when: whenVibeSpecsViewTitle },
+				],
+			});
+		}
+
+		async run(accessor: ServicesAccessor): Promise<void> {
+			const workspace = accessor.get(IWorkspaceContextService);
+			const quick = accessor.get(IQuickInputService);
+			const notice = accessor.get(INotificationService);
+			const views = accessor.get(IViewsService);
+			const chat = accessor.get(IChatThreadService);
+
+			if (workspace.getWorkbenchState() === WorkbenchState.EMPTY) {
+				notice.info(localize('vibeSpecs.needWorkspace', 'Откройте папку или рабочую область, чтобы создать спеку.'));
+				return;
+			}
+
+			const task = (await quick.input({
+				title: localize('vibeSpecs.specFromTask.title', 'Опишите задачу/фичу'),
+				placeHolder: localize('vibeSpecs.specFromTask.placeholder', 'например: экспорт отчёта в PDF с выбором диапазона дат'),
+				validateInput: async v => (v.trim().length ? undefined : localize('vibeSpecs.specFromTask.empty', 'Описание не может быть пустым')),
+			}))?.trim();
+			if (!task) {
+				return;
+			}
+
+			// Hand the task to the agent, which authors the spec via the write-product-spec skill.
+			await views.openViewContainer(VIBEIDE_VIEW_CONTAINER_ID);
+			let threadId = chat.state.currentThreadId;
+			if (!threadId) {
+				chat.openNewThread();
+				threadId = chat.state.currentThreadId;
+			}
+			if (!threadId) {
+				notice.info(localize('vibeSpecs.specFromTask.noThread', 'Не удалось открыть чат для создания спеки.'));
+				return;
+			}
+			await chat.addUserMessageAndStreamResponse({ userMessage: SPEC_FROM_TASK_REQUEST(task), threadId });
+		}
+	},
+);
+
 registerAction2(
 	class VibeSpecsNewSpec extends Action2 {
 		constructor() {
 			super({
 				id: VibeSpecsCommands.newSpec,
-				title: localize2('vibeSpecs.newSpec', 'Спеки: Новая спека'),
+				title: localize2('vibeSpecs.newSpec', 'Спеки: Новая спека (пустая)'),
 				icon: Codicon.add,
 				category: vibeCategory,
 				f1: true,
 				menu: [
-					{ id: MenuId.ViewTitle, group: 'navigation', order: 11, when: whenVibeSpecsViewTitle },
+					{ id: MenuId.ViewTitle, group: 'navigation', order: 12, when: whenVibeSpecsViewTitle },
 				],
 			});
 		}
