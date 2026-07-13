@@ -43,6 +43,7 @@ import './vibeNeonThemeContribution.js';
 import './vibeProjects.contribution.js';
 import './vibeSpecs.contribution.js';
 import './vibeTokenSavings.contribution.js';
+import './vibeDocs.contribution.js';
 
 // Local preview server with live reload (Vibe Server)
 import './vibeServer/vibeServer.contribution.js';

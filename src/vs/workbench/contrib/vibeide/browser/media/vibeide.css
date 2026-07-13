@@ -897,6 +897,22 @@ body.monaco-workbench,
 }
 
 /* ----------------------------------------------------------------------------------------
+ * Документы panel — flat markdown list with relative-path labels.
+ * ---------------------------------------------------------------------------------------- */
+.vibe-docs-row {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	padding: 0 var(--vibeide-space-md);
+}
+.vibe-docs-label {
+	flex: 1 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* ----------------------------------------------------------------------------------------
  * Project Commands — custom "Команды" popup (replaces native menubar dropdown).
  * Targets --vscode-menu-* tokens so the popup is visually indistinguishable from
  * a stock VS Code menu under any theme (light / dark / Neon).
