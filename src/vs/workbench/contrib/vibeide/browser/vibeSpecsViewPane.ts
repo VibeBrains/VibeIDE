@@ -6,10 +6,7 @@
 
 import * as DOM from '../../../../base/browser/dom.js';
 import { IListRenderer, IListVirtualDelegate } from '../../../../base/browser/ui/list/list.js';
-import { ActionBar } from '../../../../base/browser/ui/actionbar/actionbar.js';
 import { Action, IAction, Separator } from '../../../../base/common/actions.js';
-import { ThemeIcon } from '../../../../base/common/themables.js';
-import { Codicon } from '../../../../base/common/codicons.js';
 import { URI } from '../../../../base/common/uri.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { joinPath } from '../../../../base/common/resources.js';
@@ -49,15 +46,16 @@ interface IRowActions {
 }
 
 interface IRowTemplate {
-	readonly primary: HTMLElement;
+	readonly label: HTMLElement;
 	readonly status: HTMLElement;
 	readonly badges: HTMLElement;
-	readonly actionBar: ActionBar;
 }
 
 class VibeSpecsListDelegate implements IListVirtualDelegate<IVibeSpecEntry> {
 	getHeight(): number {
-		return 22;
+		// Two lines: full name on top (long names no longer hide behind badges), status + P/T below.
+		// 18 (line1) + 16 (line2) + 2 gap + 2*3 padding ≈ 42 → 44 with slack.
+		return 44;
 	}
 	getTemplateId(): string {
 		return ROW_TEMPLATE;
@@ -77,60 +75,58 @@ class VibeSpecsListRenderer implements IListRenderer<IVibeSpecEntry, IRowTemplat
 
 	renderTemplate(container: HTMLElement): IRowTemplate {
 		const row = DOM.append(container, $('.vibe-specs-row'));
-		const primary = DOM.append(row, $('span.vibe-specs-label'));
-		const status = DOM.append(row, $('span.vibe-specs-status'));
-		const badges = DOM.append(row, $('span.vibe-specs-badges'));
-		const actions = DOM.append(row, $('.vibe-specs-actions'));
-		const actionBar = new ActionBar(actions);
-		return { primary, status, badges, actionBar };
+		const line1 = DOM.append(row, $('.vibe-specs-line1'));
+		const label = DOM.append(line1, $('span.vibe-specs-label'));
+		const line2 = DOM.append(row, $('.vibe-specs-line2'));
+		const status = DOM.append(line2, $('span.vibe-specs-status'));
+		const badges = DOM.append(line2, $('span.vibe-specs-badges'));
+		return { label, status, badges };
 	}
 
 	renderElement(entry: IVibeSpecEntry, _index: number, data: IRowTemplate): void {
-		data.primary.textContent = this._actions.multiRoot() ? entry.id : entry.specId;
-		data.primary.title = entry.dir.fsPath || entry.dir.toString(true);
+		data.label.textContent = this._actions.multiRoot() ? entry.id : entry.specId;
+		data.label.title = entry.dir.fsPath || entry.dir.toString(true);
 
 		// Status pill (from PRODUCT.md frontmatter); hidden when unknown.
 		data.status.textContent = entry.status ? STATUS_LABEL[entry.status] : '';
 		data.status.className = 'vibe-specs-status' + (entry.status ? ` status-${entry.status}` : '');
 
-		// Badges show which docs the spec already has; missing docs render dimmed.
+		// Clickable P/T badges (replace the cramped book/gear icons): P opens PRODUCT.md; T opens
+		// TECH.md, or CREATES it when missing. `present` = filled, absent = dimmed. Recreated each
+		// render since the virtual list recycles the template.
 		data.badges.textContent = '';
-		data.badges.appendChild(badge('P', !!entry.product, localize('vibeSpecs.badge.product', "PRODUCT.md")));
-		data.badges.appendChild(badge('T', !!entry.tech, localize('vibeSpecs.badge.tech', "TECH.md")));
-
-		// Inline actions rebound each render (virtual list recycles the template across entries).
-		data.actionBar.clear();
-		if (entry.product) {
-			data.actionBar.push(
-				new Action('vibeSpecs.row.openProduct', localize('vibeSpecs.row.openProduct', "Открыть PRODUCT.md"), ThemeIcon.asClassName(Codicon.book), true, async () => this._actions.open(entry.product!)),
-				{ icon: true, label: false },
-			);
-		}
-		if (entry.tech) {
-			data.actionBar.push(
-				new Action('vibeSpecs.row.openTech', localize('vibeSpecs.row.openTech', "Открыть TECH.md"), ThemeIcon.asClassName(Codicon.gear), true, async () => this._actions.open(entry.tech!)),
-				{ icon: true, label: false },
-			);
-		} else {
-			// No TECH yet → offer to scaffold it inline.
-			data.actionBar.push(
-				new Action('vibeSpecs.row.createTech', localize('vibeSpecs.row.createTech', "Создать TECH.md"), ThemeIcon.asClassName(Codicon.newFile), true, async () => this._actions.createTech(entry)),
-				{ icon: true, label: false },
-			);
-		}
+		data.badges.appendChild(this._badge(
+			'P', !!entry.product,
+			entry.product ? localize('vibeSpecs.badge.openProduct', "Открыть PRODUCT.md") : localize('vibeSpecs.badge.noProduct', "PRODUCT.md отсутствует"),
+			entry.product ? () => this._actions.open(entry.product!) : undefined,
+			false,
+		));
+		data.badges.appendChild(this._badge(
+			'T', !!entry.tech,
+			entry.tech ? localize('vibeSpecs.badge.openTech', "Открыть TECH.md") : localize('vibeSpecs.badge.createTech', "Создать TECH.md"),
+			entry.tech ? () => this._actions.open(entry.tech!) : () => this._actions.createTech(entry),
+			!entry.tech,
+		));
 	}
 
-	disposeTemplate(data: IRowTemplate): void {
-		data.actionBar.dispose();
+	/** A clickable P/T pill. Click is stopped so it doesn't also trigger the list row's open. */
+	private _badge(text: string, present: boolean, title: string, onClick: (() => void) | undefined, create: boolean): HTMLElement {
+		const el = $('span.vibe-specs-badge');
+		el.textContent = text;
+		el.title = title;
+		el.classList.toggle('present', present);
+		el.classList.toggle('create', create);
+		el.classList.toggle('clickable', !!onClick);
+		if (onClick) {
+			el.style.cursor = 'pointer';
+			const stop = (e: Event) => e.stopPropagation();
+			el.addEventListener('mousedown', stop);
+			el.addEventListener('click', e => { e.stopPropagation(); onClick(); });
+		}
+		return el;
 	}
-}
 
-function badge(text: string, present: boolean, title: string): HTMLElement {
-	const el = $('span.vibe-specs-badge');
-	el.textContent = text;
-	el.title = title + (present ? '' : localize('vibeSpecs.badge.missing', " — отсутствует"));
-	el.classList.toggle('present', present);
-	return el;
+	disposeTemplate(): void { }
 }
 
 /** Minimal TECH.md seed; write-tech-spec fills the real plan. Skeleton lives in the skill's references/. */
