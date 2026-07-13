@@ -19,7 +19,7 @@ import { MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_CHARS, MAX_TERMINAL_INACTIVE
 import { TerminalResolveReason } from '../common/toolsServiceTypes.js';
 import { timeout } from '../../../../base/common/async.js';
 import { truncateHeadTail } from '../common/toolHardening.js';
-import { condenseTerminalOutput } from '../common/terminalOutputCondenser.js';
+import { compressCommandOutput } from '../common/commandOutputCompressor.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 
@@ -454,7 +454,10 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 			// The char clamp below remains the safety net for unrecognised huge output.
 			result = removeAnsiEscapeCodes(result);
 			if (this.configurationService.getValue<boolean>('vibeide.terminal.condenseOutput') !== false) {
-				result = condenseTerminalOutput(result);
+				// Command-aware profiles (git/test/ls/docker) run first, then the generic condenser.
+				// Profiles are opt-out via `vibeide.terminal.compressProfiles`; the generic stage always runs.
+				const useProfiles = this.configurationService.getValue<boolean>('vibeide.terminal.compressProfiles') !== false;
+				result = compressCommandOutput(command, result, useProfiles);
 			}
 			result = truncateHeadTail(result, this.maxTerminalOutputChars());
 			return { result, resolveReason };

@@ -70,6 +70,32 @@ ID в начале промпта; переписывание уже отпра�
 **Антипаттерны:** агрессивно резать вывод НЕизвестного формата (потеря сигнала хуже расхода);
 сжимать короткий вывод (модель теряет точность цитирования без выигрыша).
 
+### B2. Command-aware профили + сжатие MCP-вывода (2026-07-13)
+
+**Контекст (повторная разведка RTK):** проверили `github.com/rtk-ai/rtk` целиком. Три его
+стратегии (дедуп, усечение head+tail, лимит) у нас уже были (B + `toolHardening.truncateHeadTail`).
+Непокрытыми оставались две идеи, дающие RTK его 60–90%: (1) **command-aware** фильтрация (git/тесты/
+ls/docker имеют ИЗВЕСТНУЮ форму, чей шум режется агрессивнее generic-дедупа) и (2) единая точка
+сжатия для **MCP-тулов** — их вывод самый шумный (JSON-дампы), но он шёл мимо конденсера терминала.
+
+**Суть:** `common/commandOutputCompressor.ts` (чистые функции):
+- `detectCommandKind(command)` — семейство по первому значимому токену (снимает `$ `-эхо,
+  `FOO=bar`-префиксы, `sudo`; распознаёт делегацию `npm/yarn/pnpm test`, `cargo test`, `go test`).
+- Таблица профилей-редьюсеров (ДАННЫЕ, не хирургия в цикле): `git` (свёртка списков файлов в счётчик,
+  дроп transfer-progress), `test` (дроп «зелёных» прохождений, keep провалов+summary), `ls` (head+
+  счётчик хвоста), `docker` (дроп layer-progress). Строки ошибок/провалов/конфликтов и summary —
+  дословно через общий `KEEP_PATTERN`. Профиль → generic `condenseTerminalOutput` вторым этапом.
+- `compressCommandOutput(cmd, out, useProfiles)` заменил прямой вызов `condenseTerminalOutput` в
+  `terminalToolService`; `compressGenericToolOutput(out)` (ТОЛЬКО generic, без профилей) добавлен в
+  `chatThreadService` в ветке MCP после `stringifyResult` (форма MCP непрозрачна → профиль опасен).
+
+**Конфиги:** `vibeide.terminal.compressProfiles` (профили, default on, работает только при
+`condenseOutput`), `vibeide.tools.compressMcpOutput` (generic-сжатие MCP, default on).
+
+**Грабли:** `\b` после символа (`✓`, `✗`) НЕ матчит — оба non-word, границы нет. Для символьных
+маркеров использовать `(✓|✔|√)\s`, а `\b` оставлять только словам (`PASS`, `ok\s+\d`). Символы
+провала (`✗✘×`) вынесены в `KEEP_PATTERN` отдельной альтернацией, не через `\b`.
+
 ---
 
 ## [архитектура] C. Дешёвая модель для служебных вызовов (model routing)

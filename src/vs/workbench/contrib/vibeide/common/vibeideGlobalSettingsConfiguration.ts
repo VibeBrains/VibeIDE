@@ -1096,6 +1096,18 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.terminal.condenseOutput', 'Смысловое сжатие вывода `run_command` перед отправкой модели: схлопывать повторяющиеся строки (`[× N]`) и серии «шумовых» строк тест-раннеров/сборщиков (прогресс-бары, «ok»-маркеры, Downloading/Compiling-спам) с маркером `[… +N similar lines condensed]`. Строки с ошибками (±3 строки контекста), итоговые summary-строки и голова/хвост вывода сохраняются дословно. Срабатывает только на длинном выводе (от 80 строк); экономит input-токены на тестовых прогонах. Размерный кламп (head+tail) остаётся страховкой после сжатия. Off — отправлять вывод как есть.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.terminal.compressProfiles': {
+					type: 'boolean',
+					default: true,
+					description: localize('vibeide.terminal.compressProfiles', 'Command-aware сжатие вывода `run_command` поверх общего конденсера (`vibeide.terminal.condenseOutput`): распознаёт семейство команды по первому токену (`git`, тест-раннеры `npm/yarn/pnpm test`, `jest`, `pytest`, `cargo test` и т.п., `ls`, `docker`) и применяет профильную свёртку — списки файлов `git status`, «зелёные» прохождения тестов, длинные листинги `ls`, progress-строки слоёв `docker`. Строки ошибок/провалов/конфликтов и итоговые summary сохраняются дословно. Работает только при включённом `condenseOutput` и на выводе от 12 строк. Off — только общий конденсер без профилей.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.tools.compressMcpOutput': {
+					type: 'boolean',
+					default: true,
+					description: localize('vibeide.tools.compressMcpOutput', 'Применять общий конденсер (дедуп повторяющихся строк + свёртка шумовых серий) к выводу MCP-инструментов перед добавлением в контекст модели. Профильная фильтрация НЕ применяется — форма вывода MCP непрозрачна, режется только явный повтор/шум, значимые строки сохраняются. Off — отправлять вывод MCP-тулов как есть.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 			},
 		});
 

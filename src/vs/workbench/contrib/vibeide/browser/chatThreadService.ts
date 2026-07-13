@@ -14,6 +14,7 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../platfo
 import { URI } from '../../../../base/common/uri.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
+import { compressGenericToolOutput } from '../common/commandOutputCompressor.js';
 import { recordChatTrace } from './vibeChatRunTrace.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '../common/prompt/toolAliases.js';
@@ -4538,6 +4539,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			// For MCP tools, handle the result based on its type
 			else {
 				toolResultStr = this._mcpService.stringifyResult(toolResult as RawMCPToolCall);
+				// MCP output is often the noisiest (raw JSON dumps, repeated log lines) yet bypasses the
+				// terminal condenser. Apply the GENERIC pass only — the tool's shape is opaque, so no profile
+				// filtering that could drop a meaningful line. Opt-out via config.
+				if (this._configurationService.getValue<boolean>('vibeide.tools.compressMcpOutput') !== false) {
+					toolResultStr = compressGenericToolOutput(toolResultStr);
+				}
 			}
 		} catch (error) {
 			const errorMessage = this.toolErrMsgs.errWhenStringifying(error);

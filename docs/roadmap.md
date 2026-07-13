@@ -550,6 +550,7 @@
 - [x] MCP Server Marketplace — ✅ VibeMCPMarketplaceService: GitHub/Filesystem/Postgres/BraveSearch
 - [x] 500+ провайдеров/моделей — ✅ через VibeModelsRegistryService CDN + CortexIDE model router (унаследован)
 - [x] Upstream conflict UI — ✅ VibeMergeConflictService: analyzeConflicts; Phase 2: full UI panel
+- [x] **Command-aware сжатие вывода + сжатие MCP** — ✅ (2026-07-13, next) повторная разведка RTK (github.com/rtk-ai/rtk): три его стратегии уже были (конденсер B + `truncateHeadTail`), добрали две недостающие. `common/commandOutputCompressor.ts` (чистые ф-ции + тест): профили git/test/ls/docker поверх общего конденсера (`vibeide.terminal.compressProfiles`) в `terminalToolService`; generic-сжатие MCP-вывода (`vibeide.tools.compressMcpOutput`) в `chatThreadService` после `stringifyResult`. KEEP_PATTERN хранит ошибки/провалы/summary дословно. Детали и грабли (`\b` после символа) — `docs/knowledge/roadmap/token-economy.md` §B2.
 
 ---
 
