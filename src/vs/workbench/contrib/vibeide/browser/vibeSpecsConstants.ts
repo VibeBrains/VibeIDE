@@ -7,8 +7,9 @@
 export const VIBE_SPECS_VIEWLET_ID = 'workbench.view.vibeSpecs';
 export const VIBE_SPECS_VIEW_ID = 'workbench.view.vibeSpecs.list';
 
-/** Workspace-relative folder that holds spec-driven feature docs (specs/<id>/PRODUCT.md, TECH.md). */
-export const VIBE_SPECS_DIR = 'specs';
+/** Workspace-relative folder that holds spec-driven feature docs (<root>/<id>/PRODUCT.md, TECH.md). */
+export const VIBE_SPECS_ROOT_SETTING = 'vibeide.specsPanel.root';
+export const VIBE_SPECS_ROOT_DEFAULT = 'docs/specs';
 export const VIBE_SPECS_PRODUCT_FILE = 'PRODUCT.md';
 export const VIBE_SPECS_TECH_FILE = 'TECH.md';
 

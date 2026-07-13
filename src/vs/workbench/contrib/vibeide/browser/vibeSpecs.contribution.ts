@@ -11,6 +11,7 @@ import { SyncDescriptor } from '../../../../platform/instantiation/common/descri
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { joinPath } from '../../../../base/common/resources.js';
+import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
 import {
 	Extensions as ViewContainerExtensions,
 	IViewContainersRegistry,
@@ -22,6 +23,8 @@ import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContaine
 import { registerVibeideFaSolidIcon } from './vibeideFontAwesomeSolid.js';
 import {
 	VIBE_SPECS_PRODUCT_FILE,
+	VIBE_SPECS_ROOT_DEFAULT,
+	VIBE_SPECS_ROOT_SETTING,
 	VIBE_SPECS_VIEW_ID,
 	VIBE_SPECS_VIEWLET_ID,
 	VibeSpecsCommands,
@@ -62,7 +65,7 @@ const vibeSpecsViewPaneWrapper = vibeSpecsViewContainerRegistry.registerViewCont
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [VIBE_SPECS_VIEWLET_ID, { mergeViewWithContainerWhenSingleView: true }]),
 		hideIfEmpty: false,
 		icon: vibeSpecsActivityGlyph,
-		order: 0.6,
+		order: 0.50,
 	},
 	ViewContainerLocation.Sidebar,
 	{ doNotRegisterOpenCommand: true },
@@ -88,13 +91,26 @@ vibeSpecsViewsRegistry.registerViews(
 vibeSpecsViewsRegistry.registerViewWelcomeContent(VIBE_SPECS_VIEW_ID, {
 	content: localize(
 		'vibeSpecs.welcome',
-		'Спек пока нет.\nСпеки живут в `specs/<id>/` и описывают фичу до кода (PRODUCT.md — поведение, TECH.md — реализация).\n[Спека из задачи](command:{0})\n[Новая спека (пустая)](command:{1})',
+		'Спек пока нет.\nСпеки живут в `docs/specs/<id>/` и описывают фичу до кода (PRODUCT.md — поведение, TECH.md — реализация).\n[Спека из задачи](command:{0})\n[Новая спека (пустая)](command:{1})',
 		VibeSpecsCommands.specFromTask,
 		VibeSpecsCommands.newSpec,
 	),
 	when: 'default',
 	group: ViewContentGroups.Open,
 	order: 1,
+});
+
+Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
+	id: 'vibeide.specsPanel',
+	title: localize('vibeSpecs.config.title', 'VibeIDE — Спеки'),
+	type: 'object',
+	properties: {
+		[VIBE_SPECS_ROOT_SETTING]: {
+			type: 'string',
+			default: VIBE_SPECS_ROOT_DEFAULT,
+			description: localize('vibeSpecs.config.root', 'Папка воркспейса, в которой панель «Спеки» ищет спеки `<id>/PRODUCT.md`. По умолчанию `docs/specs`. Путь относительный от корня воркспейса. Скиллы Spec-First (`spec-driven-implementation` и др.) должны писать спеки в этот же каталог.'),
+		},
+	},
 });
 
 const vibeCategory = localize2('vibeCategory', 'VibeIDE');
@@ -122,7 +138,7 @@ registerAction2(
 
 const SPEC_FROM_TASK_REQUEST = (task: string) => localize(
 	'vibeSpecs.specFromTask.request',
-	"Напиши продуктовую спеку для задачи: «{0}».\nИспользуй скилл write-product-spec: выбери `<id>` по правилам spec-driven-implementation и создай `specs/<id>/PRODUCT.md` с фронтматтером `status: draft`, описав поведение нумерованными проверяемыми инвариантами (без деталей реализации). Сначала собери недостающий контекст вопросами, если он критичен. После согласования предложи следующий шаг — write-tech-spec.",
+	"Напиши продуктовую спеку для задачи: «{0}».\nИспользуй скилл write-product-spec: выбери `<id>` и создай `PRODUCT.md` в каталоге спек по правилам spec-driven-implementation (по умолчанию `docs/specs/<id>/`) с фронтматтером `status: draft`, описав поведение нумерованными проверяемыми инвариантами (без деталей реализации). Сначала собери недостающий контекст вопросами, если он критичен. После согласования предложи следующий шаг — write-tech-spec.",
 	task,
 );
 

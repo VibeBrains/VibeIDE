@@ -6,7 +6,7 @@ vibeVersion: 1.1.0
 
 # implement-specs
 
-Реализовать утверждённую фичу по `PRODUCT.md` и `TECH.md` из `specs/<id>/`.
+Реализовать утверждённую фичу по `PRODUCT.md` и `TECH.md` из `docs/specs/<id>/`.
 
 ## Предусловия
 

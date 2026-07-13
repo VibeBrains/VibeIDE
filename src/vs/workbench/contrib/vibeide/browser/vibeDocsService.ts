@@ -23,17 +23,23 @@ import { VIBE_DOCS_MAX_DEPTH, VIBE_DOCS_ROOT_DEFAULT, VIBE_DOCS_ROOT_SETTING } f
 
 export const IVibeDocsService = createDecorator<IVibeDocsService>('vibeDocsService');
 
-export interface IVibeDocEntry {
-	/** Stable identity + display label: path relative to the docs root (POSIX). */
+export interface IVibeDocNode {
+	/** Stable identity: path relative to the docs root (POSIX). */
 	readonly id: string;
+	/** Basename shown in the tree row. */
+	readonly name: string;
 	readonly relPath: string;
 	readonly uri: URI;
+	readonly isDirectory: boolean;
+	/** Child nodes (folders first, then files, both alphabetical). Empty for files. */
+	readonly children: IVibeDocNode[];
 }
 
 export interface IVibeDocsService {
 	readonly _serviceBrand: undefined;
 	readonly onDidChangeDocs: Event<void>;
-	readDocs(): Promise<readonly IVibeDocEntry[]>;
+	/** Top-level nodes (a nested tree) across workspace roots' docs folders. */
+	readDocs(): Promise<readonly IVibeDocNode[]>;
 	refresh(): void;
 }
 
@@ -98,34 +104,50 @@ class VibeDocsService extends Disposable implements IVibeDocsService {
 		this._watchers.value = store;
 	}
 
-	async readDocs(): Promise<readonly IVibeDocEntry[]> {
-		const entries: IVibeDocEntry[] = [];
-		for (const root of this._docsRoots()) {
-			await this._walk(root, root, 0, entries);
+	async readDocs(): Promise<readonly IVibeDocNode[]> {
+		const roots = this._docsRoots();
+		const top: IVibeDocNode[] = [];
+		for (const root of roots) {
+			const nodes = await this._walk(root, root, 0);
+			top.push(...nodes);
 		}
-		entries.sort((a, b) => a.id.localeCompare(b.id));
-		return entries;
+		return sortNodes(top);
 	}
 
-	private async _walk(root: URI, dir: URI, depth: number, out: IVibeDocEntry[]): Promise<void> {
+	/** Build the nested tree under `dir`. Returns markdown files and any folders that (transitively) contain them. */
+	private async _walk(root: URI, dir: URI, depth: number): Promise<IVibeDocNode[]> {
 		if (depth > VIBE_DOCS_MAX_DEPTH) {
-			return;
+			return [];
 		}
 		let stat;
 		try {
 			stat = await this._files.resolve(dir);
 		} catch {
-			return; // docs root (or subdir) doesn't exist
+			return []; // docs root (or subdir) doesn't exist
 		}
+		const out: IVibeDocNode[] = [];
 		for (const child of stat.children ?? []) {
+			const rel = relativePath(root, child.resource) ?? child.name;
 			if (child.isDirectory) {
-				await this._walk(root, child.resource, depth + 1, out);
+				const children = await this._walk(root, child.resource, depth + 1);
+				// Prune empty folders — a docs tree shouldn't show dirs with no markdown anywhere inside.
+				if (children.length > 0) {
+					out.push({ id: rel, name: child.name, relPath: rel, uri: child.resource, isDirectory: true, children: sortNodes(children) });
+				}
 			} else if (MARKDOWN_RE.test(child.name)) {
-				const rel = relativePath(root, child.resource) ?? child.name;
-				out.push({ id: rel, relPath: rel, uri: child.resource });
+				out.push({ id: rel, name: child.name, relPath: rel, uri: child.resource, isDirectory: false, children: [] });
 			}
 		}
+		return out;
 	}
+}
+
+/** Folders first, then files; each group alphabetical (locale-aware). */
+function sortNodes(nodes: IVibeDocNode[]): IVibeDocNode[] {
+	return nodes.sort((a, b) => {
+		if (a.isDirectory !== b.isDirectory) { return a.isDirectory ? -1 : 1; }
+		return a.name.localeCompare(b.name);
+	});
 }
 
 registerSingleton(IVibeDocsService, VibeDocsService, InstantiationType.Delayed);

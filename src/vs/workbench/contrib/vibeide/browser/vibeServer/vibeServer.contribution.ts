@@ -66,7 +66,7 @@ const vibeServerContainer = viewContainerRegistry.registerViewContainer(
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [VIBE_SERVER_VIEWLET_ID, { mergeViewWithContainerWhenSingleView: true }]),
 		hideIfEmpty: false,
 		icon: vibeServerActivityGlyph,
-		order: 0.6,
+		order: 0.53,
 	},
 	ViewContainerLocation.Sidebar,
 	{ doNotRegisterOpenCommand: true },

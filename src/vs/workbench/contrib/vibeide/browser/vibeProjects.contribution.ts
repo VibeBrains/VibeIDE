@@ -80,7 +80,7 @@ const vibeProjectsViewPaneWrapper = vibeProjectsViewContainerRegistry.registerVi
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [VIBE_PROJECTS_VIEWLET_ID, { mergeViewWithContainerWhenSingleView: true }]),
 		hideIfEmpty: false,
 		icon: vibeProjectsActivityGlyph,
-		order: 0.5,
+		order: 0.52,
 	},
 	ViewContainerLocation.Sidebar,
 	{ doNotRegisterOpenCommand: true },

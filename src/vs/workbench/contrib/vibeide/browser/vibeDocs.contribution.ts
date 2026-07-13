@@ -54,7 +54,7 @@ const vibeDocsViewPaneWrapper = vibeDocsViewContainerRegistry.registerViewContai
 		ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [VIBE_DOCS_VIEWLET_ID, { mergeViewWithContainerWhenSingleView: true }]),
 		hideIfEmpty: false,
 		icon: vibeDocsActivityGlyph,
-		order: 0.7,
+		order: 0.51,
 	},
 	ViewContainerLocation.Sidebar,
 	{ doNotRegisterOpenCommand: true },

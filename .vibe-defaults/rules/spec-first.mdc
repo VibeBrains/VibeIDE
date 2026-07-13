@@ -15,7 +15,7 @@ alwaysApply: false
 
 ## Порядок
 
-- Задача проходит порог «существенности» → **до написания кода** пройти по `spec-driven-implementation`: `PRODUCT.md` (поведение), затем `TECH.md` (реализация), когда он оправдан. Спеки живут в `specs/<id>/`, коммитятся и держатся синхронными с кодом (канон — [.vibe/skills/implement-specs/SKILL.md](mdc:.vibe/skills/implement-specs/SKILL.md)).
+- Задача проходит порог «существенности» → **до написания кода** пройти по `spec-driven-implementation`: `PRODUCT.md` (поведение), затем `TECH.md` (реализация), когда он оправдан. Спеки живут в `docs/specs/<id>/`, коммитятся и держатся синхронными с кодом (канон — [.vibe/skills/implement-specs/SKILL.md](mdc:.vibe/skills/implement-specs/SKILL.md)).
 - Порог не пройден → не выдавливать церемонию, идти сразу к реализации и верификации.
 
 ## Границы

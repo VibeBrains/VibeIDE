@@ -20,11 +20,12 @@ import { joinPath, relativePath } from '../../../../base/common/resources.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import * as glob from '../../../../base/common/glob.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { VIBE_SPECS_DIR, VIBE_SPECS_PRODUCT_FILE, VIBE_SPECS_TECH_FILE } from './vibeSpecsConstants.js';
+import { VIBE_SPECS_PRODUCT_FILE, VIBE_SPECS_ROOT_DEFAULT, VIBE_SPECS_ROOT_SETTING, VIBE_SPECS_TECH_FILE } from './vibeSpecsConstants.js';
 
 export const IVibeSpecsService = createDecorator<IVibeSpecsService>('vibeSpecsService');
 
@@ -85,27 +86,37 @@ class VibeSpecsService extends Disposable implements IVibeSpecsService {
 	constructor(
 		@IFileService private readonly _files: IFileService,
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
+		@IConfigurationService private readonly _configuration: IConfigurationService,
 		@ILogService private readonly _log: ILogService,
 	) {
 		super();
 
-		// Any change under a root's specs/ folder repaints the panel.
+		// Any change under a root's specs folder repaints the panel.
 		this._register(this._files.onDidFilesChange(e => {
 			const roots = this._workspace.getWorkspace().folders.map(f => f.uri);
 			if (roots.some(root => e.contains(this.specsRootFor(root)))) {
 				this._reloadDebouncer.schedule();
 			}
 		}));
-		// Adding/removing a workspace folder changes the set of specs/ dirs to watch and show.
+		// Adding/removing a workspace folder changes the set of specs dirs to watch and show.
 		this._register(this._workspace.onDidChangeWorkspaceFolders(() => {
 			this._resetWatchers();
 			this._reloadDebouncer.schedule();
+		}));
+		// Changing the configured specs root re-targets the scan and watchers.
+		this._register(this._configuration.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration(VIBE_SPECS_ROOT_SETTING)) {
+				this._resetWatchers();
+				this._fireChanged();
+			}
 		}));
 		this._resetWatchers();
 	}
 
 	specsRootFor(rootUri: URI): URI {
-		return joinPath(rootUri, VIBE_SPECS_DIR);
+		const raw = this._configuration.getValue<string>(VIBE_SPECS_ROOT_SETTING);
+		const rel = (typeof raw === 'string' ? raw : '').trim().replace(/^[/\\]+|[/\\]+$/g, '') || VIBE_SPECS_ROOT_DEFAULT;
+		return joinPath(rootUri, ...rel.split(/[/\\]/));
 	}
 
 	refresh(): void {

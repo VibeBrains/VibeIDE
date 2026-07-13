@@ -2,13 +2,13 @@
 
 ← [Knowledge Index](../README.md)
 
-Новый ViewContainer, читающий `specs/<id>/` из воркспейса. Паттерн добавления боковой панели в vibeide.
+Новый ViewContainer, читающий `docs/specs/<id>/` из воркспейса. Паттерн добавления боковой панели в vibeide.
 
 ---
 
 ## [ui] Как добавить sidebar-панель со списком из workspace-папки
 
-**Контекст:** панель «Спеки» — список `specs/<id>/` (PRODUCT.md/TECH.md) с открытием в редакторе (2026-07-13). Отличие от [projects-pane.md](projects-pane.md): данные не из profile-storage, а из файлов воркспейса + FS-watcher.
+**Контекст:** панель «Спеки» — список `docs/specs/<id>/` (PRODUCT.md/TECH.md) с открытием в редакторе (2026-07-13). Отличие от [projects-pane.md](projects-pane.md): данные не из profile-storage, а из файлов воркспейса + FS-watcher.
 
 **Образец для копирования — Vibe Projects.** Четыре файла + один импорт:
 1. `vibeSpecsConstants.ts` — `VIBE_SPECS_VIEWLET_ID`/`VIEW_ID`, enum команд, имена файлов.
@@ -20,7 +20,7 @@
 **Грабли:**
 - **FA-глиф пишется реальным символом**, не escape: `registerVibeideFaSolidIcon(id, '', ...)` (U+F15C), а не строкой `''` в исходнике — при копипасте проверять байты (`od -c`: `357 205 234` = U+F15C).
 - CSS строк живёт в `browser/media/vibeide.css` (импорт один — из `vibeide.contribution.ts`), классы вручную (React-scope tailwind тут ни при чём).
-- Watcher на несуществующей `specs/` не падает — папка всплывёт на следующем reload после создания.
+- Watcher на несуществующей `docs/specs/` не падает — папка всплывёт на следующем reload после создания.
 
 **Статус спеки — детерминированно, не эвристикой.** Пилюля (draft/approved/implemented) читается из YAML-фронтматтера `status:` в PRODUCT.md, а не угадывается по наличию файлов/кода. Петлю замкнуть обязательно, иначе UI мёртвый: seed «Новой спеки» и `PRODUCT.skeleton.md` пишут `status: draft`, скиллы `write-product-spec`/`implement-specs` доводят до `implemented`. Урок: **не добавлять UI, читающий поле, которое никто не пишет** — сначала завести источник значения.
 
@@ -37,3 +37,10 @@
 **Отложено:** дерево с подпапками.
 
 **Применение:** любую новую боковую панель vibeide начинать с дублирования этого квартета файлов Vibe Projects/Спеки, а не с нуля.
+
+## [ui] Обновление: корень спек настраиваем, панель «Документы» — дерево (2026-07-13)
+
+- **Спеки → `docs/specs/` (не корень).** `specsRootFor` читает `vibeide.specsPanel.root` (дефолт `docs/specs`), реагирует на смену настройки (reset watchers). Скиллы Spec-First (`spec-driven-implementation` и др.) обновлены на `docs/specs/<id>/`, seed/скелеты тоже. Промпты «Спека из задачи»/«Реализовать спеку» не хардкодят путь — делегируют скиллу.
+- **Грабля replace:** слепой `specs/`→`docs/specs/` ломает `implement-specs/` → `implement-docs/specs/`. Защищать подстроки перед заменой пути каталога.
+- **Панель «Документы» — `WorkbenchObjectTree`** (первое дерево в vibeide; эталон `preferences/tocTree.ts`): сервис отдаёт вложенные узлы (папки первыми, пустые папки без md отсекаются), ViewPane строит `IObjectTreeElement` рекурсивно, `collapseByDefault:false`. Спеки в `docs/specs/` естественно попадают в это дерево (по решению — включаем, не исключаем).
+- **Порядок контейнеров:** Проводник → Спеки (0.50) → Документы (0.51) → Проекты (0.52) → Сервер (0.53).

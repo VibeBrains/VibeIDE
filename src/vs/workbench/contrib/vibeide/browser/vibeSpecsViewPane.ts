@@ -325,7 +325,7 @@ export class VibeSpecsViewPane extends ViewPane {
 		await this._specs.bindThreadToSpec(entry, threadId);
 		const request = localize(
 			'vibeSpecs.implement.request',
-			"Реализуй спеку `specs/{0}/` по скиллу implement-specs: сначала прочитай PRODUCT.md (и TECH.md, если есть), затем собери фичу по утверждённому поведению. Держись объявленной области `scope` из PRODUCT.md; правки вне неё требуют явного согласования. По завершении и проверке — выстави `status: implemented`.",
+			"Реализуй спеку «{0}» по скиллу implement-specs: сначала прочитай её PRODUCT.md (и TECH.md, если есть) в каталоге спек, затем собери фичу по утверждённому поведению. Держись объявленной области `scope` из PRODUCT.md; правки вне неё требуют явного согласования. По завершении и проверке — выстави `status: implemented`.",
 			entry.specId,
 		);
 		await this._chatThreadService.addUserMessageAndStreamResponse({ userMessage: request, threadId });
