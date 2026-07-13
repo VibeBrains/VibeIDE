@@ -20,6 +20,7 @@ import { TerminalResolveReason } from '../common/toolsServiceTypes.js';
 import { timeout } from '../../../../base/common/async.js';
 import { truncateHeadTail } from '../common/toolHardening.js';
 import { compressCommandOutput } from '../common/commandOutputCompressor.js';
+import { IVibeTokenSavingsService } from './vibeTokenSavingsService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 
@@ -108,6 +109,7 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 		@ITerminalService private readonly terminalService: ITerminalService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@IVibeTokenSavingsService private readonly tokenSavingsService: IVibeTokenSavingsService,
 	) {
 		super();
 
@@ -457,7 +459,9 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 				// Command-aware profiles (git/test/ls/docker) run first, then the generic condenser.
 				// Profiles are opt-out via `vibeide.terminal.compressProfiles`; the generic stage always runs.
 				const useProfiles = this.configurationService.getValue<boolean>('vibeide.terminal.compressProfiles') !== false;
+				const before = result.length;
 				result = compressCommandOutput(command, result, useProfiles);
+				this.tokenSavingsService.record('terminal', before, result.length);
 			}
 			result = truncateHeadTail(result, this.maxTerminalOutputChars());
 			return { result, resolveReason };

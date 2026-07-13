@@ -42,6 +42,7 @@ import './vibeNeonThemeContribution.js';
 // Native workspace bookmarks (Vibe Projects)
 import './vibeProjects.contribution.js';
 import './vibeSpecs.contribution.js';
+import './vibeTokenSavings.contribution.js';
 
 // Local preview server with live reload (Vibe Server)
 import './vibeServer/vibeServer.contribution.js';

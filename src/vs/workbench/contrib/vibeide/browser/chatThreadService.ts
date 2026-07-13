@@ -34,6 +34,7 @@ import { BuiltinToolCallParams, BuiltinToolResultType, TerminalResolveReason, To
 import { approvalTypeOfBuiltinToolName } from '../common/prompt/tools/index.js';
 import { toolMatchesPlanHints, resolveToolClass } from '../common/planToolDrift.js';
 import { IVibeSpecsService } from './vibeSpecsService.js';
+import { IVibeTokenSavingsService } from './vibeTokenSavingsService.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
@@ -936,6 +937,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeQuirkAutoFeedService private readonly _quirkAutoFeedService: IVibeQuirkAutoFeedService,
 		@IVibeSubagentService private readonly _subagentService: IVibeSubagentService,
 		@IVibeSpecsService private readonly _vibeSpecsService: IVibeSpecsService,
+		@IVibeTokenSavingsService private readonly _vibeTokenSavingsService: IVibeTokenSavingsService,
 	) {
 		super();
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabIds: [] }; // default state
@@ -4632,7 +4634,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// terminal condenser. Apply the GENERIC pass only — the tool's shape is opaque, so no profile
 				// filtering that could drop a meaningful line. Opt-out via config.
 				if (this._configurationService.getValue<boolean>('vibeide.tools.compressMcpOutput') !== false) {
+					const beforeCompress = toolResultStr.length;
 					toolResultStr = compressGenericToolOutput(toolResultStr);
+					this._vibeTokenSavingsService.record('mcp', beforeCompress, toolResultStr.length);
 				}
 			}
 		} catch (error) {
