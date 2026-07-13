@@ -78,8 +78,9 @@ class VibeSpecsListRenderer implements IListRenderer<IVibeSpecEntry, IRowTemplat
 		const line1 = DOM.append(row, $('.vibe-specs-line1'));
 		const label = DOM.append(line1, $('span.vibe-specs-label'));
 		const line2 = DOM.append(row, $('.vibe-specs-line2'));
-		const status = DOM.append(line2, $('span.vibe-specs-status'));
+		// P/T pills FIRST (fixed left edge → aligned across rows, no «ladder»), variable-width status after.
 		const badges = DOM.append(line2, $('span.vibe-specs-badges'));
+		const status = DOM.append(line2, $('span.vibe-specs-status'));
 		return { label, status, badges };
 	}
 
