@@ -5,6 +5,10 @@ PRODUCT.md — заготовка. Копировать в specs/<id>/PRODUCT.md
 Вся длина спеки зарабатывается в Behavior.
 -->
 
+---
+status: draft
+---
+
 # <Название фичи>
 
 ## Summary

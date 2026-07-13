@@ -26,6 +26,9 @@ import { VIBE_SPECS_DIR, VIBE_SPECS_PRODUCT_FILE, VIBE_SPECS_TECH_FILE } from '.
 
 export const IVibeSpecsService = createDecorator<IVibeSpecsService>('vibeSpecsService');
 
+/** Lifecycle status read from PRODUCT.md frontmatter (`status:`); implement-specs sets it. */
+export type VibeSpecStatus = 'draft' | 'approved' | 'implemented';
+
 export interface IVibeSpecEntry {
 	/** Stable identity: `<root-basename>/<specId>` so multi-root workspaces don't collide. */
 	readonly id: string;
@@ -36,6 +39,8 @@ export interface IVibeSpecEntry {
 	readonly dir: URI;
 	readonly product: URI | undefined;
 	readonly tech: URI | undefined;
+	/** Parsed from PRODUCT.md frontmatter; undefined when absent or unrecognised. */
+	readonly status: VibeSpecStatus | undefined;
 }
 
 export interface IVibeSpecsService {
@@ -133,11 +138,28 @@ class VibeSpecsService extends Disposable implements IVibeSpecsService {
 					dir: child.resource,
 					product,
 					tech,
+					status: product ? await this._readStatus(product) : undefined,
 				});
 			}
 		}
 		entries.sort((a, b) => a.id.localeCompare(b.id));
 		return entries;
+	}
+
+	/** Read `status:` from a leading `---`…`---` YAML frontmatter block. Best-effort, never throws. */
+	private async _readStatus(product: URI): Promise<VibeSpecStatus | undefined> {
+		let text: string;
+		try {
+			text = (await this._files.readFile(product)).value.toString();
+		} catch {
+			return undefined;
+		}
+		const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+		if (!fm) {
+			return undefined;
+		}
+		const line = /^\s*status\s*:\s*(draft|approved|implemented)\s*$/im.exec(fm[1]);
+		return line ? (line[1].toLowerCase() as VibeSpecStatus) : undefined;
 	}
 }
 

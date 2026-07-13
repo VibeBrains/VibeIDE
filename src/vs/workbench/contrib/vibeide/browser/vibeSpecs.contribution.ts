@@ -175,7 +175,11 @@ registerAction2(
 
 			// Minimal seed: the write-product-spec skill fills the real Behavior section. Kept tiny on
 			// purpose — the skeleton reference lives in .vibe/skills/write-product-spec/references/.
+			// `status` frontmatter drives the panel's status pill (draft → approved → implemented).
 			const seed = [
+				'---',
+				'status: draft',
+				'---',
 				`# ${specId}`,
 				'',
 				'## Summary',

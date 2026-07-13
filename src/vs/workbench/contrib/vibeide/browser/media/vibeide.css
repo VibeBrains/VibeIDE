@@ -839,6 +839,26 @@ body.monaco-workbench,
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+.vibe-specs-status {
+	flex: 0 0 auto;
+	font-size: 9px;
+	line-height: 14px;
+	text-transform: uppercase;
+	letter-spacing: 0.3px;
+	opacity: 0.85;
+}
+.vibe-specs-status:empty {
+	display: none;
+}
+.vibe-specs-status.status-draft {
+	color: var(--vscode-descriptionForeground);
+}
+.vibe-specs-status.status-approved {
+	color: var(--vscode-charts-blue);
+}
+.vibe-specs-status.status-implemented {
+	color: var(--vscode-charts-green);
+}
 .vibe-specs-badges {
 	flex: 0 0 auto;
 	display: flex;

@@ -7,10 +7,12 @@
 import * as DOM from '../../../../base/browser/dom.js';
 import { IListRenderer, IListVirtualDelegate } from '../../../../base/browser/ui/list/list.js';
 import { ActionBar } from '../../../../base/browser/ui/actionbar/actionbar.js';
-import { Action } from '../../../../base/common/actions.js';
+import { Action, IAction, Separator } from '../../../../base/common/actions.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { URI } from '../../../../base/common/uri.js';
+import { VSBuffer } from '../../../../base/common/buffer.js';
+import { joinPath } from '../../../../base/common/resources.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
@@ -25,14 +27,26 @@ import { IListAccessibilityProvider } from '../../../../base/browser/ui/list/lis
 import { localize } from '../../../../nls.js';
 import { ViewPane, IViewPaneOptions } from '../../../browser/parts/views/viewPane.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
+import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { IVibeSpecEntry, IVibeSpecsService } from './vibeSpecsService.js';
+import { IVibeSpecEntry, IVibeSpecsService, VibeSpecStatus } from './vibeSpecsService.js';
+import { VIBE_SPECS_TECH_FILE } from './vibeSpecsConstants.js';
 
 const $ = DOM.$;
 const ROW_TEMPLATE = 'vibeSpecs.row';
 
+/** Row action callbacks, wired by the pane. */
+interface IRowActions {
+	readonly multiRoot: () => boolean;
+	readonly open: (uri: URI) => void;
+	readonly createTech: (entry: IVibeSpecEntry) => void;
+}
+
 interface IRowTemplate {
 	readonly primary: HTMLElement;
+	readonly status: HTMLElement;
 	readonly badges: HTMLElement;
 	readonly actionBar: ActionBar;
 }
@@ -46,26 +60,34 @@ class VibeSpecsListDelegate implements IListVirtualDelegate<IVibeSpecEntry> {
 	}
 }
 
+const STATUS_LABEL: Record<VibeSpecStatus, string> = {
+	draft: localize('vibeSpecs.status.draft', "черновик"),
+	approved: localize('vibeSpecs.status.approved', "утверждена"),
+	implemented: localize('vibeSpecs.status.implemented', "реализована"),
+};
+
 class VibeSpecsListRenderer implements IListRenderer<IVibeSpecEntry, IRowTemplate> {
 	readonly templateId = ROW_TEMPLATE;
 
-	constructor(
-		private readonly _multiRoot: () => boolean,
-		private readonly _onOpen: (uri: URI) => void,
-	) { }
+	constructor(private readonly _actions: IRowActions) { }
 
 	renderTemplate(container: HTMLElement): IRowTemplate {
 		const row = DOM.append(container, $('.vibe-specs-row'));
 		const primary = DOM.append(row, $('span.vibe-specs-label'));
+		const status = DOM.append(row, $('span.vibe-specs-status'));
 		const badges = DOM.append(row, $('span.vibe-specs-badges'));
 		const actions = DOM.append(row, $('.vibe-specs-actions'));
 		const actionBar = new ActionBar(actions);
-		return { primary, badges, actionBar };
+		return { primary, status, badges, actionBar };
 	}
 
 	renderElement(entry: IVibeSpecEntry, _index: number, data: IRowTemplate): void {
-		data.primary.textContent = this._multiRoot() ? entry.id : entry.specId;
+		data.primary.textContent = this._actions.multiRoot() ? entry.id : entry.specId;
 		data.primary.title = entry.dir.fsPath || entry.dir.toString(true);
+
+		// Status pill (from PRODUCT.md frontmatter); hidden when unknown.
+		data.status.textContent = entry.status ? STATUS_LABEL[entry.status] : '';
+		data.status.className = 'vibe-specs-status' + (entry.status ? ` status-${entry.status}` : '');
 
 		// Badges show which docs the spec already has; missing docs render dimmed.
 		data.badges.textContent = '';
@@ -76,13 +98,19 @@ class VibeSpecsListRenderer implements IListRenderer<IVibeSpecEntry, IRowTemplat
 		data.actionBar.clear();
 		if (entry.product) {
 			data.actionBar.push(
-				new Action('vibeSpecs.row.openProduct', localize('vibeSpecs.row.openProduct', "Открыть PRODUCT.md"), ThemeIcon.asClassName(Codicon.book), true, async () => this._onOpen(entry.product!)),
+				new Action('vibeSpecs.row.openProduct', localize('vibeSpecs.row.openProduct', "Открыть PRODUCT.md"), ThemeIcon.asClassName(Codicon.book), true, async () => this._actions.open(entry.product!)),
 				{ icon: true, label: false },
 			);
 		}
 		if (entry.tech) {
 			data.actionBar.push(
-				new Action('vibeSpecs.row.openTech', localize('vibeSpecs.row.openTech', "Открыть TECH.md"), ThemeIcon.asClassName(Codicon.gear), true, async () => this._onOpen(entry.tech!)),
+				new Action('vibeSpecs.row.openTech', localize('vibeSpecs.row.openTech', "Открыть TECH.md"), ThemeIcon.asClassName(Codicon.gear), true, async () => this._actions.open(entry.tech!)),
+				{ icon: true, label: false },
+			);
+		} else {
+			// No TECH yet → offer to scaffold it inline.
+			data.actionBar.push(
+				new Action('vibeSpecs.row.createTech', localize('vibeSpecs.row.createTech', "Создать TECH.md"), ThemeIcon.asClassName(Codicon.newFile), true, async () => this._actions.createTech(entry)),
 				{ icon: true, label: false },
 			);
 		}
@@ -100,6 +128,26 @@ function badge(text: string, present: boolean, title: string): HTMLElement {
 	el.classList.toggle('present', present);
 	return el;
 }
+
+/** Minimal TECH.md seed; write-tech-spec fills the real plan. Skeleton lives in the skill's references/. */
+const TECH_SEED = (specId: string) => [
+	`# ${specId} — техническая спека`,
+	'',
+	'## Context',
+	'',
+	'<Что меняем, как область работает сейчас, ключевые файлы со ссылками на строки.>',
+	'',
+	'Пользовательское поведение — см. `PRODUCT.md`.',
+	'',
+	'## Proposed changes',
+	'',
+	'- <Модуль/файл: что меняется и почему так.>',
+	'',
+	'## Testing and validation',
+	'',
+	'- PRODUCT.md #<N> → <тест или шаг проверки.>',
+	'',
+].join('\n');
 
 export class VibeSpecsViewPane extends ViewPane {
 
@@ -121,6 +169,9 @@ export class VibeSpecsViewPane extends ViewPane {
 		@IVibeSpecsService private readonly _specs: IVibeSpecsService,
 		@IEditorService private readonly _editorService: IEditorService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
+		@IFileService private readonly _fileService: IFileService,
+		@IDialogService private readonly _dialogService: IDialogService,
+		@ICommandService private readonly _commandService: ICommandService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
 		this._register(this.onDidChangeViewWelcomeState(() => this._syncRosterHostVisibility()));
@@ -141,9 +192,12 @@ export class VibeSpecsViewPane extends ViewPane {
 		this._bodyDom = DOM.append(container, $('.vibe-specs-body'));
 		this._syncRosterHostVisibility();
 
-		const multiRoot = () => this._workspaceContextService.getWorkspace().folders.length > 1;
 		const delegate = new VibeSpecsListDelegate();
-		const renderer = new VibeSpecsListRenderer(multiRoot, uri => void this._open(uri));
+		const renderer = new VibeSpecsListRenderer({
+			multiRoot: () => this._workspaceContextService.getWorkspace().folders.length > 1,
+			open: uri => void this._open(uri),
+			createTech: entry => void this._createTech(entry),
+		});
 		const listOptions: IWorkbenchListOptions<IVibeSpecEntry> = {
 			identityProvider: { getId: e => e.id },
 			multipleSelectionSupport: false,
@@ -167,15 +221,42 @@ export class VibeSpecsViewPane extends ViewPane {
 				void this._open(hit.product ?? hit.tech);
 			}
 		}));
+		this._register(list.onContextMenu(e => {
+			if (!e.element) {
+				return;
+			}
+			const hit = e.element;
+			this.contextMenuService.showContextMenu({
+				getAnchor: () => e.anchor,
+				getActions: () => this._ctxActions(hit),
+				getActionsContext: () => hit,
+			});
+		}));
 		this._register(this._specs.onDidChangeSpecs(() => this._paint()));
 		void this._paint();
 	}
 
 	private _accessibility(): IListAccessibilityProvider<IVibeSpecEntry> {
 		return {
-			getAriaLabel: e => e.id,
+			getAriaLabel: e => e.status ? `${e.id} — ${STATUS_LABEL[e.status]}` : e.id,
 			getWidgetAriaLabel: () => localize('vibeSpecs.aria.widget', "Спеки проекта"),
 		};
+	}
+
+	private _ctxActions(entry: IVibeSpecEntry): IAction[] {
+		const actions: IAction[] = [];
+		if (entry.product) {
+			actions.push(new Action('vibeSpecs.ctx.openProduct', localize('vibeSpecs.ctx.openProduct', "Открыть PRODUCT.md"), '', true, () => void this._open(entry.product)));
+		}
+		if (entry.tech) {
+			actions.push(new Action('vibeSpecs.ctx.openTech', localize('vibeSpecs.ctx.openTech', "Открыть TECH.md"), '', true, () => void this._open(entry.tech)));
+		} else {
+			actions.push(new Action('vibeSpecs.ctx.createTech', localize('vibeSpecs.ctx.createTech', "Создать TECH.md"), '', true, () => void this._createTech(entry)));
+		}
+		actions.push(new Separator());
+		actions.push(new Action('vibeSpecs.ctx.reveal', localize('vibeSpecs.ctx.reveal', "Показать в проводнике"), '', true, () => void this._commandService.executeCommand('revealInExplorer', entry.product ?? entry.tech ?? entry.dir)));
+		actions.push(new Action('vibeSpecs.ctx.delete', localize('vibeSpecs.ctx.delete', "Удалить спеку"), '', true, () => void this._deleteSpec(entry)));
+		return actions;
 	}
 
 	private async _paint(): Promise<void> {
@@ -204,5 +285,30 @@ export class VibeSpecsViewPane extends ViewPane {
 			return;
 		}
 		await this._editorService.openEditor({ resource: uri, options: { pinned: false } });
+	}
+
+	private async _createTech(entry: IVibeSpecEntry): Promise<void> {
+		const techUri = joinPath(entry.dir, VIBE_SPECS_TECH_FILE);
+		if (await this._fileService.exists(techUri)) {
+			await this._open(techUri);
+			return;
+		}
+		await this._fileService.writeFile(techUri, VSBuffer.fromString(TECH_SEED(entry.specId)));
+		this._specs.refresh();
+		await this._open(techUri);
+	}
+
+	private async _deleteSpec(entry: IVibeSpecEntry): Promise<void> {
+		const confirmed = await this._dialogService.confirm({
+			type: 'warning',
+			message: localize('vibeSpecs.delete.confirm', "Удалить спеку «{0}» вместе со всеми документами?", entry.specId),
+			detail: entry.dir.fsPath,
+			primaryButton: localize('vibeSpecs.delete.yes', "Удалить"),
+		});
+		if (!confirmed.confirmed) {
+			return;
+		}
+		await this._fileService.del(entry.dir, { recursive: true, useTrash: true });
+		this._specs.refresh();
 	}
 }
