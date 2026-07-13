@@ -11,7 +11,8 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 
-import { URI } from '../../../../base/common/uri.js';
+import { URI, UriComponents } from '../../../../base/common/uri.js';
+import { joinPath } from '../../../../base/common/resources.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { compressGenericToolOutput } from '../common/commandOutputCompressor.js';
@@ -31,7 +32,8 @@ import { detectVisionDropResponse } from '../common/visionDropDetector.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { BuiltinToolCallParams, BuiltinToolResultType, TerminalResolveReason, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../common/prompt/tools/index.js';
-import { toolMatchesPlanHints } from '../common/planToolDrift.js';
+import { toolMatchesPlanHints, resolveToolClass } from '../common/planToolDrift.js';
+import { IVibeSpecsService } from './vibeSpecsService.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
@@ -933,6 +935,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeDesktopNotificationService private readonly _desktopNotificationService: IVibeDesktopNotificationService,
 		@IVibeQuirkAutoFeedService private readonly _quirkAutoFeedService: IVibeQuirkAutoFeedService,
 		@IVibeSubagentService private readonly _subagentService: IVibeSubagentService,
+		@IVibeSpecsService private readonly _vibeSpecsService: IVibeSpecsService,
 	) {
 		super();
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabIds: [] }; // default state
@@ -2985,6 +2988,92 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		return true;
 	}
 
+	/** One spec-drift toast per (thread, spec, file); session-scoped, mirrors `_driftNotifiedSteps`. */
+	private readonly _specDriftNotified = new Set<string>();
+
+	/** Coerce an edit tool's `uri` param (validated URI, full-URI string, or path) to an absolute URI. */
+	private _normalizeEditedUri(raw: unknown, root: URI): URI | undefined {
+		if (URI.isUri(raw)) {
+			return raw;
+		}
+		if (raw && typeof raw === 'object' && 'scheme' in (raw as Record<string, unknown>)) {
+			try { return URI.revive(raw as UriComponents); } catch { return undefined; }
+		}
+		if (typeof raw === 'string' && raw.length) {
+			try {
+				if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) { return URI.parse(raw); }
+				const isAbsolute = raw.startsWith('/') || /^[A-Za-z]:[\\/]/.test(raw);
+				return isAbsolute ? URI.file(raw) : joinPath(root, raw);
+			} catch { return undefined; }
+		}
+		return undefined;
+	}
+
+	/**
+	 * Spec-drift (roadmap Phase C): when a thread is bound to an APPROVED spec (`boundThreadId` in its
+	 * PRODUCT.md) and the agent edits a file outside the spec's declared `scope`, pause the run.
+	 * Independent of plan tracking — fires only for edit-class tools of an explicitly bound spec, so it
+	 * never nags on ordinary unspecced work. Returns true if execution should stop.
+	 */
+	private async _pauseForSpecDrift(threadId: string, toolName: ToolName, params: unknown): Promise<boolean> {
+		if (resolveToolClass(String(toolName)) !== 'edits') {
+			return false;
+		}
+		const rawUri = (params as { uri?: unknown } | undefined)?.uri;
+		if (rawUri === undefined || rawUri === null) {
+			return false;
+		}
+		const spec = await this._vibeSpecsService.specForThread(threadId);
+		if (!spec || spec.status !== 'approved') {
+			return false;
+		}
+		// Params may be validated (a URI) or raw (a path string, possibly relative to the workspace root).
+		const uri = this._normalizeEditedUri(rawUri, spec.rootUri);
+		if (!uri || this._vibeSpecsService.isPathInScope(spec, uri)) {
+			return false;
+		}
+		// Policy mirrors `vibeide.plans.toolDriftPause`: always / manual-only (default: skip under
+		// autopilot) / never.
+		const driftMode = this._configurationService.getValue<unknown>('vibeide.specs.driftPause');
+		const autopilotOn = this._settingsService.state.globalSettings.chatAgentAutopilot === true;
+		const shouldPause = driftMode === 'always' ? true : driftMode === 'never' ? false : !autopilotOn;
+		const driftKey = `${threadId}:${spec.specId}:${uri.fsPath}`;
+		if (!shouldPause) {
+			if (!this._specDriftNotified.has(driftKey)) {
+				this._specDriftNotified.add(driftKey);
+				this._notificationService.notify({
+					severity: Severity.Info,
+					message: localize('vibeide.specDriftAutoContinue', 'Правка "{0}" вне области спеки "{1}" — продолжаю без паузы ({2}). Строгий режим: vibeide.specs.driftPause = always.', uri.fsPath, spec.specId, driftMode === 'never' ? 'режим never' : 'автопилот'),
+				});
+			}
+			return false;
+		}
+		// Prefer surfacing the pause on the running plan step (reuses the inline chip UI); otherwise the
+		// warning toast is the only signal.
+		const stepState = this._getCurrentStep(threadId, true);
+		if (stepState && stepState.step.status === 'running') {
+			const { planIdx, stepIdx } = stepState;
+			const thread = this.state.allThreads[threadId];
+			const message = thread?.messages[planIdx];
+			if (message && message.role === 'plan') {
+				const plan = message as PlanMessage;
+				const updatedSteps = [...plan.steps];
+				updatedSteps[stepIdx] = {
+					...updatedSteps[stepIdx],
+					status: 'paused',
+					error: localize('vibeide.specDriftStepError', 'Пауза: правка "{0}" вне области `scope` спеки "{1}". Расширьте scope в PRODUCT.md или продолжите.', uri.fsPath, spec.specId),
+				};
+				this._editMessageInThread(threadId, planIdx, { ...plan, steps: updatedSteps, approvalState: 'executing' });
+				this._planCache.delete(threadId);
+			}
+		}
+		this._notificationService.notify({
+			severity: Severity.Warning,
+			message: localize('vibeide.specDriftNotify', 'Реализация приостановлена: правка "{0}" вне области спеки "{1}".', uri.fsPath, spec.specId),
+		});
+		return true;
+	}
+
 	private _resolveMcpServerForPlanTool(toolName: ToolName, mcpServerHint: string | undefined): string | undefined {
 		if (mcpServerHint) {
 			return mcpServerHint;
@@ -5000,6 +5089,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
 					return;
 				}
+			}
+
+			if (await this._pauseForSpecDrift(threadId, callThisToolFirst.name, callThisToolFirst.params)) {
+				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+				return;
 			}
 
 			const mcpSrvFirst = this._resolveMcpServerForPlanTool(callThisToolFirst.name, callThisToolFirst.mcpServerName);
@@ -7138,6 +7232,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
 							return;
 						}
+					}
+
+					if (await this._pauseForSpecDrift(threadId, toolCall.name, toolCall.rawParams)) {
+						this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+						return;
 					}
 
 					const mcpTools = this._mcpService.getMCPTools();

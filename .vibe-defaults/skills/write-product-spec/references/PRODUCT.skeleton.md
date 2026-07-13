@@ -7,6 +7,8 @@ PRODUCT.md — заготовка. Копировать в specs/<id>/PRODUCT.md
 
 ---
 status: draft
+# scope:                 # опционально — globs области фичи для дрейф-контроля при реализации
+#   - src/<feature>/**
 ---
 
 # <Название фичи>

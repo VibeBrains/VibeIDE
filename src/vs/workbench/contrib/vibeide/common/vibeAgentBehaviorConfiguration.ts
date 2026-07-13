@@ -111,6 +111,17 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			],
 			description: localize('vibeide.plans.toolDriftPause', 'Когда паузить персистентный план, если агент вызывает инструмент вне списка `tools` текущего шага. Синонимы одного класса (edit_file ↔ rewrite_file, run_terminal_command ↔ run_command) расхождением НЕ считаются. Дефолт `manual-only`.'),
 		},
+		'vibeide.specs.driftPause': {
+			type: 'string',
+			enum: ['always', 'manual-only', 'never'],
+			default: 'manual-only',
+			enumDescriptions: [
+				localize('vibeide.specs.driftPause.always', 'Паузить при любой правке файла вне области `scope` привязанной спеки.'),
+				localize('vibeide.specs.driftPause.manualOnly', 'Паузить только когда автопилот ВЫКЛЮЧЕН; под автопилотом — продолжать с инфо-уведомлением.'),
+				localize('vibeide.specs.driftPause.never', 'Никогда не паузить — только показывать инфо-уведомление о выходе за область.'),
+			],
+			description: localize('vibeide.specs.driftPause', 'Когда паузить реализацию, если тред привязан к утверждённой (`status: approved`) спеке (`boundThreadId` в её PRODUCT.md), а агент правит файл вне объявленной области `scope`. Срабатывает ТОЛЬКО при явной привязке через «Реализовать спеку» и только для edit-инструментов — обычную неспецифицированную работу не трогает. Спека без `scope` границ не задаёт (дрейфа нет). Дефолт `manual-only`.'),
+		},
 		'vibeide.agent.autoContinueMaxNudges': {
 			type: 'number',
 			default: 2,

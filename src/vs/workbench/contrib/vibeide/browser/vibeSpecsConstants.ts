@@ -16,4 +16,5 @@ export const enum VibeSpecsCommands {
 	refresh = 'vibeide.vibeSpecs.refresh',
 	newSpec = 'vibeide.vibeSpecs.newSpec',
 	specFromTask = 'vibeide.vibeSpecs.specFromTask',
+	implementSpec = 'vibeide.vibeSpecs.implementSpec',
 }

@@ -30,8 +30,12 @@ import { IEditorService } from '../../../services/editor/common/editorService.js
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IVibeSpecEntry, IVibeSpecsService, VibeSpecStatus } from './vibeSpecsService.js';
+import { IChatThreadService } from './chatThreadService.js';
+import { VIBEIDE_VIEW_CONTAINER_ID } from './sidebarPane.js';
 import { VIBE_SPECS_TECH_FILE } from './vibeSpecsConstants.js';
 
 const $ = DOM.$;
@@ -172,6 +176,9 @@ export class VibeSpecsViewPane extends ViewPane {
 		@IFileService private readonly _fileService: IFileService,
 		@IDialogService private readonly _dialogService: IDialogService,
 		@ICommandService private readonly _commandService: ICommandService,
+		@INotificationService private readonly _notificationService: INotificationService,
+		@IViewsService private readonly _viewsService: IViewsService,
+		@IChatThreadService private readonly _chatThreadService: IChatThreadService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
 		this._register(this.onDidChangeViewWelcomeState(() => this._syncRosterHostVisibility()));
@@ -253,6 +260,10 @@ export class VibeSpecsViewPane extends ViewPane {
 		} else {
 			actions.push(new Action('vibeSpecs.ctx.createTech', localize('vibeSpecs.ctx.createTech', "Создать TECH.md"), '', true, () => void this._createTech(entry)));
 		}
+		if (entry.status === 'approved') {
+			actions.push(new Separator());
+			actions.push(new Action('vibeSpecs.ctx.implement', localize('vibeSpecs.ctx.implement', "Реализовать спеку"), '', true, () => void this._implementSpec(entry)));
+		}
 		actions.push(new Separator());
 		actions.push(new Action('vibeSpecs.ctx.reveal', localize('vibeSpecs.ctx.reveal', "Показать в проводнике"), '', true, () => void this._commandService.executeCommand('revealInExplorer', entry.product ?? entry.tech ?? entry.dir)));
 		actions.push(new Action('vibeSpecs.ctx.delete', localize('vibeSpecs.ctx.delete', "Удалить спеку"), '', true, () => void this._deleteSpec(entry)));
@@ -296,6 +307,28 @@ export class VibeSpecsViewPane extends ViewPane {
 		await this._fileService.writeFile(techUri, VSBuffer.fromString(TECH_SEED(entry.specId)));
 		this._specs.refresh();
 		await this._open(techUri);
+	}
+
+	private async _implementSpec(entry: IVibeSpecEntry): Promise<void> {
+		// Open chat, ensure a thread, bind the spec to it, then hand implementation to the agent.
+		// The binding (boundThreadId in PRODUCT.md) is what arms spec-drift for this thread.
+		await this._viewsService.openViewContainer(VIBEIDE_VIEW_CONTAINER_ID);
+		let threadId = this._chatThreadService.state.currentThreadId;
+		if (!threadId) {
+			this._chatThreadService.openNewThread();
+			threadId = this._chatThreadService.state.currentThreadId;
+		}
+		if (!threadId) {
+			this._notificationService.info(localize('vibeSpecs.implement.noThread', "Не удалось открыть чат для реализации спеки."));
+			return;
+		}
+		await this._specs.bindThreadToSpec(entry, threadId);
+		const request = localize(
+			'vibeSpecs.implement.request',
+			"Реализуй спеку `specs/{0}/` по скиллу implement-specs: сначала прочитай PRODUCT.md (и TECH.md, если есть), затем собери фичу по утверждённому поведению. Держись объявленной области `scope` из PRODUCT.md; правки вне неё требуют явного согласования. По завершении и проверке — выстави `status: implemented`.",
+			entry.specId,
+		);
+		await this._chatThreadService.addUserMessageAndStreamResponse({ userMessage: request, threadId });
 	}
 
 	private async _deleteSpec(entry: IVibeSpecEntry): Promise<void> {
