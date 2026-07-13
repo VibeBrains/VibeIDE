@@ -26,10 +26,14 @@ suite('commandOutputCompressor', () => {
 					detectCommandKind('cargo test'),
 					detectCommandKind('cargo build'),
 					detectCommandKind('ls -la'),
+					detectCommandKind('find . -name "*.ts"'),
+					detectCommandKind('pip install requests'),
+					detectCommandKind('npm install'),
+					detectCommandKind('cargo install ripgrep'),
 					detectCommandKind('echo hello'),
 					detectCommandKind(''),
 				],
-				['git', 'git', 'docker', 'test', 'test', 'test', 'unknown', 'ls', 'unknown', 'unknown'],
+				['git', 'git', 'docker', 'test', 'test', 'test', 'unknown', 'ls', 'find', 'install', 'install', 'install', 'unknown', 'unknown'],
 			);
 		});
 	});
@@ -70,6 +74,16 @@ suite('commandOutputCompressor', () => {
 		const input = lines(...seq(40, i => `  ✓ renders component ${i}`), 'Tests: 40 passed');
 		const out = compressCommandOutput('npm test', input, false);
 		assert.ok(!out.includes('passing tests]'), 'no profile marker when profiles are off');
+	});
+
+	test('install profile folds progress spam, keeps errors', () => {
+		const input = lines(
+			...seq(30, i => `Requirement already satisfied: pkg${i} in /usr/lib`),
+			'ERROR: Could not find a version that satisfies the requirement bogus',
+		);
+		const out = compressCommandOutput('pip install -r req.txt', input, true);
+		assert.ok(out.includes('progress lines]'), `expected progress marker in:\n${out}`);
+		assert.ok(out.includes('ERROR: Could not find a version'), 'error line must survive');
 	});
 
 	test('generic tool output dedups identical spam lines', () => {

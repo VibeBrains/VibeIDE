@@ -23,7 +23,7 @@ import { condenseTerminalOutput } from './terminalOutputCondenser.js';
  */
 
 /** Recognised command families with a dedicated reducer; everything else is `unknown`. */
-export type CommandKind = 'git' | 'test' | 'ls' | 'docker' | 'unknown';
+export type CommandKind = 'git' | 'test' | 'ls' | 'docker' | 'find' | 'install' | 'unknown';
 
 /** Minimum shrink (fraction of original length) before a profile result is used. */
 const MIN_GAIN_RATIO = 0.9;
@@ -35,7 +35,11 @@ const PROFILE_MIN_LINES = 12;
 const PACKAGE_MANAGERS = new Set(['npm', 'yarn', 'pnpm', 'bun']);
 
 /** Test-runner binaries that emit per-test noise around a final summary. */
-const TEST_RUNNERS = new Set(['jest', 'vitest', 'mocha', 'pytest', 'cargo', 'go', 'gradle', 'mvn']);
+const TEST_RUNNERS = new Set(['jest', 'vitest', 'mocha', 'pytest', 'cargo', 'go', 'gradle', 'mvn', 'rspec', 'phpunit', 'dotnet', 'ctest', 'deno']);
+
+/** Package-install commands whose progress spam ("already satisfied", downloads) is safe to fold. */
+const INSTALL_TOOLS = new Set(['pip', 'pip3', 'apt', 'apt-get', 'brew', 'gem', 'cargo', 'go']);
+const INSTALL_SUBS = new Set(['install', 'i', 'add', 'ci', 'get']);
 
 /**
  * Detect the command family from a raw command string. Handles a leading `$ ` echo, env-var
@@ -57,9 +61,12 @@ export const detectCommandKind = (command: string): CommandKind => {
 	const sub = rest[0] ?? '';
 	if (head === 'git') { return 'git'; }
 	if (head === 'ls') { return 'ls'; }
+	if (head === 'find') { return 'find'; }
 	if (head === 'docker' || head === 'docker-compose') { return 'docker'; }
+	// Test detection precedes install for cargo/go (`cargo test` is a test run, `cargo install` an install).
 	if (PACKAGE_MANAGERS.has(head) && (sub === 'test' || sub === 't' || sub === 'run')) { return 'test'; }
 	if (TEST_RUNNERS.has(head) && (head !== 'cargo' && head !== 'go' ? true : sub === 'test')) { return 'test'; }
+	if ((INSTALL_TOOLS.has(head) || PACKAGE_MANAGERS.has(head)) && INSTALL_SUBS.has(sub)) { return 'install'; }
 	return 'unknown';
 };
 
@@ -163,11 +170,33 @@ const reduceDocker = (output: string): string => {
 	return out.join('\n');
 };
 
+/** find: a long path listing — keep a bounded head, summarise the rest into a count (like ls). */
+const reduceFind = (output: string): string => reduceLs(output);
+
+/** install: drop "already satisfied"/download/progress spam; keep errors, warnings and the tail. */
+const INSTALL_NOISE_PATTERN = /^\s*(Requirement already satisfied|Downloading|Downloaded|Collecting|Using cached|Fetching|Resolving|Get:|Hit:|Ign:|Reading (package lists|state)|Building dependency|Preparing to unpack|Unpacking|Selecting previously|Setting up|added \d+ packages?|Fetching package|==> (Downloading|Pouring|Fetching)|remote:)\b/i;
+const reduceInstall = (output: string): string => {
+	const lines = output.split('\n');
+	const out: string[] = [];
+	let dropped = 0;
+	const flush = () => { if (dropped > 0) { out.push(`[… +${dropped} progress lines]`); dropped = 0; } };
+	for (const line of lines) {
+		if (KEEP_PATTERN.test(line)) { flush(); out.push(line); continue; }
+		if (INSTALL_NOISE_PATTERN.test(line)) { dropped++; continue; }
+		flush();
+		out.push(line);
+	}
+	flush();
+	return out.join('\n');
+};
+
 const PROFILES: Record<Exclude<CommandKind, 'unknown'>, (output: string) => string> = {
 	git: reduceGit,
 	test: reduceTest,
 	ls: reduceLs,
 	docker: reduceDocker,
+	find: reduceFind,
+	install: reduceInstall,
 };
 
 /**

@@ -82,9 +82,12 @@ ls/docker имеют ИЗВЕСТНУЮ форму, чей шум режется
 - `detectCommandKind(command)` — семейство по первому значимому токену (снимает `$ `-эхо,
   `FOO=bar`-префиксы, `sudo`; распознаёт делегацию `npm/yarn/pnpm test`, `cargo test`, `go test`).
 - Таблица профилей-редьюсеров (ДАННЫЕ, не хирургия в цикле): `git` (свёртка списков файлов в счётчик,
-  дроп transfer-progress), `test` (дроп «зелёных» прохождений, keep провалов+summary), `ls` (head+
-  счётчик хвоста), `docker` (дроп layer-progress). Строки ошибок/провалов/конфликтов и summary —
-  дословно через общий `KEEP_PATTERN`. Профиль → generic `condenseTerminalOutput` вторым этапом.
+  дроп transfer-progress), `test` (дроп «зелёных» прохождений, keep провалов+summary), `ls`/`find` (head+
+  счётчик хвоста), `docker` (дроп layer-progress), `install` (npm/pip/apt/brew/cargo/gem — дроп «already
+  satisfied»/download/progress). Строки ошибок/провалов/конфликтов и summary — дословно через общий
+  `KEEP_PATTERN`. Профиль → generic `condenseTerminalOutput` вторым этапом. **Осознанно НЕ добавлены**
+  профили для `grep`/`kubectl get` — их вывод сам по себе сигнал, агрессивная свёртка спрятала бы нужную
+  строку (общий конденсер + head/tail-кап их объём и так безопасно ограничивают).
 - `compressCommandOutput(cmd, out, useProfiles)` заменил прямой вызов `condenseTerminalOutput` в
   `terminalToolService`; `compressGenericToolOutput(out)` (ТОЛЬКО generic, без профилей) добавлен в
   `chatThreadService` в ветке MCP после `stringifyResult` (форма MCP непрозрачна → профиль опасен).
