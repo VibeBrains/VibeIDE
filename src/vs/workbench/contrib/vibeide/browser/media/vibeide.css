@@ -824,6 +824,59 @@ body.monaco-workbench,
 }
 
 /* ----------------------------------------------------------------------------------------
+ * Спеки panel — one row per specs/<id>, with P/T doc badges and inline open actions.
+ * ---------------------------------------------------------------------------------------- */
+.vibe-specs-row {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	padding: 0 var(--vibeide-space-md);
+	gap: 6px;
+}
+.vibe-specs-label {
+	flex: 1 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.vibe-specs-badges {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	gap: 3px;
+}
+.vibe-specs-badge {
+	font-size: 9px;
+	line-height: 14px;
+	min-width: 14px;
+	text-align: center;
+	padding: 0 3px;
+	border-radius: 3px;
+	border: 1px solid var(--vscode-badge-background);
+	color: var(--vscode-descriptionForeground);
+	opacity: 0.5;
+}
+.vibe-specs-badge.present {
+	background: var(--vscode-badge-background);
+	color: var(--vscode-badge-foreground);
+	opacity: 1;
+}
+.vibe-specs-actions {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	visibility: hidden;
+}
+.monaco-list-row:hover .vibe-specs-actions,
+.monaco-list-row.focused .vibe-specs-actions,
+.vibe-specs-actions:focus-within {
+	visibility: visible;
+}
+.vibe-specs-actions .action-label.codicon {
+	color: var(--vscode-icon-foreground);
+}
+
+/* ----------------------------------------------------------------------------------------
  * Project Commands — custom "Команды" popup (replaces native menubar dropdown).
  * Targets --vscode-menu-* tokens so the popup is visually indistinguishable from
  * a stock VS Code menu under any theme (light / dark / Neon).

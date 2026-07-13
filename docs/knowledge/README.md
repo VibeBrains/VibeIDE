@@ -54,6 +54,7 @@
 | [themes-and-chat.md](ui/themes-and-chat.md) | Vibe Neon, theme tokens, theming чат-панели, fullscreen modes, secondary sidebar border |
 | [view-title-bar.md](ui/view-title-bar.md) | ViewPaneContainer, дубли иконок, single-row aux bar |
 | [projects-pane.md](ui/projects-pane.md) | Vibe Projects native pane, decorations через ResourceLabel, FontAwesome escape |
+| [specs-pane.md](ui/specs-pane.md) | Панель «Спеки»: sidebar-view из `specs/<id>/` воркспейса; квартет файлов + correlated-watcher; паттерн добавления боковой панели |
 
 ### [chat-ux/](chat-ux/) — поведение чата
 
