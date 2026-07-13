@@ -76,6 +76,7 @@
 | [workspace-forms.md](vibe-dotfolder/workspace-forms.md) | Форма Workspace в настройках + рантайм корневых JSON |
 | [settings-stack.md](vibe-dotfolder/settings-stack.md) | Приоритетный стек, `constraints.json` enforcement, CortexIDE как стартовая точка |
 | [rule-link-resolution.md](vibe-dotfolder/rule-link-resolution.md) | Cursor-style резолюция ссылок в правилах (`mdc:`/относительные `.md`) → пассивный блок `<referenced_files>`; рекурсия по настройке/тоглу, within-tree + секрет-санитайз, лимиты |
+| [spec-first-defaults.md](vibe-dotfolder/spec-first-defaults.md) | Spec-скиллы уже засеяны — пробел был в правиле-триггере (`spec-first.mdc`), а не в контенте; сверка со Spec Kit; анти-дубль MASTER.md; ре-ген манифеста |
 
 ### [i18n/](i18n/) — локализация
 
