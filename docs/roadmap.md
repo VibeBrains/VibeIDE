@@ -550,6 +550,7 @@
 - [x] MCP Server Marketplace — ✅ VibeMCPMarketplaceService: GitHub/Filesystem/Postgres/BraveSearch
 - [x] 500+ провайдеров/моделей — ✅ через VibeModelsRegistryService CDN + CortexIDE model router (унаследован)
 - [x] Upstream conflict UI — ✅ VibeMergeConflictService: analyzeConflicts; Phase 2: full UI panel
+- [x] **Детерминизм `vibeDefaultsManifest.generated.ts` (CRLF/LF)** — ✅ (2026-07-13, next) генератор `gen-vibe-defaults.mjs` встраивал байты `.vibe-defaults/**` как есть → на Windows `\r\n`, на Mac `\n`, вечный шум-дифф при регене на другой ОС. Фикс: нормализация `\r\n`→`\n` в генераторе + `.gitattributes` `.vibe-defaults/** text eol=lf`. Детали и грабли (`git cat-file` vs `git show` для сырого блоба) — `docs/knowledge/build/compile-and-sync.md`.
 - [x] **Command-aware сжатие вывода + сжатие MCP** — ✅ (2026-07-13, next) повторная разведка RTK (github.com/rtk-ai/rtk): три его стратегии уже были (конденсер B + `truncateHeadTail`), добрали две недостающие. `common/commandOutputCompressor.ts` (чистые ф-ции + тест): профили git/test/ls/docker поверх общего конденсера (`vibeide.terminal.compressProfiles`) в `terminalToolService`; generic-сжатие MCP-вывода (`vibeide.tools.compressMcpOutput`) в `chatThreadService` после `stringifyResult`. KEEP_PATTERN хранит ошибки/провалы/summary дословно. Детали и грабли (`\b` после символа) — `docs/knowledge/roadmap/token-economy.md` §B2.
 
 ---

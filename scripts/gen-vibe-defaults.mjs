@@ -55,7 +55,10 @@ async function main() {
 	const entries = [];
 	for (const abs of files) {
 		const rel = path.relative(SRC_DIR, abs).split(path.sep).join('/');
-		const contents = await fs.readFile(abs, 'utf8');
+		// Normalize CRLF → LF so the embedded bytes are platform-independent. The generator reads the
+		// working-tree copy, which `text=auto` checks out as CRLF on Windows; without this, regenerating
+		// on Windows vs macOS flips every embedded string's line endings and churns the whole manifest.
+		const contents = (await fs.readFile(abs, 'utf8')).replace(/\r\n/g, '\n');
 		entries.push(`\t{ path: ${JSON.stringify(rel)}, contents: ${JSON.stringify(contents)} },`);
 	}
 
