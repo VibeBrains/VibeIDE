@@ -2213,13 +2213,10 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		}
 		const isLocalProviderForContext: boolean = isExplicitLocalProvider || isLocalhostEndpoint;
 
-		// For local models: apply feature-specific token caps and compress chat history
-		// Instead of hard truncation, use semantic compression to preserve context
+		// Local models: cap retained history to the last N turn-pairs before the budget-fill pass
+		// below runs. This is a coarse pre-trim for small local context windows; the real
+		// budget-aware summarization (<chat_summary> head-fold) happens later in this method.
 		if (isLocalProviderForContext) {
-			// Note: Chat history compression is now handled by ChatHistoryCompressor
-			// This keeps the last 5 turns uncompressed and compresses older messages
-			// The compression happens in prepareLLMChatMessages before this point
-			// For now, we keep a simple fallback limit if compression isn't available
 			// plan mode: 3 turn pairs (same as normal — plan is short-lived before Execute)
 			const maxTurnPairs = chatMode === 'agent' ? 5 : 3;
 			// Synthetic nudges don't count as turns — they'd shrink the retained window.
