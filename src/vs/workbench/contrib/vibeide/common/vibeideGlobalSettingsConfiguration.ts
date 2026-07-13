@@ -729,6 +729,12 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.chat.compactKeepRecentToolResults', 'Сколько ПОСЛЕДНИХ tool-result\'ов сохранять целиком при токен-бюджетной компакции (`compactToolResultsAtTokens`) — свежие чтения/выводы команд остаются у модели дословно, старые стабятся. Дефолт 8.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.chat.historySummaryLLM': {
+					type: 'boolean',
+					default: false,
+					description: localize('vibeide.chat.historySummaryLLM', 'Экспериментально: при переполнении контекста сворачивать вытесненную «голову» истории НАСТОЯЩИМ смысловым summary от LLM, а не текстовой нарезкой. Считается ФОНОМ вспомогательной моделью (`vibeide.chat.auxiliaryModel`, иначе — текущей моделью чата; вызов помечен `excludeFromSessionBudget`, не жжёт сессионный бюджет), инкрементально (прошлый summary передаётся как контекст), кэшируется по хэшу содержимого головы — системный префикс остаётся байт-стабильным между пересчётами (иначе деградация prompt-кеша). Промах кэша НЕ блокирует запрос: используется прежняя текстовая нарезка, summary дозаполняется в фоне для следующих ходов. Off (дефолт) — прежнее поведение без изменений.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.chat.maxRetries': {
 					type: 'number',
 					default: 3,

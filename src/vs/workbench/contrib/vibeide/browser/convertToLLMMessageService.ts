@@ -77,7 +77,9 @@ import { localize } from '../../../../nls.js';
 const TOKEN_CALIBRATION_STORAGE_KEY = 'vibeide.chat.tokenCalibrationFactors';
 import { AnthropicLLMChatMessage, AnthropicReasoning, GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, OpenAILLMChatMessage, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
-import { ChatMode, FeatureName, ModelSelection, ProviderName } from '../common/vibeideSettingsTypes.js';
+import { autoModelFallbackProviderOrder, ChatMode, FeatureName, ModelSelection, ProviderName } from '../common/vibeideSettingsTypes.js';
+import { ILLMMessageService } from '../common/sendLLMMessageService.js';
+import { hash } from '../../../../base/common/hash.js';
 import { isLocalProvider } from '../common/isLocalProvider.js';
 import { IDirectoryStrService } from '../common/directoryStrService.js';
 import { ITerminalToolService } from './terminalToolService.js';
@@ -1461,6 +1463,19 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 	/** R.12 — `@rule:<name>` names already warned-about (unknown rule) this session, to toast once each. */
 	private readonly _warnedUnknownRules = new Set<string>();
 
+	/**
+	 * LLM history-summary cache (roadmap: LLM-суммаризация истории). Keyed by a stable hash of the
+	 * summarized head's contents → the aux-model summary text. Byte-stable per head, so reusing it
+	 * keeps the system prefix cache-safe (a fresh summary every turn would cause cache-death, see the
+	 * 2026-06-07 incident notes). Fills in the BACKGROUND: a cache miss falls back to the textual
+	 * `.slice` summary this turn and never blocks message building. Opt-in via `vibeide.chat.historySummaryLLM`.
+	 */
+	private readonly _historySummaryCache = new Map<string, string>();
+	private readonly _historySummaryPending = new Set<string>();
+	private _lastHistorySummaryText: string | undefined;
+	private static readonly HISTORY_SUMMARY_CACHE_MAX = 32;
+	private static readonly HISTORY_SUMMARY_HEAD_MAX_CHARS = 24_000;
+
 	constructor(
 		@IModelService private readonly modelService: IModelService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
@@ -1481,6 +1496,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@IStorageService private readonly storageService: IStorageService,
 		@IVibeProjectRulesService private readonly projectRulesService: IVibeProjectRulesService,
 		@INotificationService private readonly notificationService: INotificationService,
+		@ILLMMessageService private readonly llmMessageService: ILLMMessageService,
 	) {
 		super();
 		// Restore persisted token-calibration factors (stable per model tokenizer) so the budget
@@ -1489,6 +1505,87 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			const restored = deserializeCalibration(this.storageService.get(TOKEN_CALIBRATION_STORAGE_KEY, StorageScope.APPLICATION));
 			for (const [k, v] of restored) { this._tokenCalibrationByModel.set(k, v); }
 		} catch { /* corrupted blob — start fresh */ }
+	}
+
+	/** Resolve the auxiliary model id (`vibeide.chat.auxiliaryModel`) to a selection; null → use fallback. */
+	private _resolveAuxModelSelection(): ModelSelection | null {
+		const raw = this.configurationService.getValue<unknown>('vibeide.chat.auxiliaryModel');
+		if (typeof raw !== 'string' || raw.trim().length === 0) { return null; }
+		const modelId = raw.trim();
+		const providers = this.vibeideSettingsService.state.settingsOfProvider;
+		const slashIdx = modelId.indexOf('/');
+		if (slashIdx > 0) {
+			const providerName = modelId.slice(0, slashIdx) as ProviderName;
+			const modelName = modelId.slice(slashIdx + 1);
+			return providers[providerName]?.models?.some(m => m.modelName === modelName && !m.isHidden) ? { providerName, modelName } : null;
+		}
+		for (const providerName of autoModelFallbackProviderOrder) {
+			const settings = providers[providerName];
+			if (settings?._didFillInProviderSettings && settings.models?.some(m => m.modelName === modelId && !m.isHidden)) {
+				return { providerName, modelName: modelId };
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Background aux-model summarization of the evicted history head. Fire-and-forget: never blocks
+	 * message building, stores the result keyed by `headKey` for future turns. Incremental — the prior
+	 * summary is fed as context. Builds its own tiny message array (no prepareLLMChatMessages → no
+	 * reentrancy) and rides `excludeFromSessionBudget` so it doesn't burn the session budget.
+	 */
+	private _scheduleHistorySummary(headKey: string, head: readonly { readonly role: string; readonly content: string }[], fallbackModel: ModelSelection | null): void {
+		if (this._historySummaryPending.has(headKey) || this._historySummaryCache.has(headKey)) { return; }
+		const modelSelection = this._resolveAuxModelSelection() ?? fallbackModel;
+		if (!modelSelection || modelSelection.providerName === 'auto') { return; }
+
+		this._historySummaryPending.add(headKey);
+		const headText = head.map(m => `${m.role}: ${m.content}`).join('\n\n').slice(0, ConvertToLLMMessageService.HISTORY_SUMMARY_HEAD_MAX_CHARS);
+		const priorContext = this._lastHistorySummaryText ? `Running summary so far:\n${this._lastHistorySummaryText}\n\n---\n\n` : '';
+		const sysPrompt = 'You compress the older part of a coding-assistant conversation into a concise summary that preserves decisions, facts learned (files, APIs, errors), open tasks and user intent. Output only the summary as terse bullet points. No preamble.';
+		const userPrompt = `${priorContext}Summarize these older messages into an updated running summary:\n\n${headText}`;
+		const opts = this.vibeideSettingsService.state.optionsOfModelSelection['Chat']?.[modelSelection.providerName]?.[modelSelection.modelName];
+
+		const finish = (text?: string) => {
+			this._historySummaryPending.delete(headKey);
+			const trimmed = text?.trim();
+			if (!trimmed) { return; }
+			if (this._historySummaryCache.size >= ConvertToLLMMessageService.HISTORY_SUMMARY_CACHE_MAX) {
+				const oldest = this._historySummaryCache.keys().next().value;
+				if (oldest !== undefined) { this._historySummaryCache.delete(oldest); }
+			}
+			this._historySummaryCache.set(headKey, trimmed);
+			this._lastHistorySummaryText = trimmed;
+		};
+
+		let requestId: string | null = null;
+		requestId = this.llmMessageService.sendLLMMessage({
+			messagesType: 'chatMessages',
+			chatMode: 'normal',
+			messages: [{ role: 'system', content: sysPrompt }, { role: 'user', content: userPrompt }],
+			modelSelection,
+			modelSelectionOptions: opts,
+			overridesOfModel: this.vibeideSettingsService.state.overridesOfModel,
+			separateSystemMessage: sysPrompt,
+			excludeFromSessionBudget: true,
+			logging: { loggingName: 'History Summary', loggingExtras: {} },
+			onText: () => { },
+			onFinalMessage: ({ fullText }) => finish(fullText),
+			onError: () => this._historySummaryPending.delete(headKey),
+			onAbort: () => this._historySummaryPending.delete(headKey),
+		});
+		if (!requestId) {
+			this._historySummaryPending.delete(headKey);
+			return;
+		}
+		// Safety timeout — don't leave a pending key forever if the provider stalls.
+		const rid = requestId;
+		setTimeout(() => {
+			if (this._historySummaryPending.has(headKey)) {
+				this.llmMessageService.abort(rid);
+				this._historySummaryPending.delete(headKey);
+			}
+		}, 30_000);
 	}
 
 	// Read `.vibe/rules.md` and root `AGENTS.md` from workspace folders (open-document models when attached)
@@ -2344,7 +2441,21 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				const otherSummary = otherMessages.map(m => `${m.role}: ${m.content.slice(0, PER_OTHER_MSG_MAX_CHARS)}`).join('\n').slice(0, OTHER_SUMMARY_MAX_CHARS);
 
 				const headConcat = userSummary + (otherSummary ? '\n' + otherSummary : '');
-				const summaryBody = `${pinnedOriginal}Prior conversation summarized (${head.length} older messages; ${keep.length} kept in full incl. pinned). Key points:\n${headConcat.slice(0, SUMMARY_BODY_MAX_CHARS)}${headConcat.length > SUMMARY_BODY_MAX_CHARS ? '…' : ''}`;
+				// Textual fallback body (unchanged behavior). Byte-identical when the LLM path is off/uncached.
+				const textualBody = `${pinnedOriginal}Prior conversation summarized (${head.length} older messages; ${keep.length} kept in full incl. pinned). Key points:\n${headConcat.slice(0, SUMMARY_BODY_MAX_CHARS)}${headConcat.length > SUMMARY_BODY_MAX_CHARS ? '…' : ''}`;
+
+				// LLM summary (opt-in). Cache-safe: reuse a byte-stable summary keyed by the head's content
+				// hash; on a miss use the textual body THIS turn and fill the cache in the background.
+				let summaryBody = textualBody;
+				if (this.configurationService.getValue<boolean>('vibeide.chat.historySummaryLLM') === true) {
+					const headKey = String(hash(head.map(m => `${m.role}:${m.content}`).join(' ')));
+					const cachedLLM = this._historySummaryCache.get(headKey);
+					if (cachedLLM) {
+						summaryBody = `${pinnedOriginal}Prior conversation summarized (${head.length} older messages; ${keep.length} kept in full incl. pinned). Key points:\n${cachedLLM}`;
+					} else {
+						this._scheduleHistorySummary(headKey, head, modelSelection);
+					}
+				}
 				const summary = `\n\n<chat_summary>\n${summaryBody}\n</chat_summary>`;
 				systemMessage = (systemMessage || '') + summary;
 				llmMessages = keep;
