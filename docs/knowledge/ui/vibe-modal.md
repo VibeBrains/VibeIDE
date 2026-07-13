@@ -58,3 +58,50 @@
 **Суть (`vibeModal.css`):** `.vibeide-modal { resize: both; overflow: hidden; max-width: min(800px,95vw); max-height: min(600px,90vh); min-width:320px; min-height:160px }`. Size-варианты задают ДЕФОЛТНУЮ ширину: `.size-small{width:min(420px,90vw)}`, `medium{600}`, `large{800}` (все под общим капом 800). Body — `flex:1 1 auto; min-height:0; overflow-y:auto` → при сжатии карточки контент скроллится, а не вылезает за кнопки. `resize:both` требует `overflow != visible` (отсюда `overflow:hidden` на карточке).
 
 **Применение:** менять дефолт-размер → size-варианты (ширина); общий потолок — `max-width/max-height` базового `.vibeide-modal`. Любой скроллящийся контент в модалке требует `flex:1 + min-height:0` на контейнере.
+
+---
+
+## [usage] API-шпаргалка: как открыть модалку (чтобы не искать каждый раз)
+
+**Сервис:** `IVibeModalService` (`common/vibeModalService.ts`), renderer-side (browser). Получать через `accessor.get(IVibeModalService)` в Action2 или DI в сервисе/ViewPane. Из main-процесса напрямую нельзя — только тосты (`INotificationService`) или IPC.
+
+**Главный метод:** `showModal<TButtonId>(options): Promise<VibeModalResult<TButtonId>>`. Резолвится по клику кнопки или `__dismiss__` (ESC/backdrop, если `dismissible !== false`). Типы — `common/vibeModalTypes.ts`.
+
+**Заменяет `IQuickInputService.input()`** (верхняя строка-поиск) на брендовую модалку — предпочитать для любого ввода id/имени/промпта.
+
+### `VibeModalOptions` — что уже поддержано (bespoke React НЕ нужен)
+
+| Поле | Назначение |
+|---|---|
+| `title`, `body`, `bodyMarkdown`, `icon` (codicon), `size` (`small`/`medium`/`large`) | шапка/тело |
+| `buttons: [{id,label,role,disabled,hotkey}]` | `role`: `primary` (Enter) / `secondary` / `danger`; `hotkey` — одиночная буква |
+| `footerLeftButton` | кнопка слева внизу (образец — «🎭 Роли»); резолвит модалку своим id |
+| `input: { placeholder, initialValue, multiline, validator }` | текстовое поле; `multiline:true` = textarea; `validator: v => null\|"ошибка"` (при не-null primary-кнопка авто-дизейблится) |
+| `imageInput: true` | **скрепка**: картинки+PDF (drag-drop+вставка). Требует `input`. Картинки → `result.images`, PDF → `result.pdfs` (с `extractedText`) |
+| `numberFields: [{id,label,default,min,max}]` | числовые поля под input (образец — лимиты субагента: шаги/токены/время) → `result.fieldValues[id]` |
+| `checkbox: { label, initialChecked }` | «запомнить выбор» → `result.checked` |
+| `contentKey: 'agentRoleModels'` | live-React-компонент в теле по КЛЮЧУ (не JSX — разные React-бандлы!); расширять union + switch в `VibeModalSimple.tsx` |
+| `blocking` (деф. true), `dismissible`, `loading`, `progress`, `autoDismissAfterMs`, `onBeforeDismiss`, `onMount`, `onClose` | поведение/прогресс/lifecycle |
+
+### `VibeModalResult`
+
+`{ buttonId: TId | '__dismiss__'; inputValue?; checked?; fieldValues?; images?: ChatImageAttachment[]; pdfs?: ChatPDFAttachment[] }`. Проверять `buttonId === '<primary>'` перед действием (не `!== '__dismiss__'` — кнопка «Отмена» тоже валидный close). `ChatImageAttachment`/`ChatPDFAttachment` — `common/chatThreadServiceTypes.ts` (:141/:155); PDF несёт `extractedText` для инлайна в промпт, картинки уходят в чат через `addUserMessageAndStreamResponse({ images })`.
+
+### Хелперы-шорткаты (не собирать options руками)
+
+`confirmModal({title,body,okLabel,cancelLabel,danger})→bool`; `showImportantInfoModal({title,body,secondaryAction})`; `successModal`/`errorModal`/`warnModal`. Управление открытой: `updateHeadOptions(partial)`, `updateHeadLoading(bool)`, `closeHead(id,inputValue)`, `dismissHead()`.
+
+### Пример: ввод с валидатором + вложениями (как «Спека из задачи»)
+
+```ts
+const res = await modal.showModal<'create' | 'cancel'>({
+  title: 'Спека из задачи', icon: 'sparkle',
+  input: { placeholder: 'опишите фичу…', multiline: true, validator: v => v.trim() ? null : 'Пусто' },
+  imageInput: true,
+  buttons: [{ id: 'create', label: 'Создать', role: 'primary' }, { id: 'cancel', label: 'Отмена', role: 'secondary' }],
+});
+if (res.buttonId !== 'create' || !res.inputValue?.trim()) { return; }
+// res.inputValue, res.images (vision), res.pdfs[].extractedText (инлайн)
+```
+
+**Добавить НОВЫЙ тип контента** (сложнее inline-полей): расширить `VibeModalOptions` + ветку рендера в `react/src/modal-tsx/VibeModalSimple.tsx`/`VibeModal.tsx` + стиль в `media/vibeModal.css` (токенами), затем `npm run buildreact`. Инлайн-классы в JSX → маркер `@@` (см. foot-gun выше); классы из `const` — без `@@`. Для чисто TS-использования готовых опций `buildreact` НЕ нужен — хватает `npm run compile`.

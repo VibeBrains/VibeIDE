@@ -34,8 +34,8 @@ import { IVibeSpecsService } from './vibeSpecsService.js';
 import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../editor/browser/editorExtensions.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
-import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { IVibeModalService } from '../common/vibeModalService.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
@@ -159,7 +159,7 @@ registerAction2(
 
 		async run(accessor: ServicesAccessor): Promise<void> {
 			const workspace = accessor.get(IWorkspaceContextService);
-			const quick = accessor.get(IQuickInputService);
+			const modal = accessor.get(IVibeModalService);
 			const notice = accessor.get(INotificationService);
 			const views = accessor.get(IViewsService);
 			const chat = accessor.get(IChatThreadService);
@@ -169,14 +169,33 @@ registerAction2(
 				return;
 			}
 
-			const task = (await quick.input({
-				title: localize('vibeSpecs.specFromTask.title', 'Опишите задачу/фичу'),
-				placeHolder: localize('vibeSpecs.specFromTask.placeholder', 'например: экспорт отчёта в PDF с выбором диапазона дат'),
-				validateInput: async v => (v.trim().length ? undefined : localize('vibeSpecs.specFromTask.empty', 'Описание не может быть пустым')),
-			}))?.trim();
-			if (!task) {
+			// Rich modal (like the subagent launcher): multiline task + attachments (images → vision,
+			// PDFs → inlined text), instead of the top quick-input bar.
+			const res = await modal.showModal<'create' | 'cancel'>({
+				title: localize('vibeSpecs.specFromTask.title', 'Спека из задачи'),
+				body: localize('vibeSpecs.specFromTask.body', 'Опишите фичу — агент напишет продуктовую спеку по скиллу write-product-spec. Можно приложить макеты/скриншоты (картинки) или ТЗ (PDF).'),
+				icon: 'sparkle',
+				input: {
+					placeholder: localize('vibeSpecs.specFromTask.placeholder', 'например: экспорт отчёта в PDF с выбором диапазона дат'),
+					multiline: true,
+					validator: v => (v.trim().length ? null : localize('vibeSpecs.specFromTask.empty', 'Описание не может быть пустым')),
+				},
+				imageInput: true,
+				buttons: [
+					{ id: 'create', label: localize('vibeSpecs.specFromTask.create', 'Создать спеку'), role: 'primary' },
+					{ id: 'cancel', label: localize('vibeSpecs.cancel', 'Отмена'), role: 'secondary' },
+				],
+			});
+			const task = res.inputValue?.trim();
+			if (res.buttonId !== 'create' || !task) {
 				return;
 			}
+
+			// Inline any attached PDF text into the prompt; images ride along as vision parts.
+			const pdfText = (res.pdfs ?? [])
+				.map(p => p.extractedText?.trim() ? `\n\n<attached_pdf name="${p.filename}">\n${p.extractedText.trim()}\n</attached_pdf>` : '')
+				.join('');
+			const userMessage = SPEC_FROM_TASK_REQUEST(task) + pdfText;
 
 			// Hand the task to the agent, which authors the spec via the write-product-spec skill.
 			await views.openViewContainer(VIBEIDE_VIEW_CONTAINER_ID);
@@ -189,7 +208,7 @@ registerAction2(
 				notice.info(localize('vibeSpecs.specFromTask.noThread', 'Не удалось открыть чат для создания спеки.'));
 				return;
 			}
-			await chat.addUserMessageAndStreamResponse({ userMessage: SPEC_FROM_TASK_REQUEST(task), threadId });
+			await chat.addUserMessageAndStreamResponse({ userMessage, threadId, images: res.images ? [...res.images] : undefined });
 		}
 	},
 );
@@ -211,7 +230,7 @@ registerAction2(
 
 		async run(accessor: ServicesAccessor): Promise<void> {
 			const workspace = accessor.get(IWorkspaceContextService);
-			const quick = accessor.get(IQuickInputService);
+			const modal = accessor.get(IVibeModalService);
 			const notice = accessor.get(INotificationService);
 			const files = accessor.get(IFileService);
 			const editor = accessor.get(IEditorService);
@@ -226,21 +245,27 @@ registerAction2(
 				return;
 			}
 
-			const specId = (await quick.input({
-				title: localize('vibeSpecs.newSpec.title', 'Идентификатор спеки'),
-				placeHolder: localize('vibeSpecs.newSpec.placeholder', 'например PROJ-1234 или short-feature-name'),
-				validateInput: async v => {
-					const t = v.trim();
-					if (!t) {
-						return localize('vibeSpecs.newSpec.empty', 'Идентификатор не может быть пустым');
-					}
-					if (!/^[A-Za-z0-9._-]+$/.test(t)) {
-						return localize('vibeSpecs.newSpec.invalid', 'Только латиница, цифры, дефис, точка и подчёркивание');
-					}
-					return undefined;
+			const res = await modal.showModal<'create' | 'cancel'>({
+				title: localize('vibeSpecs.newSpec.title', 'Новая спека'),
+				body: localize('vibeSpecs.newSpec.body', 'Введите идентификатор — создастся `<id>/PRODUCT.md` в каталоге спек с пустой заготовкой.'),
+				icon: 'add',
+				size: 'small',
+				input: {
+					placeholder: localize('vibeSpecs.newSpec.placeholder', 'например PROJ-1234 или short-feature-name'),
+					validator: v => {
+						const t = v.trim();
+						if (!t) { return localize('vibeSpecs.newSpec.empty', 'Идентификатор не может быть пустым'); }
+						if (!/^[A-Za-z0-9._-]+$/.test(t)) { return localize('vibeSpecs.newSpec.invalid', 'Только латиница, цифры, дефис, точка и подчёркивание'); }
+						return null;
+					},
 				},
-			}))?.trim();
-			if (!specId) {
+				buttons: [
+					{ id: 'create', label: localize('vibeSpecs.newSpec.create', 'Создать'), role: 'primary' },
+					{ id: 'cancel', label: localize('vibeSpecs.cancel', 'Отмена'), role: 'secondary' },
+				],
+			});
+			const specId = res.inputValue?.trim();
+			if (res.buttonId !== 'create' || !specId) {
 				return;
 			}
 
