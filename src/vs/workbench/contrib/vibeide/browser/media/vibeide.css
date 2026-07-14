@@ -832,6 +832,9 @@ body.monaco-workbench,
 	align-items: center;
 	gap: 6px;
 	width: 100%;
+	/* border-box so the horizontal padding stays INSIDE 100% — otherwise the last pill (S) is
+	 * pushed past the row's right edge by the padding amount and gets clipped. */
+	box-sizing: border-box;
 	padding: 0 var(--vibeide-space-md);
 }
 .vibe-specs-label {
