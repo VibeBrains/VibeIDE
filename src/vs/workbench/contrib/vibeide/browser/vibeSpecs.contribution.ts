@@ -31,6 +31,7 @@ import {
 } from './vibeSpecsConstants.js';
 import { VibeSpecsViewPane } from './vibeSpecsViewPane.js';
 import { IVibeSpecsService } from './vibeSpecsService.js';
+import { VIBE_SPECS_HELP_MARKDOWN } from '../common/vibeSpecsHelp.generated.js';
 import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../editor/browser/editorExtensions.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
@@ -91,9 +92,10 @@ vibeSpecsViewsRegistry.registerViews(
 vibeSpecsViewsRegistry.registerViewWelcomeContent(VIBE_SPECS_VIEW_ID, {
 	content: localize(
 		'vibeSpecs.welcome',
-		'Спек пока нет.\nСпеки живут в `docs/specs/<id>/` и описывают фичу до кода (PRODUCT.md — поведение, TECH.md — реализация).\n[Спека из задачи](command:{0})\n[Новая спека (пустая)](command:{1})',
+		'Спек пока нет.\nСпеки живут в `docs/specs/<id>/` и описывают фичу до кода (PRODUCT.md — поведение, TECH.md — реализация).\n[Спека из задачи](command:{0})\n[Новая спека (пустая)](command:{1})\n[Как это работает](command:{2})',
 		VibeSpecsCommands.specFromTask,
 		VibeSpecsCommands.newSpec,
+		VibeSpecsCommands.help,
 	),
 	when: 'default',
 	group: ViewContentGroups.Open,
@@ -114,6 +116,38 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 });
 
 const vibeCategory = localize2('vibeCategory', 'VibeIDE');
+
+registerAction2(
+	class VibeSpecsHelp extends Action2 {
+		constructor() {
+			super({
+				id: VibeSpecsCommands.help,
+				title: localize2('vibeSpecs.help', 'Спеки: Как работать со спеками'),
+				icon: Codicon.question,
+				category: vibeCategory,
+				f1: true,
+				menu: [
+					{ id: MenuId.ViewTitle, group: 'navigation', order: 13, when: whenVibeSpecsViewTitle },
+				],
+			});
+		}
+
+		async run(accessor: ServicesAccessor): Promise<void> {
+			// Body is generated from docs/manuals/specsWorkflow.md — the doc is the single source of
+			// truth, so this modal can never drift from what the repo documents.
+			await accessor.get(IVibeModalService).showModal<'ok'>({
+				title: localize('vibeSpecs.help.title', 'Как работать со спеками'),
+				body: VIBE_SPECS_HELP_MARKDOWN,
+				bodyMarkdown: true,
+				icon: 'question',
+				size: 'large',
+				buttons: [
+					{ id: 'ok', label: localize('vibeSpecs.help.ok', 'Понятно'), role: 'primary' },
+				],
+			});
+		}
+	},
+);
 
 registerAction2(
 	class VibeSpecsRefresh extends Action2 {

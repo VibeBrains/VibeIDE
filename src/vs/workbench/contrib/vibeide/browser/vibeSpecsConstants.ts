@@ -18,4 +18,5 @@ export const enum VibeSpecsCommands {
 	newSpec = 'vibeide.vibeSpecs.newSpec',
 	specFromTask = 'vibeide.vibeSpecs.specFromTask',
 	implementSpec = 'vibeide.vibeSpecs.implementSpec',
+	help = 'vibeide.vibeSpecs.help',
 }

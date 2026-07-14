@@ -1,0 +1,61 @@
+name: generated-artifacts
+
+# Guards the codegen contract: `*.generated.ts` under vibeide/common is embedded from editable
+# sources (.vibe-defaults/, docs/manuals/specsWorkflow.md) and is COMMITTED, so dev builds and
+# IDE navigation work without running codegen first. That convenience is also the trap — a source
+# edit without a regen leaves the committed artifact stale, and nothing notices until a release
+# ships the old bytes (exactly what happened on 2026-05-12 with vibeSettingsRu.ts).
+#
+# This job regenerates and fails if the result differs from what is committed.
+
+on:
+  pull_request:
+    paths:
+      - ".vibe-defaults/**"
+      - "docs/manuals/specsWorkflow.md"
+      - "scripts/gen-*.mjs"
+      - "src/vs/workbench/contrib/vibeide/common/*.generated.ts"
+      - ".github/workflows/generated-artifacts.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".vibe-defaults/**"
+      - "docs/manuals/specsWorkflow.md"
+      - "scripts/gen-*.mjs"
+      - "src/vs/workbench/contrib/vibeide/common/*.generated.ts"
+      - ".github/workflows/generated-artifacts.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  freshness:
+    name: generated files are up to date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The generators are dependency-free (fs/path/url only) — no `npm ci` needed, which keeps
+      # this guard fast enough to run on every touching PR.
+      - name: Regenerate
+        run: npm run gen:all
+
+      - name: Fail if committed artifacts are stale
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git diff --exit-code -- 'src/vs/workbench/contrib/vibeide/common/*.generated.ts'; then
+            echo ''
+            echo '::error::Сгенерированные файлы разошлись с источниками.'
+            echo 'Источник правился без регенерации. Запустите `npm run gen:all` и закоммитьте результат.'
+            echo 'Источники: .vibe-defaults/ → vibeDefaultsManifest.generated.ts'
+            echo '           docs/manuals/specsWorkflow.md → vibeSpecsHelp.generated.ts'
+            exit 1
+          fi
+          echo 'Сгенерированные файлы свежие.'

@@ -46,7 +46,8 @@ docs/
 │   ├── codebaseGuide.md           # Ориентир по кодовой базе форка
 │   ├── howToContribute.md         # Сборка и запуск из исходников (prerequisites, dev mode)
 │   ├── providersSpec.md           # Формат .vibe/providers.json (скормить LLM → готовый конфиг)
-│   └── securityFaq.md             # Что уходит наружу, что остаётся локально
+│   ├── securityFaq.md             # Что уходит наружу, что остаётся локально
+│   └── specsWorkflow.md           # Как работать со спеками — ИСТОЧНИК справки «?» в панели «Спеки»
 ├── CONTRIBUTING.md                # Процесс контрибьюта и ревью PR (GitHub ищет его здесь)
 ├── release-donation-phrases.md    # Фразы блока «Поддержать проект»
 └── release-notes-v0.3.0.md        # Архивные release notes (historical)

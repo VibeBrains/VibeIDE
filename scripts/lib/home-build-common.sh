@@ -136,8 +136,8 @@ hb_precompile() {
 	hb_step 'Extracting VibeIDE NLS strings...'
 	hb_gulp "$root" extract-vibeide-locale-strings || echo '⚠ NLS extraction failed (non-fatal)'
 
-	hb_step 'Regenerating .vibe-defaults manifest...'
-	( cd "$root" && npm run gen:vibe-defaults )
+	hb_step 'Regenerating embedded artifacts (.vibe-defaults, specs help)...'
+	( cd "$root" && npm run gen:all )
 
 	hb_step 'Rebuilding React tree (scope-tailwind + tsup)...'
 	( cd "$root" && npm run buildreact )

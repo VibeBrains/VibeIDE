@@ -13,6 +13,8 @@ ThirdPartyNotices.txt eol=crlf
 # Sources embedded verbatim into vibeDefaultsManifest.generated.ts — pin to LF so the working-tree
 # bytes (and thus the generated manifest) are identical on Windows and macOS. See gen-vibe-defaults.mjs.
 .vibe-defaults/** text eol=lf
+# Same reason: embedded verbatim into vibeSpecsHelp.generated.ts. See gen-specs-help.mjs.
+docs/manuals/specsWorkflow.md text eol=lf
 
 # Custom merge driver for VibeIDE persisted plans. Register once per clone:
 #   git config merge.vibe-plan.name "VibeIDE plan merger"

@@ -132,8 +132,8 @@ if [[ "$SKIP_COMPILE" != '1' ]]; then
 	step 'Extracting VibeIDE NLS strings...'
 	gulp_task extract-vibeide-locale-strings || echo '⚠ NLS extraction failed (non-fatal)'
 
-	step 'Regenerating .vibe-defaults manifest...'
-	npm run gen:vibe-defaults
+	step 'Regenerating embedded artifacts (.vibe-defaults, specs help)...'
+	npm run gen:all
 
 	step 'Rebuilding React tree (scope-tailwind + tsup)...'
 	npm run buildreact

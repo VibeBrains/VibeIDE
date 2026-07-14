@@ -121,8 +121,8 @@ try {
 	# Pre-package steps gulp doesn't do itself (React tree + .vibe-defaults manifest).
 	Step 'Extracting VibeIDE NLS strings...'
 	try { Gulp 'extract-vibeide-locale-strings' } catch { Write-Warning 'NLS extraction failed (non-fatal)' }
-	Step 'Regenerating .vibe-defaults manifest...'
-	Npm 'run gen:vibe-defaults'
+	Step 'Regenerating embedded artifacts (.vibe-defaults, specs help)...'
+	Npm 'run gen:all'
 	Step 'Rebuilding React tree (scope-tailwind + tsup)...'
 	Npm 'run buildreact'
 

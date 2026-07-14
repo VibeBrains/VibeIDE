@@ -73,6 +73,17 @@ export const unicodeFilter = Object.freeze<string[]>([
 	// operators, box-drawing, emoji, Greek) in UI strings, logs and test fixtures.
 	// The upstream homoglyph check does not apply to the fork's own authored code.
 	'!src/vs/workbench/contrib/vibeide/**',
+
+	// VibeIDE build/release scripts: the box-drawing frames and status glyphs are the
+	// console output's formatting, not code — same "rich Unicode by design" rationale as
+	// vibeide/** above. Without this, a one-line edit to any of them surfaces 70+
+	// pre-existing findings and trains everyone to `--no-verify`, which is how this hook
+	// rotted the last time (see knowledge/git-and-tools/precommit-hygiene.md).
+	'!scripts/release-windows.ps1',
+	'!scripts/release-macos.sh',
+	'!scripts/release-linux.sh',
+	'!scripts/home-build-windows.ps1',
+	'!scripts/lib/home-build-common.sh',
 ]);
 
 export const indentationFilter = Object.freeze<string[]>([
