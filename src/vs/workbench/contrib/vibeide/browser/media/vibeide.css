@@ -881,28 +881,26 @@ body.monaco-workbench,
 	color: var(--vscode-foreground);
 	opacity: 1;
 }
-/* S pill — status conveyed by colour, but MUTED: coloured border + text on transparent bg
- * (not a bright fill), so it reads as a subtle status hint rather than a loud badge. */
+/* S pill — same FILLED shape as P/T (no distinct border), tinted by status but MUTED:
+ * background = status colour mixed ~28% into the panel (soft fill, not the loud bright colour),
+ * borderless so it doesn't visually diverge from P/T. Text stays readable via foreground. */
 .vibe-specs-badge-s {
-	opacity: 0.8;
-	background: none;
+	opacity: 1;
+	color: var(--vscode-foreground);
+	border-color: transparent;
 }
 .vibe-specs-badge-s.status-unknown {
-	opacity: 0.45;
 	color: var(--vscode-descriptionForeground);
-	border-color: var(--vscode-descriptionForeground);
+	background: color-mix(in srgb, var(--vscode-descriptionForeground) 15%, transparent);
 }
 .vibe-specs-badge-s.status-draft {
-	color: var(--vscode-descriptionForeground);
-	border-color: var(--vscode-descriptionForeground);
+	background: color-mix(in srgb, var(--vscode-descriptionForeground) 28%, transparent);
 }
 .vibe-specs-badge-s.status-approved {
-	color: var(--vscode-charts-blue);
-	border-color: var(--vscode-charts-blue);
+	background: color-mix(in srgb, var(--vscode-charts-blue) 28%, transparent);
 }
 .vibe-specs-badge-s.status-implemented {
-	color: var(--vscode-charts-green);
-	border-color: var(--vscode-charts-green);
+	background: color-mix(in srgb, var(--vscode-charts-green) 28%, transparent);
 }
 
 /* ----------------------------------------------------------------------------------------
