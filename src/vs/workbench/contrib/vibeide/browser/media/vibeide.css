@@ -906,6 +906,39 @@ body.monaco-workbench,
 	background: color-mix(in srgb, var(--vscode-charts-green) 28%, transparent);
 }
 
+/* Status picker on the S pill (ПКМ) — `getMenuClassName: 'vibe-spec-status-menu'` in
+ * vibeSpecsViewPane._showStatusMenu. The pill has no text at all: its colour IS the status, so the
+ * menu speaks the same colour language rather than making the user recall it. Same tokens/28% mix as
+ * the pills above — one alphabet, one place to change it.
+ *
+ * ⚠ POSITIONAL, AND THAT IS A REAL FRAGILITY. There is no stable per-item hook in a monaco context
+ * menu: `IAction.class` is only applied when the menu is built with `options.icon` (contextMenuHandler
+ * never sets it), and items carry no id or data attribute — nth-child is the only handle left.
+ * The menu is ours and holds EXACTLY three items in STATUS_ORDER with no separators. Add an item or a
+ * separator and these colours silently slide onto the wrong rows — nothing will fail, it will just
+ * start lying. If a fourth entry is ever needed, delete this block and keep the `checked` tick.
+ */
+/* Paint `a.action-menu-item` — the full-width row. `.action-label` is only the text span inside it
+ * (next to `.menu-item-check`), so colouring that would tint the words, not the item. */
+.vibe-spec-status-menu .action-item:nth-child(1) .action-menu-item {
+	background: color-mix(in srgb, var(--vscode-descriptionForeground) 28%, transparent);
+}
+.vibe-spec-status-menu .action-item:nth-child(2) .action-menu-item {
+	background: color-mix(in srgb, var(--vscode-charts-blue) 28%, transparent);
+}
+.vibe-spec-status-menu .action-item:nth-child(3) .action-menu-item {
+	background: color-mix(in srgb, var(--vscode-charts-green) 28%, transparent);
+}
+.vibe-spec-status-menu .action-item .action-menu-item {
+	border-radius: 3px;
+	margin: 1px 4px;
+}
+/* Keep the focus/hover highlight readable ON TOP of the status tint — the stock rule paints the same
+ * element we just tinted, so without this the tint would win and hovering would look dead. */
+.vibe-spec-status-menu .action-item.focused .action-menu-item {
+	background: var(--vscode-menu-selectionBackground);
+}
+
 /* ----------------------------------------------------------------------------------------
  * Документы panel — markdown tree (folders + files), Explorer-like. Indent handled by the tree.
  * ---------------------------------------------------------------------------------------- */

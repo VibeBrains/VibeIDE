@@ -67,6 +67,8 @@ export interface IVibeSpecsService {
 	isPathInScope(entry: IVibeSpecEntry, uri: URI): boolean;
 	/** Write `boundThreadId` into the spec's PRODUCT.md frontmatter (binds a thread to implement it). */
 	bindThreadToSpec(entry: IVibeSpecEntry, threadId: string): Promise<void>;
+	/** Rewrite `status:` in the spec's PRODUCT.md frontmatter. No PRODUCT.md → no-op. */
+	setSpecStatus(entry: IVibeSpecEntry, status: VibeSpecStatus): Promise<void>;
 }
 
 const RELOAD_DEBOUNCE_MS = 300;
@@ -242,6 +244,23 @@ class VibeSpecsService extends Disposable implements IVibeSpecsService {
 			return;
 		}
 		const next = upsertFrontmatterField(text, 'boundThreadId', threadId);
+		await this._files.writeFile(entry.product, VSBuffer.fromString(next));
+		this._fireChanged();
+	}
+
+	async setSpecStatus(entry: IVibeSpecEntry, status: VibeSpecStatus): Promise<void> {
+		if (!entry.product) {
+			return; // status lives in PRODUCT.md's frontmatter — nothing to write into
+		}
+		let text: string;
+		try {
+			text = (await this._files.readFile(entry.product)).value.toString();
+		} catch {
+			return;
+		}
+		// Any transition is allowed, including rolling back to `draft`: it's the author's document,
+		// not a state machine. The panel only gates «Реализовать спеку» on `approved`.
+		const next = upsertFrontmatterField(text, 'status', status);
 		await this._files.writeFile(entry.product, VSBuffer.fromString(next));
 		this._fireChanged();
 	}

@@ -48,6 +48,8 @@ interface IRowActions {
 	readonly createTech: (entry: IVibeSpecEntry) => void;
 	/** Attach a managed, 1s-delayed hover to a pill; returns the handle so its content can be updated. */
 	readonly hover: (el: HTMLElement) => IManagedHover;
+	/** Right-click on the S pill → pick a status without hand-editing the frontmatter. */
+	readonly showStatusMenu: (entry: IVibeSpecEntry, anchor: { x: number; y: number }) => void;
 }
 
 interface IRowTemplate {
@@ -77,6 +79,16 @@ const STATUS_LABEL: Record<VibeSpecStatus, string> = {
 	approved: localize('vibeSpecs.status.approved', "утверждена"),
 	implemented: localize('vibeSpecs.status.implemented', "реализована"),
 };
+
+/** Standalone labels for the status menu — STATUS_LABEL is lower-case for «Статус: черновик». */
+const STATUS_LABEL_MENU: Record<VibeSpecStatus, string> = {
+	draft: localize('vibeSpecs.statusMenu.draft', "Черновик"),
+	approved: localize('vibeSpecs.statusMenu.approved', "Утверждена"),
+	implemented: localize('vibeSpecs.statusMenu.implemented', "Реализована"),
+};
+
+/** Lifecycle order. The status menu renders exactly this — see `_showStatusMenu` on why order matters. */
+const STATUS_ORDER: readonly VibeSpecStatus[] = ['draft', 'approved', 'implemented'];
 
 class VibeSpecsListRenderer implements IListRenderer<IVibeSpecEntry, IRowTemplate> {
 	readonly templateId = ROW_TEMPLATE;
@@ -110,6 +122,16 @@ class VibeSpecsListRenderer implements IListRenderer<IVibeSpecEntry, IRowTemplat
 		bindClick(p, e => { if (e.product) { this._actions.open(e.product); } });
 		bindClick(t, e => { if (e.tech) { this._actions.open(e.tech); } else { this._actions.createTech(e); } });
 
+		// S right-click → status picker. stopPropagation, or the list's own onContextMenu fires too
+		// and the row menu opens on top of this one.
+		disposables.add(DOM.addDisposableListener(s, 'contextmenu', e => {
+			e.preventDefault();
+			e.stopPropagation();
+			if (ctx.entry) {
+				this._actions.showStatusMenu(ctx.entry, { x: e.clientX, y: e.clientY });
+			}
+		}));
+
 		const sHover = this._actions.hover(s);
 		const pHover = this._actions.hover(p);
 		const tHover = this._actions.hover(t);
@@ -125,9 +147,11 @@ class VibeSpecsListRenderer implements IListRenderer<IVibeSpecEntry, IRowTemplat
 
 		// S — colour-coded status pill (no text label; colour + hover carry the meaning).
 		data.s.className = 'vibe-specs-badge vibe-specs-badge-s' + (entry.status ? ` status-${entry.status}` : ' status-unknown');
+		// The hover is the only place the right-click gesture is discoverable — a colour-only pill
+		// advertises nothing by itself.
 		data.sHover.update(entry.status
-			? localize('vibeSpecs.hover.status', "Статус: {0}", STATUS_LABEL[entry.status])
-			: localize('vibeSpecs.hover.statusNone', "Статус не задан (нет `status:` во фронтматтере)"));
+			? localize('vibeSpecs.hover.status', "Статус: {0} — ПКМ, чтобы сменить", STATUS_LABEL[entry.status])
+			: localize('vibeSpecs.hover.statusNone', "Статус не задан (нет `status:` во фронтматтере) — ПКМ, чтобы задать"));
 
 		// P — PRODUCT.md: present = filled + opens; absent = dim.
 		data.p.className = 'vibe-specs-badge' + (entry.product ? ' present clickable' : '');
@@ -221,6 +245,7 @@ export class VibeSpecsViewPane extends ViewPane {
 			open: uri => void this._open(uri),
 			createTech: entry => void this._createTech(entry),
 			hover: el => this._hoverService.setupManagedHover(hoverDelegate, el, ''),
+			showStatusMenu: (entry, anchor) => this._showStatusMenu(entry, anchor),
 		});
 		const listOptions: IWorkbenchListOptions<IVibeSpecEntry> = {
 			identityProvider: { getId: e => e.id },
@@ -265,6 +290,40 @@ export class VibeSpecsViewPane extends ViewPane {
 			getAriaLabel: e => e.status ? `${e.id} — ${STATUS_LABEL[e.status]}` : e.id,
 			getWidgetAriaLabel: () => localize('vibeSpecs.aria.widget', "Спеки проекта"),
 		};
+	}
+
+	/**
+	 * Status picker on the S pill. The pill carries no text — the status IS its colour — so the menu
+	 * repeats that colour language instead of making the user recall it (see `.vibe-spec-status-menu`
+	 * in vibeide.css).
+	 *
+	 * ⚠ The colouring is positional: CSS reaches the items via `nth-child(1..3)`, because there is no
+	 * stable per-item hook — `IAction.class` only lands when the menu is built with `options.icon`,
+	 * which `contextMenuHandler` never sets, and items carry no id/data attribute. **Keep exactly these
+	 * three items, in this order, with no separators**; insert anything and the colours silently shift
+	 * onto the wrong rows. If a fourth entry is ever needed here, drop the colours and keep `checked`.
+	 *
+	 * `checked` renders as `aria-checked` on the item's `<a role="menuitemcheckbox">` plus a
+	 * `.menu-item-check` glyph — there is no `checked` class to assert on in a smoke test.
+	 */
+	private _showStatusMenu(entry: IVibeSpecEntry, anchor: { x: number; y: number }): void {
+		const pick = (status: VibeSpecStatus): Action => new Action(
+			`vibeSpecs.status.${status}`,
+			STATUS_LABEL_MENU[status],
+			undefined,
+			true,
+			async () => this._specs.setSpecStatus(entry, status),
+		);
+		const actions = STATUS_ORDER.map(status => {
+			const action = pick(status);
+			action.checked = entry.status === status; // radio-style tick on the current one
+			return action;
+		});
+		this.contextMenuService.showContextMenu({
+			getAnchor: () => anchor,
+			getActions: () => actions,
+			getMenuClassName: () => 'vibe-spec-status-menu',
+		});
 	}
 
 	private _ctxActions(entry: IVibeSpecEntry): IAction[] {
