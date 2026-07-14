@@ -182,14 +182,6 @@ export const indentationFilter = Object.freeze<string[]>([
 
 export const copyrightFilter = Object.freeze<string[]>([
 	'**',
-
-	// Node CLI entry points: the checker compares lines 0-3 against the header verbatim, so a
-	// `#!/usr/bin/env node` shebang — which must be line 1 to stay executable — and the header
-	// are mutually exclusive. Both files carry the header directly below the shebang instead.
-	// (Upstream excludes such files for the same reason, e.g. resources/win32/bin/code.js.)
-	'!scripts/vibe-doctor.js',
-	'!scripts/vibe-docs-graph.mjs',
-
 	'!**/*.desktop',
 	'!**/*.json',
 	'!**/*.jsonc',

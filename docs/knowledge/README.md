@@ -111,7 +111,7 @@
 | [nightly-roadmap.md](git-and-tools/nightly-roadmap.md) | Cursor rule + skill ночного прогона |
 | [bin-scripts.md](git-and-tools/bin-scripts.md) | Каталог `bin/` и `scripts/` |
 | [support-discord.md](git-and-tools/support-discord.md) | Discord → roadmap |
-| [precommit-hygiene.md](git-and-tools/precommit-hygiene.md) | `tsx`-раннер hygiene/eslint, фильтры Unicode/indentation для vibeide, lint-staged без eslint, `--no-verify` на больших коммитах |
+| [precommit-hygiene.md](git-and-tools/precommit-hygiene.md) | `tsx`-раннер hygiene/eslint, фильтры Unicode/indentation для vibeide, lint-staged без eslint, `--no-verify` на больших коммитах. **+ [foot-gun]** фильтры **каскадные** (`all ⊃ eol ⊇ indentation ⊃ copyright ⊃ typescript`) — исключение в раннем фильтре снимает и все последующие проверки (`!` в copyright отключил ESLint); shebang vs заголовок на строке 0 — ложная дилемма (shebang рудимент); линт видит файл, только когда он staged |
 | [docs-layout.md](git-and-tools/docs-layout.md) | Правило `docs/manuals/` + camelCase; почему `CONTRIBUTING.md` нельзя унести (GitHub ищет в 3 путях); ловушка вшитых абсолютных URL в засеянных `.vibe` |
 
 ### [tool-system/](tool-system/) — слой встроенных тулов (поверхность, которую видит LLM)

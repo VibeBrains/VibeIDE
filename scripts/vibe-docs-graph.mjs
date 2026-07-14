@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
@@ -63,23 +62,23 @@ const deadLinks = [];
 for (const file of files) {
 	const id = nodeIdOf(file);
 	outgoing.set(id, new Set());
-	if (!incoming.has(id)) incoming.set(id, new Set());
+	if (!incoming.has(id)) {incoming.set(id, new Set());}
 	const content = fs.readFileSync(file, 'utf8');
 	for (const m of content.matchAll(LINK_RE)) {
 		const linkTarget = m[2];
 		// Skip _template-* targets (placeholder paths).
-		if (linkTarget.includes('/_template-') || path.basename(linkTarget).startsWith('_template-')) continue;
+		if (linkTarget.includes('/_template-') || path.basename(linkTarget).startsWith('_template-')) {continue;}
 		const resolved = path.resolve(path.dirname(file), linkTarget);
 		const targetId = nodeIdOf(resolved);
 		// Only track edges that stay within docs/knowledge.
 		const inKnowledge = !path.relative(root, resolved).startsWith('..');
-		if (!inKnowledge) continue;
+		if (!inKnowledge) {continue;}
 		if (!nodes.has(targetId)) {
 			deadLinks.push({ from: id, target: linkTarget, resolved: targetId });
 			continue;
 		}
 		outgoing.get(id).add(targetId);
-		if (!incoming.has(targetId)) incoming.set(targetId, new Set());
+		if (!incoming.has(targetId)) {incoming.set(targetId, new Set());}
 		incoming.get(targetId).add(id);
 	}
 }
@@ -89,10 +88,10 @@ for (const id of nodes) {
 	const inDeg = (incoming.get(id) ?? new Set()).size;
 	const outDeg = (outgoing.get(id) ?? new Set()).size;
 	// README files are intentionally entry points — exempt from orphan check.
-	if (path.basename(id) === 'README.md') continue;
+	if (path.basename(id) === 'README.md') {continue;}
 	// Files starting with `_template-` are skeletons, not real entries.
-	if (path.basename(id).startsWith('_template-')) continue;
-	if (inDeg === 0 && outDeg === 0) orphans.push(id);
+	if (path.basename(id).startsWith('_template-')) {continue;}
+	if (inDeg === 0 && outDeg === 0) {orphans.push(id);}
 }
 
 // Index membership: every entry must be linked from `docs/knowledge/README.md`.
@@ -101,9 +100,9 @@ const INDEX_ID = 'README.md';
 const indexedIds = outgoing.get(INDEX_ID) ?? new Set();
 const unindexed = [];
 for (const id of nodes) {
-	if (id === INDEX_ID) continue;
-	if (path.basename(id).startsWith('_template-')) continue;
-	if (!indexedIds.has(id)) unindexed.push(id);
+	if (id === INDEX_ID) {continue;}
+	if (path.basename(id).startsWith('_template-')) {continue;}
+	if (!indexedIds.has(id)) {unindexed.push(id);}
 }
 unindexed.sort();
 
@@ -112,7 +111,7 @@ if (mode === '--unindexed') {
 		console.log('All entries are listed in the index.');
 	} else {
 		console.log(`${unindexed.length} entr(ies) missing from ${INDEX_ID}:`);
-		for (const id of unindexed) console.log(`  ${id}`);
+		for (const id of unindexed) {console.log(`  ${id}`);}
 	}
 	process.exit(0);
 }
@@ -122,7 +121,7 @@ if (mode === '--orphans') {
 		console.log('No orphan files.');
 	} else {
 		console.log(`${orphans.length} orphan file(s) (no in/out links):`);
-		for (const id of orphans) console.log(`  ${id}`);
+		for (const id of orphans) {console.log(`  ${id}`);}
 	}
 	process.exit(0);
 }
@@ -132,24 +131,24 @@ if (mode === '--dead-links') {
 		console.log('No dead links.');
 	} else {
 		console.log(`${deadLinks.length} dead link(s):`);
-		for (const { from, target } of deadLinks) console.log(`  ${from} → ${target}`);
+		for (const { from, target } of deadLinks) {console.log(`  ${from} → ${target}`);}
 	}
 	process.exit(0);
 }
 
 if (mode === '--check') {
 	const issues = [];
-	if (deadLinks.length > 0) issues.push(`${deadLinks.length} dead link(s)`);
-	if (orphans.length > 0) issues.push(`${orphans.length} orphan(s)`);
-	if (unindexed.length > 0) issues.push(`${unindexed.length} unindexed`);
+	if (deadLinks.length > 0) {issues.push(`${deadLinks.length} dead link(s)`);}
+	if (orphans.length > 0) {issues.push(`${orphans.length} orphan(s)`);}
+	if (unindexed.length > 0) {issues.push(`${unindexed.length} unindexed`);}
 	if (issues.length === 0) {
 		console.log(`docs graph clean (${nodes.size} files, all indexed).`);
 		process.exit(0);
 	}
 	console.error(`docs graph issues: ${issues.join(', ')}`);
-	for (const { from, target } of deadLinks) console.error(`  dead: ${from} → ${target}`);
-	for (const id of orphans) console.error(`  orphan: ${id}`);
-	for (const id of unindexed) console.error(`  unindexed: ${id} — add a row to ${INDEX_ID}`);
+	for (const { from, target } of deadLinks) {console.error(`  dead: ${from} → ${target}`);}
+	for (const id of orphans) {console.error(`  orphan: ${id}`);}
+	for (const id of unindexed) {console.error(`  unindexed: ${id} — add a row to ${INDEX_ID}`);}
 	process.exit(1);
 }
 
