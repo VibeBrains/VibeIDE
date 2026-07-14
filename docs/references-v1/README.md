@@ -45,7 +45,6 @@
 ### Расширения и API
 | Файл | Тема |
 |---|---|
-| [extension-api-readonly-draft.md](extension-api-readonly-draft.md) | Read-only Extension API — черновик |
 | [extension-api-stability.md](extension-api-stability.md) | Stability guarantees для extension API |
 | [extensions-lockfile-policy.md](extensions-lockfile-policy.md) | Lock-file политика |
 
@@ -81,7 +80,29 @@
 |---|---|
 | [docs-policy.md](docs-policy.md) | Split `docs/` (публичное) vs `references/v1/` (нормативное) |
 | [ci-workflows-inventory.md](ci-workflows-inventory.md) | CI workflows inventory |
+| [l10n-vs-nls-decision.md](l10n-vs-nls-decision.md) | **[нормативное]** `nls.localize()` vs `vscode.l10n.t()` — выбранный путь |
+| [worktree-merge-policy.md](worktree-merge-policy.md) | Git worktree merge policy при изоляции агентов: кто и как мержит в основную ветку |
+
+### Аудиты и снимки состояния
+| Файл | Тема |
+|---|---|
+| [audit-2026-05-07-acceptance.md](audit-2026-05-07-acceptance.md) | DoD / acceptance criteria аудита 2026-05-07 (living document — обновляется по мере закрытия K/L) |
+| [services/orphan-services-2026-05-08.md](services/orphan-services-2026-05-08.md) | Снимок инвентаризации orphan-сервисов (`vibe-services-inventory.js --orphans`, 2026-05-08) |
+
+### Контракты рантайма
+| Файл | Тема |
+|---|---|
+| [perf-guardrails-contract.md](perf-guardrails-contract.md) | Контракт `performanceGuardrailsService.ts` + `perfGuardrailsAggregator.ts` |
+| [remote-vector-store-split-brain.md](remote-vector-store-split-brain.md) | Split-brain вектор-стора при Remote SSH / Dev Container / WSL: кэши привязаны к тому, где пишет Node-процесс, а не к «репозиторию» в голове разработчика |
+
+### Комьюнити, запуск, операционка
+| Файл | Тема |
+|---|---|
+| [community-plan-templates.md](community-plan-templates.md) | **[черновик]** Подпись и установка community-шаблонов планов (Phase 3a; CLI/CDN/crypto — в бэклоге) |
+| [discord-import-runbook.md](discord-import-runbook.md) | Runbook мейнтейнера для `bin/vibe-discord-import.mjs` (импорт багов из Discord) |
+| [launch-announcement-templates.md](launch-announcement-templates.md) | **[черновики]** Шаблоны анонсов запуска |
+| [website-readme-template.md](website-readme-template.md) | Скелет README для отдельного репо сайта (`VibeIDE-website`, GitHub Pages) |
 
 ---
 
-> **Важно:** все файлы в этой папке находятся в `.gitignore` (кроме `logo-final.png`). Это местная база знаний для разработчиков, а не часть дерева исходников.
+> **Важно:** `docs/references-v1/` **отслеживается git** (57 файлов). Прежнее утверждение «вся папка в `.gitignore`» осталось от предшественника — local-only дерева `references/v1/`, которое действительно игнорируется; проверено 2026-07-15 (`git check-ignore` + `git ls-files`). Это нормативные справки и контракты: пишутся для разработчиков, но живут в репозитории и ревьюятся как код.

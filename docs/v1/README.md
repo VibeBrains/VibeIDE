@@ -71,6 +71,24 @@
 |---|---|
 | [monetization.md](monetization.md) | Три трека: донаты, gateway, экосистема |
 
+### Контракты и SLA
+
+| Файл | Содержание |
+|---|---|
+| [agent/skills.md](agent/skills.md) | Контракт навыков `.vibe/skills/<id>/SKILL.md`: YAML frontmatter + тело Markdown; чем отличается от prompts / workflows / custom modes. Машинная схема — `skill-package.schema.json` |
+| [project-commands.md](project-commands.md) | Project Commands — контракт и дизайн (`.vibe/commands.json`); статус: design/contract |
+| [gateway-threat-model.md](gateway-threat-model.md) | Threat model будущего Gateway. **Блокирующий:** Gateway не запускается без этого документа (обязателен до М-Фазы 0) |
+| [performance-sla.md](performance-sla.md) | Performance SLA: cold start ≤ 5 с, memory idle ≤ 600 MB, после открытия проекта ≤ 600 MB + runbook замеров |
+| [open-vsx-gap-list.md](open-vsx-gap-list.md) | Чего не хватает в Open VSX vs marketplace. Публикуется в README и на сайте **до первого анонса** — часть нарратива прозрачности |
+
+### Локализация и расширения
+
+| Файл | Содержание |
+|---|---|
+| [language-pack-russian.md](language-pack-russian.md) | Русский интерфейс: как устроены VSIX Language Pack из `microsoft/vscode-loc`, почему рантайм не тянет Git напрямую |
+| [vibeide-i18n.md](vibeide-i18n.md) | Как добавить новую локаль — туториал/контракт |
+| [extension-development.md](extension-development.md) | «Build your first VibeIDE extension» — квикстарт |
+
 ---
 
 ## Фазы разработки

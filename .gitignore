@@ -75,6 +75,12 @@ references/*
 # `docs/` is now tracked (2026-05-23 — became the project knowledge base).
 # Only exclude editor-specific noise inside:
 docs/.obsidian/
+# Obsidian scratch artefacts (Canvas boards, Bases views). The vault lives in docs/, so these land
+# next to real documents and get swept up by `git add docs/`. They are personal working surfaces,
+# not documentation — and the docs graph would flag them as unreachable anyway. Force-add if one
+# ever becomes a real deliverable.
+docs/**/*.canvas
+docs/**/*.base
 # Root bin/: ignore local scratch by default; allow selected committed utilities (see script-save / docs/knowledge/gitAndTools/binScripts.md)
 bin/*
 !bin/vibe-language-pack-nls.mjs

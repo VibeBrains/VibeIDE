@@ -112,7 +112,7 @@
 | [binScripts.md](gitAndTools/binScripts.md) | Каталог `bin/` и `scripts/` |
 | [supportDiscord.md](gitAndTools/supportDiscord.md) | Discord → roadmap |
 | [precommitHygiene.md](gitAndTools/precommitHygiene.md) | `tsx`-раннер hygiene/eslint, фильтры Unicode/indentation для vibeide, lint-staged без eslint, `--no-verify` на больших коммитах. **+ [foot-gun]** фильтры **каскадные** (`all ⊃ eol ⊇ indentation ⊃ copyright ⊃ typescript`) — исключение в раннем фильтре снимает и все последующие проверки (`!` в copyright отключил ESLint); shebang vs заголовок на строке 0 — ложная дилемма (shebang рудимент); линт видит файл, только когда он staged |
-| [docsLayout.md](gitAndTools/docsLayout.md) | Правило `docs/manuals/` + camelCase; почему `CONTRIBUTING.md` нельзя унести (GitHub ищет в 3 путях); ловушка вшитых абсолютных URL в засеянных `.vibe` |
+| [docsLayout.md](gitAndTools/docsLayout.md) | Правило «всё в `docs/` — camelCase» + мануалы только в `manuals/`; рецепт массового переименования (`git mv`, якоря, антипаттерны); почему `CONTRIBUTING.md` нельзя унести (GitHub ищет в 3 путях); ловушка вшитых абсолютных URL в засеянных `.vibe`. **+ [правило]** `docs/README.md` — корень навигации: любой док достижим оттуда по ссылкам; **ASCII-дерево в код-блоке ссылок не создаёт** (из-за него 29 доков висели сиротами, а дерево успело соврать). Гейт `unreachable` строго сильнее «сирот». Release notes в репо не хранятся — источник правды GitHub Releases |
 
 ### [toolSystem/](toolSystem/) — слой встроенных тулов (поверхность, которую видит LLM)
 

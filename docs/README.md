@@ -8,50 +8,46 @@
 
 ## Структура
 
-```
-docs/
-├── roadmap.md                     # Главный roadmap (фазы, секции W/X/...)
-├── knowledge/                     # База знаний по темам — single source of truth
-│   ├── README.md                  # Единственный индекс базы (точка входа)
-│   ├── architecture/              # LLM pipeline, tool calls, model quirks
-│   ├── agentCollaboration/       # Workflow с AI-агентами, permissions, hooks
-│   ├── build/                     # Windows toolchain, портабл, update service
-│   ├── chatUx/                   # Поведение чата, circuit breakers, stall recovery
-│   ├── gitAndTools/             # Git flow, vibe-doctor, bin scripts
-│   ├── i18n/                      # Language pack, NLS, React i18n
-│   ├── patterns/                  # Recurring patterns + lessons learned
-│   ├── runtimeQuirks/            # Path/URI, services accessor, idle memory, watchdog
-│   ├── toolSystem/               # Built-in tools contract, read/edit safety
-│   ├── ui/                        # CSS pipeline, scope-tailwind, themes
-│   ├── vibeDotfolder/            # .vibe/ workspace config
-│   ├── assets/                    # Логотипы, onboarding
-│   └── roadmap/                   # Run logs (roadmap-max sessions etc.)
-├── v1/                            # Подробное планирование Phase 1
-│   ├── README.md                  # Индекс всех V1 документов
-│   ├── phases/                    # phase-0..phase-3b — детальные чеклисты
-│   ├── agent/                     # Auto-repair, skills, trust-score
-│   ├── config/                    # rules/constraints/profiles/.vibe
-│   ├── integrations/              # Project Manager, Synthwave84, VSCodeSync
-│   ├── risks/                     # Architecture/product/security risks
-│   ├── transparency/              # Control & visibility design
-│   ├── vision/                    # North star, market, narrative
-│   ├── gateway-threat-model.md    # Security model для будущего gateway
-│   ├── monetization.md            # Business model
-│   ├── open-vsx-gap-list.md       # Чего не хватает vs marketplace
-│   ├── performance-sla.md         # Cold start / memory targets
-│   └── ...
-├── manuals/                       # Руководства «как сделать» — ТОЛЬКО здесь, имена camelCase
-│   ├── ciCdGuide.md               # Запуск VibeIDE в GitHub Actions / GitLab CI
-│   ├── codebaseGuide.md           # Ориентир по кодовой базе форка
-│   ├── howToContribute.md         # Сборка и запуск из исходников (prerequisites, dev mode)
-│   ├── providersSpec.md           # Формат .vibe/providers.json (скормить LLM → готовый конфиг)
-│   ├── securityFaq.md             # Что уходит наружу, что остаётся локально
-│   ├── specsWorkflow.md           # Как работать со спеками — ИСТОЧНИК справки «?» в панели «Спеки»
-│   └── vibeEnvironment.md         # Окружение .vibe: почему устаревает, две команды, lock-файл
-├── CONTRIBUTING.md                # Процесс контрибьюта и ревью PR (GitHub ищет его здесь)
-├── release-donation-phrases.md    # Фразы блока «Поддержать проект»
-└── release-notes-v0.3.0.md        # Архивные release notes (historical)
-```
+> Этот файл — **корень навигации по `docs/`**. Каждый документ должен быть достижим отсюда по ссылкам
+> (напрямую или через индекс своего поддерева). Проверяется `npm run docs-graph-check`: файл, до которого
+> нельзя дойти, никто не найдёт. Раньше здесь было ASCII-дерево внутри код-блока — оно **не создаёт ссылок**,
+> поэтому 29 документов висели сиротами, а само дерево успело соврать (числился `release-notes-v0.3.0.md`,
+> которого нет). Список ниже — живые ссылки, а не картинка.
+
+**Планирование и статус**
+- [roadmap.md](roadmap.md) — главный roadmap: фазы, секции W/X/…, единственный источник правды «что уже сделано».
+- [UNRELEASED.md](UNRELEASED.md) — накопленное между релизами.
+- [functional.md](functional.md) — каталог возможностей: «что умеет», версионно-независимо.
+- [idea.md](idea.md) — исходный концепт продукта.
+
+**База знаний** — `knowledge/`
+- [knowledge/README.md](knowledge/README.md) — **единственный индекс базы** (точка входа; 14 доменов: architecture, ui, chatUx, toolSystem, build, i18n, patterns, runtimeQuirks, gitAndTools, vibeDotfolder, agentCollaboration, security, assets, roadmap). Список записей — только там; здесь его не дублируем.
+
+**Руководства** — `manuals/` (только здесь, имена camelCase)
+- [ciCdGuide.md](manuals/ciCdGuide.md) — запуск VibeIDE в GitHub Actions / GitLab CI.
+- [codebaseGuide.md](manuals/codebaseGuide.md) — ориентир по кодовой базе форка.
+- [howToContribute.md](manuals/howToContribute.md) — сборка и запуск из исходников (prerequisites, dev mode).
+- [providersSpec.md](manuals/providersSpec.md) — формат `.vibe/providers.json` (скормить LLM → готовый конфиг).
+- [securityFaq.md](manuals/securityFaq.md) — что уходит наружу, что остаётся локально.
+- [specsWorkflow.md](manuals/specsWorkflow.md) — как работать со спеками; **источник** справки «?» в панели «Спеки» (генерируется на сборке).
+- [vibeEnvironment.md](manuals/vibeEnvironment.md) — окружение `.vibe`: почему устаревает, две команды, lock-файл.
+
+**Планирование Phase 1 и нормативные документы**
+- [v1/README.md](v1/README.md) — индекс всех V1-документов (phases, agent, config, integrations, risks, transparency, vision).
+- [references-v1/README.md](references-v1/README.md) — индекс нормативных справок и контрактов.
+- [benchmarks/minimalism-methodology.md](benchmarks/minimalism-methodology.md) — методика замеров минимализма.
+
+**Процесс и релизы**
+- [CONTRIBUTING.md](CONTRIBUTING.md) — процесс контрибьюта и ревью PR. **Не переносить** — GitHub ищет его только в корне, `docs/` или `.github/`.
+- [release-donation-phrases.md](release-donation-phrases.md) — фразы блока «Поддержать проект».
+- Release notes **не хранятся в репо** — источник правды это GitHub Releases (`gh release view vX.Y.Z`). Формат — в [CLAUDE.md](../CLAUDE.md).
+
+**Сравнения** (маркетинговые материалы)
+- [VibeIDE-vs-Other-AI-Editors.md](VibeIDE-vs-Other-AI-Editors.md) — сравнение с другими AI-редакторами.
+- [VibeIDE-Model-Support-Comparison.md](VibeIDE-Model-Support-Comparison.md) — поддержка моделей.
+
+`docs/specs/` — рабочие спеки воркспейса (создаются панелью «Спеки»), в навигацию не входят.
+`docs/.obsidian/` — конфиг Obsidian, в `.gitignore`.
 
 **Правило: мануалы — только в `docs/manuals/`, имена в camelCase** (`specsWorkflow.md`, `ciCdGuide.md`).
 Мануал — руководство «как сделать» по шагам. Каталог возможностей (`functional.md`), план (`roadmap.md`),
