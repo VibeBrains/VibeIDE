@@ -381,7 +381,7 @@ export type ThreadType = {
 
 		stagingSelections: StagingSelectionItem[];
 		/** Context the user queued WHILE a turn is running — drained into a user message at the top of the
-		 *  next agent hop (no abort needed). See docs/knowledge/chat-ux/chat-interrupt-and-inject.md.
+		 *  next agent hop (no abort needed). See docs/knowledge/chatUx/chatInterruptAndInject.md.
 		 *  `string` entries are legacy (text-only) and tolerated on read via normalizePendingInjections. */
 		pendingInjections?: (string | PendingInjection)[];
 		focusedMessageIdx: number | undefined; // index of the user message that is being edited (undefined if none)
@@ -3196,7 +3196,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	}
 
 	/**
-	 * Auxiliary-model routing (knowledge/roadmap/token-economy.md, C): service LLM calls
+	 * Auxiliary-model routing (knowledge/roadmap/tokenEconomy.md, C): service LLM calls
 	 * (plan generation etc.) don't need the user's main — often expensive — model. When
 	 * `vibeide.chat.auxiliaryModel` is set to a known `provider/model`, route there.
 	 * Unset / invalid value → null, caller keeps the main selection (a typo in the setting
@@ -5322,7 +5322,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor });
 
 			// Drain any context the user queued mid-run (without aborting) — becomes a real user
-			// message this hop. See docs/knowledge/chat-ux/chat-interrupt-and-inject.md.
+			// message this hop. See docs/knowledge/chatUx/chatInterruptAndInject.md.
 			this._drainPendingInjections(threadId);
 
 			const chatMessages = this.state.allThreads[threadId]?.messages ?? [];
@@ -7056,7 +7056,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (askedQuestion) { questionNudgeCount += 1; }
 						// Weak XML-mode callers can't be forced via tool_choice (no native tools are sent)
 						// and don't map "вызови vibe_complete" to an emission — so when THIS turn ran in XML
-						// tool mode, spell out the exact tags to output. See docs/knowledge/chat-ux/chat-interrupt-and-inject.md.
+						// tool mode, spell out the exact tags to output. See docs/knowledge/chatUx/chatInterruptAndInject.md.
 						let xmlCompleteHint = '';
 						try {
 							if (modelSelection && modelSelection.providerName !== 'auto') {

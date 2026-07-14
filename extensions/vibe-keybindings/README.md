@@ -27,7 +27,7 @@ bindings use the standard cursor/delete-word commands (no extension-specific
 Edit `package.json` directly — this is VibeIDE's own keymap, there is no upstream
 to re-sync from. When the JetBrains scheme or VibeIDE command IDs change, adjust
 the affected entries here. See
-[`docs/knowledge/build/vibe-keybindings.md`](../../docs/knowledge/build/vibe-keybindings.md).
+[`docs/knowledge/build/vibeKeybindings.md`](../../docs/knowledge/build/vibeKeybindings.md).
 
 ## License
 

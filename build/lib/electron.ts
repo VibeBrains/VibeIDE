@@ -12,7 +12,7 @@ import { getVersion } from './getVersion.ts';
 import electron from '@vscode/gulp-electron';
 import json from 'gulp-json-editor';
 
-// VibeIDE: one env var from docs/knowledge/build/portable-and-electron.md / preLaunch; npm run electron does not use vibe-dev.bat.
+// VibeIDE: one env var from docs/knowledge/build/portableAndElectron.md / preLaunch; npm run electron does not use vibe-dev.bat.
 if (process.env['VIBE_ELECTRON_MIRROR'] && !process.env['ELECTRON_MIRROR']) {
 	process.env['ELECTRON_MIRROR'] = process.env['VIBE_ELECTRON_MIRROR'];
 }

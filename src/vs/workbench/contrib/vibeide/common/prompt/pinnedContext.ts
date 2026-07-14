@@ -13,7 +13,7 @@
  *  - **Workspace guidelines** — `<workspace_guidelines>` block, carried in the SYSTEM message.
  *  - **Expanded `/skill:` bodies** — `<skill_invocation>` block, PREPENDED to the last USER
  *    message (deliberately not buried in the system prompt — models ignore skill bodies placed
- *    in system context; see model-stalls.md #002). So the pin must apply to `user` messages too.
+ *    in system context; see modelStalls.md #002). So the pin must apply to `user` messages too.
  *
  * 3075 bug this fixes: the old check only matched `role === 'system'` AND a marker string
  * (`"Explicitly invoked Agent Skills"`) that is never actually emitted — the real marker is

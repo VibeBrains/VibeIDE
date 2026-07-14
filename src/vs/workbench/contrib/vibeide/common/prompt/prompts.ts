@@ -410,7 +410,7 @@ ${truncatedDirStr}
 	// training-quirky models like minimax interpret tools as a numbered list
 	// and emit tool calls with names "1", "2", "5" — the exact pattern we
 	// chase elsewhere. Same rule already applied to toolCallDefinitionsXMLString
-	// (see docs/knowledge/architecture/tool-calling.md). Don't reintroduce
+	// (see docs/knowledge/architecture/toolCalling.md). Don't reintroduce
 	// numbering anywhere near tool name mentions in the system prompt.
 	const importantDetails = (`Important notes:
 ${details.map((d) => `- ${d}`).join('\n\n')}`);

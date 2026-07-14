@@ -8,11 +8,11 @@
 
 ## Базовые принципы
 
-1. **Документация проекта** живёт в `docs/v1/` (33 файла по модулям) + `docs/roadmap.md` (чеклист с фазами) + `docs/idea.md` (исходный документ идеи). См. [architecture/doc-structure.md](architecture/doc-structure.md).
+1. **Документация проекта** живёт в `docs/v1/` (33 файла по модулям) + `docs/roadmap.md` (чеклист с фазами) + `docs/idea.md` (исходный документ идеи). См. [architecture/docStructure.md](architecture/docStructure.md).
 2. **Roadmap.md** — единственный источник истины по тому, «что уже сделано». Любая новая сессия начинается с его чтения.
 3. **Кодовая база** — форк CortexIDE → форк VS Code. Префикс модуля и команд — `vibeide.*`. См. AGENTS.md в корне репо.
-4. **Локализация UI**: ВСЕ пользовательские тексты — на русском, сразу в исходнике; исключения (ByteString, идентификаторы, бренды) — в [i18n/russian-first.md](i18n/russian-first.md).
-5. **CSS React-чата** проходит через `scope-tailwind` — это источник большей части визуальных багов. См. [ui/scope-tailwind.md](ui/scope-tailwind.md).
+4. **Локализация UI**: ВСЕ пользовательские тексты — на русском, сразу в исходнике; исключения (ByteString, идентификаторы, бренды) — в [i18n/russianFirst.md](i18n/russianFirst.md).
+5. **CSS React-чата** проходит через `scope-tailwind` — это источник большей части визуальных багов. См. [ui/scopeTailwind.md](ui/scopeTailwind.md).
 
 ---
 
@@ -22,168 +22,168 @@
 
 | Файл | О чём |
 |---|---|
-| [chat-pane.md](architecture/chat-pane.md) | Две поверхности чата, `VibeChatEditorPane`, multi-chat tabs, lockdown, session restore |
-| [plans-and-agents.md](architecture/plans-and-agents.md) | Persisted plans, lease, JSONL journal, dashboard, subagents, background agent, stall watchdog, project rules, agent skills |
-| [llm-and-context.md](architecture/llm-and-context.md) | LLM-провайдеры, remote catalog, OpenCode Zen vs Go vs OpenRouter, context filter, `@diagram` |
-| [ai-sdk-migration-wip.md](architecture/ai-sdk-migration-wip.md) | **НЕЗАВЕРШЕНО.** Миграция провайдеров с нативных SDK на Vercel AI SDK (`ai` + `@ai-sdk/openai-compatible`). 14 провайдеров мигрировано, рантайм-тест не пройден, anthropic/gemini/local ещё не тронуты. |
-| [api-protocol-routing.md](architecture/api-protocol-routing.md) | `API_PROTOCOL_VALUES` const-as-source-of-truth, three-tier SDK routing (user override → models.dev → fallback), `ModelOverrides.apiProtocol` field, adapter quirks (anthropic-beta headers, Google functionDeclarations), checklist на добавление нового SDK |
-| [tool-calling.md](architecture/tool-calling.md) | Каналы доставки тулов модели (AI SDK / Anthropic / Gemini / OpenAI native / XML fallback), `specialToolFormat`, правило одного канала, MCP-префикс `<server>_<tool>`, `experimental_repairToolCall`, alias-таблица, `modelFamily` infra |
-| [orphan-services.md](architecture/orphan-services.md) | L.1 «orphan» сервисы — persona, gitAutoStash, riskScoring, nlShell, perfGuardrails, memories, telemetry |
-| [project-commands.md](architecture/project-commands.md) | Project Commands runtime (`.vibe/commands.json`): service-as-singleton + contribution-as-orchestrator, FNV-1a trust hash, two-shape resolver, gate order, KeybindingsRegistry disposable, MutableDisposable status-bar, WORKSPACE-scope onboarding, periodic janitor |
-| [settings-namespaces.md](architecture/settings-namespaces.md) | Что такое `vibeide.*` vs `chat.*` в TOC native Settings, как добавить новый ключ, как работает coverage CI |
-| [doc-structure.md](architecture/doc-structure.md) | Структура документации проекта |
-| [two-patches-folders.md](architecture/two-patches-folders.md) | `patches-node-modules/` vs `patches-vscode-source/` |
-| [model-quirks.md](architecture/model-quirks.md) | Catalog-driven per-model quirks (temperature/topP/topK/reasoning/tool-format) — `resources/model-quirks.json` + CDN refresh |
-| [model-pricing.md](architecture/model-pricing.md) | Прайс моделей: `getModelCapabilities().cost` (USD/1M), `{0,0}`=«неизвестно»≠$0; **ловушка**: каталожный cost per-token → `modelRouter.costPerM` врёт в 1e6 раз |
-| [xml-tool-normalization.md](architecture/xml-tool-normalization.md) | XML tool-call pipeline (Layer 1 normalize / Layer 2 parser / Layer 3 safety net), DSML/self-closing/malformed-close coverage |
-| [xml-tool-format-matrix.md](architecture/xml-tool-format-matrix.md) | Living matrix: vendor × provider × format × coverage layer × test fixture |
-| [context-report.md](architecture/context-report.md) | Команда `vibeide.context.status` (аналог `/context`): `buildContextBreakdown` считает состав промпта по живым геттерам, шкала из context-guard, история — остаток; рендер в untitled-md |
-| [commands-palette-modal.md](architecture/commands-palette-modal.md) | «VibeIDE Команды» — resizable-окно списка всех `vibe*`-команд (brain-меню). Бридж-сервис + ленивый портал, почему не `VibeModalService`, новая tsup-точка + ручной `.d.ts`, `@@`-className-футган |
-| [vibe-defaults.md](architecture/vibe-defaults.md) | `.vibe-defaults/` → генерируемый манифест (перечитывается с нуля каждую сборку) → `applyVibeDefaults` сеет в `.vibe/` (create-if-missing). Команда `vibeide.defaults.apply`, общий `collectVibeideCommands`, word wrap ON по умолчанию |
-| [dynamic-providers.md](architecture/dynamic-providers.md) | `.vibe/providers.json` (JSONC) — user-defined провайдеры/модели без пересборки. **WIP:** Фаза 1 (формат + IntelliSense + диагностика + тоглы built-in) готова; 2b-2 (overlay в `settingsOfProvider` → список+caps+транспорт) с `_storeState`-риском — план внутри |
-| [provider-diagnostics.md](architecture/provider-diagnostics.md) | «Проверка провайдеров» — модалка диагностики (brain-меню), послойные проверки L1–L5, **корень бага «токены не уходят до перезапуска»** (стейл-кэш SDK-клиентов в electron-main), кнопка сброса клиентов, диаг-логи, MD-экспорт |
-| [vibe-server-preview-cookies.md](architecture/vibe-server-preview-cookies.md) | Cookie-авторизация в превью: перезапись Set-Cookie → `SameSite=None; Secure` для зарегистрированных loopback-origin'ов; **гоча: один `onHeadersReceived` на сессию** — вызов встроен в апстрим-хендлер `app.ts` |
+| [chatPane.md](architecture/chatPane.md) | Две поверхности чата, `VibeChatEditorPane`, multi-chat tabs, lockdown, session restore |
+| [plansAndAgents.md](architecture/plansAndAgents.md) | Persisted plans, lease, JSONL journal, dashboard, subagents, background agent, stall watchdog, project rules, agent skills |
+| [llmAndContext.md](architecture/llmAndContext.md) | LLM-провайдеры, remote catalog, OpenCode Zen vs Go vs OpenRouter, context filter, `@diagram` |
+| [aiSdkMigrationWip.md](architecture/aiSdkMigrationWip.md) | **НЕЗАВЕРШЕНО.** Миграция провайдеров с нативных SDK на Vercel AI SDK (`ai` + `@ai-sdk/openai-compatible`). 14 провайдеров мигрировано, рантайм-тест не пройден, anthropic/gemini/local ещё не тронуты. |
+| [apiProtocolRouting.md](architecture/apiProtocolRouting.md) | `API_PROTOCOL_VALUES` const-as-source-of-truth, three-tier SDK routing (user override → models.dev → fallback), `ModelOverrides.apiProtocol` field, adapter quirks (anthropic-beta headers, Google functionDeclarations), checklist на добавление нового SDK |
+| [toolCalling.md](architecture/toolCalling.md) | Каналы доставки тулов модели (AI SDK / Anthropic / Gemini / OpenAI native / XML fallback), `specialToolFormat`, правило одного канала, MCP-префикс `<server>_<tool>`, `experimental_repairToolCall`, alias-таблица, `modelFamily` infra |
+| [orphanServices.md](architecture/orphanServices.md) | L.1 «orphan» сервисы — persona, gitAutoStash, riskScoring, nlShell, perfGuardrails, memories, telemetry |
+| [projectCommands.md](architecture/projectCommands.md) | Project Commands runtime (`.vibe/commands.json`): service-as-singleton + contribution-as-orchestrator, FNV-1a trust hash, two-shape resolver, gate order, KeybindingsRegistry disposable, MutableDisposable status-bar, WORKSPACE-scope onboarding, periodic janitor |
+| [settingsNamespaces.md](architecture/settingsNamespaces.md) | Что такое `vibeide.*` vs `chat.*` в TOC native Settings, как добавить новый ключ, как работает coverage CI |
+| [docStructure.md](architecture/docStructure.md) | Структура документации проекта |
+| [twoPatchesFolders.md](architecture/twoPatchesFolders.md) | `patches-node-modules/` vs `patches-vscode-source/` |
+| [modelQuirks.md](architecture/modelQuirks.md) | Catalog-driven per-model quirks (temperature/topP/topK/reasoning/tool-format) — `resources/model-quirks.json` + CDN refresh |
+| [modelPricing.md](architecture/modelPricing.md) | Прайс моделей: `getModelCapabilities().cost` (USD/1M), `{0,0}`=«неизвестно»≠$0; **ловушка**: каталожный cost per-token → `modelRouter.costPerM` врёт в 1e6 раз |
+| [xmlToolNormalization.md](architecture/xmlToolNormalization.md) | XML tool-call pipeline (Layer 1 normalize / Layer 2 parser / Layer 3 safety net), DSML/self-closing/malformed-close coverage |
+| [xmlToolFormatMatrix.md](architecture/xmlToolFormatMatrix.md) | Living matrix: vendor × provider × format × coverage layer × test fixture |
+| [contextReport.md](architecture/contextReport.md) | Команда `vibeide.context.status` (аналог `/context`): `buildContextBreakdown` считает состав промпта по живым геттерам, шкала из context-guard, история — остаток; рендер в untitled-md |
+| [commandsPaletteModal.md](architecture/commandsPaletteModal.md) | «VibeIDE Команды» — resizable-окно списка всех `vibe*`-команд (brain-меню). Бридж-сервис + ленивый портал, почему не `VibeModalService`, новая tsup-точка + ручной `.d.ts`, `@@`-className-футган |
+| [vibeDefaults.md](architecture/vibeDefaults.md) | `.vibe-defaults/` → генерируемый манифест (перечитывается с нуля каждую сборку) → `applyVibeDefaults` сеет в `.vibe/` (create-if-missing). Команда `vibeide.defaults.apply`, общий `collectVibeideCommands`, word wrap ON по умолчанию |
+| [dynamicProviders.md](architecture/dynamicProviders.md) | `.vibe/providers.json` (JSONC) — user-defined провайдеры/модели без пересборки. **WIP:** Фаза 1 (формат + IntelliSense + диагностика + тоглы built-in) готова; 2b-2 (overlay в `settingsOfProvider` → список+caps+транспорт) с `_storeState`-риском — план внутри |
+| [providerDiagnostics.md](architecture/providerDiagnostics.md) | «Проверка провайдеров» — модалка диагностики (brain-меню), послойные проверки L1–L5, **корень бага «токены не уходят до перезапуска»** (стейл-кэш SDK-клиентов в electron-main), кнопка сброса клиентов, диаг-логи, MD-экспорт |
+| [vibeServerPreviewCookies.md](architecture/vibeServerPreviewCookies.md) | Cookie-авторизация в превью: перезапись Set-Cookie → `SameSite=None; Secure` для зарегистрированных loopback-origin'ов; **гоча: один `onHeadersReceived` на сессию** — вызов встроен в апстрим-хендлер `app.ts` |
 
 ### [ui/](ui/) — CSS, темы, view-инфраструктура
 
 | Файл | О чём |
 |---|---|
-| [css-pipeline.md](ui/css-pipeline.md) | `vibeide.css`, `styles.css`, build flow, CSS MIME в dev |
-| [scope-tailwind.md](ui/scope-tailwind.md) | `@@`-escape, классы в константах, `.vibe-scope *` preflight, ID с точками, popup borders, quick pick |
-| [vibe-modal.md](ui/vibe-modal.md) | IVibeModalService: архитектура, `@@`-рассинхрон (инлайн vs переменная), blocking/non-blocking, размер+ресайз |
-| [themes-and-chat.md](ui/themes-and-chat.md) | Vibe Neon, theme tokens, theming чат-панели, fullscreen modes, secondary sidebar border |
-| [view-title-bar.md](ui/view-title-bar.md) | ViewPaneContainer, дубли иконок, single-row aux bar |
-| [projects-pane.md](ui/projects-pane.md) | Vibe Projects native pane, decorations через ResourceLabel, FontAwesome escape |
-| [specs-pane.md](ui/specs-pane.md) | Панель «Спеки»: sidebar-view из `specs/<id>/` воркспейса; квартет файлов + correlated-watcher; паттерн добавления боковой панели; DnD из дерева в чат (`text/uri-list`, capture-фаза) + markdown-превью |
+| [cssPipeline.md](ui/cssPipeline.md) | `vibeide.css`, `styles.css`, build flow, CSS MIME в dev |
+| [scopeTailwind.md](ui/scopeTailwind.md) | `@@`-escape, классы в константах, `.vibe-scope *` preflight, ID с точками, popup borders, quick pick |
+| [vibeModal.md](ui/vibeModal.md) | IVibeModalService: архитектура, `@@`-рассинхрон (инлайн vs переменная), blocking/non-blocking, размер+ресайз |
+| [themesAndChat.md](ui/themesAndChat.md) | Vibe Neon, theme tokens, theming чат-панели, fullscreen modes, secondary sidebar border |
+| [viewTitleBar.md](ui/viewTitleBar.md) | ViewPaneContainer, дубли иконок, single-row aux bar |
+| [projectsPane.md](ui/projectsPane.md) | Vibe Projects native pane, decorations через ResourceLabel, FontAwesome escape |
+| [specsPane.md](ui/specsPane.md) | Панель «Спеки»: sidebar-view из `specs/<id>/` воркспейса; квартет файлов + correlated-watcher; паттерн добавления боковой панели; DnD из дерева в чат (`text/uri-list`, capture-фаза) + markdown-превью |
 
-### [chat-ux/](chat-ux/) — поведение чата
-
-| Файл | О чём |
-|---|---|
-| [modes-and-policies.md](chat-ux/modes-and-policies.md) | Normal/Plan/Agent, autopilot vs auto-approve, pre-flight, Trust Score, T&C Suite, confidence vs LLM-judge |
-| [attachments.md](chat-ux/attachments.md) | Paste файлов, vision-capability gate (двойной), скрытый dead-code |
-| [chat-interrupt-and-inject.md](chat-ux/chat-interrupt-and-inject.md) | Дубль `tool_call id` после abort mid-tool-call (HTTP 400) — дедуп в `prepareMessages_openai_tools`; дизайн «подмешать контекст к следующему хопу» без прерывания; **правило: живой UI-статус в треде — транзиентом, не персистентным сообщением** (инвариант `messages[length-1]`, буфер notice до idle) |
-| [shortcuts.md](chat-ux/shortcuts.md) | `Ctrl+Alt+I`, отвязка `workbench.action.chat.open`, скрытие builtin chat |
-| [auto-repair-loop.md](chat-ux/auto-repair-loop.md) | Repair loop, DMS exclusions, pre-flight vs task decomposition |
-| [model-stalls.md](chat-ux/model-stalls.md) | Журнал обрывов/зависаний LLM-ассистента: триггерные слова, шаблон инцидента, гипотезы, митигации |
-| [stuck-chat-recovery.md](chat-ux/stuck-chat-recovery.md) | Stuck-chat recovery — три слоя защиты (abortRunning hard-timeout, stuck-state detection, submit-watchdog forceReset), `forceResetChatState` API, `recoverable` UI variants, Command Palette twins |
-| [circuit-breakers.md](chat-ux/circuit-breakers.md) | Circuit breakers для repetitive failures: tool-invalid-params (Stage C) и empty-response (Stage K), no-hardcoded-names rule, reset semantics, anti-patterns (no auto-switch, no adaptive thresholds) |
-
-### [vibe-dotfolder/](vibe-dotfolder/) — `.vibe/` config
+### [chatUx/](chatUx/) — поведение чата
 
 | Файл | О чём |
 |---|---|
-| [template-and-rules.md](vibe-dotfolder/template-and-rules.md) | `vibeConfigInitService`, README, GUIDELINES + `VIBE_DOTVIBE_AGENT_PLAYBOOK`; **auto-seed идёт на каждом открытии** (не «на первом»); lock примирения `.defaults.lock.json` — почему `customized` обязан молчать |
-| [workspace-forms.md](vibe-dotfolder/workspace-forms.md) | Форма Workspace в настройках + рантайм корневых JSON |
-| [settings-stack.md](vibe-dotfolder/settings-stack.md) | Приоритетный стек, `constraints.json` enforcement, CortexIDE как стартовая точка |
-| [rule-link-resolution.md](vibe-dotfolder/rule-link-resolution.md) | Cursor-style резолюция ссылок в правилах (`mdc:`/относительные `.md`) → пассивный блок `<referenced_files>`; рекурсия по настройке/тоглу, within-tree + секрет-санитайз, лимиты |
-| [spec-first-defaults.md](vibe-dotfolder/spec-first-defaults.md) | Spec-скиллы уже засеяны — пробел был в правиле-триггере (`spec-first.mdc`), а не в контенте; сверка со Spec Kit; анти-дубль MASTER.md; ре-ген манифеста |
+| [modesAndPolicies.md](chatUx/modesAndPolicies.md) | Normal/Plan/Agent, autopilot vs auto-approve, pre-flight, Trust Score, T&C Suite, confidence vs LLM-judge |
+| [attachments.md](chatUx/attachments.md) | Paste файлов, vision-capability gate (двойной), скрытый dead-code |
+| [chatInterruptAndInject.md](chatUx/chatInterruptAndInject.md) | Дубль `tool_call id` после abort mid-tool-call (HTTP 400) — дедуп в `prepareMessages_openai_tools`; дизайн «подмешать контекст к следующему хопу» без прерывания; **правило: живой UI-статус в треде — транзиентом, не персистентным сообщением** (инвариант `messages[length-1]`, буфер notice до idle) |
+| [shortcuts.md](chatUx/shortcuts.md) | `Ctrl+Alt+I`, отвязка `workbench.action.chat.open`, скрытие builtin chat |
+| [autoRepairLoop.md](chatUx/autoRepairLoop.md) | Repair loop, DMS exclusions, pre-flight vs task decomposition |
+| [modelStalls.md](chatUx/modelStalls.md) | Журнал обрывов/зависаний LLM-ассистента: триггерные слова, шаблон инцидента, гипотезы, митигации |
+| [stuckChatRecovery.md](chatUx/stuckChatRecovery.md) | Stuck-chat recovery — три слоя защиты (abortRunning hard-timeout, stuck-state detection, submit-watchdog forceReset), `forceResetChatState` API, `recoverable` UI variants, Command Palette twins |
+| [circuitBreakers.md](chatUx/circuitBreakers.md) | Circuit breakers для repetitive failures: tool-invalid-params (Stage C) и empty-response (Stage K), no-hardcoded-names rule, reset semantics, anti-patterns (no auto-switch, no adaptive thresholds) |
+
+### [vibeDotfolder/](vibeDotfolder/) — `.vibe/` config
+
+| Файл | О чём |
+|---|---|
+| [templateAndRules.md](vibeDotfolder/templateAndRules.md) | `vibeConfigInitService`, README, GUIDELINES + `VIBE_DOTVIBE_AGENT_PLAYBOOK`; **auto-seed идёт на каждом открытии** (не «на первом»); lock примирения `.defaults.lock.json` — почему `customized` обязан молчать |
+| [workspaceForms.md](vibeDotfolder/workspaceForms.md) | Форма Workspace в настройках + рантайм корневых JSON |
+| [settingsStack.md](vibeDotfolder/settingsStack.md) | Приоритетный стек, `constraints.json` enforcement, CortexIDE как стартовая точка |
+| [ruleLinkResolution.md](vibeDotfolder/ruleLinkResolution.md) | Cursor-style резолюция ссылок в правилах (`mdc:`/относительные `.md`) → пассивный блок `<referenced_files>`; рекурсия по настройке/тоглу, within-tree + секрет-санитайз, лимиты |
+| [specFirstDefaults.md](vibeDotfolder/specFirstDefaults.md) | Spec-скиллы уже засеяны — пробел был в правиле-триггере (`spec-first.mdc`), а не в контенте; сверка со Spec Kit; анти-дубль MASTER.md; ре-ген манифеста |
 
 ### [i18n/](i18n/) — локализация
 
 | Файл | О чём |
 |---|---|
-| [language-pack.md](i18n/language-pack.md) | `vscode-loc` vs VSIX, встроенный core language pack, `&&` мнемоники |
-| [nls-indices.md](i18n/nls-indices.md) | Плейсхолдеры `{0}`, рассинхрон `nls.messages.json`, NLS extract в dev |
-| [russian-first.md](i18n/russian-first.md) | Правило: все user-facing тексты на русском сразу в исходнике; список исключений (ByteString/Latin-1, идентификаторы, бренды) |
-| [react-and-settings.md](i18n/react-and-settings.md) | `vibeSettingsRu.ts`, перевод настроек напрямую (без bundle), правило для будущих PR |
+| [languagePack.md](i18n/languagePack.md) | `vscode-loc` vs VSIX, встроенный core language pack, `&&` мнемоники |
+| [nlsIndices.md](i18n/nlsIndices.md) | Плейсхолдеры `{0}`, рассинхрон `nls.messages.json`, NLS extract в dev |
+| [russianFirst.md](i18n/russianFirst.md) | Правило: все user-facing тексты на русском сразу в исходнике; список исключений (ByteString/Latin-1, идентификаторы, бренды) |
+| [reactAndSettings.md](i18n/reactAndSettings.md) | `vibeSettingsRu.ts`, перевод настроек напрямую (без bundle), правило для будущих PR |
 
 ### [build/](build/) — сборка и dev
 
 | Файл | О чём |
 |---|---|
-| [windows-toolchain.md](build/windows-toolchain.md) | VS C++ Build Tools, MSB8040 Spectre, native modules, `@vscode/vsce-sign` |
-| [linux-toolchain.md](build/linux-toolchain.md) | `release-linux.sh`: deb/rpm/AppImage/tar.gz × x64/arm64, двухфазный флоу, Docker-кросс-сборка, cross-toolchain arm64 |
-| [macos-toolchain.md](build/macos-toolchain.md) | `release-macos.sh`: DMG/ZIP arm64, двухфазный флоу, ad-hoc/Developer ID подпись + notarization, грабли сборки |
-| [build-from-source.md](build/build-from-source.md) | `home-build.*`: самосборка портатива под свою ОС одной командой, self-contained bootstrap (fnm+Node+deps) + гейт намерений |
-| [portable-and-electron.md](build/portable-and-electron.md) | Portable Windows ZIP, Electron mirror, Linux CI X11 |
-| [compile-and-sync.md](build/compile-and-sync.md) | `tsgo` exit 2, sync без общего предка, `run-dev` / `vibe-dev` runner |
-| [update-service.md](build/update-service.md) | GitHub releases + `IUpdateService`, semver сравнение |
-| [vibe-keybindings.md](build/vibe-keybindings.md) | Встроенный IntelliJ-keymap `extensions/vibe-keybindings/`; модель владения keymap + история |
-| [third-party-licensing.md](build/third-party-licensing.md) | Провенанс-флажок ДО сборки/релиза: сторонний код = поднять лицензию явно, не доводить молча до релиза |
+| [windowsToolchain.md](build/windowsToolchain.md) | VS C++ Build Tools, MSB8040 Spectre, native modules, `@vscode/vsce-sign` |
+| [linuxToolchain.md](build/linuxToolchain.md) | `release-linux.sh`: deb/rpm/AppImage/tar.gz × x64/arm64, двухфазный флоу, Docker-кросс-сборка, cross-toolchain arm64 |
+| [macosToolchain.md](build/macosToolchain.md) | `release-macos.sh`: DMG/ZIP arm64, двухфазный флоу, ad-hoc/Developer ID подпись + notarization, грабли сборки |
+| [buildFromSource.md](build/buildFromSource.md) | `home-build.*`: самосборка портатива под свою ОС одной командой, self-contained bootstrap (fnm+Node+deps) + гейт намерений |
+| [portableAndElectron.md](build/portableAndElectron.md) | Portable Windows ZIP, Electron mirror, Linux CI X11 |
+| [compileAndSync.md](build/compileAndSync.md) | `tsgo` exit 2, sync без общего предка, `run-dev` / `vibe-dev` runner |
+| [updateService.md](build/updateService.md) | GitHub releases + `IUpdateService`, semver сравнение |
+| [vibeKeybindings.md](build/vibeKeybindings.md) | Встроенный IntelliJ-keymap `extensions/vibe-keybindings/`; модель владения keymap + история |
+| [thirdPartyLicensing.md](build/thirdPartyLicensing.md) | Провенанс-флажок ДО сборки/релиза: сторонний код = поднять лицензию явно, не доводить молча до релиза |
 
-### [git-and-tools/](git-and-tools/) — git, скрипты, инструменты
-
-| Файл | О чём |
-|---|---|
-| [git-flow.md](git-and-tools/git-flow.md) | Стандартный flow, AI co-author hook, push из Cursor shell, lockfile в `extensions/*`, формат GitHub Releases |
-| [vibe-doctor.md](git-and-tools/vibe-doctor.md) | `agent-locks-stale`, `plans-folder-footprint` |
-| [nightly-roadmap.md](git-and-tools/nightly-roadmap.md) | Cursor rule + skill ночного прогона |
-| [bin-scripts.md](git-and-tools/bin-scripts.md) | Каталог `bin/` и `scripts/` |
-| [support-discord.md](git-and-tools/support-discord.md) | Discord → roadmap |
-| [precommit-hygiene.md](git-and-tools/precommit-hygiene.md) | `tsx`-раннер hygiene/eslint, фильтры Unicode/indentation для vibeide, lint-staged без eslint, `--no-verify` на больших коммитах. **+ [foot-gun]** фильтры **каскадные** (`all ⊃ eol ⊇ indentation ⊃ copyright ⊃ typescript`) — исключение в раннем фильтре снимает и все последующие проверки (`!` в copyright отключил ESLint); shebang vs заголовок на строке 0 — ложная дилемма (shebang рудимент); линт видит файл, только когда он staged |
-| [docs-layout.md](git-and-tools/docs-layout.md) | Правило `docs/manuals/` + camelCase; почему `CONTRIBUTING.md` нельзя унести (GitHub ищет в 3 путях); ловушка вшитых абсолютных URL в засеянных `.vibe` |
-
-### [tool-system/](tool-system/) — слой встроенных тулов (поверхность, которую видит LLM)
+### [gitAndTools/](gitAndTools/) — git, скрипты, инструменты
 
 | Файл | О чём |
 |---|---|
-| [overview.md](tool-system/overview.md) | Карта кода слоя (`toolsServiceTypes`, `prompts`, `toolsService`, `terminalToolService`, `toolHardening`) + зачем закаляли: одна ручка `run_command` = зависание на длинных чтениях (у shell-stdout нет ни пагинации, ни таймаута) |
-| [anti-shell-contract.md](tool-system/anti-shell-contract.md) | Что `run_command` отбивает и почему (`detectShellMisuse`): shell-формы, дублирующие штатные тулы (`Get-Content`/`cat`/`findstr`); error surface; когда расширять список |
-| [read-file-v2.md](tool-system/read-file-v2.md) | Line-based slicing, нумерация строк в выводе, контракт пагинации, large-file warning, стык с edit safety |
-| [edit-safety.md](tool-system/edit-safety.md) | Pre-flights перед мутацией: `edit_file` «must read first», `create_file_or_folder` «parent must exist»; **[баг]** тихая запись пустого файла (stale `_fileExistenceCache`, TTL 5 c, v0.21.3); **[правило]** truncation-guard `rewrite_file` (`rewriteFileTruncationMinChars`/`Ratio`) против молчаливой потери данных при обрыве вывода модели |
-| [edit-file-indentation-alignment.md](tool-system/edit-file-indentation-alignment.md) | Выравнивание отступа при толерантном матче `edit_file` — корень, фикс (v1.2.4), урок |
-| [glob-and-grep.md](tool-system/glob-and-grep.md) | Поиск на ripgrep: `glob` (по именам) vs `grep` (по содержимому); почему два тула, а не один слитый |
-| [background-commands.md](tool-system/background-commands.md) | `run_in_background` / `read_background_output` / `kill_background_command`: когда какой, жизненный цикл, границы; почему не делали push-уведомления |
+| [gitFlow.md](gitAndTools/gitFlow.md) | Стандартный flow, AI co-author hook, push из Cursor shell, lockfile в `extensions/*`, формат GitHub Releases |
+| [vibeDoctor.md](gitAndTools/vibeDoctor.md) | `agent-locks-stale`, `plans-folder-footprint` |
+| [nightlyRoadmap.md](gitAndTools/nightlyRoadmap.md) | Cursor rule + skill ночного прогона |
+| [binScripts.md](gitAndTools/binScripts.md) | Каталог `bin/` и `scripts/` |
+| [supportDiscord.md](gitAndTools/supportDiscord.md) | Discord → roadmap |
+| [precommitHygiene.md](gitAndTools/precommitHygiene.md) | `tsx`-раннер hygiene/eslint, фильтры Unicode/indentation для vibeide, lint-staged без eslint, `--no-verify` на больших коммитах. **+ [foot-gun]** фильтры **каскадные** (`all ⊃ eol ⊇ indentation ⊃ copyright ⊃ typescript`) — исключение в раннем фильтре снимает и все последующие проверки (`!` в copyright отключил ESLint); shebang vs заголовок на строке 0 — ложная дилемма (shebang рудимент); линт видит файл, только когда он staged |
+| [docsLayout.md](gitAndTools/docsLayout.md) | Правило `docs/manuals/` + camelCase; почему `CONTRIBUTING.md` нельзя унести (GitHub ищет в 3 путях); ловушка вшитых абсолютных URL в засеянных `.vibe` |
 
-### [runtime-quirks/](runtime-quirks/) — runtime-ловушки
+### [toolSystem/](toolSystem/) — слой встроенных тулов (поверхность, которую видит LLM)
 
 | Файл | О чём |
 |---|---|
-| [ieditor-service.md](runtime-quirks/ieditor-service.md) | Только `IEditorService.openEditor`, не `activeGroup.openEditor` |
-| [services-accessor.md](runtime-quirks/services-accessor.md) | `ServicesAccessor` инвалидируется через `await` |
-| [path-and-uri.md](runtime-quirks/path-and-uri.md) | `validateURI` на Windows, UTF-8 BOM в settings |
-| [language-server-esm.md](runtime-quirks/language-server-esm.md) | HTML/CSS LS — ESM-клиент и CJS-бандл |
-| [idle-memory.md](runtime-quirks/idle-memory.md) | Ночной OOM / блок других Electron-приложений / Idle Watchdog инструмент диагностики |
-| [watchdog-commands.md](runtime-quirks/watchdog-commands.md) | Idle Watchdog: Command Palette entries, всех 18 settings keys, on-disk artefact layout, .jsonl schema v=1 |
-| [xml-tool-format-incidents.md](runtime-quirks/xml-tool-format-incidents.md) | Chronological catalog of observed XML tool-call format incidents (model / format / fix commit / regression test) |
-| [provider-quota-429.md](runtime-quirks/provider-quota-429.md) | Квотные 429 (retry-after в днях) vs burst-троттлинг: fail-fast в customFetch, отдельное семейство переводчика ошибок |
-| [anthropic-shape-tool-history.md](runtime-quirks/anthropic-shape-tool-history.md) | Инцидент: tool_use/tool_result Anthropic-формы выбрасывались AI SDK адаптером → модель не видела результаты и реплеила вызовы; диагностика через прирост `in:` |
-| [auto-downgrade-pipeline.md](runtime-quirks/auto-downgrade-pipeline.md) | Тройной инцидент авто-даунгрейда в XML: run-local guard, потеря undefined на IPC/диске (→ null-sentinel), recovery стирал свежие override'ы (→ age-guard) |
+| [overview.md](toolSystem/overview.md) | Карта кода слоя (`toolsServiceTypes`, `prompts`, `toolsService`, `terminalToolService`, `toolHardening`) + зачем закаляли: одна ручка `run_command` = зависание на длинных чтениях (у shell-stdout нет ни пагинации, ни таймаута) |
+| [antiShellContract.md](toolSystem/antiShellContract.md) | Что `run_command` отбивает и почему (`detectShellMisuse`): shell-формы, дублирующие штатные тулы (`Get-Content`/`cat`/`findstr`); error surface; когда расширять список |
+| [readFileV2.md](toolSystem/readFileV2.md) | Line-based slicing, нумерация строк в выводе, контракт пагинации, large-file warning, стык с edit safety |
+| [editSafety.md](toolSystem/editSafety.md) | Pre-flights перед мутацией: `edit_file` «must read first», `create_file_or_folder` «parent must exist»; **[баг]** тихая запись пустого файла (stale `_fileExistenceCache`, TTL 5 c, v0.21.3); **[правило]** truncation-guard `rewrite_file` (`rewriteFileTruncationMinChars`/`Ratio`) против молчаливой потери данных при обрыве вывода модели |
+| [editFileIndentationAlignment.md](toolSystem/editFileIndentationAlignment.md) | Выравнивание отступа при толерантном матче `edit_file` — корень, фикс (v1.2.4), урок |
+| [globAndGrep.md](toolSystem/globAndGrep.md) | Поиск на ripgrep: `glob` (по именам) vs `grep` (по содержимому); почему два тула, а не один слитый |
+| [backgroundCommands.md](toolSystem/backgroundCommands.md) | `run_in_background` / `read_background_output` / `kill_background_command`: когда какой, жизненный цикл, границы; почему не делали push-уведомления |
+
+### [runtimeQuirks/](runtimeQuirks/) — runtime-ловушки
+
+| Файл | О чём |
+|---|---|
+| [ieditorService.md](runtimeQuirks/ieditorService.md) | Только `IEditorService.openEditor`, не `activeGroup.openEditor` |
+| [servicesAccessor.md](runtimeQuirks/servicesAccessor.md) | `ServicesAccessor` инвалидируется через `await` |
+| [pathAndUri.md](runtimeQuirks/pathAndUri.md) | `validateURI` на Windows, UTF-8 BOM в settings |
+| [languageServerEsm.md](runtimeQuirks/languageServerEsm.md) | HTML/CSS LS — ESM-клиент и CJS-бандл |
+| [idleMemory.md](runtimeQuirks/idleMemory.md) | Ночной OOM / блок других Electron-приложений / Idle Watchdog инструмент диагностики |
+| [watchdogCommands.md](runtimeQuirks/watchdogCommands.md) | Idle Watchdog: Command Palette entries, всех 18 settings keys, on-disk artefact layout, .jsonl schema v=1 |
+| [xmlToolFormatIncidents.md](runtimeQuirks/xmlToolFormatIncidents.md) | Chronological catalog of observed XML tool-call format incidents (model / format / fix commit / regression test) |
+| [providerQuota429.md](runtimeQuirks/providerQuota429.md) | Квотные 429 (retry-after в днях) vs burst-троттлинг: fail-fast в customFetch, отдельное семейство переводчика ошибок |
+| [anthropicShapeToolHistory.md](runtimeQuirks/anthropicShapeToolHistory.md) | Инцидент: tool_use/tool_result Anthropic-формы выбрасывались AI SDK адаптером → модель не видела результаты и реплеила вызовы; диагностика через прирост `in:` |
+| [autoDowngradePipeline.md](runtimeQuirks/autoDowngradePipeline.md) | Тройной инцидент авто-даунгрейда в XML: run-local guard, потеря undefined на IPC/диске (→ null-sentinel), recovery стирал свежие override'ы (→ age-guard) |
 
 ### [roadmap/](roadmap/) — run logs (long sessions)
 
 | Файл | О чём |
 |---|---|
 | [runs.md](roadmap/runs.md) | Run logs ночных roadmap-max сессий |
-| [token-economy.md](roadmap/token-economy.md) | Токен-экономия: cache-friendly prompt assembly, конденсер вывода терминала, auxiliary-модель для служебных вызовов |
+| [tokenEconomy.md](roadmap/tokenEconomy.md) | Токен-экономия: cache-friendly prompt assembly, конденсер вывода терминала, auxiliary-модель для служебных вызовов |
 
 ### [assets/](assets/) — лого, иконки, онбординг
 
 | Файл | О чём |
 |---|---|
 | [logo.md](assets/logo.md) | Создание лого, AI промпт, алгоритм вписывания в круг |
-| [welcome-onboarding.md](assets/welcome-onboarding.md) | Welcome-онбординг, `vibeide-main.png` |
+| [welcomeOnboarding.md](assets/welcomeOnboarding.md) | Welcome-онбординг, `vibeide-main.png` |
 
 ### [patterns/](patterns/) — кросс-доменные паттерны и footguns
 
 | Файл | О чём |
 |---|---|
-| [lessons-from-roadmap-max-runs.md](patterns/lessons-from-roadmap-max-runs.md) | Pure-helper + DI wrapper, discriminated-union FSM, tagged-result envelopes, twin-shape redactor, JSDoc `*/`-footgun, ReadonlyArray push/sort, OAuth state-CSRF-first, HMAC + decoder pairing, sticky-comment CI |
-| [settings-registration-sweep.md](patterns/settings-registration-sweep.md) | Phantom config keys, in-service vs centralised registration, standalone xxxConfiguration.ts, localize() for descriptions, ConfigurationScope choice, minimum/maximum clamp, code-review smell |
-| [main-renderer-config-bridge.md](patterns/main-renderer-config-bridge.md) | Pattern для прокидывания renderer-side settings в electron-main process через IPC + `process.env` indirection. Когда использовать, когда нет, alternative с direct IPC channel при росте |
-| [verify-before-hypothesizing.md](patterns/verify-before-hypothesizing.md) | **[правило]** Если симптом измерим — измерь (терминал/инструментация) ПЕРЕД гипотезой. Канон: get_dir_tree-тормоза (3 неверных гипотезы → 1 `Get-ChildItem` = 25мс → корень). Гипотезу без замера в roadmap помечать гипотезой, не причиной. **+ «Зелёный чек ≠ работающий чек»**: три способа соврать (не запускается / слеп к классу поломки / шапка врёт про код) + дублирующие индексы расходятся по построению |
-| [unit-test-runner-footguns.md](patterns/unit-test-runner-footguns.md) | `import from 'mocha'` убивает весь test.bat-прогон (использовать глобалы), test.bat гоняет `out/` (нужен `transpile-client`), псевдотесты с инлайн-копией логики вместо импорта продукта |
-| [agentic-rewrite-needs-oracle.md](patterns/agentic-rewrite-needs-oracle.md) | **[правило]** Массовый агентский рефакторинг — только при оракуле, не зависящем от переписываемого слоя. Кейс Bun (Zig→Rust, 11 дней, ≈$165k): TS-тесты как конформити-оракул, adversarial review по диффу без нарратива автора, trial run на 3 файлах. Разблокировка отложенного split `vibeide/common` |
-| [command-title-category.md](patterns/command-title-category.md) | Палитра склеивает `{category}: {title}` буквально → двойной «VibeIDE: VibeIDE: …». С `category` префикс в title не дублировать; без `category` — префикс «VibeIDE:» в title нормален |
+| [lessonsFromRoadmapMaxRuns.md](patterns/lessonsFromRoadmapMaxRuns.md) | Pure-helper + DI wrapper, discriminated-union FSM, tagged-result envelopes, twin-shape redactor, JSDoc `*/`-footgun, ReadonlyArray push/sort, OAuth state-CSRF-first, HMAC + decoder pairing, sticky-comment CI |
+| [settingsRegistrationSweep.md](patterns/settingsRegistrationSweep.md) | Phantom config keys, in-service vs centralised registration, standalone xxxConfiguration.ts, localize() for descriptions, ConfigurationScope choice, minimum/maximum clamp, code-review smell |
+| [mainRendererConfigBridge.md](patterns/mainRendererConfigBridge.md) | Pattern для прокидывания renderer-side settings в electron-main process через IPC + `process.env` indirection. Когда использовать, когда нет, alternative с direct IPC channel при росте |
+| [verifyBeforeHypothesizing.md](patterns/verifyBeforeHypothesizing.md) | **[правило]** Если симптом измерим — измерь (терминал/инструментация) ПЕРЕД гипотезой. Канон: get_dir_tree-тормоза (3 неверных гипотезы → 1 `Get-ChildItem` = 25мс → корень). Гипотезу без замера в roadmap помечать гипотезой, не причиной. **+ «Зелёный чек ≠ работающий чек»**: три способа соврать (не запускается / слеп к классу поломки / шапка врёт про код) + дублирующие индексы расходятся по построению |
+| [unitTestRunnerFootguns.md](patterns/unitTestRunnerFootguns.md) | `import from 'mocha'` убивает весь test.bat-прогон (использовать глобалы), test.bat гоняет `out/` (нужен `transpile-client`), псевдотесты с инлайн-копией логики вместо импорта продукта |
+| [agenticRewriteNeedsOracle.md](patterns/agenticRewriteNeedsOracle.md) | **[правило]** Массовый агентский рефакторинг — только при оракуле, не зависящем от переписываемого слоя. Кейс Bun (Zig→Rust, 11 дней, ≈$165k): TS-тесты как конформити-оракул, adversarial review по диффу без нарратива автора, trial run на 3 файлах. Разблокировка отложенного split `vibeide/common` |
+| [commandTitleCategory.md](patterns/commandTitleCategory.md) | Палитра склеивает `{category}: {title}` буквально → двойной «VibeIDE: VibeIDE: …». С `category` префикс в title не дублировать; без `category` — префикс «VibeIDE:» в title нормален |
 
-### [agent-collaboration/](agent-collaboration/) — правила работы агента с автором
+### [agentCollaboration/](agentCollaboration/) — правила работы агента с автором
 
 | Файл | О чём |
 |---|---|
-| [workflow.md](agent-collaboration/workflow.md) | Меньше mid-task confirmations, batch autonomous execution на explicit-разрешение, логирование model stalls |
-| [release-protocol.md](agent-collaboration/release-protocol.md) | `release-windows.ps1 -Version` для минор/мажор, post-release sync README + pre-clean archive, About-диалог, gh account routing, donation phrase choice |
-| [permissions-and-hooks.md](agent-collaboration/permissions-and-hooks.md) | Marker-gated permissions для write-tools / destructive Bash, не flat global allow |
-| [xml-normalize-audit-checklist.md](agent-collaboration/xml-normalize-audit-checklist.md) | Pre-merge gate для XML normalize transform'ов (8 пунктов: escape / idempotency / null guard / structural assertions / symmetric defense / streaming partial / verbatim fixture) |
-| [why-models-ignore-injected-rules.md](agent-collaboration/why-models-ignore-injected-rules.md) | Модель игнорит правила из-за framing, не отсутствия загрузки: `[Source: path]` читается как справка, нужна binding-обёртка (образец — `session_goals`). Авто-вызов завершения за модель = антипаттерн. Project-intent — прозой в `.vibe/rules.md`, не schema |
-| [auto-scout.md](agent-collaboration/auto-scout.md) | Авто-разведчик на «продолжи»: read-only explore по правкам+плану → гейт «оно/не оно» в треде. Триггер A+C (не B), гейт-в-треде, контекст дописывается в `content` user-сообщения (конвертер не трогаем), thin-context skip, confidence-автоскип, «Уточнить»=петля |
-| [vision-routing.md](agent-collaboration/vision-routing.md) | Картинка субагенту → роль на vision-модели: 5 звеньев (проброс `images` через контракт спавна, image-aware `buildRoute`, авто-vision-фолбэк, дизайнер vision-by-default, image-вход в модалке). DRY `isModelVisionCapable`; грабли бандла модалки (Tailwind только text-утилиты; `appearance:base-select` не поддержан) |
+| [workflow.md](agentCollaboration/workflow.md) | Меньше mid-task confirmations, batch autonomous execution на explicit-разрешение, логирование model stalls |
+| [releaseProtocol.md](agentCollaboration/releaseProtocol.md) | `release-windows.ps1 -Version` для минор/мажор, post-release sync README + pre-clean archive, About-диалог, gh account routing, donation phrase choice |
+| [permissionsAndHooks.md](agentCollaboration/permissionsAndHooks.md) | Marker-gated permissions для write-tools / destructive Bash, не flat global allow |
+| [xmlNormalizeAuditChecklist.md](agentCollaboration/xmlNormalizeAuditChecklist.md) | Pre-merge gate для XML normalize transform'ов (8 пунктов: escape / idempotency / null guard / structural assertions / symmetric defense / streaming partial / verbatim fixture) |
+| [whyModelsIgnoreInjectedRules.md](agentCollaboration/whyModelsIgnoreInjectedRules.md) | Модель игнорит правила из-за framing, не отсутствия загрузки: `[Source: path]` читается как справка, нужна binding-обёртка (образец — `session_goals`). Авто-вызов завершения за модель = антипаттерн. Project-intent — прозой в `.vibe/rules.md`, не schema |
+| [autoScout.md](agentCollaboration/autoScout.md) | Авто-разведчик на «продолжи»: read-only explore по правкам+плану → гейт «оно/не оно» в треде. Триггер A+C (не B), гейт-в-треде, контекст дописывается в `content` user-сообщения (конвертер не трогаем), thin-context skip, confidence-автоскип, «Уточнить»=петля |
+| [visionRouting.md](agentCollaboration/visionRouting.md) | Картинка субагенту → роль на vision-модели: 5 звеньев (проброс `images` через контракт спавна, image-aware `buildRoute`, авто-vision-фолбэк, дизайнер vision-by-default, image-вход в модалке). DRY `isModelVisionCapable`; грабли бандла модалки (Tailwind только text-утилиты; `appearance:base-select` не поддержан) |
 
 ### [security/](security/) — безопасность конфигов и рантайма
 
 | Файл | О чём |
 |---|---|
-| [config-guard.md](security/config-guard.md) | Config Guard — статический скан `.vibe/providers.json` и `mcp.json` при загрузке (12 правил из AgentShield под поверхность VibeIDE): non-https/raw-IP endpoint, хардкод секретов, `curl\|sh`/`npx -y`/`--no-sandbox` в MCP. Чистый `vibeConfigGuard.ts`, `vibeide.configGuard.*` (warn/block), команда `vibeide.configGuard.showFindings`. Что НЕ дублирует: secretDetection + promptGuard |
+| [configGuard.md](security/configGuard.md) | Config Guard — статический скан `.vibe/providers.json` и `mcp.json` при загрузке (12 правил из AgentShield под поверхность VibeIDE): non-https/raw-IP endpoint, хардкод секретов, `curl\|sh`/`npx -y`/`--no-sandbox` в MCP. Чистый `vibeConfigGuard.ts`, `vibeide.configGuard.*` (warn/block), команда `vibeide.configGuard.showFindings`. Что НЕ дублирует: secretDetection + promptGuard |
 
 ---
 
@@ -195,7 +195,7 @@
 
 ## Этот файл — единственный индекс базы
 
-Старый плоский `docs/knowledge.md` (1267 строк, ~80 записей) разбит на эту структуру 2026-05-09; его огрызок-редирект удалён 2026-07-15 вместе с подындексом `tool-system/README.md` — **дублирующие списки одного множества расходятся по построению** (огрызок знал 11 доменов из 14, подындекс — 5 записей из 6, `tool-system/` не был виден отсюда 7 недель).
+Старый плоский `docs/knowledge.md` (1267 строк, ~80 записей) разбит на эту структуру 2026-05-09; его огрызок-редирект удалён 2026-07-15 вместе с подындексом `toolSystem/README.md` — **дублирующие списки одного множества расходятся по построению** (огрызок знал 11 доменов из 14, подындекс — 5 записей из 6, `toolSystem/` не был виден отсюда 7 недель).
 
 **Правило:** запись без строки в этой таблице не существует — её никто не найдёт. Добавил файл → добавь строку. Гейтится `npm run docs-graph-check` (dead links + членство в индексе), гоняется в CI.
 

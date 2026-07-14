@@ -49,8 +49,8 @@ VibeIDE — open-source IDE на базе VS Code. Любые правки в к
 - Link integrity — `docs-links.yml` проверяет relative + external links (templates `_template-*.md` excluded — содержат placeholder paths).
 
 **Knowledge entry PR:**
-- Шаблон — `docs/knowledge/_template-knowledge-entry.md`. Скопировать в подходящий topic, заполнить.
-- Incident retrospective — `docs/knowledge/_template-incident.md`.
+- Шаблон — `docs/knowledge/_templateKnowledgeEntry.md`. Скопировать в подходящий topic, заполнить.
+- Incident retrospective — `docs/knowledge/_templateIncident.md`.
 - Один PR — одна запись (не bundle'ить разные знания). Reviewer проверит формат + дубликаты.
 
 **Roadmap update:**
@@ -75,7 +75,7 @@ VibeIDE — open-source IDE на базе VS Code. Любые правки в к
 
 Перед commit'ом записи в `docs/knowledge/`:
 
-- [ ] Использовал template (`_template-knowledge-entry.md` или `_template-incident.md`).
+- [ ] Использовал template (`_templateKnowledgeEntry.md` или `_templateIncident.md`).
 - [ ] Формат «Контекст / Суть / Применение» (или incident: «Подтверждённое / Исключённое / Под подозрением / Root cause / Fix / Lessons»).
 - [ ] Не дублирует существующую запись — grep по ключевому термину в `docs/knowledge/`.
 - [ ] Не leak'ает personal info (`%USERPROFILE%` вместо `C:\Users\<name>`, etc.).

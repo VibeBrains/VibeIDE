@@ -21,7 +21,7 @@ alwaysApply: false
 
 ## Алгоритм перед созданием
 
-1. Открыть [bin-scripts.md](mdc:docs/knowledge/git-and-tools/bin-scripts.md) → каталог скриптов `bin/` и `scripts/`.
+1. Открыть [binScripts.md](mdc:docs/knowledge/gitAndTools/binScripts.md) → каталог скриптов `bin/` и `scripts/`.
 2. Поиск по репо: `bin/`, `scripts/`, секция `"scripts"` в `package.json`, упоминание задачи в `docs/`.
 3. Есть **близкий** скрипт → расширить его (флаг, подкоманда), а не плодить второй файл.
 4. Нет → создать в `bin/` и **сразу** зарегистрировать в knowledge (см. ниже).
@@ -39,7 +39,7 @@ alwaysApply: false
 
 ## Регистрация в knowledge
 
-Обязательная запись в конец каталога в [bin-scripts.md](mdc:docs/knowledge/git-and-tools/bin-scripts.md) — строкой таблицы:
+Обязательная запись в конец каталога в [binScripts.md](mdc:docs/knowledge/gitAndTools/binScripts.md) — строкой таблицы:
 
 ```markdown
 | `имя-файла` | `bin/имя-файла` | Одна строка: что делает. Ключевые флаги/env. |

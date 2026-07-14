@@ -13,7 +13,7 @@
 // absent from it is undiscoverable, however well it is cross-linked. Orphan
 // detection does not catch this — a cluster of files linking to each other has
 // non-zero degree while staying invisible from the index (that is exactly how
-// the whole `tool-system/` domain went unlisted for seven weeks).
+// the whole `toolSystem/` domain went unlisted for seven weeks).
 //
 // Usage:
 //   node scripts/vibe-docs-graph.mjs               # mermaid graph to stdout
@@ -66,8 +66,8 @@ for (const file of files) {
 	const content = fs.readFileSync(file, 'utf8');
 	for (const m of content.matchAll(LINK_RE)) {
 		const linkTarget = m[2];
-		// Skip _template-* targets (placeholder paths).
-		if (linkTarget.includes('/_template-') || path.basename(linkTarget).startsWith('_template-')) {continue;}
+		// Skip _template* targets (placeholder paths).
+		if (linkTarget.includes('/_template') || path.basename(linkTarget).startsWith('_template')) {continue;}
 		const resolved = path.resolve(path.dirname(file), linkTarget);
 		const targetId = nodeIdOf(resolved);
 		// Only track edges that stay within docs/knowledge.
@@ -89,19 +89,19 @@ for (const id of nodes) {
 	const outDeg = (outgoing.get(id) ?? new Set()).size;
 	// README files are intentionally entry points — exempt from orphan check.
 	if (path.basename(id) === 'README.md') {continue;}
-	// Files starting with `_template-` are skeletons, not real entries.
-	if (path.basename(id).startsWith('_template-')) {continue;}
+	// Files starting with `_template` are skeletons, not real entries.
+	if (path.basename(id).startsWith('_template')) {continue;}
 	if (inDeg === 0 && outDeg === 0) {orphans.push(id);}
 }
 
 // Index membership: every entry must be linked from `docs/knowledge/README.md`.
-// Exempt: the index itself and `_template-*` skeletons.
+// Exempt: the index itself and `_template*` skeletons.
 const INDEX_ID = 'README.md';
 const indexedIds = outgoing.get(INDEX_ID) ?? new Set();
 const unindexed = [];
 for (const id of nodes) {
 	if (id === INDEX_ID) {continue;}
-	if (path.basename(id).startsWith('_template-')) {continue;}
+	if (path.basename(id).startsWith('_template')) {continue;}
 	if (!indexedIds.has(id)) {unindexed.push(id);}
 }
 unindexed.sort();

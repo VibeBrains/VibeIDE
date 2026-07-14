@@ -2,7 +2,7 @@ name: knowledge-index
 
 # Guards the knowledge base contract: `docs/knowledge/README.md` is the ONLY list of entries.
 # A file absent from it is undiscoverable no matter how well it is cross-linked — that is not a
-# hypothetical: the whole `tool-system/` domain (6 entries) sat unlisted for seven weeks, and the
+# hypothetical: the whole `toolSystem/` domain (6 entries) sat unlisted for seven weeks, and the
 # pre-existing `--check` stayed silent because those files link to each other, so they were never
 # "orphans" by its definition. The check also went red unnoticed for a different reason: it was
 # wired into nothing and only ever ran by hand.

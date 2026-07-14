@@ -75,7 +75,7 @@ references/*
 # `docs/` is now tracked (2026-05-23 — became the project knowledge base).
 # Only exclude editor-specific noise inside:
 docs/.obsidian/
-# Root bin/: ignore local scratch by default; allow selected committed utilities (see script-save / docs/knowledge/git-and-tools/bin-scripts.md)
+# Root bin/: ignore local scratch by default; allow selected committed utilities (see script-save / docs/knowledge/gitAndTools/binScripts.md)
 bin/*
 !bin/vibe-language-pack-nls.mjs
 !bin/vibe-language-pack-build.mjs

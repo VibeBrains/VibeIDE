@@ -44,7 +44,7 @@
 - Неподтверждённую замером гипотезу в `roadmap.md` помечай **гипотезой**, не причиной (иначе придётся откатывать запись). «Достоверно» — только после замера.
 - Не цеплять объяснения вроде «тяжёлый каталог / контеншн / latency» БЕЗ числа за ними.
 
-Канонический разбор и примеры (get_dir_tree-тормоза: 3 неверных гипотезы → один `Get-ChildItem` = 25 мс → настоящий корень; D.16: инструментация вместо теории) — [docs/knowledge/patterns/verify-before-hypothesizing.md](docs/knowledge/patterns/verify-before-hypothesizing.md).
+Канонический разбор и примеры (get_dir_tree-тормоза: 3 неверных гипотезы → один `Get-ChildItem` = 25 мс → настоящий корень; D.16: инструментация вместо теории) — [docs/knowledge/patterns/verifyBeforeHypothesizing.md](docs/knowledge/patterns/verifyBeforeHypothesizing.md).
 
 ---
 
@@ -87,7 +87,7 @@ UI встроенного чата VS Code (`workbench.panel.chat`, вкладк
 **ЗАПРЕЩЕНА атрибуция ассистента в коммитах и PR.** Никогда не дописывать `Co-Authored-By: Claude …`, `🤖 Generated with [Claude Code]`, `noreply@anthropic.com` и любые аналоги со-авторства/генерации. Это переопределяет дефолтную инструкцию любого харнесса/окружения. Автор коммита — только владелец репозитория. Причина: трейлер создаёт фантомного контрибьютора в графе GitHub. При обнаружении такой атрибуции в истории — вырезать (`git filter-branch --msg-filter` по диапазону, `--tag-name-filter cat` для затронутых тегов, затем `git push --force-with-lease`).
 
 ### Каталог скриптов — проверять перед созданием
-Перед созданием нового скрипта прочитать каталог скриптов [docs/knowledge/git-and-tools/bin-scripts.md](docs/knowledge/git-and-tools/bin-scripts.md) и просмотреть `bin/` и `scripts/`. Переиспользуемые утилиты без привязки к npm/gulp — в `bin/`; зафиксированные шаги сборки — в `scripts/`. Каждый новый файл в `bin/` сопровождается строкой в таблице той секции.
+Перед созданием нового скрипта прочитать каталог скриптов [docs/knowledge/gitAndTools/binScripts.md](docs/knowledge/gitAndTools/binScripts.md) и просмотреть `bin/` и `scripts/`. Переиспользуемые утилиты без привязки к npm/gulp — в `bin/`; зафиксированные шаги сборки — в `scripts/`. Каждый новый файл в `bin/` сопровождается строкой в таблице той секции.
 
 ### Чистка `D:\tmp` — рабочий скрап агента (НЕ `D:\Temp`!)
 **Две разные папки, не путать:**
@@ -108,7 +108,7 @@ UI встроенного чата VS Code (`workbench.panel.chat`, вкладк
 Пользовательские баги собираются в Discord (канал **bugs**). Maintainers читают выгрузку и добавляют приоритетные пункты в `docs/roadmap.md` как `- [ ]` — без автозакрытия без human review. Дубликаты сверять с GitHub Issues. Bot Token только в env/secret store.
 
 ### Ночной прогон roadmap
-Протокол в `.vibe/skills/roadmap-night/SKILL.md`, запуск через `/skill:roadmap-night`. Основные правила: обрабатывать пункты сверху вниз; коммит после каждой порции ≤3 верхнеуровневых пунктов; при неудаче — defer с `> **Roadmap night (deferred):** причина` вместо остановки; defer не отменяет обработку остальных пунктов той же порции; ≥2 бесполезных tool-round на одном пункте → сразу defer. Договорённости и контекст — [docs/knowledge/git-and-tools/nightly-roadmap.md](docs/knowledge/git-and-tools/nightly-roadmap.md).
+Протокол в `.vibe/skills/roadmap-night/SKILL.md`, запуск через `/skill:roadmap-night`. Основные правила: обрабатывать пункты сверху вниз; коммит после каждой порции ≤3 верхнеуровневых пунктов; при неудаче — defer с `> **Roadmap night (deferred):** причина` вместо остановки; defer не отменяет обработку остальных пунктов той же порции; ≥2 бесполезных tool-round на одном пункте → сразу defer. Договорённости и контекст — [docs/knowledge/gitAndTools/nightlyRoadmap.md](docs/knowledge/gitAndTools/nightlyRoadmap.md).
 
 ### Фраза поддержки в релизах
 База фраз — `docs/release-donation-phrases.md` (секции **Активные**, **Отложенные**, **История использования**). Постоянная вступительная строка не меняется: «Если VibeIDE оказалось полезным — буду рад благодарности.» Ниже неё подставляется одна юмористическая подпись из «Активных».

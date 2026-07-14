@@ -14,16 +14,16 @@ docs/
 ├── knowledge/                     # База знаний по темам — single source of truth
 │   ├── README.md                  # Единственный индекс базы (точка входа)
 │   ├── architecture/              # LLM pipeline, tool calls, model quirks
-│   ├── agent-collaboration/       # Workflow с AI-агентами, permissions, hooks
+│   ├── agentCollaboration/       # Workflow с AI-агентами, permissions, hooks
 │   ├── build/                     # Windows toolchain, портабл, update service
-│   ├── chat-ux/                   # Поведение чата, circuit breakers, stall recovery
-│   ├── git-and-tools/             # Git flow, vibe-doctor, bin scripts
+│   ├── chatUx/                   # Поведение чата, circuit breakers, stall recovery
+│   ├── gitAndTools/             # Git flow, vibe-doctor, bin scripts
 │   ├── i18n/                      # Language pack, NLS, React i18n
 │   ├── patterns/                  # Recurring patterns + lessons learned
-│   ├── runtime-quirks/            # Path/URI, services accessor, idle memory, watchdog
-│   ├── tool-system/               # Built-in tools contract, read/edit safety
+│   ├── runtimeQuirks/            # Path/URI, services accessor, idle memory, watchdog
+│   ├── toolSystem/               # Built-in tools contract, read/edit safety
 │   ├── ui/                        # CSS pipeline, scope-tailwind, themes
-│   ├── vibe-dotfolder/            # .vibe/ workspace config
+│   ├── vibeDotfolder/            # .vibe/ workspace config
 │   ├── assets/                    # Логотипы, onboarding
 │   └── roadmap/                   # Run logs (roadmap-max sessions etc.)
 ├── v1/                            # Подробное планирование Phase 1
@@ -79,10 +79,10 @@ docs/
 **Куда что:**
 - LLM/Anthropic SDK/quirks — `knowledge/architecture/`
 - Build/installer/Windows — `knowledge/build/`
-- Stall/timeout/recovery — `knowledge/chat-ux/`
-- File ops/services API — `knowledge/runtime-quirks/`
-- Tool definitions/aliases — `knowledge/tool-system/` или `knowledge/architecture/tool-calling.md`
-- Agent workflow rules (тон, протокол, реакция на корнеры) — `knowledge/agent-collaboration/`
+- Stall/timeout/recovery — `knowledge/chatUx/`
+- File ops/services API — `knowledge/runtimeQuirks/`
+- Tool definitions/aliases — `knowledge/toolSystem/` или `knowledge/architecture/toolCalling.md`
+- Agent workflow rules (тон, протокол, реакция на корнеры) — `knowledge/agentCollaboration/`
 
 ## Roadmap
 

@@ -98,7 +98,7 @@ export const resolveInvokeParamName = (rawParamName: string, canonicalToolName: 
 // NOT mapped here: the namespaced `{"tool":"fs","command":"read"}` form (nemotron-nano, roadmap) —
 // `fs` is not a canonical tool and the command→tool + args→param map is unverified, so such entries
 // fail resolveToolNameLoose and are left untouched until a verbatim sample confirms the mapping.
-// See docs/knowledge/runtime-quirks/xml-tool-format-incidents.md.
+// See docs/knowledge/runtimeQuirks/xmlToolFormatIncidents.md.
 
 /** Find the next `[` at/after `from` that is immediately followed (modulo whitespace) by `{`. */
 const findArrayOfObjectsStart = (text: string, from: number): number => {

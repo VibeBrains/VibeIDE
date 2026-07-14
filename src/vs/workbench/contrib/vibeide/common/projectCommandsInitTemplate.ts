@@ -53,7 +53,7 @@ export function serializeProjectCommandsInitTemplate(opts: InitTemplateOptions):
 	const file = buildProjectCommandsInitTemplate(opts);
 	const annotated: Record<string, unknown> = {
 		_comment_top: 'VibeIDE Project Commands — workspace-first shell shortcuts.',
-		_comment_docs: 'Документация: docs/v1/project-commands.md (разделы security, миграция из tasks.json).',
+		_comment_docs: 'Документация: docs/v1/projectCommands.md (разделы security, миграция из tasks.json).',
 		vibeVersion: file.vibeVersion,
 		commands: file.commands.map(c => ({
 			_comment_id: 'id: латиница, цифры, дефисы; до 64 символов; уникален в файле.',

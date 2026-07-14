@@ -106,7 +106,7 @@ scripts\home-build.cmd
 
 Флаги: `--arch arm64` (переопределить авто-архитектуру), `--yes` (без вопроса, для скриптов). Архитектура по умолчанию — как у твоей машины. **Windows:** нужен заранее установленный VS Build Tools C++ (см. [требования](#cc-тулчейн-для-windows-нативные-модули--обязательно) ниже) — это единственное, что скрипт не ставит сам (многогигабайтная установка с правами администратора).
 
-Подробности, отличие от dev-запуска и разбор шагов — [docs/knowledge/build/build-from-source.md](docs/knowledge/build/build-from-source.md).
+Подробности, отличие от dev-запуска и разбор шагов — [docs/knowledge/build/buildFromSource.md](docs/knowledge/build/buildFromSource.md).
 
 ---
 
@@ -367,7 +367,7 @@ RAG-индекс кодовой базы хранится **не** в `.vibe/`, 
 
 **Принудительный refresh:** команда **«VibeIDE: Обновить каталог квирков моделей (model-quirks) с CDN»** через палитру — резерв, если фоновый refresh не сработал или нужен свежий каталог сейчас.
 
-Подробнее: [`docs/knowledge/architecture/model-quirks.md`](docs/knowledge/architecture/model-quirks.md).
+Подробнее: [`docs/knowledge/architecture/modelQuirks.md`](docs/knowledge/architecture/modelQuirks.md).
 
 ---
 

@@ -353,7 +353,7 @@ suite('XML tool normalization (v0.13.10)', () => {
 		// new fixture and either (a) update the assertion if the format is
 		// now handled, or (b) leave as «leaks through, awaiting transform».
 		//
-		// See `docs/knowledge/architecture/xml-tool-format-matrix.md` for
+		// See `docs/knowledge/architecture/xmlToolFormatMatrix.md` for
 		// the full vendor coverage matrix and status of each format.
 
 		test('GLM-style raw tool_call markdown block (NOT YET COVERED)', () => {

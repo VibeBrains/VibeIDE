@@ -29,7 +29,7 @@
  *
  * Settings hot-reload (W.8): `fs.watch` on `User/settings.json` re-reads on change.
  *
- * @see docs/knowledge/runtime-quirks/idle-memory.md
+ * @see docs/knowledge/runtimeQuirks/idleMemory.md
  * @see docs/roadmap.md (section W)
  */
 

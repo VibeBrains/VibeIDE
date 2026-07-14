@@ -55,7 +55,7 @@ const ollamaClientCache = new Map<string, Ollama>();
  * Format: `${providerName}:${hash(providerSettings)}` — hashing the WHOLE provider settings
  * object (endpoint, apiKey, custom headers, everything the client constructor consumes) so
  * ANY config change produces a new key. The previous endpoint+key-prefix key went stale on
- * header edits in `.vibe/providers.json` ("no tokens until restart", provider-diagnostics.md).
+ * header edits in `.vibe/providers.json` ("no tokens until restart", providerDiagnostics.md).
  * Stale entries are left behind until the next reset/restart — a handful of idle SDK objects,
  * not a leak worth an eviction scheme.
  */

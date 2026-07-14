@@ -197,7 +197,7 @@ export type AnthropicReasoning = ({ type: 'thinking'; thinking: string; signatur
 // not every termination path (e.g. early timeout, abort) yields usage.
 // `cachedInputTokens` — provider-reported prompt-cache hits (subset of promptTokens);
 // surfaced so the TokenBudget log shows whether cache-friendly prompt assembly works
-// (knowledge/roadmap/token-economy.md, A).
+// (knowledge/roadmap/tokenEconomy.md, A).
 export type LLMTokenUsage = { promptTokens?: number; completionTokens?: number; totalTokens?: number; cachedInputTokens?: number };
 
 export type OnText = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj }) => void;

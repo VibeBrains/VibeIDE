@@ -51,7 +51,7 @@ Full closed-item list is in git history — only record surprises and new patter
 
 После 7 предыдущих сессий обхода симптомов (numeric tool names квирка минимакса) пользователь дал решающий артефакт — request body, который мы реально шлём провайдеру. В нём `tools[].name` = `"0", "1", "2", "3", "5", ...` — мы регистрировали тулы с именами = ИНДЕКСАМИ МАССИВА. Минимакс не имел никакого quirk'а, она добросовестно вызывала имена которые мы ей присылали.
 
-Корневая причина: `convertToolsToAiSdkToolSet(allowed, ...)` ожидала `{[k: string]: InternalToolInfo}` (record), на call site передавался `InternalToolInfo[]` (массив) с `as any` cast. `Object.keys(массив)` возвращает `["0", "1", "2", ...]`. Эти индексы стали именами регистрации. Полный анализ + retro по всем попыткам лечения симптомов — в `docs/knowledge/architecture/tool-calling.md`.
+Корневая причина: `convertToolsToAiSdkToolSet(allowed, ...)` ожидала `{[k: string]: InternalToolInfo}` (record), на call site передавался `InternalToolInfo[]` (массив) с `as any` cast. `Object.keys(массив)` возвращает `["0", "1", "2", ...]`. Эти индексы стали именами регистрации. Полный анализ + retro по всем попыткам лечения симптомов — в `docs/knowledge/architecture/toolCalling.md`.
 
 **Что считаем уроком (вечнодействующее правило):**
 

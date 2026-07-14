@@ -84,7 +84,7 @@ function Ensure-Fnm {
 function Ensure-Node {
 	Step "Устанавливаю/активирую Node $NodeVer через fnm..."
 	cmd /c "fnm install $NodeVer" 2>$null
-	# Prefix PATH with the version's install dir (per docs/knowledge/build/windows-toolchain.md:
+	# Prefix PATH with the version's install dir (per docs/knowledge/build/windowsToolchain.md:
 	# `fnm exec --using npm` breaks on Windows, so resolve the dir and prepend it).
 	$nodeExe = cmd /c "fnm exec --using=$NodeVer node -e ""process.stdout.write(process.execPath)""" 2>$null
 	if (-not $nodeExe) { Die "не удалось активировать Node $NodeVer через fnm." }

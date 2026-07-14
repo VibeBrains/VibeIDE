@@ -199,7 +199,7 @@ class VibeTokenBudgetService extends Disposable implements IVibeTokenBudgetServi
 		}
 
 		// `cached:` — provider-reported prompt-cache hits (subset of `in:`). Visibility metric
-		// for cache-friendly prompt assembly (knowledge/roadmap/token-economy.md, A).
+		// for cache-friendly prompt assembly (knowledge/roadmap/tokenEconomy.md, A).
 		const cachedSuffix = typeof cachedInputTokens === 'number' && cachedInputTokens > 0 ? ` cached:${cachedInputTokens}` : '';
 		vibeLog.debug('TokenBudget', `+${total} tokens (in:${inputTokens} out:${outputTokens}${cachedSuffix}) | total: ${this._sessionTokensUsed}/${this._sessionTokensLimit}`);
 

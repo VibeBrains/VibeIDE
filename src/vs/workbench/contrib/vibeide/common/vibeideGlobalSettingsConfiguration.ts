@@ -287,7 +287,7 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 		// Writes JSONL snapshots to `${userDataPath}/logs/vibe-idle-watchdog/YYYY-MM-DD.jsonl`.
 		// Implementation: `electron-main/vibeIdleWatchdogService.ts`. Reads config ONCE
 		// at startup directly from `User/settings.json` (no IPC channel) — restart required
-		// to apply changes. See docs/knowledge/runtime-quirks/idle-memory.md.
+		// to apply changes. See docs/knowledge/runtimeQuirks/idleMemory.md.
 		registry.registerConfiguration({
 			id: 'vibeide.diagnostics.idleWatchdog',
 			title: localize('vibeide.diagnostics.idleWatchdog.title', 'VibeIDE — Idle Watchdog (diagnostics)'),

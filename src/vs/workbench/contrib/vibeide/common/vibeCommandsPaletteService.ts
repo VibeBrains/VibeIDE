@@ -18,7 +18,7 @@ export const IVibeCommandsPaletteService = createDecorator<IVibeCommandsPaletteS
  *
  * Deliberately NOT routed through `IVibeModalService`: that service is a FIFO
  * queue of string-body, fixed-size modals — it can't host an interactive,
- * user-resizable command list. See docs/knowledge/architecture/commands-palette-modal.md.
+ * user-resizable command list. See docs/knowledge/architecture/commandsPaletteModal.md.
  */
 export interface IVibeCommandsPaletteService {
 	readonly _serviceBrand: undefined;

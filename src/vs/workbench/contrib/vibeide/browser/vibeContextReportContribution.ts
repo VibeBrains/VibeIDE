@@ -132,7 +132,7 @@ registerAction2(class extends Action2 {
 
 	async run(accessor: ServicesAccessor): Promise<void> {
 		// Capture every service synchronously BEFORE any `await` — a ServicesAccessor is valid only
-		// during the synchronous portion of run() (see services-accessor.md).
+		// during the synchronous portion of run() (see servicesAccessor.md).
 		const convertSvc = accessor.get(IConvertToLLMMessageService);
 		const settingsSvc = accessor.get(IVibeideSettingsService);
 		const modelSvc = accessor.get(ITextModelService);

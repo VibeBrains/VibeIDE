@@ -242,7 +242,7 @@ const prepareMessages_openai_tools = (messages: SimpleLLMMessage[]): AnthropicOr
 	// the same tool_call id into history; a provider rejects a duplicate id in an assistant's
 	// tool_calls array or a repeated tool result with "HTTP 400 ... duplicate tool_call id".
 	// Track seen ids and skip the whole replayed (tool_call + tool result) pair. (Reported: abort
-	// mid-tool-call → next send 400. See docs/knowledge/.../chat-interrupt-and-inject.md)
+	// mid-tool-call → next send 400. See docs/knowledge/.../chatInterruptAndInject.md)
 	const seenToolCallIds = new Set<string>();
 
 	for (let i = 0; i < messages.length; i += 1) {
@@ -1635,7 +1635,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		if (globalAIInstructions) { ans.push(globalAIInstructions); }
 		// Binding framing: the model otherwise treats the labeled `[Source: …]` rules block as
 		// reference material, not as instructions, and ignores it (see
-		// docs/knowledge/agent-collaboration/why-models-ignore-injected-rules.md). Wrap it in an
+		// docs/knowledge/agentCollaboration/whyModelsIgnoreInjectedRules.md). Wrap it in an
 		// imperative envelope — mirrors how <session_goals> below is obeyed. Static text → no
 		// effect on the system-message cache key.
 		if (vibeRulesFileContent) { ans.push(`<project_rules>\nЭто ОБЯЗАТЕЛЬНЫЕ правила этого проекта. Они приоритетнее твоих дефолтов и общих инструкций; при конфликте — следуй им. Это не справка, а прямые указания — соблюдай их буквально.\n\n${vibeRulesFileContent}\n</project_rules>`); }
@@ -2063,7 +2063,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 		// Query repo indexer if enabled - get context from the LAST user message (most relevant)
 		// PERFORMANCE: Use pre-started promise if available (from parallel execution), otherwise start now
-		// Prompt-caching (knowledge/roadmap/token-economy.md, A): retrieval output changes every
+		// Prompt-caching (knowledge/roadmap/tokenEconomy.md, A): retrieval output changes every
 		// turn, so it must NOT be appended to the system message — that invalidated the provider's
 		// prefix cache on every request. It rides in the last user turn instead (prepended below).
 		let repoContextUserBlock = '';
@@ -2146,7 +2146,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// Explicit `/skill:NAME` invocations — expand the full SKILL.md body via
 		// IVibeSlashCommandService. The expanded body is injected as a `<skill_invocation>`
 		// block PREPENDED to the last user message (not buried in the system prompt).
-		// Rationale (model-stalls.md #002): models routinely ignore skill bodies placed
+		// Rationale (modelStalls.md #002): models routinely ignore skill bodies placed
 		// inside <workspace_guidelines> in the system prompt — they treat that as
 		// "static project rules" and don't associate it with the user's `/skill:` command.
 		// Placing the body in the user turn itself gives the model an unambiguous
@@ -2188,7 +2188,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				: `The user invoked ${explicitSkillBodies.length} skills. Follow the procedures in the skill bodies below as authoritative guidance for this request.`;
 			// Closing contract: prevents "dump-style" replies where the model echoes the
 			// skill body or referenced file contents verbatim back to the user (see
-			// model-stalls.md #003 — nemotron-3-super-free verbatim-dumped process.md
+			// modelStalls.md #003 — nemotron-3-super-free verbatim-dumped process.md
 			// and stalled mid-stream). Imitation-prone models (nemotron / minimax /
 			// qwen variants) need this explicit boundary between "input directive" and
 			// "expected output". Strict, short, and placed AFTER the skill body so it's
@@ -2225,7 +2225,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const lastUserTextForLang = typeof lastUserForLang?.content === 'string' ? lastUserForLang.content : '';
 		const langDirective = buildResponseLanguageDirective(responseLangSetting, lastUserTextForLang);
 		// NOTE: explicitSkillBodies are NOT added to system prompt — they get prepended
-		// to the last user message below. See model-stalls.md #002 for why.
+		// to the last user message below. See modelStalls.md #002 for why.
 		// R.2 — file context for glob-scoped rules ("Auto Attached"): open editors + active editor
 		// + files the agent touched (read/edited) this thread, normalised to workspace-relative paths.
 		const ruleWsFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
@@ -2268,7 +2268,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// Prepend the per-turn dynamic blocks into the last user message's content. This is the
 		// load-bearing step that makes /skill:NAME and @rule:NAME actually take effect, and the
 		// cache-friendly home for everything that varies per turn (repo retrieval, implicit skill
-		// hints, language directive) — see knowledge/roadmap/token-economy.md (A).
+		// hints, language directive) — see knowledge/roadmap/tokenEconomy.md (A).
 		const userTurnPrefix = [repoContextUserBlock, explicitSkillsUserPrefix, ruleInvocationPrefix, implicitSkills.trim(), langDirective.trim()].filter(s => s.length > 0).join('\n\n');
 		if (userTurnPrefix.length > 0) {
 			for (let i = llmMessages.length - 1; i >= 0; i--) {

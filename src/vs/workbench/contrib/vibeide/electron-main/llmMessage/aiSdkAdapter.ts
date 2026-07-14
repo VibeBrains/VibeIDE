@@ -125,7 +125,7 @@ const OPENCODE_PROCESS_SESSION_ID = `vibeide-${generateUuid()}`;
 // XML tool-format overrides) are no longer hardcoded here — they live in
 // `resources/model-quirks.json`, served via CDN + bundled fallback, accessed
 // via `getModelQuirks(modelId)` from the modelQuirksService. See
-// docs/knowledge/architecture/model-quirks.md.
+// docs/knowledge/architecture/modelQuirks.md.
 
 // Per-model AI SDK adapter selection is fully data-driven via models.dev:
 // see `modelsDevCatalog.ts`. No hardcoded model names / families / regex —
@@ -1030,7 +1030,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				}).chatModel(modelName);
 
 	let modelMessages = convertMessagesToModelMessages(messages, modelName, providerName);
-	// Prompt caching for the Anthropic protocol (knowledge/roadmap/token-economy.md, A phase 2).
+	// Prompt caching for the Anthropic protocol (knowledge/roadmap/tokenEconomy.md, A phase 2).
 	// Anthropic caches NOTHING without explicit `cache_control` breakpoints — every agentic
 	// turn re-bills the full prompt (observed: 23k input/turn → org TPM limit in 11 turns).
 	// Two of the four allowed breakpoints:

@@ -7,7 +7,7 @@
 /**
  * Session-scoped tally of characters saved by output compression (terminal condenser/profiles and
  * MCP output compression). Pure accounting — makes the otherwise-invisible token-economy work
- * (knowledge/roadmap/token-economy.md) visible via the «Экономия на сжатии вывода» command.
+ * (knowledge/roadmap/tokenEconomy.md) visible via the «Экономия на сжатии вывода» command.
  */
 
 import { Emitter, Event } from '../../../../base/common/event.js';

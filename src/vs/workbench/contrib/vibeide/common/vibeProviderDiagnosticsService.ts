@@ -19,7 +19,7 @@ export const IVibeProviderDiagnosticsService = createDecorator<IVibeProviderDiag
  * Same pattern as IVibeCommandsPaletteService — deliberately NOT routed through
  * IVibeModalService (which is a FIFO queue of fixed-size, string-body modals and
  * can't host an interactive, user-resizable diagnostics surface).
- * See docs/knowledge/architecture/provider-diagnostics.md.
+ * See docs/knowledge/architecture/providerDiagnostics.md.
  */
 export interface IVibeProviderDiagnosticsService {
 	readonly _serviceBrand: undefined;

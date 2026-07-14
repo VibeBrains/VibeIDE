@@ -5,7 +5,7 @@
 
 
 /**
- * Semantic condenser for `run_command` terminal output (knowledge/roadmap/token-economy.md, B).
+ * Semantic condenser for `run_command` terminal output (knowledge/roadmap/tokenEconomy.md, B).
  *
  * Test runners, package managers and build tools emit hundreds of progress/"ok" lines the
  * model pays input tokens to read without gaining signal. RTK-style idea: compress BEFORE

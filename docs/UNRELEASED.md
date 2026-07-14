@@ -37,5 +37,5 @@ _Пусто — всё накопленное выпущено. Дальше к�
 ---
 
 ## 📌 В docs/knowledge при закрытии
-- Ночной renderer-OOM 2026-05-27 (059-1-WS-346): heap renderer ровный ~320 МБ 4+ ч → спайк <2 мин при autopilot; **не** idle-leak. → `docs/knowledge/runtime-quirks/idle-memory.md`.
+- Ночной renderer-OOM 2026-05-27 (059-1-WS-346): heap renderer ровный ~320 МБ 4+ ч → спайк <2 мин при autopilot; **не** idle-leak. → `docs/knowledge/runtimeQuirks/idleMemory.md`.
 - #D / правила: способная модель извлекает `.vibe/rules.md` из `source=`-атрибута, слабая — нет; вылечено явной инструкцией (`09259827`).

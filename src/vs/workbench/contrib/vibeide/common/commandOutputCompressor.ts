@@ -6,7 +6,7 @@
 import { condenseTerminalOutput } from './terminalOutputCondenser.js';
 
 /**
- * Command-aware output compression (knowledge/roadmap/token-economy.md — RTK-style idea).
+ * Command-aware output compression (knowledge/roadmap/tokenEconomy.md — RTK-style idea).
  *
  * `condenseTerminalOutput` is a GENERIC pass: it collapses identical/noise line runs regardless
  * of which command produced them. It cannot exploit the fact that a `git status` file list or a

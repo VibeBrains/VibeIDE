@@ -147,7 +147,7 @@ export const WHATS_NEW_BY_VERSION: Readonly<Record<string, string>> = {
 		'- Слабые модели через агрегаторы надёжнее завершают ход: в XML-режиме им подсказывается точная форма вызова `vibe_complete`.',
 		'- Надёжные правки файлов на слабых моделях: `edit_file` принимает простой формат «было/стало» даже когда поле блоков пустое.',
 	].join('\n'),
-	// 1.2.2 merges the never-published 1.2.1 highlights (see docs/knowledge/.../release-protocol.md):
+	// 1.2.2 merges the never-published 1.2.1 highlights (see docs/knowledge/.../releaseProtocol.md):
 	// a user updating 1.2.0 → 1.2.2 must still see 1.2.1's security work, so it's folded in here.
 	'1.2.2': [
 		'## 🚀 Надёжные правки файлов — даже на «слабых» моделях',

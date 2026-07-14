@@ -10,7 +10,7 @@
  * dispatcher) WITHOUT restarting the IDE. The quick-access twin of the «Сбросить
  * клиентов» button inside the «Проверка провайдеров» modal: same fix, no modal.
  *
- * Root cause it addresses: docs/knowledge/architecture/provider-diagnostics.md
+ * Root cause it addresses: docs/knowledge/architecture/providerDiagnostics.md
  * («токены не уходят до перезапуска»). Mirrors vibeModelQuirksSourceStatusBar's
  * entry/unified-row dual wiring so it honours `vibeide.statusBar.unifiedOnly`.
  */

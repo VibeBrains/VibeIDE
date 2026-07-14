@@ -1,7 +1,7 @@
 @echo off
 REM VibeIDE — one-shot dev launch (Windows): optional profile wipe (--clear), gulp compile or opt-in transpile, React/NLS, Electron.
 REM Run from repo root: scripts\vibe-dev.bat   or   run-dev.bat (wrapper).
-REM Backup mirror (paths differ): bin\vibe-dev.bat — см. docs/knowledge/build/compile-and-sync.md.
+REM Backup mirror (paths differ): bin\vibe-dev.bat — см. docs/knowledge/build/compileAndSync.md.
 REM
 REM --clear / -clear /clear — delete dev profile dirs below, then launch ^(flags not passed to Electron^)
 REM По умолчанию transpile-client НЕ запускается: он чистит out и заменяет gulp-бандл на разрозненный ESM —
