@@ -1,5 +1,7 @@
-#!/usr/bin/env node
-// Copyright 2026 VibeIDE Team. MIT License.
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 //
 // Default worker-thread entry script for IVibeSubagentIsolationRuntime
 // (roadmap §L883). Receives task description via `workerData`, runs the

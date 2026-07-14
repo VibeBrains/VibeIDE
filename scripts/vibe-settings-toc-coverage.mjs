@@ -1,5 +1,7 @@
-#!/usr/bin/env node
-// Copyright 2026 VibeIDE Team. MIT License.
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 // Coverage check: every registered `vibeide.*` configuration key must be reachable
 // through at least one glob-style pattern declared in settingsLayout.ts, so the
 // native Settings UI surfaces it in its TOC instead of dropping it into the
@@ -35,7 +37,9 @@ async function* walk(dir, exts) {
 		const full = join(dir, entry.name);
 		if (entry.isDirectory()) {
 			// Skip generated / vendored / non-source trees.
-			if (entry.name === 'node_modules' || entry.name === 'test' || entry.name.startsWith('.')) continue;
+			if (entry.name === 'node_modules' || entry.name === 'test' || entry.name.startsWith('.')) {
+				continue;
+			}
 			yield* walk(full, exts);
 		} else if (exts.some(ext => entry.name.endsWith(ext))) {
 			yield full;
@@ -73,13 +77,19 @@ async function main() {
 		const src = await readFile(file, 'utf8');
 		// Quick pre-filter — only look at files that actually reference the
 		// configuration registry. Avoids scanning every .ts in the contrib.
-		if (!src.includes('registerConfiguration') && !src.includes('properties:')) continue;
+		if (!src.includes('registerConfiguration') && !src.includes('properties:')) {
+			continue;
+		}
 		let m;
 		while ((m = propertyKeyRe.exec(src)) !== null) {
 			const key = m[1];
 			const peek = m[2];
-			if (key.endsWith('.*')) continue;
-			if (!schemaLikeRe.test(peek)) continue;
+			if (key.endsWith('.*')) {
+				continue;
+			}
+			if (!schemaLikeRe.test(peek)) {
+				continue;
+			}
 			registered.add(key);
 		}
 	}
@@ -114,7 +124,9 @@ async function main() {
 	if (uncovered.length) {
 		uncovered.sort();
 		console.error('vibe-settings-toc-coverage: the following `vibeide.*` keys are NOT covered by any pattern in settingsLayout.ts:');
-		for (const k of uncovered) console.error('  - ' + k);
+		for (const k of uncovered) {
+			console.error('  - ' + k);
+		}
 		console.error('\nFix: add a matching pattern under the `vibeide` TOC entry in `' + relative(ROOT, LAYOUT_PATH) + '` (e.g. `vibeide.newgroup.*`).');
 		process.exit(1);
 	}
