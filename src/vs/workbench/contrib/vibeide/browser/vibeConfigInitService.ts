@@ -5,10 +5,15 @@
 
 
 import { vibeLog } from '../common/vibeLog.js';
+import { localize } from '../../../../nls.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { ILifecycleService, LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
@@ -16,7 +21,8 @@ import { IVibeideModelService } from '../common/vibeideModelService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { getDefaultVibeReadmeMarkdown, VIBE_WORKSPACE_FORMAT_VERSION } from '../common/vibeDefaultWorkspaceReadme.js';
 import { serializeProjectCommandsInitTemplate } from '../common/projectCommandsInitTemplate.js';
-import { applyVibeDefaults } from '../common/vibeDefaults.js';
+import { applyVibeDefaults, diffVibeDefaults } from '../common/vibeDefaults.js';
+import { VIBEIDE_APPLY_DEFAULTS_CMD, VIBEIDE_ENV_NOTIFY_SETTING, VIBEIDE_SHOW_DEFAULTS_CMD } from './vibeDefaultsContribution.js';
 
 const VIBE_VERSION = VIBE_WORKSPACE_FORMAT_VERSION;
 
@@ -110,6 +116,10 @@ export class VibeConfigInitContribution extends Disposable implements IWorkbench
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 		@IVibeideModelService private readonly _vibeideModelService: IVibeideModelService,
 		@IVibeideSettingsService private readonly _vibeideSettingsService: IVibeideSettingsService,
+		@IConfigurationService private readonly _configurationService: IConfigurationService,
+		@INotificationService private readonly _notificationService: INotificationService,
+		@ICommandService private readonly _commandService: ICommandService,
+		@ILifecycleService private readonly _lifecycleService: ILifecycleService,
 	) {
 		super();
 		this._initVibeDirectory();
@@ -232,10 +242,66 @@ export class VibeConfigInitContribution extends Disposable implements IWorkbench
 			vibeLog.debug('vibeConfigInit', `.vibe defaults seeded: +${seeded.created}, kept ${seeded.skipped}`);
 
 			vibeLog.info('vibeConfigInit', '.vibe/ configuration initialized');
+
+			// Strictly after seeding: create-if-missing above has already added everything new, so what
+			// remains is what seeding cannot fix — files the release changed after they were seeded.
+			await this._notifyIfReleaseMovedEnvironment(vibeDir);
 		} catch (e) {
 			// Non-blocking: .vibe/ init failure should never crash the IDE
 			vibeLog.warn('vibeConfigInit', 'Failed to initialize .vibe/ directory:', e);
 		}
+	}
+
+	/**
+	 * Tells the user once per open when a release moved their `.vibe` files. Fires only on
+	 * `needsAttention` — i.e. never for files they customized themselves, which differ from the
+	 * release by their own decision and would otherwise nag on every single launch.
+	 *
+	 * Seeding above must stay at `BlockRestore` (other services read `.vibe` early), but a toast
+	 * fired that early has no UI to land in and is simply lost — so wait for the workbench before
+	 * saying anything. The diff still runs after seeding, which is what keeps the report honest.
+	 */
+	private async _notifyIfReleaseMovedEnvironment(vibeDir: URI): Promise<void> {
+		if (this._configurationService.getValue<boolean>(VIBEIDE_ENV_NOTIFY_SETTING) === false) {
+			return;
+		}
+		await this._lifecycleService.when(LifecyclePhase.Restored);
+		let diff;
+		try {
+			diff = await diffVibeDefaults(this._fileService, vibeDir);
+		} catch (e) {
+			vibeLog.warn('vibeConfigInit', 'Failed to diff .vibe against release defaults:', e);
+			return;
+		}
+		if (!diff.needsAttention) {
+			return;
+		}
+
+		const safe = diff.missing.length + diff.outdated.length;
+		const human = diff.conflict.length + diff.unknown.length;
+		this._notificationService.prompt(
+			Severity.Info,
+			localize(
+				'vibeide.environment.moved',
+				'Окружение агентов `.vibe` отстало от релиза: можно обновить без потерь — {0}, требует вашего решения — {1}.',
+				safe, human,
+			),
+			[
+				{
+					label: localize('vibeide.environment.show', 'Показать'),
+					run: () => void this._commandService.executeCommand(VIBEIDE_SHOW_DEFAULTS_CMD),
+				},
+				{
+					label: localize('vibeide.environment.update', 'Обновить'),
+					run: () => void this._commandService.executeCommand(VIBEIDE_APPLY_DEFAULTS_CMD),
+				},
+				{
+					label: localize('vibeide.environment.never', 'Больше не напоминать'),
+					run: () => void this._configurationService.updateValue(VIBEIDE_ENV_NOTIFY_SETTING, false),
+				},
+			],
+			{ sticky: false },
+		);
 	}
 
 	private async _createIfMissing(uri: URI, content: string): Promise<void> {

@@ -33,6 +33,7 @@ import { IEditorService } from '../../../services/editor/common/editorService.js
 import { IUntitledTextResourceEditorInput } from '../../../common/editor.js';
 import { registerVibeideFaSolidIcon } from './vibeideFontAwesomeSolid.js';
 import { VibeSpecsCommands } from './vibeSpecsConstants.js';
+import { VIBEIDE_APPLY_DEFAULTS_CMD, VIBEIDE_SHOW_DEFAULTS_CMD } from './vibeDefaultsContribution.js';
 
 // ─── Submenu ID ───────────────────────────────────────────────────────────────
 
@@ -194,6 +195,26 @@ MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 	},
 	group: 'c_workspace',
 	order: 3,
+});
+
+// ── Group c_env ── (.vibe environment vs the release's defaults)
+
+MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
+	command: {
+		id: VIBEIDE_SHOW_DEFAULTS_CMD,
+		title: localize('vibeideShowDefaults', 'Показать новое в окружении из релиза'),
+	},
+	group: 'c_env',
+	order: 1,
+});
+
+MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
+	command: {
+		id: VIBEIDE_APPLY_DEFAULTS_CMD,
+		title: localize('vibeideApplyDefaults', 'Обновить окружение из релиза'),
+	},
+	group: 'c_env',
+	order: 2,
 });
 
 // ── Group d_commands ── (after search, separated by a divider)

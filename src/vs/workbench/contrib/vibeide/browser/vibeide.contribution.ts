@@ -550,8 +550,9 @@ import './vibeProviderDiagnosticsContribution.js';
 // VibeIDE: status-bar wrench — one-click «починить связь с провайдерами» (reset transport)
 import './vibeProviderFixStatusBar.js';
 
-// VibeIDE: "Установить дефолтную обвязку для агентов" command (.vibe defaults)
+// VibeIDE: «Обновить/Показать окружение из релиза» — сверка `.vibe` с дефолтами релиза
 import './vibeDefaultsContribution.js';
+import './vibeDefaultsContentProvider.js';
 
 // VibeIDE: default-setting overrides (editor.wordWrap = on, …)
 import './vibeDefaultSettingsOverrides.js';
