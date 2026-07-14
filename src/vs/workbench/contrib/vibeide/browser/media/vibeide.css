@@ -824,55 +824,23 @@ body.monaco-workbench,
 }
 
 /* ----------------------------------------------------------------------------------------
- * Спеки panel — two-line row: full name on top, status + clickable P/T pills below.
+ * Спеки panel — single-line row: name (flex) + fixed-width [S][P][T] pills (aligned, no ladder).
+ * S = status (colour-coded), P = PRODUCT.md, T = TECH.md. Meaning is carried by colour + 1s hover.
  * ---------------------------------------------------------------------------------------- */
 .vibe-specs-row {
 	display: flex;
-	flex-direction: column;
-	justify-content: center;
-	gap: 2px;
-	width: 100%;
-	padding: 2px var(--vibeide-space-md);
-}
-.vibe-specs-line1 {
-	display: flex;
-	align-items: center;
-	min-width: 0;
-	line-height: 18px;
-}
-.vibe-specs-line2 {
-	display: flex;
 	align-items: center;
 	gap: 6px;
-	line-height: 16px;
+	width: 100%;
+	padding: 0 var(--vibeide-space-md);
 }
 .vibe-specs-label {
 	flex: 1 1 auto;
+	/* min-width:0 lets the name shrink (ellipsis) so the fixed-width pills always stay visible. */
+	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	/* Override the list-row line-height (≈row height) that would otherwise blow up line 1. */
-	line-height: 18px;
-}
-.vibe-specs-status {
-	flex: 0 0 auto;
-	font-size: 9px;
-	line-height: 14px;
-	text-transform: uppercase;
-	letter-spacing: 0.3px;
-	opacity: 0.85;
-}
-.vibe-specs-status:empty {
-	display: none;
-}
-.vibe-specs-status.status-draft {
-	color: var(--vscode-descriptionForeground);
-}
-.vibe-specs-status.status-approved {
-	color: var(--vscode-charts-blue);
-}
-.vibe-specs-status.status-implemented {
-	color: var(--vscode-charts-green);
 }
 .vibe-specs-badges {
 	flex: 0 0 auto;
@@ -897,6 +865,9 @@ body.monaco-workbench,
 	color: var(--vscode-badge-foreground);
 	opacity: 1;
 }
+.vibe-specs-badge.clickable {
+	cursor: pointer;
+}
 /* Missing-but-creatable (T without a TECH.md): dashed, hints at «click to create». */
 .vibe-specs-badge.create {
 	border-style: dashed;
@@ -906,6 +877,29 @@ body.monaco-workbench,
 	border-color: var(--vscode-focusBorder);
 	color: var(--vscode-foreground);
 	opacity: 1;
+}
+/* S pill — status conveyed by colour, but MUTED: coloured border + text on transparent bg
+ * (not a bright fill), so it reads as a subtle status hint rather than a loud badge. */
+.vibe-specs-badge-s {
+	opacity: 0.8;
+	background: none;
+}
+.vibe-specs-badge-s.status-unknown {
+	opacity: 0.45;
+	color: var(--vscode-descriptionForeground);
+	border-color: var(--vscode-descriptionForeground);
+}
+.vibe-specs-badge-s.status-draft {
+	color: var(--vscode-descriptionForeground);
+	border-color: var(--vscode-descriptionForeground);
+}
+.vibe-specs-badge-s.status-approved {
+	color: var(--vscode-charts-blue);
+	border-color: var(--vscode-charts-blue);
+}
+.vibe-specs-badge-s.status-implemented {
+	color: var(--vscode-charts-green);
+	border-color: var(--vscode-charts-green);
 }
 
 /* ----------------------------------------------------------------------------------------

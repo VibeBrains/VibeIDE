@@ -7,6 +7,9 @@
 import * as DOM from '../../../../base/browser/dom.js';
 import { IListRenderer, IListVirtualDelegate } from '../../../../base/browser/ui/list/list.js';
 import { Action, IAction, Separator } from '../../../../base/common/actions.js';
+import { DisposableStore } from '../../../../base/common/lifecycle.js';
+import { IManagedHover } from '../../../../base/browser/ui/hover/hover.js';
+import { IHoverDelegate } from '../../../../base/browser/ui/hover/hoverDelegate.js';
 import { URI } from '../../../../base/common/uri.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { joinPath } from '../../../../base/common/resources.js';
@@ -18,7 +21,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
-import { IHoverService } from '../../../../platform/hover/browser/hover.js';
+import { IHoverService, WorkbenchHoverDelegate } from '../../../../platform/hover/browser/hover.js';
 import { WorkbenchList, IWorkbenchListOptions } from '../../../../platform/list/browser/listService.js';
 import { IListAccessibilityProvider } from '../../../../base/browser/ui/list/listWidget.js';
 import { localize } from '../../../../nls.js';
@@ -43,19 +46,26 @@ interface IRowActions {
 	readonly multiRoot: () => boolean;
 	readonly open: (uri: URI) => void;
 	readonly createTech: (entry: IVibeSpecEntry) => void;
+	/** Attach a managed, 1s-delayed hover to a pill; returns the handle so its content can be updated. */
+	readonly hover: (el: HTMLElement) => IManagedHover;
 }
 
 interface IRowTemplate {
 	readonly label: HTMLElement;
-	readonly status: HTMLElement;
-	readonly badges: HTMLElement;
+	readonly s: HTMLElement;
+	readonly p: HTMLElement;
+	readonly t: HTMLElement;
+	readonly sHover: IManagedHover;
+	readonly pHover: IManagedHover;
+	readonly tHover: IManagedHover;
+	/** Current row's entry, read by the persistent P/T click listeners. */
+	readonly ctx: { entry?: IVibeSpecEntry };
+	readonly disposables: DisposableStore;
 }
 
 class VibeSpecsListDelegate implements IListVirtualDelegate<IVibeSpecEntry> {
 	getHeight(): number {
-		// Two lines: full name on top (long names no longer hide behind badges), status + P/T below.
-		// 18 (line1) + 16 (line2) + 2 gap + 2*3 padding ≈ 42 → 44 with slack.
-		return 44;
+		return 22; // single line: name + [S][P][T] pills
 	}
 	getTemplateId(): string {
 		return ROW_TEMPLATE;
@@ -74,60 +84,67 @@ class VibeSpecsListRenderer implements IListRenderer<IVibeSpecEntry, IRowTemplat
 	constructor(private readonly _actions: IRowActions) { }
 
 	renderTemplate(container: HTMLElement): IRowTemplate {
+		const disposables = new DisposableStore();
+		const ctx: { entry?: IVibeSpecEntry } = {};
 		const row = DOM.append(container, $('.vibe-specs-row'));
-		const line1 = DOM.append(row, $('.vibe-specs-line1'));
-		const label = DOM.append(line1, $('span.vibe-specs-label'));
-		const line2 = DOM.append(row, $('.vibe-specs-line2'));
-		// P/T pills FIRST (fixed left edge → aligned across rows, no «ladder»), variable-width status after.
-		const badges = DOM.append(line2, $('span.vibe-specs-badges'));
-		const status = DOM.append(line2, $('span.vibe-specs-status'));
-		return { label, status, badges };
+		const label = DOM.append(row, $('span.vibe-specs-label'));
+		const badges = DOM.append(row, $('span.vibe-specs-badges'));
+
+		// P/T/S pills created ONCE (fixed-width → aligned, no «ladder»); content/state updated per render.
+		// Order: P = PRODUCT.md, T = TECH.md, then S = status (colour-coded) last. Managed 1s hovers explain each.
+		const p = DOM.append(badges, $('span.vibe-specs-badge'));
+		p.textContent = 'P';
+		const t = DOM.append(badges, $('span.vibe-specs-badge'));
+		t.textContent = 'T';
+		const s = DOM.append(badges, $('span.vibe-specs-badge'));
+		s.textContent = 'S';
+
+		// P/T click → open/create; stopPropagation so it doesn't also trigger the list row's open.
+		const bindClick = (el: HTMLElement, run: (e: IVibeSpecEntry) => void) => {
+			disposables.add(DOM.addDisposableListener(el, 'mousedown', e => e.stopPropagation()));
+			disposables.add(DOM.addDisposableListener(el, 'click', e => {
+				e.stopPropagation();
+				if (ctx.entry) { run(ctx.entry); }
+			}));
+		};
+		bindClick(p, e => { if (e.product) { this._actions.open(e.product); } });
+		bindClick(t, e => { if (e.tech) { this._actions.open(e.tech); } else { this._actions.createTech(e); } });
+
+		const sHover = this._actions.hover(s);
+		const pHover = this._actions.hover(p);
+		const tHover = this._actions.hover(t);
+		disposables.add(sHover); disposables.add(pHover); disposables.add(tHover);
+
+		return { label, s, p, t, sHover, pHover, tHover, ctx, disposables };
 	}
 
 	renderElement(entry: IVibeSpecEntry, _index: number, data: IRowTemplate): void {
+		data.ctx.entry = entry;
 		data.label.textContent = this._actions.multiRoot() ? entry.id : entry.specId;
 		data.label.title = entry.dir.fsPath || entry.dir.toString(true);
 
-		// Status pill (from PRODUCT.md frontmatter); hidden when unknown.
-		data.status.textContent = entry.status ? STATUS_LABEL[entry.status] : '';
-		data.status.className = 'vibe-specs-status' + (entry.status ? ` status-${entry.status}` : '');
+		// S — colour-coded status pill (no text label; colour + hover carry the meaning).
+		data.s.className = 'vibe-specs-badge vibe-specs-badge-s' + (entry.status ? ` status-${entry.status}` : ' status-unknown');
+		data.sHover.update(entry.status
+			? localize('vibeSpecs.hover.status', "Статус: {0}", STATUS_LABEL[entry.status])
+			: localize('vibeSpecs.hover.statusNone', "Статус не задан (нет `status:` во фронтматтере)"));
 
-		// Clickable P/T badges (replace the cramped book/gear icons): P opens PRODUCT.md; T opens
-		// TECH.md, or CREATES it when missing. `present` = filled, absent = dimmed. Recreated each
-		// render since the virtual list recycles the template.
-		data.badges.textContent = '';
-		data.badges.appendChild(this._badge(
-			'P', !!entry.product,
-			entry.product ? localize('vibeSpecs.badge.openProduct', "Открыть PRODUCT.md") : localize('vibeSpecs.badge.noProduct', "PRODUCT.md отсутствует"),
-			entry.product ? () => this._actions.open(entry.product!) : undefined,
-			false,
-		));
-		data.badges.appendChild(this._badge(
-			'T', !!entry.tech,
-			entry.tech ? localize('vibeSpecs.badge.openTech', "Открыть TECH.md") : localize('vibeSpecs.badge.createTech', "Создать TECH.md"),
-			entry.tech ? () => this._actions.open(entry.tech!) : () => this._actions.createTech(entry),
-			!entry.tech,
-		));
+		// P — PRODUCT.md: present = filled + opens; absent = dim.
+		data.p.className = 'vibe-specs-badge' + (entry.product ? ' present clickable' : '');
+		data.pHover.update(entry.product
+			? localize('vibeSpecs.hover.openProduct', "Открыть PRODUCT.md (поведение)")
+			: localize('vibeSpecs.hover.noProduct', "PRODUCT.md отсутствует"));
+
+		// T — TECH.md: present = filled + opens; absent = dashed «click to create».
+		data.t.className = 'vibe-specs-badge clickable' + (entry.tech ? ' present' : ' create');
+		data.tHover.update(entry.tech
+			? localize('vibeSpecs.hover.openTech', "Открыть TECH.md (реализация)")
+			: localize('vibeSpecs.hover.createTech', "Создать TECH.md"));
 	}
 
-	/** A clickable P/T pill. Click is stopped so it doesn't also trigger the list row's open. */
-	private _badge(text: string, present: boolean, title: string, onClick: (() => void) | undefined, create: boolean): HTMLElement {
-		const el = $('span.vibe-specs-badge');
-		el.textContent = text;
-		el.title = title;
-		el.classList.toggle('present', present);
-		el.classList.toggle('create', create);
-		el.classList.toggle('clickable', !!onClick);
-		if (onClick) {
-			el.style.cursor = 'pointer';
-			const stop = (e: Event) => e.stopPropagation();
-			el.addEventListener('mousedown', stop);
-			el.addEventListener('click', e => { e.stopPropagation(); onClick(); });
-		}
-		return el;
+	disposeTemplate(data: IRowTemplate): void {
+		data.disposables.dispose();
 	}
-
-	disposeTemplate(): void { }
 }
 
 /** Minimal TECH.md seed; write-tech-spec fills the real plan. Skeleton lives in the skill's references/. */
@@ -166,7 +183,7 @@ export class VibeSpecsViewPane extends ViewPane {
 		@IInstantiationService instantiationService: IInstantiationService,
 		@IOpenerService openerService: IOpenerService,
 		@IThemeService themeService: IThemeService,
-		@IHoverService hoverService: IHoverService,
+		@IHoverService private readonly _hoverService: IHoverService,
 		@IVibeSpecsService private readonly _specs: IVibeSpecsService,
 		@IEditorService private readonly _editorService: IEditorService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
@@ -177,7 +194,7 @@ export class VibeSpecsViewPane extends ViewPane {
 		@IViewsService private readonly _viewsService: IViewsService,
 		@IChatThreadService private readonly _chatThreadService: IChatThreadService,
 	) {
-		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
+		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, _hoverService);
 		this._register(this.onDidChangeViewWelcomeState(() => this._syncRosterHostVisibility()));
 	}
 
@@ -196,11 +213,14 @@ export class VibeSpecsViewPane extends ViewPane {
 		this._bodyDom = DOM.append(container, $('.vibe-specs-body'));
 		this._syncRosterHostVisibility();
 
+		// 1-second delayed hovers for the S/P/T pills (guideline: use IHoverService, not native title).
+		const hoverDelegate = this._register(this.instantiationService.createInstance(WorkbenchHoverDelegate, 'element', { dynamicDelay: () => 1000 }, {})) as IHoverDelegate;
 		const delegate = new VibeSpecsListDelegate();
 		const renderer = new VibeSpecsListRenderer({
 			multiRoot: () => this._workspaceContextService.getWorkspace().folders.length > 1,
 			open: uri => void this._open(uri),
 			createTech: entry => void this._createTech(entry),
+			hover: el => this._hoverService.setupManagedHover(hoverDelegate, el, ''),
 		});
 		const listOptions: IWorkbenchListOptions<IVibeSpecEntry> = {
 			identityProvider: { getId: e => e.id },
