@@ -13,7 +13,7 @@
 **Образец для копирования — Vibe Projects.** Четыре файла + один импорт:
 1. `vibeSpecsConstants.ts` — `VIBE_SPECS_VIEWLET_ID`/`VIEW_ID`, enum команд, имена файлов.
 2. `vibeSpecsService.ts` — `registerSingleton(..., InstantiationType.Delayed)`; `Emitter<void> onDidChangeSpecs`; чтение через `IFileService.resolve(dir).children`; **correlated-watcher**: `_fileService.watch(specsRoot, {recursive:true, excludes:[]})` в `MutableDisposable<DisposableStore>` + `onDidFilesChange(e => roots.some(r => e.contains(specsRootFor(r))) && debounce.schedule())` + `onDidChangeWorkspaceFolders` (пересобрать watchers). `RunOnceScheduler` для дебаунса.
-3. `vibeSpecsViewPane.ts` — `ViewPane` + `WorkbenchList` (плоский; **`WorkbenchAsyncDataTree` в vibeide не используется нигде** — для 2 уровней список проще и ниже риск). `list.onDidOpen → IEditorService.openEditor({resource})`. `shouldShowWelcome()` + `_onDidChangeViewWelcomeState.fire()` для пустого состояния. Инлайн-действия строки — `ActionBar`, ребиндить в `renderElement` (виртуальный список рециклит шаблон).
+3. `vibeSpecsViewPane.ts` — `ViewPane` + `WorkbenchList` (плоский; спека = один узел, доки — пилюлями, не детьми). `list.onDidOpen → IEditorService.openEditor({resource})`. `shouldShowWelcome()` + `_onDidChangeViewWelcomeState.fire()` для пустого состояния. Дизайн строки — см. секцию «Строка спеки» ниже (эволюционировал: ActionBar-иконки → 2 линии → одна строка с пилюлями `[P][T][S]`).
 4. `vibeSpecs.contribution.ts` — `registerViewContainer(..., ViewContainerLocation.Sidebar, {doNotRegisterOpenCommand:true})` + `registerViews` + `registerViewWelcomeContent` + `registerAction2` с `menu:[{id:MenuId.ViewTitle, when: ContextKeyExpr.equals('view', VIEW_ID)}]`. Иконка — `registerVibeideFaSolidIcon(id, '\uXXXX', desc)`.
 5. Импорт `'./vibeSpecs.contribution.js'` в `vibeide.contribution.ts`.
 
@@ -34,9 +34,22 @@
 - **Перф:** `readSpecs` мемоизируется (`_cache`, инвалидация в `_fireChanged`) — проверка зовётся на каждой правке, читать все спеки с диска каждый раз нельзя.
 - Настройка `vibeide.specs.driftPause` — рядом с `vibeide.plans.toolDriftPause`, тот же enum/логика автопилота.
 
-**Отложено:** дерево с подпапками.
+**Создание спек — модалки, не строка-поиск.** «Новая спека» и «Спека из задачи» открывают `IVibeModalService.showModal` (не `IQuickInputService.input`): первая — одно поле + `validator`; вторая — `input.multiline` + `imageInput:true` (📎 картинки→vision через `addUserMessageAndStreamResponse({images})`, PDF→инлайн `extractedText`). Модалки уже умеют input/imageInput/numberFields — bespoke React не нужен. API-шпаргалка модалок — [[vibe-modal]].
 
 **Применение:** любую новую боковую панель vibeide начинать с дублирования этого квартета файлов Vibe Projects/Спеки, а не с нуля.
+
+## [ui] Строка спеки: эволюция вёрстки и грабли (2026-07-14)
+
+Финальный вид: **одна строка** — имя (flex) + ряд пилюль `[P][T][S]` фиксированной ширины справа. **P**=PRODUCT.md, **T**=TECH.md (клик открывает; отсутствующая T — пунктир, клик создаёт из seed), **S**=статус (тусклый цветной контур: серый/синий/зелёный = draft/approved/implemented). Путь: ActionBar-иконки (книга/шестерёнка не влезали) → 2 линии → одна строка с пилюлями.
+
+**Грабли (все всплыли в живом смоуке через agent-browser/CDP):**
+- **«Лесенка»** — статус ТЕКСТОМ разной ширины (ЧЕРНОВИК/УТВЕРЖДЕНА/РЕАЛИЗОВАНА) сдвигал P/T по-разному. Фикс: статус → пилюля `S` фиксированной ширины + пилюли ПЕРЕД/в фикс-ряду → выровнены.
+- **Клиппинг 2-й линии** — `line-height` метки НАСЛЕДУЕТСЯ от `.monaco-list-row` (≈высота строки, 40px) → первая линия занимала всю строку, вторая обрезалась. Фикс — явный `line-height` + `getHeight()` под контент. (В single-line неактуально, но помнить про наследование line-height в списках.)
+- **Пилюли не влезали (T обрезалась)** — flex-метка без `min-width:0` не сжимается ниже min-content → выдавливает фикс-ширинные пилюли за край. Фикс: `.vibe-specs-label { min-width: 0 }` (обязателен для ellipsis+пилюли в одной flex-строке).
+- **Кликабельные пилюли в WorkbenchList** — `stopPropagation` на `mousedown`+`click`, иначе клик пилюли ещё и триггерит open строки.
+- **Тултипы 1с** — гайдлайн требует `IHoverService`, не native `title`. `setupDelayedHover` берёт задержку из конфига (не ровно 1с); для точной 1с — `instantiationService.createInstance(WorkbenchHoverDelegate, 'element', { dynamicDelay: () => 1000 }, {})` + `hoverService.setupManagedHover(delegate, el, content)`. Хуверы создавать ОДИН РАЗ в `renderTemplate` и обновлять `hover.update(content)` — не пересоздавать спаны каждый рендер (иначе течёт/ломается); клик-listener'ы тоже персистентные, читают `ctx.entry` (мутируемый холдер, обновляется в `renderElement`).
+
+**Отложено:** спеки деревом с подпапками (остались плоским списком — пилюли P/T заменяют детей-доки).
 
 ## [ui] Обновление: корень спек настраиваем, панель «Документы» — дерево (2026-07-13)
 
