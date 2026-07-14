@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Перед отправкой:
-        - Поискали в `docs/`, `docs/SECURITY_FAQ.md`, `README.md`?
+        - Поискали в `docs/`, `docs/manuals/securityFaq.md`, `README.md`?
         - Если вопрос про настройку — какой результат `vibe doctor` или `vibe doctor --full`?
         - Для быстрого Q&A может подойти Discord (когда канал откроется).
   - type: textarea

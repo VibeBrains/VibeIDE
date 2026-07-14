@@ -41,11 +41,22 @@ docs/
 │   ├── open-vsx-gap-list.md       # Чего не хватает vs marketplace
 │   ├── performance-sla.md         # Cold start / memory targets
 │   └── ...
-├── CI_CD_GUIDE.md                 # CI/CD pipeline overview
-├── SECURITY_FAQ.md                # Security responses
+├── manuals/                       # Руководства «как сделать» — ТОЛЬКО здесь, имена camelCase
+│   ├── ciCdGuide.md               # Запуск VibeIDE в GitHub Actions / GitLab CI
+│   ├── codebaseGuide.md           # Ориентир по кодовой базе форка
+│   ├── howToContribute.md         # Сборка и запуск из исходников (prerequisites, dev mode)
+│   ├── providersSpec.md           # Формат .vibe/providers.json (скормить LLM → готовый конфиг)
+│   └── securityFaq.md             # Что уходит наружу, что остаётся локально
+├── CONTRIBUTING.md                # Процесс контрибьюта и ревью PR (GitHub ищет его здесь)
 ├── release-donation-phrases.md    # Фразы блока «Поддержать проект»
 └── release-notes-v0.3.0.md        # Архивные release notes (historical)
 ```
+
+**Правило: мануалы — только в `docs/manuals/`, имена в camelCase** (`specsWorkflow.md`, `ciCdGuide.md`).
+Мануал — руководство «как сделать» по шагам. Каталог возможностей (`functional.md`), план (`roadmap.md`),
+индекс базы знаний (`knowledge.md`), концепт (`idea.md`), FAQ и регламенты — не мануалы, живут вне `manuals/`.
+Исключение: `docs/CONTRIBUTING.md` остаётся на месте — GitHub ищет его в корне, `docs/` или `.github/`
+и по нему показывает плашку с гайдлайнами при создании issue/PR; из `manuals/` он его не найдёт.
 
 `docs/.obsidian/` — Obsidian editor конфиг, в `.gitignore`.
 

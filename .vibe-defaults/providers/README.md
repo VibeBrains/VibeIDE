@@ -10,4 +10,4 @@
 
 **Ключи API в файле не хранятся** — только `apiKeyEnv` (переменная окружения / `.vibe/.env`) или `apiKeyRef` (защищённые настройки). После структурных правок (id/baseURL/модели) перезапустите VibeIDE.
 
-Полная спецификация формата — [`docs/providers-spec.md`](https://github.com/VibeIDETeam/VibeIDE/blob/main/docs/providers-spec.md). Общий пример со всеми рецептами — `.vibe/providers.example.jsonc`.
+Полная спецификация формата — [`docs/manuals/providersSpec.md`](https://github.com/VibeIDETeam/VibeIDE/blob/main/docs/manuals/providersSpec.md). Общий пример со всеми рецептами — `.vibe/providers.example.jsonc`.

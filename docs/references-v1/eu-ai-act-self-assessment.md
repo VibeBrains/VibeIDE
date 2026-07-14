@@ -61,7 +61,7 @@ distributes a binary build. We document:
 
 For the maintainer-provided GitHub Releases binary, the obligations are summarized in:
 
-- `docs/SECURITY_FAQ.md` (security and privacy posture).
+- `docs/manuals/securityFaq.md` (security and privacy posture).
 - `docs/v1/transparency/` (transparency dashboard).
 
 ## Items still to do
@@ -77,4 +77,4 @@ For the maintainer-provided GitHub Releases binary, the obligations are summariz
 - Re-review when the Act's implementing acts are published (expected later in 2026).
 - Re-review if a new feature (e.g. autonomous PR creation, telemetry) changes the risk
   profile.
-- Cross-link from `docs/SECURITY_FAQ.md` once that file's public version is updated.
+- Cross-link from `docs/manuals/securityFaq.md` once that file's public version is updated.

@@ -75,4 +75,4 @@ The L.5 backlog automates this check via `.github/workflows/privacy-verify.yml`.
 
 - Rename `telemetry.yml` → `telemetry-audit.yml` and add the policy header.
 - Land `privacy-verify.yml` (L.5) as the automated equivalent of the manual check above.
-- Link this document from `docs/SECURITY_FAQ.md` for public visibility.
+- Link this document from `docs/manuals/securityFaq.md` for public visibility.

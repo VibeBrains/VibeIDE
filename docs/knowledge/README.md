@@ -112,6 +112,7 @@
 | [bin-scripts.md](git-and-tools/bin-scripts.md) | Каталог `bin/` и `scripts/` |
 | [support-discord.md](git-and-tools/support-discord.md) | Discord → roadmap |
 | [precommit-hygiene.md](git-and-tools/precommit-hygiene.md) | `tsx`-раннер hygiene/eslint, фильтры Unicode/indentation для vibeide, lint-staged без eslint, `--no-verify` на больших коммитах |
+| [docs-layout.md](git-and-tools/docs-layout.md) | Правило `docs/manuals/` + camelCase; почему `CONTRIBUTING.md` нельзя унести (GitHub ищет в 3 путях); ловушка вшитых абсолютных URL в засеянных `.vibe` |
 
 ### [runtime-quirks/](runtime-quirks/) — runtime-ловушки
 
