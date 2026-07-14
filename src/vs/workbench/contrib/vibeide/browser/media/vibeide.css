@@ -858,7 +858,9 @@ body.monaco-workbench,
 	text-align: center;
 	padding: 0 4px;
 	border-radius: 3px;
-	border: 1px solid var(--vscode-badge-background);
+	/* HC themes define --vscode-contrastBorder (a visible outline); normal themes fall back to the
+	 * neutral badge bg. Without this, pills are borderless boxes that vanish on the black HC background. */
+	border: 1px solid var(--vscode-contrastBorder, var(--vscode-badge-background));
 	color: var(--vscode-descriptionForeground);
 	opacity: 0.5;
 	user-select: none;
@@ -887,7 +889,8 @@ body.monaco-workbench,
 .vibe-specs-badge-s {
 	opacity: 1;
 	color: var(--vscode-foreground);
-	border-color: transparent;
+	/* Borderless in normal themes (fill carries it); visible contrast border in HC for accessibility. */
+	border-color: var(--vscode-contrastBorder, transparent);
 }
 .vibe-specs-badge-s.status-unknown {
 	color: var(--vscode-descriptionForeground);
