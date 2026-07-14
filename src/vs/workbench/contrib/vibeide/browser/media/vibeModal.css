@@ -202,6 +202,27 @@
 	display: none;
 }
 
+/* Fenced code blocks in a `bodyMarkdown` body.
+   `BlockCode` is reused from the chat and frames itself with Tailwind utilities
+   (`px-2 py-1 bg-vibe-bg-3`), but those only resolve under `.vibe-scope` — and the modal root
+   sits OUTSIDE it on purpose (the scope's preflight would restyle every modal control). So the
+   block arrived as bare monospace text floating in prose, and a sentence introducing it
+   («поменяйте фронтматтер:») read as if it broke off mid-thought. Frame it here instead.
+   Applies to anything reused from the chat that relies on Tailwind — not just this one block. */
+.vibeide-modal-body .monaco-tokenized-source {
+	display: block;
+	margin: 8px 0;
+	padding: 8px 10px;
+	border: 1px solid var(--vscode-widget-border, var(--vscode-contrastBorder, transparent));
+	border-radius: 4px;
+	background: var(--vscode-textCodeBlock-background, var(--vscode-editorWidget-background));
+	font-family: var(--vscode-editor-font-family, monospace);
+	font-size: 12px;
+	/* The tokenizer emits <br> between lines, so pre-wrap here would double every gap. */
+	white-space: normal;
+	overflow-x: auto;
+}
+
 .vibeide-modal-input-wrap {
 	padding: 0 16px 12px;
 	display: flex;

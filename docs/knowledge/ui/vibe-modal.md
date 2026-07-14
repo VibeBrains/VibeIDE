@@ -105,3 +105,19 @@ if (res.buttonId !== 'create' || !res.inputValue?.trim()) { return; }
 ```
 
 **Добавить НОВЫЙ тип контента** (сложнее inline-полей): расширить `VibeModalOptions` + ветку рендера в `react/src/modal-tsx/VibeModalSimple.tsx`/`VibeModal.tsx` + стиль в `media/vibeModal.css` (токенами), затем `npm run buildreact`. Инлайн-классы в JSX → маркер `@@` (см. foot-gun выше); классы из `const` — без `@@`. Для чисто TS-использования готовых опций `buildreact` НЕ нужен — хватает `npm run compile`.
+
+## [ловушка] Тело модалки — ВНЕ `.vibe-scope`: Tailwind-компоненты из чата приезжают голыми
+
+**Контекст:** справка «Как работать со спеками» (`bodyMarkdown: true`) содержит ```yaml-блок. Владелец заметил: «предложение закончилось на двоеточии, выглядит обрубленным».
+
+**Суть:** блок рендерился — `ChatMarkdownRender` → `BlockCode` → `<div class="monaco-tokenized-source">` с подсветкой, текст на месте, высота ненулевая. Не было **оформления**: ни фона, ни рамки, ни падингов — три строки моноширинного текста в потоке прозы, и вводящая фраза читается как оборванная.
+
+Причина — не в markdown и не в модалке как таковой:
+- `BlockCode` (`util/inputs.tsx`) обрамляет себя **Tailwind-утилитами**: `<div className='relative z-0 px-2 py-1 bg-vibe-bg-3'>`. Без `@@` → `scope-tailwind` префиксует их в `vibe-px-2`, `vibe-bg-vibe-bg-3` и т.д.
+- Эти правила действуют **только под `.vibe-scope`**. Чат внутри скоупа (`chat.closest('.vibe-scope')` → true), **тело модалки — нет** (→ false). Классы в DOM есть, `getComputedStyle` даёт `padding: 0px`, `background: transparent`.
+- Модалка стилизована собственным `vibeModal.css` (классы `@@vibeide-modal-*`, экранированы → не префиксуются), Tailwind ей не нужен — поэтому расхождение и не замечали.
+- В чате блок дополнительно оборачивается в `BlockCodeApplyWrapper` (фон + кнопки), но он включается только при `options.isApplyEnabled && chatMessageLocation`, а модалка передаёт `chatMessageLocation={undefined}` → остаётся голый `BlockCode`.
+
+**Вывод шире одного бага: ЛЮБОЙ переиспользованный из чата компонент, который стилизуется Tailwind-утилитами, внутри модалки будет без стилей.** Проверять глазами, а не по «отрендерилось ли» — DOM и innerText врут, что всё хорошо.
+
+**Применение:** стилизовать в `vibeModal.css` по стабильному якорю (`.vibeide-modal-body .monaco-tokenized-source`), а не по префиксованным `vibe-*` классам — те меняются при любой правке компонента. Обернуть корень модалки в `.vibe-scope` — **не** решение: preflight скоупа переставит стили всем контролам во всех модалках.
