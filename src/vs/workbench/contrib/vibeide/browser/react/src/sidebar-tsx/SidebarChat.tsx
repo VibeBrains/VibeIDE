@@ -11,6 +11,7 @@ import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 
 import { useAccessor, useChatThreadsState, useChatThreadsStreamState, useSettingsState, useActiveURI, useCommandBarState, useFullChatThreadsStreamState, useSubagentActivity, useSubagentHandoffCount, SubagentActivityItem } from '../util/services.js';
 import { ScrollType } from '../../../../../../../editor/common/editorCommon.js';
+import { Schemas } from '../../../../../../../base/common/network.js';
 
 import { ChatMarkdownRender, ChatMessageLocation, getApplyBoxId } from '../markdown/ChatMarkdownRender.js';
 import { URI } from '../../../../../../../base/common/uri.js';
@@ -563,6 +564,9 @@ const ChatAgentAutopilotToggle = ({ className }: { className?: string }) => {
 
 const PROJECT_RULES_RESOLVE_LINKS_KEY = 'vibeide.projectRules.resolveLinks';
 const PROJECT_RULES_RESOLVE_LINKS_RECURSIVE_KEY = 'vibeide.projectRules.resolveLinksRecursive';
+
+/** Schemes whose active editor is a real file the «Файл» context chip may name. */
+const FILE_CHIP_SCHEMES = new Set<string>([Schemas.file, Schemas.vscodeRemote, Schemas.untitled]);
 
 // Mirrors CONFIG_SIMPLIFIED_CONTROLS in vibeSimplifiedControlsToggle.ts (Command Center icon toggle).
 const CHAT_SIMPLIFIED_CONTROLS_KEY = 'vibeide.chat.simplifiedControls';
@@ -6634,9 +6638,13 @@ export const SidebarChat = () => {
     const ContextChipsBar = () => {
         const editorService = accessor.get('IEditorService');
         const activeEditor = editorService?.activeEditor;
-        // Try best-effort file label
+        // Try best-effort file label. Non-file editors (markdown preview and other webviews,
+        // settings, walkthroughs) carry an internal resource whose basename is a bare handle
+        // like `webview-markdown.preview-<guid>` — a chip labelled «Файл» must not show those.
         const activeResource = activeEditor?.resource;
-        const activeFileLabel = activeResource ? activeResource.path?.split('/').pop() : undefined;
+        const activeFileLabel = activeResource && FILE_CHIP_SCHEMES.has(activeResource.scheme)
+            ? activeResource.path?.split('/').pop()
+            : undefined;
         const modelSel = settingsState.modelSelectionOfFeature['Chat'];
         const modelLabel = modelSel ? `${displayInfoOfProviderName(modelSel.providerName).title}:${modelSel.modelName}` : undefined;
         if (!activeFileLabel && !modelLabel) {return null;}

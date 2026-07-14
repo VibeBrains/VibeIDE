@@ -5,13 +5,16 @@
 
 
 import * as DOM from '../../../../base/browser/dom.js';
+import { IDragAndDropData } from '../../../../base/browser/dnd.js';
 import { IListVirtualDelegate } from '../../../../base/browser/ui/list/list.js';
-import { ITreeNode, IObjectTreeElement, ITreeRenderer } from '../../../../base/browser/ui/tree/tree.js';
+import { ElementsDragAndDropData } from '../../../../base/browser/ui/list/listView.js';
+import { ITreeNode, IObjectTreeElement, ITreeRenderer, ITreeDragAndDrop } from '../../../../base/browser/ui/tree/tree.js';
 import { IListAccessibilityProvider } from '../../../../base/browser/ui/list/listWidget.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
@@ -23,8 +26,11 @@ import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { WorkbenchObjectTree } from '../../../../platform/list/browser/listService.js';
 import { localize } from '../../../../nls.js';
 import { ViewPane, IViewPaneOptions } from '../../../browser/parts/views/viewPane.js';
-import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { fillEditorsDragData } from '../../../browser/dnd.js';
 import { IVibeDocNode, IVibeDocsService } from './vibeDocsService.js';
+
+/** Command contributed by `markdown-language-features`; renders a doc instead of showing its source. */
+const MARKDOWN_SHOW_PREVIEW_CMD = 'markdown.showPreview';
 
 const $ = DOM.$;
 const ROW_TEMPLATE = 'vibeDocs.row';
@@ -63,6 +69,42 @@ class VibeDocsRenderer implements ITreeRenderer<IVibeDocNode, void, IRowTemplate
 	disposeTemplate(): void { }
 }
 
+/**
+ * Drag-out support: hands docs to any resource drop target (chat attachments, editor groups).
+ * Nothing drops back into the panel — it mirrors the file system, which the Explorer owns.
+ */
+class VibeDocsDragAndDrop implements ITreeDragAndDrop<IVibeDocNode> {
+
+	constructor(
+		@IInstantiationService private readonly _instantiationService: IInstantiationService,
+	) { }
+
+	getDragURI(element: IVibeDocNode): string | null {
+		return element.isDirectory ? null : element.uri.toString();
+	}
+
+	getDragLabel(elements: IVibeDocNode[]): string | undefined {
+		return elements.length === 1 ? elements[0].name : String(elements.length);
+	}
+
+	onDragStart(data: IDragAndDropData, originalEvent: DragEvent): void {
+		const elements = (data as ElementsDragAndDropData<IVibeDocNode, IVibeDocNode[]>).elements;
+		const resources = elements.filter(e => !e.isDirectory).map(e => e.uri);
+		if (resources.length) {
+			// Same payload the Explorer produces, which is what resource drop targets read.
+			this._instantiationService.invokeFunction(accessor => fillEditorsDragData(accessor, resources, originalEvent));
+		}
+	}
+
+	onDragOver(): boolean {
+		return false;
+	}
+
+	drop(): void { }
+
+	dispose(): void { }
+}
+
 export class VibeDocsViewPane extends ViewPane {
 
 	private _tree: WorkbenchObjectTree<IVibeDocNode, void> | undefined;
@@ -81,7 +123,7 @@ export class VibeDocsViewPane extends ViewPane {
 		@IThemeService themeService: IThemeService,
 		@IHoverService hoverService: IHoverService,
 		@IVibeDocsService private readonly _docs: IVibeDocsService,
-		@IEditorService private readonly _editorService: IEditorService,
+		@ICommandService private readonly _commandService: ICommandService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
 		this._register(this.onDidChangeViewWelcomeState(() => this._syncRosterHostVisibility()));
@@ -112,6 +154,7 @@ export class VibeDocsViewPane extends ViewPane {
 				identityProvider: { getId: (e: IVibeDocNode) => e.id },
 				accessibilityProvider: this._accessibility(),
 				collapseByDefault: false,
+				dnd: this.instantiationService.createInstance(VibeDocsDragAndDrop),
 			},
 		) as WorkbenchObjectTree<IVibeDocNode, void>;
 		this._tree = tree;
@@ -162,7 +205,8 @@ export class VibeDocsViewPane extends ViewPane {
 		this._tree?.layout(height, width);
 	}
 
+	/** Every file node is markdown (the service filters on `.md`/`.mdx`), so a doc always opens rendered. */
 	private async _open(uri: URI): Promise<void> {
-		await this._editorService.openEditor({ resource: uri, options: { pinned: false } });
+		await this._commandService.executeCommand(MARKDOWN_SHOW_PREVIEW_CMD, uri);
 	}
 }

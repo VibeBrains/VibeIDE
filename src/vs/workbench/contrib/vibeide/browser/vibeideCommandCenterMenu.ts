@@ -32,6 +32,7 @@ import { IVibeProviderDashboardService } from './vibeProviderDashboard.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IUntitledTextResourceEditorInput } from '../../../common/editor.js';
 import { registerVibeideFaSolidIcon } from './vibeideFontAwesomeSolid.js';
+import { VibeSpecsCommands } from './vibeSpecsConstants.js';
 
 // ─── Submenu ID ───────────────────────────────────────────────────────────────
 
@@ -157,6 +158,16 @@ MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 });
 
 // ── Group c_workspace ──
+
+// Mirrors the «Спеки» view-title action so the modal is reachable without switching panels.
+MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
+	command: {
+		id: VibeSpecsCommands.specFromTask,
+		title: localize('vibeideSpecFromTask', 'Спека из задачи'),
+	},
+	group: 'c_workspace',
+	order: 0,
+});
 
 MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 	command: {
