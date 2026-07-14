@@ -152,6 +152,7 @@
 | [main-renderer-config-bridge.md](patterns/main-renderer-config-bridge.md) | Pattern для прокидывания renderer-side settings в electron-main process через IPC + `process.env` indirection. Когда использовать, когда нет, alternative с direct IPC channel при росте |
 | [verify-before-hypothesizing.md](patterns/verify-before-hypothesizing.md) | **[правило]** Если симптом измерим — измерь (терминал/инструментация) ПЕРЕД гипотезой. Канон: get_dir_tree-тормоза (3 неверных гипотезы → 1 `Get-ChildItem` = 25мс → корень). Гипотезу без замера в roadmap помечать гипотезой, не причиной |
 | [unit-test-runner-footguns.md](patterns/unit-test-runner-footguns.md) | `import from 'mocha'` убивает весь test.bat-прогон (использовать глобалы), test.bat гоняет `out/` (нужен `transpile-client`), псевдотесты с инлайн-копией логики вместо импорта продукта |
+| [agentic-rewrite-needs-oracle.md](patterns/agentic-rewrite-needs-oracle.md) | **[правило]** Массовый агентский рефакторинг — только при оракуле, не зависящем от переписываемого слоя. Кейс Bun (Zig→Rust, 11 дней, ≈$165k): TS-тесты как конформити-оракул, adversarial review по диффу без нарратива автора, trial run на 3 файлах. Разблокировка отложенного split `vibeide/common` |
 | [command-title-category.md](patterns/command-title-category.md) | Палитра склеивает `{category}: {title}` буквально → двойной «VibeIDE: VibeIDE: …». С `category` префикс в title не дублировать; без `category` — префикс «VibeIDE:» в title нормален |
 
 ### [agent-collaboration/](agent-collaboration/) — правила работы агента с автором
