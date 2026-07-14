@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 /**
  * vibe doctor — VibeIDE diagnostics CLI
  *
@@ -17,7 +21,6 @@ const path = require('path');
 const { execSync } = require('child_process');
 const projectCommandsAudit = require('./lib/project-commands-audit.cjs');
 const npmCliAlignment = require('./lib/npm-cli-alignment-check.cjs');
-const knowledgeMdStaleness = require('./lib/knowledge-md-staleness.cjs');
 const perfGuardrails = require('./lib/perf-guardrails-aggregator.cjs');
 const snapshotIntegrity = require('./lib/snapshot-integrity-check.cjs');
 const memoryLayerRouter = require('./lib/memory-layer-router.cjs');
@@ -33,7 +36,6 @@ const MODE = {
 	i18n: args.includes('--i18n'),
 	network: args.includes('--network'),
 	selfCheck: args.includes('--self-check'),
-	knowledge: args.includes('--knowledge'),
 	perf: args.includes('--perf'),
 	memory: args.includes('--memory'),
 	completionStats: args.includes('--completion-stats'),
@@ -862,61 +864,6 @@ if (MODE.memory) {
 	}
 
 	console.log('\nNote: Short-term memory (session) is only accessible from a running IDE instance.');
-	process.exit(0);
-}
-
-if (MODE.knowledge) {
-	// `vibe doctor --knowledge` — flag stale docs/knowledge.md against drift in
-	// contrib/vibeide/common/* (roadmap §M.0 L1092). Exits 0; warn-only.
-	const cwd = process.cwd();
-	const knowledgePath = path.join(cwd, 'docs', 'knowledge.md');
-	const commonDir = path.join(cwd, 'src', 'vs', 'workbench', 'contrib', 'vibeide', 'common');
-
-	let fileExists = false;
-	let fileMtimeMs = null;
-	try {
-		const st = fs.statSync(knowledgePath);
-		fileExists = true;
-		fileMtimeMs = st.mtimeMs;
-	} catch {
-		// silent: knowledge.md is opt-in
-	}
-
-	const commonServiceFiles = [];
-	function walkCommon(dir, rel) {
-		let entries;
-		try {
-			entries = fs.readdirSync(dir, { withFileTypes: true });
-		} catch {
-			return;
-		}
-		for (const ent of entries) {
-			const full = path.join(dir, ent.name);
-			const relPath = rel ? `${rel}/${ent.name}` : ent.name;
-			if (ent.isDirectory()) {
-				walkCommon(full, relPath);
-			} else if (ent.isFile() && /\.ts$/.test(ent.name) && !/\.test\.ts$/.test(ent.name)) {
-				try {
-					const st = fs.statSync(full);
-					commonServiceFiles.push({ path: relPath, mtimeMs: st.mtimeMs });
-				} catch { /* ignore */ }
-			}
-		}
-	}
-	walkCommon(commonDir, '');
-
-	const decision = knowledgeMdStaleness.decideKnowledgeStaleness({
-		fileExists,
-		fileMtimeMs,
-		commonServiceFiles,
-		nowMs: Date.now(),
-	});
-
-	if (MODE.json) {
-		console.log(JSON.stringify(decision, null, 2));
-	} else {
-		console.log(knowledgeMdStaleness.renderKnowledgeStaleness(decision));
-	}
 	process.exit(0);
 }
 

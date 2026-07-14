@@ -11,9 +11,8 @@
 ```
 docs/
 ├── roadmap.md                     # Главный roadmap (фазы, секции W/X/...)
-├── knowledge.md                   # Точка входа в knowledge base (короткий индекс)
 ├── knowledge/                     # База знаний по темам — single source of truth
-│   ├── README.md                  # Полный индекс всех топиков
+│   ├── README.md                  # Единственный индекс базы (точка входа)
 │   ├── architecture/              # LLM pipeline, tool calls, model quirks
 │   ├── agent-collaboration/       # Workflow с AI-агентами, permissions, hooks
 │   ├── build/                     # Windows toolchain, портабл, update service
@@ -56,7 +55,7 @@ docs/
 
 **Правило: мануалы — только в `docs/manuals/`, имена в camelCase** (`specsWorkflow.md`, `ciCdGuide.md`).
 Мануал — руководство «как сделать» по шагам. Каталог возможностей (`functional.md`), план (`roadmap.md`),
-индекс базы знаний (`knowledge.md`), концепт (`idea.md`), FAQ и регламенты — не мануалы, живут вне `manuals/`.
+индекс базы знаний (`knowledge/README.md`), концепт (`idea.md`), FAQ и регламенты — не мануалы, живут вне `manuals/`.
 Исключение: `docs/CONTRIBUTING.md` остаётся на месте — GitHub ищет его в корне, `docs/` или `.github/`
 и по нему показывает плашку с гайдлайнами при создании issue/PR; из `manuals/` он его не найдёт.
 

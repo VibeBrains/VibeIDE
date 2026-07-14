@@ -4,7 +4,7 @@ REM Backup launcher — mirror of repo root run-dev.bat; delegates to bin\vibe-d
 
 REM Why bin/: upstream VS Code sync may overwrite scripts\vibe-dev.bat — copy from bin\ back to scripts\ if needed.
 
-REM Docs: docs/knowledge.md → [vscode] Запуск dev VibeIDE
+REM Docs: docs/knowledge/build/compile-and-sync.md → run-dev / vibe-dev runner
 
 call "%~dp0vibe-dev.bat" %*
 

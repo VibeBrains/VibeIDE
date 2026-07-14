@@ -52,7 +52,7 @@ async function getElectron() {
 			console.log(`[preLaunch] npm run electron failed (exit ${code}), attempt ${attempt}/${max}; next retry in ${delayMs / 1000}s (unstable link to GitHub release assets).`);
 			await new Promise(r => setTimeout(r, delayMs));
 		} else {
-			console.error('[preLaunch] npm run electron failed after retries. Try: set VIBE_ELECTRON_MIRROR=https://cdn.npmmirror.com/binaries/electron/ (see docs/knowledge.md).');
+			console.error('[preLaunch] npm run electron failed after retries. Try: set VIBE_ELECTRON_MIRROR=https://cdn.npmmirror.com/binaries/electron/ (see docs/knowledge/build/portable-and-electron.md).');
 			process.exit(code ?? 1);
 		}
 	}

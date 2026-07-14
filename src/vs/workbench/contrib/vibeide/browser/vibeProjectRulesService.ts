@@ -230,7 +230,7 @@ class VibeProjectRulesService extends Disposable implements IVibeProjectRulesSer
 				}
 				return false;
 			});
-			// R.x — a change to any resolved linked file (e.g. docs/knowledge.md) must also invalidate.
+			// R.x — a change to any resolved linked file (e.g. docs/knowledge/README.md) must also invalidate.
 			const linkedChange = !relevantChange && this._linkedPaths.size > 0
 				&& [...this._linkedPaths].some(p => e.contains(URI.file(p)));
 			if (relevantChange || linkedChange) {

@@ -7,7 +7,7 @@
 /**
  * Memory layer routing decision (1060) — pure helper.
  *
- * VibeIDE has three memory layers (see docs/knowledge.md → "L.1 Orphan
+ * VibeIDE has three memory layers (see docs/knowledge/architecture/orphan-services.md → "L.1 Orphan
  * services"):
  *
  *   - explicit  → `memoriesService` (user-pinned, manual CRUD)

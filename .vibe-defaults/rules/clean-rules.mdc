@@ -17,7 +17,7 @@ alwaysApply: false
 |---|---|
 | `dev-engine.mdc` | Протокол работы инженера: план → подтверждение → код, форматы вывода, тон, автономное исследование |
 | `verification.mdc` | Достоверность: проверка API/версий/фактов, перечитывание перед правкой |
-| `knowledge.mdc` | Процесс ведения базы знаний (не сами знания — они в `docs/knowledge.md`) |
+| `knowledge.mdc` | Процесс ведения базы знаний (не сами знания — они в `docs/knowledge/`) |
 | `roadmap.mdc` | Работа с планом проекта `docs/roadmap.md` |
 | `versioning.mdc` | Версия сборки, пайплайн `package`, папка `builds/` |
 | `release.mdc` | Оформление GitHub Release |

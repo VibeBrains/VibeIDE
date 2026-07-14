@@ -10,7 +10,7 @@
  *   node bin/vibe-language-pack-nls.mjs sync-ru [--version 1.118.1]
  *   node bin/vibe-language-pack-nls.mjs clear-clp
  *
- * See: docs/knowledge.md → [i18n] Language pack (RU), NLS…
+ * See: docs/knowledge/i18n/language-pack.md and i18n/nls-indices.md
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -29,7 +29,7 @@ Commands:
   sync-ru    Run scripts/sync-vscode-loc-ru.mjs (pass --version if needed)
   clear-clp  Run scripts/vibe-dev-clear-nls-clp.mjs (dev profile clp cache)
 
-Full playbook: docs/knowledge.md`);
+Full playbook: docs/knowledge/i18n/language-pack.md`);
 }
 
 function cmdVerify() {
@@ -76,7 +76,7 @@ function cmdVerify() {
 	if (!okEmpty) {
 		console.error(`  nls.messages.json[${iEmpty}] = ${JSON.stringify(messages[iEmpty])} (expected "")`);
 	}
-	console.error('  Fix: npm run nls-extract, clear dev clp, full Electron restart (see knowledge.md)');
+	console.error('  Fix: npm run nls-extract, clear dev clp, full Electron restart (see docs/knowledge/i18n/nls-indices.md)');
 	process.exit(1);
 }
 

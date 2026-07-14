@@ -84,6 +84,10 @@ export const unicodeFilter = Object.freeze<string[]>([
 	'!scripts/release-linux.sh',
 	'!scripts/home-build-windows.ps1',
 	'!scripts/lib/home-build-common.sh',
+	// Same rationale: `vibe doctor` renders box-drawing frames and status glyphs as its
+	// console report. Deleting the `--knowledge` mode (2026-07-15) surfaced 96 pre-existing
+	// findings from a pure-deletion edit — the exact trap this block was added to close.
+	'!scripts/vibe-doctor.js',
 ]);
 
 export const indentationFilter = Object.freeze<string[]>([
@@ -178,6 +182,14 @@ export const indentationFilter = Object.freeze<string[]>([
 
 export const copyrightFilter = Object.freeze<string[]>([
 	'**',
+
+	// Node CLI entry points: the checker compares lines 0-3 against the header verbatim, so a
+	// `#!/usr/bin/env node` shebang — which must be line 1 to stay executable — and the header
+	// are mutually exclusive. Both files carry the header directly below the shebang instead.
+	// (Upstream excludes such files for the same reason, e.g. resources/win32/bin/code.js.)
+	'!scripts/vibe-doctor.js',
+	'!scripts/vibe-docs-graph.mjs',
+
 	'!**/*.desktop',
 	'!**/*.json',
 	'!**/*.jsonc',

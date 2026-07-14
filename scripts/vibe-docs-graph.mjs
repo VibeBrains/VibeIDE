@@ -1,16 +1,27 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
 // Roadmap Y.6 — Knowledge base graph generator.
 //
 // Scans `docs/knowledge/**/*.md` for relative-path markdown links
 // (`[text](relative/path.md)`) and emits a Mermaid graph to stdout.
-// Detects orphan files (no incoming + no outgoing links) and dead links
-// (target path doesn't exist).
+// Detects orphan files (no incoming + no outgoing links), dead links
+// (target path doesn't exist) and entries missing from the index.
+//
+// The index (`docs/knowledge/README.md`) is the ONLY list of entries: an entry
+// absent from it is undiscoverable, however well it is cross-linked. Orphan
+// detection does not catch this — a cluster of files linking to each other has
+// non-zero degree while staying invisible from the index (that is exactly how
+// the whole `tool-system/` domain went unlisted for seven weeks).
 //
 // Usage:
 //   node scripts/vibe-docs-graph.mjs               # mermaid graph to stdout
 //   node scripts/vibe-docs-graph.mjs --orphans     # list orphan files only
 //   node scripts/vibe-docs-graph.mjs --dead-links  # list dead links only
-//   node scripts/vibe-docs-graph.mjs --check       # exit 1 if any dead links
+//   node scripts/vibe-docs-graph.mjs --unindexed   # list entries missing from the index
+//   node scripts/vibe-docs-graph.mjs --check       # exit 1 on dead links / orphans / unindexed
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -35,8 +46,11 @@ function* walk(dir) {
 }
 
 // Relative markdown link: [text](path.md) or [text](path.md#anchor)
-// Skip absolute URLs (https?://) and bare-anchor links (#section).
-const LINK_RE = /\[([^\]]+)\]\((?!https?:|#)([^)#\s]+\.md)(?:#[^)]*)?\)/g;
+// Skip absolute URLs (https?://), bare-anchor links (#section) and Cursor-style
+// `mdc:` links — the latter are resolved workspace-relative by
+// VibeProjectRulesService at runtime, not relative to the containing doc, so
+// resolving them here yields a phantom dead link.
+const LINK_RE = /\[([^\]]+)\]\((?!https?:|mdc:|#)([^)#\s]+\.md)(?:#[^)]*)?\)/g;
 
 const files = [...walk(root)];
 const nodeIdOf = (absPath) => path.relative(root, absPath).replace(/\\/g, '/');
@@ -81,6 +95,28 @@ for (const id of nodes) {
 	if (inDeg === 0 && outDeg === 0) orphans.push(id);
 }
 
+// Index membership: every entry must be linked from `docs/knowledge/README.md`.
+// Exempt: the index itself and `_template-*` skeletons.
+const INDEX_ID = 'README.md';
+const indexedIds = outgoing.get(INDEX_ID) ?? new Set();
+const unindexed = [];
+for (const id of nodes) {
+	if (id === INDEX_ID) continue;
+	if (path.basename(id).startsWith('_template-')) continue;
+	if (!indexedIds.has(id)) unindexed.push(id);
+}
+unindexed.sort();
+
+if (mode === '--unindexed') {
+	if (unindexed.length === 0) {
+		console.log('All entries are listed in the index.');
+	} else {
+		console.log(`${unindexed.length} entr(ies) missing from ${INDEX_ID}:`);
+		for (const id of unindexed) console.log(`  ${id}`);
+	}
+	process.exit(0);
+}
+
 if (mode === '--orphans') {
 	if (orphans.length === 0) {
 		console.log('No orphan files.');
@@ -105,13 +141,15 @@ if (mode === '--check') {
 	const issues = [];
 	if (deadLinks.length > 0) issues.push(`${deadLinks.length} dead link(s)`);
 	if (orphans.length > 0) issues.push(`${orphans.length} orphan(s)`);
+	if (unindexed.length > 0) issues.push(`${unindexed.length} unindexed`);
 	if (issues.length === 0) {
-		console.log('docs graph clean.');
+		console.log(`docs graph clean (${nodes.size} files, all indexed).`);
 		process.exit(0);
 	}
 	console.error(`docs graph issues: ${issues.join(', ')}`);
 	for (const { from, target } of deadLinks) console.error(`  dead: ${from} → ${target}`);
 	for (const id of orphans) console.error(`  orphan: ${id}`);
+	for (const id of unindexed) console.error(`  unindexed: ${id} — add a row to ${INDEX_ID}`);
 	process.exit(1);
 }
 

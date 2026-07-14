@@ -4,7 +4,7 @@ REM BACKUP COPY — same logic as scripts\vibe-dev.bat; paths use REPO_ROOT → 
 
 REM Purpose: upstream merge may overwrite scripts\vibe-dev.bat; restore from bin\ then copy back to scripts\.
 
-REM Daily entry: repo root run-dev.bat → scripts\vibe-dev.bat. See docs/knowledge.md § Запуск dev VibeIDE.
+REM Daily entry: repo root run-dev.bat → scripts\vibe-dev.bat. See docs/knowledge/build/compile-and-sync.md.
 
 REM
 

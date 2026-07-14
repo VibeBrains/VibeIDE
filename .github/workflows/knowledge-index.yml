@@ -1,0 +1,43 @@
+name: knowledge-index
+
+# Guards the knowledge base contract: `docs/knowledge/README.md` is the ONLY list of entries.
+# A file absent from it is undiscoverable no matter how well it is cross-linked — that is not a
+# hypothetical: the whole `tool-system/` domain (6 entries) sat unlisted for seven weeks, and the
+# pre-existing `--check` stayed silent because those files link to each other, so they were never
+# "orphans" by its definition. The check also went red unnoticed for a different reason: it was
+# wired into nothing and only ever ran by hand.
+#
+# This job runs the check on every touching PR so the index cannot drift away from the disk again.
+
+on:
+  pull_request:
+    paths:
+      - "docs/knowledge/**"
+      - "scripts/vibe-docs-graph.mjs"
+      - ".github/workflows/knowledge-index.yml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/knowledge/**"
+      - "scripts/vibe-docs-graph.mjs"
+      - ".github/workflows/knowledge-index.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  index:
+    name: knowledge index matches disk
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Dependency-free (fs/path only) — no `npm ci` needed, so the guard stays fast.
+      - name: Check index membership, dead links and orphans
+        run: npm run docs-graph-check

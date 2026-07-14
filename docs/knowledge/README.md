@@ -114,6 +114,18 @@
 | [precommit-hygiene.md](git-and-tools/precommit-hygiene.md) | `tsx`-раннер hygiene/eslint, фильтры Unicode/indentation для vibeide, lint-staged без eslint, `--no-verify` на больших коммитах |
 | [docs-layout.md](git-and-tools/docs-layout.md) | Правило `docs/manuals/` + camelCase; почему `CONTRIBUTING.md` нельзя унести (GitHub ищет в 3 путях); ловушка вшитых абсолютных URL в засеянных `.vibe` |
 
+### [tool-system/](tool-system/) — слой встроенных тулов (поверхность, которую видит LLM)
+
+| Файл | О чём |
+|---|---|
+| [overview.md](tool-system/overview.md) | Карта кода слоя (`toolsServiceTypes`, `prompts`, `toolsService`, `terminalToolService`, `toolHardening`) + зачем закаляли: одна ручка `run_command` = зависание на длинных чтениях (у shell-stdout нет ни пагинации, ни таймаута) |
+| [anti-shell-contract.md](tool-system/anti-shell-contract.md) | Что `run_command` отбивает и почему (`detectShellMisuse`): shell-формы, дублирующие штатные тулы (`Get-Content`/`cat`/`findstr`); error surface; когда расширять список |
+| [read-file-v2.md](tool-system/read-file-v2.md) | Line-based slicing, нумерация строк в выводе, контракт пагинации, large-file warning, стык с edit safety |
+| [edit-safety.md](tool-system/edit-safety.md) | Pre-flights перед мутацией: `edit_file` «must read first», `create_file_or_folder` «parent must exist»; **[баг]** тихая запись пустого файла (stale `_fileExistenceCache`, TTL 5 c, v0.21.3); **[правило]** truncation-guard `rewrite_file` (`rewriteFileTruncationMinChars`/`Ratio`) против молчаливой потери данных при обрыве вывода модели |
+| [edit-file-indentation-alignment.md](tool-system/edit-file-indentation-alignment.md) | Выравнивание отступа при толерантном матче `edit_file` — корень, фикс (v1.2.4), урок |
+| [glob-and-grep.md](tool-system/glob-and-grep.md) | Поиск на ripgrep: `glob` (по именам) vs `grep` (по содержимому); почему два тула, а не один слитый |
+| [background-commands.md](tool-system/background-commands.md) | `run_in_background` / `read_background_output` / `kill_background_command`: когда какой, жизненный цикл, границы; почему не делали push-уведомления |
+
 ### [runtime-quirks/](runtime-quirks/) — runtime-ловушки
 
 | Файл | О чём |
@@ -150,7 +162,7 @@
 | [lessons-from-roadmap-max-runs.md](patterns/lessons-from-roadmap-max-runs.md) | Pure-helper + DI wrapper, discriminated-union FSM, tagged-result envelopes, twin-shape redactor, JSDoc `*/`-footgun, ReadonlyArray push/sort, OAuth state-CSRF-first, HMAC + decoder pairing, sticky-comment CI |
 | [settings-registration-sweep.md](patterns/settings-registration-sweep.md) | Phantom config keys, in-service vs centralised registration, standalone xxxConfiguration.ts, localize() for descriptions, ConfigurationScope choice, minimum/maximum clamp, code-review smell |
 | [main-renderer-config-bridge.md](patterns/main-renderer-config-bridge.md) | Pattern для прокидывания renderer-side settings в electron-main process через IPC + `process.env` indirection. Когда использовать, когда нет, alternative с direct IPC channel при росте |
-| [verify-before-hypothesizing.md](patterns/verify-before-hypothesizing.md) | **[правило]** Если симптом измерим — измерь (терминал/инструментация) ПЕРЕД гипотезой. Канон: get_dir_tree-тормоза (3 неверных гипотезы → 1 `Get-ChildItem` = 25мс → корень). Гипотезу без замера в roadmap помечать гипотезой, не причиной |
+| [verify-before-hypothesizing.md](patterns/verify-before-hypothesizing.md) | **[правило]** Если симптом измерим — измерь (терминал/инструментация) ПЕРЕД гипотезой. Канон: get_dir_tree-тормоза (3 неверных гипотезы → 1 `Get-ChildItem` = 25мс → корень). Гипотезу без замера в roadmap помечать гипотезой, не причиной. **+ «Зелёный чек ≠ работающий чек»**: три способа соврать (не запускается / слеп к классу поломки / шапка врёт про код) + дублирующие индексы расходятся по построению |
 | [unit-test-runner-footguns.md](patterns/unit-test-runner-footguns.md) | `import from 'mocha'` убивает весь test.bat-прогон (использовать глобалы), test.bat гоняет `out/` (нужен `transpile-client`), псевдотесты с инлайн-копией логики вместо импорта продукта |
 | [agentic-rewrite-needs-oracle.md](patterns/agentic-rewrite-needs-oracle.md) | **[правило]** Массовый агентский рефакторинг — только при оракуле, не зависящем от переписываемого слоя. Кейс Bun (Zig→Rust, 11 дней, ≈$165k): TS-тесты как конформити-оракул, adversarial review по диффу без нарратива автора, trial run на 3 файлах. Разблокировка отложенного split `vibeide/common` |
 | [command-title-category.md](patterns/command-title-category.md) | Палитра склеивает `{category}: {title}` буквально → двойной «VibeIDE: VibeIDE: …». С `category` префикс в title не дублировать; без `category` — префикс «VibeIDE:» в title нормален |
@@ -181,6 +193,10 @@
 - Тело: блок **Контекст** / **Суть** / **Применение**. Опционально — **Antipatterns**, **Доп.**, **Устарело**.
 - Ссылки на файлы кода — относительно репо: `[file](../../src/vs/...)`, либо markdown-link с номером строки `[file:42](../../src/.../file.ts#L42)`.
 
-## Переход со старого `docs/knowledge.md`
+## Этот файл — единственный индекс базы
 
-Старый плоский файл (1267 строк, ~80 записей) был разбит на эту структуру 2026-05-09. Если какая-то запись осталась снаружи — добавлять в подходящий тематический файл, не плодить новые верхнеуровневые директории без необходимости.
+Старый плоский `docs/knowledge.md` (1267 строк, ~80 записей) разбит на эту структуру 2026-05-09; его огрызок-редирект удалён 2026-07-15 вместе с подындексом `tool-system/README.md` — **дублирующие списки одного множества расходятся по построению** (огрызок знал 11 доменов из 14, подындекс — 5 записей из 6, `tool-system/` не был виден отсюда 7 недель).
+
+**Правило:** запись без строки в этой таблице не существует — её никто не найдёт. Добавил файл → добавь строку. Гейтится `npm run docs-graph-check` (dead links + членство в индексе), гоняется в CI.
+
+Новую запись — в подходящий тематический файл; новые верхнеуровневые домены без необходимости не плодить.

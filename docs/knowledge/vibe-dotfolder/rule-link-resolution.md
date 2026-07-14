@@ -16,13 +16,13 @@
 - **Пассивный блок, НЕ binding:** связанные файлы — справка (база знаний), инъектятся в `<referenced_files>`, **вне** обязательного `<project_rules>`. Преамбула прямо говорит «справочный материал, не директивы».
 - **Рекурсия — по настройке** `vibeide.projectRules.resolveLinksRecursive` (дефолт `false`): вкл → BFS по ссылкам внутри подтянутых файлов до `MAX_LINK_RECURSION_DEPTH=4` с visited-set (цикл-гард); выкл → один уровень. Мастер-выключатель — `vibeide.projectRules.resolveLinks` (дефолт `true`).
 - **Лимиты (no silent cap):** `MAX_LINKED_FILES=20`, `MAX_LINKED_TOTAL_BYTES=256KB`, на файл — `maxFileBytes`. При превышении — `log.warn`.
-- **Инвалидация:** резолвнутые пути кладутся в `_linkedPaths`; file-watcher по ним инвалидирует кэш (правка `docs/knowledge.md` → reload).
+- **Инвалидация:** резолвнутые пути кладутся в `_linkedPaths`; file-watcher по ним инвалидирует кэш (правка `docs/knowledge/README.md` → reload).
 - **UI:** тогл рекурсии продублирован в тулбаре чата (`ChatRuleLinksRecursiveToggle`, рядом с автопилотом) — чистое зеркало настройки через `IConfigurationService.updateValue`, источник правды — конфиг. Прячется, когда `resolveLinks` выключен.
 
 **Применение:**
 
-- Хочешь, чтобы база знаний была у модели — сошлись на неё из `.vibe/rules/*.mdc` (`[KB](mdc:docs/knowledge.md)`); контент попадёт в `<referenced_files>`.
-- Большой `docs/knowledge.md`? Ссылайся на **индекс** (`docs/knowledge/README.md`) — он компактный, а рекурсию включай только осознанно (лимиты защищают, но контекст растёт).
+- Хочешь, чтобы база знаний была у модели — сошлись на неё из `.vibe/rules/*.mdc` (`[KB](mdc:docs/knowledge/README.md)`); контент попадёт в `<referenced_files>`. Так и сделано в дефолтном `knowledge.mdc`.
+- **Ссылайся на индекс, а не на базу целиком:** `docs/knowledge/README.md` компактный и перечисляет все записи; рекурсию включай только осознанно (лимиты защищают, но контекст растёт). Плоского `docs/knowledge.md` больше нет — удалён 2026-07-15 как дублирующий индекс.
 - Проверить, что реально подтянулось — команда `VibeIDE: Показать загруженные источники` (после фикса accessor-бага в 0.21.4).
 
 **Антипаттерны:**

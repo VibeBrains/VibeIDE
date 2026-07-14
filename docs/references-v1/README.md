@@ -80,7 +80,6 @@
 | Файл | Тема |
 |---|---|
 | [docs-policy.md](docs-policy.md) | Split `docs/` (публичное) vs `references/v1/` (нормативное) |
-| [knowledge-md-contract.md](knowledge-md-contract.md) | `docs/knowledge/` — контракт |
 | [ci-workflows-inventory.md](ci-workflows-inventory.md) | CI workflows inventory |
 
 ---
