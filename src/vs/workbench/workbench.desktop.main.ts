@@ -200,6 +200,7 @@ import './contrib/keybindingsExport/electron-browser/keybindingsExport.contribut
 import './contrib/vibeide/browser/vibeide.contribution.js';
 // VibeIDE: desktop-only service implementations (need the native host bridge).
 import './contrib/vibeide/electron-browser/modelQuirksCatalogStatusService.js';
+import './contrib/vibeide/electron-browser/ollamaInstallerService.js';
 import './contrib/vibeide/electron-browser/modelsDevCatalogStatusService.js';
 import './contrib/vibeide/electron-browser/vibeDesktopNotificationService.js';
 import './contrib/vibeide/electron-browser/vibeIdleWatchdogProxy.js';

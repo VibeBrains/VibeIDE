@@ -200,8 +200,10 @@ import '../common/vibeideModelService.js';
 // model warm-up service
 import '../common/modelWarmupService.js';
 
-// ollama installer service (main-process proxy) - eager import to register singleton before VibeOllamaOnboardingContribution
-import '../common/ollamaInstallerService.js';
+// ollama installer service (main-process proxy): implementation is desktop-only and registers from
+// `electron-browser/ollamaInstallerService.js`, wired in `workbench.desktop.main.ts`. Ordering is
+// still safe — registerSingleton only records a descriptor, and every import there completes before
+// the workbench instantiates VibeOllamaOnboardingContribution.
 
 // outbound ring buffer (privacy panel + vibe doctor --network) — registers singleton
 import '../common/vibeOutboundRingBuffer.js';
