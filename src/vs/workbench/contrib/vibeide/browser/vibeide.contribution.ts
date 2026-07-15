@@ -110,8 +110,8 @@ import './vibeNlsLiveReload.js';
 
 // ---------- common (unclear if these actually need to be imported, because they're already imported wherever they're used) ----------
 
-// llmMessage
-import '../common/sendLLMMessageService.js';
+// llmMessage: implementation is desktop-only (IMainProcessService) and registers from
+// `electron-browser/sendLLMMessageService.js`, wired in `workbench.desktop.main.ts`.
 
 // vibeideSettings
 import '../common/vibeideSettingsService.js';

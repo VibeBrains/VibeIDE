@@ -203,6 +203,7 @@ import './contrib/vibeide/electron-browser/mcpService.js';
 import './contrib/vibeide/electron-browser/modelQuirksCatalogStatusService.js';
 import './contrib/vibeide/electron-browser/ollamaInstallerService.js';
 import './contrib/vibeide/electron-browser/remoteCatalogService.js';
+import './contrib/vibeide/electron-browser/sendLLMMessageService.js';
 import './contrib/vibeide/electron-browser/modelsDevCatalogStatusService.js';
 import './contrib/vibeide/electron-browser/vibeDesktopNotificationService.js';
 import './contrib/vibeide/electron-browser/vibeIdleWatchdogProxy.js';
