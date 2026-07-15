@@ -104,13 +104,14 @@ import './fileService.js';
 import './vibeNlsBundleService.js';
 import './vibeNlsLiveReload.js';
 
-// register source control management
-import './vibeideSCMService.js';
+// register source control management: the whole file (service + the two commit-message actions)
+// is desktop-only — it proxies `vibeide-channel-scm` via IMainProcessService, banned in browser/.
+// Lives in `electron-browser/vibeideSCMService.js`, wired in `workbench.desktop.main.ts`.
 
 // ---------- common (unclear if these actually need to be imported, because they're already imported wherever they're used) ----------
 
-// llmMessage
-import '../common/sendLLMMessageService.js';
+// llmMessage: implementation is desktop-only (IMainProcessService) and registers from
+// `electron-browser/sendLLMMessageService.js`, wired in `workbench.desktop.main.ts`.
 
 // vibeideSettings
 import '../common/vibeideSettingsService.js';
@@ -122,12 +123,15 @@ import '../common/secretDetectionService.js';
 import '../common/memoriesService.js';
 import './memoriesTrackingContribution.js';
 
-// models.dev catalog status (toast on startup if catalog couldn't load from network)
-import '../common/modelsDevCatalogStatusService.js';
+// models.dev catalog status (toast on startup if catalog couldn't load from network).
+// The service implementation is desktop-only (IMainProcessService) and therefore registers from
+// `electron-browser/modelsDevCatalogStatusService.js`, wired in `workbench.desktop.main.ts` —
+// a browser-layer module must not import electron-browser. Only the contribution lives here.
 import './modelsDevCatalogStatusContribution.js';
 
-// model-quirks catalog status (toast once on startup if exe-adjacent override is stale)
-import '../common/modelQuirksCatalogStatusService.js';
+// model-quirks catalog status (toast once on startup if exe-adjacent override is stale).
+// Service implementation is desktop-only (IMainProcessService) and registers from
+// `electron-browser/modelQuirksCatalogStatusService.js`, wired in `workbench.desktop.main.ts`.
 import './modelQuirksCatalogStatusContribution.js';
 // VibeIDE: status-bar indicator for the active model-quirks catalog source (1678)
 import './vibeModelQuirksSourceStatusBar.js';
@@ -185,11 +189,11 @@ import('./vibeWhatsNewContribution.js').catch(() => { });
 // refreshModel
 import '../common/refreshModelService.js';
 
-// metrics
-import '../common/metricsService.js';
+// metrics: implementation + the vibeDebugInfo action are desktop-only and register from
+// `electron-browser/metricsService.js`, wired in `workbench.desktop.main.ts`.
 
-// updates
-import '../common/vibeideUpdateService.js';
+// updates: implementation is desktop-only and registers from
+// `electron-browser/vibeideUpdateService.js`, wired in `workbench.desktop.main.ts`.
 
 // model service
 import '../common/vibeideModelService.js';
@@ -197,8 +201,10 @@ import '../common/vibeideModelService.js';
 // model warm-up service
 import '../common/modelWarmupService.js';
 
-// ollama installer service (main-process proxy) - eager import to register singleton before VibeOllamaOnboardingContribution
-import '../common/ollamaInstallerService.js';
+// ollama installer service (main-process proxy): implementation is desktop-only and registers from
+// `electron-browser/ollamaInstallerService.js`, wired in `workbench.desktop.main.ts`. Ordering is
+// still safe — registerSingleton only records a descriptor, and every import there completes before
+// the workbench instantiates VibeOllamaOnboardingContribution.
 
 // outbound ring buffer (privacy panel + vibe doctor --network) — registers singleton
 import '../common/vibeOutboundRingBuffer.js';
@@ -448,8 +454,9 @@ import './vibePlanLeaseJanitorContribution.js';
 // VibeIDE: Multi-window coordinator — .vibe/.window-lock.json ownership + heartbeat (L1032)
 import './vibeMultiWindowCoordinatorContribution.js';
 
-// VibeIDE: Idle Watchdog — renderer-side memory sampler + IPC proxy (roadmap W.1)
-import '../common/vibeIdleWatchdogProxy.js';
+// VibeIDE: Idle Watchdog — renderer-side memory sampler + IPC proxy (roadmap W.1).
+// The proxy implementation is desktop-only (IMainProcessService) and registers from
+// `electron-browser/vibeIdleWatchdogProxy.js`, wired in `workbench.desktop.main.ts`.
 import './vibeIdleWatchdogRendererContribution.js';
 
 // VibeIDE: Idle Watchdog — pre-flight previous-crash notification (roadmap W.14)

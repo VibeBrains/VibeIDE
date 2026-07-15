@@ -4,14 +4,21 @@
  *--------------------------------------------------------------------------------------------*/
 
 
-import { vibeLog } from './vibeLog.js';
-import { createDecorator, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
-import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
-import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
-import { localize2 } from '../../../../nls.js';
-import { registerAction2, Action2 } from '../../../../platform/actions/common/actions.js';
-import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+
+// Реализация — `electron-browser/metricsService.ts`: класс проксирует канал `vibe-channel-metrics`
+// через `IMainProcessService`, запрещённый и в `common/**`, и в `browser/**`.
+//
+// Контракт обязан остаться здесь: `IMetricsService` инжектят 12 файлов (54 вызова `capture()`), и
+// его же импортирует `electron-main/sendLLMMessageChannel.ts` — то есть он держит обе стороны.
+//
+// ВАЖНО про имя: `capture()` — no-op (`NoOpMetricsClient`, PostHog выпилен из OSS-дерева), но
+// инструментовка живая и расставлена в нужных точках. Переименование `metrics` →
+// `routingOutcomeLog` СОЗНАТЕЛЬНО отложено до появления стока: имя «журнал исходов» у пустого
+// приёмника обещало бы поведение, которого нет — ровно та ложь, за которую удалили унаследованную
+// `telemetry/` (её README заявлял «tracks every AI interaction»). Плюс сервис не только про
+// роутинг: `getDebuggingProperties()` отдаёт версии/ОС/коммит для команды `vibeDebugInfo`.
+// См. `architecture/inheritedPrototypes.md` → Вектор 1.
 
 export interface IMetricsService {
 	readonly _serviceBrand: undefined;
@@ -21,55 +28,3 @@ export interface IMetricsService {
 }
 
 export const IMetricsService = createDecorator<IMetricsService>('metricsService');
-
-
-// implemented by calling channel
-export class MetricsService implements IMetricsService {
-
-	readonly _serviceBrand: undefined;
-	private readonly metricsService: IMetricsService;
-
-	constructor(
-		@IMainProcessService mainProcessService: IMainProcessService // (only usable on client side)
-	) {
-		// creates an IPC proxy to use metricsMainService.ts
-		this.metricsService = ProxyChannel.toService<IMetricsService>(mainProcessService.getChannel('vibe-channel-metrics'));
-	}
-
-	// call capture on the channel
-	capture(...params: Parameters<IMetricsService['capture']>) {
-		this.metricsService.capture(...params);
-	}
-
-	setOptOut(...params: Parameters<IMetricsService['setOptOut']>) {
-		this.metricsService.setOptOut(...params);
-	}
-
-
-	// anything transmitted over a channel must be async even if it looks like it doesn't have to be
-	async getDebuggingProperties(): Promise<object> {
-		return this.metricsService.getDebuggingProperties();
-	}
-}
-
-registerSingleton(IMetricsService, MetricsService, InstantiationType.Eager);
-
-
-// debugging action
-registerAction2(class extends Action2 {
-	constructor() {
-		super({
-			id: 'vibeDebugInfo',
-			f1: true,
-			title: localize2('vibeMetricsDebug', 'VibeIDE: Log Debug Info'),
-		});
-	}
-	async run(accessor: ServicesAccessor): Promise<void> {
-		const metricsService = accessor.get(IMetricsService);
-		const notifService = accessor.get(INotificationService);
-
-		const debugProperties = await metricsService.getDebuggingProperties();
-		vibeLog.info('metrics', 'Metrics:', debugProperties);
-		notifService.info(`VibeIDE Debug info:\n${JSON.stringify(debugProperties, null, 2)}`);
-	}
-});

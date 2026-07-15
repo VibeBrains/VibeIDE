@@ -16,13 +16,8 @@
  */
 
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
-import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
-import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
 import { Event } from '../../../../base/common/event.js';
 import {
-	IVibeIdleWatchdogChannelService,
-	VIBE_IDLE_WATCHDOG_CHANNEL,
 	WatchdogBundleResult,
 	WatchdogCrashEntry,
 	WatchdogCurrentSnapshot,
@@ -49,47 +44,7 @@ export interface IVibeIdleWatchdogProxy {
 export const IVibeIdleWatchdogProxy =
 	createDecorator<IVibeIdleWatchdogProxy>('vibeIdleWatchdogProxy');
 
-export class VibeIdleWatchdogProxy implements IVibeIdleWatchdogProxy {
-	declare readonly _serviceBrand: undefined;
-	private readonly _proxy: IVibeIdleWatchdogChannelService;
-	readonly onSlopeAlert: Event<WatchdogSlopeAlert>;
-	readonly onPreOomAlert: Event<WatchdogPreOomAlert>;
-
-	constructor(@IMainProcessService mainProcessService: IMainProcessService) {
-		this._proxy = ProxyChannel.toService<IVibeIdleWatchdogChannelService>(
-			mainProcessService.getChannel(VIBE_IDLE_WATCHDOG_CHANNEL),
-		);
-		this.onSlopeAlert = this._proxy.onSlopeAlert;
-		this.onPreOomAlert = this._proxy.onPreOomAlert;
-	}
-
-	appendSample(line: WatchdogSampleBase): Promise<void> {
-		return this._proxy.appendSample(line);
-	}
-
-	appendCrash(entry: WatchdogCrashEntry): Promise<void> {
-		return this._proxy.appendCrash(entry);
-	}
-
-	appendSnapshot(entry: WatchdogSnapshotEntry): Promise<void> {
-		return this._proxy.appendSnapshot(entry);
-	}
-
-	readRecentTail(maxLines: number): Promise<readonly WatchdogLine[]> {
-		return this._proxy.readRecentTail(maxLines);
-	}
-
-	bundleCrashReport(destPath: string): Promise<WatchdogBundleResult> {
-		return this._proxy.bundleCrashReport(destPath);
-	}
-
-	getCurrentSnapshot(): Promise<WatchdogCurrentSnapshot> {
-		return this._proxy.getCurrentSnapshot();
-	}
-
-	triggerMainHeapSnapshot(): Promise<WatchdogSnapshotEntry | null> {
-		return this._proxy.triggerMainHeapSnapshot();
-	}
-}
-
-registerSingleton(IVibeIdleWatchdogProxy, VibeIdleWatchdogProxy, InstantiationType.Delayed);
+// Реализация — `electron-browser/vibeIdleWatchdogProxy.ts`: она держит `IMainProcessService`,
+// запрещённый и в `common/**`, и в `browser/**`. Здесь только контракт — шесть потребителей
+// (статус-бар, pre-flight, bundle/timeline/diagnosis-действия, renderer-контрибуция) берут
+// декоратор отсюда и от desktop-слоя не зависят.

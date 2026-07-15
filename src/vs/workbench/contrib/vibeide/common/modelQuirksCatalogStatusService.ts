@@ -5,9 +5,6 @@
 
 
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
-import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
-import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
 
 /**
  * Mirrors `ModelQuirksCatalogStatus` in electron-main/modelQuirks/modelQuirksService.ts.
@@ -27,7 +24,7 @@ export interface ModelQuirksCatalogStatus {
 	readonly exeAdjacentPath: string | null;
 }
 
-interface IModelQuirksCatalogStatusServiceIPC {
+export interface IModelQuirksCatalogStatusServiceIPC {
 	getStatus(): Promise<ModelQuirksCatalogStatus>;
 	refresh(): Promise<boolean>;
 }
@@ -39,23 +36,6 @@ export interface IModelQuirksCatalogStatusService extends IModelQuirksCatalogSta
 export const IModelQuirksCatalogStatusService =
 	createDecorator<IModelQuirksCatalogStatusService>('modelQuirksCatalogStatusService');
 
-export class ModelQuirksCatalogStatusService implements IModelQuirksCatalogStatusService {
-	readonly _serviceBrand: undefined;
-	private readonly proxy: IModelQuirksCatalogStatusServiceIPC;
-
-	constructor(@IMainProcessService mainProcessService: IMainProcessService) {
-		this.proxy = ProxyChannel.toService<IModelQuirksCatalogStatusServiceIPC>(
-			mainProcessService.getChannel('vibeide-channel-modelQuirksStatus'),
-		);
-	}
-
-	getStatus(): Promise<ModelQuirksCatalogStatus> {
-		return this.proxy.getStatus();
-	}
-
-	refresh(): Promise<boolean> {
-		return this.proxy.refresh();
-	}
-}
-
-registerSingleton(IModelQuirksCatalogStatusService, ModelQuirksCatalogStatusService, InstantiationType.Delayed);
+// Реализация — `electron-browser/modelQuirksCatalogStatusService.ts`: она держит `IMainProcessService`,
+// запрещённый в `common/**` (native-only). Здесь только контракт — потребители из `browser/` не
+// должны зависеть от desktop-слоя.

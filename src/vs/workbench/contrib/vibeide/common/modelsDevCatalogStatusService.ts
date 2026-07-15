@@ -5,10 +5,7 @@
 
 
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
-import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
-import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
-import { Emitter, Event } from '../../../../base/common/event.js';
+import { Event } from '../../../../base/common/event.js';
 
 // Mirrors electron-main/llmMessage/modelsDevCatalog.ts. Duplicated here (not imported)
 // because workbench-layer code can't reach into electron-main packages directly.
@@ -32,7 +29,7 @@ export type ModelsDevCatalogStatus =
  * Event<>` fields, but the event is a RENDERER-LOCAL Emitter here (fires
  * after `recheck()` returns, not pushed from main).
  */
-interface IModelsDevCatalogStatusServiceIPC {
+export interface IModelsDevCatalogStatusServiceIPC {
 	getStatus(): Promise<ModelsDevCatalogStatus>;
 	setDiskCacheTtlHours(hours: number): Promise<void>;
 	recheck(): Promise<ModelsDevCatalogStatus>;
@@ -54,31 +51,6 @@ export interface IModelsDevCatalogStatusService extends IModelsDevCatalogStatusS
 export const IModelsDevCatalogStatusService =
 	createDecorator<IModelsDevCatalogStatusService>('modelsDevCatalogStatusService');
 
-export class ModelsDevCatalogStatusService implements IModelsDevCatalogStatusService {
-	readonly _serviceBrand: undefined;
-	private readonly proxy: IModelsDevCatalogStatusServiceIPC;
-	private readonly _onDidChangeStatus = new Emitter<ModelsDevCatalogStatus>();
-	readonly onDidChangeStatus: Event<ModelsDevCatalogStatus> = this._onDidChangeStatus.event;
-
-	constructor(@IMainProcessService mainProcessService: IMainProcessService) {
-		this.proxy = ProxyChannel.toService<IModelsDevCatalogStatusServiceIPC>(
-			mainProcessService.getChannel('vibeide-channel-modelsDevCatalogStatus'),
-		);
-	}
-
-	getStatus(): Promise<ModelsDevCatalogStatus> {
-		return this.proxy.getStatus();
-	}
-
-	setDiskCacheTtlHours(hours: number): Promise<void> {
-		return this.proxy.setDiskCacheTtlHours(hours);
-	}
-
-	async recheck(): Promise<ModelsDevCatalogStatus> {
-		const next = await this.proxy.recheck();
-		this._onDidChangeStatus.fire(next);
-		return next;
-	}
-}
-
-registerSingleton(IModelsDevCatalogStatusService, ModelsDevCatalogStatusService, InstantiationType.Delayed);
+// Реализация — `electron-browser/modelsDevCatalogStatusService.ts`: она держит `IMainProcessService`,
+// который запрещён в `common/**` (native-only). Здесь остаётся только контракт, чтобы потребители
+// из `browser/` не зависели от desktop-слоя.

@@ -1,0 +1,47 @@
+name: service-registration
+
+# Guards DI wiring: every module calling `registerSingleton()` must be reachable — transitively,
+# through imports — from a real entry point. `registerSingleton` runs only if the module is loaded,
+# and a module is loaded only if something imports it.
+#
+# This is the failure mode of the vibeide/common layer split: the interface stays in common/, the
+# implementation moves to electron-browser/, and if the side-effect import is not wired up, the
+# singleton silently never registers. The decorator still exports, compile-check-ts-native passes,
+# valid-layers-check passes — and the service dies at runtime when a consumer injects it.
+#
+# Baseline when this landed (2026-07-15): 167 registrar modules, all reachable. Getting there took
+# deleting 11 inherited files whose registrations had never run (see
+# docs/knowledge/architecture/inheritedPrototypes.md).
+
+on:
+  pull_request:
+    paths:
+      - "src/vs/workbench/contrib/vibeide/**"
+      - "scripts/vibe-service-registration-check.mjs"
+      - ".github/workflows/service-registration.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/vs/workbench/contrib/vibeide/**"
+      - "scripts/vibe-service-registration-check.mjs"
+      - ".github/workflows/service-registration.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  wiring:
+    name: every registerSingleton module is reachable
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Dependency-free (fs/path only) — no `npm ci` needed, so the guard stays fast.
+      - name: Check singleton registration reachability
+        run: npm run service-registration-check

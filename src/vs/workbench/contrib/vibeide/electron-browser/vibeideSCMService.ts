@@ -14,7 +14,7 @@ import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { IVibeideSCMService } from '../common/vibeideSCMTypes.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
-import { IConvertToLLMMessageService, isLocalProvider } from './convertToLLMMessageService.js';
+import { IConvertToLLMMessageService, isLocalProvider } from '../browser/convertToLLMMessageService.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { ModelSelection, OverridesOfModel, ModelSelectionOptions } from '../common/vibeideSettingsTypes.js';
 import { gitCommitMessage_systemMessage, gitCommitMessage_systemMessage_local, gitCommitMessage_userMessage } from '../common/prompt/prompts.js';
