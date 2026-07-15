@@ -202,6 +202,7 @@ import './contrib/vibeide/browser/vibeide.contribution.js';
 import './contrib/vibeide/electron-browser/modelQuirksCatalogStatusService.js';
 import './contrib/vibeide/electron-browser/modelsDevCatalogStatusService.js';
 import './contrib/vibeide/electron-browser/vibeDesktopNotificationService.js';
+import './contrib/vibeide/electron-browser/vibeIdleWatchdogProxy.js';
 import './contrib/vibeide/electron-browser/vibeLogMainSyncContribution.js';
 
 //#endregion

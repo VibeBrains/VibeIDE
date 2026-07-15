@@ -451,8 +451,9 @@ import './vibePlanLeaseJanitorContribution.js';
 // VibeIDE: Multi-window coordinator — .vibe/.window-lock.json ownership + heartbeat (L1032)
 import './vibeMultiWindowCoordinatorContribution.js';
 
-// VibeIDE: Idle Watchdog — renderer-side memory sampler + IPC proxy (roadmap W.1)
-import '../common/vibeIdleWatchdogProxy.js';
+// VibeIDE: Idle Watchdog — renderer-side memory sampler + IPC proxy (roadmap W.1).
+// The proxy implementation is desktop-only (IMainProcessService) and registers from
+// `electron-browser/vibeIdleWatchdogProxy.js`, wired in `workbench.desktop.main.ts`.
 import './vibeIdleWatchdogRendererContribution.js';
 
 // VibeIDE: Idle Watchdog — pre-flight previous-crash notification (roadmap W.14)
