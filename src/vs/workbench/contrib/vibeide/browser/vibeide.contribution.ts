@@ -191,8 +191,8 @@ import '../common/refreshModelService.js';
 // metrics
 import '../common/metricsService.js';
 
-// updates
-import '../common/vibeideUpdateService.js';
+// updates: implementation is desktop-only and registers from
+// `electron-browser/vibeideUpdateService.js`, wired in `workbench.desktop.main.ts`.
 
 // model service
 import '../common/vibeideModelService.js';
