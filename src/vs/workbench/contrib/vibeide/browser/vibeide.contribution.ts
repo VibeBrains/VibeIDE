@@ -128,8 +128,9 @@ import './memoriesTrackingContribution.js';
 // a browser-layer module must not import electron-browser. Only the contribution lives here.
 import './modelsDevCatalogStatusContribution.js';
 
-// model-quirks catalog status (toast once on startup if exe-adjacent override is stale)
-import '../common/modelQuirksCatalogStatusService.js';
+// model-quirks catalog status (toast once on startup if exe-adjacent override is stale).
+// Service implementation is desktop-only (IMainProcessService) and registers from
+// `electron-browser/modelQuirksCatalogStatusService.js`, wired in `workbench.desktop.main.ts`.
 import './modelQuirksCatalogStatusContribution.js';
 // VibeIDE: status-bar indicator for the active model-quirks catalog source (1678)
 import './vibeModelQuirksSourceStatusBar.js';
