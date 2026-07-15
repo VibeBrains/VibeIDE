@@ -57,6 +57,8 @@
 | [viewTitleBar.md](ui/viewTitleBar.md) | ViewPaneContainer, дубли иконок, single-row aux bar |
 | [projectsPane.md](ui/projectsPane.md) | Vibe Projects native pane, decorations через ResourceLabel, FontAwesome escape |
 | [specsPane.md](ui/specsPane.md) | Панель «Спеки»: sidebar-view из `specs/<id>/` воркспейса; квартет файлов + correlated-watcher; паттерн добавления боковой панели; DnD из дерева в чат (`text/uri-list`, capture-фаза) + markdown-превью |
+| [vibeDocsPane.md](ui/vibeDocsPane.md) | Панель «Документы»: CRUD поверх ObjectTree; скрытие расширения (раздвоенная валидация, бейдж `.mdx`); пруниг пустых папок vs «Создать папку»; инлайн-ввод (фокус на кадр позже, re-entrancy, черновик и collapse через repaint); свой буфер без связанности с `contrib/files` |
+| [vibeDocsGraph.md](ui/vibeDocsGraph.md) | Граф документов: два парсера + тест паритета (скрипт бездепный); wikilinks дали +39 рёбер; резолв по уникальному basename; активный док нельзя вывести из превью-webview; canvas (подгонка на остывании, rAF не вечный, порог драга, детерминированная раскладка); палитра `charts.*`; чем врут CDP-проверки |
 
 ### [chatUx/](chatUx/) — поведение чата
 
