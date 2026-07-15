@@ -4,9 +4,9 @@
 
 ---
 
-## [рецепт] Как разделять desktop-only сервис (проверено 10 раз)
+## [рецепт] Как разделять desktop-only сервис (проверено 11 раз)
 
-**Контекст:** 2026-07-15, ветка `fix/vibeide-common-layer`. `IMainProcessService` — native-only тип (денай-лист `build/checker/layersChecker.ts`), а десять наших сервисов держали его в кросс-средовых слоях: `valid-layers-check` давал **36 нарушений**. Волна довела до **6** (остаток — ниже).
+**Контекст:** 2026-07-15, ветка `fix/vibeide-common-layer`. `IMainProcessService` — native-only тип (денай-лист `build/checker/layersChecker.ts`), а одиннадцать наших сервисов держали его в кросс-средовых слоях: `valid-layers-check` давал **36 нарушений**. Волна довела до **3** — **наших не осталось ни одного** (остаток — чистый апстрим, ниже).
 
 **Схема** (образец в репо — `electron-browser/vibeDesktopNotificationService.ts`; применена 10 раз):
 
@@ -14,7 +14,7 @@
 2. **Класс + `registerSingleton` + `IMainProcessService`** → `electron-browser/xxx.ts`, **имя файла то же**.
 3. Снять side-effect импорт из `browser/vibeide.contribution.ts`.
 4. **Добавить перевязку в `vs/workbench/workbench.desktop.main.ts`** — `browser/` не может импортировать `electron-browser/`.
-5. **Потребителей не трогать** — они берут интерфейс с неизменившегося common-пути. За 10 сплитов не тронут ни один — включая `sendLLMMessageService` с его **14** потребителями, из которых 6 живут в `common/`.
+5. **Потребителей не трогать** — они берут интерфейс с неизменившегося common-пути. За 11 сплитов не тронут ни один — включая `sendLLMMessageService` (14 потребителей, 6 из них в `common/`) и `metricsService` (12 файлов, 54 вызова `capture()`).
 
 **Цена:** перевязка живёт в `workbench.desktop.main.ts` — **апстримный файл VS Code**, то есть поверхность конфликтов при мерже апстрима. Осознанная: другого пути нет.
 
@@ -42,12 +42,13 @@
 
 ---
 
-## [договорённость] Базлайн 6 — зелёным чек быть не может
+## [договорённость] Базлайн 3 — зелёным чек быть не может, и это не наша вина
 
-- **3 — апстрим, неустранимы:** `src/vs/platform/browserElements/common/nativeBrowserElementsService.ts`. Ни одного нашего коммита, ноль упоминаний `vibe`, пришёл с `Initial import` (2026-05-05). Правка апстрима = конфликт на следующем мерже. **Не чинить, не искать здесь ошибку.**
-- **3 — наш отложенный долг:** `metricsService` (54 точки `capture()` в 12 файлах; `LLMMessageChannel` держит `MetricsMainService`; ждёт переименования в `routingOutcomeLog` — см. [inheritedPrototypes.md](inheritedPrototypes.md)).
+**Все 3 — апстрим VS Code, неустранимы:** `src/vs/platform/browserElements/common/nativeBrowserElementsService.ts`. Ни одного нашего коммита, ноль упоминаний `vibe`, пришёл с `Initial import` (2026-05-05). Правка апстрима = конфликт на следующем мерже. **Не чинить, не искать здесь ошибку.**
 
-**Проверять счётчиком:** `npm run valid-layers-check 2>&1 | grep -c IMainProcessService` ≤ 6. Гейт — [.claude/pipeline.md](../../../.claude/pipeline.md) Этап 2.
+**Наших нарушений — ноль** (с 2026-07-15). Вырос счётчик выше 3 → нарушение внесла ваша правка.
+
+**Проверять счётчиком:** `npm run valid-layers-check 2>&1 | grep -c IMainProcessService` ≤ 3. Гейт — [.claude/pipeline.md](../../../.claude/pipeline.md) Этап 2.
 
 ---
 

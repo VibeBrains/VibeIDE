@@ -189,8 +189,8 @@ import('./vibeWhatsNewContribution.js').catch(() => { });
 // refreshModel
 import '../common/refreshModelService.js';
 
-// metrics
-import '../common/metricsService.js';
+// metrics: implementation + the vibeDebugInfo action are desktop-only and register from
+// `electron-browser/metricsService.js`, wired in `workbench.desktop.main.ts`.
 
 // updates: implementation is desktop-only and registers from
 // `electron-browser/vibeideUpdateService.js`, wired in `workbench.desktop.main.ts`.
