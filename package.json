@@ -21,6 +21,7 @@
     "gen:specs-help": "node scripts/gen-specs-help.mjs",
     "gen:all": "npm run gen:vibe-defaults && npm run gen:specs-help",
     "docs-graph-check": "node scripts/vibe-docs-graph.mjs --check",
+    "service-registration-check": "node scripts/vibe-service-registration-check.mjs --check",
     "test": "echo Please run any of the test scripts from the scripts folder.",
     "test-browser": "npx playwright install && node test/unit/browser/index.js",
     "test-browser-no-install": "node test/unit/browser/index.js",
