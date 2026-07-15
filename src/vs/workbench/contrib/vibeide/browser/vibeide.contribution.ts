@@ -104,8 +104,9 @@ import './fileService.js';
 import './vibeNlsBundleService.js';
 import './vibeNlsLiveReload.js';
 
-// register source control management
-import './vibeideSCMService.js';
+// register source control management: the whole file (service + the two commit-message actions)
+// is desktop-only — it proxies `vibeide-channel-scm` via IMainProcessService, banned in browser/.
+// Lives in `electron-browser/vibeideSCMService.js`, wired in `workbench.desktop.main.ts`.
 
 // ---------- common (unclear if these actually need to be imported, because they're already imported wherever they're used) ----------
 
