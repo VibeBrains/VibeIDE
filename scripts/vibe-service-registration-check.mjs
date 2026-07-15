@@ -3,7 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 // Guards DI wiring for the vibeide contrib: every module that calls `registerSingleton()` must be
-// reachable — transitively, through imports — from `browser/vibeide.contribution.ts`.
+// reachable — transitively, through imports — from an entry point. Entry points are plural: any
+// vibeide module imported from outside the contrib counts (see `findExternalRoots` below).
 //
 // Why this exists. `registerSingleton` only runs if the module is loaded, and a module is loaded
 // only if something imports it. Move a service implementation to a new file and forget the
@@ -134,8 +135,9 @@ function findExternalRoots() {
 }
 
 const ENTRY_ID = relId(ENTRY);
-const reachable = new Set(findExternalRoots());
-const queue = [...reachable];
+const roots = findExternalRoots();
+const reachable = new Set(roots);
+const queue = [...roots];
 while (queue.length > 0) {
 	for (const next of imports.get(queue.pop()) ?? []) {
 		if (!reachable.has(next)) {
@@ -149,18 +151,18 @@ const unreachable = [...registrars.keys()].filter((id) => !reachable.has(id)).so
 
 if (mode === '--check') {
 	if (unreachable.length === 0) {
-		console.log(`service registration ok (${registrars.size} registrar module(s), all reachable from ${ENTRY_ID}).`);
+		console.log(`service registration ok (${registrars.size} registrar module(s), all reachable from ${roots.size} entry point(s)).`);
 		process.exit(0);
 	}
-	console.error(`${unreachable.length} registrar module(s) unreachable from ${ENTRY_ID}:`);
+	console.error(`${unreachable.length} registrar module(s) unreachable from any entry point:`);
 	for (const id of unreachable) {
 		console.error(`  ${id} — registers ${registrars.get(id).join(', ')}; nothing loads it, so the singleton never registers`);
 	}
-	console.error(`Fix: add a side-effect import (\`import './path.js';\`) to ${ENTRY_ID}.`);
+	console.error(`Fix: add a side-effect import. Browser/common modules go in ${ENTRY_ID}; electron-browser implementations go in vs/workbench/workbench.desktop.main.ts (browser cannot import electron-browser).`);
 	process.exit(1);
 }
 
-console.log(`registrar modules: ${registrars.size}, reachable from ${ENTRY_ID}: ${registrars.size - unreachable.length}`);
+console.log(`registrar modules: ${registrars.size}, reachable: ${registrars.size - unreachable.length}`);
 for (const [id, decorators] of [...registrars].sort()) {
 	console.log(`  ${reachable.has(id) ? 'ok  ' : 'MISS'} ${id} — ${decorators.join(', ')}`);
 }

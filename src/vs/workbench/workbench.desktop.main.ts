@@ -199,6 +199,7 @@ import './contrib/keybindingsExport/electron-browser/keybindingsExport.contribut
 // VibeIDE: AI workbench layer (sidebar chat, settings, tools — requires matching main-process IPC).
 import './contrib/vibeide/browser/vibeide.contribution.js';
 // VibeIDE: desktop-only service implementations (need the native host bridge).
+import './contrib/vibeide/electron-browser/modelsDevCatalogStatusService.js';
 import './contrib/vibeide/electron-browser/vibeDesktopNotificationService.js';
 import './contrib/vibeide/electron-browser/vibeLogMainSyncContribution.js';
 

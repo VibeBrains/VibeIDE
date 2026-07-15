@@ -122,8 +122,10 @@ import '../common/secretDetectionService.js';
 import '../common/memoriesService.js';
 import './memoriesTrackingContribution.js';
 
-// models.dev catalog status (toast on startup if catalog couldn't load from network)
-import '../common/modelsDevCatalogStatusService.js';
+// models.dev catalog status (toast on startup if catalog couldn't load from network).
+// The service implementation is desktop-only (IMainProcessService) and therefore registers from
+// `electron-browser/modelsDevCatalogStatusService.js`, wired in `workbench.desktop.main.ts` —
+// a browser-layer module must not import electron-browser. Only the contribution lives here.
 import './modelsDevCatalogStatusContribution.js';
 
 // model-quirks catalog status (toast once on startup if exe-adjacent override is stale)
