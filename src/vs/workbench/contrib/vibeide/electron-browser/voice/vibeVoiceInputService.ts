@@ -44,6 +44,7 @@ import { ILogService } from '../../../../../platform/log/common/log.js';
 import { ExtensionIdentifier } from '../../../../../platform/extensions/common/extensions.js';
 import { registerWorkbenchContribution2, WorkbenchPhase } from '../../../../common/contributions.js';
 import { ISpeechProvider, ISpeechService, ISpeechToTextEvent, ISpeechToTextSession, ITextToSpeechEvent, IKeywordRecognitionEvent, KeywordRecognitionStatus, SpeechToTextStatus, TextToSpeechStatus, SPEECH_LANGUAGE_CONFIG } from '../../../speech/common/speechService.js';
+import { IVibeModalService } from '../../common/vibeModalService.js';
 import { IVibeVoiceInputService, IVibeVoiceInputState, IVibeVoiceTextEvent, VoiceInputModelState } from '../../common/voice/vibeVoiceInputService.js';
 import { VIBE_VOICE_CHANNEL, VOICE_SAMPLE_RATE, VoiceDownloadProgress, VoiceModelsState, VoiceProfileId, VoiceSessionEvent } from '../../common/voice/vibeVoiceTypes.js';
 import { resolveVoiceProfile, voiceDownloadBytesForProfile } from '../../common/voice/vibeVoiceModels.js';
@@ -337,6 +338,7 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 	private readonly providerRegistration = this._register(new MutableDisposable());
 	private modelsState: VoiceModelsState | undefined;
 	private downloadPercent = 0;
+	private confirmDialogOpen = false;
 	private recording = false;
 	private chatSession: VoiceCaptureSession | undefined;
 	private chatCts: CancellationTokenSource | undefined;
@@ -347,6 +349,7 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 		@ISpeechService private readonly speechService: ISpeechService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@INotificationService private readonly notificationService: INotificationService,
+		@IVibeModalService private readonly vibeModalService: IVibeModalService,
 		@IProgressService private readonly progressService: IProgressService,
 		@IOpenerService private readonly openerService: IOpenerService,
 		@ILogService readonly logService: ILogService,
@@ -413,12 +416,7 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 	}
 
 	promptMissingModels(profileId: VoiceProfileId): void {
-		const megabytes = bytesToMegabytes(voiceDownloadBytesForProfile(profileId));
-		this.notificationService.prompt(
-			Severity.Info,
-			localize('vibeVoice.downloadPrompt', "Для голосового ввода нужно один раз скачать модели распознавания речи ({0} МБ). После загрузки всё работает локально, без сети.", megabytes),
-			[{ label: localize('vibeVoice.downloadAction', "Скачать"), run: () => this.runModelDownload(profileId) }],
-		);
+		this.runModelDownload(profileId);
 	}
 
 	notifyMicrophoneError(error: unknown): void {
@@ -459,7 +457,44 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 		}
 	}
 
+	/**
+	 * Single consent gate for every download entry point (chat mic button, editor and
+	 * terminal dictation): a themed VibeIDE modal stating the exact size, with
+	 * Скачать/Отмена. Nothing is fetched without an explicit yes.
+	 *
+	 * Uses IVibeModalService (in-workbench React modal), not IDialogService — the latter
+	 * resolves to a native Electron message box on desktop, which is off-DOM (untestable)
+	 * and stylistically foreign to the rest of VibeIDE's confirmations.
+	 */
+	private async confirmModelDownload(profileId: VoiceProfileId): Promise<boolean> {
+		if (this.confirmDialogOpen) {
+			return false;
+		}
+		this.confirmDialogOpen = true;
+		try {
+			const megabytes = bytesToMegabytes(voiceDownloadBytesForProfile(profileId));
+			const languageName = profileId === 'ru'
+				? localize('vibeVoice.lang.ru', "русского языка")
+				: localize('vibeVoice.lang.en', "английского языка");
+			return await this.vibeModalService.confirmModal({
+				title: localize('vibeVoice.confirmDownload', "Скачать модели голосового ввода?"),
+				body: localize('vibeVoice.confirmDownloadDetail', "Будет загружено ~{0} МБ (однократно) — модели распознавания речи для {1}. Распознавание работает полностью локально, звук никуда не отправляется; модели сохранятся в данных пользователя.", megabytes, languageName),
+				icon: 'mic',
+				okLabel: localize('vibeVoice.confirmDownloadYes', "Скачать"),
+				cancelLabel: localize('vibeVoice.confirmDownloadNo', "Отмена"),
+			});
+		} finally {
+			this.confirmDialogOpen = false;
+		}
+	}
+
 	private async runModelDownload(profileId: VoiceProfileId): Promise<void> {
+		if (this.modelsState?.profiles[profileId].state === 'downloading') {
+			return;
+		}
+		if (!await this.confirmModelDownload(profileId)) {
+			return;
+		}
 		const megabytes = bytesToMegabytes(voiceDownloadBytesForProfile(profileId));
 		// Optimistic 'downloading' so the button flips immediately, before the first progress event.
 		this.markDownloading(profileId);
