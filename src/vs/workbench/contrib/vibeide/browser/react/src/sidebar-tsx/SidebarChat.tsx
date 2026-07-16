@@ -1147,20 +1147,33 @@ const ChatScoutToggleButton = () => {
 	);
 };
 
+/** Точка вставки диктовки в textarea + текст последнего interim для сверки якоря. */
+type VoiceInsertSlot = { start: number; interimLen: number; lastApplied: string };
+
+/**
+ * Слоты вставки живут ВНЕ компонента, с ключом по DOM-узлу textarea: ремоунт кнопки
+ * (любой пересбор дерева композера) не должен терять позицию диктовки — потеря якоря
+ * превращает замену interim в накопительное дублирование текста.
+ */
+const voiceInsertSlots = new WeakMap<HTMLTextAreaElement, VoiceInsertSlot>();
+
 /**
  * Голосовой ввод: диктовка в поле чата. Interim-результат живёт в textarea и заменяется
  * на финальный текст фразы; вставка — в позицию курсора через нативный setter + событие
  * `input` (паттерн insertSelectedSkill), чтобы штатно отработали черновики и автовысота.
  * Кнопка живёт внутри VibeChatArea, поэтому автоматически есть во всех поверхностях
  * ввода (композер, инлайн-правка сообщения, Ctrl+K).
+ *
+ * Textarea — общий неконтролируемый ресурс: пользователь может кликнуть или напечатать
+ * прямо во время диктовки. Поэтому вставка самовосстанавливающаяся: перед заменой
+ * проверяем, что по сохранённому смещению всё ещё стоит НАШ interim; если текст сдвинулся —
+ * перебазируемся поиском, а не пишем по слепому оффсету.
  */
 const ChatVoiceInputButton = ({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) => {
 	const accessor = useAccessor();
 	const voice = accessor.get('IVibeVoiceInputService');
 	const [state, setState] = useState(() => voice.getState());
 	const [level, setLevel] = useState(0);
-	// Dictation caret: absolute offset of the insert point + length of the visible interim.
-	const insertRef = useRef<{ start: number; interimLen: number } | null>(null);
 
 	const findTextArea = useCallback((): HTMLTextAreaElement | null =>
 		containerRef.current?.querySelector('textarea') ?? null, [containerRef]);
@@ -1168,12 +1181,25 @@ const ChatVoiceInputButton = ({ containerRef }: { containerRef: React.RefObject<
 	const applyText = useCallback((text: string, kind: 'interim' | 'final') => {
 		const ta = findTextArea();
 		if (!ta) { return; }
-		if (!insertRef.current) {
-			insertRef.current = { start: ta.selectionStart ?? ta.value.length, interimLen: 0 };
+		let slot = voiceInsertSlots.get(ta);
+		if (!slot) {
+			slot = { start: ta.selectionStart ?? ta.value.length, interimLen: 0, lastApplied: '' };
+			voiceInsertSlots.set(ta, slot);
 		}
-		const slot = insertRef.current;
-		const insert = kind === 'final' ? text + ' ' : text;
 		const value = ta.value;
+		// Anchor check: is OUR interim still at the recorded offset? If the value shifted
+		// (user typed/clicked, draft machinery, remount) — rebase instead of blind slicing.
+		if (slot.interimLen > 0 && value.substr(slot.start, slot.interimLen) !== slot.lastApplied) {
+			const idx = value.lastIndexOf(slot.lastApplied);
+			if (idx >= 0) {
+				slot.start = idx;
+			} else {
+				slot.start = ta.selectionStart ?? value.length;
+				slot.interimLen = 0;
+				slot.lastApplied = '';
+			}
+		}
+		const insert = kind === 'final' ? text + ' ' : text;
 		const newValue = value.slice(0, slot.start) + insert + value.slice(slot.start + slot.interimLen);
 		const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
 		setter?.call(ta, newValue);
@@ -1183,20 +1209,26 @@ const ChatVoiceInputButton = ({ containerRef }: { containerRef: React.RefObject<
 		if (kind === 'final') {
 			slot.start += insert.length;
 			slot.interimLen = 0;
+			slot.lastApplied = '';
 		} else {
 			slot.interimLen = insert.length;
+			slot.lastApplied = insert;
 		}
 	}, [findTextArea]);
 
 	useEffect(() => {
 		const d1 = voice.onDidChangeState(s => {
 			setState(s);
-			if (!s.recording) { insertRef.current = null; setLevel(0); }
+			if (!s.recording) {
+				const ta = findTextArea();
+				if (ta) { voiceInsertSlots.delete(ta); }
+				setLevel(0);
+			}
 		});
 		const d2 = voice.onText(e => applyText(e.text, e.kind));
 		const d3 = voice.onLevel(l => setLevel(l));
 		return () => { d1.dispose(); d2.dispose(); d3.dispose(); };
-	}, [voice, applyText]);
+	}, [voice, applyText, findTextArea]);
 
 	// Esc во время записи — отмена без вставки (capture-фаза, чтобы опередить другие Esc-обработчики)
 	useEffect(() => {
@@ -1219,7 +1251,9 @@ const ChatVoiceInputButton = ({ containerRef }: { containerRef: React.RefObject<
 			voice.stop();
 		} else if (state.modelState !== 'downloading') {
 			const ta = findTextArea();
-			insertRef.current = { start: ta ? (ta.selectionStart ?? ta.value.length) : 0, interimLen: 0 };
+			if (ta) {
+				voiceInsertSlots.set(ta, { start: ta.selectionStart ?? ta.value.length, interimLen: 0, lastApplied: '' });
+			}
 			void voice.start();
 		}
 	};
