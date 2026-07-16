@@ -65,13 +65,22 @@ function bytesToMegabytes(bytes: number): number {
 
 class VoiceChannelClient {
 
-	readonly onSessionEvent: Event<VoiceSessionEvent>;
-	readonly onDownloadProgress: Event<VoiceDownloadProgress>;
+	// Long-lived local emitters over a SINGLE permanent remote subscription. Subscribing to
+	// `channel.listen(...)` per session and disposing between sessions silently kills the
+	// event stream: ChannelClient#requestEvent deletes its response handler on the last
+	// unsubscribe and never re-registers it on a re-subscribe (upstream consumers only ever
+	// subscribe once, so the trap is invisible there) — the second dictation session would
+	// never see its 'ready'.
+	private readonly _onSessionEvent = new Emitter<VoiceSessionEvent>();
+	readonly onSessionEvent: Event<VoiceSessionEvent> = this._onSessionEvent.event;
+
+	private readonly _onDownloadProgress = new Emitter<VoiceDownloadProgress>();
+	readonly onDownloadProgress: Event<VoiceDownloadProgress> = this._onDownloadProgress.event;
 
 	constructor(private readonly mainProcessService: IMainProcessService) {
 		const channel = this.channel();
-		this.onSessionEvent = channel.listen<VoiceSessionEvent>('onSessionEvent');
-		this.onDownloadProgress = channel.listen<VoiceDownloadProgress>('onDownloadProgress');
+		channel.listen<VoiceSessionEvent>('onSessionEvent')(e => this._onSessionEvent.fire(e));
+		channel.listen<VoiceDownloadProgress>('onDownloadProgress')(e => this._onDownloadProgress.fire(e));
 	}
 
 	private channel() {

@@ -211,7 +211,9 @@ export class VibeVoiceMainService extends Disposable {
 			endpointSilenceMs: clampVoiceEndpointSilenceMs(this.configurationService.getValue<number>(VOICE_ENDPOINT_SILENCE_KEY)),
 		};
 		this.activeSessions.add(options.sessionId);
-		this.ensureWorker().postMessage(request);
+		const reused = !!this.worker;
+		const posted = this.ensureWorker().postMessage(request);
+		this.logService.info(`[vibeVoice] session ${options.sessionId} start (${options.profileId}, worker ${reused ? 'reused' : 'spawned'}, posted=${posted})`);
 	}
 
 	pushAudio(sessionId: string, pcm: Uint8Array): void {
@@ -257,7 +259,8 @@ export class VibeVoiceMainService extends Disposable {
 		worker.onStdout(chunk => this.logService.trace(`[vibeVoice worker] ${chunk}`));
 		worker.onStderr(chunk => this.logService.error(`[vibeVoice worker] ${chunk}`));
 		worker.onMessage(msg => this.handleWorkerMessage(msg as VoiceWorkerResponse));
-		const onGone = (reason: string) => () => {
+		const onGone = (reason: string) => (event: { code?: number } | undefined) => {
+			this.logService.info(`[vibeVoice] worker gone (${reason}, code=${event?.code ?? '?'}, current=${this.worker === worker})`);
 			if (this.worker !== worker) {
 				return;
 			}
@@ -268,13 +271,16 @@ export class VibeVoiceMainService extends Disposable {
 				this._onSessionEvent.fire({ sessionId, type: 'stopped' });
 			}
 		};
-		worker.onExit(onGone('Процесс распознавания речи завершился'));
-		worker.onCrash(onGone('Процесс распознавания речи аварийно завершился'));
+		worker.onExit(onGone('exit'));
+		worker.onCrash(onGone('crash'));
 		this.worker = worker;
 		return worker;
 	}
 
 	private handleWorkerMessage(msg: VoiceWorkerResponse): void {
+		if (msg.type !== 'partial' && msg.type !== 'final') {
+			this.logService.info(`[vibeVoice] session ${msg.sessionId} ${msg.type}${msg.type === 'error' ? `: ${msg.message}` : ''}`);
+		}
 		if (msg.type === 'stopped') {
 			this.finishSession(msg.sessionId);
 		}
