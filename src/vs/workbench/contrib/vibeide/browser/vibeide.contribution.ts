@@ -657,8 +657,9 @@ import '../common/vibeSpeculativeExplorationService.js';
 // VibeIDE: Autocomplete explainability (hover → why suggested)
 import '../common/vibeAutocompleteExplainService.js';
 
-// VibeIDE: Voice input (Whisper.cpp / Web Speech, Phase 3b)
-import '../common/vibeVoiceInputService.js';
+// VibeIDE: Voice input — settings (`vibeide.voice.*`); the desktop STT service itself
+// (mic capture + ISpeechService provider) is electron-browser, wired in workbench.desktop.main.ts.
+import '../common/voice/vibeVoiceConfiguration.js';
 
 // VibeIDE: Subagent service — isolated context, constraints inheritance, mini-budget (Phase 3b full impl)
 import '../common/vibeSubagentService.js';

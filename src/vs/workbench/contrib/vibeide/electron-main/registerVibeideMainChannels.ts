@@ -34,7 +34,11 @@ import { VibeServerProcessService } from './vibeServer/vibeServerProcessService.
 import { VIBE_SERVER_PROCESS_CHANNEL } from '../common/vibeServer/vibeServerProcessIpc.js';
 import { VibeLogAdminMainService } from './vibeLogAdminMainService.js';
 import { VIBE_LOG_ADMIN_CHANNEL } from '../common/vibeLogAdminIpc.js';
+import { VibeVoiceMainService } from './voice/vibeVoiceMainService.js';
+import { VibeVoiceChannel } from './voice/vibeVoiceChannel.js';
+import { VIBE_VOICE_CHANNEL } from '../common/voice/vibeVoiceTypes.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { ILifecycleMainService } from '../../../../platform/lifecycle/electron-main/lifecycleMainService.js';
 import { IWindowsMainService } from '../../../../platform/windows/electron-main/windows.js';
 
 /**
@@ -136,6 +140,16 @@ export function registerVibeideMainProcessChannels(
 		VIBE_SERVER_PROCESS_CHANNEL,
 		ProxyChannel.fromService(vibeServerProcessService, disposables),
 	);
+
+	// Voice input — local STT: model store + utility-process lifecycle in main,
+	// mic capture and ISpeechService provider in the renderer (electron-browser/voice/).
+	const vibeVoiceMainService = disposables.add(new VibeVoiceMainService(
+		accessor.get(ILogService),
+		accessor.get(IEnvironmentMainService),
+		accessor.get(IConfigurationService),
+		accessor.get(ILifecycleMainService),
+	));
+	mainProcessElectronServer.registerChannel(VIBE_VOICE_CHANNEL, new VibeVoiceChannel(vibeVoiceMainService));
 }
 
 // Re-exported for `app.ts#configureSession()`: keeps the vs/code → vibeide bridge to the

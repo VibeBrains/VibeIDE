@@ -442,6 +442,12 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 				'**/node-pty/lib/shared/conout.js',
 				'**/*.wasm',
 				'**/@vscode/vsce-sign/bin/*',
+				// VibeIDE voice input: sherpa-onnx native libs must live on real disk next to
+				// the .node (its LC_RPATH is @loader_path; Windows resolves DLLs the same way).
+				'**/sherpa-onnx-darwin-arm64/**',
+				'**/sherpa-onnx-darwin-x64/**',
+				'**/sherpa-onnx-win-x64/**',
+				'**/sherpa-onnx-linux-x64/**',
 			], [
 				'**/*.mk',
 				'!node_modules/vsda/**' // stay compatible with extensions that depend on us shipping `vsda` into ASAR

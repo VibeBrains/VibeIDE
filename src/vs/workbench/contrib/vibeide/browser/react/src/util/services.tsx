@@ -67,6 +67,7 @@ import { IVibeCustomCommandsService } from '../../../vibeCustomCommandsService.j
 import { IVibeTokenBudgetService } from '../../../../common/vibeTokenBudgetService.js';
 import { IVibeContextGuardService } from '../../../vibeContextGuardService.js';
 import { IRemoteCatalogService } from '../../../../common/remoteCatalogService.js';
+import { IVibeVoiceInputService } from '../../../../common/voice/vibeVoiceInputService.js';
 import { IVibeSlashCommandService } from '../../../../common/vibeSlashCommandService.js';
 import { IVibeSkillsLibraryService } from '../../../../common/vibeSkillsLibraryService.js';
 import { IVibeModalService } from '../../../../common/vibeModalService.js';
@@ -330,6 +331,7 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 			IVibeProviderDiagnosticsService: accessor.get(IVibeProviderDiagnosticsService),
 			IVibeDynamicProvidersService: accessor.get(IVibeDynamicProvidersService),
 			IVibeNotifySoundService: accessor.get(IVibeNotifySoundService),
+			IVibeVoiceInputService: accessor.get(IVibeVoiceInputService),
 			IVibeNotifySoundsModalService: accessor.get(IVibeNotifySoundsModalService),
 			IEditorService: accessor.get(IEditorService),
 

@@ -19,8 +19,8 @@ import { localize } from '../../../../nls.js';
 // Surface the stealth-mode master flag in VS Code's Settings UI. Without this
 // block the key read by `isEnabled()` exists only via `?? false` fallback, so
 // users never see it in the editor and can't toggle privacy-strict mode
-// without editing settings.json by hand. Also read by `vibeVoiceInputService`
-// as a privacy gate; registration here is the single source of truth.
+// without editing settings.json by hand. Registration here is the single
+// source of truth. (Voice input needs no gate: STT is fully local, no cloud.)
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'vibeide',

@@ -197,6 +197,16 @@ if [[ "$SKIP_COMPILE" != '1' || "$PACKAGE_ONLY" == '1' ]]; then
 		"$APP/Contents/Info.plist"
 	ok "Info.plist: CFBundleShortVersionString/CFBundleVersion = $NEW_VIBE"
 
+	# Voice input (dictation) asks for the mic — replace Electron's generic English
+	# usage string with a product-specific Russian one (shown in the macOS TCC prompt).
+	# NOTE for future hardened-runtime/notarization: add the
+	# com.apple.security.device.audio-input entitlement alongside this.
+	step 'Patching NSMicrophoneUsageDescription...'
+	MIC_USAGE='Микрофон нужен для голосового ввода (диктовки). Распознавание речи выполняется локально, звук никуда не отправляется.'
+	/usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription $MIC_USAGE" "$APP/Contents/Info.plist" 2>/dev/null \
+		|| /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string $MIC_USAGE" "$APP/Contents/Info.plist"
+	ok 'Info.plist: NSMicrophoneUsageDescription (ru)'
+
 	# Apple Silicon refuses to launch binaries with an invalid signature, and gulp's
 	# post-processing breaks Electron's original ad-hoc one — always re-sign.
 	if [[ -n "${VIBE_MAC_SIGNING_IDENTITY:-}" ]]; then

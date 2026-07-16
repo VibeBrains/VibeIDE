@@ -29,7 +29,7 @@ import { ChatMode, displayInfoOfProviderName, FeatureName, isFeatureNameDisabled
 import { ICommandService } from '../../../../../../../platform/commands/common/commands.js';
 import { WarningBox } from '../vibe-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputTokenSpace } from '../../../../common/modelCapabilities.js';
-import { AlertTriangle, File, Ban, Check, ChevronRight, ChevronDown, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Paperclip, Waypoints, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward, Footprints } from 'lucide-react';
+import { AlertTriangle, File, Ban, Check, ChevronRight, ChevronDown, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Paperclip, Waypoints, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward, Footprints, Mic } from 'lucide-react';
 import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, ScoutMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment, normalizePendingInjections } from '../../../../common/chatThreadServiceTypes.js';
 import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER } from '../../../../common/chatTimestampFormatter.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
@@ -1147,6 +1147,107 @@ const ChatScoutToggleButton = () => {
 	);
 };
 
+/**
+ * Голосовой ввод: диктовка в поле чата. Interim-результат живёт в textarea и заменяется
+ * на финальный текст фразы; вставка — в позицию курсора через нативный setter + событие
+ * `input` (паттерн insertSelectedSkill), чтобы штатно отработали черновики и автовысота.
+ * Кнопка живёт внутри VibeChatArea, поэтому автоматически есть во всех поверхностях
+ * ввода (композер, инлайн-правка сообщения, Ctrl+K).
+ */
+const ChatVoiceInputButton = ({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) => {
+	const accessor = useAccessor();
+	const voice = accessor.get('IVibeVoiceInputService');
+	const [state, setState] = useState(() => voice.getState());
+	const [level, setLevel] = useState(0);
+	// Dictation caret: absolute offset of the insert point + length of the visible interim.
+	const insertRef = useRef<{ start: number; interimLen: number } | null>(null);
+
+	const findTextArea = useCallback((): HTMLTextAreaElement | null =>
+		containerRef.current?.querySelector('textarea') ?? null, [containerRef]);
+
+	const applyText = useCallback((text: string, kind: 'interim' | 'final') => {
+		const ta = findTextArea();
+		if (!ta) { return; }
+		if (!insertRef.current) {
+			insertRef.current = { start: ta.selectionStart ?? ta.value.length, interimLen: 0 };
+		}
+		const slot = insertRef.current;
+		const insert = kind === 'final' ? text + ' ' : text;
+		const value = ta.value;
+		const newValue = value.slice(0, slot.start) + insert + value.slice(slot.start + slot.interimLen);
+		const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+		setter?.call(ta, newValue);
+		ta.dispatchEvent(new Event('input', { bubbles: true }));
+		const caret = slot.start + insert.length;
+		ta.setSelectionRange(caret, caret);
+		if (kind === 'final') {
+			slot.start += insert.length;
+			slot.interimLen = 0;
+		} else {
+			slot.interimLen = insert.length;
+		}
+	}, [findTextArea]);
+
+	useEffect(() => {
+		const d1 = voice.onDidChangeState(s => {
+			setState(s);
+			if (!s.recording) { insertRef.current = null; setLevel(0); }
+		});
+		const d2 = voice.onText(e => applyText(e.text, e.kind));
+		const d3 = voice.onLevel(l => setLevel(l));
+		return () => { d1.dispose(); d2.dispose(); d3.dispose(); };
+	}, [voice, applyText]);
+
+	// Esc во время записи — отмена без вставки (capture-фаза, чтобы опередить другие Esc-обработчики)
+	useEffect(() => {
+		if (!state.recording) { return; }
+		const onKeyDown = (e: globalThis.KeyboardEvent) => {
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				e.stopPropagation();
+				voice.cancel();
+			}
+		};
+		window.addEventListener('keydown', onKeyDown, true);
+		return () => window.removeEventListener('keydown', onKeyDown, true);
+	}, [state.recording, voice]);
+
+	if (!state.available) { return null; }
+
+	const onClick = () => {
+		if (state.recording) {
+			voice.stop();
+		} else if (state.modelState !== 'downloading') {
+			const ta = findTextArea();
+			insertRef.current = { start: ta ? (ta.selectionStart ?? ta.value.length) : 0, interimLen: 0 };
+			void voice.start();
+		}
+	};
+
+	const downloadMb = Math.max(1, Math.round(state.downloadBytes / (1024 * 1024)));
+	const tooltip = state.recording ? chatS.voiceStopTitle
+		: state.modelState === 'downloading' ? chatS.voiceDownloadingTitle.replace('{0}', String(state.downloadPercent))
+			: state.modelState === 'missing' ? chatS.voiceDownloadTitle.replace('{0}', String(downloadMb))
+				: chatS.voiceStartTitle;
+
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className={`flex-shrink-0 p-1.5 rounded-xl transition-colors ${state.recording ? 'bg-red-500/20 text-red-400' : 'hover:bg-vibe-bg-2-alt text-vibe-fg-4 hover:text-vibe-fg-2'}`}
+			aria-label={chatS.voiceAria}
+			data-tooltip-id='vibe-tooltip'
+			data-tooltip-content={tooltip}
+			data-tooltip-place='top'
+			data-tooltip-delay-show={1000}
+		>
+			{state.modelState === 'downloading'
+				? <LoaderCircle size={16} className="animate-spin" />
+				: <Mic size={16} style={state.recording ? { transform: `scale(${1 + Math.min(0.4, level * 0.5)})` } : undefined} />}
+		</button>
+	);
+};
+
 const ChatContinueButton = ({ onSend }: { onSend: (text: string) => void }) => {
 	const accessor = useAccessor();
 	const configurationService = accessor.get('IConfigurationService');
@@ -1406,6 +1507,9 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 
 					{/* Role-route (subagent) + scout moved next to the model dropdown — they're about
 					    behaviour/paths, not chat, and stay visible in the simplified view. */}
+
+					{/* Voice input — dictation into the textarea (hidden when the feature is disabled) */}
+					<ChatVoiceInputButton containerRef={containerRef} />
 
 					{/* Quick-continue button — left of the send arrow, hidden while streaming */}
 					{!isStreaming && onContinue && <ChatContinueButton onSend={onContinue} />}

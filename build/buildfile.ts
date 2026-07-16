@@ -26,6 +26,8 @@ export const workbenchDesktop = [
 	createModuleDescription('vs/platform/terminal/node/ptyHostMain'),
 	createModuleDescription('vs/platform/agentHost/node/agentHostMain'),
 	createModuleDescription('vs/platform/agentHost/node/diffWorkerMain'),
+	// VibeIDE: STT utility process (voice input / dictation)
+	createModuleDescription('vs/workbench/contrib/vibeide/node/voice/vibeVoiceWorkerMain'),
 	createModuleDescription('vs/workbench/api/node/extensionHostProcess'),
 	createModuleDescription('vs/workbench/workbench.desktop.main'),
 ];

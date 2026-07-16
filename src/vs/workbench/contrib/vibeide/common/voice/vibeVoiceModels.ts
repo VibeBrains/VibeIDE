@@ -1,0 +1,138 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/**
+ * Voice input — model catalog and path resolution. Pure module (no fs/node): the main
+ * process does the actual disk checks and downloads; unit tests live in `test/common/voice/`.
+ *
+ * Models are served from our own GitHub release mirror (tag `stt-models-v1` on the product
+ * repo): HuggingFace is unreliable for the primary RU audience and the upstream k2-fsa
+ * archives are tar.bz2, which node cannot unpack without extra deps — the mirror repacks
+ * them as zip for `vs/base/node/zip.ts`. Provenance and licenses are recorded in the
+ * release notes and in docs/knowledge/voice/.
+ */
+
+import { join } from '../../../../../base/common/path.js';
+import { VoiceProfileId, VoiceSessionModelPaths } from './vibeVoiceTypes.js';
+
+// Canonical org name is VibeBrains (the VibeIDETeam spelling survives only via GitHub's
+// owner-rename redirect — do not rely on it, a redirect dies if the old name is re-registered).
+const MIRROR_BASE_URL = 'https://github.com/VibeBrains/VibeIDE/releases/download/stt-models-v1';
+
+/** One downloadable archive that unpacks into `<modelsRoot>/<dir>/`. */
+export interface VoiceModelArchive {
+	readonly id: string;
+	/** Top-level directory the zip extracts to (mirrors the upstream sherpa-onnx name). */
+	readonly dir: string;
+	readonly url: string;
+	readonly sha256: string;
+	/** Zip size in bytes — download progress totals and UI labels. */
+	readonly sizeBytes: number;
+	/** Files (relative to `dir`) that must exist for the archive to count as installed. */
+	readonly files: readonly string[];
+}
+
+const T_ONE_DIR = 'sherpa-onnx-streaming-t-one-russian-2025-09-08';
+const GIGAAM_DIR = 'sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16';
+const NEMO_EN_DIR = 'sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms-int8';
+
+const T_ONE_ARCHIVE: VoiceModelArchive = {
+	id: 't-one-ru',
+	dir: T_ONE_DIR,
+	url: `${MIRROR_BASE_URL}/t-one-ru-2025-09-08.zip`,
+	sha256: '3411fec69cae2d29b85361cbbdd7c7a07f055e7b809b9ab053fd4c45c818084d',
+	sizeBytes: 132331875,
+	files: ['model.onnx', 'tokens.txt'],
+};
+
+const GIGAAM_ARCHIVE: VoiceModelArchive = {
+	id: 'gigaam-v3-ctc-ru',
+	dir: GIGAAM_DIR,
+	url: `${MIRROR_BASE_URL}/gigaam-v3-ctc-ru-2025-12-16.zip`,
+	sha256: 'b2c2a657af9db8eb9dc18905da592d4cc6bcf7cf159021fa963885e4726243b0',
+	sizeBytes: 159055125,
+	files: ['model.int8.onnx', 'tokens.txt'],
+};
+
+const NEMO_EN_ARCHIVE: VoiceModelArchive = {
+	id: 'nemo-fc-transducer-en',
+	dir: NEMO_EN_DIR,
+	url: `${MIRROR_BASE_URL}/nemo-fc-transducer-en-480ms-int8.zip`,
+	sha256: '38c0df01d967860d82347107b0ae728643938f63c8cc7a1ec63cf8100ee278ad',
+	sizeBytes: 102645672,
+	files: ['encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt'],
+};
+
+/**
+ * Profile → archives. RU is a hybrid: T-one streams interims, GigaAM re-decodes each
+ * phrase for the final text (better WER; both lowercase, no punctuation — the sherpa
+ * GigaAM export has a plain character vocabulary). EN is streaming-only.
+ */
+const PROFILE_ARCHIVES: Record<VoiceProfileId, readonly VoiceModelArchive[]> = {
+	ru: [T_ONE_ARCHIVE, GIGAAM_ARCHIVE],
+	en: [NEMO_EN_ARCHIVE],
+};
+
+export function voiceArchivesForProfile(profileId: VoiceProfileId): readonly VoiceModelArchive[] {
+	return PROFILE_ARCHIVES[profileId];
+}
+
+/** All files (relative to `modelsRoot`) that must exist for the profile to be usable. */
+export function voiceRequiredFilesForProfile(profileId: VoiceProfileId): string[] {
+	return PROFILE_ARCHIVES[profileId].flatMap(a => a.files.map(f => join(a.dir, f)));
+}
+
+export function voiceDownloadBytesForProfile(profileId: VoiceProfileId): number {
+	return PROFILE_ARCHIVES[profileId].reduce((sum, a) => sum + a.sizeBytes, 0);
+}
+
+/** Absolute model paths for a session, given the resolved models root directory. */
+export function resolveVoiceSessionModelPaths(modelsRoot: string, profileId: VoiceProfileId): VoiceSessionModelPaths {
+	if (profileId === 'ru') {
+		return {
+			streaming: {
+				kind: 'tone-ctc',
+				model: join(modelsRoot, T_ONE_DIR, 'model.onnx'),
+				tokens: join(modelsRoot, T_ONE_DIR, 'tokens.txt'),
+			},
+			offline: {
+				kind: 'nemo-ctc',
+				model: join(modelsRoot, GIGAAM_DIR, 'model.int8.onnx'),
+				tokens: join(modelsRoot, GIGAAM_DIR, 'tokens.txt'),
+			},
+		};
+	}
+	return {
+		streaming: {
+			kind: 'transducer',
+			encoder: join(modelsRoot, NEMO_EN_DIR, 'encoder.int8.onnx'),
+			decoder: join(modelsRoot, NEMO_EN_DIR, 'decoder.int8.onnx'),
+			joiner: join(modelsRoot, NEMO_EN_DIR, 'joiner.int8.onnx'),
+			tokens: join(modelsRoot, NEMO_EN_DIR, 'tokens.txt'),
+		},
+	};
+}
+
+/**
+ * Map a normalized speech language (`ru-RU` / `en-US` / …) to an engine profile.
+ * Russian is the primary audience; every non-Russian locale falls back to English.
+ */
+export function voiceProfileForSpeechLanguage(language: string | undefined): VoiceProfileId {
+	return language?.toLowerCase().startsWith('ru') ? 'ru' : 'en';
+}
+
+/**
+ * Engine profile from the RAW `accessibility.voice.speechLanguage` setting value.
+ * `auto` (the default) deliberately does NOT go through the upstream resolver: it maps
+ * `auto` to the Electron display locale, which is `en` here even though every VibeIDE
+ * string is Russian-in-source — dictation would silently default to English for the
+ * Russian-first audience. `auto`/unset → `ru`; an explicit language wins.
+ */
+export function resolveVoiceProfile(rawSpeechLanguageConfig: unknown, resolvedLanguage?: string): VoiceProfileId {
+	if (rawSpeechLanguageConfig === undefined || rawSpeechLanguageConfig === null || rawSpeechLanguageConfig === 'auto') {
+		return 'ru';
+	}
+	return voiceProfileForSpeechLanguage(resolvedLanguage ?? String(rawSpeechLanguageConfig));
+}

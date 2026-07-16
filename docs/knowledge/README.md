@@ -83,6 +83,12 @@
 | [ruleLinkResolution.md](vibeDotfolder/ruleLinkResolution.md) | Cursor-style резолюция ссылок в правилах (`mdc:`/относительные `.md`) → пассивный блок `<referenced_files>`; рекурсия по настройке/тоглу, within-tree + секрет-санитайз, лимиты |
 | [specFirstDefaults.md](vibeDotfolder/specFirstDefaults.md) | Spec-скиллы уже засеяны — пробел был в правиле-триггере (`spec-first.mdc`), а не в контенте; сверка со Spec Kit; анти-дубль MASTER.md; ре-ген манифеста |
 
+### [voice/](voice/) — голосовой ввод (локальный STT)
+
+| Файл | О чём |
+|---|---|
+| [localSttSherpaOnnx.md](voice/localSttSherpaOnnx.md) | Пайплайн диктовки: sherpa-onnx в utility-процессе, гибрид T-one (interim) + GigaAM v3 (финал), провайдер в апстримный `ISpeechService` (оживляет редактор/терминал), **три инварианта контракта** (sync-создание, `Error`→`Stopped`, отмена токена = жёсткая), грабли: `@loader_path` вместо DYLD, мусор старых zipformer-экспортов, GigaAM без пунктуации в sherpa, tar.bz2 → zip-зеркало `stt-models-v1` |
+
 ### [i18n/](i18n/) — локализация
 
 | Файл | О чём |
