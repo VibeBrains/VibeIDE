@@ -102,7 +102,7 @@
 
 | Файл | О чём |
 |---|---|
-| [windowsToolchain.md](build/windowsToolchain.md) | VS C++ Build Tools, MSB8040 Spectre, native modules, `@vscode/vsce-sign` |
+| [windowsToolchain.md](build/windowsToolchain.md) | VS C++ Build Tools, MSB8040 Spectre, native modules, `@vscode/vsce-sign`, кросс-платформенная сборка Windows из тега (доливка в релиз mac) |
 | [linuxToolchain.md](build/linuxToolchain.md) | `release-linux.sh`: deb/rpm/AppImage/tar.gz × x64/arm64, двухфазный флоу, Docker-кросс-сборка, cross-toolchain arm64 |
 | [macosToolchain.md](build/macosToolchain.md) | `release-macos.sh`: DMG/ZIP arm64, двухфазный флоу, ad-hoc/Developer ID подпись + notarization, грабли сборки |
 | [buildFromSource.md](build/buildFromSource.md) | `home-build.*`: самосборка портатива под свою ОС одной командой, self-contained bootstrap (fnm+Node+deps) + гейт намерений |

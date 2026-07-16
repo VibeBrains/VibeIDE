@@ -76,3 +76,22 @@ VS C++ Build Tools, MSB8040 Spectre, native modules, ripgrep, `@vscode/vsce-sign
 **Суть:** `release-windows.ps1` делает **голый `git push`** (без `origin main`). Ручные `git push origin main` пушат, но НЕ ставят upstream-трекинг. Без upstream голый `git push` падает. Падение **не фатально** для скрипта (сборка продолжается), но bump-коммит остаётся НЕ запушенным — легко упустить.
 
 **Применение:** сразу после `git init` на новой машине — `git push -u origin main` (или `git config --global push.autoSetupRemote true`). Тогда голый `git push` скрипта работает, и Фаза 2 (`git push origin vX.Y.Z` для тега — он явный, но upstream полезен в целом) проходит чисто. Если поймал «no upstream» в логе релиза — `git push -u origin main` вручную, артефакты при этом уже собираются.
+
+---
+
+## [процедура] Кросс-платформенная сборка: собрать Windows для версии, которую уже выпустил mac
+
+**Контекст:** релиз одной версии выходит на платформах в разное время — mac публикует тег + GitHub Release первым, Windows-сборка добавляется позже (2026-07-12, v1.7.0; так же было для 1.6.0). Задача: собрать Windows-артефакты **точно того же кода**, что и mac, и добавить их в **уже существующий** релиз — без бампа версии и без второго релиза.
+
+**Суть — собирать из ТЕГА, а не с текущего main.** К этому моменту main мог уйти вперёд (мерж `next`→main новых фич). Сборка «с какого получился main» утащит невыпущенный код под уже выпущенным номером. Правильно (правило CLAUDE.md «Кросс-платформенный релиз одной версии»):
+1. `git stash` любых локальных незакоммиченных правок (они не часть релиза).
+2. `git checkout vX.Y.Z` — detached HEAD на опубликованном коде. `product.json` там уже = X.Y.Z.
+3. **Фаза 1:** `release-windows.ps1 -Version vX.Y.Z -SkipPublish`. Т.к. `product.json` уже равен X.Y.Z, скрипт **не делает** bump-коммит/push (ветка `if ($product.vibeVersion -ne $newVibe)` ложна) — detached HEAD не засоряется. Guard (What's New + README-бейдж) проходит, т.к. на теге они уже на месте. `out-build` штампуется X.Y.Z.
+4. Отдать installer + portable zip на ручную проверку. **Стоп.**
+5. **Фаза 2** (по «гуд»): `release-windows.ps1 -SkipCompile`. Штамп `out-build` сверяется с `product.json`, приложение **переупаковывается** из готового `out-build` (TS не перекомпилируется), затем ключевой момент — скрипт делает `gh release view vX.Y.Z`: релиз **существует** (создал mac) → ветка `gh release upload` **доливает** `VibeIDESetup.exe` + `VibeIDE-X.Y.Z-win32-x64.zip` в него, а не создаёт новый. Тег тоже уже есть → шаг создания тега пропускается. Итог — один кросс-платформенный релиз (mac dmg/zip + Windows setup/portable).
+6. После публикации — `git checkout main`, `git merge --ff-only origin/main`, вернуть stash (или отбросить, если его содержимое уже влилось в main через `next`→main).
+7. **Фаза 2b (winget, опц.):** `winget-release.ps1 -Version vX.Y.Z` — качает выложенный `.exe` для SHA256, рендерит/валидирует манифесты, PR в microsoft/winget-pkgs, чек-лист авто-проставляется.
+
+**Node:** перед скриптами — `fnm env --use-on-cd | Out-String | Invoke-Expression; fnm use 22` в ТОЙ ЖЕ команде (состояние shell между вызовами не живёт; дефолтный Node 24 иначе тихо бьёт `package-win32-x64` — см. запись про `.nvmrc` выше).
+
+**Применение:** сборка второй платформы для уже выпущенной версии; любой случай «выпустить Windows для версии, тег/релиз которой уже создан». Обратное (Windows первым, mac второй) симметрично — `release-macos.sh --skip-compile` так же доливает в существующий релиз тега.
