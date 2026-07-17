@@ -442,8 +442,10 @@ export class VibeVideoMainService extends Disposable {
 			throw new Error(`ffmpeg: ${tail || `exit code ${result.code}`}`);
 		}
 		const frames: VideoFrameInfo[] = [];
-		// showinfo line: `[Parsed_showinfo_2 @ 0x...] n:   4 ... pts_time:13.2 ... s=1280x720 ...`
-		const lineRe = /n:\s*(?<order>\d+).*?pts_time:(?<pts>[\d.]+).*?s=(?<width>\d+)x(?<height>\d+)/g;
+		// showinfo line: `[Parsed_showinfo_2 @ 0x...] n:   4 ... pts_time:13.2 ... s:1280x720 ...`
+		// The size separator differs across ffmpeg majors: 6.x prints `s:WxH`, 8.x `s=WxH` —
+		// accept both (verified live: b6.0 static build produced zero parsed frames with `=` only).
+		const lineRe = /n:\s*(?<order>\d+).*?pts_time:(?<pts>[\d.]+).*?s[:=](?<width>\d+)x(?<height>\d+)/g;
 		for (const match of result.stderr.matchAll(lineRe)) {
 			const groups = match.groups!;
 			const path = join(framesDir, `frame_${String(Number(groups.order) + 1).padStart(4, '0')}.jpg`);
