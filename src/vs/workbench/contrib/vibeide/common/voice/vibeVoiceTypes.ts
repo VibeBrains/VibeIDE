@@ -92,6 +92,20 @@ export type VoiceWorkerRequest =
 	/** Graceful stop: flush the tail, emit the last `final`, then `stopped`. */
 	| { readonly t: 'stop'; readonly sessionId: string }
 	/** Discard: no flush, just `stopped`. */
-	| { readonly t: 'cancel'; readonly sessionId: string };
+	| { readonly t: 'cancel'; readonly sessionId: string }
+	/**
+	 * Offline batch decode of one ≤~28 s PCM16 chunk (video /watch transcript fallback).
+	 * Session-less: one request → one `batchResult`. Only profiles with an offline model
+	 * support this (RU/GigaAM); the caller slices long audio into chunks.
+	 */
+	| { readonly t: 'decodeBatch'; readonly requestId: string; readonly offline: VoiceOfflineModelPaths; readonly numThreads: number; readonly pcm: Uint8Array };
 
-export type VoiceWorkerResponse = VoiceSessionEvent;
+/** Result of one `decodeBatch` request (`error` set instead of `text` on failure). */
+export interface VoiceBatchDecodeResult {
+	readonly type: 'batchResult';
+	readonly requestId: string;
+	readonly text?: string;
+	readonly error?: string;
+}
+
+export type VoiceWorkerResponse = VoiceSessionEvent | VoiceBatchDecodeResult;

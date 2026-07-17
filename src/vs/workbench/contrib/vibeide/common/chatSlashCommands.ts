@@ -14,7 +14,7 @@
  * commands land.
  */
 
-export type ChatSlashCommandName = 'commit';
+export type ChatSlashCommandName = 'commit' | 'watch';
 
 export interface ChatSlashCommandParsed {
 	readonly command: ChatSlashCommandName;
@@ -26,7 +26,7 @@ export type ChatSlashCommandParseResult =
 	| { readonly matched: true; readonly parsed: ChatSlashCommandParsed }
 	| { readonly matched: false };
 
-const KNOWN_COMMANDS: ReadonlySet<ChatSlashCommandName> = new Set(['commit']);
+const KNOWN_COMMANDS: ReadonlySet<ChatSlashCommandName> = new Set(['commit', 'watch']);
 
 const SLASH_LEADER_RE = /^\s*\/([a-z][a-z0-9_-]*)(?:\s+([\s\S]+))?$/i;
 
@@ -66,12 +66,34 @@ export function parseChatSlashCommand(text: string): ChatSlashCommandParseResult
 }
 
 /**
+ * Split `/watch` args into the video target (first token; double quotes allow spaces in
+ * local paths) and the optional user question that follows.
+ * `/watch "D:\мои видео\созвон.mp4" где обсуждали дедлайн` →
+ * `{ target: 'D:\мои видео\созвон.mp4', hint: 'где обсуждали дедлайн' }`.
+ */
+export function splitWatchArgs(args: string): { readonly target: string; readonly hint: string } {
+	const trimmed = args.trim();
+	const quoted = /^"([^"]+)"\s*([\s\S]*)$/.exec(trimmed);
+	if (quoted) {
+		return { target: quoted[1].trim(), hint: quoted[2].trim() };
+	}
+	const spaceIdx = trimmed.search(/\s/);
+	if (spaceIdx === -1) {
+		return { target: trimmed, hint: '' };
+	}
+	return { target: trimmed.slice(0, spaceIdx), hint: trimmed.slice(spaceIdx + 1).trim() };
+}
+
+/**
  * Compact catalog для hint-row UI (analog of `quickEditSlashHintNames`).
- * Each entry's `description` is shown when the user hovers the chip.
+ * Each entry's `description` is shown when the user hovers the chip; `argsHint` renders
+ * greyed after the name in the autocomplete list.
  */
 export const CHAT_SLASH_COMMANDS: ReadonlyArray<{
 	readonly name: ChatSlashCommandName;
 	readonly description: string;
+	readonly argsHint?: string;
 }> = [
-		{ name: 'commit', description: 'Generate a Conventional Commit from staged changes' },
+		{ name: 'commit', description: 'Сгенерировать Conventional Commit из застейдженных изменений' },
+		{ name: 'watch', description: 'Посмотреть видео целиком: кадры по сменам сцен + транскрипт → разбор с тайм-кодами', argsHint: '<ссылка или путь> [вопрос]' },
 	];

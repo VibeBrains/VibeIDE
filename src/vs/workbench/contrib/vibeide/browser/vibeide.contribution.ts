@@ -661,6 +661,10 @@ import '../common/vibeAutocompleteExplainService.js';
 // (mic capture + ISpeechService provider) is electron-browser, wired in workbench.desktop.main.ts.
 import '../common/voice/vibeVoiceConfiguration.js';
 
+// VibeIDE: Video analysis (/watch) — settings (`vibeide.video.*`); the desktop pipeline facade
+// is electron-browser (vibeVideoChatService), wired in workbench.desktop.main.ts.
+import '../common/video/vibeVideoConfiguration.js';
+
 // VibeIDE: Subagent service — isolated context, constraints inheritance, mini-budget (Phase 3b full impl)
 import '../common/vibeSubagentService.js';
 

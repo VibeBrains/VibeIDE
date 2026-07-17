@@ -9,6 +9,7 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/tes
 import {
 	CHAT_SLASH_COMMANDS,
 	parseChatSlashCommand,
+	splitWatchArgs,
 } from '../../common/chatSlashCommands.js';
 
 suite('chatSlashCommands', () => {
@@ -83,12 +84,35 @@ suite('chatSlashCommands', () => {
 		});
 	});
 
+	suite('watch command', () => {
+
+		test('/watch with url and hint parses and splits', () => {
+			const out = parseChatSlashCommand('/watch https://youtu.be/abc123 что показано на демо?');
+			assert.ok(out.matched);
+			assert.strictEqual(out.parsed.command, 'watch');
+			assert.deepStrictEqual(
+				splitWatchArgs(out.parsed.args),
+				{ target: 'https://youtu.be/abc123', hint: 'что показано на демо?' },
+			);
+		});
+
+		test('splitWatchArgs edge cases', () => {
+			assert.deepStrictEqual(splitWatchArgs('https://youtu.be/abc'), { target: 'https://youtu.be/abc', hint: '' });
+			assert.deepStrictEqual(splitWatchArgs('  '), { target: '', hint: '' });
+			// Quoted local path with spaces + question after it.
+			assert.deepStrictEqual(
+				splitWatchArgs('"D:\\мои видео\\созвон.mp4" где обсуждали дедлайн'),
+				{ target: 'D:\\мои видео\\созвон.mp4', hint: 'где обсуждали дедлайн' },
+			);
+		});
+	});
+
 	suite('CHAT_SLASH_COMMANDS catalog', () => {
 
-		test('contains commit entry', () => {
-			const commit = CHAT_SLASH_COMMANDS.find(c => c.name === 'commit');
-			assert.ok(commit);
-			assert.ok(commit.description.length > 0);
+		test('contains commit and watch entries', () => {
+			const names = CHAT_SLASH_COMMANDS.map(c => c.name);
+			assert.deepStrictEqual([...names].sort(), ['commit', 'watch']);
+			assert.ok(CHAT_SLASH_COMMANDS.every(c => c.description.length > 0));
 		});
 	});
 });

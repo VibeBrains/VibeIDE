@@ -11,27 +11,32 @@
  * `node/voice/vibeVoiceWorkerMain.ts`.
  */
 
-import { existsSync, promises as fsPromises, createWriteStream } from 'fs';
-import { createHash } from 'crypto';
+import { existsSync, promises as fsPromises } from 'fs';
 import { join } from 'path';
 import { cpus } from 'os';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../../base/common/event.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
 import { CancellationToken } from '../../../../../base/common/cancellation.js';
+import { CancellationError } from '../../../../../base/common/errors.js';
 import { ILogService } from '../../../../../platform/log/common/log.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { IEnvironmentMainService } from '../../../../../platform/environment/electron-main/environmentMainService.js';
 import { ILifecycleMainService } from '../../../../../platform/lifecycle/electron-main/lifecycleMainService.js';
 import { UtilityProcess } from '../../../../../platform/utilityProcess/electron-main/utilityProcess.js';
 import { NullTelemetryService } from '../../../../../platform/telemetry/common/telemetryUtils.js';
-import { VoiceDownloadProgress, VoiceModelsState, VoiceProfileId, VoiceSessionEvent, VoiceStartSessionOptions, VoiceWorkerRequest, VoiceWorkerResponse, VOICE_PROFILE_IDS } from '../../common/voice/vibeVoiceTypes.js';
+import { VoiceBatchDecodeResult, VoiceDownloadProgress, VoiceModelsState, VoiceProfileId, VoiceSessionEvent, VoiceStartSessionOptions, VoiceWorkerRequest, VoiceWorkerResponse, VOICE_PROFILE_IDS, VOICE_SAMPLE_RATE } from '../../common/voice/vibeVoiceTypes.js';
 import { resolveVoiceSessionModelPaths, voiceArchivesForProfile, voiceDownloadBytesForProfile, voiceRequiredFilesForProfile } from '../../common/voice/vibeVoiceModels.js';
 import { clampVoiceEndpointSilenceMs, clampVoiceKeepAliveSec, resolveVoiceThreads, VOICE_ENDPOINT_SILENCE_KEY, VOICE_KEEP_ALIVE_KEY, VOICE_MODELS_PATH_KEY, VOICE_THREADS_KEY } from '../../common/voice/vibeVoiceConfiguration.js';
+import { downloadWithSha256 } from '../vibeVerifiedDownload.js';
 
 const WORKER_ENTRY_POINT = 'vs/workbench/contrib/vibeide/node/voice/vibeVoiceWorkerMain';
 /** Watchdog: if the worker does not confirm a stop in time, declare the session dead. */
 const STOP_TIMEOUT_MS = 3000;
+/** Watchdog for one batch-decode chunk (≤28 s of audio; CPU decode is a few seconds). */
+const BATCH_DECODE_TIMEOUT_MS = 60_000;
+/** Batch transcription slice — matches the worker's MAX_SEGMENT_SECONDS decoder cap. */
+const BATCH_CHUNK_SECONDS = 28;
 /** Download progress push throttle (bytes) — keeps the IPC event stream sparse. */
 const PROGRESS_EMIT_STEP_BYTES = 1024 * 1024;
 
@@ -48,6 +53,9 @@ export class VibeVoiceMainService extends Disposable {
 	private readonly stopWatchdogs = new Map<string, ReturnType<typeof setTimeout>>();
 	private idleShutdownTimer: ReturnType<typeof setTimeout> | undefined;
 	private readonly activeProfileDownloads = new Map<VoiceProfileId, Promise<void>>();
+	private readonly activeBatchRequests = new Map<string, { resolve: (text: string) => void; reject: (error: Error) => void; watchdog: ReturnType<typeof setTimeout> }>();
+	/** Whole transcription jobs (many chunks) — keeps idle shutdown away between chunks. */
+	private readonly activeBatchJobs = new Set<string>();
 
 	constructor(
 		private readonly logService: ILogService,
@@ -115,7 +123,7 @@ export class VibeVoiceMainService extends Disposable {
 				const zipPath = join(root, `.download-${archive.id}.zip`);
 				this.logService.info(`[vibeVoice] downloading ${archive.id} (${archive.sizeBytes} bytes)`);
 				try {
-					await this.downloadWithSha256(archive.url, zipPath, archive.sha256, chunkBytes => {
+					await downloadWithSha256(archive.url, zipPath, archive.sha256, chunkBytes => {
 						receivedBytes += chunkBytes;
 						if (receivedBytes - lastEmitted >= PROGRESS_EMIT_STEP_BYTES) {
 							lastEmitted = receivedBytes;
@@ -140,57 +148,6 @@ export class VibeVoiceMainService extends Disposable {
 			emitProgress(true, message);
 			throw error;
 		}
-	}
-
-	private async downloadWithSha256(url: string, filePath: string, expectedHex: string, onChunk: (bytes: number) => void): Promise<void> {
-		const res = await this.followRedirectGet(url, 0);
-		const hash = createHash('sha256');
-		await new Promise<void>((resolve, reject) => {
-			const out = createWriteStream(filePath);
-			res.on('data', (c: Buffer | string) => {
-				const buf = typeof c === 'string' ? Buffer.from(c) : c;
-				hash.update(buf);
-				onChunk(buf.byteLength);
-				if (!out.write(buf)) {
-					res.pause();
-					out.once('drain', () => res.resume());
-				}
-			});
-			res.on('end', () => out.end());
-			res.on('error', reject);
-			out.on('error', reject);
-			out.on('finish', () => {
-				const digest = hash.digest('hex');
-				if (digest.toLowerCase() !== expectedHex.toLowerCase()) {
-					reject(new Error('SHA256 mismatch'));
-				} else {
-					resolve();
-				}
-			});
-		});
-	}
-
-	private async followRedirectGet(urlStr: string, depth: number): Promise<import('http').IncomingMessage> {
-		if (depth > 10) {
-			throw new Error('Too many redirects');
-		}
-		const https = await import('https');
-		return new Promise((resolve, reject) => {
-			https.get(urlStr, { headers: { 'User-Agent': 'VibeIDE-VoiceModels', 'Accept': '*/*' } }, res => {
-				if (res.statusCode !== undefined && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-					res.resume();
-					const next = new URL(res.headers.location, urlStr).href;
-					this.followRedirectGet(next, depth + 1).then(resolve, reject);
-					return;
-				}
-				if (res.statusCode !== 200) {
-					res.resume();
-					reject(new Error(`HTTP ${res.statusCode ?? 'unknown'}`));
-					return;
-				}
-				resolve(res);
-			}).on('error', reject);
-		});
 	}
 
 	// ── Sessions / worker ────────────────────────────────────────────────────
@@ -230,6 +187,101 @@ export class VibeVoiceMainService extends Disposable {
 		this.endSession(sessionId, 'cancel');
 	}
 
+	// ── Batch transcription (video /watch transcript fallback) ───────────────
+
+	/** True when the profile is installed AND has an offline model (batch decode input). */
+	isBatchTranscriptionAvailable(profileId: VoiceProfileId): boolean {
+		return !!resolveVoiceSessionModelPaths(this.modelsRoot(), profileId).offline && this.isProfileInstalled(profileId);
+	}
+
+	/**
+	 * Offline transcription of 16 kHz mono PCM16 audio of any length: sliced into ≤28 s
+	 * chunks (the worker's segment cap) and decoded sequentially by the offline model.
+	 * Only profiles with an offline model support this (RU/GigaAM). The whole job counts
+	 * as one busy period for the idle-shutdown logic, so the engine stays loaded between
+	 * chunks even with `keepAliveSec: 0`.
+	 */
+	async transcribePcm16(pcm: Uint8Array, profileId: VoiceProfileId, onProgress?: (processedSec: number, totalSec: number) => void, token?: CancellationToken): Promise<{ startSec: number; endSec: number; text: string }[]> {
+		const models = resolveVoiceSessionModelPaths(this.modelsRoot(), profileId);
+		if (!models.offline) {
+			throw new Error(`Voice profile '${profileId}' has no offline model for batch transcription`);
+		}
+		if (!this.isProfileInstalled(profileId)) {
+			throw new Error(`Voice models for profile '${profileId}' are not installed`);
+		}
+		const offline = models.offline;
+		const numThreads = resolveVoiceThreads(this.configurationService.getValue<number>(VOICE_THREADS_KEY) ?? 0, cpus().length);
+		const bytesPerSecond = VOICE_SAMPLE_RATE * 2;
+		const chunkBytes = BATCH_CHUNK_SECONDS * bytesPerSecond;
+		const totalSec = pcm.byteLength / bytesPerSecond;
+		const jobId = generateUuid();
+		this.activeBatchJobs.add(jobId);
+		if (this.idleShutdownTimer) {
+			clearTimeout(this.idleShutdownTimer);
+			this.idleShutdownTimer = undefined;
+		}
+		try {
+			const segments: { startSec: number; endSec: number; text: string }[] = [];
+			for (let offset = 0; offset < pcm.byteLength; offset += chunkBytes) {
+				if (token?.isCancellationRequested) {
+					throw new CancellationError();
+				}
+				// Even byte offsets only — an odd slice start would shear every PCM16 sample.
+				const chunk = pcm.subarray(offset, Math.min(offset + chunkBytes, pcm.byteLength));
+				const startSec = offset / bytesPerSecond;
+				const endSec = Math.min(totalSec, startSec + BATCH_CHUNK_SECONDS);
+				const text = await this.decodeBatchChunk(chunk, offline, numThreads);
+				if (text) {
+					segments.push({ startSec, endSec, text });
+				}
+				onProgress?.(endSec, totalSec);
+			}
+			return segments;
+		} finally {
+			this.activeBatchJobs.delete(jobId);
+			if (this.activeSessions.size === 0 && this.activeBatchJobs.size === 0) {
+				this.scheduleIdleShutdown();
+			}
+		}
+	}
+
+	private decodeBatchChunk(pcm: Uint8Array, offline: NonNullable<ReturnType<typeof resolveVoiceSessionModelPaths>['offline']>, numThreads: number): Promise<string> {
+		const requestId = generateUuid();
+		const request: VoiceWorkerRequest = { t: 'decodeBatch', requestId, offline, numThreads, pcm };
+		return new Promise<string>((resolve, reject) => {
+			const watchdog = setTimeout(() => {
+				this.logService.warn(`[vibeVoice] batch decode ${requestId} did not answer in ${BATCH_DECODE_TIMEOUT_MS}ms — recycling worker`);
+				this.activeBatchRequests.delete(requestId);
+				reject(new Error('Batch decode timed out'));
+				this.killWorker();
+			}, BATCH_DECODE_TIMEOUT_MS);
+			this.activeBatchRequests.set(requestId, { resolve, reject, watchdog });
+			this.ensureWorker().postMessage(request);
+		});
+	}
+
+	private handleBatchResult(msg: VoiceBatchDecodeResult): void {
+		const pending = this.activeBatchRequests.get(msg.requestId);
+		if (!pending) {
+			return;
+		}
+		clearTimeout(pending.watchdog);
+		this.activeBatchRequests.delete(msg.requestId);
+		if (msg.error !== undefined) {
+			pending.reject(new Error(msg.error));
+		} else {
+			pending.resolve(msg.text ?? '');
+		}
+	}
+
+	private rejectAllBatches(reason: string): void {
+		for (const [requestId, pending] of [...this.activeBatchRequests]) {
+			clearTimeout(pending.watchdog);
+			this.activeBatchRequests.delete(requestId);
+			pending.reject(new Error(reason));
+		}
+	}
+
 	private endSession(sessionId: string, t: 'stop' | 'cancel'): void {
 		if (!this.worker || !this.activeSessions.has(sessionId)) {
 			return;
@@ -265,6 +317,7 @@ export class VibeVoiceMainService extends Disposable {
 				return;
 			}
 			this.worker = undefined;
+			this.rejectAllBatches(`STT worker ${reason}`);
 			for (const sessionId of [...this.activeSessions]) {
 				this.finishSession(sessionId);
 				this._onSessionEvent.fire({ sessionId, type: 'error', message: reason });
@@ -278,6 +331,10 @@ export class VibeVoiceMainService extends Disposable {
 	}
 
 	private handleWorkerMessage(msg: VoiceWorkerResponse): void {
+		if (msg.type === 'batchResult') {
+			this.handleBatchResult(msg);
+			return;
+		}
 		if (msg.type !== 'partial' && msg.type !== 'final') {
 			this.logService.info(`[vibeVoice] session ${msg.sessionId} ${msg.type}${msg.type === 'error' ? `: ${msg.message}` : ''}`);
 		}
@@ -310,7 +367,7 @@ export class VibeVoiceMainService extends Disposable {
 			return;
 		}
 		this.idleShutdownTimer = setTimeout(() => {
-			if (this.activeSessions.size === 0) {
+			if (this.activeSessions.size === 0 && this.activeBatchJobs.size === 0) {
 				this.killWorker();
 			}
 		}, keepAliveSec * 1000);
@@ -326,6 +383,7 @@ export class VibeVoiceMainService extends Disposable {
 		}
 		this.stopWatchdogs.clear();
 		this.activeSessions.clear();
+		this.rejectAllBatches('STT worker recycled');
 		this.worker?.kill();
 		this.worker = undefined;
 	}

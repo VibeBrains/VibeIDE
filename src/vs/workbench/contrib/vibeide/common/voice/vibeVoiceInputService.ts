@@ -13,6 +13,7 @@
 
 import { Event } from '../../../../../base/common/event.js';
 import { createDecorator } from '../../../../../platform/instantiation/common/instantiation.js';
+import { VoiceProfileId } from './vibeVoiceTypes.js';
 
 export const IVibeVoiceInputService = createDecorator<IVibeVoiceInputService>('vibeVoiceInputService');
 
@@ -45,6 +46,17 @@ export interface IVibeVoiceInputService {
 	readonly onLevel: Event<number>;
 
 	getState(): IVibeVoiceInputState;
+
+	/** Engine profile the current settings resolve to (`ru` unless explicitly overridden). */
+	getActiveProfileId(): VoiceProfileId;
+
+	/**
+	 * Ensure the STT models of the current profile are installed: asks consent and shows
+	 * download progress when they are missing, joins a download already in flight.
+	 * Resolves `true` once the models are ready, `false` on decline or failure.
+	 * Consumed by the /watch video pipeline for its no-subtitles transcript fallback.
+	 */
+	ensureModelsReady(): Promise<boolean>;
 
 	/**
 	 * Start a chat dictation session. When models are missing, kicks off the download

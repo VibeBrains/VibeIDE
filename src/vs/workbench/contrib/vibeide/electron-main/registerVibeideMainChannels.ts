@@ -37,6 +37,9 @@ import { VIBE_LOG_ADMIN_CHANNEL } from '../common/vibeLogAdminIpc.js';
 import { VibeVoiceMainService } from './voice/vibeVoiceMainService.js';
 import { VibeVoiceChannel } from './voice/vibeVoiceChannel.js';
 import { VIBE_VOICE_CHANNEL } from '../common/voice/vibeVoiceTypes.js';
+import { VibeVideoMainService } from './video/vibeVideoMainService.js';
+import { VibeVideoChannel } from './video/vibeVideoChannel.js';
+import { VIBE_VIDEO_CHANNEL } from '../common/video/vibeVideoTypes.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { ILifecycleMainService } from '../../../../platform/lifecycle/electron-main/lifecycleMainService.js';
 import { IWindowsMainService } from '../../../../platform/windows/electron-main/windows.js';
@@ -150,6 +153,17 @@ export function registerVibeideMainProcessChannels(
 		accessor.get(ILifecycleMainService),
 	));
 	mainProcessElectronServer.registerChannel(VIBE_VOICE_CHANNEL, new VibeVoiceChannel(vibeVoiceMainService));
+
+	// Video analysis (/watch) — tools store + yt-dlp/ffmpeg pipeline in main; the renderer
+	// facade (electron-browser/video/) drives it and feeds frames to the chat vision request.
+	// Reuses the voice service for the no-subtitles STT transcript fallback.
+	const vibeVideoMainService = disposables.add(new VibeVideoMainService(
+		accessor.get(ILogService),
+		accessor.get(IEnvironmentMainService),
+		accessor.get(IConfigurationService),
+		vibeVoiceMainService,
+	));
+	mainProcessElectronServer.registerChannel(VIBE_VIDEO_CHANNEL, new VibeVideoChannel(vibeVideoMainService));
 }
 
 // Re-exported for `app.ts#configureSession()`: keeps the vs/code → vibeide bridge to the

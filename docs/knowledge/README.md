@@ -89,6 +89,12 @@
 |---|---|
 | [localSttSherpaOnnx.md](voice/localSttSherpaOnnx.md) | Пайплайн диктовки: sherpa-onnx в utility-процессе, гибрид T-one (interim) + GigaAM v3 (финал), провайдер в апстримный `ISpeechService` (оживляет редактор/терминал), **три инварианта контракта** (sync-создание, `Error`→`Stopped`, отмена токена = жёсткая), грабли: `@loader_path` вместо DYLD, мусор старых zipformer-экспортов, GigaAM без пунктуации в sherpa, tar.bz2 → zip-зеркало `stt-models-v1` |
 
+### [video/](video/) — просмотр видео в чате (/watch)
+
+| Файл | О чём |
+|---|---|
+| [watchVideoPipeline.md](video/watchVideoPipeline.md) | Пайплайн `/watch`: yt-dlp + ffmpeg дочерними процессами из electron-main (UtilityProcess не нужен), кадры по сменам сцен с якорем `eq(n,0)` и тайм-кодами showinfo → `ChatImageAttachment[]`, STT-fallback батч-декодом GigaAM (чанки ≤28 с, одна busy-периода idle-shutdown), зеркало `video-tools-v1`, грабли: yt-dlp игнорирует навязанный контейнер (`%(ext)s` + глоб), ноль сцен на статичном видео, `yt-dlp -U` кнопкой при протухании |
+
 ### [i18n/](i18n/) — локализация
 
 | Файл | О чём |

@@ -559,6 +559,33 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 		};
 	}
 
+	getActiveProfileId(): VoiceProfileId {
+		return this.currentProfileId();
+	}
+
+	async ensureModelsReady(): Promise<boolean> {
+		const profileId = this.currentProfileId();
+		const state = await this.fetchModelsState();
+		const current = state.profiles[profileId].state;
+		if (current === 'ready') {
+			return true;
+		}
+		if (current === 'downloading') {
+			// Another entry point already got consent and started the download — join it
+			// (main-side ensureModels dedupes per profile) instead of stacking a second dialog.
+			try {
+				await this.channel.ensureModels(profileId);
+			} catch {
+				// fall through to the state re-check
+			}
+		} else {
+			await this.runModelDownload(profileId);
+		}
+		const after = await this.fetchModelsState().catch(() => undefined);
+		this.fireStateChange();
+		return after?.profiles[profileId].state === 'ready';
+	}
+
 	private fireStateChange(): void {
 		this._onDidChangeState.fire(this.getState());
 	}

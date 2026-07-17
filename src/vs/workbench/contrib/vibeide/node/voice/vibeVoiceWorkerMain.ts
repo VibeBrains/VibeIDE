@@ -116,6 +116,47 @@ async function ensureEngine(models: VoiceSessionModelPaths, numThreads: number, 
 	return engine;
 }
 
+// ── Batch decode (video /watch transcript fallback) ─────────────────────────
+// Separate recognizer cache: batch requests carry only the offline model, and reusing the
+// session engine would needlessly key the cache on streaming/endpoint parameters.
+
+let batchRecognizer: { key: string; recognizer: SherpaOfflineRecognizer } | undefined;
+
+async function ensureBatchRecognizer(offline: VoiceOfflineModelPaths, numThreads: number): Promise<SherpaOfflineRecognizer> {
+	const key = JSON.stringify({ offline, numThreads });
+	if (!batchRecognizer || batchRecognizer.key !== key) {
+		const sherpa = await loadSherpa();
+		batchRecognizer = {
+			key,
+			recognizer: new sherpa.OfflineRecognizer({
+				featConfig: { sampleRate: VOICE_SAMPLE_RATE, featureDim: 80 },
+				modelConfig: { nemoCtc: { model: offline.model }, tokens: offline.tokens, numThreads, provider: 'cpu', debug: 0 },
+			}),
+		};
+	}
+	return batchRecognizer.recognizer;
+}
+
+/** PCM16 little-endian bytes → Float32 samples (structured clone may misalign the view). */
+function pcm16ToFloat32(pcm: Uint8Array): Float32Array {
+	const aligned = pcm.byteOffset % 2 === 0
+		? new Int16Array(pcm.buffer, pcm.byteOffset, pcm.byteLength >> 1)
+		: new Int16Array(pcm.slice().buffer, 0, pcm.byteLength >> 1);
+	const samples = new Float32Array(aligned.length);
+	for (let i = 0; i < aligned.length; i++) {
+		samples[i] = aligned[i] / 32768;
+	}
+	return samples;
+}
+
+async function decodeBatchChunk(offline: VoiceOfflineModelPaths, numThreads: number, pcm: Uint8Array): Promise<string> {
+	const recognizer = await ensureBatchRecognizer(offline, numThreads);
+	const stream = recognizer.createStream();
+	stream.acceptWaveform({ sampleRate: VOICE_SAMPLE_RATE, samples: pcm16ToFloat32(pcm) });
+	recognizer.decode(stream);
+	return recognizer.getResult(stream).text.trim();
+}
+
 // ── Session ──────────────────────────────────────────────────────────────────
 
 class VoiceSession {
@@ -134,15 +175,7 @@ class VoiceSession {
 	}
 
 	pushPcm16(pcm: Uint8Array): void {
-		// Structured clone does not guarantee 2-byte alignment of the payload view.
-		const aligned = pcm.byteOffset % 2 === 0
-			? new Int16Array(pcm.buffer, pcm.byteOffset, pcm.byteLength >> 1)
-			: new Int16Array(pcm.slice().buffer, 0, pcm.byteLength >> 1);
-		const samples = new Float32Array(aligned.length);
-		for (let i = 0; i < aligned.length; i++) {
-			samples[i] = aligned[i] / 32768;
-		}
-		this.acceptSamples(samples, true);
+		this.acceptSamples(pcm16ToFloat32(pcm), true);
 	}
 
 	private acceptSamples(samples: Float32Array, buffer: boolean): void {
@@ -221,6 +254,16 @@ function main(parentPort: ParentPort): void {
 
 	parentPort.on('message', async e => {
 		const msg = e.data as VoiceWorkerRequest;
+		if (msg.t === 'decodeBatch') {
+			// Session-less path with its own error envelope — a failed chunk must not fabricate
+			// session events for an empty sessionId.
+			try {
+				post({ type: 'batchResult', requestId: msg.requestId, text: await decodeBatchChunk(msg.offline, msg.numThreads, msg.pcm) });
+			} catch (error) {
+				post({ type: 'batchResult', requestId: msg.requestId, error: error instanceof Error ? error.message : String(error) });
+			}
+			return;
+		}
 		try {
 			switch (msg.t) {
 				case 'start': {

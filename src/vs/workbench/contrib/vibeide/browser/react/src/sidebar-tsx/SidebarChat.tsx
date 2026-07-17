@@ -32,6 +32,7 @@ import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputToke
 import { AlertTriangle, File, Ban, Check, ChevronRight, ChevronDown, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Paperclip, Waypoints, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward, Footprints, Mic } from 'lucide-react';
 import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, ScoutMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment, normalizePendingInjections } from '../../../../common/chatThreadServiceTypes.js';
 import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER } from '../../../../common/chatTimestampFormatter.js';
+import { parseChatSlashCommand, splitWatchArgs, CHAT_SLASH_COMMANDS } from '../../../../common/chatSlashCommands.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../../../../common/prompt/tools/index.js';
 import { CopyButton, EditToolAcceptRejectButtonsHTML, IconShell1, JumpToFileButton, JumpToTerminalButton, StatusIndicator, StatusIndicatorForApplyButton, useApplyStreamState, useEditToolStreamState } from '../markdown/ApplyBlockHoverButtons.js';
@@ -2200,12 +2201,13 @@ const SimplifiedToolHeader = ({
 };
 
 
-// Highlights `/skill:name` inline. Matches only when the slash starts the message or
-// follows whitespace — avoids false positives on paths (`/usr/bin`), URLs, or code
-// fragments. Backend (convertToLLMMessageService) only expands `/skill:NAME`, so plain
-// `/foo` is intentionally NOT highlighted to avoid promising behavior that won't fire.
-// Returns alternating plain-string and pill spans; rendered text is identical to input.
-const SLASH_COMMAND_RE = /(^|\s)(\/skill:[\w.-]+)/g;
+// Highlights `/skill:name` and the built-in chat commands (`/watch`, `/commit`) inline.
+// Matches only when the slash starts the message or follows whitespace — avoids false
+// positives on paths (`/usr/bin`), URLs, or code fragments. Built-in names come from the
+// CHAT_SLASH_COMMANDS catalog so the pill list can never drift from what actually parses;
+// any other `/foo` is intentionally NOT highlighted to avoid promising behavior that
+// won't fire. Returns alternating plain-string and pill spans; rendered text is identical.
+const SLASH_COMMAND_RE = new RegExp(`(^|\\s)(\\/skill:[\\w.-]+|\\/(?:${CHAT_SLASH_COMMANDS.map(c => c.name).join('|')})\\b)`, 'g');
 // Inline fallback for builds where vibeide.css hasn't been re-bundled. Inline wins
 // specificity and matches what util/inputs.tsx ships for the input overlay.
 // Geometry-neutral outline: same shape as the overlay version, no border/padding so
@@ -5463,6 +5465,22 @@ export const SidebarChat = () => {
 		// send message to LLM
 		const userMessage = _forceSubmit || textAreaRef.current?.value || '';
 
+		// Built-in chat slash commands intercept BEFORE the LLM (common/chatSlashCommands.ts).
+		// `/watch` runs the video pipeline instead of a normal send; parsed-but-unhandled
+		// commands (currently `/commit`) fall through to the LLM as literal text, exactly
+		// as they did before the parser was wired.
+		const slash = parseChatSlashCommand(userMessage);
+		if (slash.matched && slash.parsed.command === 'watch') {
+			const videoChatService = accessor.get('IVibeVideoChatService');
+			const { target, hint } = splitWatchArgs(slash.parsed.args);
+			// Optimistic clear, same as the normal send path below.
+			if (textAreaFnsRef.current) { textAreaFnsRef.current.setValue(''); }
+			chatThreadsService.setThreadDraft(threadId, '');
+			textAreaRef.current?.focus();
+			void videoChatService.startWatch(threadId, target, hint);
+			return;
+		}
+
 			// Resolve @references in the input into staging selections before sending
 			// Supports tokens like: @"src/app/file.ts", @path/to/file.ts, @folder, @workspace, @recent, @selection, @agent
 			try {
@@ -6145,15 +6163,18 @@ export const SidebarChat = () => {
 	);
 
 
-	// ----- /skill: autocomplete ---------------------------------------------------
-	// Drop-down that opens whenever the user types `/skill:` in the textarea. Lists
-	// available skills sorted MRU-first (via vibeSkillsLibraryService.getRecentSkills),
-	// filter-as-you-type, arrow/Tab/Enter to insert, Escape to dismiss. The trigger is
-	// detected from text-before-cursor on every onChangeText; we re-derive open state
-	// rather than tracking it imperatively so it always reflects current cursor context.
-	type SkillCmd = { name: string; description: string; category: 'skill' };
+	// ----- slash autocomplete ------------------------------------------------------
+	// One drop-down, two sources. `/skill:` lists available skills sorted MRU-first (via
+	// vibeSkillsLibraryService.getRecentSkills); a bare `/` at the start of the message
+	// lists the built-in chat commands (CHAT_SLASH_COMMANDS: /watch, /commit) plus a
+	// `/skill:` entry that chains into the skills menu. Filter-as-you-type, arrow/Tab/
+	// Enter to insert, Escape to dismiss. The trigger is detected from text-before-cursor
+	// on every onChangeText; we re-derive open state rather than tracking it imperatively
+	// so it always reflects current cursor context.
+	type SkillCmd = { name: string; description: string; category: 'skill' | 'builtin' };
 	const [skillCmds, setSkillCmds] = useState<SkillCmd[]>([]);
 	const [skillMenuOpen, setSkillMenuOpen] = useState(false);
+	const [slashMenuKind, setSlashMenuKind] = useState<'skill' | 'builtin'>('skill');
 	const [skillFilter, setSkillFilter] = useState('');
 	const [skillIdx, setSkillIdx] = useState(0);
 	// Anchor rect captured at trigger time. Stored as full top/bottom so we can pick
@@ -6198,14 +6219,26 @@ export const SidebarChat = () => {
 		el?.scrollIntoView({ block: 'nearest' });
 	}, [skillIdx, skillMenuOpen]);
 
-	// Filtered list shown in dropdown.
-	const filteredSkillCmds = useMemo(() => {
-		if (!skillFilter) {return skillCmds;}
-		const q = skillFilter.toLowerCase();
-		return skillCmds.filter(c => c.name.toLowerCase().includes(q) || (c.description ?? '').toLowerCase().includes(q));
-	}, [skillCmds, skillFilter]);
+	// Built-in chat commands for the bare-`/` menu. The `/skill:` entry has no trailing
+	// space on insert, so picking it immediately re-triggers the skills menu.
+	const builtinSlashCmds = useMemo<SkillCmd[]>(() => [
+		...CHAT_SLASH_COMMANDS.map(c => ({
+			name: c.name,
+			description: c.argsHint ? `${c.argsHint} — ${c.description}` : c.description,
+			category: 'builtin' as const,
+		})),
+		{ name: 'skill:', description: 'Вызвать навык из .vibe/skills', category: 'builtin' as const },
+	], []);
 
-	// Insert the selected skill at the `/skill:` trigger position.
+	// Filtered list shown in dropdown (source depends on which trigger opened the menu).
+	const filteredSkillCmds = useMemo(() => {
+		const source = slashMenuKind === 'builtin' ? builtinSlashCmds : skillCmds;
+		if (!skillFilter) {return source;}
+		const q = skillFilter.toLowerCase();
+		return source.filter(c => c.name.toLowerCase().includes(q) || (c.description ?? '').toLowerCase().includes(q));
+	}, [skillCmds, builtinSlashCmds, slashMenuKind, skillFilter]);
+
+	// Insert the selected command at its trigger position.
 	const insertSelectedSkill = useCallback((cmd: SkillCmd) => {
 		const ta = textAreaRef.current;
 		if (!ta) {return;}
@@ -6213,11 +6246,11 @@ export const SidebarChat = () => {
 		const cursorPos = ta.selectionStart;
 		const before = text.slice(0, cursorPos);
 		const after = text.slice(cursorPos);
-		const m = /\/skill:([\w.-]*)$/.exec(before);
-		if (!m) {return;}
-		const insertion = '/' + cmd.name + ' ';
-		const newText = before.slice(0, m.index) + insertion + after;
-		const newCursor = m.index + insertion.length;
+		const trigger = cmd.category === 'builtin' ? /\/[\w-]*$/.exec(before) : /\/skill:([\w.-]*)$/.exec(before);
+		if (!trigger) {return;}
+		const insertion = '/' + cmd.name + (cmd.name.endsWith(':') ? '' : ' ');
+		const newText = before.slice(0, trigger.index) + insertion + after;
+		const newCursor = trigger.index + insertion.length;
 		// Synthetic native setter so React picks up the change and onChange fires.
 		const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
 		setter?.call(ta, newText);
@@ -6233,15 +6266,21 @@ export const SidebarChat = () => {
 		// (Saving on unmount is unreliable: with the per-thread key the composer unmounts before
 		// the parent cleanup runs, and the rich input's value isn't on textAreaRef.value.)
 		chatThreadsService.setThreadDraft(chatThreadsState.currentThreadId, newStr);
-		// Detect `/skill:` trigger near cursor and open/close menu accordingly.
+		// Detect slash triggers near the cursor and open/close the menu accordingly:
+		// `/skill:…` anywhere → skills menu; a bare `/word` as the very start of the
+		// message → built-in commands menu (typing `/skil` chains into the skills entry).
 		const ta = textAreaRef.current;
 		if (!ta) { setSkillMenuOpen(false); return; }
 		const cursorPos = ta.selectionStart;
 		const before = newStr.slice(0, cursorPos);
 		const m = /\/skill:([\w.-]*)$/.exec(before);
-		if (m) {
-			loadSkillCmds(); // refresh on open so late-seeded/changed skills appear (cached → cheap)
-			setSkillFilter(m[1]);
+		const mBuiltin = m ? null : /^\s*\/([\w-]*)$/.exec(before);
+		if (m || mBuiltin) {
+			if (m) {
+				loadSkillCmds(); // refresh on open so late-seeded/changed skills appear (cached → cheap)
+			}
+			setSlashMenuKind(m ? 'skill' : 'builtin');
+			setSkillFilter(m ? m[1] : mBuiltin![1]);
 			setSkillIdx(0);
 			setSkillMenuOpen(true);
 			const rect = ta.getBoundingClientRect();
@@ -6594,10 +6633,10 @@ export const SidebarChat = () => {
 			}}
 		/>
 
-		{/* /skill: autocomplete overlay — Cursor-style: section heading + 2-line items
-		    (name + truncated sanitized description). Opens above the textarea by default,
-		    flips below if more space is available there (e.g. chat pane docked near the
-		    top of the window). */}
+		{/* Slash autocomplete overlay (skills or built-in chat commands, by slashMenuKind) —
+		    Cursor-style: section heading + 2-line items (name + truncated sanitized
+		    description). Opens above the textarea by default, flips below if more space
+		    is available there (e.g. chat pane docked near the top of the window). */}
 		{skillMenuOpen && skillAnchorRect && (() => {
 			const GAP = 4;
 			const MAX_DROPDOWN_H = 320;
@@ -6632,14 +6671,16 @@ export const SidebarChat = () => {
 					onMouseDown={(e) => { e.preventDefault(); /* keep textarea focus */ }}
 				>
 					<div className='px-3 py-1 text-[10px] uppercase tracking-wide text-vibe-fg-3 border-b border-vibe-border-1'>
-						Skills:
+						{slashMenuKind === 'builtin' ? 'Команды чата:' : 'Skills:'}
 					</div>
 					<div className='overflow-y-auto' style={{ maxHeight: dropdownH - HEADER_H }}>
 						{filteredSkillCmds.length === 0 && (
 							<div className='px-3 py-2 text-vibe-fg-3 text-[12px]'>
-								{skillCmds.length === 0
-									? 'Скиллов нет — добавьте .vibe/skills/<id>/SKILL.md'
-									: `Нет скиллов по фильтру «${skillFilter}»`}
+								{slashMenuKind === 'builtin'
+									? `Нет команд по фильтру «${skillFilter}»`
+									: skillCmds.length === 0
+										? 'Скиллов нет — добавьте .vibe/skills/<id>/SKILL.md'
+										: `Нет скиллов по фильтру «${skillFilter}»`}
 							</div>
 						)}
 						{filteredSkillCmds.map((cmd, i) => {

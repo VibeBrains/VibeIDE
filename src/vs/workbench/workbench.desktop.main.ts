@@ -213,6 +213,7 @@ import './contrib/vibeide/electron-browser/vibeideSCMService.js';
 import './contrib/vibeide/electron-browser/vibeideUpdateService.js';
 import './contrib/vibeide/electron-browser/vibeLogMainSyncContribution.js';
 import './contrib/vibeide/electron-browser/voice/vibeVoiceInputService.js';
+import './contrib/vibeide/electron-browser/video/vibeVideoChatService.js';
 
 //#endregion
 
