@@ -54,9 +54,16 @@ export interface IVibeVoiceInputService {
 	 * Ensure the STT models of the current profile are installed: asks consent and shows
 	 * download progress when they are missing, joins a download already in flight.
 	 * Resolves `true` once the models are ready, `false` on decline or failure.
-	 * Consumed by the /watch video pipeline for its no-subtitles transcript fallback.
 	 */
 	ensureModelsReady(): Promise<boolean>;
+
+	/**
+	 * Ensure the OFFLINE batch model of a profile is installed (the `/watch` no-subtitles
+	 * transcript fallback). Separate from `ensureModelsReady`: batch needs only the offline
+	 * model, not the whole dictation bundle (English dictation is a different, streaming
+	 * model). Asks consent + shows progress when missing; `true` once ready.
+	 */
+	ensureBatchModelReady(profileId: VoiceProfileId): Promise<boolean>;
 
 	/**
 	 * Start a chat dictation session. When models are missing, kicks off the download

@@ -36,6 +36,11 @@ export class VibeVoiceChannel implements IServerChannel {
 			case 'ensureModels':
 				await this.service.ensureModels(arg as VoiceProfileId);
 				return undefined as T;
+			case 'getBatchState':
+				return this.service.getBatchState(arg as VoiceProfileId) as T;
+			case 'ensureBatchModel':
+				await this.service.ensureBatchModel(arg as VoiceProfileId);
+				return undefined as T;
 			case 'startSession':
 				this.service.startSession(arg as VoiceStartSessionOptions);
 				return undefined as T;

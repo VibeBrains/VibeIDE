@@ -96,6 +96,14 @@ class VoiceChannelClient {
 		return this.channel().call('ensureModels', profileId);
 	}
 
+	getBatchState(profileId: VoiceProfileId): Promise<{ state: 'ready' | 'missing' | 'downloading'; downloadBytes: number }> {
+		return this.channel().call('getBatchState', profileId);
+	}
+
+	ensureBatchModel(profileId: VoiceProfileId): Promise<void> {
+		return this.channel().call('ensureBatchModel', profileId);
+	}
+
 	startSession(sessionId: string, profileId: VoiceProfileId): Promise<void> {
 		return this.channel().call('startSession', { sessionId, profileId });
 	}
@@ -584,6 +592,63 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 		const after = await this.fetchModelsState().catch(() => undefined);
 		this.fireStateChange();
 		return after?.profiles[profileId].state === 'ready';
+	}
+
+	async ensureBatchModelReady(profileId: VoiceProfileId): Promise<boolean> {
+		let state = await this.channel.getBatchState(profileId).catch(() => undefined);
+		if (state?.state === 'ready') {
+			return true;
+		}
+		if (state?.state !== 'downloading') {
+			if (this.confirmDialogOpen) {
+				return false;
+			}
+			this.confirmDialogOpen = true;
+			let consented: boolean;
+			try {
+				consented = await this.vibeModalService.confirmModal({
+					title: localize('vibeVoice.confirmBatchDownload', "Скачать модель для распознавания аудио?"),
+					body: localize('vibeVoice.confirmBatchDownloadDetail', "Для разбора этого аудио командой /watch нужна локальная модель распознавания речи (~{0} МБ, однократно). Звук обрабатывается на этом компьютере и никуда не отправляется.", bytesToMegabytes(state?.downloadBytes ?? 0)),
+					icon: 'mic',
+					okLabel: localize('vibeVoice.confirmDownloadYes', "Скачать"),
+					cancelLabel: localize('vibeVoice.confirmDownloadNo', "Отмена"),
+				});
+			} finally {
+				this.confirmDialogOpen = false;
+			}
+			if (!consented) {
+				return false;
+			}
+		}
+		try {
+			await this.progressService.withProgress(
+				{
+					location: ProgressLocation.Notification,
+					title: localize('vibeVoice.downloadingBatchTitle', "Загрузка модели распознавания аудио ({0} МБ)…", bytesToMegabytes(state?.downloadBytes ?? 0)),
+				},
+				async progress => {
+					let lastPercent = 0;
+					const subscription = this.channel.onDownloadProgress(e => {
+						if (e.profileId !== profileId || e.done || e.totalBytes === 0) {
+							return;
+						}
+						const percent = Math.min(100, Math.round(e.receivedBytes / e.totalBytes * 100));
+						progress.report({ increment: percent - lastPercent, message: `${percent}%` });
+						lastPercent = percent;
+					});
+					try {
+						await this.channel.ensureBatchModel(profileId);
+					} finally {
+						subscription.dispose();
+					}
+				},
+			);
+		} catch (error) {
+			this.notificationService.error(localize('vibeVoice.batchDownloadFailed', "Не удалось скачать модель распознавания аудио: {0}", error instanceof Error ? error.message : String(error)));
+			return false;
+		}
+		state = await this.channel.getBatchState(profileId).catch(() => undefined);
+		return state?.state === 'ready';
 	}
 
 	private fireStateChange(): void {

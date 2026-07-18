@@ -5,23 +5,54 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../../base/test/common/utils.js';
-import { resolveVoiceProfile, resolveVoiceSessionModelPaths, voiceArchivesForProfile, voiceDownloadBytesForProfile, voiceProfileForSpeechLanguage, voiceRequiredFilesForProfile } from '../../../common/voice/vibeVoiceModels.js';
+import { resolveVoiceBatchOfflinePaths, resolveVoiceProfile, resolveVoiceSessionModelPaths, voiceArchivesForProfile, voiceBatchArchivesForProfile, voiceBatchDownloadBytesForProfile, voiceBatchRequiredFilesForProfile, voiceDownloadBytesForProfile, voiceProfileForSpeechLanguage, voiceRequiredFilesForProfile, VOICE_ENGLISH_BATCH_TIERS } from '../../../common/voice/vibeVoiceModels.js';
 import { VOICE_PROFILE_IDS } from '../../../common/voice/vibeVoiceTypes.js';
-import { clampVoiceEndpointSilenceMs, clampVoiceKeepAliveSec, resolveVoiceThreads, VOICE_ENDPOINT_SILENCE_DEFAULT_MS, VOICE_KEEP_ALIVE_DEFAULT_SEC } from '../../../common/voice/vibeVoiceConfiguration.js';
+import { clampVoiceEndpointSilenceMs, clampVoiceKeepAliveSec, resolveVoiceEnglishBatchTier, resolveVoiceThreads, VOICE_ENDPOINT_SILENCE_DEFAULT_MS, VOICE_KEEP_ALIVE_DEFAULT_SEC } from '../../../common/voice/vibeVoiceConfiguration.js';
 
 suite('Voice input — model catalog', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('catalog integrity: every archive has mirror url, sha256 and size', () => {
-		for (const profileId of VOICE_PROFILE_IDS) {
-			for (const archive of voiceArchivesForProfile(profileId)) {
-				assert.ok(/^https:\/\/github\.com\/VibeBrains\/VibeIDE\/releases\/download\/stt-models-v1\/[\w.-]+\.zip$/.test(archive.url), `url of ${archive.id}: ${archive.url}`);
-				assert.ok(/^[0-9a-f]{64}$/.test(archive.sha256), `sha256 of ${archive.id}`);
-				assert.ok(archive.sizeBytes > 1024 * 1024, `size of ${archive.id}`);
-				assert.ok(archive.files.length > 0 && archive.files.includes('tokens.txt'), `files of ${archive.id}`);
-			}
+	test('catalog integrity: every archive (dictation + batch) has mirror url, sha256 and size', () => {
+		const archives = VOICE_PROFILE_IDS.flatMap(p => [
+			...voiceArchivesForProfile(p),
+			...VOICE_ENGLISH_BATCH_TIERS.flatMap(t => voiceBatchArchivesForProfile(p, t)),
+		]);
+		for (const archive of archives) {
+			assert.ok(/^https:\/\/github\.com\/VibeBrains\/VibeIDE\/releases\/download\/stt-models-v1\/[\w.-]+\.zip$/.test(archive.url), `url of ${archive.id}: ${archive.url}`);
+			assert.ok(/^[0-9a-f]{64}$/.test(archive.sha256), `sha256 of ${archive.id}`);
+			assert.ok(archive.sizeBytes > 1024 * 1024, `size of ${archive.id}`);
+			assert.ok(archive.files.length > 0 && archive.files.includes('tokens.txt'), `files of ${archive.id}`);
 		}
+	});
+
+	test('batch model: ru reuses gigaam, en picks the configured tier', () => {
+		assert.deepStrictEqual(resolveVoiceBatchOfflinePaths('/root', 'ru', 'small'), {
+			kind: 'nemo-ctc',
+			model: '/root/sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16/model.int8.onnx',
+			tokens: '/root/sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16/tokens.txt',
+		});
+		assert.deepStrictEqual(
+			[resolveVoiceBatchOfflinePaths('/root', 'en', 'small').model, resolveVoiceBatchOfflinePaths('/root', 'en', 'medium').model],
+			['/root/sherpa-onnx-nemo-ctc-en-conformer-small/model.int8.onnx', '/root/sherpa-onnx-nemo-ctc-en-conformer-medium/model.int8.onnx'],
+		);
+		// ru batch reuses a file already in the dictation bundle → no extra download.
+		assert.deepStrictEqual(voiceBatchRequiredFilesForProfile('ru', 'small'), [
+			'sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16/model.int8.onnx',
+			'sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16/tokens.txt',
+		]);
+		assert.ok(voiceRequiredFilesForProfile('ru').includes(voiceBatchRequiredFilesForProfile('ru', 'small')[0]));
+		// en batch files are NOT part of the streaming dictation bundle.
+		const enBatch = voiceBatchRequiredFilesForProfile('en', 'medium')[0];
+		assert.ok(!voiceRequiredFilesForProfile('en').includes(enBatch), 'en batch model must be independent of dictation');
+		assert.ok(voiceBatchDownloadBytesForProfile('en', 'small') < voiceBatchDownloadBytesForProfile('en', 'medium'));
+	});
+
+	test('englishBatchModel config normalizes to a known tier (default small)', () => {
+		assert.deepStrictEqual(
+			[resolveVoiceEnglishBatchTier('small'), resolveVoiceEnglishBatchTier('medium'), resolveVoiceEnglishBatchTier('large'), resolveVoiceEnglishBatchTier(undefined), resolveVoiceEnglishBatchTier(42)],
+			['small', 'medium', 'small', 'small', 'small'],
+		);
 	});
 
 	test('ru profile is the hybrid: streaming t-one + offline gigaam', () => {

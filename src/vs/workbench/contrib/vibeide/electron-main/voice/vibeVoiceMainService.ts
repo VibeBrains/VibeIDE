@@ -26,8 +26,8 @@ import { ILifecycleMainService } from '../../../../../platform/lifecycle/electro
 import { UtilityProcess } from '../../../../../platform/utilityProcess/electron-main/utilityProcess.js';
 import { NullTelemetryService } from '../../../../../platform/telemetry/common/telemetryUtils.js';
 import { VoiceBatchDecodeResult, VoiceDownloadProgress, VoiceModelsState, VoiceProfileId, VoiceSessionEvent, VoiceStartSessionOptions, VoiceWorkerRequest, VoiceWorkerResponse, VOICE_PROFILE_IDS, VOICE_SAMPLE_RATE } from '../../common/voice/vibeVoiceTypes.js';
-import { resolveVoiceSessionModelPaths, voiceArchivesForProfile, voiceDownloadBytesForProfile, voiceRequiredFilesForProfile } from '../../common/voice/vibeVoiceModels.js';
-import { clampVoiceEndpointSilenceMs, clampVoiceKeepAliveSec, resolveVoiceThreads, VOICE_ENDPOINT_SILENCE_KEY, VOICE_KEEP_ALIVE_KEY, VOICE_MODELS_PATH_KEY, VOICE_THREADS_KEY } from '../../common/voice/vibeVoiceConfiguration.js';
+import { resolveVoiceBatchOfflinePaths, resolveVoiceSessionModelPaths, VoiceEnglishBatchTier, VoiceModelArchive, voiceArchivesForProfile, voiceBatchArchivesForProfile, voiceBatchDownloadBytesForProfile, voiceBatchRequiredFilesForProfile, voiceDownloadBytesForProfile, voiceRequiredFilesForProfile } from '../../common/voice/vibeVoiceModels.js';
+import { clampVoiceEndpointSilenceMs, clampVoiceKeepAliveSec, resolveVoiceEnglishBatchTier, resolveVoiceThreads, VOICE_ENDPOINT_SILENCE_KEY, VOICE_ENGLISH_BATCH_MODEL_KEY, VOICE_KEEP_ALIVE_KEY, VOICE_MODELS_PATH_KEY, VOICE_THREADS_KEY } from '../../common/voice/vibeVoiceConfiguration.js';
 import { downloadWithSha256 } from '../vibeVerifiedDownload.js';
 
 const WORKER_ENTRY_POINT = 'vs/workbench/contrib/vibeide/node/voice/vibeVoiceWorkerMain';
@@ -52,7 +52,8 @@ export class VibeVoiceMainService extends Disposable {
 	private readonly activeSessions = new Set<string>();
 	private readonly stopWatchdogs = new Map<string, ReturnType<typeof setTimeout>>();
 	private idleShutdownTimer: ReturnType<typeof setTimeout> | undefined;
-	private readonly activeProfileDownloads = new Map<VoiceProfileId, Promise<void>>();
+	/** Keyed by profileId (dictation bundle) or `${profileId}:batch` (offline /watch model). */
+	private readonly activeProfileDownloads = new Map<string, Promise<void>>();
 	private readonly activeBatchRequests = new Map<string, { resolve: (text: string) => void; reject: (error: Error) => void; watchdog: ReturnType<typeof setTimeout> }>();
 	/** Whole transcription jobs (many chunks) — keeps idle shutdown away between chunks. */
 	private readonly activeBatchJobs = new Set<string>();
@@ -86,6 +87,16 @@ export class VibeVoiceMainService extends Disposable {
 		return voiceRequiredFilesForProfile(profileId).every(rel => existsSync(join(root, rel)));
 	}
 
+	/** Configured English batch tier (`small`/`medium`); RU ignores it (GigaAM always). */
+	private englishBatchTier(): VoiceEnglishBatchTier {
+		return resolveVoiceEnglishBatchTier(this.configurationService.getValue<unknown>(VOICE_ENGLISH_BATCH_MODEL_KEY));
+	}
+
+	private isBatchInstalled(profileId: VoiceProfileId): boolean {
+		const root = this.modelsRoot();
+		return voiceBatchRequiredFilesForProfile(profileId, this.englishBatchTier()).every(rel => existsSync(join(root, rel)));
+	}
+
 	getState(): VoiceModelsState {
 		const profiles = {} as VoiceModelsState['profiles'] & Record<VoiceProfileId, { state: 'ready' | 'missing' | 'downloading'; downloadBytes: number }>;
 		for (const profileId of VOICE_PROFILE_IDS) {
@@ -97,20 +108,38 @@ export class VibeVoiceMainService extends Disposable {
 		return { profiles };
 	}
 
+	/** Batch model install state + bytes for one profile (the `/watch` transcription models). */
+	getBatchState(profileId: VoiceProfileId): { state: 'ready' | 'missing' | 'downloading'; downloadBytes: number } {
+		const tier = this.englishBatchTier();
+		const state = this.activeProfileDownloads.has(`${profileId}:batch`)
+			? 'downloading' as const
+			: this.isBatchInstalled(profileId) ? 'ready' as const : 'missing' as const;
+		return { state, downloadBytes: state === 'ready' ? 0 : voiceBatchDownloadBytesForProfile(profileId, tier) };
+	}
+
 	/** Download, verify and unpack every missing archive of the profile (serialized per profile). */
 	ensureModels(profileId: VoiceProfileId): Promise<void> {
-		const running = this.activeProfileDownloads.get(profileId);
+		return this.serializedDownload(profileId, voiceArchivesForProfile(profileId));
+	}
+
+	/** Download only the offline batch archives (`/watch`); dedup key distinct from dictation. */
+	ensureBatchModel(profileId: VoiceProfileId): Promise<void> {
+		return this.serializedDownload(`${profileId}:batch`, voiceBatchArchivesForProfile(profileId, this.englishBatchTier()), profileId);
+	}
+
+	private serializedDownload(key: string, archives: readonly VoiceModelArchive[], progressProfileId?: VoiceProfileId): Promise<void> {
+		const running = this.activeProfileDownloads.get(key);
 		if (running) {
 			return running;
 		}
-		const task = this.doEnsureModels(profileId).finally(() => this.activeProfileDownloads.delete(profileId));
-		this.activeProfileDownloads.set(profileId, task);
+		const task = this.doEnsureModels(progressProfileId ?? key as VoiceProfileId, archives).finally(() => this.activeProfileDownloads.delete(key));
+		this.activeProfileDownloads.set(key, task);
 		return task;
 	}
 
-	private async doEnsureModels(profileId: VoiceProfileId): Promise<void> {
+	private async doEnsureModels(profileId: VoiceProfileId, archives: readonly VoiceModelArchive[]): Promise<void> {
 		const root = this.modelsRoot();
-		const missing = voiceArchivesForProfile(profileId).filter(a => !a.files.every(f => existsSync(join(root, a.dir, f))));
+		const missing = archives.filter(a => !a.files.every(f => existsSync(join(root, a.dir, f))));
 		const totalBytes = missing.reduce((sum, a) => sum + a.sizeBytes, 0);
 		let receivedBytes = 0;
 		let lastEmitted = 0;
@@ -189,9 +218,9 @@ export class VibeVoiceMainService extends Disposable {
 
 	// ── Batch transcription (video /watch transcript fallback) ───────────────
 
-	/** True when the profile is installed AND has an offline model (batch decode input). */
+	/** True when the profile's offline batch model is installed (its `/watch` transcript input). */
 	isBatchTranscriptionAvailable(profileId: VoiceProfileId): boolean {
-		return !!resolveVoiceSessionModelPaths(this.modelsRoot(), profileId).offline && this.isProfileInstalled(profileId);
+		return this.isBatchInstalled(profileId);
 	}
 
 	/**
@@ -202,14 +231,10 @@ export class VibeVoiceMainService extends Disposable {
 	 * chunks even with `keepAliveSec: 0`.
 	 */
 	async transcribePcm16(pcm: Uint8Array, profileId: VoiceProfileId, onProgress?: (processedSec: number, totalSec: number) => void, token?: CancellationToken): Promise<{ startSec: number; endSec: number; text: string }[]> {
-		const models = resolveVoiceSessionModelPaths(this.modelsRoot(), profileId);
-		if (!models.offline) {
-			throw new Error(`Voice profile '${profileId}' has no offline model for batch transcription`);
+		if (!this.isBatchInstalled(profileId)) {
+			throw new Error(`Voice batch model for profile '${profileId}' is not installed`);
 		}
-		if (!this.isProfileInstalled(profileId)) {
-			throw new Error(`Voice models for profile '${profileId}' are not installed`);
-		}
-		const offline = models.offline;
+		const offline = resolveVoiceBatchOfflinePaths(this.modelsRoot(), profileId, this.englishBatchTier());
 		const numThreads = resolveVoiceThreads(this.configurationService.getValue<number>(VOICE_THREADS_KEY) ?? 0, cpus().length);
 		const bytesPerSecond = VOICE_SAMPLE_RATE * 2;
 		const chunkBytes = BATCH_CHUNK_SECONDS * bytesPerSecond;

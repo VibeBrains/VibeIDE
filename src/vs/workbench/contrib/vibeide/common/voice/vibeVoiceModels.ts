@@ -15,7 +15,12 @@
  */
 
 import { join } from '../../../../../base/common/path.js';
-import { VoiceProfileId, VoiceSessionModelPaths } from './vibeVoiceTypes.js';
+import { VoiceOfflineModelPaths, VoiceProfileId, VoiceSessionModelPaths } from './vibeVoiceTypes.js';
+
+/** Quality tier of the English offline batch model (`/watch` transcription). */
+export type VoiceEnglishBatchTier = 'small' | 'medium';
+export const VOICE_ENGLISH_BATCH_TIERS: readonly VoiceEnglishBatchTier[] = ['small', 'medium'];
+export const VOICE_ENGLISH_BATCH_TIER_DEFAULT: VoiceEnglishBatchTier = 'small';
 
 // Canonical org name is VibeBrains (the VibeIDETeam spelling survives only via GitHub's
 // owner-rename redirect — do not rely on it, a redirect dies if the old name is re-registered).
@@ -37,6 +42,8 @@ export interface VoiceModelArchive {
 const T_ONE_DIR = 'sherpa-onnx-streaming-t-one-russian-2025-09-08';
 const GIGAAM_DIR = 'sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16';
 const NEMO_EN_DIR = 'sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms-int8';
+const NEMO_EN_CTC_SMALL_DIR = 'sherpa-onnx-nemo-ctc-en-conformer-small';
+const NEMO_EN_CTC_MEDIUM_DIR = 'sherpa-onnx-nemo-ctc-en-conformer-medium';
 
 const T_ONE_ARCHIVE: VoiceModelArchive = {
 	id: 't-one-ru',
@@ -65,6 +72,34 @@ const NEMO_EN_ARCHIVE: VoiceModelArchive = {
 	files: ['encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt'],
 };
 
+// English offline batch models (NeMo CTC, int8) — the `/watch` transcript fallback for
+// English audio without platform subtitles. Two quality tiers the user chooses between
+// (`vibeide.voice.englishBatchModel`); both use the same `nemoCtc` recognizer as GigaAM,
+// so the worker is unchanged. Independent of the English DICTATION model (a streaming
+// transducer) — dictation must not have to download a batch model it never uses.
+const NEMO_EN_CTC_SMALL_ARCHIVE: VoiceModelArchive = {
+	id: 'nemo-ctc-en-small',
+	dir: NEMO_EN_CTC_SMALL_DIR,
+	url: `${MIRROR_BASE_URL}/nemo-ctc-en-conformer-small-int8.zip`,
+	sha256: '5dc7ae725d71a07e476c92451b19591be28c2e1997a69fddab2f0a6ba6a1d0dc',
+	sizeBytes: 18964108,
+	files: ['model.int8.onnx', 'tokens.txt'],
+};
+
+const NEMO_EN_CTC_MEDIUM_ARCHIVE: VoiceModelArchive = {
+	id: 'nemo-ctc-en-medium',
+	dir: NEMO_EN_CTC_MEDIUM_DIR,
+	url: `${MIRROR_BASE_URL}/nemo-ctc-en-conformer-medium-int8.zip`,
+	sha256: '8dc08cccde490ab7c01acf7d6baf541dc32a85dd8749b1f4e918f2411ef6ded6',
+	sizeBytes: 38077941,
+	files: ['model.int8.onnx', 'tokens.txt'],
+};
+
+const EN_CTC_ARCHIVE_BY_TIER: Record<VoiceEnglishBatchTier, VoiceModelArchive> = {
+	small: NEMO_EN_CTC_SMALL_ARCHIVE,
+	medium: NEMO_EN_CTC_MEDIUM_ARCHIVE,
+};
+
 /**
  * Profile → archives. RU is a hybrid: T-one streams interims, GigaAM re-decodes each
  * phrase for the final text (better WER; both lowercase, no punctuation — the sherpa
@@ -86,6 +121,35 @@ export function voiceRequiredFilesForProfile(profileId: VoiceProfileId): string[
 
 export function voiceDownloadBytesForProfile(profileId: VoiceProfileId): number {
 	return PROFILE_ARCHIVES[profileId].reduce((sum, a) => sum + a.sizeBytes, 0);
+}
+
+// ── Batch (offline /watch transcription) — separate from the dictation bundle ──
+
+/**
+ * Offline archives a profile needs for BATCH transcription (`/watch`). RU reuses GigaAM
+ * (already in the dictation bundle — same dir/files, never downloaded twice); EN uses the
+ * chosen CTC tier, which the streaming-only dictation bundle does NOT contain.
+ */
+export function voiceBatchArchivesForProfile(profileId: VoiceProfileId, englishTier: VoiceEnglishBatchTier): readonly VoiceModelArchive[] {
+	return profileId === 'ru' ? [GIGAAM_ARCHIVE] : [EN_CTC_ARCHIVE_BY_TIER[englishTier]];
+}
+
+/** Files (relative to `modelsRoot`) that must exist for batch transcription to work. */
+export function voiceBatchRequiredFilesForProfile(profileId: VoiceProfileId, englishTier: VoiceEnglishBatchTier): string[] {
+	return voiceBatchArchivesForProfile(profileId, englishTier).flatMap(a => a.files.map(f => join(a.dir, f)));
+}
+
+export function voiceBatchDownloadBytesForProfile(profileId: VoiceProfileId, englishTier: VoiceEnglishBatchTier): number {
+	return voiceBatchArchivesForProfile(profileId, englishTier).reduce((sum, a) => sum + a.sizeBytes, 0);
+}
+
+/** Absolute offline-model paths for batch decode, or undefined if the profile has none. */
+export function resolveVoiceBatchOfflinePaths(modelsRoot: string, profileId: VoiceProfileId, englishTier: VoiceEnglishBatchTier): VoiceOfflineModelPaths {
+	if (profileId === 'ru') {
+		return { kind: 'nemo-ctc', model: join(modelsRoot, GIGAAM_DIR, 'model.int8.onnx'), tokens: join(modelsRoot, GIGAAM_DIR, 'tokens.txt') };
+	}
+	const dir = englishTier === 'medium' ? NEMO_EN_CTC_MEDIUM_DIR : NEMO_EN_CTC_SMALL_DIR;
+	return { kind: 'nemo-ctc', model: join(modelsRoot, dir, 'model.int8.onnx'), tokens: join(modelsRoot, dir, 'tokens.txt') };
 }
 
 /** Absolute model paths for a session, given the resolved models root directory. */

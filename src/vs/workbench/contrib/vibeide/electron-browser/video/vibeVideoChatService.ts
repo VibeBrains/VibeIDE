@@ -361,10 +361,14 @@ class VibeVideoChatService extends Disposable implements IVibeVideoChatService {
 			if (!voiceState.available) {
 				return undefined;
 			}
-			if (voiceState.modelState !== 'ready' && !await this.voiceInputService.ensureModelsReady()) {
+			// Batch needs only the offline model, not the whole dictation bundle (English
+			// dictation is a separate streaming model). The tier for English (small/medium)
+			// is a `vibeide.voice.englishBatchModel` setting resolved main-side.
+			const profileId = this.voiceInputService.getActiveProfileId();
+			if (!await this.voiceInputService.ensureBatchModelReady(profileId)) {
 				return undefined;
 			}
-			const segments = await this.channel.transcribe(requestId, this.voiceInputService.getActiveProfileId());
+			const segments = await this.channel.transcribe(requestId, profileId);
 			if (segments.length === 0) {
 				return undefined;
 			}

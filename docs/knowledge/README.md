@@ -94,7 +94,7 @@
 
 | Файл | О чём |
 |---|---|
-| [watchVideoPipeline.md](video/watchVideoPipeline.md) | Пайплайн `/watch`: yt-dlp + ffmpeg дочерними процессами из electron-main (UtilityProcess не нужен), кадры по сменам сцен с якорем `eq(n,0)` и тайм-кодами showinfo → `ChatImageAttachment[]`, STT-fallback батч-декодом GigaAM (чанки ≤28 с, одна busy-периода idle-shutdown), зеркало `video-tools-v1`; аудио-ветка без кадров (подкаст/mp3/голосовое: probe-first детект с хинтом-tie-break'ом по расширению, vision-гейт пропускается + повторяется после пайплайна при перекосе, субтитры отменяют скачивание, батч-STT только ru/GigaAM offline — en streaming-only, задел); грабли: yt-dlp игнорирует навязанный контейнер (`%(ext)s` + глоб), ноль сцен на статичном видео, showinfo `s:WxH` в ffmpeg 6.x vs `s=WxH` в 8.x (тихие 0 кадров), `yt-dlp -U` кнопкой при протухании |
+| [watchVideoPipeline.md](video/watchVideoPipeline.md) | Пайплайн `/watch`: yt-dlp + ffmpeg дочерними процессами из electron-main (UtilityProcess не нужен), кадры по сменам сцен с якорем `eq(n,0)` и тайм-кодами showinfo → `ChatImageAttachment[]`, STT-fallback батч-декодом GigaAM (чанки ≤28 с, одна busy-периода idle-shutdown), зеркало `video-tools-v1`; аудио-ветка без кадров (подкаст/mp3/голосовое: probe-first детект с хинтом-tie-break'ом по расширению, vision-гейт пропускается + повторяется после пайплайна при перекосе, субтитры отменяют скачивание, батч-STT offline: ru/GigaAM + en NeMo-CTC small/medium выбором `vibeide.voice.englishBatchModel`, развязано с бандлом диктовки); грабли: yt-dlp игнорирует навязанный контейнер (`%(ext)s` + глоб), ноль сцен на статичном видео, showinfo `s:WxH` в ffmpeg 6.x vs `s=WxH` в 8.x (тихие 0 кадров), `yt-dlp -U` кнопкой при протухании |
 
 ### [i18n/](i18n/) — локализация
 
