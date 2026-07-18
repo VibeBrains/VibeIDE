@@ -45,6 +45,7 @@
 | [dynamicProviders.md](architecture/dynamicProviders.md) | `.vibe/providers.json` (JSONC) — user-defined провайдеры/модели без пересборки. **WIP:** Фаза 1 (формат + IntelliSense + диагностика + тоглы built-in) готова; 2b-2 (overlay в `settingsOfProvider` → список+caps+транспорт) с `_storeState`-риском — план внутри |
 | [providerDiagnostics.md](architecture/providerDiagnostics.md) | «Проверка провайдеров» — модалка диагностики (brain-меню), послойные проверки L1–L5, **корень бага «токены не уходят до перезапуска»** (стейл-кэш SDK-клиентов в electron-main), кнопка сброса клиентов, диаг-логи, MD-экспорт |
 | [vibeServerPreviewCookies.md](architecture/vibeServerPreviewCookies.md) | Cookie-авторизация в превью: перезапись Set-Cookie → `SameSite=None; Secure` для зарегистрированных loopback-origin'ов; **гоча: один `onHeadersReceived` на сессию** — вызов встроен в апстрим-хендлер `app.ts` |
+| [previewInspectElement.md](architecture/previewInspectElement.md) | Inspect-режим превью (клик → селектор в чат): труба postMessage `__vibeBrowser` вместо одностороннего WS, cross-origin пускает селектор но не скриншот (блокер VS.6), window-capture бьёт document-capture, селектор — кандидат не истина, только static-runtime, `CSS.escape` для Tailwind-классов |
 
 ### [ui/](ui/) — CSS, темы, view-инфраструктура
 

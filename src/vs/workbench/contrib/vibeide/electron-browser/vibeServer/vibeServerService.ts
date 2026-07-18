@@ -20,6 +20,7 @@ import { Emitter } from '../../../../../base/common/event.js';
 import { Disposable, DisposableStore, MutableDisposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { joinPath, relativePath } from '../../../../../base/common/resources.js';
+import { escapeRegExpCharacters } from '../../../../../base/common/strings.js';
 import { localize } from '../../../../../nls.js';
 import { ProxyChannel } from '../../../../../base/parts/ipc/common/ipc.js';
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
@@ -40,7 +41,8 @@ import { IVibeServerMain, IVibeServerStarted, VIBE_SERVER_CHANNEL, VibeServerRun
 import { IVibeServerPortOwner, IVibeServerProcessMain, VIBE_SERVER_PROCESS_CHANNEL } from '../../common/vibeServer/vibeServerProcessIpc.js';
 import { IVibeServerRuntime, StaticRuntime, DevServerRuntime, DevServerPortBusyError } from '../../browser/vibeServer/vibeServerRuntime.js';
 import { DockerRuntime } from '../../browser/vibeServer/vibeDockerRuntime.js';
-import { VibeBrowserManager } from '../../browser/vibeServer/vibeBrowserManager.js';
+import { VibeBrowserManager, IVibeBrowserElementPick } from '../../browser/vibeServer/vibeBrowserManager.js';
+import { openVibeChatEditor } from '../../browser/vibeideChatPane.js';
 import { VibeServerConfigKeys, VibeServerPreviewTarget, VIBE_SERVER_RUNNING_CONTEXT_KEY } from '../../browser/vibeServer/vibeServerConstants.js';
 import { IVibeServerService, IVibeServerStatus } from '../../browser/vibeServer/vibeServerService.js';
 
@@ -341,9 +343,127 @@ class VibeServerService extends Disposable implements IVibeServerService {
 			manager.setScrollSync(this._configurationService.getValue<boolean>(VibeServerConfigKeys.scrollSync) === true);
 			// Surface new preview problems on the status bar via the status-change event.
 			manager.onDidChangeProblems(() => this._onDidChangeStatus.fire());
+			// Element inspect: picks arrive from the preview chrome; availability follows the
+			// runtime kind (the bridge script is injected by the static server only).
+			manager.onDidPickElement(pick => void this._handleInspectPick(pick));
+			manager.setInspectSupported(this._status.state === 'running' && this._status.kind === VibeServerRuntimeKind.static);
 			this._browser.value = manager;
 		}
 		return this._browser.value;
+	}
+
+	/**
+	 * An element was picked in the preview inspect mode: resolve the file candidate
+	 * (static runtime — deterministic pathname→file mirror of `_resourceToLoopbackUrl`),
+	 * find the selector's line in it, and stage a Russian edit blueprint in the chat as a
+	 * pending injection (the `sendPreviewErrorsToChat` pattern: visible chip, not sent).
+	 */
+	private async _handleInspectPick(pick: IVibeBrowserElementPick): Promise<void> {
+		const threadId = this._chatThreadService.state.currentThreadId;
+		if (!threadId) {
+			this._notificationService.info(localize('vibeServer.noThread', "Нет активного чата для добавления контекста."));
+			return;
+		}
+		const candidate = await this._inspectFileCandidate(pick.path);
+		const line = candidate ? await this._findSelectorLine(candidate.uri, pick.selector) : undefined;
+
+		const fileNote = candidate
+			? candidate.spaGuess
+				? localize('vibeServer.inspect.fileSpa', "Файл-кандидат (SPA fallback, предположительно): {0}", candidate.relative + (line !== undefined ? `:${line}` : ''))
+				: localize('vibeServer.inspect.file', "Файл: {0}", candidate.relative + (line !== undefined ? `:${line}` : ''))
+			: localize('vibeServer.inspect.noFile', "Файл в workspace не определён — найди элемент по селектору.");
+		const text = [
+			localize('vibeServer.inspect.header', "Правка по элементу из превью Vibe Server."),
+			localize('vibeServer.inspect.page', "Страница: {0}", pick.path || pick.href),
+			localize('vibeServer.inspect.selector', "Селектор: {0}", pick.selector),
+			fileNote,
+			localize('vibeServer.inspect.fragment', "Фрагмент HTML:"),
+			'```html',
+			pick.html,
+			'```',
+		].join('\n');
+		this._chatThreadService.addPendingInjection(threadId, text);
+
+		await openVibeChatEditor(this._instantiationService);
+		await this._chatThreadService.focusCurrentChat();
+		this._notificationService.info(localize('vibeServer.inspect.staged', "Элемент {0} добавлен в чат заметкой — опишите правку и отправьте сообщение.", pick.selector));
+	}
+
+	/**
+	 * Deterministic pathname→file mapping for the static runtime (mirror of the main-side
+	 * `_handle`): decode, resolve under the served root, directory → `index.html`. When the
+	 * path resolves to nothing and SPA fallback is on, the root `index.html` is returned as
+	 * a guess. Returns undefined outside the static runtime — there is no mapping there.
+	 */
+	private async _inspectFileCandidate(pathname: string): Promise<{ uri: URI; relative: string; spaGuess: boolean } | undefined> {
+		if (this._status.state !== 'running' || this._status.kind !== VibeServerRuntimeKind.static) {
+			return undefined;
+		}
+		const root = this._resolveRoot();
+		if (!root || !pathname.startsWith('/')) {
+			return undefined;
+		}
+		let relative: string;
+		try {
+			relative = decodeURIComponent(pathname).replace(/^\/+/, '');
+		} catch {
+			return undefined;
+		}
+		if (relative.split('/').some(segment => segment === '..')) {
+			return undefined;
+		}
+		if (relative === '' || relative.endsWith('/')) {
+			relative += 'index.html';
+		}
+		if (await this._fileService.exists(joinPath(root, relative))) {
+			return { uri: joinPath(root, relative), relative, spaGuess: false };
+		}
+		// `/docs` without a trailing slash may still be the `docs/index.html` directory form.
+		const lastSegment = relative.split('/').pop() ?? '';
+		if (!lastSegment.includes('.') && await this._fileService.exists(joinPath(root, `${relative}/index.html`))) {
+			return { uri: joinPath(root, `${relative}/index.html`), relative: `${relative}/index.html`, spaGuess: false };
+		}
+		if (this._configurationService.getValue<boolean>(VibeServerConfigKeys.spaFallback) === true && await this._fileService.exists(joinPath(root, 'index.html'))) {
+			return { uri: joinPath(root, 'index.html'), relative: 'index.html', spaGuess: true };
+		}
+		return undefined;
+	}
+
+	/**
+	 * Best-effort 1-based line of the picked element in the source HTML: anchors on the last
+	 * selector segment (id → `id="…"`, class → `class` attribute containing it, else `<tag`).
+	 * A candidate, not truth — JS-mutated DOM may not match the source markup.
+	 */
+	private async _findSelectorLine(resource: URI, selector: string): Promise<number | undefined> {
+		let content: string;
+		try {
+			const file = await this._fileService.readFile(resource, { limits: { size: 1024 * 1024 } });
+			content = file.value.toString();
+		} catch {
+			return undefined;
+		}
+		const lastSegment = selector.split('>').pop()?.trim() ?? '';
+		let needle: RegExp | undefined;
+		const idMatch = /^#(?<id>[\w\\-]+)/.exec(lastSegment);
+		const classMatch = /\.(?<cls>[\w\\-]+)/.exec(lastSegment);
+		const tagMatch = /^(?<tag>[a-z][\w-]*)/i.exec(lastSegment);
+		if (idMatch?.groups) {
+			needle = new RegExp(`id\\s*=\\s*["']${escapeRegExpCharacters(idMatch.groups.id.replace(/\\/g, ''))}["']`);
+		} else if (classMatch?.groups) {
+			needle = new RegExp(`class\\s*=\\s*["'][^"']*\\b${escapeRegExpCharacters(classMatch.groups.cls.replace(/\\/g, ''))}\\b`);
+		} else if (tagMatch?.groups) {
+			needle = new RegExp(`<${escapeRegExpCharacters(tagMatch.groups.tag)}[\\s>]`, 'i');
+		}
+		if (!needle) {
+			return undefined;
+		}
+		const lines = content.split('\n');
+		for (let i = 0; i < lines.length; i++) {
+			if (needle.test(lines[i])) {
+				return i + 1;
+			}
+		}
+		return undefined;
 	}
 
 	/** Maps a workspace file under the server root to its loopback URL, or undefined if outside. */
@@ -482,6 +602,7 @@ class VibeServerService extends Disposable implements IVibeServerService {
 	private _setStatus(status: IVibeServerStatus): void {
 		this._status = status;
 		this._runningKey.set(status.state === 'running');
+		this._browser.value?.setInspectSupported(status.state === 'running' && status.kind === VibeServerRuntimeKind.static);
 		this._onDidChangeStatus.fire();
 	}
 }

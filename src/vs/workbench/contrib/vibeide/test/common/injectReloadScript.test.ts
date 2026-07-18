@@ -6,7 +6,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { injectReloadScript, VIBE_RELOAD_WS_PATH } from '../../common/vibeServer/injectReloadScript.js';
+import { buildReloadClientScript, injectReloadScript, VIBE_RELOAD_WS_PATH } from '../../common/vibeServer/injectReloadScript.js';
 
 const MARKER = 'data-vibe-server-reload';
 
@@ -37,5 +37,21 @@ suite('Vibe Server — reload script injection', () => {
 		const once = injectReloadScript('<body></body>');
 		const twice = injectReloadScript(once);
 		assert.strictEqual(twice, once);
+	});
+
+	test('client script carries the inspect protocol and stays script-tag safe', () => {
+		const script = buildReloadClientScript(VIBE_RELOAD_WS_PATH);
+		assert.deepStrictEqual(
+			[
+				script.includes('__vibeServerInspect'),
+				script.includes('__vibeBrowser:"inspect"'),
+				script.includes('__vibeBrowser:"inspect-cancel"'),
+				script.includes('nth-of-type'),
+				// The payload must never contain a closing script sequence — it is embedded
+				// into an inline <script> tag by injectReloadScript.
+				script.toLowerCase().includes('</script'),
+			],
+			[true, true, true, true, false],
+		);
 	});
 });

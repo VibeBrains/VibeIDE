@@ -26,6 +26,18 @@ import { Extensions as OutputExtensions, IOutputChannelRegistry, IOutputService 
 const VIBE_BROWSER_VIEW_TYPE = 'vibeide.vibeBrowser';
 const VIBE_SERVER_CONSOLE_CHANNEL_ID = 'vibeide.vibeServerConsole';
 
+/** One element pick from the preview inspect mode (page → chrome → manager). */
+export interface IVibeBrowserElementPick {
+	/** CSS selector computed in the page (id → tag.class:nth-of-type chain). */
+	readonly selector: string;
+	/** Truncated outerHTML of the picked element. */
+	readonly html: string;
+	/** Full page URL at pick time (may be a tunnelled origin on remote). */
+	readonly href: string;
+	/** `location.pathname` — the origin-independent half used for file mapping. */
+	readonly path: string;
+}
+
 export class VibeBrowserManager extends Disposable {
 
 	/** Open preview tabs (multi-preview). */
@@ -43,6 +55,17 @@ export class VibeBrowserManager extends Disposable {
 	private readonly _onDidChangeProblems = this._register(new Emitter<void>());
 	/** Fires when a new error/warning is captured (for the status-bar badge). */
 	readonly onDidChangeProblems: Event<void> = this._onDidChangeProblems.event;
+
+	private readonly _onDidPickElement = this._register(new Emitter<IVibeBrowserElementPick>());
+	/** Fires when the user picks an element in inspect mode. */
+	readonly onDidPickElement: Event<IVibeBrowserElementPick> = this._onDidPickElement.event;
+
+	/**
+	 * Inspect is only meaningful when the injected bridge script is present, i.e. the
+	 * static runtime; the service keeps this in sync with the runtime kind. The flag
+	 * bakes the initial button state into new chromes and is pushed into open ones.
+	 */
+	private _inspectSupported = false;
 
 	/** Which preview URL each tab currently shows — drives cookie-compat origin (un)registration. */
 	private readonly _registeredUrlByInput = new Map<WebviewInput, string>();
@@ -81,6 +104,17 @@ export class VibeBrowserManager extends Disposable {
 	/** Enables/disables mirroring scroll across preview tabs. */
 	setScrollSync(enabled: boolean): void {
 		this._scrollSync = enabled;
+	}
+
+	/** Enables/disables the "pick element" toolbar button in every open preview chrome. */
+	setInspectSupported(supported: boolean): void {
+		if (this._inspectSupported === supported) {
+			return;
+		}
+		this._inspectSupported = supported;
+		for (const input of this._inputs) {
+			void input.webview.postMessage({ type: 'inspect-supported', value: supported });
+		}
 	}
 
 	/**
@@ -148,8 +182,18 @@ export class VibeBrowserManager extends Disposable {
 		if (!message || typeof message !== 'object') {
 			return;
 		}
-		const m = message as { type?: string; href?: string; title?: string; level?: string; text?: string; x?: number; y?: number };
+		const m = message as { type?: string; href?: string; title?: string; level?: string; text?: string; x?: number; y?: number; selector?: string; html?: string; path?: string };
 		switch (m.type) {
+			case 'inspect':
+				if (typeof m.selector === 'string' && m.selector.length > 0) {
+					this._onDidPickElement.fire({
+						selector: m.selector,
+						html: typeof m.html === 'string' ? m.html : '',
+						href: typeof m.href === 'string' ? m.href : '',
+						path: typeof m.path === 'string' ? m.path : '',
+					});
+				}
+				break;
 			case 'open-external':
 				if (m.href) {
 					void this._openerService.open(URI.parse(m.href), { openExternal: true });
@@ -251,6 +295,7 @@ export class VibeBrowserManager extends Disposable {
 	.vb-btn { cursor: pointer; border: none; background: transparent; color: var(--vscode-icon-foreground); border-radius: 4px; height: 24px; min-width: 24px; padding: 0 6px; font-size: 13px; }
 	.vb-btn:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground); }
 	.vb-btn:disabled { opacity: 0.4; cursor: default; }
+	.vb-btn.active { background: var(--vscode-toolbar-activeBackground, var(--vscode-toolbar-hoverBackground)); color: var(--vscode-focusBorder); }
 	.vb-addr { flex: 1; height: 24px; border: 1px solid var(--vscode-input-border, transparent); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 4px; padding: 0 8px; font-size: 12px; outline: none; }
 	.vb-addr:focus { border-color: var(--vscode-focusBorder); }
 	.vb-select { height: 24px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border, transparent); border-radius: 4px; font-size: 12px; }
@@ -274,6 +319,7 @@ export class VibeBrowserManager extends Disposable {
 			<option value="1280x800">Десктоп 1280</option>
 		</select>
 		<button class="vb-btn" id="vb-rotate" title="Повернуть">⤧</button>
+		<button class="vb-btn" id="vb-inspect" title="Выбрать элемент: клик по элементу превью отправит его селектор в чат (Alt+клик — родитель, Esc — отмена). Доступно для статического превью." ${this._inspectSupported ? '' : 'disabled '}>⌖</button>
 		<button class="vb-btn" id="vb-external" title="Открыть во внешнем браузере">↗</button>
 	</div>
 	<div class="vb-stage">
@@ -294,11 +340,21 @@ export class VibeBrowserManager extends Disposable {
 	var hist = [], idx = -1, current = '';
 	var rotated = false, sizeVal = 'full';
 
+	var insp = document.getElementById('vb-inspect');
+	var inspOn = false;
+	function setInsp(v){
+		inspOn = v && !insp.disabled;
+		insp.classList.toggle('active', inspOn);
+		if (frame.contentWindow){ frame.contentWindow.postMessage({ __vibeServerInspect: inspOn }, '*'); }
+	}
+
 	function buttons(){ back.disabled = idx <= 0; fwd.disabled = idx >= hist.length - 1; }
 	function onNav(href, title){
 		if (href !== current){ hist = hist.slice(0, idx + 1); hist.push(href); idx = hist.length - 1; current = href; }
 		addr.value = href; buttons();
 		vscode.postMessage({ type: 'navigated', href: href, title: title });
+		// A (re)loaded page starts with inspect off — re-arm it if the toggle is still on.
+		if (inspOn && frame.contentWindow){ frame.contentWindow.postMessage({ __vibeServerInspect: true }, '*'); }
 	}
 	function goto(u){ frame.src = u; }
 	function normalize(v){
@@ -318,6 +374,7 @@ export class VibeBrowserManager extends Disposable {
 	fwd.addEventListener('click', function(){ if (idx < hist.length - 1){ idx++; current = hist[idx]; frame.src = current; addr.value = current; buttons(); } });
 	document.getElementById('vb-reload').addEventListener('click', function(){ frame.src = current || frame.src; });
 	document.getElementById('vb-external').addEventListener('click', function(){ vscode.postMessage({ type: 'open-external', href: current || frame.src }); });
+	insp.addEventListener('click', function(){ setInsp(!inspOn); });
 	document.getElementById('vb-size').addEventListener('change', function(e){ sizeVal = e.target.value; applySize(); });
 	document.getElementById('vb-rotate').addEventListener('click', function(){ rotated = !rotated; applySize(); });
 	addr.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ goto(normalize(addr.value)); } });
@@ -329,6 +386,9 @@ export class VibeBrowserManager extends Disposable {
 		else if (d.__vibeBrowser === 'console'){ vscode.postMessage({ type: 'console', level: d.level, text: d.text }); }
 		else if (d.__vibeBrowser === 'external'){ vscode.postMessage({ type: 'open-external', href: d.href }); }
 		else if (d.__vibeBrowser === 'scroll'){ vscode.postMessage({ type: 'scroll', x: d.x, y: d.y }); }
+		else if (d.__vibeBrowser === 'inspect'){ setInsp(false); vscode.postMessage({ type: 'inspect', selector: d.selector, html: d.html, href: d.href, path: d.path }); }
+		else if (d.__vibeBrowser === 'inspect-cancel'){ setInsp(false); }
+		else if (d.type === 'inspect-supported'){ insp.disabled = !d.value; if (!d.value){ setInsp(false); } }
 		else if (d.type === 'navigate' && d.url){ goto(d.url); }
 		else if (d.type === 'reload'){ frame.src = current || frame.src; }
 		else if (d.type === 'scroll-to' && frame.contentWindow){ frame.contentWindow.postMessage({ __vibeServerScrollTo: { x: d.x, y: d.y } }, '*'); }
