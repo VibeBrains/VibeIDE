@@ -13,6 +13,14 @@
  * ffmpeg extracts scene-change frames as JPEG with `showinfo` timecodes. Videos without
  * subtitles get their audio extracted as raw PCM16; the renderer may then request the STT
  * fallback, which delegates to `voice/vibeVoiceMainService.ts` (GigaAM offline batch decode).
+ *
+ * Audio-only inputs (podcast, mp3, voice message) take a frameless branch. Probe-first:
+ * local — `ffmpeg -i` stream layout (cover art excluded); remote — every format
+ * `vcodec: none`; the URL's audio extension breaks the tie only when the remote probe has
+ * no codec info at all (generic extractor, e.g. a direct mp3 link) — positive video
+ * evidence always wins. Subtitles short-circuit the download entirely, otherwise
+ * bestaudio → PCM16 for the same STT fallback. The result carries `kind: 'audio'` and an
+ * empty frame list.
  */
 
 import { spawn, ChildProcess } from 'child_process';
@@ -26,7 +34,7 @@ import { ILogService } from '../../../../../platform/log/common/log.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { IEnvironmentMainService } from '../../../../../platform/environment/electron-main/environmentMainService.js';
 import { VideoAnalysisProgress, VideoAnalysisResult, VideoAnalysisStage, VideoAnalyzeOptions, VideoFrameInfo, VideoToolsDownloadProgress, VideoToolsState, VideoTranscriptSegment, selectEvenlySpreadFrames } from '../../common/video/vibeVideoTypes.js';
-import { VideoToolsArchive, VIDEO_TOOLS_DIR, isRemoteVideoInput, resolveVideoToolPaths, videoToolsArchiveForPlatform } from '../../common/video/vibeVideoTools.js';
+import { VideoToolsArchive, VIDEO_TOOLS_DIR, classifyWatchInput, isRemoteVideoInput, resolveVideoToolPaths, videoToolsArchiveForPlatform } from '../../common/video/vibeVideoTools.js';
 import { VIDEO_FRAME_HEIGHT_KEY, VIDEO_MAX_FRAMES_KEY, VIDEO_SCENE_THRESHOLD_KEY, VIDEO_SUBTITLE_LANGUAGES_KEY, VIDEO_TOOLS_PATH_KEY, clampVideoFrameHeight, clampVideoMaxFrames, clampVideoSceneThreshold, normalizeVideoSubtitleLanguages } from '../../common/video/vibeVideoConfiguration.js';
 import { VoiceProfileId } from '../../common/voice/vibeVoiceTypes.js';
 import { downloadWithSha256 } from '../vibeVerifiedDownload.js';
@@ -54,6 +62,14 @@ interface ToolRunResult {
 	readonly code: number;
 	readonly stdout: string;
 	readonly stderr: string;
+}
+
+/** `Duration: HH:MM:SS.ms` from an ffmpeg stderr banner; undefined when absent (`N/A`). */
+function parseFfmpegDurationSec(stderr: string): number | undefined {
+	const match = /Duration:\s*(?<h>\d+):(?<m>\d+):(?<s>\d+(?:\.\d+)?)/.exec(stderr);
+	return match?.groups
+		? Number(match.groups.h) * 3600 + Number(match.groups.m) * 60 + Number(match.groups.s)
+		: undefined;
 }
 
 export class VibeVideoMainService extends Disposable {
@@ -232,10 +248,22 @@ export class VibeVideoMainService extends Disposable {
 				this.emitStage(requestId, 'subtitles');
 				transcriptSrt = await this.fetchSubtitles(entry, paths.ytDlp, input, workDir);
 
+				// Probe-first: positive video evidence wins; the extension hint only decides
+				// when the probe is inconclusive (generic extractor without vcodec info).
+				if (probe.audioOnly || (!probe.hasVideo && classifyWatchInput(input) === 'audio')) {
+					return await this.finishAudioOnly(entry, paths, requestId, workDir, { title, durationSec, transcriptSrt }, { remoteUrl: input });
+				}
+
 				this.emitStage(requestId, 'download');
-				videoPath = await this.downloadVideo(entry, paths, input, workDir, requestId);
+				const height = clampVideoFrameHeight(this.configurationService.getValue<number>(VIDEO_FRAME_HEIGHT_KEY));
+				videoPath = await this.downloadMedia(entry, paths, input, workDir, requestId, `bv*[height<=${height}]+ba/b[height<=${height}]`, 'video');
 			} else {
 				title = basename(input);
+				const probe = await this.probeLocalMedia(entry, paths.ffmpeg, input);
+				durationSec = probe.durationSec;
+				if (!probe.hasVideoStream) {
+					return await this.finishAudioOnly(entry, paths, requestId, workDir, { title, durationSec }, { localPath: input });
+				}
 				videoPath = input;
 			}
 
@@ -250,7 +278,7 @@ export class VibeVideoMainService extends Disposable {
 				entry.audioPcmPath = audioPcmPath;
 			}
 
-			return { requestId, title, durationSec, frames: extraction.frames, transcriptSrt, audioPcmPath, workDir };
+			return { requestId, kind: 'video', title, durationSec, frames: extraction.frames, transcriptSrt, audioPcmPath, workDir };
 		} catch (error) {
 			await this.removeWorkDir(requestId, entry);
 			this.activeRequests.delete(requestId);
@@ -259,6 +287,38 @@ export class VibeVideoMainService extends Disposable {
 			}
 			throw error;
 		}
+	}
+
+	/**
+	 * Tail of the pipeline for audio-only inputs — no frame stage. Subtitles in hand mean
+	 * nothing needs downloading at all; otherwise the audio track (remote → yt-dlp bestaudio,
+	 * local — the input itself) becomes PCM16 for the renderer-driven STT fallback.
+	 */
+	private async finishAudioOnly(
+		entry: ActiveRequest,
+		paths: { readonly ffmpeg: string; readonly ytDlp: string },
+		requestId: string,
+		workDir: string,
+		meta: { readonly title?: string; readonly durationSec?: number; readonly transcriptSrt?: string },
+		source: { readonly remoteUrl: string } | { readonly localPath: string },
+	): Promise<VideoAnalysisResult> {
+		let audioPcmPath: string | undefined;
+		if (!meta.transcriptSrt) {
+			let mediaPath: string;
+			if ('remoteUrl' in source) {
+				this.emitStage(requestId, 'download');
+				mediaPath = await this.downloadMedia(entry, paths, source.remoteUrl, workDir, requestId, 'ba/b', 'media');
+			} else {
+				mediaPath = source.localPath;
+			}
+			this.emitStage(requestId, 'audio');
+			audioPcmPath = await this.extractAudioPcm(entry, paths.ffmpeg, mediaPath, workDir);
+			if (!audioPcmPath) {
+				throw new Error('В файле не найдено аудиодорожки');
+			}
+			entry.audioPcmPath = audioPcmPath;
+		}
+		return { requestId, kind: 'audio', title: meta.title, durationSec: meta.durationSec, frames: [], transcriptSrt: meta.transcriptSrt, audioPcmPath, workDir };
 	}
 
 	/**
@@ -318,20 +378,47 @@ export class VibeVideoMainService extends Disposable {
 
 	// ── Pipeline stages ──────────────────────────────────────────────────────
 
-	private async probeRemote(entry: ActiveRequest, ytDlp: string, url: string): Promise<{ title?: string; durationSec?: number }> {
+	private async probeRemote(entry: ActiveRequest, ytDlp: string, url: string): Promise<{ title?: string; durationSec?: number; audioOnly: boolean; hasVideo: boolean }> {
 		const result = await this.runTool(entry, ytDlp, ['--dump-single-json', '--no-playlist', '--skip-download', url]);
 		if (result.code !== 0) {
 			throw new Error(this.describeYtDlpFailure(result));
 		}
 		try {
-			const meta = JSON.parse(result.stdout) as { title?: unknown; duration?: unknown };
+			const meta = JSON.parse(result.stdout) as { title?: unknown; duration?: unknown; formats?: unknown };
+			// `audioOnly` — every described format explicitly carries no video codec.
+			// `hasVideo` — at least one format positively names a video codec; the generic
+			// extractor often reports no vcodec at all, leaving both false (inconclusive) —
+			// the caller then falls back to the file-extension hint.
+			const formats = (Array.isArray(meta.formats) ? meta.formats as readonly { vcodec?: unknown }[] : []).filter(f => !!f && typeof f === 'object');
+			const audioOnly = formats.length > 0 && formats.every(f => f.vcodec === 'none');
+			const hasVideo = formats.some(f => typeof f.vcodec === 'string' && f.vcodec !== 'none');
 			return {
 				title: typeof meta.title === 'string' ? meta.title : undefined,
 				durationSec: typeof meta.duration === 'number' && Number.isFinite(meta.duration) ? meta.duration : undefined,
+				audioOnly,
+				hasVideo,
 			};
 		} catch {
-			return {};
+			return { audioOnly: false, hasVideo: false };
 		}
+	}
+
+	/**
+	 * `ffmpeg -i` stream-layout probe for a local file — ffmpeg exits non-zero without an
+	 * output target, only the stderr banner matters. Cover art inside audio files shows up
+	 * as a `Video: mjpeg … (attached pic)` stream and must not count as video.
+	 */
+	private async probeLocalMedia(entry: ActiveRequest, ffmpeg: string, mediaPath: string): Promise<{ hasVideoStream: boolean; durationSec?: number }> {
+		const result = await this.runTool(entry, ffmpeg, ['-hide_banner', '-i', mediaPath]);
+		const streams = result.stderr.split('\n').filter(line => /Stream #\d+:\d+/.test(line));
+		if (streams.length === 0) {
+			// Unreadable input (corrupt container, not a media file): surface ffmpeg's own
+			// reason instead of routing to a branch that would blame a missing audio track.
+			const tail = result.stderr.trim().split('\n').pop() ?? '';
+			throw new Error(`ffmpeg: ${tail || `exit code ${result.code}`}`);
+		}
+		const hasVideoStream = streams.some(line => /: Video: /.test(line) && !line.includes('attached pic'));
+		return { hasVideoStream, durationSec: parseFfmpegDurationSec(result.stderr) };
 	}
 
 	private async fetchSubtitles(entry: ActiveRequest, ytDlp: string, url: string, workDir: string): Promise<string | undefined> {
@@ -367,16 +454,20 @@ export class VibeVideoMainService extends Disposable {
 		return buffer.subarray(0, MAX_TRANSCRIPT_BYTES).toString('utf8');
 	}
 
-	private async downloadVideo(entry: ActiveRequest, paths: { ffmpeg: string; ytDlp: string }, url: string, workDir: string, requestId: string): Promise<string> {
-		const height = clampVideoFrameHeight(this.configurationService.getValue<number>(VIDEO_FRAME_HEIGHT_KEY));
-		// `video.%(ext)s`, never a hard-coded container: when the best ≤height streams are
-		// webm, yt-dlp ignores a forced `.mp4` name and produces `video.mp4.webm` (verified
-		// 2026-07-17) — the real file is found by prefix below, ffmpeg reads any container.
+	/**
+	 * yt-dlp download with `[download] N%` progress relayed to the renderer. `formatSpec` is
+	 * the `-f` selector (video branch: `bv*[height<=N]+ba/b[height<=N]`, audio-only: `ba/b`);
+	 * `baseName` keeps the branches' files apart in the shared work dir.
+	 * `<baseName>.%(ext)s`, never a hard-coded container: when the best streams are webm,
+	 * yt-dlp ignores a forced `.mp4` name and produces `video.mp4.webm` (verified
+	 * 2026-07-17) — the real file is found by prefix below, ffmpeg reads any container.
+	 */
+	private async downloadMedia(entry: ActiveRequest, paths: { ffmpeg: string; ytDlp: string }, url: string, workDir: string, requestId: string, formatSpec: string, baseName: string): Promise<string> {
 		const result = await this.runTool(entry, paths.ytDlp, [
-			'-f', `bv*[height<=${height}]+ba/b[height<=${height}]`,
+			'-f', formatSpec,
 			'--no-playlist',
 			'--ffmpeg-location', paths.ffmpeg,
-			'-o', join(workDir, 'video.%(ext)s'),
+			'-o', join(workDir, `${baseName}.%(ext)s`),
 			url,
 		], line => {
 			const match = /\[download\]\s+(?<percent>\d+(?:\.\d+)?)%/.exec(line);
@@ -387,9 +478,9 @@ export class VibeVideoMainService extends Disposable {
 		if (result.code !== 0) {
 			throw new Error(this.describeYtDlpFailure(result));
 		}
-		const names = (await fsPromises.readdir(workDir)).filter(n => n.startsWith('video.'));
+		const names = (await fsPromises.readdir(workDir)).filter(n => n.startsWith(`${baseName}.`));
 		if (names.length === 0) {
-			throw new Error('yt-dlp не сохранил видеофайл');
+			throw new Error('yt-dlp не сохранил медиафайл');
 		}
 		return join(workDir, names[0]);
 	}
@@ -462,11 +553,7 @@ export class VibeVideoMainService extends Disposable {
 			});
 		}
 		frames.sort((a, b) => a.timeSec - b.timeSec);
-		const durationMatch = /Duration:\s*(?<h>\d+):(?<m>\d+):(?<s>\d+(?:\.\d+)?)/.exec(result.stderr);
-		const durationSec = durationMatch?.groups
-			? Number(durationMatch.groups.h) * 3600 + Number(durationMatch.groups.m) * 60 + Number(durationMatch.groups.s)
-			: undefined;
-		return { frames, durationSec };
+		return { frames, durationSec: parseFfmpegDurationSec(result.stderr) };
 	}
 
 	private async clearDir(dir: string): Promise<void> {

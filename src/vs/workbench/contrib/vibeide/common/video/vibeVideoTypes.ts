@@ -15,6 +15,9 @@
  *   detection (frames with pts timecodes) → renderer: frames become image attachments,
  *   transcript becomes text → one vision request to the chat model. Videos without
  *   subtitles fall back to the local STT worker (GigaAM offline batch decode).
+ *   Audio-only inputs (podcast, mp3, voice message) skip the frame stage entirely:
+ *   subtitles or the STT fallback produce a transcript, the chat request carries no
+ *   images and needs no vision model (`VideoAnalysisResult.kind` = 'audio').
  */
 
 export const VIBE_VIDEO_CHANNEL = 'vibeide-channel-video';
@@ -63,8 +66,17 @@ export interface VideoFrameInfo {
 
 export type VideoTranscriptKind = 'subtitles' | 'stt' | 'none';
 
+/**
+ * What the pipeline actually processed. Probe-first: positive video evidence from the
+ * ffmpeg/yt-dlp probes wins; the file-extension hint decides only when the remote probe
+ * is inconclusive (generic extractor without vcodec info — e.g. a direct mp3 link).
+ */
+export type VideoAnalysisKind = 'video' | 'audio';
+
 export interface VideoAnalysisResult {
 	readonly requestId: string;
+	/** 'audio' → `frames` is empty and the renderer sends a text-only (non-vision) request. */
+	readonly kind: VideoAnalysisKind;
 	readonly title?: string;
 	readonly durationSec?: number;
 	readonly frames: readonly VideoFrameInfo[];

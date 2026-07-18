@@ -101,3 +101,35 @@ export function resolveVideoToolPaths(toolsRoot: string, archive: VideoToolsArch
 export function isRemoteVideoInput(input: string): boolean {
 	return /^https?:\/\//i.test(input.trim());
 }
+
+/** Extensions of audio-only containers — a /watch input with one goes down the audio branch. */
+const AUDIO_FILE_EXTENSIONS = new Set(['mp3', 'm4a', 'wav', 'ogg', 'oga', 'opus', 'flac', 'aac', 'wma', 'aiff', 'aif']);
+/** Extensions of video containers — keeps a direct media link out of the 'unknown' bucket. */
+const VIDEO_FILE_EXTENSIONS = new Set(['mp4', 'mkv', 'webm', 'mov', 'avi', 'm4v', 'mpg', 'mpeg', 'wmv', 'flv', 'ts', '3gp']);
+
+/**
+ * Cheap extension-based classification of a /watch input. This is a HINT, not the verdict:
+ * the renderer uses it to place the vision gate (an audio input needs no vision model) and
+ * to label progress; the main-process pipeline is probe-first (ffmpeg/yt-dlp stream layout)
+ * and falls back to this hint only when the remote probe carries no codec info (generic
+ * extractor). Platform pages (YouTube, podcast hosts) have no extension → 'unknown'.
+ */
+export function classifyWatchInput(input: string): 'audio' | 'video' | 'unknown' {
+	const trimmed = input.trim();
+	// Query/fragment are stripped for remote inputs only: `#` is a legal file-name
+	// character on every OS (`?` on unix) — cutting there misclassifies local paths.
+	const path = isRemoteVideoInput(trimmed) ? trimmed.split(/[?#]/)[0] : trimmed;
+	const segment = path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
+	const dot = segment.lastIndexOf('.');
+	if (dot <= 0) {
+		return 'unknown';
+	}
+	const extension = segment.slice(dot + 1).toLowerCase();
+	if (AUDIO_FILE_EXTENSIONS.has(extension)) {
+		return 'audio';
+	}
+	if (VIDEO_FILE_EXTENSIONS.has(extension)) {
+		return 'video';
+	}
+	return 'unknown';
+}

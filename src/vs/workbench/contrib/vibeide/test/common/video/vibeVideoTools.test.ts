@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../../base/test/common/utils.js';
-import { isRemoteVideoInput, resolveVideoToolPaths, videoToolsArchiveForPlatform } from '../../../common/video/vibeVideoTools.js';
+import { classifyWatchInput, isRemoteVideoInput, resolveVideoToolPaths, videoToolsArchiveForPlatform } from '../../../common/video/vibeVideoTools.js';
 import { formatVideoTimecode, selectEvenlySpreadFrames } from '../../../common/video/vibeVideoTypes.js';
 import { clampVideoMaxFrames, clampVideoSceneThreshold, normalizeVideoSubtitleLanguages } from '../../../common/video/vibeVideoConfiguration.js';
 
@@ -55,6 +55,35 @@ suite('vibeVideoTools', () => {
 				isRemoteVideoInput('C:\\video\\clip.mp4'),
 			],
 			[true, true, false, false],
+		);
+	});
+
+	test('classifyWatchInput hints audio/video by extension, platform pages stay unknown', () => {
+		assert.deepStrictEqual(
+			[
+				classifyWatchInput('/Users/me/Syna2.MP3'),
+				classifyWatchInput('C:\\records\\голосовое.ogg'),
+				classifyWatchInput('https://cdn.example.com/episode.m4a?token=abc#t=10'),
+				classifyWatchInput(' /home/me/clip.webm '),
+				classifyWatchInput('https://example.com/movie.MP4'),
+				classifyWatchInput('https://youtu.be/5r_Mh-dCjJ8'),
+				classifyWatchInput('https://podcasts.example.com/show/123'),
+				classifyWatchInput('/home/me/.hidden'),
+				classifyWatchInput('/home/me/archive.txt'),
+			],
+			['audio', 'audio', 'audio', 'video', 'video', 'unknown', 'unknown', 'unknown', 'unknown'],
+		);
+	});
+
+	test('classifyWatchInput strips query/fragment for URLs only — # and ? are legal in file names', () => {
+		assert.deepStrictEqual(
+			[
+				classifyWatchInput('/Users/me/Track #1.mp3'),
+				classifyWatchInput('C:\\Music\\Track #1.mp3'),
+				classifyWatchInput('/tmp/what?.wav'),
+				classifyWatchInput('https://cdn.example.com/live.mp4#t=30'),
+			],
+			['audio', 'audio', 'audio', 'video'],
 		);
 	});
 

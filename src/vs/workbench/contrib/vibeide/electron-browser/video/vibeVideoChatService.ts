@@ -9,7 +9,9 @@
  *
  * 1. Vision gate BEFORE any work: a non-vision chat model refuses immediately instead of
  *    after minutes of downloading (chatThreadService hard-blocks images anyway — this is
- *    the early, polite version of the same `isModelVisionCapable` decision).
+ *    the early, polite version of the same `isModelVisionCapable` decision). Inputs the
+ *    extension hints as audio-only skip the gate: their request carries no images, so a
+ *    non-vision model is fine.
  * 2. Tools consent + download (yt-dlp/ffmpeg from the `video-tools-v1` mirror) — the exact
  *    scheme of the STT models, sizes stated in a VibeIDE modal, nothing fetched silently.
  * 3. Main-process pipeline over `vibeide-channel-video` with a cancellable progress
@@ -35,6 +37,7 @@ import { ILogService } from '../../../../../platform/log/common/log.js';
 import { IVibeModalService } from '../../common/vibeModalService.js';
 import { IVibeVideoChatService, IVibeVideoChatState } from '../../common/video/vibeVideoChatService.js';
 import { VIBE_VIDEO_CHANNEL, VideoAnalysisProgress, VideoAnalysisResult, VideoAnalysisStage, VideoAnalyzeOptions, VideoToolsDownloadProgress, VideoToolsState, VideoTranscriptSegment, formatVideoTimecode } from '../../common/video/vibeVideoTypes.js';
+import { classifyWatchInput } from '../../common/video/vibeVideoTools.js';
 import { VIDEO_ENABLED_KEY } from '../../common/video/vibeVideoConfiguration.js';
 import { IVibeVoiceInputService } from '../../common/voice/vibeVoiceInputService.js';
 import { VoiceProfileId } from '../../common/voice/vibeVoiceTypes.js';
@@ -113,6 +116,8 @@ class VibeVideoChatService extends Disposable implements IVibeVideoChatService {
 
 	private readonly channel: VideoChannelClient;
 	private activeRequestId: string | undefined;
+	/** Set by the progress notification's cancel — a voluntary stop must not raise error toasts. */
+	private cancelRequested = false;
 
 	constructor(
 		@IMainProcessService mainProcessService: IMainProcessService,
@@ -149,6 +154,7 @@ class VibeVideoChatService extends Disposable implements IVibeVideoChatService {
 
 	cancel(): void {
 		if (this.activeRequestId) {
+			this.cancelRequested = true;
 			this.channel.cancel(this.activeRequestId);
 		}
 	}
@@ -169,7 +175,11 @@ class VibeVideoChatService extends Disposable implements IVibeVideoChatService {
 			this.notificationService.warn(localize('vibeVideo.busy', "Разбор видео уже идёт — дождитесь окончания или отмените его в уведомлении."));
 			return;
 		}
-		if (!await this.checkVisionModel()) {
+		// Extension hint only places the gate and labels progress; the pipeline decides the
+		// real kind probe-first (the hint breaks ties for probeless direct links). A
+		// hint/probe mismatch is re-checked after the pipeline below.
+		const classification = classifyWatchInput(target);
+		if (classification !== 'audio' && !await this.checkVisionModel()) {
 			return;
 		}
 		if (!await this.ensureToolsWithConsent()) {
@@ -178,16 +188,36 @@ class VibeVideoChatService extends Disposable implements IVibeVideoChatService {
 
 		const requestId = generateUuid();
 		this.activeRequestId = requestId;
+		this.cancelRequested = false;
 		this.fireStateChange();
 		try {
-			const prepared = await this.runPipelineWithProgress(requestId, target);
+			const prepared = await this.runPipelineWithProgress(requestId, target, classification);
 			if (!prepared) {
 				return;
 			}
 			const { result, transcriptText, transcriptLabel } = prepared;
-			const images = await this.buildImageAttachments(result);
+			const isAudio = result.kind === 'audio';
+			if (isAudio && !transcriptText) {
+				// No frames AND no transcript — there is nothing to analyze at all. Silent
+				// on voluntary cancel; the text must not promise that enabling STT fixes it
+				// (it may have run and failed, or the profile has no batch model).
+				if (!this.cancelRequested) {
+					this.notificationService.error(localize('vibeVideo.audioNoTranscript', "Не удалось получить транскрипт аудио: субтитров нет, а локальное распознавание недоступно или не справилось. Без транскрипта разбирать нечего."));
+				}
+				return;
+			}
+			if (!isAudio && classification === 'audio' && !await this.checkVisionModel()) {
+				// The extension said audio (gate was skipped) but the probe found real video —
+				// e.g. a renamed .mp3. Late but polite: the same refusal the chat send would
+				// otherwise raise as a hard block.
+				return;
+			}
+			const images = isAudio ? [] : await this.buildImageAttachments(result);
 			const userMessage = this.composePrompt(target, userHint, result, transcriptText, transcriptLabel, images.length);
-			const displayContent = `/watch ${target}${userHint ? ` — ${userHint}` : ''}\n(кадров: ${images.length}, транскрипт: ${transcriptLabel})`;
+			const attachmentsNote = isAudio
+				? localize('vibeVideo.display.audio', "аудио, транскрипт: {0}", transcriptLabel)
+				: localize('vibeVideo.display.video', "кадров: {0}, транскрипт: {1}", images.length, transcriptLabel);
+			const displayContent = `/watch ${target}${userHint ? ` — ${userHint}` : ''}\n(${attachmentsNote})`;
 			await this.chatThreadService.addUserMessageAndStreamResponse({ userMessage, threadId, images, displayContent });
 		} catch (error) {
 			this.reportPipelineError(error);
@@ -276,7 +306,8 @@ class VibeVideoChatService extends Disposable implements IVibeVideoChatService {
 		const labels: Record<VideoAnalysisStage, string> = {
 			probe: localize('vibeVideo.stage.probe', "читаю метаданные"),
 			subtitles: localize('vibeVideo.stage.subtitles', "ищу субтитры"),
-			download: localize('vibeVideo.stage.download', "скачиваю видео"),
+			// Neutral wording — the same stage downloads a video or a bare audio track.
+			download: localize('vibeVideo.stage.download', "скачиваю"),
 			frames: localize('vibeVideo.stage.frames', "нарезаю кадры по сменам сцен"),
 			audio: localize('vibeVideo.stage.audio', "распознаю звук"),
 		};
@@ -284,11 +315,13 @@ class VibeVideoChatService extends Disposable implements IVibeVideoChatService {
 		return progress.percent !== undefined ? `${label} — ${progress.percent}%` : label;
 	}
 
-	private async runPipelineWithProgress(requestId: string, target: string): Promise<{ result: VideoAnalysisResult; transcriptText: string | undefined; transcriptLabel: string } | undefined> {
+	private async runPipelineWithProgress(requestId: string, target: string, classification: 'audio' | 'video' | 'unknown'): Promise<{ result: VideoAnalysisResult; transcriptText: string | undefined; transcriptLabel: string } | undefined> {
 		return this.progressService.withProgress(
 			{
 				location: ProgressLocation.Notification,
-				title: localize('vibeVideo.watching', "Смотрю видео…"),
+				title: classification === 'audio'
+					? localize('vibeVideo.listening', "Слушаю аудио…")
+					: localize('vibeVideo.watching', "Смотрю видео…"),
 				cancellable: true,
 			},
 			async progress => {
@@ -305,7 +338,7 @@ class VibeVideoChatService extends Disposable implements IVibeVideoChatService {
 						transcriptText = result.transcriptSrt;
 						transcriptLabel = localize('vibeVideo.transcript.subtitles', "субтитры");
 					} else if (result.audioPcmPath) {
-						transcriptText = await this.transcribeWithSttFallback(requestId);
+						transcriptText = await this.transcribeWithSttFallback(requestId, result.kind === 'audio');
 						transcriptLabel = transcriptText
 							? localize('vibeVideo.transcript.stt', "распознан локально")
 							: localize('vibeVideo.transcript.none', "нет");
@@ -322,7 +355,7 @@ class VibeVideoChatService extends Disposable implements IVibeVideoChatService {
 	}
 
 	/** No subtitles: try the local STT (its models may need their own consent + download). */
-	private async transcribeWithSttFallback(requestId: string): Promise<string | undefined> {
+	private async transcribeWithSttFallback(requestId: string, isAudio: boolean): Promise<string | undefined> {
 		try {
 			const voiceState = this.voiceInputService.getState();
 			if (!voiceState.available) {
@@ -340,7 +373,11 @@ class VibeVideoChatService extends Disposable implements IVibeVideoChatService {
 				.join('\n');
 		} catch (error) {
 			this.logService.warn(`[vibeVideo] STT fallback failed: ${error instanceof Error ? error.message : String(error)}`);
-			this.notificationService.warn(localize('vibeVideo.sttFailed', "Не удалось распознать звук видео — разбор пойдёт только по кадрам."));
+			// «Only frames» is a lie for the audio branch (no frames — startWatch raises its
+			// own error), and a voluntary cancel needs no toast at all.
+			if (!isAudio && !this.cancelRequested) {
+				this.notificationService.warn(localize('vibeVideo.sttFailed', "Не удалось распознать звук видео — разбор пойдёт только по кадрам."));
+			}
 			return undefined;
 		}
 	}
@@ -364,8 +401,9 @@ class VibeVideoChatService extends Disposable implements IVibeVideoChatService {
 	}
 
 	private composePrompt(target: string, userHint: string, result: VideoAnalysisResult, transcriptText: string | undefined, transcriptLabel: string, imageCount: number): string {
+		const isAudio = result.kind === 'audio';
 		const lines: string[] = [];
-		lines.push('Разбор видео по команде /watch.');
+		lines.push(isAudio ? 'Разбор аудиозаписи по команде /watch.' : 'Разбор видео по команде /watch.');
 		lines.push(`Источник: ${target}`);
 		if (result.title) {
 			lines.push(`Название: ${result.title}`);
@@ -374,22 +412,29 @@ class VibeVideoChatService extends Disposable implements IVibeVideoChatService {
 			lines.push(`Длительность: ${formatVideoTimecode(result.durationSec)}`);
 		}
 		lines.push('');
-		lines.push(`К сообщению приложены ${imageCount} кадров, вырезанных по сменам сцен (в порядке времени). Соответствие кадров тайм-кодам:`);
-		result.frames.forEach((frame, index) => {
-			lines.push(`Кадр ${index + 1} — ${formatVideoTimecode(frame.timeSec)}`);
-		});
-		lines.push('');
+		if (!isAudio) {
+			lines.push(`К сообщению приложены ${imageCount} кадров, вырезанных по сменам сцен (в порядке времени). Соответствие кадров тайм-кодам:`);
+			result.frames.forEach((frame, index) => {
+				lines.push(`Кадр ${index + 1} — ${formatVideoTimecode(frame.timeSec)}`);
+			});
+			lines.push('');
+		}
 		if (transcriptText) {
 			const truncated = transcriptText.length > MAX_PROMPT_TRANSCRIPT_CHARS;
 			lines.push(`Транскрипт (${transcriptLabel}${truncated ? '; обрезан по лимиту' : ''}):`);
 			lines.push(truncated ? transcriptText.slice(0, MAX_PROMPT_TRANSCRIPT_CHARS) : transcriptText);
 		} else {
+			// Unreachable for audio — startWatch aborts an audio run without a transcript.
 			lines.push(`Транскрипта нет (${transcriptLabel}) — анализируй только кадры.`);
 		}
 		lines.push('');
-		lines.push(userHint
-			? `Задание: ${userHint}`
-			: 'Задание: составь разбор видео: 1) TL;DR в 3–5 строк; 2) ключевые моменты с тайм-кодами; 3) что показано на экране, но не проговорено в звуке; 4) заметные цитаты/моменты с тайм-кодами. Ссылайся на кадры по номерам и тайм-кодам.');
+		if (userHint) {
+			lines.push(`Задание: ${userHint}`);
+		} else {
+			lines.push(isAudio
+				? 'Задание: составь разбор аудиозаписи: 1) TL;DR в 3–5 строк; 2) ключевые темы и тезисы с тайм-кодами; 3) кто говорит — атрибутируй по содержанию и явно помечай неуверенность (авто-транскрипт спикеров не размечает); 4) заметные цитаты с тайм-кодами.'
+				: 'Задание: составь разбор видео: 1) TL;DR в 3–5 строк; 2) ключевые моменты с тайм-кодами; 3) что показано на экране, но не проговорено в звуке; 4) заметные цитаты/моменты с тайм-кодами. Ссылайся на кадры по номерам и тайм-кодам.');
+		}
 		return lines.join('\n');
 	}
 
