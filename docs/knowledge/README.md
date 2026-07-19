@@ -33,6 +33,7 @@
 | [settingsNamespaces.md](architecture/settingsNamespaces.md) | Что такое `vibeide.*` vs `chat.*` в TOC native Settings, как добавить новый ключ, как работает coverage CI |
 | [docStructure.md](architecture/docStructure.md) | Структура документации проекта |
 | [twoPatchesFolders.md](architecture/twoPatchesFolders.md) | `patches-node-modules/` vs `patches-vscode-source/` |
+| [upstreamBoundary.md](architecture/upstreamBoundary.md) | **[правило]** Граница наш код ↔ upstream: почему upstream-файлы НЕ правим ради стиля/линта (налог на merge-конфликты при синке VS Code, нулевая продуктовая ценность, наш конфиг строже их CI). Вместо правки — исключаем из гейта (`.eslint-ignore`/`tsec.exemptions`/layers-базлайн). Как отличить наш от upstream; когда трогать МОЖНО (баг/фича/security, не стиль) |
 | [modelQuirks.md](architecture/modelQuirks.md) | Catalog-driven per-model quirks (temperature/topP/topK/reasoning/tool-format) — `resources/model-quirks.json` + CDN refresh |
 | [modelPricing.md](architecture/modelPricing.md) | Прайс моделей: `getModelCapabilities().cost` (USD/1M), `{0,0}`=«неизвестно»≠$0; **ловушка**: каталожный cost per-token → `modelRouter.costPerM` врёт в 1e6 раз |
 | [xmlToolNormalization.md](architecture/xmlToolNormalization.md) | XML tool-call pipeline (Layer 1 normalize / Layer 2 parser / Layer 3 safety net), DSML/self-closing/malformed-close coverage |
