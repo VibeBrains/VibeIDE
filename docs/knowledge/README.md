@@ -191,6 +191,7 @@
 | Файл | О чём |
 |---|---|
 | [workflow.md](agentCollaboration/workflow.md) | Меньше mid-task confirmations, batch autonomous execution на explicit-разрешение, логирование model stalls |
+| [externalServicesParity.md](agentCollaboration/externalServicesParity.md) | Разбор присланных сервисов → паритет с VibeIDE. Алгоритм разбора; Multica/Paperclip = паритет с Vibe Agents (маппинг «их фича → наш сервис»); единственное реально новое — денежный per-agent бюджет (Paperclip); PCLink = AGPL → только паттерн. Пользовательская проекция — `references/v1/vibeide-vs-alternatives.md` |
 | [releaseProtocol.md](agentCollaboration/releaseProtocol.md) | `release-windows.ps1 -Version` для минор/мажор, post-release sync README + pre-clean archive, About-диалог, gh account routing, donation phrase choice |
 | [permissionsAndHooks.md](agentCollaboration/permissionsAndHooks.md) | Marker-gated permissions для write-tools / destructive Bash, не flat global allow |
 | [xmlNormalizeAuditChecklist.md](agentCollaboration/xmlNormalizeAuditChecklist.md) | Pre-merge gate для XML normalize transform'ов (8 пунктов: escape / idempotency / null guard / structural assertions / symmetric defense / streaming partial / verbatim fixture) |

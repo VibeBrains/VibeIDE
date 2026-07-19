@@ -178,5 +178,19 @@ const COMPARISON_CONTENT = `# VibeIDE vs Alternatives
 | Transparency | Git diffs | Transparency Suite + audit |
 | MCP | No | Yes |
 
+## Знаете Multica / Paperclip?
+
+Оркестрация агентов «как командой» — почти всё уже встроено, под своими названиями:
+
+| Что вы знаете там | Как это в VibeIDE |
+|---|---|
+| Squads / оргчарт-роли | Vibe Agents: субагенты + оркестратор + персоны |
+| Reusable Skills + семантический поиск | Agent Skills + marketplace + локальные эмбеддинги |
+| Autopilots (расписание) | Background agent + nightly skill |
+| Тикеты + аудит | Persisted Plans + JSONL-журнал + audit log |
+| Бюджеты + авто-пауза | Token budget + Dead Man's Switch |
+
+Отличие: там — отдельный пульт над внешними CLI; у нас агент встроен в IDE.
+
 Full comparison: references/v1/vibeide-vs-alternatives.md
 `;
