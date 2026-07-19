@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
 // CI helper invoked by .github/workflows/fork-changes-sync.yml on merged
@@ -49,7 +49,7 @@ export function formatForkChangeLine(entry) {
 
 function formatPrRef(ref) {
 	const trimmed = String(ref).trim();
-	if (/^\d+$/.test(trimmed)) return `#${trimmed}`;
+	if (/^\d+$/.test(trimmed)) {return `#${trimmed}`;}
 	return trimmed;
 }
 

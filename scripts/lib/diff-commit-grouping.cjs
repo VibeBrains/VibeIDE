@@ -1,3 +1,8 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 // @i18n-scan-skip-file
 // CJS mirror of src/vs/workbench/contrib/vibeide/common/diffCommitGrouping.ts
 // MUST stay in sync with the TS source — logic is duplicated here for zero-dep Node use.
@@ -31,9 +36,9 @@ function classifyChange(p) {
 
 function pickVerb(files) {
 	const allNew = files.length > 0 && files.every(f => f.isNew);
-	if (allNew) return 'add';
+	if (allNew) {return 'add';}
 	const allDeleted = files.length > 0 && files.every(f => f.isDeleted);
-	if (allDeleted) return 'remove';
+	if (allDeleted) {return 'remove';}
 	return 'edit';
 }
 
@@ -45,7 +50,7 @@ function groupDiffByCommitType(changes) {
 	const buckets = new Map();
 	const order = [];
 	for (const change of changes) {
-		if (!change || typeof change.path !== 'string' || change.path.length === 0) continue;
+		if (!change || typeof change.path !== 'string' || change.path.length === 0) {continue;}
 		const { type, scope } = classifyChange(change.path);
 		const key = `${type}|${scope ?? ''}`;
 		if (!buckets.has(key)) { buckets.set(key, []); order.push(key); }

@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-// Copyright 2026 VibeIDE Team. MIT License.
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 //
 // Default child_process.fork entry script for IVibeSubagentIsolationRuntime
 // (roadmap §L883). Mirrors `vibe-subagent-worker.js` but runs in a full
@@ -15,8 +19,8 @@ const ctxTokens = Number(process.env.VIBE_SUBAGENT_CTX_TOKENS || 0) || 0;
 let pending = null;
 
 process.on('message', (msg) => {
-	if (!msg || typeof msg !== 'object') return;
-	if (msg.type !== 'start') return;
+	if (!msg || typeof msg !== 'object') {return;}
+	if (msg.type !== 'start') {return;}
 	pending = msg;
 	finish();
 });

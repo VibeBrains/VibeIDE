@@ -1,11 +1,6 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
- *
- *  Windows: native addons (@vscode/*, sqlite, keymap, etc.) and @vscode/ripgrep binaries are often
- *  missing after npm install --ignore-scripts, interrupted postinstall, or failed node-gyp.
- *  Root .npmrc targets Electron; rebuild must run from repo root. @vscode/ripgrep postinstall
- *  exits early if bin/ exists even when rg.exe is absent — use --force in that case.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
 import { spawnSync } from 'node:child_process';

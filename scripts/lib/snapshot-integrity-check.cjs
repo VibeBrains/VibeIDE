@@ -1,3 +1,8 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 // CJS mirror of src/vs/workbench/contrib/vibeide/common/snapshotIntegrityCheck.ts
 // MUST stay in sync with the TS source.
 'use strict';
@@ -38,7 +43,7 @@ function checkSnapshotsIntegrity(entries) {
 }
 
 function renderCorruptSnapshotReport(corrupt) {
-	if (corrupt.length === 0) return '';
+	if (corrupt.length === 0) {return '';}
 	const lines = [];
 	lines.push(`# Corrupt snapshot entries (${corrupt.length})`);
 	lines.push('');

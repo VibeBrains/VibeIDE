@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe session export/import — session handoff between team members
  *
@@ -38,7 +43,7 @@ const WORKSPACE = process.cwd();
 
 function loadAuditLog() {
 	const auditPath = path.join(WORKSPACE, '.vibe', 'audit.jsonl');
-	if (!fs.existsSync(auditPath)) return [];
+	if (!fs.existsSync(auditPath)) {return [];}
 	try {
 		return fs.readFileSync(auditPath, 'utf-8').trim().split('\n').filter(Boolean)
 			.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
@@ -51,9 +56,9 @@ function anonymize(obj) {
 	const username = process.env.USER || process.env.USERNAME || '';
 	const workspace = WORKSPACE;
 	let result = str;
-	if (workspace) result = result.split(workspace).join('<workspace>');
-	if (home) result = result.split(home).join('<home>');
-	if (username) result = result.split(username).join('<user>');
+	if (workspace) {result = result.split(workspace).join('<workspace>');}
+	if (home) {result = result.split(home).join('<home>');}
+	if (username) {result = result.split(username).join('<user>');}
 	return JSON.parse(result);
 }
 
@@ -135,7 +140,7 @@ if (!OUTPUT || OUTPUT === '-') {
 	fs.writeFileSync(OUTPUT, JSON.stringify(export_data, null, 2));
 	console.log(`✅ Exported ${filtered.length} events to ${OUTPUT}`);
 	console.log(`   Type: ${export_data.type}`);
-	if (ANONYMIZE) console.log('   Anonymized: paths and usernames replaced with placeholders');
+	if (ANONYMIZE) {console.log('   Anonymized: paths and usernames replaced with placeholders');}
 }
 
 console.log('\n⚠️  GDPR note: after sharing this export, VibeIDE cannot guarantee deletion at the recipient side.');

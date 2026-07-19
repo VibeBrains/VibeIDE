@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 // Roadmap V.0 prevention — Settings orphans / dead-registrations detector.
 //
 // Scans `src/vs/workbench/contrib/vibeide/**/*.ts` for:
@@ -34,7 +39,7 @@ function* walk(dir) {
 	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
 		const full = path.join(dir, entry.name);
 		if (entry.isDirectory()) {
-			if (entry.name === 'node_modules' || entry.name === 'out' || entry.name === '.build') continue;
+			if (entry.name === 'node_modules' || entry.name === 'out' || entry.name === '.build') {continue;}
 			yield* walk(full);
 		} else if (entry.isFile() && full.endsWith('.ts')) {
 			yield full;
@@ -59,7 +64,7 @@ for (const file of walk(codeRoot)) {
 		for (const m of content.matchAll(REG_KEY_RE)) {
 			const key = m[1];
 			registrations.add(key);
-			if (!fileOfRegistration.has(key)) fileOfRegistration.set(key, file);
+			if (!fileOfRegistration.has(key)) {fileOfRegistration.set(key, file);}
 		}
 	}
 
@@ -67,7 +72,7 @@ for (const file of walk(codeRoot)) {
 	for (const m of content.matchAll(READ_RE)) {
 		const key = m[1];
 		reads.add(key);
-		if (!fileOfRead.has(key)) fileOfRead.set(key, `${file}:${(content.slice(0, m.index ?? 0).match(/\n/g) ?? []).length + 1}`);
+		if (!fileOfRead.has(key)) {fileOfRead.set(key, `${file}:${(content.slice(0, m.index ?? 0).match(/\n/g) ?? []).length + 1}`);}
 	}
 }
 

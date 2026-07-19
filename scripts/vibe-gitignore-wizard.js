@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe gitignore wizard — adds .vibe/ entries to .gitignore
  * Called by vibe init to protect sensitive .vibe/ files.
@@ -37,8 +42,8 @@ const PRIVATE_REPO_IGNORES = [
 ];
 
 async function askPublicOrPrivate() {
-	if (FORCE_PUBLIC) return 'public';
-	if (FORCE_PRIVATE) return 'private';
+	if (FORCE_PUBLIC) {return 'public';}
+	if (FORCE_PRIVATE) {return 'private';}
 
 	const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 	return new Promise(resolve => {

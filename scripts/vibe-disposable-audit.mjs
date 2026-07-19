@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 // Roadmap W.16 — Disposable / timer leak detector.
 //
 // Greps `src/vs/workbench/contrib/vibeide/` for `setInterval(` / `setTimeout(`
@@ -26,7 +31,7 @@ function* walk(dir) {
 	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
 		const full = path.join(dir, entry.name);
 		if (entry.isDirectory()) {
-			if (entry.name === 'node_modules' || entry.name === 'out' || entry.name === '.build') continue;
+			if (entry.name === 'node_modules' || entry.name === 'out' || entry.name === '.build') {continue;}
 			yield* walk(full);
 		} else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts')) {
 			yield full;
@@ -44,7 +49,7 @@ for (const file of walk(root)) {
 		const start = Math.max(0, i - WINDOW);
 		const end = Math.min(lines.length, i + WINDOW + 1);
 		const ctx = lines.slice(start, end).join('\n');
-		if (CLEAR_HINT_RE.test(ctx)) continue;
+		if (CLEAR_HINT_RE.test(ctx)) {continue;}
 		findings.push({ file: path.relative(process.cwd(), file), line: i + 1, snippet: lines[i].trim() });
 	}
 }

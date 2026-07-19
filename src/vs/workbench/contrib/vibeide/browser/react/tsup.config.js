@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { defineConfig } from 'tsup'
+import { defineConfig } from 'tsup';
 
 export default defineConfig({
 	entry: [
@@ -43,6 +43,6 @@ export default defineConfig({
 	],
 	treeshake: true,
 	esbuildOptions(options) {
-		options.outbase = 'src2'  // tries copying the folder hierarchy starting at src2
+		options.outbase = 'src2';  // tries copying the folder hierarchy starting at src2
 	}
-})
+});

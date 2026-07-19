@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe-perf-measure — VibeIDE Performance SLA measurement tool
  *
@@ -72,8 +77,8 @@ SLA Targets:
 }
 
 function slaStatus(value, sla) {
-	if (value <= sla.target) return '✅';
-	if (value <= sla.critical) return '⚠️ ';
+	if (value <= sla.target) {return '✅';}
+	if (value <= sla.critical) {return '⚠️ ';}
 	return '❌';
 }
 
@@ -232,7 +237,7 @@ async function measureColdStart() {
 		}
 
 		// Brief pause between runs
-		if (i < RUNS - 1) await new Promise(r => setTimeout(r, 2000));
+		if (i < RUNS - 1) {await new Promise(r => setTimeout(r, 2000));}
 	}
 
 	if (times.length === 0) {
@@ -291,7 +296,7 @@ async function main() {
 	for (const [key, val] of Object.entries(results.sla)) {
 		const icon = val.status === 'ok' ? '✅' : val.status === 'warn' ? '⚠️ ' : val.status === 'skipped' ? '⏭️ ' : '❌';
 		console.log(`  ${icon} ${key}: ${val.status}`);
-		if (val.status === 'fail') hasFail = true;
+		if (val.status === 'fail') {hasFail = true;}
 	}
 
 	if (OUTPUT_FILE) {

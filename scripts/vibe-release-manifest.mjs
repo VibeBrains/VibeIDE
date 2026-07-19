@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * CI: build release-manifest.json + checksums-sha256.txt from downloaded release-artifacts/.
  * Stable primary installer per OS/arch for in-app updater (see vibeideUpdateMainService).

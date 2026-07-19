@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe transparency dashboard — generate public transparency report
  * Shows what VibeIDE sends externally in each mode.
@@ -82,12 +87,12 @@ if (MODEL_USAGE) {
 		process.exit(1);
 	}
 	const auditPath = path.resolve(AUDIT_LOG);
-	let events = [];
+	const events = [];
 	try {
 		const raw = fs.readFileSync(auditPath, 'utf-8');
 		for (const line of raw.split('\n')) {
 			const t = line.trim();
-			if (!t) continue;
+			if (!t) {continue;}
 			try {
 				const obj = JSON.parse(t);
 				if (obj.action === 'reply' && obj.ok && obj.meta) {

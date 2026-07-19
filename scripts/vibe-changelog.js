@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe changelog — generate CHANGELOG from git history + audit log
  * Separates AI-assisted changes from manual changes.
@@ -116,13 +121,13 @@ function getCommits(since) {
 }
 
 function categorizeCommit(subject) {
-	if (subject?.startsWith('feat')) return '✨ Новое';
-	if (subject?.startsWith('fix')) return '🐛 Исправления';
-	if (subject?.startsWith('security')) return '🔒 Безопасность';
-	if (subject?.startsWith('refactor')) return '♻️ Рефакторинг';
-	if (subject?.startsWith('perf')) return '🚀 Производительность';
-	if (subject?.startsWith('docs')) return '📚 Документация';
-	if (subject?.startsWith('build') || subject?.startsWith('ci')) return '📦 Сборка и CI';
+	if (subject?.startsWith('feat')) {return '✨ Новое';}
+	if (subject?.startsWith('fix')) {return '🐛 Исправления';}
+	if (subject?.startsWith('security')) {return '🔒 Безопасность';}
+	if (subject?.startsWith('refactor')) {return '♻️ Рефакторинг';}
+	if (subject?.startsWith('perf')) {return '🚀 Производительность';}
+	if (subject?.startsWith('docs')) {return '📚 Документация';}
+	if (subject?.startsWith('build') || subject?.startsWith('ci')) {return '📦 Сборка и CI';}
 	return '🔧 Прочее';
 }
 
@@ -133,12 +138,12 @@ function generateMarkdown(commits) {
 	const sections = {};
 	for (const commit of commits) {
 		const cat = categorizeCommit(commit.subject);
-		if (!sections[cat]) sections[cat] = [];
+		if (!sections[cat]) {sections[cat] = [];}
 		sections[cat].push(commit);
 	}
 
 	let output = `# История изменений\n\n`;
-	if (SINCE) output += `Изменения после тега ${SINCE}\n\n`;
+	if (SINCE) {output += `Изменения после тега ${SINCE}\n\n`;}
 	output += `Сформировано: ${new Date().toISOString().split('T')[0]}\n\n`;
 	output += `---\n\n`;
 

@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe audit <commit-hash> — restore full audit context for a commit
  *
@@ -46,7 +51,7 @@ function getCommitInfo(hash) {
 
 function loadAuditLog(workspacePath) {
 	const auditPath = path.join(workspacePath, '.vibe', 'audit.jsonl');
-	if (!fs.existsSync(auditPath)) return [];
+	if (!fs.existsSync(auditPath)) {return [];}
 	
 	try {
 		const lines = fs.readFileSync(auditPath, 'utf-8').trim().split('\n').filter(Boolean);

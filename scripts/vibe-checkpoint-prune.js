@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe checkpoint prune — clean up old VibeIDE snapshots
  *
@@ -30,7 +35,7 @@ function parseArgs() {
 
 function parseDuration(str) {
 	const match = str.match(/^(\d+)(d|h|w)$/);
-	if (!match) return null;
+	if (!match) {return null;}
 	const [, num, unit] = match;
 	const n = parseInt(num);
 	switch (unit) {
@@ -57,7 +62,7 @@ function pruneSnapshots(snapshotsDir, opts) {
 			// Try to read createdAt from snapshot JSON
 			try {
 				const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-				if (data.createdAt) createdAt = data.createdAt;
+				if (data.createdAt) {createdAt = data.createdAt;}
 			} catch {}
 
 			return { name: f, path: filePath, createdAt, size: stat.size };
@@ -71,7 +76,7 @@ function pruneSnapshots(snapshotsDir, opts) {
 	if (opts.olderThanDays !== null) {
 		const cutoff = now - opts.olderThanDays * 24 * 60 * 60 * 1000;
 		for (const f of files) {
-			if (f.createdAt < cutoff) toDelete.add(f.name);
+			if (f.createdAt < cutoff) {toDelete.add(f.name);}
 		}
 	}
 
@@ -79,7 +84,7 @@ function pruneSnapshots(snapshotsDir, opts) {
 	if (opts.keepLast !== null) {
 		const toKeep = files.slice(0, opts.keepLast).map(f => f.name);
 		for (const f of files) {
-			if (!toKeep.includes(f.name)) toDelete.add(f.name);
+			if (!toKeep.includes(f.name)) {toDelete.add(f.name);}
 		}
 	}
 
@@ -122,6 +127,6 @@ const opts = parseArgs();
 
 console.log(`🗂  vibe checkpoint prune`);
 console.log(`Snapshots dir: ${snapshotsDir}`);
-if (DRY_RUN) console.log('Mode: dry-run (no files deleted)\n');
+if (DRY_RUN) {console.log('Mode: dry-run (no files deleted)\n');}
 
 pruneSnapshots(snapshotsDir, opts);

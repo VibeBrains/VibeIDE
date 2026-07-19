@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 // Roadmap §"settings styling audit" — canonical naming check for `vibeide.*`.
 //
 // Canonical style: `vibeide.<domain>.<feature>.<property>` where every
@@ -31,16 +36,16 @@ const findings = [];
 
 function checkKey(key) {
 	const segments = key.split('.');
-	if (segments.length < 2) return ['root segment only — needs at least `vibeide.<domain>.<property>`'];
-	if (segments[0] !== 'vibeide') return [`unexpected root: ${segments[0]} (must be 'vibeide')`];
+	if (segments.length < 2) {return ['root segment only — needs at least `vibeide.<domain>.<property>`'];}
+	if (segments[0] !== 'vibeide') {return [`unexpected root: ${segments[0]} (must be 'vibeide')`];}
 	const issues = [];
 	for (let i = 1; i < segments.length; i += 1) {
 		const seg = segments[i];
 		if (!CANONICAL_SEGMENT_RE.test(seg)) {
 			let suggested = seg;
-			if (seg.includes('_')) suggested = seg.split('_').map((p, idx) => idx === 0 ? p.toLowerCase() : p[0].toUpperCase() + p.slice(1).toLowerCase()).join('');
-			else if (seg.includes('-')) suggested = seg.split('-').map((p, idx) => idx === 0 ? p.toLowerCase() : p[0].toUpperCase() + p.slice(1).toLowerCase()).join('');
-			else if (seg[0] === seg[0].toUpperCase()) suggested = seg[0].toLowerCase() + seg.slice(1);
+			if (seg.includes('_')) {suggested = seg.split('_').map((p, idx) => idx === 0 ? p.toLowerCase() : p[0].toUpperCase() + p.slice(1).toLowerCase()).join('');}
+			else if (seg.includes('-')) {suggested = seg.split('-').map((p, idx) => idx === 0 ? p.toLowerCase() : p[0].toUpperCase() + p.slice(1).toLowerCase()).join('');}
+			else if (seg[0] === seg[0].toUpperCase()) {suggested = seg[0].toLowerCase() + seg.slice(1);}
 			issues.push(`segment '${seg}' not lowerCamelCase → suggest '${suggested}'`);
 		}
 	}
@@ -48,7 +53,7 @@ function checkKey(key) {
 }
 
 for (const file of configFiles) {
-	if (!fs.existsSync(file)) continue;
+	if (!fs.existsSync(file)) {continue;}
 	const content = fs.readFileSync(file, 'utf8');
 	for (const m of content.matchAll(KEY_RE)) {
 		const key = m[1];
@@ -67,7 +72,7 @@ if (findings.length === 0) {
 console.log(`\n${findings.length} key(s) violate canonical naming style:`);
 for (const { file, key, issues } of findings) {
 	console.log(`\n  ${key}  (${file})`);
-	for (const issue of issues) console.log(`    - ${issue}`);
+	for (const issue of issues) {console.log(`    - ${issue}`);}
 }
 console.log(`\nCanonical style: vibeide.<domain>.<feature>.<property> — every segment lowerCamelCase.`);
 

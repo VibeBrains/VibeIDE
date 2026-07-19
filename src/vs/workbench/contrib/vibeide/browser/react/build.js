@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { execSync } from 'child_process';
-import { spawn } from 'cross-spawn'
+import { spawn } from 'cross-spawn';
 // Added lines below
 import fs from 'fs';
 import path from 'path';
@@ -72,7 +72,7 @@ function findDesiredPathFromLocalPath(localDesiredPath, currentPath) {
 	}
 
 	// return the `globallyDesiredPath`
-	const globalDesiredPath = path.join(currentPath, localDesiredPath)
+	const globalDesiredPath = path.join(currentPath, localDesiredPath);
 	return globalDesiredPath;
 }
 

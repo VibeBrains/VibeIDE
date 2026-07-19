@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 // Roadmap V.1 prevention — `Promise.all` on side-effecting callbacks audit.
 //
 // `Promise.all([...])` over inner callbacks with side effects (state writes,
@@ -29,7 +34,7 @@ function* walk(dir) {
 	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
 		const full = path.join(dir, entry.name);
 		if (entry.isDirectory()) {
-			if (entry.name === 'node_modules' || entry.name === 'out' || entry.name === '.build') continue;
+			if (entry.name === 'node_modules' || entry.name === 'out' || entry.name === '.build') {continue;}
 			yield* walk(full);
 		} else if (entry.isFile() && full.endsWith('.ts')) {
 			yield full;

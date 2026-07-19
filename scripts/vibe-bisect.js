@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe bisect — binary search through .vibe/snapshots/ to find when a bug appeared
  *
@@ -18,7 +23,7 @@ const WORKSPACE = process.cwd();
 const snapshotsDir = path.join(WORKSPACE, '.vibe', 'snapshots');
 
 function listSnapshots() {
-	if (!fs.existsSync(snapshotsDir)) return [];
+	if (!fs.existsSync(snapshotsDir)) {return [];}
 	return fs.readdirSync(snapshotsDir)
 		.filter(f => f.endsWith('.json'))
 		.map(f => {

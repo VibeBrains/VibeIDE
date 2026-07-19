@@ -1,10 +1,6 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
- *
- *  VibeIDE integration layer for Project Manager extension.
- *  Uses ONLY public VS Code Extension API — source code NOT modified.
- *  GPL-3.0 applies to project-manager.vsix only, not this file.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
@@ -29,13 +25,13 @@ export async function activateProjectManagerBridge(): Promise<void> {
  */
 async function registerCurrentProject(): Promise<void> {
 	const workspaceFolders = vscode.workspace.workspaceFolders;
-	if (!workspaceFolders || workspaceFolders.length === 0) return;
+	if (!workspaceFolders || workspaceFolders.length === 0) {return;}
 
 	const rootPath = workspaceFolders[0].uri.fsPath;
 	const vibePath = path.join(rootPath, '.vibe');
 
 	// Only register if this is a VibeIDE project
-	if (!fs.existsSync(vibePath)) return;
+	if (!fs.existsSync(vibePath)) {return;}
 
 	// Use PM's built-in command to add project
 	try {

@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 // Roadmap V.4 prevention — Test placeholder detector.
 //
 // Catches test files where ALL asserts are `assert.ok(true, ...)` or
@@ -22,7 +27,7 @@ const TRIVIAL_ASSERT_RE = /\bassert\.(?:ok\s*\(\s*true\b|strictEqual\s*\(\s*1\s*
 const TEST_KEYWORD_RE = /\b(?:test|it)\s*\(\s*['"`]/;
 
 function* walk(dir) {
-	if (!fs.existsSync(dir)) return;
+	if (!fs.existsSync(dir)) {return;}
 	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
 		const full = path.join(dir, entry.name);
 		if (entry.isDirectory()) {
@@ -38,7 +43,7 @@ const findings = [];
 for (const root of testRoots) {
 	for (const file of walk(root)) {
 		const content = fs.readFileSync(file, 'utf8');
-		if (!TEST_KEYWORD_RE.test(content)) continue;
+		if (!TEST_KEYWORD_RE.test(content)) {continue;}
 		const assertLines = content.split('\n').filter(line => ASSERT_LINE_RE.test(line));
 		if (assertLines.length === 0) {
 			// File has tests but no asserts — separate red flag.

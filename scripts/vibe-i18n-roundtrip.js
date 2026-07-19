@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe-i18n-roundtrip — VibeIDE i18n round-trip validator
  *
@@ -68,7 +73,7 @@ const localePattern = /^vibeide\.nls\.([a-z]{2}(?:-[a-zA-Z]{2,8})*)\.json$/;
 
 for (const file of fs.readdirSync(outDir)) {
 	const match = file.match(localePattern);
-	if (!match) continue;
+	if (!match) {continue;}
 	const localeTag = match[1];
 	const bundlePath = path.join(outDir, file);
 	try {
@@ -117,7 +122,7 @@ if (result.stats.totalIssues === 0) {
 			const detail = issue.detail ? ` — ${issue.detail}` : '';
 			console.log(`- \`${issue.localeTag}\` / \`${issue.key}\`${detail}`);
 		}
-		if (issues.length > 20) console.log(`- … and ${issues.length - 20} more`);
+		if (issues.length > 20) {console.log(`- … and ${issues.length - 20} more`);}
 		console.log();
 	}
 }
@@ -135,7 +140,7 @@ for (const [locale, count] of Object.entries(result.stats.perLocale).sort()) {
 if (MOVE_ORPHANS) {
 	for (const [localeTag, bundle] of localeBundles) {
 		const { keep, orphans } = partitionLocaleForOrphanMove(bundle, metadataEnglish);
-		if (orphans.size === 0) continue;
+		if (orphans.size === 0) {continue;}
 
 		const bundleFile = path.join(outDir, `vibeide.nls.${localeTag}.json`);
 		const orphansFile = path.join(outDir, `vibeide.nls.${localeTag}._orphans.json`);

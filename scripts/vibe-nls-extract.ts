@@ -1,5 +1,10 @@
 #!/usr/bin/env -S npx tsx
 /*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/*---------------------------------------------------------------------------------------------
  *  VibeIDE NLS Extraction Script
  *
  *  Rebuilds dev NLS index files expected to match **gulp nls()** (build/lib/nls.ts):
@@ -69,7 +74,7 @@ function nlsMessageToString(parsed: ReturnType<typeof parseLocalizeKeyOrValue>):
 	if (typeof parsed === 'string') {
 		return parsed;
 	}
-	if (typeof parsed === 'object' && parsed !== null && 'key' in parsed) {
+	if (typeof parsed === 'object' && parsed !== null && Object.prototype.hasOwnProperty.call(parsed, 'key')) {
 		return parsed.key;
 	}
 	return String(parsed);

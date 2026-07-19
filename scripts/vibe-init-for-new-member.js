@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe init --for-new-member — generate codebase onboarding guide
  *
@@ -24,7 +29,7 @@ const WORKSPACE = args.find(a => a.startsWith('--workspace='))?.split('=')[1]
 	|| process.cwd();
 
 function getDirectoryTree(dir, depth = 0, maxDepth = 2) {
-	if (depth > maxDepth) return '';
+	if (depth > maxDepth) {return '';}
 	try {
 		const entries = fs.readdirSync(dir, { withFileTypes: true })
 			.filter(e => !['node_modules', '.git', 'dist', 'build', 'out', '.vibe'].includes(e.name))
@@ -50,7 +55,7 @@ function getGitStats() {
 }
 
 function readFile(filePath, maxLines = 30) {
-	if (!fs.existsSync(filePath)) return null;
+	if (!fs.existsSync(filePath)) {return null;}
 	const lines = fs.readFileSync(filePath, 'utf-8').split('\n').slice(0, maxLines);
 	return lines.join('\n');
 }

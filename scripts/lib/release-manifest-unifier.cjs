@@ -1,3 +1,8 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 // MUST stay in sync with src/vs/workbench/contrib/vibeide/common/releaseManifestUnifier.ts
 'use strict';
 
@@ -10,13 +15,13 @@ const SHA256_RE = /^[a-f0-9]{64}$/i;
  * @returns {{ ok: true; value: object } | { ok: false; reason: string }}
  */
 function decodeArtefact(raw) {
-	if (raw == null || typeof raw !== 'object') return { ok: false, reason: 'not-an-object' };
+	if (raw == null || typeof raw !== 'object') {return { ok: false, reason: 'not-an-object' };}
 	const obj = /** @type {Record<string, unknown>} */ (raw);
-	if (!VALID_PLATFORMS.includes(obj.platform)) return { ok: false, reason: 'platform-invalid' };
-	if (!VALID_ARCHS.includes(obj.arch)) return { ok: false, reason: 'arch-invalid' };
-	if (typeof obj.fileName !== 'string' || obj.fileName.length === 0) return { ok: false, reason: 'fileName-missing' };
-	if (typeof obj.sha256 !== 'string' || !SHA256_RE.test(obj.sha256)) return { ok: false, reason: 'sha256-invalid' };
-	if (typeof obj.sizeBytes !== 'number' || !Number.isFinite(obj.sizeBytes) || obj.sizeBytes < 0) return { ok: false, reason: 'sizeBytes-invalid' };
+	if (!VALID_PLATFORMS.includes(obj.platform)) {return { ok: false, reason: 'platform-invalid' };}
+	if (!VALID_ARCHS.includes(obj.arch)) {return { ok: false, reason: 'arch-invalid' };}
+	if (typeof obj.fileName !== 'string' || obj.fileName.length === 0) {return { ok: false, reason: 'fileName-missing' };}
+	if (typeof obj.sha256 !== 'string' || !SHA256_RE.test(obj.sha256)) {return { ok: false, reason: 'sha256-invalid' };}
+	if (typeof obj.sizeBytes !== 'number' || !Number.isFinite(obj.sizeBytes) || obj.sizeBytes < 0) {return { ok: false, reason: 'sizeBytes-invalid' };}
 	return {
 		ok: true,
 		value: {

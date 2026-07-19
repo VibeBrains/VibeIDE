@@ -39,7 +39,7 @@ export default tseslint.config(
 		rules: {
 			'constructor-super': 'warn',
 			'curly': 'warn',
-			'eqeqeq': 'warn',
+			'eqeqeq': ['warn', 'always', { 'null': 'ignore' }],
 			'prefer-const': [
 				'warn',
 				{

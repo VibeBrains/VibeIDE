@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * Normalize obsolete product-name string fragments inside `contrib/vibeide` text sources.
  * Idempotent — safe to re-run.
@@ -30,7 +35,7 @@ const FROM_PC = FROM_LC[0].toUpperCase() + FROM_LC.slice(1);
 let n = 0;
 for (const f of walk(dir)) {
 	let s = fs.readFileSync(f, 'utf8');
-	if (!s.includes(FROM_LC) && !s.includes(FROM_PC)) continue;
+	if (!s.includes(FROM_LC) && !s.includes(FROM_PC)) {continue;}
 	const o = s;
 	s = s.split(FROM_LC).join('vibeide');
 	s = s.split(FROM_PC).join('Vibeide');

@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe i18n-migrate — find localize() / localize2() calls whose message argument is
  * Cyrillic and migrate them so the source carries an English placeholder while the
@@ -60,7 +65,7 @@ function walk(dir, acc = []) {
 	for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
 		const p = path.join(dir, ent.name);
 		if (ent.isDirectory()) {
-			if (ent.name === 'node_modules' || ent.name === 'out' || ent.name === 'react') continue;
+			if (ent.name === 'node_modules' || ent.name === 'out' || ent.name === 'react') {continue;}
 			walk(p, acc);
 		} else if (/\.tsx?$/.test(ent.name)) {
 			acc.push(p);
@@ -135,7 +140,7 @@ function main() {
 
 	for (const file of files) {
 		const { changed, migrations, out } = processFile(file, bundle);
-		if (!changed) continue;
+		if (!changed) {continue;}
 		report.withCyrillic += 1;
 		report.totalMigrations += migrations;
 		report.files.push({ file: path.relative(ROOT, file), migrations });

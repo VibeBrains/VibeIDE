@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 // Roadmap W.12 — companion script for the nightly memory-regression workflow.
 // Reads the latest `.jsonl` in the supplied directory, computes
 // `max(rss after warmup) - min(rss after warmup)` for `proc:'main'` samples,

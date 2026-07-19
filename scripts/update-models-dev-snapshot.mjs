@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
 // Refreshes resources/vibeide/models.dev.json from https://models.dev/api.json.
@@ -31,7 +31,7 @@ const main = async () => {
 	} finally {
 		clearTimeout(timer);
 	}
-	if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+	if (!res.ok) {throw new Error(`HTTP ${res.status} ${res.statusText}`);}
 	const text = await res.text();
 
 	// Parse to validate JSON and surface an obvious problem (rather than shipping garbage).

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /*---------------------------------------------------------------------------------------------
- *	Copyright (c) Microsoft Corporation. All rights reserved.
- *	Licensed under the MIT License. See License.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
 // Create a multi-resolution Windows .ico file from a PNG source
 
 const sharp = require('sharp');

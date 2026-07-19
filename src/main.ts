@@ -14,7 +14,9 @@ import minimist from 'minimist';
 import { product } from './bootstrap-meta.js';
 import { parse } from './vs/base/common/jsonc.js';
 import { getUserDataPath } from './vs/platform/environment/node/userDataPath.js';
+// eslint-disable-next-line local/code-import-patterns -- by-design: VibeIDE wires its electron-main services from the entrypoint
 import { startVibeIdleWatchdog, getVibeIdleWatchdog } from './vs/workbench/contrib/vibeide/electron-main/vibeIdleWatchdogService.js';
+// eslint-disable-next-line local/code-import-patterns -- by-design: VibeIDE wires its electron-main services from the entrypoint
 import { initModelQuirksService } from './vs/workbench/contrib/vibeide/electron-main/modelQuirks/modelQuirksService.js';
 import * as perf from './vs/base/common/performance.js';
 import { resolveNLSConfiguration } from './vs/base/node/nls.js';
@@ -641,7 +643,7 @@ function registerListeners(): void {
 	 */
 	app.on('render-process-gone', (_event, webContents, details) => {
 		const watchdog = getVibeIdleWatchdog();
-		if (!watchdog) return;
+		if (!watchdog) { return; }
 		watchdog.recordCrash({
 			proc: 'renderer',
 			pid: webContents.getOSProcessId(),
@@ -651,7 +653,7 @@ function registerListeners(): void {
 	});
 	app.on('child-process-gone', (_event, details) => {
 		const watchdog = getVibeIdleWatchdog();
-		if (!watchdog) return;
+		if (!watchdog) { return; }
 		// `type` ∈ {'Tab','Utility','Zygote','Sandbox helper','GPU','Pepper Plugin',...}.
 		const procClass = details.type === 'GPU' ? 'gpu' : 'utility';
 		watchdog.recordCrash({

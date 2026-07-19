@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe run --otel-endpoint — export agent actions as OpenTelemetry spans
  *
@@ -33,7 +38,7 @@ const WORKSPACE = process.cwd();
 
 function loadAuditLog() {
 	const auditPath = path.join(WORKSPACE, '.vibe', 'audit.jsonl');
-	if (!fs.existsSync(auditPath)) return [];
+	if (!fs.existsSync(auditPath)) {return [];}
 	try {
 		return fs.readFileSync(auditPath, 'utf-8').trim().split('\n').filter(Boolean)
 			.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);

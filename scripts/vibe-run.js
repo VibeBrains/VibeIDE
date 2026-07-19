@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe run — run VibeIDE agent from CLI (CI/CD integration)
  *
@@ -31,8 +36,8 @@ if (!TASK) {
 console.log(`\n🤖 VibeIDE Agent${DRY_RUN ? ' (dry-run)' : ''}\n${'─'.repeat(50)}`);
 console.log(`Task: ${TASK}`);
 console.log(`Mode: ${AUTO ? 'Auto' : 'Manual'}`);
-if (NO_LOCAL_CONSTRAINTS) console.log(`Constraints: local constraints disabled`);
-if (DRY_RUN) console.log(`Dry-run: will show plan without modifying files\n`);
+if (NO_LOCAL_CONSTRAINTS) {console.log(`Constraints: local constraints disabled`);}
+if (DRY_RUN) {console.log(`Dry-run: will show plan without modifying files\n`);}
 
 if (DRY_RUN) {
 	console.log('Pre-flight plan (simulated):');

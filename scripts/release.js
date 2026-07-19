@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * release.js — unified release dispatcher (roadmap L1159)
  *
@@ -64,8 +69,8 @@ if (platformArg !== 'win32') {
 console.log(`\n▶ release.js — dispatching Windows build${isDraft ? ' (draft)' : ''}...\n`);
 
 const psArgs = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(ROOT, 'scripts', 'release-windows.ps1')];
-if (isDraft) psArgs.push('-Draft');
-if (skipCompile) psArgs.push('-SkipCompile');
+if (isDraft) {psArgs.push('-Draft');}
+if (skipCompile) {psArgs.push('-SkipCompile');}
 
 const result = spawnSync('powershell.exe', psArgs, { stdio: 'inherit', cwd: ROOT });
 if (result.status !== 0) {
@@ -83,7 +88,7 @@ const artefacts = [];
 const setupDir = path.join(buildDir, 'system-setup');
 if (fs.existsSync(setupDir)) {
 	for (const f of fs.readdirSync(setupDir)) {
-		if (!f.endsWith('.exe')) continue;
+		if (!f.endsWith('.exe')) {continue;}
 		const full = path.join(setupDir, f);
 		const stat = fs.statSync(full);
 		artefacts.push({ platform: 'win32', arch: 'x64', fileName: f, sha256: '0'.repeat(64), sizeBytes: stat.size });
@@ -94,7 +99,7 @@ if (fs.existsSync(setupDir)) {
 const archiveDir = path.join(buildDir, 'archive');
 if (fs.existsSync(archiveDir)) {
 	for (const f of fs.readdirSync(archiveDir)) {
-		if (!f.endsWith('.zip')) continue;
+		if (!f.endsWith('.zip')) {continue;}
 		const full = path.join(archiveDir, f);
 		const stat = fs.statSync(full);
 		artefacts.push({ platform: 'win32', arch: 'x64', fileName: f, sha256: '0'.repeat(64), sizeBytes: stat.size });
@@ -111,7 +116,7 @@ const composed = composeUnifiedManifest({
 
 if (composed.skipped.length > 0) {
 	console.warn(`[release.js] manifest: ${composed.skipped.length} artefact(s) skipped:`);
-	for (const s of composed.skipped) console.warn(`  [${s.index}] ${s.reason}`);
+	for (const s of composed.skipped) {console.warn(`  [${s.index}] ${s.reason}`);}
 }
 
 fs.mkdirSync(path.join(ROOT, '.vibe'), { recursive: true });

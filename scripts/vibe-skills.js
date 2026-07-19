@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe skills — CLI for Agent Skills (SKILL.md) validation and listing.
  *
@@ -135,9 +140,9 @@ function parseSkillFrontmatter(filePath, raw) {
 
 	const depends = parseDependsBlock(block);
 
-	if (!name) errors.push('missing name');
-	if (!description) errors.push('missing description');
-	if (!vv) errors.push('missing vibeVersion');
+	if (!name) {errors.push('missing name');}
+	if (!description) {errors.push('missing description');}
+	if (!vv) {errors.push('missing vibeVersion');}
 
 	const maxBytes = 512 * 1024;
 	let size = 0;
@@ -176,7 +181,7 @@ function parseDependsBlock(block) {
 		const inline = /^\s*depends:\s*\[(.*)]\s*$/.exec(line);
 		if (inline) {
 			const inner = inline[1].trim();
-			if (!inner) return [];
+			if (!inner) {return [];}
 			return inner.split(',').map(s => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
 		}
 		if (/^\s*depends:\s*$/.test(line)) {
@@ -212,12 +217,12 @@ function hasDependsCycle(skillInfos) {
 
 	function dfs(u) {
 		const st = state.get(u) ?? 0;
-		if (st === 1) return true;
-		if (st === 2) return false;
+		if (st === 1) {return true;}
+		if (st === 2) {return false;}
 		state.set(u, 1);
 		for (const v of graph.get(u) || []) {
-			if (!graph.has(v)) continue;
-			if (dfs(v)) return true;
+			if (!graph.has(v)) {continue;}
+			if (dfs(v)) {return true;}
 		}
 		state.set(u, 2);
 		return false;

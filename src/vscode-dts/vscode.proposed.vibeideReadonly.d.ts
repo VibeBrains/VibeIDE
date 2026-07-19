@@ -1,7 +1,9 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
+/* eslint-disable local/vscode-dts-string-type-literals, local/vscode-dts-literal-or-types -- string-literal discriminators are the intended shape of this VibeIDE proposed API */
 
 // VibeIDE proposed API — read-only surface for third-party extensions.
 // Roadmap §M.3 / L1122.

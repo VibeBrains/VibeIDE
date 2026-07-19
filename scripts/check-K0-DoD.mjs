@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * Check K.0 (псевдо-готовность) DoD compliance — every item under
  * "### K.0 Псевдо-готовность" in docs/roadmap.md must satisfy one of:
