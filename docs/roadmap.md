@@ -352,6 +352,7 @@
 ### Безопасность агента
 - [x] Workspace isolation — ✅ реализована в toolsService.ts через isInsideWorkspace(); тест на WSL2 и symlinks запланирован
 - [x] Жёсткий дефолтный лимит токенов — ✅ VibeTokenBudgetService: 500k токенов по умолчанию, включён, checkBudget() перед каждым LLM запросом
+  - [ ] **(возможное расширение) денежный per-agent бюджет с авто-паузой** — референс Paperclip (paperclip.ing, MIT): бюджет $X/месяц на конкретного агента/персону, авто-пауза при исчерпании, override. У нас бюджет **токенный и посессионный**, а не $/роль/период. Ценность появляется только со сценарием **фоновых агентов, жгущих деньги без присмотра**; для локальной IDE (платишь провайдеру напрямую) — под вопросом. Не делать без такого сценария. Прочее из Paperclip (оргчарт/роли, тикеты+аудит, governance, agent-agnostic, heartbeat) — паритет с существующими Vibe Agents. Paperclip MIT → код изучаем; кандидат в строку `vibeAlternativesComparisonContribution`.
 - [x] Dead man's switch — ✅ VibeDeadMansSwitchService: дефолт 5мин, мин 1мин, 429 и pre-flight исключены
 - [x] Loop detector — ✅ VibeLoopDetectorService: 3+ одинаковых, A→B→A, repair loop исключён
 - [x] Constraints enforcement layer — ✅ VibeConstraintsService: блокировка до агента в toolsService; live watcher .vibe/constraints.json
