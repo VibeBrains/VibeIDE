@@ -1,6 +1,6 @@
 # FORK_CHANGES.md
 
-> Документ всех отклонений VibeIDE от upstream VibeIDE и microsoft/vscode.  
+> Документ всех отклонений VibeIDE от базового форка CortexIDE и upstream microsoft/vscode.  
 > Обновлять при каждом PR. Упрощает upstream sync и переход на прямой форк при необходимости.
 
 ---
@@ -50,54 +50,27 @@
 | **Microsoft telemetry** | `product.json` | ✅ Поле `enableTelemetry` отсутствует → Microsoft телеметрия отключена в VibeIDE |
 | **Debug ports (dev)** | `.vscode/launch.json` | ✅ Порты 9222 и 5875 только в dev launch configs. Не в production |
 
-### ⚠️ npm audit — 53 уязвимости
-
-| Severity | Кол-во |
-|---|---|
-| 🔴 Critical | 1 |
-| 🟠 High | 27 |
-| 🟡 Moderate | 22 |
-| Low | 3 |
-
-**Critical:** `next` — RCE в React flight protocol (CVSS 10.0, CVE GHSA-9qr9-h5gf-34mp)  
-**High:** `@modelcontextprotocol/sdk`, `@vscode/sqlite3`, `axios`, `braces` и другие
-
-> ⚠️ `next` как зависимость в IDE — неожиданно. Нужно выяснить откуда. Возможно из React-части VibeIDE UI (`browser/react/`).
-
-### ⚠️ Autocomplete FIM pipeline — без secret detection
-
-`autocompleteService.ts` собирает `prefixAndSuffix` из файла вокруг курсора и отправляет провайдеру без вызова `secretDetectionService`. Если файл содержит API-ключ — он попадёт в FIM-запрос.
-
-**Действие (Фаза 1):** добавить вызов `secretDetectionService` в autocomplete pipeline перед отправкой.
-
-### ⚠️ `next` — Critical CVE, неиспользуемая зависимость
-
-`"next": "^15.3.1"` в корневом `package.json`. Нет `next.config.js`, нет импортов в коде. Случайная/заброшенная зависимость.
-
-**CVE:** GHSA-9qr9-h5gf-34mp — RCE в React flight protocol, CVSS 10.0.
-
-**Действие (Фаза 1):** `npm uninstall next` — удалить зависимость.
+> Блоки Фазы 0 про npm-audit (снимок 53 уязвимостей), Critical CVE в `next` и отсутствие secret-detection в FIM-autocomplete удалены как устаревшие: `next` из зависимостей убран, FIM-pipeline теперь вызывает `detectSecrets` (`autocompleteService.ts`), а мониторинг уязвимостей ведёт CI `.github/workflows/security-audit.yml`.
 
 ---
 
-## Изменённые файлы VibeIDE (изменения поверх VibeIDE)
+## Изменённые файлы VibeIDE (изменения поверх CortexIDE)
 
 ### `.gitignore`
-- **Причина:** Добавлены строки для игнорирования локальных рабочих файлов VibeIDE
-- **Добавлено:**
+- **Причина:** Игнорирование локальных/производных рабочих файлов VibeIDE
+- **Актуально игнорируется:**
   ```
-  # VibeIDE local workspace files
-  docs/
-  references/
-  CLAUDE.md
-  .cursor/
   builds/
+  docs/.obsidian/
+  docs/**/*.canvas
+  docs/**/*.base
   ```
+- **Намеренно НЕ игнорируется (трекается):** `docs/` — центр документации; `CLAUDE.md` / `AGENTS.md` — чтобы свежий клон продолжал работу без внешнего состояния. Папка `references/` растворена (перенесена в сиблинг `VibeIDE-pre/`, см. `docs/references-v1/docs-policy.md`).
 
 ### `product.json` — ребрендинг VibeIDE
-- **Причина:** Полный ребрендинг с VibeIDE на VibeIDE
+- **Причина:** Полный ребрендинг с CortexIDE на VibeIDE
 - **Изменено:**
-  - `nameShort` / `nameLong`: `VibeIDE` → `VibeIDE`
+  - `nameShort` / `nameLong`: `CortexIDE` → `VibeIDE`
   - `applicationName`: `cortexide` → `vibeide`
   - `dataFolderName`: `.cortexide` → `.vibeide`
   - `darwinBundleIdentifier`: `com.vibeide.code` → `io.vibeide.app`
@@ -105,7 +78,7 @@
   - `extensionsGallery`: VS Code Marketplace → **Open VSX Registry**
   - `licenseUrl` / `reportIssueUrl`: обновлены на VibeBrains/VibeIDE
   - `linkProtectionTrustedDomains`: добавлены `vibeide.io` и `open-vsx.org`
-  - `cortexVersion` → `vibeVersion: "0.1.0"`
+  - `cortexVersion` → `vibeVersion` (начальное значение ребрендинга `"0.1.0"`; версия бампается каждой сборкой — актуальную смотреть в `product.json`)
 
 ### `package.json` — удалена Critical CVE зависимость
 - **Причина:** `next@^15.3.1` в devDependencies — неиспользуемая зависимость с Critical RCE CVE (CVSS 10.0, GHSA-9qr9-h5gf-34mp)
