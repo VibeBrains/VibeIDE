@@ -1,5 +1,5 @@
 # Contributing to VibeIDE
-### Welcome! 👋
+## Welcome! 👋
 This is the official guide on how to contribute to VibeIDE. We want to make it as easy as possible to contribute, so if you have any questions or comments, reach out via email or [Discord](https://discord.gg/NFc3EKPany)!
 
 There are a few ways to contribute:
@@ -69,7 +69,7 @@ Here's how to start changing VibeIDE. These steps cover everything from cloning 
 5. You're good to start editing VibeIDE!
    - You won't see your changes unless you press <kbd>Ctrl+R</kbd> (<kbd>Cmd+R</kbd>) inside the new window to reload. Alternatively, press <kbd>Ctrl+Shift+P</kbd> and `Reload Window`.
    - You might want to add the flags `--user-data-dir ./.tmp/user-data --extensions-dir ./.tmp/extensions` to the command in step 4, which lets you reset any IDE changes you made by deleting the `.tmp` folder.
-	- You can kill any of the build scripts by pressing `Ctrl+D` in its terminal. If you press `Ctrl+C` the script will close but will keep running in the background.
+  - You can kill any of the build scripts by pressing `Ctrl+D` in its terminal. If you press `Ctrl+C` the script will close but will keep running in the background.
 
 If you get any errors, scroll down for common fixes.
 

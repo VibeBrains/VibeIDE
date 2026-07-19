@@ -48,7 +48,7 @@
 
 **Наших нарушений — ноль** (с 2026-07-15). Вырос счётчик выше 3 → нарушение внесла ваша правка.
 
-**Проверять счётчиком:** `npm run valid-layers-check 2>&1 | grep -c IMainProcessService` ≤ 3. Гейт — [.claude/pipeline.md](../../../.claude/pipeline.md) Этап 2.
+**Проверять счётчиком:** `npm run valid-layers-check 2>&1 | grep -c IMainProcessService` ≤ 3. Гейт — `.claude/pipeline.md` Этап 2 (файл local-only, `.claude/` в `.gitignore`).
 
 ---
 

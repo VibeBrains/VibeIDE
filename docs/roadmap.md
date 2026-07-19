@@ -408,7 +408,7 @@
 
 ### Автообновление (GitHub, UX как у Cursor)
 
-> Базовая проверка релиза и уведомления уже есть (`vibeideUpdateMainService.ts`, GitHub API при отключённом MS-update). Ниже — довести до сценария: toast → скачать с GitHub → дождаться закрытия процесса → установить → перезапустить. Подробный роадмап: [`.vibe/plans/vibeide-cursor-like-updates.plan.md`](../.vibe/plans/vibeide-cursor-like-updates.plan.md).
+> Базовая проверка релиза и уведомления уже есть (`vibeideUpdateMainService.ts`, GitHub API при отключённом MS-update). Ниже — довести до сценария: toast → скачать с GitHub → дождаться закрытия процесса → установить → перезапустить. Подробный роадмап: `.vibe/plans/vibeide-cursor-like-updates.plan.md` (файл local-only, `.vibe/` в `.gitignore`).
 
 - [x] Релизный контракт в CI: стабильные имена assets по ОС/арх + `manifest.json` или `checksums-sha256.txt` — ✅ `scripts/vibe-release-manifest.mjs` → `release-manifest.json` + `checksums-sha256.txt` в `.github/workflows/release.yml`
 - [x] Main process: semver-сравнение с `tag_name` (не строковое `===`), загрузка нужного asset, проверка SHA256 — ✅ `vibeideUpdateMainService.ts`: semver vs `tag_name`, `release-manifest.json` с GitHub, IPC `downloadVerifiedReleaseAsset` + SHA256; Reinstall открывает папку с файлом
