@@ -124,6 +124,7 @@
 | Файл | О чём |
 |---|---|
 | [gitFlow.md](gitAndTools/gitFlow.md) | Стандартный flow, AI co-author hook, push из Cursor shell, lockfile в `extensions/*`, формат GitHub Releases |
+| [aiGitFeatures.md](gitAndTools/aiGitFeatures.md) | Инвентаризация AI вокруг git: генерация коммитов через свой LLM (готово, `MenuId.SCMInputBox`; **дубль** с Copilot-командой в `product.json`); merge-конфликты `vibeMergeConflictService` — **только Phase 1, LLM-Phase 2 брошена, потребителей ноль**; выделенных git-tools у чата нет (только shell + blame + worktree) |
 | [cdpSmokeAutomation.md](gitAndTools/cdpSmokeAutomation.md) | **[рецепт]** Живой смоук dev-IDE через CDP: agent-browser (палитра — press по клавише, `type` молча теряет текст), координатные клики ВНУТРЬ webview/превью — сырой `Input.dispatchMouseEvent` на корневом таргете добивает до OOPIF любой глубины (`snapshot`/`click` agent-browser туда не видят), верификация по эффекту в главном документе, скриншот-пиксели == CSS при DPR 1 |
 | [vibeDoctor.md](gitAndTools/vibeDoctor.md) | `agent-locks-stale`, `plans-folder-footprint` |
 | [nightlyRoadmap.md](gitAndTools/nightlyRoadmap.md) | Cursor rule + skill ночного прогона |
