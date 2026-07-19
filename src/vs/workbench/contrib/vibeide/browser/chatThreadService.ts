@@ -38,7 +38,7 @@ import { IVibeTokenSavingsService } from './vibeTokenSavingsService.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
-import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage, PendingInjection, normalizePendingInjections } from '../common/chatThreadServiceTypes.js';
+import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage, PendingInjection, normalizePendingInjections, ScoutLead, ScoutMessage } from '../common/chatThreadServiceTypes.js';
 import { trimThreadMessages, capToolResultSizes } from '../common/chatThreadTrim.js';
 import { Position } from '../../../../editor/common/core/position.js';
 import { IMetricsService } from '../common/metricsService.js';
@@ -82,7 +82,6 @@ import { IVibeLLMJudgeService } from '../common/vibeLLMJudgeService.js';
 import { IVibePersistedPlanService } from '../common/vibePersistedPlanService.js';
 import { IVibeSubagentService } from '../common/vibeSubagentService.js';
 import { isContinuationRequest, buildScoutGoal } from '../common/scoutTrigger.js';
-import { ScoutLead, ScoutMessage } from '../common/chatThreadServiceTypes.js';
 import { IVibePlanEventJournalService } from '../common/vibePlanEventJournalService.js';
 import { IVibePlanBindingRegistry } from './vibePlanBindingRegistry.js';
 import { IVibeTaskDecompositionService } from '../common/vibeTaskDecompositionService.js';
@@ -2998,7 +2997,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		if (URI.isUri(raw)) {
 			return raw;
 		}
-		if (raw && typeof raw === 'object' && 'scheme' in (raw as Record<string, unknown>)) {
+		if (raw && typeof raw === 'object' && Object.hasOwn(raw as Record<string, unknown>, 'scheme')) {
 			try { return URI.revive(raw as UriComponents); } catch { return undefined; }
 		}
 		if (typeof raw === 'string' && raw.length) {

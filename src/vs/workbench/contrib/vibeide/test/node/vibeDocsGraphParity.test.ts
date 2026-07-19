@@ -15,6 +15,7 @@
 
 import * as assert from 'assert';
 import { fileURLToPath, pathToFileURL } from 'url';
+// eslint-disable-next-line local/code-import-patterns -- node 'path' in a node test (by design)
 import { join } from 'path';
 import { parseDocLinks as parseInModel } from '../../common/vibeDocsGraph.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';

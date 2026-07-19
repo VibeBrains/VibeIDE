@@ -25,6 +25,7 @@
 
 import { spawn, ChildProcess } from 'child_process';
 import { existsSync, promises as fsPromises } from 'fs';
+// eslint-disable-next-line local/code-import-patterns -- node 'path' in an electron-main service (by design)
 import { join, basename } from 'path';
 import { tmpdir } from 'os';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
@@ -305,6 +306,7 @@ export class VibeVideoMainService extends Disposable {
 		let audioPcmPath: string | undefined;
 		if (!meta.transcriptSrt) {
 			let mediaPath: string;
+			// eslint-disable-next-line local/code-no-in-operator -- discriminated-union narrowing; `in` narrows the type, hasOwn does not
 			if ('remoteUrl' in source) {
 				this.emitStage(requestId, 'download');
 				mediaPath = await this.downloadMedia(entry, paths, source.remoteUrl, workDir, requestId, 'ba/b', 'media');

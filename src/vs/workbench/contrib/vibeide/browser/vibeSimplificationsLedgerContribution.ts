@@ -14,8 +14,7 @@
  */
 
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
-import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
-import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { ServicesAccessor, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';

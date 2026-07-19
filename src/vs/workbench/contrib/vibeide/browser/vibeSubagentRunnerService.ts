@@ -306,6 +306,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 					});
 					if (!confirmed) {
 						deniedActions++;
+						// eslint-disable-next-line local/code-no-dangerous-type-assertions -- internal ToolMessage builder widened to the ChatMessage union; tool params are loosely typed
 						history.push({
 							role: 'tool', type: 'rejected', result: null,
 							name: toolName as ToolName, params: params as never,
@@ -326,6 +327,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				if (WRITE_TOOL_NAMES.has(toolName)) { artifacts.push(...paths); }
 				// Not charged here — this result is re-sent as input on the next hop and counted
 				// via that hop's prompt tokens (avoids double-counting with hopTokenCost).
+				// eslint-disable-next-line local/code-no-dangerous-type-assertions -- internal ToolMessage builder widened to the ChatMessage union; tool params are loosely typed
 				history.push({
 					role: 'tool', type: 'success', result: result as never,
 					name: toolName as ToolName, params: params as never,
@@ -334,6 +336,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				} as ChatMessage);
 			} catch (e) {
 				const errText = e instanceof Error ? e.message : String(e);
+				// eslint-disable-next-line local/code-no-dangerous-type-assertions -- internal ToolMessage builder widened to the ChatMessage union; tool params are loosely typed
 				history.push({
 					role: 'tool', type: 'tool_error', result: errText,
 					name: toolName as ToolName, params: params as never,
@@ -355,6 +358,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		return new Promise<HopOutcome>(resolve => {
 			let settled = false;
 			let timer: ReturnType<typeof setTimeout> | undefined;
+			// eslint-disable-next-line prefer-const -- captured by `finish` (below) before the deferred assignment; `const` would hit the TDZ
 			let cancelSub: { dispose(): void } | undefined;
 			const finish = (v: HopOutcome) => {
 				if (settled) { return; }
@@ -392,6 +396,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 	}
 
 	private _invalidToolMessage(toolCall: RawToolCallObj, content: string): ChatMessage {
+		// eslint-disable-next-line local/code-no-dangerous-type-assertions -- internal ToolMessage builder widened to the ChatMessage union
 		return {
 			role: 'tool', type: 'invalid_params', result: null,
 			name: toolCall.name,

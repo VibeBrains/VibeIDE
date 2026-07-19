@@ -360,7 +360,7 @@ class VibeVoiceInputService extends Disposable implements IVibeVoiceInputService
 		@IVibeModalService private readonly vibeModalService: IVibeModalService,
 		@IProgressService private readonly progressService: IProgressService,
 		@IOpenerService private readonly openerService: IOpenerService,
-		@ILogService readonly logService: ILogService,
+		@ILogService public readonly logService: ILogService,
 	) {
 		super();
 		this.channel = new VoiceChannelClient(mainProcessService);

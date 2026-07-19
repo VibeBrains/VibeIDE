@@ -87,12 +87,13 @@ registerAction2(class extends Action2 {
 	async run(accessor: ServicesAccessor): Promise<void> {
 		const subagentSvc = accessor.get(IVibeSubagentService);
 		const quickInput = accessor.get(IQuickInputService);
+		// Capture synchronously before any await — accessor is only valid before the first await.
+		const notifications = accessor.get(INotificationService);
 
 		// Get all subagents across all parent threads
 		const allEntries = subagentSvc.getAll();
 
 		if (allEntries.length === 0) {
-			const notifications = accessor.get(INotificationService);
 			notifications.notify({ severity: Severity.Info, message: localize('vibeide.subagent.none', 'Нет активных субагентов.') });
 			return;
 		}
@@ -115,7 +116,6 @@ registerAction2(class extends Action2 {
 		);
 		if (picked?.entryLive) {
 			subagentSvc.disposeSubagent(picked.entryId);
-			const notifications = accessor.get(INotificationService);
 			notifications.notify({ severity: Severity.Info, message: localize('vibeide.subagent.cancelled', 'Субагент {0} отменён.', picked.label) });
 		}
 	}

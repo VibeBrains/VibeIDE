@@ -52,5 +52,7 @@
 **/src/vs/platform/cssDev/node/cssDevService.ts
 **/src/vs/workbench/browser/parts/auxiliarybar/auxiliaryBarPart.ts
 **/src/vs/workbench/contrib/accessibility/browser/accessibilityConfiguration.ts
+**/src/vs/workbench/contrib/terminal/test/browser/terminalInstance.test.ts
+**/src/vs/workbench/contrib/terminalContrib/chatAgentTools/browser/commandLineAutoApprover.ts
 **/build/lib/i18n.ts
 !.vscode
