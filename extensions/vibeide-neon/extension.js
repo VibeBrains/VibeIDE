@@ -1,4 +1,9 @@
 /*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/*---------------------------------------------------------------------------------------------
  *  Theme contribution + command palette UX; vibeide.* commands register in core (vibeCommands).
  *
  *  i18n: this file lives under extensions/, so per the L515 split decision

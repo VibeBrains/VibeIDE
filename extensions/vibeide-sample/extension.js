@@ -1,3 +1,8 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 // VibeIDE sample extension — calls one accessor from each VibeIDE proposed namespace
 // and surfaces a notification with the result. Acceptance proof for the
 // `vibeideReadonly` proposal in src/vscode-dts/vscode.proposed.vibeideReadonly.d.ts.

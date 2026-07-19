@@ -84,10 +84,25 @@ export const unicodeFilter = Object.freeze<string[]>([
 	'!scripts/release-linux.sh',
 	'!scripts/home-build-windows.ps1',
 	'!scripts/lib/home-build-common.sh',
+	// Same rationale: the macOS universal-build / notarization / Windows-signing
+	// scripts render box-drawing frames and status glyphs as their console report.
+	// They belong to the same release-tooling family as release-*.sh above; they were
+	// simply missed. Without this a one-line edit surfaces 150+ pre-existing box-drawing
+	// findings and trains everyone to `--no-verify`.
+	'!scripts/build-macos-universal.sh',
+	'!scripts/notarize-macos.sh',
+	'!scripts/sign-windows.ps1',
 	// Same rationale: `vibe doctor` renders box-drawing frames and status glyphs as its
 	// console report. Deleting the `--knowledge` mode (2026-07-15) surfaced 96 pre-existing
 	// findings from a pure-deletion edit — the exact trap this block was added to close.
 	'!scripts/vibe-doctor.js',
+	// Same rationale: golden-eval prints box-drawing frames and pass/fail status glyphs in
+	// its console report.
+	'!scripts/vibe-golden-eval.js',
+	// VibeIDE built-in extensions are the fork's own authored code and embed rich Unicode
+	// (status glyphs, box-drawing) in console/UI strings — same "rich Unicode by design"
+	// rationale as src/**/vibeide/** above.
+	'!extensions/vibeide-*/**',
 ]);
 
 export const indentationFilter = Object.freeze<string[]>([
@@ -173,6 +188,13 @@ export const indentationFilter = Object.freeze<string[]>([
 	'!extensions/ipynb/notebook-out/**',
 	'!extensions/notebook-renderers/renderer-out/*.js',
 	'!extensions/simple-browser/media/*.js',
+
+	// VibeIDE release/build shell scripts: space indentation is intentional — much of it is
+	// `cat <<'EOF'` heredoc body (usage text) whose leading spaces are printed output, so
+	// tabs cannot be enforced without changing what the script prints. Same shell-script
+	// carve-out as `build/**/*.sh` above.
+	'!scripts/build-macos-universal.sh',
+	'!scripts/notarize-macos.sh',
 
 	// VibeIDE: large template literals (system prompts, test fixtures) carry
 	// space-indented string data by design; tab indentation of actual code is

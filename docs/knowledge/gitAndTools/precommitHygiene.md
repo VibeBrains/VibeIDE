@@ -67,3 +67,21 @@ all ⊃ eol ⊇ indentation ⊃ copyright ⊃ typescript
 - Заголовок, вписанный **над** shebang: файл перестаёт парситься (`'#!' can only be used at the start of a file`) — наступал.
 
 **Связано:** [[verifyBeforeHypothesizing]] («зелёный чек ≠ работающий чек» — тот же корень: граница гарантии не там, где кажется), [[agenticRewriteNeedsOracle]].
+
+## [правило] Карта фильтров + расширение вырезок на VibeIDE-зоны вне `src/vibeide/**` (2026-07-19)
+
+**Контекст:** миграция doc-путей тронула комментарии в 62 файлах → pre-commit выдал 170 ошибок на **пред-существующем** долге (доказано: заголовок `golden-eval.js` = HEAD). Разбор вскрыл устройство и дыру в вырезках.
+
+**Устройство (`build/hygiene.ts` + `build/filters.ts`):** pre-commit `tsx build/hygiene.ts` без аргументов берёт **`git diff --cached`** (только staged), фильтрует через набор **`all`** (`* build/** extensions/** scripts/** src/** test/**` — **`docs/` НЕ входит**, доки не проверяются вовсе) и гоняет каскад `all ⊃ eol ⊇ indentation ⊃ copyright ⊃ typescript`:
+- **unicode** — гомоглифы; кириллица и `«» „" § №` разрешены (`hygiene.ts:72`), но box-drawing `──`, стрелки, emoji, `⊘/✅/✗` — нет. Исключён `.md`.
+- **indentation** — «хорошо» = `^[\t]*` (табы); ведущие **пробелы** = «Bad whitespace indentation». Исключён `.md`, `build/**/*.sh`.
+- **copyright** — точный 4-строчный MS-заголовок; сравнение с `lines[0]`. Исключены `.md/.json/.sh/.bat/…`, но **не `.js/.mjs/.ts`**.
+
+**Дыра:** вырезки покрывали только `src/vs/**/vibeide/**`, а форк-авторские зоны **вне** него — нет. Мимо проходило: release/build shell-скрипты (`build-macos-universal.sh`, `notarize-macos.sh`, `sign-windows.ps1` — box-drawing + пробельные heredoc-usage), `extensions/vibeide-*/**` (глиф `⊘`), `scripts/vibe-golden-eval.js` (box-drawing). Тронешь по другому поводу → лавина, тренаж на `--no-verify`.
+
+**Фиксы (сделаны):**
+- `unicodeFilter` += `!scripts/{build-macos-universal,notarize-macos}.sh`, `!scripts/sign-windows.ps1`, `!scripts/vibe-golden-eval.js`, `!extensions/vibeide-*/**` (тот же «rich Unicode by design», что у `src/**/vibeide/**`).
+- `indentationFilter` += `!scripts/{build-macos-universal,notarize-macos}.sh` — **пробелы там легитимны**: строки 53-62 это тело `cat <<'EOF'` (usage-текст), их отступ — печатаемый вывод; табы сломали бы вывод. Тот же shell-carve-out, что `build/**/*.sh`.
+- **`hygiene.ts` copyright-чек научен пропускать shebang** (`const offset = lines[0]?.startsWith('#!') ? 1 : 0`) — общий баг: исполняемый скрипт обязан держать shebang на строке 0, MS-заголовок легитимно идёт следом. Раньше **любой** shebang-скрипт (`vibe-plan-merge-driver.js` и т.п.) валил copyright. Теперь MS-заголовок после shebang проходит — добавлен в `vibe-golden-eval.js`, `vibe-docs-dedup.js`.
+
+**Применение:** новый форк-авторский файл вне `src/**/vibeide/**` с богатым Unicode/пробельным console-выводом — сразу в соответствующую вырезку `filters.ts` **с комментарием-обоснованием**, не жди лавины. `.md` под hygiene не попадают вообще (в `all` нет `docs/`) — «исключить docs/**» бессмысленно. Проверка вырезки — `npx tsx build/hygiene.ts <файлы>` до 0, затем staged-прогон `npx tsx build/hygiene.ts` (читает `git diff --cached`).

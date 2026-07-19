@@ -109,8 +109,12 @@ export function hygiene(some: NodeJS.ReadWriteStream | string[] | undefined, run
 	const copyrights = es.through(function (file: VinylFileWithLines) {
 		const lines = file.__lines;
 
+		// Allow a leading shebang (e.g. `#!/usr/bin/env node`) before the header —
+		// executable scripts must keep the shebang on line 0, so the copyright block
+		// legitimately starts on the next line.
+		const offset = lines[0]?.startsWith('#!') ? 1 : 0;
 		for (let i = 0; i < copyrightHeaderLines.length; i++) {
-			if (lines[i] !== copyrightHeaderLines[i]) {
+			if (lines[offset + i] !== copyrightHeaderLines[i]) {
 				console.error(file.relative + ': Missing or bad copyright statement');
 				errorCount++;
 				break;
