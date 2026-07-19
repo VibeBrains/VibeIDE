@@ -3,7 +3,9 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-export namespace snaps {
+// Self-contained side-effect block (was `namespace snaps`, which is non-erasable
+// syntax forbidden by `erasableSyntaxOnly`; an IIFE keeps the same semantics).
+(function () {
 
 	const fs = require('fs');
 	const path = require('path');
@@ -62,4 +64,4 @@ export namespace snaps {
 
 		cp.execFileSync(mksnapshot, [wrappedInputFilepath, `--startup_blob`, startupBlobFilepath]);
 	}
-}
+})();

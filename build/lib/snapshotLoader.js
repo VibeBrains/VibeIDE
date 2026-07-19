@@ -3,10 +3,9 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.snaps = void 0;
-var snaps;
-(function (snaps) {
+// Self-contained side-effect block (was `namespace snaps`, which is non-erasable
+// syntax forbidden by `erasableSyntaxOnly`; an IIFE keeps the same semantics).
+(function () {
     const fs = require('fs');
     const path = require('path');
     const os = require('os');
@@ -54,5 +53,4 @@ var snaps;
         fs.writeFileSync(wrappedInputFilepath, wrappedInputFile);
         cp.execFileSync(mksnapshot, [wrappedInputFilepath, `--startup_blob`, startupBlobFilepath]);
     }
-})(snaps || (exports.snaps = snaps = {}));
-//# sourceMappingURL=snapshotLoader.js.map
+})();
