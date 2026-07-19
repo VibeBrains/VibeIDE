@@ -36,7 +36,7 @@ const suiteFilter = args.includes('--suite') ? args[args.indexOf('--suite') + 1]
 // ── Scenario loader ────────────────────────────────────────────────────────────
 
 const EVALS_DIR = path.join(process.cwd(), '.vibe', 'golden-evals');
-const EXAMPLES_DIR = path.join(process.cwd(), 'references', 'v1', 'golden-evals');
+const EXAMPLES_DIR = path.join(process.cwd(), 'docs', 'references-v1', 'golden-evals');
 
 function loadScenarios() {
 	const scenarios = [];
@@ -53,7 +53,7 @@ function loadScenarios() {
 		}
 	}
 
-	// Load built-in example scenarios from references/v1/golden-evals/ (read-only reference)
+	// Load built-in example scenarios from docs/references-v1/golden-evals/ (read-only reference)
 	if (fs.existsSync(EXAMPLES_DIR)) {
 		for (const f of fs.readdirSync(EXAMPLES_DIR).filter(f => f.endsWith('.json'))) {
 			try {

@@ -19,6 +19,6 @@ docs/manuals/specsWorkflow.md text eol=lf
 # Custom merge driver for VibeIDE persisted plans. Register once per clone:
 #   git config merge.vibe-plan.name "VibeIDE plan merger"
 #   git config merge.vibe-plan.driver "node scripts/vibe-plan-merge-driver.js %A %O %B %P"
-# See scripts/vibe-plan-merge-driver.js and references/v1/persisted-plan-contract.md.
+# See scripts/vibe-plan-merge-driver.js and docs/references-v1/persisted-plan-contract.md.
 .vibe/plans/*.plan.md   merge=vibe-plan
 .vibe/plans/*.steps.json merge=vibe-plan

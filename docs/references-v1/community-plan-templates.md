@@ -10,7 +10,7 @@
 ## Threat model (aligned with persisted plans)
 
 - Treat downloaded templates like **untrusted markdown + YAML:** they expand into the prompt and disk; same boundaries as **`IVibePromptGuardService`** / secret-detection roadmap (§ F).
-- **Signature:** prefer **manifest + detached signature** (Ed25519 or minisign) over «trust HTTPS» alone; mirror **`references/v1/persisted-plan-contract.md`** rules: no raw secrets in frontmatter.
+- **Signature:** prefer **manifest + detached signature** (Ed25519 or minisign) over «trust HTTPS» alone; mirror **`docs/references-v1/persisted-plan-contract.md`** rules: no raw secrets in frontmatter.
 
 ## Install pipeline (target)
 
@@ -29,5 +29,5 @@
 
 ## Related
 
-- **`references/v1/persisted-plan-contract.md`** — on-disk plan contract.
-- **`references/v1/plan-steps.schema.json`** — machine steps shape.
+- **`docs/references-v1/persisted-plan-contract.md`** — on-disk plan contract.
+- **`docs/references-v1/plan-steps.schema.json`** — machine steps shape.

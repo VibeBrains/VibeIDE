@@ -2,7 +2,7 @@
 
 > Status: tutorial / quickstart.
 > Source roadmap entry: «Документация: «Build your first VibeIDE extension»».
-> Related: `references/v1/extension-api-stability.md`.
+> Related: `docs/references-v1/extension-api-stability.md`.
 
 VibeIDE extends VS Code's extension model with a VibeIDE-specific API surface
 (`vscode.proposed.vibeide.d.ts`). This page walks through the smallest possible
@@ -101,7 +101,7 @@ the notification fires.
 
 ## What's stable, what's proposed
 
-See `references/v1/extension-api-stability.md` for the full policy. The shortest
+See `docs/references-v1/extension-api-stability.md` for the full policy. The shortest
 summary:
 
 - All four surfaces used above are currently `proposed`. They can break in any minor

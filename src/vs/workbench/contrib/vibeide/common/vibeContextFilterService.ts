@@ -9,7 +9,7 @@
  *
  * Implements the "Dynamic context filtering / sandbox aggregation" roadmap item (§ F / § G).
  *
- * Policy contract: references/v1/context-filtering-policy.md
+ * Policy contract: docs/references-v1/context-filtering-policy.md
  *
  * Three modes:
  *  - raw       — no filtering (verbatim tool results)
@@ -51,7 +51,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 				localize('filterMode.off', 'Без фильтрации (эквивалент raw; для сценариев аудита/отладки)'),
 			],
 			default: 'auto',
-			description: localize('vibeide.context.filterMode', 'Как обрабатываются результаты инструментов перед добавлением в окно контекста LLM. Подробности — в references/v1/context-filtering-policy.md.'),
+			description: localize('vibeide.context.filterMode', 'Как обрабатываются результаты инструментов перед добавлением в окно контекста LLM. Подробности — в docs/references-v1/context-filtering-policy.md.'),
 		},
 		'vibeide.context.filterThresholdPct': {
 			type: 'number',

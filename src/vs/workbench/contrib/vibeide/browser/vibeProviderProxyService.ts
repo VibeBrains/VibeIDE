@@ -220,7 +220,7 @@ class VibeProviderProxyService extends Disposable implements IVibeProviderProxyS
  * This list runs BEFORE the body's `ISecretDetectionService` pass, so that a token
  * like `Authorization: Bearer eyJ…` does not need to match a body secret pattern to
  * be removed. Add a new header here only with the same review process as
- * `references/v1/a2ui-allowed-commands.md` — every entry is a security decision.
+ * `docs/references-v1/a2ui-allowed-commands.md` — every entry is a security decision.
  */
 export const PROXY_REDACT_HEADER_NAMES: readonly string[] = Object.freeze([
 	'authorization',

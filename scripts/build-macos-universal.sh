@@ -4,7 +4,7 @@
 #
 # Roadmap §888 (Distribution readiness gate / macOS Universal Binary).
 # Pure policy helper: src/vs/workbench/contrib/vibeide/common/distributionSigningPolicy.ts
-# Runbook:           references/v1/distribution-signing-runbook.md
+# Runbook:           docs/references-v1/distribution-signing-runbook.md
 # Sibling scripts:   scripts/notarize-macos.sh, scripts/release-macos.sh
 #
 # What this does (when credentials are present):
@@ -64,7 +64,7 @@ Flags:
 Required env (release mode): VIBE_MAC_SIGNING_IDENTITY
 Optional env: VIBE_MAC_ENTITLEMENTS, VIBE_MAC_NOTARIZE, APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD
 
-See references/v1/distribution-signing-runbook.md for the credential setup runbook.
+See docs/references-v1/distribution-signing-runbook.md for the credential setup runbook.
 EOF
 }
 
@@ -135,7 +135,7 @@ The identity must be present in the keychain — confirm with:
   security find-identity -p codesigning -v
 
 For dev/nightly builds pass --allow-unsigned. For release, acquire an Apple
-Developer account (~$99/y) and follow references/v1/distribution-signing-runbook.md.
+Developer account (~$99/y) and follow docs/references-v1/distribution-signing-runbook.md.
 EOF
   exit 2
 fi

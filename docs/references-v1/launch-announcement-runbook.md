@@ -3,7 +3,7 @@
 > Status: operator runbook.
 > Source: roadmap §889 (GitHub Sponsors / Open Collective / Marketing / Discord launch).
 > Pure helper: `src/vs/workbench/contrib/vibeide/common/launchAnnouncementSpec.ts`.
-> Templates: `references/v1/launch-announcement-templates.md`.
+> Templates: `docs/references-v1/launch-announcement-templates.md`.
 > Dependency: §888 (Distribution readiness gate must be `ready` — signed builds for all
 > four platforms — before public launch).
 
@@ -50,7 +50,7 @@
 Out-of-tree (the docs-policy contract keeps `docs/` local-only). Recommended:
 
 1. New repo `VibeBrains/VibeIDE-website` — single-page README + GitHub Pages.
-2. Use the content scaffold in `references/v1/website-readme-template.md`.
+2. Use the content scaffold in `docs/references-v1/website-readme-template.md`.
 3. Domain: optional vibeide.dev or equivalent (~$15/y at Namecheap or Porkbun).
 4. Pin to the "Marketing site" cell in this runbook once live.
 

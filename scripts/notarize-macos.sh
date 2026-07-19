@@ -3,7 +3,7 @@
 #
 # Roadmap §888 (Distribution readiness gate / macOS notarization).
 # Pure policy helper: src/vs/workbench/contrib/vibeide/common/distributionSigningPolicy.ts
-# Runbook: references/v1/distribution-signing-runbook.md
+# Runbook: docs/references-v1/distribution-signing-runbook.md
 #
 # Required env:
 #   APPLE_ID            Apple Developer account email
@@ -78,7 +78,7 @@ if [[ "$GATE" != "1" || -z "$APPLE_ID" || -z "$APPLE_TEAM_ID" || -z "$APPLE_APP_
   export APPLE_APP_PASSWORD='abcd-efgh-ijkl-mnop'  # app-specific, not iCloud password
 
 For dev/nightly builds, pass --allow-unsigned. For release, acquire an Apple
-Developer account (~$99/y) and follow references/v1/distribution-signing-runbook.md.
+Developer account (~$99/y) and follow docs/references-v1/distribution-signing-runbook.md.
 EOF
   exit 2
 fi

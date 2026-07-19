@@ -71,7 +71,7 @@ const RULES: ReadonlyArray<ExclusionRule> = [
 	},
 	{
 		reason: 'docs-only',
-		test: (p) => /^docs[\\/].*\.md$/i.test(p) || /^references[\\/].*\.md$/i.test(p),
+		test: (p) => /^docs[\\/].*\.md$/i.test(p),
 	},
 	{
 		reason: 'community-pack-content',

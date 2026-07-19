@@ -9,4 +9,4 @@ Optional fields on persisted / in-memory **`PlanStep`** (embedded JSON in `*.pla
 
 **Status:** schema + persistence + types are in-repo; **executor** routing (switch cwd / worktree before tool calls) remains backlog — do not assume the agent auto-switches worktrees yet.
 
-See also: `references/v1/plan-steps.schema.json`, roadmap **§ C**.
+See also: `docs/references-v1/plan-steps.schema.json`, roadmap **§ C**.

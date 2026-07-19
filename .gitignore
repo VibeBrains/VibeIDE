@@ -57,15 +57,12 @@ dist
 src/vs/workbench/contrib/vibeide/browser/react/out/**
 src/vs/workbench/contrib/vibeide/browser/react/src2/**
 
-# VibeIDE local-only paths (keep out of git)
-# Policy contract — see references/v1/docs-policy.md (also local-only):
-#   - docs/ is **fully** ignored — public docs go in the website repo, not here.
-#   - references/* is local-only normative documentation for maintainers.
-#   - Only references/logo-final.png is committed (used by README).
-# Anything published to the public site lives elsewhere; nothing under docs/
-# or references/ is part of the source tree contract.
-references/*
-!references/logo-final.png
+# VibeIDE docs policy — see docs/references-v1/docs-policy.md:
+#   - docs/ is TRACKED and is the single center for all documentation.
+#   - Normative contracts/runbooks live in docs/references-v1/ (tracked).
+#   - Brand assets (logo, icons) live in media/ (tracked).
+#   - Heavy design inspiration (drafts, PSDs, AI images) is archived OUT of the
+#     repo in the sibling VibeIDE-pre/ — nothing here references it.
 # CLAUDE.md / AGENTS.md stay TRACKED so a fresh clone can continue work without external state.
 # .vibe/ is local-only and NOT tracked: this repo is developed only via Claude Code (.claude/ +
 # CLAUDE.md), so the workspace agent scaffolding (rules/prompts/skills seeded from .vibe-defaults/)

@@ -124,7 +124,7 @@ const MAX_BUTTONS = 3;
 
 /**
  * Positive allowlist of commands the agent is allowed to invoke from
- * `action_buttons`. Mirrors `references/v1/a2ui-allowed-commands.md`. Adding a command
+ * `action_buttons`. Mirrors `docs/references-v1/a2ui-allowed-commands.md`. Adding a command
  * here is a security decision — keep this constant in sync with the doc table and require
  * a reviewer outside the original author for any change (label `a2ui-allowlist-change`).
  *
@@ -260,7 +260,7 @@ class VibeAgentRenderedUIService extends Disposable implements IVibeAgentRendere
 				// Command must be in the A2UI positive allowlist — strip everything else.
 				// Prefix-only filter (vibeide.*) was insufficient: vibeide.commands.run.<id>
 				// would have routed the agent through Project Commands' shell exec without
-				// consent. See references/v1/a2ui-allowed-commands.md.
+				// consent. See docs/references-v1/a2ui-allowed-commands.md.
 				const command = isA2UICommandAllowed(bRaw['command']) ? bRaw['command'] as string : '';
 				if (!command) { return null; }
 				return { label, command };

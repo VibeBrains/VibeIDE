@@ -49,4 +49,4 @@ Removing a lock when a session ends is **not** automatic in the current MVP: cle
 ## Related
 
 - `scripts/vibe-doctor.js` — `agent-locks-stale` (full mode).
-- `references/v1/persisted-plan-contract.md` — plan merge / conflict policy (orthogonal).
+- `docs/references-v1/persisted-plan-contract.md` — plan merge / conflict policy (orthogonal).

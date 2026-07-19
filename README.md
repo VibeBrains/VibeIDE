@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="references/logo-final.png" alt="VibeIDE" width="180" />
+  <img src="media/logo-final.png" alt="VibeIDE" width="180" />
 </p>
 
 <h1 align="center">VibeIDE</h1>

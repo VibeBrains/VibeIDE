@@ -24,7 +24,7 @@ half-credit.
 
 | Item                                              | Acceptance signal                                                  |
 |---------------------------------------------------|--------------------------------------------------------------------|
-| A2UI positive whitelist                           | `references/v1/a2ui-allowed-commands.md` exists and is in sync     |
+| A2UI positive whitelist                           | `docs/references-v1/a2ui-allowed-commands.md` exists and is in sync     |
 |                                                   | with the live `VibeAgentRenderedUIService` table; CI label-checks  |
 |                                                   | PRs touching either side.                                          |
 | Provider proxy auth-headers redaction             | Unit test asserts `Authorization: Bearer …` does not appear in    |
@@ -56,16 +56,16 @@ Each test covers at minimum:
 - One edge case the service explicitly handles (empty input, Unicode normalization,
   surrogate pairs).
 
-### L.2 — `docs/v1/` ↔ `references/v1/` policy
+### L.2 — `docs/v1/` ↔ `docs/references-v1/` policy
 
 Decision (current run): `docs/v1/` holds **public-facing** content (READMEs, contracts
-that are part of the user-visible product), and `references/v1/` holds **internal**
+that are part of the user-visible product), and `docs/references-v1/` holds **internal**
 artefacts (policy notes, threat models, design decisions for maintainers).
 
 Both directories are gitignored today. The split is enforced by review:
 
 - A file referenced from a tracked file in `extensions/` or `src/` should live in
-  `references/v1/`.
+  `docs/references-v1/`.
 - A file referenced from a tracked README or website page should live in `docs/v1/`.
 
 Backlog: a `scripts/vibe-docs-dedup.js` finds files with the same basename in both trees

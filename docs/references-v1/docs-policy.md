@@ -1,58 +1,40 @@
-# `docs/` vs `references/` — local-only documentation policy
+# Documentation policy — `docs/` is the single center
 
 > Status: normative.
-> Source: roadmap §1000 (фиксация политики).
 > Audience: maintainers + AI assistants that read the repo.
+> History: this supersedes the old "both `docs/` and `references/` are local-only"
+> policy. Contracts were relocated into `docs/` and tracked on 2026-06-20
+> (commit `23db622f`); the stale `references/v1/` mirror and the heavy
+> `references/` design assets were retired on 2026-07-19.
 
 ## TL;DR
 
-Both `docs/` and `references/v1/` are **local-only**. Neither is committed.
-The `.gitignore` enforces this:
+**All documentation lives under `docs/` and is tracked in git.** There is no
+local-only doc tree anymore. Do not scatter docs elsewhere in the repo.
 
-```
-docs/
-references/*
-!references/logo-final.png
-```
+| Location | Purpose |
+|---|---|
+| `docs/` | Single center for all documentation — roadmap, vision, functional catalog. |
+| `docs/references-v1/` | Normative contracts, runbooks, policies (this file lives here). |
+| `docs/knowledge/` | Domain-split knowledge base (footguns, invariants, recipes) + index. |
+| `docs/manuals/` | Step-by-step how-to guides. |
+| `media/` | Tracked brand assets (logo, icons) used by README and branding scripts. |
+| `VibeIDE-pre/` (sibling, **out of repo**) | Heavy design inspiration — drafts, PSDs, AI images. **Nothing in the repo references it.** |
 
-Anything that needs to ship to a public website (`vibeide.io` style)
-lives in a **separate repository**, not here.
+## Rules
 
-## Why two folders
+- **Add a new contract/runbook** → `docs/references-v1/*.md`. Confirm it describes
+  an invariant code must satisfy and names files/functions/commit hashes.
+- **Add knowledge** → `docs/knowledge/<domain>/` + a line in `docs/knowledge/README.md`
+  (an entry without an index line does not exist — gated by `npm run docs-graph-check`).
+- **Brand asset** → `media/`. If a build script or README needs it, it must be
+  tracked (not gitignored).
+- **Never commit** private credentials, internal team URLs, or secrets — the repo
+  is public, so everything under `docs/` is public too.
+- **Heavy binaries / inspiration** (image drafts, PSDs, one-off scripts) → archive
+  to the sibling `VibeIDE-pre/`, never referenced from the repo.
 
-| Folder            | Audience                                    | Examples                                      |
-|-------------------|---------------------------------------------|-----------------------------------------------|
-| `docs/`           | Future public-site copy. Roadmap. Vision.   | `roadmap.md`, `monetization.md`, `vision/`.   |
-| `references/v1/`  | Maintainer + AI internal contracts.         | `agent-locks-contract.md`, `*-policy.md`.     |
+## What is NOT tracked
 
-Cross-pollination rule: if a `references/v1/*.md` becomes user-facing (e.g.
-"how to add a locale"), copy the relevant content into the public-site repo.
-Do not commit `docs/` or `references/v1/` here.
-
-## Why local-only
-
-- The repository is a VS Code fork; upstream merges churn `docs/` for
-  unrelated reasons. Keeping our docs out of git history simplifies merges.
-- Some `references/v1/` docs contain partial threat models, allowlists, and
-  internal coordination notes that should not be public until reviewed.
-- AI agents (Copilot/Claude/Cursor) reading the repo find the
-  internal-contracts in `references/v1/` *only when running locally* — they
-  cannot leak via shared remotes.
-
-## Not committed (and why) checklist
-
-Before adding a new `references/v1/*.md`, confirm:
-- [ ] Content describes a **contract** (an invariant code must satisfy).
-- [ ] Content names files / functions / commit hashes — not user instructions.
-- [ ] Public-facing parts (e.g. installation guide) go to the public-site repo.
-
-Before adding a new `docs/*.md`, confirm:
-- [ ] Content describes future public-site material — vision, roadmap, FAQ.
-- [ ] No private credentials, internal team URLs, or unreleased-product names.
-
-## Migration: parenthetical workarounds → this doc
-
-Earlier roadmap text said things like "docs/ в gitignore — артефакт в
-references/v1/`. Those parentheticals are now redundant: this document
-is the single source. New roadmap entries should reference
-`references/v1/docs-policy.md` instead of restating the rule inline.
+Only local scratch: `docs/.obsidian/`, `docs/**/*.canvas`, `docs/**/*.base`
+(see `.gitignore`). Everything else under `docs/` ships with the repo.

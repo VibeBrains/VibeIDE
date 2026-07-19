@@ -37,7 +37,7 @@ Action items:
 - Add a top-of-file comment: «Verifies that no new telemetry call sites have been
   introduced. VibeIDE does not transmit telemetry; this workflow exists as a leak
   detector only.»
-- Update `references/v1/ci-workflows-inventory.md` to reflect the rename when it lands.
+- Update `docs/references-v1/ci-workflows-inventory.md` to reflect the rename when it lands.
 
 ## Privacy mode (`vibeide.privacy.strict`)
 

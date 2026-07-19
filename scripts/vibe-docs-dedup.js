@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * vibe docs-dedup — find files with the same basename in docs/v1/ and references/v1/.
+ * vibe docs-dedup — find files with the same basename in docs/v1/ and docs/references-v1/.
  *
- * Both trees are gitignored today; the L.2 policy (see references/v1/audit-2026-05-07-acceptance.md)
- * splits public-facing content (docs/v1/) from internal artefacts (references/v1/). This
+ * Both trees are gitignored today; the L.2 policy (see docs/references-v1/audit-2026-05-07-acceptance.md)
+ * splits public-facing content (docs/v1/) from internal artefacts (docs/references-v1/). This
  * script catches drift before a name collision becomes a contradiction.
  *
  * Usage:
@@ -20,7 +20,7 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
 const TREES = [
 	path.join(ROOT, 'docs', 'v1'),
-	path.join(ROOT, 'references', 'v1'),
+	path.join(ROOT, 'docs', 'references-v1'),
 ];
 
 const args = process.argv.slice(2);
@@ -83,7 +83,7 @@ function main() {
 	}
 
 	if (collisions.length === 0) {
-		console.log('No basename collisions between docs/v1/ and references/v1/.');
+		console.log('No basename collisions between docs/v1/ and docs/references-v1/.');
 		return;
 	}
 
@@ -107,7 +107,7 @@ function main() {
 		}
 		console.log('');
 	}
-	console.log('Move each collision into one tree per the policy in references/v1/audit-2026-05-07-acceptance.md.');
+	console.log('Move each collision into one tree per the policy in docs/references-v1/audit-2026-05-07-acceptance.md.');
 }
 
 main();

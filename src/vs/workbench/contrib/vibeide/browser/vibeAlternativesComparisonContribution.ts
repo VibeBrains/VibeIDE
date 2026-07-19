@@ -11,7 +11,7 @@
  * when the user has imported settings from another tool or on first run.
  *
  * Philosophy: direct, honest, no marketing superlatives.
- * Source of truth: references/v1/vibeide-vs-alternatives.md
+ * Source of truth: docs/references-v1/vibeide-vs-alternatives.md
  *
  * Trigger conditions:
  *  - User has completed vibe init --from cursor/continue/windsurf/aider in this session
@@ -125,7 +125,7 @@ registerAction2(class extends Action2 {
 		let content = COMPARISON_CONTENT;
 		const workspaceRoot = workspaceService.getWorkspace().folders[0]?.uri;
 		if (workspaceRoot) {
-			const refPath = URI.joinPath(workspaceRoot, 'references', 'v1', 'vibeide-vs-alternatives.md');
+			const refPath = URI.joinPath(workspaceRoot, 'docs', 'references-v1', 'vibeide-vs-alternatives.md');
 			try {
 				if (await fileService.exists(refPath)) {
 					content = (await fileService.readFile(refPath)).value.toString();
@@ -192,5 +192,5 @@ const COMPARISON_CONTENT = `# VibeIDE vs Alternatives
 
 Отличие: там — отдельный пульт над внешними CLI; у нас агент встроен в IDE.
 
-Full comparison: references/v1/vibeide-vs-alternatives.md
+Full comparison: docs/references-v1/vibeide-vs-alternatives.md
 `;

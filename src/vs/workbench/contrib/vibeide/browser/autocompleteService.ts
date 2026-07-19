@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-// Tab-completion / FIM SLA: see `references/v1/tab-completion-sla.md` for the
+// Tab-completion / FIM SLA: see `docs/references-v1/tab-completion-sla.md` for the
 // p95 ≤ 200 ms / p99 ≤ 500 ms / accept ≥ 25% / cancel < 30% targets and the
 // per-window breach ladder (amber/red) that performanceGuardrailsService and
 // `vibe doctor --perf` consume.

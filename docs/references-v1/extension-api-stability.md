@@ -58,7 +58,7 @@ The header comment of every `*.d.ts` file declares:
 // VibeIDE Extension API — proposed
 // Available since: vibeVersion 0.3.0
 // Stability: proposed (subject to breaking changes)
-// See: references/v1/extension-api-stability.md
+// See: docs/references-v1/extension-api-stability.md
 ```
 
 Both `proposed` and `stable` files emit the `vibeVersion` they were introduced in. We do

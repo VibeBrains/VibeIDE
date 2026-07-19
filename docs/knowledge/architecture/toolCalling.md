@@ -205,7 +205,7 @@ const languageModel = sdkNpm === '@ai-sdk/anthropic'
 
 ### Альтернатива: вытащить routing-table из models.dev в runtime
 
-Долгосрочный план (открыт): вместо хардкода `OPENCODE_GO_ANTHROPIC_MODELS` в коде — fetcher `https://opencode.ai/zen/go/v1/models` или `https://models.dev/api.json` для получения `npm` поля (имя AI SDK package). Тогда новые модели на этом aggregator'е автоматически получат правильный routing. См. также `references/v1/models-dev-integration.md` (будущий документ).
+Долгосрочный план (открыт): вместо хардкода `OPENCODE_GO_ANTHROPIC_MODELS` в коде — fetcher `https://opencode.ai/zen/go/v1/models` или `https://models.dev/api.json` для получения `npm` поля (имя AI SDK package). Тогда новые модели на этом aggregator'е автоматически получат правильный routing. См. также `docs/references-v1/models-dev-integration.md` (будущий документ).
 
 ### invalid_params: явный retry-hint
 

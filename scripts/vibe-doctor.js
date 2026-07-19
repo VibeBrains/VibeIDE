@@ -833,7 +833,7 @@ if (MODE.memory) {
 	const MEMORY_FILE = path.join(process.cwd(), '.vibe', 'memories.json');
 
 	console.log('\n🧠 VibeIDE Memory Audit\n' + '─'.repeat(40));
-	console.log('Memory layer contract: references/v1/memory-layers-contract.md');
+	console.log('Memory layer contract: docs/references-v1/memory-layers-contract.md');
 	console.log('Layers: explicit | long-term (WorkspaceStorage) | short-term (SessionStorage)\n');
 
 	if (!fs.existsSync(MEMORY_FILE)) {

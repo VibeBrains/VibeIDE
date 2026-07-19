@@ -24,7 +24,7 @@ privacy-first contract:
 
 - **Zero cloud telemetry by default.** The "telemetry" service in code is a
   local audit channel for routing decisions; full policy at
-  [`references/v1/telemetry-policy.md`](https://github.com/VibeBrains/VibeIDE/blob/main/references/v1/telemetry-policy.md).
+  [`docs/references-v1/telemetry-policy.md`](https://github.com/VibeBrains/VibeIDE/blob/main/docs/references-v1/telemetry-policy.md).
 - **Local-first AI.** First-class Ollama / LM Studio support; cloud providers
   (Anthropic, OpenAI, Gemini) are opt-in.
 - **Typed extension API.** Plans, skills, constraints are first-class objects
@@ -66,7 +66,7 @@ All releases are signed; verification instructions in the release notes.
 
 Build VibeIDE-specific extensions against the typed API in
 `extensions/vibeide-sample`. Publish to Open VSX under the `vibeide`
-namespace. See [`references/v1/openvsx-publishing-runbook.md`](https://github.com/VibeBrains/VibeIDE/blob/main/references/v1/openvsx-publishing-runbook.md)
+namespace. See [`docs/references-v1/openvsx-publishing-runbook.md`](https://github.com/VibeBrains/VibeIDE/blob/main/docs/references-v1/openvsx-publishing-runbook.md)
 for the publishing flow.
 
 ## Support the project
@@ -80,8 +80,8 @@ for the publishing flow.
 
 ## Privacy & security
 
-- Privacy contract: `references/v1/telemetry-policy.md` (no cloud telemetry).
-- Distribution signing: `references/v1/distribution-signing-runbook.md`.
+- Privacy contract: `docs/references-v1/telemetry-policy.md` (no cloud telemetry).
+- Distribution signing: `docs/references-v1/distribution-signing-runbook.md`.
 - Audit log: `.vibe/audit.json` (local, append-only, redacted).
 
 Built audit-friendly: every roadmap milestone has a discriminated-union pure

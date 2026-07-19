@@ -3,7 +3,7 @@
  *  Built-in extension: custom editor chrome for .vibe/plans/*.plan.md (readonly dashboard + raw MD).
  *
  *  i18n: this file lives under extensions/, so per the L515 split decision
- *  (references/v1/l10n-vs-nls-decision.md) user-facing strings use
+ *  (docs/references-v1/l10n-vs-nls-decision.md) user-facing strings use
  *  vscode.l10n.t(). Bundle path is declared in package.json:l10n.
  *--------------------------------------------------------------------------------------------*/
 
