@@ -84,6 +84,10 @@
 - **Причина:** `next@^15.3.1` в devDependencies — неиспользуемая зависимость с Critical RCE CVE (CVSS 10.0, GHSA-9qr9-h5gf-34mp)
 - **Удалено:** `"next": "^15.3.1"` из `devDependencies`
 
+### `.github/workflows/` — удалены унаследованные upstream-гарды контрибуции
+- **Причина:** три воркфлоу из базы microsoft/vscode опрашивают права коллаборатора у **`microsoft/vscode`** (`GET /repos/microsoft/vscode/collaborators/{username}/permission`), а не у нашего репо. Для любого контрибьютора форка это «нет прав» → `should_run=true` → воркфлоу **всегда** блокирует легитимные правки. Их назначение (защита от правок deps/lock/engineering-system без прав мейнтейнера microsoft, плюс политики ботов Copilot/vs-code-engineering/dependabot) в форке бессмысленно: владелец = мейнтейнер, а изменения `package-lock.json`/`.github/workflows/`/`build/`/`package.json` — нормальная разработка.
+- **Удалено:** `no-package-lock-changes.yml`, `no-yarn-lock-changes.yml`, `no-engineering-system-changes.yml`. Не были required-чеками (защиты ветки `main` с required checks нет — проверено `gh api .../branches/main/protection`), удаление ничего не подвешивает.
+
 ### `FORK_CHANGES.md` (этот файл)
 - **Причина:** Документирование изменений форка согласно best practices для VS Code форков
 
@@ -128,6 +132,8 @@ git merge upstream-sync
 ### Пост-merge чистка (обязательно проверять)
 
 `git checkout <tag> -- <dir>` **не удаляет** файлы, которых уже нет в апстриме — в дереве остаются **дубликаты и фантомы**, ломающие `tsc` (двойные `chatService`, лишние `vscode.proposed.*`, старый `inlineCompletions/browser/view/*`, дубли terminal initial hint под `terminalContrib/chat`, `workbench/services/accounts/common/defaultAccount.ts` вне OSS). Надёжно: **`rm -rf <dir> && git checkout <tag> -- <dir>`** для затронутых корней. Сборка **1.118.x**: в корне только **`gulpfile.mjs`** (не держать наследуемый **`gulpfile.js`**); в **`build/`** не оставлять рядом устаревшие **`.js`** от старого пайплайна, если рядом есть **`.ts`** и в **`build/package.json`** указано **`"type": "module"`**.
+
+**Унаследованные гарды контрибуции — снова удалить после sync.** `git merge upstream` вернёт `no-package-lock-changes.yml`, `no-yarn-lock-changes.yml`, `no-engineering-system-changes.yml` (опрашивают права у `microsoft/vscode`, всегда блокируют PR форка — см. раздел «Изменённые файлы»). После каждого upstream-merge: `rm -f .github/workflows/no-package-lock-changes.yml .github/workflows/no-yarn-lock-changes.yml .github/workflows/no-engineering-system-changes.yml`.
 
 ---
 
