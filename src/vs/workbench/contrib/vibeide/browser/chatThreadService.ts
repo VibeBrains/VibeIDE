@@ -81,6 +81,14 @@ import { IVibeAgentActivityLogService } from './vibeAgentActivityLogService.js';
 import { IVibeLLMJudgeService } from '../common/vibeLLMJudgeService.js';
 import { IVibePersistedPlanService } from '../common/vibePersistedPlanService.js';
 import { IVibeSubagentService } from '../common/vibeSubagentService.js';
+import { IVibeVerifyGateService } from './vibeVerifyGateService.js';
+import { decideVerifyGate } from '../common/verifyGatePolicy.js';
+
+/**
+ * File-mutating builtin tools — used by the VERIFY-GATE edit-guard: a run that only touched these
+ * (or none) triggers verification on completion; a pure read/search/question run does not.
+ */
+const MUTATING_TOOL_NAMES: ReadonlySet<string> = new Set(['edit_file', 'rewrite_file', 'create_file_or_folder', 'delete_file_or_folder']);
 import { isContinuationRequest, buildScoutGoal } from '../common/scoutTrigger.js';
 import { IVibePlanEventJournalService } from '../common/vibePlanEventJournalService.js';
 import { IVibePlanBindingRegistry } from './vibePlanBindingRegistry.js';
@@ -937,6 +945,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeSubagentService private readonly _subagentService: IVibeSubagentService,
 		@IVibeSpecsService private readonly _vibeSpecsService: IVibeSpecsService,
 		@IVibeTokenSavingsService private readonly _vibeTokenSavingsService: IVibeTokenSavingsService,
+		@IVibeVerifyGateService private readonly _verifyGateService: IVibeVerifyGateService,
 	) {
 		super();
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabIds: [] }; // default state
@@ -4906,6 +4915,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 		let interruptedWhenIdle = false;
 		const idleInterruptor = Promise.resolve(() => { interruptedWhenIdle = true; });
+		// VERIFY-GATE run state (declared before the first tool dispatch below). `didMutateThisRun` is the
+		// edit-guard: verify only runs if the turn actually changed files (a pure read/question run must not
+		// trigger a build). `verifyGateAttempts` counts enforce-mode bounces so an unfixable red halts after
+		// `maxAttempts` instead of looping. See docs/knowledge/runtimeQuirks/verifyGate.md.
+		let didMutateThisRun = false;
+		let verifyGateAttempts = 0;
+		const markIfMutating = (toolName: string): void => {
+			if (MUTATING_TOOL_NAMES.has(toolName.toLowerCase())) { didMutateThisRun = true; }
+		};
 		// _runToolCall does not need setStreamState({idle}) before it, but it needs it after it. (handles its own setStreamState)
 
 		// above just defines helpers, below starts the actual function
@@ -5112,6 +5130,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			}
 
 			const { interrupted } = await this._runToolCall(threadId, callThisToolFirst.name, callThisToolFirst.id, callThisToolFirst.mcpServerName, { preapproved: true, unvalidatedToolParams: callThisToolFirst.rawParams, validatedParams: callThisToolFirst.params });
+			markIfMutating(callThisToolFirst.name); // VERIFY-GATE edit-guard
 			if (interrupted) {
 				this._setStreamState(threadId, undefined);
 				await this._addUserCheckpoint({ threadId });
@@ -6776,6 +6795,45 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						reasoning: info.fullReasoning || '',
 						anthropicReasoning: info.anthropicReasoning ?? null,
 					});
+
+					// VERIFY-GATE: turn the "green tests before done" prompt instruction into a real gate.
+					// Only fires when the mode is on AND this run actually mutated files (edit-guard — a pure
+					// read/question run must not trigger a build). See docs/knowledge/runtimeQuirks/verifyGate.md.
+					const verifyMode = this._verifyGateService.getMode();
+					if (verifyMode !== 'off' && didMutateThisRun) {
+						const folders = this._workspaceContextService.getWorkspace().folders;
+						const cwd = folders.length ? folders[0]!.uri.fsPath : null;
+						const verify = await this._verifyGateService.runVerify(cwd);
+						const maxAttempts = this._verifyGateService.getMaxAttempts();
+						const decision = decideVerifyGate({
+							mode: verifyMode,
+							verified: verify !== null,
+							passed: verify?.passed ?? false,
+							attemptsUsed: verifyGateAttempts,
+							maxAttempts,
+						});
+						if (decision === 'bounce' && verify) {
+							verifyGateAttempts += 1;
+							const corrective = `⛔ VERIFY-GATE: команда «${verify.command}» завершилась с ошибкой (exit ${verify.exitCode ?? 'timeout'}). Задача НЕ считается выполненной — не вызывай vibe_complete, пока не станет зелёно. Исправь причину и продолжай работу инструментами (попытка ${verifyGateAttempts} из ${maxAttempts}).\n\nВывод команды:\n${verify.output}`;
+							this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
+							shouldSendAnotherMessage = true;
+							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+							continue;
+						}
+						if (decision === 'stop' && verify) {
+							const note = `⛔ VERIFY-GATE: верификация всё ещё падает после ${verifyGateAttempts} попыток (команда «${verify.command}», exit ${verify.exitCode ?? 'timeout'}). Прогон остановлен — доработай вручную.\n\nВывод команды:\n${verify.output}`;
+							this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+							this._finalizePlanIfComplete(threadId);
+							this._setStreamState(threadId, { isRunning: undefined });
+							return;
+						}
+						if (decision === 'warn-complete' && verify) {
+							const note = `⚠️ VERIFY-GATE (режим предупреждения): команда «${verify.command}» завершилась с ошибкой (exit ${verify.exitCode ?? 'timeout'}), но ход завершён. Проверь результат.\n\nВывод команды:\n${verify.output}`;
+							this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+						}
+						// decision === 'complete' → gate inert / verify passed: fall through to normal completion.
+					}
+
 					// Run-end via explicit completion: finalize the plan (status/lease/.plan.md) so an
 					// executing plan doesn't stay stuck after the model declares done.
 					this._finalizePlanIfComplete(threadId);
@@ -6967,6 +7025,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 									mcpTool?.mcpServerName,
 									{ preapproved: false, unvalidatedToolParams: toolParams }
 								);
+								markIfMutating(toolName); // VERIFY-GATE edit-guard
 
 								if (interrupted) {
 									this._setStreamState(threadId, undefined);
@@ -7171,6 +7230,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								mcpTool?.mcpServerName,
 								{ preapproved: false, unvalidatedToolParams: toolParams }
 							);
+							markIfMutating(toolName); // VERIFY-GATE edit-guard
 
 							if (interrupted) {
 								this._setStreamState(threadId, undefined);
@@ -7339,6 +7399,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					}
 
 					const { awaitingUserApproval, interrupted } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams });
+				markIfMutating(toolCall.name); // VERIFY-GATE edit-guard
 
 					// Tool-call resilience post-dispatch logic (roadmap O.1–O.7):
 					//   - Increment per-(provider×model) counter on tool_error/invalid_params,

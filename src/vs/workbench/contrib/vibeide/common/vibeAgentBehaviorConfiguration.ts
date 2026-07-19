@@ -48,6 +48,36 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: 'npm test',
 			description: localize('vibeide.agent.runTestsAfterApply.command', 'Shell-команда для прогона тестов (используется только когда `runTestsAfterApply.enabled = true`). Должна быть быстрой (≤30s), иначе блокирует следующий agent step. Пример: `npm test -- --bail` для остановки на первой ошибке.'),
 		},
+		'vibeide.agent.verifyGate.mode': {
+			type: 'string',
+			enum: ['off', 'warn', 'enforce'],
+			enumDescriptions: [
+				localize('vibeide.agent.verifyGate.mode.off', 'Выкл (дефолт) — завершение хода `vibe_complete` ничем не проверяется; сборку/тесты гоняет только модель по инструкции промпта.'),
+				localize('vibeide.agent.verifyGate.mode.warn', 'Предупреждать — при завершении прогнать verify-команду; при красном результате добавить заметку в чат, но ХОД ВСЁ РАВНО завершается. Мягкий контроль без блокировки.'),
+				localize('vibeide.agent.verifyGate.mode.enforce', 'Принуждать — при завершении прогнать verify-команду; красный результат НЕ закрывает задачу: агент получает вывод ошибки и обязан исправить (до `verifyGate.maxAttempts` возвратов, затем прогон останавливается и отдаётся тебе).'),
+			],
+			default: 'off',
+			description: localize('vibeide.agent.verifyGate.mode', 'VERIFY-GATE: реальная проверка сборки/тестов при завершении агентского хода (вызов `vibe_complete`), а не только инструкция в промпте. Гейт активен только при непустом `verifyGate.command` И если ход реально менял файлы (чистое чтение/вопрос не гоняет сборку). Дефолт `off`, чтобы не тормозить быстрые правки — включайте `enforce` для строгой дисциплины «не done, пока не зелёно».'),
+		},
+		'vibeide.agent.verifyGate.command': {
+			type: 'string',
+			default: '',
+			description: localize('vibeide.agent.verifyGate.command', 'Shell-команда верификации для VERIFY-GATE (тесты + сборка + линт), запускается в корне рабочей области при завершении хода. Пусто = гейт инертен (проверять нечем). Exit-код 0 = зелёно, иначе красно. Отличается от `runTestsAfterApply.command` (быстрый фидбэк после каждого apply) — здесь полная проверка перед закрытием задачи. Пример: `npm run verify`.'),
+		},
+		'vibeide.agent.verifyGate.maxAttempts': {
+			type: 'number',
+			default: 3,
+			minimum: 1,
+			maximum: 10,
+			description: localize('vibeide.agent.verifyGate.maxAttempts', 'Сколько раз VERIFY-GATE в режиме `enforce` вернёт агента на доработку при красной verify-команде, прежде чем ОСТАНОВИТЬ прогон и отдать управление пользователю (защита от бесконечного цикла на неустранимой ошибке). Диапазон 1–10, дефолт 3.'),
+		},
+		'vibeide.agent.verifyGate.timeoutMs': {
+			type: 'number',
+			default: 300000,
+			minimum: 5000,
+			maximum: 1800000,
+			description: localize('vibeide.agent.verifyGate.timeoutMs', 'Таймаут verify-команды VERIFY-GATE в миллисекундах. Verify обычно тяжелее быстрых post-apply тестов (сборка + полный прогон), поэтому лимит выше. По истечении команда прерывается и трактуется как непройденная. Диапазон 5000–1800000, дефолт 300000 (5 мин).'),
+		},
 		'vibeide.agent.allowReadOutsideWorkspace': {
 			type: 'boolean',
 			default: true,

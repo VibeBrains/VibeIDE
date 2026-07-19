@@ -47,5 +47,7 @@ export interface TransportDiagnostics {
 	/** how long the current pool has been reused, ms */
 	readonly ageMs: number;
 	readonly initialized: boolean;
+	/** Active LLM proxy for outbound traffic (`vibeide.llm.proxy.url`), credentials stripped; undefined = direct. */
+	readonly proxy: string | undefined;
 }
 

@@ -73,6 +73,7 @@ export interface AuditEvent {
 	| 'provider_failover_switch'
 	| 'job_pr_creation'
 	| 'run_tests:start' | 'run_tests:complete'
+	| 'verify_gate:result'
 	| 'project_command:start' | 'project_command:complete' | 'project_command:trust_granted' | 'project_command:trust_revoked';
 	files?: string[];
 	diffStats?: { linesAdded: number; linesRemoved: number; hunks: number };

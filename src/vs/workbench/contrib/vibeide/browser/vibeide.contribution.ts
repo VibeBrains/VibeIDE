@@ -323,6 +323,9 @@ import '../common/vibeThinkingOutLoudService.js';
 // VibeIDE: Run tests after apply hook
 import './vibeRunTestsAfterApplyService.js';
 
+// VibeIDE: VERIFY-GATE — enforced verify (build/tests) on agent completion
+import './vibeVerifyGateService.js';
+
 // VibeIDE: Profiles service (.vibe/profiles/)
 import '../common/vibeProfilesService.js';
 
@@ -556,6 +559,9 @@ import './vibeProviderDiagnosticsContribution.js';
 
 // VibeIDE: status-bar wrench — one-click «починить связь с провайдерами» (reset transport)
 import './vibeProviderFixStatusBar.js';
+
+// VibeIDE: status-bar indicator «AI → прокси» — shown only when `vibeide.llm.proxy.url` is set
+import './vibeProviderProxyStatusBar.js';
 
 // VibeIDE: «Обновить/Показать окружение из релиза» — сверка `.vibe` с дефолтами релиза
 import './vibeDefaultsContribution.js';

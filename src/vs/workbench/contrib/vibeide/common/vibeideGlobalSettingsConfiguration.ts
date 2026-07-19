@@ -619,6 +619,12 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.llm.toolFallbackMode.description', 'Стратегия выбора tool-call формата для неизвестных моделей через OpenAI-compatible aggregator (OpenRouter, OpenCode Zen/Go, LM Router, LiteLLM, openAICompatible, Pollinations). **auto** — стартовать с native, авто-переключение на XML при quirk-ошибках. **native** — всегда native, игнор авто-override\'ов. **xml** — всегда XML. Известные модели (Claude/GPT/Gemini/Grok/DeepSeek/Llama/Qwen и пр.) — не затрагиваются (используют формат из каталога). Заменяет `vibeide.llm.assumeNativeTools` (deprecated: true=auto, false=xml).'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.llm.proxy.url': {
+					type: 'string',
+					default: '',
+					markdownDescription: localize('vibeide.llm.proxy.url', 'Прокси для **всего** трафика к AI-провайдерам — способ дотянуться до гео-заблокированных API моделей (Anthropic, OpenAI и др.) через зарубежный exit-узел. Пусто — прямое соединение (по умолчанию).\n\nПоддерживаемые схемы: `http://`, `https://`, `socks5://`, `socks5h://`, `socks4://`. Авторизация — прямо в URL: `socks5://user:pass@host:port`. Для `socks5`/`socks5h` имя хоста резолвит прокси (обход DNS-блокировок).\n\nПрокси-сервер (напр. локальный SOCKS от xray/sing-box/nekoray) поднимается **вне IDE** — здесь указывается только адрес. Применяется ко всем провайдерам и обоим кодопутям отправки; смена настройки подхватывается без перезапуска. Не затрагивает `http.proxy` (обновления, маркетплейс) — это отдельный канал.\n\nПример: `socks5://127.0.0.1:1080` или `http://127.0.0.1:8080`.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 			},
 		});
 

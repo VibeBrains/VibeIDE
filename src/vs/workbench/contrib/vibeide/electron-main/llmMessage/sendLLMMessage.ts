@@ -11,6 +11,7 @@ import { displayInfoOfProviderName, FeatureName, providerNames } from '../../com
 import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo } from '../../common/modelCapabilities.js';
 import { traceSendEvent } from '../../common/llmSendTrace.js';
 import { sendLLMMessageToProviderImplementation, dynamicProviderImplementation } from './sendLLMMessage.impl.js';
+import { setLLMProxyConfig } from './systemCAFetch.js';
 
 /**
  * Register dynamic providers (.vibe/providers.json) into THIS process's caps registry. The renderer's
@@ -59,6 +60,10 @@ export const sendLLMMessage = async ({
 	// Sync dynamic providers into this process's caps registry before any getModelCapabilities call.
 	syncExternalProvidersFromSettings(settingsOfProvider);
 	traceSendEvent({ kind: 'providers-sync', providerName, modelName });
+
+	// Apply the outbound proxy (if any) to the shared undici dispatcher BEFORE any provider client is
+	// created — one chokepoint covers every provider and both send paths. No-op when unchanged.
+	setLLMProxyConfig(runtimeOptions?.proxyUrl);
 
 	// only captures number of messages and message "shape", no actual code, instructions, prompts, etc
 	const captureLLMEvent = (eventId: string, extras?: object) => {

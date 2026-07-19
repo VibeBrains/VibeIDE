@@ -276,6 +276,11 @@ export type LLMRuntimeOptions = {
 	 * calling `vibe_complete`). No effect in XML-fallback mode (no native `tools` are sent).
 	 * Default off. See `vibeide.agent.forceToolUseOnNudge`. */
 	forceToolUse?: boolean;
+	/** Outbound proxy URL for ALL LLM traffic (reach geo-blocked provider APIs through a foreign exit).
+	 * Schemes: `http`/`https`/`socks5`/`socks5h`/`socks4`; auth may be embedded (`socks5://user:pass@host:port`).
+	 * Empty/undefined = direct connection. Applied process-wide in electron-main to the shared undici
+	 * dispatcher (covers every provider + both send code paths). See `vibeide.llm.proxy.url`. */
+	proxyUrl?: string;
 };
 
 // params to the true sendLLMMessage function
