@@ -40,7 +40,12 @@ suite('vibeVideoTools', () => {
 	test('resolveVideoToolPaths joins root, version dir and file names', () => {
 		const archive = videoToolsArchiveForPlatform('darwin', 'arm64')!;
 		const paths = resolveVideoToolPaths('/data/video-tools', archive);
-		assert.deepStrictEqual(paths, {
+		// `join` uses the host separator (backslash on Windows) — normalize before comparing so the
+		// readable forward-slash expectation holds on every platform.
+		assert.deepStrictEqual({
+			ffmpeg: paths.ffmpeg.replace(/\\/g, '/'),
+			ytDlp: paths.ytDlp.replace(/\\/g, '/'),
+		}, {
 			ffmpeg: '/data/video-tools/v1/ffmpeg',
 			ytDlp: '/data/video-tools/v1/yt-dlp',
 		});

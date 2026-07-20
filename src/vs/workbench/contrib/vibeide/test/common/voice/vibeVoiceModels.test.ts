@@ -9,6 +9,19 @@ import { resolveVoiceBatchOfflinePaths, resolveVoiceProfile, resolveVoiceSession
 import { VOICE_PROFILE_IDS } from '../../../common/voice/vibeVoiceTypes.js';
 import { clampVoiceEndpointSilenceMs, clampVoiceKeepAliveSec, resolveVoiceEnglishBatchTier, resolveVoiceThreads, VOICE_ENDPOINT_SILENCE_DEFAULT_MS, VOICE_KEEP_ALIVE_DEFAULT_SEC } from '../../../common/voice/vibeVoiceConfiguration.js';
 
+/**
+ * `join` (from base/common/path) uses the host separator — backslash on Windows. Deep-normalize
+ * every string to forward slashes so the readable `/root/...` expectations below hold on all platforms.
+ */
+function slashDeep<T>(v: T): T {
+	if (typeof v === 'string') { return v.replace(/\\/g, '/') as unknown as T; }
+	if (Array.isArray(v)) { return v.map(slashDeep) as unknown as T; }
+	if (v && typeof v === 'object') {
+		return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, slashDeep(x)])) as T;
+	}
+	return v;
+}
+
 suite('Voice input — model catalog', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -27,17 +40,17 @@ suite('Voice input — model catalog', () => {
 	});
 
 	test('batch model: ru reuses gigaam, en picks the configured tier', () => {
-		assert.deepStrictEqual(resolveVoiceBatchOfflinePaths('/root', 'ru', 'small'), {
+		assert.deepStrictEqual(slashDeep(resolveVoiceBatchOfflinePaths('/root', 'ru', 'small')), {
 			kind: 'nemo-ctc',
 			model: '/root/sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16/model.int8.onnx',
 			tokens: '/root/sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16/tokens.txt',
 		});
 		assert.deepStrictEqual(
-			[resolveVoiceBatchOfflinePaths('/root', 'en', 'small').model, resolveVoiceBatchOfflinePaths('/root', 'en', 'medium').model],
+			slashDeep([resolveVoiceBatchOfflinePaths('/root', 'en', 'small').model, resolveVoiceBatchOfflinePaths('/root', 'en', 'medium').model]),
 			['/root/sherpa-onnx-nemo-ctc-en-conformer-small/model.int8.onnx', '/root/sherpa-onnx-nemo-ctc-en-conformer-medium/model.int8.onnx'],
 		);
 		// ru batch reuses a file already in the dictation bundle → no extra download.
-		assert.deepStrictEqual(voiceBatchRequiredFilesForProfile('ru', 'small'), [
+		assert.deepStrictEqual(slashDeep(voiceBatchRequiredFilesForProfile('ru', 'small')), [
 			'sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16/model.int8.onnx',
 			'sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16/tokens.txt',
 		]);
@@ -57,7 +70,7 @@ suite('Voice input — model catalog', () => {
 
 	test('ru profile is the hybrid: streaming t-one + offline gigaam', () => {
 		const paths = resolveVoiceSessionModelPaths('/root', 'ru');
-		assert.deepStrictEqual(paths, {
+		assert.deepStrictEqual(slashDeep(paths), {
 			streaming: {
 				kind: 'tone-ctc',
 				model: '/root/sherpa-onnx-streaming-t-one-russian-2025-09-08/model.onnx',
@@ -78,13 +91,13 @@ suite('Voice input — model catalog', () => {
 	});
 
 	test('required files cover exactly the resolved model paths', () => {
-		assert.deepStrictEqual(voiceRequiredFilesForProfile('ru'), [
+		assert.deepStrictEqual(slashDeep(voiceRequiredFilesForProfile('ru')), [
 			'sherpa-onnx-streaming-t-one-russian-2025-09-08/model.onnx',
 			'sherpa-onnx-streaming-t-one-russian-2025-09-08/tokens.txt',
 			'sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16/model.int8.onnx',
 			'sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16/tokens.txt',
 		]);
-		assert.deepStrictEqual(voiceRequiredFilesForProfile('en'), [
+		assert.deepStrictEqual(slashDeep(voiceRequiredFilesForProfile('en')), [
 			'sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms-int8/encoder.int8.onnx',
 			'sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms-int8/decoder.int8.onnx',
 			'sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms-int8/joiner.int8.onnx',

@@ -1,20 +1,11 @@
 name: Checking Component Screenshots
 
+# Disabled for the VibeIDE fork: this job diffs rendered component screenshots against the upstream
+# vscode team's external baseline service (hediet-screenshots.azurewebsites.net), which the fork is
+# not authorized against (HTTP 403). It can never pass here, so it is not run automatically on
+# push/PR — only manually via workflow_dispatch (e.g. to render screenshots as artifacts locally).
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - 'media/**'
-  pull_request:
-    branches:
-      - main
-      - 'release/*'
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - 'media/**'
+  workflow_dispatch:
 
 permissions:
   contents: read
