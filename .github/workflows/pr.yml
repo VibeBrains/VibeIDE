@@ -85,7 +85,10 @@ jobs:
         working-directory: build
 
       - name: Compile & Hygiene
-        run: npm exec -- npm-run-all2 -lp core-ci hygiene eslint valid-layers-check define-class-fields-check vscode-dts-compile-check tsec-compile-check test-build-scripts
+        # --max-parallel 2: hosted ubuntu-22.04 is 2 vCPU / 7 GB. Running all 8 heavy TS-compile/lint
+        # tasks at once OOM'd the runner ("lost communication with the server"). Cap concurrency to the
+        # core count — same wall-clock (CPU-bound), far lower peak memory. See roadmap / FORK_CHANGES.
+        run: npm exec -- npm-run-all2 -lp --max-parallel 2 core-ci hygiene eslint valid-layers-check define-class-fields-check vscode-dts-compile-check tsec-compile-check test-build-scripts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
