@@ -18,6 +18,65 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 
 		const registry = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration);
 
+		// Trust Score — read AND written (updateValue) from vibeCommands / status bar; must be
+		// registered so the write persists reliably and the value shows in Settings UI.
+		registry.registerConfiguration({
+			id: 'vibeide.trustScore',
+			title: localize('vibeide.trustScore.title', 'VibeIDE — Уровень доверия агенту'),
+			type: 'object',
+			properties: {
+				'vibeide.trustScore.level': {
+					type: 'string',
+					enum: ['manual', 'supervised', 'auto'],
+					enumDescriptions: [
+						localize('vibeide.trustScore.level.manual', 'Ручной — каждое действие агента (запись файла, команда, сеть) требует подтверждения.'),
+						localize('vibeide.trustScore.level.supervised', 'Под наблюдением — авто-подтверждение по таймауту (можно вмешаться).'),
+						localize('vibeide.trustScore.level.auto', 'Авто — действия подтверждаются сразу, без запроса.'),
+					],
+					default: 'manual',
+					description: localize('vibeide.trustScore.level', 'Уровень доверия агенту: сколько подтверждений он запрашивает перед действиями. Переключается пилюлей в статус-баре и командами «VibeIDE: Trust Score».'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+			},
+		});
+
+		// Privacy strict mode — consumed by outbound allowlist / FIM provider guard / proxy service.
+		registry.registerConfiguration({
+			id: 'vibeide.privacy',
+			title: localize('vibeide.privacy.title', 'VibeIDE — Приватность'),
+			type: 'object',
+			properties: {
+				'vibeide.privacy.strict': {
+					type: 'boolean',
+					default: false,
+					description: localize('vibeide.privacy.strict', 'Строгий режим приватности: блокирует любые исходящие HTTP/HTTPS-запросы вне доверенного allowlist и разрешает только локальных LLM-провайдеров (в т.ч. для FIM-автодополнения). Off по умолчанию.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+			},
+		});
+
+		// Git / job-PR — repo slug + base branch for background-job PR creation. The GitHub TOKEN is
+		// intentionally NOT here: it lives in OS-encrypted secret storage (команда «Задать GitHub-токен для job-PR»).
+		registry.registerConfiguration({
+			id: 'vibeide.git',
+			title: localize('vibeide.git.title', 'VibeIDE — Git / автоматические PR'),
+			type: 'object',
+			properties: {
+				'vibeide.git.repoSlug': {
+					type: 'string',
+					default: '',
+					description: localize('vibeide.git.repoSlug', 'Репозиторий в формате `owner/repo` для создания PR фоновыми задачами. Пусто — авто-создание PR отключено.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.git.defaultBranch': {
+					type: 'string',
+					default: 'main',
+					description: localize('vibeide.git.defaultBranch', 'Базовая ветка для PR, создаваемых фоновыми задачами. По умолчанию `main`.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+			},
+		});
+
 		registry.registerConfiguration({
 			id: 'vibeide.skills',
 			title: localize('vibeide.skills.title', 'VibeIDE — Agent Skills'),
