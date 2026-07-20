@@ -97,6 +97,72 @@ function saveStylesFile() {
 	}, 6000);
 }
 
+/*
+Emit lightweight `.d.ts` declarations next to each `out/<entry>/index.js` bundle.
+
+Why: the workbench TypeScript sources import these bundles (e.g. `mountSidebar` from
+`./react/out/sidebar-tsx/index.js`). `react/**` is excluded from `src/tsconfig.json`, and no
+declarations are shipped, so with `allowJs` the type-checker (tsgo) has to parse each multi-MB
+minified bundle to recover its exports. That parse is memory-hungry and, on memory-constrained CI
+runners, degrades to "has no exported member" failures. Tiny hand-generated declarations make the
+imports resolve against stable, cheap files instead of the bundle — no bundle parsing, no OOM.
+
+The declarations are derived from the entry `src/<entry>/index.tsx` sources, so they never drift
+from the actual exports: every `mountX = mountFnGenerator(...)` becomes a `VibeReactMountFn`, and any
+plain `export { ... }` re-export is forwarded to its original module (which ships its own types).
+*/
+function generateDeclarations() {
+	const srcDir = path.join(__dirname, 'src');
+	const outDir = path.join(__dirname, 'out');
+
+	// Shared mount signature — mirrors the return type of `util/mountFnGenerator`.
+	const mountTypeHeader = [
+		"import type { ServicesAccessor } from '../../../../../../../editor/browser/editorExtensions.js';",
+		'type VibeReactMountResult = { rerender: (props?: any) => void; dispose: () => void };',
+		'type VibeReactMountFn = (rootElement: HTMLElement, accessor: ServicesAccessor, props?: any) => VibeReactMountResult | undefined;',
+	].join('\n');
+
+	for (const entry of fs.readdirSync(outDir, { withFileTypes: true })) {
+		if (!entry.isDirectory()) {
+			continue;
+		}
+		const indexTsx = path.join(srcDir, entry.name, 'index.tsx');
+		const bundleJs = path.join(outDir, entry.name, 'index.js');
+		if (!fs.existsSync(indexTsx) || !fs.existsSync(bundleJs)) {
+			continue;
+		}
+
+		const source = fs.readFileSync(indexTsx, 'utf8');
+		const mountNames = [...source.matchAll(/export\s+const\s+(\w+)\s*=\s*mountFnGenerator\(/g)].map(m => m[1]);
+
+		// Forward plain re-exports (e.g. `export { diffLines, Change };`) to their source module,
+		// which supplies its own declarations.
+		const reexports = [];
+		for (const match of source.matchAll(/export\s*\{([^}]+)\}\s*;/g)) {
+			const names = match[1].split(',').map(n => n.trim()).filter(Boolean);
+			for (const name of names) {
+				const importMatch = source.match(new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*'([^']+)'`));
+				if (importMatch) {
+					reexports.push(`export { ${name} } from '${importMatch[1]}';`);
+				}
+			}
+		}
+
+		if (mountNames.length === 0 && reexports.length === 0) {
+			continue;
+		}
+
+		const lines = [];
+		if (mountNames.length > 0) {
+			lines.push(mountTypeHeader);
+			lines.push(...mountNames.map(name => `export declare const ${name}: VibeReactMountFn;`));
+		}
+		lines.push(...reexports);
+
+		fs.writeFileSync(path.join(outDir, entry.name, 'index.d.ts'), lines.join('\n') + '\n', 'utf8');
+	}
+}
+
 const args = process.argv.slice(2);
 const isWatch = args.includes('--watch') || args.includes('-w');
 
@@ -146,6 +212,14 @@ if (isWatch) {
 	// Handle tsup watcher output
 	tsupWatcher.stdout.on('data', (data) => {
 		console.log(`[tsup] ${data}`);
+		// Refresh `.d.ts` shims after each successful rebuild so exports stay in sync.
+		if (data.toString().includes('Build success')) {
+			try {
+				generateDeclarations();
+			} catch (err) {
+				console.error('[dts] Error generating declarations:', err);
+			}
+		}
 	});
 
 	tsupWatcher.stderr.on('data', (data) => {
@@ -169,6 +243,9 @@ if (isWatch) {
 
 	// Run tsup once
 	execSync('npx tsup', { stdio: 'inherit' });
+
+	// Emit `.d.ts` shims so the workbench compile resolves against them, not the bundles.
+	generateDeclarations();
 
 	console.log('✅ Build complete!');
 }

@@ -116,6 +116,7 @@
 | [buildFromSource.md](build/buildFromSource.md) | `home-build.*`: самосборка портатива под свою ОС одной командой, self-contained bootstrap (fnm+Node+deps) + гейт намерений |
 | [portableAndElectron.md](build/portableAndElectron.md) | Portable Windows ZIP, Electron mirror, Linux CI X11 |
 | [compileAndSync.md](build/compileAndSync.md) | `tsgo` exit 2, sync без общего предка, `run-dev` / `vibe-dev` runner |
+| [reactBundleDeclarations.md](build/reactBundleDeclarations.md) | `.d.ts`-шимы у React-бандлов: почему `core-ci`/`tsgo` в CI падал на `no exported member 'mount*'` (OOM-разбор 2 МБ бандла на стеснённом раннере) и как кодоген деклараций из `index.tsx` это чинит |
 | [updateService.md](build/updateService.md) | GitHub releases + `IUpdateService`, semver сравнение |
 | [vibeKeybindings.md](build/vibeKeybindings.md) | Встроенный IntelliJ-keymap `extensions/vibe-keybindings/`; модель владения keymap + история |
 | [thirdPartyLicensing.md](build/thirdPartyLicensing.md) | Провенанс-флажок ДО сборки/релиза: сторонний код = поднять лицензию явно, не доводить молча до релиза |
