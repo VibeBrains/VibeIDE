@@ -61,6 +61,12 @@ export function decodeCommunityCatalogUrl(raw: unknown): CommunityCatalogUrlResu
 	if (!trimmed.toLowerCase().startsWith('https://')) {
 		return { kind: 'invalid', reason: 'not-https' };
 	}
+	// Reject any embedded whitespace up front: a real URL has none, and `new URL()` disagrees across
+	// environments on inputs like "https:// not a url" (Node throws, the browser WHATWG parser accepts
+	// it) — so validate it ourselves for a deterministic result.
+	if (/\s/.test(trimmed)) {
+		return { kind: 'invalid', reason: 'malformed' };
+	}
 	let parsed: URL;
 	try {
 		parsed = new URL(trimmed);
