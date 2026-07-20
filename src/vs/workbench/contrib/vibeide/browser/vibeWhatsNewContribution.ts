@@ -13,6 +13,7 @@
  * State lives in `IStorageService` (APPLICATION scope → per-install, survives workspace switches).
  */
 
+import { localize } from '../../../../nls.js';
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
@@ -50,7 +51,7 @@ export class VibeWhatsNewContribution extends Disposable implements IWorkbenchCo
 			if (acknowledged === version) { return; }
 
 			const result = await this.modalService.showModal({
-				title: `Что нового в VibeIDE ${version}`,
+				title: localize('vibeide.whatsNew.title', 'Что нового в VibeIDE {0}', version),
 				body,
 				bodyMarkdown: true,
 				size: 'large',

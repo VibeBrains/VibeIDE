@@ -240,7 +240,7 @@ registerAction2(class extends Action2 {
 		const token = await quickInput.input({
 			prompt: localize('vibeide.git.setToken.prompt', 'GitHub-токен для создания PR фоновыми задачами. Хранится в зашифрованном хранилище ОС (Keychain/DPAPI/libsecret), не в settings.json. Оставьте пустым, чтобы удалить.'),
 			password: true,
-			placeHolder: 'ghp_… / github_pat_…',
+			placeHolder: localize('vibeide.git.setToken.placeholder', 'ghp_… / github_pat_…'),
 		});
 		if (token === undefined) { return; } // отменено
 		if (token.trim() === '') {

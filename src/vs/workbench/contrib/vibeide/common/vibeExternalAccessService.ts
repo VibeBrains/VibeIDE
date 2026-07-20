@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 
+import { localize } from '../../../../nls.js';
 import { URI } from '../../../../base/common/uri.js';
 import { isWindows } from '../../../../base/common/platform.js';
 import { dirname } from '../../../../base/common/resources.js';
@@ -123,7 +124,7 @@ export class VibeExternalAccessService extends Disposable implements IVibeExtern
 		const existing = this._inflight.get(key);
 		if (existing) { return existing; }
 		const prompt = this._modal.showModal<'session' | 'workspace' | 'deny'>({
-			title: 'Доступ вне рабочей области',
+			title: localize('vibeide.externalAccess.title', 'Доступ вне рабочей области'),
 			body: `Агент запрашивает доступ к файлу вне рабочей области:\n\n${uri.fsPath}\n\nРазрешить доступ к папке «${folder.fsPath}»?`,
 			icon: 'warning',
 			size: 'medium',
