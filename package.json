@@ -349,6 +349,7 @@
       "node-addon-api": "7.1.0"
     },
     "serialize-javascript": "^7.0.3",
+    "shell-quote": "^1.8.4",
     "ssh2": {
       "cpu-features": "0.0.0"
     },
