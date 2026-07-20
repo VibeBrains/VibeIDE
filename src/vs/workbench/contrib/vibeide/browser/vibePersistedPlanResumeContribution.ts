@@ -6,6 +6,7 @@
 
 import { vibeLog } from '../common/vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { disposableTimeout } from '../../../../base/common/async.js';
 import { localize } from '../../../../nls.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -71,7 +72,7 @@ export class VibePersistedPlanResumeContribution extends Disposable implements I
 	) {
 		super();
 		// Delay so all services are fully initialised and thread state is loaded from storage
-		setTimeout(() => this._checkForInterruptedPlans(), 2500);
+		this._register(disposableTimeout(() => this._checkForInterruptedPlans(), 2500));
 	}
 
 	private async _checkForInterruptedPlans(): Promise<void> {

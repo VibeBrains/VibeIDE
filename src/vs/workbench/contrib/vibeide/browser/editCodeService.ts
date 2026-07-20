@@ -1119,6 +1119,8 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		const overlappingCtrlKZone = this._findOverlappingDiffArea({ startLine, endLine, uri, filter: (diffArea) => diffArea.type === 'CtrlKZone' });
 		if (overlappingCtrlKZone) {
 			editor.revealLine(overlappingCtrlKZone.startLine); // important
+			// @timer-audit-ok: one-shot UI focus in a repeatedly-called method; optional-chained so a
+			// late fire on a torn-down zone is a harmless no-op, and per-call registration would leak.
 			setTimeout(() => (overlappingCtrlKZone as CtrlKZone)._mountInfo?.textAreaRef.current?.focus(), 100);
 			return;
 		}

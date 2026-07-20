@@ -5,6 +5,7 @@
 
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { disposableTimeout } from '../../../../base/common/async.js';
 import { localize } from '../../../../nls.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -38,7 +39,7 @@ export class VibeFirstRunWizardContribution extends Disposable implements IWorkb
 		super();
 
 		// Run after workbench is fully restored (non-blocking)
-		setTimeout(() => this._checkFirstRun(), 2000);
+		this._register(disposableTimeout(() => this._checkFirstRun(), 2000));
 	}
 
 	private _checkFirstRun(): void {
@@ -87,7 +88,7 @@ export class VibeFirstRunWizardContribution extends Disposable implements IWorkb
 		this._commandService.executeCommand('workbench.action.openSettings', 'vibeide').catch(() => { });
 
 		// Show quick setup notifications
-		setTimeout(() => {
+		this._register(disposableTimeout(() => {
 			this._notificationService.notify({
 				severity: Severity.Info,
 				message: localize(
@@ -95,7 +96,7 @@ export class VibeFirstRunWizardContribution extends Disposable implements IWorkb
 					'Параметры по умолчанию VibeIDE: 🟢 Trust Score «Manual», 💰 лимит токенов 500k (~$20), 🔒 изоляция воркспейса включена. Изменить — в «Настройки → VibeIDE».'
 				),
 			});
-		}, 500);
+		}, 500));
 
 		this._markCompleted();
 	}

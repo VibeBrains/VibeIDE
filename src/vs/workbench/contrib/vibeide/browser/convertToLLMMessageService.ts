@@ -1579,6 +1579,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			return;
 		}
 		// Safety timeout — don't leave a pending key forever if the provider stalls.
+		// @timer-audit-ok: fire-and-forget in a per-request method; the callback only prunes a Map
+		// entry, so registering a disposable per request would accumulate faster than it helps.
 		const rid = requestId;
 		setTimeout(() => {
 			if (this._historySummaryPending.has(headKey)) {
