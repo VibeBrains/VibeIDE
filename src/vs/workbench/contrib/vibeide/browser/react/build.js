@@ -117,7 +117,7 @@ function generateDeclarations() {
 
 	// Shared mount signature — mirrors the return type of `util/mountFnGenerator`.
 	const mountTypeHeader = [
-		"import type { ServicesAccessor } from '../../../../../../../editor/browser/editorExtensions.js';",
+		`import type { ServicesAccessor } from '../../../../../../../editor/browser/editorExtensions.js';`,
 		'type VibeReactMountResult = { rerender: (props?: any) => void; dispose: () => void };',
 		'type VibeReactMountFn = (rootElement: HTMLElement, accessor: ServicesAccessor, props?: any) => VibeReactMountResult | undefined;',
 	].join('\n');

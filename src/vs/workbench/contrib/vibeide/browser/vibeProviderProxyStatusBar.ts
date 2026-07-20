@@ -97,7 +97,7 @@ export class VibeProviderProxyStatusBarContribution extends Disposable implement
 	private _entryProps(proxy: string): IStatusbarEntry {
 		return {
 			name: localize('vibeide.llm.proxy.sb.name', 'VibeIDE: прокси AI-провайдеров'),
-			text: localize('vibeide.llm.proxy.sb.text', '$(globe) AI → прокси'),
+			text: `$(globe) ${localize('vibeide.llm.proxy.sb.text', 'AI → прокси')}`,
 			ariaLabel: localize('vibeide.llm.proxy.sb.aria', 'AI-трафик идёт через прокси'),
 			tooltip: this._tooltip(proxy),
 			command: VIBEIDE_OPEN_PROXY_SETTINGS_CMD,

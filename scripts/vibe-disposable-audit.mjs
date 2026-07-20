@@ -108,7 +108,7 @@ for (const file of walk(root)) {
 		// Skip comment-only lines and string-literal payloads (e.g. injected client JS): the timer
 		// is not a real call in this process.
 		const trimmed = raw.trim();
-		if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith("'") || trimmed.startsWith('"') || trimmed.startsWith('`')) { continue; }
+		if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('\'') || trimmed.startsWith('"') || trimmed.startsWith('`')) { continue; }
 		// Reviewed intentional timer.
 		if (isSuppressed(i, lines)) { continue; }
 		// Skip the provably-safe awaited-sleep idiom (bare `setTimeout(resolve, …)` and the
