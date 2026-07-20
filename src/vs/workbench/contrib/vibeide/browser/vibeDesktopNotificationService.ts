@@ -21,6 +21,7 @@
  */
 
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { localize } from '../../../../nls.js';
@@ -87,3 +88,20 @@ export interface IVibeDesktopNotificationService {
 	/** Dismiss any pending notification for a given event type (e.g. after user approves). */
 	dismissForType(type: ApprovalEventType): void;
 }
+
+// ── Browser (web) fallback ──────────────────────────────────────────────────────
+
+/**
+ * Web fallback: a workbench without the Electron main process cannot fire OS toasts, so every call is
+ * a no-op. The desktop implementation in `../electron-browser/vibeDesktopNotificationService.ts`
+ * registers the same decorator from the desktop entrypoint and — loading later — overrides this on
+ * desktop (same browser-default / electron-override pattern as core's `IHostService`).
+ */
+class BrowserVibeDesktopNotificationService implements IVibeDesktopNotificationService {
+	readonly _serviceBrand: undefined;
+	notifyApprovalNeeded(_notification: DesktopApprovalNotification): void { /* no OS toasts on web */ }
+	notifyForEvent(_event: NotifySoundEvent): void { /* no OS toasts on web */ }
+	dismissForType(_type: ApprovalEventType): void { /* nothing pending on web */ }
+}
+
+registerSingleton(IVibeDesktopNotificationService, BrowserVibeDesktopNotificationService, InstantiationType.Delayed);
