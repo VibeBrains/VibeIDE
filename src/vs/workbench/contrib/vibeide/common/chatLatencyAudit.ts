@@ -109,7 +109,7 @@ export class ChatLatencyAudit {
 	getContext(requestId: string): LatencyAuditContext | undefined {
 		return this.contexts.get(requestId);
 	}
-	private renderFrameInterval?: number;
+	private renderFrameInterval?: ReturnType<typeof setInterval>;
 	private readonly TARGET_FPS = 60;
 	private readonly FRAME_INTERVAL = 1000 / this.TARGET_FPS;
 
@@ -387,7 +387,7 @@ export class ChatLatencyAudit {
 	 * This interval only detects dropped frames, not actual renders
 	 */
 	private startRenderMonitoring(): void {
-		this.renderFrameInterval = window.setInterval(() => {
+		this.renderFrameInterval = setInterval(() => {
 			// Check all active contexts for dropped frames
 			for (const context of this.contexts.values()) {
 				if (context.firstTokenTime && !context.streamCompleteTime) {
@@ -580,15 +580,11 @@ interface IVibeidePerformanceAuditApi {
 	getReport: () => string;
 }
 
-declare global {
-	interface Window {
-		vibeidePerformanceAudit?: IVibeidePerformanceAuditApi;
-	}
-}
-
-// Expose performance audit functions globally for console access
-if (typeof window !== 'undefined') {
-	window.vibeidePerformanceAudit = {
+// Expose performance audit functions globally for console access (browser devtools). Attached via
+// globalThis with a narrow cast so this common-layer file needs no DOM `Window` type.
+const performanceAuditGlobal = globalThis as typeof globalThis & { vibeidePerformanceAudit?: IVibeidePerformanceAuditApi };
+{
+	performanceAuditGlobal.vibeidePerformanceAudit = {
 		printReport: (mode: 'auto' | 'single' = 'auto') => {
 			import('./performanceAudit.js').then(m => m.printPerformanceAuditReport(mode));
 		},

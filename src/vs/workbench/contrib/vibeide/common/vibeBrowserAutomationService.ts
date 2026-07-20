@@ -29,6 +29,18 @@ import { localize } from '../../../../nls.js';
 import { IAuditLogService } from './auditLogService.js';
 import { IVibeStealthModeService } from './vibeStealthModeService.js';
 
+/**
+ * Minimal shape of Node's `ChildProcess` used by `_spawnPlaywrightRunner`. Declared locally so this
+ * common-layer file needs no @types/node; the process is spawned only on Electron desktop.
+ */
+interface NodeSpawnedProcess {
+	stdout: { on(event: 'data', cb: (chunk: Uint8Array) => void): void };
+	stderr: { on(event: 'data', cb: (chunk: Uint8Array) => void): void };
+	stdin: { write(chunk: string): void; end(): void };
+	on(event: 'close', cb: () => void): void;
+	on(event: 'error', cb: (err: Error) => void): void;
+}
+
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
@@ -213,9 +225,13 @@ class VibeBrowserAutomationService extends Disposable implements IVibeBrowserAut
 
 	private async _spawnPlaywrightRunner(request: BrowserRunRequest, maxMs: number): Promise<BrowserRunResult> {
 		// Dynamic import so common/ stays vscode-free at import time; Electron desktop has Node.js.
-		const { spawn } = await import('child_process');
-		const path = await import('path');
-		const { fileURLToPath } = await import('url');
+		// `'x' as string` keeps each specifier a literal for the bundler (external node builtin) while
+		// TypeScript resolves the import to `any`, so no @types/node leaks into common/; `process` is
+		// reached via globalThis.
+		const { spawn } = await import('child_process' as string) as { spawn: (command: string, args: string[], opts: { stdio: string[] }) => NodeSpawnedProcess };
+		const path = await import('path' as string) as { join(...parts: string[]): string; dirname(p: string): string };
+		const { fileURLToPath } = await import('url' as string) as { fileURLToPath: (url: string) => string };
+		const nodeProcess = (globalThis as { process?: { execPath: string } }).process;
 
 		const runnerScript = path.join(
 			path.dirname(fileURLToPath(import.meta.url)),
@@ -224,14 +240,14 @@ class VibeBrowserAutomationService extends Disposable implements IVibeBrowserAut
 
 		return new Promise<BrowserRunResult>((resolve) => {
 			const payload = JSON.stringify({ script: null, startUrl: request.startUrl, maxMs });
-			const child = spawn(process.execPath, ['--experimental-vm-modules', runnerScript], {
+			const child = spawn(nodeProcess?.execPath ?? 'node', ['--experimental-vm-modules', runnerScript], {
 				stdio: ['pipe', 'pipe', 'pipe'],
 			});
 
 			let stdout = '';
 			let stderr = '';
-			child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
-			child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+			child.stdout.on('data', (d: Uint8Array) => { stdout += new TextDecoder().decode(d); });
+			child.stderr.on('data', (d: Uint8Array) => { stderr += new TextDecoder().decode(d); });
 			child.stdin.write(payload);
 			child.stdin.end();
 

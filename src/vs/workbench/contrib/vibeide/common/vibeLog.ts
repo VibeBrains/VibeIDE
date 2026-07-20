@@ -31,6 +31,7 @@
 
 import { vibeTraceTs } from './helpers/vibeTraceTs.js';
 import { logCategoryAllowed, resolveCategoryLevelWildcard } from './logCategoryMatch.js';
+import { env as processEnv } from '../../../../base/common/process.js';
 
 export enum VibeLogLevel {
 	Off = 0,
@@ -184,9 +185,7 @@ function emit(level: VibeLogLevel, category: string, args: readonly unknown[]): 
 }
 
 function applyEnvBaseline(): void {
-	let env: Record<string, string | undefined> | undefined;
-	try { env = (typeof process !== 'undefined' && process && process.env) ? process.env : undefined; } catch { env = undefined; }
-	if (!env) { return; }
+	const env: Record<string, string | undefined> = processEnv;
 	const raw = (env.VIBE_LOG ?? env.VIBE_LOG_LEVEL)?.trim().toLowerCase();
 	if (raw) {
 		if (['off', '0', 'false', 'none', 'no'].includes(raw)) { config.enabled = false; }

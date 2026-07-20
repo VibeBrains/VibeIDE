@@ -92,9 +92,12 @@ class VibeStructuredOutputService extends Disposable implements IVibeStructuredO
 		try {
 			// Output newline-delimited JSON (NDJSON)
 			const line = JSON.stringify(event);
-			// Use process.stdout if available (Electron main process or CLI)
-			if (typeof process !== 'undefined' && process.stdout) {
-				process.stdout.write(line + '\n');
+			// Use process.stdout if available (Electron main process or CLI). `process` is a Node
+			// global not present in browser/worker; reach it through globalThis with a narrow type so
+			// this common-layer file stays free of @types/node.
+			const nodeProcess = (globalThis as { process?: { stdout?: { write(chunk: string): void } } }).process;
+			if (nodeProcess?.stdout) {
+				nodeProcess.stdout.write(line + '\n');
 			} else {
 				vibeLog.info('StructuredOutput', `${line}`);
 			}

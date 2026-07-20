@@ -52,6 +52,16 @@ const RULES: IRule[] = [
 		disallowedTypes: [/* Ignore native types that are defined from here */],
 	},
 
+	// Common: browserElements proxy service. `NativeBrowserElementsService` lives in common but only
+	// references `IMainProcessService` to obtain an IPC channel (`ProxyChannel.toService`) — it never
+	// touches native APIs and is instantiated only in native contexts. Upstream ships it in common;
+	// the fork's stricter NATIVE_TYPES list (which added `IMainProcessService`) is what flags it, so
+	// exempt this one proxy file rather than relax the rule or edit upstream code for style.
+	{
+		target: '**/vs/platform/browserElements/common/nativeBrowserElementsService.ts',
+		disallowedTypes: [/* proxy service — see note above */],
+	},
+
 	// Common: vs/base/parts/sandbox/electron-browser/preload{,-aux}.ts
 	{
 		target: '**/vs/base/parts/sandbox/electron-browser/preload{,-aux}.ts',

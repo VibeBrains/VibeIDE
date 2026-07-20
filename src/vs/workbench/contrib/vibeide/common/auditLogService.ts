@@ -286,17 +286,21 @@ class AuditLogService extends Disposable implements IAuditLogService {
 			const content = await this._fileService.readFile(this._logPath);
 			const contentBuffer = content.value.buffer;
 
-			// Compress with gzip (using Node.js zlib, available in Electron main process)
-			// For browser context, we'll skip compression and just rotate
-			let compressed: Buffer;
+			// Compress with gzip (Node.js zlib, available in the Electron main process). Browser/worker
+			// contexts have no zlib, so fall back to uncompressed. The module specifiers are held in
+			// variables so TypeScript resolves the dynamic imports to `any` — this keeps the
+			// common-layer file free of @types/node while the runtime guard (try/catch) stays intact.
+			let compressed: Uint8Array = contentBuffer;
 			try {
-				const zlib = await import('zlib');
-				const { promisify: promisifyNode } = await import('util');
+				// `'zlib' as string` keeps the specifier a literal for the bundler (external node builtin)
+				// while TypeScript resolves the import to `any`, so no @types/node is pulled into common/.
+				const zlib = await import('zlib' as string) as { gzip: (buf: Uint8Array, cb: (err: unknown, res: Uint8Array) => void) => void };
+				const { promisify: promisifyNode } = await import('util' as string) as { promisify: (fn: typeof zlib.gzip) => (buf: Uint8Array) => Promise<Uint8Array> };
 				const gzip = promisifyNode(zlib.gzip);
-				compressed = await gzip(Buffer.from(contentBuffer));
+				compressed = await gzip(contentBuffer);
 			} catch {
-				// zlib not available (browser context), use uncompressed
-				compressed = Buffer.from(contentBuffer);
+				// zlib not available (browser/worker context) — keep uncompressed.
+				compressed = contentBuffer;
 			}
 
 			// Find next rotation number

@@ -221,8 +221,9 @@ class StartupAudit {
 // Singleton instance
 export const startupAudit = new StartupAudit();
 
-// Auto-start on module load
-if (typeof window !== 'undefined') {
+// Auto-start on module load (browser only). `typeof (globalThis as { document?: unknown }).document !== 'undefined'` detects a browser without
+// pulling the DOM `Window` type into this common-layer file.
+if (typeof (globalThis as { document?: unknown }).document !== 'undefined') {
 	startupAudit.start();
 }
 

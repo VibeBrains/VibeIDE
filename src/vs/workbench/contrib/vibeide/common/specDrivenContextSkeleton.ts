@@ -147,8 +147,11 @@ export function diffGraphql(input: { oldSpec: string; newSpec: string }): SpecDi
 	let findBreakingChanges: ((old: unknown, next: unknown) => Array<{ description: string }>) | undefined;
 	let buildSchema: ((sdl: string) => unknown) | undefined;
 	try {
-
-		const gql = require('graphql') as { buildSchema: typeof buildSchema; findBreakingChanges: typeof findBreakingChanges };
+		// `require` is a Node/Electron global absent in browser/worker; reach it through globalThis
+		// with a narrow type so this common-layer file needs no @types/node.
+		const nodeRequire = (globalThis as { require?: (id: string) => unknown }).require;
+		if (!nodeRequire) { throw new Error('require unavailable'); }
+		const gql = nodeRequire('graphql') as { buildSchema: typeof buildSchema; findBreakingChanges: typeof findBreakingChanges };
 		buildSchema = gql.buildSchema;
 		findBreakingChanges = gql.findBreakingChanges;
 	} catch {

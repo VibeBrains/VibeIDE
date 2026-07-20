@@ -77,10 +77,16 @@ interface PdfJsViewport {
 	height: number;
 }
 
+// Opaque 2D canvas context — created in the browser and handed straight to pdf.js. Typed as a bare
+// object so this common-layer file needs no DOM lib; the real context is a `CanvasRenderingContext2D`.
+type PdfCanvasRenderingContext = object;
+interface PdfCanvasLike { width: number; height: number; getContext(id: '2d'): PdfCanvasRenderingContext | null; toDataURL(type?: string): string }
+const pdfDomGlobals = globalThis as unknown as { document: { createElement(tag: 'canvas'): PdfCanvasLike } };
+
 interface PdfJsPage {
 	getTextContent(): Promise<{ items: { str?: string }[] }>;
 	getViewport(options: { scale: number }): PdfJsViewport;
-	render(options: { canvasContext: CanvasRenderingContext2D; viewport: PdfJsViewport }): { promise: Promise<void> };
+	render(options: { canvasContext: PdfCanvasRenderingContext; viewport: PdfJsViewport }): { promise: Promise<void> };
 }
 
 interface PdfJsDocument {
@@ -440,7 +446,7 @@ export class PDFService implements IPDFService {
 					const scaledViewport = page.getViewport({ scale });
 
 					// Render to canvas
-					const canvas = document.createElement('canvas');
+					const canvas = pdfDomGlobals.document.createElement('canvas');
 					canvas.width = scaledViewport.width;
 					canvas.height = scaledViewport.height;
 
@@ -519,7 +525,7 @@ export class PDFService implements IPDFService {
 		const scaledViewport = page.getViewport({ scale });
 
 		// Render to canvas
-		const canvas = document.createElement('canvas');
+		const canvas = pdfDomGlobals.document.createElement('canvas');
 		canvas.width = scaledViewport.width;
 		canvas.height = scaledViewport.height;
 
