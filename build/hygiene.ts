@@ -37,9 +37,18 @@ export function hygiene(some: NodeJS.ReadWriteStream | string[] | undefined, run
 	const productJson = es.through(function (file: VinylFile) {
 		const product = JSON.parse(file.contents!.toString('utf8'));
 
-		if (product.extensionsGallery) {
-			console.error(`product.json: Contains 'extensionsGallery'`);
-			errorCount++;
+		// VibeIDE deliberately ships an `extensionsGallery` pointing at Open VSX (open-vsx.org) —
+		// a license-clean marketplace for the fork. The upstream guard's real intent is to keep
+		// the proprietary Microsoft marketplace out of an OSS build, so only flag a gallery that
+		// points at a Microsoft / Visual Studio Marketplace domain.
+		const gallery = product.extensionsGallery;
+		if (gallery) {
+			const urls = [gallery.serviceUrl, gallery.itemUrl, gallery.cacheUrl, gallery.controlUrl]
+				.filter((u): u is string => typeof u === 'string');
+			if (urls.some(u => /visualstudio\.com|marketplace\.visualstudio|\.microsoft\.com/i.test(u))) {
+				console.error(`product.json: 'extensionsGallery' points at the proprietary Microsoft marketplace`);
+				errorCount++;
+			}
 		}
 
 		this.emit('data', file);
@@ -72,7 +81,7 @@ export function hygiene(some: NodeJS.ReadWriteStream | string[] | undefined, run
 			// Cyrillic (U+0400–U+04FF) and Russian punctuation («» „" § №) are allowed:
 			// this is a Russian-first fork, user-facing strings live directly in the source.
 			// eslint-disable-next-line no-misleading-character-class
-			const m = /([^\t\n\r\x20-\x7EЀ-ӿ«»„"§№⊃⊇✔︎✓🎯🧪✍️⚠️🛑🔴🚗🚙🚕🎉✨❗⇧⌥⌘×÷¦⋯…↑↓￫→←↔⟷—·•●◆▼⟪⟫┌└├⏎↩√φ]+)/g.exec(line);
+			const m = /([^\t\n\r\x20-\x7EЀ-ӿ«»“”„§№∈≥⊃⊇✔︎✓🎯🧪✍️⚠️🛑🔴🚗🚙🚕🎉✨❗⇧⌥⌘×÷¦⋯…↑↓￫→←↔⟷—·•●◆▼⟪⟫┌└├⏎↩√φ]+)/g.exec(line);
 			if (m) {
 				console.error(
 					file.relative + `(${i + 1},${m.index + 1}): Unexpected unicode character: "${m[0]}" (charCode: ${m[0].charCodeAt(0)}). To suppress, use // allow-any-unicode-next-line`

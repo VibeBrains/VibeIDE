@@ -28,6 +28,8 @@ export const all = Object.freeze<string[]>([
 	'!test/**/out/**',
 	'!**/node_modules/**',
 	'!**/*.js.map',
+	// Generated TypeScript incremental-build cache (gitignored); never hygiene-check it.
+	'!**/*.tsbuildinfo',
 ]);
 
 export const unicodeFilter = Object.freeze<string[]>([
@@ -74,31 +76,14 @@ export const unicodeFilter = Object.freeze<string[]>([
 	// The upstream homoglyph check does not apply to the fork's own authored code.
 	'!src/vs/workbench/contrib/vibeide/**',
 
-	// VibeIDE build/release scripts: the box-drawing frames and status glyphs are the
-	// console output's formatting, not code — same "rich Unicode by design" rationale as
-	// vibeide/** above. Without this, a one-line edit to any of them surfaces 70+
-	// pre-existing findings and trains everyone to `--no-verify`, which is how this hook
-	// rotted the last time (see knowledge/gitAndTools/precommitHygiene.md).
-	'!scripts/release-windows.ps1',
-	'!scripts/release-macos.sh',
-	'!scripts/release-linux.sh',
-	'!scripts/home-build-windows.ps1',
-	'!scripts/lib/home-build-common.sh',
-	// Same rationale: the macOS universal-build / notarization / Windows-signing
-	// scripts render box-drawing frames and status glyphs as their console report.
-	// They belong to the same release-tooling family as release-*.sh above; they were
-	// simply missed. Without this a one-line edit surfaces 150+ pre-existing box-drawing
-	// findings and trains everyone to `--no-verify`.
-	'!scripts/build-macos-universal.sh',
-	'!scripts/notarize-macos.sh',
-	'!scripts/sign-windows.ps1',
-	// Same rationale: `vibe doctor` renders box-drawing frames and status glyphs as its
-	// console report. Deleting the `--knowledge` mode (2026-07-15) surfaced 96 pre-existing
-	// findings from a pure-deletion edit — the exact trap this block was added to close.
-	'!scripts/vibe-doctor.js',
-	// Same rationale: golden-eval prints box-drawing frames and pass/fail status glyphs in
-	// its console report.
-	'!scripts/vibe-golden-eval.js',
+	// VibeIDE build/dev/release scripts: `scripts/**` is the fork's own tooling — its box-drawing
+	// frames and status glyphs are the console output's formatting, not code (same "rich Unicode
+	// by design" rationale as vibeide/** above). The whole tree is exempt rather than enumerated
+	// file-by-file: every earlier one-line edit to a script surfaced dozens of pre-existing
+	// findings and trained everyone to `--no-verify`, which is how this hook rotted last time
+	// (see knowledge/gitAndTools/precommitHygiene.md). Scripts are not shipped source and their
+	// `.js` still gets linted by eslintFilter, so only the homoglyph check is dropped here.
+	'!scripts/**',
 	// VibeIDE built-in extensions are the fork's own authored code and embed rich Unicode
 	// (status glyphs, box-drawing) in console/UI strings — same "rich Unicode by design"
 	// rationale as src/**/vibeide/** above.
@@ -189,12 +174,20 @@ export const indentationFilter = Object.freeze<string[]>([
 	'!extensions/notebook-renderers/renderer-out/*.js',
 	'!extensions/simple-browser/media/*.js',
 
-	// VibeIDE release/build shell scripts: space indentation is intentional — much of it is
-	// `cat <<'EOF'` heredoc body (usage text) whose leading spaces are printed output, so
-	// tabs cannot be enforced without changing what the script prints. Same shell-script
-	// carve-out as `build/**/*.sh` above.
-	'!scripts/build-macos-universal.sh',
-	'!scripts/notarize-macos.sh',
+	// VibeIDE dev/build/release scripts: `scripts/**` is the fork's own tooling. Shell scripts
+	// carry `cat <<'EOF'` heredoc bodies whose leading spaces are printed output (tabs would
+	// change what the script prints), and the `.js`/`.ps1` helpers follow their own console
+	// conventions. Same tree-wide carve-out as the unicode filter; `.js` is still eslint-linted.
+	'!scripts/**',
+
+	// VibeIDE neon theme extension: fork glue CSS under media/ and the vendored upstream
+	// neon-theme snapshots use two-space CSS indentation by convention (mirrors the vendored
+	// source). Same "own conventions" carve-out as the vibeide-* unicode exemption.
+	'!extensions/vibeide-neon/**',
+
+	// VibeIDE component-fixture harness: the Playwright specs and their support files follow the
+	// Playwright/Prettier two-space convention, not workbench tabs.
+	'!test/componentFixtures/**',
 
 	// VibeIDE: large template literals (system prompts, test fixtures) carry
 	// space-indented string data by design; tab indentation of actual code is
@@ -248,6 +241,11 @@ export const copyrightFilter = Object.freeze<string[]>([
 	'!extensions/*/server/bin/*',
 	'!src/vs/workbench/contrib/terminal/common/scripts/psreadline/**',
 	'!extensions/mermaid-chat-features/chat-webview-out/**',
+
+	// VibeIDE neon theme stylesheets are theme token data, not source: the fork's own glue
+	// CSS under media/ and the vendored upstream neon-theme snapshots under upstream/ neither
+	// carry nor need a Microsoft copyright header.
+	'!extensions/vibeide-neon/**/*.css',
 
 ]);
 

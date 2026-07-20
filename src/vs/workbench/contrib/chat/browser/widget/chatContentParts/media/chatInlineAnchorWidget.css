@@ -31,8 +31,7 @@
 	color: inherit;
 }
 
-/* Inside tool-call progress rows the file reference gets a distinct link color +
-   a dashed underline so users know a tooltip / click is available. */
+/* Inside tool-call progress rows the file reference gets a distinct link color + a dashed underline so users know a tooltip / click is available. */
 .interactive-item-container .rendered-markdown.progress-step .chat-inline-anchor-widget {
 	color: var(--vscode-textLink-foreground);
 	border-color: color-mix(in srgb, var(--vscode-textLink-foreground) 40%, transparent);
