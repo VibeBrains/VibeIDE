@@ -91,6 +91,13 @@ export function collectJsFiles(dir: string): string[] {
 	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
 		const full = path.join(dir, entry.name);
 		if (entry.isDirectory()) {
+			// Skip the generated VibeIDE React bundles: their tsup-externalized `../../../*.js`
+			// references re-import the very services they were split from, forming construction-only
+			// cycles that don't exist in the authored source. Excluding them means no edges originate
+			// from a bundle, so genuine source cycles are still detected while these are not.
+			if (normalize(full).endsWith('/vibeide/browser/react/out')) {
+				continue;
+			}
 			results.push(...collectJsFiles(full));
 		} else if (entry.isFile() && entry.name.endsWith('.js')) {
 			results.push(full);
