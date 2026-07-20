@@ -133,6 +133,8 @@ git merge upstream-sync
 
 `git checkout <tag> -- <dir>` **не удаляет** файлы, которых уже нет в апстриме — в дереве остаются **дубликаты и фантомы**, ломающие `tsc` (двойные `chatService`, лишние `vscode.proposed.*`, старый `inlineCompletions/browser/view/*`, дубли terminal initial hint под `terminalContrib/chat`, `workbench/services/accounts/common/defaultAccount.ts` вне OSS). Надёжно: **`rm -rf <dir> && git checkout <tag> -- <dir>`** для затронутых корней. Сборка **1.118.x**: в корне только **`gulpfile.mjs`** (не держать наследуемый **`gulpfile.js`**); в **`build/`** не оставлять рядом устаревшие **`.js`** от старого пайплайна, если рядом есть **`.ts`** и в **`build/package.json`** указано **`"type": "module"`**.
 
+**`open-remote-ssh` git-депы — держать `https` в локе.** `extensions/open-remote-ssh/package-lock.json` пинит `ssh2`/`simple-socks` на git; npm по дефолту нормализует их в `git+ssh://git@github.com` — CI без SSH-ключей клонировать не может (`npm list --production` → «missing», красный `Compile & Hygiene`/`core-ci`). После **любой** регенерации лока этого расширения: заменить `git+ssh://git@github.com/`→`git+https://github.com/` в `resolved` (коммиты не трогать) и проверить `npm ci --dry-run` (rc=0).
+
 **Унаследованные гарды контрибуции — снова удалить после sync.** `git merge upstream` вернёт `no-package-lock-changes.yml`, `no-yarn-lock-changes.yml`, `no-engineering-system-changes.yml` (опрашивают права у `microsoft/vscode`, всегда блокируют PR форка — см. раздел «Изменённые файлы»). После каждого upstream-merge: `rm -f .github/workflows/no-package-lock-changes.yml .github/workflows/no-yarn-lock-changes.yml .github/workflows/no-engineering-system-changes.yml`.
 
 ---
