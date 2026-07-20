@@ -106,12 +106,27 @@ export function createCompile(src: string, { build, emitError, transpileOnly, pr
 	return pipeline;
 }
 
+/**
+ * Source globs for the main client build. The VibeIDE React sub-project (`react/src`, `react/src2`)
+ * is a separate build unit (tsup + tailwind scoping) excluded from `src/tsconfig.json`; feeding its
+ * `.ts`/`.tsx` inputs into the client transpile/compile trips a TypeScript assertion. Its built
+ * bundles under `react/out` (imported as `.js` by the workbench) are intentionally kept.
+ */
+function clientSrcGlobs(src: string): string[] {
+	const globs = [`${src}/**`];
+	if (src === 'src') {
+		const reactDir = `${src}/vs/workbench/contrib/vibeide/browser/react`;
+		globs.push(`!${reactDir}/src/**`, `!${reactDir}/src2/**`);
+	}
+	return globs;
+}
+
 export function transpileTask(src: string, out: string, esbuild?: boolean): task.StreamTask {
 
 	const task = () => {
 
 		const transpile = createCompile(src, { build: false, emitError: true, transpileOnly: { esbuild: !!esbuild }, preserveEnglish: false });
-		const srcPipe = gulp.src(`${src}/**`, { base: `${src}` });
+		const srcPipe = gulp.src(clientSrcGlobs(src), { base: `${src}` });
 
 		return srcPipe
 			.pipe(transpile())
@@ -131,7 +146,7 @@ export function compileTask(src: string, out: string, build: boolean, options: {
 		}
 
 		const compile = createCompile(src, { build, emitError: true, transpileOnly: false, preserveEnglish: !!options.preserveEnglish });
-		const srcPipe = gulp.src(`${src}/**`, { base: `${src}` });
+		const srcPipe = gulp.src(clientSrcGlobs(src), { base: `${src}` });
 		const generator = new MonacoGenerator(false);
 		if (src === 'src') {
 			generator.execute();
