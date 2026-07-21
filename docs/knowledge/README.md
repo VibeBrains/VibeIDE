@@ -167,6 +167,7 @@
 | [xmlToolFormatIncidents.md](runtimeQuirks/xmlToolFormatIncidents.md) | Chronological catalog of observed XML tool-call format incidents (model / format / fix commit / regression test) |
 | [providerQuota429.md](runtimeQuirks/providerQuota429.md) | Квотные 429 (retry-after в днях) vs burst-троттлинг: fail-fast в customFetch, отдельное семейство переводчика ошибок |
 | [anthropicShapeToolHistory.md](runtimeQuirks/anthropicShapeToolHistory.md) | Инцидент: tool_use/tool_result Anthropic-формы выбрасывались AI SDK адаптером → модель не видела результаты и реплеила вызовы; диагностика через прирост `in:` |
+| [undiciBypassesProxyAndCerts.md](runtimeQuirks/undiciBypassesProxyAndCerts.md) | Голый undici/Node-fetch в electron-main минует системный прокси и CA → ложный «офлайн» на корпоративной сети; вести через IRequestService |
 | [llmProxyDispatcher.md](runtimeQuirks/llmProxyDispatcher.md) | Прокси для LLM-трафика (`vibeide.llm.proxy.url`): единый undici-диспетчер как точка внедрения, HTTP/HTTPS через ProxyAgent, SOCKS вручную через пакет `socks`; почему не DPI-обход и не `http.proxy` |
 | [verifyGate.md](runtimeQuirks/verifyGate.md) | VERIFY-GATE: реальный гейт сборки/тестов на `vibe_complete` (не промпт) — захват exit-кода через ITerminalToolService, чистая политика bounce/stop/warn, edit-guard, анти-цикл maxAttempts |
 | [autoDowngradePipeline.md](runtimeQuirks/autoDowngradePipeline.md) | Тройной инцидент авто-даунгрейда в XML: run-local guard, потеря undefined на IPC/диске (→ null-sentinel), recovery стирал свежие override'ы (→ age-guard) |
