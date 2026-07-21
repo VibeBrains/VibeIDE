@@ -283,10 +283,14 @@ const tryReadFastPathSnapshot = async (): Promise<{ catalog: CatalogIndex; from:
 // swallowed — caller is using the stale snapshot, so a refresh failure just
 // means the next start will retry. Never runs concurrently with itself.
 let backgroundRefreshRunning = false;
+// The in-flight background refresh, exposed so getCatalogStatus() can await the
+// network outcome before deciding whether we're really "offline". Null when no
+// refresh is running. Resolves on success OR failure (never rejects).
+let backgroundRefreshPromise: Promise<void> | null = null;
 const refreshInBackground = (): void => {
 	if (backgroundRefreshRunning) { return; }
 	backgroundRefreshRunning = true;
-	void (async () => {
+	backgroundRefreshPromise = (async () => {
 		try {
 			const fresh = await fetchAndIndex();
 			if (fresh) {
@@ -300,6 +304,7 @@ const refreshInBackground = (): void => {
 			backgroundRefreshRunning = false;
 		}
 	})();
+	void backgroundRefreshPromise;
 };
 
 const getCatalog = (): Promise<CatalogIndex | null> => {
@@ -427,7 +432,19 @@ export type ModelsDevCatalogStatus =
  * fetch — useful for prefetching at app start so the renderer can warn early.
  */
 export const getCatalogStatus = async (): Promise<ModelsDevCatalogStatus> => {
-	const catalog = await getCatalog();
+	let catalog = await getCatalog();
+	// If we served a local snapshot via the stale-while-revalidate fast path, a
+	// background network refresh is (very likely) in flight. Wait for it so the
+	// reported status reflects the ACTUAL network outcome, not the transient
+	// fast-path state: a fresh <TTL cache that refreshes successfully is NOT
+	// "offline" and must not raise the offline modal on every cold start. Only a
+	// genuinely failed refresh leaves us on the local snapshot → real offline.
+	// Note: getCatalog() (the aiSdkAdapter prefetch) stays instant; only this
+	// status query — on the non-critical AfterRestored path — pays the wait.
+	if (catalog && loadedFromLocalPath && backgroundRefreshPromise) {
+		await backgroundRefreshPromise;
+		catalog = cachedCatalog;
+	}
 	if (!catalog) {
 		return {
 			state: 'failed',
