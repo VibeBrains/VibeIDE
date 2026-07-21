@@ -25,7 +25,10 @@ gulp.task(compilation.compileApiProposalNamesTask);
 gulp.task(compilation.watchApiProposalNamesTask);
 
 // Copy VS CSS into out/ so ESM `import './media/foo.css'` + dev import maps resolve (see cssDevService + workbench.ts).
-const copyVsCssTask = task.define('copy-vs-css', () => gulp.src('src/vs/**/*.css', { base: 'src' }).pipe(gulp.dest('out')));
+// `removeBOM: false`: vinyl-fs strips a UTF-8 BOM by default, and this copy runs LAST in the transpile
+// series — so without it the encoding test fixture `some_utf8.css` lands in out/ without its BOM and
+// `detectBOM UTF-8` fails. Keep the bytes verbatim on copy. (The option is `removeBOM`, not `stripBOM`.)
+const copyVsCssTask = task.define('copy-vs-css', () => gulp.src('src/vs/**/*.css', { base: 'src', removeBOM: false }).pipe(gulp.dest('out')));
 
 // SWC Client Transpile
 const transpileClientSWCTask = task.define('transpile-client-esbuild', task.series(util.rimraf('out'), compilation.transpileTask('src', 'out', true), copyVsCssTask));

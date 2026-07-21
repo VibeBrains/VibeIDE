@@ -67,10 +67,18 @@ ResourceFilesystem, Gateway, Registry), `stat/readdir/watch`. Плюс `8 undisp
 Разорвав каскад (34→2), досчитали до двух **реальных** пред-существующих фейлов, которые раньше
 были за зависанием (CI до них не доходил — легко ошибиться и списать на «локальное»):
 
-- **`detectBOM UTF-8` (`null !== 'utf8bom'`)** — фикстура `encoding/fixtures/some_utf8.css` **потеряла
-  UTF-8 BOM (`EF BB BF`)**: `.gitattributes` строка 1 `* text=auto` без исключения для этих фикстур
-  ренормализовал текст и срезал BOM **в самом git-blob** (не только чекаут; utf16-фикстуры уцелели —
-  git счёл их binary). Фикс: восстановить BOM + `encoding/fixtures/** -text` в `.gitattributes`.
+- **`detectBOM UTF-8` (`null !== 'utf8bom'`)** — фикстура `encoding/fixtures/some_utf8.css` теряла
+  UTF-8 BOM (`EF BB BF`) в **ДВУХ местах**, фикс двухслойный:
+  1. **git-слой:** `.gitattributes` строка 1 `* text=auto` ренормализовал текст и срезал BOM **в самом
+     git-blob** (не только чекаут; utf16-фикстуры уцелели — git счёл их binary). → восстановить BOM +
+     `encoding/fixtures/** -text`.
+  2. **сборка (реальный корень для `out/`, тест читает оттуда):** CI собирает через
+     `transpile-client-esbuild`, а его последний шаг `copyVsCssTask` (`build/gulpfile.ts`) копирует
+     `src/vs/**/*.css` в `out/` через `gulp.src` — **vinyl-fs по умолчанию срезает BOM**. Механизм
+     `bom()` в `compilation.ts` (восстанавливает BOM для utf8-тестов) не спасает: copyVsCss
+     перезаписывает файл ПОСЛЕ. Опция называется **`removeBOM: false`** (НЕ `stripBOM` — тихо
+     игнорируется в vinyl-fs 3). Проверять фактом: `gulp.src(..., {removeBOM:false})` → первые 3 байта
+     `ef bb bf`. Ловушка: BOM в git/src ≠ BOM в out — тест читает **out**, собранный copy-задачей.
 - **`vibeDocsGraph parity` (`Failed to fetch dynamically imported module`)** — node-only тест
   динамически `import(file://…/scripts/vibe-docs-graph.mjs)` (вне `out/`); Electron-**рендерер** не
   может фетчить file:// за пределами app-бандла. Тест валиден в `npm run test-node`; в рендерере
