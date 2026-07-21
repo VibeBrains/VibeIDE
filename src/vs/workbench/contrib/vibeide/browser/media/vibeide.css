@@ -798,6 +798,10 @@ body.monaco-workbench,
 	display: flex;
 	align-items: center;
 	width: 100%;
+	/* border-box so the horizontal padding stays INSIDE 100% — otherwise the right-pinned actions
+	 * (rename + trash) are pushed past the row's right edge by the padding amount and the trash icon
+	 * gets clipped in half. Same fix as .vibe-specs-row. */
+	box-sizing: border-box;
 	/* Shared vibe-panel content inset (token --vibeide-space-md = 12px, matches headers + chat); keeps Projects aligned with Server. */
 	padding: 0 var(--vibeide-space-md);
 }
