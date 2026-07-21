@@ -170,6 +170,7 @@
 | [llmProxyDispatcher.md](runtimeQuirks/llmProxyDispatcher.md) | Прокси для LLM-трафика (`vibeide.llm.proxy.url`): единый undici-диспетчер как точка внедрения, HTTP/HTTPS через ProxyAgent, SOCKS вручную через пакет `socks`; почему не DPI-обход и не `http.proxy` |
 | [verifyGate.md](runtimeQuirks/verifyGate.md) | VERIFY-GATE: реальный гейт сборки/тестов на `vibe_complete` (не промпт) — захват exit-кода через ITerminalToolService, чистая политика bounce/stop/warn, edit-guard, анти-цикл maxAttempts |
 | [autoDowngradePipeline.md](runtimeQuirks/autoDowngradePipeline.md) | Тройной инцидент авто-даунгрейда в XML: run-local guard, потеря undefined на IPC/диске (→ null-sentinel), recovery стирал свежие override'ы (→ age-guard) |
+| [openRouterFrontierModels.md](runtimeQuirks/openRouterFrontierModels.md) | LongCat-2.0 (плавающие 33–56B активных, OpenAI+Anthropic API) и Inkling (reasoning-effort 0.2–0.99 как драйвер цены) как BYOK-провайдеры; правило «один LLM ненадёжен для security-скана → ансамбль провайдеров + мерж находок» |
 
 ### [roadmap/](roadmap/) — run logs (long sessions)
 
