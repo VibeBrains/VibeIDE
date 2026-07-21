@@ -140,6 +140,7 @@
 | Файл | О чём |
 |---|---|
 | [electronTestPollution.md](testing/electronTestPollution.md) | **[кейс+метод]** 34 Electron-фейла = каскад от ОДНОГО зависшего теста с непереустановленными fake timers (форк убрал workspace-recommendations toast → upstream-тест ждёт промпт вечно). Метод: изолированный прогон (зелёный изолированно + красный в полном = pollution) → бинарный поиск нарушителя через `--runGlob` → fake-timers первый подозреваемый. «Фейлы после ↑таймаута» ≠ регресс, а разоблачение долга |
+| [ciCoverageSkips.md](testing/ciCoverageSkips.md) | **[реестр+долг]** Скипы/отключения тестов в CI = заплатки, не решения (CI существует, чтобы гонять, а не скипать). Реестр введённых в PR #2: policyExport (вложенный Electron виснет → скип в CI), screenshot-test (external hediet 403 → workflow_dispatch). Что НЕ долг: vibeDocsGraph renderer-скип (бежит в node), react/out-исключения. Правильный фикс — чинить причину, а не прятать |
 
 ### [toolSystem/](toolSystem/) — слой встроенных тулов (поверхность, которую видит LLM)
 
