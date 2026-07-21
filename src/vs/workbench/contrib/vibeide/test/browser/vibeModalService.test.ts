@@ -16,11 +16,18 @@
 import * as assert from 'assert';
 import { VibeModalService } from '../../browser/vibeModalServiceImpl.js';
 import { VIBE_MODAL_DISMISS_ID } from '../../common/vibeModalTypes.js';
+import { vibeLog } from '../../common/vibeLog.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('VibeModalService', () => {
 
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
+
+	// Several defensive tests below intentionally drive error/timeout paths that log a warn via
+	// vibeLog (routed to the global console.*). Silence vibeLog for the whole suite so the runner's
+	// "no console output in tests" guard does not trip in the after-each hook; restored after each test.
+	setup(() => vibeLog.configure({ enabled: false }));
+	teardown(() => vibeLog.configure({ enabled: true }));
 
 	test('showModal + resolveHead — basic flow', async () => {
 		const svc = store.add(new VibeModalService());

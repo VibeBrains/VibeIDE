@@ -135,6 +135,12 @@
 | [precommitHygiene.md](gitAndTools/precommitHygiene.md) | `tsx`-раннер hygiene/eslint, фильтры Unicode/indentation для vibeide, lint-staged без eslint, `--no-verify` на больших коммитах. **+ [foot-gun]** фильтры **каскадные** (`all ⊃ eol ⊇ indentation ⊃ copyright ⊃ typescript`) — исключение в раннем фильтре снимает и все последующие проверки (`!` в copyright отключил ESLint); shebang vs заголовок на строке 0 — ложная дилемма (shebang рудимент); линт видит файл, только когда он staged |
 | [docsLayout.md](gitAndTools/docsLayout.md) | Правило «всё в `docs/` — camelCase» + мануалы только в `manuals/`; рецепт массового переименования (`git mv`, якоря, антипаттерны); почему `CONTRIBUTING.md` нельзя унести (GitHub ищет в 3 путях); ловушка вшитых абсолютных URL в засеянных `.vibe`. **+ [правило]** `docs/README.md` — корень навигации: любой док достижим оттуда по ссылкам; **ASCII-дерево в код-блоке ссылок не создаёт** (из-за него 29 доков висели сиротами, а дерево успело соврать). Гейт `unreachable` строго сильнее «сирот». Release notes в репо не хранятся — источник правды GitHub Releases |
 
+### [testing/](testing/) — тест-инфраструктура и диагностика
+
+| Файл | О чём |
+|---|---|
+| [electronTestPollution.md](testing/electronTestPollution.md) | **[кейс+метод]** 34 Electron-фейла = каскад от ОДНОГО зависшего теста с непереустановленными fake timers (форк убрал workspace-recommendations toast → upstream-тест ждёт промпт вечно). Метод: изолированный прогон (зелёный изолированно + красный в полном = pollution) → бинарный поиск нарушителя через `--runGlob` → fake-timers первый подозреваемый. «Фейлы после ↑таймаута» ≠ регресс, а разоблачение долга |
+
 ### [toolSystem/](toolSystem/) — слой встроенных тулов (поверхность, которую видит LLM)
 
 | Файл | О чём |
