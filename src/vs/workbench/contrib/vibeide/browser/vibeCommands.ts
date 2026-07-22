@@ -45,7 +45,7 @@ import { IClipboardService } from '../../../../platform/clipboard/common/clipboa
 import { IProductService } from '../../../../platform/product/common/productService.js';
 import { IAuditLogService } from '../common/auditLogService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
-import { ProviderName } from '../common/vibeideSettingsTypes.js';
+import { ProviderId } from '../common/vibeideSettingsTypes.js';
 import { isWindows, isMacintosh, isLinux } from '../../../../base/common/platform.js';
 
 const VIBEIDE_OPEN_SIDEBAR_CMD = 'vibeide.sidebar.open';
@@ -514,8 +514,8 @@ registerAction2(class extends Action2 {
 		const notifications = accessor.get(INotificationService);
 
 		const overridesOfModel = settings.state.overridesOfModel;
-		const toClear: { provider: ProviderName; model: string }[] = [];
-		for (const provider of Object.keys(overridesOfModel) as ProviderName[]) {
+		const toClear: { provider: ProviderId; model: string }[] = [];
+		for (const provider of Object.keys(overridesOfModel)) {
 			const models = overridesOfModel[provider];
 			if (!models) { continue; }
 			for (const model of Object.keys(models)) {

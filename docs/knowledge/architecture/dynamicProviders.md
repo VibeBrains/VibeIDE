@@ -21,6 +21,7 @@
 **Антипаттерны:**
 - Новая итерация по `providerNames` там, где смысл — «все активные провайдеры». Правильно: `autoFallbackProviderIds` / ключи `settingsOfProvider` / `allProviderEntries`.
 - Типизировать новый API `ProviderName`-ом «потому что так было» — так разделение отрастёт заново.
+- **Локальность через `localProviderNames.includes(...)`** — узнаёт только ollama/vLLM/lmStudio и слепа к конфиг-провайдеру (и агрегатору) на localhost. Правильно: `isLocalProvider(providerName, settingsOfProvider)` — он же понимает endpoint. Вычищено тремя проходами из: modelRouter (5 мест), статус-бара (2), isFeatureNameDisabled-подсказок; исключение-ограничение — `routingCapabilityRegistry` (нет доступа к настройкам, задокументировано в коде).
 
 **Связано:** [[providerApiKeyFromEnv]], [[apiProtocolRouting]]
 

@@ -26,7 +26,7 @@ import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
 import { isWindows } from '../../../../base/common/platform.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
-import { FeatureName, ProviderName } from '../common/vibeideSettingsTypes.js';
+import { FeatureName } from '../common/vibeideSettingsTypes.js';
 import { IConvertToLLMMessageService, isLocalProvider } from './convertToLLMMessageService.js';
 import { getPerformanceHarness } from '../common/performanceHarness.js';
 import { IModelWarmupService } from '../common/modelWarmupService.js';
@@ -972,7 +972,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 
 		// VibeIDE: FIM provider routing via decideFIMProvider
 		const settingsState = this._settingsService.state;
-		const providerIds = Object.keys(settingsState.settingsOfProvider ?? {}) as ProviderName[];
+		const providerIds = Object.keys(settingsState.settingsOfProvider ?? {});
 		const fimProviders: FIMProvider[] = providerIds.map(id => {
 			const isLocal = isLocalProvider(id, settingsState.settingsOfProvider);
 			const kind: FIMProviderKind = id === 'ollama' ? 'local-ollama' : id === 'lmStudio' ? 'local-lmstudio' : 'cloud';

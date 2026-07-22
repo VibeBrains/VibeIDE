@@ -1351,7 +1351,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	private _findModelSelectionForId(modelId: string): ModelSelection | null {
 		const slashIdx = modelId.indexOf('/');
 		if (slashIdx > 0) {
-			const providerName = modelId.slice(0, slashIdx) as ProviderName;
+			const providerName = modelId.slice(0, slashIdx);
 			const modelName = modelId.slice(slashIdx + 1);
 			const models = this._settingsService.state.settingsOfProvider[providerName]?.models ?? [];
 			if (models.some(m => m.modelName === modelName && !m.isHidden)) {
@@ -6576,7 +6576,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								// Get all available models
 								const settingsState = this._settingsService.state;
 								const availableModels: ModelSelection[] = [];
-								for (const providerName of Object.keys(settingsState.settingsOfProvider) as ProviderName[]) {
+								for (const providerName of Object.keys(settingsState.settingsOfProvider)) {
 									const providerSettings = settingsState.settingsOfProvider[providerName];
 									if (!providerSettings._didFillInProviderSettings) { continue; }
 									for (const modelInfo of providerSettings.models) {

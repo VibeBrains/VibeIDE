@@ -12,7 +12,7 @@ import { IStatusbarEntry, IStatusbarEntryAccessor, IStatusbarService, StatusbarA
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { metricsCollector } from '../common/metricsCollector.js';
 import { IChatThreadService } from './chatThreadService.js';
-import { localProviderNames, ProviderName } from '../common/vibeideSettingsTypes.js';
+import { isLocalProvider } from '../common/isLocalProvider.js';
 
 export class VibeideStatusBarContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.vibeideStatusBar';
@@ -102,7 +102,7 @@ export class VibeideStatusBarContribution extends Disposable implements IWorkben
 		const statusMessage = isRunning === 'preparing' ? currentStreamState?.llmInfo?.displayContentSoFar : undefined;
 
 		// Check if model is local/offline
-		const isLocal = modelSelection && (localProviderNames as readonly ProviderName[]).includes(modelSelection.providerName as ProviderName);
+		const isLocal = modelSelection && isLocalProvider(modelSelection.providerName, this.vibeideSettingsService.state.settingsOfProvider);
 		const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
 
 		if (!modelSelection || (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto')) {
@@ -205,7 +205,7 @@ export class VibeideStatusBarContribution extends Disposable implements IWorkben
 		const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
 
 		// Check if model is local
-		const isLocal = modelSelection && (localProviderNames as readonly ProviderName[]).includes(modelSelection.providerName as ProviderName);
+		const isLocal = modelSelection && isLocalProvider(modelSelection.providerName, this.vibeideSettingsService.state.settingsOfProvider);
 
 		// Only show privacy indicator if local or offline
 		if (!isLocal && !isOffline) {
