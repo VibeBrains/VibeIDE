@@ -119,6 +119,8 @@ export function buildAuthorizationUrl(input: AuthUrlInput): BuildAuthUrlResult {
 export type CallbackVerdict =
 	| { readonly kind: 'ok'; readonly code: string }
 	| { readonly kind: 'state-mismatch' }
+	| { readonly kind: 'issuer-mismatch'; readonly expected: string; readonly received: string }
+	| { readonly kind: 'issuer-missing'; readonly expected: string }
 	| { readonly kind: 'provider-error'; readonly error: string; readonly description?: string }
 	| { readonly kind: 'missing-code' };
 
@@ -128,11 +130,34 @@ export type CallbackVerdict =
  *
  * Refuses on `state` mismatch BEFORE looking at any other param — CSRF
  * defence comes first.
+ *
+ * `expectedIssuer` enables RFC 9207 (`iss` in the authorization response),
+ * required by MCP spec 2026-07-28. It defends against mix-up attacks: with
+ * several authorization servers configured, an attacker can relay a response
+ * from one server to a client that believes it is talking to another, and
+ * `state` alone does not catch that — only the issuer identity does.
+ *
+ * Validation is strict once an issuer is known: a missing `iss` is refused
+ * too, since an attacker could otherwise simply omit the parameter. When the
+ * caller has no issuer configured the check is skipped rather than guessed —
+ * an authorization server's issuer identifier is frequently NOT the origin of
+ * its authorization endpoint (`https://example.com` vs
+ * `https://auth.example.com/authorize`), so deriving one would reject valid
+ * providers. Callers that care should configure the issuer explicitly.
  */
-export function verifyOAuthCallback(params: ReadonlyMap<string, string>, expectedState: string): CallbackVerdict {
+export function verifyOAuthCallback(params: ReadonlyMap<string, string>, expectedState: string, expectedIssuer?: string): CallbackVerdict {
 	const returnedState = params.get('state');
 	if (returnedState !== expectedState) {
 		return { kind: 'state-mismatch' };
+	}
+	if (typeof expectedIssuer === 'string' && expectedIssuer.length > 0) {
+		const returnedIssuer = params.get('iss');
+		if (typeof returnedIssuer !== 'string' || returnedIssuer.length === 0) {
+			return { kind: 'issuer-missing', expected: expectedIssuer };
+		}
+		if (returnedIssuer !== expectedIssuer) {
+			return { kind: 'issuer-mismatch', expected: expectedIssuer, received: returnedIssuer };
+		}
 	}
 	const error = params.get('error');
 	if (typeof error === 'string' && error.length > 0) {

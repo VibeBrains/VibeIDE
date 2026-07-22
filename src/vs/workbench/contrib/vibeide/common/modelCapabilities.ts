@@ -1312,7 +1312,30 @@ const geminiSettings: VoidStaticProviderInfo = {
 
 
 // ---------------- DEEPSEEK API ----------------
+// V4 generation (released 2026-04-24, MIT weights): 1M context, both ids serve a thinking and a
+// non-thinking mode behind the same name. Both are TEXT-ONLY — `supportsVision: false` is load-
+// bearing here, it keeps the vision gate from routing an image request to a model that cannot
+// accept one. https://api-docs.deepseek.com/quick_start/pricing
 const deepseekModelOptions = {
+	'deepseek-v4-pro': {
+		...openSourceModelOptions_assumingOAICompat.deepseekR1,
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 32_000,
+		supportsVision: false,
+		cost: { cache_read: .003625, input: .435, output: .87, },
+		downloadable: false,
+	},
+	'deepseek-v4-flash': {
+		...openSourceModelOptions_assumingOAICompat.deepseekR1,
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 32_000,
+		supportsVision: false,
+		cost: { cache_read: .0028, input: .14, output: .28, },
+		downloadable: false,
+	},
+	// Retired by DeepSeek on 2026-07-24 — kept so existing selections keep their capabilities
+	// until the ids stop resolving; `deepseek-chat` mapped to v4-flash non-thinking and
+	// `deepseek-reasoner` to its thinking mode.
 	'deepseek-chat': {
 		...openSourceModelOptions_assumingOAICompat.deepseekR1,
 		contextWindow: 64_000, // https://api-docs.deepseek.com/quick_start/pricing

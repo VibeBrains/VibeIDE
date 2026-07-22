@@ -1,0 +1,51 @@
+// DeepSeek V4 (поколение от 2026-04-24, веса под MIT) — OpenAI-совместимый API.
+// "deepseek" — встроенный id, поэтому блок ПАТЧИТ встроенного провайдера и фиксирует список
+// моделей V4. Ключ: DEEPSEEK_API_KEY в .vibe/.env, в переменной окружения ОС или apiKeyRef.
+//
+// ВАЖНО: обе модели TEXT-ONLY — "vision": false обязателен, иначе запрос с картинкой уедет
+// в модель, которая её не примет. Старые id deepseek-chat / deepseek-reasoner отключены
+// провайдером 2026-07-24.
+//
+// V4-Pro — «умный и дешёвый»: 80.6% SWE-bench Verified (лучший результат среди open-weights)
+// при цене на порядок ниже флагманов. Известная особенность: модель МНОГОСЛОВНА (на прогонах
+// выдаёт примерно вдвое больше выходных токенов, чем сопоставимые) — на выходной цене это
+// сказывается сильнее, чем видно по тарифу.
+{
+	"version": 1,
+	"providers": [
+		{
+			"id": "deepseek",
+			"name": "DeepSeek",
+			"baseURL": "https://api.deepseek.com/v1",
+			"apiKeyEnv": "DEEPSEEK_API_KEY",
+			"apiKeyUrl": "https://platform.deepseek.com/api_keys",
+			"models": {
+				"fetch": true,
+				"static": [
+					{
+						"id": "deepseek-v4-pro",
+						"name": "DeepSeek V4-Pro (1M)",
+						"default": true,
+						"pinned": true,
+						"contextWindow": 1000000,
+						"maxOutputTokens": 32768,
+						"toolFormat": "openai",
+						"vision": false,
+						"reasoning": { "canTurnOff": true, "effort": ["low", "medium", "high"] },
+						"cost": { "input": 0.435, "output": 0.87 }
+					},
+					{
+						"id": "deepseek-v4-flash",
+						"name": "DeepSeek V4-Flash (1M)",
+						"contextWindow": 1000000,
+						"maxOutputTokens": 32768,
+						"toolFormat": "openai",
+						"vision": false,
+						"reasoning": { "canTurnOff": true, "effort": ["low", "medium", "high"] },
+						"cost": { "input": 0.14, "output": 0.28 }
+					}
+				]
+			}
+		}
+	]
+}

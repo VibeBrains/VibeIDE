@@ -21,9 +21,17 @@
  *  - Elicitation: shows a notification + inline input prompt in the chat composer
  *
  * Phase MVP: service contract + consent gate + audit events.
- * Phase 3b: wire into mcpChannel.ts sampling message handler; streaming result.
+ *
+ * ⚠️ DEPRECATED UPSTREAM — DO NOT GROW THIS.
+ * MCP spec 2026-07-28 deprecates Sampling (along with Roots and Logging); the replacement is
+ * direct integration with the LLM provider's own API, which VibeIDE already has. Deprecated
+ * features keep working for at least 12 months and removal needs a separate SEP, so nothing
+ * breaks today and this service stays as is — but the planned "Phase 3b: wire into
+ * mcpChannel.ts sampling handler + streaming result" is deliberately NOT being done: it would
+ * invest in a capability scheduled for removal. Elicitation is unaffected by that deprecation.
  *
  * Reference: https://spec.modelcontextprotocol.io/specification/client/sampling/
+ * Deprecation: https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/
  */
 
 import { Disposable } from '../../../../base/common/lifecycle.js';

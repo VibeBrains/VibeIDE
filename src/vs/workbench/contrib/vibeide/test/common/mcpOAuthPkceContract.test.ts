@@ -166,6 +166,66 @@ suite('MCP OAuth PKCE contract — pure helpers', () => {
 			);
 			assert.strictEqual(r.kind, 'state-mismatch');
 		});
+
+		suite('RFC 9207 issuer validation (MCP spec 2026-07-28)', () => {
+			const ISSUER = 'https://auth.example.com';
+
+			test('matching iss → ok', () => {
+				const r = verifyOAuthCallback(
+					new Map([['state', VALID_STATE], ['iss', ISSUER], ['code', 'auth-code-x']]),
+					VALID_STATE,
+					ISSUER,
+				);
+				assert.strictEqual(r.kind, 'ok');
+			});
+
+			test('different issuer → issuer-mismatch (mix-up attack)', () => {
+				const r = verifyOAuthCallback(
+					new Map([['state', VALID_STATE], ['iss', 'https://evil.example.com'], ['code', 'x']]),
+					VALID_STATE,
+					ISSUER,
+				);
+				assert.deepStrictEqual(
+					r,
+					{ kind: 'issuer-mismatch', expected: ISSUER, received: 'https://evil.example.com' },
+				);
+			});
+
+			test('omitted iss is refused, not waved through', () => {
+				const r = verifyOAuthCallback(
+					new Map([['state', VALID_STATE], ['code', 'x']]),
+					VALID_STATE,
+					ISSUER,
+				);
+				assert.deepStrictEqual(r, { kind: 'issuer-missing', expected: ISSUER });
+			});
+
+			test('no expected issuer → check skipped, stray iss ignored', () => {
+				const r = verifyOAuthCallback(
+					new Map([['state', VALID_STATE], ['iss', 'https://whatever.example.com'], ['code', 'x']]),
+					VALID_STATE,
+				);
+				assert.strictEqual(r.kind, 'ok');
+			});
+
+			test('state is checked before issuer — CSRF defence stays first', () => {
+				const r = verifyOAuthCallback(
+					new Map([['state', 'wrong'], ['iss', 'https://evil.example.com']]),
+					VALID_STATE,
+					ISSUER,
+				);
+				assert.strictEqual(r.kind, 'state-mismatch');
+			});
+
+			test('issuer is checked before provider error', () => {
+				const r = verifyOAuthCallback(
+					new Map([['state', VALID_STATE], ['iss', 'https://evil.example.com'], ['error', 'access_denied']]),
+					VALID_STATE,
+					ISSUER,
+				);
+				assert.strictEqual(r.kind, 'issuer-mismatch');
+			});
+		});
 	});
 
 	suite('decodeTokenResponse', () => {

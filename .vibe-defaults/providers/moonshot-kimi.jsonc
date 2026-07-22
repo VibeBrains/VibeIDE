@@ -2,6 +2,13 @@
 // Рецепт reasoning: слайдер усилия (reasoning.effort → reasoning_effort) + сам режим
 // thinking у Moonshot включается отдельным полем в extraBody (уходит в тело как есть).
 // Ключ: MOONSHOT_API_KEY=<ключ> в .vibe/.env.
+//
+// K3 (2.8T параметров, контекст 1M, веса под Modified MIT обещаны на 2026-07-27) — лидер
+// Frontend Code arena, берите её под фронтенд-задачи. Две особенности, которые бьют по бюджету:
+// у K3 ОДИН уровень reasoning effort («max»), выключить размышление нельзя, и на простую задачу
+// уходит порядка 13 тысяч токенов рассуждений. Поэтому canTurnOff: false и один уровень усилия —
+// это не упрощение записи, а фактическое поведение модели. Для рутины она невыгодна.
+// Self-host: 2.8T параметров на рабочую станцию не кладутся, ориентируйтесь на API.
 {
 	"version": 1,
 	"providers": [
@@ -17,6 +24,16 @@
 			"models": {
 				"fetch": true,
 				"static": [
+					{
+						"id": "kimi-k3",
+						"name": "Kimi K3 (1M, фронтенд)",
+						"pinned": true,
+						"contextWindow": 1048576,
+						"maxOutputTokens": 32768,
+						"toolFormat": "openai",
+						"reasoning": { "canTurnOff": false, "effort": ["high"] },
+						"cost": { "input": 3, "output": 15 }
+					},
 					{
 						"id": "kimi-k2.7-code",
 						"name": "Kimi K2.7 Code",

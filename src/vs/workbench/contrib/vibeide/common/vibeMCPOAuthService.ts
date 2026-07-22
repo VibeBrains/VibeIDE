@@ -85,6 +85,17 @@ export interface MCPOAuthFlowConfig {
 	redirectUri: string;
 	scopes: string[];
 	providerName: string;
+	/**
+	 * Authorization server's issuer identifier, verbatim from its metadata
+	 * (`issuer` in `/.well-known/oauth-authorization-server`) — NOT the origin of
+	 * `authorizationEndpoint`, the two often differ.
+	 *
+	 * When set, the callback's `iss` is validated against it (RFC 9207), which is
+	 * what MCP spec 2026-07-28 requires and what stops mix-up attacks between
+	 * several configured authorization servers. Left unset the check is skipped
+	 * and a warning is logged — the flow still works, just without that defence.
+	 */
+	issuer?: string;
 }
 
 export const IVibeMCPOAuthService = createDecorator<IVibeMCPOAuthService>('vibeMCPOAuthService');
@@ -211,9 +222,19 @@ class VibeMCPOAuthService extends Disposable implements IVibeMCPOAuthService {
 			return false;
 		}
 
-		const verdict = verifyOAuthCallback(callbackParams, pending.state);
+		// RFC 9207 issuer check (MCP spec 2026-07-28) — only possible when the server's issuer is
+		// configured; otherwise the flow proceeds without mix-up protection and says so out loud.
+		if (!pending.config.issuer) {
+			this._log.warn(`[VibeMCPOAuth] No issuer configured for ${mcpServerId} — skipping RFC 9207 'iss' validation (mix-up attack protection is off for this server).`);
+		}
+		const verdict = verifyOAuthCallback(callbackParams, pending.state, pending.config.issuer);
 		if (verdict.kind !== 'ok') {
-			this._log.warn(`[VibeMCPOAuth] Callback rejected for ${mcpServerId}: ${verdict.kind}`);
+			const detail = verdict.kind === 'issuer-mismatch'
+				? ` (expected issuer ${verdict.expected}, got ${verdict.received})`
+				: verdict.kind === 'issuer-missing'
+					? ` (expected issuer ${verdict.expected}, response carried no 'iss')`
+					: '';
+			this._log.warn(`[VibeMCPOAuth] Callback rejected for ${mcpServerId}: ${verdict.kind}${detail}`);
 			this._pendingFlows.delete(mcpServerId);
 			return false;
 		}
