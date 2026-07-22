@@ -638,12 +638,16 @@ export const isFeatureNameDisabled = (featureName: FeatureName, settingsState: V
 		return isProviderNameDisabled(providerName, settingsState);
 	}
 
+	// The MERGED provider set — a configured config provider (providers.json) must count exactly
+	// like a built-in here, or the UI tells a fully-working setup that "no provider is configured".
+	const allProviderIds = Object.keys(settingsState.settingsOfProvider);
+
 	// if there are any models they can turn on, tell them that
-	const canTurnOnAModel = !!providerNames.find(providerName => settingsState.settingsOfProvider[providerName].models.filter(m => m.isHidden).length !== 0);
+	const canTurnOnAModel = !!allProviderIds.find(providerName => (settingsState.settingsOfProvider[providerName]?.models ?? []).filter(m => m.isHidden).length !== 0);
 	if (canTurnOnAModel) { return 'needToEnableModel'; }
 
 	// if there are any providers filled in, then they just need to add a model
-	const anyFilledIn = !!providerNames.find(providerName => settingsState.settingsOfProvider[providerName]._didFillInProviderSettings);
+	const anyFilledIn = !!allProviderIds.find(providerName => settingsState.settingsOfProvider[providerName]?._didFillInProviderSettings);
 	if (anyFilledIn) { return 'addModel'; }
 
 	return 'addProvider';

@@ -6,7 +6,9 @@
 
 import * as assert from 'assert';
 import { mergeProvidersLists, VibeProviderEntry } from '../../common/vibeProvidersFile.js';
-import { autoFallbackProviderIds, autoModelFallbackProviderOrder, isBuiltinProviderId, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
+import { autoFallbackProviderIds, autoModelFallbackProviderOrder, isBuiltinProviderId, isFeatureNameDisabled, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
+import { isLocalProvider } from '../../common/isLocalProvider.js';
+import { VibeideSettingsState } from '../../common/vibeideSettingsService.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('Config providers — merged rights (global+workspace, auto-fallback)', () => {
@@ -94,6 +96,57 @@ suite('Config providers — merged rights (global+workspace, auto-fallback)', ()
 				['anthropic', 'openAI', 'zai', 'corp-proxy', ''].map(isBuiltinProviderId),
 				[true, true, false, false, false],
 			);
+		});
+	});
+
+	suite('isLocalProvider (merged set)', () => {
+		const settings = {
+			ollama: { endpoint: 'http://127.0.0.1:11434', models: [] },
+			'corp-local': { endpoint: 'http://localhost:8080/v1', models: [] },
+			'corp-cloud': { endpoint: 'https://llm.corp.example/v1', models: [] },
+			'corp-broken': { endpoint: 'not a url', models: [] },
+		} as unknown as SettingsOfProvider;
+
+		test('explicit locals, localhost config provider, cloud config provider, broken endpoint', () => {
+			assert.deepStrictEqual(
+				['ollama', 'corp-local', 'corp-cloud', 'corp-broken', 'anthropic'].map(id => isLocalProvider(id, settings)),
+				[true, true, false, false, false],
+			);
+		});
+	});
+
+	suite('isFeatureNameDisabled sees config providers', () => {
+		const stateWith = (settingsOfProvider: object): VibeideSettingsState => ({
+			settingsOfProvider,
+			modelSelectionOfFeature: { 'Chat': null, 'Ctrl+K': null, 'Autocomplete': null, 'Apply': null, 'SCM': null },
+			optionsOfModelSelection: { 'Chat': {}, 'Ctrl+K': {}, 'Autocomplete': {}, 'Apply': {}, 'SCM': {} },
+			overridesOfModel: {},
+			globalSettings: {},
+			mcpUserStateOfName: {},
+			_modelOptions: [],
+		} as unknown as VibeideSettingsState);
+
+		test('a filled-in config provider yields addModel, not addProvider', () => {
+			const state = stateWith({
+				anthropic: { apiKey: '', _didFillInProviderSettings: false, models: [] },
+				'corp-proxy': { apiKey: '', endpoint: 'https://corp/v1', _didFillInProviderSettings: true, models: [] },
+			});
+			assert.strictEqual(isFeatureNameDisabled('Chat', state), 'addModel');
+		});
+
+		test('a hidden config-provider model yields needToEnableModel', () => {
+			const state = stateWith({
+				anthropic: { apiKey: '', _didFillInProviderSettings: false, models: [] },
+				'corp-proxy': { apiKey: '', _didFillInProviderSettings: false, models: [{ modelName: 'm', type: 'autodetected', isHidden: true }] },
+			});
+			assert.strictEqual(isFeatureNameDisabled('Chat', state), 'needToEnableModel');
+		});
+
+		test('nothing configured anywhere yields addProvider', () => {
+			const state = stateWith({
+				anthropic: { apiKey: '', _didFillInProviderSettings: false, models: [] },
+			});
+			assert.strictEqual(isFeatureNameDisabled('Chat', state), 'addProvider');
 		});
 	});
 });

@@ -61,6 +61,9 @@ function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStaticModel
 	if (typeof m.maxOutputTokens === 'number') { c.reservedOutputTokenSpace = m.maxOutputTokens; }
 	if (m.toolFormat) { c.specialToolFormat = TOOL_FORMAT_MAP[m.toolFormat]; }
 	if (typeof m.vision === 'boolean') { c.supportsVision = m.vision; }
+	// `fim: true` opts the model into Autocomplete (the FIM feature filter reads supportsFIM) —
+	// without this mapping the file field was silently dropped and the spec lied.
+	if (typeof m.fim === 'boolean') { c.supportsFIM = m.fim; }
 	if (m.systemMessage === false) { c.supportsSystemMessage = false; }
 	else if (m.systemMessage) { c.supportsSystemMessage = SYS_MSG_MAP[m.systemMessage]; }
 	if (m.cost) {
