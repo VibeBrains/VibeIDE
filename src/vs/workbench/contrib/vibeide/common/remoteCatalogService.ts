@@ -5,7 +5,7 @@
 
 
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
-import { ProviderName } from './vibeideSettingsTypes.js';
+import { ProviderId, ProviderName } from './vibeideSettingsTypes.js';
 
 // Реализация — `electron-browser/remoteCatalogService.ts`: класс ходит в main-процесс за сетевыми
 // запросами через `IMainProcessService` (канал `vibeide-channel-remoteCatalogFetch`, три обращения
@@ -62,7 +62,7 @@ export interface IRemoteCatalogService {
 	 * Match strategy: case-insensitive against `id`, then `name`. Returns the
 	 * first hit. No fuzzy/regex matching — keep this predictable.
 	 */
-	getCachedModelInfo(providerName: ProviderName, modelId: string): RemoteModelInfo | undefined;
+	getCachedModelInfo(providerName: ProviderId, modelId: string): RemoteModelInfo | undefined;
 
 	/**
 	 * Health check a specific model

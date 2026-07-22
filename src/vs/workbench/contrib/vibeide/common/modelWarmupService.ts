@@ -9,7 +9,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { ILLMMessageService } from './sendLLMMessageService.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
-import { ModelSelection, ProviderName, FeatureName } from './vibeideSettingsTypes.js';
+import { FeatureName, ModelSelection, ProviderId } from './vibeideSettingsTypes.js';
 import { isLocalProvider } from './isLocalProvider.js';
 
 export interface IModelWarmupService {
@@ -21,7 +21,7 @@ export interface IModelWarmupService {
 	 * @param modelName Model name
 	 * @param featureName Feature using the model (for context)
 	 */
-	warmupModelIfNeeded(providerName: ProviderName, modelName: string, featureName: FeatureName): void;
+	warmupModelIfNeeded(providerName: ProviderId, modelName: string, featureName: FeatureName): void;
 }
 
 export const IModelWarmupService = createDecorator<IModelWarmupService>('ModelWarmupService');
@@ -59,7 +59,7 @@ export class ModelWarmupService extends Disposable implements IModelWarmupServic
 	 * Warm up a local model if needed (not warmed up recently).
 	 * This is a fire-and-forget operation that never blocks.
 	 */
-	warmupModelIfNeeded(providerName: ProviderName, modelName: string, featureName: FeatureName): void {
+	warmupModelIfNeeded(providerName: ProviderId, modelName: string, featureName: FeatureName): void {
 		// Only warm up local providers
 		const settingsOfProvider = this._settingsService.state.settingsOfProvider;
 		if (!isLocalProvider(providerName, settingsOfProvider)) {
@@ -96,7 +96,7 @@ export class ModelWarmupService extends Disposable implements IModelWarmupServic
 	 * Fire a tiny background request to warm up the model.
 	 * Uses minimal prompt (just ".") and 1 token to minimize overhead.
 	 */
-	private async _warmupModelBackground(providerName: ProviderName, modelName: string, featureName: FeatureName): Promise<void> {
+	private async _warmupModelBackground(providerName: ProviderId, modelName: string, featureName: FeatureName): Promise<void> {
 		const modelSelection: ModelSelection = { providerName, modelName };
 		const overridesOfModel = this._settingsService.state.overridesOfModel;
 

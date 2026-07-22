@@ -18,7 +18,7 @@
  * 1. Add detailed capabilities to provider-specific modelOptions / fallback.
  */
 
-import { FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName } from './vibeideSettingsTypes.js';
+import { FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderId, ProviderName } from './vibeideSettingsTypes.js';
 
 
 
@@ -306,7 +306,7 @@ export type ModelOverrides = Omit<Pick<
 // Heuristic free-tier detection — programmatic signals only, no network.
 // 1) Pollinations is free by design.
 // 2) `:free` suffix is the OpenRouter convention; LM Router preserves it when it proxies OpenRouter ids.
-export const isFreeModel = (providerName: ProviderName, modelName: string): boolean => {
+export const isFreeModel = (providerName: ProviderId, modelName: string): boolean => {
 	if (providerName === 'pollinations') { return true; }
 	return modelName.toLowerCase().endsWith(':free');
 };
@@ -1333,23 +1333,11 @@ const deepseekModelOptions = {
 		cost: { cache_read: .0028, input: .14, output: .28, },
 		downloadable: false,
 	},
-	// Retired by DeepSeek on 2026-07-24 — kept so existing selections keep their capabilities
-	// until the ids stop resolving; `deepseek-chat` mapped to v4-flash non-thinking and
-	// `deepseek-reasoner` to its thinking mode.
-	'deepseek-chat': {
-		...openSourceModelOptions_assumingOAICompat.deepseekR1,
-		contextWindow: 64_000, // https://api-docs.deepseek.com/quick_start/pricing
-		reservedOutputTokenSpace: 8_000, // 8_000,
-		cost: { cache_read: .07, input: .27, output: 1.10, },
-		downloadable: false,
-	},
-	'deepseek-reasoner': {
-		...openSourceModelOptions_assumingOAICompat.deepseekCoderV2,
-		contextWindow: 64_000,
-		reservedOutputTokenSpace: 8_000, // 8_000,
-		cost: { cache_read: .14, input: .55, output: 2.19, },
-		downloadable: false,
-	},
+	// `deepseek-chat` / `deepseek-reasoner` removed — DeepSeek retired both ids on 2026-07-24, so
+	// the names no longer resolve at the provider either. A stale selection degrades gracefully
+	// rather than throwing: this provider's `modelOptionsFallback` returns null, so
+	// `getModelCapabilities` hands back `defaultModelOptions` flagged `isUnrecognizedModel`, and the
+	// models.dev catalog still fills in context/cost if it knows the id.
 } as const satisfies { [s: string]: VibeideStaticModelInfo };
 
 
@@ -2198,7 +2186,7 @@ export type CatalogModelHint = {
  * the settings service's override holder — keeps this function pure of any service dependency.
  */
 export const getModelCapabilities = (
-	providerName: ProviderName,
+	providerName: ProviderId,
 	modelName: string,
 	overridesOfModel: OverridesOfModel | undefined,
 	catalogInfo?: CatalogModelHint | undefined,
@@ -2282,7 +2270,7 @@ const catalogFields = (info: CatalogModelHint | undefined): Partial<VibeideStati
 };
 
 // non-model settings
-export const getProviderCapabilities = (providerName: ProviderName) => {
+export const getProviderCapabilities = (providerName: ProviderId) => {
 	// Unified path: built-in OR external (.vibe/providers.json) provider. An external provider is
 	// registered as openai-compatible, so it carries the same reasoning IO settings; an unknown id
 	// still falls back to openAICompatible rather than destructuring undefined.
@@ -2306,7 +2294,7 @@ export type SendableReasoningInfo = {
 
 export const getIsReasoningEnabledState = (
 	featureName: FeatureName,
-	providerName: ProviderName,
+	providerName: ProviderId,
 	modelName: string,
 	modelSelectionOptions: ModelSelectionOptions | undefined,
 	overridesOfModel: OverridesOfModel | undefined,
@@ -2322,7 +2310,7 @@ export const getIsReasoningEnabledState = (
 };
 
 
-export const getReservedOutputTokenSpace = (providerName: ProviderName, modelName: string, opts: { isReasoningEnabled: boolean; overridesOfModel: OverridesOfModel | undefined }) => {
+export const getReservedOutputTokenSpace = (providerName: ProviderId, modelName: string, opts: { isReasoningEnabled: boolean; overridesOfModel: OverridesOfModel | undefined }) => {
 	const {
 		reasoningCapabilities,
 		reservedOutputTokenSpace,
@@ -2333,7 +2321,7 @@ export const getReservedOutputTokenSpace = (providerName: ProviderName, modelNam
 // used to force reasoning state (complex) into something simple we can just read from when sending a message
 export const getSendableReasoningInfo = (
 	featureName: FeatureName,
-	providerName: ProviderName,
+	providerName: ProviderId,
 	modelName: string,
 	modelSelectionOptions: ModelSelectionOptions | undefined,
 	overridesOfModel: OverridesOfModel | undefined,

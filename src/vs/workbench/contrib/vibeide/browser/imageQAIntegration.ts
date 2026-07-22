@@ -12,7 +12,7 @@
 import { vibeLog } from '../common/vibeLog.js';
 import { ChatImageAttachment } from '../common/chatThreadServiceTypes.js';
 import { imageQAPipeline, type ImageQAOptions, type QAResponse } from '../common/imageQA/index.js';
-import { ModelSelection, OverridesOfModel, ProviderName, SettingsOfProvider, VibeideStatefulModelInfo } from '../common/vibeideSettingsTypes.js';
+import { ModelSelection, OverridesOfModel, ProviderId, SettingsOfProvider, VibeideStatefulModelInfo } from '../common/vibeideSettingsTypes.js';
 import { getModelCapabilities } from '../common/modelCapabilities.js';
 
 export interface ImageQAPreprocessedMessage {
@@ -23,7 +23,7 @@ export interface ImageQAPreprocessedMessage {
 }
 
 // Providers whose chat models accept images natively (no local OCR needed)
-const VISION_PROVIDERS = new Set<ProviderName>(['anthropic', 'openAI', 'gemini', 'pollinations']);
+const VISION_PROVIDERS = new Set<ProviderId>(['anthropic', 'openAI', 'gemini', 'pollinations']);
 // Aggregator providers — vision is per-model; rely on catalog-driven `supportsVision` overrides
 // or model-name heuristics rather than blanket-trusting the provider.
 const AGGREGATOR_PROVIDERS = new Set(['openRouter', 'openCodeGo', 'openCodeZen', 'openAICompatible', 'liteLLM']);

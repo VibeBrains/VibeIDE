@@ -5,7 +5,7 @@
 
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import type { CancellationToken } from '../../../../base/common/cancellation.js';
-import type { ModelSelection, ProviderName } from './vibeideSettingsTypes.js';
+import type { ModelSelection, ProviderId } from './vibeideSettingsTypes.js';
 import type { SubagentType, ExploreSubagentReport } from './vibeSubagentService.js';
 import type { SubagentStopReason } from './subagentLoopPolicy.js';
 import type { ChatImageAttachment } from './chatThreadServiceTypes.js';
@@ -65,7 +65,7 @@ export interface SubagentRunOutcome {
 	readonly promptTokensUsed?: number;
 	readonly completionTokensUsed?: number;
 	/** Model that actually ran the role (per-role mapping may differ from the Chat model). */
-	readonly providerName?: ProviderName;
+	readonly providerName?: ProviderId;
 	readonly modelName?: string;
 	readonly exploreReport?: ExploreSubagentReport;
 }

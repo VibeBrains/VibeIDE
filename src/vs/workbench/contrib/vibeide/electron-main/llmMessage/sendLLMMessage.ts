@@ -158,12 +158,12 @@ export const sendLLMMessage = async ({
 			onError({ message: `Error: Cannot use "auto" provider - must resolve to a real model first. This usually means auto model selection failed. Please check your model provider settings or select a specific model.`, fullError: null });
 			return;
 		}
-		// Built-in providers resolve from the static map. A DYNAMIC provider (.vibe/providers.json)
+		// Built-in providers resolve from the static map. A CONFIG provider (providers.json)
 		// isn't a key there — route it through the AI-SDK path when its transient transport overlay
 		// carries a baseURL (set on the send-site). No baseURL → fall through to "not recognized"
 		// (nothing to send to). Built-ins are unaffected: their map entry is always found first.
-		const dynamicHasTransport = !!(settingsOfProvider as unknown as Record<string, { baseURL?: string } | undefined>)[providerName]?.baseURL;
-		const implementation = sendLLMMessageToProviderImplementation[providerName]
+		const dynamicHasTransport = !!(settingsOfProvider as Record<string, { baseURL?: string } | undefined>)[providerName]?.baseURL;
+		const implementation = (sendLLMMessageToProviderImplementation as Partial<Record<string, (typeof sendLLMMessageToProviderImplementation)[keyof typeof sendLLMMessageToProviderImplementation]>>)[providerName]
 			?? (dynamicHasTransport ? dynamicProviderImplementation : undefined);
 		if (!implementation) {
 			onError({ message: `Error: Provider "${providerName}" not recognized.`, fullError: null });

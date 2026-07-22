@@ -15,7 +15,7 @@ import { INotificationService, Severity } from '../../../../platform/notificatio
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
-import { ProviderName } from '../common/vibeideSettingsTypes.js';
+import { ProviderId } from '../common/vibeideSettingsTypes.js';
 import { parseQuirkAutoFeedState, recordAutoDowngrade, shouldSuggestDurableXml, markSuggested, buildCatalogRuleSnippet, QUIRK_AUTOSUGGEST_DEFAULT_SESSIONS } from '../common/modelQuirksAutoFeed.js';
 import { vibeLog } from '../common/vibeLog.js';
 
@@ -35,7 +35,7 @@ import { vibeLog } from '../common/vibeLog.js';
 export interface IVibeQuirkAutoFeedService {
 	readonly _serviceBrand: undefined;
 	/** Record one auto-downgrade event; may show a (once-per-model, ever) durable-quirk suggestion. */
-	recordAutoDowngrade(providerName: ProviderName, modelName: string): void;
+	recordAutoDowngrade(providerName: ProviderId, modelName: string): void;
 }
 
 export const IVibeQuirkAutoFeedService = createDecorator<IVibeQuirkAutoFeedService>('vibeQuirkAutoFeedService');
@@ -60,7 +60,7 @@ class VibeQuirkAutoFeedService extends Disposable implements IVibeQuirkAutoFeedS
 		super();
 	}
 
-	recordAutoDowngrade(providerName: ProviderName, modelName: string): void {
+	recordAutoDowngrade(providerName: ProviderId, modelName: string): void {
 		try {
 			const modelKey = `${providerName}:${modelName}`;
 			let state = parseQuirkAutoFeedState(this._storageService.get(STORAGE_KEY, StorageScope.APPLICATION));
@@ -83,7 +83,7 @@ class VibeQuirkAutoFeedService extends Disposable implements IVibeQuirkAutoFeedS
 		}
 	}
 
-	private _suggestDurableXml(providerName: ProviderName, modelName: string, sessionCount: number, ruleSnippet: string): void {
+	private _suggestDurableXml(providerName: ProviderId, modelName: string, sessionCount: number, ruleSnippet: string): void {
 		this._notificationService.notify({
 			severity: Severity.Info,
 			message: localize(

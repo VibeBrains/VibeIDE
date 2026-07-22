@@ -7,7 +7,7 @@
 /* eslint-disable */
 import { GoogleAuth } from 'google-auth-library';
 /* eslint-enable */
-import { ProviderName, SettingsOfProvider, withEnvApiKey } from '../../common/vibeideSettingsTypes.js';
+import { ProviderId, SettingsOfProvider, withEnvApiKey } from '../../common/vibeideSettingsTypes.js';
 
 /**
  * Module-level singleton-backed Google service account token.
@@ -27,7 +27,7 @@ export const getGoogleApiKey = async (): Promise<string> => {
  * exists (see `vibeEnvApiKeysContribution`), never its value. The resolution itself is the pure
  * `withEnvApiKey` in common; this wrapper just supplies the environment.
  */
-export const withProcessEnvApiKey = (settingsOfProvider: SettingsOfProvider, providerName: ProviderName): SettingsOfProvider =>
+export const withProcessEnvApiKey = (settingsOfProvider: SettingsOfProvider, providerName: ProviderId): SettingsOfProvider =>
 	withEnvApiKey(settingsOfProvider, providerName, process.env);
 
 /**

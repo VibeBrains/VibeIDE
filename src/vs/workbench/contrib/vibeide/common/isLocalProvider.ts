@@ -2,12 +2,12 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-import { ProviderName, SettingsOfProvider } from './vibeideSettingsTypes.js';
+import { ProviderId, SettingsOfProvider } from './vibeideSettingsTypes.js';
 
 // Detect if a provider is local (used for optimizing prompts and token budgets for local models).
 // Pure predicate with no browser dependencies — lives in common/ so pure-helper tests can import
 // it without pulling in browser-only modules (e.g. vs/base/browser/window via terminalToolService).
-export function isLocalProvider(providerName: ProviderName, settingsOfProvider: SettingsOfProvider): boolean {
+export function isLocalProvider(providerName: ProviderId, settingsOfProvider: SettingsOfProvider): boolean {
 	const isExplicitLocalProvider = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio';
 	if (isExplicitLocalProvider) { return true; }
 

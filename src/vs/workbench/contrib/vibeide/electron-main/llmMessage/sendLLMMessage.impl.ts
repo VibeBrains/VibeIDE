@@ -18,7 +18,7 @@ import { Tool as GeminiTool, FunctionDeclaration, GoogleGenAI, ThinkingConfig, S
 /* eslint-enable */
 
 import { buildContextOverflowError, buildEmptyResponseError, GeminiLLMChatMessage, isContextOverflow, LLMChatMessage, LLMRuntimeOptions, OllamaModelResponse, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
-import { ChatMode, displayInfoOfProviderName, FeatureName, ProviderName, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
+import { ChatMode, displayInfoOfProviderName, FeatureName, ProviderId, ProviderName, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
 import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js';
@@ -33,7 +33,7 @@ import type { SendChatParams_Internal, SendFIMParams_Internal, ListParams_Intern
 
 
 
-const invalidApiKeyMessage = (providerName: ProviderName) => `Invalid ${displayInfoOfProviderName(providerName).title} API key.`;
+const invalidApiKeyMessage = (providerName: ProviderId) => `Invalid ${displayInfoOfProviderName(providerName).title} API key.`;
 
 // ------------ SDK POOLING FOR LOCAL PROVIDERS ------------
 
@@ -59,7 +59,7 @@ const ollamaClientCache = new Map<string, Ollama>();
  * Stale entries are left behind until the next reset/restart — a handful of idle SDK objects,
  * not a leak worth an eviction scheme.
  */
-const buildOpenAICacheKey = (providerName: ProviderName, settingsOfProvider: SettingsOfProvider): string => {
+const buildOpenAICacheKey = (providerName: ProviderId, settingsOfProvider: SettingsOfProvider): string => {
 	return `${providerName}:${hash(JSON.stringify(settingsOfProvider[providerName] ?? null))}`;
 };
 
@@ -68,7 +68,7 @@ const buildOpenAICacheKey = (providerName: ProviderName, settingsOfProvider: Set
  * For local providers (ollama, vLLM, lmStudio, localhost openAICompatible/liteLLM),
  * we cache clients to reuse connections. Cloud providers always get new instances.
  */
-const getOpenAICompatibleClient = async ({ settingsOfProvider, providerName, includeInPayload, runtimeOptions }: { settingsOfProvider: SettingsOfProvider; providerName: ProviderName; includeInPayload?: Record<string, unknown>; runtimeOptions?: LLMRuntimeOptions }): Promise<OpenAI> => {
+const getOpenAICompatibleClient = async ({ settingsOfProvider, providerName, includeInPayload, runtimeOptions }: { settingsOfProvider: SettingsOfProvider; providerName: ProviderId; includeInPayload?: Record<string, unknown>; runtimeOptions?: LLMRuntimeOptions }): Promise<OpenAI> => {
 	// Detect if this is a local provider
 	const isExplicitLocalProvider = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio';
 	let isLocalhostEndpoint = false;
@@ -180,7 +180,7 @@ const computeMaxTokensForLocalProvider = (isLocalProvider: boolean, featureName:
 	return 300;
 };
 
-const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includeInPayload, runtimeOptions }: { settingsOfProvider: SettingsOfProvider; providerName: ProviderName; includeInPayload?: Record<string, unknown>; runtimeOptions?: LLMRuntimeOptions }) => {
+const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includeInPayload, runtimeOptions }: { settingsOfProvider: SettingsOfProvider; providerName: ProviderId; includeInPayload?: Record<string, unknown>; runtimeOptions?: LLMRuntimeOptions }) => {
 	// Inherit the provider's OS-env API key when Settings has none. Done once here so every
 	// provider branch below reads the resolved key through its usual `settingsOfProvider` lookup.
 	settingsOfProvider = withProcessEnvApiKey(settingsOfProvider, providerName);

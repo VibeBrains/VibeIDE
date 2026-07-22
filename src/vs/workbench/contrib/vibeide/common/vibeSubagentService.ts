@@ -28,7 +28,7 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { DEFAULT_SUBAGENT_TOKEN_QUOTA } from './subagentIsolationPolicy.js';
 import type { SubagentStopReason } from './subagentLoopPolicy.js';
-import type { ProviderName } from './vibeideSettingsTypes.js';
+import type { ProviderId } from './vibeideSettingsTypes.js';
 import type { ChatImageAttachment } from './chatThreadServiceTypes.js';
 import { IAuditLogService } from './auditLogService.js';
 import { IVibeConstraintsService } from './vibeConstraintsService.js';
@@ -98,7 +98,7 @@ export interface SubagentResult {
 	promptTokensUsed?: number;
 	completionTokensUsed?: number;
 	/** Model that actually ran the role. */
-	providerName?: ProviderName;
+	providerName?: ProviderId;
 	modelName?: string;
 	/** Whether the result was truncated due to step/wall-clock limit */
 	truncated?: boolean;

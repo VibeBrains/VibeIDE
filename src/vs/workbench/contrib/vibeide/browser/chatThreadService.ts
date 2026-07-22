@@ -26,7 +26,7 @@ import { AnthropicReasoning, getErrorMessage, GeminiLLMChatMessage, LLMChatMessa
 import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS, classifyProviderError } from '../common/modelHealthTracker.js';
 import { translateProviderError } from '../common/providerErrorTranslator.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
-import { autoModelFallbackProviderOrder, ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
+import { autoFallbackProviderIds, ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isModelVisionCapable } from '../common/modelVisionHeuristics.js';
 import { detectVisionDropResponse } from '../common/visionDropDetector.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
@@ -1360,7 +1360,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			return null;
 		}
 		// Plain model name: scan providers in preference order.
-		for (const providerName of autoModelFallbackProviderOrder) {
+		for (const providerName of autoFallbackProviderIds(this._settingsService.state.settingsOfProvider)) {
 			const settings = this._settingsService.state.settingsOfProvider[providerName];
 			if (!settings?._didFillInProviderSettings) { continue; }
 			const found = settings.models?.find(m => m.modelName === modelId && !m.isHidden);
