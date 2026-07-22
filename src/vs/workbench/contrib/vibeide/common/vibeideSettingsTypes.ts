@@ -39,6 +39,69 @@ export const nonlocalProviderNames = providerNames.filter((name) => !(localProvi
  */
 export const autoModelFallbackProviderOrder = ['anthropic', 'openAI', 'gemini', 'xAI', 'mistral', 'deepseek', 'groq', 'ollama', 'vLLM', 'lmStudio', 'openAICompatible', 'openRouter', 'liteLLM', 'pollinations', 'openCodeZen', 'openCodeGo', 'minimax'] satisfies ProviderName[];
 
+/**
+ * Canonical OS-env variable carrying the API key of a built-in cloud provider — the
+ * conventional name each vendor documents (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …).
+ *
+ * Only providers whose SOLE required setting is `apiKey` are listed: the env key has to be
+ * enough to make the provider usable on its own, and `computeDidFillInProviderSettings`
+ * requires EVERY field of a provider to be non-empty. Multi-field providers (liteLLM /
+ * lmRoute need `endpoint`, microsoftAzure needs `project`, awsBedrock needs `region`) are
+ * deliberately absent — an env key alone would not unblock them. Providers with no
+ * established convention (openCodeZen / openCodeGo / pollinations) are absent too rather
+ * than inventing a name.
+ *
+ * The NAME lives here (shared); the VALUE is read only in electron-main, where
+ * `process.env` is reliable — the renderer never receives it, just the presence flag.
+ */
+export const apiKeyEnvVarOfProvider = {
+	anthropic: 'ANTHROPIC_API_KEY',
+	openAI: 'OPENAI_API_KEY',
+	gemini: 'GEMINI_API_KEY',
+	groq: 'GROQ_API_KEY',
+	deepseek: 'DEEPSEEK_API_KEY',
+	mistral: 'MISTRAL_API_KEY',
+	xAI: 'XAI_API_KEY',
+	openRouter: 'OPENROUTER_API_KEY',
+	minimax: 'MINIMAX_API_KEY',
+} as const satisfies Partial<Record<ProviderName, string>>;
+
+/** Providers that support picking their API key up from the OS environment. */
+export const envCapableProviderNames = Object.keys(apiKeyEnvVarOfProvider) as (keyof typeof apiKeyEnvVarOfProvider)[];
+
+/** Minimal view of an environment bag — `process.env` satisfies it, and tests can pass a literal. */
+export type EnvVars = Readonly<Record<string, string | undefined>>;
+
+/**
+ * Fall back to the provider's canonical OS-env API key when Settings holds none.
+ *
+ * A key typed into the UI always wins, so an explicit setting can override the environment. The env
+ * value is trimmed: shells and CI configs routinely leave a trailing newline, which would otherwise
+ * surface much later as an invalid-header failure inside the HTTP client.
+ *
+ * Pure by design (env is a parameter, not `process.env`) — the caller in electron-main supplies the
+ * real environment, which keeps this testable from `test/common` and usable from any layer.
+ */
+export const resolveApiKeyWithEnv = (configuredKey: string | undefined, providerName: ProviderName, env: EnvVars): string => {
+	if (configuredKey?.trim()) { return configuredKey; }
+	const envVarName = apiKeyEnvVarOfProvider[providerName as keyof typeof apiKeyEnvVarOfProvider];
+	if (!envVarName) { return configuredKey ?? ''; }
+	return (env[envVarName] ?? '').trim();
+};
+
+/**
+ * Same fallback applied to the whole provider-settings bag, so every downstream branch reading
+ * `settingsOfProvider[providerName].apiKey` picks the env key up without repeating the resolution.
+ * Returns the original object untouched when there is nothing to substitute.
+ */
+export const withEnvApiKey = (settingsOfProvider: SettingsOfProvider, providerName: ProviderName, env: EnvVars): SettingsOfProvider => {
+	const providerCfg = settingsOfProvider[providerName] as { apiKey?: string } | undefined;
+	if (!providerCfg || providerCfg.apiKey?.trim()) { return settingsOfProvider; }
+	const resolved = resolveApiKeyWithEnv(providerCfg.apiKey, providerName, env);
+	if (!resolved) { return settingsOfProvider; }
+	return { ...settingsOfProvider, [providerName]: { ...providerCfg, apiKey: resolved } };
+};
+
 type CustomSettingName = UnionOfKeys<typeof defaultProviderSettings[ProviderName]>;
 type CustomProviderSettings<providerName extends ProviderName> = {
 	[k in CustomSettingName]: k extends keyof typeof defaultProviderSettings[providerName] ? string : undefined

@@ -157,6 +157,11 @@ export interface IVibeideSettingsService {
 	 *  persisted) — recomputes the model picker + reselects if the active model became hidden. */
 	applyProviderActiveOverrides(overrides: VibeProviderActiveOverrides | undefined): void;
 
+	/** Mark which built-in providers have an API key available in the OS environment, so they count
+	 *  as configured without a key typed into the UI. Presence only — the value stays in electron-main.
+	 *  Derived (not persisted); re-applied on every launch by the desktop contribution. */
+	applyEnvApiKeyProviders(providers: ReadonlySet<ProviderName>): void;
+
 	/** Transport configs of active dynamic providers (`.vibe/providers.json`), keyed by file id.
 	 *  Merged transiently into `settingsOfProvider` on the send-site — never persisted. */
 	getDynamicTransportConfigs(): Record<string, DynProviderTransportConfig>;
@@ -181,7 +186,14 @@ const computeDidFillInProviderSettings = (providerName: ProviderName, settingsAt
 		if (s.publicCatalog === '1') {
 			return true;
 		}
-		return !!s.apiKey?.trim();
+		return !!s.apiKey?.trim() || _envApiKeyProviders.has(providerName);
+	}
+	// A key present in the OS environment counts as a filled-in key: without this the provider would
+	// stay hidden in the UI (no model list, not pickable) even though electron-main could authenticate
+	// with it. Only the PRESENCE flag reaches the renderer — the value never leaves electron-main.
+	if (_envApiKeyProviders.has(providerName)) {
+		return Object.keys(defaultProviderSettings[providerName])
+			.every(key => key === 'apiKey' || !!settingsAtProvider[key as keyof typeof settingsAtProvider]);
 	}
 	return Object.keys(defaultProviderSettings[providerName]).every(key => !!settingsAtProvider[key as keyof typeof settingsAtProvider]);
 };
@@ -349,6 +361,11 @@ export type DynamicProviderSeed = {
 	modelCapOverrides?: { [modelId: string]: Partial<VibeideStaticModelInfo> };
 };
 let _providerActiveOverrides: VibeProviderActiveOverrides | undefined = undefined;
+
+/** Built-in providers whose API key was found in the OS environment (see `apiKeyEnvVarOfProvider`).
+ *  Presence only — the key value stays in electron-main. Injected by the desktop contribution;
+ *  empty on web/server, where there is no OS environment to inherit from. */
+let _envApiKeyProviders: ReadonlySet<ProviderName> = new Set<ProviderName>();
 
 const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>): VibeideSettingsState => {
 
@@ -562,6 +579,14 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 		_providerActiveOverrides = overrides;
 		// Recompute model options + selection against the new overrides. No _storeState — these are
 		// derived from .vibe/providers.json (reapplied on every load), not persisted user settings.
+		this.state = _validatedModelState(this.state);
+		this._onDidChangeState.fire();
+	};
+
+	applyEnvApiKeyProviders = (providers: ReadonlySet<ProviderName>): void => {
+		_envApiKeyProviders = providers;
+		// Recompute _didFillInProviderSettings + model options against the new env facts. No
+		// _storeState — this is derived from the OS environment, not persisted user settings.
 		this.state = _validatedModelState(this.state);
 		this._onDidChangeState.fire();
 	};

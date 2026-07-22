@@ -26,7 +26,7 @@ import { generateUuid } from '../../../../../base/common/uuid.js';
 import { hash } from '../../../../../base/common/hash.js';
 import { ensureSystemCADispatcher, resetSystemCADispatcher } from './systemCAFetch.js';
 import { sendViaAISdk } from './aiSdkAdapter.js';
-import { getGoogleApiKey, assertHttpHeaderSafe } from './llmHelpers.js';
+import { getGoogleApiKey, assertHttpHeaderSafe, withProcessEnvApiKey } from './llmHelpers.js';
 import type { SendChatParams_Internal, SendFIMParams_Internal, ListParams_Internal } from './sendLLMMessage.internalTypes.js';
 
 
@@ -181,6 +181,10 @@ const computeMaxTokensForLocalProvider = (isLocalProvider: boolean, featureName:
 };
 
 const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includeInPayload, runtimeOptions }: { settingsOfProvider: SettingsOfProvider; providerName: ProviderName; includeInPayload?: Record<string, unknown>; runtimeOptions?: LLMRuntimeOptions }) => {
+	// Inherit the provider's OS-env API key when Settings has none. Done once here so every
+	// provider branch below reads the resolved key through its usual `settingsOfProvider` lookup.
+	settingsOfProvider = withProcessEnvApiKey(settingsOfProvider, providerName);
+
 	// Pre-flight: reject API keys with non-Latin-1 chars before they reach undici as a header.
 	const providerCfg: { apiKey?: string } = settingsOfProvider[providerName] ?? {};
 	if (typeof providerCfg.apiKey === 'string') {
@@ -1240,7 +1244,8 @@ const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessag
 		specialToolFormat,
 	} = getModelCapabilities(providerName, modelName_, overridesOfModel);
 
-	const thisConfig = settingsOfProvider.anthropic;
+	// Falls back to ANTHROPIC_API_KEY when Settings has no key (see withEnvApiKey).
+	const thisConfig = withProcessEnvApiKey(settingsOfProvider, 'anthropic').anthropic;
 	const { providerReasoningIOSettings } = getProviderCapabilities(providerName);
 
 	// reasoning
@@ -1535,7 +1540,8 @@ const sendGeminiChat = async ({
 
 	if (providerName !== 'gemini') { throw new Error(`Sending Gemini chat, but provider was ${providerName}`); }
 
-	const thisConfig = settingsOfProvider[providerName];
+	// Falls back to GEMINI_API_KEY when Settings has no key (see withEnvApiKey).
+	const thisConfig = withProcessEnvApiKey(settingsOfProvider, providerName)[providerName];
 
 	const {
 		modelName,
