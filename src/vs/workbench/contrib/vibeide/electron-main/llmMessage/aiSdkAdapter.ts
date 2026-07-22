@@ -11,7 +11,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { API_PROTOCOL_TO_SDK_NPM, ApiProtocolOverride, getModelCapabilities, getProviderCapabilities, getSendableReasoningInfo } from '../../common/modelCapabilities.js';
+import { API_PROTOCOL_TO_SDK_NPM, ApiProtocolOverride, getModelCapabilities, getProviderCapabilities, getSendableReasoningInfo, sdkNpmOfFileProtocol } from '../../common/modelCapabilities.js';
 
 // Module-level memo for SDK-selection diagnostic logs. Keys are
 // `${providerName}|${modelName}|${sdkNpm}|${source}` — log once per unique
@@ -946,10 +946,15 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	//      everything below. Required when models.dev mis-classifies a model
 	//      or when a model isn't in the catalog at all (e.g. new aggregator
 	//      additions, corporate-network blocking models.dev fetch).
-	//   2. models.dev catalog (data-driven) — returns the `npm` field
+	//   2. `protocol` declared by the CONFIG provider's file entry
+	//      (providers.json → transport overlay) — the author's per-provider
+	//      declaration; without this a catalog-unknown model on an
+	//      anthropic/gemini endpoint silently fell to the openai-compat wire
+	//      format and broke.
+	//   3. models.dev catalog (data-driven) — returns the `npm` field
 	//      (`@ai-sdk/anthropic`, `@ai-sdk/openai-compatible`, etc.) for the
 	//      (baseURL, modelName) tuple.
-	//   3. Fallback: openai-compatible (safe default; even if wrong, the
+	//   4. Fallback: openai-compatible (safe default; even if wrong, the
 	//      auto-downgrade pipeline catches resulting tool-call quirks).
 	const apiProtocolOverride = (overridesOfModel?.[providerName as Exclude<typeof providerName, 'auto'>]?.[modelName_] as { apiProtocol?: ApiProtocolOverride } | undefined)?.apiProtocol;
 	// Map override → SDK npm via the shared const in modelCapabilities (single
@@ -957,14 +962,16 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	const sdkNpmFromOverride: string | undefined = apiProtocolOverride
 		? API_PROTOCOL_TO_SDK_NPM[apiProtocolOverride]
 		: undefined;
-	const sdkNpm = sdkNpmFromOverride ?? await getModelSdkNpm(baseURL, modelName);
+	const fileProtocol = (settingsOfProvider[providerName] as { protocol?: string } | undefined)?.protocol;
+	const sdkNpmFromFile = sdkNpmOfFileProtocol(fileProtocol);
+	const sdkNpm = sdkNpmFromOverride ?? sdkNpmFromFile ?? await getModelSdkNpm(baseURL, modelName);
 	// Diagnostic: log which SDK path was taken on the FIRST request per
 	// (provider × model × source). Cache key prevents per-request spam in
 	// long sessions. Downgraded to console.debug (hidden by default in
 	// devtools) — the routing decision was once-suspect, now stable.
 	// Bypass the dedup if it actually changes for the same combo (rare, but
 	// e.g. catalog refresh mid-session could switch sdkNpm).
-	const sdkSource = sdkNpmFromOverride ? 'override' : (sdkNpm ? 'models.dev' : 'fallback');
+	const sdkSource = sdkNpmFromOverride ? 'override' : sdkNpmFromFile ? 'file' : (sdkNpm ? 'models.dev' : 'fallback');
 	const sdkLogKey = `${providerName}|${modelName}|${sdkNpm ?? 'fallback'}|${sdkSource}`;
 	if (!_loggedSdkSelections.has(sdkLogKey)) {
 		_loggedSdkSelections.add(sdkLogKey);

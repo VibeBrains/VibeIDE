@@ -5,6 +5,7 @@
 
 
 import * as assert from 'assert';
+import { API_PROTOCOL_TO_SDK_NPM, sdkNpmOfFileProtocol } from '../../common/modelCapabilities.js';
 import { mergeProvidersLists, VibeProviderEntry } from '../../common/vibeProvidersFile.js';
 import { autoFallbackProviderIds, autoModelFallbackProviderOrder, isBuiltinProviderId, isFeatureNameDisabled, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { isLocalProvider } from '../../common/isLocalProvider.js';
@@ -111,6 +112,21 @@ suite('Config providers — merged rights (global+workspace, auto-fallback)', ()
 			assert.deepStrictEqual(
 				['ollama', 'corp-local', 'corp-cloud', 'corp-broken', 'anthropic'].map(id => isLocalProvider(id, settings)),
 				[true, true, false, false, false],
+			);
+		});
+	});
+
+	suite('sdkNpmOfFileProtocol (file protocol → SDK wire format)', () => {
+		test('maps the three declared values; file "openai" means openai-COMPATIBLE, not native', () => {
+			assert.deepStrictEqual(
+				['openai', 'anthropic', 'gemini', 'nonsense', undefined].map(v => sdkNpmOfFileProtocol(v)),
+				[
+					API_PROTOCOL_TO_SDK_NPM['openai-compat'],
+					API_PROTOCOL_TO_SDK_NPM['anthropic'],
+					API_PROTOCOL_TO_SDK_NPM['google'],
+					undefined, // unknown → caller falls through to the models.dev catalog
+					undefined,
+				],
 			);
 		});
 	});

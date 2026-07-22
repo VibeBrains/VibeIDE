@@ -637,6 +637,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 					...(p.entry.apiKeyEnv ? { apiKeyEnv: p.entry.apiKeyEnv } : {}),
 					...(p.entry.headers ? { headers: { ...p.entry.headers } } : {}),
 					...(typeof fetchSpec === 'string' ? { modelsUrl: fetchSpec } : {}),
+					...(p.entry.protocol ? { protocol: p.entry.protocol } : {}),
 				};
 			}
 

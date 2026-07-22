@@ -5,7 +5,8 @@
 
 
 import { vibeLog } from './vibeLog.js';
-import { ProviderName, ModelSelection, localProviderNames } from './vibeideSettingsTypes.js';
+import { ModelSelection } from './vibeideSettingsTypes.js';
+import { isLocalProvider } from './isLocalProvider.js';
 import { getModelCapabilities, VibeideStaticModelInfo } from './modelCapabilities.js';
 import { IVibeideSettingsService, VibeideSettingsState } from './vibeideSettingsService.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -144,7 +145,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			return this.capabilityCache.get(key)!;
 		}
 		const capabilities = getModelCapabilities(
-			modelSelection.providerName as ProviderName,
+			modelSelection.providerName,
 			modelSelection.modelName,
 			settingsState.overridesOfModel
 		);
@@ -251,7 +252,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		// Check if online models are available (for codebase questions, we strongly prefer online models)
 		const hasOnlineModels = availableModels.some(m => {
 			if (m.providerName === 'auto') { return false; }
-			return !(localProviderNames as readonly ProviderName[]).includes(m.providerName as ProviderName);
+			return !isLocalProvider(m.providerName, settingsState.settingsOfProvider);
 		});
 
 		// Debug: Log available models for codebase questions
@@ -261,11 +262,11 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		if (isCodebaseQuestionCheck) {
 			const onlineModels = availableModels.filter(m => {
 				if (m.providerName === 'auto') { return false; }
-				return !(localProviderNames as readonly ProviderName[]).includes(m.providerName as ProviderName);
+				return !isLocalProvider(m.providerName, settingsState.settingsOfProvider);
 			});
 			const localModels = availableModels.filter(m => {
 				if (m.providerName === 'auto') { return false; }
-				return (localProviderNames as readonly ProviderName[]).includes(m.providerName as ProviderName);
+				return isLocalProvider(m.providerName, settingsState.settingsOfProvider);
 			});
 			vibeLog.info('modelRouter', '[ModelRouter] Codebase question detected:', {
 				hasOnlineModels,
@@ -344,7 +345,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			const beforeFilter = candidateModels.length;
 			candidateModels = candidateModels.filter(model => {
 				if (model.providerName === 'auto') { return false; }
-				const isLocal = (localProviderNames as readonly ProviderName[]).includes(model.providerName as ProviderName);
+				const isLocal = isLocalProvider(model.providerName, settingsState.settingsOfProvider);
 				return !isLocal;
 			});
 			const afterFilter = candidateModels.length;
@@ -518,7 +519,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 			(context.taskType === 'code' && context.isLongMessage && !context.hasCode);
 
 		if (isCodebaseQuestionForDebug) {
-			const isLocal = (localProviderNames as readonly ProviderName[]).includes(finalModel.providerName as ProviderName);
+			const isLocal = isLocalProvider(finalModel.providerName, settingsState.settingsOfProvider);
 			if (isLocal && hasOnlineModels) {
 				vibeLog.warn('modelRouter', '[ModelRouter] WARNING: Selected local model for codebase question despite online models available!', {
 					selectedModel: finalModel,
@@ -693,7 +694,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		const capabilities = this.getCachedCapabilities(model, settingsState);
 
 		const name = model.modelName.toLowerCase();
-		const isLocal = (localProviderNames as readonly ProviderName[]).includes(model.providerName as ProviderName);
+		const isLocal = isLocalProvider(model.providerName, settingsState.settingsOfProvider);
 
 		// Base timeout: 30s for local, 60s for online
 		let timeout = isLocal ? 30_000 : 60_000;
@@ -771,7 +772,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 	private getAvailableModels(settingsState: VibeideSettingsState): ModelSelection[] {
 		const models: ModelSelection[] = [];
 
-		for (const providerName of Object.keys(settingsState.settingsOfProvider) as ProviderName[]) {
+		for (const providerName of Object.keys(settingsState.settingsOfProvider)) {
 			const providerSettings = settingsState.settingsOfProvider[providerName];
 			if (!providerSettings._didFillInProviderSettings) { continue; }
 
@@ -808,7 +809,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 
 		const name = modelSelection.modelName.toLowerCase();
 		const provider = modelSelection.providerName.toLowerCase();
-		const isLocal = (localProviderNames as readonly ProviderName[]).includes(modelSelection.providerName as ProviderName);
+		const isLocal = isLocalProvider(modelSelection.providerName, settingsState.settingsOfProvider);
 
 		// Check Local-First AI setting
 		// PERFORMANCE: Use pre-computed value if provided, otherwise lookup (for backward compatibility)
@@ -1455,8 +1456,10 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		const settingsState = this.settingsService.state;
 		const localModels: ModelSelection[] = [];
 
-		// Collect available local models
-		for (const providerName of localProviderNames) {
+		// Collect available local models — over the MERGED set: a config provider pointed at
+		// localhost is exactly as local as ollama/vLLM/lmStudio and must serve Local-First AI too.
+		for (const providerName of Object.keys(settingsState.settingsOfProvider)) {
+			if (!isLocalProvider(providerName, settingsState.settingsOfProvider)) { continue; }
 			const providerSettings = settingsState.settingsOfProvider[providerName];
 			if (!providerSettings._didFillInProviderSettings) { continue; }
 
@@ -1592,7 +1595,7 @@ export class TaskAwareModelRouter extends Disposable implements ITaskAwareModelR
 		}
 
 		// Add model type (online vs local)
-		const isLocal = (localProviderNames as readonly ProviderName[]).includes(modelSelection.providerName as ProviderName);
+		const isLocal = isLocalProvider(modelSelection.providerName, this.settingsService.state.settingsOfProvider);
 		if (!isLocal) {
 			parts.push('online model');
 		} else {

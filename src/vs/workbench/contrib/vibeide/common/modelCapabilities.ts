@@ -282,6 +282,19 @@ export const API_PROTOCOL_TO_SDK_NPM: Record<ApiProtocolOverride, string> = {
 	'google': '@ai-sdk/google',
 };
 
+/**
+ * SDK npm for a CONFIG provider's declared `protocol` (providers.json). File values map onto the
+ * shared protocol table: `openai` means "OpenAI-compatible chat completions" (the format's default
+ * wire shape), NOT the native OpenAI SDK. Returns undefined for an absent/unknown value so the
+ * caller falls through to the models.dev catalog.
+ */
+export const sdkNpmOfFileProtocol = (fileProtocol: string | undefined): string | undefined => {
+	if (fileProtocol === 'openai') { return API_PROTOCOL_TO_SDK_NPM['openai-compat']; }
+	if (fileProtocol === 'anthropic') { return API_PROTOCOL_TO_SDK_NPM['anthropic']; }
+	if (fileProtocol === 'gemini') { return API_PROTOCOL_TO_SDK_NPM['google']; }
+	return undefined;
+};
+
 export type ModelOverrides = Omit<Pick<
 	VibeideStaticModelInfo,
 	(typeof modelOverrideKeys)[number]

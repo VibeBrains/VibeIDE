@@ -329,6 +329,9 @@ export interface DynProviderTransportConfig {
 	/** Custom models-catalog URL from `models.fetch: "<url>"`. When set, the catalog fetch hits this
 	 *  URL verbatim instead of the `<baseURL>/v1/models` default. */
 	readonly modelsUrl?: string;
+	/** Wire protocol declared in the file (`openai` | `anthropic` | `gemini`). Feeds the SDK pick in
+	 *  aiSdkAdapter with priority override → FILE → models.dev catalog → openai-compat fallback. */
+	readonly protocol?: string;
 }
 
 export interface VibeProviderActiveOverrides {
