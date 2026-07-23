@@ -4,6 +4,8 @@
 	"description": "VibeIDE model behaviour quirks. Source of truth — see README.md section 'Model behaviour quirks'. PRs welcome. Schema: ./src/vs/workbench/contrib/vibeide/common/modelQuirks/modelQuirksTypes.ts.",
 	"docs": "https://github.com/VibeBrains/VibeIDE#model-behaviour-quirks",
 	"rules": [
+		{ "match": "kimi-k3", "temperature": 1.0, "topP": 0.95, "mirrorReasoningContent": true,
+		  "note": "Kimi K3 (Moonshot, 2026-07) — trained in preserved-thinking-history mode: dropping earlier reasoning between tool-loop turns causes generation quality instability, so the reasoning text must be mirrored back on every assistant turn. Single reasoning level (reasoning_effort: 'max', cannot be turned off). Source: vendor docs/apidog 2026-07; no technical report yet — revisit once independent data exists. Not yet smoke-tested on a live key." },
 		{ "match": "kimi-k2.6", "temperature": 1.0, "topP": 0.95, "mirrorReasoningContent": true,
 		  "note": "kimi-k2.x family — opencode upstream transform.ts:478-510" },
 		{ "match": "kimi-k2.5", "temperature": 1.0, "topP": 0.95, "mirrorReasoningContent": true },
