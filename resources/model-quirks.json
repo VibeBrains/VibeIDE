@@ -1,11 +1,11 @@
 {
 	"version": 1,
-	"date": "2026-06-10",
+	"date": "2026-07-23",
 	"description": "VibeIDE model behaviour quirks. Source of truth — see README.md section 'Model behaviour quirks'. PRs welcome. Schema: ./src/vs/workbench/contrib/vibeide/common/modelQuirks/modelQuirksTypes.ts.",
 	"docs": "https://github.com/VibeBrains/VibeIDE#model-behaviour-quirks",
 	"rules": [
 		{ "match": "kimi-k3", "temperature": 1.0, "topP": 0.95, "mirrorReasoningContent": true,
-		  "note": "Kimi K3 (Moonshot, 2026-07) — trained in preserved-thinking-history mode: dropping earlier reasoning between tool-loop turns causes generation quality instability, so the reasoning text must be mirrored back on every assistant turn. Single reasoning level (reasoning_effort: 'max', cannot be turned off). Source: vendor docs/apidog 2026-07; no technical report yet — revisit once independent data exists. Not yet smoke-tested on a live key." },
+		  "note": "Kimi K3 (Moonshot, 2026-07) — UNVERIFIED, precautionary. Secondary sources (apidog 2026-07) report the model was trained in preserved-thinking-history mode; Moonshot has published no technical report, and we have no live key to smoke-test it. mirrorReasoningContent is therefore applied by analogy with the verified kimi-k2.x family rather than from observed behaviour: without an explicit k3 rule the substring matcher falls through to the broad 'kimi' preset, which omits mirroring entirely. Mirroring is the safe default — it costs a duplicated reasoning field per turn and is harmless if unnecessary. Also single reasoning level (reasoning_effort: 'max', cannot be turned off). Revisit when a live key or independent data appears: see docs/knowledge/architecture/modelQuirks.md, section 'Непроверенные правила'." },
 		{ "match": "kimi-k2.6", "temperature": 1.0, "topP": 0.95, "mirrorReasoningContent": true,
 		  "note": "kimi-k2.x family — opencode upstream transform.ts:478-510" },
 		{ "match": "kimi-k2.5", "temperature": 1.0, "topP": 0.95, "mirrorReasoningContent": true },
