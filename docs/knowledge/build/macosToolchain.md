@@ -58,6 +58,16 @@ Apple Silicon **отказывается запускать бинарь с не
 
 ---
 
+## [баг] Форкнутый node-воркер может молча выпасть из бандла → VERIFY-GATE целостности
+
+**Контекст:** голосовой ввод в выпущенном macOS 1.9.0 не работал — микрофон ОС горит, но запись не включается. Диагноз (лог `.app`): `[vibeVoice worker] ERR_MODULE_NOT_FOUND: .../vibeide/node/voice/vibeVoiceWorkerMain.js`. В `.app` у `vibeide` был только слой `browser`; весь `node`-слой отсутствовал, при этом соседи по списку `workbenchDesktop` (`ptyHostMain`, `watcherMain`, `agentHostMain`, …) на месте — выпал только voice.
+
+**Суть:** форкнутый воркер (UtilityProcess / `bootstrap-fork`, entryPoint `vs/workbench/contrib/vibeide/node/voice/vibeVoiceWorkerMain`) — это **отдельная bundle-точка**, перечисленная в `build/buildfile.ts` → `workbenchDesktop`. Ключевой урок: **наличие `.js` в `out-build` ≠ наличие в `.app`**. Полная компиляция всегда `rimraf out-build` + пересборка (`build/gulpfile.compile.ts`), но `.app` пакуется отдельным шагом `gulp vscode-darwin`, и если он отработал по **неполному/устаревшему `out-build`** (напр. сборка через `--skip-compile`/`--package-only`, или частичная сборка), новый воркер тихо не попадает в пакет — рантайм падает `ERR_MODULE_NOT_FOUND`, а UI **не показывает ошибки** (аудио просто копится и дропается: `engine warm-up is slow — dropping oldest queued audio`). macOS-скрипт это усугублял: для `--skip-publish` он явно разрешает stale `out-build` («package may contain stale code»), тогда как Windows-скрипт в той же ветке падает.
+
+**Применение:** оба релиз-скрипта после сборки пакета (`release-macos.sh` после `gulp vscode-darwin`, `release-windows.ps1` после `gulp vscode-win32`) содержат **VERIFY-GATE**: массив `REQUIRED_WORKERS` / `$requiredWorkers` (сейчас `vibeVoiceWorkerMain.js`) проверяется в собранном `.app`/`resources\app\out` ДО подписи/публикации; отсутствие → `die`/`throw` с требованием пересобрать полной Фазой 1. **Добавляешь новый форкнутый node-воркер — впиши его в оба списка**, иначе тот же класс бага повторится молча. Проверять именно распакованный пакет, а не `out-build`.
+
+---
+
 ## [сборка] Первый прогон
 
 ```bash
