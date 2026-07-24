@@ -6257,7 +6257,10 @@ export const SidebarChat = () => {
 		ta.dispatchEvent(new Event('input', { bubbles: true }));
 		ta.setSelectionRange(newCursor, newCursor);
 		ta.focus();
-		setSkillMenuOpen(false);
+		// The dispatched `input` event above synchronously runs `onChangeText`, which is the
+		// single source of truth for the menu: it reopens it for `/skill:` (chaining into the
+		// skills list) and closes it otherwise. Do not force-close here — that would override the
+		// reopen and break the `/skill:` → skills-menu chain.
 	}, []);
 
 	const onChangeText = useCallback((newStr: string) => {

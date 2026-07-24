@@ -57,7 +57,7 @@
 | [cssPipeline.md](ui/cssPipeline.md) | `vibeide.css`, `styles.css`, build flow, CSS MIME в dev |
 | [scopeTailwind.md](ui/scopeTailwind.md) | `@@`-escape, классы в константах, `.vibe-scope *` preflight, ID с точками, popup borders, quick pick |
 | [vibeModal.md](ui/vibeModal.md) | IVibeModalService: архитектура, `@@`-рассинхрон (инлайн vs переменная), blocking/non-blocking, размер+ресайз |
-| [themesAndChat.md](ui/themesAndChat.md) | Vibe Neon, theme tokens, theming чат-панели, fullscreen modes, secondary sidebar border |
+| [themesAndChat.md](ui/themesAndChat.md) | Vibe Neon, theme tokens, theming чат-панели, fullscreen modes, secondary sidebar border, гонка setState при dispatchEvent('input') |
 | [viewTitleBar.md](ui/viewTitleBar.md) | ViewPaneContainer, дубли иконок, single-row aux bar |
 | [projectsPane.md](ui/projectsPane.md) | Vibe Projects native pane, decorations через ResourceLabel, FontAwesome escape |
 | [specsPane.md](ui/specsPane.md) | Панель «Спеки»: sidebar-view из `specs/<id>/` воркспейса; квартет файлов + correlated-watcher; паттерн добавления боковой панели; DnD из дерева в чат (`text/uri-list`, capture-фаза) + markdown-превью |

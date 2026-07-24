@@ -87,3 +87,11 @@ Vibe Neon, theme tokens, theming чат-композера, fullscreen modes, se
 В **`src/vs/workbench/contrib/vibeide/browser/media/vibeide.css`** добавлены правила **`.monaco-workbench .part.auxiliarybar.right`** (`border-left`) и **`.left`** (`border-right`) с **`!important`**, цвет: **`--vscode-sideBar-border` → `--vscode-panel-border` → `--vscode-widget-border` → `color-mix(..., --vscode-sideBar-foreground)`**, чтобы линия оставалась читаемой в любой теме.
 
 **Применение:** менять толщину/цвет — править тот же блок в `vibeide.css`; после правок media — **`npm run compile`**, затем Reload Window. Отдельно: редкий **`npm run compile`** с **`ENOENT`** на **`out/vs/workbench/contrib/mcp/test/common`** при полном `compile` — не из-за CSS; повторить сборку; если повторяется — исключить гонку/АВ с папкой **`out/`**.
+
+## [баг] `dispatchEvent('input')` синхронен → гонка `setState` в обработчике выбора
+
+**Контекст:** автокомплит slash-команд чата (`SidebarChat.tsx`). Выбор пункта `/skill:` вставлял текст, но вложенный список навыков не открывался — помогал лишь ручной повторный ввод `:` (2026-07-24).
+
+**Суть:** чтобы React подхватил программную вставку в `<textarea>`, обработчик выбора (`insertSelectedSkill`) ставит значение нативным сеттером и диспатчит `new Event('input', {bubbles:true})`. **`dispatchEvent` — синхронный**: `onChangeText` отрабатывает ПРЯМО внутри вызова, матчит `/skill:` и вызывает `setSkillMenuOpen(true)`. Управление возвращается в обработчик — и стоявший там безусловный `setSkillMenuOpen(false)` (для «закрыть меню после выбора») выполнялся ПОСЛЕ. Оба сеттера в одном React-батче → выигрывает последний (`false`) → меню закрывалось. Ручной ввод бага не имел, потому что там `insertSelectedSkill` не участвует.
+
+**Правило:** обработчик, который диспатчит синтетический `input`, НЕ должен ещё раз трогать то же состояние после dispatch — обработчик `onChange` уже единый источник истины и выставит его синхронно. Держать состояние меню в одном месте (`onChangeText`: `/skill:` → open, иначе `else` → close), а не дублировать закрытие в точке выбора. Фикс — удаление безусловного `setSkillMenuOpen(false)` из `insertSelectedSkill`.
