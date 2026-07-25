@@ -529,6 +529,52 @@
 			}
 		}
 
+		/* Project dev stack (.vibe/servers.json): start-and-open list on the welcome screen. */
+		.browser-welcome-stack {
+			display: flex;
+			flex-direction: column;
+			gap: 2px;
+			margin-top: 20px;
+			min-width: 260px;
+			max-width: 360px;
+		}
+
+		.browser-welcome-stack-row {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			padding: 6px 10px;
+			border-radius: 6px;
+			cursor: pointer;
+			background-color: var(--vscode-list-inactiveSelectionBackground);
+		}
+
+		.browser-welcome-stack-row:hover {
+			background-color: var(--vscode-list-hoverBackground);
+		}
+
+		.browser-welcome-stack-name {
+			flex: 1;
+			font-size: 13px;
+			color: var(--vscode-foreground);
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+
+		.browser-welcome-stack-port {
+			flex-shrink: 0;
+			font-size: 12px;
+			color: var(--vscode-descriptionForeground);
+		}
+
+		.browser-welcome-stack-action {
+			flex-shrink: 0;
+			display: flex;
+			align-items: center;
+			color: var(--vscode-icon-foreground);
+		}
+
 	}
 
 	/* Site info indicator in URL bar */

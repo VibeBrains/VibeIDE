@@ -30,6 +30,7 @@
 | [toolCalling.md](architecture/toolCalling.md) | Каналы доставки тулов модели (AI SDK / Anthropic / Gemini / OpenAI native / XML fallback), `specialToolFormat`, правило одного канала, MCP-префикс `<server>_<tool>`, `experimental_repairToolCall`, alias-таблица, `modelFamily` infra |
 | [orphanServices.md](architecture/orphanServices.md) | L.1 «orphan» сервисы — persona, gitAutoStash, riskScoring, nlShell, perfGuardrails, memories, telemetry |
 | [projectCommands.md](architecture/projectCommands.md) | Project Commands runtime (`.vibe/commands.json`): service-as-singleton + contribution-as-orchestrator, FNV-1a trust hash, two-shape resolver, gate order, KeybindingsRegistry disposable, MutableDisposable status-bar, WORKSPACE-scope onboarding, periodic janitor |
+| [vibeServerStack.md](architecture/vibeServerStack.md) | Стек `.vibe/servers.json`: сшивка чистого ядра (`planStartOrder`/`selectWithDependencies`) с UI; оркестратор `IVibeServerStackService` (browser-контракт/electron-browser-реализация), readyCheck-раннер (гоча: `http`-проба и `pathPrepend` — в main из-за CSP/резолва PATH), два UI-потребителя (боковая панель + welcome браузера) |
 | [settingsNamespaces.md](architecture/settingsNamespaces.md) | Что такое `vibeide.*` vs `chat.*` в TOC native Settings, как добавить новый ключ, как работает coverage CI |
 | [docStructure.md](architecture/docStructure.md) | Структура документации проекта |
 | [twoPatchesFolders.md](architecture/twoPatchesFolders.md) | `patches-node-modules/` vs `patches-vscode-source/` |

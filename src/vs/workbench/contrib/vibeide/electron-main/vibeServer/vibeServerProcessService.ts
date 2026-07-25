@@ -26,6 +26,8 @@ import { existsSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFil
 import { homedir } from 'os';
 import { delimiter, join } from '../../../../../base/common/path.js';
 import * as net from 'net';
+import * as http from 'http';
+import * as https from 'https';
 import { Emitter } from '../../../../../base/common/event.js';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { IProcessEnvironment, isWindows } from '../../../../../base/common/platform.js';
@@ -88,6 +90,11 @@ export class VibeServerProcessService extends Disposable implements IVibeServerP
 		const env = { ...process.env, ...shellEnv, ...(spec.env ?? {}) };
 		if (!isWindows) {
 			env.PATH = this._withNodeFallbackDirs(env.PATH ?? '');
+		}
+		// Pin an explicit toolchain: prepend the requested dirs after the login-shell PATH is
+		// resolved, so they take precedence over the ambient one.
+		if (spec.pathPrepend && spec.pathPrepend.length > 0) {
+			env.PATH = [...spec.pathPrepend, env.PATH ?? ''].filter(Boolean).join(delimiter);
 		}
 		let child: ChildProcess;
 		try {
@@ -232,6 +239,43 @@ export class VibeServerProcessService extends Disposable implements IVibeServerP
 						setTimeout(attempt, 300);
 					}
 				});
+			};
+			attempt();
+		});
+	}
+
+	waitForHttp(url: string, timeoutMs: number): Promise<boolean> {
+		const deadline = Date.now() + timeoutMs;
+		const isHttps = url.startsWith('https:');
+		const request = isHttps ? https.request : http.request;
+		return new Promise<boolean>(resolve => {
+			const attempt = () => {
+				const retryOrFail = () => {
+					if (Date.now() >= deadline) {
+						resolve(false);
+					} else {
+						setTimeout(attempt, 300);
+					}
+				};
+				let req: http.ClientRequest;
+				try {
+					// `rejectUnauthorized: false` — dev servers commonly serve self-signed TLS.
+					req = request(url, { method: 'GET', rejectUnauthorized: false } as http.RequestOptions, res => {
+						res.resume(); // drain so the socket frees
+						const status = res.statusCode ?? 0;
+						if (status >= 200 && status < 500) {
+							resolve(true);
+						} else {
+							retryOrFail();
+						}
+					});
+				} catch {
+					return retryOrFail();
+				}
+				req.once('error', () => retryOrFail());
+				// A hung connect must not outlive the poll interval.
+				req.setTimeout(2000, () => req.destroy());
+				req.end();
 			};
 			attempt();
 		});

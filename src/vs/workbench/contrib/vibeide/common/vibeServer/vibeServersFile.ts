@@ -298,3 +298,38 @@ export function planStartOrder(servers: readonly VibeServerEntry[]): VibeServerS
 
 	return { waves, excluded };
 }
+
+/**
+ * Narrow the stack to a single target and everything it transitively needs, so starting one entry
+ * pulls in exactly its prerequisites — no more (siblings stay untouched), no less (a service never
+ * comes up without its dependencies).
+ *
+ * Returns entries in file order; feed the result to `planStartOrder` to get the start waves. An
+ * unknown `targetId` yields an empty selection. Missing/inactive dependencies are deliberately left
+ * out of the selection: `planStartOrder` then excludes the target for the same reason a full-stack
+ * plan would, keeping the "never start without a prerequisite" guarantee identical on both paths.
+ */
+export function selectWithDependencies(servers: readonly VibeServerEntry[], targetId: string): readonly VibeServerEntry[] {
+	const byId = new Map(servers.map(s => [s.id, s]));
+	const target = byId.get(targetId);
+	if (!target) {
+		return [];
+	}
+	const picked = new Map<string, VibeServerEntry>();
+	const queue: VibeServerEntry[] = [target];
+	while (queue.length > 0) {
+		const entry = queue.shift()!;
+		if (picked.has(entry.id)) {
+			continue;
+		}
+		picked.set(entry.id, entry);
+		for (const dep of entry.dependsOn ?? []) {
+			const resolved = byId.get(dep);
+			if (resolved && !picked.has(dep)) {
+				queue.push(resolved);
+			}
+		}
+	}
+	// Preserve the file order so diagnostics and logs read predictably.
+	return servers.filter(s => picked.has(s.id));
+}

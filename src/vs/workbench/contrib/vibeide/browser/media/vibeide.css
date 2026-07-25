@@ -1242,3 +1242,93 @@ body.monaco-workbench,
 	margin: 6px var(--vibeide-space-md);
 	opacity: 0.5;
 }
+
+/* --- Multi-server stack (.vibe/servers.json) ------------------------------------------------ */
+.vibe-server-stack-header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 2px var(--vibeide-space-md) 6px;
+}
+.vibe-server-stack-title {
+	flex: 1;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--vscode-descriptionForeground);
+}
+.vibe-server-stack-all {
+	flex-shrink: 0;
+	cursor: pointer;
+	color: var(--vscode-icon-foreground);
+	font-size: 14px;
+	padding: 2px;
+	border-radius: 4px;
+}
+.vibe-server-stack-all:hover {
+	background-color: var(--vscode-toolbar-hoverBackground);
+}
+.vibe-server-stack-list {
+	display: flex;
+	flex-direction: column;
+}
+.vibe-server-stack-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 5px var(--vibeide-space-md);
+	cursor: default;
+	user-select: none;
+}
+.vibe-server-stack-row:hover {
+	background-color: var(--vscode-list-hoverBackground);
+}
+.vibe-server-stack-row.excluded {
+	opacity: 0.5;
+}
+.vibe-server-stack-status {
+	flex-shrink: 0;
+	font-size: 14px;
+	color: var(--vscode-icon-foreground);
+}
+.vibe-server-stack-row:has(.codicon-pass-filled) .vibe-server-stack-status {
+	color: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+}
+.vibe-server-stack-row:has(.codicon-error) .vibe-server-stack-status {
+	color: var(--vscode-testing-iconFailed, var(--vscode-errorForeground));
+}
+.vibe-server-stack-name {
+	flex: 1;
+	font-size: 13px;
+	color: var(--vscode-foreground);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.vibe-server-stack-port {
+	flex-shrink: 0;
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
+}
+.vibe-server-stack-action {
+	flex-shrink: 0;
+	cursor: pointer;
+	color: var(--vscode-icon-foreground);
+	font-size: 14px;
+	padding: 2px;
+	border-radius: 4px;
+	visibility: hidden;
+}
+.vibe-server-stack-row:hover .vibe-server-stack-action,
+.vibe-server-stack-row:has(.codicon-debug-stop) .vibe-server-stack-action {
+	visibility: visible;
+}
+.vibe-server-stack-action:hover {
+	background-color: var(--vscode-toolbar-hoverBackground);
+}
+.vibe-server-stack-warning {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+	padding: 2px var(--vibeide-space-md);
+	word-break: break-word;
+}

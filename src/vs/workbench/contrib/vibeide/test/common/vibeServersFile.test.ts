@@ -12,6 +12,7 @@ import {
 	effectiveReadyTimeoutMs,
 	parseServersFile,
 	planStartOrder,
+	selectWithDependencies,
 } from '../../common/vibeServer/vibeServersFile.js';
 
 /** Minimal valid entry; individual tests override what they exercise. */
@@ -171,5 +172,57 @@ suite('VibeServersFile — planStartOrder', () => {
 
 	test('empty stack plans nothing', () => {
 		assert.deepStrictEqual(planStartOrder([]), { waves: [], excluded: [] });
+	});
+});
+
+suite('VibeServersFile — selectWithDependencies', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('pulls the target plus its transitive dependencies, drops siblings', () => {
+		const stack = [
+			entry('colima', { kind: 'task' }),
+			entry('api', { dependsOn: ['colima'] }),
+			entry('admin'),
+			entry('app', { dependsOn: ['api'] }),
+		];
+
+		assert.deepStrictEqual(
+			{
+				app: selectWithDependencies(stack, 'app').map(s => s.id),
+				admin: selectWithDependencies(stack, 'admin').map(s => s.id),
+				unknown: selectWithDependencies(stack, 'ghost').map(s => s.id),
+			},
+			{
+				// File order preserved; `admin` (a sibling of the chain) is excluded.
+				app: ['colima', 'api', 'app'],
+				admin: ['admin'],
+				unknown: [],
+			},
+		);
+	});
+
+	test('selection feeds planStartOrder into correct waves', () => {
+		const stack = [
+			entry('colima', { kind: 'task' }),
+			entry('api', { dependsOn: ['colima'] }),
+			entry('app', { dependsOn: ['api'] }),
+			entry('admin'),
+		];
+		const plan = planStartOrder(selectWithDependencies(stack, 'app'));
+
+		assert.deepStrictEqual(
+			{ waves: plan.waves, excluded: plan.excluded },
+			{ waves: [['colima'], ['api'], ['app']], excluded: [] },
+		);
+	});
+
+	test('unknown dependency of the target survives into planStartOrder as an exclusion', () => {
+		const stack = [entry('app', { dependsOn: ['ghost'] })];
+		const plan = planStartOrder(selectWithDependencies(stack, 'app'));
+
+		assert.deepStrictEqual(
+			{ waves: plan.waves, excluded: plan.excluded },
+			{ waves: [], excluded: [{ id: 'app', reason: 'зависит от неизвестного сервиса "ghost"' }] },
+		);
 	});
 });
