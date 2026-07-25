@@ -26,6 +26,8 @@ import type { ContextLimitStatus } from '../../../vibeContextGuardService.js';
 import type { ContextBreakdown } from '../../../convertToLLMMessageService.js';
 
 const CONTEXT_REPORT_CMD = 'vibeide.context.status';
+/** Opt-out for the ≥80% session-budget pulse (registered in `vibeTokenBudgetService`). */
+const SESSION_WARN_BLINK_KEY = 'vibeide.safety.sessionTokenWarningBlink';
 
 /** Same thresholds the status bar uses for its 🟢/🟡/🔴 marker. */
 const WARN_PCT = 80;
@@ -80,6 +82,7 @@ export const ChatContextMeterButton = () => {
 	const budgetService = accessor.get('IVibeTokenBudgetService');
 	const commandService = accessor.get('ICommandService');
 	const convertService = accessor.get('IConvertToLLMMessageService');
+	const configurationService = accessor.get('IConfigurationService');
 	const settingsState = useSettingsState();
 	const modelSel = settingsState.modelSelectionOfFeature['Chat'];
 
@@ -88,15 +91,23 @@ export const ChatContextMeterButton = () => {
 	const [isOpen, setIsOpen] = useState(false);
 	const [breakdown, setBreakdown] = useState<ContextBreakdown | null>(null);
 	const [breakdownLoading, setBreakdownLoading] = useState(false);
+	const [blinkEnabled, setBlinkEnabled] = useState<boolean>(() => configurationService.getValue<boolean>(SESSION_WARN_BLINK_KEY) ?? true);
 
 	useEffect(() => {
 		const d1 = contextGuard.onUsageUpdated((s: ContextLimitStatus) => setCtx(s));
 		const d2 = budgetService.onBudgetStatusChanged((s: TokenBudgetStatus) => setBudget(s));
+		// Subscribe to the opt-out so toggling it takes effect immediately — even while idle at a
+		// warning, when no budget change would otherwise re-render the ring.
+		const d3 = configurationService.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration(SESSION_WARN_BLINK_KEY)) {
+				setBlinkEnabled(configurationService.getValue<boolean>(SESSION_WARN_BLINK_KEY) ?? true);
+			}
+		});
 		// Seed from current status in case an update fired before mount.
 		setCtx(contextGuard.getStatus());
 		setBudget(budgetService.getStatus());
-		return () => { d1.dispose(); d2.dispose(); };
-	}, [contextGuard, budgetService]);
+		return () => { d1.dispose(); d2.dispose(); d3.dispose(); };
+	}, [contextGuard, budgetService, configurationService]);
 
 	// Breakdown is only worth computing while the popover is open — it walks the whole prompt.
 	const breakdownRunId = useRef(0);
@@ -181,6 +192,11 @@ export const ChatContextMeterButton = () => {
 	const toneColor = toneColorFor(rawPct);
 	const sessionEnabled = budget.sessionTokensLimit > 0;
 	const sessionPct = sessionEnabled ? Math.max(0, Math.round(budget.percentUsed)) : null;
+	// The ≥80% session-budget warning has no toast by design (only a log line), so the ring is its
+	// only always-visible carrier: pulse it while inside the warning band (below 100%, where the
+	// budget is merely close — at 100% the request is blocked or auto-reset and says so itself).
+	// `isWarning` comes from the service so the threshold stays in one place.
+	const sessionBlink = sessionEnabled && budget.isWarning && !budget.isExceeded && blinkEnabled;
 
 	const dashOffset = useMemo(
 		() => RING_CIRCUMFERENCE * (1 - ringPct / 100),
@@ -189,42 +205,49 @@ export const ChatContextMeterButton = () => {
 
 	return (
 		<div className='inline-flex relative shrink-0'>
-			<button
-				type='button'
-				ref={refs.setReference}
-				onClick={() => setIsOpen(v => !v)}
-				className={`flex-shrink-0 p-1.5 rounded-xl transition-colors ${isOpen ? 'bg-vibe-bg-2-alt' : 'hover:bg-vibe-bg-2-alt'}`}
-				style={{ color: toneColor }}
-				aria-label={chatS.contextMeterAria(rawPct)}
-				aria-expanded={isOpen}
-				data-tooltip-id='vibe-tooltip'
-				data-tooltip-content={ctxKnown ? chatS.contextMeterTooltip(rawPct) : chatS.contextMeterUnknown}
-				data-tooltip-place='top'
-				data-tooltip-delay-show={1000}
-			>
-				<svg width={RING_SIZE} height={RING_SIZE} viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`} className='block'>
-					<circle
-						cx={RING_SIZE / 2}
-						cy={RING_SIZE / 2}
-						r={RING_RADIUS}
-						fill='none'
-						strokeWidth={RING_STROKE}
-						stroke={TRACK_COLOR}
-					/>
-					<circle
-						cx={RING_SIZE / 2}
-						cy={RING_SIZE / 2}
-						r={RING_RADIUS}
-						fill='none'
-						strokeWidth={RING_STROKE}
-						strokeLinecap='round'
-						strokeDasharray={RING_CIRCUMFERENCE}
-						strokeDashoffset={dashOffset}
-						stroke={toneColor}
-						transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
-					/>
-				</svg>
-			</button>
+			{/* The pulse rides a wrapper rather than the button so the popover (a sibling below) never
+			    blinks while open, and so the `@@` marker class stays a static JSX literal — it is
+			    stripped only there, never inside a template interpolation (ui/scopeTailwind.md). */}
+			<span className={sessionBlink ? 'inline-flex shrink-0 @@vibe-token-warn-blink' : 'inline-flex shrink-0'}>
+				<button
+					type='button'
+					ref={refs.setReference}
+					onClick={() => setIsOpen(v => !v)}
+					className={`flex-shrink-0 p-1.5 rounded-xl transition-colors ${isOpen ? 'bg-vibe-bg-2-alt' : 'hover:bg-vibe-bg-2-alt'}`}
+					style={{ color: toneColor }}
+					aria-label={sessionBlink ? chatS.contextMeterSessionWarn(sessionPct ?? 0) : chatS.contextMeterAria(rawPct)}
+					aria-expanded={isOpen}
+					data-tooltip-id='vibe-tooltip'
+					data-tooltip-content={sessionBlink
+						? chatS.contextMeterSessionWarn(sessionPct ?? 0)
+						: ctxKnown ? chatS.contextMeterTooltip(rawPct) : chatS.contextMeterUnknown}
+					data-tooltip-place='top'
+					data-tooltip-delay-show={1000}
+				>
+					<svg width={RING_SIZE} height={RING_SIZE} viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`} className='block'>
+						<circle
+							cx={RING_SIZE / 2}
+							cy={RING_SIZE / 2}
+							r={RING_RADIUS}
+							fill='none'
+							strokeWidth={RING_STROKE}
+							stroke={TRACK_COLOR}
+						/>
+						<circle
+							cx={RING_SIZE / 2}
+							cy={RING_SIZE / 2}
+							r={RING_RADIUS}
+							fill='none'
+							strokeWidth={RING_STROKE}
+							strokeLinecap='round'
+							strokeDasharray={RING_CIRCUMFERENCE}
+							strokeDashoffset={dashOffset}
+							stroke={toneColor}
+							transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
+						/>
+					</svg>
+				</button>
+			</span>
 
 			{isOpen ? (
 				<div

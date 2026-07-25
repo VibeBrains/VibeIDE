@@ -82,6 +82,8 @@ export const chatS = {
 		`Калибровка ×${factor.toFixed(2)}: показ скорректирован под реальные токены провайдера (грубая оценка «длина/4» их занижает).`,
 	contextMeterKeptSummarized: (kept: number, summarized: number) =>
 		`В последнем запросе: ${kept} сообщений целиком, ${summarized} свёрнуто.`,
+	contextMeterSessionWarn: (pct: number) =>
+		`Сессия израсходовала ${pct}% токенов — сбросьте счётчик сессии или поднимите лимит в настройках`,
 	suggestions: 'Подсказки',
 	previousThreads: 'Прошлые чаты',
 	chipFile: 'Файл',
@@ -238,15 +240,6 @@ export const chatS = {
 	exportChatFailed: 'Не удалось экспортировать чат',
 	planAdvisoryReview: 'Совет ревьюера: ',
 	planStepAria: (n: number, status: string, desc: string) => `Шаг ${n}, ${status}: ${desc}`,
-	budgetFooterSessionLabel: 'Сессия',
-	budgetFooterContextLabel: 'Окно',
-	budgetFooterDisabled: 'Лимит отключён',
-	budgetFooterUnknown: '—',
-	budgetFooterResetTitle: 'Сбросить счётчик сессии',
-	budgetFooterResetAria: 'Сбросить токены сессии',
-	budgetFooterSettingsTitle: 'Открыть Settings → Safety',
-	budgetFooterSettingsAria: 'Настройки лимита токенов',
-	budgetFooterCounts: (used: string, limit: string, pct: number) => `${used} / ${limit} (${pct}%)`,
 } as const;
 
 /** Russian UI strings for ErrorDisplay (sidebar-tsx/ErrorDisplay.tsx). */

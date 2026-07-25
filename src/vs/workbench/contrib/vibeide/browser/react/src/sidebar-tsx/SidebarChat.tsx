@@ -104,8 +104,8 @@ const ChatTimestamp = ({ ts, align, streaming }: { ts: number | undefined; align
 	// layout does not shift when the first chunk arrives and `ts` becomes valid.
 	if (!validTs && !streaming) {return null;}
 	const text = validTs ? formatChatTimestamp(ts) : CHAT_TIMESTAMP_STREAMING_PLACEHOLDER;
-	// NOTE: the session-token budget warning pulse lives on the SESSION line in the footer
-	// (TokenBudgetFooter, SidebarHistory.tsx) — NOT here. Chat timestamps stay neutral.
+	// NOTE: the session-token budget warning pulse lives on the context ring in the composer
+	// toolbar (ChatContextMeter.tsx) — NOT here. Chat timestamps stay neutral.
 	const timeNode = validTs
 		? <time dateTime={chatTimestampToISO(ts)} title={formatChatTimestamp(ts, 'DD.MM.YYYY HH:mm:ss')} style={NEON_TIMESTAMP_STYLE}>{text}</time>
 		: <span aria-hidden='true' style={NEON_TIMESTAMP_STYLE}>{text}</span>;
@@ -624,9 +624,9 @@ const ChatRuleLinksRecursiveToggle = ({ className }: { className?: string }) => 
 
 
 /**
- * Toolbar quick-reset for the SESSION token counter (same `vibeide.tokenBudget.reset` command as
- * the full TokenBudgetFooter in history — one source of reset logic). Lives right after the
- * Autopilot toggle for quick access; tooltip shows the current spend so the click is informed.
+ * Toolbar quick-reset for the SESSION token counter — the one UI entry point for
+ * `vibeide.tokenBudget.reset` (the context ring next to it only reports, never resets). Lives right
+ * after the Autopilot toggle for quick access; tooltip shows the current spend so the click is informed.
  */
 const ChatSessionResetButton = ({ className }: { className?: string }) => {
 	const accessor = useAccessor();
