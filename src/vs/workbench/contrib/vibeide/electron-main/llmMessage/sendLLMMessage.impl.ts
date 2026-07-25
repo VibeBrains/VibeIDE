@@ -14,7 +14,7 @@ import OpenAI, { ClientOptions, AzureOpenAI } from 'openai';
 import { Stream as OpenAIStream } from 'openai/streaming';
 import { MistralCore } from '@mistralai/mistralai/core.js';
 import { fimComplete } from '@mistralai/mistralai/funcs/fimComplete.js';
-import { Tool as GeminiTool, FunctionDeclaration, GoogleGenAI, ThinkingConfig, Schema, Type } from '@google/genai';
+import { Tool as GeminiTool, FunctionDeclaration, GoogleGenAI, ThinkingConfig, ThinkingLevel, Schema, Type } from '@google/genai';
 /* eslint-enable */
 
 import { buildContextOverflowError, buildEmptyResponseError, GeminiLLMChatMessage, isContextOverflow, LLMChatMessage, LLMRuntimeOptions, OllamaModelResponse, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
@@ -1521,6 +1521,21 @@ const geminiTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | u
 
 
 
+/**
+ * Maps our effort-slider value onto Gemini's `thinking_level` enum (Gemini 3.x).
+ * An unrecognized value yields `undefined` so the request goes out on the vendor
+ * default — forwarding a bogus level would be an HTTP 400.
+ */
+const thinkingConfigOfEffort = (effort: string): ThinkingConfig | undefined => {
+	switch (effort.toLowerCase()) {
+		case 'minimal': return { thinkingLevel: ThinkingLevel.MINIMAL };
+		case 'low': return { thinkingLevel: ThinkingLevel.LOW };
+		case 'medium': return { thinkingLevel: ThinkingLevel.MEDIUM };
+		case 'high': return { thinkingLevel: ThinkingLevel.HIGH };
+		default: return undefined;
+	}
+};
+
 // Implementation for Gemini using Google's native API
 const sendGeminiChat = async ({
 	messages,
@@ -1556,10 +1571,16 @@ const sendGeminiChat = async ({
 	const reasoningInfo = getSendableReasoningInfo('Chat', providerName, modelName_, modelSelectionOptions, overridesOfModel); // user's modelName_ here
 	// const includeInPayload = providerReasoningIOSettings?.input?.includeInPayload?.(reasoningInfo) || {}
 
+	// Gemini 2.5 takes a numeric `thinkingBudget`; Gemini 3.x replaced it with the `thinking_level`
+	// string enum (minimal/low/medium/high — Pro has no 'minimal'), so the effort slider has to be
+	// carried through here. Without this branch every 3.x request went out on the vendor default and
+	// the slider was decorative. https://ai.google.dev/gemini-api/docs/thinking
 	const thinkingConfig: ThinkingConfig | undefined = !reasoningInfo?.isReasoningEnabled ? undefined
 		: reasoningInfo.type === 'budget_slider_value' ?
 			{ thinkingBudget: reasoningInfo.reasoningBudget }
-			: undefined;
+			: reasoningInfo.type === 'effort_slider_value' ?
+				thinkingConfigOfEffort(reasoningInfo.reasoningEffort)
+				: undefined;
 
 	// tools
 	const potentialTools = geminiTools(chatMode, mcpTools);

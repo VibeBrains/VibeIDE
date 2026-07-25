@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"date": "2026-07-23",
+	"date": "2026-07-25",
 	"description": "VibeIDE model behaviour quirks. Source of truth — see README.md section 'Model behaviour quirks'. PRs welcome. Schema: ./src/vs/workbench/contrib/vibeide/common/modelQuirks/modelQuirksTypes.ts.",
 	"docs": "https://github.com/VibeBrains/VibeIDE#model-behaviour-quirks",
 	"rules": [
@@ -41,7 +41,9 @@
 		{ "match": "glm", "temperature": 1.0,
 		  "note": "GLM family (z.ai) — 4.6/4.7/5/5.1, single preset" },
 
-		{ "match": "gemini", "temperature": 1.0, "topP": 0.95, "topK": 64,
-		  "note": "Gemini via aggregator (NOT native @ai-sdk/google path, which has its own settings)" }
+		{ "match": "gemini-2", "temperature": 1.0, "topP": 0.95, "topK": 64,
+		  "note": "Gemini 2.x via aggregator (NOT native @ai-sdk/google path, which has its own settings). Scoped to a GENERATION on purpose: Google deprecated temperature/top_p/top_k — 'deprecated and ignored. In future model generations, supplying these parameters returns an HTTP 400 error' (ai.google.dev/gemini-api/docs/changelog). A broad 'gemini' match would keep sending them to Gemini 3.x and beyond, where depth is set by thinking_level instead." },
+		{ "match": "gemini-1.5", "temperature": 1.0, "topP": 0.95, "topK": 64,
+		  "note": "Gemini 1.5 via aggregator — same sampling preset as 2.x, kept for the legacy generation that still honours these parameters." }
 	]
 }
