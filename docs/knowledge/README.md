@@ -56,7 +56,7 @@
 | Файл | О чём |
 |---|---|
 | [cssPipeline.md](ui/cssPipeline.md) | `vibeide.css`, `styles.css`, build flow, CSS MIME в dev |
-| [scopeTailwind.md](ui/scopeTailwind.md) | `@@`-escape, классы в константах, `.vibe-scope *` preflight, ID с точками, popup borders, quick pick |
+| [scopeTailwind.md](ui/scopeTailwind.md) | `@@`-escape, классы в константах (и в цвет-хелперах → SVG `stroke: none`), `.vibe-scope *` preflight, ID с точками, popup borders, quick pick |
 | [vibeModal.md](ui/vibeModal.md) | IVibeModalService: архитектура, `@@`-рассинхрон (инлайн vs переменная), blocking/non-blocking, размер+ресайз |
 | [themesAndChat.md](ui/themesAndChat.md) | Vibe Neon, theme tokens, theming чат-панели, fullscreen modes, secondary sidebar border, гонка setState при dispatchEvent('input') |
 | [viewTitleBar.md](ui/viewTitleBar.md) | ViewPaneContainer, дубли иконок, single-row aux bar |
@@ -208,6 +208,7 @@
 |---|---|
 | [workflow.md](agentCollaboration/workflow.md) | Меньше mid-task confirmations, batch autonomous execution на explicit-разрешение, логирование model stalls |
 | [externalServicesParity.md](agentCollaboration/externalServicesParity.md) | Разбор присланных сервисов → паритет с VibeIDE. Алгоритм разбора; Multica/Paperclip = паритет с Vibe Agents (маппинг «их фича → наш сервис»); единственное реально новое — денежный per-agent бюджет (Paperclip); PCLink = AGPL → только паттерн. Пользовательская проекция — `docs/references-v1/vibeide-vs-alternatives.md` |
+| [externalAgentToolkits.md](agentCollaboration/externalAgentToolkits.md) | Разбор open-source skill-репозиториев для агентов (граница с `externalServicesParity`: там сервисы, здесь заимствуемые механизмы). Заход 2026-07-24: claude-video (4 профиля детализации vs наши 5 ручек `vibeide.video.*`), graphify (граф проекта на tree-sitter, рёбра `EXTRACTED`/`INFERRED`/`AMBIGUOUS`, **демонстративно без векторного стора** — против нашего эмбеддингового RAG; наш граф только по `*.md`), impeccable (23 команды-словаря + 60 детекторов ai-slop без LLM; live-режим ≈ наш inspect-превью), obsidian-skills (JSON Canvas, defuddle — нет), raytsystem (сводка «Требует внимания» — нет). **ponytail = полный паритет и шире** (лестница + `/simplify` + леджер `vibe-later`) — вывод «у нас нет» был опровергнут грепом, урок оформлен правилом |
 | [releaseProtocol.md](agentCollaboration/releaseProtocol.md) | `release-windows.ps1 -Version` для минор/мажор, post-release sync README + pre-clean archive, About-диалог, gh account routing, donation phrase choice |
 | [permissionsAndHooks.md](agentCollaboration/permissionsAndHooks.md) | Marker-gated permissions для write-tools / destructive Bash, не flat global allow |
 | [xmlNormalizeAuditChecklist.md](agentCollaboration/xmlNormalizeAuditChecklist.md) | Pre-merge gate для XML normalize transform'ов (8 пунктов: escape / idempotency / null guard / structural assertions / symmetric defense / streaming partial / verbatim fixture) |

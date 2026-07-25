@@ -66,6 +66,22 @@ export const chatS = {
 		`Контекст почти исчерпан: ~${total} / ${budget} токенов. Старые сообщения могут быть суммаризированы.`,
 	budgetFillSuffix: (kept: number, summarized: number) =>
 		` · ${kept} целиком / ${summarized} свёрнуто`,
+	contextMeterAria: (pct: number) => `Контекст заполнен на ${pct}%`,
+	contextMeterTooltip: (pct: number) => `Контекст заполнен на ${pct}% — нажмите, чтобы посмотреть детали`,
+	contextMeterTitle: 'Контекст и токены',
+	contextMeterWindow: 'Окно контекста',
+	contextMeterSession: 'Токены сессии',
+	contextMeterBreakdown: 'Что занимает контекст',
+	contextMeterFullReport: 'Полный отчёт',
+	contextMeterUnknown: 'Пока нет данных — отправьте первый запрос',
+	contextMeterLoading: 'Считаем…',
+	contextMeterSessionNoLimit: 'лимит отключён',
+	contextMeterOverflow: (pct: number) =>
+		`Переполнение (${pct}%) — старые сообщения сворачиваются, чтобы запрос поместился.`,
+	contextMeterCalibration: (factor: number) =>
+		`Калибровка ×${factor.toFixed(2)}: показ скорректирован под реальные токены провайдера (грубая оценка «длина/4» их занижает).`,
+	contextMeterKeptSummarized: (kept: number, summarized: number) =>
+		`В последнем запросе: ${kept} сообщений целиком, ${summarized} свёрнуто.`,
 	suggestions: 'Подсказки',
 	previousThreads: 'Прошлые чаты',
 	chipFile: 'Файл',

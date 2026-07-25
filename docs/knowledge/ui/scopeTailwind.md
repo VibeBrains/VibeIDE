@@ -35,6 +35,10 @@
 
 **Применение:** любые новые «плашки» в `vibe-settings-tsx` и др.; не выносить tailwind+`@@` в общий string export.
 
+**Рецидив 2026-07-25 (кружок контекста, `ChatContextMeter.tsx`) — цветовой хелпер:** класс-возвращающая функция `toneFor(pct) → { stroke: 'stroke-vibe-fg-3' | 'stroke-amber-500' … }` — это тот же «класс из константы», просто спрятанный за функцией. Симптом злее обычного: у `<circle>` из JSX-литерала класс стал `vibe-stroke-vibe-border-3` (префикс есть, стиль работает), а у соседнего `<circle>` с классом из хелпера остался `stroke-vibe-fg-3` — **правила под него не существует, и SVG молча рендерится с `stroke: none`**, то есть дуга просто невидима. Ни ошибки, ни предупреждения; TS/линт/сборка зелёные. Поймано только живым CDP-замером `getComputedStyle(circle).stroke`.
+
+**Рабочий приём для «цвет зависит от значения»:** не гонять tailwind-классы через переменные, а брать **theme-токены** и класть инлайн-стилем — `stroke={toneColor}` / `style={{ backgroundColor: toneColor }}`, где `toneColor` = `var(--vscode-charts-red)` / `var(--vscode-charts-yellow)` / `var(--vscode-descriptionForeground)`. Префиксатор при этом вообще не участвует (см. запись про theme-токены в [[themesAndChat]]). Проверка после правки — не «выглядит норм», а `getComputedStyle(el).stroke !== 'none'`.
+
 ---
 
 ## [foot-gun] CSS-селектор для composite ID с точками

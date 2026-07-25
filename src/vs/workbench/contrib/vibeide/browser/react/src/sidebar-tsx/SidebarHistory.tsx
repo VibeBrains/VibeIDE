@@ -386,33 +386,6 @@ const HistoryContent = () => {
 	);
 };
 
-/** Compact one-line readout `| Окно X·P% | Сессия Y·P%` for the chat context line (refactor B:
- * the full TokenBudgetFooter with bars/buttons was too tall; this rides inline next to "Контекст"). */
-export const TokenBudgetInline = () => {
-	const accessor = useAccessor();
-	const budgetService = accessor.get('IVibeTokenBudgetService');
-	const contextGuard = accessor.get('IVibeContextGuardService');
-	const [budget, setBudget] = useState<TokenBudgetStatus>(() => budgetService.getStatus());
-	const [ctx, setCtx] = useState<ContextLimitStatus>(() => contextGuard.getStatus());
-	useEffect(() => {
-		const d1 = budgetService.onBudgetStatusChanged((s: TokenBudgetStatus) => setBudget(s));
-		const d2 = contextGuard.onUsageUpdated((s: ContextLimitStatus) => setCtx(s));
-		return () => { d1.dispose(); d2.dispose(); };
-	}, [budgetService, contextGuard]);
-
-	const sessionEnabled = budget.sessionTokensLimit > 0;
-	const sessionPct = sessionEnabled ? Math.min(100, Math.max(0, Math.round(budget.percentUsed))) : 0;
-	const ctxKnown = ctx.maxTokens > 0;
-	const ctxPct = ctxKnown ? Math.min(100, Math.max(0, Math.round(ctx.percentUsed))) : 0;
-	const sep = <span className="text-vibe-fg-4 mx-1.5 select-none">|</span>;
-	return (
-		<span className="text-vibe-fg-3 whitespace-nowrap">
-			{sep}<span>{chatS.budgetFooterContextLabel}: {ctxKnown ? `${formatTokens(ctx.currentTokens)} (${ctxPct}%)` : chatS.budgetFooterUnknown}</span>
-			{sep}<span>{chatS.budgetFooterSessionLabel}: {sessionEnabled ? `${formatTokens(budget.sessionTokensUsed)} (${sessionPct}%)` : formatTokens(budget.sessionTokensUsed)}</span>
-		</span>
-	);
-};
-
 export const SidebarHistory = () => {
 	trackRenderLoop('SidebarHistory');
 	const isDark = useIsDark();
