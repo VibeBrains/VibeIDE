@@ -213,6 +213,8 @@ import '../common/vibeOutboundRingBuffer.js';
 import './repoIndexerService.js';
 // repo indexer actions - lazy load (only needed when user invokes indexer actions)
 import('./repoIndexerActions.js').catch(() => { });
+// code graph — structural projection of the same index (who calls whom, and how we know)
+import './codeGraph/vibeCodeGraphService.js';
 
 // Image QA Registry initialization
 import './imageQARegistryContribution.js';
