@@ -14,7 +14,6 @@ import { shell } from 'electron';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { isLinux, isMacintosh, isWindows } from '../../../../base/common/platform.js';
-import * as semver from '../../../../base/common/semver/semver.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IEnvironmentMainService } from '../../../../platform/environment/electron-main/environmentMainService.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
@@ -25,6 +24,7 @@ import { IUpdateService, StateType } from '../../../../platform/update/common/up
 
 import { IVibeideUpdateService } from '../common/vibeideUpdateService.js';
 import { VibeideCheckUpdateResponse, VibeideVerifiedDownload } from '../common/vibeideUpdateServiceTypes.js';
+import { isBuildUpToDateVersusTag, pickNewestRelease, pickNewestReleaseForPlatform, ReleaseArch, ReleaseCandidate, ReleasePlatform } from '../common/releasePlatformAssets.js';
 
 /** GitHub release-manifest.json produced by scripts/vibe-release-manifest.mjs */
 interface IReleaseManifestEntry {
@@ -47,36 +47,26 @@ interface IGithubReleaseAsset {
 interface IGithubRelease {
 	readonly tag_name?: string;
 	readonly assets?: readonly IGithubReleaseAsset[];
+	readonly draft?: boolean;
+	readonly prerelease?: boolean;
 }
 
 /** GitHub API response: either one release or array of releases */
 type GithubReleaseApiPayload = IGithubRelease | IGithubRelease[] | unknown;
 
-/** GitHub release tag or product version → comparable semver string, or null. */
-function normalizeSemverVersion(raw: string | undefined): string | null {
-	if (!raw) {
-		return null;
+/** Running platform/arch in the shape the release-selection helpers expect, or null when unknown. */
+function getRunningReleaseTarget(): { platform: ReleasePlatform; arch: ReleaseArch } | null {
+	const arch: ReleaseArch = process.arch === 'arm64' ? 'arm64' : 'x64';
+	if (isWindows) {
+		return { platform: 'win32', arch };
 	}
-	const trimmed = raw.trim();
-	const withoutV = /^v\d/i.test(trimmed) ? trimmed.slice(1) : trimmed;
-	const coerced = semver.coerce(withoutV) ?? semver.coerce(trimmed);
-	return coerced ? semver.valid(coerced) : null;
-}
-
-/**
- * True when the running build is not older than the latest GitHub release tag.
- * Unparseable remote tags are treated as up-to-date (avoid false-positive nag).
- */
-function isCurrentBuildUpToDateVersusGitTag(localVersion: string, remoteTagName: string): boolean {
-	const remote = normalizeSemverVersion(remoteTagName);
-	const local = normalizeSemverVersion(localVersion);
-	if (!remote) {
-		return true;
+	if (isMacintosh) {
+		return { platform: 'darwin', arch };
 	}
-	if (!local) {
-		return localVersion.trim() === remoteTagName.trim();
+	if (isLinux) {
+		return { platform: 'linux', arch };
 	}
-	return semver.gte(local, remote);
+	return null;
 }
 
 function getReleaseManifestPlatformKey(): string | null {
@@ -103,7 +93,7 @@ function findAssetDownloadUrl(assets: readonly IGithubReleaseAsset[] | undefined
 export class VibeideMainUpdateService extends Disposable implements IVibeideUpdateService {
 	_serviceBrand: undefined;
 
-	private _releaseApiCache: { releaseUrl: string; etag: string; data: IGithubRelease; fetchedAt: number } | undefined;
+	private _releaseApiCache: { releaseUrl: string; etag: string; data: readonly IGithubRelease[]; fetchedAt: number } | undefined;
 	private readonly _minAutoCheckIntervalMs = 30 * 60 * 1000;
 
 	constructor(
@@ -201,17 +191,13 @@ export class VibeideMainUpdateService extends Disposable implements IVibeideUpda
 
 	private async _manualCheckGHTagIfDisabled(explicit: boolean, channel: 'stable' | 'beta' | 'nightly'): Promise<VibeideCheckUpdateResponse> {
 		try {
-			let releaseUrl: string;
-			if (channel === 'beta') {
-				releaseUrl = 'https://api.github.com/repos/VibeBrains/VibeIDE/releases?per_page=1';
-			} else if (channel === 'nightly') {
-				releaseUrl = 'https://api.github.com/repos/VibeBrains/VibeIDE/releases?per_page=1';
-			} else {
-				releaseUrl = 'https://api.github.com/repos/VibeBrains/VibeIDE/releases/latest';
-			}
+			// A page of releases, not just the newest one: releases are not always cross-platform,
+			// so the newest tag may carry no build for this OS while an older one does. Selecting
+			// per-platform (below) needs history to look back through.
+			const releaseUrl = 'https://api.github.com/repos/VibeBrains/VibeIDE/releases?per_page=10';
 
 			const now = Date.now();
-			let data: IGithubRelease;
+			let data: readonly IGithubRelease[];
 
 			if (!explicit && this._releaseApiCache && this._releaseApiCache.releaseUrl === releaseUrl && (now - this._releaseApiCache.fetchedAt) < this._minAutoCheckIntervalMs) {
 				data = this._releaseApiCache.data;
@@ -235,11 +221,11 @@ export class VibeideMainUpdateService extends Disposable implements IVibeideUpda
 					data = this._releaseApiCache.data;
 				} else if (code === 200) {
 					const jsonData: GithubReleaseApiPayload = await asJson(context);
-					const resolved = channel === 'stable'
-						? jsonData as IGithubRelease
-						: Array.isArray(jsonData) ? (jsonData[0] as IGithubRelease) : (jsonData as IGithubRelease);
+					const resolved = Array.isArray(jsonData)
+						? (jsonData as IGithubRelease[])
+						: [jsonData as IGithubRelease];
 
-					if (!resolved || !resolved.tag_name) {
+					if (resolved.length === 0 || !resolved.some(r => r?.tag_name)) {
 						throw new Error('Invalid release data');
 					}
 					data = resolved;
@@ -251,44 +237,55 @@ export class VibeideMainUpdateService extends Disposable implements IVibeideUpda
 				}
 			}
 
-			const remoteTag = data.tag_name as string;
+			const options = { allowPrerelease: channel !== 'stable' } as const;
+			const candidates: ReleaseCandidate[] = data
+				.filter(r => typeof r?.tag_name === 'string')
+				.map(r => ({
+					tagName: r.tag_name as string,
+					assetNames: (r.assets ?? []).map(a => a?.name).filter((n): n is string => typeof n === 'string'),
+					draft: r.draft,
+					prerelease: r.prerelease,
+				}));
+
+			const target = getRunningReleaseTarget();
+			// Newest release that ships a build for THIS OS — the only one worth offering. Falls back
+			// to the newest overall when the platform is unknown (no rules to apply).
+			const forMe = target
+				? pickNewestReleaseForPlatform(candidates, target.platform, target.arch, options)
+				: pickNewestRelease(candidates, options);
+			const newestOverall = pickNewestRelease(candidates, options);
 
 			const myVersion = this._productService.version;
-			const isUpToDate = isCurrentBuildUpToDateVersusGitTag(myVersion, remoteTag);
-
-			let verified: VibeideVerifiedDownload | undefined;
-			try {
-				verified = await this._resolveVerifiedDownload(data) ?? undefined;
-			} catch {
-				verified = undefined;
-			}
-
-			let message: string | null;
-			let action: 'reinstall' | undefined;
+			const hasUpdateForMe = !!forMe && !isBuildUpToDateVersusTag(myVersion, forMe.tagName);
+			// A newer release exists, but it carries no build for this OS (e.g. a macOS-only patch
+			// seen from Windows). Saying "update available" there sends the user to a page with no
+			// file they can install.
+			const newerIsOtherPlatformOnly = !hasUpdateForMe
+				&& !!newestOverall
+				&& !isBuildUpToDateVersusTag(myVersion, newestOverall.tagName);
 
 			const msgAvailable = localize('vibeide.update.availableReinstall', 'Доступна новая версия VibeIDE! Выполните переустановку (автообновления отключены для этой ОС) — это займёт секунду!');
 			const msgUpToDate = localize('vibeide.update.upToDate', 'VibeIDE обновлён до последней версии!');
+			const msgOtherPlatformOnly = localize('vibeide.update.otherPlatformOnly', 'Вышла версия {0}, но сборки для вашей операционной системы в ней нет — у вас установлена самая свежая доступная. Следите за обновлениями.', newestOverall?.tagName ?? '');
 
-			if (explicit) {
-				if (!isUpToDate) {
-					message = msgAvailable;
-					action = 'reinstall';
-				} else {
-					message = msgUpToDate;
+			if (hasUpdateForMe) {
+				const picked = data.find(r => r.tag_name === forMe?.tagName);
+				let verified: VibeideVerifiedDownload | undefined;
+				try {
+					verified = picked ? (await this._resolveVerifiedDownload(picked) ?? undefined) : undefined;
+				} catch {
+					verified = undefined;
 				}
-			} else {
-				if (!isUpToDate) {
-					message = msgAvailable;
-					action = 'reinstall';
-				} else {
-					message = null;
+				if (verified) {
+					return { message: msgAvailable, action: 'reinstall', verifiedDownload: verified } as const;
 				}
+				return { message: msgAvailable, action: 'reinstall' } as const;
 			}
-			const effectiveVerified = !isUpToDate ? verified : undefined;
-			if (effectiveVerified) {
-				return { message, action, verifiedDownload: effectiveVerified } as const;
+
+			if (!explicit) {
+				return { message: null } as const;
 			}
-			return { message, action } as const;
+			return { message: newerIsOtherPlatformOnly ? msgOtherPlatformOnly : msgUpToDate } as const;
 		}
 		catch (e) {
 			if (explicit) {
