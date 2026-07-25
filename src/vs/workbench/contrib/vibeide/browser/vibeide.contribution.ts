@@ -680,8 +680,8 @@ import './vibeProviderProxyService.js';
 // VibeIDE: Browser automation — Playwright consent gate + audit (Phase 3b: real runner)
 import '../common/vibeBrowserAutomationService.js';
 
-// VibeIDE: MCP OAuth / token manager — unified OAuth token storage for MCP servers
-import '../common/vibeMCPOAuthService.js';
+// VibeIDE: MCP token rotation — thresholds for the rotation policy (vibeide.mcp.tokenRotation.*)
+import '../common/mcpTokenRotationConfiguration.js';
 
 // VibeIDE: Binary diff policy — limits/placeholder for binary/large files in diff preview
 import '../common/vibeBinaryDiffPolicyService.js';

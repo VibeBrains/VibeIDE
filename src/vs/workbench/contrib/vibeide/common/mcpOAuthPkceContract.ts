@@ -5,21 +5,25 @@
 
 
 /**
- * `VibeMCPOAuthService` — PKCE flow contract (pure helper)
- * (roadmap §"Real-impl tail / Phase 3b — `VibeMCPOAuthService` реальный
- * PKCE flow (security gap для GitHub/Linear/Notion)" + §"K.2 secret hygiene").
+ * OAuth PKCE flow contract (pure helpers, `vscode`-free).
  *
- * RFC 7636 — Proof Key for Code Exchange. Pure helpers — `vscode`-free —
- * companion to the real OAuth dance which lives in `browser/`. This module
- * provides:
+ * RFC 7636 — Proof Key for Code Exchange. Provides:
  *   - state validation (returned `state` matches the one we sent)
  *   - PKCE pair builder shape (caller injects randomness + SHA-256)
  *   - authorisation-URL builder
  *   - token-response decoder + refresh decision
+ *   - `verifyOAuthCallback` — RFC 9207 `iss` validation (mix-up attack protection)
  *
- * The actual `crypto` calls (random bytes, SHA-256) come from the host
- * runtime — the helpers take a `pkceRandomness` injection so unit tests
- * use deterministic fixtures.
+ * The actual `crypto` calls (random bytes, SHA-256) come from the host runtime — the
+ * helpers take a `pkceRandomness` injection so unit tests use deterministic fixtures.
+ *
+ * ⚠️ NO RUNTIME CONSUMER as of 2026-07-25. Its previous caller, `vibeMCPOAuthService`, was a
+ * dead parallel implementation inherited from the fork starter and has been deleted — MCP
+ * servers authorize through the upstream dynamic-auth path instead. This module is kept
+ * (not deleted with it) for one reason: `verifyOAuthCallback` is the ONLY RFC 9207 `iss`
+ * check in the tree, and the upstream flow performs none, so mix-up protection is currently
+ * absent product-wide. Wiring it into the live path is tracked in `docs/roadmap.md`; until
+ * then the helpers stay pure and unit-tested rather than being rewritten from scratch later.
  */
 
 const PKCE_CODE_VERIFIER_PATTERN = /^[A-Za-z0-9._~-]{43,128}$/;

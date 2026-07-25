@@ -5,14 +5,17 @@
 
 
 /**
- * MCP OAuth token rotation policy (920) — pure helper.
+ * MCP OAuth token rotation policy — pure helpers.
  *
- * The full PKCE refresh flow against GitHub / Linear / Notion is blocked
- * on registered apps (878). This module addresses the smaller part: the
- * *policy* that decides "this token is too old, remind the user to
- * rotate" / "this token belongs to an MCP server that was removed,
- * revoke now". The DI service consumes this and emits notifications +
- * `IEncryptionService.deleteSecret` calls.
+ * The *policy* half decides "this token is too old, remind the user to rotate" /
+ * "this token belongs to an MCP server that was removed, revoke now". The
+ * *adapter* half (`buildMcpTokenRecords`) turns what the workbench actually
+ * stores about MCP authorization into the records the policy reads.
+ *
+ * Tokens live in the upstream dynamic-auth store, not in any VibeIDE service:
+ * MCP servers authorize through `contrib/mcp` → `extHostAuthentication`, which
+ * keeps sessions per authorization server and records per-server usage. The
+ * contribution feeds both into the adapter below.
  *
  * vscode-free: no imports beyond standard lib.
  */
@@ -110,4 +113,80 @@ export function decideRotationsForAll(
 		}
 	}
 	return decisions;
+}
+
+// ── Adapter: workbench authorization state → policy records ────────────────────
+
+/** One stored session of a dynamic authentication provider, as the secret store keeps it. */
+export interface UpstreamAuthSession {
+	/** Unix ms the token was issued (`created_at` in the dynamic-provider store). */
+	createdAt: number;
+	/** Access-token lifetime in seconds (`expires_in`), when the server returned one. */
+	expiresInSeconds?: number;
+	/** Whether the session carries a refresh token. */
+	hasRefreshToken: boolean;
+	/** Account the session belongs to; usage records are keyed by this label. */
+	accountLabel: string;
+}
+
+/** Everything known about one authorization server and the MCP servers using it. */
+export interface UpstreamProviderTokens {
+	providerId: string;
+	sessions: readonly UpstreamAuthSession[];
+	/** MCP servers observed using this provider's accounts. */
+	usages: readonly { mcpServerId: string; accountLabel: string; lastUsed: number }[];
+}
+
+/** A policy record plus the coordinates needed to act on it (revoke the right session). */
+export interface McpTokenRotationTarget {
+	record: MCPTokenRecord;
+	providerId: string;
+	accountLabel: string;
+}
+
+/**
+ * Join stored sessions with per-server usage into policy records.
+ *
+ * Two deliberate rules:
+ *  - A session carrying a refresh token gets NO `expiresAt`. Its access token expires
+ *    constantly and the workbench renews it silently; treating that as "expired" would
+ *    revoke a perfectly healthy login. Age and idleness still apply — those are what the
+ *    rotation policy is actually about.
+ *  - A usage record with no matching session is skipped: the login is already gone, so
+ *    there is nothing left to rotate or revoke.
+ */
+export function buildMcpTokenRecords(providers: readonly UpstreamProviderTokens[]): McpTokenRotationTarget[] {
+	const targets: McpTokenRotationTarget[] = [];
+	for (const provider of providers) {
+		// Newest session per account — an account may accumulate several over time.
+		const newestByAccount = new Map<string, UpstreamAuthSession>();
+		for (const session of provider.sessions) {
+			const current = newestByAccount.get(session.accountLabel);
+			if (!current || session.createdAt > current.createdAt) {
+				newestByAccount.set(session.accountLabel, session);
+			}
+		}
+
+		for (const usage of provider.usages) {
+			const session = newestByAccount.get(usage.accountLabel);
+			if (!session) {
+				continue;
+			}
+			const expiresAt = !session.hasRefreshToken && typeof session.expiresInSeconds === 'number' && Number.isFinite(session.expiresInSeconds)
+				? session.createdAt + session.expiresInSeconds * 1000
+				: undefined;
+			targets.push({
+				providerId: provider.providerId,
+				accountLabel: usage.accountLabel,
+				record: {
+					serverId: usage.mcpServerId,
+					provider: provider.providerId,
+					storedAt: session.createdAt,
+					lastUsedAt: Number.isFinite(usage.lastUsed) ? usage.lastUsed : null,
+					expiresAt,
+				},
+			});
+		}
+	}
+	return targets;
 }
