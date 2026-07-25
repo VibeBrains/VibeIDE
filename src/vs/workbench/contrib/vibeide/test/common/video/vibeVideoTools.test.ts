@@ -7,7 +7,7 @@ import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../../base/test/common/utils.js';
 import { classifyWatchInput, isRemoteVideoInput, resolveVideoToolPaths, videoToolsArchiveForPlatform } from '../../../common/video/vibeVideoTools.js';
 import { formatVideoTimecode, selectEvenlySpreadFrames } from '../../../common/video/vibeVideoTypes.js';
-import { clampVideoMaxFrames, clampVideoSceneThreshold, normalizeVideoSubtitleLanguages } from '../../../common/video/vibeVideoConfiguration.js';
+import { clampVideoMaxFrames, clampVideoSceneThreshold, normalizeVideoSubtitleLanguages, resolveVideoTuning } from '../../../common/video/vibeVideoConfiguration.js';
 
 suite('vibeVideoTools', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -124,5 +124,46 @@ suite('vibeVideoTools', () => {
 			],
 			['ru,en', 'en,ru-ru', 'ru,en', 'ru,en'],
 		);
+	});
+
+	suite('detail presets', () => {
+		test('each level maps to its own tuning; unknown falls back to balanced', () => {
+			assert.deepStrictEqual(
+				[
+					resolveVideoTuning('transcript'),
+					resolveVideoTuning('efficient'),
+					resolveVideoTuning('balanced'),
+					resolveVideoTuning('token-burner'),
+					resolveVideoTuning('nonsense'),
+				],
+				[
+					{ framesEnabled: false, sceneThreshold: 0.3, maxFrames: 4, frameHeight: 480 },
+					{ framesEnabled: true, sceneThreshold: 0.45, maxFrames: 16, frameHeight: 480 },
+					{ framesEnabled: true, sceneThreshold: 0.3, maxFrames: 48, frameHeight: 720 },
+					{ framesEnabled: true, sceneThreshold: 0.12, maxFrames: 150, frameHeight: 1080 },
+					{ framesEnabled: true, sceneThreshold: 0.3, maxFrames: 48, frameHeight: 720 },
+				],
+			);
+		});
+
+		test('an explicitly set knob overrides the preset — and only that knob', () => {
+			assert.deepStrictEqual(
+				resolveVideoTuning('token-burner', { maxFrames: 10 }),
+				{ framesEnabled: true, sceneThreshold: 0.12, maxFrames: 10, frameHeight: 1080 },
+			);
+		});
+
+		test('explicit values are still clamped, undefined leaves the preset alone', () => {
+			assert.deepStrictEqual(
+				[
+					resolveVideoTuning('efficient', { maxFrames: 9000, frameHeight: 1, sceneThreshold: 99 }),
+					resolveVideoTuning('efficient', { maxFrames: undefined }),
+				],
+				[
+					{ framesEnabled: true, sceneThreshold: 0.9, maxFrames: 150, frameHeight: 240 },
+					{ framesEnabled: true, sceneThreshold: 0.45, maxFrames: 16, frameHeight: 480 },
+				],
+			);
+		});
 	});
 });
