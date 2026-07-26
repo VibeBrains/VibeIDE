@@ -84,6 +84,20 @@ suite('Gemini — model resolution, pricing and thinking levels', () => {
 		);
 	});
 
+	test('GLM, Kimi and MiniMax resolve to priced profiles, not to the free-looking default', () => {
+		// Each of these used to land on a zero price — GLM and Kimi had no resolver branch at all,
+		// MiniMax carried `cost: {0,0}` under a comment claiming cost was unused for routing. It is
+		// used: `modelRouter` scores `costPerM === 0` as a free model and prefers it.
+		const priceOf = (model: string) => {
+			const c = caps('openRouter', model).cost;
+			return [c.input > 0, c.output > 0];
+		};
+		assert.deepStrictEqual(
+			[priceOf('z-ai/glm-5'), priceOf('z-ai/glm-4.7'), priceOf('moonshotai/kimi-k2.5'), priceOf('minimax/minimax-m2.5')],
+			[[true, true], [true, true], [true, true], [true, true]],
+		);
+	});
+
 	test('local providers stay free — a recognized cloud sibling must not lend its price', () => {
 		assert.deepStrictEqual(
 			[caps('ollama', 'deepseek-r1').cost, caps('ollama', 'qwen2.5-coder:1.5b').cost],

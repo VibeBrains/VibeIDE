@@ -483,6 +483,34 @@ const openSourceModelOptions_assumingOAICompat = {
 		// Qwen3 series (including Qwen3-Coder) supports 128K out of the box.
 		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
 	},
+	// GLM (z.ai) and Kimi (Moonshot) are reached through aggregators and BYOK configs alike. Prices
+	// are the vendors' own list rates (docs.z.ai / platform.moonshot.ai) — an aggregator may charge
+	// less, and its catalog overrides this anyway. What matters is that they are NOT zero: the
+	// router treats a zero-cost model as free and prefers it.
+	'glm5': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
+		contextWindow: 204_800, reservedOutputTokenSpace: 8_192,
+		cost: { input: 1.00, output: 3.20 },
+	},
+	'glm4.7': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
+		contextWindow: 204_800, reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.60, output: 2.20 },
+	},
+	'kimiK2.5': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, reasoningSlider: { type: 'effort_slider', values: ['low', 'high'], default: 'low' } },
+		contextWindow: 262_144, reservedOutputTokenSpace: 32_768,
+		cost: { input: 0.60, output: 2.50 },
+	},
 	// FIM only
 	'starcoder2': {
 		supportsFIM: true,
@@ -601,6 +629,15 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 	if (lower.includes('qwen') && lower.includes('3')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen3'); }
 	if (lower.includes('qwen')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen3'); }
 	if (lower.includes('qwq')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwq'); }
+
+	// GLM and Kimi had no branch at all — every id fell through to `defaultModelOptions`, whose
+	// price is zero, so the router read them as free. Newer generations map to the newest profile
+	// we know: an approximate price beats a zero that lies.
+	if (lower.includes('glm-4.7') || lower.includes('glm4.7')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'glm4.7'); }
+	if (lower.includes('glm')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'glm5'); }
+	// k3 keeps the k2.5 profile: same wire protocol, and its real price ($3/$15) is carried by the
+	// `.vibe-defaults` recipe, which is where anyone running K3 configures it.
+	if (lower.includes('kimi')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'kimiK2.5'); }
 	if (lower.includes('phi4')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'phi4'); }
 	if (lower.includes('codestral')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'codestral'); }
 	if (lower.includes('devstral')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'devstral'); }
@@ -2067,7 +2104,10 @@ const minimaxModelOptions = {
 	'MiniMax-M3': {
 		contextWindow: 1_000_000,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0, output: 0 }, // informational only; not used for routing
+		// Standard tier, prompts up to 512K; above that the vendor charges 0.60/2.40, which this
+		// flat model cannot express. The old note here claimed cost was "not used for routing" —
+		// it is: `modelRouter` scores `costPerM === 0` as a FREE model and adds points for it.
+		cost: { input: 0.30, output: 1.20, cache_read: 0.06 },
 		downloadable: false,
 		supportsFIM: false,
 		supportsVision: true,
@@ -2078,7 +2118,7 @@ const minimaxModelOptions = {
 	'MiniMax-M2': {
 		contextWindow: 204_800,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0, output: 0 }, // informational only; not used for routing
+		cost: { input: 0.30, output: 1.20, cache_read: 0.06 }, // same standard-tier rate as M3/M2.5
 		downloadable: false,
 		supportsFIM: false,
 		specialToolFormat: 'openai-style',
@@ -2088,7 +2128,7 @@ const minimaxModelOptions = {
 	'MiniMax-M2-Stable': {
 		contextWindow: 204_800,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0, output: 0 },
+		cost: { input: 0.30, output: 1.20, cache_read: 0.06 },
 		downloadable: false,
 		supportsFIM: false,
 		specialToolFormat: 'openai-style',
