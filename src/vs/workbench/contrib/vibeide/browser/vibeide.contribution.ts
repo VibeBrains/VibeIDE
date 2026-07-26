@@ -385,8 +385,6 @@ import './vibePersistedPlanDiskEditContribution.js';
 // VibeIDE: Context eviction control
 import '../common/vibeContextEvictionService.js';
 
-// VibeIDE: Dependency graph visualization
-import '../common/vibeDependencyGraphService.js';
 
 // VibeIDE: Rename/refactor atomic audit
 import '../common/vibeRefactorAuditService.js';

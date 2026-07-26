@@ -61,7 +61,8 @@ export interface IVibeCodeGraphService {
 
 	/**
 	 * Why a file is where it is: what imports it, what it imports, and the notes explaining it.
-	 * This is the question `vibeDependencyGraphService` promised and never answered.
+	 * This is the question the old `vibeDependencyGraphService` stub promised in its comments and
+	 * never answered (it returned one empty node and had no callers); that stub is gone.
 	 */
 	explain(path: string): Promise<CodeGraph>;
 }

@@ -20,6 +20,7 @@ import { OPEN_FILE_TOOL } from './open_file.js';
 import { GO_TO_DEFINITION_TOOL } from './go_to_definition.js';
 import { FIND_REFERENCES_TOOL } from './find_references.js';
 import { SEARCH_SYMBOLS_TOOL } from './search_symbols.js';
+import { CODE_GRAPH_TOOL } from './code_graph.js';
 import { AUTOMATED_CODE_REVIEW_TOOL } from './automated_code_review.js';
 import { GENERATE_TESTS_TOOL } from './generate_tests.js';
 import { RENAME_SYMBOL_TOOL } from './rename_symbol.js';
@@ -67,6 +68,7 @@ export const builtinToolDefs = {
 	go_to_definition: GO_TO_DEFINITION_TOOL,
 	find_references: FIND_REFERENCES_TOOL,
 	search_symbols: SEARCH_SYMBOLS_TOOL,
+	code_graph: CODE_GRAPH_TOOL,
 	// code analysis / generation
 	automated_code_review: AUTOMATED_CODE_REVIEW_TOOL,
 	generate_tests: GENERATE_TESTS_TOOL,

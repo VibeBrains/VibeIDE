@@ -45,6 +45,8 @@ import { ISecretDetectionService } from '../common/secretDetectionService.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
+import { IVibeCodeGraphService } from './codeGraph/vibeCodeGraphService.js';
+import { CodeGraph, fileNodeId, symbolNodeId } from '../common/codeGraph/vibeCodeGraph.js';
 import { Position } from '../../../../editor/common/core/position.js';
 import { Range } from '../../../../editor/common/core/range.js';
 
@@ -267,6 +269,7 @@ export class ToolsService implements IToolsService {
 		@IDialogService private readonly dialogService: IDialogService,
 		@IEditorService private readonly editorService: IEditorService,
 		@ILanguageFeaturesService private readonly languageFeaturesService: ILanguageFeaturesService,
+		@IVibeCodeGraphService private readonly codeGraphService: IVibeCodeGraphService,
 		@IVibeConstraintsService private readonly vibeConstraintsService: IVibeConstraintsService,
 		@IVibePromptGuardService private readonly vibePromptGuardService: IVibePromptGuardService,
 		@IVibePerFilePermissionsService private readonly vibePermissionsService: IVibePerFilePermissionsService,
@@ -530,6 +533,19 @@ export class ToolsService implements IToolsService {
 				} = params;
 				const uri = validateReadURI(uriUnknown);
 				return { uri };
+			},
+
+			code_graph: (params: RawToolParamsObj) => {
+				const { query: queryUnknown, target: targetUnknown, to: toUnknown } = params;
+				const query = typeof queryUnknown === 'string' ? queryUnknown.trim().toLowerCase() : '';
+				if (query !== 'neighbors' && query !== 'path' && query !== 'why') {
+					throw new Error(`Invalid LLM output: query must be one of 'neighbors', 'path', 'why', got ${queryUnknown}`);
+				}
+				const target = typeof targetUnknown === 'string' ? targetUnknown.trim() : '';
+				if (!target) { throw new Error(`Invalid LLM output: target must be a file path or 'path#Symbol', got ${targetUnknown}`); }
+				const to = typeof toUnknown === 'string' && toUnknown.trim() ? toUnknown.trim() : null;
+				if (query === 'path' && !to) { throw new Error(`Invalid LLM output: query 'path' also needs 'to' — the destination node.`); }
+				return { query, target, to };
 			},
 
 			go_to_definition: (params: RawToolParamsObj) => {
@@ -1228,6 +1244,59 @@ export class ToolsService implements IToolsService {
 					options: { pinned: false }
 				});
 				return { result: {} };
+			},
+
+			code_graph: async ({ query, target, to }) => {
+				// A node id is either a file or a symbol inside one; the model writes the readable
+				// form ('/repo/a.ts' or '/repo/a.ts#doWork') and we translate it to the graph's id.
+				const nodeIdOf = (raw: string): string => {
+					const hash = raw.indexOf('#');
+					return hash === -1 ? fileNodeId(raw) : symbolNodeId(raw.slice(0, hash), raw.slice(hash + 1));
+				};
+				const flatten = (graph: CodeGraph) => ({
+					nodes: graph.nodes.map(node => ({ id: node.id, kind: node.kind, label: node.label, file: node.file, line: node.line })),
+					edges: graph.edges.map(edge => ({ from: edge.from, to: edge.to, kind: edge.kind, provenance: edge.provenance })),
+				});
+
+				const indexReady = this.codeGraphService.getGraph().nodes.length > 0;
+				if (!indexReady) {
+					return { result: { indexReady: false, nodes: [], edges: [], trace: null } };
+				}
+
+				if (query === 'why') {
+					// `why` is the enriched path: it reads the file for notes and asks the language
+					// provider for symbol ranges, so explanations attach to symbols rather than files.
+					const graph = await this.codeGraphService.explain(target);
+					return { result: { indexReady: true, ...flatten(graph), trace: null } };
+				}
+
+				if (query === 'path') {
+					const trace = this.codeGraphService.traceBetween(nodeIdOf(target), nodeIdOf(to!));
+					const graph = this.codeGraphService.getGraph();
+					const onTrace = new Set(trace ?? []);
+					return {
+						result: {
+							indexReady: true,
+							nodes: graph.nodes.filter(node => onTrace.has(node.id)).map(node => ({ id: node.id, kind: node.kind, label: node.label, file: node.file, line: node.line })),
+							edges: graph.edges.filter(edge => onTrace.has(edge.from) && onTrace.has(edge.to)).map(edge => ({ from: edge.from, to: edge.to, kind: edge.kind, provenance: edge.provenance })),
+							trace: trace ?? null,
+						},
+					};
+				}
+
+				const found = this.codeGraphService.neighborsOf(nodeIdOf(target));
+				if (!found) {
+					return { result: { indexReady: true, nodes: [], edges: [], trace: null } };
+				}
+				const around = [found.node, ...found.outgoing.map(entry => entry.node), ...found.incoming.map(entry => entry.node)];
+				return {
+					result: {
+						indexReady: true,
+						nodes: around.map(node => ({ id: node.id, kind: node.kind, label: node.label, file: node.file, line: node.line })),
+						edges: [...found.outgoing, ...found.incoming].map(entry => ({ from: entry.edge.from, to: entry.edge.to, kind: entry.edge.kind, provenance: entry.edge.provenance })),
+						trace: null,
+					},
+				};
 			},
 
 			go_to_definition: async ({ uri, line, column }) => {
@@ -2464,6 +2533,34 @@ export class ToolsService implements IToolsService {
 			},
 			open_file: (params, _result) => {
 				return `File opened: ${params.uri.fsPath}`;
+			},
+			code_graph: (params, result) => {
+				if (!result.indexReady) {
+					return `The repository index has not warmed up yet, so the code graph is empty. This means "not indexed", not "not connected" — fall back to search for now.`;
+				}
+				// Provenance goes into every line: without it the model cannot tell a fact read from
+				// the source from a resolver's guess, and the whole point of the graph is lost.
+				const label = (id: string) => result.nodes.find(node => node.id === id)?.label ?? id;
+				const edgeLines = result.edges.map(edge => `${label(edge.from)} --${edge.kind} (${edge.provenance})--> ${label(edge.to)}`);
+
+				if (params.query === 'path') {
+					if (!result.trace) {
+						return `No connection found between ${params.target} and ${params.to} within the graph.`;
+					}
+					return `Path (${result.trace.length} nodes):\n${result.trace.map(label).join('\n  -> ')}\n\nEdges:\n${edgeLines.join('\n')}`;
+				}
+				if (result.nodes.length === 0) {
+					return `Nothing known about ${params.target}. Either the path is wrong, or the file is outside the indexed workspace.`;
+				}
+				const notes = result.nodes.filter(node => node.kind === 'note');
+				const header = params.query === 'why'
+					? `Why ${params.target} is in the picture:`
+					: `Neighbours of ${params.target}:`;
+				return [
+					header,
+					...edgeLines,
+					notes.length > 0 ? `\nNotes explaining this code:\n${notes.map(note => `  ${note.file}:${note.line ?? '?'} ${note.label}`).join('\n')}` : '',
+				].filter(Boolean).join('\n');
 			},
 			go_to_definition: (params, result) => {
 				if (result.locations.length === 0) {

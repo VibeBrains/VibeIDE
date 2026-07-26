@@ -59,6 +59,7 @@ export type BuiltinToolCallParams = {
 	'open_file': { uri: URI };
 	'go_to_definition': { uri: URI; line: number; column: number };
 	'find_references': { uri: URI; line: number; column: number };
+	'code_graph': { query: 'neighbors' | 'path' | 'why'; target: string; to: string | null };
 	'search_symbols': { query: string; uri: URI | null };
 	'automated_code_review': { uri: URI };
 	'generate_tests': { uri: URI; functionName?: string; testFramework?: string };
@@ -102,6 +103,14 @@ export type BuiltinToolResultType = {
 	'open_file': {};
 	'go_to_definition': { locations: Array<{ uri: URI; startLine: number; startColumn: number; endLine: number; endColumn: number }> };
 	'find_references': { locations: Array<{ uri: URI; startLine: number; startColumn: number; endLine: number; endColumn: number }> };
+	// `indexReady: false` means the repo index has not warmed yet — an empty answer then means
+	// "we don't know", not "nothing is connected", and the stringifier says so out loud.
+	'code_graph': {
+		indexReady: boolean;
+		nodes: Array<{ id: string; kind: string; label: string; file: string; line?: number }>;
+		edges: Array<{ from: string; to: string; kind: string; provenance: string }>;
+		trace: string[] | null;
+	};
 	'search_symbols': { symbols: Array<{ name: string; kind: string; uri: URI; startLine: number; startColumn: number; endLine: number; endColumn: number }> };
 	'automated_code_review': { issues: Array<{ severity: 'error' | 'warning' | 'info'; message: string; line: number; column: number; suggestion?: string }> };
 	'generate_tests': { testCode: string; testFileUri: URI };
