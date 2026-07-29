@@ -79,6 +79,8 @@ import { IVibeDynamicProvidersService } from '../../../vibeDynamicProvidersServi
 import { IVibeNotifySoundService } from '../../../vibeNotifySoundService.js';
 import { IVibeNotifySoundsModalService } from '../../../../common/vibeNotifySoundsModalService.js';
 import { IEditorService } from '../../../../../../../workbench/services/editor/common/editorService.js';
+import { IHistoryService } from '../../../../../../../workbench/services/history/common/history.js';
+import { IOutlineModelService } from '../../../../../../../editor/contrib/documentSymbols/browser/outlineModel.js';
 import { IVibeSubagentService, SubagentType } from '../../../../common/vibeSubagentService.js';
 import { IVibeSubagentRegistryService } from '../../../../common/vibeSubagentRegistryService.js';
 import { IVibeSubagentHandoffStore } from '../../../../common/vibeSubagentHandoffStore.js';
@@ -336,6 +338,9 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 			IVibeVideoChatService: accessor.get(IVibeVideoChatService),
 			IVibeNotifySoundsModalService: accessor.get(IVibeNotifySoundsModalService),
 			IEditorService: accessor.get(IEditorService),
+			// Used by the `@recent` / `@sym:` reference resolution in SidebarChat.
+			IHistoryService: accessor.get(IHistoryService),
+			IOutlineModelService: accessor.get(IOutlineModelService),
 
 		} as const;
 		return reactAccessor;

@@ -1234,6 +1234,7 @@ export const workspaceS = {
 	vibeStructureHint:
 		'Быстрое сырое редактирование любого файла под `.vibe/`: дерево слева, промпты и workflows уже на отдельных вкладках. JSON в корне — отдельные кнопки ниже README.',
 	noVibeTree: 'Нет содержимого `.vibe/` или папка недоступна.',
+	refreshFileList: 'Обновить список файлов',
 	selectStructureFile: 'Выберите файл в дереве',
 	savedVibeRelative: (rel: string) => `Сохранено .vibe/${rel}`,
 	rootJsonHint: (name: string) =>

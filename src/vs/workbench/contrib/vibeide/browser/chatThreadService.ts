@@ -642,7 +642,7 @@ export interface IChatThreadService {
 	editUserMessageAndStreamResponse({ userMessage, messageIdx, threadId }: { userMessage: string; messageIdx: number; threadId: string }): Promise<void>;
 
 	// call to add a message
-	addUserMessageAndStreamResponse({ userMessage, threadId, images, noPlan, displayContent }: { userMessage: string; threadId: string; images?: ChatImageAttachment[]; noPlan?: boolean; displayContent?: string }): Promise<void>;
+	addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId, images, pdfs, noPlan, displayContent, forceScout }: { userMessage: string; _chatSelections?: StagingSelectionItem[]; threadId: string; images?: ChatImageAttachment[]; pdfs?: ChatPDFAttachment[]; noPlan?: boolean; displayContent?: string; forceScout?: boolean }): Promise<void>;
 	/** Queue context to be merged into the NEXT agent hop without aborting the running turn. */
 	addPendingInjection(threadId: string, text: string, images?: ChatImageAttachment[], pdfs?: ChatPDFAttachment[]): void;
 	/** Remove a still-queued injection by index (user cancelled it before it was drained into context). */

@@ -1810,7 +1810,7 @@ export class ToolsService implements IToolsService {
 						});
 					}
 				}
-				await editCodeService.callBeforeApplyOrEdit(uri);
+				await editCodeService.callBeforeApplyOrEdit({ from: 'ClickApply', uri });
 				// AI provenance marker (opt-in via vibeide.aiProvenance.markGeneratedCode).
 				let effectiveContent = newContent;
 				if (shouldMarkProvenance(this._configurationService.getValue('vibeide.aiProvenance.markGeneratedCode'))) {
@@ -1886,7 +1886,7 @@ export class ToolsService implements IToolsService {
 				if (_stashDecisionEd.kind === 'stash') {
 					await this._gitAutoStashService.createStash(uri.fsPath);
 				}
-				await editCodeService.callBeforeApplyOrEdit(uri);
+				await editCodeService.callBeforeApplyOrEdit({ from: 'ClickApply', uri });
 				const applyInfo = editCodeService.instantlyApplySearchReplaceBlocks({ uri, searchReplaceBlocks });
 				// Indentation mismatch surfaced as an informative note (NOT an error — the edit applied).
 				// Tells the model the tool auto-aligned its block so it does not misread a ragged diff as a

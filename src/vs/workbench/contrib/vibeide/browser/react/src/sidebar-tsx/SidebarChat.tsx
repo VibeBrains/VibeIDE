@@ -239,6 +239,7 @@ export const IconLoading = ({
 			const timer = setTimeout(() => setShouldPulse(false), 300);
 			return () => clearTimeout(timer);
 		}
+		return undefined;
 	}, [showTokenCount, prevTokenCount]);
 
 	const tokenText = showTokenCount !== undefined
@@ -1466,11 +1467,7 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 		<div
 			ref={(node) => {
 				if (divRef) {
-					if (typeof divRef === 'function') {
-						divRef(node);
-					} else {
-						divRef.current = node;
-					}
+					divRef.current = node;
 				}
 				containerRef.current = node;
 			}}
@@ -2324,14 +2321,14 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			{hasImages && (
 				<div className="px-0.5 py-2">
 					<ImageMessageRenderer
-						images={chatMessage.images}
+						images={chatMessage.images ?? []}
 					/>
 				</div>
 			)}
 			{hasPDFs && (
 				<div className="px-0.5 py-2">
 					<PDFMessageRenderer
-						pdfs={chatMessage.pdfs}
+						pdfs={chatMessage.pdfs ?? []}
 					/>
 				</div>
 			)}
@@ -2471,22 +2468,28 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			{/* Pin-context: keep this message verbatim through context truncation. Shown on
 			    hover, or always while pinned so the state stays visible. */}
 			{mode === 'display' && (
-				<Pin
-					size={18}
+				// The tooltip lives on the wrapper: Lucide icons do not accept a `title` prop,
+				// so putting it on <Pin> silently rendered no tooltip at all.
+				<span
 					title={chatMessage.pinned ? 'Открепить сообщение' : 'Закрепить сообщение (не обрезать при сжатии контекста)'}
-					className={`
+					className='flex items-center'
+					onClick={(e) => {
+						e.stopPropagation();
+						chatThreadsService.toggleMessagePinned({ threadId: currentThreadId, messageIdx });
+					}}
+				>
+					<Pin
+						size={18}
+						className={`
                     cursor-pointer
                     p-[2px]
                     bg-vibe-bg-1 border border-vibe-border-1 rounded-md
                     transition-opacity duration-200 ease-in-out
                     ${chatMessage.pinned ? 'opacity-100 fill-current' : isHovered ? 'opacity-100 text-vibe-fg-3' : 'opacity-0'}
                 `}
-					style={chatMessage.pinned ? { color: 'var(--vscode-vibeide-chatGroup-activeBorder, #fc28a8)' } : undefined}
-					onClick={(e) => {
-						e.stopPropagation();
-						chatThreadsService.toggleMessagePinned({ threadId: currentThreadId, messageIdx });
-					}}
-				/>
+						style={chatMessage.pinned ? { color: 'var(--vscode-vibeide-chatGroup-activeBorder, #fc28a8)' } : undefined}
+					/>
+				</span>
 			)}
 			<EditSymbol
 				size={18}
@@ -2758,6 +2761,21 @@ const titleOfBuiltinToolName = {
 	'web_search': { done: 'Searched the web', proposed: 'Search the web', running: loadingTitleWrapper('Searching the web') },
 	'browse_url': { done: 'Fetched web page', proposed: 'Fetch web page', running: loadingTitleWrapper('Fetching web page') },
 	'vibe_complete': { done: 'Завершил ход', proposed: 'Завершить ход', running: loadingTitleWrapper('Завершает ход') },
+
+	'glob': { done: 'Нашёл файлы по маске', proposed: 'Найти файлы по маске', running: loadingTitleWrapper('Ищет файлы по маске') },
+	'grep': { done: 'Нашёл по содержимому', proposed: 'Найти по содержимому', running: loadingTitleWrapper('Ищет по содержимому') },
+	'open_file': { done: 'Открыл файл', proposed: 'Открыть файл', running: loadingTitleWrapper('Открывает файл') },
+	'go_to_definition': { done: 'Нашёл определение', proposed: 'Найти определение', running: loadingTitleWrapper('Ищет определение') },
+	'find_references': { done: 'Нашёл использования', proposed: 'Найти использования', running: loadingTitleWrapper('Ищет использования') },
+	'code_graph': { done: 'Построил граф кода', proposed: 'Построить граф кода', running: loadingTitleWrapper('Строит граф кода') },
+	'search_symbols': { done: 'Нашёл символы', proposed: 'Найти символы', running: loadingTitleWrapper('Ищет символы') },
+	'automated_code_review': { done: 'Проверил код', proposed: 'Проверить код', running: loadingTitleWrapper('Проверяет код') },
+	'generate_tests': { done: 'Сгенерировал тесты', proposed: 'Сгенерировать тесты', running: loadingTitleWrapper('Генерирует тесты') },
+	'rename_symbol': { done: 'Переименовал символ', proposed: 'Переименовать символ', running: loadingTitleWrapper('Переименовывает символ') },
+	'extract_function': { done: 'Выделил функцию', proposed: 'Выделить функцию', running: loadingTitleWrapper('Выделяет функцию') },
+	'run_nl_command': { done: 'Выполнил команду', proposed: 'Выполнить команду', running: loadingTitleWrapper('Выполняет команду') },
+	'kill_background_command': { done: 'Остановил фоновую команду', proposed: 'Остановить фоновую команду', running: loadingTitleWrapper('Останавливает фоновую команду') },
+	'read_background_output': { done: 'Прочитал вывод фоновой команды', proposed: 'Прочитать вывод фоновой команды', running: loadingTitleWrapper('Читает вывод фоновой команды') },
 } as const satisfies Record<BuiltinToolName, { done: any; proposed: any; running: any }>;
 
 
@@ -2807,7 +2825,10 @@ const toolNameToDesc = (toolName: BuiltinToolName, _toolParams: BuiltinToolCallP
 		return { desc1: '', };
 	}
 
-	const x = {
+	// Partial by design: a one-line parameter hint under the tool title is a nicety, not a
+	// requirement — tools without an entry fall through to the empty `desc1` below. The title
+	// itself is exhaustive (see `titleOfBuiltinToolName`), so nothing renders as a raw tool id.
+	const x: Partial<Record<BuiltinToolName, () => { desc1: React.ReactNode; desc1Info?: string }>> = {
 		'read_file': () => {
 			const toolParams = _toolParams as BuiltinToolCallParams['read_file'];
 			return {
@@ -3223,7 +3244,8 @@ const CommandTool = ({ toolMessage, type, threadId }: { threadId: string } & ({
 };
 
 type WrapperProps<T extends ToolName> = { toolMessage: Exclude<ToolMessage<T>, { type: 'invalid_params' }>; messageIdx: number; threadId: string };
-const MCPToolWrapper = ({ toolMessage }: WrapperProps<string>) => {
+/** Renders any tool without a bespoke wrapper: every MCP tool, plus built-ins not listed in `builtinToolNameToComponent`. */
+const GenericToolWrapper = ({ toolMessage }: WrapperProps<string>) => {
 	const accessor = useAccessor();
 	const mcpService = accessor.get('IMCPService');
 
@@ -3300,7 +3322,11 @@ const MCPToolWrapper = ({ toolMessage }: WrapperProps<string>) => {
 
 type ResultWrapper<T extends ToolName> = (props: WrapperProps<T>) => React.ReactNode;
 
-const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: ResultWrapper<T> } } = {
+// Partial by design: a built-in tool without a bespoke renderer falls back to `GenericToolWrapper`
+// (see the tool branch of `ChatBubble`), which shows the title, params and raw result. Before this
+// was made explicit the map silently lagged behind `BuiltinToolName` and those tools rendered
+// *nothing* in the chat.
+const builtinToolNameToComponent: { [T in BuiltinToolName]?: { resultWrapper: ResultWrapper<T> } } = {
 	'read_file': {
 		resultWrapper: ({ toolMessage }) => {
 			const accessor = useAccessor();
@@ -4730,8 +4756,8 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 
 		const toolName = chatMessage.name;
 		const isBuiltInTool = isABuiltinToolName(toolName);
-		const ToolResultWrapper = isBuiltInTool ? builtinToolNameToComponent[toolName]?.resultWrapper as ResultWrapper<ToolName>
-			: MCPToolWrapper as ResultWrapper<ToolName>;
+		const ToolResultWrapper = (isBuiltInTool ? builtinToolNameToComponent[toolName]?.resultWrapper as ResultWrapper<ToolName> | undefined
+			: undefined) ?? GenericToolWrapper as ResultWrapper<ToolName>;
 
 		if (ToolResultWrapper)
 			{return <>
@@ -4789,6 +4815,9 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 			messageIdx={messageIdx}
 		/>;
 	}
+
+	// Unknown role: render nothing rather than `undefined`, which React treats as an error.
+	return null;
 
 }, (prev, next) => {
 	// Custom comparison for _ChatBubble
@@ -5493,20 +5522,19 @@ export const SidebarChat = () => {
 				const languageService = accessor.get('ILanguageService');
 				const historyService = accessor.get('IHistoryService');
 				const fileService = accessor.get('IFileService');
-				let outlineService: any = undefined;
-				try { outlineService = accessor.get('IOutlineModelService'); } catch {}
+				const outlineService = accessor.get('IOutlineModelService');
 
 			// Collect existing URIs to avoid duplicate attachments
 			const existing = new Set<string>();
 			const existingSelections = chatThreadsState.allThreads[currentThread.id]?.state?.stagingSelections || [];
 			for (const s of existingSelections) {existing.add(s.uri?.fsPath || '');}
 
-			const addFileSelection = async (uri: any) => {
+			const addFileSelection = async (uri: URI | undefined) => {
 				if (!uri) {return;}
 				const key = uri.fsPath || uri.path || '';
 				if (key && existing.has(key)) {return;}
 				existing.add(key);
-				const newSel = {
+				const newSel: StagingSelectionItem = {
 					type: 'File',
 					uri,
 					language: languageService.guessLanguageIdByFilepathOrFirstLine(uri) || '',
@@ -5515,16 +5543,14 @@ export const SidebarChat = () => {
 				await chatThreadsService.addNewStagingSelection(newSel);
 			};
 
-			const addFolderSelection = async (uri: any) => {
+			const addFolderSelection = async (uri: URI | undefined) => {
 				if (!uri) {return;}
 				const key = uri.fsPath || uri.path || '';
 				if (key && existing.has(key)) {return;}
 				existing.add(key);
-				const newSel = {
+				const newSel: StagingSelectionItem = {
 					type: 'Folder',
 					uri,
-					language: undefined,
-					state: undefined,
 				};
 				await chatThreadsService.addNewStagingSelection(newSel);
 			};
@@ -5553,12 +5579,14 @@ export const SidebarChat = () => {
 					const activeResource = editorService.activeEditor?.resource;
 					const sel = active?.getSelection?.();
 					if (activeResource && sel && !sel.isEmpty()) {
-						const newSel = {
-							type: 'File',
+						// A selection is a `CodeSelection`, not a `File` — the `File` variant has no
+						// `range`, so the line numbers used to be dropped on the way in.
+						const newSel: StagingSelectionItem = {
+							type: 'CodeSelection',
 							uri: activeResource,
 							language: languageService.guessLanguageIdByFilepathOrFirstLine(activeResource) || '',
 							state: { wasAddedAsCurrentFile: false },
-							range: sel,
+							range: [sel.startLineNumber, sel.endLineNumber],
 						};
 						const key = activeResource.fsPath || '';
 						if (!existing.has(key)) {
@@ -5605,11 +5633,11 @@ export const SidebarChat = () => {
 				if (raw.startsWith('sym:') || raw.startsWith('symbol:')) {
 					const symName = raw.replace(/^symbol?:/,'');
 					let symbolFound = false;
-					if (outlineService && typeof outlineService.getCachedModels === 'function') {
+					{
 						try {
 							const models = outlineService.getCachedModels();
 							for (const om of models) {
-								const list = typeof om.asListOfDocumentSymbols === 'function' ? om.asListOfDocumentSymbols() : [];
+								const list = om.asListOfDocumentSymbols();
 								for (const s of list) {
 									if ((s?.name || '').toLowerCase() === symName.toLowerCase()) {
 										symbolFound = true;
@@ -5618,12 +5646,13 @@ export const SidebarChat = () => {
 										const key = uri?.fsPath || '';
 										if (!existing.has(key)) {
 											existing.add(key);
+											// Same as `@selection`: a symbol spans lines, so it is a `CodeSelection`.
 											await chatThreadsService.addNewStagingSelection({
-												type: 'File',
+												type: 'CodeSelection',
 												uri,
 												language: languageService.guessLanguageIdByFilepathOrFirstLine(uri) || '',
 												state: { wasAddedAsCurrentFile: false },
-												range,
+												range: [range.startLineNumber, range.endLineNumber],
 											});
 										}
 									}
@@ -6387,7 +6416,7 @@ export const SidebarChat = () => {
 			budget = Math.max(256, Math.floor(contextWindow * 0.8) - rot);
 			tokens = previousMessages.reduce((acc, m) => {
 				if (m.role === 'user') {return acc + estimateTokens(m.content || '');}
-				if (m.role === 'assistant') {return acc + estimateTokens((m.displayContent as string) || (m.content || '') || '');}
+				if (m.role === 'assistant') {return acc + estimateTokens(m.displayContent || '');}
 				return acc;
 			}, 0);
 		}

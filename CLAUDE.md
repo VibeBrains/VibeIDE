@@ -100,7 +100,11 @@
 ## Команды проекта
 
 ```powershell
-npm run compile-check-ts-native   # Проверка TypeScript (src/tsconfig.json)
+npm run compile-check-ts-native   # Проверка TypeScript (src/tsconfig.json). НЕ включает react/ —
+                                  #   он исключён в tsconfig; для TSX есть отдельный гейт ниже.
+npm run react-typecheck           # Тайпчек React-части (react/src/**). Падает только на наших
+                                  #   ошибках; ошибки импортированного workbench — справочный хвост.
+                                  #   Детали: docs/knowledge/build/reactTypecheck.md
 npm run compile-build             # Полная компиляция TypeScript для сборки
 npm run valid-layers-check        # Проверка слоёв архитектуры
 .\run-dev.bat --compile           # Запуск dev-IDE (run-dev). ЕДИНСТВЕННЫЙ верный способ.
@@ -139,6 +143,7 @@ scripts\test-integration.bat      # Интеграционные тесты
 ОБЯЗАТЕЛЬНО проверять компиляцию перед тем как объявить задачу выполненной:
 - **Никогда** не запускать тесты при наличии ошибок компиляции.
 - Для изменений в `src/`: `npm run compile-check-ts-native`
+- Для изменений в `src/.../react/src/**` (TSX): **дополнительно** `npm run react-typecheck` — корневая проверка эту область не покрывает.
 - Для изменений в `extensions/`: `npm run gulp compile-extensions`
 - Для изменений в `build/`: `npm run typecheck` (из папки `build/`)
 

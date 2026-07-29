@@ -45,7 +45,7 @@ export interface IEditCodeService {
 
 	processRawKeybindingText(keybindingStr: string): string;
 
-	callBeforeApplyOrEdit(uri: URI | 'current'): Promise<void>;
+	callBeforeApplyOrEdit(opts: CallBeforeStartApplyingOpts): Promise<void>;
 	startApplying(opts: StartApplyingOpts): [URI, Promise<void>] | null;
 	instantlyApplySearchReplaceBlocks(opts: { uri: URI; searchReplaceBlocks: string }): { indentAdjustments: { fileIndentWidth: number }[] };
 	instantlyRewriteFile(opts: { uri: URI; newContent: string }): void;

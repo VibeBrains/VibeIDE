@@ -347,7 +347,7 @@ const ApplyButtonsForEdit = ({
 	const onClickSubmit = useCallback(async () => {
 		if (currStreamStateRef.current === 'streaming') {return;}
 
-		await editCodeService.callBeforeApplyOrEdit(uri);
+		await editCodeService.callBeforeApplyOrEdit({ from: 'ClickApply', uri });
 
 		const [newApplyingUri, applyDonePromise] = editCodeService.startApplying({
 			from: 'ClickApply',
@@ -424,6 +424,8 @@ const ApplyButtonsForEdit = ({
 			/>
 		</Fragment>;
 	}
+	// No button applies in the remaining stream states (e.g. 'streaming') — render nothing.
+	return null;
 };
 
 
@@ -509,6 +511,8 @@ export const EditToolAcceptRejectButtonsHTML = ({
 		</>;
 	}
 
+	// No button applies in the remaining stream states (e.g. 'streaming') — render nothing.
+	return null;
 };
 
 export const BlockCodeApplyWrapper = ({

@@ -121,6 +121,7 @@
 | [portableAndElectron.md](build/portableAndElectron.md) | Portable Windows ZIP, Electron mirror, Linux CI X11 |
 | [compileAndSync.md](build/compileAndSync.md) | `tsgo` exit 2, sync без общего предка, `run-dev` / `vibe-dev` runner |
 | [reactBundleDeclarations.md](build/reactBundleDeclarations.md) | `.d.ts`-шимы у React-бандлов: почему `tsgo` падает на `no exported member 'mount*'` (баг детекта CJS по `__commonJS`-обёрткам, воспроизводится и локально — не OOM, как считалось) и как кодоген деклараций из `index.tsx` это чинит |
+| [reactTypecheck.md](build/reactTypecheck.md) | Гейт `npm run react-typecheck`: 56 TSX-файлов не проверял никто (react исключён из `src/tsconfig.json`, `@types/react` не стоял); настройка конфига (4057 → 53 ошибки) и что улов вскрыл — 14 инструментов без заголовков и рендера, нерабочие `@recent`/тултипы, три мёртвых сломанных компонента |
 | [updateService.md](build/updateService.md) | GitHub releases + `IUpdateService`, semver сравнение |
 | [vibeKeybindings.md](build/vibeKeybindings.md) | Встроенный IntelliJ-keymap `extensions/vibe-keybindings/`; модель владения keymap + история |
 | [thirdPartyLicensing.md](build/thirdPartyLicensing.md) | Провенанс-флажок ДО сборки/релиза: сторонний код = поднять лицензию явно, не доводить молча до релиза |

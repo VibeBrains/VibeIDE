@@ -1183,8 +1183,11 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		return;
 	}
 
-	public async callBeforeApplyOrEdit(givenURI: URI | 'current') {
-		const uri = this._uriOfGivenURI(givenURI);
+	public async callBeforeApplyOrEdit(opts: CallBeforeStartApplyingOpts) {
+		// Resolves both shapes: an explicit URI ('ClickApply') and a Ctrl+K zone id ('QuickEdit').
+		// The QuickEdit callers already passed the opts object while this took a bare URI, so the
+		// resolve silently failed and the target file was never saved before applying.
+		const uri = this._getURIBeforeStartApplying(opts);
 		if (!uri) { return; }
 		await this._vibeideModelService.initializeModel(uri);
 		await this._vibeideModelService.saveModel(uri); // save the URI

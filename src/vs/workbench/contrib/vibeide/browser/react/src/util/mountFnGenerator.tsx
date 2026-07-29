@@ -12,7 +12,10 @@ import { _registerServices } from './services.js';
 
 import { ServicesAccessor } from '../../../../../../../editor/browser/editorExtensions.js';
 
-export const mountFnGenerator = (Component: (params: any) => React.ReactNode) => (rootElement: HTMLElement, accessor: ServicesAccessor, props?: any) => {
+// `React.ComponentType`, not `(params: any) => React.ReactNode`: the latter excludes components
+// typed as `React.FC<…>` (their return type is `ReactNode | Promise<ReactNode>`), which is what
+// every entry point here actually passes.
+export const mountFnGenerator = (Component: React.ComponentType<any>) => (rootElement: HTMLElement, accessor: ServicesAccessor, props?: any) => {
 	if (typeof document === 'undefined') {
 		vibeLog.error('mountFnGenerator', 'index.tsx error: document was undefined');
 		return;
