@@ -60,6 +60,7 @@ export type BuiltinToolCallParams = {
 	'go_to_definition': { uri: URI; line: number; column: number };
 	'find_references': { uri: URI; line: number; column: number };
 	'code_graph': { query: 'neighbors' | 'path' | 'why'; target: string; to: string | null };
+	'design_review': { severity: 'error' | 'warning' | 'info' | null };
 	'search_symbols': { query: string; uri: URI | null };
 	'automated_code_review': { uri: URI };
 	'generate_tests': { uri: URI; functionName?: string; testFramework?: string };
@@ -110,6 +111,15 @@ export type BuiltinToolResultType = {
 		nodes: Array<{ id: string; kind: string; label: string; file: string; line?: number }>;
 		edges: Array<{ from: string; to: string; kind: string; provenance: string }>;
 		trace: string[] | null;
+	};
+	// `reachable: false` — превью не открыто или это dev-server/Docker, где скрипт-моста нет.
+	// Пустой список находок тогда читался бы как «чисто», а правда — «не измеряли».
+	'design_review': {
+		reachable: boolean;
+		unreachableReason?: string;
+		url?: string;
+		truncated?: boolean;
+		findings: Array<{ rule: string; severity: 'error' | 'warning' | 'info'; message: string; why: string; selector: string; evidence: string }>;
 	};
 	'search_symbols': { symbols: Array<{ name: string; kind: string; uri: URI; startLine: number; startColumn: number; endLine: number; endColumn: number }> };
 	'automated_code_review': { issues: Array<{ severity: 'error' | 'warning' | 'info'; message: string; line: number; column: number; suggestion?: string }> };

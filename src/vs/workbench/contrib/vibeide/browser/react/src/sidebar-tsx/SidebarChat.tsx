@@ -2776,6 +2776,7 @@ const titleOfBuiltinToolName = {
 	'run_nl_command': { done: 'Выполнил команду', proposed: 'Выполнить команду', running: loadingTitleWrapper('Выполняет команду') },
 	'kill_background_command': { done: 'Остановил фоновую команду', proposed: 'Остановить фоновую команду', running: loadingTitleWrapper('Останавливает фоновую команду') },
 	'read_background_output': { done: 'Прочитал вывод фоновой команды', proposed: 'Прочитать вывод фоновой команды', running: loadingTitleWrapper('Читает вывод фоновой команды') },
+	'design_review': { done: 'Проверил дизайн страницы', proposed: 'Проверить дизайн страницы', running: loadingTitleWrapper('Проверяет дизайн страницы') },
 } as const satisfies Record<BuiltinToolName, { done: any; proposed: any; running: any }>;
 
 

@@ -41,7 +41,7 @@ import { IVibeServerMain, IVibeServerStarted, VIBE_SERVER_CHANNEL, VibeServerRun
 import { IVibeServerPortOwner, IVibeServerProcessMain, VIBE_SERVER_PROCESS_CHANNEL } from '../../common/vibeServer/vibeServerProcessIpc.js';
 import { IVibeServerRuntime, StaticRuntime, DevServerRuntime, DevServerPortBusyError } from '../../browser/vibeServer/vibeServerRuntime.js';
 import { DockerRuntime } from '../../browser/vibeServer/vibeDockerRuntime.js';
-import { VibeBrowserManager, IVibeBrowserElementPick } from '../../browser/vibeServer/vibeBrowserManager.js';
+import { VibeBrowserManager, IVibeBrowserElementPick, DesignScanResult } from '../../browser/vibeServer/vibeBrowserManager.js';
 import { openVibeChatEditor } from '../../browser/vibeideChatPane.js';
 import { VibeServerConfigKeys, VibeServerPreviewTarget, VIBE_SERVER_RUNNING_CONTEXT_KEY } from '../../browser/vibeServer/vibeServerConstants.js';
 import { IVibeServerService, IVibeServerStatus } from '../../browser/vibeServer/vibeServerService.js';
@@ -320,6 +320,16 @@ class VibeServerService extends Disposable implements IVibeServerService {
 
 	reloadPreview(): void {
 		this._browser.value?.reloadAll();
+	}
+
+	async scanDesign(): Promise<DesignScanResult> {
+		// Deliberately does NOT open a preview: scanning is a read of what the user is looking at,
+		// and spawning a window as a side effect of a measurement would be a surprise.
+		const browser = this._browser.value;
+		if (!browser) {
+			return { ok: false, reason: 'no-preview' };
+		}
+		return browser.scanDesign();
 	}
 
 	private _ensureBrowser(): VibeBrowserManager {

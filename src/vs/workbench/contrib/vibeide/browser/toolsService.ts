@@ -46,6 +46,8 @@ import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { IVibeCodeGraphService } from './codeGraph/vibeCodeGraphService.js';
+import { IVibeServerService } from './vibeServer/vibeServerService.js';
+import { reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
 import { CodeGraph, fileNodeId, symbolNodeId } from '../common/codeGraph/vibeCodeGraph.js';
 import { Position } from '../../../../editor/common/core/position.js';
 import { Range } from '../../../../editor/common/core/range.js';
@@ -270,6 +272,7 @@ export class ToolsService implements IToolsService {
 		@IEditorService private readonly editorService: IEditorService,
 		@ILanguageFeaturesService private readonly languageFeaturesService: ILanguageFeaturesService,
 		@IVibeCodeGraphService private readonly codeGraphService: IVibeCodeGraphService,
+		@IVibeServerService private readonly vibeServerService: IVibeServerService,
 		@IVibeConstraintsService private readonly vibeConstraintsService: IVibeConstraintsService,
 		@IVibePromptGuardService private readonly vibePromptGuardService: IVibePromptGuardService,
 		@IVibePerFilePermissionsService private readonly vibePermissionsService: IVibePerFilePermissionsService,
@@ -533,6 +536,15 @@ export class ToolsService implements IToolsService {
 				} = params;
 				const uri = validateReadURI(uriUnknown);
 				return { uri };
+			},
+
+			design_review: (params: RawToolParamsObj) => {
+				const { severity: sevUnknown } = params;
+				const raw = typeof sevUnknown === 'string' ? sevUnknown.trim().toLowerCase() : '';
+				if (raw && raw !== 'error' && raw !== 'warning' && raw !== 'info') {
+					throw new Error(`Invalid LLM output: severity must be 'error', 'warning' or 'info' when given, got ${sevUnknown}`);
+				}
+				return { severity: raw ? raw as 'error' | 'warning' | 'info' : null };
 			},
 
 			code_graph: (params: RawToolParamsObj) => {
@@ -1244,6 +1256,27 @@ export class ToolsService implements IToolsService {
 					options: { pinned: false }
 				});
 				return { result: {} };
+			},
+
+			design_review: async ({ severity }) => {
+				const scan = await this.vibeServerService.scanDesign();
+				if (!scan.ok) {
+					const why = scan.reason === 'no-preview' ? 'превью не открыто'
+						: scan.reason === 'unsupported' ? 'страница вне досягаемости: скрипт-мост живёт только в статическом превью, а сейчас dev-server или Docker'
+							: scan.reason === 'timeout' ? 'страница не ответила'
+								: `ошибка на странице: ${scan.detail ?? 'без подробностей'}`;
+					return { result: { reachable: false, unreachableReason: why, findings: [] } };
+				}
+				const all = reviewDesign(scan.snapshot);
+				const findings = severity ? all.filter(f => f.severity === severity) : all;
+				return {
+					result: {
+						reachable: true,
+						url: scan.snapshot.url,
+						truncated: scan.truncated,
+						findings,
+					},
+				};
 			},
 
 			code_graph: async ({ query, target, to }) => {
@@ -2534,6 +2567,20 @@ export class ToolsService implements IToolsService {
 			open_file: (params, _result) => {
 				return `File opened: ${params.uri.fsPath}`;
 			},
+			design_review: (_params, result) => {
+				if (!result.reachable) {
+					return `Не удалось измерить страницу: ${result.unreachableReason}. Это НЕ значит, что проблем нет — значит, что проверка не выполнялась.`;
+				}
+				if (!result.findings.length) {
+					return `Проверено${result.url ? ` (${result.url})` : ''}: замечаний нет.${result.truncated ? ' Внимание: страница крупная, в снимок попала только её часть.' : ''}`;
+				}
+				const counts = summarize(result.findings);
+				const lines = result.findings.map(f => `[${f.severity}] ${f.rule} — ${f.message}\n    где: ${f.selector}\n    почему: ${f.why}\n    измерено: ${f.evidence}`);
+				const head = `Проверено${result.url ? ` (${result.url})` : ''}: ${counts.error} ошибок, ${counts.warning} предупреждений, ${counts.info} замечаний по вкусу.`;
+				const tail = result.truncated ? '\n\nСтраница крупная — в снимок попала только её часть, проверьте остальное отдельно.' : '';
+				return `${head}\n\n${lines.join('\n')}${tail}`;
+			},
+
 			code_graph: (params, result) => {
 				if (!result.indexReady) {
 					return `The repository index has not warmed up yet, so the code graph is empty. This means "not indexed", not "not connected" — fall back to search for now.`;

@@ -23,6 +23,8 @@ import { IWebviewWorkbenchService } from '../../../webviewPanel/browser/webviewW
 import { ACTIVE_GROUP } from '../../../../services/editor/common/editorService.js';
 import { Extensions as OutputExtensions, IOutputChannelRegistry, IOutputService } from '../../../../services/output/common/output.js';
 
+import { DocumentSnapshot } from '../../common/designReview/designSlopRules.js';
+
 const VIBE_BROWSER_VIEW_TYPE = 'vibeide.vibeBrowser';
 const VIBE_SERVER_CONSOLE_CHANNEL_ID = 'vibeide.vibeServerConsole';
 
@@ -37,6 +39,17 @@ export interface IVibeBrowserElementPick {
 	/** `location.pathname` — the origin-independent half used for file mapping. */
 	readonly path: string;
 }
+
+/**
+ * Outcome of a design scan. `snapshot === undefined` means the page never answered — an
+ * empty snapshot would read as "the page is clean", which is the opposite of the truth.
+ */
+export type DesignScanResult =
+	| { readonly ok: true; readonly snapshot: DocumentSnapshot; readonly truncated: boolean }
+	| { readonly ok: false; readonly reason: 'no-preview' | 'unsupported' | 'timeout' | 'page-error'; readonly detail?: string };
+
+/** How long the page gets to answer before we call it a timeout. */
+const DESIGN_SCAN_TIMEOUT_MS = 5000;
 
 export class VibeBrowserManager extends Disposable {
 
@@ -69,6 +82,9 @@ export class VibeBrowserManager extends Disposable {
 
 	/** Which preview URL each tab currently shows — drives cookie-compat origin (un)registration. */
 	private readonly _registeredUrlByInput = new Map<WebviewInput, string>();
+
+	/** Resolver for the design scan in flight, if any. One at a time — the scan is a snapshot, not a stream. */
+	private _pendingDesignScan: { resolve: (snapshot: DesignScanResult) => void; timer: unknown } | undefined;
 
 	constructor(
 		private readonly _cookieCompat: { register(url: string): void; unregister(url: string): void } | undefined,
@@ -104,6 +120,41 @@ export class VibeBrowserManager extends Disposable {
 	/** Enables/disables mirroring scroll across preview tabs. */
 	setScrollSync(enabled: boolean): void {
 		this._scrollSync = enabled;
+	}
+
+	/**
+	 * Asks the previewed page for a snapshot of what it actually computed (sizes, colours,
+	 * spacing) so the design rules can run against reality rather than against the source.
+	 *
+	 * Same precondition as inspect: the bridge script only lives in the static runtime, so a
+	 * dev-server or Docker preview reports `unsupported` instead of quietly returning nothing.
+	 */
+	async scanDesign(): Promise<DesignScanResult> {
+		if (!this._active) {
+			return { ok: false, reason: 'no-preview' };
+		}
+		if (!this._inspectSupported) {
+			return { ok: false, reason: 'unsupported' };
+		}
+		// A second request would orphan the first resolver; the newest caller wins the wait.
+		this._settleDesignScan({ ok: false, reason: 'timeout', detail: 'заменён новым запросом' });
+
+		const target = this._active;
+		return new Promise<DesignScanResult>(resolve => {
+			const timer = setTimeout(() => this._settleDesignScan({ ok: false, reason: 'timeout' }), DESIGN_SCAN_TIMEOUT_MS);
+			this._pendingDesignScan = { resolve, timer };
+			void target.webview.postMessage({ type: 'design-scan-request' });
+		});
+	}
+
+	private _settleDesignScan(result: DesignScanResult): void {
+		const pending = this._pendingDesignScan;
+		if (!pending) {
+			return;
+		}
+		this._pendingDesignScan = undefined;
+		clearTimeout(pending.timer as ReturnType<typeof setTimeout>);
+		pending.resolve(result);
 	}
 
 	/** Enables/disables the "pick element" toolbar button in every open preview chrome. */
@@ -182,8 +233,16 @@ export class VibeBrowserManager extends Disposable {
 		if (!message || typeof message !== 'object') {
 			return;
 		}
-		const m = message as { type?: string; href?: string; title?: string; level?: string; text?: string; x?: number; y?: number; selector?: string; html?: string; path?: string };
+		const m = message as { type?: string; href?: string; title?: string; level?: string; text?: string; x?: number; y?: number; selector?: string; html?: string; path?: string; snapshot?: DocumentSnapshot & { truncated?: boolean }; error?: string };
 		switch (m.type) {
+			case 'design-scan':
+				if (m.error) {
+					this._settleDesignScan({ ok: false, reason: 'page-error', detail: m.error });
+				} else if (m.snapshot && Array.isArray(m.snapshot.elements)) {
+					const { truncated, ...snapshot } = m.snapshot;
+					this._settleDesignScan({ ok: true, snapshot, truncated: truncated === true });
+				}
+				break;
 			case 'inspect':
 				if (typeof m.selector === 'string' && m.selector.length > 0) {
 					this._onDidPickElement.fire({
@@ -388,6 +447,8 @@ export class VibeBrowserManager extends Disposable {
 		else if (d.__vibeBrowser === 'scroll'){ vscode.postMessage({ type: 'scroll', x: d.x, y: d.y }); }
 		else if (d.__vibeBrowser === 'inspect'){ setInsp(false); vscode.postMessage({ type: 'inspect', selector: d.selector, html: d.html, href: d.href, path: d.path }); }
 		else if (d.__vibeBrowser === 'inspect-cancel'){ setInsp(false); }
+		else if (d.__vibeBrowser === 'design-scan'){ vscode.postMessage({ type: 'design-scan', snapshot: d.snapshot, error: d.error }); }
+		else if (d.type === 'design-scan-request' && frame.contentWindow){ frame.contentWindow.postMessage({ __vibeServerDesignScan: true }, '*'); }
 		else if (d.type === 'inspect-supported'){ insp.disabled = !d.value; if (!d.value){ setInsp(false); } }
 		else if (d.type === 'navigate' && d.url){ goto(d.url); }
 		else if (d.type === 'reload'){ frame.src = current || frame.src; }
