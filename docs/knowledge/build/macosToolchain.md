@@ -58,6 +58,20 @@ Apple Silicon **отказывается запускать бинарь с не
 
 ---
 
+## [баг] Форкнутый node-воркер: ДВА списка entry points, авторитетный — `build/next/index.ts` (esbuild)
+
+**Контекст:** голосовой ввод в выпущенном macOS 1.9.0 не работал — микрофон ОС горит, но запись не включается. Диагноз (лог `.app`): `[vibeVoice worker] ERR_MODULE_NOT_FOUND: .../vibeide/node/voice/vibeVoiceWorkerMain.js`. В `.app` у `vibeide` был только слой `browser`; весь `node`-слой отсутствовал, при этом соседи-воркеры (`ptyHostMain`, `watcherMain`, `agentHostMain`, `telemetryApp`, …) на месте — выпал только voice.
+
+**Суть (настоящая причина):** форкнутый воркер (UtilityProcess / `bootstrap-fork`) — **отдельная bundle-точка**, и таких списков **ДВА, они не синхронизируются автоматически**:
+- **`build/buildfile.ts`** → `workbenchDesktop` — СТАРЫЙ путь (`optimize` / `build/lib/optimize.ts`).
+- **`build/next/index.ts`** → `desktopEntryPoints` (строки 98-106) — НОВЫЙ esbuild-путь.
+
+Какой авторитетен, решает флаг **`build/buildConfig.ts` → `useEsbuildTranspile`**. Сейчас он `true` → пакует esbuild через `build/next/index.ts`, а `buildfile.ts` — **мёртвый путь** (его регистрация ни на что не влияет). Voice worker был вписан ТОЛЬКО в `buildfile.ts` (мёртвый), в `desktopEntryPoints` его забыли — esbuild просто не бандлит модуль, которого нет в списке: **без warn, без skip, без ошибки**. Соседи были в обоих списках → попадали. Рантайм затем падает `ERR_MODULE_NOT_FOUND`, а UI молчит (аудио копится и дропается: `engine warm-up is slow — dropping oldest queued audio`). Урок: **наличие `.js` в `out-build` ≠ наличие в `.app`** — упаковку определяет список entry points, а не факт компиляции.
+
+**Применение:** добавляешь новый форкнутый node-воркер — **впиши его в `build/next/index.ts` → `desktopEntryPoints`** (это то, что реально пакует `.app` при `useEsbuildTranspile=true`); в `buildfile.ts` — тоже, для legacy-пути. `serverEntryPoints` в `build/next/index.ts` — только для reh/server, desktop-воркеры туда не нужны. Страховка от повторения — **VERIFY-GATE** в обоих релиз-скриптах (`release-macos.sh` после `gulp vscode-darwin`, `release-windows.ps1` после `gulp vscode-win32`): массив `REQUIRED_WORKERS` / `$requiredWorkers` проверяется в собранном `.app`/`resources\app\out` ДО подписи/публикации; отсутствие → `die`/`throw`. Именно этот гейт поймал баг на первой пересборке 1.9.1 (воркер всё ещё отсутствовал) и доказал, что причина не в out-build. Проверять распакованный пакет, а не `out-build`. Переупаковка без перекомпиляции — `--package-only` (обходит дорогой манглер; `build/next/index.ts` грузится через tsx, компиляция `build/` не нужна).
+
+---
+
 ## [сборка] Первый прогон
 
 ```bash

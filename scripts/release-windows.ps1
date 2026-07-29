@@ -226,6 +226,24 @@ Step "Building Windows x64 app..."
 Gulp "vscode-win32-x64"
 OK "App built"
 
+# VERIFY-GATE: critical VibeIDE node workers MUST be present in the packaged app.
+# A forked/utility-process worker is a separate bundled entry point (build/buildfile.ts →
+# workbenchDesktop); if out-build was incomplete when gulp packaged the app, the worker is
+# silently omitted and the feature dies at runtime with ERR_MODULE_NOT_FOUND while the UI
+# gives no error. This exact gap shipped in macOS 1.9.0 (vibeVoiceWorkerMain.js absent → voice
+# input captured audio but never transcribed). Fail here, before installer/publish.
+Step "Verifying required VibeIDE node workers are bundled..."
+$appOut = "$Root\..\VibeIDE-win32-x64\resources\app\out"
+$requiredWorkers = @(
+    'vs\workbench\contrib\vibeide\node\voice\vibeVoiceWorkerMain.js'
+)
+foreach ($w in $requiredWorkers) {
+    if (-not (Test-Path (Join-Path $appOut $w))) {
+        throw "[release] Bundle integrity check failed: missing '$w' in $appOut. The packaged out-build is incomplete — redo a full compile (drop -SkipCompile)."
+    }
+}
+OK "Bundle integrity: $($requiredWorkers.Count) required worker(s) present"
+
 Step "Copying inno updater tools..."
 Gulp "vscode-win32-x64-inno-updater"
 OK "Inno updater tools copied"

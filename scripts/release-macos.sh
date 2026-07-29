@@ -185,6 +185,22 @@ if [[ "$SKIP_COMPILE" != '1' || "$PACKAGE_ONLY" == '1' ]]; then
 	[[ -d "$APP" ]] || die "app bundle not found after gulp: $APP"
 	ok "App built: $APP"
 
+	# VERIFY-GATE: critical VibeIDE node workers MUST be present in the packaged .app.
+	# A forked/utility-process worker is a separate bundled entry point (build/buildfile.ts →
+	# workbenchDesktop); if out-build was incomplete when gulp packaged the app, the worker is
+	# silently omitted and the feature dies at runtime with ERR_MODULE_NOT_FOUND while the UI
+	# gives no error. This exact gap shipped in macOS 1.9.0: vibeVoiceWorkerMain.js was absent,
+	# so voice input captured audio but never transcribed. Fail here, before sign/publish.
+	step 'Verifying required VibeIDE node workers are bundled...'
+	REQUIRED_WORKERS=(
+		'vs/workbench/contrib/vibeide/node/voice/vibeVoiceWorkerMain.js'
+	)
+	APP_OUT="$APP/Contents/Resources/app/out"
+	for w in "${REQUIRED_WORKERS[@]}"; do
+		[[ -f "$APP_OUT/$w" ]] || die "Bundle integrity check failed: missing '$w' in $APP. The packaged out-build is incomplete — redo a full Phase 1 (drop --skip-compile/--package-only)."
+	done
+	ok "Bundle integrity: ${#REQUIRED_WORKERS[@]} required worker(s) present"
+
 	# Finder/Get Info must show the VibeIDE product version, not the VS Code codebase
 	# version. gulp-electron force-overwrites its productVersion option from the app's
 	# package.json (1.118.x) and the option is deprecated, so patch the plist here —

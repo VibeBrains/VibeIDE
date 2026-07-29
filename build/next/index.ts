@@ -102,6 +102,10 @@ const desktopEntryPoints = [
 	'vs/platform/terminal/node/ptyHostMain',
 	'vs/platform/agentHost/node/agentHostMain',
 	'vs/platform/agentHost/node/diffWorkerMain',
+	// VibeIDE: STT utility process (voice input / dictation). Desktop-only; must be listed
+	// here (the esbuild packaging entry points) in addition to build/buildfile.ts, or the
+	// worker is silently omitted from the .app and voice input dies with ERR_MODULE_NOT_FOUND.
+	'vs/workbench/contrib/vibeide/node/voice/vibeVoiceWorkerMain',
 	'vs/workbench/api/node/extensionHostProcess',
 ];
 
