@@ -19,7 +19,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { autoUpdate, flip, offset, shift, size, useFloating } from '@floating-ui/react';
-import { useAccessor, useSettingsState } from '../util/services.js';
+import { useAccessor, useChatThreadsState, useSettingsState } from '../util/services.js';
+import { isQuotaLow, tightestBucket } from '../../../../common/providerQuota.js';
 import { chatS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 import type { TokenBudgetStatus } from '../../../../common/vibeTokenBudgetService.js';
 import type { ContextLimitStatus } from '../../../vibeContextGuardService.js';
@@ -85,6 +86,11 @@ export const ChatContextMeterButton = () => {
 	const configurationService = accessor.get('IConfigurationService');
 	const settingsState = useSettingsState();
 	const modelSel = settingsState.modelSelectionOfFeature['Chat'];
+
+	// Passive quota tracking: the provider reports the key's remaining allowance on every
+	// response, and chatThreadService stores the latest snapshot on the thread.
+	const chatThreadsState = useChatThreadsState();
+	const providerQuota = chatThreadsState.allThreads[chatThreadsState.currentThreadId]?.state?.lastProviderQuota;
 
 	const [ctx, setCtx] = useState<ContextLimitStatus>(() => contextGuard.getStatus());
 	const [budget, setBudget] = useState<TokenBudgetStatus>(() => budgetService.getStatus());
@@ -198,6 +204,34 @@ export const ChatContextMeterButton = () => {
 	// `isWarning` comes from the service so the threshold stays in one place.
 	const sessionBlink = sessionEnabled && budget.isWarning && !budget.isExceeded && blinkEnabled;
 
+	// What the PROVIDER still allows. Shown only when the tightest bucket has a limit to compare
+	// against — a bare remainder cannot be drawn as a share, and inventing a denominator would
+	// be exactly the guessing this feature exists to remove.
+	const quotaRow = useMemo(() => {
+		if (!providerQuota) { return null; }
+		const now = Date.now();
+		const bucket = tightestBucket(providerQuota);
+		if (!bucket) { return null; }
+		const kind = chatS.contextMeterQuotaKind(bucket.kind);
+		const hasLimit = !!bucket.limit && bucket.limit > 0;
+		const pct = hasLimit ? Math.max(0, Math.round((bucket.remaining / bucket.limit!) * 100)) : null;
+		const resetsText = bucket.resetsAt && bucket.resetsAt > now
+			? new Date(bucket.resetsAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+			: null;
+		return {
+			// The bar shows what is LEFT, so a nearly empty quota reads as a nearly empty bar.
+			pct,
+			// …but the colour ramp speaks "how much is USED": passing the remainder straight into
+			// toneColorFor would paint a full quota red and an exhausted one grey.
+			usedPct: pct === null ? (bucket.remaining <= 0 ? 100 : 0) : 100 - pct,
+			value: hasLimit
+				? `${formatTokens(bucket.remaining)} / ${formatTokens(bucket.limit!)} ${kind} (${pct}%)`
+				: `${formatTokens(bucket.remaining)} ${kind}`,
+			isLow: isQuotaLow(providerQuota, now),
+			resetsText,
+		};
+	}, [providerQuota]);
+
 	const dashOffset = useMemo(
 		() => RING_CIRCUMFERENCE * (1 - ringPct / 100),
 		[ringPct],
@@ -278,6 +312,21 @@ export const ChatContextMeterButton = () => {
 						pct={sessionPct}
 						barColor={toneColorFor(sessionPct ?? 0)}
 					/>
+
+					{quotaRow ? (
+						<MeterRow
+							label={chatS.contextMeterProviderQuota}
+							value={quotaRow.value}
+							pct={quotaRow.pct}
+							barColor={toneColorFor(quotaRow.usedPct)}
+						/>
+					) : null}
+					{quotaRow?.isLow ? (
+						<div className='text-[10px] mt-1' style={{ color: toneColorFor(CRITICAL_PCT) }}>{chatS.contextMeterQuotaLow}</div>
+					) : null}
+					{quotaRow?.resetsText ? (
+						<div className='text-[10px] text-vibe-fg-4 mt-1'>{chatS.contextMeterQuotaResets(quotaRow.resetsText)}</div>
+					) : null}
 
 					{rawPct >= CRITICAL_PCT ? (
 						<div className='text-[10px] mt-2' style={{ color: toneColorFor(CRITICAL_PCT) }}>{chatS.contextMeterOverflow(rawPct)}</div>

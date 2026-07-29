@@ -23,6 +23,7 @@ import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, looksLik
 import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
 import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
 import { AnthropicReasoning, getErrorMessage, GeminiLLMChatMessage, LLMChatMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
+import { isQuotaLow, ProviderQuotaSnapshot, tightestBucket } from '../common/providerQuota.js';
 import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS, classifyProviderError } from '../common/modelHealthTracker.js';
 import { translateProviderError } from '../common/providerErrorTranslator.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
@@ -410,6 +411,11 @@ export type ThreadType = {
 		// the AI SDK surfaces a `usage` block on `finish`. Used by the UI context-usage
 		// indicator as the authoritative base instead of relying on length/4 heuristics.
 		lastUsage?: LLMTokenUsage;
+
+		// Rate-limit allowance the provider reported on its last response in this thread
+		// (passive quota tracking). Unlike `lastUsage` this is the provider's own view of the
+		// key, so the UI can warn BEFORE a request is refused.
+		lastProviderQuota?: ProviderQuotaSnapshot;
 
 	};
 };
@@ -6051,7 +6057,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: fullText, reasoningSoFar: fullReasoning, toolCallSoFar: toolCall ?? null }, interrupt: Promise.resolve(() => { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } }) });
 						});
 					},
-					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage }) => {
+					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage, providerQuota }) => {
 						vibeLog.debug('llmTurn', 'done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null, textLen: fullText?.length ?? 0, reasoningLen: fullReasoning?.length ?? 0 }); recordChatTrace('llmTurn:done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null });
 						// Mark message as done to prevent late onText updates
 						messageIsDone = true;
@@ -6074,6 +6080,17 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// Persist provider-reported token usage on the thread so the UI
 						// context-usage indicator can show real numbers instead of length/4
 						// estimates. `usage` is undefined on early-timeout / non-AI-SDK paths.
+						// The key's remaining allowance as the provider reported it. Kept separate from
+						// `lastUsage`: that is what WE spent, this is what the PROVIDER still allows —
+						// and only the second one can refuse the next request.
+						if (providerQuota) {
+							this._setThreadState(threadId, { lastProviderQuota: providerQuota });
+							if (isQuotaLow(providerQuota, Date.now())) {
+								const bucket = tightestBucket(providerQuota);
+								vibeLog.warn('chatThread', `provider quota low: ${modelSelection?.providerName ?? 'provider'} ${bucket?.kind ?? 'quota'} ${bucket?.remaining}${bucket?.limit ? `/${bucket.limit}` : ''}`);
+							}
+						}
+
 						if (usage && (typeof usage.promptTokens === 'number' || typeof usage.completionTokens === 'number' || typeof usage.totalTokens === 'number')) {
 							this._setThreadState(threadId, { lastUsage: usage });
 							// Feed the real promptTokens back to the token-budget estimator so it self-calibrates

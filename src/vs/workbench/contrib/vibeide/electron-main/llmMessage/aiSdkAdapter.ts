@@ -29,6 +29,7 @@ import { TOOL_NAME_ALIASES, applyParamAliases } from '../../common/prompt/toolAl
 import { lenientJsonParseObject } from '../../common/lenientJson.js';
 import { getModelSdkNpm } from './modelsDevCatalog.js';
 import { buildContextOverflowError, buildEmptyResponseError, isContextOverflow, LLMChatMessage, LLMTokenUsage, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
+import { parseProviderQuotaHeaders, ProviderQuotaSnapshot } from '../../common/providerQuota.js';
 import { getModelQuirks } from '../modelQuirks/modelQuirksService.js';
 import { SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { ensureSystemCADispatcher } from './systemCAFetch.js';
@@ -157,10 +158,19 @@ const RATE_LIMIT_FAIL_FAST_RETRY_AFTER_SECONDS = 10;
 // boundary conversion is genuinely cross-type, so it goes through `unknown` —
 // the only place in this wrapper where a non-narrowing cast is unavoidable.
 type UndiciFetchParams = Parameters<typeof undiciFetch>;
-const customFetch: typeof globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+// Built per call, not once per module: `onQuota` must land in the state of ITS OWN request.
+// Subagents run several turns concurrently, so a module-level sink would attribute one
+// provider's remaining quota to another provider's turn.
+const makeCustomFetch = (onQuota?: (snapshot: ProviderQuotaSnapshot) => void): typeof globalThis.fetch => async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 	const undiciInput = input as unknown as UndiciFetchParams[0];
 	const undiciInit = { ...(init as unknown as UndiciFetchParams[1]), dispatcher: ensureSystemCADispatcher() };
 	const response = await (undiciFetch(undiciInput, undiciInit) as unknown as Promise<Response>);
+	if (onQuota) {
+		// Every response carries the key's remaining allowance, not just refusals — that is the
+		// whole point of reading it here instead of at the 429 branch below.
+		const snapshot = parseProviderQuotaHeaders(response.headers, Date.now());
+		if (snapshot) { onQuota(snapshot); }
+	}
 	if (response.status === 429) {
 		const retryAfterSec = Number(response.headers.get('retry-after'));
 		if (Number.isFinite(retryAfterSec) && retryAfterSec >= RATE_LIMIT_FAIL_FAST_RETRY_AFTER_SECONDS) {
@@ -972,6 +982,11 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// Bypass the dedup if it actually changes for the same combo (rare, but
 	// e.g. catalog refresh mid-session could switch sdkNpm).
 	const sdkSource = sdkNpmFromOverride ? 'override' : sdkNpmFromFile ? 'file' : (sdkNpm ? 'models.dev' : 'fallback');
+	// Latest quota the provider reported during THIS call; attached to the final message so the
+	// renderer can show the key's real remaining allowance next to our own token estimate.
+	let lastQuota: ProviderQuotaSnapshot | undefined;
+	const callFetch = makeCustomFetch(snapshot => { lastQuota = snapshot; });
+
 	const sdkLogKey = `${providerName}|${modelName}|${sdkNpm ?? 'fallback'}|${sdkSource}`;
 	if (!_loggedSdkSelections.has(sdkLogKey)) {
 		_loggedSdkSelections.add(sdkLogKey);
@@ -991,7 +1006,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				// `interleaved-thinking` flag is for reasoning models.
 				'anthropic-beta': 'interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14',
 			},
-			fetch: customFetch,
+			fetch: callFetch,
 		})(modelName)
 		: sdkNpm === '@ai-sdk/openai'
 			? // Native OpenAI SDK. Default `.chat()` shape — chat-completions endpoint
@@ -1004,7 +1019,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				baseURL,
 				apiKey,
 				headers,
-				fetch: customFetch,
+				fetch: callFetch,
 			}).chat(modelName)
 			: sdkNpm === '@ai-sdk/google'
 				? // Native Google Generative AI (Gemini). Activated when models.dev
@@ -1021,7 +1036,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 					baseURL,
 					apiKey,
 					headers,
-					fetch: customFetch,
+					fetch: callFetch,
 				})(modelName)
 				: createOpenAICompatible({
 					name: providerName,
@@ -1029,7 +1044,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 					apiKey,
 					headers,
 					queryParams,
-					fetch: customFetch,
+					fetch: callFetch,
 					includeUsage: true,
 					transformRequestBody: Object.keys(openAICompatExtraBody).length
 						? (body) => ({ ...body, ...openAICompatExtraBody })
@@ -1207,6 +1222,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				anthropicReasoning: null,
 				...(tc ? { toolCall: tc } : {}),
 				...(lastUsage ? { usage: lastUsage } : {}),
+				...(lastQuota ? { providerQuota: lastQuota } : {}),
 			});
 		} else {
 			onError({ message: errMessage, fullError: null });
@@ -1465,6 +1481,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			anthropicReasoning: null,
 			...(tc ? { toolCall: tc } : {}),
 			...(lastUsage ? { usage: lastUsage } : {}),
+			...(lastQuota ? { providerQuota: lastQuota } : {}),
 		});
 	} catch (error) {
 		clearAllTimers();

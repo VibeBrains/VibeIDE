@@ -76,6 +76,18 @@ export const chatS = {
 	contextMeterUnknown: 'Пока нет данных — отправьте первый запрос',
 	contextMeterLoading: 'Считаем…',
 	contextMeterSessionNoLimit: 'лимит отключён',
+	// Passive quota tracking: what the PROVIDER still allows, as opposed to what we spent.
+	contextMeterProviderQuota: 'Лимит провайдера',
+	contextMeterQuotaKind: (kind: string) => (
+		kind === 'requests' ? 'запросы'
+			: kind === 'tokens' ? 'токены'
+				: kind === 'input-tokens' ? 'входные токены'
+					: kind === 'output-tokens' ? 'выходные токены'
+						: kind
+	),
+	contextMeterQuotaResets: (whenText: string) => `обновится ${whenText}`,
+	contextMeterQuotaLow: 'Лимит провайдера почти исчерпан — следующий запрос может быть отклонён. Подождите обновления или переключите провайдера.',
+	contextMeterQuotaNone: 'Провайдер не сообщает остаток лимита',
 	contextMeterOverflow: (pct: number) =>
 		`Переполнение (${pct}%) — старые сообщения сворачиваются, чтобы запрос поместился.`,
 	contextMeterCalibration: (factor: number) =>

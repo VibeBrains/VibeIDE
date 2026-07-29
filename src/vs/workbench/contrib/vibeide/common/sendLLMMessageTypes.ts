@@ -189,6 +189,8 @@ export type RawToolCallObj = {
 	isDone: boolean;
 };
 
+import type { ProviderQuotaSnapshot } from './providerQuota.js';
+
 export type AnthropicReasoning = ({ type: 'thinking'; thinking: string; signature: string } | { type: 'redacted_thinking'; data: string });
 
 // Provider-normalized token usage from the LLM response. AI SDK exposes these as
@@ -201,7 +203,10 @@ export type AnthropicReasoning = ({ type: 'thinking'; thinking: string; signatur
 export type LLMTokenUsage = { promptTokens?: number; completionTokens?: number; totalTokens?: number; cachedInputTokens?: number };
 
 export type OnText = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj }) => void;
-export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; usage?: LLMTokenUsage }) => void; // id is tool_use_id
+// `providerQuota` — the key's remaining rate-limit allowance as the provider reported it on the
+// response (passive quota tracking). Optional: not every provider sends the headers, and paths
+// that never reached the network have nothing to report.
+export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; usage?: LLMTokenUsage; providerQuota?: ProviderQuotaSnapshot }) => void; // id is tool_use_id
 export type OnError = (p: { message: string; fullError: Error | null }) => void;
 export type OnAbort = () => void;
 export type AbortRef = { current: (() => void) | null };
