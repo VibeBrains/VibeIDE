@@ -14,7 +14,7 @@
 
 Частые причины в форке:
 - не собран React (`npm run buildreact`),
-- у `.js` бандлов в `react/out/**/index.js` нет типов — держать рядом hand-written `index.d.ts`,
+- у `.js` бандлов в `react/out/**/index.js` нет типов, и tsgo не выводит их из бандла (`TS2305`) — `.d.ts`-шимы генерирует `build.js`, руками рядом класть не надо; детали и корень — [[reactBundleDeclarations]],
 - апстрим VS Code: нет `WorkbenchPhase.Restored` (использовать `AfterRestored`), уведомления закрываются через `INotificationHandle.close()`, нет `ConfigurationScope.WORKSPACE` (для workspace settings — `RESOURCE`), нет `asRelativePath` на `IWorkspaceContextService` — `relativePath` из `base/common/resources.js`, превью вкладки — `ITextEditorOptions.transient`, не `preview`.
 
 **Применение:** локальная проверка перед полным `npm run compile`.
