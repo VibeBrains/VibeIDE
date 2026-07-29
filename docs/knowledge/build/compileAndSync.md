@@ -81,6 +81,24 @@
 
 ---
 
+## [vscode] valid-layers-check: нарушения `common/` вскрывает только worker-фаза
+
+**Контекст:** волна «`common/` без node-глобалов и DOM» (66 нарушений, коммит `c8f4e48c`, 20.07). Перепроверено экспериментом 29.07.
+
+**Суть:** фазы чекера НЕ равноценны как детекторы.
+
+- **Ловит worker-фаза** (`build/checker/tsconfig.worker.json`: `lib: WebWorker`, `types: []` — ни node-типов, ни DOM).
+- **Browser-фаза прячет:** её `include` содержит `../../src/*.ts` — bootstrap-файлы, то есть node-программы; их импорты node-builtins протаскивают `@types/node`, и `process`/`require`/`Buffer` легализуются на весь программный контекст.
+- **Node-фаза тоже лояльна** — к DOM-именам, из-за `types: ["node"]` без DOM-lib.
+
+**Проверено фактом (29.07):** дописать `export const __probe = () => process.pid;` в `contrib/vibeide/common/vibeLog.ts` → browser-фаза **0** ошибок, node-фаза **0**, worker-фаза **1**. То есть зелёная browser-фаза о чистоте `common/` не говорит ничего.
+
+**Layer-чистые замены для `common/`:** `env`/`platform`/`cwd` → `base/common/process.js`; `join`/`dirname` → `base/common/path.js`; `Buffer` + base64 → `VSBuffer` + `encodeBase64`; gzip/gunzip → web `CompressionStream`/`DecompressionStream('gzip')` (формат совместим с zlib); `<img>` + `document.createElement('canvas')` → `createImageBitmap` + `OffscreenCanvas` (есть и в DOM, и в WebWorker lib); точечный node-доступ (fs, child_process) → проба `globalThis.require` с минимальным структурным интерфейсом модуля и graceful-деградацией.
+
+**Применение:** любой новый сервис в `contrib/vibeide/common/**`; диагностика «browser-фаза зелёная, а `valid-layers-check` падает». Прогонять фазу отдельно: `npx tsgo --project build/checker/tsconfig.worker.json`.
+
+---
+
 ## [build] Недетерминированный `vibeDefaultsManifest.generated.ts` между Windows и macOS (CRLF)
 
 **Контекст:** в рабочей копии на Mac фантомно «модифицирован» `vibeDefaultsManifest.generated.ts` — дифф на 65 КБ, но по сути только `\r\n` → `\n` во встроенных строках (2026-07-13).
