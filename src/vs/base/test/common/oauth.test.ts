@@ -20,6 +20,7 @@ import {
 	fetchResourceMetadata,
 	fetchAuthorizationServerMetadata,
 	scopesMatch,
+	verifyAuthorizationResponseIssuer,
 	IAuthorizationJWTClaims,
 	IAuthorizationServerMetadata,
 	DEFAULT_AUTH_FLOW_PORT
@@ -2252,6 +2253,41 @@ suite('OAuth', () => {
 			assert.strictEqual(result.discoveryUrl, 'https://auth.example.com/.well-known/oauth-authorization-server');
 			const headers = fetchStub.firstCall.args[1].headers;
 			assert.strictEqual(headers['Accept'], 'application/json');
+		});
+	});
+	suite('verifyAuthorizationResponseIssuer (RFC 9207)', () => {
+		test('matching iss passes and reports that the check actually ran', () => {
+			assert.deepStrictEqual(
+				verifyAuthorizationResponseIssuer({ iss: 'https://auth.example.com' }, 'https://auth.example.com'),
+				{ ok: true, checked: true }
+			);
+		});
+
+		test('an iss from a different server is rejected — this is the mix-up attack', () => {
+			assert.deepStrictEqual(
+				verifyAuthorizationResponseIssuer({ iss: 'https://evil.example.com' }, 'https://auth.example.com'),
+				{ ok: false, reason: 'mismatch', expected: 'https://auth.example.com', received: 'https://evil.example.com' }
+			);
+		});
+
+		test('missing iss is rejected only when the server advertises the parameter', () => {
+			assert.deepStrictEqual(
+				[
+					verifyAuthorizationResponseIssuer({}, 'https://auth.example.com', { issuerParameterSupported: true }),
+					verifyAuthorizationResponseIssuer({}, 'https://auth.example.com'),
+				],
+				[
+					{ ok: false, reason: 'missing', expected: 'https://auth.example.com' },
+					{ ok: true, checked: false },
+				]
+			);
+		});
+
+		test('no known issuer means nothing to compare — the flow proceeds unprotected and says so', () => {
+			assert.deepStrictEqual(
+				verifyAuthorizationResponseIssuer({ iss: 'https://auth.example.com' }, undefined),
+				{ ok: true, checked: false }
+			);
 		});
 	});
 });
