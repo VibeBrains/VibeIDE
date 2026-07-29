@@ -13,7 +13,7 @@
  *   • New Chat           (Cmd/Ctrl+Alt+I; mac: Ctrl+Cmd+I)
  *   • Chat History       (no default key; command palette / menu)
  *   • VibeIDE Settings
- *   • Provider Dashboard (usage & cost report)
+ *   • Ключи и расход (which keys are configured and what they cost)
  *   • Open Skills Folder
  *   • Open Plans Folder
  *   • Search Codebase (AI) (Ctrl/Cmd+Shift+Q)
@@ -86,7 +86,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_PROVIDER_DASHBOARD_CMD,
-			title: localize2('vibeideProviderDashboard', 'VibeIDE: Дашборд провайдера'),
+			title: localize2('vibeideProviderDashboard', 'VibeIDE: Ключи и расход'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 			f1: true,
 		});

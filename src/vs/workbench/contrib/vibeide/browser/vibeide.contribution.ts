@@ -308,7 +308,6 @@ import '../common/vibeGitBlameService.js';
 import '../common/vibeMCPInspectorService.js';
 
 // VibeIDE: Cost attribution per file
-import '../common/vibeCostAttributionService.js';
 
 // VibeIDE: Prompt versioning service
 import '../common/vibePromptVersioningService.js';
@@ -655,6 +654,7 @@ import '../common/vibeAmbientAgentService.js';
 import './vibeDiffVirtualizationService.js';
 
 // VibeIDE: Provider dashboard (cost history)
+import './vibeSpendLedgerService.js';
 import './vibeProviderDashboard.js';
 
 // VibeIDE: Speculative parallel exploration (Phase 3b)

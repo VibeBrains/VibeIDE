@@ -24,6 +24,7 @@ import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
 import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
 import { AnthropicReasoning, getErrorMessage, GeminiLLMChatMessage, LLMChatMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { isQuotaLow, ProviderQuotaSnapshot, tightestBucket } from '../common/providerQuota.js';
+import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
 import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS, classifyProviderError } from '../common/modelHealthTracker.js';
 import { translateProviderError } from '../common/providerErrorTranslator.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
@@ -908,6 +909,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	constructor(
 		@IStorageService private readonly _storageService: IStorageService,
+		@IVibeSpendLedgerService private readonly _spendLedgerService: IVibeSpendLedgerService,
 		@IVibeideModelService private readonly _vibeideModelService: IVibeideModelService,
 		@ILLMMessageService private readonly _llmMessageService: ILLMMessageService,
 		@IToolsService private readonly _toolsService: IToolsService,
@@ -6089,6 +6091,28 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								const bucket = tightestBucket(providerQuota);
 								vibeLog.warn('chatThread', `provider quota low: ${modelSelection?.providerName ?? 'provider'} ${bucket?.kind ?? 'quota'} ${bucket?.remaining}${bucket?.limit ? `/${bucket.limit}` : ''}`);
 							}
+						}
+
+						// Spend ledger: what this exchange actually cost, kept per day × provider × model so the
+						// provider panel can answer "where did the money go" after a restart. Price comes from the
+						// capabilities catalogue; an unknown price is recorded as unknown, never as free.
+						if (usage && modelSelection && (usage.promptTokens || usage.completionTokens)) {
+							void (async () => {
+								try {
+									const { getModelCapabilities } = await import('../common/modelCapabilities.js');
+									const capabilities = getModelCapabilities(modelSelection.providerName, modelSelection.modelName, this._settingsService.state.overridesOfModel);
+									this._spendLedgerService.record({
+										providerId: modelSelection.providerName,
+										modelId: modelSelection.modelName,
+										inputTokens: usage.promptTokens ?? 0,
+										outputTokens: usage.completionTokens ?? 0,
+										cachedInputTokens: usage.cachedInputTokens ?? 0,
+										price: capabilities.cost,
+									});
+								} catch (err) {
+									vibeLog.warn('chatThread', `spend ledger skipped: ${err}`);
+								}
+							})();
 						}
 
 						if (usage && (typeof usage.promptTokens === 'number' || typeof usage.completionTokens === 'number' || typeof usage.totalTokens === 'number')) {
