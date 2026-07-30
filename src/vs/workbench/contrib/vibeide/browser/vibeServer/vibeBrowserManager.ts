@@ -73,6 +73,10 @@ export class VibeBrowserManager extends Disposable {
 	/** Fires when the user picks an element in inspect mode. */
 	readonly onDidPickElement: Event<IVibeBrowserElementPick> = this._onDidPickElement.event;
 
+	private readonly _onDidClickFinding = this._register(new Emitter<{ selector: string; rule: string }>());
+	/** Fires when the user clicks a finding marker drawn by the overlay. */
+	readonly onDidClickFinding: Event<{ selector: string; rule: string }> = this._onDidClickFinding.event;
+
 	/**
 	 * Inspect is only meaningful when the injected bridge script is present, i.e. the
 	 * static runtime; the service keeps this in sync with the runtime kind. The flag
@@ -146,6 +150,18 @@ export class VibeBrowserManager extends Disposable {
 			// The chrome narrows the frame for a mobile scan, so the page relayouts for real.
 			void target.webview.postMessage({ type: 'design-scan-request', viewport });
 		});
+	}
+
+	/**
+	 * Draws (or clears, with an empty list) the findings overlay in every open preview.
+	 *
+	 * A list of selectors is a list of strings; the same findings framed on the page are places
+	 * the reader can look at. Cheap enough to redraw wholesale — there is no diffing to get wrong.
+	 */
+	showFindings(items: readonly { selector: string; rule: string; severity: string }[]): void {
+		for (const input of this._inputs) {
+			void input.webview.postMessage({ type: 'design-overlay', items });
+		}
 	}
 
 	private _settleDesignScan(result: DesignScanResult): void {
@@ -234,7 +250,7 @@ export class VibeBrowserManager extends Disposable {
 		if (!message || typeof message !== 'object') {
 			return;
 		}
-		const m = message as { type?: string; href?: string; title?: string; level?: string; text?: string; x?: number; y?: number; selector?: string; html?: string; path?: string; snapshot?: DocumentSnapshot & { truncated?: boolean }; error?: string };
+		const m = message as { type?: string; href?: string; title?: string; level?: string; text?: string; x?: number; y?: number; selector?: string; html?: string; path?: string; snapshot?: DocumentSnapshot & { truncated?: boolean }; error?: string; rule?: string };
 		switch (m.type) {
 			case 'design-scan':
 				if (m.error) {
@@ -242,6 +258,11 @@ export class VibeBrowserManager extends Disposable {
 				} else if (m.snapshot && Array.isArray(m.snapshot.elements)) {
 					const { truncated, ...snapshot } = m.snapshot;
 					this._settleDesignScan({ ok: true, snapshot, truncated: truncated === true });
+				}
+				break;
+			case 'design-finding':
+				if (typeof m.selector === 'string' && m.selector) {
+					this._onDidClickFinding.fire({ selector: m.selector, rule: typeof m.rule === 'string' ? m.rule : '' });
 				}
 				break;
 			case 'inspect':
@@ -379,7 +400,8 @@ export class VibeBrowserManager extends Disposable {
 			<option value="1280x800">Десктоп 1280</option>
 		</select>
 		<button class="vb-btn" id="vb-rotate" title="Повернуть">⤧</button>
-		<button class="vb-btn" id="vb-inspect" title="Выбрать элемент: клик по элементу превью отправит его селектор в чат (Alt+клик — родитель, Esc — отмена). Доступно для статического превью." ${this._inspectSupported ? '' : 'disabled '}>⌖</button>
+		<button class="vb-btn" id="vb-inspect" title="Выбрать элемент: клик по элементу превью отправит его селектор в чат (Alt+клик — родитель, Esc — отмена). Нужен мост VibeIDE в странице: статическое превью несёт его всегда, dev-сервер — через прокси." ${this._inspectSupported ? '' : 'disabled '}>⌖</button>
+		<button class="vb-btn" id="vb-findings" title="Скрыть отметки проверки дизайна на странице (появляются после проверки; клик по отметке отправляет находку в чат)." hidden>⚑</button>
 		<button class="vb-btn" id="vb-external" title="Открыть во внешнем браузере">↗</button>
 	</div>
 	<div class="vb-stage">
@@ -399,6 +421,12 @@ export class VibeBrowserManager extends Disposable {
 	var fwd = document.getElementById('vb-fwd');
 	var hist = [], idx = -1, current = '';
 	var rotated = false, sizeVal = 'full';
+
+	var findingsBtn = document.getElementById('vb-findings');
+	findingsBtn.addEventListener('click', function(){
+		if (frame.contentWindow){ frame.contentWindow.postMessage({ __vibeServerDesignOverlay: [] }, '*'); }
+		findingsBtn.hidden = true;
+	});
 
 	var insp = document.getElementById('vb-inspect');
 	var inspOn = false;
@@ -482,6 +510,8 @@ export class VibeBrowserManager extends Disposable {
 		else if (d.__vibeBrowser === 'inspect-cancel'){ setInsp(false); }
 		else if (d.__vibeBrowser === 'design-scan'){ restoreScanWidth(); vscode.postMessage({ type: 'design-scan', snapshot: d.snapshot, error: d.error }); }
 		else if (d.type === 'design-scan-request' && frame.contentWindow){ requestScan(d.viewport); }
+		else if (d.type === 'design-overlay' && frame.contentWindow){ frame.contentWindow.postMessage({ __vibeServerDesignOverlay: d.items || [] }, '*'); findingsBtn.hidden = !(d.items && d.items.length); }
+		else if (d.__vibeBrowser === 'design-finding'){ vscode.postMessage({ type: 'design-finding', selector: d.selector, rule: d.rule }); }
 		else if (d.type === 'inspect-supported'){ insp.disabled = !d.value; if (!d.value){ setInsp(false); } }
 		else if (d.type === 'navigate' && d.url){ goto(d.url); }
 		else if (d.type === 'reload'){ frame.src = current || frame.src; }

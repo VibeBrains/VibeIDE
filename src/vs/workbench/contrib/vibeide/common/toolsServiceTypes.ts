@@ -60,7 +60,7 @@ export type BuiltinToolCallParams = {
 	'go_to_definition': { uri: URI; line: number; column: number };
 	'find_references': { uri: URI; line: number; column: number };
 	'code_graph': { query: 'neighbors' | 'path' | 'why'; target: string; to: string | null };
-	'design_review': { severity: 'error' | 'warning' | 'info' | null; viewport: 'desktop' | 'mobile' | 'both' };
+	'design_review': { severity: 'error' | 'warning' | 'info' | null; viewport: 'desktop' | 'mobile' | 'both'; annotate: boolean };
 	// No parameters: the context is whatever the project wrote, and there is nothing to narrow.
 	'design_context': Record<never, never>;
 	'design_doctor': Record<never, never>;

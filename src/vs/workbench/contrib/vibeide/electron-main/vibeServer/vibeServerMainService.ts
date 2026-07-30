@@ -20,7 +20,8 @@ import type * as wsTypes from 'ws';
 import { IDisposable } from '../../../../../base/common/lifecycle.js';
 import { ILogService } from '../../../../../platform/log/common/log.js';
 import { injectReloadScript, VIBE_RELOAD_WS_PATH } from '../../common/vibeServer/injectReloadScript.js';
-import { IVibeServerMain, IVibeServerStartOptions, IVibeServerStarted, VibeServerChangeKind } from '../../common/vibeServer/vibeServerIpc.js';
+import { IVibeBridgeProxyOptions, IVibeServerMain, IVibeServerStartOptions, IVibeServerStarted, VibeServerChangeKind } from '../../common/vibeServer/vibeServerIpc.js';
+import { VibeBridgeProxyMain } from './vibeBridgeProxyMain.js';
 import { registerPreviewOrigin, unregisterPreviewOrigin } from './vibeCookieCompatMain.js';
 
 /** Base port the server walks upward from when the desired port is busy. */
@@ -72,6 +73,12 @@ export class VibeServerMainService implements IVibeServerMain, IDisposable {
 	private _options: IVibeServerStartOptions | undefined;
 	/** Open TCP sockets tracked so `stop()` can force-close them and free the port immediately. */
 	private readonly _sockets = new Set<Socket>();
+	/**
+	 * Proxy that puts the bridge script into a foreign dev-server's pages. Separate object, same
+	 * channel: serving files from disk and forwarding someone else's traffic are different jobs,
+	 * but the renderer drives both through one contract.
+	 */
+	private readonly _bridgeProxy = new VibeBridgeProxyMain(this._log);
 
 	constructor(
 		@ILogService private readonly _log: ILogService,
@@ -99,9 +106,19 @@ export class VibeServerMainService implements IVibeServerMain, IDisposable {
 		server.on('error', err => this._log.warn('[VibeServer] server error', err));
 
 		const scheme = options.https ? 'https' : 'http';
-		const started: IVibeServerStarted = { host: options.host, port, url: `${scheme}://${options.host}:${port}/` };
+		// The static server injects the bridge into every page it serves, by construction.
+		const started: IVibeServerStarted = { host: options.host, port, url: `${scheme}://${options.host}:${port}/`, bridgeInjected: true };
 		this._log.info(`[VibeServer] listening on ${started.url} (root: ${options.rootFsPath})`);
 		return started;
+	}
+
+	async startBridgeProxy(options: IVibeBridgeProxyOptions): Promise<IVibeServerStarted> {
+		const started = await this._bridgeProxy.start(options);
+		return { ...started, bridgeInjected: true };
+	}
+
+	async stopBridgeProxy(): Promise<void> {
+		await this._bridgeProxy.stop();
 	}
 
 	async registerPreviewOrigin(url: string): Promise<void> {
@@ -181,6 +198,9 @@ export class VibeServerMainService implements IVibeServerMain, IDisposable {
 
 	dispose(): void {
 		void this.stop();
+		// The proxy has its own lifetime (it fronts a dev-server, not our static root), so `stop()`
+		// leaves it alone — but nothing may outlive the service itself.
+		this._bridgeProxy.dispose();
 	}
 
 	/** Listens on `host`, walking the port upward from the desired base on conflict. */

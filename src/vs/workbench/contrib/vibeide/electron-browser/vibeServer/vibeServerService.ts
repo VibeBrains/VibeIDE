@@ -89,7 +89,10 @@ class VibeServerService extends Disposable implements IVibeServerService {
 		// The design-scan tool asks this service through a dependency-free registry, not by
 		// importing it: a direct injection closed the cycle chat → subagent → tools → server → chat
 		// and killed workbench contributions at runtime.
-		this._register(this._designScanService.registerSource(viewport => this.scanDesign(viewport)));
+		this._register(this._designScanService.registerSource({
+			scan: viewport => this.scanDesign(viewport),
+			showFindings: items => this.showDesignFindings(items),
+		}));
 		this._main = ProxyChannel.toService<IVibeServerMain>(mainProcessService.getChannel(VIBE_SERVER_CHANNEL));
 		this._procMain = ProxyChannel.toService<IVibeServerProcessMain>(mainProcessService.getChannel(VIBE_SERVER_PROCESS_CHANNEL));
 		this._runningKey = contextKeyService.createKey<boolean>(VIBE_SERVER_RUNNING_CONTEXT_KEY, false);
@@ -149,6 +152,20 @@ class VibeServerService extends Disposable implements IVibeServerService {
 			return;
 		}
 
+		// A foreign dev-server serves its own HTML, so our bridge script (element inspect + design
+		// scan) is not in it. Put a loopback proxy in front and preview THAT: everything is
+		// forwarded untouched except navigational HTML, which gains the script. If the proxy fails
+		// to start, the preview still works — just without inspect and measurement, as before.
+		if (runtime.kind === VibeServerRuntimeKind.devServer && this._bridgeProxyEnabled()) {
+			try {
+				const proxied = await this._main.startBridgeProxy({ upstreamUrl: started.url, host: started.host });
+				this._logService.info(`[VibeServer] мост инжектируется через прокси ${proxied.url} → ${started.url}`);
+				started = { ...started, url: proxied.url, port: proxied.port, bridgeInjected: true };
+			} catch (err) {
+				this._logService.warn(`[VibeServer] прокси для моста не поднялся, превью без inspect/замера: ${err}`);
+			}
+		}
+
 		this._runtime.value = runtime;
 		if (runtime.onDidExitUnexpectedly) {
 			this._runtimeExitListener.value = runtime.onDidExitUnexpectedly(() => {
@@ -179,8 +196,21 @@ class VibeServerService extends Disposable implements IVibeServerService {
 		const runtime = this._runtime.value;
 		await runtime?.stop();
 		this._runtime.clear(); // disposes the runtime
+		// Release the proxy port too: leaving it listening in front of a dead dev-server would
+		// serve 502s from a URL that looks alive.
+		await this._main.stopBridgeProxy();
 		this._setStatus({ state: 'stopped' });
 		// The embedded browser is intentionally kept open: a later start reuses the same tab.
+	}
+
+	/** True when the previewed pages carry the bridge script (inspect + design scan). */
+	private _bridgeAvailable(): boolean {
+		return this._status.state === 'running'
+			&& (this._status.started?.bridgeInjected === true || this._status.kind === VibeServerRuntimeKind.static);
+	}
+
+	private _bridgeProxyEnabled(): boolean {
+		return this._configurationService.getValue<boolean>(VibeServerConfigKeys.bridgeProxy) !== false;
 	}
 
 	private _portConflictPromptEnabled(): boolean {
@@ -330,6 +360,10 @@ class VibeServerService extends Disposable implements IVibeServerService {
 		this._browser.value?.reloadAll();
 	}
 
+	showDesignFindings(items: readonly { selector: string; rule: string; severity: string }[]): void {
+		this._browser.value?.showFindings(items);
+	}
+
 	async scanDesign(viewport: ViewportLabel = 'desktop'): Promise<DesignScanResult> {
 		// Deliberately does NOT open a preview: scanning is a read of what the user is looking at,
 		// and spawning a window as a side effect of a measurement would be a surprise.
@@ -361,10 +395,14 @@ class VibeServerService extends Disposable implements IVibeServerService {
 			manager.setScrollSync(this._configurationService.getValue<boolean>(VibeServerConfigKeys.scrollSync) === true);
 			// Surface new preview problems on the status bar via the status-change event.
 			manager.onDidChangeProblems(() => this._onDidChangeStatus.fire());
-			// Element inspect: picks arrive from the preview chrome; availability follows the
-			// runtime kind (the bridge script is injected by the static server only).
+			// Element inspect and design scan need the bridge script in the page. The static server
+			// always injects it; a dev-server does too, once the bridge proxy is in front of it — so
+			// availability follows what the start actually produced, not the runtime kind.
 			manager.onDidPickElement(pick => void this._handleInspectPick(pick));
-			manager.setInspectSupported(this._status.state === 'running' && this._status.kind === VibeServerRuntimeKind.static);
+			manager.setInspectSupported(this._bridgeAvailable());
+			// Clicking a finding marker asks about THAT finding — the same move as inspect, one step
+			// shorter than copying a selector out of a list.
+			manager.onDidClickFinding(({ selector, rule }) => void this._handleFindingClick(selector, rule));
 			this._browser.value = manager;
 		}
 		return this._browser.value;
@@ -405,6 +443,32 @@ class VibeServerService extends Disposable implements IVibeServerService {
 		await openVibeChatEditor(this._instantiationService);
 		await this._chatThreadService.focusCurrentChat();
 		this._notificationService.info(localize('vibeServer.inspect.staged', "Элемент {0} добавлен в чат заметкой — опишите правку и отправьте сообщение.", pick.selector));
+	}
+
+	/**
+	 * A finding marker was clicked in the preview: stage that one finding as a chat note.
+	 *
+	 * Deliberately thinner than the inspect pick — the review already said what is wrong and where,
+	 * so this only has to name the finding and hand over the selector. Resolving a file candidate
+	 * here would repeat work the user can trigger with inspect on the same element.
+	 */
+	private async _handleFindingClick(selector: string, rule: string): Promise<void> {
+		const threadId = this._chatThreadService.state.currentThreadId;
+		if (!threadId) {
+			this._notificationService.info(localize('vibeServer.noThread', "Нет активного чата для добавления контекста."));
+			return;
+		}
+		const text = [
+			localize('vibeServer.finding.header', "Находка проверки дизайна из превью."),
+			localize('vibeServer.finding.rule', "Правило: {0}", rule),
+			localize('vibeServer.finding.selector', "Селектор: {0}", selector),
+			localize('vibeServer.finding.ask', "Разбери именно эту находку: почему она возникла и как её починить, не задевая остального."),
+		].join('\n');
+		this._chatThreadService.addPendingInjection(threadId, text);
+
+		await openVibeChatEditor(this._instantiationService);
+		await this._chatThreadService.focusCurrentChat();
+		this._notificationService.info(localize('vibeServer.finding.staged', "Находка {0} добавлена в чат заметкой.", rule));
 	}
 
 	/**

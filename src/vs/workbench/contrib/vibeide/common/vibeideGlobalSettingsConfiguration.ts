@@ -248,6 +248,12 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.vibeServer.scrollSync.desc', 'Синхронизировать прокрутку между несколькими вкладками встроенного превью.'),
 					scope: ConfigurationScope.RESOURCE,
 				},
+				'vibeide.vibeServer.bridgeProxy': {
+					type: 'boolean',
+					default: true,
+					description: localize('vibeide.vibeServer.bridgeProxy.desc', 'Для превью dev-сервера (Vite/Next/…) поднимать локальный прокси, который добавляет в страницы мост VibeIDE: без него не работают «Выбрать элемент» и проверка дизайна — dev-сервер отдаёт свой HTML, куда мы ничего не вставляем. Прокси передаёт всё остальное без изменений, включая HMR по WebSocket и потоковые ответы. Выключите, если прокси мешает вашему серверу — превью продолжит работать, но без inspect и замеров.'),
+					scope: ConfigurationScope.RESOURCE,
+				},
 				'vibeide.vibeServer.https': {
 					type: 'boolean',
 					default: false,

@@ -18,7 +18,7 @@ export const VIBE_RELOAD_WS_PATH = '/__vibe_server_reload';
 const INJECTION_MARKER = 'data-vibe-server-reload';
 
 /**
- * Builds the client-side script injected into served pages. Four roles:
+ * Builds the client-side script injected into served pages. Five roles:
  * (1) live reload — server→client `reload`/`css` over WebSocket, reconnecting on drop,
  *     honouring the `data-server-no-reload` opt-out, CSS hot-swap via cache-busting;
  * (2) browser bridge — posts navigation/console/external-link events to the parent window
@@ -30,7 +30,10 @@ const INJECTION_MARKER = 'data-vibe-server-reload';
  *     on `window` in the capture phase so they beat the external-link handler on `document`;
  * (4) design scan — on `__vibeServerDesignScan` the page posts a snapshot of what it ACTUALLY
  *     computed (sizes, colours, borders, motion, geometry) for the rules in `common/designReview`.
- *     The page only measures; it never judges.
+ *     The page only measures; it never judges;
+ * (5) findings overlay — on `__vibeServerDesignOverlay` the page frames the elements a review
+ *     found and labels each with its rule id; a click on a label posts `design-finding` back.
+ *     A finding you can point at on the page is not the same thing as a line in a list.
  */
 export function buildReloadClientScript(wsPath: string): string {
 	// String-concatenated (not a template) to keep the payload literal and avoid any
@@ -145,6 +148,39 @@ export function buildReloadClientScript(wsPath: string): string {
 		'documentScrollWidthPx:document.documentElement?document.documentElement.scrollWidth:0,elements:out,headings:heads,truncated:all.length>LIMIT}});',
 		'}',
 		'window.addEventListener("message",function(ev){var d=ev.data;if(d&&d.__vibeServerDesignScan){try{dsScan(typeof d.viewport==="string"?d.viewport:undefined);}catch(e){post({__vibeBrowser:"design-scan",error:String(e&&e.message||e)});}}});',
+		// Findings overlay: the chrome sends {__vibeServerDesignOverlay:[{selector,rule,severity}]}
+		// and the page draws a frame plus a label on each element. A finding the reader can SEE on
+		// the page is a different thing from a line in a list — the selector stops being a string
+		// and becomes a place. Clicking a marker posts it back, so the chat can talk about that one.
+		'var ovLayer=null,ovItems=[],ovTimer=0;',
+		'function ovClear(){if(ovLayer&&ovLayer.parentNode){ovLayer.parentNode.removeChild(ovLayer);}ovLayer=null;}',
+		'function ovColor(sev){return sev==="error"?"rgba(255,86,86,0.95)":sev==="warning"?"rgba(255,184,64,0.95)":"rgba(120,170,255,0.95)";}',
+		'function ovDraw(items){',
+		'ovClear();',
+		'ovItems=items||[];',
+		'if(!ovItems.length){return;}',
+		'ovLayer=document.createElement("div");',
+		'ovLayer.setAttribute("data-vibe-design-overlay","1");',
+		'ovLayer.style.cssText="position:absolute;left:0;top:0;width:0;height:0;z-index:2147483646;";',
+		'document.documentElement.appendChild(ovLayer);',
+		'for(var i=0;i<ovItems.length&&i<60;i++){var it=ovItems[i];var el=null;',
+		'try{el=document.querySelector(it.selector);}catch(e){el=null;}',
+		'if(!el){continue;}',
+		'var r=el.getBoundingClientRect();if(r.width<1&&r.height<1){continue;}',
+		'var col=ovColor(it.severity);',
+		'var box=document.createElement("div");',
+		'box.style.cssText="position:absolute;pointer-events:none;border:2px solid "+col+";border-radius:2px;left:"+(r.left+window.scrollX)+"px;top:"+(r.top+window.scrollY)+"px;width:"+r.width+"px;height:"+r.height+"px;";',
+		'var tag=document.createElement("div");',
+		'tag.textContent=it.rule;',
+		'tag.style.cssText="position:absolute;pointer-events:auto;cursor:pointer;left:"+(r.left+window.scrollX)+"px;top:"+Math.max(0,r.top+window.scrollY-18)+"px;background:"+col+";color:#111;font:600 11px/16px ui-monospace,Menlo,monospace;padding:1px 5px;border-radius:3px;white-space:nowrap;";',
+		'tag.addEventListener("click",function(sel,rule){return function(ev){ev.preventDefault();ev.stopPropagation();post({__vibeBrowser:"design-finding",selector:sel,rule:rule});};}(it.selector,it.rule),true);',
+		'ovLayer.appendChild(box);ovLayer.appendChild(tag);}',
+		'}',
+		'window.addEventListener("message",function(ev){var d=ev.data;if(d&&d.__vibeServerDesignOverlay!==undefined){try{ovDraw(d.__vibeServerDesignOverlay);}catch(e){ovClear();}}});',
+		// A reflow moves the elements, so the markers have to be redrawn — not dropped. The design
+		// scan itself resizes the frame (the mobile pass narrows it to 390px and restores it), and
+		// clearing on resize raced that restore: the overlay was drawn and wiped a frame later.
+		'window.addEventListener("resize",function(){if(!ovItems.length){return;}clearTimeout(ovTimer);ovTimer=setTimeout(function(){ovDraw(ovItems);},120);});',
 		'connect();',
 		'report();',
 		'})();',

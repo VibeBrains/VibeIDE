@@ -25,7 +25,7 @@ export function unreachableReasonOf(outcome: Extract<DesignScanOutcome, { ok: fa
 		case 'no-preview':
 			return 'превью не открыто';
 		case 'unsupported':
-			return 'страница вне досягаемости: скрипт-мост живёт только в статическом превью, а сейчас dev-server или Docker';
+			return 'страница вне досягаемости: в ней нет моста VibeIDE. Статическое превью несёт его всегда, dev-сервер — через прокси (`vibeide.vibeServer.bridgeProxy`), Docker-превью не несёт вовсе';
 		case 'timeout':
 			return 'страница не ответила';
 		default:
@@ -33,14 +33,29 @@ export function unreachableReasonOf(outcome: Extract<DesignScanOutcome, { ok: fa
 	}
 }
 
+/** One finding, reduced to what the page needs to draw it. */
+export interface IDesignFindingMarker {
+	readonly selector: string;
+	readonly rule: string;
+	readonly severity: string;
+}
+
+/** What the preview owner provides: measuring the page, and marking findings on it. */
+export interface IDesignScanSource {
+	scan(viewport: ViewportLabel): Promise<DesignScanOutcome>;
+	showFindings(items: readonly IDesignFindingMarker[]): void;
+}
+
 export const IVibeDesignScanService = createDecorator<IVibeDesignScanService>('vibeDesignScanService');
 
 export interface IVibeDesignScanService {
 	readonly _serviceBrand: undefined;
 	/** Called by whoever owns the preview; the returned disposable unregisters the source. */
-	registerSource(source: (viewport: ViewportLabel) => Promise<DesignScanOutcome>): IDisposable;
+	registerSource(source: IDesignScanSource): IDisposable;
 	/** Measures the previewed page at one viewport width, or explains why it could not. */
 	scan(viewport?: ViewportLabel): Promise<DesignScanOutcome>;
+	/** Draws the findings on the previewed page; an empty list clears them. No-op without a preview. */
+	showFindings(items: readonly IDesignFindingMarker[]): void;
 }
 
 /**
@@ -56,9 +71,9 @@ export interface IVibeDesignScanService {
 class VibeDesignScanService extends Disposable implements IVibeDesignScanService {
 	declare readonly _serviceBrand: undefined;
 
-	private _source: ((viewport: ViewportLabel) => Promise<DesignScanOutcome>) | undefined;
+	private _source: IDesignScanSource | undefined;
 
-	registerSource(source: (viewport: ViewportLabel) => Promise<DesignScanOutcome>): IDisposable {
+	registerSource(source: IDesignScanSource): IDisposable {
 		this._source = source;
 		return toDisposable(() => {
 			if (this._source === source) {
@@ -73,7 +88,11 @@ class VibeDesignScanService extends Disposable implements IVibeDesignScanService
 			// having no preview open, and reported as such rather than as an empty result.
 			return { ok: false, reason: 'no-preview' };
 		}
-		return this._source(viewport);
+		return this._source.scan(viewport);
+	}
+
+	showFindings(items: readonly IDesignFindingMarker[]): void {
+		this._source?.showFindings(items);
 	}
 }
 

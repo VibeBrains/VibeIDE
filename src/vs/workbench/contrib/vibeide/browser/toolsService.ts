@@ -544,7 +544,7 @@ export class ToolsService implements IToolsService {
 			},
 
 			design_review: (params: RawToolParamsObj) => {
-				const { severity: sevUnknown, viewport: viewportUnknown } = params;
+				const { severity: sevUnknown, viewport: viewportUnknown, annotate: annotateUnknown } = params;
 				const raw = typeof sevUnknown === 'string' ? sevUnknown.trim().toLowerCase() : '';
 				if (raw && raw !== 'error' && raw !== 'warning' && raw !== 'info') {
 					throw new Error(`Invalid LLM output: severity must be 'error', 'warning' or 'info' when given, got ${sevUnknown}`);
@@ -557,6 +557,8 @@ export class ToolsService implements IToolsService {
 					severity: raw ? raw as 'error' | 'warning' | 'info' : null,
 					// Both widths by default: a defect that only exists on a phone is invisible otherwise.
 					viewport: (viewportRaw || 'both') as 'desktop' | 'mobile' | 'both',
+					// Marked on the page by default: a finding you can point at beats a line in a list.
+					annotate: typeof annotateUnknown === 'boolean' ? annotateUnknown : true,
 				};
 			},
 
@@ -1297,7 +1299,7 @@ export class ToolsService implements IToolsService {
 				return { result: {} };
 			},
 
-			design_review: async ({ severity, viewport }) => {
+			design_review: async ({ severity, viewport, annotate }) => {
 				const widths: ViewportLabel[] = viewport === 'both' ? ['desktop', 'mobile'] : [viewport];
 				// The project's own design system decides which style tells are its identity, so the
 				// context is read before judging rather than after arguing.
@@ -1318,6 +1320,12 @@ export class ToolsService implements IToolsService {
 				}
 				const all = mergeViewportFindings(passes);
 				const findings = severity ? all.filter(f => f.severity === severity) : all;
+				if (annotate) {
+					// Accepted drift is a decision, not a defect — marking it would be nagging on the page.
+					this.designScanService.showFindings(findings
+						.filter(finding => !finding.accepted)
+						.map(finding => ({ selector: finding.selector, rule: finding.rule, severity: finding.severity })));
+				}
 				return { result: { reachable: true, url, truncated, findings } };
 			},
 

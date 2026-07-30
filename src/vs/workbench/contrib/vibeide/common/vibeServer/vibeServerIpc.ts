@@ -45,6 +45,14 @@ export interface IVibeServerStarted {
 	 * instead. Drives the port-conflict dialog; absent when the server got its own port.
 	 */
 	readonly requestedPort?: number;
+	/**
+	 * True when the served pages carry our bridge script (element inspect + design scan).
+	 *
+	 * The static server always injects it; a dev-server does only when the bridge proxy is in
+	 * front of it. Preview UI must not offer inspect or measurement without it — "nothing found"
+	 * and "nothing measured" are different answers.
+	 */
+	readonly bridgeInjected?: boolean;
 }
 
 /**
@@ -68,4 +76,23 @@ export interface IVibeServerMain {
 	registerPreviewOrigin(url: string): Promise<void>;
 	/** Cookie compat (VS.6): drop the registration when its preview tab closes. */
 	unregisterPreviewOrigin(url: string): Promise<void>;
+	/**
+	 * Starts a loopback proxy in front of a foreign dev-server and returns its URL.
+	 *
+	 * Why it exists: the bridge script (element inspect + design scan) is injected by OUR static
+	 * server, so a Vite/Next preview had neither. The proxy passes everything through untouched
+	 * except navigational HTML, where it appends the same script — the framework keeps its HMR
+	 * (WebSocket upgrades and SSE are tunnelled verbatim), and the preview gains inspect and
+	 * measurement. Returns the upstream URL unchanged when proxying is disabled.
+	 */
+	startBridgeProxy(options: IVibeBridgeProxyOptions): Promise<IVibeServerStarted>;
+	/** Stops the bridge proxy. Safe to call when not running. */
+	stopBridgeProxy(): Promise<void>;
+}
+
+export interface IVibeBridgeProxyOptions {
+	/** Origin of the dev-server to sit in front of, e.g. `http://localhost:5173`. */
+	readonly upstreamUrl: string;
+	/** Bind host for the proxy — loopback, like the static server. */
+	readonly host: string;
 }

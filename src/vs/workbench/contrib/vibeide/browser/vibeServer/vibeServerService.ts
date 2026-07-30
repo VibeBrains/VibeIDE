@@ -58,6 +58,11 @@ export interface IVibeServerService {
 	 * found" and "nothing measured" must not look alike.
 	 */
 	scanDesign(viewport?: ViewportLabel): Promise<DesignScanResult>;
+	/**
+	 * Frames the given findings on the previewed page and labels each with its rule id; an empty
+	 * list clears the overlay. No-op when no preview is open.
+	 */
+	showDesignFindings(items: readonly { selector: string; rule: string; severity: string }[]): void;
 	/** Starts the server if needed, then opens the preview at the given workspace file. */
 	openPreviewForResource(resource: URI): Promise<void>;
 	/** Copies the running server URL to the clipboard. */
