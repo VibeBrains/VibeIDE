@@ -46,6 +46,11 @@ export interface LaunchPlanFacts {
 	readonly verifyGateMode: 'off' | 'warn' | 'enforce';
 	readonly verifyCommand: string;
 	readonly runLedgerEnabled: boolean;
+	/** Cumulative ceiling for the role over the budget window; undefined = unlimited. */
+	readonly roleBudget?: number;
+	/** Already spent inside that window — the number that decides whether the run starts at all. */
+	readonly roleBudgetSpent?: number;
+	readonly roleBudgetWindowDays?: number;
 }
 
 export type PreflightSeverity = 'block' | 'warn' | 'note';
@@ -121,6 +126,14 @@ export function evaluateLaunchPlan(facts: LaunchPlanFacts): PreflightReport {
 			severity: 'warn',
 			title: 'VERIFY-GATE включён, но команда не задана',
 			detail: 'Режим проверки выбран, а vibeide.agent.verifyGate.command пуст — гейт останется бездействующим.',
+		});
+	}
+
+	if (facts.roleBudget !== undefined && (facts.roleBudgetSpent ?? 0) >= facts.roleBudget) {
+		findings.push({
+			severity: 'block',
+			title: 'Бюджет роли исчерпан',
+			detail: `Потрачено ${(facts.roleBudgetSpent ?? 0).toLocaleString('ru-RU')} из ${facts.roleBudget.toLocaleString('ru-RU')} токенов за окно бюджета — запуск будет пропущен. Поднимите бюджет в настройках «Роли агентов» или дождитесь сдвига окна.`,
 		});
 	}
 
@@ -226,6 +239,7 @@ export function renderPreflightMarkdown(facts: LaunchPlanFacts, report: Prefligh
 		`| Токены | ${formatLimit(facts.tokenQuota)} |`,
 		`| Шаги | ${formatLimit(facts.maxSteps)} |`,
 		`| Время | ${facts.maxWallClockSec > 0 ? `${facts.maxWallClockSec} с` : 'без ограничения'} |`,
+		`| Бюджет роли | ${describeRoleBudget(facts)} |`,
 		`| Проверка результата | ${describeVerifyGate(facts)} |`,
 		`| Журнал прогонов | ${facts.runLedgerEnabled ? 'ведётся' : 'выключен'} |`,
 		'',
@@ -240,6 +254,16 @@ function formatPatterns(patterns: readonly string[]): string {
 
 function formatLimit(value: number): string {
 	return value > 0 ? value.toLocaleString('ru-RU') : 'без ограничения';
+}
+
+function describeRoleBudget(facts: LaunchPlanFacts): string {
+	if (facts.roleBudget === undefined) {
+		return 'без ограничения';
+	}
+	const spent = facts.roleBudgetSpent ?? 0;
+	const remaining = Math.max(0, facts.roleBudget - spent);
+	const period = facts.roleBudgetWindowDays === 1 ? 'сутки' : `${facts.roleBudgetWindowDays ?? 1} дн.`;
+	return `${spent.toLocaleString('ru-RU')} из ${facts.roleBudget.toLocaleString('ru-RU')} за ${period} (осталось ${remaining.toLocaleString('ru-RU')})`;
 }
 
 function describeVerifyGate(facts: LaunchPlanFacts): string {

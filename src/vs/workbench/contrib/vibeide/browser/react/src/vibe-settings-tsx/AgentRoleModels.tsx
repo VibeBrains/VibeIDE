@@ -14,6 +14,17 @@ const SELECT_CHEVRON = "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.
 // Themed <select> styling via inline styles (not a CSS class): this card is a shared cross-bundle
 // component and `appearance: base-select` is unsupported by the app's Chromium, so we mirror the
 // modal input tokens (bg / border / radius) and force `appearance: none` for reliable theming.
+/** Mirrors `roleSelectStyle` so the budget field sits in the same visual row as the model picker. */
+const roleBudgetInputStyle: React.CSSProperties = {
+	width: '120px',
+	boxSizing: 'border-box',
+	padding: '6px 10px',
+	backgroundColor: 'var(--vscode-input-background)',
+	color: 'var(--vscode-input-foreground)',
+	border: '1px solid var(--vscode-input-border, var(--vscode-commandCenter-border, transparent))',
+	borderRadius: '8px',
+};
+
 const roleSelectStyle: React.CSSProperties = {
 	width: '100%',
 	boxSizing: 'border-box',
@@ -55,7 +66,10 @@ export const AgentRoleModels = () => {
 			<div className='text-sm text-vibe-fg-3 mt-1'>
 				Какая модель исполняет каждую роль Vibe Agents. По умолчанию — модель чата. Read-only роли
 				(планировщик, ревьюер, security) выгодно сажать на лёгкую модель: дешевле и быстрее, а
-				писать код им всё равно запрещено.
+				писать код им всё равно запрещено. Бюджет — потолок суммарного расхода роли за окно
+				(по умолчанию сутки, ключ <code>vibeide.subagent.budgetWindowDays</code>): пусто —
+				без ограничения. Исчерпав его, роль не запустится, а прогон появится в
+				«Диспетчерской» как пропущенный с причиной.
 			</div>
 			{/* Inline styles (not Tailwind utilities) for the layout: this card is a shared
 			    cross-bundle component (Settings page + in-chat modal), and the modal bundle's
@@ -64,7 +78,7 @@ export const AgentRoleModels = () => {
 			<div
 				style={{
 					display: 'grid',
-					gridTemplateColumns: 'max-content minmax(0, 1fr)',
+					gridTemplateColumns: 'max-content minmax(0, 1fr) max-content',
 					alignItems: 'center',
 					columnGap: '12px',
 					rowGap: '6px',
@@ -104,6 +118,20 @@ export const AgentRoleModels = () => {
 									</option>
 								))}
 							</select>
+							<input
+								className='text-xs'
+								style={roleBudgetInputStyle}
+								type='number'
+								min={0}
+								step={10000}
+								placeholder='без лимита'
+								title='Потолок суммарного расхода роли за окно бюджета. Пусто или 0 — без ограничения.'
+								value={settingsState.tokenBudgetOfRole?.[preset.type] ?? ''}
+								onChange={(e) => {
+									const raw = e.target.value.trim();
+									void vibeideSettingsService.setTokenBudgetOfRole(preset.type, raw === '' ? null : Number(raw));
+								}}
+							/>
 						</React.Fragment>
 					);
 				})}

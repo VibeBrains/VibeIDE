@@ -22,6 +22,7 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { LaunchPlanFacts } from '../common/agentLaunchPreflight.js';
+import { evaluateRoleBudget } from '../common/agentRoleBudget.js';
 import { IVibeConstraintsService } from '../common/vibeConstraintsService.js';
 import { IVibePerFilePermissionsService } from '../common/vibePerFilePermissionsService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
@@ -44,8 +45,8 @@ export interface IVibeAgentPreflightService {
 	/** Facts for the main chat agent in its current mode. */
 	collectForAgent(): LaunchPlanFacts;
 
-	/** Facts for one subagent role, using the role's own tool whitelist. */
-	collectForRole(role: SubagentType): LaunchPlanFacts;
+	/** Facts for one subagent role, using the role's own tool whitelist and cumulative budget. */
+	collectForRole(role: SubagentType): Promise<LaunchPlanFacts>;
 }
 
 class VibeAgentPreflightService extends Disposable implements IVibeAgentPreflightService {
@@ -75,13 +76,23 @@ class VibeAgentPreflightService extends Disposable implements IVibeAgentPrefligh
 		});
 	}
 
-	collectForRole(role: SubagentType): LaunchPlanFacts {
+	async collectForRole(role: SubagentType): Promise<LaunchPlanFacts> {
 		const preset = this._registry.getPreset(role);
-		return this._compose({
+		const base = this._compose({
 			subject: 'role',
 			subjectName: preset.displayName,
 			allowedTools: [...preset.allowedTools],
 		});
+
+		// The cumulative ceiling can refuse the run outright, so a report that omitted it would
+		// promise a launch that will not happen. Reading the ledger is the only async part here.
+		const budgets = this._settings.state.tokenBudgetOfRole ?? {};
+		if (!budgets[role]) {
+			return base;
+		}
+		const windowDays = this._numberConfig('vibeide.subagent.budgetWindowDays', 1);
+		const state = evaluateRoleBudget(await this._ledger.getRuns(), role, budgets, Date.now(), windowDays);
+		return { ...base, roleBudget: state.budget, roleBudgetSpent: state.spent, roleBudgetWindowDays: windowDays };
 	}
 
 	// ── Private ─────────────────────────────────────────────────────────────

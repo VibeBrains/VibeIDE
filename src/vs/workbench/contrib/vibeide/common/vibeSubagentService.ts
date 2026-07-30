@@ -35,6 +35,9 @@ import { IVibeConstraintsService } from './vibeConstraintsService.js';
 import { IVibeSubagentRunner } from './vibeSubagentRunner.js';
 import { IVibeAgentRunLedgerService } from './vibeAgentRunLedgerService.js';
 import { AgentRunStatus } from './agentRunLedger.js';
+import { describeRoleBudgetRefusal, evaluateRoleBudget } from './agentRoleBudget.js';
+import { IVibeideSettingsService } from './vibeideSettingsService.js';
+import { IVibeSubagentRegistryService } from './vibeSubagentRegistryService.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -260,6 +263,8 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		@IVibeConstraintsService private readonly _constraints: IVibeConstraintsService,
 		@IVibeSubagentRunner private readonly _runner: IVibeSubagentRunner,
 		@IVibeAgentRunLedgerService private readonly _ledger: IVibeAgentRunLedgerService,
+		@IVibeideSettingsService private readonly _settings: IVibeideSettingsService,
+		@IVibeSubagentRegistryService private readonly _roleRegistry: IVibeSubagentRegistryService,
 	) {
 		super();
 	}
@@ -302,6 +307,22 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 
 		this._log.info(`[VibeSubagent] Spawning ${handoff.type} subagent ${id} for thread ${handoff.parentThreadId}`);
 		this._audit.append({ ts: Date.now(), action: 'subagent_spawned', ok: true, meta: { subagentId: id, type: handoff.type, parentThreadId: handoff.parentThreadId } });
+
+		// Cumulative role budget. `maxTokens` caps one run; this caps the role across many, so a
+		// role that already spent its allowance does not start at all. The refusal is recorded as
+		// a skipped run rather than thrown away — a run that did not happen for a reason is a fact
+		// worth seeing in the dispatch panel.
+		const refusal = await this._roleBudgetRefusal(handoff.type);
+		if (refusal) {
+			this._completeWithResult(entry, {
+				subagentId: id,
+				status: 'skipped',
+				summary: this._truncate(refusal, MAX_RESULT_SUMMARY_CHARS),
+				reason: refusal,
+				tokensUsed: 0,
+			});
+			return id;
+		}
 
 		// Async execution — parent does not block; parent calls awaitResult() to get compact result.
 		this._runSubagent(entry).catch(err => {
@@ -385,6 +406,25 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 	}
 
 	// ── Private ─────────────────────────────────────────────────────────────
+
+	/**
+	 * Refusal text when the role has no allowance left, or `undefined` when it may run.
+	 * Reads the ledger, so the ceiling is enforced against what actually happened — including
+	 * runs from earlier windows of the IDE.
+	 */
+	private async _roleBudgetRefusal(role: SubagentType): Promise<string | undefined> {
+		const budgets = this._settings.state.tokenBudgetOfRole ?? {};
+		if (!budgets[role]) {
+			return undefined;
+		}
+		const windowDays = this._configuration.getValue<number>('vibeide.subagent.budgetWindowDays');
+		const days = typeof windowDays === 'number' && Number.isFinite(windowDays) && windowDays > 0 ? windowDays : 1;
+		const state = evaluateRoleBudget(await this._ledger.getRuns(), role, budgets, Date.now(), days);
+		if (!state.exhausted) {
+			return undefined;
+		}
+		return describeRoleBudgetRefusal(state, this._roleRegistry.getPreset(role).displayName, days);
+	}
 
 	private async _runSubagent(entry: SubagentEntry): Promise<void> {
 		entry.status = 'running';

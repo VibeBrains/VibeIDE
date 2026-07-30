@@ -107,6 +107,11 @@ export type VibeideSettingsState = {
 	 *  an open set, features a closed union. Consumed by `vibeSubagentRunnerService`. */
 	readonly modelSelectionOfRole?: Readonly<Record<string, ModelSelection | null>>;
 
+	/** Cumulative token ceiling per role over the budget window (`vibeide.subagent.budgetWindowDays`),
+	 *  keyed by SubagentType. Absent key / null = unlimited. `vibeide.subagent.maxTokens` caps ONE run;
+	 *  this caps how much a role may spend across many. Consumed by `vibeSubagentService.spawn`. */
+	readonly tokenBudgetOfRole?: Readonly<Record<string, number | null>>;
+
 	readonly _modelOptions: ModelOption[]; // computed based on the two above items
 };
 
@@ -132,6 +137,7 @@ export interface IVibeideSettingsService {
 	setModelSelectionOfFeature: SetModelSelectionOfFeatureFn;
 	/** VA.2 «модель на роль»: set/replace a role's model; `null` clears the mapping (inherit Chat). */
 	setModelSelectionOfRole(roleType: string, selection: ModelSelection | null): Promise<void>;
+	setTokenBudgetOfRole(roleType: string, budget: number | null): Promise<void>;
 	setOptionsOfModelSelection: SetOptionsOfModelSelection;
 	setGlobalSetting: SetGlobalSettingFn;
 	// setMCPServerStates: (newStates: MCPServerStates) => Promise<void>;
@@ -496,6 +502,7 @@ const defaultState = () => {
 		dynamicProviderApiKeys: {},
 		dynamicModelHidden: {},
 		modelSelectionOfRole: {},
+		tokenBudgetOfRole: {},
 	};
 	return d;
 };
@@ -813,6 +820,21 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 			next[roleType] = selection;
 		}
 		const newState: VibeideSettingsState = { ...this.state, modelSelectionOfRole: next };
+		this.state = _validatedModelState(newState);
+		await this._storeState();
+		this._onDidChangeState.fire();
+	};
+
+	setTokenBudgetOfRole = async (roleType: string, budget: number | null): Promise<void> => {
+		const next: Record<string, number | null> = { ...(this.state.tokenBudgetOfRole ?? {}) };
+		// Absent = unlimited. A non-positive number is the same intent expressed clumsily, so it is
+		// stored as absence rather than as a ceiling of zero that would block every run.
+		if (budget === null || !Number.isFinite(budget) || budget <= 0) {
+			delete next[roleType];
+		} else {
+			next[roleType] = Math.floor(budget);
+		}
+		const newState: VibeideSettingsState = { ...this.state, tokenBudgetOfRole: next };
 		this.state = _validatedModelState(newState);
 		await this._storeState();
 		this._onDidChangeState.fire();

@@ -67,6 +67,12 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			maximum: 10,
 			description: localize('vibeide.subagent.maxResumes', 'Сколько раз VibeIDE САМ продолжит остановленную по лимиту (токены/шаги/время) роль-субагента с сохранённого места, прежде чем передать решение пользователю (ручной список «Продолжить роль»). 0 = не продолжать автоматически. Субагентный аналог «подпин.» основного агента. Дефолт 2. ПРИМЕЧАНИЕ: при включённом автопилоте ресурсные лимиты роли авто-продлеваются и роль не паркуется — этот лимит действует в ручном режиме.'),
 		},
+		'vibeide.subagent.budgetWindowDays': {
+			type: 'number',
+			default: 1,
+			minimum: 1,
+			description: localize('vibeide.subagent.budgetWindowDays', 'За сколько последних суток считать бюджет роли. `vibeide.subagent.maxTokens` ограничивает ОДИН прогон; бюджет роли (настраивается в «Роли агентов») ограничивает суммарный расход роли за это окно — двадцать прогонов, каждый в своём лимите, всё равно стоят двадцати лимитов. Дефолт 1 — сутки.'),
+		},
 		'vibeide.subagent.maxSteps': {
 			type: 'number',
 			default: 60,

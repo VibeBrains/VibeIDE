@@ -74,7 +74,7 @@ registerAction2(class extends Action2 {
 			return;
 		}
 
-		const facts = picked.role ? preflight.collectForRole(picked.role) : preflight.collectForAgent();
+		const facts = picked.role ? await preflight.collectForRole(picked.role) : preflight.collectForAgent();
 		const content = renderPreflightMarkdown(facts, evaluateLaunchPlan(facts));
 
 		const uri = URI.parse(`untitled://vibeide-preflight-${Date.now()}.md`);
