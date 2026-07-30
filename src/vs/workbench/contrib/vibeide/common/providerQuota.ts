@@ -147,6 +147,27 @@ export function isQuotaStale(snapshot: ProviderQuotaSnapshot, now: number): bool
 }
 
 /**
+ * Header names worth writing to the log when a provider refuses. Matched as substrings so a
+ * vendor prefix we have never seen (`x-minimax-ratelimit-…`) still lands — the point of logging
+ * raw headers is to learn what a vendor sends when its docs do not say.
+ *
+ * An allow-list, NOT a deny-list: response headers can carry `set-cookie` and similar, and the
+ * log is a file the user may share when reporting a problem.
+ */
+const LOGGABLE_HEADER_HINTS = ['ratelimit', 'rate-limit', 'retry-after', 'request-id', 'requestid', 'trace-id', 'traceid'];
+
+/** Picks the rate-limit-relevant headers out of a full response header set, for diagnostics. */
+export function pickRateLimitHeaders(headers: Record<string, string> | undefined): Record<string, string> | undefined {
+	if (!headers) { return undefined; }
+	const picked: Record<string, string> = {};
+	for (const [name, value] of Object.entries(headers)) {
+		const lower = name.toLowerCase();
+		if (LOGGABLE_HEADER_HINTS.some(hint => lower.includes(hint))) { picked[lower] = value; }
+	}
+	return Object.keys(picked).length > 0 ? picked : undefined;
+}
+
+/**
  * The bucket the user should be warned about: the one closest to running out. Buckets without
  * a limit cannot be expressed as a share, so they only count when the remainder is literally 0.
  */

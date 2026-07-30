@@ -10,6 +10,7 @@ import {
 	isQuotaStale,
 	parseProviderQuotaHeaders,
 	parseResetToUnixMs,
+	pickRateLimitHeaders,
 	QUOTA_STALE_MS,
 	tightestBucket,
 } from '../../common/providerQuota.js';
@@ -122,6 +123,31 @@ suite('providerQuota', () => {
 		assert.deepStrictEqual(
 			[isQuotaStale(snapshot, later), isQuotaLow(snapshot, later)],
 			[true, false],
+		);
+	});
+
+	test('diagnostics keep rate-limit headers — including vendor prefixes we do not know yet — and drop the rest', () => {
+		const picked = pickRateLimitHeaders({
+			'X-RateLimit-Remaining-Requests': '3',
+			'Retry-After': '30',
+			'x-minimax-ratelimit-window': '60',   // invented prefix: substring matching must still catch it
+			'x-request-id': 'req_42',
+			'set-cookie': 'session=secret',        // never logged: the log file gets shared
+			'content-type': 'text/event-stream',
+		});
+
+		assert.deepStrictEqual(picked, {
+			'x-ratelimit-remaining-requests': '3',
+			'retry-after': '30',
+			'x-minimax-ratelimit-window': '60',
+			'x-request-id': 'req_42',
+		});
+	});
+
+	test('nothing relevant reports nothing, rather than an empty object', () => {
+		assert.deepStrictEqual(
+			[pickRateLimitHeaders({ 'content-type': 'application/json' }), pickRateLimitHeaders(undefined)],
+			[undefined, undefined],
 		);
 	});
 });

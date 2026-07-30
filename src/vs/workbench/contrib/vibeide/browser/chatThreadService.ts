@@ -23,7 +23,7 @@ import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, looksLik
 import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
 import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
 import { AnthropicReasoning, getErrorMessage, GeminiLLMChatMessage, LLMChatMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
-import { isQuotaLow, ProviderQuotaSnapshot, tightestBucket } from '../common/providerQuota.js';
+import { isQuotaLow, pickRateLimitHeaders, ProviderQuotaSnapshot, tightestBucket } from '../common/providerQuota.js';
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
 import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS, classifyProviderError } from '../common/modelHealthTracker.js';
 import { translateProviderError } from '../common/providerErrorTranslator.js';
@@ -6253,12 +6253,28 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// what classification inputs. Debug-gated; invaluable when a run "just stops"
 						// (the 2026-06-07 rate-limit auto-wait silently not firing took a session to
 						// reconstruct without this line).
+						// `diagnostics` is what the provider itself reported (status, headers, the
+						// body-side refusal code, and the rate we were actually running at). It is
+						// logged verbatim because the empty-stream path carries no Error object:
+						// for months a MiniMax refusal was indistinguishable here from "the model
+						// stopped on its own" (docs/knowledge/chatUx/modelStalls.md, #001).
+						const refusal = error?.diagnostics;
 						vibeLog.debug('chatThread', 'onError', {
 							requestId: finalRequestId,
 							msgHead: (error?.message ?? '').slice(0, 100),
 							status: (error?.fullError as { statusCode?: number } | null | undefined)?.statusCode,
 							autopilot: this._settingsService.state.globalSettings.chatAgentAutopilot === true,
 							rateWaitStreak: this._rateLimitAutoWaitStreak.get(threadId) ?? 0,
+							...(refusal ? {
+								httpStatus: refusal.httpStatus,
+								bodyCode: refusal.bodyCode,
+								bodyMessage: refusal.bodyMessage,
+								refusalKind: refusal.refusalKind,
+								refusalAmbiguous: refusal.refusalAmbiguous,
+								requestsInWindow: refusal.requestsInWindow,
+								windowSeconds: refusal.windowSeconds,
+								rateLimitHeaders: pickRateLimitHeaders(refusal.headers),
+							} : {}),
 						});
 
 						// Empty-response circuit breaker. Parse provider/model out of OUR
@@ -6305,8 +6321,20 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							});
 						}
 
+						// Structural verdict from the provider's own body code, when it gave one.
+						// MiniMax answers HTTP 200 with `base_resp.status_code` set — so a throttle
+						// reaches us looking EXACTLY like an empty response. Judging by the body
+						// code instead of the message text is what tells the two apart.
+						const bodyRefusalKind = refusal?.refusalKind;
+						const isBodyRateLimit = bodyRefusalKind === 'rate-limit';
+						const isBodyQuota = bodyRefusalKind === 'quota';
+						const providerNameForError = modelSelection?.providerName ?? '—';
+
 						const emptyMatch = !overflowMatch && error?.message ? parseEmptyResponseError(error.message) : null;
-						if (emptyMatch) {
+						// A refusal the provider buried in the body is NOT the model falling silent:
+						// counting it toward the empty-response breaker would retire a perfectly
+						// healthy model over someone else's rate limit.
+						if (emptyMatch && !isBodyRateLimit && !isBodyQuota) {
 							const { providerName: errProvider, modelName: errModel } = emptyMatch;
 							this._modelHealthTracker.recordFailure(errProvider, errModel, 'empty-response');
 							const key = `${threadId}:${errProvider}:${errModel}`;
@@ -6338,6 +6366,25 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							}
 						}
 
+						// An exhausted quota is not a "slow down" — waiting out a 5-hour or weekly
+						// window inside a chat turn is hopeless, so say so instead of pausing.
+						// (MiniMax Token Plan uses rolling 5-hour and weekly windows on top of
+						// RPM/TPM: https://platform.minimax.io/docs/token-plan/intro)
+						if (isBodyQuota) {
+							effectiveError = {
+								message: localize(
+									'vibeide.chatThread.providerQuotaExhausted',
+									'Провайдер {0} отказал: квота ключа исчерпана (код {1}{2}). Ожидание не поможет — квотное окно длиннее хода. Пополните тариф, переключитесь на другую модель или подождите до сброса окна.',
+									providerNameForError,
+									String(refusal?.bodyCode ?? '—'),
+									refusal?.bodyMessage ? `, «${refusal.bodyMessage}»` : '',
+								),
+								fullError: error?.fullError ?? null,
+								recoverable: 'switchModel',
+							};
+							vibeLog.warn('chatThread', `Provider quota exhausted: ${providerNameForError} bodyCode=${refusal?.bodyCode} (threadId=${threadId}).`);
+						}
+
 						// Auto-wait on minute-window rate limits (token-economy follow-up): a 429
 						// whose retry-after is SECONDS (day-scale ones are re-statused to 402
 						// upstream — see customFetch) means «slow down», not «broken». Stopping the
@@ -6346,8 +6393,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// 3-4 manual resumes per task). Deliberately NOT gated on Autopilot — this
 						// is an infrastructure retry of the same LLM turn, no tools are executed
 						// during the pause, so it is safe in supervised mode too.
-						if (!overflowMatch && !emptyMatch
-							&& /rate.?limit|too many requests|\b429\b/i.test(error?.message ?? '')) {
+						//
+						// `isBodyRateLimit` deliberately bypasses the `!emptyMatch` guard: a provider
+						// that reports throttling INSIDE an HTTP 200 (MiniMax `base_resp`) produces an
+						// empty stream, and the original guard made auto-wait unreachable in exactly
+						// that case — the run stopped with "switch the model" instead of waiting the
+						// window out (docs/knowledge/chatUx/modelStalls.md, #001 and successors).
+						if (!overflowMatch && !isBodyQuota
+							&& (isBodyRateLimit
+								|| (!emptyMatch && /rate.?limit|too many requests|\b429\b/i.test(error?.message ?? '')))) {
 							const rawWaitMax = this._configurationService.getValue<unknown>('vibeide.chat.rateLimitAutoWaitMaxSeconds');
 							const waitMaxSec = (typeof rawWaitMax === 'number' && Number.isFinite(rawWaitMax) && rawWaitMax >= 0) ? Math.floor(rawWaitMax) : 120;
 							const rawWaitRetries = this._configurationService.getValue<unknown>('vibeide.chat.rateLimitAutoWaitMaxRetries');

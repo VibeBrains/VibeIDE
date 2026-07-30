@@ -28,8 +28,10 @@ import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js
 import { TOOL_NAME_ALIASES, applyParamAliases } from '../../common/prompt/toolAliases.js';
 import { lenientJsonParseObject } from '../../common/lenientJson.js';
 import { getModelSdkNpm } from './modelsDevCatalog.js';
-import { buildContextOverflowError, buildEmptyResponseError, isContextOverflow, LLMChatMessage, LLMTokenUsage, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
+import { buildContextOverflowError, buildEmptyResponseError, isContextOverflow, LLMChatMessage, LLMTokenUsage, ProviderRefusalDiagnostics, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
 import { parseProviderQuotaHeaders, ProviderQuotaSnapshot } from '../../common/providerQuota.js';
+import { ProviderRequestRateWindow } from '../../common/providerRequestRate.js';
+import { readMiniMaxRefusal } from '../../common/minimaxBaseResp.js';
 import { getModelQuirks } from '../modelQuirks/modelQuirksService.js';
 import { SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { ensureSystemCADispatcher } from './systemCAFetch.js';
@@ -158,32 +160,129 @@ const RATE_LIMIT_FAIL_FAST_RETRY_AFTER_SECONDS = 10;
 // boundary conversion is genuinely cross-type, so it goes through `unknown` —
 // the only place in this wrapper where a non-narrowing cast is unavoidable.
 type UndiciFetchParams = Parameters<typeof undiciFetch>;
+
+/**
+ * Requests-per-window counter, shared across the process on purpose: the window belongs to the
+ * API KEY, not to one turn, so subagents running concurrently must all count into the same
+ * bucket. (Contrast with `onQuota` below, which is per-request by design.)
+ */
+const requestRateWindow = new ProviderRequestRateWindow();
+
+/**
+ * How much of the response body we keep while peeking for `base_resp`. MiniMax puts the refusal
+ * near the end of a stream, so a bounded TAIL is enough and a runaway response cannot grow it.
+ */
+const REFUSAL_BODY_PEEK_LIMIT = 64 * 1024;
+
+/**
+ * Passes the body through untouched while keeping a bounded tail, so a refusal carried INSIDE a
+ * successful-looking response can still be read. Mirrors rather than consumes: `tee()` would
+ * need an active second reader (back-pressure), a `clone()` would double-buffer the whole
+ * stream. Peeking must never break the stream — every failure here is swallowed.
+ */
+const observeBodyTail = (response: Response, onTail: (tail: string) => void): Response => {
+	if (!response.body) { return response; }
+	let tail = '';
+	const decoder = new TextDecoder();
+	const publish = () => { if (tail) { onTail(tail); } };
+	const observer = new TransformStream<Uint8Array, Uint8Array>({
+		transform(chunk, controller) {
+			controller.enqueue(chunk);
+			try {
+				const text = decoder.decode(chunk, { stream: true });
+				if (!text) { return; }
+				tail = (tail + text).slice(-REFUSAL_BODY_PEEK_LIMIT);
+				// Parse only when the marker is actually in flight — a stream that never
+				// mentions it costs one substring check per chunk. Publishing eagerly (rather
+				// than only on flush) matters because an aborted stream never flushes.
+				if (text.includes('base_resp')) { publish(); }
+			} catch {
+				// A malformed chunk must not take the real response down with it.
+			}
+		},
+		flush() { publish(); },
+	});
+	try {
+		return new Response(response.body.pipeThrough(observer), {
+			status: response.status,
+			statusText: response.statusText,
+			headers: response.headers,
+		});
+	} catch {
+		// Re-wrapping can throw (e.g. a statusText outside Latin-1). Diagnostics are never
+		// worth losing the response over.
+		return response;
+	}
+};
+
+const headersToRecord = (headers: Headers): Record<string, string> => {
+	const out: Record<string, string> = {};
+	headers.forEach((value, key) => { out[key.toLowerCase()] = value; });
+	return out;
+};
+
 // Built per call, not once per module: `onQuota` must land in the state of ITS OWN request.
 // Subagents run several turns concurrently, so a module-level sink would attribute one
 // provider's remaining quota to another provider's turn.
-const makeCustomFetch = (onQuota?: (snapshot: ProviderQuotaSnapshot) => void): typeof globalThis.fetch => async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+const makeCustomFetch = (opts: {
+	providerName: string;
+	onQuota?: (snapshot: ProviderQuotaSnapshot) => void;
+	/**
+	 * Called with what the provider said, as soon as we know it. Fires up to twice per request:
+	 * once on the headers, again if a `base_resp` refusal turns up in the body. Last call wins.
+	 */
+	onDiagnostics?: (diagnostics: ProviderRefusalDiagnostics) => void;
+}): typeof globalThis.fetch => async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+	const requestsInWindow = requestRateWindow.record(opts.providerName, Date.now());
 	const undiciInput = input as unknown as UndiciFetchParams[0];
 	const undiciInit = { ...(init as unknown as UndiciFetchParams[1]), dispatcher: ensureSystemCADispatcher() };
 	const response = await (undiciFetch(undiciInput, undiciInit) as unknown as Promise<Response>);
-	if (onQuota) {
-		// Every response carries the key's remaining allowance, not just refusals — that is the
-		// whole point of reading it here instead of at the 429 branch below.
-		const snapshot = parseProviderQuotaHeaders(response.headers, Date.now());
-		if (snapshot) { onQuota(snapshot); }
+	const observedAt = Date.now();
+	// Every response carries the key's remaining allowance, not just refusals — that is the
+	// whole point of reading it here instead of at the 429 branch below.
+	const snapshot = parseProviderQuotaHeaders(response.headers, observedAt);
+	if (snapshot && opts.onQuota) { opts.onQuota(snapshot); }
+
+	const { onDiagnostics } = opts;
+	let observed = response;
+	if (onDiagnostics) {
+		// Baseline first: even when the body says nothing, the status, the headers and the
+		// observed rate answer "were we anywhere near the published limit?".
+		const baseline: ProviderRefusalDiagnostics = {
+			httpStatus: response.status,
+			headers: headersToRecord(response.headers),
+			requestsInWindow,
+			windowSeconds: requestRateWindow.windowSeconds,
+			...(snapshot ? { quota: snapshot } : {}),
+			observedAt,
+		};
+		onDiagnostics(baseline);
+		observed = observeBodyTail(response, tail => {
+			const refusal = readMiniMaxRefusal(tail);
+			if (!refusal || refusal.kind === 'ok') { return; }
+			onDiagnostics({
+				...baseline,
+				bodyCode: refusal.code,
+				...(refusal.message ? { bodyMessage: refusal.message } : {}),
+				refusalKind: refusal.kind,
+				refusalAmbiguous: refusal.ambiguous,
+			});
+		});
 	}
+
 	if (response.status === 429) {
 		const retryAfterSec = Number(response.headers.get('retry-after'));
 		if (Number.isFinite(retryAfterSec) && retryAfterSec >= RATE_LIMIT_FAIL_FAST_RETRY_AFTER_SECONDS) {
 			// NOTE: statusText is a ByteString (Latin-1 only) — non-ASCII characters here
 			// make the Response constructor itself throw (observed with an em-dash).
-			return new Response(response.body, {
+			return new Response(observed.body, {
 				status: 402,
 				statusText: 'Payment Required (quota exhausted, retry-after too distant to retry)',
 				headers: response.headers,
 			});
 		}
 	}
-	return response;
+	return observed;
 };
 
 const parseHeadersJSON = (s: string | undefined): Record<string, string> | undefined => {
@@ -985,7 +1084,14 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// Latest quota the provider reported during THIS call; attached to the final message so the
 	// renderer can show the key's real remaining allowance next to our own token estimate.
 	let lastQuota: ProviderQuotaSnapshot | undefined;
-	const callFetch = makeCustomFetch(snapshot => { lastQuota = snapshot; });
+	// Kept for the failure paths: without it an "empty response" cannot be told apart from a
+	// refusal the provider hid in the body of an HTTP 200 (modelStalls.md #001).
+	let lastDiagnostics: ProviderRefusalDiagnostics | undefined;
+	const callFetch = makeCustomFetch({
+		providerName,
+		onQuota: snapshot => { lastQuota = snapshot; },
+		onDiagnostics: diagnostics => { lastDiagnostics = diagnostics; },
+	});
 
 	const sdkLogKey = `${providerName}|${modelName}|${sdkNpm ?? 'fallback'}|${sdkSource}`;
 	if (!_loggedSdkSelections.has(sdkLogKey)) {
@@ -1460,15 +1566,23 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			// on the stream-empty path. Detect the former here so the UI gets a
 			// targeted "compact history" hint instead of a generic "unknown" toast.
 			const reason = lastFinishReason ?? 'unknown';
+			// Attach whatever the provider actually said. An empty stream is the ONE path where
+			// there is no Error object to carry status/headers/body, so without this the caller
+			// cannot tell "the model stopped" from "the provider refused inside an HTTP 200".
+			// Interpreting the verdict is deliberately left to `chatThreadService` — one place
+			// owns error classification.
+			const diagnostics = lastDiagnostics ? { diagnostics: lastDiagnostics } : {};
 			if (isContextOverflow(reason)) {
 				onError({
 					message: buildContextOverflowError(providerName, modelName, `finishReason: ${reason}`),
 					fullError: null,
+					...diagnostics,
 				});
 			} else {
 				onError({
 					message: buildEmptyResponseError(providerName, modelName, reason),
 					fullError: null,
+					...diagnostics,
 				});
 			}
 			return;
@@ -1528,18 +1642,23 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		// Detect context-overflow first — same regex catalogue used downstream,
 		// applied here BEFORE generic status mapping so a 413 or a 400 with a
 		// known overflow body gets the specialized message.
+		// Same reasoning as on the empty-stream path: the observed request rate and the
+		// provider's own body code travel with EVERY refusal, so the chat can judge structurally
+		// instead of regex-matching the message text.
+		const diag = lastDiagnostics ? { diagnostics: lastDiagnostics } : {};
 		if (status === 413 || isContextOverflow(errMsg) || isContextOverflow(errBody)) {
 			onError({
 				message: buildContextOverflowError(providerName, modelName, errMsg.slice(0, 200)),
 				fullError: error instanceof Error ? error : null,
+				...diag,
 			});
 		} else if (status === 401) {
 			// Body message wins: a 401 is not always a bad key (ended free promotion, model
 			// gating). Fall back to the static invalid-key text only when the body is silent.
-			onError({ message: bodyErrMsg ?? `Invalid ${providerName} API key.`, fullError: error instanceof Error ? error : null });
+			onError({ message: bodyErrMsg ?? `Invalid ${providerName} API key.`, fullError: error instanceof Error ? error : null, ...diag });
 		} else if (status === 429) {
 			const msg = bodyErrMsg ?? ((errMsg && errMsg.trim().length > 0) ? errMsg : 'Rate limit exceeded. Please wait a moment before trying again.');
-			onError({ message: `Rate limit exceeded: ${msg}`, fullError: error instanceof Error ? error : null });
+			onError({ message: `Rate limit exceeded: ${msg}`, fullError: error instanceof Error ? error : null, ...diag });
 		} else if (typeof status === 'number' && status >= 500) {
 			// 5xx — the provider/origin is down or erroring (e.g. 520 from an
 			// aggregator origin). Surface the status explicitly so the user knows
@@ -1548,9 +1667,10 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			onError({
 				message: `Provider unavailable (HTTP ${status}) for ${providerName}/${modelName} — the upstream did not respond. Retry shortly or switch the model.`,
 				fullError: error instanceof Error ? error : null,
+				...diag,
 			});
 		} else {
-			onError({ message: errMsg, fullError: error instanceof Error ? error : null });
+			onError({ message: errMsg, fullError: error instanceof Error ? error : null, ...diag });
 		}
 	}
 };

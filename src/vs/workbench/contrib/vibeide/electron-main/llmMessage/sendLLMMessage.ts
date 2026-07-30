@@ -105,9 +105,16 @@ export const sendLLMMessage = async ({
 		onFinalMessage_(params);
 	};
 
-	const onError: OnError = ({ message: errorMessage, fullError }) => {
+	const onError: OnError = ({ message: errorMessage, fullError, diagnostics }) => {
 		if (_didAbort) { return; }
-		vibeLog.error('sendLLMMessage', 'sendLLMMessage onError:', errorMessage);
+		// Log the refusal details next to the message: this file's log line is the one that
+		// survives in vibeide-main.log, and without the body code a hidden rate limit reads
+		// exactly like "the model stopped on its own" (modelStalls.md #001).
+		if (diagnostics) {
+			vibeLog.error('sendLLMMessage', 'sendLLMMessage onError:', errorMessage, diagnostics);
+		} else {
+			vibeLog.error('sendLLMMessage', 'sendLLMMessage onError:', errorMessage);
+		}
 
 		// handle failed to fetch / connection errors, which give 0 information by design
 		const isConnectionError = errorMessage === 'TypeError: fetch failed'
@@ -135,7 +142,7 @@ export const sendLLMMessage = async ({
 		}
 
 		captureLLMEvent(`${loggingName} - Error`, { error: errorMessage });
-		onError_({ message: errorMessage, fullError });
+		onError_({ message: errorMessage, fullError, ...(diagnostics ? { diagnostics } : {}) });
 	};
 
 	// we should NEVER call onAbort internally, only from the outside

@@ -207,7 +207,36 @@ export type OnText = (p: { fullText: string; fullReasoning: string; toolCall?: R
 // response (passive quota tracking). Optional: not every provider sends the headers, and paths
 // that never reached the network have nothing to report.
 export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; usage?: LLMTokenUsage; providerQuota?: ProviderQuotaSnapshot }) => void; // id is tool_use_id
-export type OnError = (p: { message: string; fullError: Error | null }) => void;
+/**
+ * What the provider actually said at the moment it refused, captured verbatim.
+ *
+ * `fullError` cannot carry this: it is typed `Error`, and IPC (`JSON.stringify`) drops an
+ * Error's non-enumerable `message`/`stack` — plus the empty-stream paths never had an Error
+ * object to begin with and passed a literal `null`. That is why a MiniMax refusal hidden in
+ * an HTTP 200 body looked identical to "the model stopped on its own" (modelStalls.md #001).
+ *
+ * Every field is optional: a path that never reached the network reports nothing rather than
+ * inventing zeros.
+ */
+export type ProviderRefusalDiagnostics = {
+	httpStatus?: number;
+	/** All response headers, lower-cased. Kept whole — the vendor may use names we do not know yet. */
+	headers?: Record<string, string>;
+	/** MiniMax-style business code carried inside the body (`base_resp.status_code`). */
+	bodyCode?: number;
+	bodyMessage?: string;
+	/** Verdict from `classifyMiniMaxBaseResp`; `ambiguous` when the vendor's own docs conflict. */
+	refusalKind?: string;
+	refusalAmbiguous?: boolean;
+	/** Requests this provider made in the trailing window — lets a log line show observed RPM. */
+	requestsInWindow?: number;
+	windowSeconds?: number;
+	/** The key's remaining allowance as reported on the refusing response, when headers carried it. */
+	quota?: ProviderQuotaSnapshot;
+	observedAt: number;
+};
+
+export type OnError = (p: { message: string; fullError: Error | null; diagnostics?: ProviderRefusalDiagnostics }) => void;
 export type OnAbort = () => void;
 export type AbortRef = { current: (() => void) | null };
 
