@@ -12,6 +12,7 @@ import {
 	hueSaturation,
 	mergeViewportFindings,
 	reviewDesign,
+	RULE_COUNT,
 	summarize,
 } from '../../common/designReview/designSlopRules.js';
 import { ALL_RULE_IDS, RULE_META, RuleId } from '../../common/designReview/ruleIds.js';
@@ -265,6 +266,16 @@ suite('designSlopRules', () => {
 				[summary.error, summary.accepted, summary.total],
 			],
 			[['single-font'], undefined, [1, 1, 1]],
+		);
+	});
+
+	test('the catalogue is wired up: every registered rule function and every id accounted for', () => {
+		// Two different measures on purpose: 53 functions emit 55 ids (tracking and backdrop rules
+		// each report two). A report must show ids — the doctor printed function count next to an
+		// id split once, and "53 rules (10 + 45)" is arithmetic nobody trusts.
+		assert.deepStrictEqual(
+			[RULE_COUNT > 0, ALL_RULE_IDS.length, ALL_RULE_IDS.length >= RULE_COUNT],
+			[true, 55, true],
 		);
 	});
 

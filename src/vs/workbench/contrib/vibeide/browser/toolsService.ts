@@ -48,7 +48,7 @@ import { ILanguageFeaturesService } from '../../../../editor/common/services/lan
 import { IVibeCodeGraphService } from './codeGraph/vibeCodeGraphService.js';
 import { IVibeDesignScanService, unreachableReasonOf } from './designReview/vibeDesignScanService.js';
 import { IVibeDesignContextService } from './designContext/vibeDesignContextService.js';
-import { Finding, RULE_COUNT, ViewportLabel, mergeViewportFindings, reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
+import { Finding, ViewportLabel, mergeViewportFindings, reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
 import { ALL_RULE_IDS, RULE_META } from '../common/designReview/ruleIds.js';
 import { DESIGN_PLATFORMS, renderDesignSystem, renderProductContext, unknownAcceptedDrift } from '../common/designContext/designContextFile.js';
 import { digestSnapshot } from '../common/designContext/summariseSnapshot.js';
@@ -1356,7 +1356,11 @@ export class ToolsService implements IToolsService {
 						page: scan.ok
 							? { reachable: true, url: scan.snapshot.url }
 							: { reachable: false, unreachableReason: unreachableReasonOf(scan) },
-						rules: { total: RULE_COUNT, floor, drift: ALL_RULE_IDS.length - floor },
+						// One measure, not two: the total counts FINDING IDS (what a user calls a rule),
+						// so total === floor + drift. Printing the number of rule functions next to a
+						// per-id split gave "53 rules (10 floor, 45 drift)" — arithmetic that does not
+						// add up is the fastest way to lose trust in a report. Caught by the live smoke.
+						rules: { total: ALL_RULE_IDS.length, floor, drift: ALL_RULE_IDS.length - floor },
 						acceptedDrift: {
 							count: read.context.design?.acceptedDrift.length ?? 0,
 							unknown: unknownAcceptedDrift(read.context, ALL_RULE_IDS),

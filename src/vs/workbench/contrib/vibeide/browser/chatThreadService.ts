@@ -86,7 +86,7 @@ import { IVibeSubagentService } from '../common/vibeSubagentService.js';
 import { IVibeVerifyGateService } from './vibeVerifyGateService.js';
 import { decideVerifyGate } from '../common/verifyGatePolicy.js';
 import { DesignHookMode, decideDesignHook, floorFindings, touchesUi } from '../common/designReview/designHookPolicy.js';
-import { reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
+import { Finding, ViewportLabel, mergeViewportFindings, reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
 import { IVibeDesignScanService } from './designReview/vibeDesignScanService.js';
 import { IVibeDesignContextService } from './designContext/vibeDesignContextService.js';
 
@@ -101,6 +101,8 @@ const DESIGN_HOOK_MODE_KEY = 'vibeide.design.hook.mode';
 const DESIGN_HOOK_ATTEMPTS_KEY = 'vibeide.design.hook.maxAttempts';
 /** How many findings the hook's chat note lists before pointing at `design_review` for the rest. */
 const DESIGN_HOOK_NOTE_LIMIT = 6;
+/** Widths the hook measures — the same pair the tool uses, so their counts cannot disagree. */
+const DESIGN_HOOK_VIEWPORTS: readonly ViewportLabel[] = ['desktop', 'mobile'];
 import { isContinuationRequest, buildScoutGoal } from '../common/scoutTrigger.js';
 import { IVibePlanEventJournalService } from '../common/vibePlanEventJournalService.js';
 import { IVibePlanBindingRegistry } from './vibePlanBindingRegistry.js';
@@ -6899,12 +6901,25 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					// stays silent rather than reporting a clean sheet it never saw.
 					const designHookMode = (this._configurationService.getValue<string>(DESIGN_HOOK_MODE_KEY) ?? 'notify') as DesignHookMode;
 					if (designHookMode !== 'off' && touchesUi(touchedPathsThisRun)) {
-						const scan = await this._designScanService.scan();
+						// Both widths, exactly like `design_review` — a hook that measured only the
+						// desktop would be blind to the defects viewports exist for, and its counts
+						// would disagree with the tool's on the same page. Two numbers for one fact is
+						// how a report loses trust (caught by the live smoke: 8 errors vs 9).
 						const { context } = await this._designContextService.read();
-						const findings = scan.ok ? reviewDesign(scan.snapshot, context) : [];
+						const passes: Finding[][] = [];
+						let measured = true;
+						for (const width of DESIGN_HOOK_VIEWPORTS) {
+							const scan = await this._designScanService.scan(width);
+							if (!scan.ok) {
+								measured = false;
+								break;
+							}
+							passes.push(reviewDesign(scan.snapshot, context));
+						}
+						const findings = measured ? mergeViewportFindings(passes) : [];
 						const decision = decideDesignHook({
 							mode: designHookMode,
-							measured: scan.ok,
+							measured,
 							findings,
 							attemptsUsed: designHookAttempts,
 							maxAttempts: Math.max(1, this._configurationService.getValue<number>(DESIGN_HOOK_ATTEMPTS_KEY) ?? 2),

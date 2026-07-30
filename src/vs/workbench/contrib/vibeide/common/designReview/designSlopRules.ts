@@ -101,7 +101,13 @@ export function reviewDesign(doc: DocumentSnapshot, context?: DesignContext): Fi
 		|| a.selector.localeCompare(b.selector));
 }
 
-/** How many rules are registered — the number the doctor reports. */
+/**
+ * How many rule functions are registered.
+ *
+ * NOT the number a report shows: what a user calls "a rule" is a finding id, and one function can
+ * emit two (wide vs negative tracking, stripes vs grid). Reports count ids (`ALL_RULE_IDS`); this
+ * stays for tests that assert the catalogue is wired up at all.
+ */
 export const RULE_COUNT = RULES.length;
 
 /**
