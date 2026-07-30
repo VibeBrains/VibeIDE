@@ -28,7 +28,7 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { DEFAULT_SUBAGENT_TOKEN_QUOTA } from './subagentIsolationPolicy.js';
 import type { SubagentStopReason } from './subagentLoopPolicy.js';
-import type { ProviderId } from './vibeideSettingsTypes.js';
+import type { ModelSelection, ProviderId } from './vibeideSettingsTypes.js';
 import type { ChatImageAttachment } from './chatThreadServiceTypes.js';
 import { IAuditLogService } from './auditLogService.js';
 import { IVibeConstraintsService } from './vibeConstraintsService.js';
@@ -88,6 +88,13 @@ export interface SubagentHandoff {
 	 * spend. Omit it when a fresh run is genuinely wanted every time.
 	 */
 	idempotencyKey?: string;
+	/**
+	 * Model to run this role on, overriding the per-role mapping. Set by «повторить на другой
+	 * модели»; absent = the usual resolution (per-role → chat).
+	 */
+	modelSelection?: ModelSelection | null;
+	/** Run this is a replay of — recorded so the two can be compared afterwards. */
+	replayOfRunId?: string;
 }
 
 /** Statuses that still hold the key — a finished run must not block a new attempt. */
@@ -303,6 +310,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			parentThreadId: handoff.parentThreadId,
 			status: 'pending',
 			startedAt: entry.startedAt,
+			...(handoff.replayOfRunId ? { replayOfRunId: handoff.replayOfRunId } : {}),
 		});
 
 		this._log.info(`[VibeSubagent] Spawning ${handoff.type} subagent ${id} for thread ${handoff.parentThreadId}`);
@@ -477,6 +485,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			maxSteps,
 			maxTokensEst: Math.max(0, maxTokens),
 			maxWallClockMs: handoff.maxWallClockMs ?? 0,
+			modelSelection: handoff.modelSelection,
 			cancellationToken: this._ctsById.get(entry.id)?.token,
 			onProgress: (tokensUsedEst, stepsDone, deadlineAtMs) => {
 				// Per-hop live spend → chat spinner. Only while still running; terminal state

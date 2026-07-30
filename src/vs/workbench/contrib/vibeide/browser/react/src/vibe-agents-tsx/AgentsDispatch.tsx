@@ -146,6 +146,7 @@ const RunCard = ({ run }: { run: AgentRunRecord }) => {
 		<div className='mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-vibe-border-4 pt-2'>
 			<span className='font-mono text-[11px] text-vibe-fg-4'>{run.runId}</span>
 			<div className='flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-vibe-fg-3'>
+				{run.replayOfRunId && <span title={`повтор прогона ${run.replayOfRunId}`}>повтор</span>}
 				{run.resumeReason && <span>{`продолжен на новом основании: ${sessionMismatchToRussian(run.resumeReason as AgentSessionMismatch)}`}</span>}
 				{outcome && <span>{outcome}</span>}
 			</div>

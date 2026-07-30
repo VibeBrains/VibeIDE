@@ -78,6 +78,8 @@ export interface AgentRunRecord {
 	readonly fingerprint?: string;
 	/** `AgentSessionMismatch` explaining why this run did not resume an earlier session. */
 	readonly resumeReason?: string;
+	/** Set when this run is a replay of an earlier one — the pair the comparison report reads. */
+	readonly replayOfRunId?: string;
 	readonly failureReason?: string;
 }
 
@@ -309,6 +311,7 @@ function decodeUpdate(line: string): AgentRunUpdate | undefined {
 	assignIfDefined(update, 'summary', readString(raw.summary));
 	assignIfDefined(update, 'fingerprint', readString(raw.fingerprint));
 	assignIfDefined(update, 'resumeReason', readString(raw.resumeReason));
+	assignIfDefined(update, 'replayOfRunId', readString(raw.replayOfRunId));
 	assignIfDefined(update, 'failureReason', readString(raw.failureReason));
 
 	return update as AgentRunUpdate;

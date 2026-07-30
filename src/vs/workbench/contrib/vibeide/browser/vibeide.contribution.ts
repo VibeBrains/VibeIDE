@@ -33,6 +33,7 @@ import '../common/vibeAgentRunLedgerService.js';
 import './vibeAgentPreflightService.js';
 import './vibeAgentPreflightCommand.js';
 import './vibeTurnChecksService.js';
+import './vibeAgentReplayCommand.js';
 
 // register css
 import './media/vibeide.css';
