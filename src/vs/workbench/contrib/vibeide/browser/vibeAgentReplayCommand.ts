@@ -76,8 +76,11 @@ registerAction2(class extends Action2 {
 		const editorService = accessor.get(IEditorService);
 		const commandService = accessor.get(ICommandService);
 
+		// Only runs that actually executed can be replayed meaningfully: an orphaned run has no
+		// outcome to compare against, and a skipped one never ran at all — replaying it would just
+		// hit the same refusal (an exhausted budget, say) and produce a comparison of two nothings.
 		const finished = (await ledger.getRuns())
-			.filter(run => isTerminalRunStatus(run.status) && run.status !== 'orphaned')
+			.filter(run => isTerminalRunStatus(run.status) && run.status !== 'orphaned' && run.status !== 'skipped')
 			.reverse();
 		if (finished.length === 0) {
 			notifications.notify({ severity: Severity.Info, message: localize('vibeide.replay.none', 'Завершённых прогонов пока нет — повторять нечего.') });

@@ -99,7 +99,13 @@ export interface IVibeSubagentRegistryService {
 
 // ── Built-in presets ───────────────────────────────────────────────────────────
 
-const BUILT_IN_PRESETS: SubagentPreset[] = [
+/**
+ * Delegation roles the agent spawns on its own (explore on «продолжи», implement-step, recovery).
+ * Exported because they need the same per-role settings as the curated pack: `explore` is the
+ * most frequently spawned role of all, so leaving it out of the model/budget table means the
+ * one role a user would most want to cap is the one they cannot.
+ */
+export const BUILT_IN_PRESETS: SubagentPreset[] = [
 	{
 		type: 'explore',
 		displayName: 'Explore',

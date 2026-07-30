@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { useAccessor, useSettingsState } from '../util/services.js';
-import { VIBE_AGENT_ROLE_PRESETS } from '../../../../common/vibeSubagentRegistryService.js';
+import { BUILT_IN_PRESETS, VIBE_AGENT_ROLE_PRESETS } from '../../../../common/vibeSubagentRegistryService.js';
 
 // Dropdown chevron as an inline data-URI (muted gray so it reads in both themes). Used because the
 // select has appearance:none (native chrome removed to allow theming), which also strips the arrow.
@@ -85,7 +85,7 @@ export const AgentRoleModels = () => {
 					margin: '8px 0',
 				}}
 			>
-				{VIBE_AGENT_ROLE_PRESETS.map(preset => {
+				{[...VIBE_AGENT_ROLE_PRESETS, ...BUILT_IN_PRESETS].map(preset => {
 					const current = settingsState.modelSelectionOfRole?.[preset.type] ?? null;
 					const currentKey = current ? `${current.providerName}:::${current.modelName}` : '';
 					const isReadOnly = !preset.allowedTools.some(t => t === 'edit_file' || t === 'rewrite_file' || t === 'run_command');
