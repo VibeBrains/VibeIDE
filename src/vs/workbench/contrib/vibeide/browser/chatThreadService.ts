@@ -85,12 +85,22 @@ import { IVibePersistedPlanService } from '../common/vibePersistedPlanService.js
 import { IVibeSubagentService } from '../common/vibeSubagentService.js';
 import { IVibeVerifyGateService } from './vibeVerifyGateService.js';
 import { decideVerifyGate } from '../common/verifyGatePolicy.js';
+import { DesignHookMode, decideDesignHook, floorFindings, touchesUi } from '../common/designReview/designHookPolicy.js';
+import { reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
+import { IVibeDesignScanService } from './designReview/vibeDesignScanService.js';
+import { IVibeDesignContextService } from './designContext/vibeDesignContextService.js';
 
 /**
  * File-mutating builtin tools — used by the VERIFY-GATE edit-guard: a run that only touched these
  * (or none) triggers verification on completion; a pure read/search/question run does not.
  */
 const MUTATING_TOOL_NAMES: ReadonlySet<string> = new Set(['edit_file', 'rewrite_file', 'create_file_or_folder', 'delete_file_or_folder']);
+
+/** DESIGN-HOOK settings (see `vibeAgentBehaviorConfiguration`). */
+const DESIGN_HOOK_MODE_KEY = 'vibeide.design.hook.mode';
+const DESIGN_HOOK_ATTEMPTS_KEY = 'vibeide.design.hook.maxAttempts';
+/** How many findings the hook's chat note lists before pointing at `design_review` for the rest. */
+const DESIGN_HOOK_NOTE_LIMIT = 6;
 import { isContinuationRequest, buildScoutGoal } from '../common/scoutTrigger.js';
 import { IVibePlanEventJournalService } from '../common/vibePlanEventJournalService.js';
 import { IVibePlanBindingRegistry } from './vibePlanBindingRegistry.js';
@@ -954,6 +964,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeSpecsService private readonly _vibeSpecsService: IVibeSpecsService,
 		@IVibeTokenSavingsService private readonly _vibeTokenSavingsService: IVibeTokenSavingsService,
 		@IVibeVerifyGateService private readonly _verifyGateService: IVibeVerifyGateService,
+		@IVibeDesignScanService private readonly _designScanService: IVibeDesignScanService,
+		@IVibeDesignContextService private readonly _designContextService: IVibeDesignContextService,
 	) {
 		super();
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabIds: [] }; // default state
@@ -4929,8 +4941,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// `maxAttempts` instead of looping. See docs/knowledge/runtimeQuirks/verifyGate.md.
 		let didMutateThisRun = false;
 		let verifyGateAttempts = 0;
-		const markIfMutating = (toolName: string): void => {
-			if (MUTATING_TOOL_NAMES.has(toolName.toLowerCase())) { didMutateThisRun = true; }
+		// DESIGN-HOOK state: which paths the run wrote to, so the design check only fires when the
+		// interface could actually have moved (a service edit cannot change pixels).
+		const touchedPathsThisRun: string[] = [];
+		let designHookAttempts = 0;
+		const markIfMutating = (toolName: string, rawParams?: unknown): void => {
+			if (!MUTATING_TOOL_NAMES.has(toolName.toLowerCase())) { return; }
+			didMutateThisRun = true;
+			const uri = rawParams && typeof rawParams === 'object' ? (rawParams as { uri?: unknown }).uri : undefined;
+			if (typeof uri === 'string' && uri) { touchedPathsThisRun.push(uri); }
 		};
 		// _runToolCall does not need setStreamState({idle}) before it, but it needs it after it. (handles its own setStreamState)
 
@@ -5138,7 +5157,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			}
 
 			const { interrupted } = await this._runToolCall(threadId, callThisToolFirst.name, callThisToolFirst.id, callThisToolFirst.mcpServerName, { preapproved: true, unvalidatedToolParams: callThisToolFirst.rawParams, validatedParams: callThisToolFirst.params });
-			markIfMutating(callThisToolFirst.name); // VERIFY-GATE edit-guard
+			markIfMutating(callThisToolFirst.name, callThisToolFirst.rawParams); // VERIFY-GATE edit-guard + DESIGN-HOOK paths
 			if (interrupted) {
 				this._setStreamState(threadId, undefined);
 				await this._addUserCheckpoint({ threadId });
@@ -6875,6 +6894,44 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// decision === 'complete' → gate inert / verify passed: fall through to normal completion.
 					}
 
+					// DESIGN-HOOK: measure the page the run just changed, without being asked. Fires only
+					// when the turn wrote to interface files AND a preview is open — an unreachable page
+					// stays silent rather than reporting a clean sheet it never saw.
+					const designHookMode = (this._configurationService.getValue<string>(DESIGN_HOOK_MODE_KEY) ?? 'notify') as DesignHookMode;
+					if (designHookMode !== 'off' && touchesUi(touchedPathsThisRun)) {
+						const scan = await this._designScanService.scan();
+						const { context } = await this._designContextService.read();
+						const findings = scan.ok ? reviewDesign(scan.snapshot, context) : [];
+						const decision = decideDesignHook({
+							mode: designHookMode,
+							measured: scan.ok,
+							findings,
+							attemptsUsed: designHookAttempts,
+							maxAttempts: Math.max(1, this._configurationService.getValue<number>(DESIGN_HOOK_ATTEMPTS_KEY) ?? 2),
+						});
+						if (decision === 'bounce') {
+							designHookAttempts += 1;
+							const list = floorFindings(findings).map(f => `• ${f.message} — ${f.selector} (${f.evidence})`).join('\n');
+							const corrective = `⛔ DESIGN-HOOK: страница после правок нарушает пол качества — это дефекты, а не вкус. Задача НЕ закрыта: исправь и продолжай инструментами (попытка ${designHookAttempts}).\n\n${list}\n\nЕсли что-то из перечисленного — намеренный выбор продукта, впиши правило в раздел «Детектор» файла .vibe/design/design.md с причиной, а не игнорируй молча.`;
+							this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
+							shouldSendAnotherMessage = true;
+							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+							continue;
+						}
+						if (decision === 'note') {
+							const counts = summarize(findings);
+							const head = `🎨 DESIGN-HOOK: измерил страницу после правок интерфейса — ${counts.error} ошибок, ${counts.warning} предупреждений, ${counts.info} замечаний по вкусу`
+								+ (counts.accepted ? `; ещё ${counts.accepted} проект считает своей идентичностью.` : '.');
+							const list = findings.filter(f => !f.accepted).slice(0, DESIGN_HOOK_NOTE_LIMIT)
+								.map(f => `• [${f.severity}] ${f.message} — ${f.selector}`).join('\n');
+							const tail = counts.total > DESIGN_HOOK_NOTE_LIMIT
+								? `\n… и ещё ${counts.total - DESIGN_HOOK_NOTE_LIMIT}. Полный список — инструментом design_review.`
+								: '';
+							this._addMessageToThread(threadId, { role: 'assistant', displayContent: `${head}\n\n${list}${tail}`, reasoning: '', anthropicReasoning: null });
+						}
+						// decision === 'quiet' → hook off, page unreachable, or nothing to report.
+					}
+
 					// Run-end via explicit completion: finalize the plan (status/lease/.plan.md) so an
 					// executing plan doesn't stay stuck after the model declares done.
 					this._finalizePlanIfComplete(threadId);
@@ -7066,7 +7123,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 									mcpTool?.mcpServerName,
 									{ preapproved: false, unvalidatedToolParams: toolParams }
 								);
-								markIfMutating(toolName); // VERIFY-GATE edit-guard
+								markIfMutating(toolName, toolParams); // VERIFY-GATE edit-guard + DESIGN-HOOK paths
 
 								if (interrupted) {
 									this._setStreamState(threadId, undefined);
@@ -7271,7 +7328,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								mcpTool?.mcpServerName,
 								{ preapproved: false, unvalidatedToolParams: toolParams }
 							);
-							markIfMutating(toolName); // VERIFY-GATE edit-guard
+							markIfMutating(toolName, toolParams); // VERIFY-GATE edit-guard + DESIGN-HOOK paths
 
 							if (interrupted) {
 								this._setStreamState(threadId, undefined);
@@ -7440,7 +7497,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					}
 
 					const { awaitingUserApproval, interrupted } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams });
-				markIfMutating(toolCall.name); // VERIFY-GATE edit-guard
+				markIfMutating(toolCall.name, toolCall.rawParams); // VERIFY-GATE edit-guard + DESIGN-HOOK paths
 
 					// Tool-call resilience post-dispatch logic (roadmap O.1–O.7):
 					//   - Increment per-(provider×model) counter on tool_error/invalid_params,

@@ -653,8 +653,11 @@ import '../common/vibeAmbientAgentService.js';
 // VibeIDE: Diff view virtualization (100+ files)
 import './vibeDiffVirtualizationService.js';
 
-// VibeIDE: Provider dashboard (cost history)
+// VibeIDE: Design review — measuring the page, and the project's design context behind the judgement
 import './designReview/vibeDesignScanService.js';
+import './designContext/vibeDesignContextService.js';
+
+// VibeIDE: Provider dashboard (cost history)
 import './vibeSpendLedgerService.js';
 import './vibeProviderDashboard.js';
 

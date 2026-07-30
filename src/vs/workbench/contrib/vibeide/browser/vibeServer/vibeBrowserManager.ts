@@ -23,7 +23,7 @@ import { IWebviewWorkbenchService } from '../../../webviewPanel/browser/webviewW
 import { ACTIVE_GROUP } from '../../../../services/editor/common/editorService.js';
 import { Extensions as OutputExtensions, IOutputChannelRegistry, IOutputService } from '../../../../services/output/common/output.js';
 
-import { DocumentSnapshot } from '../../common/designReview/designSlopRules.js';
+import { DocumentSnapshot, ViewportLabel } from '../../common/designReview/designSlopRules.js';
 
 const VIBE_BROWSER_VIEW_TYPE = 'vibeide.vibeBrowser';
 const VIBE_SERVER_CONSOLE_CHANNEL_ID = 'vibeide.vibeServerConsole';
@@ -129,7 +129,7 @@ export class VibeBrowserManager extends Disposable {
 	 * Same precondition as inspect: the bridge script only lives in the static runtime, so a
 	 * dev-server or Docker preview reports `unsupported` instead of quietly returning nothing.
 	 */
-	async scanDesign(): Promise<DesignScanResult> {
+	async scanDesign(viewport: ViewportLabel = 'desktop'): Promise<DesignScanResult> {
 		if (!this._active) {
 			return { ok: false, reason: 'no-preview' };
 		}
@@ -143,7 +143,8 @@ export class VibeBrowserManager extends Disposable {
 		return new Promise<DesignScanResult>(resolve => {
 			const timer = setTimeout(() => this._settleDesignScan({ ok: false, reason: 'timeout' }), DESIGN_SCAN_TIMEOUT_MS);
 			this._pendingDesignScan = { resolve, timer };
-			void target.webview.postMessage({ type: 'design-scan-request' });
+			// The chrome narrows the frame for a mobile scan, so the page relayouts for real.
+			void target.webview.postMessage({ type: 'design-scan-request', viewport });
 		});
 	}
 
@@ -407,6 +408,38 @@ export class VibeBrowserManager extends Disposable {
 		if (frame.contentWindow){ frame.contentWindow.postMessage({ __vibeServerInspect: inspOn }, '*'); }
 	}
 
+	// Measuring the mobile layout: the frame is really narrowed, so media queries, flex wrapping and
+	// the page's own resize handlers all run for that width. Faking a viewport number instead would
+	// report the desktop layout under a mobile label — and a headless window forced to a minimum
+	// width is exactly how a false "content is clipped on mobile" finding gets manufactured.
+	var MOBILE_SCAN_WIDTH_PX = 390;
+	// One frame to apply the width, one for the page's own layout/resize work, then measure.
+	var SCAN_SETTLE_MS = 120;
+	// Longer than the workbench-side scan timeout, so restoring is a backstop and not a race.
+	var SCAN_RESTORE_MS = 8000;
+	var savedWrapWidth = null;
+	function restoreScanWidth(){
+		if (savedWrapWidth === null){ return; }
+		wrap.style.width = savedWrapWidth;
+		savedWrapWidth = null;
+		applySize();
+	}
+	function requestScan(viewport){
+		if (viewport !== 'mobile'){
+			frame.contentWindow.postMessage({ __vibeServerDesignScan: true, viewport: viewport || 'desktop' }, '*');
+			return;
+		}
+		savedWrapWidth = wrap.style.width;
+		wrap.className = 'vb-frame-wrap sized';
+		wrap.style.width = MOBILE_SCAN_WIDTH_PX + 'px';
+		requestAnimationFrame(function(){ setTimeout(function(){
+			if (frame.contentWindow){ frame.contentWindow.postMessage({ __vibeServerDesignScan: true, viewport: 'mobile' }, '*'); }
+			else { restoreScanWidth(); }
+		}, SCAN_SETTLE_MS); });
+		// A page that never answers must not leave the preview stuck at phone width.
+		setTimeout(restoreScanWidth, SCAN_RESTORE_MS);
+	}
+
 	function buttons(){ back.disabled = idx <= 0; fwd.disabled = idx >= hist.length - 1; }
 	function onNav(href, title){
 		if (href !== current){ hist = hist.slice(0, idx + 1); hist.push(href); idx = hist.length - 1; current = href; }
@@ -447,8 +480,8 @@ export class VibeBrowserManager extends Disposable {
 		else if (d.__vibeBrowser === 'scroll'){ vscode.postMessage({ type: 'scroll', x: d.x, y: d.y }); }
 		else if (d.__vibeBrowser === 'inspect'){ setInsp(false); vscode.postMessage({ type: 'inspect', selector: d.selector, html: d.html, href: d.href, path: d.path }); }
 		else if (d.__vibeBrowser === 'inspect-cancel'){ setInsp(false); }
-		else if (d.__vibeBrowser === 'design-scan'){ vscode.postMessage({ type: 'design-scan', snapshot: d.snapshot, error: d.error }); }
-		else if (d.type === 'design-scan-request' && frame.contentWindow){ frame.contentWindow.postMessage({ __vibeServerDesignScan: true }, '*'); }
+		else if (d.__vibeBrowser === 'design-scan'){ restoreScanWidth(); vscode.postMessage({ type: 'design-scan', snapshot: d.snapshot, error: d.error }); }
+		else if (d.type === 'design-scan-request' && frame.contentWindow){ requestScan(d.viewport); }
 		else if (d.type === 'inspect-supported'){ insp.disabled = !d.value; if (!d.value){ setInsp(false); } }
 		else if (d.type === 'navigate' && d.url){ goto(d.url); }
 		else if (d.type === 'reload'){ frame.src = current || frame.src; }

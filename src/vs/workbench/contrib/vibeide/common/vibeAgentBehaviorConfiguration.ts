@@ -48,6 +48,24 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: 'npm test',
 			description: localize('vibeide.agent.runTestsAfterApply.command', 'Shell-команда для прогона тестов (используется только когда `runTestsAfterApply.enabled = true`). Должна быть быстрой (≤30s), иначе блокирует следующий agent step. Пример: `npm test -- --bail` для остановки на первой ошибке.'),
 		},
+		'vibeide.design.hook.mode': {
+			type: 'string',
+			enum: ['off', 'notify', 'enforceFloor'],
+			enumDescriptions: [
+				localize('vibeide.design.hook.mode.off', 'Выкл — страница после правок интерфейса не измеряется; детектор работает только когда его позовут инструментом `design_review`.'),
+				localize('vibeide.design.hook.mode.notify', 'Сообщать (дефолт) — после хода, менявшего файлы интерфейса, страница измеряется, и сводка находок добавляется в чат. Ход завершается в любом случае.'),
+				localize('vibeide.design.hook.mode.enforceFloor', 'Держать пол качества — то же измерение, но находки класса «пол» (контраст ниже нормы, зона нажатия меньше 44px, обрезанный контент, битая картинка) НЕ закрывают задачу: агент получает их и обязан исправить. Стилевые находки при этом никогда не блокируют — вкус не повод остановить работу.'),
+			],
+			default: 'notify',
+			description: localize('vibeide.design.hook.mode', 'DESIGN-HOOK: автоматический замер страницы в превью при завершении хода, если ход менял файлы интерфейса (`.css`, `.tsx`, `.html`, …; тесты не считаются). Нужно открытое превью — без него хук молчит, а не рапортует «чисто». Находки, объявленные идентичностью проекта в `.vibe/design/design.md`, не показываются и не блокируют.'),
+		},
+		'vibeide.design.hook.maxAttempts': {
+			type: 'number',
+			default: 2,
+			minimum: 1,
+			maximum: 5,
+			description: localize('vibeide.design.hook.maxAttempts', 'Сколько раз DESIGN-HOOK в режиме `enforceFloor` вернёт агента на доработку при находках класса «пол», прежде чем просто добавить заметку и закрыть ход (защита от цикла на неустранимом дефекте). Диапазон 1–5, дефолт 2.'),
+		},
 		'vibeide.agent.verifyGate.mode': {
 			type: 'string',
 			enum: ['off', 'warn', 'enforce'],

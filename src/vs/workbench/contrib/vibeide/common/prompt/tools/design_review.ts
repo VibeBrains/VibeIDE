@@ -17,8 +17,11 @@ Reports three kinds of finding:
 
 Each finding carries the element's CSS selector and the measured value, so a fix can be verified by running the tool again. Use it before claiming UI work is done, and after changing styles to show what moved.
 
+Runs at two widths by default: a finding present at both is reported once, one that only appears at 390px carries 'viewport: mobile'. A layout defect that exists only on a phone is invisible to a single desktop pass.
+
 Requires an open preview from the static runtime — the same precondition as element inspect. With a dev-server or Docker preview the tool says the page is out of reach instead of returning an empty result, because "nothing found" and "nothing measured" are different answers.`,
 	params: {
 		severity: { description: `Optional filter: 'error', 'warning' or 'info'. Omit to get everything, which is the usual case.` },
+		viewport: { description: `'both' (default), 'desktop' or 'mobile'. 'both' measures the page twice — the preview is really narrowed to 390px for the mobile pass, so media queries run — and reports width-specific findings with the width they appeared at.` },
 	},
 };

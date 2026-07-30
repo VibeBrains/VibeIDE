@@ -16,6 +16,7 @@ import { URI } from '../../../../../base/common/uri.js';
 import { createDecorator } from '../../../../../platform/instantiation/common/instantiation.js';
 import { IVibeServerStarted, VibeServerRuntimeKind } from '../../common/vibeServer/vibeServerIpc.js';
 import { VibeServerPreviewTarget } from './vibeServerConstants.js';
+import { ViewportLabel } from '../../common/designReview/designSlopRules.js';
 import { DesignScanResult } from './vibeBrowserManager.js';
 
 // Реализация — `electron-browser/vibeServer/vibeServerService.ts`: класс держит `IMainProcessService`
@@ -56,7 +57,7 @@ export interface IVibeServerService {
 	 * nothing). Reports why it could not measure instead of returning an empty result — "nothing
 	 * found" and "nothing measured" must not look alike.
 	 */
-	scanDesign(): Promise<DesignScanResult>;
+	scanDesign(viewport?: ViewportLabel): Promise<DesignScanResult>;
 	/** Starts the server if needed, then opens the preview at the given workspace file. */
 	openPreviewForResource(resource: URI): Promise<void>;
 	/** Copies the running server URL to the clipboard. */

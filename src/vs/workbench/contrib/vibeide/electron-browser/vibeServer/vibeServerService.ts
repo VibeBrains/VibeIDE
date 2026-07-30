@@ -43,6 +43,7 @@ import { IVibeServerRuntime, StaticRuntime, DevServerRuntime, DevServerPortBusyE
 import { DockerRuntime } from '../../browser/vibeServer/vibeDockerRuntime.js';
 import { VibeBrowserManager, IVibeBrowserElementPick, DesignScanResult } from '../../browser/vibeServer/vibeBrowserManager.js';
 import { IVibeDesignScanService } from '../../browser/designReview/vibeDesignScanService.js';
+import { ViewportLabel } from '../../common/designReview/designSlopRules.js';
 import { openVibeChatEditor } from '../../browser/vibeideChatPane.js';
 import { VibeServerConfigKeys, VibeServerPreviewTarget, VIBE_SERVER_RUNNING_CONTEXT_KEY } from '../../browser/vibeServer/vibeServerConstants.js';
 import { IVibeServerService, IVibeServerStatus } from '../../browser/vibeServer/vibeServerService.js';
@@ -88,7 +89,7 @@ class VibeServerService extends Disposable implements IVibeServerService {
 		// The design-scan tool asks this service through a dependency-free registry, not by
 		// importing it: a direct injection closed the cycle chat → subagent → tools → server → chat
 		// and killed workbench contributions at runtime.
-		this._register(this._designScanService.registerSource(() => this.scanDesign()));
+		this._register(this._designScanService.registerSource(viewport => this.scanDesign(viewport)));
 		this._main = ProxyChannel.toService<IVibeServerMain>(mainProcessService.getChannel(VIBE_SERVER_CHANNEL));
 		this._procMain = ProxyChannel.toService<IVibeServerProcessMain>(mainProcessService.getChannel(VIBE_SERVER_PROCESS_CHANNEL));
 		this._runningKey = contextKeyService.createKey<boolean>(VIBE_SERVER_RUNNING_CONTEXT_KEY, false);
@@ -329,14 +330,14 @@ class VibeServerService extends Disposable implements IVibeServerService {
 		this._browser.value?.reloadAll();
 	}
 
-	async scanDesign(): Promise<DesignScanResult> {
+	async scanDesign(viewport: ViewportLabel = 'desktop'): Promise<DesignScanResult> {
 		// Deliberately does NOT open a preview: scanning is a read of what the user is looking at,
 		// and spawning a window as a side effect of a measurement would be a surprise.
 		const browser = this._browser.value;
 		if (!browser) {
 			return { ok: false, reason: 'no-preview' };
 		}
-		return browser.scanDesign();
+		return browser.scanDesign(viewport);
 	}
 
 	private _ensureBrowser(): VibeBrowserManager {

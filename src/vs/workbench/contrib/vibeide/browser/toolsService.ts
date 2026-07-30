@@ -46,8 +46,12 @@ import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { IVibeCodeGraphService } from './codeGraph/vibeCodeGraphService.js';
-import { IVibeDesignScanService } from './designReview/vibeDesignScanService.js';
-import { reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
+import { IVibeDesignScanService, unreachableReasonOf } from './designReview/vibeDesignScanService.js';
+import { IVibeDesignContextService } from './designContext/vibeDesignContextService.js';
+import { Finding, RULE_COUNT, ViewportLabel, mergeViewportFindings, reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
+import { ALL_RULE_IDS, RULE_META } from '../common/designReview/ruleIds.js';
+import { DESIGN_PLATFORMS, renderDesignSystem, renderProductContext, unknownAcceptedDrift } from '../common/designContext/designContextFile.js';
+import { digestSnapshot } from '../common/designContext/summariseSnapshot.js';
 import { CodeGraph, fileNodeId, symbolNodeId } from '../common/codeGraph/vibeCodeGraph.js';
 import { Position } from '../../../../editor/common/core/position.js';
 import { Range } from '../../../../editor/common/core/range.js';
@@ -252,7 +256,7 @@ export class ToolsService implements IToolsService {
 
 	constructor(
 		@IFileService fileService: IFileService,
-		@IWorkspaceContextService workspaceContextService: IWorkspaceContextService,
+		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@ISearchService searchService: ISearchService,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@IVibeideModelService vibeideModelService: IVibeideModelService,
@@ -273,6 +277,7 @@ export class ToolsService implements IToolsService {
 		@ILanguageFeaturesService private readonly languageFeaturesService: ILanguageFeaturesService,
 		@IVibeCodeGraphService private readonly codeGraphService: IVibeCodeGraphService,
 		@IVibeDesignScanService private readonly designScanService: IVibeDesignScanService,
+		@IVibeDesignContextService private readonly designContextService: IVibeDesignContextService,
 		@IVibeConstraintsService private readonly vibeConstraintsService: IVibeConstraintsService,
 		@IVibePromptGuardService private readonly vibePromptGuardService: IVibePromptGuardService,
 		@IVibePerFilePermissionsService private readonly vibePermissionsService: IVibePerFilePermissionsService,
@@ -539,12 +544,46 @@ export class ToolsService implements IToolsService {
 			},
 
 			design_review: (params: RawToolParamsObj) => {
-				const { severity: sevUnknown } = params;
+				const { severity: sevUnknown, viewport: viewportUnknown } = params;
 				const raw = typeof sevUnknown === 'string' ? sevUnknown.trim().toLowerCase() : '';
 				if (raw && raw !== 'error' && raw !== 'warning' && raw !== 'info') {
 					throw new Error(`Invalid LLM output: severity must be 'error', 'warning' or 'info' when given, got ${sevUnknown}`);
 				}
-				return { severity: raw ? raw as 'error' | 'warning' | 'info' : null };
+				const viewportRaw = typeof viewportUnknown === 'string' ? viewportUnknown.trim().toLowerCase() : '';
+				if (viewportRaw && viewportRaw !== 'desktop' && viewportRaw !== 'mobile' && viewportRaw !== 'both') {
+					throw new Error(`Invalid LLM output: viewport must be 'desktop', 'mobile' or 'both' when given, got ${viewportUnknown}`);
+				}
+				return {
+					severity: raw ? raw as 'error' | 'warning' | 'info' : null,
+					// Both widths by default: a defect that only exists on a phone is invisible otherwise.
+					viewport: (viewportRaw || 'both') as 'desktop' | 'mobile' | 'both',
+				};
+			},
+
+			design_context: () => ({}),
+
+			design_doctor: () => ({}),
+
+			design_document: (params: RawToolParamsObj) => {
+				const { target: targetUnknown, name, audience, positioning, platform: platformUnknown, notes, apply: applyUnknown } = params;
+				const target = typeof targetUnknown === 'string' ? targetUnknown.trim().toLowerCase() : '';
+				if (target !== 'product' && target !== 'system') {
+					throw new Error(`Invalid LLM output: target must be 'product' or 'system', got ${targetUnknown}`);
+				}
+				const text = (value: unknown): string | null => typeof value === 'string' && value.trim() ? value.trim() : null;
+				const platformRaw = typeof platformUnknown === 'string' ? platformUnknown.trim().toLowerCase() : '';
+				const platform = DESIGN_PLATFORMS.find(candidate => candidate === platformRaw) ?? null;
+				if (platformRaw && !platform) {
+					throw new Error(`Invalid LLM output: platform must be one of ${DESIGN_PLATFORMS.join(', ')}, got ${platformUnknown}`);
+				}
+				const product = { audience: text(audience), positioning: text(positioning) };
+				if (target === 'product' && !product.audience && !product.positioning) {
+					throw new Error(`Invalid LLM output: target 'product' needs at least 'audience' or 'positioning' — ask the user before writing an empty file.`);
+				}
+				// 'product' comes from an answer the user just gave, so writing it is the point;
+				// 'system' overwrites a measured file, so it shows the draft unless told otherwise.
+				const apply = typeof applyUnknown === 'boolean' ? applyUnknown : target === 'product';
+				return { target, name: text(name), ...product, platform, notes: text(notes), apply };
 			},
 
 			code_graph: (params: RawToolParamsObj) => {
@@ -1258,25 +1297,115 @@ export class ToolsService implements IToolsService {
 				return { result: {} };
 			},
 
-			design_review: async ({ severity }) => {
-				const scan = await this.designScanService.scan();
-				if (!scan.ok) {
-					const why = scan.reason === 'no-preview' ? 'превью не открыто'
-						: scan.reason === 'unsupported' ? 'страница вне досягаемости: скрипт-мост живёт только в статическом превью, а сейчас dev-server или Docker'
-							: scan.reason === 'timeout' ? 'страница не ответила'
-								: `ошибка на странице: ${scan.detail ?? 'без подробностей'}`;
-					return { result: { reachable: false, unreachableReason: why, findings: [] } };
+			design_review: async ({ severity, viewport }) => {
+				const widths: ViewportLabel[] = viewport === 'both' ? ['desktop', 'mobile'] : [viewport];
+				// The project's own design system decides which style tells are its identity, so the
+				// context is read before judging rather than after arguing.
+				const { context } = await this.designContextService.read();
+				const passes: Finding[][] = [];
+				let url: string | undefined;
+				let truncated = false;
+				for (const width of widths) {
+					const scan = await this.designScanService.scan(width);
+					if (!scan.ok) {
+						// One unreachable width means the page is unreachable: reporting the other
+						// pass alone would present a partial measurement as a full one.
+						return { result: { reachable: false, unreachableReason: unreachableReasonOf(scan), findings: [] } };
+					}
+					url = scan.snapshot.url;
+					truncated = truncated || scan.truncated;
+					passes.push(reviewDesign(scan.snapshot, context));
 				}
-				const all = reviewDesign(scan.snapshot);
+				const all = mergeViewportFindings(passes);
 				const findings = severity ? all.filter(f => f.severity === severity) : all;
+				return { result: { reachable: true, url, truncated, findings } };
+			},
+
+			design_context: async () => {
+				const read = await this.designContextService.read();
+				const { product, design } = read.context;
 				return {
 					result: {
-						reachable: true,
-						url: scan.snapshot.url,
-						truncated: scan.truncated,
-						findings,
+						hasWorkspace: read.hasWorkspace,
+						sources: read.sources,
+						product: product && {
+							audience: product.audience,
+							positioning: product.positioning,
+							platform: product.platform,
+							text: product.raw,
+						},
+						design: design && {
+							fonts: design.fonts,
+							colors: design.colors,
+							namedRules: design.namedRules,
+							acceptedDrift: design.acceptedDrift,
+							unknownDrift: unknownAcceptedDrift(read.context, ALL_RULE_IDS),
+							text: design.raw,
+						},
 					},
 				};
+			},
+
+			design_doctor: async () => {
+				const read = await this.designContextService.read();
+				const scan = await this.designScanService.scan();
+				const floor = ALL_RULE_IDS.filter(id => RULE_META[id].ruleClass === 'floor').length;
+				return {
+					result: {
+						context: read.sources,
+						page: scan.ok
+							? { reachable: true, url: scan.snapshot.url }
+							: { reachable: false, unreachableReason: unreachableReasonOf(scan) },
+						rules: { total: RULE_COUNT, floor, drift: ALL_RULE_IDS.length - floor },
+						acceptedDrift: {
+							count: read.context.design?.acceptedDrift.length ?? 0,
+							unknown: unknownAcceptedDrift(read.context, ALL_RULE_IDS),
+						},
+						hook: {
+							mode: this._configurationService.getValue<string>('vibeide.design.hook.mode') ?? 'notify',
+							maxAttempts: this._configurationService.getValue<number>('vibeide.design.hook.maxAttempts') ?? 2,
+						},
+					},
+				};
+			},
+
+			design_document: async ({ target, name, audience, positioning, platform, notes, apply }) => {
+				const fallbackName = this.workspaceContextService.getWorkspace().folders[0]?.name ?? 'проект';
+				if (target === 'product') {
+					const draft = {
+						name: name ?? fallbackName,
+						audience: audience ?? undefined,
+						positioning: positioning ?? undefined,
+						platform: platform ?? undefined,
+						notes: notes ?? undefined,
+					};
+					if (!apply) {
+						return { result: { target, draft: renderProductContext(draft) } };
+					}
+					const writtenTo = await this.designContextService.writeProduct(draft);
+					return { result: { target, writtenTo, draft: renderProductContext(draft) } };
+				}
+
+				const scan = await this.designScanService.scan();
+				if (!scan.ok) {
+					return { result: { target, unreachableReason: unreachableReasonOf(scan) } };
+				}
+				// Decisions already in the file survive a re-measurement: named rules and accepted
+				// drift are judgements, and only the measured part is regenerated.
+				const existing = (await this.designContextService.read()).context.design;
+				const draft = {
+					name: name ?? fallbackName,
+					...digestSnapshot(scan.snapshot),
+					namedRules: existing?.namedRules ?? [],
+					acceptedDrift: existing?.acceptedDrift ?? [],
+					source: scan.snapshot.url,
+				};
+				const rendered = renderDesignSystem(draft);
+				if (!apply) {
+					return { result: { target, draft: rendered } };
+				}
+				const writtenTo = await this.designContextService.writeDesign(draft);
+				return { result: { target, writtenTo, draft: rendered } };
 			},
 
 			code_graph: async ({ query, target, to }) => {
@@ -2575,10 +2704,74 @@ export class ToolsService implements IToolsService {
 					return `Проверено${result.url ? ` (${result.url})` : ''}: замечаний нет.${result.truncated ? ' Внимание: страница крупная, в снимок попала только её часть.' : ''}`;
 				}
 				const counts = summarize(result.findings);
-				const lines = result.findings.map(f => `[${f.severity}] ${f.rule} — ${f.message}\n    где: ${f.selector}\n    почему: ${f.why}\n    измерено: ${f.evidence}`);
-				const head = `Проверено${result.url ? ` (${result.url})` : ''}: ${counts.error} ошибок, ${counts.warning} предупреждений, ${counts.info} замечаний по вкусу.`;
+				const describe = (f: typeof result.findings[number]) =>
+					`[${f.accepted ? 'осознанно' : f.severity}] ${f.rule}${f.viewport ? ` (${f.viewport === 'mobile' ? 'мобильный' : 'десктоп'})` : ''} — ${f.message}`
+					+ `\n    где: ${f.selector}\n    почему: ${f.why}\n    измерено: ${f.evidence}`
+					+ (f.accepted ? `\n    принято проектом: ${f.accepted.reason || 'без причины в design.md'}` : '');
+				const live = result.findings.filter(f => !f.accepted);
+				const accepted = result.findings.filter(f => f.accepted);
+				const head = `Проверено${result.url ? ` (${result.url})` : ''}: ${counts.error} ошибок, ${counts.warning} предупреждений, ${counts.info} замечаний по вкусу`
+					+ (counts.accepted ? `; ещё ${counts.accepted} находок проект объявил своей идентичностью.` : '.');
+				const acceptedBlock = accepted.length
+					? `\n\nОсознанные отклонения (не чинить, это решение проекта):\n${accepted.map(describe).join('\n')}`
+					: '';
 				const tail = result.truncated ? '\n\nСтраница крупная — в снимок попала только её часть, проверьте остальное отдельно.' : '';
-				return `${head}\n\n${lines.join('\n')}${tail}`;
+				return `${head}\n\n${live.map(describe).join('\n')}${acceptedBlock}${tail}`;
+			},
+
+			design_context: (_params, result) => {
+				if (!result.hasWorkspace) {
+					return 'Папка проекта не открыта — читать дизайн-контекст неоткуда.';
+				}
+				if (!result.product && !result.design) {
+					return 'Дизайн-контекста в проекте нет: ни product.md, ни design.md.\n\nЭто значит, что любая генерация интерфейса будет обобщённой. Предложите пользователю собрать контекст: два вопроса про продукт (design_document target=product) и снятие визуальной системы с живой страницы (design_document target=system).';
+				}
+				const parts: string[] = [];
+				if (result.product) {
+					parts.push(`# Продукт (${result.sources.product})\n\n${result.product.text.trim()}`);
+				} else {
+					parts.push('Файла product.md нет: для кого продукт и чем он отличается — неизвестно. Спросите пользователя, не выдумывайте.');
+				}
+				if (result.design) {
+					const rules = result.design.namedRules.length
+						? `\n\nИменованные правила, на которые надо ссылаться по имени: ${result.design.namedRules.map(rule => `«${rule.name}»`).join(', ')}.`
+						: '\n\nИменованных правил нет — инварианты этой системы нигде не зафиксированы.';
+					const drift = result.design.acceptedDrift.length
+						? `\nПроект объявил своей идентичностью: ${result.design.acceptedDrift.map(item => item.rule).join(', ')} — это не дефекты.`
+						: '';
+					const unknown = result.design.unknownDrift.length
+						? `\nВНИМАНИЕ: в разделе «Детектор» указаны несуществующие правила (${result.design.unknownDrift.join(', ')}) — они не отключают ничего, скорее всего опечатка.`
+						: '';
+					parts.push(`# Дизайн-система (${result.sources.design})\n\n${result.design.text.trim()}${rules}${drift}${unknown}`);
+				} else {
+					parts.push('Файла design.md нет: палитра, гарнитуры и правила не зафиксированы. Снимите систему с живой страницы через design_document target=system.');
+				}
+				return parts.join('\n\n');
+			},
+
+			design_doctor: (_params, result) => {
+				const lines = [
+					result.context.product ? `Продукт: ${result.context.product}` : 'Продукт: файла нет — стратегия не зафиксирована, генерация будет обобщённой.',
+					result.context.design ? `Дизайн-система: ${result.context.design}` : 'Дизайн-система: файла нет — палитра и правила не зафиксированы.',
+					result.page.reachable ? `Страница измеряется: ${result.page.url ?? 'превью открыто'}` : `Страницу измерить нельзя: ${result.page.unreachableReason}`,
+					`Правил активно: ${result.rules.total} (пол качества — ${result.rules.floor} признаков, стилевых — ${result.rules.drift}).`,
+					`Осознанных отклонений в проекте: ${result.acceptedDrift.count}.`,
+					`Хук: ${result.hook.mode}${result.hook.mode === 'enforceFloor' ? ` (до ${result.hook.maxAttempts} возвратов)` : ''}.`,
+				];
+				if (result.acceptedDrift.unknown.length) {
+					lines.push(`ВНИМАНИЕ: правил с такими id не существует — ${result.acceptedDrift.unknown.join(', ')}. Они ничего не отключают; скорее всего опечатка в design.md.`);
+				}
+				return lines.join('\n');
+			},
+
+			design_document: (_params, result) => {
+				if (result.unreachableReason) {
+					return `Не удалось снять систему: ${result.unreachableReason}. Ничего не записано — пустая дизайн-система хуже отсутствующей.`;
+				}
+				if (!result.writtenTo) {
+					return `Черновик ${result.target === 'product' ? 'product.md' : 'design.md'} (НЕ записан, покажите пользователю и спросите, что поправить):\n\n${result.draft ?? ''}`;
+				}
+				return `Записано в ${result.writtenTo}. Файл принадлежит пользователю — предложите прочитать и вычеркнуть лишнее.\n\n${result.draft ?? ''}`;
 			},
 
 			code_graph: (params, result) => {

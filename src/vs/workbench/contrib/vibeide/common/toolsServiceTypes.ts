@@ -60,7 +60,19 @@ export type BuiltinToolCallParams = {
 	'go_to_definition': { uri: URI; line: number; column: number };
 	'find_references': { uri: URI; line: number; column: number };
 	'code_graph': { query: 'neighbors' | 'path' | 'why'; target: string; to: string | null };
-	'design_review': { severity: 'error' | 'warning' | 'info' | null };
+	'design_review': { severity: 'error' | 'warning' | 'info' | null; viewport: 'desktop' | 'mobile' | 'both' };
+	// No parameters: the context is whatever the project wrote, and there is nothing to narrow.
+	'design_context': Record<never, never>;
+	'design_doctor': Record<never, never>;
+	'design_document': {
+		target: 'product' | 'system';
+		name: string | null;
+		audience: string | null;
+		positioning: string | null;
+		platform: 'web' | 'ios' | 'android' | 'adaptive' | null;
+		notes: string | null;
+		apply: boolean;
+	};
 	'search_symbols': { query: string; uri: URI | null };
 	'automated_code_review': { uri: URI };
 	'generate_tests': { uri: URI; functionName?: string; testFramework?: string };
@@ -119,7 +131,48 @@ export type BuiltinToolResultType = {
 		unreachableReason?: string;
 		url?: string;
 		truncated?: boolean;
-		findings: Array<{ rule: string; severity: 'error' | 'warning' | 'info'; message: string; why: string; selector: string; evidence: string }>;
+		findings: Array<{
+			rule: string;
+			severity: 'error' | 'warning' | 'info';
+			ruleClass: 'floor' | 'drift';
+			message: string;
+			why: string;
+			selector: string;
+			evidence: string;
+			viewport?: 'desktop' | 'mobile';
+			accepted?: { reason: string };
+		}>;
+	};
+	// The project's design context. `written: false` with no files is "nothing written yet" —
+	// distinct from an empty design system, which would read as "decided to have nothing".
+	'design_context': {
+		hasWorkspace: boolean;
+		sources: { product?: string; design?: string };
+		product?: { audience?: string; positioning?: string; platform?: string; text: string };
+		design?: {
+			fonts: string[];
+			colors: string[];
+			namedRules: Array<{ name: string; body: string }>;
+			acceptedDrift: Array<{ rule: string; reason: string }>;
+			unknownDrift: string[];
+			text: string;
+		};
+	};
+	'design_document': {
+		target: 'product' | 'system';
+		/** Set when the file was written; absent when only a draft came back. */
+		writtenTo?: string;
+		draft?: string;
+		/** Set when 'system' could not measure the page — nothing was written in that case. */
+		unreachableReason?: string;
+	};
+	// Whether the design machinery can work here at all, and what is missing if not.
+	'design_doctor': {
+		context: { product?: string; design?: string };
+		page: { reachable: boolean; url?: string; unreachableReason?: string };
+		rules: { total: number; floor: number; drift: number };
+		acceptedDrift: { count: number; unknown: string[] };
+		hook: { mode: string; maxAttempts: number };
 	};
 	'search_symbols': { symbols: Array<{ name: string; kind: string; uri: URI; startLine: number; startColumn: number; endLine: number; endColumn: number }> };
 	'automated_code_review': { issues: Array<{ severity: 'error' | 'warning' | 'info'; message: string; line: number; column: number; suggestion?: string }> };
