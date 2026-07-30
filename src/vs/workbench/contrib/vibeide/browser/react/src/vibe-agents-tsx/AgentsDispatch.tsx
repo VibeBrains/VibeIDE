@@ -93,10 +93,11 @@ function describeOutcome(run: AgentRunRecord): string | undefined {
 const Label = ({ children }: { children: React.ReactNode }) =>
 	<div className='text-[10px] uppercase tracking-[0.12em] text-vibe-fg-3'>{children}</div>;
 
-const Cell = ({ label, value }: { label: string; value: string }) =>
+const Cell = ({ label, value, hint }: { label: string; value: string; hint?: string }) =>
 	<div className='rounded-md border border-vibe-border-4 bg-vibe-bg-1 px-3 py-2'>
 		<Label>{label}</Label>
 		<div className='mt-0.5 text-sm text-vibe-fg-1 truncate' title={value}>{value}</div>
+		{hint && <div className='mt-0.5 text-[10px] text-vibe-fg-3 truncate' title={hint}>{hint}</div>}
 	</div>;
 
 const StatusPill = ({ status }: { status: AgentRunStatus }) =>
@@ -125,7 +126,13 @@ const RunCard = ({ run }: { run: AgentRunRecord }) => {
 		</div>
 
 		<div className='mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4'>
-			<Cell label='Токены' value={formatOfQuota(run.tokensUsed, run.tokenQuota)} />
+			<Cell
+				label='Токены'
+				value={formatOfQuota(run.tokensUsed, run.tokenQuota)}
+				// The role is not billed twice for prompt-cached context; without this line that
+				// discount is invisible and the spend looks unexplained.
+				hint={run.cachedTokens ? `из кэша ${formatCount(run.cachedTokens)}` : undefined}
+			/>
 			<Cell label='Шаги' value={formatOfQuota(run.stepsDone, run.maxSteps)} />
 			<Cell label='Модель' value={run.model || '—'} />
 			<Cell label='Начат' value={formatChatTimestamp(run.startedAt, 'DD.MM.YYYY HH:mm')} />

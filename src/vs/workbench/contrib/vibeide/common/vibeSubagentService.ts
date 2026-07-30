@@ -78,6 +78,27 @@ export interface SubagentHandoff {
 	useWorktree?: boolean;
 	/** Branch name hint for worktree (auto-generated if not provided) */
 	worktreeBranch?: string;
+	/**
+	 * Caller-supplied key that makes a spawn repeatable-safe: while a run started with this key is
+	 * still alive, spawning it again returns the SAME id instead of starting a second role. Without
+	 * it a retried route step, a double click or a re-entrant orchestrator silently doubles the
+	 * spend. Omit it when a fresh run is genuinely wanted every time.
+	 */
+	idempotencyKey?: string;
+}
+
+/** Statuses that still hold the key — a finished run must not block a new attempt. */
+const LIVE_SUBAGENT_STATUSES: ReadonlySet<string> = new Set(['pending', 'running']);
+
+/**
+ * Id of the live run started with `key`, or `undefined` when none is. Pure — the registry is
+ * passed in, so the rule is unit-testable without a workbench.
+ */
+export function findLiveRunByIdempotencyKey(entries: readonly SubagentEntry[], key: string): string | undefined {
+	if (!key) {
+		return undefined;
+	}
+	return entries.find(entry => entry.handoff.idempotencyKey === key && LIVE_SUBAGENT_STATUSES.has(entry.status))?.id;
 }
 
 /** Compact result returned to the parent — bounded by MAX_RESULT_CHARS */
@@ -99,6 +120,8 @@ export interface SubagentResult {
 	/** Provider-reported prompt/completion token sums (raw) — for cost display. */
 	promptTokensUsed?: number;
 	completionTokensUsed?: number;
+	/** Prompt-cache reads inside `promptTokensUsed` — the saving, shown rather than silently applied. */
+	cachedTokensUsed?: number;
 	/** Model that actually ran the role. */
 	providerName?: ProviderId;
 	modelName?: string;
@@ -242,6 +265,15 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 	}
 
 	async spawn(handoff: SubagentHandoff): Promise<string> {
+		// Idempotency first: the same key must not buy a second run of the same work.
+		if (handoff.idempotencyKey) {
+			const existing = findLiveRunByIdempotencyKey(this.getAll(), handoff.idempotencyKey);
+			if (existing) {
+				this._log.info(`[VibeSubagent] Reusing live run ${existing} for idempotency key ${handoff.idempotencyKey}`);
+				return existing;
+			}
+		}
+
 		const id = `subagent-${handoff.type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
 		const entry: SubagentEntry = {
@@ -429,6 +461,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			...(outcome.stopCode ? { stopCode: outcome.stopCode } : {}),
 			...(outcome.promptTokensUsed ? { promptTokensUsed: outcome.promptTokensUsed } : {}),
 			...(outcome.completionTokensUsed ? { completionTokensUsed: outcome.completionTokensUsed } : {}),
+			...(outcome.cachedTokensUsed ? { cachedTokensUsed: outcome.cachedTokensUsed } : {}),
 			...(outcome.providerName ? { providerName: outcome.providerName, modelName: outcome.modelName } : {}),
 			...(outcome.exploreReport ? { exploreReport: outcome.exploreReport } : {}),
 		};
@@ -451,6 +484,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			status: entry.status as AgentRunStatus,
 			endedAt: Date.now(),
 			tokensUsed: result.tokensUsed,
+			cachedTokens: result.cachedTokensUsed,
 			stepsDone: entry.liveStepsDone,
 			artifacts: result.artifacts,
 			stopCode: result.stopCode,

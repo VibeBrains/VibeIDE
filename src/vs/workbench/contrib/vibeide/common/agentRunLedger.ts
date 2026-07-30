@@ -62,6 +62,8 @@ export interface AgentRunRecord {
 	readonly lastSeenAt?: number;
 	readonly endedAt?: number;
 	readonly tokensUsed?: number;
+	/** Prompt-cache reads inside `tokensUsed` — what the run did NOT pay for a second time. */
+	readonly cachedTokens?: number;
 	readonly tokenQuota?: number;
 	readonly stepsDone?: number;
 	readonly maxSteps?: number;
@@ -296,6 +298,7 @@ function decodeUpdate(line: string): AgentRunUpdate | undefined {
 	assignIfDefined(update, 'lastSeenAt', readNumber(raw.lastSeenAt));
 	assignIfDefined(update, 'endedAt', readNumber(raw.endedAt));
 	assignIfDefined(update, 'tokensUsed', readNumber(raw.tokensUsed));
+	assignIfDefined(update, 'cachedTokens', readNumber(raw.cachedTokens));
 	assignIfDefined(update, 'tokenQuota', readNumber(raw.tokenQuota));
 	assignIfDefined(update, 'stepsDone', readNumber(raw.stepsDone));
 	assignIfDefined(update, 'maxSteps', readNumber(raw.maxSteps));

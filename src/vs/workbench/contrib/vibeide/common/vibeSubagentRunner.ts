@@ -64,6 +64,12 @@ export interface SubagentRunOutcome {
 	/** Provider-reported prompt/completion token sums (raw, incl. cached reads) — for cost display. */
 	readonly promptTokensUsed?: number;
 	readonly completionTokensUsed?: number;
+	/**
+	 * Prompt-cache reads, already inside `promptTokensUsed`. Kept apart to SHOW the saving: the
+	 * role is not charged twice for context it already paid for (see `hopTokenCost`), and without
+	 * this number that discount is invisible.
+	 */
+	readonly cachedTokensUsed?: number;
 	/** Model that actually ran the role (per-role mapping may differ from the Chat model). */
 	readonly providerName?: ProviderId;
 	readonly modelName?: string;
