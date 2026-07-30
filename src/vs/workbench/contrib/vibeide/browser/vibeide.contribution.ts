@@ -28,6 +28,8 @@ import './autocompleteService.js';
 
 // settings pane
 import './vibeideSettingsPane.js';
+import './vibeAgentsDispatchPane.js';
+import '../common/vibeAgentRunLedgerService.js';
 
 // register css
 import './media/vibeide.css';

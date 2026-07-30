@@ -82,6 +82,7 @@ import { IEditorService } from '../../../../../../../workbench/services/editor/c
 import { IHistoryService } from '../../../../../../../workbench/services/history/common/history.js';
 import { IOutlineModelService } from '../../../../../../../editor/contrib/documentSymbols/browser/outlineModel.js';
 import { IVibeSubagentService, SubagentType } from '../../../../common/vibeSubagentService.js';
+import { IVibeAgentRunLedgerService } from '../../../../common/vibeAgentRunLedgerService.js';
 import { IVibeSubagentRegistryService } from '../../../../common/vibeSubagentRegistryService.js';
 import { IVibeSubagentHandoffStore } from '../../../../common/vibeSubagentHandoffStore.js';
 
@@ -338,6 +339,8 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 			IVibeVideoChatService: accessor.get(IVibeVideoChatService),
 			IVibeNotifySoundsModalService: accessor.get(IVibeNotifySoundsModalService),
 			IEditorService: accessor.get(IEditorService),
+			// Durable record of agent runs behind the «Диспетчерская агентов» panel.
+			IVibeAgentRunLedgerService: accessor.get(IVibeAgentRunLedgerService),
 			// Used by the `@recent` / `@sym:` reference resolution in SidebarChat.
 			IHistoryService: accessor.get(IHistoryService),
 			IOutlineModelService: accessor.get(IOutlineModelService),

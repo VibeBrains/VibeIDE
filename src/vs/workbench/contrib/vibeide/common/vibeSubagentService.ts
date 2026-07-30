@@ -33,6 +33,8 @@ import type { ChatImageAttachment } from './chatThreadServiceTypes.js';
 import { IAuditLogService } from './auditLogService.js';
 import { IVibeConstraintsService } from './vibeConstraintsService.js';
 import { IVibeSubagentRunner } from './vibeSubagentRunner.js';
+import { IVibeAgentRunLedgerService } from './vibeAgentRunLedgerService.js';
+import { AgentRunStatus } from './agentRunLedger.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -234,6 +236,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		@IAuditLogService private readonly _audit: IAuditLogService,
 		@IVibeConstraintsService private readonly _constraints: IVibeConstraintsService,
 		@IVibeSubagentRunner private readonly _runner: IVibeSubagentRunner,
+		@IVibeAgentRunLedgerService private readonly _ledger: IVibeAgentRunLedgerService,
 	) {
 		super();
 	}
@@ -251,6 +254,19 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		};
 		this._registry.set(id, entry);
 		this._ctsById.set(id, new CancellationTokenSource());
+
+		// The registry dies with the window and `disposeSubagent` empties it; the ledger is what
+		// answers "who did what" afterwards, so the run is recorded before it starts working.
+		this._ledger.recordStarted({
+			runId: id,
+			epoch: this._ledger.epoch,
+			fence: this._ledger.allocateFence(),
+			role: entry.type,
+			goal: handoff.goal,
+			parentThreadId: handoff.parentThreadId,
+			status: 'pending',
+			startedAt: entry.startedAt,
+		});
 
 		this._log.info(`[VibeSubagent] Spawning ${handoff.type} subagent ${id} for thread ${handoff.parentThreadId}`);
 		this._audit.append({ ts: Date.now(), action: 'subagent_spawned', ok: true, meta: { subagentId: id, type: handoff.type, parentThreadId: handoff.parentThreadId } });
@@ -292,6 +308,18 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 	disposeSubagent(subagentId: string): void {
 		const entry = this._registry.get(subagentId);
 		if (!entry) { return; }
+		// Disposing a run that never reached an outcome IS the outcome — record it before the
+		// registry entry goes, otherwise the run vanishes without a trace (the old behaviour).
+		if (!entry.result) {
+			this._ledger.recordUpdate({
+				runId: subagentId,
+				status: 'stopped',
+				endedAt: Date.now(),
+				stopCode: 'cancelled',
+				tokensUsed: entry.liveTokensUsed,
+				stepsDone: entry.liveStepsDone,
+			});
+		}
 		entry.status = 'disposed';
 		this._registry.delete(subagentId);
 		this._waiters.delete(subagentId);
@@ -345,6 +373,10 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		entry.liveTokensUsed = 0;
 		entry.maxSteps = maxSteps;
 		entry.liveStepsDone = 0;
+
+		// Ceilings are part of the record: without them a stopped run reads as a failure instead of
+		// "hit its budget". Live progress stays in memory — the ledger keeps milestones, not telemetry.
+		this._ledger.recordUpdate({ runId: entry.id, status: 'running', tokenQuota: entry.tokenQuota, maxSteps });
 
 		// Constraints / permissions are ALWAYS inherited from parent — never weakened.
 		// The runner executes tools through the same IToolsService as the parent agent, so
@@ -414,6 +446,19 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		entry.result = result;
 		entry.status = result.status === 'success' ? 'completed' : (result.status === 'skipped' ? 'skipped' : (result.status === 'stopped' ? 'stopped' : 'failed'));
 		this._onStatusChanged.fire(entry);
+		this._ledger.recordUpdate({
+			runId: entry.id,
+			status: entry.status as AgentRunStatus,
+			endedAt: Date.now(),
+			tokensUsed: result.tokensUsed,
+			stepsDone: entry.liveStepsDone,
+			artifacts: result.artifacts,
+			stopCode: result.stopCode,
+			provider: result.providerName,
+			model: result.modelName,
+			summary: result.summary,
+			failureReason: result.status === 'success' ? undefined : result.reason,
+		});
 		this._audit.append({ ts: Date.now(), action: 'subagent_completed', ok: result.status === 'success', meta: { subagentId: entry.id, status: result.status, tokensUsed: result.tokensUsed } });
 
 		const waiter = this._waiters.get(entry.id);

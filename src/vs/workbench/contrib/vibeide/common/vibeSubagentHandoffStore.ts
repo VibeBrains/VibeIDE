@@ -10,6 +10,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import type { SubagentType } from './vibeSubagentService.js';
+import type { AgentSessionIdentity } from './agentRunFingerprint.js';
 
 /**
  * Durable record of a subagent that STOPPED with partial work (token/step/deadline limit).
@@ -40,6 +41,14 @@ export interface SubagentHandoffTicket {
 	readonly tokensUsed: number;
 	/** How many times this ticket was already resumed (auto or manual) — the loop guard. */
 	readonly resumeCount: number;
+	/**
+	 * Ground the run stood on when the ticket was written. A ticket outlives the window, so a
+	 * pickup days later can land on another model or a different tool whitelist; keeping the
+	 * identity lets the resume say what moved instead of continuing silently.
+	 */
+	readonly identity?: AgentSessionIdentity;
+	/** Digest of `identity` — cheap equality for callers that do not need the offending field. */
+	readonly fingerprint?: string;
 }
 
 const STORAGE_KEY = 'vibeide.subagent.handoffs';
