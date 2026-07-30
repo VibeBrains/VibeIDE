@@ -654,6 +654,7 @@ import '../common/vibeAmbientAgentService.js';
 import './vibeDiffVirtualizationService.js';
 
 // VibeIDE: Provider dashboard (cost history)
+import './designReview/vibeDesignScanService.js';
 import './vibeSpendLedgerService.js';
 import './vibeProviderDashboard.js';
 

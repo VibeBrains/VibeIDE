@@ -42,7 +42,11 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 const formatTokens = (n: number): string => Math.max(0, Math.round(n)).toLocaleString('ru-RU');
 
 /** Neutral track colour behind both the ring and the bars. */
-const TRACK_COLOR = 'var(--vscode-widget-border)';
+// Fallback is not decoration: `--vscode-widget-border` is optional in a theme, and the VibeIDE
+// default theme does not define it. Without the fallback the variable resolves to nothing,
+// `stroke` collapses to `none`, and at 0% (where the progress arc is empty too) the ring
+// disappears completely — the button stays clickable but invisible. Found by a live smoke.
+const TRACK_COLOR = 'var(--vscode-widget-border, rgba(127, 127, 127, 0.35))';
 
 /**
  * Fill colour for a percentage, as a theme token rather than a Tailwind class.
@@ -52,14 +56,25 @@ const TRACK_COLOR = 'var(--vscode-widget-border)';
  * silently render unstyled (`stroke: none`). Theme tokens sidestep the prefixer entirely and
  * follow the same colour ramp as the status-bar 🟢/🟡/🔴 marker.
  */
+// Fill ramp: blue while there is room, yellow near the limit, red at overflow — over a grey track.
+//
+// The yellow is a literal, not `--vscode-charts-yellow`, on purpose: in the VibeIDE theme every
+// warning token (`charts-yellow`, `editorWarning-foreground`, `notificationsWarningIcon`) resolves
+// to GREEN, so the "you are near the limit" step used to render as "all good". Verified live in a
+// running IDE. Blue and red come from the theme, where the tokens are correct, with literals as a
+// fallback for themes that leave them unset.
+const RAMP_BLUE = 'var(--vscode-charts-blue, #59a4f9)';
+const RAMP_YELLOW = '#e0af2b';
+const RAMP_RED = 'var(--vscode-charts-red, #fe4450)';
+
 const toneColorFor = (pct: number): string => {
 	if (pct >= CRITICAL_PCT) {
-		return 'var(--vscode-charts-red)';
+		return RAMP_RED;
 	}
-	if (pct > WARN_PCT) {
-		return 'var(--vscode-charts-yellow)';
+	if (pct >= WARN_PCT) {
+		return RAMP_YELLOW;
 	}
-	return 'var(--vscode-descriptionForeground)';
+	return RAMP_BLUE;
 };
 
 /** A labelled row with a thin fill bar, used for both the window and the session budget. */

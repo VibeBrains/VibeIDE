@@ -46,7 +46,7 @@ import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { IVibeCodeGraphService } from './codeGraph/vibeCodeGraphService.js';
-import { IVibeServerService } from './vibeServer/vibeServerService.js';
+import { IVibeDesignScanService } from './designReview/vibeDesignScanService.js';
 import { reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
 import { CodeGraph, fileNodeId, symbolNodeId } from '../common/codeGraph/vibeCodeGraph.js';
 import { Position } from '../../../../editor/common/core/position.js';
@@ -272,7 +272,7 @@ export class ToolsService implements IToolsService {
 		@IEditorService private readonly editorService: IEditorService,
 		@ILanguageFeaturesService private readonly languageFeaturesService: ILanguageFeaturesService,
 		@IVibeCodeGraphService private readonly codeGraphService: IVibeCodeGraphService,
-		@IVibeServerService private readonly vibeServerService: IVibeServerService,
+		@IVibeDesignScanService private readonly designScanService: IVibeDesignScanService,
 		@IVibeConstraintsService private readonly vibeConstraintsService: IVibeConstraintsService,
 		@IVibePromptGuardService private readonly vibePromptGuardService: IVibePromptGuardService,
 		@IVibePerFilePermissionsService private readonly vibePermissionsService: IVibePerFilePermissionsService,
@@ -1259,7 +1259,7 @@ export class ToolsService implements IToolsService {
 			},
 
 			design_review: async ({ severity }) => {
-				const scan = await this.vibeServerService.scanDesign();
+				const scan = await this.designScanService.scan();
 				if (!scan.ok) {
 					const why = scan.reason === 'no-preview' ? 'превью не открыто'
 						: scan.reason === 'unsupported' ? 'страница вне досягаемости: скрипт-мост живёт только в статическом превью, а сейчас dev-server или Docker'

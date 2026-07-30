@@ -42,6 +42,7 @@ import { IVibeServerPortOwner, IVibeServerProcessMain, VIBE_SERVER_PROCESS_CHANN
 import { IVibeServerRuntime, StaticRuntime, DevServerRuntime, DevServerPortBusyError } from '../../browser/vibeServer/vibeServerRuntime.js';
 import { DockerRuntime } from '../../browser/vibeServer/vibeDockerRuntime.js';
 import { VibeBrowserManager, IVibeBrowserElementPick, DesignScanResult } from '../../browser/vibeServer/vibeBrowserManager.js';
+import { IVibeDesignScanService } from '../../browser/designReview/vibeDesignScanService.js';
 import { openVibeChatEditor } from '../../browser/vibeideChatPane.js';
 import { VibeServerConfigKeys, VibeServerPreviewTarget, VIBE_SERVER_RUNNING_CONTEXT_KEY } from '../../browser/vibeServer/vibeServerConstants.js';
 import { IVibeServerService, IVibeServerStatus } from '../../browser/vibeServer/vibeServerService.js';
@@ -79,9 +80,15 @@ class VibeServerService extends Disposable implements IVibeServerService {
 		@IEditorService private readonly _editorService: IEditorService,
 		@IFileService private readonly _fileService: IFileService,
 		@IChatThreadService private readonly _chatThreadService: IChatThreadService,
+		@IVibeDesignScanService private readonly _designScanService: IVibeDesignScanService,
 		@ILogService private readonly _logService: ILogService,
 	) {
 		super();
+
+		// The design-scan tool asks this service through a dependency-free registry, not by
+		// importing it: a direct injection closed the cycle chat → subagent → tools → server → chat
+		// and killed workbench contributions at runtime.
+		this._register(this._designScanService.registerSource(() => this.scanDesign()));
 		this._main = ProxyChannel.toService<IVibeServerMain>(mainProcessService.getChannel(VIBE_SERVER_CHANNEL));
 		this._procMain = ProxyChannel.toService<IVibeServerProcessMain>(mainProcessService.getChannel(VIBE_SERVER_PROCESS_CHANNEL));
 		this._runningKey = contextKeyService.createKey<boolean>(VIBE_SERVER_RUNNING_CONTEXT_KEY, false);
