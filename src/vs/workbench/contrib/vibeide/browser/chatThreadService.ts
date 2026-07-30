@@ -87,6 +87,7 @@ import { IVibeVerifyGateService } from './vibeVerifyGateService.js';
 import { decideVerifyGate } from '../common/verifyGatePolicy.js';
 import { IVibeTurnChecksService } from './vibeTurnChecksService.js';
 import { decideTurnChecks, evaluateTurnChecks, renderTurnChecksCorrective } from '../common/agentTurnChecks.js';
+import { IVibeCircuitBreakerService } from './vibeCircuitBreakerService.js';
 import { DesignHookMode, decideDesignHook, floorFindings, touchesUi } from '../common/designReview/designHookPolicy.js';
 import { Finding, ViewportLabel, mergeViewportFindings, reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
 import { IVibeDesignScanService } from './designReview/vibeDesignScanService.js';
@@ -969,6 +970,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeTokenSavingsService private readonly _vibeTokenSavingsService: IVibeTokenSavingsService,
 		@IVibeVerifyGateService private readonly _verifyGateService: IVibeVerifyGateService,
 		@IVibeTurnChecksService private readonly _turnChecksService: IVibeTurnChecksService,
+		@IVibeCircuitBreakerService private readonly _circuitBreakers: IVibeCircuitBreakerService,
 		@IVibeDesignScanService private readonly _designScanService: IVibeDesignScanService,
 		@IVibeDesignContextService private readonly _designContextService: IVibeDesignContextService,
 	) {
@@ -6921,6 +6923,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							tokenQuota: 0,
 						});
 						const failures = evaluateTurnChecks(turnFacts, this._turnChecksService.getEnabledChecks()).filter(result => !result.passed);
+						// A failed security check is not just this turn's problem: it trips a latching
+						// breaker, so the same fault cannot quietly repeat next turn. The breaker keeps
+						// its state across restarts — reopening the IDE is not a way around it.
+						for (const failure of failures) {
+							if (failure.id === 'no-secret-leak') {
+								this._circuitBreakers.trip('secret-leak', failure.detail);
+							} else if (failure.id === 'no-protected-path') {
+								this._circuitBreakers.trip('protected-path', failure.detail);
+							}
+						}
 						// Debug, not info: this runs on every mutating turn, and paths are omitted on purpose —
 						// the point is "did the gate run and what did it see", not a file listing in the console.
 						vibeLog.debug('turnChecks', `режим=${turnChecksMode} файлов=${touchedPathsThisRun.length} секретов=${turnFacts.secretHits.length} закрытых=${turnFacts.protectedHits.length} провалов=${failures.length}`);

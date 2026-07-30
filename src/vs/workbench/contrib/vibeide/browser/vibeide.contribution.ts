@@ -34,6 +34,8 @@ import './vibeAgentPreflightService.js';
 import './vibeAgentPreflightCommand.js';
 import './vibeTurnChecksService.js';
 import './vibeAgentReplayCommand.js';
+import './vibeCircuitBreakerService.js';
+import './vibeCircuitBreakerCommands.js';
 
 // register css
 import './media/vibeide.css';
