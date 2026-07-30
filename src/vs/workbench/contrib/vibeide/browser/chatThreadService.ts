@@ -85,6 +85,8 @@ import { IVibePersistedPlanService } from '../common/vibePersistedPlanService.js
 import { IVibeSubagentService } from '../common/vibeSubagentService.js';
 import { IVibeVerifyGateService } from './vibeVerifyGateService.js';
 import { decideVerifyGate } from '../common/verifyGatePolicy.js';
+import { IVibeTurnChecksService } from './vibeTurnChecksService.js';
+import { decideTurnChecks, evaluateTurnChecks, renderTurnChecksCorrective } from '../common/agentTurnChecks.js';
 import { DesignHookMode, decideDesignHook, floorFindings, touchesUi } from '../common/designReview/designHookPolicy.js';
 import { Finding, ViewportLabel, mergeViewportFindings, reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
 import { IVibeDesignScanService } from './designReview/vibeDesignScanService.js';
@@ -966,6 +968,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeSpecsService private readonly _vibeSpecsService: IVibeSpecsService,
 		@IVibeTokenSavingsService private readonly _vibeTokenSavingsService: IVibeTokenSavingsService,
 		@IVibeVerifyGateService private readonly _verifyGateService: IVibeVerifyGateService,
+		@IVibeTurnChecksService private readonly _turnChecksService: IVibeTurnChecksService,
 		@IVibeDesignScanService private readonly _designScanService: IVibeDesignScanService,
 		@IVibeDesignContextService private readonly _designContextService: IVibeDesignContextService,
 	) {
@@ -4947,7 +4950,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// interface could actually have moved (a service edit cannot change pixels).
 		const touchedPathsThisRun: string[] = [];
 		let designHookAttempts = 0;
-		const markIfMutating = (toolName: string, rawParams?: unknown): void => {
+		// TURN-CHECKS state: every tool the run called (not just the mutating ones), so the
+		// forbidden-action check can compare the calls against the allowed list.
+		const calledToolsThisRun: string[] = [];
+		let turnChecksAttempts = 0;
+		const noteToolCall = (toolName: string, rawParams?: unknown): void => {
+			calledToolsThisRun.push(toolName);
 			if (!MUTATING_TOOL_NAMES.has(toolName.toLowerCase())) { return; }
 			didMutateThisRun = true;
 			const uri = rawParams && typeof rawParams === 'object' ? (rawParams as { uri?: unknown }).uri : undefined;
@@ -5159,7 +5167,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			}
 
 			const { interrupted } = await this._runToolCall(threadId, callThisToolFirst.name, callThisToolFirst.id, callThisToolFirst.mcpServerName, { preapproved: true, unvalidatedToolParams: callThisToolFirst.rawParams, validatedParams: callThisToolFirst.params });
-			markIfMutating(callThisToolFirst.name, callThisToolFirst.rawParams); // VERIFY-GATE edit-guard + DESIGN-HOOK paths
+			noteToolCall(callThisToolFirst.name, callThisToolFirst.rawParams); // VERIFY-GATE edit-guard + DESIGN-HOOK paths + TURN-CHECKS tools
 			if (interrupted) {
 				this._setStreamState(threadId, undefined);
 				await this._addUserCheckpoint({ threadId });
@@ -6896,6 +6904,54 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// decision === 'complete' → gate inert / verify passed: fall through to normal completion.
 					}
 
+					// TURN-CHECKS: what the turn actually did, checked deterministically — secrets written
+					// into changed files, writes onto closed paths, citations pointing at lines that do not
+					// exist. No model is consulted; a judge that hallucinates a verdict would be worse than
+					// no check. Same shape as the two gates above (mode → decision → bounce/stop).
+					const turnChecksMode = this._turnChecksService.getMode();
+					if (turnChecksMode !== 'off' && didMutateThisRun) {
+						const turnFacts = await this._turnChecksService.collect({
+							changedFiles: touchedPathsThisRun,
+							calledTools: calledToolsThisRun,
+							// The main agent's tool set is enforced by the mode itself, so there is no
+							// separate whitelist to violate here — an empty list disables that check.
+							allowedTools: [],
+							answerText: body,
+							tokensUsed: 0,
+							tokenQuota: 0,
+						});
+						const failures = evaluateTurnChecks(turnFacts, this._turnChecksService.getEnabledChecks()).filter(result => !result.passed);
+						// Debug, not info: this runs on every mutating turn, and paths are omitted on purpose —
+						// the point is "did the gate run and what did it see", not a file listing in the console.
+						vibeLog.debug('turnChecks', `режим=${turnChecksMode} файлов=${touchedPathsThisRun.length} секретов=${turnFacts.secretHits.length} закрытых=${turnFacts.protectedHits.length} провалов=${failures.length}`);
+						const maxTurnCheckAttempts = this._turnChecksService.getMaxAttempts();
+						const turnDecision = decideTurnChecks({
+							mode: turnChecksMode,
+							failures,
+							attemptsUsed: turnChecksAttempts,
+							maxAttempts: maxTurnCheckAttempts,
+						});
+						if (turnDecision === 'bounce') {
+							turnChecksAttempts += 1;
+							const corrective = renderTurnChecksCorrective(failures, turnChecksAttempts, maxTurnCheckAttempts);
+							this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
+							shouldSendAnotherMessage = true;
+							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+							continue;
+						}
+						if (turnDecision === 'stop') {
+							const note = `⛔ ПРОВЕРКИ ХОДА: после ${turnChecksAttempts} попыток проблемы остались. Прогон остановлен — посмотрите сами.\n\n${failures.map(f => `• ${f.detail}`).join('\n')}`;
+							this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+							this._finalizePlanIfComplete(threadId);
+							this._setStreamState(threadId, { isRunning: undefined });
+							return;
+						}
+						if (turnDecision === 'notify-complete') {
+							const note = `⚠️ ПРОВЕРКИ ХОДА: ход завершён, но кое-что стоит посмотреть.\n\n${failures.map(f => `• ${f.detail}`).join('\n')}`;
+							this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+						}
+					}
+
 					// DESIGN-HOOK: measure the page the run just changed, without being asked. Fires only
 					// when the turn wrote to interface files AND a preview is open — an unreachable page
 					// stays silent rather than reporting a clean sheet it never saw.
@@ -7138,7 +7194,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 									mcpTool?.mcpServerName,
 									{ preapproved: false, unvalidatedToolParams: toolParams }
 								);
-								markIfMutating(toolName, toolParams); // VERIFY-GATE edit-guard + DESIGN-HOOK paths
+								noteToolCall(toolName, toolParams); // VERIFY-GATE edit-guard + DESIGN-HOOK paths + TURN-CHECKS tools
 
 								if (interrupted) {
 									this._setStreamState(threadId, undefined);
@@ -7343,7 +7399,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								mcpTool?.mcpServerName,
 								{ preapproved: false, unvalidatedToolParams: toolParams }
 							);
-							markIfMutating(toolName, toolParams); // VERIFY-GATE edit-guard + DESIGN-HOOK paths
+							noteToolCall(toolName, toolParams); // VERIFY-GATE edit-guard + DESIGN-HOOK paths + TURN-CHECKS tools
 
 							if (interrupted) {
 								this._setStreamState(threadId, undefined);
@@ -7512,7 +7568,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					}
 
 					const { awaitingUserApproval, interrupted } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams });
-				markIfMutating(toolCall.name, toolCall.rawParams); // VERIFY-GATE edit-guard + DESIGN-HOOK paths
+				noteToolCall(toolCall.name, toolCall.rawParams); // VERIFY-GATE edit-guard + DESIGN-HOOK paths + TURN-CHECKS tools
 
 					// Tool-call resilience post-dispatch logic (roadmap O.1–O.7):
 					//   - Increment per-(provider×model) counter on tool_error/invalid_params,

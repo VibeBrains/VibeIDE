@@ -54,6 +54,12 @@ export interface IVibeConstraintsService {
 	 */
 	isModelAllowed(modelId: string): boolean;
 
+	/**
+	 * All loaded rules. The `check*` methods answer "may I touch this one path" by throwing;
+	 * the launch preflight needs the whole set to explain what is closed before anything runs.
+	 */
+	getRules(): readonly VibeConstraintRule[];
+
 	/** Reload constraints from disk */
 	reload(): Promise<void>;
 }
@@ -172,6 +178,10 @@ class VibeConstraintsService extends Disposable implements IVibeConstraintsServi
 		const folders = this._workspaceContextService.getWorkspace().folders;
 		if (folders.length === 0) { return null; }
 		return joinPath(folders[0].uri, '.vibe', 'constraints.json');
+	}
+
+	getRules(): readonly VibeConstraintRule[] {
+		return this._constraints.rules ?? [];
 	}
 
 	async reload(): Promise<void> {

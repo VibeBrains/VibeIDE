@@ -206,12 +206,21 @@ export const AgentsDispatch = () => {
 					<h1 className='text-2xl font-semibold text-vibe-fg-0'>Диспетчерская</h1>
 					<div className='mt-0.5 text-sm text-vibe-fg-3'>Кто что делает и что сделал</div>
 				</div>
-				<button
-					className='rounded-md border border-vibe-border-3 px-3 py-1.5 text-xs text-vibe-fg-2 hover:bg-vibe-bg-2-hover'
-					onClick={() => void reload()}
-				>
-					Обновить
-				</button>
+				<div className='flex items-center gap-2'>
+					<button
+						className='rounded-md border border-vibe-border-3 px-3 py-1.5 text-xs text-vibe-fg-2 hover:bg-vibe-bg-2-hover'
+						title='Показать, что агенту или роли будет разрешено — ничего не запуская'
+						onClick={() => void accessor.get('ICommandService').executeCommand('vibeide.agents.preflight')}
+					>
+						Проверить запуск
+					</button>
+					<button
+						className='rounded-md border border-vibe-border-3 px-3 py-1.5 text-xs text-vibe-fg-2 hover:bg-vibe-bg-2-hover'
+						onClick={() => void reload()}
+					>
+						Обновить
+					</button>
+				</div>
 			</div>
 
 			{!enabled && <div className='rounded-md border border-vibe-border-3 bg-vibe-bg-2 px-3 py-2 text-sm text-vibe-warning'>

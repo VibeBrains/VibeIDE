@@ -30,6 +30,9 @@ import './autocompleteService.js';
 import './vibeideSettingsPane.js';
 import './vibeAgentsDispatchPane.js';
 import '../common/vibeAgentRunLedgerService.js';
+import './vibeAgentPreflightService.js';
+import './vibeAgentPreflightCommand.js';
+import './vibeTurnChecksService.js';
 
 // register css
 import './media/vibeide.css';
