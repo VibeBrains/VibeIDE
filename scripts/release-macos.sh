@@ -125,7 +125,29 @@ ok "Release-readiness guard passed (What's New + README-бейдж для $NEW_V
 
 printf '\n\033[36m🚀 Building VibeIDE %s for macOS arm64\033[0m\n\n' "$VERSION"
 
-gulp_task() { node --max-old-space-size=8192 "$ROOT/node_modules/gulp/bin/gulp.js" "$1"; }
+# V8 heap ceiling for build tasks. NOT "bigger is better": V8 only collects aggressively as it
+# approaches this limit, so a ceiling above what the machine can actually spare means the process
+# grows past physical memory and the OOM killer takes it. This changes GC behaviour only — never
+# the produced artifact.
+BUILD_HEAP_MB="${VIBE_BUILD_HEAP_MB:-8192}"
+
+# Identifier mangling (mangleExports / manglePrivateFields) is OFF by default on macOS because
+# this 16 GB machine cannot complete it on the current codebase (10858 classes / 14519 exported
+# symbols as of 1.10.0). Measured 2026-07-31, every ceiling fails a different way:
+#   8192 / 6144 → SIGKILL by the OS (peak RSS 8.36 GB against 5.2 GB available)
+#   5120        → V8 gives up after 40 min: "Ineffective mark-compacts near heap limit"
+#   4096        → ERR_WORKER_OUT_OF_MEMORY (the mangler runs in a worker; the ceiling is inherited)
+# There is no window between "too little for the worker" and "too much for the machine".
+# `compile-build-without-mangling` is an upstream task (VS Code uses it for PR builds) — esbuild
+# minification still runs, only identifier shortening is skipped, so the bundle is a few percent
+# larger and behaves identically. Set VIBE_BUILD_MANGLE=1 on a machine with more RAM.
+BUILD_MANGLE="${VIBE_BUILD_MANGLE:-0}"
+if [[ "$BUILD_MANGLE" == '1' ]]; then
+	COMPILE_BUILD_TASK='compile-build-with-mangling'
+else
+	COMPILE_BUILD_TASK='compile-build-without-mangling'
+fi
+gulp_task() { node --max-old-space-size="$BUILD_HEAP_MB" "$ROOT/node_modules/gulp/bin/gulp.js" "$1"; }
 
 # ── 0. Pre-build steps (mirror of the Windows script) ─────────────────────────
 if [[ "$SKIP_COMPILE" != '1' ]]; then
@@ -138,8 +160,11 @@ if [[ "$SKIP_COMPILE" != '1' ]]; then
 	step 'Rebuilding React tree (scope-tailwind + tsup)...'
 	npm run buildreact
 
-	step 'Compiling TypeScript (npm run compile-build)...'
-	npm run compile-build
+	# Invoked directly rather than via `npm run compile-build` so BUILD_HEAP_MB and the task
+	# choice apply: the npm script hardcodes both its own --max-old-space-size (and a CLI flag
+	# wins over NODE_OPTIONS) and the with-mangling task.
+	step "Compiling TypeScript ($COMPILE_BUILD_TASK, heap ${BUILD_HEAP_MB}m)..."
+	gulp_task "$COMPILE_BUILD_TASK"
 	# Stamp out-build with the version it was compiled at — Phase 2 verifies this.
 	printf '%s' "$NEW_VIBE" > "$ROOT/out-build/.vibe-build-version"
 	ok "Stamped out-build version: $NEW_VIBE"
