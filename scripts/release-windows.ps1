@@ -299,7 +299,7 @@ $artifacts | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
 
 # ── 3a. Code-sign installer (roadmap §888) ─────────────────────────────────────
 # Sign only when VIBE_WIN_CERT=1 and thumbprint configured. Otherwise we leave
-# the build unsigned with a clear warning — see references/v1/distribution-signing-runbook.md.
+# the build unsigned with a clear warning — see docs/references-v1/distribution-signing-runbook.md.
 Step "Code-sign Windows installer..."
 $signerScript = "$Root\scripts\sign-windows.ps1"
 if (Test-Path $signerScript) {

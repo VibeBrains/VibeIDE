@@ -3,23 +3,45 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 {
+	// Type-check only — the bundles are produced by `build.js` (tsup), never by tsc.
+	// Extends the workbench base config because these sources import workbench modules
+	// directly; without `experimentalDecorators` / `lib: DOM` / `target` the imported
+	// dependency graph alone reports thousands of spurious errors.
+	"extends": "../../../../../../tsconfig.base.json",
 	"compilerOptions": {
-		"strict": true,
-		"exactOptionalPropertyTypes": false,
-
 		"jsx": "react-jsx",
-		"moduleResolution": "NodeNext",
-		"module": "NodeNext",
 		"esModuleInterop": true,
+		"allowSyntheticDefaultImports": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"noEmit": true,
+		// Unused locals are a lint concern here, not a type-safety one: the bundler drops
+		// them, and enforcing it would flag imported workbench code we do not own.
+		"noUnusedLocals": false,
+		// React only. `node` is deliberately absent, exactly as in
+		// build/checker/tsconfig.browser.json: its globals redefine `setTimeout` & co and
+		// would report the whole browser layer as broken. The remaining ambient packages
+		// come in through explicit `include` paths below.
+		"types": [
+			"react",
+			"react-dom"
+		]
 	},
 	"include": [
 		// this is just for type checking, so src/ is the correct dir
 		"./src/**/*.ts",
-		"./src/**/*.tsx"
-	],
-	"plugins": [
-      {
-        "name": "next"
-      }
-    ]
+		"./src/**/*.tsx",
+		// Ambient declarations of the fork (`*.css` side-effect imports, globals, …)
+		// reached through workbench imports.
+		"../../../../../../typings",
+		// Ambient namespaces the imported workbench graph relies on. They are picked up by
+		// the root compile via its broad `./vs/**/*.ts` include; here they must be explicit.
+		"../../../../../monaco.d.ts",
+		"../../../debug/common/debugProtocol.d.ts",
+		// Same explicit ambient packages build/checker/tsconfig.browser.json lists: they are
+		// not auto-loaded from node_modules/@types by every resolver mode.
+		"../../../../../../../node_modules/@webgpu/types/dist/index.d.ts",
+		"../../../../../../../node_modules/@types/trusted-types/index.d.ts",
+		"../../../../../../../node_modules/@types/wicg-file-system-access/index.d.ts"
+	]
 }

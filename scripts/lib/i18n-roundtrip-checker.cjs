@@ -1,6 +1,6 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
 // CJS port of `common/i18nRoundtripChecker.ts` for `scripts/vibe-i18n-roundtrip.js`.
@@ -32,7 +32,7 @@ function checkI18nRoundtrip(input) {
 		const keys = [...bundle.keys()].sort();
 		for (const key of keys) {
 			const translation = bundle.get(key);
-			if (translation === undefined) continue;
+			if (translation === undefined) {continue;}
 
 			if (!input.metadataEnglish.has(key)) {
 				issues.push({ localeTag, key, code: 'orphan-key', detail: 'key not in metadata' });
@@ -40,7 +40,7 @@ function checkI18nRoundtrip(input) {
 				continue;
 			}
 
-			if (translation.startsWith(NEEDS_TRANSLATION_PREFIX)) continue;
+			if (translation.startsWith(NEEDS_TRANSLATION_PREFIX)) {continue;}
 
 			if (translation.trim().length === 0) {
 				issues.push({ localeTag, key, code: 'empty-translation' });
@@ -81,8 +81,8 @@ function partitionLocaleForOrphanMove(bundle, metadataEnglish) {
 	const keep = new Map();
 	const orphans = new Map();
 	for (const [key, value] of bundle) {
-		if (metadataEnglish.has(key)) keep.set(key, value);
-		else orphans.set(key, value);
+		if (metadataEnglish.has(key)) {keep.set(key, value);}
+		else {orphans.set(key, value);}
 	}
 	return { keep, orphans };
 }

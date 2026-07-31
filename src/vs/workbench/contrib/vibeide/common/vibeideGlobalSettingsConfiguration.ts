@@ -18,6 +18,65 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 
 		const registry = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration);
 
+		// Trust Score — read AND written (updateValue) from vibeCommands / status bar; must be
+		// registered so the write persists reliably and the value shows in Settings UI.
+		registry.registerConfiguration({
+			id: 'vibeide.trustScore',
+			title: localize('vibeide.trustScore.title', 'VibeIDE — Уровень доверия агенту'),
+			type: 'object',
+			properties: {
+				'vibeide.trustScore.level': {
+					type: 'string',
+					enum: ['manual', 'supervised', 'auto'],
+					enumDescriptions: [
+						localize('vibeide.trustScore.level.manual', 'Ручной — каждое действие агента (запись файла, команда, сеть) требует подтверждения.'),
+						localize('vibeide.trustScore.level.supervised', 'Под наблюдением — авто-подтверждение по таймауту (можно вмешаться).'),
+						localize('vibeide.trustScore.level.auto', 'Авто — действия подтверждаются сразу, без запроса.'),
+					],
+					default: 'manual',
+					description: localize('vibeide.trustScore.level', 'Уровень доверия агенту: сколько подтверждений он запрашивает перед действиями. Переключается пилюлей в статус-баре и командами «VibeIDE: Trust Score».'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+			},
+		});
+
+		// Privacy strict mode — consumed by outbound allowlist / FIM provider guard / proxy service.
+		registry.registerConfiguration({
+			id: 'vibeide.privacy',
+			title: localize('vibeide.privacy.title', 'VibeIDE — Приватность'),
+			type: 'object',
+			properties: {
+				'vibeide.privacy.strict': {
+					type: 'boolean',
+					default: false,
+					description: localize('vibeide.privacy.strict', 'Строгий режим приватности: блокирует любые исходящие HTTP/HTTPS-запросы вне доверенного allowlist и разрешает только локальных LLM-провайдеров (в т.ч. для FIM-автодополнения). Off по умолчанию.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+			},
+		});
+
+		// Git / job-PR — repo slug + base branch for background-job PR creation. The GitHub TOKEN is
+		// intentionally NOT here: it lives in OS-encrypted secret storage (команда «Задать GitHub-токен для job-PR»).
+		registry.registerConfiguration({
+			id: 'vibeide.git',
+			title: localize('vibeide.git.title', 'VibeIDE — Git / автоматические PR'),
+			type: 'object',
+			properties: {
+				'vibeide.git.repoSlug': {
+					type: 'string',
+					default: '',
+					description: localize('vibeide.git.repoSlug', 'Репозиторий в формате `owner/repo` для создания PR фоновыми задачами. Пусто — авто-создание PR отключено.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.git.defaultBranch': {
+					type: 'string',
+					default: 'main',
+					description: localize('vibeide.git.defaultBranch', 'Базовая ветка для PR, создаваемых фоновыми задачами. По умолчанию `main`.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+			},
+		});
+
 		registry.registerConfiguration({
 			id: 'vibeide.skills',
 			title: localize('vibeide.skills.title', 'VibeIDE — Agent Skills'),
@@ -187,6 +246,12 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					type: 'boolean',
 					default: false,
 					description: localize('vibeide.vibeServer.scrollSync.desc', 'Синхронизировать прокрутку между несколькими вкладками встроенного превью.'),
+					scope: ConfigurationScope.RESOURCE,
+				},
+				'vibeide.vibeServer.bridgeProxy': {
+					type: 'boolean',
+					default: true,
+					description: localize('vibeide.vibeServer.bridgeProxy.desc', 'Для превью dev-сервера (Vite/Next/…) поднимать локальный прокси, который добавляет в страницы мост VibeIDE: без него не работают «Выбрать элемент» и проверка дизайна — dev-сервер отдаёт свой HTML, куда мы ничего не вставляем. Прокси передаёт всё остальное без изменений, включая HMR по WebSocket и потоковые ответы. Выключите, если прокси мешает вашему серверу — превью продолжит работать, но без inspect и замеров.'),
 					scope: ConfigurationScope.RESOURCE,
 				},
 				'vibeide.vibeServer.https': {
@@ -617,6 +682,12 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					],
 					default: 'auto',
 					description: localize('vibeide.llm.toolFallbackMode.description', 'Стратегия выбора tool-call формата для неизвестных моделей через OpenAI-compatible aggregator (OpenRouter, OpenCode Zen/Go, LM Router, LiteLLM, openAICompatible, Pollinations). **auto** — стартовать с native, авто-переключение на XML при quirk-ошибках. **native** — всегда native, игнор авто-override\'ов. **xml** — всегда XML. Известные модели (Claude/GPT/Gemini/Grok/DeepSeek/Llama/Qwen и пр.) — не затрагиваются (используют формат из каталога). Заменяет `vibeide.llm.assumeNativeTools` (deprecated: true=auto, false=xml).'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.llm.proxy.url': {
+					type: 'string',
+					default: '',
+					markdownDescription: localize('vibeide.llm.proxy.url', 'Прокси для **всего** трафика к AI-провайдерам — способ дотянуться до гео-заблокированных API моделей (Anthropic, OpenAI и др.) через зарубежный exit-узел. Пусто — прямое соединение (по умолчанию).\n\nПоддерживаемые схемы: `http://`, `https://`, `socks5://`, `socks5h://`, `socks4://`. Авторизация — прямо в URL: `socks5://user:pass@host:port`. Для `socks5`/`socks5h` имя хоста резолвит прокси (обход DNS-блокировок).\n\nПрокси-сервер (напр. локальный SOCKS от xray/sing-box/nekoray) поднимается **вне IDE** — здесь указывается только адрес. Применяется ко всем провайдерам и обоим кодопутям отправки; смена настройки подхватывается без перезапуска. Не затрагивает `http.proxy` (обновления, маркетплейс) — это отдельный канал.\n\nПример: `socks5://127.0.0.1:1080` или `http://127.0.0.1:8080`.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 			},

@@ -162,6 +162,37 @@ export function parseProvidersFile(raw: string | undefined | null): VibeProvider
 }
 
 /**
+ * Merge the GLOBAL (`~/.vibe/providers.json`) and WORKSPACE (`<folder>/.vibe/providers.json`)
+ * provider lists into the single active set. Same semantics as VS Code settings: the workspace
+ * entry wins — field-level, via `mergeProviderEntry` (so a workspace entry can override just one
+ * field of a global provider; `models.static` merges by model id). Order: global entries first (in
+ * file order, patched in place when the workspace overrides them), then workspace-only entries —
+ * so a provider keeps its position regardless of which file patches it. Pure → unit-testable.
+ */
+export function mergeProvidersLists(global: readonly VibeProviderEntry[], workspace: readonly VibeProviderEntry[]): VibeProviderEntry[] {
+	const workspaceById = new Map<string, VibeProviderEntry>(workspace.map(e => [e.id, e]));
+	const merged: VibeProviderEntry[] = [];
+	for (const g of global) {
+		const w = workspaceById.get(g.id);
+		if (w) {
+			// `mergeProviderEntry` drops `extends` (it is a resolution directive, consumed when merging a
+			// base into its extender) — but HERE both sides are unresolved file entries, so a surviving
+			// `extends` must be kept for the later resolution pass. Workspace's directive wins.
+			const combined = mergeProviderEntry(g, w);
+			const ext = w.extends ?? g.extends;
+			merged.push(ext ? { ...combined, extends: ext } : combined);
+			workspaceById.delete(g.id);
+		} else {
+			merged.push(g);
+		}
+	}
+	for (const w of workspace) {
+		if (workspaceById.has(w.id)) { merged.push(w); }
+	}
+	return merged;
+}
+
+/**
  * Merge an override entry onto a base (used by both `extends` and same-id patching).
  * Top-level scalar/object fields: override wins when present. `models.static` is merged BY MODEL
  * ID — an override model patches the base model with the same id; new ids are appended; setting

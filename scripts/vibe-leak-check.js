@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe leak-check — heuristic disposable hygiene linter for VibeIDE services.
  *
@@ -92,11 +97,11 @@ const PATTERNS = [
 ];
 
 function walk(dir, acc = []) {
-	if (!fs.existsSync(dir)) return acc;
+	if (!fs.existsSync(dir)) {return acc;}
 	for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
 		const p = path.join(dir, ent.name);
 		if (ent.isDirectory()) {
-			if (ent.name === 'node_modules' || ent.name === 'out' || ent.name === 'react' || ent.name === 'test') continue;
+			if (ent.name === 'node_modules' || ent.name === 'out' || ent.name === 'react' || ent.name === 'test') {continue;}
 			walk(p, acc);
 		} else if (/\.tsx?$/.test(ent.name)) {
 			acc.push(p);
@@ -111,11 +116,11 @@ function scanFile(filePath) {
 	const findings = [];
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
-		if (ALLOW_MARKER.test(line)) continue;
+		if (ALLOW_MARKER.test(line)) {continue;}
 		// Skip comment-only and import lines
 		const trimmed = line.trim();
-		if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) continue;
-		if (trimmed.startsWith('import ') || trimmed.startsWith('export ')) continue;
+		if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) {continue;}
+		if (trimmed.startsWith('import ') || trimmed.startsWith('export ')) {continue;}
 
 		for (const p of PATTERNS) {
 			if (p.regex.test(line) && p.predicate(line)) {
@@ -133,7 +138,7 @@ function scanFile(filePath) {
 }
 
 function loadBaseline(file) {
-	if (!file) return null;
+	if (!file) {return null;}
 	try {
 		const baseline = JSON.parse(fs.readFileSync(file, 'utf-8'));
 		return new Set(baseline.map(f => `${f.file}:${f.line}:${f.pattern}`));

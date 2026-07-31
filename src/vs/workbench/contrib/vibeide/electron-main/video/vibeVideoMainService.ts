@@ -25,6 +25,7 @@
 
 import { spawn, ChildProcess } from 'child_process';
 import { existsSync, promises as fsPromises } from 'fs';
+// eslint-disable-next-line local/code-import-patterns -- node 'path' in an electron-main service (by design)
 import { join, basename } from 'path';
 import { tmpdir } from 'os';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
@@ -35,7 +36,7 @@ import { IConfigurationService } from '../../../../../platform/configuration/com
 import { IEnvironmentMainService } from '../../../../../platform/environment/electron-main/environmentMainService.js';
 import { VideoAnalysisProgress, VideoAnalysisResult, VideoAnalysisStage, VideoAnalyzeOptions, VideoFrameInfo, VideoToolsDownloadProgress, VideoToolsState, VideoTranscriptSegment, selectEvenlySpreadFrames } from '../../common/video/vibeVideoTypes.js';
 import { VideoToolsArchive, VIDEO_TOOLS_DIR, classifyWatchInput, isRemoteVideoInput, resolveVideoToolPaths, videoToolsArchiveForPlatform } from '../../common/video/vibeVideoTools.js';
-import { VIDEO_FRAME_HEIGHT_KEY, VIDEO_MAX_FRAMES_KEY, VIDEO_SCENE_THRESHOLD_KEY, VIDEO_SUBTITLE_LANGUAGES_KEY, VIDEO_TOOLS_PATH_KEY, clampVideoFrameHeight, clampVideoMaxFrames, clampVideoSceneThreshold, normalizeVideoSubtitleLanguages } from '../../common/video/vibeVideoConfiguration.js';
+import { VIDEO_DETAIL_KEY, VIDEO_FRAME_HEIGHT_KEY, VIDEO_MAX_FRAMES_KEY, VIDEO_SCENE_THRESHOLD_KEY, VIDEO_SUBTITLE_LANGUAGES_KEY, VIDEO_TOOLS_PATH_KEY, VideoTuning, normalizeVideoSubtitleLanguages, resolveVideoTuning } from '../../common/video/vibeVideoConfiguration.js';
 import { VoiceProfileId } from '../../common/voice/vibeVoiceTypes.js';
 import { downloadWithSha256 } from '../vibeVerifiedDownload.js';
 import { VibeVoiceMainService } from '../voice/vibeVoiceMainService.js';
@@ -250,18 +251,22 @@ export class VibeVideoMainService extends Disposable {
 
 				// Probe-first: positive video evidence wins; the extension hint only decides
 				// when the probe is inconclusive (generic extractor without vcodec info).
-				if (probe.audioOnly || (!probe.hasVideo && classifyWatchInput(input) === 'audio')) {
+				// `framesEnabled: false` is the user asking for transcript-only, and it lands here
+				// BEFORE the download: the whole point of that detail level is not fetching the video.
+				const tuning = this.videoTuning();
+				if (!tuning.framesEnabled || probe.audioOnly || (!probe.hasVideo && classifyWatchInput(input) === 'audio')) {
 					return await this.finishAudioOnly(entry, paths, requestId, workDir, { title, durationSec, transcriptSrt }, { remoteUrl: input });
 				}
 
 				this.emitStage(requestId, 'download');
-				const height = clampVideoFrameHeight(this.configurationService.getValue<number>(VIDEO_FRAME_HEIGHT_KEY));
+				const height = tuning.frameHeight;
 				videoPath = await this.downloadMedia(entry, paths, input, workDir, requestId, `bv*[height<=${height}]+ba/b[height<=${height}]`, 'video');
 			} else {
 				title = basename(input);
 				const probe = await this.probeLocalMedia(entry, paths.ffmpeg, input);
 				durationSec = probe.durationSec;
-				if (!probe.hasVideoStream) {
+				// Nothing to download for a local file, but transcript-only still means no frames.
+				if (!probe.hasVideoStream || !this.videoTuning().framesEnabled) {
 					return await this.finishAudioOnly(entry, paths, requestId, workDir, { title, durationSec }, { localPath: input });
 				}
 				videoPath = input;
@@ -305,6 +310,7 @@ export class VibeVideoMainService extends Disposable {
 		let audioPcmPath: string | undefined;
 		if (!meta.transcriptSrt) {
 			let mediaPath: string;
+			// eslint-disable-next-line local/code-no-in-operator -- discriminated-union narrowing; `in` narrows the type, hasOwn does not
 			if ('remoteUrl' in source) {
 				this.emitStage(requestId, 'download');
 				mediaPath = await this.downloadMedia(entry, paths, source.remoteUrl, workDir, requestId, 'ba/b', 'media');
@@ -491,11 +497,26 @@ export class VibeVideoMainService extends Disposable {
 		return `yt-dlp: ${tail || `exit code ${result.code}`}`;
 	}
 
+	/**
+	 * Detail preset + the knobs the user set by hand. `inspect` rather than `getValue`, because a
+	 * knob sitting at its default must not shadow the preset — otherwise `token-burner` would
+	 * quietly keep the default 48 frames. Most specific scope wins, same order as VS Code settings.
+	 */
+	private videoTuning(): VideoTuning {
+		const explicit = <T>(key: string): T | undefined => {
+			const inspected = this.configurationService.inspect<T>(key);
+			return inspected.workspaceFolderValue ?? inspected.workspaceValue ?? inspected.userValue ?? inspected.applicationValue;
+		};
+		return resolveVideoTuning(this.configurationService.getValue<string>(VIDEO_DETAIL_KEY), {
+			sceneThreshold: explicit<number>(VIDEO_SCENE_THRESHOLD_KEY),
+			maxFrames: explicit<number>(VIDEO_MAX_FRAMES_KEY),
+			frameHeight: explicit<number>(VIDEO_FRAME_HEIGHT_KEY),
+		});
+	}
+
 	private async extractFrames(entry: ActiveRequest, ffmpeg: string, videoPath: string, workDir: string): Promise<{ frames: VideoFrameInfo[]; durationSec?: number }> {
 		const framesDir = join(workDir, 'frames');
-		const height = clampVideoFrameHeight(this.configurationService.getValue<number>(VIDEO_FRAME_HEIGHT_KEY));
-		const maxFrames = clampVideoMaxFrames(this.configurationService.getValue<number>(VIDEO_MAX_FRAMES_KEY));
-		const configuredThreshold = clampVideoSceneThreshold(this.configurationService.getValue<number>(VIDEO_SCENE_THRESHOLD_KEY));
+		const { frameHeight: height, maxFrames, sceneThreshold: configuredThreshold } = this.videoTuning();
 
 		let pass = await this.runFramePass(entry, ffmpeg, videoPath, framesDir, height, configuredThreshold);
 		if (pass.frames.length < MIN_USEFUL_FRAMES && configuredThreshold > RETRY_SCENE_THRESHOLD) {

@@ -17,7 +17,7 @@
 #
 # To allowlist a new external host, edit ALLOWED_EXTERNAL_HOSTS in
 # privacyNetworkSniffer.spec.ts. To allow a new outbound call site in source,
-# add it to references/v1/privacy-allowlist.md.
+# add it to docs/references-v1/privacy-allowlist.md.
 
 name: privacy-verify
 
@@ -75,8 +75,8 @@ jobs:
             echo "No new outbound call sites added."
             exit 0
           fi
-          if [ ! -f references/v1/privacy-allowlist.md ]; then
-            echo "::error::PR introduces outbound call sites but references/v1/privacy-allowlist.md is missing:"
+          if [ ! -f docs/references-v1/privacy-allowlist.md ]; then
+            echo "::error::PR introduces outbound call sites but docs/references-v1/privacy-allowlist.md is missing:"
             echo "$ADDED"
             exit 1
           fi
@@ -86,16 +86,16 @@ jobs:
             # crude heuristic: look for a token from the added line in the allowlist
             token=$(echo "$line" | grep -oE 'fetch\(|http\.request\(|https\.request\(|net\.connect\(|dns\.lookup\(' | head -n1)
             file=$(echo "$line" | sed -E 's/:.*//')
-            if ! grep -q "$file" references/v1/privacy-allowlist.md ; then
+            if ! grep -q "$file" docs/references-v1/privacy-allowlist.md ; then
               MISSING+="$line"$'\n'
             fi
           done <<<"$ADDED"
           if [ -n "$MISSING" ]; then
-            echo "::error::New outbound call sites not declared in references/v1/privacy-allowlist.md:"
+            echo "::error::New outbound call sites not declared in docs/references-v1/privacy-allowlist.md:"
             echo "$MISSING"
             exit 1
           fi
-          echo "All new outbound call sites are declared in references/v1/privacy-allowlist.md."
+          echo "All new outbound call sites are declared in docs/references-v1/privacy-allowlist.md."
 
   playwright-sniffer:
     name: playwright network sniffer

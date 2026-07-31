@@ -12,6 +12,7 @@
  */
 
 import { existsSync, promises as fsPromises } from 'fs';
+// eslint-disable-next-line local/code-import-patterns -- node 'path' in an electron-main service (by design)
 import { join } from 'path';
 import { cpus } from 'os';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
@@ -98,6 +99,7 @@ export class VibeVoiceMainService extends Disposable {
 	}
 
 	getState(): VoiceModelsState {
+		// eslint-disable-next-line local/code-no-dangerous-type-assertions -- empty accumulator filled in the loop below
 		const profiles = {} as VoiceModelsState['profiles'] & Record<VoiceProfileId, { state: 'ready' | 'missing' | 'downloading'; downloadBytes: number }>;
 		for (const profileId of VOICE_PROFILE_IDS) {
 			const state = this.activeProfileDownloads.has(profileId)

@@ -6,6 +6,7 @@
 
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { VSBuffer, encodeBase64 } from '../../../../base/common/buffer.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IVibeModelFingerprintService } from './vibeModelFingerprintService.js';
@@ -63,7 +64,7 @@ class VibeShareableLinkService extends Disposable implements IVibeShareableLinkS
 			inputTokens: fingerprint.inputTokens,
 		};
 
-		const encoded = Buffer.from(JSON.stringify(data)).toString('base64url');
+		const encoded = encodeBase64(VSBuffer.fromString(JSON.stringify(data)), false, true);
 		return `https://vibeide.io/debug#${encoded}`;
 	}
 }

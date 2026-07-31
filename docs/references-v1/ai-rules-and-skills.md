@@ -1,6 +1,6 @@
 # AI rules and Agent Skills — context parity (VibeIDE)
 
-**Normative path:** this file lives under `references/v1/` because `docs/` is gitignored in the fork. Roadmap item H.0 references the equivalent logical doc path `docs/v1/`.
+**Normative path:** this file lives under `docs/references-v1/` because `docs/` is gitignored in the fork. Roadmap item H.0 references the equivalent logical doc path `docs/v1/`.
 
 ## Stack priority (highest wins first)
 
@@ -32,7 +32,7 @@ Product architecture (Фаза 0): **Enterprise locked → Global → Profile �
 
 **Runtime:** `IVibeSkillsLibraryService` + slash **`/skill:<id>`** expansion in `vibeSlashCommandService`; discovery text in GUIDELINES via `getDiscoveryText(chatMode)`; optional session filter and global paths `vibeide.skills.globalPaths`.
 
-**Contrast with prompts:** `.vibe/prompts/` are templates invoked as `/my:name`; skills are `SKILL.md` trees with frontmatter and optional packs — see `references/v1/agent/skills.md` (if present) and `skill-package.schema.json`.
+**Contrast with prompts:** `.vibe/prompts/` are templates invoked as `/my:name`; skills are `SKILL.md` trees with frontmatter and optional packs — see `docs/references-v1/agent/skills.md` (if present) and `skill-package.schema.json`.
 
 ## File name contract (import parity)
 

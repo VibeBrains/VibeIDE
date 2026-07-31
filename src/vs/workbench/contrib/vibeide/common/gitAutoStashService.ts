@@ -44,7 +44,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 				localize('vibeide.safety.autostash.mode.never', 'Никогда не стэшить автоматически (исключение: файлы с per-file политикой "agent-protected" — для них stash принудительный).'),
 			],
 			default: 'dirty-only',
-			description: localize('vibeide.safety.autostash.mode', 'Когда выполнять автоматический git stash перед агентскими правками. См. references/v1/git-autostash-contract.md для взаимодействия с partial rollback и checkpoint.'),
+			description: localize('vibeide.safety.autostash.mode', 'Когда выполнять автоматический git stash перед агентскими правками. См. docs/references-v1/git-autostash-contract.md для взаимодействия с partial rollback и checkpoint.'),
 		},
 	},
 });

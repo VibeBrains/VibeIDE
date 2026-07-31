@@ -23,6 +23,11 @@ export interface IVibeServerProcSpec {
 	readonly cwd: string;
 	/** Environment overlay merged on top of the main-process environment. */
 	readonly env?: Readonly<Record<string, string>>;
+	/**
+	 * Directories prepended to the resolved `PATH` (pins a toolchain, e.g. a specific Node version).
+	 * Applied in main after the login-shell PATH is resolved, so it wins over the ambient toolchain.
+	 */
+	readonly pathPrepend?: readonly string[];
 }
 
 export interface IVibeServerProcOutput {
@@ -70,4 +75,10 @@ export interface IVibeServerProcessMain {
 	killPort(port: number): Promise<void>;
 	/** Polls a TCP port until it accepts a connection or the timeout elapses (readiness check). */
 	waitForPort(host: string, port: number, timeoutMs: number): Promise<boolean>;
+	/**
+	 * Polls an HTTP(S) URL until it answers with a non-5xx status or the timeout elapses. Runs in
+	 * main (not the renderer) so the loopback probe is not subject to the workbench CSP. TLS is not
+	 * verified — dev servers routinely use self-signed certificates.
+	 */
+	waitForHttp(url: string, timeoutMs: number): Promise<boolean>;
 }

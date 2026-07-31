@@ -39,6 +39,9 @@ import { IVibeSubagentRegistryService } from './vibeSubagentRegistryService.js';
 import { IVibeSubagentHandoffStore, SubagentHandoffTicket, buildResumeGoal, escalateResumeQuota } from './vibeSubagentHandoffStore.js';
 import { DEFAULT_SUBAGENT_TOKEN_QUOTA } from './subagentIsolationPolicy.js';
 import { buildRoute, VibeAgentRoute } from './vibeAgentRoutes.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { IVibeAgentRunLedgerService } from './vibeAgentRunLedgerService.js';
+import { AgentSessionIdentity, compareAgentSessionIdentity, computeAgentSessionFingerprint, sessionMismatchToRussian } from './agentRunFingerprint.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -63,6 +66,12 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			minimum: 0,
 			maximum: 10,
 			description: localize('vibeide.subagent.maxResumes', 'Сколько раз VibeIDE САМ продолжит остановленную по лимиту (токены/шаги/время) роль-субагента с сохранённого места, прежде чем передать решение пользователю (ручной список «Продолжить роль»). 0 = не продолжать автоматически. Субагентный аналог «подпин.» основного агента. Дефолт 2. ПРИМЕЧАНИЕ: при включённом автопилоте ресурсные лимиты роли авто-продлеваются и роль не паркуется — этот лимит действует в ручном режиме.'),
+		},
+		'vibeide.subagent.budgetWindowDays': {
+			type: 'number',
+			default: 1,
+			minimum: 1,
+			description: localize('vibeide.subagent.budgetWindowDays', 'За сколько последних суток считать бюджет роли. `vibeide.subagent.maxTokens` ограничивает ОДИН прогон; бюджет роли (настраивается в «Роли агентов») ограничивает суммарный расход роли за это окно — двадцать прогонов, каждый в своём лимите, всё равно стоят двадцати лимитов. Дефолт 1 — сутки.'),
 		},
 		'vibeide.subagent.maxSteps': {
 			type: 'number',
@@ -176,6 +185,8 @@ class VibeSubagentOrchestratorService extends Disposable implements IVibeSubagen
 		@IVibeSubagentService private readonly _subagentSvc: IVibeSubagentService,
 		@IVibeSubagentRegistryService private readonly _registry: IVibeSubagentRegistryService,
 		@IVibeSubagentHandoffStore private readonly _handoffStore: IVibeSubagentHandoffStore,
+		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
+		@IVibeAgentRunLedgerService private readonly _ledger: IVibeAgentRunLedgerService,
 	) {
 		super();
 	}
@@ -263,6 +274,23 @@ class VibeSubagentOrchestratorService extends Disposable implements IVibeSubagen
 	 *  (hard 'failed' in the runner, never reaches this policy). */
 	private static readonly _AUTO_RESUMABLE: ReadonlySet<string> = new Set(['token-budget', 'max-steps', 'deadline']);
 
+	/**
+	 * Ground a run stood on, as far as it is knowable here: the provider and model are only
+	 * reported once a run has actually executed, so identities are taken from finished results
+	 * rather than guessed before the spawn.
+	 */
+	private _identityOf(role: SubagentType, parentThreadId: string, result: SubagentResult): AgentSessionIdentity {
+		const folders = this._workspace.getWorkspace().folders;
+		return {
+			role,
+			provider: result.providerName ?? '',
+			model: result.modelName ?? '',
+			parentThreadId,
+			workspaceKey: folders.length > 0 ? folders[0].uri.toString() : '',
+			allowedTools: this._registry.getPreset(role).allowedTools,
+		};
+	}
+
 	private _resumeQuota(resumeIndex: number): number {
 		const base = this._config.getValue<number>('vibeide.subagent.maxTokens');
 		const factor = this._config.getValue<number>('vibeide.subagent.resumeBudgetFactor') ?? 1.5;
@@ -303,10 +331,12 @@ class VibeSubagentOrchestratorService extends Disposable implements IVibeSubagen
 			// Stopped by a limit: persist the partial work so nothing is lost (survives restart).
 			partial = result.summary || partial;
 			const progress = { partialSummary: partial, artifacts: result.artifacts ?? [], stopReason: result.reason ?? 'stopped', tokensUsed: result.tokensUsed };
+			const identity = this._identityOf(role, parentThreadId, result);
+			const fingerprint = computeAgentSessionFingerprint(identity);
 			if (ticket) {
-				this._handoffStore.update(ticket.id, { ...progress, resumeCount: attempt });
+				this._handoffStore.update(ticket.id, { ...progress, resumeCount: attempt, identity, fingerprint });
 			} else {
-				ticket = this._handoffStore.create({ parentThreadId, role, taskText, priorContext: priorSummary || undefined, ...progress });
+				ticket = this._handoffStore.create({ parentThreadId, role, taskText, priorContext: priorSummary || undefined, ...progress, identity, fingerprint });
 			}
 
 			const autoOk = !!result.stopCode && VibeSubagentOrchestratorService._AUTO_RESUMABLE.has(result.stopCode);
@@ -329,6 +359,17 @@ class VibeSubagentOrchestratorService extends Disposable implements IVibeSubagen
 		this._handoffStore.update(ticketId, { status: 'resumed' });
 		const goal = buildResumeGoal(t.taskText, preset.displayName, t.partialSummary, t.priorContext);
 		const result = await this._spawnRole(t.role, t.parentThreadId, goal, this._resumeQuota(t.resumeCount + 1));
+
+		// A ticket outlives the window that wrote it. If the ground moved — another model, a
+		// changed whitelist — the pickup still happens, but the run carries the reason so the
+		// dispatch panel can say why this is a new session instead of a seamless continuation.
+		if (result && t.identity) {
+			const mismatch = compareAgentSessionIdentity(t.identity, this._identityOf(t.role, t.parentThreadId, result));
+			if (mismatch) {
+				this._ledger.recordUpdate({ runId: result.subagentId, resumeReason: mismatch });
+				this._log.info(`[SubagentOrchestrator] resume ${ticketId} continued on moved ground: ${sessionMismatchToRussian(mismatch)}`);
+			}
+		}
 		if (result?.status === 'success') {
 			// Completed — the handoff is fulfilled, drop the ticket.
 			this._handoffStore.remove(ticketId);

@@ -3,13 +3,14 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { defineConfig } from 'tsup'
+import { defineConfig } from 'tsup';
 
 export default defineConfig({
 	entry: [
 		'./src2/vibe-editor-widgets-tsx/index.tsx',
 		'./src2/sidebar-tsx/index.tsx',
 		'./src2/vibe-settings-tsx/index.tsx',
+		'./src2/vibe-agents-tsx/index.tsx',
 		'./src2/vibe-tooltip/index.tsx',
 		'./src2/vibe-onboarding/index.tsx',
 		'./src2/quick-edit-tsx/index.tsx',
@@ -43,6 +44,6 @@ export default defineConfig({
 	],
 	treeshake: true,
 	esbuildOptions(options) {
-		options.outbase = 'src2'  // tries copying the folder hierarchy starting at src2
+		options.outbase = 'src2';  // tries copying the folder hierarchy starting at src2
 	}
-})
+});

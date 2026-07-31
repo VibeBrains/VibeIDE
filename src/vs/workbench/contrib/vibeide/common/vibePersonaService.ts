@@ -52,7 +52,7 @@ export interface IVibePersonaService {
  * VibeIDE Agent Persona: reads .vibe/persona.json to configure agent communication style.
  * Teams can define: verbosity, formality, language, ask_before_assume.
  *
- * Service boundary contract: see `references/v1/persona-vs-modes.md`. Persona is a
+ * Service boundary contract: see `docs/references-v1/persona-vs-modes.md`. Persona is a
  * communication-style overlay; capability fencing (tools / MCP / model preset / system
  * prompt) lives in `VibeCustomModesService`. The two services do not duplicate.
  */

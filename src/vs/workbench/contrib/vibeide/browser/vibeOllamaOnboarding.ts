@@ -5,6 +5,7 @@
 
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { disposableTimeout } from '../../../../base/common/async.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -31,7 +32,7 @@ export class VibeOllamaOnboardingContribution extends Disposable implements IWor
 	) {
 		super();
 		// Check after 3s — non-blocking
-		setTimeout(() => this._detectLocalModels(), 3000);
+		this._register(disposableTimeout(() => this._detectLocalModels(), 3000));
 	}
 
 	private async _detectLocalModels(): Promise<void> {

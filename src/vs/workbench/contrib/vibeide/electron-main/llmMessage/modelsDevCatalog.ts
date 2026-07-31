@@ -38,13 +38,36 @@
 // models: {<modelId>: {provider?: {npm}}}}}`).
 
 import { vibeLog } from '../../common/vibeLog.js';
-import { fetch as undiciFetch } from 'undici';
+import { CancellationToken } from '../../../../../base/common/cancellation.js';
+import { IRequestService, asText } from '../../../../../platform/request/common/request.js';
 import * as fs from 'fs';
 import * as path from '../../../../../base/common/path.js';
 import { LOCAL_SNAPSHOT_FILENAME, MODELS_DEV_URL } from '../../common/modelsDevCatalogConstants.js';
 import { resolveVibeUserDataPath, snapshotCandidatePaths, SnapshotCandidate } from '../../common/vibeUserDataPaths.js';
 
-const FETCH_TIMEOUT_MS = 10_000;
+// Whole-request timeout: connection + downloading the full body (the catalog is
+// ~3.2 MB and growing) + parse. The previous 10s was tuned for a much smaller
+// payload and started producing intermittent false "offline" states on slower
+// links once the catalog grew. 55s matches the sibling RemoteCatalogFetchChannel
+// and leaves generous headroom for the multi-megabyte download.
+const FETCH_TIMEOUT_MS = 55_000;
+
+// Injected once at main-process startup (registerVibeideMainChannels). The catalog
+// is fetched through IRequestService — which in electron-main routes via Electron's
+// `net` module (Chromium network stack) — so it honors the SAME system proxy and
+// system-trusted CA certificates as the user's browser. The previous raw `undici`
+// fetch bypassed both, causing "the URL opens in the browser but the IDE reports
+// offline" on corporate networks with a proxy or TLS-inspecting middlebox.
+let requestService: IRequestService | null = null;
+
+/**
+ * Wire the main-process IRequestService into this module-level singleton. Must be
+ * called before the first `getModelSdkNpm` / `getCatalogStatus`; both happen after
+ * channel registration, so startup ordering is guaranteed.
+ */
+export function initModelsDevCatalogRequestService(service: IRequestService): void {
+	requestService = service;
+}
 // Disk-cache TTL for the userData snapshot. Within this window we serve from
 // disk INSTANTLY (no network wait) and kick off a background refresh — the
 // classic stale-while-revalidate pattern. Default 24h: aggregators don't add
@@ -113,17 +136,26 @@ const indexJson = (json: unknown): CatalogIndex | null => {
 };
 
 const fetchAndIndex = async (): Promise<{ index: CatalogIndex; rawText: string } | null> => {
+	if (!requestService) {
+		vibeLog.warn('modelsDevCatalog', '[modelsDevCatalog] IRequestService not initialized yet — falling back to local snapshot if available');
+		return null;
+	}
 	try {
-		const res = await undiciFetch(MODELS_DEV_URL, {
-			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-		});
-		if (!res.ok) {
-			vibeLog.warn('modelsDevCatalog', `[modelsDevCatalog] fetch returned HTTP ${res.status} ${res.statusText} — falling back to local snapshot if available`);
+		const context = await requestService.request({
+			type: 'GET',
+			url: MODELS_DEV_URL,
+			headers: { Accept: 'application/json' },
+			timeout: FETCH_TIMEOUT_MS,
+			callSite: 'modelsDevCatalog',
+		}, CancellationToken.None);
+		const status = context.res.statusCode ?? 0;
+		if (status < 200 || status >= 300) {
+			vibeLog.warn('modelsDevCatalog', `[modelsDevCatalog] fetch returned HTTP ${status} — falling back to local snapshot if available`);
 			return null;
 		}
 		// Read as text first so we can both parse AND persist verbatim. Avoids a
 		// re-stringify (which would reformat / lose unknown fields).
-		const rawText = await res.text();
+		const rawText = (await asText(context)) ?? '';
 		const index = indexJson(JSON.parse(rawText));
 		if (!index) {
 			vibeLog.warn('modelsDevCatalog', '[modelsDevCatalog] fetched JSON did not contain any indexable providers — falling back to local snapshot if available');
@@ -251,10 +283,14 @@ const tryReadFastPathSnapshot = async (): Promise<{ catalog: CatalogIndex; from:
 // swallowed — caller is using the stale snapshot, so a refresh failure just
 // means the next start will retry. Never runs concurrently with itself.
 let backgroundRefreshRunning = false;
+// The in-flight background refresh, exposed so getCatalogStatus() can await the
+// network outcome before deciding whether we're really "offline". Null when no
+// refresh is running. Resolves on success OR failure (never rejects).
+let backgroundRefreshPromise: Promise<void> | null = null;
 const refreshInBackground = (): void => {
 	if (backgroundRefreshRunning) { return; }
 	backgroundRefreshRunning = true;
-	void (async () => {
+	backgroundRefreshPromise = (async () => {
 		try {
 			const fresh = await fetchAndIndex();
 			if (fresh) {
@@ -268,6 +304,7 @@ const refreshInBackground = (): void => {
 			backgroundRefreshRunning = false;
 		}
 	})();
+	void backgroundRefreshPromise;
 };
 
 const getCatalog = (): Promise<CatalogIndex | null> => {
@@ -395,7 +432,19 @@ export type ModelsDevCatalogStatus =
  * fetch — useful for prefetching at app start so the renderer can warn early.
  */
 export const getCatalogStatus = async (): Promise<ModelsDevCatalogStatus> => {
-	const catalog = await getCatalog();
+	let catalog = await getCatalog();
+	// If we served a local snapshot via the stale-while-revalidate fast path, a
+	// background network refresh is (very likely) in flight. Wait for it so the
+	// reported status reflects the ACTUAL network outcome, not the transient
+	// fast-path state: a fresh <TTL cache that refreshes successfully is NOT
+	// "offline" and must not raise the offline modal on every cold start. Only a
+	// genuinely failed refresh leaves us on the local snapshot → real offline.
+	// Note: getCatalog() (the aiSdkAdapter prefetch) stays instant; only this
+	// status query — on the non-critical AfterRestored path — pays the wait.
+	if (catalog && loadedFromLocalPath && backgroundRefreshPromise) {
+		await backgroundRefreshPromise;
+		catalog = cachedCatalog;
+	}
 	if (!catalog) {
 		return {
 			state: 'failed',

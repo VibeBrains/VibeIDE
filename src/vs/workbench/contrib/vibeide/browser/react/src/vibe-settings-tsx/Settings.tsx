@@ -360,7 +360,12 @@ const SimpleModelSettingsDialog = ({
 	// it isn't in `modelOverrideKeys`. Surface it explicitly below the JSON
 	// example as a separate hint — users discover the field without grepping.
 	const partialDefaults: Partial<ModelOverrides> = {};
-	for (const k of modelOverrideKeys) { if (defaultModelCapabilities[k]) {partialDefaults[k] = defaultModelCapabilities[k] as ModelOverrides[typeof k];} }
+	// TS cannot correlate `k` across two index accesses, so the write goes through a widened
+	// view — the value itself still comes from `defaultModelCapabilities[k]`, same key.
+	for (const k of modelOverrideKeys) {
+		const v = defaultModelCapabilities[k];
+		if (v) { (partialDefaults as Record<string, unknown>)[k] = v; }
+	}
 	const placeholder = JSON.stringify(partialDefaults, null, 2);
 
 	const [overrideEnabled, setOverrideEnabled] = useState<boolean>(() => !!currentOverrides);
@@ -428,7 +433,8 @@ const SimpleModelSettingsDialog = ({
 			if (!(k in parsedInput)) {continue;}
 			const isEmpty = parsedInput[k] === '' || parsedInput[k] === null || parsedInput[k] === undefined;
 			if (!isEmpty) {
-				cleaned[k] = parsedInput[k] as ModelOverrides[typeof k];
+				// Same correlation limit as `partialDefaults` above.
+				(cleaned as Record<string, unknown>)[k] = parsedInput[k];
 			}
 		}
 		// `apiProtocol` from JSON textarea — still accept it for power users who
@@ -2551,7 +2557,7 @@ const AutoDowngradeOverridesPanel = () => {
 	const rows: Row[] = [];
 	const overrides = settingsState.overridesOfModel;
 	if (overrides) {
-		for (const providerName of Object.keys(overrides) as (keyof typeof overrides)[]) {
+		for (const providerName of Object.keys(overrides) as ProviderName[]) {
 			const byModel = overrides[providerName];
 			if (!byModel) {continue;}
 			for (const modelName of Object.keys(byModel)) {

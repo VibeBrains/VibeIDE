@@ -56,10 +56,10 @@ hygiene.
 disabled / local-only", so this workflow's purpose has to be one of:
 
 - **Audit** — verify no new telemetry has leaked in upstream merges. **Action:** rename to
-  `telemetry-audit.yml` and document this purpose in `references/v1/telemetry-policy.md`.
+  `telemetry-audit.yml` and document this purpose in `docs/references-v1/telemetry-policy.md`.
 - **Stale** — leftover from upstream. **Action:** retire.
 
-Decision: keep as audit. See `references/v1/telemetry-policy.md`.
+Decision: keep as audit. See `docs/references-v1/telemetry-policy.md`.
 
 ## Backlog (new workflows from K/L sections)
 

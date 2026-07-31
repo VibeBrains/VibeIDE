@@ -49,7 +49,9 @@ export default new class TranslationRemind implements eslint.Rule.RuleModule {
 			return;
 		}
 		const parsed = JSON.parse(json);
-		const resources = [...parsed.workbench, ...parsed.sessions];
+		// `sessions` is a VibeIDE-added layer; i18n.resources.json (upstream-derived) may
+		// not carry that key yet — guard against a crash when it is absent.
+		const resources = [...(parsed.workbench ?? []), ...(parsed.sessions ?? [])];
 
 		resources.forEach((existingResource: any) => {
 			if (existingResource.name === resource) {

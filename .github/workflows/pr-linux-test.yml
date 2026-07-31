@@ -282,7 +282,7 @@ jobs:
 
       - name: 🧪 Run unit tests (Electron)
         if: ${{ inputs.electron_tests }}
-        timeout-minutes: 15
+        timeout-minutes: 30
         run: ./scripts/test.sh --tfs "Unit Tests"
         env:
           DISPLAY: ":10"

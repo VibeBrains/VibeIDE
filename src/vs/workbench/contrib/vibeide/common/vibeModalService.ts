@@ -19,7 +19,7 @@ export const IVibeModalService = createDecorator<IVibeModalService>('vibeModalSe
  *
  * Usage:
  *   const { buttonId, inputValue } = await vibeModalService.showModal({
- *     title: 'Подтвердить удаление',
+ *     title: localize('example.confirmDelete.title', 'Подтвердить удаление'),
  *     body: 'Файл будет удалён без возможности восстановления.',
  *     buttons: [
  *       { id: 'ok', label: 'Удалить', role: 'danger' },

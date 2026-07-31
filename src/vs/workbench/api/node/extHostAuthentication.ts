@@ -13,7 +13,7 @@ import { IExtHostWindow } from '../common/extHostWindow.js';
 import { IExtHostUrlsService } from '../common/extHostUrls.js';
 import { ILoggerService, ILogService } from '../../../platform/log/common/log.js';
 import { MainThreadAuthenticationShape } from '../common/extHost.protocol.js';
-import { IAuthorizationServerMetadata, IAuthorizationProtectedResourceMetadata, IAuthorizationTokenResponse, IAuthorizationDeviceResponse, isAuthorizationDeviceResponse, isAuthorizationTokenResponse, IAuthorizationDeviceTokenErrorResponse, AuthorizationErrorType, AuthorizationDeviceCodeErrorType } from '../../../base/common/oauth.js';
+import { IAuthorizationServerMetadata, IAuthorizationProtectedResourceMetadata, IAuthorizationTokenResponse, IAuthorizationDeviceResponse, isAuthorizationDeviceResponse, isAuthorizationTokenResponse, IAuthorizationDeviceTokenErrorResponse, AuthorizationErrorType, AuthorizationDeviceCodeErrorType, verifyAuthorizationResponseIssuer } from '../../../base/common/oauth.js';
 import { Emitter } from '../../../base/common/event.js';
 import { raceCancellationError } from '../../../base/common/async.js';
 import { IExtHostProgress } from '../common/extHostProgress.js';
@@ -146,6 +146,26 @@ export class NodeDynamicAuthProvider extends DynamicAuthProvider {
 			let code: string | undefined;
 			try {
 				const response = await raceCancellationError(promise, token);
+				// RFC 9207 mix-up protection: with more than one authorization server in play, a
+				// response minted by server B must not be accepted as one from server A. The state
+				// check above only proves the response belongs to OUR request, not that it came from
+				// the server we asked. Servers that advertise the parameter must send it; older ones
+				// are let through unchecked, and that fact is logged rather than passed over silently.
+				const issuerVerdict = verifyAuthorizationResponseIssuer(
+					response,
+					this._serverMetadata.issuer,
+					{ issuerParameterSupported: this._serverMetadata.authorization_response_iss_parameter_supported },
+				);
+				if (!issuerVerdict.ok) {
+					const detail = issuerVerdict.reason === 'mismatch'
+						? `expected issuer ${issuerVerdict.expected}, got ${issuerVerdict.received}`
+						: `expected issuer ${issuerVerdict.expected}, response carried no 'iss'`;
+					this._logger.error(`Authorization response rejected (RFC 9207): ${detail}`);
+					throw new Error(`Authorization response did not come from the expected authorization server (${detail}).`);
+				}
+				if (!issuerVerdict.checked) {
+					this._logger.info(`Authorization response accepted without an 'iss' check (RFC 9207) — the server does not advertise the parameter.`);
+				}
 				code = response.code;
 			} catch (err) {
 				if (isCancellationError(err)) {

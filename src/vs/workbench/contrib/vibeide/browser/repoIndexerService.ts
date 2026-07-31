@@ -100,12 +100,29 @@ export interface QueryMetrics {
 	hybridSearchUsed?: boolean; // Whether hybrid (BM25 + vector) search was used
 }
 
+/**
+ * What the index knows about one file, structurally. Deliberately narrow: consumers that need
+ * structure (the code graph) get paths, symbol names and import specifiers — never the snippets,
+ * chunks or embeddings, which exist only to serve similarity search.
+ */
+export interface RepoStructureEntry {
+	readonly uri: string;
+	readonly symbols: readonly string[];
+	/** Import specifiers exactly as written in the source; bare packages included. */
+	readonly importedFrom: readonly string[];
+}
+
 export interface IRepoIndexerService {
 	readonly _serviceBrand: undefined;
 	warmIndex(workspaceRoot?: URI): Promise<void>;
 	query(text: string, k?: number): Promise<string[]>;
 	queryWithMetrics(text: string, k?: number): Promise<{ results: string[]; metrics: QueryMetrics }>;
 	rebuildIndex(): Promise<void>;
+	/**
+	 * Structural snapshot of the current index. Answers "what exists and what points where",
+	 * as opposed to `query`, which answers "what looks relevant". Empty until the index is warm.
+	 */
+	listStructure(): readonly RepoStructureEntry[];
 }
 
 export const IRepoIndexerService = createDecorator<IRepoIndexerService>('repoIndexerService');
@@ -923,6 +940,16 @@ class RepoIndexerService extends Disposable implements IRepoIndexerService {
 	async query(text: string, k: number = 5): Promise<string[]> {
 		const result = await this.queryWithMetrics(text, k);
 		return result.results;
+	}
+
+	listStructure(): readonly RepoStructureEntry[] {
+		// Copied out rather than handed over: the index is mutated in place by incremental updates,
+		// and a consumer holding live references would see it change under itself mid-traversal.
+		return this._index.map(entry => ({
+			uri: entry.uri,
+			symbols: [...entry.symbols],
+			importedFrom: [...(entry.importedFrom ?? [])],
+		}));
 	}
 
 	async queryWithMetrics(text: string, k: number = 5): Promise<{ results: string[]; metrics: QueryMetrics }> {

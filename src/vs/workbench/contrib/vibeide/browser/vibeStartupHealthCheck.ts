@@ -7,6 +7,7 @@
 import { vibeLog } from '../common/vibeLog.js';
 import { localize } from '../../../../nls.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { disposableTimeout } from '../../../../base/common/async.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
@@ -33,7 +34,7 @@ export class VibeStartupHealthCheckContribution extends Disposable implements IW
 	) {
 		super();
 		// Non-blocking: run in background after workbench restore
-		setTimeout(() => this._runHealthCheck(), 0);
+		this._register(disposableTimeout(() => this._runHealthCheck(), 0));
 	}
 
 	private async _runHealthCheck(): Promise<void> {

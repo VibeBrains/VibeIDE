@@ -26,3 +26,9 @@ export const OPEN_TAB_IDS_KEY = 'vibeide.chatOpenTabIds';
 
 
 export const OPT_OUT_KEY = 'vibeide.app.optOutAll';
+
+// Config-providers cache: the last successfully merged providers.json entry set (global ~/.vibe +
+// workspace .vibe, secrets never included). Restored synchronously at startup so config providers
+// are usable BEFORE the async file reads land (and in windows with no folder open); every reload
+// overwrites it, so entries deleted from the files reconcile away instead of lingering as ghosts.
+export const VIBE_CONFIG_PROVIDERS_CACHE_KEY = 'vibeide.configProvidersCacheI';

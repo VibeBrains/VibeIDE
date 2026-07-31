@@ -2,7 +2,7 @@
 #
 # Roadmap §888 (Distribution readiness gate / Win EV cert).
 # Pure helper: src/vs/workbench/contrib/vibeide/common/distributionSigningPolicy.ts
-# Runbook: references/v1/distribution-signing-runbook.md
+# Runbook: docs/references-v1/distribution-signing-runbook.md
 #
 # Usage (release flow):
 #   .\scripts\sign-windows.ps1 -Path .build\installer\VibeIDE-Setup.exe
@@ -54,7 +54,7 @@ if ($gate -ne '1' -or -not $thumbprint) {
   `$env:VIBE_WIN_CERT_THUMBPRINT = '<sha1 thumbprint>'
 
 For dev/nightly builds, pass -AllowUnsigned. For release, acquire an EV cert
-(Sectigo ~`$300/y) and follow references/v1/distribution-signing-runbook.md.
+(Sectigo ~`$300/y) and follow docs/references-v1/distribution-signing-runbook.md.
 "@
     exit 2
 }

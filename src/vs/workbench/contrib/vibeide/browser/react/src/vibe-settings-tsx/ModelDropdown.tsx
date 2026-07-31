@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { displayInfoOfProviderName, FeatureName, featureNames, isFeatureNameDisabled, ModelSelection, modelSelectionsEqual, ProviderName, providerNames, SettingsOfProvider } from '../../../../../../../workbench/contrib/vibeide/common/vibeideSettingsTypes.js';
 import { useSettingsState, useRefreshModelState, useAccessor } from '../util/services.js';
-import { _VibeSelectBox, VibeCustomDropdownBox } from '../util/inputs.js';
+import { VibeCustomDropdownBox } from '../util/inputs.js';
 import { SelectBox } from '../../../../../../../base/browser/ui/selectBox/selectBox.js';
 import { IconWarning } from '../sidebar-tsx/SidebarChat.js';
 import { VIBEIDE_OPEN_SETTINGS_ACTION_ID, VIBEIDE_TOGGLE_SETTINGS_ACTION_ID } from '../../../vibeideSettingsPane.js';

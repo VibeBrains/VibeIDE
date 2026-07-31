@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-// Copyright 2026 VibeIDE Team. MIT License.
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 //
 // Default runner skeleton for IVibeBackgroundAgentRuntime (roadmap §L884).
 // Speaks the JSON-line envelope protocol defined in
@@ -39,7 +43,7 @@ process.stdin.on('data', (chunk) => {
 		const line = lineBuf.slice(0, nl).trim();
 		lineBuf = lineBuf.slice(nl + 1);
 		nl = lineBuf.indexOf('\n');
-		if (line.length === 0) continue;
+		if (line.length === 0) {continue;}
 		handleLine(line);
 	}
 });
@@ -59,7 +63,7 @@ function handleLine(line) {
 		emit('error', { reason: 'malformed-inbound', preview: line.slice(0, 120) });
 		return;
 	}
-	if (!parsed || typeof parsed !== 'object') return;
+	if (!parsed || typeof parsed !== 'object') {return;}
 	const type = parsed.type;
 	switch (type) {
 		case 'start':

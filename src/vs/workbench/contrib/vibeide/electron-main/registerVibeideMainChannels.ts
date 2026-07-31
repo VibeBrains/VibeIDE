@@ -23,6 +23,8 @@ import { MetricsMainService } from './metricsMainService.js';
 import { OllamaInstallerChannel } from './ollamaInstallerChannel.js';
 import { RemoteCatalogFetchChannel } from './remoteCatalogFetchChannel.js';
 import { ModelsDevCatalogStatusMainService } from './modelsDevCatalogStatusMainService.js';
+import { initModelsDevCatalogRequestService } from './llmMessage/modelsDevCatalog.js';
+import { installVibeLogMainFileSink } from './vibeLogMainFileSink.js';
 import { ModelQuirksStatusMainService } from './modelQuirksStatusMainService.js';
 import { VibeIdleWatchdogChannelService } from './vibeIdleWatchdogChannel.js';
 import { VIBE_IDLE_WATCHDOG_CHANNEL } from '../common/vibeIdleWatchdogTypes.js';
@@ -53,6 +55,11 @@ export function registerVibeideMainProcessChannels(
 	mainProcessElectronServer: ElectronIPCServer,
 	disposables: DisposableStore,
 ): void {
+	// Persist main-process vibeLog to `<logsHome>/vibeide-main.log`. Wired first so the file
+	// captures as much of the early-startup backlog as possible. The renderer's file sink
+	// (vibeLogOutputChannel.ts) only sees renderer-side lines — this covers the main instance.
+	disposables.add(installVibeLogMainFileSink(accessor.get(IEnvironmentMainService).logsHome.fsPath));
+
 	// Token is typed as IStorageMainService; runtime is ApplicationStorageMainService (IApplicationStorageMainService).
 	const applicationStorage = accessor.get(IApplicationStorageMainService) as unknown as IApplicationStorageMainService;
 	const metricsMainService = disposables.add(new MetricsMainService(
@@ -75,6 +82,10 @@ export function registerVibeideMainProcessChannels(
 		'vibeide-channel-remoteCatalogFetch',
 		new RemoteCatalogFetchChannel(requestServiceMain),
 	);
+
+	// Fetch the models.dev catalog through IRequestService (Electron `net` → system
+	// proxy + system-trusted CAs), not raw undici, so it works on corporate networks.
+	initModelsDevCatalogRequestService(requestServiceMain);
 
 	const mcpChannel = new MCPChannel();
 	mainProcessElectronServer.registerChannel('vibe-channel-mcp', mcpChannel);

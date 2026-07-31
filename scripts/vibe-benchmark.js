@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe benchmark — benchmark LLM models: latency/quality/cost
  *
@@ -41,11 +46,11 @@ async function benchmarkOllama(model) {
 				buffer = lines.pop() || '';
 
 				for (const line of lines) {
-					if (!line.trim()) continue;
+					if (!line.trim()) {continue;}
 					try {
 						const data = JSON.parse(line);
 						if (data.response) {
-							if (firstTokenMs === null) firstTokenMs = Date.now() - start;
+							if (firstTokenMs === null) {firstTokenMs = Date.now() - start;}
 							totalResponse += data.response;
 							tokenCount++;
 						}
@@ -93,5 +98,5 @@ async function main() {
 }
 
 main().catch(e => {
-	if (e.code !== 'ECONNREFUSED') console.error(e.message);
+	if (e.code !== 'ECONNREFUSED') {console.error(e.message);}
 });

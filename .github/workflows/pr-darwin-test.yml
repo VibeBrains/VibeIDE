@@ -17,7 +17,7 @@ on:
 jobs:
   macOS-test:
     name: ${{ inputs.job_name }}
-    runs-on: macos-14-xlarge
+    runs-on: macos-14
     env:
       ARTIFACT_NAME: ${{ (inputs.electron_tests && 'electron') || (inputs.browser_tests && 'browser') || (inputs.remote_tests && 'remote') || 'unknown' }}
       NPM_ARCH: arm64
@@ -129,7 +129,7 @@ jobs:
 
       - name: 🧪 Run unit tests (Electron)
         if: ${{ inputs.electron_tests }}
-        timeout-minutes: 15
+        timeout-minutes: 30
         run: ./scripts/test.sh --tfs "Unit Tests"
 
       - name: 🧪 Run unit tests (node.js)

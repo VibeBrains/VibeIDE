@@ -1,0 +1,86 @@
+// Alibaba Cloud AI Coding Plan — один ключ на четыре семейства моделей (Qwen, GLM, Kimi, MiniMax).
+// Подписка с фиксированной платой вместо оплаты за токены: лимит считается в ЗАПРОСАХ
+// (6 000 за 5 часов, 45 000 в неделю, 90 000 в месяц), поэтому «дорогая» модель здесь стоит
+// столько же, сколько дешёвая — цену за токен в static ниже намеренно не указываем.
+// Ключ: DASHSCOPE_API_KEY=sk-sp-… в .vibe/.env (ключ ПЛАНА, он отличается от обычного ключа
+// Model Studio и начинается с sk-sp-). Взять: консоль Coding Plan → API key.
+//
+// ТРИ ВЕЩИ, О КОТОРЫХ ЛЕГКО СПОТКНУТЬСЯ:
+//
+//  1. Имена моделей сверяются ПОСИМВОЛЬНО. Любое расхождение версии или под-модели —
+//     и запрос отвергается как «модель не поддерживается». В плане именно kimi-k2.5 и
+//     MiniMax-M2.5: свежих K3 и M3 в нём НЕТ, сколько бы их ни было у самих вендоров.
+//
+//  2. GLM без "tool_stream" молча не вызывает инструменты. DashScope возвращает tool_calls
+//     для GLM-моделей только когда в теле запроса стоит extra_body {"tool_stream": true};
+//     иначе модель отвечает прозой, агентный цикл не начинается, и выглядит это как
+//     «модель тупит», а не как ошибка. Поэтому extraBody у обеих GLM-записей ниже.
+//
+//  3. Условия плана запрещают неинтерактивные сценарии — «automated scripts, application
+//     backends or other non-interactive scenarios». Работа руками в редакторе под это
+//     подходит; фоновые агенты, dead man's switch и любые запуски по расписанию — нет.
+//     Для них берите обычный ключ Model Studio с оплатой за токены.
+{
+	"version": 1,
+	"providers": [
+		{
+			"id": "alibaba-coding",
+			"name": "Alibaba Coding Plan",
+			"protocol": "openai",
+			"baseURL": "https://coding-intl.dashscope.aliyuncs.com/v1",
+			"auth": "bearer",
+			"apiKeyEnv": "DASHSCOPE_API_KEY",
+			"apiKeyUrl": "https://www.alibabacloud.com/help/en/model-studio/coding-plan",
+			"order": 40,
+			"models": {
+				"fetch": false, // список плана фиксирован; каталог /v1/models вернёт лишнее
+				"static": [
+					{
+						"id": "qwen3.7-plus",
+						"name": "Qwen 3.7 Plus",
+						"default": true,
+						"pinned": true,
+						"contextWindow": 1000000,
+						"toolFormat": "openai",
+						"vision": true
+					},
+					{
+						"id": "qwen3-coder-next",
+						"name": "Qwen 3 Coder Next",
+						"contextWindow": 1000000,
+						"toolFormat": "openai"
+					},
+					{
+						"id": "glm-5",
+						"name": "GLM-5",
+						"contextWindow": 204800,
+						"toolFormat": "openai",
+						// Без этого поля GLM не вернёт ни одного tool_call — см. пункт 2 в шапке.
+						"extraBody": { "tool_stream": true }
+					},
+					{
+						"id": "glm-4.7",
+						"name": "GLM-4.7",
+						"contextWindow": 204800,
+						"toolFormat": "openai",
+						"extraBody": { "tool_stream": true }
+					},
+					{
+						"id": "kimi-k2.5",
+						"name": "Kimi K2.5",
+						"contextWindow": 262144,
+						"toolFormat": "openai",
+						"reasoning": { "canTurnOff": true, "effort": ["low", "high"] }
+					},
+					{
+						"id": "MiniMax-M2.5",
+						"name": "MiniMax M2.5",
+						"contextWindow": 204800,
+						"toolFormat": "openai",
+						"reasoning": { "canTurnOff": true, "effort": ["low", "high"] }
+					}
+				]
+			}
+		}
+	]
+}

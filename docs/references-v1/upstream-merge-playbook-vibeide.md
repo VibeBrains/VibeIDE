@@ -29,7 +29,7 @@
 
 ## Extensions workspace (`extensions/**`)
 
-See **`references/v1/extensions-lockfile-policy.md`** — lockfile strategy and CI expectations after upstream sync.
+See **`docs/references-v1/extensions-lockfile-policy.md`** — lockfile strategy and CI expectations after upstream sync.
 
 ## Quick validation after merge
 

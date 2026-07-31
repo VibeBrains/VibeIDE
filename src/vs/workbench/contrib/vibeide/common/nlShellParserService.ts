@@ -8,7 +8,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { ILLMMessageService } from './sendLLMMessageService.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
-import { autoModelFallbackProviderOrder, isValidProviderModelSelection, ModelSelection } from './vibeideSettingsTypes.js';
+import { autoFallbackProviderIds, isValidProviderModelSelection, ModelSelection } from './vibeideSettingsTypes.js';
 import { analyzeNLShellSafety } from './nlShellSafetyAnalyzer.js';
 
 export const INLShellParserService = createDecorator<INLShellParserService>('nlShellParserService');
@@ -73,7 +73,7 @@ class NLShellParserService implements INLShellParserService {
 			// Try to find the first available configured model (prefer online models first, then local)
 			let fallbackModel: ModelSelection | null = null;
 
-			for (const providerName of autoModelFallbackProviderOrder) {
+			for (const providerName of autoFallbackProviderIds(settings.settingsOfProvider)) {
 				const providerSettings = settings.settingsOfProvider[providerName];
 				if (providerSettings && providerSettings._didFillInProviderSettings) {
 					const models = providerSettings.models || [];

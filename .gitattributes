@@ -8,6 +8,11 @@ ThirdPartyNotices.txt eol=crlf
 *.ps1 eol=lf
 *.sh eol=lf
 *.rtf -text
+# Encoding test fixtures carry exact byte prefixes (UTF-8/UTF-16 BOMs) that the tests detect;
+# `* text=auto` above renormalizes text files and strips the UTF-8 BOM from some_utf8.css on
+# checkout/commit, breaking `detectBOM UTF-8`. Pin the whole fixtures dir as binary so git leaves
+# the bytes untouched.
+src/vs/workbench/services/textfile/test/node/encoding/fixtures/** -text
 **/*.json linguist-language=jsonc
 .vibe/**/*.json text eol=lf
 # Sources embedded verbatim into vibeDefaultsManifest.generated.ts — pin to LF so the working-tree
@@ -19,6 +24,6 @@ docs/manuals/specsWorkflow.md text eol=lf
 # Custom merge driver for VibeIDE persisted plans. Register once per clone:
 #   git config merge.vibe-plan.name "VibeIDE plan merger"
 #   git config merge.vibe-plan.driver "node scripts/vibe-plan-merge-driver.js %A %O %B %P"
-# See scripts/vibe-plan-merge-driver.js and references/v1/persisted-plan-contract.md.
+# See scripts/vibe-plan-merge-driver.js and docs/references-v1/persisted-plan-contract.md.
 .vibe/plans/*.plan.md   merge=vibe-plan
 .vibe/plans/*.steps.json merge=vibe-plan

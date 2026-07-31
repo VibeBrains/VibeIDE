@@ -1,4 +1,9 @@
 /*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/*---------------------------------------------------------------------------------------------
  *  Clears %UserData%/clp so the next Electron start rebuilds nls.messages.json from fresh
  *  out/nls.keys.json + bundled language pack. Mirrors getUserDataPath (dev profile only).
  *  Invoked from vibe-dev.bat after successful vibe-nls-extract.

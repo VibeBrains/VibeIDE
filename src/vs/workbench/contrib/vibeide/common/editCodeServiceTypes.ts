@@ -6,6 +6,16 @@
 
 import { URI } from '../../../../base/common/uri.js';
 
+/**
+ * Minimal textarea surface the workbench uses through this common-layer type without pulling the DOM
+ * lib into `common/`. A real `HTMLTextAreaElement` (assigned in the browser layer) satisfies it.
+ */
+export interface IVibeTextAreaRef {
+	focus(): void;
+	blur(): void;
+	value: string;
+}
+
 export type ComputedDiff = {
 	type: 'edit';
 	originalCode: string;
@@ -52,7 +62,7 @@ export type CtrlKZone = {
 
 	// _ means anything we don't include if we clone it
 	_mountInfo: null | {
-		textAreaRef: { current: HTMLTextAreaElement | null };
+		textAreaRef: { current: IVibeTextAreaRef | null };
 		dispose: () => void;
 		refresh: () => void;
 	};

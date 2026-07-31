@@ -36,6 +36,12 @@ export interface IVibePerFilePermissionsService {
 	/** Check read permission. Returns true if allowed. */
 	canRead(filePath: string): boolean;
 
+	/**
+	 * The loaded permission set. `canWrite`/`canRead` answer for one path; the launch preflight
+	 * reports the whole picture before a path is even chosen.
+	 */
+	getPermissions(): VibePermissions;
+
 	/** Reload permissions from .vibe/permissions.json */
 	reload(): Promise<void>;
 }
@@ -107,6 +113,10 @@ class VibePerFilePermissionsService extends Disposable implements IVibePerFilePe
 	) {
 		super();
 		this.reload();
+	}
+
+	getPermissions(): VibePermissions {
+		return this._permissions;
 	}
 
 	async reload(): Promise<void> {

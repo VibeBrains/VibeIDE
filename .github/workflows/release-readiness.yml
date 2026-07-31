@@ -2,7 +2,7 @@
 #
 # Roadmap §888 (Distribution readiness gate). Pure decision lives in
 # src/vs/workbench/contrib/vibeide/common/distributionSigningPolicy.ts.
-# Runbook: references/v1/distribution-signing-runbook.md.
+# Runbook: docs/references-v1/distribution-signing-runbook.md.
 #
 # Warn-only by design: until EV cert + Apple Developer creds are in CI
 # secrets, every release ships unsigned. This workflow tells the maintainer
@@ -57,7 +57,7 @@ jobs:
             echo '::notice::Distribution gate: READY — all signing credentials configured.'
           else
             for m in "${missing[@]}"; do
-              echo "::warning::Distribution gate: MISSING $m — see references/v1/distribution-signing-runbook.md"
+              echo "::warning::Distribution gate: MISSING $m — see docs/references-v1/distribution-signing-runbook.md"
             done
           fi
         env:

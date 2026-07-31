@@ -22,7 +22,7 @@ import { ErrorDisplay } from './ErrorDisplay.js';
 import { BlockCode, TextAreaFns, VibeCustomDropdownBox, VibeInputBox2, VibeSlider, VibeSwitch, VibeDiffEditor } from '../util/inputs.js';
 import { ModelDropdown, } from '../vibe-settings-tsx/ModelDropdown.js';
 import { PastThreadsList, ChatHistoryToolbarDropdown } from './SidebarThreadSelector.js';
-import { TokenBudgetInline } from './SidebarHistory.js';
+import { ChatContextMeterButton } from './ChatContextMeter.js';
 import { VIBEIDE_CTRL_L_ACTION_ID } from '../../../actionIDs.js';
 import { VIBEIDE_OPEN_SETTINGS_ACTION_ID } from '../../../vibeideSettingsPane.js';
 import { ChatMode, displayInfoOfProviderName, FeatureName, isFeatureNameDisabled, isValidProviderModelSelection, ProviderName, providerNames } from '../../../../../../../workbench/contrib/vibeide/common/vibeideSettingsTypes.js';
@@ -104,8 +104,8 @@ const ChatTimestamp = ({ ts, align, streaming }: { ts: number | undefined; align
 	// layout does not shift when the first chunk arrives and `ts` becomes valid.
 	if (!validTs && !streaming) {return null;}
 	const text = validTs ? formatChatTimestamp(ts) : CHAT_TIMESTAMP_STREAMING_PLACEHOLDER;
-	// NOTE: the session-token budget warning pulse lives on the SESSION line in the footer
-	// (TokenBudgetFooter, SidebarHistory.tsx) — NOT here. Chat timestamps stay neutral.
+	// NOTE: the session-token budget warning pulse lives on the context ring in the composer
+	// toolbar (ChatContextMeter.tsx) — NOT here. Chat timestamps stay neutral.
 	const timeNode = validTs
 		? <time dateTime={chatTimestampToISO(ts)} title={formatChatTimestamp(ts, 'DD.MM.YYYY HH:mm:ss')} style={NEON_TIMESTAMP_STYLE}>{text}</time>
 		: <span aria-hidden='true' style={NEON_TIMESTAMP_STYLE}>{text}</span>;
@@ -239,6 +239,7 @@ export const IconLoading = ({
 			const timer = setTimeout(() => setShouldPulse(false), 300);
 			return () => clearTimeout(timer);
 		}
+		return undefined;
 	}, [showTokenCount, prevTokenCount]);
 
 	const tokenText = showTokenCount !== undefined
@@ -624,9 +625,9 @@ const ChatRuleLinksRecursiveToggle = ({ className }: { className?: string }) => 
 
 
 /**
- * Toolbar quick-reset for the SESSION token counter (same `vibeide.tokenBudget.reset` command as
- * the full TokenBudgetFooter in history — one source of reset logic). Lives right after the
- * Autopilot toggle for quick access; tooltip shows the current spend so the click is informed.
+ * Toolbar quick-reset for the SESSION token counter — the one UI entry point for
+ * `vibeide.tokenBudget.reset` (the context ring next to it only reports, never resets). Lives right
+ * after the Autopilot toggle for quick access; tooltip shows the current spend so the click is informed.
  */
 const ChatSessionResetButton = ({ className }: { className?: string }) => {
 	const accessor = useAccessor();
@@ -1466,11 +1467,7 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 		<div
 			ref={(node) => {
 				if (divRef) {
-					if (typeof divRef === 'function') {
-						divRef(node);
-					} else {
-						divRef.current = node;
-					}
+					divRef.current = node;
 				}
 				containerRef.current = node;
 			}}
@@ -1582,6 +1579,9 @@ export const VibeChatArea: React.FC<VibeideChatAreaProps> = ({
 						    visible in the simplified view (they're interaction, not a chat knob). */}
 						{featureName === 'Chat' && <ChatRunRouteButton />}
 						{featureName === 'Chat' && <ChatScoutToggleButton />}
+						{/* Context fill — stays visible in the simplified view: running out of context is
+						    something the user must see regardless of how many knobs they hid. */}
+						{featureName === 'Chat' && <ChatContextMeterButton />}
 						{/* Advanced knobs — hidden in the simplified view (mode + model stay visible). */}
 						{!simplified && <>
 							{featureName === 'Chat' && <ChatTrainingPolicyBadge />}
@@ -2321,14 +2321,14 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			{hasImages && (
 				<div className="px-0.5 py-2">
 					<ImageMessageRenderer
-						images={chatMessage.images}
+						images={chatMessage.images ?? []}
 					/>
 				</div>
 			)}
 			{hasPDFs && (
 				<div className="px-0.5 py-2">
 					<PDFMessageRenderer
-						pdfs={chatMessage.pdfs}
+						pdfs={chatMessage.pdfs ?? []}
 					/>
 				</div>
 			)}
@@ -2468,22 +2468,28 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 			{/* Pin-context: keep this message verbatim through context truncation. Shown on
 			    hover, or always while pinned so the state stays visible. */}
 			{mode === 'display' && (
-				<Pin
-					size={18}
+				// The tooltip lives on the wrapper: Lucide icons do not accept a `title` prop,
+				// so putting it on <Pin> silently rendered no tooltip at all.
+				<span
 					title={chatMessage.pinned ? 'Открепить сообщение' : 'Закрепить сообщение (не обрезать при сжатии контекста)'}
-					className={`
+					className='flex items-center'
+					onClick={(e) => {
+						e.stopPropagation();
+						chatThreadsService.toggleMessagePinned({ threadId: currentThreadId, messageIdx });
+					}}
+				>
+					<Pin
+						size={18}
+						className={`
                     cursor-pointer
                     p-[2px]
                     bg-vibe-bg-1 border border-vibe-border-1 rounded-md
                     transition-opacity duration-200 ease-in-out
                     ${chatMessage.pinned ? 'opacity-100 fill-current' : isHovered ? 'opacity-100 text-vibe-fg-3' : 'opacity-0'}
                 `}
-					style={chatMessage.pinned ? { color: 'var(--vscode-vibeide-chatGroup-activeBorder, #fc28a8)' } : undefined}
-					onClick={(e) => {
-						e.stopPropagation();
-						chatThreadsService.toggleMessagePinned({ threadId: currentThreadId, messageIdx });
-					}}
-				/>
+						style={chatMessage.pinned ? { color: 'var(--vscode-vibeide-chatGroup-activeBorder, #fc28a8)' } : undefined}
+					/>
+				</span>
 			)}
 			<EditSymbol
 				size={18}
@@ -2755,6 +2761,25 @@ const titleOfBuiltinToolName = {
 	'web_search': { done: 'Searched the web', proposed: 'Search the web', running: loadingTitleWrapper('Searching the web') },
 	'browse_url': { done: 'Fetched web page', proposed: 'Fetch web page', running: loadingTitleWrapper('Fetching web page') },
 	'vibe_complete': { done: 'Завершил ход', proposed: 'Завершить ход', running: loadingTitleWrapper('Завершает ход') },
+
+	'glob': { done: 'Нашёл файлы по маске', proposed: 'Найти файлы по маске', running: loadingTitleWrapper('Ищет файлы по маске') },
+	'grep': { done: 'Нашёл по содержимому', proposed: 'Найти по содержимому', running: loadingTitleWrapper('Ищет по содержимому') },
+	'open_file': { done: 'Открыл файл', proposed: 'Открыть файл', running: loadingTitleWrapper('Открывает файл') },
+	'go_to_definition': { done: 'Нашёл определение', proposed: 'Найти определение', running: loadingTitleWrapper('Ищет определение') },
+	'find_references': { done: 'Нашёл использования', proposed: 'Найти использования', running: loadingTitleWrapper('Ищет использования') },
+	'code_graph': { done: 'Построил граф кода', proposed: 'Построить граф кода', running: loadingTitleWrapper('Строит граф кода') },
+	'search_symbols': { done: 'Нашёл символы', proposed: 'Найти символы', running: loadingTitleWrapper('Ищет символы') },
+	'automated_code_review': { done: 'Проверил код', proposed: 'Проверить код', running: loadingTitleWrapper('Проверяет код') },
+	'generate_tests': { done: 'Сгенерировал тесты', proposed: 'Сгенерировать тесты', running: loadingTitleWrapper('Генерирует тесты') },
+	'rename_symbol': { done: 'Переименовал символ', proposed: 'Переименовать символ', running: loadingTitleWrapper('Переименовывает символ') },
+	'extract_function': { done: 'Выделил функцию', proposed: 'Выделить функцию', running: loadingTitleWrapper('Выделяет функцию') },
+	'run_nl_command': { done: 'Выполнил команду', proposed: 'Выполнить команду', running: loadingTitleWrapper('Выполняет команду') },
+	'kill_background_command': { done: 'Остановил фоновую команду', proposed: 'Остановить фоновую команду', running: loadingTitleWrapper('Останавливает фоновую команду') },
+	'read_background_output': { done: 'Прочитал вывод фоновой команды', proposed: 'Прочитать вывод фоновой команды', running: loadingTitleWrapper('Читает вывод фоновой команды') },
+	'design_review': { done: 'Проверил дизайн страницы', proposed: 'Проверить дизайн страницы', running: loadingTitleWrapper('Проверяет дизайн страницы') },
+	'design_context': { done: 'Прочитал дизайн-контекст', proposed: 'Прочитать дизайн-контекст', running: loadingTitleWrapper('Читает дизайн-контекст') },
+	'design_document': { done: 'Записал дизайн-контекст', proposed: 'Записать дизайн-контекст', running: loadingTitleWrapper('Описывает дизайн-контекст') },
+	'design_doctor': { done: 'Проверил дизайн-обвязку', proposed: 'Проверить дизайн-обвязку', running: loadingTitleWrapper('Проверяет дизайн-обвязку') },
 } as const satisfies Record<BuiltinToolName, { done: any; proposed: any; running: any }>;
 
 
@@ -2804,7 +2829,10 @@ const toolNameToDesc = (toolName: BuiltinToolName, _toolParams: BuiltinToolCallP
 		return { desc1: '', };
 	}
 
-	const x = {
+	// Partial by design: a one-line parameter hint under the tool title is a nicety, not a
+	// requirement — tools without an entry fall through to the empty `desc1` below. The title
+	// itself is exhaustive (see `titleOfBuiltinToolName`), so nothing renders as a raw tool id.
+	const x: Partial<Record<BuiltinToolName, () => { desc1: React.ReactNode; desc1Info?: string }>> = {
 		'read_file': () => {
 			const toolParams = _toolParams as BuiltinToolCallParams['read_file'];
 			return {
@@ -3220,7 +3248,8 @@ const CommandTool = ({ toolMessage, type, threadId }: { threadId: string } & ({
 };
 
 type WrapperProps<T extends ToolName> = { toolMessage: Exclude<ToolMessage<T>, { type: 'invalid_params' }>; messageIdx: number; threadId: string };
-const MCPToolWrapper = ({ toolMessage }: WrapperProps<string>) => {
+/** Renders any tool without a bespoke wrapper: every MCP tool, plus built-ins not listed in `builtinToolNameToComponent`. */
+const GenericToolWrapper = ({ toolMessage }: WrapperProps<string>) => {
 	const accessor = useAccessor();
 	const mcpService = accessor.get('IMCPService');
 
@@ -3297,7 +3326,11 @@ const MCPToolWrapper = ({ toolMessage }: WrapperProps<string>) => {
 
 type ResultWrapper<T extends ToolName> = (props: WrapperProps<T>) => React.ReactNode;
 
-const builtinToolNameToComponent: { [T in BuiltinToolName]: { resultWrapper: ResultWrapper<T> } } = {
+// Partial by design: a built-in tool without a bespoke renderer falls back to `GenericToolWrapper`
+// (see the tool branch of `ChatBubble`), which shows the title, params and raw result. Before this
+// was made explicit the map silently lagged behind `BuiltinToolName` and those tools rendered
+// *nothing* in the chat.
+const builtinToolNameToComponent: { [T in BuiltinToolName]?: { resultWrapper: ResultWrapper<T> } } = {
 	'read_file': {
 		resultWrapper: ({ toolMessage }) => {
 			const accessor = useAccessor();
@@ -4727,8 +4760,8 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 
 		const toolName = chatMessage.name;
 		const isBuiltInTool = isABuiltinToolName(toolName);
-		const ToolResultWrapper = isBuiltInTool ? builtinToolNameToComponent[toolName]?.resultWrapper as ResultWrapper<ToolName>
-			: MCPToolWrapper as ResultWrapper<ToolName>;
+		const ToolResultWrapper = (isBuiltInTool ? builtinToolNameToComponent[toolName]?.resultWrapper as ResultWrapper<ToolName> | undefined
+			: undefined) ?? GenericToolWrapper as ResultWrapper<ToolName>;
 
 		if (ToolResultWrapper)
 			{return <>
@@ -4786,6 +4819,9 @@ const _ChatBubble = React.memo(({ threadId, chatMessage, currCheckpointIdx, isCo
 			messageIdx={messageIdx}
 		/>;
 	}
+
+	// Unknown role: render nothing rather than `undefined`, which React treats as an error.
+	return null;
 
 }, (prev, next) => {
 	// Custom comparison for _ChatBubble
@@ -5490,20 +5526,19 @@ export const SidebarChat = () => {
 				const languageService = accessor.get('ILanguageService');
 				const historyService = accessor.get('IHistoryService');
 				const fileService = accessor.get('IFileService');
-				let outlineService: any = undefined;
-				try { outlineService = accessor.get('IOutlineModelService'); } catch {}
+				const outlineService = accessor.get('IOutlineModelService');
 
 			// Collect existing URIs to avoid duplicate attachments
 			const existing = new Set<string>();
 			const existingSelections = chatThreadsState.allThreads[currentThread.id]?.state?.stagingSelections || [];
 			for (const s of existingSelections) {existing.add(s.uri?.fsPath || '');}
 
-			const addFileSelection = async (uri: any) => {
+			const addFileSelection = async (uri: URI | undefined) => {
 				if (!uri) {return;}
 				const key = uri.fsPath || uri.path || '';
 				if (key && existing.has(key)) {return;}
 				existing.add(key);
-				const newSel = {
+				const newSel: StagingSelectionItem = {
 					type: 'File',
 					uri,
 					language: languageService.guessLanguageIdByFilepathOrFirstLine(uri) || '',
@@ -5512,16 +5547,14 @@ export const SidebarChat = () => {
 				await chatThreadsService.addNewStagingSelection(newSel);
 			};
 
-			const addFolderSelection = async (uri: any) => {
+			const addFolderSelection = async (uri: URI | undefined) => {
 				if (!uri) {return;}
 				const key = uri.fsPath || uri.path || '';
 				if (key && existing.has(key)) {return;}
 				existing.add(key);
-				const newSel = {
+				const newSel: StagingSelectionItem = {
 					type: 'Folder',
 					uri,
-					language: undefined,
-					state: undefined,
 				};
 				await chatThreadsService.addNewStagingSelection(newSel);
 			};
@@ -5550,12 +5583,14 @@ export const SidebarChat = () => {
 					const activeResource = editorService.activeEditor?.resource;
 					const sel = active?.getSelection?.();
 					if (activeResource && sel && !sel.isEmpty()) {
-						const newSel = {
-							type: 'File',
+						// A selection is a `CodeSelection`, not a `File` — the `File` variant has no
+						// `range`, so the line numbers used to be dropped on the way in.
+						const newSel: StagingSelectionItem = {
+							type: 'CodeSelection',
 							uri: activeResource,
 							language: languageService.guessLanguageIdByFilepathOrFirstLine(activeResource) || '',
 							state: { wasAddedAsCurrentFile: false },
-							range: sel,
+							range: [sel.startLineNumber, sel.endLineNumber],
 						};
 						const key = activeResource.fsPath || '';
 						if (!existing.has(key)) {
@@ -5602,11 +5637,11 @@ export const SidebarChat = () => {
 				if (raw.startsWith('sym:') || raw.startsWith('symbol:')) {
 					const symName = raw.replace(/^symbol?:/,'');
 					let symbolFound = false;
-					if (outlineService && typeof outlineService.getCachedModels === 'function') {
+					{
 						try {
 							const models = outlineService.getCachedModels();
 							for (const om of models) {
-								const list = typeof om.asListOfDocumentSymbols === 'function' ? om.asListOfDocumentSymbols() : [];
+								const list = om.asListOfDocumentSymbols();
 								for (const s of list) {
 									if ((s?.name || '').toLowerCase() === symName.toLowerCase()) {
 										symbolFound = true;
@@ -5615,12 +5650,13 @@ export const SidebarChat = () => {
 										const key = uri?.fsPath || '';
 										if (!existing.has(key)) {
 											existing.add(key);
+											// Same as `@selection`: a symbol spans lines, so it is a `CodeSelection`.
 											await chatThreadsService.addNewStagingSelection({
-												type: 'File',
+												type: 'CodeSelection',
 												uri,
 												language: languageService.guessLanguageIdByFilepathOrFirstLine(uri) || '',
 												state: { wasAddedAsCurrentFile: false },
-												range,
+												range: [range.startLineNumber, range.endLineNumber],
 											});
 										}
 									}
@@ -6257,7 +6293,10 @@ export const SidebarChat = () => {
 		ta.dispatchEvent(new Event('input', { bubbles: true }));
 		ta.setSelectionRange(newCursor, newCursor);
 		ta.focus();
-		setSkillMenuOpen(false);
+		// The dispatched `input` event above synchronously runs `onChangeText`, which is the
+		// single source of truth for the menu: it reopens it for `/skill:` (chaining into the
+		// skills list) and closes it otherwise. Do not force-close here — that would override the
+		// reopen and break the `/skill:` → skills-menu chain.
 	}, []);
 
 	const onChangeText = useCallback((newStr: string) => {
@@ -6346,29 +6385,20 @@ export const SidebarChat = () => {
 	// i.e. the heuristic accounts for the FULL prompt (system + skill expansion + tools
 	// schema + history), not just user/assistant content. That's why the right-side
 	// "Контекст: X / Y" panel and the bottom status bar show realistic numbers while our
-	// own previousMessages.reduce(length/4) under-counted by 10-50×. We subscribe to
-	// onUsageUpdated so the chat-pane indicator stays in sync with the same source.
+	// own previousMessages.reduce(length/4) under-counted by 10-50×. Here it only feeds the
+	// near-limit notification below; the visible readout lives in `ChatContextMeterButton`,
+	// which subscribes to the same service (calibration factor and kept/summarized counts are
+	// shown there, so they are no longer tracked in this component).
 	const contextGuardService = accessor.get('IVibeContextGuardService');
 	const [guardCurrentTokens, setGuardCurrentTokens] = useState(() => contextGuardService?.getStatus().currentTokens ?? 0);
-	// D.9: learned estimate→real token-calibration factor, for the context-indicator tooltip.
-	const [guardCalibration, setGuardCalibration] = useState<number | undefined>(() => contextGuardService?.getStatus().calibrationFactor);
-	// Budget-fill transparency: kept-full vs summarized message counts from the last prompt build.
-	const [guardTruncation, setGuardTruncation] = useState<{ kept?: number; summarized?: number }>(() => {
-		const st = contextGuardService?.getStatus();
-		return { kept: st?.keptMessages, summarized: st?.summarizedMessages };
-	});
 	useEffect(() => {
 		if (!contextGuardService) {return;}
 		const d = contextGuardService.onUsageUpdated(s => {
 			setGuardCurrentTokens(s.currentTokens);
-			setGuardTruncation({ kept: s.keptMessages, summarized: s.summarizedMessages });
-			setGuardCalibration(s.calibrationFactor);
 		});
 		// Seed from current status in case an update fired before mount.
 		const st = contextGuardService.getStatus();
 		setGuardCurrentTokens(st.currentTokens ?? 0);
-		setGuardTruncation({ kept: st.keptMessages, summarized: st.summarizedMessages });
-		setGuardCalibration(st.calibrationFactor);
 		return () => d.dispose();
 	}, [contextGuardService]);
 
@@ -6390,7 +6420,7 @@ export const SidebarChat = () => {
 			budget = Math.max(256, Math.floor(contextWindow * 0.8) - rot);
 			tokens = previousMessages.reduce((acc, m) => {
 				if (m.role === 'user') {return acc + estimateTokens(m.content || '');}
-				if (m.role === 'assistant') {return acc + estimateTokens((m.displayContent as string) || (m.content || '') || '');}
+				if (m.role === 'assistant') {return acc + estimateTokens(m.displayContent || '');}
 				return acc;
 			}, 0);
 		}
@@ -6745,40 +6775,12 @@ export const SidebarChat = () => {
 		</div>
 		<div className='px-2 pb-2'>
 			{inputChatArea}
-
-			{/* Context usage indicator — hidden in the simplified view */}
-			{!simplified && modelSel ? (
-				(() => {
-					const pctNum = Math.max(0, Math.min(100, Math.round(contextPct * 100)));
-					const color = contextPct >= 1 ? 'text-red-500' : contextPct > 0.8 ? 'text-amber-500' : 'text-vibe-fg-3';
-					const barColor = contextPct >= 1 ? 'bg-red-500' : contextPct > 0.8 ? 'bg-amber-500' : 'bg-vibe-fg-3/60';
-					return <div className='mt-1'>
-						<div title={guardCalibration && guardCalibration > 1 ? `Калибровка ×${guardCalibration.toFixed(2)}: показ контекста скорректирован под реальные токены провайдера (грубая оценка длина/4 их занижает)` : undefined} className={`text-[10px] ${color} flex items-center flex-wrap`}><span>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}{(guardTruncation.summarized ?? 0) > 0 ? chatS.budgetFillSuffix(guardTruncation.kept ?? 0, guardTruncation.summarized ?? 0) : ''}</span><TokenBudgetInline /></div>
-						<div className='h-[3px] w-full bg-vibe-border-3 rounded mt-0.5'>
-							<div className={`h-[3px] ${barColor} rounded`} style={{ width: `${pctNum}%` }} aria-label={chatS.contextUsageAria(pctNum)} />
-						</div>
-					</div>;
-				})()
-			) : null}
 		</div>
 	</div>;
 
 	const landingPageInput = <div>
 		<div className='pt-8'>
 			{inputChatArea}
-			{!simplified && modelSel ? (
-				(() => {
-					const pctNum = Math.max(0, Math.min(100, Math.round(contextPct * 100)));
-					const color = contextPct >= 1 ? 'text-red-500' : contextPct > 0.8 ? 'text-amber-500' : 'text-vibe-fg-3';
-					const barColor = contextPct >= 1 ? 'bg-red-500' : contextPct > 0.8 ? 'bg-amber-500' : 'bg-vibe-fg-3/60';
-					return <div className='mt-1 px-2'>
-						<div title={guardCalibration && guardCalibration > 1 ? `Калибровка ×${guardCalibration.toFixed(2)}: показ контекста скорректирован под реальные токены провайдера (грубая оценка длина/4 их занижает)` : undefined} className={`text-[10px] ${color} flex items-center flex-wrap`}><span>{chatS.contextTokens(contextTotal, contextBudget, pctNum)}{hasRealUsage ? ` · last: ${lastUsage?.promptTokens ?? 0} in / ${lastUsage?.completionTokens ?? 0} out` : ''}{(guardTruncation.summarized ?? 0) > 0 ? chatS.budgetFillSuffix(guardTruncation.kept ?? 0, guardTruncation.summarized ?? 0) : ''}</span><TokenBudgetInline /></div>
-						<div className='h-[3px] w-full bg-vibe-border-3 rounded mt-0.5'>
-							<div className={`h-[3px] ${barColor} rounded`} style={{ width: `${pctNum}%` }} aria-label={chatS.contextUsageAria(pctNum)} />
-						</div>
-					</div>;
-				})()
-			) : null}
 		</div>
 	</div>;
 

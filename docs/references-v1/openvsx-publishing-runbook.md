@@ -96,7 +96,7 @@ Once `vibeide-sample` is published:
    "Build extensions for VibeIDE — see `extensions/vibeide-sample` and
    the Open VSX category".
 3. Announcement coverage: include the Open VSX listing in the public
-   launch (see `references/v1/launch-announcement-runbook.md`).
+   launch (see `docs/references-v1/launch-announcement-runbook.md`).
 
 ## Sample extensions to publish (priority order)
 

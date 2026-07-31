@@ -28,11 +28,16 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { DEFAULT_SUBAGENT_TOKEN_QUOTA } from './subagentIsolationPolicy.js';
 import type { SubagentStopReason } from './subagentLoopPolicy.js';
-import type { ProviderName } from './vibeideSettingsTypes.js';
+import type { ModelSelection, ProviderId } from './vibeideSettingsTypes.js';
 import type { ChatImageAttachment } from './chatThreadServiceTypes.js';
 import { IAuditLogService } from './auditLogService.js';
 import { IVibeConstraintsService } from './vibeConstraintsService.js';
 import { IVibeSubagentRunner } from './vibeSubagentRunner.js';
+import { IVibeAgentRunLedgerService } from './vibeAgentRunLedgerService.js';
+import { AgentRunStatus } from './agentRunLedger.js';
+import { describeRoleBudgetRefusal, evaluateRoleBudget } from './agentRoleBudget.js';
+import { IVibeideSettingsService } from './vibeideSettingsService.js';
+import { IVibeSubagentRegistryService } from './vibeSubagentRegistryService.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -76,6 +81,34 @@ export interface SubagentHandoff {
 	useWorktree?: boolean;
 	/** Branch name hint for worktree (auto-generated if not provided) */
 	worktreeBranch?: string;
+	/**
+	 * Caller-supplied key that makes a spawn repeatable-safe: while a run started with this key is
+	 * still alive, spawning it again returns the SAME id instead of starting a second role. Without
+	 * it a retried route step, a double click or a re-entrant orchestrator silently doubles the
+	 * spend. Omit it when a fresh run is genuinely wanted every time.
+	 */
+	idempotencyKey?: string;
+	/**
+	 * Model to run this role on, overriding the per-role mapping. Set by «повторить на другой
+	 * модели»; absent = the usual resolution (per-role → chat).
+	 */
+	modelSelection?: ModelSelection | null;
+	/** Run this is a replay of — recorded so the two can be compared afterwards. */
+	replayOfRunId?: string;
+}
+
+/** Statuses that still hold the key — a finished run must not block a new attempt. */
+const LIVE_SUBAGENT_STATUSES: ReadonlySet<string> = new Set(['pending', 'running']);
+
+/**
+ * Id of the live run started with `key`, or `undefined` when none is. Pure — the registry is
+ * passed in, so the rule is unit-testable without a workbench.
+ */
+export function findLiveRunByIdempotencyKey(entries: readonly SubagentEntry[], key: string): string | undefined {
+	if (!key) {
+		return undefined;
+	}
+	return entries.find(entry => entry.handoff.idempotencyKey === key && LIVE_SUBAGENT_STATUSES.has(entry.status))?.id;
 }
 
 /** Compact result returned to the parent — bounded by MAX_RESULT_CHARS */
@@ -97,8 +130,10 @@ export interface SubagentResult {
 	/** Provider-reported prompt/completion token sums (raw) — for cost display. */
 	promptTokensUsed?: number;
 	completionTokensUsed?: number;
+	/** Prompt-cache reads inside `promptTokensUsed` — the saving, shown rather than silently applied. */
+	cachedTokensUsed?: number;
 	/** Model that actually ran the role. */
-	providerName?: ProviderName;
+	providerName?: ProviderId;
 	modelName?: string;
 	/** Whether the result was truncated due to step/wall-clock limit */
 	truncated?: boolean;
@@ -234,11 +269,23 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		@IAuditLogService private readonly _audit: IAuditLogService,
 		@IVibeConstraintsService private readonly _constraints: IVibeConstraintsService,
 		@IVibeSubagentRunner private readonly _runner: IVibeSubagentRunner,
+		@IVibeAgentRunLedgerService private readonly _ledger: IVibeAgentRunLedgerService,
+		@IVibeideSettingsService private readonly _settings: IVibeideSettingsService,
+		@IVibeSubagentRegistryService private readonly _roleRegistry: IVibeSubagentRegistryService,
 	) {
 		super();
 	}
 
 	async spawn(handoff: SubagentHandoff): Promise<string> {
+		// Idempotency first: the same key must not buy a second run of the same work.
+		if (handoff.idempotencyKey) {
+			const existing = findLiveRunByIdempotencyKey(this.getAll(), handoff.idempotencyKey);
+			if (existing) {
+				this._log.info(`[VibeSubagent] Reusing live run ${existing} for idempotency key ${handoff.idempotencyKey}`);
+				return existing;
+			}
+		}
+
 		const id = `subagent-${handoff.type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
 		const entry: SubagentEntry = {
@@ -252,8 +299,38 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		this._registry.set(id, entry);
 		this._ctsById.set(id, new CancellationTokenSource());
 
+		// The registry dies with the window and `disposeSubagent` empties it; the ledger is what
+		// answers "who did what" afterwards, so the run is recorded before it starts working.
+		this._ledger.recordStarted({
+			runId: id,
+			epoch: this._ledger.epoch,
+			fence: this._ledger.allocateFence(),
+			role: entry.type,
+			goal: handoff.goal,
+			parentThreadId: handoff.parentThreadId,
+			status: 'pending',
+			startedAt: entry.startedAt,
+			...(handoff.replayOfRunId ? { replayOfRunId: handoff.replayOfRunId } : {}),
+		});
+
 		this._log.info(`[VibeSubagent] Spawning ${handoff.type} subagent ${id} for thread ${handoff.parentThreadId}`);
 		this._audit.append({ ts: Date.now(), action: 'subagent_spawned', ok: true, meta: { subagentId: id, type: handoff.type, parentThreadId: handoff.parentThreadId } });
+
+		// Cumulative role budget. `maxTokens` caps one run; this caps the role across many, so a
+		// role that already spent its allowance does not start at all. The refusal is recorded as
+		// a skipped run rather than thrown away — a run that did not happen for a reason is a fact
+		// worth seeing in the dispatch panel.
+		const refusal = await this._roleBudgetRefusal(handoff.type);
+		if (refusal) {
+			this._completeWithResult(entry, {
+				subagentId: id,
+				status: 'skipped',
+				summary: this._truncate(refusal, MAX_RESULT_SUMMARY_CHARS),
+				reason: refusal,
+				tokensUsed: 0,
+			});
+			return id;
+		}
 
 		// Async execution — parent does not block; parent calls awaitResult() to get compact result.
 		this._runSubagent(entry).catch(err => {
@@ -292,6 +369,18 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 	disposeSubagent(subagentId: string): void {
 		const entry = this._registry.get(subagentId);
 		if (!entry) { return; }
+		// Disposing a run that never reached an outcome IS the outcome — record it before the
+		// registry entry goes, otherwise the run vanishes without a trace (the old behaviour).
+		if (!entry.result) {
+			this._ledger.recordUpdate({
+				runId: subagentId,
+				status: 'stopped',
+				endedAt: Date.now(),
+				stopCode: 'cancelled',
+				tokensUsed: entry.liveTokensUsed,
+				stepsDone: entry.liveStepsDone,
+			});
+		}
 		entry.status = 'disposed';
 		this._registry.delete(subagentId);
 		this._waiters.delete(subagentId);
@@ -326,6 +415,25 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 
 	// ── Private ─────────────────────────────────────────────────────────────
 
+	/**
+	 * Refusal text when the role has no allowance left, or `undefined` when it may run.
+	 * Reads the ledger, so the ceiling is enforced against what actually happened — including
+	 * runs from earlier windows of the IDE.
+	 */
+	private async _roleBudgetRefusal(role: SubagentType): Promise<string | undefined> {
+		const budgets = this._settings.state.tokenBudgetOfRole ?? {};
+		if (!budgets[role]) {
+			return undefined;
+		}
+		const windowDays = this._configuration.getValue<number>('vibeide.subagent.budgetWindowDays');
+		const days = typeof windowDays === 'number' && Number.isFinite(windowDays) && windowDays > 0 ? windowDays : 1;
+		const state = evaluateRoleBudget(await this._ledger.getRuns(), role, budgets, Date.now(), days);
+		if (!state.exhausted) {
+			return undefined;
+		}
+		return describeRoleBudgetRefusal(state, this._roleRegistry.getPreset(role).displayName, days);
+	}
+
 	private async _runSubagent(entry: SubagentEntry): Promise<void> {
 		entry.status = 'running';
 		this._onStatusChanged.fire(entry);
@@ -345,6 +453,10 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		entry.liveTokensUsed = 0;
 		entry.maxSteps = maxSteps;
 		entry.liveStepsDone = 0;
+
+		// Ceilings are part of the record: without them a stopped run reads as a failure instead of
+		// "hit its budget". Live progress stays in memory — the ledger keeps milestones, not telemetry.
+		this._ledger.recordUpdate({ runId: entry.id, status: 'running', tokenQuota: entry.tokenQuota, maxSteps });
 
 		// Constraints / permissions are ALWAYS inherited from parent — never weakened.
 		// The runner executes tools through the same IToolsService as the parent agent, so
@@ -373,6 +485,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			maxSteps,
 			maxTokensEst: Math.max(0, maxTokens),
 			maxWallClockMs: handoff.maxWallClockMs ?? 0,
+			modelSelection: handoff.modelSelection,
 			cancellationToken: this._ctsById.get(entry.id)?.token,
 			onProgress: (tokensUsedEst, stepsDone, deadlineAtMs) => {
 				// Per-hop live spend → chat spinner. Only while still running; terminal state
@@ -397,6 +510,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			...(outcome.stopCode ? { stopCode: outcome.stopCode } : {}),
 			...(outcome.promptTokensUsed ? { promptTokensUsed: outcome.promptTokensUsed } : {}),
 			...(outcome.completionTokensUsed ? { completionTokensUsed: outcome.completionTokensUsed } : {}),
+			...(outcome.cachedTokensUsed ? { cachedTokensUsed: outcome.cachedTokensUsed } : {}),
 			...(outcome.providerName ? { providerName: outcome.providerName, modelName: outcome.modelName } : {}),
 			...(outcome.exploreReport ? { exploreReport: outcome.exploreReport } : {}),
 		};
@@ -414,6 +528,20 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		entry.result = result;
 		entry.status = result.status === 'success' ? 'completed' : (result.status === 'skipped' ? 'skipped' : (result.status === 'stopped' ? 'stopped' : 'failed'));
 		this._onStatusChanged.fire(entry);
+		this._ledger.recordUpdate({
+			runId: entry.id,
+			status: entry.status as AgentRunStatus,
+			endedAt: Date.now(),
+			tokensUsed: result.tokensUsed,
+			cachedTokens: result.cachedTokensUsed,
+			stepsDone: entry.liveStepsDone,
+			artifacts: result.artifacts,
+			stopCode: result.stopCode,
+			provider: result.providerName,
+			model: result.modelName,
+			summary: result.summary,
+			failureReason: result.status === 'success' ? undefined : result.reason,
+		});
 		this._audit.append({ ts: Date.now(), action: 'subagent_completed', ok: result.status === 'success', meta: { subagentId: entry.id, status: result.status, tokensUsed: result.tokensUsed } });
 
 		const waiter = this._waiters.get(entry.id);

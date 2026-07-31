@@ -284,6 +284,7 @@ suite('ModelQuirks — end-to-end integration via bundled rules', () => {
 	const bundled: ModelQuirksCatalog = {
 		version: 1,
 		rules: [
+			{ match: 'kimi-k3', temperature: 1.0, topP: 0.95, mirrorReasoningContent: true },
 			{ match: 'kimi-k2.6', temperature: 1.0, topP: 0.95, mirrorReasoningContent: true },
 			{ match: 'kimi-k2.5', temperature: 1.0, topP: 0.95, mirrorReasoningContent: true },
 			{ match: 'kimi-k2-thinking', temperature: 1.0, topP: 0.95, mirrorReasoningContent: true },
@@ -296,7 +297,8 @@ suite('ModelQuirks — end-to-end integration via bundled rules', () => {
 			{ match: 'deepseek', forceEmptyReasoning: true, mirrorReasoningContent: true },
 			{ match: 'qwen', temperature: 0.55, topP: 1.0, forceToolCallFormat: 'xml' },
 			{ match: 'glm', temperature: 1.0 },
-			{ match: 'gemini', temperature: 1.0, topP: 0.95, topK: 64 },
+			{ match: 'gemini-2', temperature: 1.0, topP: 0.95, topK: 64 },
+			{ match: 'gemini-1.5', temperature: 1.0, topP: 0.95, topK: 64 },
 		],
 	};
 
@@ -304,8 +306,18 @@ suite('ModelQuirks — end-to-end integration via bundled rules', () => {
 		['qwen3.6-plus', { temperature: 0.55, topP: 1.0, forceToolCallFormat: 'xml' }],
 		['deepseek-v4-pro', { forceEmptyReasoning: true, mirrorReasoningContent: true }],
 		['kimi-k2.6', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
+		// K3 is preserved-thinking-history: it must inherit the mirror flag, not just the
+		// generic `kimi` preset (which carries no mirror and would break the tool loop).
+		['kimi-k3', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
 		['minimax-m2.7', { temperature: 1.0, topP: 0.95, topK: 40 }],
 		['glm-5.1', { temperature: 1.0 }],
+		// Sampling preset is scoped to the generations that still honour it. Google deprecated
+		// temperature/top_p/top_k for newer models ("returns an HTTP 400 error" in future
+		// generations), so Gemini 3.x must match NOTHING here — depth is set by thinking_level.
+		['gemini-2.5-pro', { temperature: 1.0, topP: 0.95, topK: 64 }],
+		['gemini-1.5-pro', { temperature: 1.0, topP: 0.95, topK: 64 }],
+		['gemini-3.6-flash', null],
+		['gemini-3-pro-preview', null],
 		['mimo-v2-pro', null],   // no match — provider defaults
 		['hy3-preview', null],   // no match — provider defaults
 	];

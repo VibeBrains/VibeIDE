@@ -9,9 +9,9 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/tes
 import { VibeCheckpointCoordinator } from '../../common/vibeCheckpointCoordinatorService.js';
 
 suite('VibeCheckpointCoordinator', () => {
-	ensureNoDisposablesAreLeakedInTestSuite();
+	const store = ensureNoDisposablesAreLeakedInTestSuite();
 	test('serializes parallel runExclusive (no overlap)', async () => {
-		const c = new VibeCheckpointCoordinator();
+		const c = store.add(new VibeCheckpointCoordinator());
 		const events: string[] = [];
 		const p1 = c.runExclusive({ op: 'a', holderLabel: 'h1' }, async () => {
 			events.push('a-start');

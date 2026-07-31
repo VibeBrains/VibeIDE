@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe plan-merge-driver — git custom merge driver for `.vibe/plans/*.plan.md`
  * and `.vibe/plans/*.steps.json`.
@@ -87,11 +92,11 @@ function parseSteps(text) {
  */
 function mergeSteps(currentArr, baseArr, otherArr) {
 	const baseById = new Map();
-	for (const s of (baseArr ?? [])) baseById.set(s.id, s);
+	for (const s of (baseArr ?? [])) {baseById.set(s.id, s);}
 	const currentById = new Map();
-	for (const s of currentArr) currentById.set(s.id, s);
+	for (const s of currentArr) {currentById.set(s.id, s);}
 	const otherById = new Map();
-	for (const s of otherArr) otherById.set(s.id, s);
+	for (const s of otherArr) {otherById.set(s.id, s);}
 
 	const allIds = new Set([
 		...currentById.keys(),

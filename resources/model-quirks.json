@@ -1,9 +1,11 @@
 {
 	"version": 1,
-	"date": "2026-06-10",
+	"date": "2026-07-26",
 	"description": "VibeIDE model behaviour quirks. Source of truth — see README.md section 'Model behaviour quirks'. PRs welcome. Schema: ./src/vs/workbench/contrib/vibeide/common/modelQuirks/modelQuirksTypes.ts.",
 	"docs": "https://github.com/VibeBrains/VibeIDE#model-behaviour-quirks",
 	"rules": [
+		{ "match": "kimi-k3", "temperature": 1.0, "topP": 0.95, "mirrorReasoningContent": true,
+		  "note": "Kimi K3 (Moonshot, 2026-07) — CONFIRMED by the vendor. kimi.com/blog/kimi-k3 states outright: 'K3 was trained in the preserved thinking history mode. If the agent harness fails to pass back all the historical thinking content as required ... generation quality may become highly unstable.' That is exactly what mirrorReasoningContent does, so the rule is no longer an analogy with the kimi-k2.x family. Without an explicit k3 rule the substring matcher would fall through to the broad 'kimi' preset, which omits mirroring entirely. Reasoning effort is a single level at launch ('max', cannot be turned off); the vendor promises low/high modes 'in subsequent updates', so revisit effort.values only once those ship — secondary sources claiming three levels today are ahead of the vendor. See docs/knowledge/architecture/modelQuirks.md." },
 		{ "match": "kimi-k2.6", "temperature": 1.0, "topP": 0.95, "mirrorReasoningContent": true,
 		  "note": "kimi-k2.x family — opencode upstream transform.ts:478-510" },
 		{ "match": "kimi-k2.5", "temperature": 1.0, "topP": 0.95, "mirrorReasoningContent": true },
@@ -39,7 +41,9 @@
 		{ "match": "glm", "temperature": 1.0,
 		  "note": "GLM family (z.ai) — 4.6/4.7/5/5.1, single preset" },
 
-		{ "match": "gemini", "temperature": 1.0, "topP": 0.95, "topK": 64,
-		  "note": "Gemini via aggregator (NOT native @ai-sdk/google path, which has its own settings)" }
+		{ "match": "gemini-2", "temperature": 1.0, "topP": 0.95, "topK": 64,
+		  "note": "Gemini 2.x via aggregator (NOT native @ai-sdk/google path, which has its own settings). Scoped to a GENERATION on purpose: Google deprecated temperature/top_p/top_k — 'deprecated and ignored. In future model generations, supplying these parameters returns an HTTP 400 error' (ai.google.dev/gemini-api/docs/changelog). A broad 'gemini' match would keep sending them to Gemini 3.x and beyond, where depth is set by thinking_level instead." },
+		{ "match": "gemini-1.5", "temperature": 1.0, "topP": 0.95, "topK": 64,
+		  "note": "Gemini 1.5 via aggregator — same sampling preset as 2.x, kept for the legacy generation that still honours these parameters." }
 	]
 }

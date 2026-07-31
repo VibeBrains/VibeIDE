@@ -35,6 +35,7 @@
     "precompile": "npm run gen:all",
     "compile": "npm run gulp compile",
     "compile-check-ts-native": "tsgo --project ./src/tsconfig.json --noEmit --skipLibCheck",
+    "react-typecheck": "node scripts/vibe-react-typecheck.mjs",
     "watch": "npm-run-all2 -lp watch-client-transpile watch-client watch-extensions",
     "watchd": "deemon npm run watch",
     "watch-webd": "deemon npm run watch-web",
@@ -210,6 +211,7 @@
     "react-virtuoso": "^4.18.7",
     "selfsigned": "^2.4.1",
     "sherpa-onnx-node": "1.13.4",
+    "socks": "^2.8.3",
     "ssh2": "^1.16.0",
     "tas-client": "0.3.1",
     "tesseract.js": "^7.0.0",
@@ -232,6 +234,7 @@
     "@tailwindcss/typography": "^0.5.19",
     "@types/cookie": "^0.3.3",
     "@types/debug": "^4.1.5",
+    "@types/diff": "^5.2.3",
     "@types/eslint": "^9.6.1",
     "@types/gulp-svgmin": "^1.2.1",
     "@types/http-proxy-agent": "^2.0.1",
@@ -239,6 +242,8 @@
     "@types/minimist": "^1.2.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.18.10",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "@types/sinon": "^10.0.2",
     "@types/sinon-test": "^2.4.2",
     "@types/source-map-support": "^0.5.10",
@@ -348,6 +353,7 @@
       "node-addon-api": "7.1.0"
     },
     "serialize-javascript": "^7.0.3",
+    "shell-quote": "^1.8.4",
     "ssh2": {
       "cpu-features": "0.0.0"
     },

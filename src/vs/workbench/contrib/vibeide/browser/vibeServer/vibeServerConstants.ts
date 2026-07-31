@@ -46,6 +46,7 @@ export const VibeServerConfigKeys = {
 	portConflictPrompt: 'vibeide.vibeServer.portConflictPrompt',
 	dockerStartTimeoutMs: 'vibeide.vibeServer.dockerStartTimeoutMs',
 	scrollSync: 'vibeide.vibeServer.scrollSync',
+	bridgeProxy: 'vibeide.vibeServer.bridgeProxy',
 	https: 'vibeide.vibeServer.https',
 	cookieCompat: 'vibeide.vibeServer.cookieCompat',
 } as const;

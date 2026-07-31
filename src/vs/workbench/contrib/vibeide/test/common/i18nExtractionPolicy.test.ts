@@ -67,7 +67,7 @@ suite('i18n extraction policy — path classifier', () => {
 
 		test('docs-only md → excluded', () => {
 			assert.strictEqual(decideI18nExclusion('docs/v1/idea.md').excluded, true);
-			assert.strictEqual(decideI18nExclusion('references/v1/agent.md').excluded, true);
+			assert.strictEqual(decideI18nExclusion('docs/references-v1/agent.md').excluded, true);
 		});
 
 		test('Windows-style separators accepted', () => {

@@ -16,11 +16,18 @@
 import * as assert from 'assert';
 import { VibeModalService } from '../../browser/vibeModalServiceImpl.js';
 import { VIBE_MODAL_DISMISS_ID } from '../../common/vibeModalTypes.js';
+import { vibeLog } from '../../common/vibeLog.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 
 suite('VibeModalService', () => {
 
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
+
+	// Several defensive tests below intentionally drive error/timeout paths that log a warn via
+	// vibeLog (routed to the global console.*). Silence vibeLog for the whole suite so the runner's
+	// "no console output in tests" guard does not trip in the after-each hook; restored after each test.
+	setup(() => vibeLog.configure({ enabled: false }));
+	teardown(() => vibeLog.configure({ enabled: true }));
 
 	test('showModal + resolveHead — basic flow', async () => {
 		const svc = store.add(new VibeModalService());
@@ -98,7 +105,7 @@ suite('VibeModalService', () => {
 	test('onDidChangeQueue fires on push and resolve', async () => {
 		const svc = store.add(new VibeModalService());
 		let fired = 0;
-		svc.onDidChangeQueue(() => { fired += 1; });
+		store.add(svc.onDidChangeQueue(() => { fired += 1; }));
 
 		const p = svc.showModal({ title: 'T', buttons: [{ id: 'ok', label: 'OK' }] });
 		assert.strictEqual(fired, 1, 'should fire on push');
@@ -111,7 +118,7 @@ suite('VibeModalService', () => {
 	test('onDidChangeQueue does NOT fire on dismiss no-op (non-dismissible)', () => {
 		const svc = store.add(new VibeModalService());
 		let fired = 0;
-		svc.onDidChangeQueue(() => { fired += 1; });
+		store.add(svc.onDidChangeQueue(() => { fired += 1; }));
 
 		void svc.showModal({ title: 'T', buttons: [{ id: 'ok', label: 'OK' }], dismissible: false });
 		assert.strictEqual(fired, 1);
@@ -188,7 +195,7 @@ suite('VibeModalService', () => {
 	test('updateHeadLoading toggles loading + fires change event', () => {
 		const svc = store.add(new VibeModalService());
 		let fired = 0;
-		svc.onDidChangeQueue(() => { fired += 1; });
+		store.add(svc.onDidChangeQueue(() => { fired += 1; }));
 		void svc.showModal({ title: 'T', buttons: [{ id: 'ok', label: 'OK' }] });
 		assert.strictEqual(fired, 1);
 
@@ -428,7 +435,7 @@ suite('VibeModalService', () => {
 		test('updates arbitrary fields + fires change event', () => {
 			const svc = store.add(new VibeModalService());
 			let fired = 0;
-			svc.onDidChangeQueue(() => { fired += 1; });
+			store.add(svc.onDidChangeQueue(() => { fired += 1; }));
 			void svc.showModal({ title: 'Save', body: 'A', buttons: [{ id: 'ok', label: 'OK' }] });
 			assert.strictEqual(fired, 1);
 
@@ -447,7 +454,7 @@ suite('VibeModalService', () => {
 		test('no-op update returns false and does not fire', () => {
 			const svc = store.add(new VibeModalService());
 			let fired = 0;
-			svc.onDidChangeQueue(() => { fired += 1; });
+			store.add(svc.onDidChangeQueue(() => { fired += 1; }));
 			void svc.showModal({ title: 'T', body: 'X', buttons: [{ id: 'ok', label: 'OK' }] });
 			assert.strictEqual(fired, 1);
 

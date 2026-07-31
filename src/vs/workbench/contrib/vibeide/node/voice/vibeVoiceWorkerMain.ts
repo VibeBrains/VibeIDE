@@ -285,6 +285,7 @@ function main(parentPort: ParentPort): void {
 					break;
 			}
 		} catch (error) {
+			// eslint-disable-next-line local/code-no-in-operator -- narrowing on an untyped worker message; `in` narrows, hasOwn does not
 			const sessionId = 'sessionId' in msg ? msg.sessionId : '';
 			sessions.delete(sessionId);
 			post({ sessionId, type: 'error', message: error instanceof Error ? error.message : String(error) });

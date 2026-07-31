@@ -5,6 +5,7 @@
 
 
 import { vibeLog } from './vibeLog.js';
+import { env as processEnv } from '../../../../base/common/process.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
@@ -93,15 +94,11 @@ class VibePrivacyStripperService extends Disposable implements IVibePrivacyStrip
 			this._workspacePath = folders[0].uri.fsPath;
 		}
 
-		// Get username from environment (process.env.USERNAME on Windows, USER on Unix)
-		this._username = (typeof process !== 'undefined'
-			? (process.env['USERNAME'] || process.env['USER'] || '')
-			: '') as string;
+		// Get username from environment (USERNAME on Windows, USER on Unix)
+		this._username = processEnv['USERNAME'] || processEnv['USER'] || '';
 
 		// Get home directory
-		this._homePath = (typeof process !== 'undefined'
-			? (process.env['USERPROFILE'] || process.env['HOME'] || '')
-			: '') as string;
+		this._homePath = processEnv['USERPROFILE'] || processEnv['HOME'] || '';
 	}
 
 	strip(text: string): string {

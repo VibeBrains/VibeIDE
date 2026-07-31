@@ -25,6 +25,8 @@ export interface StallReportTransport {
 	readonly id: number;
 	readonly ageMs: number;
 	readonly initialized: boolean;
+	/** Active LLM proxy (`vibeide.llm.proxy.url`), credentials stripped; undefined = direct. */
+	readonly proxy?: string;
 }
 
 export interface StallReportInput {
@@ -53,6 +55,7 @@ export function buildStallReportMarkdown(input: StallReportInput): string {
 		// id bumps every (re)create — if "Сбросить клиентов"/auto-retry helped, the next request runs on
 		// a higher id. ageMs = how long this exact pool has been reused; a wedge tends to be an old pool.
 		lines.push(`- Транспорт (undici): поколение #${transport.id}, возраст ${(transport.ageMs / 1000).toFixed(0)}с${transport.initialized ? '' : ' (не инициализирован)'}`);
+		lines.push(`- Прокси LLM: ${transport.proxy ? `\`${transport.proxy}\`` : 'нет (прямое соединение)'}`);
 	}
 	if (context.lastErrorMessage) {
 		lines.push('');

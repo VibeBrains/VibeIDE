@@ -20,8 +20,12 @@ suite('PolicyExport Integration Tests', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	test('exported policy data matches checked-in file', async function () {
-		// Skip this test in ADO pipelines
-		if (process.env['TF_BUILD']) {
+		// This test launches a NESTED full Electron VS Code (`code.sh --export-policy-data`). That is
+		// unreliable in headless CI runners: the nested instance shares the parent test-VS-Code's
+		// user-data-dir and hangs on a lock (60s timeout). Skip it in CI — on ADO (TF_BUILD) as before,
+		// and on GitHub Actions (GITHUB_ACTIONS). It still runs on a developer machine, which is where
+		// `policyData.jsonc` drift is meant to be caught (run `npm run export-policy-data`).
+		if (process.env['TF_BUILD'] || process.env['GITHUB_ACTIONS']) {
 			this.skip();
 		}
 

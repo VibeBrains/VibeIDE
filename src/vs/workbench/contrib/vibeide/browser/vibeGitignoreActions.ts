@@ -35,7 +35,7 @@ function resolveResources(accessor: ServicesAccessor, arg: unknown): URI[] {
 	if (URI.isUri(arg)) {
 		return getMultiSelectedResources(arg, accessor.get(IListService), accessor.get(IEditorService), accessor.get(IEditorGroupsService), accessor.get(IExplorerService));
 	}
-	if (arg && typeof arg === 'object' && 'groupId' in arg) {
+	if (arg && typeof arg === 'object' && Object.hasOwn(arg, 'groupId')) {
 		const context = arg as IEditorCommandsContext;
 		const group = accessor.get(IEditorGroupsService).getGroup(context.groupId);
 		const editor = context.editorIndex !== undefined ? group?.getEditorByIndex(context.editorIndex) : group?.activeEditor;
@@ -84,11 +84,10 @@ async function readGitignore(fileService: IFileService, uri: URI): Promise<strin
 
 /** Applies `edit` per target, grouped by `.gitignore` file so each file is read/written once. */
 async function editGitignores(
-	accessor: ServicesAccessor,
+	fileService: IFileService,
 	targets: IGitignoreTarget[],
 	edit: (content: string, target: IGitignoreTarget) => { content: string; changed: boolean },
 ): Promise<{ changed: string[]; unchanged: string[] }> {
-	const fileService = accessor.get(IFileService);
 	const byFile = new Map<string, IGitignoreTarget[]>();
 	for (const target of targets) {
 		const key = target.gitignoreUri.toString();
@@ -132,6 +131,7 @@ registerAction2(class AddToGitignoreAction extends Action2 {
 
 	async run(accessor: ServicesAccessor, arg?: unknown): Promise<void> {
 		const notificationService = accessor.get(INotificationService);
+		const fileService = accessor.get(IFileService);
 		const { targets, skipped } = await collectTargets(accessor, resolveResources(accessor, arg));
 		if (targets.length === 0) {
 			if (skipped > 0) {
@@ -139,7 +139,7 @@ registerAction2(class AddToGitignoreAction extends Action2 {
 			}
 			return;
 		}
-		const { changed, unchanged } = await editGitignores(accessor, targets, (content, target) => {
+		const { changed, unchanged } = await editGitignores(fileService, targets, (content, target) => {
 			const result = addGitignoreEntry(content, target.relPath, buildGitignoreEntry(target.relPath, target.isDirectory));
 			return { content: result.content, changed: result.added };
 		});
@@ -168,6 +168,7 @@ registerAction2(class RemoveFromGitignoreAction extends Action2 {
 
 	async run(accessor: ServicesAccessor, arg?: unknown): Promise<void> {
 		const notificationService = accessor.get(INotificationService);
+		const fileService = accessor.get(IFileService);
 		const { targets, skipped } = await collectTargets(accessor, resolveResources(accessor, arg));
 		if (targets.length === 0) {
 			if (skipped > 0) {
@@ -175,7 +176,7 @@ registerAction2(class RemoveFromGitignoreAction extends Action2 {
 			}
 			return;
 		}
-		const { changed, unchanged } = await editGitignores(accessor, targets, (content, target) => {
+		const { changed, unchanged } = await editGitignores(fileService, targets, (content, target) => {
 			const result = removeGitignoreEntry(content, target.relPath);
 			return { content: result.content, changed: result.removed };
 		});

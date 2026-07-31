@@ -74,7 +74,7 @@ export function buildGDPRExportManifest(): readonly GDPRItem[] {
 		},
 		{
 			category: 'vibe-artifacts',
-			label: localize('vibeide.gdpr.label.vibeArtifacts', "Артефакты .vibe/ (планы, snapshots, agent-locks)"),
+			label: localize('vibeide.gdpr.label.vibeArtifacts', "Артефакты .vibe/ (планы, snapshots, agent-locks, журнал прогонов агентов)"),
 			location: '<workspace>/.vibe/**',
 			included: true,
 		},
@@ -122,7 +122,7 @@ export function buildGDPRDeleteManifest(): readonly GDPRDeleteItem[] {
 		},
 		{
 			category: 'vibe-artifacts',
-			label: localize('vibeide.gdpr.label.vibeArtifacts', "Артефакты .vibe/ (планы, snapshots, agent-locks)"),
+			label: localize('vibeide.gdpr.label.vibeArtifacts', "Артефакты .vibe/ (планы, snapshots, agent-locks, журнал прогонов агентов)"),
 			location: '<workspace>/.vibe/**',
 			included: true,
 			irreversible: true,

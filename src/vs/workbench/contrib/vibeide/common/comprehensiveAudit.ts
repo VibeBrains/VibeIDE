@@ -311,9 +311,10 @@ interface ComprehensiveAuditWindow {
 	};
 }
 
-// Expose globally
-if (typeof window !== 'undefined') {
-	const auditWindow = window as Window & Partial<ComprehensiveAuditWindow>;
+// Expose globally (browser dev console). `typeof (globalThis as { document?: unknown }).document !== 'undefined'` detects a browser without
+// pulling the DOM `Window` type into this common-layer file.
+if (typeof (globalThis as { document?: unknown }).document !== 'undefined') {
+	const auditWindow = globalThis as typeof globalThis & Partial<ComprehensiveAuditWindow>;
 	auditWindow.vibeideComprehensiveAudit = {
 		generate: generateComprehensiveAuditReport,
 		print: printComprehensiveAuditReport,

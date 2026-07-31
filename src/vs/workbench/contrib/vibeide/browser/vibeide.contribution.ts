@@ -28,6 +28,14 @@ import './autocompleteService.js';
 
 // settings pane
 import './vibeideSettingsPane.js';
+import './vibeAgentsDispatchPane.js';
+import '../common/vibeAgentRunLedgerService.js';
+import './vibeAgentPreflightService.js';
+import './vibeAgentPreflightCommand.js';
+import './vibeTurnChecksService.js';
+import './vibeAgentReplayCommand.js';
+import './vibeCircuitBreakerService.js';
+import './vibeCircuitBreakerCommands.js';
 
 // register css
 import './media/vibeide.css';
@@ -213,6 +221,8 @@ import '../common/vibeOutboundRingBuffer.js';
 import './repoIndexerService.js';
 // repo indexer actions - lazy load (only needed when user invokes indexer actions)
 import('./repoIndexerActions.js').catch(() => { });
+// code graph — structural projection of the same index (who calls whom, and how we know)
+import './codeGraph/vibeCodeGraphService.js';
 
 // Image QA Registry initialization
 import './imageQARegistryContribution.js';
@@ -306,7 +316,6 @@ import '../common/vibeGitBlameService.js';
 import '../common/vibeMCPInspectorService.js';
 
 // VibeIDE: Cost attribution per file
-import '../common/vibeCostAttributionService.js';
 
 // VibeIDE: Prompt versioning service
 import '../common/vibePromptVersioningService.js';
@@ -322,6 +331,9 @@ import '../common/vibeThinkingOutLoudService.js';
 
 // VibeIDE: Run tests after apply hook
 import './vibeRunTestsAfterApplyService.js';
+
+// VibeIDE: VERIFY-GATE — enforced verify (build/tests) on agent completion
+import './vibeVerifyGateService.js';
 
 // VibeIDE: Profiles service (.vibe/profiles/)
 import '../common/vibeProfilesService.js';
@@ -380,8 +392,6 @@ import './vibePersistedPlanDiskEditContribution.js';
 // VibeIDE: Context eviction control
 import '../common/vibeContextEvictionService.js';
 
-// VibeIDE: Dependency graph visualization
-import '../common/vibeDependencyGraphService.js';
 
 // VibeIDE: Rename/refactor atomic audit
 import '../common/vibeRefactorAuditService.js';
@@ -557,6 +567,9 @@ import './vibeProviderDiagnosticsContribution.js';
 // VibeIDE: status-bar wrench — one-click «починить связь с провайдерами» (reset transport)
 import './vibeProviderFixStatusBar.js';
 
+// VibeIDE: status-bar indicator «AI → прокси» — shown only when `vibeide.llm.proxy.url` is set
+import './vibeProviderProxyStatusBar.js';
+
 // VibeIDE: «Обновить/Показать окружение из релиза» — сверка `.vibe` с дефолтами релиза
 import './vibeDefaultsContribution.js';
 import './vibeDefaultsContentProvider.js';
@@ -648,7 +661,12 @@ import '../common/vibeAmbientAgentService.js';
 // VibeIDE: Diff view virtualization (100+ files)
 import './vibeDiffVirtualizationService.js';
 
+// VibeIDE: Design review — measuring the page, and the project's design context behind the judgement
+import './designReview/vibeDesignScanService.js';
+import './designContext/vibeDesignContextService.js';
+
 // VibeIDE: Provider dashboard (cost history)
+import './vibeSpendLedgerService.js';
 import './vibeProviderDashboard.js';
 
 // VibeIDE: Speculative parallel exploration (Phase 3b)
@@ -674,8 +692,8 @@ import './vibeProviderProxyService.js';
 // VibeIDE: Browser automation — Playwright consent gate + audit (Phase 3b: real runner)
 import '../common/vibeBrowserAutomationService.js';
 
-// VibeIDE: MCP OAuth / token manager — unified OAuth token storage for MCP servers
-import '../common/vibeMCPOAuthService.js';
+// VibeIDE: MCP token rotation — thresholds for the rotation policy (vibeide.mcp.tokenRotation.*)
+import '../common/mcpTokenRotationConfiguration.js';
 
 // VibeIDE: Binary diff policy — limits/placeholder for binary/large files in diff preview
 import '../common/vibeBinaryDiffPolicyService.js';

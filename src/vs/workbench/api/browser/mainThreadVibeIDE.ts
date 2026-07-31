@@ -1,6 +1,6 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable, MutableDisposable } from '../../../base/common/lifecycle.js';
@@ -116,11 +116,13 @@ function coerceToPlanEventDTO(record: Record<string, unknown>): VibeIDEPlanEvent
 	switch (type) {
 		case 'plan.created':
 		case 'plan.completed':
+			// eslint-disable-next-line local/code-no-dangerous-type-assertions -- narrowing a discriminated union return
 			return { type, planId } as VibeIDEPlanEventDTO;
 		case 'plan.paused':
 			return { type, planId, reason: typeof record.reason === 'string' ? record.reason : '' };
 		case 'plan.step.started':
 		case 'plan.step.completed':
+			// eslint-disable-next-line local/code-no-dangerous-type-assertions -- narrowing a discriminated union return
 			return { type, planId, stepNumber: typeof record.stepNumber === 'number' ? record.stepNumber : 0 } as VibeIDEPlanEventDTO;
 		case 'plan.step.failed':
 			return {

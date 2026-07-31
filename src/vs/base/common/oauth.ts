@@ -259,6 +259,13 @@ export interface IAuthorizationServerMetadata {
 	code_challenge_methods_supported?: string[];
 
 	/**
+	 * OPTIONAL. Whether the authorization server includes the `iss` parameter in authorization
+	 * responses (RFC 9207). When true, a response without `iss` is a protocol violation and the
+	 * client must reject it rather than assume an older server.
+	 */
+	authorization_response_iss_parameter_supported?: boolean;
+
+	/**
 	 * OPTIONAL. Boolean flag indicating whether the authorization server supports the
 	 * client_id_metadata document.
 	 * ref https://datatracker.ietf.org/doc/html/draft-parecki-oauth-client-id-metadata-document-03
@@ -434,6 +441,13 @@ export interface IAuthorizationAuthorizeResponse {
 	 * Used to prevent CSRF attacks.
 	 */
 	state: string;
+
+	/**
+	 * OPTIONAL. Issuer identifier of the authorization server that produced this response
+	 * (RFC 9207). Present only when the server implements the extension; when it is present it
+	 * MUST match the issuer the client believed it was talking to.
+	 */
+	iss?: string;
 }
 
 /**
@@ -793,6 +807,48 @@ export function isAuthorizationAuthorizeResponse(obj: unknown): obj is IAuthoriz
 	}
 	const response = obj as IAuthorizationAuthorizeResponse;
 	return response.code !== undefined && response.state !== undefined;
+}
+
+/**
+ * Verdict of the RFC 9207 issuer check on an authorization response.
+ * `mismatch` and `missing` are both attack-shaped and must abort the flow.
+ */
+export type AuthorizationIssuerVerdict =
+	/** Either the server sent a matching `iss`, or no issuer was known to compare against. */
+	| { ok: true; checked: boolean }
+	/** The response carried an `iss` that is not the authorization server we started with. */
+	| { ok: false; reason: 'mismatch'; expected: string; received: string }
+	/** We know the issuer advertises RFC 9207 support, yet the response carried no `iss`. */
+	| { ok: false; reason: 'missing'; expected: string };
+
+/**
+ * RFC 9207 — protection against authorization server mix-up.
+ *
+ * With several authorization servers in play, an attacker can make the client take a response
+ * minted by server B for one from server A and hand A's code to B (or vice versa). The defence is
+ * to compare the `iss` of the response against the issuer the request was actually sent to.
+ *
+ * `expectedIssuer` undefined means the client never learned an issuer, so there is nothing to
+ * compare — the flow proceeds unprotected and `checked: false` says so, which callers should log.
+ */
+export function verifyAuthorizationResponseIssuer(
+	response: { readonly iss?: string },
+	expectedIssuer: string | undefined,
+	options?: { readonly issuerParameterSupported?: boolean },
+): AuthorizationIssuerVerdict {
+	if (!expectedIssuer) {
+		return { ok: true, checked: false };
+	}
+	if (response.iss === undefined) {
+		// Absence is only an attack signal when the server said it would send the parameter;
+		// otherwise it is a server that predates the extension, and rejecting it would break it.
+		return options?.issuerParameterSupported
+			? { ok: false, reason: 'missing', expected: expectedIssuer }
+			: { ok: true, checked: false };
+	}
+	return response.iss === expectedIssuer
+		? { ok: true, checked: true }
+		: { ok: false, reason: 'mismatch', expected: expectedIssuer, received: response.iss };
 }
 
 export function isAuthorizationTokenResponse(obj: unknown): obj is IAuthorizationTokenResponse {

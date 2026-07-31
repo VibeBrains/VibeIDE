@@ -41,6 +41,7 @@ import { SiteInfoWidget } from './siteInfoWidget.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { ILayoutService } from '../../../../platform/layout/browser/layoutService.js';
 import { ILifecycleService, ShutdownReason } from '../../../services/lifecycle/common/lifecycle.js';
+import { IVibeServerStackService, IVibeServerStackEntry } from '../../vibeide/browser/vibeServer/vibeServerStackService.js';
 
 export const CONTEXT_BROWSER_CAN_GO_BACK = new RawContextKey<boolean>('browserCanGoBack', false, localize('browser.canGoBack', "Whether the browser can go back"));
 export const CONTEXT_BROWSER_CAN_GO_FORWARD = new RawContextKey<boolean>('browserCanGoForward', false, localize('browser.canGoForward', "Whether the browser can go forward"));
@@ -364,6 +365,9 @@ export class BrowserEditor extends EditorPane {
 	private _hasErrorContext!: IContextKey<boolean>;
 
 	private readonly _inputDisposables = this._register(new DisposableStore());
+	/** Host for the `.vibe/servers.json` stack list inside the welcome screen. */
+	private _welcomeStackContainer: HTMLElement | undefined;
+	private readonly _welcomeStackDisposables = this._register(new DisposableStore());
 	private overlayManager: BrowserOverlayManager | undefined;
 	private _screenshotTimeout: ReturnType<typeof setTimeout> | undefined;
 	private readonly _certActionButton = this._register(new MutableDisposable<ButtonBar>());
@@ -379,6 +383,7 @@ export class BrowserEditor extends EditorPane {
 		@IContextKeyService private readonly contextKeyService: IContextKeyService,
 		@ILayoutService private readonly layoutService: ILayoutService,
 		@ILifecycleService private readonly lifecycleService: ILifecycleService,
+		@IVibeServerStackService private readonly _stackService: IVibeServerStackService,
 	) {
 		super(BrowserEditorInput.EDITOR_ID, group, telemetryService, themeService, storageService);
 
@@ -388,6 +393,11 @@ export class BrowserEditor extends EditorPane {
 				this._model?.setVisible(false);
 			}
 		}));
+
+		// Keep the welcome-screen stack list in sync with the orchestrator, and discover
+		// `.vibe/servers.json` on first paint.
+		this._register(this._stackService.onDidChangeStack(() => this._renderWelcomeStack()));
+		void this._stackService.reload();
 	}
 
 	protected override createEditor(parent: HTMLElement): void {
@@ -936,8 +946,66 @@ export class BrowserEditor extends EditorPane {
 			: localize('browser.welcomeSubtitle', "Enter a URL above to get started.");
 		content.appendChild(subtitle);
 
+		// The project's dev stack (.vibe/servers.json): a start-and-open list, filled in reactively.
+		this._welcomeStackContainer = $('.browser-welcome-stack');
+		content.appendChild(this._welcomeStackContainer);
+		this._renderWelcomeStack();
+
 		container.appendChild(content);
 		return container;
+	}
+
+	/** (Re)builds the welcome-screen stack list from the orchestrator's current entries. */
+	private _renderWelcomeStack(): void {
+		const host = this._welcomeStackContainer;
+		if (!host) {
+			return;
+		}
+		this._welcomeStackDisposables.clear();
+		host.textContent = '';
+		if (!this._stackService.available) {
+			return;
+		}
+		for (const item of this._stackService.entries) {
+			this._renderWelcomeStackRow(host, item);
+		}
+	}
+
+	private _renderWelcomeStackRow(host: HTMLElement, item: IVibeServerStackEntry): void {
+		const running = item.state === 'running';
+		const busy = item.state === 'starting';
+		const row = $('.browser-welcome-stack-row');
+
+		const name = $('.browser-welcome-stack-name');
+		name.textContent = item.entry.name ?? item.entry.id;
+		row.appendChild(name);
+
+		const port = $('.browser-welcome-stack-port');
+		port.textContent = typeof item.entry.port === 'number' ? `:${item.entry.port}` : '';
+		row.appendChild(port);
+
+		const button = $('.browser-welcome-stack-action');
+		const icon = busy ? Codicon.loading : running ? Codicon.linkExternal : Codicon.play;
+		const iconEl = renderIcon(icon);
+		if (busy) {
+			iconEl.classList.add('codicon-modifier-spin');
+		}
+		button.appendChild(iconEl);
+		row.appendChild(button);
+
+		this._welcomeStackDisposables.add(addDisposableListener(button, EventType.CLICK, () => void this._onWelcomeStackAction(item)));
+		host.appendChild(row);
+	}
+
+	/** A welcome-screen row was clicked: start the entry (with its deps) if needed, then open its preview. */
+	private async _onWelcomeStackAction(item: IVibeServerStackEntry): Promise<void> {
+		if (item.state !== 'running') {
+			await this._stackService.startEntry(item.entry.id);
+		}
+		const url = this._stackService.previewUrlFor(item.entry.id);
+		if (url) {
+			await this.navigateToUrl(url);
+		}
 	}
 
 	private setBackgroundImage(buffer: VSBuffer | undefined): void {

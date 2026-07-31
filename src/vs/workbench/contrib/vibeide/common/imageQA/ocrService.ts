@@ -11,6 +11,13 @@ import { vibeLog } from '../vibeLog.js';
  * Uses Tesseract.js for browser-based OCR
  */
 
+// Minimal DOM surface used by `extractRegion` (canvas cropping). Declared locally and reached via
+// globalThis so this common-layer file needs no DOM lib; region extraction runs only in the browser.
+interface OcrImageLike { onload: () => void; onerror: () => void; src: string }
+interface OcrCanvas2dContext { drawImage(image: OcrImageLike, sx: number, sy: number, sw: number, sh: number, dx: number, dy: number, dw: number, dh: number): void }
+interface OcrCanvasLike { width: number; height: number; getContext(id: '2d'): OcrCanvas2dContext | null; toBlob(callback: (blob: Blob | null) => void, type?: string): void }
+const ocrDomGlobals = globalThis as unknown as { document: { createElement(tag: 'canvas'): OcrCanvasLike }; Image: new () => OcrImageLike };
+
 export interface OCRBlock {
 	bbox: { x: number; y: number; width: number; height: number };
 	text: string;
@@ -199,7 +206,7 @@ export class TesseractOCRService implements IOCRService {
 	): Promise<OCRResult> {
 		// Crop the image to the region before OCR for better accuracy
 		const blob = new Blob([toArrayBuffer(imageData)], { type: mimeType });
-		const img = new Image();
+		const img = new ocrDomGlobals.Image();
 		const url = URL.createObjectURL(blob);
 
 		return new Promise((resolve, reject) => {
@@ -208,7 +215,7 @@ export class TesseractOCRService implements IOCRService {
 
 				try {
 					// Create canvas and crop to region
-					const canvas = document.createElement('canvas');
+					const canvas = ocrDomGlobals.document.createElement('canvas');
 					canvas.width = bbox.width;
 					canvas.height = bbox.height;
 					const ctx = canvas.getContext('2d');

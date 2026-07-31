@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * Removes or downgrades SpectreMitigation in binding.gyp for curated native deps so
  * MSBuild does not require optional "Spectre-mitigated" MSVC libraries (MSB8040).

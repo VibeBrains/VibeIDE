@@ -15,14 +15,14 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IMetricsService } from './metricsService.js';
 import { defaultProviderSettings, getModelCapabilities, ModelOverrides, VibeideStaticModelInfo } from './modelCapabilities.js';
 import { VOID_SETTINGS_STORAGE_KEY } from './storageKeys.js';
-import { autoModelFallbackProviderOrder, defaultSettingsOfProvider, FeatureName, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, ModelSelection, modelSelectionsEqual, featureNames, VibeideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState, MinimalismMode } from './vibeideSettingsTypes.js';
+import { autoFallbackProviderIds, defaultSettingsOfProvider, FeatureName, isBuiltinProviderId, ProviderId, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, ModelSelection, modelSelectionsEqual, featureNames, VibeideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState, MinimalismMode } from './vibeideSettingsTypes.js';
 
 
 // name is the name in the dropdown
 export type ModelOption = {
 	name: string;
 	selection: ModelSelection;
-	/** Provenance marker for DYNAMIC-provider models (.vibe/providers.json), surfaced in the picker so
+	/** Provenance marker for CONFIG-provider models (providers.json), surfaced in the picker so
 	 *  the user knows when caps were customized in their file. `'override'` = present in the live catalog
 	 *  AND patched by a same-id `static` entry (caps may differ from the provider's defaults); `'manual'`
 	 *  = defined only in the file (not returned by the catalog). Absent = plain catalog / built-in. */
@@ -32,7 +32,7 @@ export type ModelOption = {
 
 
 type SetSettingOfProviderFn = <S extends SettingName>(
-	providerName: ProviderName,
+	providerName: ProviderId,
 	settingName: S,
 	newVal: SettingsOfProvider[ProviderName][S extends keyof SettingsOfProvider[ProviderName] ? S : never],
 ) => Promise<void>;
@@ -44,7 +44,7 @@ type SetModelSelectionOfFeatureFn = <K extends FeatureName>(
 
 type SetGlobalSettingFn = <T extends GlobalSettingName>(settingName: T, newVal: GlobalSettings[T]) => void;
 
-type SetOptionsOfModelSelection = (featureName: FeatureName, providerName: ProviderName, modelName: string, newVal: Partial<ModelSelectionOptions>) => void;
+type SetOptionsOfModelSelection = (featureName: FeatureName, providerName: ProviderId, modelName: string, newVal: Partial<ModelSelectionOptions>) => void;
 
 /** Recursively strips `readonly` so the one-time settings-blob migration can mutate in place. */
 type DeepWritable<T> = T extends ReadonlyArray<infer E>
@@ -107,6 +107,11 @@ export type VibeideSettingsState = {
 	 *  an open set, features a closed union. Consumed by `vibeSubagentRunnerService`. */
 	readonly modelSelectionOfRole?: Readonly<Record<string, ModelSelection | null>>;
 
+	/** Cumulative token ceiling per role over the budget window (`vibeide.subagent.budgetWindowDays`),
+	 *  keyed by SubagentType. Absent key / null = unlimited. `vibeide.subagent.maxTokens` caps ONE run;
+	 *  this caps how much a role may spend across many. Consumed by `vibeSubagentService.spawn`. */
+	readonly tokenBudgetOfRole?: Readonly<Record<string, number | null>>;
+
 	readonly _modelOptions: ModelOption[]; // computed based on the two above items
 };
 
@@ -132,30 +137,42 @@ export interface IVibeideSettingsService {
 	setModelSelectionOfFeature: SetModelSelectionOfFeatureFn;
 	/** VA.2 «модель на роль»: set/replace a role's model; `null` clears the mapping (inherit Chat). */
 	setModelSelectionOfRole(roleType: string, selection: ModelSelection | null): Promise<void>;
+	setTokenBudgetOfRole(roleType: string, budget: number | null): Promise<void>;
 	setOptionsOfModelSelection: SetOptionsOfModelSelection;
 	setGlobalSetting: SetGlobalSettingFn;
 	// setMCPServerStates: (newStates: MCPServerStates) => Promise<void>;
 
 	// setting to undefined CLEARS it, unlike others:
-	setOverridesOfModel(providerName: ProviderName, modelName: string, overrides: Partial<ModelOverrides> | undefined): Promise<void>;
+	setOverridesOfModel(providerName: ProviderId, modelName: string, overrides: Partial<ModelOverrides> | undefined): Promise<void>;
 
 	/** Merge per-model overrides in one write (e.g. contextWindow from provider catalog). */
-	mergeOverridesForProviderModels(providerName: ProviderName, updates: Record<string, Partial<ModelOverrides>>): Promise<void>;
+	mergeOverridesForProviderModels(providerName: ProviderId, updates: Record<string, Partial<ModelOverrides>>): Promise<void>;
 
 	dangerousSetState(newState: VibeideSettingsState): Promise<void>;
 	resetState(): Promise<void>;
 
-	setAutodetectedModels(providerName: ProviderName, modelNames: string[], logging: AutodetectModelsLogging): Promise<void>;
+	setAutodetectedModels(providerName: ProviderId, modelNames: string[], logging: AutodetectModelsLogging): Promise<void>;
 
 	/** Drop per-model overrides that no longer exist in settingsOfProvider (e.g. after catalog sync). */
-	pruneOverridesToProviderModels(providerName: ProviderName): Promise<void>;
-	toggleModelHidden(providerName: ProviderName, modelName: string): void;
-	addModel(providerName: ProviderName, modelName: string): void;
-	deleteModel(providerName: ProviderName, modelName: string): boolean;
+	pruneOverridesToProviderModels(providerName: ProviderId): Promise<void>;
+	toggleModelHidden(providerName: ProviderId, modelName: string): void;
+	addModel(providerName: ProviderId, modelName: string): void;
+	deleteModel(providerName: ProviderId, modelName: string): boolean;
 
 	/** Apply `.vibe/providers.json` disable-toggles for built-in providers/models. Derived (not
 	 *  persisted) — recomputes the model picker + reselects if the active model became hidden. */
 	applyProviderActiveOverrides(overrides: VibeProviderActiveOverrides | undefined): void;
+
+	/** Mark which providers (built-in AND config — the merged set) have an API key available in the
+	 *  OS environment, so they count as configured without a key typed into the UI. Presence only —
+	 *  the value stays in electron-main. Derived (not persisted); re-applied on every launch by the
+	 *  desktop contribution. */
+	applyEnvApiKeyProviders(providers: ReadonlySet<ProviderId>): void;
+
+	/** Provider ids whose API key is present in the OS environment (built-in and config alike).
+	 *  Consumed by the config-providers service to gate models on env-resolved keys the renderer
+	 *  cannot see. */
+	getEnvApiKeyProviderIds(): ReadonlySet<ProviderId>;
 
 	/** Transport configs of active dynamic providers (`.vibe/providers.json`), keyed by file id.
 	 *  Merged transiently into `settingsOfProvider` on the send-site — never persisted. */
@@ -181,7 +198,14 @@ const computeDidFillInProviderSettings = (providerName: ProviderName, settingsAt
 		if (s.publicCatalog === '1') {
 			return true;
 		}
-		return !!s.apiKey?.trim();
+		return !!s.apiKey?.trim() || _envApiKeyProviders.has(providerName);
+	}
+	// A key present in the OS environment counts as a filled-in key: without this the provider would
+	// stay hidden in the UI (no model list, not pickable) even though electron-main could authenticate
+	// with it. Only the PRESENCE flag reaches the renderer — the value never leaves electron-main.
+	if (_envApiKeyProviders.has(providerName)) {
+		return Object.keys(defaultProviderSettings[providerName])
+			.every(key => key === 'apiKey' || !!settingsAtProvider[key as keyof typeof settingsAtProvider]);
 	}
 	return Object.keys(defaultProviderSettings[providerName]).every(key => !!settingsAtProvider[key as keyof typeof settingsAtProvider]);
 };
@@ -242,7 +266,7 @@ export const modelFilterOfFeatureName: {
 			// - liteLLM: May support FIM depending on backend
 			// Note: OpenAI's official API does NOT support suffix parameter (except gpt-3.5-turbo-instruct)
 			// Note: vLLM and lmStudio do NOT support suffix parameter
-			const providersWithFIMSupport: readonly ProviderName[] = ['mistral', 'ollama', 'openRouter', 'openAICompatible', 'liteLLM'];
+			const providersWithFIMSupport: readonly ProviderId[] = ['mistral', 'ollama', 'openRouter', 'openAICompatible', 'liteLLM'];
 			if (providersWithFIMSupport.includes(o.providerName)) {
 				return true;
 			}
@@ -311,6 +335,9 @@ export interface DynProviderTransportConfig {
 	/** Custom models-catalog URL from `models.fetch: "<url>"`. When set, the catalog fetch hits this
 	 *  URL verbatim instead of the `<baseURL>/v1/models` default. */
 	readonly modelsUrl?: string;
+	/** Wire protocol declared in the file (`openai` | `anthropic` | `gemini`). Feeds the SDK pick in
+	 *  aiSdkAdapter with priority override → FILE → models.dev catalog → openai-compat fallback. */
+	readonly protocol?: string;
 }
 
 export interface VibeProviderActiveOverrides {
@@ -350,6 +377,12 @@ export type DynamicProviderSeed = {
 };
 let _providerActiveOverrides: VibeProviderActiveOverrides | undefined = undefined;
 
+/** Providers whose API key was found in the OS environment — built-ins via the canonical
+ *  `apiKeyEnvVarOfProvider` names, config providers via their declared `apiKeyEnv`. Presence only —
+ *  the key value stays in electron-main. Injected by the desktop contribution; empty on web/server,
+ *  where there is no OS environment to inherit from. */
+let _envApiKeyProviders: ReadonlySet<ProviderId> = new Set<ProviderId>();
+
 const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>): VibeideSettingsState => {
 
 	let newSettingsOfProvider = state.settingsOfProvider;
@@ -371,16 +404,13 @@ const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>
 		};
 	}
 
-	// Seed dynamic providers (.vibe/providers.json) as first-class entries so the Settings UI (provider
-	// cards + «Модели» tab) iterates them exactly like built-ins. The chat picker still sources dynamics
-	// from `dynamicModelOptions` below, so the model-options loop deliberately stays built-in-only — no
-	// double counting. These entries are derived (reapplied each load), never written to the blob.
+	// Seed config providers (providers.json — workspace or ~/.vibe) as first-class entries so the
+	// Settings UI (provider cards + «Модели» tab) iterates them exactly like built-ins. The chat
+	// picker still sources them from `dynamicModelOptions` below, so the model-options loop
+	// deliberately stays built-in-only — no double counting. These entries are derived (reapplied
+	// each load), never written to the blob.
 	if (_providerActiveOverrides?.dynamicProviderSettings) {
-		const merged: Record<string, unknown> = { ...newSettingsOfProvider };
-		for (const [id, seed] of Object.entries(_providerActiveOverrides.dynamicProviderSettings)) {
-			merged[id] = seed;
-		}
-		newSettingsOfProvider = merged as unknown as typeof newSettingsOfProvider;
+		newSettingsOfProvider = { ...newSettingsOfProvider, ..._providerActiveOverrides.dynamicProviderSettings };
 	}
 
 	// update model options
@@ -433,7 +463,7 @@ const _validatedModelState = (state: Omit<VibeideSettingsState, '_modelOptions'>
 		// only when the overlay HAS loaded AND the provider is gone (removed from the file) — otherwise
 		// the persisted selection was reset on every launch. Built-in selections reset as before.
 		const sel = modelSelectionAtFeature;
-		if (sel && sel.providerName !== 'auto' && !(providerNames as readonly string[]).includes(sel.providerName)) {
+		if (sel && sel.providerName !== 'auto' && !isBuiltinProviderId(sel.providerName)) {
 			const providerStillActive = !_providerActiveOverrides || !!_providerActiveOverrides.dynamicProviderSettings?.[sel.providerName];
 			if (providerStillActive) { continue; }
 		}
@@ -472,6 +502,7 @@ const defaultState = () => {
 		dynamicProviderApiKeys: {},
 		dynamicModelHidden: {},
 		modelSelectionOfRole: {},
+		tokenBudgetOfRole: {},
 	};
 	return d;
 };
@@ -565,6 +596,16 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 		this.state = _validatedModelState(this.state);
 		this._onDidChangeState.fire();
 	};
+
+	applyEnvApiKeyProviders = (providers: ReadonlySet<ProviderId>): void => {
+		_envApiKeyProviders = providers;
+		// Recompute _didFillInProviderSettings + model options against the new env facts. No
+		// _storeState — this is derived from the OS environment, not persisted user settings.
+		this.state = _validatedModelState(this.state);
+		this._onDidChangeState.fire();
+	};
+
+	getEnvApiKeyProviderIds = (): ReadonlySet<ProviderId> => _envApiKeyProviders;
 
 	getDynamicTransportConfigs = (): Record<string, DynProviderTransportConfig> => {
 		return _providerActiveOverrides?.transportConfigs ?? {};
@@ -714,15 +755,15 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 
 	private async _storeState() {
 		const state = this.state;
-		// Dynamic providers (.vibe/providers.json) are SEEDED into settingsOfProvider at runtime (derived
-		// from the file overlay, reapplied each load). They must NOT be persisted into the settings blob —
-		// otherwise a provider later removed from the file would linger as a ghost card. Strip every
-		// non-built-in entry before serializing; the overlay re-seeds the live ones on next launch.
-		const builtinSet = new Set<string>(providerNames as readonly string[]);
-		const sop = state.settingsOfProvider as Record<string, unknown>;
+		// Config-provider entries in settingsOfProvider are DERIVED seeds (rebuilt from the cached +
+		// re-read providers.json on every launch — that cache, not this blob, is their persistence).
+		// Persisting the seeds here too would split-brain the source of truth and resurrect ghost
+		// cards for providers deleted from the file. Everything user-authored about a config provider
+		// DOES persist: its definition (config-providers cache), its key (dynamicProviderApiKeys),
+		// its hide toggles (dynamicModelHidden).
 		const cleanedSettingsOfProvider: Record<string, unknown> = {};
-		for (const k of Object.keys(sop)) {
-			if (builtinSet.has(k)) { cleanedSettingsOfProvider[k] = sop[k]; }
+		for (const k of Object.keys(state.settingsOfProvider)) {
+			if (isBuiltinProviderId(k)) { cleanedSettingsOfProvider[k] = state.settingsOfProvider[k]; }
 		}
 		const toStore = { ...state, settingsOfProvider: cleanedSettingsOfProvider };
 		const encryptedState = await this._encryptionService.encrypt(JSON.stringify(toStore));
@@ -731,16 +772,17 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 
 	setSettingOfProvider: SetSettingOfProviderFn = async (providerName, settingName, newVal) => {
 
-		// Dynamic providers (.vibe/providers.json) aren't in the typed settingsOfProvider blob; their only
-		// user-editable field is the API key, which persists in a side map. The dynamic-providers service
-		// observes this change and folds the key back into resolution + the seeded entry on its reload.
-		if (!(providerNames as readonly string[]).includes(providerName as unknown as string)) {
+		// Config providers (providers.json): the file owns the transport fields (baseURL/headers), so
+		// the only UI-editable field is the API key — persisted in its own map (the seeded entry in
+		// settingsOfProvider is derived and rebuilt on every load, it can't hold persistent state).
+		// The config-providers service observes this change and folds the key back into resolution.
+		if (!isBuiltinProviderId(providerName)) {
 			if (settingName !== 'apiKey') { return; }
 			const newState: VibeideSettingsState = {
 				...this.state,
 				dynamicProviderApiKeys: {
 					...(this.state.dynamicProviderApiKeys ?? {}),
-					[providerName as unknown as string]: (newVal as string) ?? '',
+					[providerName]: (newVal as string) ?? '',
 				},
 			};
 			this.state = _validatedModelState(newState);
@@ -778,6 +820,21 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 			next[roleType] = selection;
 		}
 		const newState: VibeideSettingsState = { ...this.state, modelSelectionOfRole: next };
+		this.state = _validatedModelState(newState);
+		await this._storeState();
+		this._onDidChangeState.fire();
+	};
+
+	setTokenBudgetOfRole = async (roleType: string, budget: number | null): Promise<void> => {
+		const next: Record<string, number | null> = { ...(this.state.tokenBudgetOfRole ?? {}) };
+		// Absent = unlimited. A non-positive number is the same intent expressed clumsily, so it is
+		// stored as absence rather than as a ceiling of zero that would block every run.
+		if (budget === null || !Number.isFinite(budget) || budget <= 0) {
+			delete next[roleType];
+		} else {
+			next[roleType] = Math.floor(budget);
+		}
+		const newState: VibeideSettingsState = { ...this.state, tokenBudgetOfRole: next };
 		this.state = _validatedModelState(newState);
 		await this._storeState();
 		this._onDidChangeState.fire();
@@ -849,7 +906,7 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 	};
 
 
-	setOptionsOfModelSelection = async (featureName: FeatureName, providerName: ProviderName, modelName: string, newVal: Partial<ModelSelectionOptions>) => {
+	setOptionsOfModelSelection = async (featureName: FeatureName, providerName: ProviderId, modelName: string, newVal: Partial<ModelSelectionOptions>) => {
 		const newState: VibeideSettingsState = {
 			...this.state,
 			optionsOfModelSelection: {
@@ -872,7 +929,7 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 		this._onDidChangeState.fire();
 	};
 
-	setOverridesOfModel = async (providerName: ProviderName, modelName: string, overrides: Partial<ModelOverrides> | undefined) => {
+	setOverridesOfModel = async (providerName: ProviderId, modelName: string, overrides: Partial<ModelOverrides> | undefined) => {
 		const newState: VibeideSettingsState = {
 			...this.state,
 			overridesOfModel: {
@@ -894,7 +951,7 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 		this._metricsService.capture('Update Model Overrides', { providerName, modelName, overrides });
 	};
 
-	mergeOverridesForProviderModels = async (providerName: ProviderName, updates: Record<string, Partial<ModelOverrides>>) => {
+	mergeOverridesForProviderModels = async (providerName: ProviderId, updates: Record<string, Partial<ModelOverrides>>) => {
 		const prev = this.state.overridesOfModel[providerName] ?? {};
 		const merged = { ...prev };
 		for (const [modelName, partial] of Object.entries(updates)) {
@@ -919,7 +976,7 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 
 
 
-	setAutodetectedModels = async (providerName: ProviderName, autodetectedModelNames: string[], logging: AutodetectModelsLogging) => {
+	setAutodetectedModels = async (providerName: ProviderId, autodetectedModelNames: string[], logging: AutodetectModelsLogging) => {
 
 		const { models } = this.state.settingsOfProvider[providerName];
 		const oldModelNames = models.map(m => m.modelName);
@@ -946,7 +1003,7 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 		}
 	};
 
-	pruneOverridesToProviderModels = async (providerName: ProviderName) => {
+	pruneOverridesToProviderModels = async (providerName: ProviderId) => {
 		const names = new Set(this.state.settingsOfProvider[providerName].models.map(m => m.modelName));
 		const prev = this.state.overridesOfModel[providerName] ?? {};
 		const removed = Object.keys(prev).filter(k => !names.has(k));
@@ -971,14 +1028,13 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 		this._onDidChangeState.fire();
 		this._metricsService.capture('Prune Model Overrides (catalog)', { providerName, removed });
 	};
-	toggleModelHidden(providerName: ProviderName, modelName: string) {
+	toggleModelHidden(providerName: ProviderId, modelName: string) {
 
-		// Dynamic providers (.vibe/providers.json): the model list is derived from the file/catalog
-		// overlay, so a hide toggle persists as an explicit override; the dynamic-providers service
+		// Config providers (providers.json): the model list is derived from the file/catalog
+		// overlay, so a hide toggle persists as an explicit override; the config-providers service
 		// re-applies it (and re-gates the chat picker) on the resulting state change.
-		if (!(providerNames as readonly string[]).includes(providerName as unknown as string)) {
-			const id = providerName as unknown as string;
-			const seed = (this.state.settingsOfProvider as Record<string, { models?: VibeideStatefulModelInfo[] } | undefined>)[id];
+		if (!isBuiltinProviderId(providerName)) {
+			const seed = this.state.settingsOfProvider[providerName];
 			const cur = seed?.models?.find(m => m.modelName === modelName);
 			if (!cur) { return; }
 			const newHidden = !cur.isHidden;
@@ -986,7 +1042,7 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 				...this.state,
 				dynamicModelHidden: {
 					...(this.state.dynamicModelHidden ?? {}),
-					[id]: { ...(this.state.dynamicModelHidden?.[id] ?? {}), [modelName]: newHidden },
+					[providerName]: { ...(this.state.dynamicModelHidden?.[providerName] ?? {}), [modelName]: newHidden },
 				},
 			};
 			this.state = _validatedModelState(newState);
@@ -1010,7 +1066,7 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 		this._metricsService.capture('Toggle Model Hidden', { providerName, modelName, newIsHidden });
 
 	}
-	addModel(providerName: ProviderName, modelName: string) {
+	addModel(providerName: ProviderId, modelName: string) {
 		const { models } = this.state.settingsOfProvider[providerName];
 		const existingIdx = models.findIndex(m => m.modelName === modelName);
 		if (existingIdx !== -1) { return; } // if exists, do nothing
@@ -1023,7 +1079,7 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 		this._metricsService.capture('Add Model', { providerName, modelName });
 
 	}
-	deleteModel(providerName: ProviderName, modelName: string): boolean {
+	deleteModel(providerName: ProviderId, modelName: string): boolean {
 		const { models } = this.state.settingsOfProvider[providerName];
 		const delIdx = models.findIndex(m => m.modelName === modelName);
 		if (delIdx === -1) { return false; }
@@ -1097,8 +1153,9 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 			return modelSelection || null;
 		}
 
-		// Try to find the first available configured model (prefer online models first, then local)
-		for (const providerName of autoModelFallbackProviderOrder) {
+		// Walk the MERGED provider set: config providers first (the user's explicit configuration),
+		// then the curated built-in order — same precedence the model picker shows.
+		for (const providerName of autoFallbackProviderIds(this.state.settingsOfProvider)) {
 			const providerSettings = this.state.settingsOfProvider[providerName];
 			if (providerSettings && providerSettings._didFillInProviderSettings) {
 				const models = providerSettings.models || [];

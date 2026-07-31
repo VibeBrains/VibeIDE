@@ -13,6 +13,8 @@ import { ILogger } from '../../../platform/log/common/log.js';
 export interface IOAuthResult {
 	code: string;
 	state: string;
+	/** Issuer identifier of the responding authorization server (RFC 9207), when it sent one. */
+	iss?: string;
 }
 
 export interface ILoopbackServer {
@@ -83,7 +85,9 @@ export class LoopbackAuthServer implements ILoopbackServer {
 							deferredPromise.error(new Error('State does not match.'));
 							break;
 						}
-						deferredPromise.complete({ code, state });
+						// `iss` (RFC 9207) is carried through untouched; the caller compares it against
+						// the issuer it started the flow with — mix-up protection lives there, not here.
+						deferredPromise.complete({ code, state, iss: reqUrl.searchParams.get('iss') ?? undefined });
 						res.writeHead(302, { location: '/done' });
 						res.end();
 						break;

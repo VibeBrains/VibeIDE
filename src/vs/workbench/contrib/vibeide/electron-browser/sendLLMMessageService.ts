@@ -349,6 +349,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			assumeNativeTools: oldAssumeNative, // kept for legacy code paths
 			toolFallbackMode,
 			forceToolUse, // per-turn: agent loop forces tool_choice on the corrective nudge
+			proxyUrl: this.configurationService.getValue<string>('vibeide.llm.proxy.url'), // route provider traffic through a proxy (geo-block bypass)
 		};
 
 		// Transiently overlay dynamic-provider transport configs (.vibe/providers.json) so a dynamic

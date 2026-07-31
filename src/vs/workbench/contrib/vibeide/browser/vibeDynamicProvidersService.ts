@@ -5,10 +5,17 @@
 
 
 /**
- * Reads & resolves `.vibe/providers.json` into a runtime view: which providers are DEFINED
- * (new openai-compatible ids), which PATCH a built-in (same id), and which EXTEND a built-in
- * (new id based on a built-in). `extends` against another FILE entry is fully merged here; the
- * built-in base for `extends`/override is applied downstream at transport/catalog wiring (2b).
+ * Reads & resolves providers.json — GLOBAL (`~/.vibe/providers.json`) merged with WORKSPACE
+ * (`<folder>/.vibe/providers.json`, workspace wins per entry field) — into a runtime view: which
+ * providers are DEFINED (new openai-compatible ids), which PATCH a built-in (same id), and which
+ * EXTEND a built-in (new id based on a built-in). `extends` against another FILE entry is fully
+ * merged here; the built-in base for `extends`/override is applied downstream at transport/catalog
+ * wiring (2b).
+ *
+ * The merged entry set is CACHED in application storage and restored synchronously at startup, so
+ * config providers are usable before the async file reads land and in windows with no folder open;
+ * every reload overwrites the cache (reconciliation — a provider deleted from the files disappears,
+ * while its UI-typed key/toggles persist separately and survive the id returning).
  *
  * Heavily logged on purpose (see vibeLog 'DynProviders'): every load reports the file path,
  * parse outcome (+reason), counts, each resolution, and all non-fatal warnings — so a broken file
@@ -26,13 +33,16 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+import { IPathService } from '../../../services/path/common/pathService.js';
 import { scanProviderConfig, ConfigGuardFinding } from '../common/vibeConfigGuard.js';
-import { providerNames, ProviderName, VibeideStatefulModelInfo } from '../common/vibeideSettingsTypes.js';
+import { isBuiltinProviderId, VibeideStatefulModelInfo } from '../common/vibeideSettingsTypes.js';
 import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig, DynamicProviderSeed } from '../common/vibeideSettingsService.js';
 import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo } from '../common/modelCapabilities.js';
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
-import { parseProvidersFile, mergeProviderEntry, VibeProviderEntry, VibeProviderModelEntry } from '../common/vibeProvidersFile.js';
+import { parseProvidersFile, mergeProviderEntry, mergeProvidersLists, VibeProviderEntry, VibeProviderModelEntry } from '../common/vibeProvidersFile.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
+import { VIBE_CONFIG_PROVIDERS_CACHE_KEY } from '../common/storageKeys.js';
 import { ILifecycleService, LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 
@@ -51,6 +61,9 @@ function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStaticModel
 	if (typeof m.maxOutputTokens === 'number') { c.reservedOutputTokenSpace = m.maxOutputTokens; }
 	if (m.toolFormat) { c.specialToolFormat = TOOL_FORMAT_MAP[m.toolFormat]; }
 	if (typeof m.vision === 'boolean') { c.supportsVision = m.vision; }
+	// `fim: true` opts the model into Autocomplete (the FIM feature filter reads supportsFIM) —
+	// without this mapping the file field was silently dropped and the spec lied.
+	if (typeof m.fim === 'boolean') { c.supportsFIM = m.fim; }
 	if (m.systemMessage === false) { c.supportsSystemMessage = false; }
 	else if (m.systemMessage) { c.supportsSystemMessage = SYS_MSG_MAP[m.systemMessage]; }
 	if (m.cost) {
@@ -162,9 +175,10 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	readonly onDidChange = this._onDidChange.event;
 
 	private _state: VibeDynamicProvidersState = EMPTY_STATE;
-	private readonly _builtinIds: ReadonlySet<string> = new Set<string>(providerNames as readonly string[]);
-	/** Parsed `.vibe/.env` (local secrets source for `apiKeyEnv`). Refreshed on every reload. */
+	/** Parsed `.vibe/.env` (global `~/.vibe` + workspace, workspace wins per var). Refreshed on every reload. */
 	private _envFileVars: Record<string, string> = {};
+	/** Resolved `~/.vibe` directory URI (set once at construct; undefined until resolved / on failure). */
+	private _globalVibeDir: URI | undefined = undefined;
 	/** Bumped on every state change so a slow async catalog fetch can detect it raced a newer reload. */
 	private _reloadGen = 0;
 	/** JSON of the last-seen UI-typed dynamic keys — lets us reload ONLY when they actually change,
@@ -188,13 +202,34 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		@IRemoteCatalogService private readonly _remoteCatalogService: IRemoteCatalogService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@INotificationService private readonly _notificationService: INotificationService,
+		@IStorageService private readonly _storageService: IStorageService,
+		@IPathService private readonly _pathService: IPathService,
 	) {
 		super();
-		void this.reload();
+		// Cache-first startup: apply the last merged entry set SYNCHRONOUSLY so config providers are
+		// present in the picker/settings immediately (and in windows with no folder open at all).
+		// The async reload below re-reads the real files and overwrites both state and cache.
+		this._restoreFromCache();
+		// Resolve ~/.vibe once, then do the first real read + start watching the global dir (it lies
+		// outside the workspace, so nobody else watches it for us).
+		this._pathService.userHome().then(home => {
+			this._globalVibeDir = joinPath(home, '.vibe');
+			const watcher = this._fileService.createWatcher(this._globalVibeDir, { recursive: false, excludes: [] });
+			this._register(watcher);
+			this._register(watcher.onDidChange(e => {
+				const globalFile = this._globalFileUri();
+				const globalEnv = this._globalEnvUri();
+				if ((globalFile && e.affects(globalFile)) || (globalEnv && e.affects(globalEnv))) {
+					vibeLog.debug('DynProviders', '~/.vibe/providers.json / .env changed on disk — reloading');
+					void this.reload();
+				}
+			}));
+			void this.reload();
+		}, () => { void this.reload(); }); // no user home (web?) — workspace file still works
 		// A window opened DIRECTLY on a folder fires no onDidChangeWorkspaceFolders, and the service
 		// can construct before workspace folders are populated — both leave the initial reload() empty
 		// (file silently "not found"). Reload once the workbench is restored, when folders[0] is
-		// guaranteed present, so the model picker actually receives the dynamic providers at startup.
+		// guaranteed present, so the model picker actually receives the config providers at startup.
 		this._lifecycleService.when(LifecyclePhase.Restored).then(() => { void this.reload(); });
 		this._register(this._workspaceContextService.onDidChangeWorkspaceFolders(() => { void this.reload(); }));
 		this._register(this._fileService.onDidFilesChange(e => {
@@ -253,9 +288,16 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		return folder ? joinPath(folder, '.vibe', '.env') : undefined;
 	}
 
-	/** Read + parse `.vibe/.env`. Absent file is the normal case → empty map. */
-	private async _readEnvFile(): Promise<Record<string, string>> {
-		const envUri = this._envFileUri();
+	private _globalFileUri(): URI | undefined {
+		return this._globalVibeDir ? joinPath(this._globalVibeDir, 'providers.json') : undefined;
+	}
+
+	private _globalEnvUri(): URI | undefined {
+		return this._globalVibeDir ? joinPath(this._globalVibeDir, '.env') : undefined;
+	}
+
+	/** Read + parse a `.env`. Absent file is the normal case → empty map. */
+	private async _readEnvFileAt(envUri: URI | undefined): Promise<Record<string, string>> {
 		if (!envUri) { return {}; }
 		try {
 			const buf = await this._fileService.readFile(envUri);
@@ -265,41 +307,107 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		}
 	}
 
-	async reload(): Promise<void> {
-		const uri = this._fileUri();
-		if (!uri) {
-			vibeLog.debug('DynProviders', 'no workspace folder — no providers.json');
-			this._setState(EMPTY_STATE);
-			return;
-		}
-
-		// Local secrets source for apiKeyEnv (sibling of providers.json). Loaded before resolution
-		// so transport can prefer it over the OS environment.
-		this._envFileVars = await this._readEnvFile();
-
-		let raw: string | undefined;
+	/** Read a providers.json. `undefined` = file absent (normal); string = raw contents. */
+	private async _readProvidersFileAt(uri: URI | undefined): Promise<string | undefined> {
+		if (!uri) { return undefined; }
 		try {
 			const buf = await this._fileService.readFile(uri);
-			raw = buf.value.toString();
+			return buf.value.toString();
 		} catch {
-			vibeLog.debug('DynProviders', `no providers.json at ${uri.fsPath}`);
+			return undefined;
+		}
+	}
+
+	/** Restore the last merged entry set from application storage (sync). Never throws — a corrupt
+	 *  cache is dropped and the async file read repopulates it. */
+	private _restoreFromCache(): void {
+		try {
+			const raw = this._storageService.get(VIBE_CONFIG_PROVIDERS_CACHE_KEY, StorageScope.APPLICATION);
+			if (!raw) { return; }
+			const entries = JSON.parse(raw) as VibeProviderEntry[];
+			if (!Array.isArray(entries) || entries.length === 0) { return; }
+			vibeLog.debug('DynProviders', `cache: restored ${entries.length} provider entr(y/ies) before file read`);
+			this._applyEntries(entries, [], /*fromCache*/ true);
+		} catch {
+			this._storageService.remove(VIBE_CONFIG_PROVIDERS_CACHE_KEY, StorageScope.APPLICATION);
+		}
+	}
+
+	/** Persist the merged entry set. MACHINE target — baseURLs may point at machine-local hosts. */
+	private _writeCache(entries: readonly VibeProviderEntry[]): void {
+		try {
+			if (entries.length === 0) {
+				this._storageService.remove(VIBE_CONFIG_PROVIDERS_CACHE_KEY, StorageScope.APPLICATION);
+			} else {
+				this._storageService.store(VIBE_CONFIG_PROVIDERS_CACHE_KEY, JSON.stringify(entries), StorageScope.APPLICATION, StorageTarget.MACHINE);
+			}
+		} catch { /* cache is best-effort; files remain the source of truth */ }
+	}
+
+	async reload(): Promise<void> {
+		// GLOBAL (~/.vibe) + WORKSPACE (<folder>/.vibe) — both optional, workspace wins on merge.
+		const globalUri = this._globalFileUri();
+		const wsUri = this._fileUri();
+
+		// Secrets sources for apiKeyEnv (siblings of the two providers.json). Loaded before
+		// resolution so transport can prefer them over the OS environment. Workspace wins per var.
+		const [globalEnv, wsEnv] = await Promise.all([
+			this._readEnvFileAt(this._globalEnvUri()),
+			this._readEnvFileAt(this._envFileUri()),
+		]);
+		this._envFileVars = { ...globalEnv, ...wsEnv };
+
+		const [globalRaw, wsRaw] = await Promise.all([
+			this._readProvidersFileAt(globalUri),
+			this._readProvidersFileAt(wsUri),
+		]);
+
+		if (globalRaw === undefined && wsRaw === undefined) {
+			vibeLog.debug('DynProviders', 'no providers.json (neither ~/.vibe nor workspace)');
+			this._writeCache([]);
 			this._setState(EMPTY_STATE);
 			return;
 		}
 
-		const parsed = parseProvidersFile(raw);
-		if (!parsed.ok) {
-			vibeLog.warn('DynProviders', `providers.json parse failed: ${parsed.error}`);
-			this._setState({ fileExists: true, parseError: parsed.error, providers: [], warnings: [`Файл не распознан: ${parsed.error}`] });
+		// Parse each file independently: a broken workspace file must not disable global providers
+		// (and vice versa) — the broken side contributes nothing plus a warning.
+		const warnings: string[] = [];
+		let parseError: string | undefined;
+		const parseSide = (raw: string | undefined, label: string): readonly VibeProviderEntry[] => {
+			if (raw === undefined) { return []; }
+			const parsed = parseProvidersFile(raw);
+			if (!parsed.ok) {
+				vibeLog.warn('DynProviders', `${label} providers.json parse failed: ${parsed.error}`);
+				warnings.push(`${label}: файл не распознан: ${parsed.error}`);
+				parseError = parsed.error;
+				return [];
+			}
+			warnings.push(...parsed.warnings.map(w => `${label}: ${w}`));
+			return parsed.providers;
+		};
+		const globalEntries = parseSide(globalRaw, '~/.vibe');
+		const wsEntries = parseSide(wsRaw, 'workspace');
+		const mergedEntries = mergeProvidersLists(globalEntries, wsEntries);
+
+		if (mergedEntries.length === 0 && parseError) {
+			// Everything present failed to parse — surface the error, keep the cache (last good set):
+			// a typo mid-edit should not vaporize working providers until the file parses again.
+			this._setState({ fileExists: true, parseError, providers: [], warnings });
 			return;
 		}
 
-		const { providers, warnings } = this._resolve(parsed.providers, [...parsed.warnings]);
+		this._writeCache(mergedEntries);
+		this._applyEntries(mergedEntries, warnings, /*fromCache*/ false);
+	}
+
+	/** Resolve + guard + apply an entry set (shared by the file path and the cache-restore path). */
+	private _applyEntries(entries: readonly VibeProviderEntry[], initialWarnings: string[], fromCache: boolean): void {
+		const { providers, warnings } = this._resolve(entries, [...initialWarnings]);
 		// Config Guard: static-scan the user-authored entries for unsafe endpoints / hardcoded secrets.
-		const guard = this._runConfigGuard(parsed.providers);
+		const guard = this._runConfigGuard(entries);
 		const effectiveProviders = guard.blockedIds.size > 0 ? providers.filter(p => !guard.blockedIds.has(p.id)) : providers;
 		const allWarnings = [...warnings, ...guard.lines];
-		vibeLog.warn('DynProviders', `providers.json loaded: ${effectiveProviders.length} provider(s), ${allWarnings.length} warning(s)`);
+		vibeLog.warn('DynProviders', `providers ${fromCache ? 'cache-restored' : 'loaded'}: ${effectiveProviders.length} provider(s), ${allWarnings.length} warning(s)`);
 		for (const p of effectiveProviders) {
 			vibeLog.debug('DynProviders', `  • ${p.id} [${p.kind}${p.extendsBuiltin ? `:${p.extendsBuiltin}` : ''}] active=${p.entry.active !== false}`);
 		}
@@ -344,7 +452,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		// Resolve a FILE-entry `extends` chain (built-in extends is deferred to downstream wiring).
 		const resolveFileExtends = (entry: VibeProviderEntry, stack: Set<string>): VibeProviderEntry => {
 			const ext = entry.extends;
-			if (!ext || this._builtinIds.has(ext)) { return entry; }
+			if (!ext || isBuiltinProviderId(ext)) { return entry; }
 			if (stack.has(entry.id)) { warnings.push(`Циклический extends на «${entry.id}» — оставлен как есть`); return entry; }
 			const base = byId.get(ext);
 			if (!base) { warnings.push(`extends: «${ext}» у «${entry.id}» не найден (ни built-in, ни в файле)`); const { extends: _drop, ...rest } = entry; return rest as VibeProviderEntry; }
@@ -358,10 +466,10 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			const resolved = resolveFileExtends(entry, new Set<string>());
 			let kind: ResolvedProviderKind;
 			let extendsBuiltin: string | undefined;
-			if (entry.extends && this._builtinIds.has(entry.extends)) {
+			if (entry.extends && isBuiltinProviderId(entry.extends)) {
 				kind = 'extends-builtin';
 				extendsBuiltin = entry.extends;
-			} else if (this._builtinIds.has(entry.id)) {
+			} else if (isBuiltinProviderId(entry.id)) {
 				kind = 'override';
 			} else {
 				kind = 'definition';
@@ -395,23 +503,33 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		// → .vibe/.env. The UI key wins because it's the most explicit, per-provider user action.
 		const uiKey = (this._settingsService.state.dynamicProviderApiKeys ?? {})[p.id];
 		const refKey = p.entry.apiKeyRef
-			? (this._settingsService.state.settingsOfProvider as Record<string, { apiKey?: string } | undefined>)[p.entry.apiKeyRef]?.apiKey
+			? this._settingsService.state.settingsOfProvider[p.entry.apiKeyRef]?.apiKey
 			: undefined;
 		const envFileKey = p.entry.apiKeyEnv ? this._envFileVars[p.entry.apiKeyEnv] : undefined;
 		return (uiKey?.trim() ? uiKey : undefined) || refKey || envFileKey || undefined;
 	}
 
-	/** Which source the resolved key came from (same precedence as `_resolveBrowserKey`), for the card. */
+	/** Which source the resolved key came from (same precedence as `_resolveBrowserKey`), for the card.
+	 *  `'env'` covers both `.vibe/.env` (value visible to the renderer) and an OS env var whose
+	 *  PRESENCE was reported by the desktop contribution (value stays in electron-main). */
 	private _resolveKeySource(p: ResolvedProviderEntry): 'gui' | 'env' | 'ref' | 'none' {
 		const uiKey = (this._settingsService.state.dynamicProviderApiKeys ?? {})[p.id];
 		if (uiKey?.trim()) { return 'gui'; }
 		const refKey = p.entry.apiKeyRef
-			? (this._settingsService.state.settingsOfProvider as Record<string, { apiKey?: string } | undefined>)[p.entry.apiKeyRef]?.apiKey
+			? this._settingsService.state.settingsOfProvider[p.entry.apiKeyRef]?.apiKey
 			: undefined;
 		if (refKey?.trim()) { return 'ref'; }
 		const envFileKey = p.entry.apiKeyEnv ? this._envFileVars[p.entry.apiKeyEnv] : undefined;
 		if (envFileKey?.trim()) { return 'env'; }
+		if (this._hasOsEnvKey(p)) { return 'env'; }
 		return 'none';
+	}
+
+	/** OS-environment key presence for a config provider: it declares `apiKeyEnv`, and the desktop
+	 *  contribution confirmed that variable is set (same presence-only mechanism built-ins use — the
+	 *  value never reaches the renderer; electron-main resolves it at send time). */
+	private _hasOsEnvKey(p: ResolvedProviderEntry): boolean {
+		return !!p.entry.apiKeyEnv && this._settingsService.getEnvApiKeyProviderIds().has(p.id);
 	}
 
 	getDiagnosticsTargets(): ProviderDiagnosticsTarget[] {
@@ -519,6 +637,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 					...(p.entry.apiKeyEnv ? { apiKeyEnv: p.entry.apiKeyEnv } : {}),
 					...(p.entry.headers ? { headers: { ...p.entry.headers } } : {}),
 					...(typeof fetchSpec === 'string' ? { modelsUrl: fetchSpec } : {}),
+					...(p.entry.protocol ? { protocol: p.entry.protocol } : {}),
 				};
 			}
 
@@ -548,14 +667,20 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				// are hidden until the user enables them in «Модели». An explicit user toggle wins.
 				const hidden = hiddenOverrides?.[id] ?? !fileNote;
 				if (!hidden) {
-					dynamicModelOptions.push({ name: `${name} (${label})`, selection: { providerName: p.id as ProviderName, modelName: id }, ...(fileNote ? { fileNote } : {}) });
+					dynamicModelOptions.push({ name: `${name} (${label})`, selection: { providerName: p.id, modelName: id }, ...(fileNote ? { fileNote } : {}) });
 				}
 				seedModels.push({ modelName: id, type: 'autodetected', isHidden: hidden, ...(fileNote ? { fileNote } : {}) });
 			};
 			const pushStatic = () => { for (const m of staticById.values()) { pushModel(m.id, m.name || m.id, 'manual'); } };
 
 			let keyStatus: DynamicProviderSeed['keyStatus'];
-			if (!resolvedKey) {
+			if (!resolvedKey && this._hasOsEnvKey(p)) {
+				// Key lives only in an OS env var: the renderer can't see the value (so no catalog probe),
+				// but electron-main resolves it at send time — same standing a built-in with a canonical
+				// env key gets. Offer the file's static models as usable, mark the key unverified.
+				keyStatus = 'unverified';
+				pushStatic();
+			} else if (!resolvedKey) {
 				keyStatus = 'none';
 			} else if (isStaticOnly) {
 				keyStatus = 'unverified';

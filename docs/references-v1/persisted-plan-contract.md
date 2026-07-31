@@ -19,9 +19,9 @@
 
 ## Машиночитаемые шаги
 
-Внутри одного файла плана агент может сохранять JSON-блок шагов (см. типы в `chatThreadServiceTypes` / разбор в `VibePersistedPlanResumeContribution`). Схема массива шагов: **`references/v1/plan-steps.schema.json`** (черновик).
+Внутри одного файла плана агент может сохранять JSON-блок шагов (см. типы в `chatThreadServiceTypes` / разбор в `VibePersistedPlanResumeContribution`). Схема массива шагов: **`docs/references-v1/plan-steps.schema.json`** (черновик).
 
-Опционально для шагов с MCP: **`references/v1/plan-mcp-allowlist.md`** (`mcpServersAllow` / `mcpToolsAllow`).
+Опционально для шагов с MCP: **`docs/references-v1/plan-mcp-allowlist.md`** (`mcpServersAllow` / `mcpToolsAllow`).
 
 ## Git merge и конфликты одного плана
 

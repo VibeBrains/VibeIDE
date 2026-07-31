@@ -9,6 +9,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IConvertToLLMMessageService, ContextBreakdown } from './convertToLLMMessageService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
@@ -137,6 +138,7 @@ registerAction2(class extends Action2 {
 		const settingsSvc = accessor.get(IVibeideSettingsService);
 		const modelSvc = accessor.get(ITextModelService);
 		const editorService = accessor.get(IEditorService);
+		const commandService = accessor.get(ICommandService);
 
 		const modelSelection = settingsSvc.state.modelSelectionOfFeature['Chat'] ?? null;
 		const breakdown = await convertSvc.buildContextBreakdown(modelSelection);
@@ -147,5 +149,13 @@ registerAction2(class extends Action2 {
 		ref.object.textEditorModel?.setValue(content);
 		ref.dispose();
 		await editorService.openEditor({ resource: uri });
+		// Rendered, not raw: this is a report to read, not a file to edit. The source stays one
+		// click away (the preview toolbar), and `markdown.showPreview` replaces the source tab
+		// rather than opening a second one.
+		try {
+			await commandService.executeCommand('markdown.showPreview');
+		} catch {
+			// The markdown extension may be disabled — the source view is a fine outcome then.
+		}
 	}
 });

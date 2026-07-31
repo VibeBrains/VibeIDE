@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-// Copyright 2026 VibeIDE Team. MIT License.
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 // Catch duplicate keys inside top-level `export const *S = { … }` object literals
 // in the VibeIDE i18n bundles (RU is the source of truth; EN bundles get the
 // same check). `tsgo --noEmit` does not flag this; `gulp compile` (full tsc)
@@ -53,7 +57,7 @@ function findDuplicates(objLit, source) {
 		let key = null;
 		if (ts.isPropertyAssignment(prop) || ts.isShorthandPropertyAssignment(prop) || ts.isMethodDeclaration(prop)) {
 			const nameNode = prop.name;
-			if (!nameNode) continue;
+			if (!nameNode) {continue;}
 			if (ts.isIdentifier(nameNode) || ts.isPrivateIdentifier(nameNode)) {
 				key = nameNode.text;
 			} else if (ts.isStringLiteral(nameNode) || ts.isNoSubstitutionTemplateLiteral(nameNode)) {
@@ -67,7 +71,7 @@ function findDuplicates(objLit, source) {
 			// `...spread` — runtime merge, cannot statically detect overlap.
 			continue;
 		}
-		if (key === null) continue;
+		if (key === null) {continue;}
 		const line = source.getLineAndCharacterOfPosition(prop.getStart()).line + 1;
 		if (seen.has(key)) {
 			dupes.push({ key, lines: [seen.get(key), line] });
@@ -89,10 +93,10 @@ async function scanFile(absPath) {
 		// scoped and fast.
 		if (ts.isVariableStatement(node)) {
 			for (const decl of node.declarationList.declarations) {
-				if (!ts.isIdentifier(decl.name)) continue;
-				if (!decl.initializer) continue;
+				if (!ts.isIdentifier(decl.name)) {continue;}
+				if (!decl.initializer) {continue;}
 				const obj = unwrapToObjectLiteral(decl.initializer);
-				if (!obj) continue;
+				if (!obj) {continue;}
 				const dupes = findDuplicates(obj, source);
 				if (dupes.length) {
 					findings.push({ containerName: decl.name.text, dupes });
@@ -111,7 +115,7 @@ async function main() {
 	for (const rel of TARGETS) {
 		const abs = join(ROOT, rel);
 		const findings = await scanFile(abs);
-		if (findings.length === 0) continue;
+		if (findings.length === 0) {continue;}
 		bad = true;
 		console.error(`vibe-i18n-dupes: duplicate keys in ${relative(ROOT, abs)}:`);
 		for (const f of findings) {

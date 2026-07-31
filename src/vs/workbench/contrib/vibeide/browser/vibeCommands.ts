@@ -23,6 +23,8 @@ import { INotificationService, Severity } from '../../../../platform/notificatio
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IQuickInputService, IQuickPickItem } from '../../../../platform/quickinput/common/quickInput.js';
+import { ISecretStorageService } from '../../../../platform/secrets/common/secrets.js';
+import { GITHUB_TOKEN_SECRET_KEY } from '../common/vibeJobPRCompletionService.js';
 import { IVibeSkillsLibraryService } from '../common/vibeSkillsLibraryService.js';
 import { IFileDialogService, IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { ITerminalService } from '../../../contrib/terminal/browser/terminal.js';
@@ -43,7 +45,7 @@ import { IClipboardService } from '../../../../platform/clipboard/common/clipboa
 import { IProductService } from '../../../../platform/product/common/productService.js';
 import { IAuditLogService } from '../common/auditLogService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
-import { ProviderName } from '../common/vibeideSettingsTypes.js';
+import { ProviderId } from '../common/vibeideSettingsTypes.js';
 import { isWindows, isMacintosh, isLinux } from '../../../../base/common/platform.js';
 
 const VIBEIDE_OPEN_SIDEBAR_CMD = 'vibeide.sidebar.open';
@@ -219,6 +221,37 @@ for (const { id, level, label } of [
 		notifications.notify({ severity: Severity.Info, message: localize('vibeide.trustScore.setDone', 'Trust Score: режим — {0}.', label) });
 	});
 }
+
+// GitHub token for job-PR creation — stored in OS-encrypted secret storage, NEVER in settings.json.
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.git.setGithubToken',
+			f1: true,
+			title: localize2('vibeide.git.setToken.title', 'VibeIDE: Задать GitHub-токен для job-PR'),
+			category: localize2('vibeCategory', 'VibeIDE'),
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const quickInput = accessor.get(IQuickInputService);
+		const secrets = accessor.get(ISecretStorageService);
+		const notifications = accessor.get(INotificationService);
+		const token = await quickInput.input({
+			prompt: localize('vibeide.git.setToken.prompt', 'GitHub-токен для создания PR фоновыми задачами. Хранится в зашифрованном хранилище ОС (Keychain/DPAPI/libsecret), не в settings.json. Оставьте пустым, чтобы удалить.'),
+			password: true,
+			placeHolder: localize('vibeide.git.setToken.placeholder', 'ghp_… / github_pat_…'),
+		});
+		if (token === undefined) { return; } // отменено
+		if (token.trim() === '') {
+			await secrets.delete(GITHUB_TOKEN_SECRET_KEY);
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.git.setToken.cleared', 'GitHub-токен удалён.') });
+			return;
+		}
+		await secrets.set(GITHUB_TOKEN_SECRET_KEY, token.trim());
+		notifications.notify({ severity: Severity.Info, message: localize('vibeide.git.setToken.done', 'GitHub-токен сохранён в зашифрованном хранилище ОС.') });
+	}
+});
 
 // Token budget
 CommandsRegistry.registerCommand('vibeide.tokenBudget.reset', (accessor: ServicesAccessor) => {
@@ -481,8 +514,8 @@ registerAction2(class extends Action2 {
 		const notifications = accessor.get(INotificationService);
 
 		const overridesOfModel = settings.state.overridesOfModel;
-		const toClear: { provider: ProviderName; model: string }[] = [];
-		for (const provider of Object.keys(overridesOfModel) as ProviderName[]) {
+		const toClear: { provider: ProviderId; model: string }[] = [];
+		for (const provider of Object.keys(overridesOfModel)) {
 			const models = overridesOfModel[provider];
 			if (!models) { continue; }
 			for (const model of Object.keys(models)) {

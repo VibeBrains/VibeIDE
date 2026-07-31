@@ -18,7 +18,7 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { ILLMMessageService } from './sendLLMMessageService.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { ITextModel } from '../../../../editor/common/model.js';
-import { autoModelFallbackProviderOrder, isValidProviderModelSelection, ModelSelection } from './vibeideSettingsTypes.js';
+import { autoFallbackProviderIds, isValidProviderModelSelection, ModelSelection } from './vibeideSettingsTypes.js';
 
 export const IErrorDetectionService = createDecorator<IErrorDetectionService>('errorDetectionService');
 
@@ -310,7 +310,7 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 
 			// Resolve auto model selection
 			if (modelSelection.providerName === 'auto' && modelSelection.modelName === 'auto') {
-				for (const providerName of autoModelFallbackProviderOrder) {
+				for (const providerName of autoFallbackProviderIds(settings.settingsOfProvider)) {
 					const providerSettings = settings.settingsOfProvider[providerName];
 					if (providerSettings && providerSettings._didFillInProviderSettings) {
 						const models = providerSettings.models || [];

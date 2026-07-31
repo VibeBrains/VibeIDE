@@ -101,7 +101,7 @@ function decideWindows(platform: Platform, c: SigningCredentials, buildKind: Dec
 				action: 'block-release',
 				platform,
 				reason: 'release-mode-but-no-credentials',
-				remediation: 'Plug the Windows EV signing token (Sectigo / DigiCert hardware token) and set VIBE_WIN_CERT=1. See references/v1/distribution-signing-runbook.md.',
+				remediation: 'Plug the Windows EV signing token (Sectigo / DigiCert hardware token) and set VIBE_WIN_CERT=1. See docs/references-v1/distribution-signing-runbook.md.',
 			};
 		}
 		return {
@@ -130,7 +130,7 @@ function decideMacOS(platform: Platform, c: SigningCredentials, buildKind: Decid
 				action: 'block-release',
 				platform,
 				reason: 'release-mode-but-no-credentials',
-				remediation: 'Set APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD env vars (Apple Developer account required, ~$99/y). See references/v1/distribution-signing-runbook.md.',
+				remediation: 'Set APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD env vars (Apple Developer account required, ~$99/y). See docs/references-v1/distribution-signing-runbook.md.',
 			};
 		}
 		return {

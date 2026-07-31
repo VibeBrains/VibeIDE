@@ -23,6 +23,8 @@ import { IWebviewWorkbenchService } from '../../../webviewPanel/browser/webviewW
 import { ACTIVE_GROUP } from '../../../../services/editor/common/editorService.js';
 import { Extensions as OutputExtensions, IOutputChannelRegistry, IOutputService } from '../../../../services/output/common/output.js';
 
+import { DocumentSnapshot, ViewportLabel } from '../../common/designReview/designSlopRules.js';
+
 const VIBE_BROWSER_VIEW_TYPE = 'vibeide.vibeBrowser';
 const VIBE_SERVER_CONSOLE_CHANNEL_ID = 'vibeide.vibeServerConsole';
 
@@ -37,6 +39,17 @@ export interface IVibeBrowserElementPick {
 	/** `location.pathname` — the origin-independent half used for file mapping. */
 	readonly path: string;
 }
+
+/**
+ * Outcome of a design scan. `snapshot === undefined` means the page never answered — an
+ * empty snapshot would read as "the page is clean", which is the opposite of the truth.
+ */
+export type DesignScanResult =
+	| { readonly ok: true; readonly snapshot: DocumentSnapshot; readonly truncated: boolean }
+	| { readonly ok: false; readonly reason: 'no-preview' | 'unsupported' | 'timeout' | 'page-error'; readonly detail?: string };
+
+/** How long the page gets to answer before we call it a timeout. */
+const DESIGN_SCAN_TIMEOUT_MS = 5000;
 
 export class VibeBrowserManager extends Disposable {
 
@@ -60,6 +73,10 @@ export class VibeBrowserManager extends Disposable {
 	/** Fires when the user picks an element in inspect mode. */
 	readonly onDidPickElement: Event<IVibeBrowserElementPick> = this._onDidPickElement.event;
 
+	private readonly _onDidClickFinding = this._register(new Emitter<{ selector: string; rule: string }>());
+	/** Fires when the user clicks a finding marker drawn by the overlay. */
+	readonly onDidClickFinding: Event<{ selector: string; rule: string }> = this._onDidClickFinding.event;
+
 	/**
 	 * Inspect is only meaningful when the injected bridge script is present, i.e. the
 	 * static runtime; the service keeps this in sync with the runtime kind. The flag
@@ -69,6 +86,9 @@ export class VibeBrowserManager extends Disposable {
 
 	/** Which preview URL each tab currently shows — drives cookie-compat origin (un)registration. */
 	private readonly _registeredUrlByInput = new Map<WebviewInput, string>();
+
+	/** Resolver for the design scan in flight, if any. One at a time — the scan is a snapshot, not a stream. */
+	private _pendingDesignScan: { resolve: (snapshot: DesignScanResult) => void; timer: unknown } | undefined;
 
 	constructor(
 		private readonly _cookieCompat: { register(url: string): void; unregister(url: string): void } | undefined,
@@ -104,6 +124,54 @@ export class VibeBrowserManager extends Disposable {
 	/** Enables/disables mirroring scroll across preview tabs. */
 	setScrollSync(enabled: boolean): void {
 		this._scrollSync = enabled;
+	}
+
+	/**
+	 * Asks the previewed page for a snapshot of what it actually computed (sizes, colours,
+	 * spacing) so the design rules can run against reality rather than against the source.
+	 *
+	 * Same precondition as inspect: the bridge script only lives in the static runtime, so a
+	 * dev-server or Docker preview reports `unsupported` instead of quietly returning nothing.
+	 */
+	async scanDesign(viewport: ViewportLabel = 'desktop'): Promise<DesignScanResult> {
+		if (!this._active) {
+			return { ok: false, reason: 'no-preview' };
+		}
+		if (!this._inspectSupported) {
+			return { ok: false, reason: 'unsupported' };
+		}
+		// A second request would orphan the first resolver; the newest caller wins the wait.
+		this._settleDesignScan({ ok: false, reason: 'timeout', detail: 'заменён новым запросом' });
+
+		const target = this._active;
+		return new Promise<DesignScanResult>(resolve => {
+			const timer = setTimeout(() => this._settleDesignScan({ ok: false, reason: 'timeout' }), DESIGN_SCAN_TIMEOUT_MS);
+			this._pendingDesignScan = { resolve, timer };
+			// The chrome narrows the frame for a mobile scan, so the page relayouts for real.
+			void target.webview.postMessage({ type: 'design-scan-request', viewport });
+		});
+	}
+
+	/**
+	 * Draws (or clears, with an empty list) the findings overlay in every open preview.
+	 *
+	 * A list of selectors is a list of strings; the same findings framed on the page are places
+	 * the reader can look at. Cheap enough to redraw wholesale — there is no diffing to get wrong.
+	 */
+	showFindings(items: readonly { selector: string; rule: string; severity: string }[]): void {
+		for (const input of this._inputs) {
+			void input.webview.postMessage({ type: 'design-overlay', items });
+		}
+	}
+
+	private _settleDesignScan(result: DesignScanResult): void {
+		const pending = this._pendingDesignScan;
+		if (!pending) {
+			return;
+		}
+		this._pendingDesignScan = undefined;
+		clearTimeout(pending.timer as ReturnType<typeof setTimeout>);
+		pending.resolve(result);
 	}
 
 	/** Enables/disables the "pick element" toolbar button in every open preview chrome. */
@@ -182,8 +250,21 @@ export class VibeBrowserManager extends Disposable {
 		if (!message || typeof message !== 'object') {
 			return;
 		}
-		const m = message as { type?: string; href?: string; title?: string; level?: string; text?: string; x?: number; y?: number; selector?: string; html?: string; path?: string };
+		const m = message as { type?: string; href?: string; title?: string; level?: string; text?: string; x?: number; y?: number; selector?: string; html?: string; path?: string; snapshot?: DocumentSnapshot & { truncated?: boolean }; error?: string; rule?: string };
 		switch (m.type) {
+			case 'design-scan':
+				if (m.error) {
+					this._settleDesignScan({ ok: false, reason: 'page-error', detail: m.error });
+				} else if (m.snapshot && Array.isArray(m.snapshot.elements)) {
+					const { truncated, ...snapshot } = m.snapshot;
+					this._settleDesignScan({ ok: true, snapshot, truncated: truncated === true });
+				}
+				break;
+			case 'design-finding':
+				if (typeof m.selector === 'string' && m.selector) {
+					this._onDidClickFinding.fire({ selector: m.selector, rule: typeof m.rule === 'string' ? m.rule : '' });
+				}
+				break;
 			case 'inspect':
 				if (typeof m.selector === 'string' && m.selector.length > 0) {
 					this._onDidPickElement.fire({
@@ -319,7 +400,8 @@ export class VibeBrowserManager extends Disposable {
 			<option value="1280x800">Десктоп 1280</option>
 		</select>
 		<button class="vb-btn" id="vb-rotate" title="Повернуть">⤧</button>
-		<button class="vb-btn" id="vb-inspect" title="Выбрать элемент: клик по элементу превью отправит его селектор в чат (Alt+клик — родитель, Esc — отмена). Доступно для статического превью." ${this._inspectSupported ? '' : 'disabled '}>⌖</button>
+		<button class="vb-btn" id="vb-inspect" title="Выбрать элемент: клик по элементу превью отправит его селектор в чат (Alt+клик — родитель, Esc — отмена). Нужен мост VibeIDE в странице: статическое превью несёт его всегда, dev-сервер — через прокси." ${this._inspectSupported ? '' : 'disabled '}>⌖</button>
+		<button class="vb-btn" id="vb-findings" title="Скрыть отметки проверки дизайна на странице (появляются после проверки; клик по отметке отправляет находку в чат)." hidden>⚑</button>
 		<button class="vb-btn" id="vb-external" title="Открыть во внешнем браузере">↗</button>
 	</div>
 	<div class="vb-stage">
@@ -340,12 +422,50 @@ export class VibeBrowserManager extends Disposable {
 	var hist = [], idx = -1, current = '';
 	var rotated = false, sizeVal = 'full';
 
+	var findingsBtn = document.getElementById('vb-findings');
+	findingsBtn.addEventListener('click', function(){
+		if (frame.contentWindow){ frame.contentWindow.postMessage({ __vibeServerDesignOverlay: [] }, '*'); }
+		findingsBtn.hidden = true;
+	});
+
 	var insp = document.getElementById('vb-inspect');
 	var inspOn = false;
 	function setInsp(v){
 		inspOn = v && !insp.disabled;
 		insp.classList.toggle('active', inspOn);
 		if (frame.contentWindow){ frame.contentWindow.postMessage({ __vibeServerInspect: inspOn }, '*'); }
+	}
+
+	// Measuring the mobile layout: the frame is really narrowed, so media queries, flex wrapping and
+	// the page's own resize handlers all run for that width. Faking a viewport number instead would
+	// report the desktop layout under a mobile label — and a headless window forced to a minimum
+	// width is exactly how a false "content is clipped on mobile" finding gets manufactured.
+	var MOBILE_SCAN_WIDTH_PX = 390;
+	// One frame to apply the width, one for the page's own layout/resize work, then measure.
+	var SCAN_SETTLE_MS = 120;
+	// Longer than the workbench-side scan timeout, so restoring is a backstop and not a race.
+	var SCAN_RESTORE_MS = 8000;
+	var savedWrapWidth = null;
+	function restoreScanWidth(){
+		if (savedWrapWidth === null){ return; }
+		wrap.style.width = savedWrapWidth;
+		savedWrapWidth = null;
+		applySize();
+	}
+	function requestScan(viewport){
+		if (viewport !== 'mobile'){
+			frame.contentWindow.postMessage({ __vibeServerDesignScan: true, viewport: viewport || 'desktop' }, '*');
+			return;
+		}
+		savedWrapWidth = wrap.style.width;
+		wrap.className = 'vb-frame-wrap sized';
+		wrap.style.width = MOBILE_SCAN_WIDTH_PX + 'px';
+		requestAnimationFrame(function(){ setTimeout(function(){
+			if (frame.contentWindow){ frame.contentWindow.postMessage({ __vibeServerDesignScan: true, viewport: 'mobile' }, '*'); }
+			else { restoreScanWidth(); }
+		}, SCAN_SETTLE_MS); });
+		// A page that never answers must not leave the preview stuck at phone width.
+		setTimeout(restoreScanWidth, SCAN_RESTORE_MS);
 	}
 
 	function buttons(){ back.disabled = idx <= 0; fwd.disabled = idx >= hist.length - 1; }
@@ -388,6 +508,10 @@ export class VibeBrowserManager extends Disposable {
 		else if (d.__vibeBrowser === 'scroll'){ vscode.postMessage({ type: 'scroll', x: d.x, y: d.y }); }
 		else if (d.__vibeBrowser === 'inspect'){ setInsp(false); vscode.postMessage({ type: 'inspect', selector: d.selector, html: d.html, href: d.href, path: d.path }); }
 		else if (d.__vibeBrowser === 'inspect-cancel'){ setInsp(false); }
+		else if (d.__vibeBrowser === 'design-scan'){ restoreScanWidth(); vscode.postMessage({ type: 'design-scan', snapshot: d.snapshot, error: d.error }); }
+		else if (d.type === 'design-scan-request' && frame.contentWindow){ requestScan(d.viewport); }
+		else if (d.type === 'design-overlay' && frame.contentWindow){ frame.contentWindow.postMessage({ __vibeServerDesignOverlay: d.items || [] }, '*'); findingsBtn.hidden = !(d.items && d.items.length); }
+		else if (d.__vibeBrowser === 'design-finding'){ vscode.postMessage({ type: 'design-finding', selector: d.selector, rule: d.rule }); }
 		else if (d.type === 'inspect-supported'){ insp.disabled = !d.value; if (!d.value){ setInsp(false); } }
 		else if (d.type === 'navigate' && d.url){ goto(d.url); }
 		else if (d.type === 'reload'){ frame.src = current || frame.src; }

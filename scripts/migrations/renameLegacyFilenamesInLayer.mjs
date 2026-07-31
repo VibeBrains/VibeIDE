@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * Rename files under contrib/vibeide whose basenames carry legacy product-prefix patterns.
  */
@@ -16,8 +21,8 @@ const basenameHasLegacyId = new RegExp(`${LEG_LC}|${LEG_PC}`, 'i');
 function walk(dir, files = []) {
 	for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
 		const full = path.join(dir, ent.name);
-		if (ent.isDirectory()) walk(full, files);
-		else files.push(full);
+		if (ent.isDirectory()) {walk(full, files);}
+		else {files.push(full);}
 	}
 	return files;
 }
@@ -25,9 +30,9 @@ function walk(dir, files = []) {
 const all = walk(vibeideDir);
 for (const full of all) {
 	const base = path.basename(full);
-	if (!basenameHasLegacyId.test(base)) continue;
+	if (!basenameHasLegacyId.test(base)) {continue;}
 	const n = base.replaceAll(LEG_PC, 'Vibeide').replaceAll(LEG_LC, 'vibeide');
-	if (n === base) continue;
+	if (n === base) {continue;}
 	const dest = path.join(path.dirname(full), n);
 	if (fs.existsSync(dest)) {
 		console.error('exists', dest);

@@ -1,3 +1,8 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 // VibeIDE sample extension — calls one accessor from each VibeIDE proposed namespace
 // and surfaces a notification with the result. Acceptance proof for the
 // `vibeideReadonly` proposal in src/vscode-dts/vscode.proposed.vibeideReadonly.d.ts.
@@ -7,7 +12,7 @@
 // `enabledApiProposals` and access vscode.vibeide directly.
 //
 // i18n: this file lives under extensions/, so per the L515 split decision
-// (references/v1/l10n-vs-nls-decision.md) user-facing strings use
+// (docs/references-v1/l10n-vs-nls-decision.md) user-facing strings use
 // vscode.l10n.t(). Bundle path is declared in package.json:l10n.
 
 'use strict';

@@ -5,7 +5,7 @@
 
 
 import { vibeLog } from '../../../../common/vibeLog.js';
-import { SettingsOfProvider, ModelSelection, ProviderName, OverridesOfModel } from '../../../../common/vibeideSettingsTypes.js';
+import { SettingsOfProvider, ModelSelection, ProviderId, OverridesOfModel } from '../../../../common/vibeideSettingsTypes.js';
 import { isVisionByNameHeuristic } from '../../../../common/modelVisionHeuristics.js';
 import { getModelCapabilities } from '../../../../common/modelCapabilities.js';
 
@@ -15,18 +15,18 @@ import { getModelCapabilities } from '../../../../common/modelCapabilities.js';
  * because vision support is per-model, not per-provider. Use catalog-driven `supportsVision`
  * overrides (set by RemoteCatalogService) to flag individual aggregator models.
  */
-const VISION_PROVIDERS: ProviderName[] = ['anthropic', 'openAI', 'gemini', 'pollinations'];
+const VISION_PROVIDERS: ProviderId[] = ['anthropic', 'openAI', 'gemini', 'pollinations'];
 
 /**
  * Aggregator providers — vision capability is per-model, decided by catalog override or model-name heuristic.
  */
 // `minimax` is the native (OpenAI-compatible) endpoint serving both text-only and multimodal
 // models, so vision is per-model — treat it like an aggregator and decide by name heuristic.
-const AGGREGATOR_PROVIDERS: ProviderName[] = ['openRouter', 'openCodeGo', 'openCodeZen', 'openAICompatible', 'liteLLM', 'minimax'];
+const AGGREGATOR_PROVIDERS: ProviderId[] = ['openRouter', 'openCodeGo', 'openCodeZen', 'openAICompatible', 'liteLLM', 'minimax'];
 
 const heuristicWarnedSet = new Set<string>();
 
-function aggregatorVisionHeuristic(providerName: ProviderName, modelName: string): boolean {
+function aggregatorVisionHeuristic(providerName: ProviderId, modelName: string): boolean {
 	const matched = isVisionByNameHeuristic(modelName);
 	if (matched) {
 		const key = `${providerName}/${modelName}`;
@@ -42,7 +42,7 @@ function aggregatorVisionHeuristic(providerName: ProviderName, modelName: string
  * Reads the catalog-driven `supportsVision` override for a given model, if any.
  * Returns undefined when no override is recorded (caller falls through to heuristics).
  */
-function readSupportsVisionOverride(overridesOfModel: OverridesOfModel | undefined, providerName: ProviderName, modelName: string): boolean | undefined {
+function readSupportsVisionOverride(overridesOfModel: OverridesOfModel | undefined, providerName: ProviderId, modelName: string): boolean | undefined {
 	const v = overridesOfModel?.[providerName]?.[modelName]?.supportsVision;
 	return typeof v === 'boolean' ? v : undefined;
 }

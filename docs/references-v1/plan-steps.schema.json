@@ -36,7 +36,7 @@
 			"checkpointIdx": { "type": ["integer", "null"], "description": "Message index of checkpoint before this step (optional)." },
 			"worktreeBranch": {
 				"type": "string",
-				"description": "Optional git worktree branch binding for this step (see references/v1/plan-worktree-branch.md)."
+				"description": "Optional git worktree branch binding for this step (see docs/references-v1/plan-worktree-branch.md)."
 			},
 			"explorationId": {
 				"type": "string",

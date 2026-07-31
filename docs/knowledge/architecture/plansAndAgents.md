@@ -69,7 +69,7 @@
 - Single-active-job policy: `canStartJob()` блокирует второй `running` job на workspace
 - Safe window: `isInSafeWindow()` поддерживает overnight (22:00–07:00)
 - Morning digest: `VibeBackgroundJobContribution` показывает notification при restore IDE для завершённых jobs
-- Remote runner, hybrid compute: design docs в `references/v1/background-agent-remote-runner.md` / `background-agent-hybrid-compute.md`
+- Remote runner, hybrid compute: design docs в `docs/references-v1/background-agent-remote-runner.md` / `background-agent-hybrid-compute.md`
 - PR completion: `IVibeJobPRCompletionService` — не GitHub-only; только при `allowPRCreation: true`
 
 **Применение:** Phase J.2 full impl — wire `vibe-agent-run.js` к реальному agent executor через IPC.
@@ -121,7 +121,7 @@
 
 Локальный опциональный аудит подсказок: **`vibeide.skills.auditSkillSuggestions`** при включённом **`vibeide.audit.enable`** → **`skill_suggestion`** в **`auditLogService`**. Изменения skill на диске под **`.vibe/skills/**`**: **`vibeide.skills.notifyDiskDiff`** + **`vibeSkillDiskDiffContribution`** (снимок baseline, уведомление, кнопка **Open diff**).
 
-**Community skills (MVP):** форматы каталога/манифеста (`references/v1/community-*.example.json`), палитра **`vibeide.skills.importCommunityUrl`** / **`vibeide.skills.browseCommunityCatalog`**, **`vibeide.skills.communityCatalogUrl`**, CLI **`scripts/vibe-skills-catalog.js`**; **`vibeide.skills.saveAsFromChat`** — последний assistant + redaction **`detectSecrets`**.
+**Community skills (MVP):** форматы каталога/манифеста (`docs/references-v1/community-*.example.json`), палитра **`vibeide.skills.importCommunityUrl`** / **`vibeide.skills.browseCommunityCatalog`**, **`vibeide.skills.communityCatalogUrl`**, CLI **`scripts/vibe-skills-catalog.js`**; **`vibeide.skills.saveAsFromChat`** — последний assistant + redaction **`detectSecrets`**.
 
 **Лимиты описаний в промпт:** **`vibeide.skills.discoveryDescriptionMaxChars`**, **`vibeide.skills.implicitDescriptionMaxChars`** (truncate в **`getDiscoveryText`** / **`getImplicitSkillRetrievalHints`**).
 
@@ -155,7 +155,7 @@
 
 **Контекст:** ночной прогон — MCP allowlist на шагах плана + mutex для rollback-снапшотов / merge worktree.
 
-**Суть:** **`IVibeCheckpointCoordinator`** (`vibeCheckpointCoordinatorService.ts`) — одна FIFO-цепочка **`Promise`** на окно; через неё идут **`RollbackSnapshotService`** create/restore/discard, **`VibeGitWorktreeService.mergeWorktree`**, **`VibeMultiAgentService.createCheckpoint`**. Void **`CheckpointEntry`** в **`chatThreadService`** пока вне coordinator — см. **`references/v1/checkpoint-coordinator.md`**. Плановые MCP поля **`mcpServersAllow`** / **`mcpToolsAllow`** — **`references/v1/plan-mcp-allowlist.md`**. В корневом **`.gitignore`** игнорируются **`docs/`** и **`references/`**; изменения в **`docs/roadmap.md`** и normative файлах под **`references/v1/`** коммитятся через **`git add -f <path>`**.
+**Суть:** **`IVibeCheckpointCoordinator`** (`vibeCheckpointCoordinatorService.ts`) — одна FIFO-цепочка **`Promise`** на окно; через неё идут **`RollbackSnapshotService`** create/restore/discard, **`VibeGitWorktreeService.mergeWorktree`**, **`VibeMultiAgentService.createCheckpoint`**. Void **`CheckpointEntry`** в **`chatThreadService`** пока вне coordinator — см. **`docs/references-v1/checkpoint-coordinator.md`**. Плановые MCP поля **`mcpServersAllow`** / **`mcpToolsAllow`** — **`docs/references-v1/plan-mcp-allowlist.md`**. **`docs/` целиком трекается** (единый центр доков); normative-контракты — под **`docs/references-v1/`** (тоже трекаются, обычный `git add`). Устаревшая политика «docs/ и references/ в gitignore, коммит через `git add -f`» отменена 2026-07-19 — см. **`docs/references-v1/docs-policy.md`**.
 
 **Применение:** расширение mutex на UI checkpoints; правки дорожной карты из AI без «не добавился файл».
 
@@ -166,7 +166,7 @@
 **Контекст:** ночной прогон, закрытие § G, § J, § I roadmap.
 
 **Суть:** добавлены в `scripts/`:
-- `vibe-golden-eval.js` — golden scenario runner (--suite/--json/--ci); сценарии из `.vibe/golden-evals/*.json` + `references/v1/golden-evals/`
+- `vibe-golden-eval.js` — golden scenario runner (--suite/--json/--ci); сценарии из `.vibe/golden-evals/*.json` + `docs/references-v1/golden-evals/`
 - `vibe-agent-run.js` — headless unattended agent runner (--list/--create-job/--status/--cancel/run); job descriptor `.vibe/jobs/<id>.json`
 
 **Применение:** golden eval — перед bump модели; agent-run — ночной job без открытого IDE.

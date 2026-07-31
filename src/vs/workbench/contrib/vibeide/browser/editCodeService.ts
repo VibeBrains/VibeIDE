@@ -1119,6 +1119,8 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		const overlappingCtrlKZone = this._findOverlappingDiffArea({ startLine, endLine, uri, filter: (diffArea) => diffArea.type === 'CtrlKZone' });
 		if (overlappingCtrlKZone) {
 			editor.revealLine(overlappingCtrlKZone.startLine); // important
+			// @timer-audit-ok: one-shot UI focus in a repeatedly-called method; optional-chained so a
+			// late fire on a torn-down zone is a harmless no-op, and per-call registration would leak.
 			setTimeout(() => (overlappingCtrlKZone as CtrlKZone)._mountInfo?.textAreaRef.current?.focus(), 100);
 			return;
 		}
@@ -1181,8 +1183,11 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		return;
 	}
 
-	public async callBeforeApplyOrEdit(givenURI: URI | 'current') {
-		const uri = this._uriOfGivenURI(givenURI);
+	public async callBeforeApplyOrEdit(opts: CallBeforeStartApplyingOpts) {
+		// Resolves both shapes: an explicit URI ('ClickApply') and a Ctrl+K zone id ('QuickEdit').
+		// The QuickEdit callers already passed the opts object while this took a bare URI, so the
+		// resolve silently failed and the target file was never saved before applying.
+		const uri = this._getURIBeforeStartApplying(opts);
 		if (!uri) { return; }
 		await this._vibeideModelService.initializeModel(uri);
 		await this._vibeideModelService.saveModel(uri); // save the URI

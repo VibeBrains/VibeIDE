@@ -66,6 +66,36 @@ export const chatS = {
 		`Контекст почти исчерпан: ~${total} / ${budget} токенов. Старые сообщения могут быть суммаризированы.`,
 	budgetFillSuffix: (kept: number, summarized: number) =>
 		` · ${kept} целиком / ${summarized} свёрнуто`,
+	contextMeterAria: (pct: number) => `Контекст заполнен на ${pct}%`,
+	contextMeterTooltip: (pct: number) => `Контекст заполнен на ${pct}% — нажмите, чтобы посмотреть детали`,
+	contextMeterTitle: 'Контекст и токены',
+	contextMeterWindow: 'Окно контекста',
+	contextMeterSession: 'Токены сессии',
+	contextMeterBreakdown: 'Что занимает контекст',
+	contextMeterFullReport: 'Полный отчёт',
+	contextMeterUnknown: 'Пока нет данных — отправьте первый запрос',
+	contextMeterLoading: 'Считаем…',
+	contextMeterSessionNoLimit: 'лимит отключён',
+	// Passive quota tracking: what the PROVIDER still allows, as opposed to what we spent.
+	contextMeterProviderQuota: 'Лимит провайдера',
+	contextMeterQuotaKind: (kind: string) => (
+		kind === 'requests' ? 'запросы'
+			: kind === 'tokens' ? 'токены'
+				: kind === 'input-tokens' ? 'входные токены'
+					: kind === 'output-tokens' ? 'выходные токены'
+						: kind
+	),
+	contextMeterQuotaResets: (whenText: string) => `обновится ${whenText}`,
+	contextMeterQuotaLow: 'Лимит провайдера почти исчерпан — следующий запрос может быть отклонён. Подождите обновления или переключите провайдера.',
+	contextMeterQuotaNone: 'Провайдер не сообщает остаток лимита',
+	contextMeterOverflow: (pct: number) =>
+		`Переполнение (${pct}%) — старые сообщения сворачиваются, чтобы запрос поместился.`,
+	contextMeterCalibration: (factor: number) =>
+		`Калибровка ×${factor.toFixed(2)}: показ скорректирован под реальные токены провайдера (грубая оценка «длина/4» их занижает).`,
+	contextMeterKeptSummarized: (kept: number, summarized: number) =>
+		`В последнем запросе: ${kept} сообщений целиком, ${summarized} свёрнуто.`,
+	contextMeterSessionWarn: (pct: number) =>
+		`Сессия израсходовала ${pct}% токенов — сбросьте счётчик сессии или поднимите лимит в настройках`,
 	suggestions: 'Подсказки',
 	previousThreads: 'Прошлые чаты',
 	chipFile: 'Файл',
@@ -222,15 +252,6 @@ export const chatS = {
 	exportChatFailed: 'Не удалось экспортировать чат',
 	planAdvisoryReview: 'Совет ревьюера: ',
 	planStepAria: (n: number, status: string, desc: string) => `Шаг ${n}, ${status}: ${desc}`,
-	budgetFooterSessionLabel: 'Сессия',
-	budgetFooterContextLabel: 'Окно',
-	budgetFooterDisabled: 'Лимит отключён',
-	budgetFooterUnknown: '—',
-	budgetFooterResetTitle: 'Сбросить счётчик сессии',
-	budgetFooterResetAria: 'Сбросить токены сессии',
-	budgetFooterSettingsTitle: 'Открыть Settings → Safety',
-	budgetFooterSettingsAria: 'Настройки лимита токенов',
-	budgetFooterCounts: (used: string, limit: string, pct: number) => `${used} / ${limit} (${pct}%)`,
 } as const;
 
 /** Russian UI strings for ErrorDisplay (sidebar-tsx/ErrorDisplay.tsx). */
@@ -1225,6 +1246,7 @@ export const workspaceS = {
 	vibeStructureHint:
 		'Быстрое сырое редактирование любого файла под `.vibe/`: дерево слева, промпты и workflows уже на отдельных вкладках. JSON в корне — отдельные кнопки ниже README.',
 	noVibeTree: 'Нет содержимого `.vibe/` или папка недоступна.',
+	refreshFileList: 'Обновить список файлов',
 	selectStructureFile: 'Выберите файл в дереве',
 	savedVibeRelative: (rel: string) => `Сохранено .vibe/${rel}`,
 	rootJsonHint: (name: string) =>

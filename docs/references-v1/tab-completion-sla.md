@@ -1,7 +1,7 @@
 # Tab Completion SLA
 
 > Status: normative.
-> Source: roadmap §1014 (Tab completion SLA в `references/v1/tab-completion-sla.md`).
+> Source: roadmap §1014 (Tab completion SLA в `docs/references-v1/tab-completion-sla.md`).
 > Owner: Tab completion / FIM track (autocompleteService.ts, vibeNextEditPredictionService.ts).
 
 ## Targets
@@ -37,7 +37,7 @@ relaxed to p95 ≤ 350 ms with a banner notice in the autocomplete settings.
 - `autocompleteService.ts` emits one `RoutingDecisionEvent` per completion
   request and one `ModelPerformanceEvent` per outcome. Both flow into
   `VibeideTelemetryService` (local-only — see
-  `references/v1/telemetry-service-scope.md`).
+  `docs/references-v1/telemetry-service-scope.md`).
 - `aggregatePerfGuardrails` (see `common/perfGuardrailsAggregator.ts`)
   consumes the events and emits the SLA verdict in the
   `vibe doctor --perf` output.
@@ -61,7 +61,7 @@ dashboard until the next 1k window.
 
 All metrics are computed locally. The telemetry events are stored in the
 local IndexedDB-style sink and never leave the device. See
-`references/v1/telemetry-policy.md`.
+`docs/references-v1/telemetry-policy.md`.
 
 ## Acceptance for §1014
 

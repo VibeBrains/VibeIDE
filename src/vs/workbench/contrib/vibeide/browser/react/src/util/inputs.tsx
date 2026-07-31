@@ -6,11 +6,6 @@
 
 import { vibeLog } from '../../../../common/vibeLog.js';
 import React, { forwardRef, ForwardRefExoticComponent, MutableRefObject, RefAttributes, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { IInputBoxStyles, InputBox } from '../../../../../../../base/browser/ui/inputbox/inputBox.js';
-import { defaultCheckboxStyles, defaultInputBoxStyles, defaultSelectBoxStyles } from '../../../../../../../platform/theme/browser/defaultStyles.js';
-import { SelectBox } from '../../../../../../../base/browser/ui/selectBox/selectBox.js';
-import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
-import { Checkbox } from '../../../../../../../base/browser/ui/toggle/toggle.js';
 
 import { useAccessor } from './services.js';
 import { tokenizeToString } from '../../../../../../../editor/common/languages/textToHtmlTokenizer.js';
@@ -208,7 +203,7 @@ const getOptionsAtPath = async (accessor: ReturnType<typeof useAccessor>, path: 
 				return res;
 			}
 
-			else if (searchFor === 'folders') {
+			else {
 				// Extract unique directory paths from the results
 				const directoryMap = new Map<string, URI>();
 
@@ -784,7 +779,7 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 
 		r.style.height = 'auto'; // set to auto to reset height, then set to new height
 
-		if (r.scrollHeight === 0) {return requestAnimationFrame(adjustHeight);}
+		if (r.scrollHeight === 0) {requestAnimationFrame(adjustHeight); return;}
 		const h = r.scrollHeight;
 		const newHeight = Math.min(h + 1, 500); // plus one to avoid scrollbar appearing when it shouldn't
 		r.style.height = `${newHeight}px`;
@@ -1178,63 +1173,6 @@ export const VibeSimpleInputBox = ({ value, onChangeValue, placeholder, classNam
 };
 
 
-export const VibeInputBox = ({ onChangeText, onCreateInstance, inputBoxRef, placeholder, isPasswordField, multiline }: {
-	onChangeText: (value: string) => void;
-	styles?: Partial<IInputBoxStyles>;
-	onCreateInstance?: (instance: InputBox) => void | IDisposable[];
-	inputBoxRef?: { current: InputBox | null };
-	placeholder: string;
-	isPasswordField?: boolean;
-	multiline: boolean;
-}) => {
-
-	const accessor = useAccessor();
-
-	const contextViewProvider = accessor.get('IContextViewService');
-	return <WidgetComponent
-		className='
-			bg-vibe-bg-1
-			@@vibe-force-child-placeholder-vibe-fg-1
-		'
-		ctor={InputBox}
-		propsFn={useCallback((container) => [
-			container,
-			contextViewProvider,
-			{
-				inputBoxStyles: {
-					...defaultInputBoxStyles,
-					inputForeground: "var(--vscode-foreground)",
-					// inputBackground: 'transparent',
-					// inputBorder: 'none',
-				},
-				placeholder,
-				tooltip: '',
-				type: isPasswordField ? 'password' : undefined,
-				flexibleHeight: multiline,
-				flexibleMaxHeight: 500,
-				flexibleWidth: false,
-			}
-		] as const, [contextViewProvider, placeholder, multiline])}
-		dispose={useCallback((instance: InputBox) => {
-			instance.dispose();
-			instance.element.remove();
-		}, [])}
-		onCreateInstance={useCallback((instance: InputBox) => {
-			const disposables: IDisposable[] = [];
-			disposables.push(
-				instance.onDidChange((newText) => onChangeText(newText))
-			);
-			if (onCreateInstance) {
-				const ds = onCreateInstance(instance) ?? [];
-				disposables.push(...ds);
-			}
-			if (inputBoxRef)
-				{inputBoxRef.current = instance;}
-
-			return disposables;
-		}, [onChangeText, onCreateInstance, inputBoxRef])}
-	/>;
-};
 
 
 
@@ -1453,37 +1391,6 @@ export const VibeSwitch = ({
 
 
 
-export const VibeCheckBox = ({ label, value, onClick, className }: { label: string; value: boolean; onClick: (checked: boolean) => void; className?: string }) => {
-	const divRef = useRef<HTMLDivElement | null>(null);
-	const instanceRef = useRef<Checkbox | null>(null);
-
-	useEffect(() => {
-		if (!instanceRef.current) {return;}
-		instanceRef.current.checked = value;
-	}, [value]);
-
-
-	return <WidgetComponent
-		className={className ?? ''}
-		ctor={Checkbox}
-		propsFn={useCallback((container: HTMLDivElement) => {
-			divRef.current = container;
-			return [label, value, defaultCheckboxStyles] as const;
-		}, [label, value])}
-		onCreateInstance={useCallback((instance: Checkbox) => {
-			instanceRef.current = instance;
-			divRef.current?.append(instance.domNode);
-			const d = instance.onChange(() => onClick(instance.checked));
-			return [d];
-		}, [onClick])}
-		dispose={useCallback((instance: Checkbox) => {
-			instance.dispose();
-			instance.domNode.remove();
-		}, [])}
-
-	/>;
-
-};
 
 
 
@@ -1840,67 +1747,6 @@ export const VibeCustomDropdownBox = <T extends NonNullable<any>>({
 
 
 
-export const _VibeSelectBox = <T,>({ onChangeSelection, onCreateInstance, selectBoxRef, options, className }: {
-	onChangeSelection: (value: T) => void;
-	onCreateInstance?: ((instance: SelectBox) => void | IDisposable[]);
-	selectBoxRef?: React.MutableRefObject<SelectBox | null>;
-	options: readonly { text: string; value: T }[];
-	className?: string;
-}) => {
-	const accessor = useAccessor();
-	const contextViewProvider = accessor.get('IContextViewService');
-
-	const containerRef = useRef<HTMLDivElement | null>(null);
-
-	return <WidgetComponent
-		className={`
-			@@select-child-restyle
-			@@[&_select]:!vibe-text-vibe-fg-3
-			@@[&_select]:!vibe-text-xs
-			!text-vibe-fg-3
-			${className ?? ''}
-		`}
-		ctor={SelectBox}
-		propsFn={useCallback((container) => {
-			containerRef.current = container;
-			const defaultIndex = 0;
-			return [
-				options.map(opt => ({ text: opt.text })),
-				defaultIndex,
-				contextViewProvider,
-				defaultSelectBoxStyles,
-			] as const;
-		}, [containerRef, options])}
-
-		dispose={useCallback((instance: SelectBox) => {
-			instance.dispose();
-			containerRef.current?.childNodes.forEach(child => {
-				containerRef.current?.removeChild(child);
-			});
-		}, [containerRef])}
-
-		onCreateInstance={useCallback((instance: SelectBox) => {
-			const disposables: IDisposable[] = [];
-
-			if (containerRef.current)
-				{instance.render(containerRef.current);}
-
-			disposables.push(
-				instance.onDidSelect(e => { onChangeSelection(options[e.index].value); })
-			);
-
-			if (onCreateInstance) {
-				const ds = onCreateInstance(instance) ?? [];
-				disposables.push(...ds);
-			}
-			if (selectBoxRef)
-				{selectBoxRef.current = instance;}
-
-			return disposables;
-		}, [containerRef, onChangeSelection, options, onCreateInstance, selectBoxRef])}
-
-	/>;
-};
 
 // makes it so that code in the sidebar isnt too tabbed out
 const normalizeIndentation = (code: string): string => {
@@ -2000,9 +1846,10 @@ export const BlockCode = ({ initValue, language, maxHeight, showScrollbars }: Bl
 };
 
 
-export const VibeButtonBgDarken = ({ children, disabled, onClick, className, variant = 'secondary' }: { children: React.ReactNode; disabled?: boolean; onClick: () => void; className?: string; variant?: 'primary' | 'secondary' }) => {
+export const VibeButtonBgDarken = ({ children, disabled, onClick, className, title, variant = 'secondary' }: { children: React.ReactNode; disabled?: boolean; onClick: () => void; className?: string; title?: string; variant?: 'primary' | 'secondary' }) => {
 	return <button disabled={disabled}
 		type="button"
+		title={title}
 		className={`@@vibe-pill-button @@vibe-focus-ring ${variant === 'primary' ? '@@vibe-pill-button--primary' : '@@vibe-pill-button--secondary'} overflow-hidden whitespace-nowrap flex items-center justify-center ${className || ''}`}
 		onClick={onClick}
 	>{children}</button>;
@@ -2170,7 +2017,7 @@ const SingleDiffEditor = ({ block, lang }: { block: ExtractedSearchReplaceBlock;
 					alwaysConsumeMouseWheel: false,
 					ignoreHorizontalScrollbarInContentHeight: true,
 				},
-				hover: { enabled: false },
+				hover: { enabled: 'off' },
 				folding: false,
 				selectionHighlight: false,
 				// Belt & suspenders for bug #2: a read-only preview needs no occurrence

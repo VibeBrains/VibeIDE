@@ -2,7 +2,7 @@
 
 > Status: normative.
 > Source: roadmap §993 (telemetry service orphan).
-> Companion: `references/v1/telemetry-policy.md` (no-cloud-telemetry policy).
+> Companion: `docs/references-v1/telemetry-policy.md` (no-cloud-telemetry policy).
 
 ## Statement
 
@@ -43,7 +43,7 @@ because the rename touches every consumer; tracked as backlog.
 
 Adopting this contract requires:
 - File header in `telemetryService.ts` linking back to this document.
-- `references/v1/telemetry-policy.md` cross-references this scope doc as the
+- `docs/references-v1/telemetry-policy.md` cross-references this scope doc as the
   per-service detail.
 - `scripts/vibe-services-inventory.js` no longer flags `telemetryService.ts` as
   orphan once the file header is updated.

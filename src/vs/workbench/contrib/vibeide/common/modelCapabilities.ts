@@ -18,7 +18,7 @@
  * 1. Add detailed capabilities to provider-specific modelOptions / fallback.
  */
 
-import { FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName } from './vibeideSettingsTypes.js';
+import { FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderId, ProviderName } from './vibeideSettingsTypes.js';
 
 
 
@@ -282,6 +282,19 @@ export const API_PROTOCOL_TO_SDK_NPM: Record<ApiProtocolOverride, string> = {
 	'google': '@ai-sdk/google',
 };
 
+/**
+ * SDK npm for a CONFIG provider's declared `protocol` (providers.json). File values map onto the
+ * shared protocol table: `openai` means "OpenAI-compatible chat completions" (the format's default
+ * wire shape), NOT the native OpenAI SDK. Returns undefined for an absent/unknown value so the
+ * caller falls through to the models.dev catalog.
+ */
+export const sdkNpmOfFileProtocol = (fileProtocol: string | undefined): string | undefined => {
+	if (fileProtocol === 'openai') { return API_PROTOCOL_TO_SDK_NPM['openai-compat']; }
+	if (fileProtocol === 'anthropic') { return API_PROTOCOL_TO_SDK_NPM['anthropic']; }
+	if (fileProtocol === 'gemini') { return API_PROTOCOL_TO_SDK_NPM['google']; }
+	return undefined;
+};
+
 export type ModelOverrides = Omit<Pick<
 	VibeideStaticModelInfo,
 	(typeof modelOverrideKeys)[number]
@@ -306,7 +319,7 @@ export type ModelOverrides = Omit<Pick<
 // Heuristic free-tier detection — programmatic signals only, no network.
 // 1) Pollinations is free by design.
 // 2) `:free` suffix is the OpenRouter convention; LM Router preserves it when it proxies OpenRouter ids.
-export const isFreeModel = (providerName: ProviderName, modelName: string): boolean => {
+export const isFreeModel = (providerName: ProviderId, modelName: string): boolean => {
 	if (providerName === 'pollinations') { return true; }
 	return modelName.toLowerCase().endsWith(':free');
 };
@@ -470,6 +483,34 @@ const openSourceModelOptions_assumingOAICompat = {
 		// Qwen3 series (including Qwen3-Coder) supports 128K out of the box.
 		contextWindow: 128_000, reservedOutputTokenSpace: 8_192,
 	},
+	// GLM (z.ai) and Kimi (Moonshot) are reached through aggregators and BYOK configs alike. Prices
+	// are the vendors' own list rates (docs.z.ai / platform.moonshot.ai) — an aggregator may charge
+	// less, and its catalog overrides this anyway. What matters is that they are NOT zero: the
+	// router treats a zero-cost model as free and prefers it.
+	'glm5': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
+		contextWindow: 204_800, reservedOutputTokenSpace: 8_192,
+		cost: { input: 1.00, output: 3.20 },
+	},
+	'glm4.7': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, openSourceThinkTags: ['<think>', '</think>'] },
+		contextWindow: 204_800, reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.60, output: 2.20 },
+	},
+	'kimiK2.5': {
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: true, canIOReasoning: true, reasoningSlider: { type: 'effort_slider', values: ['low', 'high'], default: 'low' } },
+		contextWindow: 262_144, reservedOutputTokenSpace: 32_768,
+		cost: { input: 0.60, output: 2.50 },
+	},
 	// FIM only
 	'starcoder2': {
 		supportsFIM: true,
@@ -501,7 +542,7 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 
 	const lower = modelName.toLowerCase();
 
-	const toFallback = <T extends { [s: string]: Omit<VibeideStaticModelInfo, 'cost' | 'downloadable'> },>(obj: T, recognizedModelName: string & keyof T)
+	const toFallback = <T extends { [s: string]: Omit<VibeideStaticModelInfo, 'cost' | 'downloadable'> & { cost?: VibeideStaticModelInfo['cost'] } },>(obj: T, recognizedModelName: string & keyof T)
 		: VibeideStaticModelInfo & { modelName: string; recognizedModelName: string } => {
 
 		const opts = obj[recognizedModelName];
@@ -514,14 +555,24 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 			modelName,
 			...opts,
 			supportsSystemMessage: supportsSystemMessage,
-			cost: { input: 0, output: 0 },
+			// Price of the RECOGNIZED sibling rather than a hardcoded zero: a guessed profile yields an
+			// approximate price, whereas zero does not read as "unknown" anywhere downstream — the cost
+			// estimator prints $0.00 and `modelRouter.costPerM` treats the model as free, so cost-based
+			// routing happily picks it. Local providers (ollama / vLLM / LM Studio) pass an explicit zero
+			// through `fallbackKnownValues`, which still wins via the spread below — there it is the truth.
+			cost: opts.cost ?? { input: 0, output: 0 },
 			downloadable: false,
 			...fallbackKnownValues
 		};
 	};
 
-	// Gemini 3 models (latest):
+	// Gemini 3 models (latest). NARROW branches MUST stay above the catch-all `gemini-3` — otherwise every
+	// new 3.x id (Flash, Flash-Lite, whatever ships next) silently inherits the PRO profile: Pro pricing,
+	// Pro reserved output space, Pro thinking levels. That is exactly how `gemini-3.6-flash` and
+	// `gemini-3.5-flash-lite` were mispriced before 2026-07-25 — see docs/knowledge/architecture/modelPricing.md.
 	if (lower.includes('gemini-3') && lower.includes('image')) { return toFallback(geminiModelOptions, 'gemini-3-pro-image-preview'); }
+	if (lower.includes('gemini-3') && lower.includes('flash') && lower.includes('lite')) { return toFallback(geminiModelOptions, 'gemini-3.5-flash-lite'); }
+	if (lower.includes('gemini-3') && lower.includes('flash')) { return toFallback(geminiModelOptions, 'gemini-3.6-flash'); }
 	if (lower.includes('gemini-3')) { return toFallback(geminiModelOptions, 'gemini-3-pro-preview'); }
 	// Gemini 2.5 models:
 	if (lower.includes('gemini') && (lower.includes('2.5') || lower.includes('2-5'))) {
@@ -578,6 +629,15 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 	if (lower.includes('qwen') && lower.includes('3')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen3'); }
 	if (lower.includes('qwen')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen3'); }
 	if (lower.includes('qwq')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwq'); }
+
+	// GLM and Kimi had no branch at all — every id fell through to `defaultModelOptions`, whose
+	// price is zero, so the router read them as free. Newer generations map to the newest profile
+	// we know: an approximate price beats a zero that lies.
+	if (lower.includes('glm-4.7') || lower.includes('glm4.7')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'glm4.7'); }
+	if (lower.includes('glm')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'glm5'); }
+	// k3 keeps the k2.5 profile: same wire protocol, and its real price ($3/$15) is carried by the
+	// `.vibe-defaults` recipe, which is where anyone running K3 configures it.
+	if (lower.includes('kimi')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'kimiK2.5'); }
 	if (lower.includes('phi4')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'phi4'); }
 	if (lower.includes('codestral')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'codestral'); }
 	if (lower.includes('devstral')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'devstral'); }
@@ -1154,34 +1214,80 @@ const xAISettings: VoidStaticProviderInfo = {
 
 
 // ---------------- GEMINI ----------------
-const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
+// Exported so the price gate in `geminiModelResolve.test.ts` can walk EVERY profile instead of a
+// hand-kept id list — a profile added later with a zero price has to fail the build, not wait for
+// someone to notice the estimator printing $0.00.
+export const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 	// https://ai.google.dev/gemini-api/docs/thinking#set-budget
-	// Latest Gemini 3 series (preview):
-	'gemini-3-pro-preview': {
+	// Latest Gemini 3 series. Depth is set by `thinking_level` (a string enum), NOT by `thinkingBudget`
+	// — see https://ai.google.dev/gemini-api/docs/thinking. Thinking cannot be switched off on any of
+	// them, hence `canTurnOffReasoning: false` throughout.
+	'gemini-3.6-flash': {
 		contextWindow: 1_048_576, // 1M tokens input
-		reservedOutputTokenSpace: 65_536, // 65K tokens output
-		cost: { input: 0, output: 0 }, // TODO: Verify pricing
+		reservedOutputTokenSpace: 65_536, // 64K tokens output
+		cost: { input: 1.50, output: 7.50 }, // output includes thinking tokens
 		downloadable: false,
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
 		specialToolFormat: 'gemini-style',
-		reasoningCapabilities: false, // TODO: Verify if Gemini 3 supports reasoning
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: false,
+			canIOReasoning: false,
+			reasoningSlider: { type: 'effort_slider', values: ['minimal', 'low', 'medium', 'high'], default: 'medium' },
+			// Same as `reservedOutputTokenSpace`: thinking is always on here, and `getReservedOutputTokenSpace`
+			// reads THIS field whenever reasoning is enabled — leaving it out would silently reserve nothing.
+			reasoningReservedOutputTokenSpace: 65_536,
+		},
+	},
+	'gemini-3.5-flash-lite': {
+		contextWindow: 1_048_576, // 1M tokens input
+		reservedOutputTokenSpace: 65_536, // 64K tokens output
+		cost: { input: 0.30, output: 2.50 }, // output includes thinking tokens
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: false,
+			canIOReasoning: false,
+			reasoningSlider: { type: 'effort_slider', values: ['minimal', 'low', 'medium', 'high'], default: 'minimal' },
+			reasoningReservedOutputTokenSpace: 65_536, // see the note on gemini-3.6-flash above
+		},
+	},
+	// Pro profile. Also serves later Pro previews (`gemini-3.1-pro-preview`, …) through the fallback below.
+	'gemini-3-pro-preview': {
+		contextWindow: 1_048_576, // 1M tokens input
+		reservedOutputTokenSpace: 65_536, // 65K tokens output
+		cost: { input: 2.00, output: 12.00 }, // prompts <=200k; above that the vendor charges 4.00/18.00 (our cost model has no length tiers)
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: false,
+			canIOReasoning: false,
+			reasoningSlider: { type: 'effort_slider', values: ['low', 'medium', 'high'], default: 'high' }, // no 'minimal' on Pro
+			reasoningReservedOutputTokenSpace: 65_536, // see the note on gemini-3.6-flash above
+		},
 	},
 	'gemini-3-pro-image-preview': {
 		contextWindow: 1_048_576, // 1M tokens input
 		reservedOutputTokenSpace: 65_536, // 65K tokens output
-		cost: { input: 0, output: 0 }, // TODO: Verify pricing
+		cost: { input: 2.00, output: 12.00 }, // text+thinking output; IMAGE output is billed at 120.00/1M, which this flat model cannot express
 		downloadable: false,
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
 		specialToolFormat: 'gemini-style',
-		reasoningCapabilities: false, // TODO: Verify if Gemini 3 supports reasoning
+		reasoningCapabilities: false, // image generation model — no thinking_level control
 	},
 	// Gemini 2.5 series:
 	'gemini-2.5-pro': {
 		contextWindow: 1_048_576,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0, output: 0 }, // TODO: Verify pricing
+		cost: { input: 1.25, output: 10.00 }, // prompts <=200k; above that the vendor charges 2.50/15.00
 		downloadable: false,
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
@@ -1197,7 +1303,7 @@ const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 	'gemini-2.5-pro-preview-05-06': {
 		contextWindow: 1_048_576,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0, output: 0 },
+		cost: { input: 1.25, output: 10.00 }, // same tier as the GA 2.5 Pro above
 		downloadable: false,
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
@@ -1213,7 +1319,7 @@ const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 	'gemini-2.0-flash-lite': {
 		contextWindow: 1_048_576,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0, output: 0 },
+		cost: { input: 0.075, output: 0.30 },
 		downloadable: false,
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
@@ -1239,7 +1345,7 @@ const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
 	'gemini-2.5-pro-exp-03-25': {
 		contextWindow: 1_048_576,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0, output: 0 },
+		cost: { input: 0, output: 0 }, // experimental id — free tier only, never appeared on the paid pricing page
 		downloadable: false,
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
@@ -1312,21 +1418,32 @@ const geminiSettings: VoidStaticProviderInfo = {
 
 
 // ---------------- DEEPSEEK API ----------------
+// V4 generation (released 2026-04-24, MIT weights): 1M context, both ids serve a thinking and a
+// non-thinking mode behind the same name. Both are TEXT-ONLY — `supportsVision: false` is load-
+// bearing here, it keeps the vision gate from routing an image request to a model that cannot
+// accept one. https://api-docs.deepseek.com/quick_start/pricing
 const deepseekModelOptions = {
-	'deepseek-chat': {
+	'deepseek-v4-pro': {
 		...openSourceModelOptions_assumingOAICompat.deepseekR1,
-		contextWindow: 64_000, // https://api-docs.deepseek.com/quick_start/pricing
-		reservedOutputTokenSpace: 8_000, // 8_000,
-		cost: { cache_read: .07, input: .27, output: 1.10, },
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 32_000,
+		supportsVision: false,
+		cost: { cache_read: .003625, input: .435, output: .87, },
 		downloadable: false,
 	},
-	'deepseek-reasoner': {
-		...openSourceModelOptions_assumingOAICompat.deepseekCoderV2,
-		contextWindow: 64_000,
-		reservedOutputTokenSpace: 8_000, // 8_000,
-		cost: { cache_read: .14, input: .55, output: 2.19, },
+	'deepseek-v4-flash': {
+		...openSourceModelOptions_assumingOAICompat.deepseekR1,
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 32_000,
+		supportsVision: false,
+		cost: { cache_read: .0028, input: .14, output: .28, },
 		downloadable: false,
 	},
+	// `deepseek-chat` / `deepseek-reasoner` removed — DeepSeek retired both ids on 2026-07-24, so
+	// the names no longer resolve at the provider either. A stale selection degrades gracefully
+	// rather than throwing: this provider's `modelOptionsFallback` returns null, so
+	// `getModelCapabilities` hands back `defaultModelOptions` flagged `isUnrecognizedModel`, and the
+	// models.dev catalog still fills in context/cost if it knows the id.
 } as const satisfies { [s: string]: VibeideStaticModelInfo };
 
 
@@ -1611,7 +1728,8 @@ export const ollamaRecommendedModels = ['qwen2.5-coder:1.5b', 'llama3.1', 'qwq',
 
 const vLLMSettings: VoidStaticProviderInfo = {
 	modelOptionsFallback: (modelName) => {
-		const fallback = extensiveModelOptionsFallback(modelName, { downloadable: { sizeGb: 'not-known' } });
+		// Explicit zero cost: local inference is free, so the recognized sibling's cloud price must not leak in.
+		const fallback = extensiveModelOptionsFallback(modelName, { downloadable: { sizeGb: 'not-known' }, cost: { input: 0, output: 0 } });
 		// vLLM is OpenAI-compatible, so all models should support tool calling via OpenAI-style format
 		if (fallback && !fallback.specialToolFormat) {
 			fallback.specialToolFormat = 'openai-style';
@@ -1628,7 +1746,8 @@ const vLLMSettings: VoidStaticProviderInfo = {
 
 const lmStudioSettings: VoidStaticProviderInfo = {
 	modelOptionsFallback: (modelName) => {
-		const fallback = extensiveModelOptionsFallback(modelName, { downloadable: { sizeGb: 'not-known' }, contextWindow: 4_096 });
+		// Explicit zero cost: local inference is free, so the recognized sibling's cloud price must not leak in.
+		const fallback = extensiveModelOptionsFallback(modelName, { downloadable: { sizeGb: 'not-known' }, contextWindow: 4_096, cost: { input: 0, output: 0 } });
 		// LM Studio is OpenAI-compatible, so all models should support tool calling via OpenAI-style format
 		if (fallback && !fallback.specialToolFormat) {
 			fallback.specialToolFormat = 'openai-style';
@@ -1644,7 +1763,8 @@ const lmStudioSettings: VoidStaticProviderInfo = {
 
 const ollamaSettings: VoidStaticProviderInfo = {
 	modelOptionsFallback: (modelName) => {
-		const fallback = extensiveModelOptionsFallback(modelName, { downloadable: { sizeGb: 'not-known' } });
+		// Explicit zero cost: local inference is free, so the recognized sibling's cloud price must not leak in.
+		const fallback = extensiveModelOptionsFallback(modelName, { downloadable: { sizeGb: 'not-known' }, cost: { input: 0, output: 0 } });
 		// Ollama is OpenAI-compatible, so all models should support tool calling via OpenAI-style format
 		if (fallback && !fallback.specialToolFormat) {
 			fallback.specialToolFormat = 'openai-style';
@@ -1984,7 +2104,10 @@ const minimaxModelOptions = {
 	'MiniMax-M3': {
 		contextWindow: 1_000_000,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0, output: 0 }, // informational only; not used for routing
+		// Standard tier, prompts up to 512K; above that the vendor charges 0.60/2.40, which this
+		// flat model cannot express. The old note here claimed cost was "not used for routing" —
+		// it is: `modelRouter` scores `costPerM === 0` as a FREE model and adds points for it.
+		cost: { input: 0.30, output: 1.20, cache_read: 0.06 },
 		downloadable: false,
 		supportsFIM: false,
 		supportsVision: true,
@@ -1995,7 +2118,7 @@ const minimaxModelOptions = {
 	'MiniMax-M2': {
 		contextWindow: 204_800,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0, output: 0 }, // informational only; not used for routing
+		cost: { input: 0.30, output: 1.20, cache_read: 0.06 }, // same standard-tier rate as M3/M2.5
 		downloadable: false,
 		supportsFIM: false,
 		specialToolFormat: 'openai-style',
@@ -2005,7 +2128,7 @@ const minimaxModelOptions = {
 	'MiniMax-M2-Stable': {
 		contextWindow: 204_800,
 		reservedOutputTokenSpace: 8_192,
-		cost: { input: 0, output: 0 },
+		cost: { input: 0.30, output: 1.20, cache_read: 0.06 },
 		downloadable: false,
 		supportsFIM: false,
 		specialToolFormat: 'openai-style',
@@ -2175,7 +2298,7 @@ export type CatalogModelHint = {
  * the settings service's override holder — keeps this function pure of any service dependency.
  */
 export const getModelCapabilities = (
-	providerName: ProviderName,
+	providerName: ProviderId,
 	modelName: string,
 	overridesOfModel: OverridesOfModel | undefined,
 	catalogInfo?: CatalogModelHint | undefined,
@@ -2259,7 +2382,7 @@ const catalogFields = (info: CatalogModelHint | undefined): Partial<VibeideStati
 };
 
 // non-model settings
-export const getProviderCapabilities = (providerName: ProviderName) => {
+export const getProviderCapabilities = (providerName: ProviderId) => {
 	// Unified path: built-in OR external (.vibe/providers.json) provider. An external provider is
 	// registered as openai-compatible, so it carries the same reasoning IO settings; an unknown id
 	// still falls back to openAICompatible rather than destructuring undefined.
@@ -2283,7 +2406,7 @@ export type SendableReasoningInfo = {
 
 export const getIsReasoningEnabledState = (
 	featureName: FeatureName,
-	providerName: ProviderName,
+	providerName: ProviderId,
 	modelName: string,
 	modelSelectionOptions: ModelSelectionOptions | undefined,
 	overridesOfModel: OverridesOfModel | undefined,
@@ -2299,7 +2422,7 @@ export const getIsReasoningEnabledState = (
 };
 
 
-export const getReservedOutputTokenSpace = (providerName: ProviderName, modelName: string, opts: { isReasoningEnabled: boolean; overridesOfModel: OverridesOfModel | undefined }) => {
+export const getReservedOutputTokenSpace = (providerName: ProviderId, modelName: string, opts: { isReasoningEnabled: boolean; overridesOfModel: OverridesOfModel | undefined }) => {
 	const {
 		reasoningCapabilities,
 		reservedOutputTokenSpace,
@@ -2310,7 +2433,7 @@ export const getReservedOutputTokenSpace = (providerName: ProviderName, modelNam
 // used to force reasoning state (complex) into something simple we can just read from when sending a message
 export const getSendableReasoningInfo = (
 	featureName: FeatureName,
-	providerName: ProviderName,
+	providerName: ProviderId,
 	modelName: string,
 	modelSelectionOptions: ModelSelectionOptions | undefined,
 	overridesOfModel: OverridesOfModel | undefined,

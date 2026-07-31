@@ -28,6 +28,13 @@ export const IVibeAgentHistoryService = createDecorator<IVibeAgentHistoryService
 export interface IVibeAgentHistoryService {
 	readonly _serviceBrand: undefined;
 
+	/**
+	 * Id of the session `getCurrentSessionHistory()` reads. Callers that record an action must
+	 * use it instead of minting their own — an action filed under a private id is written, kept
+	 * and never shown.
+	 */
+	getCurrentSessionId(): string;
+
 	/** Record an agent action in current session */
 	recordAction(entry: Omit<AgentHistoryEntry, 'id' | 'timestamp'>): void;
 
@@ -45,11 +52,16 @@ export interface IVibeAgentHistoryService {
 }
 
 /**
- * VibeIDE Agent Action History Sidebar data layer.
- * Persistent per-session chronology of agent actions.
- * Enables: rollback any step, replay, explain this decision.
+ * VibeIDE Agent Action History — chronology of file-level agent actions (refactors, edits) used
+ * by `vibeide.agentHistory.show` and the rollback affordances.
+ *
+ * In-memory and per-window: the map starts empty on every launch and nothing is read back from
+ * disk. The durable copy exists only when the audit log is enabled, and only as audit events.
+ * This is deliberately NOT the agent-run ledger — that one records subagent runs (role, goal,
+ * spend, outcome) and lives in `vibeAgentRunLedgerService`. Different subject, different store;
+ * merging them would blur "an agent touched these files" with "a run happened".
  */
-class VibeAgentHistoryService extends Disposable implements IVibeAgentHistoryService {
+export class VibeAgentHistoryService extends Disposable implements IVibeAgentHistoryService {
 	declare readonly _serviceBrand: undefined;
 
 	private readonly _onActionRecorded = this._register(new Emitter<AgentHistoryEntry>());
@@ -64,6 +76,10 @@ class VibeAgentHistoryService extends Disposable implements IVibeAgentHistorySer
 		super();
 		this._currentSessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 		this._history.set(this._currentSessionId, []);
+	}
+
+	getCurrentSessionId(): string {
+		return this._currentSessionId;
 	}
 
 	recordAction(entry: Omit<AgentHistoryEntry, 'id' | 'timestamp'>): void {

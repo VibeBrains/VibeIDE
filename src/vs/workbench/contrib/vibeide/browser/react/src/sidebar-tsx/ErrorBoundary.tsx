@@ -36,14 +36,14 @@ class ErrorBoundary extends Component<Props, State> {
 		};
 	}
 
-	componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
+	override componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
 		this.setState({
 			error,
 			errorInfo
 		});
 	}
 
-	render(): ReactNode {
+	override render(): ReactNode {
 		if (this.state.hasError && this.state.error) {
 			// If a custom fallback is provided, use it
 			if (this.props.fallback) {

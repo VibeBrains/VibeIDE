@@ -1,6 +1,6 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
 // CJS port of `common/i18nLLMDraft.ts` for `scripts/vibe-i18n-draft.js`.
@@ -89,7 +89,7 @@ function applyI18nDraftMarkers(bundle, drafts) {
 	const result = new Map(bundle);
 	for (const [key, draft] of drafts) {
 		const trimmed = draft.trim();
-		if (trimmed.length === 0) continue;
+		if (trimmed.length === 0) {continue;}
 		result.set(key, `${DRAFT_LLM_PREFIX} ${trimmed}`);
 	}
 	return result;

@@ -59,6 +59,24 @@
 
 ---
 
+## vs Managed-Agent Platforms (Multica, Paperclip)
+
+> Знакомы с платформами оркестрации агентов «как командой/компанией» (Multica, Paperclip)? Почти всё это в VibeIDE **уже встроено** — просто под своими названиями.
+
+| Что вы знаете там | Как это называется в VibeIDE |
+|---|---|
+| **Squads** / оргчарт-роли (лидер раздаёт работу) | Vibe Agents: субагенты + оркестратор + роли-персоны + vision-роутинг |
+| **Reusable Skills** в реестре + семантический поиск | Agent Skills (`.vibe/skills/`) + Community Skills marketplace + локальные эмбеддинги |
+| **Autopilots** (расписание → авто-задачи: стендапы, аудиты) | Background agent + nightly-roadmap skill |
+| **Тикеты** + журнал всех действий агента | Persisted Plans (`.vibe/plans/`) + JSONL-журнал + audit log |
+| **Бюджеты** + авто-пауза агента | Token budget (лимит на сессию) + Dead Man's Switch + статус-бар стоимости |
+| **Governance** (пауза/стоп/override, одобрение) | Кнопки в плане + `.vibe/constraints.json` (hard-правила до выполнения) |
+| **Agent-agnostic** (Claude/OpenAI/Gemini) | Мульти-провайдер BYOK через AI SDK |
+
+**Ключевое отличие:** Multica/Paperclip — отдельные пульты, дирижирующие внешними agent-CLI. В VibeIDE агент **встроен в саму IDE** — оркестрация и редактор в одном месте, без второго сервиса.
+
+---
+
 ## When to use Continue.dev instead
 
 - You want a lightweight extension without switching IDEs

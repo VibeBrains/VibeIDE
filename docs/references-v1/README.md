@@ -78,7 +78,7 @@
 ### Политика документации
 | Файл | Тема |
 |---|---|
-| [docs-policy.md](docs-policy.md) | Split `docs/` (публичное) vs `references/v1/` (нормативное) |
+| [docs-policy.md](docs-policy.md) | Split `docs/` (публичное) vs `docs/references-v1/` (нормативное) |
 | [ci-workflows-inventory.md](ci-workflows-inventory.md) | CI workflows inventory |
 | [l10n-vs-nls-decision.md](l10n-vs-nls-decision.md) | **[нормативное]** `nls.localize()` vs `vscode.l10n.t()` — выбранный путь |
 | [worktree-merge-policy.md](worktree-merge-policy.md) | Git worktree merge policy при изоляции агентов: кто и как мержит в основную ветку |
@@ -105,4 +105,4 @@
 
 ---
 
-> **Важно:** `docs/references-v1/` **отслеживается git** (57 файлов). Прежнее утверждение «вся папка в `.gitignore`» осталось от предшественника — local-only дерева `references/v1/`, которое действительно игнорируется; проверено 2026-07-15 (`git check-ignore` + `git ls-files`). Это нормативные справки и контракты: пишутся для разработчиков, но живут в репозитории и ревьюятся как код.
+> **Важно:** `docs/references-v1/` **отслеживается git** (57 файлов). Прежнее утверждение «вся папка в `.gitignore`» осталось от предшественника — local-only дерева `docs/references-v1/`, которое действительно игнорируется; проверено 2026-07-15 (`git check-ignore` + `git ls-files`). Это нормативные справки и контракты: пишутся для разработчиков, но живут в репозитории и ревьюятся как код.

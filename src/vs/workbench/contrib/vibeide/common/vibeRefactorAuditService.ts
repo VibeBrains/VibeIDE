@@ -77,7 +77,9 @@ class VibeRefactorAuditService extends Disposable implements IVibeRefactorAuditS
 
 		// Single history entry (not N separate entries)
 		this._historyService.recordAction({
-			sessionId: `session-${Date.now()}`,
+			// Must be the history service's own session: a locally minted id lands in a bucket
+			// `getCurrentSessionHistory()` never reads, so the refactor is recorded and invisible.
+			sessionId: this._historyService.getCurrentSessionId(),
 			action: `refactor:${operation.type}`,
 			description: this._describeOperation(operation),
 			files: operation.affectedFiles,

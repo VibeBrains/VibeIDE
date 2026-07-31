@@ -384,11 +384,18 @@ suite('ExtensionRecommendationsService Test', () => {
 		return testNoPromptForValidRecommendations([]);
 	}));
 
-	test('ExtensionRecommendationsService: Prompt for valid workspace recommendations', () => runWithFakedTimers<void>({ useFakeTimers: true }, async () => {
+	test('ExtensionRecommendationsService: computes valid workspace recommendations without prompting', () => runWithFakedTimers<void>({ useFakeTimers: true }, async () => {
 		await setUpFolderWorkspace('myFolder', mockTestData.recommendedExtensions);
 		testObject = disposableStore.add(instantiationService.createInstance(ExtensionRecommendationsService));
 
-		await Event.toPromise(promptedEmitter.event);
+		// [VibeIDE] The intrusive workspace-recommendations toast was removed (see
+		// extensionRecommendationsService.ts → VIBEIDE_SHOW_WORKSPACE_RECOMMENDATIONS_TOAST). The
+		// recommendation set is still computed and available in the Extensions view, so wait for the
+		// service to finish activating (as the "No Prompt" tests do) instead of an auto-prompt that
+		// never fires — the previous `Event.toPromise(promptedEmitter.event)` hung forever, leaking
+		// fake timers and cascading timeouts across the whole Electron unit run.
+		await testObject.activationPromise;
+		assert.ok(!prompted, 'workspace recommendations must not auto-prompt in VibeIDE');
 		const recommendations = Object.keys(testObject.getAllRecommendationsWithReason());
 		const expected = [...mockTestData.validRecommendedExtensions, 'unknown.extension'];
 		assert.strictEqual(recommendations.length, expected.length);

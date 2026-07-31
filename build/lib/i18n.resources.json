@@ -19,6 +19,10 @@
 	],
 	"workbench": [
 		{
+			"name": "vs/workbench/contrib/vibeide",
+			"project": "vscode-workbench"
+		},
+		{
 			"name": "vs/code",
 			"project": "vscode-workbench"
 		},

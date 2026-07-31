@@ -2,7 +2,7 @@
 # Open VSX (https://open-vsx.org). Roadmap §1124.
 #
 # Pure validator: src/vs/workbench/contrib/vibeide/common/openVsxManifestValidator.ts
-# Runbook: references/v1/openvsx-publishing-runbook.md
+# Runbook: docs/references-v1/openvsx-publishing-runbook.md
 #
 # Warn-only by design:
 #   - Pre-publish manifest validation runs on every PR that touches an
@@ -102,7 +102,7 @@ jobs:
           OPEN_VSX_TOKEN: ${{ secrets.OPEN_VSX_TOKEN }}
         run: |
           if [ -z "${OPEN_VSX_TOKEN:-}" ]; then
-            echo '::error::OPEN_VSX_TOKEN secret missing. See references/v1/openvsx-publishing-runbook.md.'
+            echo '::error::OPEN_VSX_TOKEN secret missing. See docs/references-v1/openvsx-publishing-runbook.md.'
             exit 2
           fi
           echo '::notice::OPEN_VSX_TOKEN is configured.'

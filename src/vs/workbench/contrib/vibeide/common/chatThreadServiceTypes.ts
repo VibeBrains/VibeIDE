@@ -69,7 +69,7 @@ export type PlanStep = {
 	endTime?: number; // timestamp when step ended
 	error?: string; // error message if failed
 	disabled?: boolean; // user disabled this step
-	/** Optional: isolated git worktree branch for this step (contract: references/v1/plan-worktree-branch.md). Executor wiring backlog. */
+	/** Optional: isolated git worktree branch for this step (contract: docs/references-v1/plan-worktree-branch.md). Executor wiring backlog. */
 	worktreeBranch?: string;
 	/** Optional: speculative exploration id (`IVibeSpeculativeExplorationService`). */
 	explorationId?: string;

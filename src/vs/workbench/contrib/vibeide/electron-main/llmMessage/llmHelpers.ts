@@ -7,6 +7,7 @@
 /* eslint-disable */
 import { GoogleAuth } from 'google-auth-library';
 /* eslint-enable */
+import { ProviderId, SettingsOfProvider, withEnvApiKey } from '../../common/vibeideSettingsTypes.js';
 
 /**
  * Module-level singleton-backed Google service account token.
@@ -19,6 +20,15 @@ export const getGoogleApiKey = async (): Promise<string> => {
 	if (!key) { throw new Error(`Google API failed to generate a key.`); }
 	return key;
 };
+
+/**
+ * Apply the OS-env API key fallback using this process's real environment. electron-main is the
+ * only process where `process.env` is reliable — the renderer only ever learns WHETHER such a key
+ * exists (see `vibeEnvApiKeysContribution`), never its value. The resolution itself is the pure
+ * `withEnvApiKey` in common; this wrapper just supplies the environment.
+ */
+export const withProcessEnvApiKey = (settingsOfProvider: SettingsOfProvider, providerName: ProviderId): SettingsOfProvider =>
+	withEnvApiKey(settingsOfProvider, providerName, process.env);
 
 /**
  * Validate that a string is safe to be used as an HTTP header value (Latin-1, codepoints <= 0xFF).

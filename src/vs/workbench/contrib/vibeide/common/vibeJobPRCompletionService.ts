@@ -29,7 +29,12 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { IAuditLogService } from './auditLogService.js';
 import { IRequestService, asJson } from '../../../../platform/request/common/request.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { ISecretStorageService } from '../../../../platform/secrets/common/secrets.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
+
+/** OS-encrypted secret storage key for the GitHub token used by job-PR creation.
+ * Kept OUT of settings.json — set via the «Задать GitHub-токен для job-PR» command. */
+export const GITHUB_TOKEN_SECRET_KEY = 'vibeide.git.githubToken';
 
 export interface JobPRRequest {
 	jobId: string;
@@ -90,6 +95,7 @@ class VibeJobPRCompletionService extends Disposable implements IVibeJobPRComplet
 		@IAuditLogService private readonly _audit: IAuditLogService,
 		@IRequestService private readonly _request: IRequestService,
 		@IConfigurationService private readonly _config: IConfigurationService,
+		@ISecretStorageService private readonly _secrets: ISecretStorageService,
 	) {
 		super();
 	}
@@ -98,12 +104,13 @@ class VibeJobPRCompletionService extends Disposable implements IVibeJobPRComplet
 		const branchName = request.branchName ?? `vibeide-agent/${request.jobId.slice(0, 20)}`;
 		this._log.info(`[VibeJobPR] Creating PR for job ${request.jobId} on branch ${branchName}`);
 
-		const token = this._config.getValue<string>('vibeide.git.githubToken');
+		// Token comes from OS-encrypted secret storage (set via command), NOT settings.json.
+		const token = await this._secrets.get(GITHUB_TOKEN_SECRET_KEY);
 		const repoSlug = this._config.getValue<string>('vibeide.git.repoSlug'); // "owner/repo"
 		const baseBranch = this._config.getValue<string>('vibeide.git.defaultBranch') ?? 'main';
 
 		if (!token || !repoSlug) {
-			this._log.warn('[VibeJobPR] Missing vibeide.git.githubToken or vibeide.git.repoSlug — skipping GitHub PR creation');
+			this._log.warn('[VibeJobPR] Missing GitHub token (команда «Задать GitHub-токен для job-PR») or vibeide.git.repoSlug — skipping GitHub PR creation');
 			this._audit.append({ ts: Date.now(), action: 'job_pr_creation', ok: false, meta: { jobId: request.jobId, reason: 'no-token-or-slug' } });
 			return { status: 'disabled', reason: 'github-token-or-repo-slug-not-configured', branchName };
 		}

@@ -47,7 +47,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 		'vibeide.safety.sessionTokenWarningBlink': {
 			type: 'boolean',
 			default: true,
-			description: localize('vibeide.safety.sessionTokenWarningBlink', 'При приближении к лимиту токенов сессии (≥80%) подсвечивать жёлтым и мигать строкой времени последнего ответа в чате — вместо тоста на каждый warning. Логи при этом пишутся как обычно. Выключите, если мигание мешает.'),
+			description: localize('vibeide.safety.sessionTokenWarningBlink', 'При приближении к лимиту токенов сессии (≥80%) пульсировать кружком заполнения контекста в тулбаре чата — вместо тоста на каждый warning; наведите на кружок, чтобы увидеть процент и что делать. Логи при этом пишутся как обычно. Выключите, если мигание мешает.'),
 		},
 	},
 });

@@ -12,6 +12,7 @@ import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { RawToolCallObj, LLMChatMessage, LLMTokenUsage } from '../common/sendLLMMessageTypes.js';
+import { vibeLog } from '../common/vibeLog.js';
 import { ModelSelection } from '../common/vibeideSettingsTypes.js';
 import { getModelCapabilities } from '../common/modelCapabilities.js';
 import { isModelVisionCapable } from '../common/modelVisionHeuristics.js';
@@ -22,6 +23,7 @@ import { approvalTypeOfBuiltinToolName } from '../common/prompt/tools/index.js';
 import { truncateHeadTail } from '../common/toolHardening.js';
 import { IVibeSubagentRunner, SubagentRunRequest, SubagentRunOutcome } from '../common/vibeSubagentRunner.js';
 import { IVibeSubagentRegistryService } from '../common/vibeSubagentRegistryService.js';
+import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
 import { decideStop, hopTokenCost, truncateSummary, chatModeForAllowedTools, collectPathsFromRawParams, buildExploreReport, buildSubagentTaskMessage, stopReasonToRussian, SUBAGENT_MAX_DENIED_ACTIONS, SubagentStopReason } from '../common/subagentLoopPolicy.js';
 import { IConvertToLLMMessageService } from './convertToLLMMessageService.js';
 import { IToolsService } from './toolsService.js';
@@ -75,6 +77,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		@INotificationService private readonly _notification: INotificationService,
 		@IVibeAgentActivityLogService private readonly _activityLog: IVibeAgentActivityLogService,
 		@IVibeSubagentRegistryService private readonly _registry: IVibeSubagentRegistryService,
+		@IVibeSpendLedgerService private readonly _spendLedger: IVibeSpendLedgerService,
 	) {
 		super();
 	}
@@ -147,6 +150,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		// Raw provider-reported sums (incl. cached reads) — for cost display, not for the quota.
 		let promptTokensUsed = 0;
 		let completionTokensUsed = 0;
+		let cachedTokensUsed = 0;
 		let lastText = '';
 		const artifacts: string[] = [];
 		const touchedPaths: string[] = [];
@@ -183,7 +187,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				// Cancellation is the USER's explicit decision — a hard stop, never a resume bait
 				// (auto-resuming a cancelled subagent would restart it against the user's will).
 				if (stop === 'cancelled') {
-					return this._outcome(req, 'failed', `Роль «${preset.displayName}»: ${reason}.`, artifacts, tokensUsedEst, true, reason, touchedPaths, { stopCode: stop, model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed });
+					return this._outcome(req, 'failed', `Роль «${preset.displayName}»: ${reason}.`, artifacts, tokensUsedEst, true, reason, touchedPaths, { stopCode: stop, model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
 				}
 				// token-budget is VibeIDE's OWN per-subagent cap, not the provider's quota — say so
 				// and show the numbers, so «исчерпана квота» isn't misread as a provider limit.
@@ -194,7 +198,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				// touched paths) and return status 'stopped' so the route/report shows partial work that
 				// can be resumed, instead of discarding it as «failed».
 				const summary = `Роль «${preset.displayName}» остановлена: ${reason}${budgetNote}. Модель ${modelLabel}. Частичный результат сохранён. Последний вывод: ${lastText}`;
-				return this._outcome(req, 'stopped', summary, artifacts, tokensUsedEst, true, reason, touchedPaths, { stopCode: stop, model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed });
+				return this._outcome(req, 'stopped', summary, artifacts, tokensUsedEst, true, reason, touchedPaths, { stopCode: stop, model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
 			}
 			stepsDone++;
 
@@ -224,7 +228,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 					const reason = stopReasonToRussian('deadline');
 					this._activityLog.logError(`Subagent ${req.subagentId}: остановлен — ${reason} (в момент запроса к модели)`);
 					const summary = `Роль «${preset.displayName}» остановлена: ${reason}. Частичный результат сохранён. Последний вывод: ${lastText}`;
-					return this._outcome(req, 'stopped', summary, artifacts, tokensUsedEst, true, reason, touchedPaths, { stopCode: 'deadline', model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed });
+					return this._outcome(req, 'stopped', summary, artifacts, tokensUsedEst, true, reason, touchedPaths, { stopCode: 'deadline', model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
 				}
 				// Transient LLM error (provider 5xx, rate-limit, network, timeout): retry the hop with a
 				// short backoff instead of hard-failing — a blip must not kill a healthy run. Autopilot
@@ -240,7 +244,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				}
 				this._activityLog.logError(`Subagent ${req.subagentId}: ошибка LLM — ${hop.message}`);
 				const shortMsg = hop.message.length > 140 ? `${hop.message.slice(0, 140)}…` : hop.message;
-				return this._outcome(req, 'failed', `Роль «${preset.displayName}»: ошибка запроса к модели — ${hop.message}`, artifacts, tokensUsedEst, false, `ошибка модели: ${shortMsg}`, touchedPaths, { model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed });
+				return this._outcome(req, 'failed', `Роль «${preset.displayName}»: ошибка запроса к модели — ${hop.message}`, artifacts, tokensUsedEst, false, `ошибка модели: ${shortMsg}`, touchedPaths, { model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
 			}
 
 			consecutiveLlmErrors = 0; // healthy hop — clear the transient-error streak
@@ -253,6 +257,10 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 			tokensUsedEst += hopTokenCost(hop.usage, JSON.stringify(messages).length + (separateSystemMessage?.length ?? 0) + hop.fullText.length);
 			promptTokensUsed += hop.usage?.promptTokens ?? 0;
 			completionTokensUsed += hop.usage?.completionTokens ?? 0;
+			cachedTokensUsed += hop.usage?.cachedInputTokens ?? 0;
+			// Money spent by a role is money spent: without this the «Ключи и расход» panel showed
+			// only the main agent's exchanges and quietly under-reported every route of roles.
+			this._recordSpend(modelSelection, hop.usage);
 			req.onProgress?.(tokensUsedEst, stepsDone, limits.deadlineAtMs);
 			lastText = hop.fullText || lastText;
 			const toolCall = hop.toolCall;
@@ -263,7 +271,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 					? String(toolCall.rawParams['summary'] ?? toolCall.rawParams['result'] ?? lastText)
 					: lastText;
 				this._activityLog.logFinished(`Subagent ${req.subagentId}: завершено за ${stepsDone} шаг(ов), ~${tokensUsedEst} ток. (оценка)`);
-				return this._outcome(req, 'success', completeSummary || `Роль «${preset.displayName}» завершила задачу.`, artifacts, tokensUsedEst, false, 'completed', touchedPaths, { model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed });
+				return this._outcome(req, 'success', completeSummary || `Роль «${preset.displayName}» завершила задачу.`, artifacts, tokensUsedEst, false, 'completed', touchedPaths, { model: modelSelection, promptTokens: promptTokensUsed, completionTokens: completionTokensUsed, cachedTokens: cachedTokensUsed });
 			}
 
 			// From here on the model asked for a real tool — append its assistant turn first.
@@ -306,6 +314,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 					});
 					if (!confirmed) {
 						deniedActions++;
+						// eslint-disable-next-line local/code-no-dangerous-type-assertions -- internal ToolMessage builder widened to the ChatMessage union; tool params are loosely typed
 						history.push({
 							role: 'tool', type: 'rejected', result: null,
 							name: toolName as ToolName, params: params as never,
@@ -326,6 +335,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				if (WRITE_TOOL_NAMES.has(toolName)) { artifacts.push(...paths); }
 				// Not charged here — this result is re-sent as input on the next hop and counted
 				// via that hop's prompt tokens (avoids double-counting with hopTokenCost).
+				// eslint-disable-next-line local/code-no-dangerous-type-assertions -- internal ToolMessage builder widened to the ChatMessage union; tool params are loosely typed
 				history.push({
 					role: 'tool', type: 'success', result: result as never,
 					name: toolName as ToolName, params: params as never,
@@ -334,6 +344,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				} as ChatMessage);
 			} catch (e) {
 				const errText = e instanceof Error ? e.message : String(e);
+				// eslint-disable-next-line local/code-no-dangerous-type-assertions -- internal ToolMessage builder widened to the ChatMessage union; tool params are loosely typed
 				history.push({
 					role: 'tool', type: 'tool_error', result: errText,
 					name: toolName as ToolName, params: params as never,
@@ -355,6 +366,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		return new Promise<HopOutcome>(resolve => {
 			let settled = false;
 			let timer: ReturnType<typeof setTimeout> | undefined;
+			// eslint-disable-next-line prefer-const -- captured by `finish` (below) before the deferred assignment; `const` would hit the TDZ
 			let cancelSub: { dispose(): void } | undefined;
 			const finish = (v: HopOutcome) => {
 				if (settled) { return; }
@@ -392,6 +404,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 	}
 
 	private _invalidToolMessage(toolCall: RawToolCallObj, content: string): ChatMessage {
+		// eslint-disable-next-line local/code-no-dangerous-type-assertions -- internal ToolMessage builder widened to the ChatMessage union
 		return {
 			role: 'tool', type: 'invalid_params', result: null,
 			name: toolCall.name,
@@ -400,7 +413,34 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		} as ChatMessage;
 	}
 
-	private _outcome(req: SubagentRunRequest, status: 'success' | 'failed' | 'stopped', summary: string, artifacts: string[], tokensUsedEst: number, truncated: boolean, stopReason: string, touchedPaths: string[], extra?: { stopCode?: SubagentStopReason; model?: ModelSelection; promptTokens?: number; completionTokens?: number }): SubagentRunOutcome {
+	/**
+	 * Fold one role hop into the spend ledger, priced by the model the role actually ran on.
+	 * Fire-and-forget and never fatal: a missing price must not interrupt the role, and an
+	 * unknown price is recorded as unknown rather than as free (see `spendLedger`).
+	 */
+	private _recordSpend(model: ModelSelection | undefined, usage: LLMTokenUsage | undefined): void {
+		if (!model || !usage || (!usage.promptTokens && !usage.completionTokens)) {
+			return;
+		}
+		void (async () => {
+			try {
+				const { getModelCapabilities } = await import('../common/modelCapabilities.js');
+				const capabilities = getModelCapabilities(model.providerName, model.modelName, this._settings.state.overridesOfModel);
+				this._spendLedger.record({
+					providerId: model.providerName,
+					modelId: model.modelName,
+					inputTokens: usage.promptTokens ?? 0,
+					outputTokens: usage.completionTokens ?? 0,
+					cachedInputTokens: usage.cachedInputTokens ?? 0,
+					price: capabilities.cost,
+				});
+			} catch (err) {
+				vibeLog.warn('subagentRunner', `расход роли не записан: ${err}`);
+			}
+		})();
+	}
+
+	private _outcome(req: SubagentRunRequest, status: 'success' | 'failed' | 'stopped', summary: string, artifacts: string[], tokensUsedEst: number, truncated: boolean, stopReason: string, touchedPaths: string[], extra?: { stopCode?: SubagentStopReason; model?: ModelSelection; promptTokens?: number; completionTokens?: number; cachedTokens?: number }): SubagentRunOutcome {
 		return {
 			status,
 			summary: truncateSummary(summary, MAX_SUMMARY_CHARS),
@@ -412,6 +452,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 			...(extra?.model && extra.model.providerName !== 'auto' ? { providerName: extra.model.providerName, modelName: extra.model.modelName } : {}),
 			...(extra?.promptTokens ? { promptTokensUsed: extra.promptTokens } : {}),
 			...(extra?.completionTokens ? { completionTokensUsed: extra.completionTokens } : {}),
+			...(extra?.cachedTokens ? { cachedTokensUsed: extra.cachedTokens } : {}),
 			...(req.type === 'explore' ? { exploreReport: buildExploreReport(touchedPaths, truncated) } : {}),
 		};
 	}

@@ -1,3 +1,8 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * CJS mirror of common/modelUsageAggregator.ts
  * MUST stay in sync with the TypeScript source — no external dependencies.
@@ -10,7 +15,7 @@
 const VALID_KINDS = new Set(['chat', 'completion', 'apply', 'plan', 'mcp']);
 
 function isValidEvent(e) {
-	if (!e || typeof e !== 'object') return false;
+	if (!e || typeof e !== 'object') {return false;}
 	return typeof e.timestamp === 'number'
 		&& Number.isFinite(e.timestamp)
 		&& typeof e.provider === 'string'
@@ -38,13 +43,13 @@ function aggregateModelUsage(events, periodStart, periodEnd) {
 	let totalOutput = 0;
 
 	for (const event of events) {
-		if (!isValidEvent(event)) continue;
-		if (event.timestamp < periodStart || event.timestamp > periodEnd) continue;
+		if (!isValidEvent(event)) {continue;}
+		if (event.timestamp < periodStart || event.timestamp > periodEnd) {continue;}
 
 		totalEvents++;
 		totalInput += event.inputTokens;
 		totalOutput += event.outputTokens;
-		if (VALID_KINDS.has(event.kind)) byKind[event.kind]++;
+		if (VALID_KINDS.has(event.kind)) {byKind[event.kind]++;}
 
 		let provider = providerMap.get(event.provider);
 		if (!provider) {

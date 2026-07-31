@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * Export persisted agent plan (.plan.md) as an "Implementation plan" Markdown snippet for PR descriptions (GitHub/GitLab checkboxes).
  *
@@ -44,16 +49,16 @@ function extractMachineJsonBlock(raw) {
 /** @param {string} raw */
 function yamlFrontmatterPlanId(raw) {
 	const m = raw.match(/^---\s*\r?\n([\s\S]*?)\r?\n---/);
-	if (!m) return undefined;
+	if (!m) {return undefined;}
 	const pm = m[1].match(/^\s*planId:\s*["']?([^"'\\\s]+)["']?\s*$/m);
 	return pm ? pm[1].trim() : undefined;
 }
 
 /** @param {string} plansDir */
 function latestPlanFile(plansDir) {
-	if (!fs.existsSync(plansDir)) return undefined;
+	if (!fs.existsSync(plansDir)) {return undefined;}
 	const names = fs.readdirSync(plansDir).filter(n => /\.plan\.md$/i.test(n));
-	if (!names.length) return undefined;
+	if (!names.length) {return undefined;}
 	let best = null;
 	let bestM = 0;
 	for (const n of names) {
@@ -79,9 +84,9 @@ function resolveInputPath() {
 		return p;
 	}
 	const fi = args.indexOf('--file');
-	if (fi !== -1 && args[fi + 1]) return path.resolve(args[fi + 1]);
+	if (fi !== -1 && args[fi + 1]) {return path.resolve(args[fi + 1]);}
 	const pos = args.filter(a => !a.startsWith('-'));
-	if (pos.length === 1) return path.resolve(pos[0]);
+	if (pos.length === 1) {return path.resolve(pos[0]);}
 	usage();
 }
 

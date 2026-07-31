@@ -107,8 +107,7 @@ function renderReport(diff: VibeDefaultsDiff): string {
 }
 
 /** Opens a diff per file: release version (read-only, `vibe-default:`) ⇄ the workspace copy. */
-async function openDiffs(accessor: ServicesAccessor, vibeDir: URI, entries: readonly VibeDefaultsDiffEntry[]): Promise<void> {
-	const editorService = accessor.get(IEditorService);
+async function openDiffs(editorService: IEditorService, vibeDir: URI, entries: readonly VibeDefaultsDiffEntry[]): Promise<void> {
 	for (const entry of entries.slice(0, MAX_LISTED)) {
 		await editorService.openEditor({
 			original: { resource: VibeDefaultsContentProvider.toResource(entry.path) },
@@ -137,6 +136,7 @@ registerAction2(class extends Action2 {
 		// Capture services synchronously before any await (ServicesAccessor lifetime rule).
 		const fileService = accessor.get(IFileService);
 		const modal = accessor.get(IVibeModalService);
+		const editorService = accessor.get(IEditorService);
 		const vibeDir = vibeDirOf(accessor);
 		if (!vibeDir) {
 			return;
@@ -158,7 +158,7 @@ registerAction2(class extends Action2 {
 				: [{ id: 'close', label: localize('vibeide.defaults.close', 'Закрыть'), role: 'primary' }],
 		});
 		if (res.buttonId === 'diffs') {
-			await openDiffs(accessor, vibeDir, diffable);
+			await openDiffs(editorService, vibeDir, diffable);
 		}
 	}
 });
@@ -188,6 +188,7 @@ registerAction2(class extends Action2 {
 		const fileService = accessor.get(IFileService);
 		const notificationService = accessor.get(INotificationService);
 		const modal = accessor.get(IVibeModalService);
+		const editorService = accessor.get(IEditorService);
 		const vibeDir = vibeDirOf(accessor);
 		if (!vibeDir) {
 			return;
@@ -240,7 +241,7 @@ registerAction2(class extends Action2 {
 		try {
 			switch (res.buttonId) {
 				case 'diffs':
-					await openDiffs(accessor, vibeDir, human);
+					await openDiffs(editorService, vibeDir, human);
 					return;
 
 				case 'keep': {

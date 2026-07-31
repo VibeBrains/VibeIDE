@@ -11,6 +11,7 @@ import { displayInfoOfProviderName, FeatureName, providerNames } from '../../com
 import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo } from '../../common/modelCapabilities.js';
 import { traceSendEvent } from '../../common/llmSendTrace.js';
 import { sendLLMMessageToProviderImplementation, dynamicProviderImplementation } from './sendLLMMessage.impl.js';
+import { setLLMProxyConfig } from './systemCAFetch.js';
 
 /**
  * Register dynamic providers (.vibe/providers.json) into THIS process's caps registry. The renderer's
@@ -60,6 +61,10 @@ export const sendLLMMessage = async ({
 	syncExternalProvidersFromSettings(settingsOfProvider);
 	traceSendEvent({ kind: 'providers-sync', providerName, modelName });
 
+	// Apply the outbound proxy (if any) to the shared undici dispatcher BEFORE any provider client is
+	// created — one chokepoint covers every provider and both send paths. No-op when unchanged.
+	setLLMProxyConfig(runtimeOptions?.proxyUrl);
+
 	// only captures number of messages and message "shape", no actual code, instructions, prompts, etc
 	const captureLLMEvent = (eventId: string, extras?: object) => {
 
@@ -100,9 +105,16 @@ export const sendLLMMessage = async ({
 		onFinalMessage_(params);
 	};
 
-	const onError: OnError = ({ message: errorMessage, fullError }) => {
+	const onError: OnError = ({ message: errorMessage, fullError, diagnostics }) => {
 		if (_didAbort) { return; }
-		vibeLog.error('sendLLMMessage', 'sendLLMMessage onError:', errorMessage);
+		// Log the refusal details next to the message: this file's log line is the one that
+		// survives in vibeide-main.log, and without the body code a hidden rate limit reads
+		// exactly like "the model stopped on its own" (modelStalls.md #001).
+		if (diagnostics) {
+			vibeLog.error('sendLLMMessage', 'sendLLMMessage onError:', errorMessage, diagnostics);
+		} else {
+			vibeLog.error('sendLLMMessage', 'sendLLMMessage onError:', errorMessage);
+		}
 
 		// handle failed to fetch / connection errors, which give 0 information by design
 		const isConnectionError = errorMessage === 'TypeError: fetch failed'
@@ -130,7 +142,7 @@ export const sendLLMMessage = async ({
 		}
 
 		captureLLMEvent(`${loggingName} - Error`, { error: errorMessage });
-		onError_({ message: errorMessage, fullError });
+		onError_({ message: errorMessage, fullError, ...(diagnostics ? { diagnostics } : {}) });
 	};
 
 	// we should NEVER call onAbort internally, only from the outside
@@ -153,12 +165,12 @@ export const sendLLMMessage = async ({
 			onError({ message: `Error: Cannot use "auto" provider - must resolve to a real model first. This usually means auto model selection failed. Please check your model provider settings or select a specific model.`, fullError: null });
 			return;
 		}
-		// Built-in providers resolve from the static map. A DYNAMIC provider (.vibe/providers.json)
+		// Built-in providers resolve from the static map. A CONFIG provider (providers.json)
 		// isn't a key there — route it through the AI-SDK path when its transient transport overlay
 		// carries a baseURL (set on the send-site). No baseURL → fall through to "not recognized"
 		// (nothing to send to). Built-ins are unaffected: their map entry is always found first.
-		const dynamicHasTransport = !!(settingsOfProvider as unknown as Record<string, { baseURL?: string } | undefined>)[providerName]?.baseURL;
-		const implementation = sendLLMMessageToProviderImplementation[providerName]
+		const dynamicHasTransport = !!(settingsOfProvider as Record<string, { baseURL?: string } | undefined>)[providerName]?.baseURL;
+		const implementation = (sendLLMMessageToProviderImplementation as Partial<Record<string, (typeof sendLLMMessageToProviderImplementation)[keyof typeof sendLLMMessageToProviderImplementation]>>)[providerName]
 			?? (dynamicHasTransport ? dynamicProviderImplementation : undefined);
 		if (!implementation) {
 			onError({ message: `Error: Provider "${providerName}" not recognized.`, fullError: null });

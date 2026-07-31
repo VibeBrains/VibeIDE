@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 
-import { ProviderName, ModelSelection, OverridesOfModel, localProviderNames } from './vibeideSettingsTypes.js';
+import { ModelSelection, OverridesOfModel } from './vibeideSettingsTypes.js';
 import { getModelCapabilities, VibeideStaticModelInfo } from './modelCapabilities.js';
 
 /**
@@ -86,7 +86,7 @@ export class ModelCapabilityRegistry {
 		}
 
 		const rawCapabilities = getModelCapabilities(
-			modelSelection.providerName as ProviderName,
+			modelSelection.providerName,
 			modelSelection.modelName,
 			overridesOfModel
 		);
@@ -105,7 +105,10 @@ export class ModelCapabilityRegistry {
 	): ModelCapabilityProfile {
 		const name = modelSelection.modelName.toLowerCase();
 		const provider = modelSelection.providerName.toLowerCase();
-		const isLocal = (localProviderNames as readonly ProviderName[]).includes(modelSelection.providerName as ProviderName);
+		// Explicit local names only — this registry has no settings access, so endpoint-based
+		// locality (config providers, localhost aggregators) is not detectable here. Callers that
+		// need precise locality use isLocalProvider(providerName, settingsOfProvider) instead.
+		const isLocal = modelSelection.providerName === 'ollama' || modelSelection.providerName === 'vLLM' || modelSelection.providerName === 'lmStudio';
 
 		// Compute strengths (0-1 scale)
 		const strengths = {

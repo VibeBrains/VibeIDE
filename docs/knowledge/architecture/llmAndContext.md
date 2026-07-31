@@ -73,7 +73,7 @@
 - **Прозрачность:** `getLastFilterStats()` возвращает `{fullResult, compactedResult, wasCompacted}` — `VibeDebugPromptService` получает **оба** варианта для "debug my prompt" replay
 - Каждое усечение явно маркируется `[... N lines/chars truncated ...]` — нет тихого удаления данных
 - `hasCompactedThisSession()` → статус-бар может показать индикатор
-- Phase 3b: hook в `chatThreadService._runToolCall` — injection point документирован в `references/v1/context-filtering-policy.md`
+- Phase 3b: hook в `chatThreadService._runToolCall` — injection point документирован в `docs/references-v1/context-filtering-policy.md`
 
 **Применение:** добавить новый compactor — добавить ключ в `TOOL_COMPACTORS` в `vibeContextFilterService.ts`; режим — настройка `vibeide.context.filterMode`.
 

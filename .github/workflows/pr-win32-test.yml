@@ -140,7 +140,7 @@ jobs:
         if: ${{ inputs.electron_tests }}
         shell: pwsh
         run: .\scripts\test.bat --tfs "Unit Tests"
-        timeout-minutes: 15
+        timeout-minutes: 30
 
       - name: 🧪 Run unit tests (node.js)
         if: ${{ inputs.electron_tests }}

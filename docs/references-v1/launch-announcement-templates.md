@@ -24,7 +24,7 @@ Show HN: VibeIDE — privacy-first AI IDE forked from VS Code, no telemetry, loc
 Author here. VibeIDE is a fork of VS Code with the AI/agent layer rewritten:
 
 - Zero cloud telemetry by default; the Telemetry service is a local audit channel
-  for routing decisions only (full policy in references/v1/telemetry-policy.md
+  for routing decisions only (full policy in docs/references-v1/telemetry-policy.md
   in the repo).
 - Local Ollama / LM Studio support out of the box; cloud providers (Anthropic,
   OpenAI, Gemini) are opt-in.
@@ -110,7 +110,7 @@ https://github.com/VibeBrains/VibeIDE
 (Anthropic / Ollama / etc), GitHub release check, and any MCP server you
 configure. Strict-mode blocks even those.
 
-The audit doc is committed in the repo: references/v1/telemetry-policy.md
+The audit doc is committed in the repo: docs/references-v1/telemetry-policy.md
 ```
 
 ```
@@ -178,8 +178,8 @@ extensions; sample extension on Open VSX. Signed builds for all four
 distribution targets.
 
 References:
-- references/v1/telemetry-policy.md — privacy contract
-- references/v1/distribution-signing-runbook.md — signing process
+- docs/references-v1/telemetry-policy.md — privacy contract
+- docs/references-v1/distribution-signing-runbook.md — signing process
 - bin/vibe-discord-import.mjs — Discord forum bug-intake CLI
 
 Looking for feedback on the architecture and the privacy guarantees, plus

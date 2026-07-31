@@ -13,7 +13,7 @@
  *   • New Chat           (Cmd/Ctrl+Alt+I; mac: Ctrl+Cmd+I)
  *   • Chat History       (no default key; command palette / menu)
  *   • VibeIDE Settings
- *   • Provider Dashboard (usage & cost report)
+ *   • Ключи и расход (which keys are configured and what they cost)
  *   • Open Skills Folder
  *   • Open Plans Folder
  *   • Search Codebase (AI) (Ctrl/Cmd+Shift+Q)
@@ -29,6 +29,7 @@ import { VIBEIDE_SHOW_CHAT_HISTORY_CMD } from './actionIDs.js';
 import { VIBEIDE_TOGGLE_SETTINGS_ACTION_ID } from './vibeideSettingsPane.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IVibeProviderDashboardService } from './vibeProviderDashboard.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IUntitledTextResourceEditorInput } from '../../../common/editor.js';
 import { registerVibeideFaSolidIcon } from './vibeideFontAwesomeSolid.js';
@@ -86,7 +87,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_PROVIDER_DASHBOARD_CMD,
-			title: localize2('vibeideProviderDashboard', 'VibeIDE: Дашборд провайдера'),
+			title: localize2('vibeideProviderDashboard', 'VibeIDE: Ключи и расход'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 			f1: true,
 		});
@@ -96,6 +97,7 @@ registerAction2(class extends Action2 {
 		const dashboardService = accessor.get(IVibeProviderDashboardService);
 		const editorService = accessor.get(IEditorService);
 		const notificationService = accessor.get(INotificationService);
+		const commandService = accessor.get(ICommandService);
 
 		try {
 			const report = dashboardService.generateReport();
@@ -107,6 +109,14 @@ registerAction2(class extends Action2 {
 				options: { pinned: true },
 			};
 			await editorService.openEditor(input);
+			// Rendered, not raw — the report is for reading; the source stays one click away.
+			// `commandService` is resolved BEFORE the await above: an accessor is only valid for the
+			// synchronous part of `run()`, and calling `accessor.get()` after an await throws.
+			try {
+				await commandService.executeCommand('markdown.showPreview');
+			} catch {
+				// Markdown extension disabled — the source view is an acceptable fallback.
+			}
 		} catch (err) {
 			notificationService.notify({
 				severity: Severity.Error,

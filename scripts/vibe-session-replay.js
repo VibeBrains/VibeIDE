@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe session replay — replay agent session from audit log
  *
@@ -40,7 +45,7 @@ function groupBySessions(events) {
 	const sessions = {};
 	for (const event of events) {
 		const sessionId = event.meta?.sessionId || 'unknown';
-		if (!sessions[sessionId]) sessions[sessionId] = [];
+		if (!sessions[sessionId]) {sessions[sessionId] = [];}
 		sessions[sessionId].push(event);
 	}
 	return sessions;
@@ -91,7 +96,7 @@ session.forEach((event, i) => {
 	const model = event.model ? ` [${event.model}]` : '';
 	const status = event.ok ? '✅' : '❌';
 	console.log(`  ${(i + 1).toString().padStart(3)}. ${time} ${status} ${event.action}${model}${files ? ` — ${files}` : ''}`);
-	if (event.meta?.requestId) console.log(`       requestId: ${event.meta.requestId}`);
+	if (event.meta?.requestId) {console.log(`       requestId: ${event.meta.requestId}`);}
 });
 
 console.log(`\n📊 Summary: ${session.length} events`);

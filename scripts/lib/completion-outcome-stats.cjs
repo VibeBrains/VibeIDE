@@ -1,4 +1,8 @@
-// Copyright 2026 VibeIDE Team. MIT License.
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 // CJS mirror of common/completionOutcomeStats.ts — MUST stay in sync.
 // Used by: vibe-doctor.js --completion-stats
 'use strict';
@@ -8,7 +12,7 @@
  * @returns {boolean}
  */
 function isValid(e) {
-	if (!e || typeof e !== 'object') return false;
+	if (!e || typeof e !== 'object') {return false;}
 	const o = /** @type {Record<string,unknown>} */ (e);
 	return typeof o.timestamp === 'number'
 		&& Number.isFinite(o.timestamp)
@@ -31,11 +35,11 @@ function aggregateCompletionEvents(events, periodStart, periodEnd) {
 	let acceptsInPeriod = 0;
 
 	for (const event of events) {
-		if (!isValid(event)) continue;
+		if (!isValid(event)) {continue;}
 		const e = /** @type {any} */ (event);
-		if (e.timestamp < periodStart || e.timestamp > periodEnd) continue;
+		if (e.timestamp < periodStart || e.timestamp > periodEnd) {continue;}
 		totalInPeriod++;
-		if (e.outcome === 'accept') acceptsInPeriod++;
+		if (e.outcome === 'accept') {acceptsInPeriod++;}
 
 		const b = buckets.get(e.modelId) ?? {
 			totalEvents: 0, accepts: 0, rejects: 0, ignores: 0,
@@ -45,9 +49,9 @@ function aggregateCompletionEvents(events, periodStart, periodEnd) {
 		};
 		b.totalEvents++;
 		b.suggestionLengthSum += e.suggestionLength;
-		if (e.outcome === 'accept') b.accepts++;
-		else if (e.outcome === 'reject') b.rejects++;
-		else b.ignores++;
+		if (e.outcome === 'accept') {b.accepts++;}
+		else if (e.outcome === 'reject') {b.rejects++;}
+		else {b.ignores++;}
 		if (typeof e.latencyMs === 'number' && Number.isFinite(e.latencyMs)) {
 			b.latencySum += e.latencyMs;
 			b.latencyCount++;
@@ -118,7 +122,7 @@ if (process.argv.includes('--test')) {
 		try { fn(); console.log(`  ✅ ${name}`); passed++; }
 		catch (e) { console.error(`  ❌ ${name}: ${e.message}`); failed++; }
 	}
-	function eq(a, b) { if (a !== b) throw new Error(`expected ${b}, got ${a}`); }
+	function eq(a, b) { if (a !== b) {throw new Error(`expected ${b}, got ${a}`);} }
 
 	const now = Date.now();
 	const events = [

@@ -14,11 +14,11 @@ import OpenAI, { ClientOptions, AzureOpenAI } from 'openai';
 import { Stream as OpenAIStream } from 'openai/streaming';
 import { MistralCore } from '@mistralai/mistralai/core.js';
 import { fimComplete } from '@mistralai/mistralai/funcs/fimComplete.js';
-import { Tool as GeminiTool, FunctionDeclaration, GoogleGenAI, ThinkingConfig, Schema, Type } from '@google/genai';
+import { Tool as GeminiTool, FunctionDeclaration, GoogleGenAI, ThinkingConfig, ThinkingLevel, Schema, Type } from '@google/genai';
 /* eslint-enable */
 
 import { buildContextOverflowError, buildEmptyResponseError, GeminiLLMChatMessage, isContextOverflow, LLMChatMessage, LLMRuntimeOptions, OllamaModelResponse, RawToolCallObj, RawToolParamsObj } from '../../common/sendLLMMessageTypes.js';
-import { ChatMode, displayInfoOfProviderName, FeatureName, ProviderName, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
+import { ChatMode, displayInfoOfProviderName, FeatureName, ProviderId, ProviderName, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { getSendableReasoningInfo, getModelCapabilities, getProviderCapabilities, defaultProviderSettings, getReservedOutputTokenSpace } from '../../common/modelCapabilities.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGrammar.js';
 import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js';
@@ -26,14 +26,14 @@ import { generateUuid } from '../../../../../base/common/uuid.js';
 import { hash } from '../../../../../base/common/hash.js';
 import { ensureSystemCADispatcher, resetSystemCADispatcher } from './systemCAFetch.js';
 import { sendViaAISdk } from './aiSdkAdapter.js';
-import { getGoogleApiKey, assertHttpHeaderSafe } from './llmHelpers.js';
+import { getGoogleApiKey, assertHttpHeaderSafe, withProcessEnvApiKey } from './llmHelpers.js';
 import type { SendChatParams_Internal, SendFIMParams_Internal, ListParams_Internal } from './sendLLMMessage.internalTypes.js';
 
 
 
 
 
-const invalidApiKeyMessage = (providerName: ProviderName) => `Invalid ${displayInfoOfProviderName(providerName).title} API key.`;
+const invalidApiKeyMessage = (providerName: ProviderId) => `Invalid ${displayInfoOfProviderName(providerName).title} API key.`;
 
 // ------------ SDK POOLING FOR LOCAL PROVIDERS ------------
 
@@ -59,7 +59,7 @@ const ollamaClientCache = new Map<string, Ollama>();
  * Stale entries are left behind until the next reset/restart — a handful of idle SDK objects,
  * not a leak worth an eviction scheme.
  */
-const buildOpenAICacheKey = (providerName: ProviderName, settingsOfProvider: SettingsOfProvider): string => {
+const buildOpenAICacheKey = (providerName: ProviderId, settingsOfProvider: SettingsOfProvider): string => {
 	return `${providerName}:${hash(JSON.stringify(settingsOfProvider[providerName] ?? null))}`;
 };
 
@@ -68,7 +68,7 @@ const buildOpenAICacheKey = (providerName: ProviderName, settingsOfProvider: Set
  * For local providers (ollama, vLLM, lmStudio, localhost openAICompatible/liteLLM),
  * we cache clients to reuse connections. Cloud providers always get new instances.
  */
-const getOpenAICompatibleClient = async ({ settingsOfProvider, providerName, includeInPayload, runtimeOptions }: { settingsOfProvider: SettingsOfProvider; providerName: ProviderName; includeInPayload?: Record<string, unknown>; runtimeOptions?: LLMRuntimeOptions }): Promise<OpenAI> => {
+const getOpenAICompatibleClient = async ({ settingsOfProvider, providerName, includeInPayload, runtimeOptions }: { settingsOfProvider: SettingsOfProvider; providerName: ProviderId; includeInPayload?: Record<string, unknown>; runtimeOptions?: LLMRuntimeOptions }): Promise<OpenAI> => {
 	// Detect if this is a local provider
 	const isExplicitLocalProvider = providerName === 'ollama' || providerName === 'vLLM' || providerName === 'lmStudio';
 	let isLocalhostEndpoint = false;
@@ -180,7 +180,11 @@ const computeMaxTokensForLocalProvider = (isLocalProvider: boolean, featureName:
 	return 300;
 };
 
-const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includeInPayload, runtimeOptions }: { settingsOfProvider: SettingsOfProvider; providerName: ProviderName; includeInPayload?: Record<string, unknown>; runtimeOptions?: LLMRuntimeOptions }) => {
+const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includeInPayload, runtimeOptions }: { settingsOfProvider: SettingsOfProvider; providerName: ProviderId; includeInPayload?: Record<string, unknown>; runtimeOptions?: LLMRuntimeOptions }) => {
+	// Inherit the provider's OS-env API key when Settings has none. Done once here so every
+	// provider branch below reads the resolved key through its usual `settingsOfProvider` lookup.
+	settingsOfProvider = withProcessEnvApiKey(settingsOfProvider, providerName);
+
 	// Pre-flight: reject API keys with non-Latin-1 chars before they reach undici as a header.
 	const providerCfg: { apiKey?: string } = settingsOfProvider[providerName] ?? {};
 	if (typeof providerCfg.apiKey === 'string') {
@@ -1240,7 +1244,8 @@ const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessag
 		specialToolFormat,
 	} = getModelCapabilities(providerName, modelName_, overridesOfModel);
 
-	const thisConfig = settingsOfProvider.anthropic;
+	// Falls back to ANTHROPIC_API_KEY when Settings has no key (see withEnvApiKey).
+	const thisConfig = withProcessEnvApiKey(settingsOfProvider, 'anthropic').anthropic;
 	const { providerReasoningIOSettings } = getProviderCapabilities(providerName);
 
 	// reasoning
@@ -1516,6 +1521,21 @@ const geminiTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | u
 
 
 
+/**
+ * Maps our effort-slider value onto Gemini's `thinking_level` enum (Gemini 3.x).
+ * An unrecognized value yields `undefined` so the request goes out on the vendor
+ * default — forwarding a bogus level would be an HTTP 400.
+ */
+const thinkingConfigOfEffort = (effort: string): ThinkingConfig | undefined => {
+	switch (effort.toLowerCase()) {
+		case 'minimal': return { thinkingLevel: ThinkingLevel.MINIMAL };
+		case 'low': return { thinkingLevel: ThinkingLevel.LOW };
+		case 'medium': return { thinkingLevel: ThinkingLevel.MEDIUM };
+		case 'high': return { thinkingLevel: ThinkingLevel.HIGH };
+		default: return undefined;
+	}
+};
+
 // Implementation for Gemini using Google's native API
 const sendGeminiChat = async ({
 	messages,
@@ -1535,7 +1555,8 @@ const sendGeminiChat = async ({
 
 	if (providerName !== 'gemini') { throw new Error(`Sending Gemini chat, but provider was ${providerName}`); }
 
-	const thisConfig = settingsOfProvider[providerName];
+	// Falls back to GEMINI_API_KEY when Settings has no key (see withEnvApiKey).
+	const thisConfig = withProcessEnvApiKey(settingsOfProvider, providerName)[providerName];
 
 	const {
 		modelName,
@@ -1550,10 +1571,16 @@ const sendGeminiChat = async ({
 	const reasoningInfo = getSendableReasoningInfo('Chat', providerName, modelName_, modelSelectionOptions, overridesOfModel); // user's modelName_ here
 	// const includeInPayload = providerReasoningIOSettings?.input?.includeInPayload?.(reasoningInfo) || {}
 
+	// Gemini 2.5 takes a numeric `thinkingBudget`; Gemini 3.x replaced it with the `thinking_level`
+	// string enum (minimal/low/medium/high — Pro has no 'minimal'), so the effort slider has to be
+	// carried through here. Without this branch every 3.x request went out on the vendor default and
+	// the slider was decorative. https://ai.google.dev/gemini-api/docs/thinking
 	const thinkingConfig: ThinkingConfig | undefined = !reasoningInfo?.isReasoningEnabled ? undefined
 		: reasoningInfo.type === 'budget_slider_value' ?
 			{ thinkingBudget: reasoningInfo.reasoningBudget }
-			: undefined;
+			: reasoningInfo.type === 'effort_slider_value' ?
+				thinkingConfigOfEffort(reasoningInfo.reasoningEffort)
+				: undefined;
 
 	// tools
 	const potentialTools = geminiTools(chatMode, mcpTools);

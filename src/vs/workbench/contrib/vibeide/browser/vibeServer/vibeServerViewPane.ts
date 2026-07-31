@@ -17,13 +17,26 @@ import { IViewDescriptorService } from '../../../../common/views.js';
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
 import { IOpenerService } from '../../../../../platform/opener/common/opener.js';
 import { IThemeService } from '../../../../../platform/theme/common/themeService.js';
-import { IHoverService } from '../../../../../platform/hover/browser/hover.js';
+import { IHoverService, WorkbenchHoverDelegate } from '../../../../../platform/hover/browser/hover.js';
+import { IHoverDelegate } from '../../../../../base/browser/ui/hover/hoverDelegate.js';
 import { ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { ViewPane, IViewPaneOptions } from '../../../../browser/parts/views/viewPane.js';
 import { IVibeServerService } from './vibeServerService.js';
+import { IVibeServerStackService, IVibeServerStackEntry, VibeServerEntryState } from './vibeServerStackService.js';
 import { VibeServerCommands } from './vibeServerConstants.js';
 
 const $ = DOM.$;
+
+/** Codicon + spin flag for each entry state, shown as the status glyph in a stack row. */
+function iconForState(state: VibeServerEntryState): { icon: ThemeIcon; spin?: boolean } {
+	switch (state) {
+		case 'running': return { icon: Codicon.passFilled };
+		case 'starting': return { icon: Codicon.loading, spin: true };
+		case 'failed': return { icon: Codicon.error };
+		case 'excluded': return { icon: Codicon.circleSlash };
+		default: return { icon: Codicon.circleLargeOutline };
+	}
+}
 
 interface IAction {
 	readonly id: string;
@@ -37,6 +50,7 @@ export class VibeServerViewPane extends ViewPane {
 
 	private _bodyDom: HTMLElement | undefined;
 	private readonly _renderStore = this._register(new MutableDisposable<DisposableStore>());
+	private readonly _hoverDelegate: IHoverDelegate;
 
 	constructor(
 		options: IViewPaneOptions,
@@ -48,12 +62,18 @@ export class VibeServerViewPane extends ViewPane {
 		@IInstantiationService instantiationService: IInstantiationService,
 		@IOpenerService openerService: IOpenerService,
 		@IThemeService themeService: IThemeService,
-		@IHoverService hoverService: IHoverService,
+		@IHoverService private readonly _hoverService: IHoverService,
 		@IVibeServerService private readonly _vibeServerService: IVibeServerService,
+		@IVibeServerStackService private readonly _stackService: IVibeServerStackService,
 		@ICommandService private readonly _commandService: ICommandService,
 	) {
-		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
+		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, _hoverService);
+		// Delayed hovers for stack rows (guideline: IHoverService, not native title).
+		this._hoverDelegate = this._register(instantiationService.createInstance(WorkbenchHoverDelegate, 'element', { dynamicDelay: () => 700 }, {}));
 		this._register(this._vibeServerService.onDidChangeStatus(() => this._render()));
+		this._register(this._stackService.onDidChangeStack(() => this._render()));
+		// Discover `.vibe/servers.json` (if any) as soon as the pane exists.
+		void this._stackService.reload();
 	}
 
 	override shouldShowWelcome(): boolean {
@@ -74,6 +94,13 @@ export class VibeServerViewPane extends ViewPane {
 		const store = new DisposableStore();
 		this._renderStore.value = store;
 		DOM.clearNode(body);
+
+		// A project with `.vibe/servers.json` gets the multi-server list; otherwise the original
+		// single auto-detected server UI (absent file = today's behaviour).
+		if (this._stackService.available) {
+			this._renderStack(body, store);
+			return;
+		}
 
 		const status = this._vibeServerService.status;
 
@@ -99,6 +126,61 @@ export class VibeServerViewPane extends ViewPane {
 			DOM.append(row, $('span.vibe-server-action-label')).textContent = action.label;
 			store.add(DOM.addDisposableListener(row, 'click', () => void this._commandService.executeCommand(action.id)));
 		}
+	}
+
+	/** Renders the `.vibe/servers.json` stack: one row per entry with status + start/stop. */
+	private _renderStack(body: HTMLElement, store: DisposableStore): void {
+		const entries = this._stackService.entries;
+		const anyRunning = entries.some(e => e.state === 'running' || e.state === 'starting');
+
+		const header = DOM.append(body, $('.vibe-server-stack-header'));
+		DOM.append(header, $('span.vibe-server-stack-title')).textContent = localize('vibeServer.stack.title', "Стек проекта");
+		const allBtn = DOM.append(header, $('span.vibe-server-stack-all'));
+		allBtn.className = `vibe-server-stack-all ${ThemeIcon.asClassName(anyRunning ? Codicon.debugStop : Codicon.runAll)}`;
+		const allLabel = anyRunning ? localize('vibeServer.stack.stopAll', "Остановить всё") : localize('vibeServer.stack.startAll', "Запустить всё");
+		store.add(this._hoverService.setupManagedHover(this._hoverDelegate, allBtn, allLabel));
+		store.add(DOM.addDisposableListener(allBtn, 'click', () => {
+			void (anyRunning ? this._stackService.stopAll() : this._stackService.startAll());
+		}));
+
+		const list = DOM.append(body, $('.vibe-server-stack-list'));
+		for (const item of entries) {
+			this._renderStackRow(list, item, store);
+		}
+
+		for (const warning of this._stackService.warnings) {
+			DOM.append(body, $('.vibe-server-stack-warning')).textContent = warning;
+		}
+	}
+
+	private _renderStackRow(list: HTMLElement, item: IVibeServerStackEntry, store: DisposableStore): void {
+		const running = item.state === 'running';
+		const busy = item.state === 'starting';
+		const row = DOM.append(list, $('.vibe-server-stack-row'));
+		row.classList.toggle('excluded', item.state === 'excluded');
+
+		const glyph = iconForState(item.state);
+		const statusIcon = DOM.append(row, $('span.vibe-server-stack-status'));
+		statusIcon.className = `vibe-server-stack-status ${ThemeIcon.asClassName(glyph.icon)}${glyph.spin ? ' codicon-modifier-spin' : ''}`;
+
+		DOM.append(row, $('span.vibe-server-stack-name')).textContent = item.entry.name ?? item.entry.id;
+		const meta = DOM.append(row, $('span.vibe-server-stack-port'));
+		meta.textContent = typeof item.entry.port === 'number' ? `:${item.entry.port}` : '';
+
+		// The detail (failure/exclusion reason) is the row's hover, so a silent-looking row still explains itself.
+		if (item.detail) {
+			store.add(this._hoverService.setupManagedHover(this._hoverDelegate, row, item.detail));
+		}
+
+		const action = DOM.append(row, $('span.vibe-server-stack-action'));
+		const actionIcon = running || busy ? Codicon.debugStop : Codicon.play;
+		action.className = `vibe-server-stack-action ${ThemeIcon.asClassName(actionIcon)}`;
+		const actionLabel = running || busy ? localize('vibeServer.stack.stop', "Остановить") : localize('vibeServer.stack.start', "Запустить");
+		store.add(this._hoverService.setupManagedHover(this._hoverDelegate, action, actionLabel));
+		store.add(DOM.addDisposableListener(action, 'click', e => {
+			e.stopPropagation();
+			void (running || busy ? this._stackService.stopEntry(item.entry.id) : this._stackService.startEntry(item.entry.id));
+		}));
 	}
 
 	private _actionsFor(state: IVibeServerService['status']['state']): IAction[] {

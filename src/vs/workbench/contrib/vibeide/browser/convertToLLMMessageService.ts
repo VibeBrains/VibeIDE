@@ -77,7 +77,7 @@ import { localize } from '../../../../nls.js';
 const TOKEN_CALIBRATION_STORAGE_KEY = 'vibeide.chat.tokenCalibrationFactors';
 import { AnthropicLLMChatMessage, AnthropicReasoning, GeminiLLMChatMessage, LLMChatMessage, LLMFIMMessage, OpenAILLMChatMessage, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
-import { autoModelFallbackProviderOrder, ChatMode, FeatureName, ModelSelection, ProviderName } from '../common/vibeideSettingsTypes.js';
+import { autoFallbackProviderIds, ChatMode, FeatureName, ModelSelection, ProviderId } from '../common/vibeideSettingsTypes.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { hash } from '../../../../base/common/hash.js';
 import { isLocalProvider } from '../common/isLocalProvider.js';
@@ -1385,7 +1385,7 @@ const prepareMessages = (params: {
 	contextWindow: number;
 	reservedOutputTokenSpace: number | null | undefined;
 	maxInputTokensSafety?: number;
-	providerName: ProviderName;
+	providerName: ProviderId;
 }): { messages: LLMChatMessage[]; separateSystemMessage: string | undefined } => {
 
 	const specialFormat = params.specialToolFormat; // this is just for ts stupidness
@@ -1515,11 +1515,11 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const providers = this.vibeideSettingsService.state.settingsOfProvider;
 		const slashIdx = modelId.indexOf('/');
 		if (slashIdx > 0) {
-			const providerName = modelId.slice(0, slashIdx) as ProviderName;
+			const providerName = modelId.slice(0, slashIdx);
 			const modelName = modelId.slice(slashIdx + 1);
 			return providers[providerName]?.models?.some(m => m.modelName === modelName && !m.isHidden) ? { providerName, modelName } : null;
 		}
-		for (const providerName of autoModelFallbackProviderOrder) {
+		for (const providerName of autoFallbackProviderIds(providers)) {
 			const settings = providers[providerName];
 			if (settings?._didFillInProviderSettings && settings.models?.some(m => m.modelName === modelId && !m.isHidden)) {
 				return { providerName, modelName: modelId };
@@ -1579,6 +1579,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			return;
 		}
 		// Safety timeout — don't leave a pending key forever if the provider stalls.
+		// @timer-audit-ok: fire-and-forget in a per-request method; the callback only prunes a Map
+		// entry, so registering a disposable per request would accumulate faster than it helps.
 		const rid = requestId;
 		setTimeout(() => {
 			if (this._historySummaryPending.has(headKey)) {
@@ -1908,7 +1910,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// Resolve capabilities only for a concrete model; tolerate auto/null so the report still
 		// shows the model-agnostic composition (rules, playbook, goals, refs).
 		const sel = modelSelection && modelSelection.providerName !== 'auto'
-			? { providerName: modelSelection.providerName as Exclude<ProviderName, 'auto'>, modelName: modelSelection.modelName }
+			? { providerName: modelSelection.providerName, modelName: modelSelection.modelName }
 			: null;
 		let specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined = undefined;
 		let modelContextWindow = 0;

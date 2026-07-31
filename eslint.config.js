@@ -39,7 +39,7 @@ export default tseslint.config(
 		rules: {
 			'constructor-super': 'warn',
 			'curly': 'warn',
-			'eqeqeq': 'warn',
+			'eqeqeq': ['warn', 'always', { 'null': 'ignore' }],
 			'prefer-const': [
 				'warn',
 				{
@@ -1519,6 +1519,7 @@ export default tseslint.config(
 						// 'path', NOT allowed: use src/vs/base/common/path.ts instead
 						'perf_hooks',
 						'readline',
+						'socks',
 						'ssh2',
 						'stream',
 						'string_decoder',

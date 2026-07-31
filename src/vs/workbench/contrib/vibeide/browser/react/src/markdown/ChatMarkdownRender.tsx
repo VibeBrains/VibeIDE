@@ -7,14 +7,6 @@
 import React, { JSX, useMemo, useState, useEffect, useRef } from 'react';
 import { marked, MarkedToken, Token } from 'marked';
 
-// Type declarations for requestIdleCallback (fallback for older browsers)
-declare global {
-	interface Window {
-		requestIdleCallback?: (callback: (deadline: { timeRemaining: () => number; didTimeout: boolean }) => void, options?: { timeout?: number }) => number;
-		cancelIdleCallback?: (id: number) => void;
-	}
-}
-
 import { convertToVscodeLang, detectLanguage } from '../../../../common/helpers/languageHelpers.js';
 import { BlockCodeApplyWrapper } from './ApplyBlockHoverButtons.js';
 import { useAccessor } from '../util/services.js';
@@ -609,7 +601,7 @@ export const ChatMarkdownRender = ({ string, inPTag = false, chatMessageLocation
 	// Optimize: Use requestAnimationFrame to sync with browser repaint cycle
 	// This reduces parsing overhead and aligns with throttled state updates
 	const [debouncedString, setDebouncedString] = useState(redactedString);
-	const rafRef = useRef<number | undefined>();
+	const rafRef = useRef<number | undefined>(undefined);
 	const lastUpdateRef = useRef<string>(redactedString);
 
 	useEffect(() => {

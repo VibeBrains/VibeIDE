@@ -1,6 +1,6 @@
 /*---------------------------------------------------------------------------------------------
- *  Copyright 2026 VibeIDE Team. All rights reserved.
- *  Licensed under the MIT License. See LICENSE.txt in the project root for license information.
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
 'use strict';
@@ -47,19 +47,19 @@ function decodeProjectCommand(raw) {
 		}
 	}
 	const cmd = { id: o.id, name: o.name, command: o.command };
-	if (typeof o.description === 'string') cmd.description = o.description;
-	if (typeof o.icon === 'string') cmd.icon = o.icon;
-	if (typeof o.color === 'string') cmd.color = o.color;
-	if (Array.isArray(o.args)) cmd.args = o.args.slice();
-	if (typeof o.cwd === 'string') cmd.cwd = o.cwd;
-	if (o.env && typeof o.env === 'object') cmd.env = { ...o.env };
-	if (o.terminal === 'integrated' || o.terminal === 'external' || o.terminal === 'background') cmd.terminal = o.terminal;
-	if (typeof o.shell === 'boolean') cmd.shell = o.shell;
-	if (typeof o.confirm === 'boolean') cmd.confirm = o.confirm;
-	if (typeof o.singleton === 'boolean') cmd.singleton = o.singleton;
-	if (typeof o.pinned === 'boolean') cmd.pinned = o.pinned;
-	if (typeof o.order === 'number' && Number.isFinite(o.order)) cmd.order = o.order;
-	if (typeof o.workflowId === 'string') cmd.workflowId = o.workflowId;
+	if (typeof o.description === 'string') {cmd.description = o.description;}
+	if (typeof o.icon === 'string') {cmd.icon = o.icon;}
+	if (typeof o.color === 'string') {cmd.color = o.color;}
+	if (Array.isArray(o.args)) {cmd.args = o.args.slice();}
+	if (typeof o.cwd === 'string') {cmd.cwd = o.cwd;}
+	if (o.env && typeof o.env === 'object') {cmd.env = { ...o.env };}
+	if (o.terminal === 'integrated' || o.terminal === 'external' || o.terminal === 'background') {cmd.terminal = o.terminal;}
+	if (typeof o.shell === 'boolean') {cmd.shell = o.shell;}
+	if (typeof o.confirm === 'boolean') {cmd.confirm = o.confirm;}
+	if (typeof o.singleton === 'boolean') {cmd.singleton = o.singleton;}
+	if (typeof o.pinned === 'boolean') {cmd.pinned = o.pinned;}
+	if (typeof o.order === 'number' && Number.isFinite(o.order)) {cmd.order = o.order;}
+	if (typeof o.workflowId === 'string') {cmd.workflowId = o.workflowId;}
 	return { ok: true, value: cmd };
 }
 
@@ -140,7 +140,7 @@ function repairProjectCommandsForDoctor(raw, vibeVersion) {
 // Caller passes `issues` from `auditProjectCommandsForDoctor` and gets a single
 // human-readable string suitable for a `check()` Error message.
 function summariseAuditIssues(issues) {
-	if (!issues.length) return '';
+	if (!issues.length) {return '';}
 	const lines = issues.map((i) => {
 		const idHint = i.id ? ` id=${i.id}` : '';
 		return `${i.code}${idHint}: ${i.message}`;

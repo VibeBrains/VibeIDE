@@ -346,7 +346,7 @@ ${contextCode}
 
 		// Apply the edit using existing EditCodeService
 		// This will show the diff preview automatically
-		await editCodeService.callBeforeApplyOrEdit(model.uri);
+		await editCodeService.callBeforeApplyOrEdit({ from: 'ClickApply', uri: model.uri });
 		editCodeService.instantlyApplySearchReplaceBlocks({
 			uri: model.uri,
 			searchReplaceBlocks,

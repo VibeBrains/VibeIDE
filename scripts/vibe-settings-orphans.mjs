@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 // Roadmap V.0 prevention — Settings orphans / dead-registrations detector.
 //
 // Scans `src/vs/workbench/contrib/vibeide/**/*.ts` for:
@@ -6,8 +11,11 @@
 //   - Writes: `updateValue\s*\(\s*['"]vibeide\.X['"]`
 //   - Affects: `affectsConfiguration\s*\(\s*['"]vibeide\.X['"]`
 //
-// Cross-references against keys registered in *GlobalSettingsConfiguration*.ts
-// (matched by regex `['"]vibeide\.X['"]\s*:\s*\{` inside `properties` block).
+// Cross-references against keys registered in ANY file that calls
+// `registerConfiguration(` (matched by regex `['"]vibeide\.X['"]\s*:\s*\{`
+// inside its `properties` block). Detection is content-based, not name-based:
+// settings live in ~48 registrar files (e.g. `vibeAgentBehaviorConfiguration.ts`,
+// per-service `*Configuration.ts`), not only `*GlobalSettingsConfiguration*.ts`.
 //
 // Reports:
 //   - **Orphan reads**: code reads a key that's not registered → bug class V.0.
@@ -34,7 +42,7 @@ function* walk(dir) {
 	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
 		const full = path.join(dir, entry.name);
 		if (entry.isDirectory()) {
-			if (entry.name === 'node_modules' || entry.name === 'out' || entry.name === '.build') continue;
+			if (entry.name === 'node_modules' || entry.name === 'out' || entry.name === '.build') {continue;}
 			yield* walk(full);
 		} else if (entry.isFile() && full.endsWith('.ts')) {
 			yield full;
@@ -53,13 +61,17 @@ const fileOfRegistration = new Map();
 
 for (const file of walk(codeRoot)) {
 	const content = fs.readFileSync(file, 'utf8');
-	const isConfigFile = /GlobalSettingsConfiguration|SettingsConfiguration/.test(path.basename(file));
+	// A file is a registration source if it actually calls `registerConfiguration(` —
+	// not by filename. The `'vibeide.X': {` extraction below only fires inside such
+	// files, so a file merely mentioning the call (comment/string) with no schema
+	// contributes zero registrations and is harmless.
+	const isConfigFile = /\bregisterConfiguration\s*\(/.test(content);
 
 	if (isConfigFile) {
 		for (const m of content.matchAll(REG_KEY_RE)) {
 			const key = m[1];
 			registrations.add(key);
-			if (!fileOfRegistration.has(key)) fileOfRegistration.set(key, file);
+			if (!fileOfRegistration.has(key)) {fileOfRegistration.set(key, file);}
 		}
 	}
 
@@ -67,7 +79,7 @@ for (const file of walk(codeRoot)) {
 	for (const m of content.matchAll(READ_RE)) {
 		const key = m[1];
 		reads.add(key);
-		if (!fileOfRead.has(key)) fileOfRead.set(key, `${file}:${(content.slice(0, m.index ?? 0).match(/\n/g) ?? []).length + 1}`);
+		if (!fileOfRead.has(key)) {fileOfRead.set(key, `${file}:${(content.slice(0, m.index ?? 0).match(/\n/g) ?? []).length + 1}`);}
 	}
 }
 
@@ -81,7 +93,10 @@ const READ_VIA_NON_STANDARD_PREFIXES = [
 	'vibeide.diagnostics.idleWatchdog.',
 ];
 const isExemptByPrefix = (k) => READ_VIA_NON_STANDARD_PREFIXES.some(p => k.startsWith(p));
-const orphanReads = [...reads].filter(k => !registrations.has(k) && !isExemptByPrefix(k)).sort();
+// Section read: code reads a parent key `vibeide.X` (the whole section object) whose
+// leaf keys `vibeide.X.*` ARE registered — a valid pattern, not an orphan.
+const isSectionRead = (k) => [...registrations].some(r => r.startsWith(`${k}.`));
+const orphanReads = [...reads].filter(k => !registrations.has(k) && !isSectionRead(k) && !isExemptByPrefix(k)).sort();
 const deadRegs = [...registrations].filter(k => !reads.has(k) && !isExemptByPrefix(k)).sort();
 
 const KNOWN_DYNAMIC_PREFIXES = ['vibeide.modelQuirks.', 'vibeide.modelOverrides.'];
@@ -90,7 +105,7 @@ const filteredOrphans = orphanReads.filter(k => !KNOWN_DYNAMIC_PREFIXES.some(p =
 let exitCode = 0;
 if (filteredOrphans.length > 0) {
 	exitCode = 1;
-	console.error(`\n${filteredOrphans.length} orphan read(s) — read in code, NOT registered in *GlobalSettingsConfiguration*.ts:`);
+	console.error(`\n${filteredOrphans.length} orphan read(s) — read in code, NOT registered in any registerConfiguration() call:`);
 	for (const key of filteredOrphans) {
 		console.error(`  ${key}  (first seen: ${fileOfRead.get(key)})`);
 	}

@@ -20,6 +20,11 @@ import { OPEN_FILE_TOOL } from './open_file.js';
 import { GO_TO_DEFINITION_TOOL } from './go_to_definition.js';
 import { FIND_REFERENCES_TOOL } from './find_references.js';
 import { SEARCH_SYMBOLS_TOOL } from './search_symbols.js';
+import { CODE_GRAPH_TOOL } from './code_graph.js';
+import { DESIGN_REVIEW_TOOL } from './design_review.js';
+import { DESIGN_CONTEXT_TOOL } from './design_context.js';
+import { DESIGN_DOCUMENT_TOOL } from './design_document.js';
+import { DESIGN_DOCTOR_TOOL } from './design_doctor.js';
 import { AUTOMATED_CODE_REVIEW_TOOL } from './automated_code_review.js';
 import { GENERATE_TESTS_TOOL } from './generate_tests.js';
 import { RENAME_SYMBOL_TOOL } from './rename_symbol.js';
@@ -67,6 +72,12 @@ export const builtinToolDefs = {
 	go_to_definition: GO_TO_DEFINITION_TOOL,
 	find_references: FIND_REFERENCES_TOOL,
 	search_symbols: SEARCH_SYMBOLS_TOOL,
+	code_graph: CODE_GRAPH_TOOL,
+	// design: read the context, measure the page, write the context back
+	design_context: DESIGN_CONTEXT_TOOL,
+	design_review: DESIGN_REVIEW_TOOL,
+	design_document: DESIGN_DOCUMENT_TOOL,
+	design_doctor: DESIGN_DOCTOR_TOOL,
 	// code analysis / generation
 	automated_code_review: AUTOMATED_CODE_REVIEW_TOOL,
 	generate_tests: GENERATE_TESTS_TOOL,

@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe init --from cursor|windsurf|continue|aider|jetbrains
  * Converts settings from other IDEs/tools to .vibe/ format.
@@ -115,7 +120,7 @@ function fromContinue(workspacePath, vibePath) {
 		path.join(process.env.HOME || process.env.USERPROFILE || '', '.continue', 'config.json'),
 	];
 
-	let configPath = configPaths.find(p => fs.existsSync(p));
+	const configPath = configPaths.find(p => fs.existsSync(p));
 	if (!configPath) {
 		console.error('No Continue.dev config.json found. Looked in:', configPaths.join(', '));
 		return;

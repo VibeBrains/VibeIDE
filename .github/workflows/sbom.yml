@@ -27,8 +27,8 @@ jobs:
 
       - name: Generate npm SBOM (CycloneDX)
         run: |
-          npx @cyclonedx/cyclonedx-npm --output-file sbom-npm.json --output-format JSON || \
-          npx cyclonedx-npm --output-file sbom-npm.json --output-format JSON || \
+          npx @cyclonedx/cyclonedx-npm --ignore-npm-errors --output-file sbom-npm.json --output-format JSON || \
+          npx cyclonedx-npm --ignore-npm-errors --output-file sbom-npm.json --output-format JSON || \
           echo '{"bomFormat":"CycloneDX","specVersion":"1.4","metadata":{"component":{"name":"vibeide"}},"components":[]}' > sbom-npm.json
           echo "NPM SBOM generated"
 

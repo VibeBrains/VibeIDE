@@ -23,10 +23,12 @@ import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, looksLik
 import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
 import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
 import { AnthropicReasoning, getErrorMessage, GeminiLLMChatMessage, LLMChatMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
+import { isQuotaLow, pickRateLimitHeaders, ProviderQuotaSnapshot, tightestBucket } from '../common/providerQuota.js';
+import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
 import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS, classifyProviderError } from '../common/modelHealthTracker.js';
 import { translateProviderError } from '../common/providerErrorTranslator.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
-import { autoModelFallbackProviderOrder, ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
+import { autoFallbackProviderIds, ChatMode, FeatureName, ModelSelection, ModelSelectionOptions, ProviderName } from '../common/vibeideSettingsTypes.js';
 import { isModelVisionCapable } from '../common/modelVisionHeuristics.js';
 import { detectVisionDropResponse } from '../common/visionDropDetector.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
@@ -38,7 +40,7 @@ import { IVibeTokenSavingsService } from './vibeTokenSavingsService.js';
 import { IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
-import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage, PendingInjection, normalizePendingInjections } from '../common/chatThreadServiceTypes.js';
+import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage, PendingInjection, normalizePendingInjections, ScoutLead, ScoutMessage } from '../common/chatThreadServiceTypes.js';
 import { trimThreadMessages, capToolResultSizes } from '../common/chatThreadTrim.js';
 import { Position } from '../../../../editor/common/core/position.js';
 import { IMetricsService } from '../common/metricsService.js';
@@ -81,8 +83,30 @@ import { IVibeAgentActivityLogService } from './vibeAgentActivityLogService.js';
 import { IVibeLLMJudgeService } from '../common/vibeLLMJudgeService.js';
 import { IVibePersistedPlanService } from '../common/vibePersistedPlanService.js';
 import { IVibeSubagentService } from '../common/vibeSubagentService.js';
+import { IVibeVerifyGateService } from './vibeVerifyGateService.js';
+import { decideVerifyGate } from '../common/verifyGatePolicy.js';
+import { IVibeTurnChecksService } from './vibeTurnChecksService.js';
+import { decideTurnChecks, evaluateTurnChecks, renderTurnChecksCorrective } from '../common/agentTurnChecks.js';
+import { IVibeCircuitBreakerService } from './vibeCircuitBreakerService.js';
+import { DesignHookMode, decideDesignHook, floorFindings, touchesUi } from '../common/designReview/designHookPolicy.js';
+import { Finding, ViewportLabel, mergeViewportFindings, reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
+import { IVibeDesignScanService } from './designReview/vibeDesignScanService.js';
+import { IVibeDesignContextService } from './designContext/vibeDesignContextService.js';
+
+/**
+ * File-mutating builtin tools — used by the VERIFY-GATE edit-guard: a run that only touched these
+ * (or none) triggers verification on completion; a pure read/search/question run does not.
+ */
+const MUTATING_TOOL_NAMES: ReadonlySet<string> = new Set(['edit_file', 'rewrite_file', 'create_file_or_folder', 'delete_file_or_folder']);
+
+/** DESIGN-HOOK settings (see `vibeAgentBehaviorConfiguration`). */
+const DESIGN_HOOK_MODE_KEY = 'vibeide.design.hook.mode';
+const DESIGN_HOOK_ATTEMPTS_KEY = 'vibeide.design.hook.maxAttempts';
+/** How many findings the hook's chat note lists before pointing at `design_review` for the rest. */
+const DESIGN_HOOK_NOTE_LIMIT = 6;
+/** Widths the hook measures — the same pair the tool uses, so their counts cannot disagree. */
+const DESIGN_HOOK_VIEWPORTS: readonly ViewportLabel[] = ['desktop', 'mobile'];
 import { isContinuationRequest, buildScoutGoal } from '../common/scoutTrigger.js';
-import { ScoutLead, ScoutMessage } from '../common/chatThreadServiceTypes.js';
 import { IVibePlanEventJournalService } from '../common/vibePlanEventJournalService.js';
 import { IVibePlanBindingRegistry } from './vibePlanBindingRegistry.js';
 import { IVibeTaskDecompositionService } from '../common/vibeTaskDecompositionService.js';
@@ -404,6 +428,11 @@ export type ThreadType = {
 		// indicator as the authoritative base instead of relying on length/4 heuristics.
 		lastUsage?: LLMTokenUsage;
 
+		// Rate-limit allowance the provider reported on its last response in this thread
+		// (passive quota tracking). Unlike `lastUsage` this is the provider's own view of the
+		// key, so the UI can warn BEFORE a request is refused.
+		lastProviderQuota?: ProviderQuotaSnapshot;
+
 	};
 };
 
@@ -635,7 +664,7 @@ export interface IChatThreadService {
 	editUserMessageAndStreamResponse({ userMessage, messageIdx, threadId }: { userMessage: string; messageIdx: number; threadId: string }): Promise<void>;
 
 	// call to add a message
-	addUserMessageAndStreamResponse({ userMessage, threadId, images, noPlan, displayContent }: { userMessage: string; threadId: string; images?: ChatImageAttachment[]; noPlan?: boolean; displayContent?: string }): Promise<void>;
+	addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId, images, pdfs, noPlan, displayContent, forceScout }: { userMessage: string; _chatSelections?: StagingSelectionItem[]; threadId: string; images?: ChatImageAttachment[]; pdfs?: ChatPDFAttachment[]; noPlan?: boolean; displayContent?: string; forceScout?: boolean }): Promise<void>;
 	/** Queue context to be merged into the NEXT agent hop without aborting the running turn. */
 	addPendingInjection(threadId: string, text: string, images?: ChatImageAttachment[], pdfs?: ChatPDFAttachment[]): void;
 	/** Remove a still-queued injection by index (user cancelled it before it was drained into context). */
@@ -895,6 +924,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	constructor(
 		@IStorageService private readonly _storageService: IStorageService,
+		@IVibeSpendLedgerService private readonly _spendLedgerService: IVibeSpendLedgerService,
 		@IVibeideModelService private readonly _vibeideModelService: IVibeideModelService,
 		@ILLMMessageService private readonly _llmMessageService: ILLMMessageService,
 		@IToolsService private readonly _toolsService: IToolsService,
@@ -938,6 +968,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeSubagentService private readonly _subagentService: IVibeSubagentService,
 		@IVibeSpecsService private readonly _vibeSpecsService: IVibeSpecsService,
 		@IVibeTokenSavingsService private readonly _vibeTokenSavingsService: IVibeTokenSavingsService,
+		@IVibeVerifyGateService private readonly _verifyGateService: IVibeVerifyGateService,
+		@IVibeTurnChecksService private readonly _turnChecksService: IVibeTurnChecksService,
+		@IVibeCircuitBreakerService private readonly _circuitBreakers: IVibeCircuitBreakerService,
+		@IVibeDesignScanService private readonly _designScanService: IVibeDesignScanService,
+		@IVibeDesignContextService private readonly _designContextService: IVibeDesignContextService,
 	) {
 		super();
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string, openTabIds: [] }; // default state
@@ -1343,7 +1378,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	private _findModelSelectionForId(modelId: string): ModelSelection | null {
 		const slashIdx = modelId.indexOf('/');
 		if (slashIdx > 0) {
-			const providerName = modelId.slice(0, slashIdx) as ProviderName;
+			const providerName = modelId.slice(0, slashIdx);
 			const modelName = modelId.slice(slashIdx + 1);
 			const models = this._settingsService.state.settingsOfProvider[providerName]?.models ?? [];
 			if (models.some(m => m.modelName === modelName && !m.isHidden)) {
@@ -1352,7 +1387,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			return null;
 		}
 		// Plain model name: scan providers in preference order.
-		for (const providerName of autoModelFallbackProviderOrder) {
+		for (const providerName of autoFallbackProviderIds(this._settingsService.state.settingsOfProvider)) {
 			const settings = this._settingsService.state.settingsOfProvider[providerName];
 			if (!settings?._didFillInProviderSettings) { continue; }
 			const found = settings.models?.find(m => m.modelName === modelId && !m.isHidden);
@@ -2998,7 +3033,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		if (URI.isUri(raw)) {
 			return raw;
 		}
-		if (raw && typeof raw === 'object' && 'scheme' in (raw as Record<string, unknown>)) {
+		if (raw && typeof raw === 'object' && Object.hasOwn(raw as Record<string, unknown>, 'scheme')) {
 			try { return URI.revive(raw as UriComponents); } catch { return undefined; }
 		}
 		if (typeof raw === 'string' && raw.length) {
@@ -4907,6 +4942,27 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 		let interruptedWhenIdle = false;
 		const idleInterruptor = Promise.resolve(() => { interruptedWhenIdle = true; });
+		// VERIFY-GATE run state (declared before the first tool dispatch below). `didMutateThisRun` is the
+		// edit-guard: verify only runs if the turn actually changed files (a pure read/question run must not
+		// trigger a build). `verifyGateAttempts` counts enforce-mode bounces so an unfixable red halts after
+		// `maxAttempts` instead of looping. See docs/knowledge/runtimeQuirks/verifyGate.md.
+		let didMutateThisRun = false;
+		let verifyGateAttempts = 0;
+		// DESIGN-HOOK state: which paths the run wrote to, so the design check only fires when the
+		// interface could actually have moved (a service edit cannot change pixels).
+		const touchedPathsThisRun: string[] = [];
+		let designHookAttempts = 0;
+		// TURN-CHECKS state: every tool the run called (not just the mutating ones), so the
+		// forbidden-action check can compare the calls against the allowed list.
+		const calledToolsThisRun: string[] = [];
+		let turnChecksAttempts = 0;
+		const noteToolCall = (toolName: string, rawParams?: unknown): void => {
+			calledToolsThisRun.push(toolName);
+			if (!MUTATING_TOOL_NAMES.has(toolName.toLowerCase())) { return; }
+			didMutateThisRun = true;
+			const uri = rawParams && typeof rawParams === 'object' ? (rawParams as { uri?: unknown }).uri : undefined;
+			if (typeof uri === 'string' && uri) { touchedPathsThisRun.push(uri); }
+		};
 		// _runToolCall does not need setStreamState({idle}) before it, but it needs it after it. (handles its own setStreamState)
 
 		// above just defines helpers, below starts the actual function
@@ -5113,6 +5169,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			}
 
 			const { interrupted } = await this._runToolCall(threadId, callThisToolFirst.name, callThisToolFirst.id, callThisToolFirst.mcpServerName, { preapproved: true, unvalidatedToolParams: callThisToolFirst.rawParams, validatedParams: callThisToolFirst.params });
+			noteToolCall(callThisToolFirst.name, callThisToolFirst.rawParams); // VERIFY-GATE edit-guard + DESIGN-HOOK paths + TURN-CHECKS tools
 			if (interrupted) {
 				this._setStreamState(threadId, undefined);
 				await this._addUserCheckpoint({ threadId });
@@ -6033,7 +6090,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: fullText, reasoningSoFar: fullReasoning, toolCallSoFar: toolCall ?? null }, interrupt: Promise.resolve(() => { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } }) });
 						});
 					},
-					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage }) => {
+					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage, providerQuota }) => {
 						vibeLog.debug('llmTurn', 'done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null, textLen: fullText?.length ?? 0, reasoningLen: fullReasoning?.length ?? 0 }); recordChatTrace('llmTurn:done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null });
 						// Mark message as done to prevent late onText updates
 						messageIsDone = true;
@@ -6056,6 +6113,39 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// Persist provider-reported token usage on the thread so the UI
 						// context-usage indicator can show real numbers instead of length/4
 						// estimates. `usage` is undefined on early-timeout / non-AI-SDK paths.
+						// The key's remaining allowance as the provider reported it. Kept separate from
+						// `lastUsage`: that is what WE spent, this is what the PROVIDER still allows —
+						// and only the second one can refuse the next request.
+						if (providerQuota) {
+							this._setThreadState(threadId, { lastProviderQuota: providerQuota });
+							if (isQuotaLow(providerQuota, Date.now())) {
+								const bucket = tightestBucket(providerQuota);
+								vibeLog.warn('chatThread', `provider quota low: ${modelSelection?.providerName ?? 'provider'} ${bucket?.kind ?? 'quota'} ${bucket?.remaining}${bucket?.limit ? `/${bucket.limit}` : ''}`);
+							}
+						}
+
+						// Spend ledger: what this exchange actually cost, kept per day × provider × model so the
+						// provider panel can answer "where did the money go" after a restart. Price comes from the
+						// capabilities catalogue; an unknown price is recorded as unknown, never as free.
+						if (usage && modelSelection && (usage.promptTokens || usage.completionTokens)) {
+							void (async () => {
+								try {
+									const { getModelCapabilities } = await import('../common/modelCapabilities.js');
+									const capabilities = getModelCapabilities(modelSelection.providerName, modelSelection.modelName, this._settingsService.state.overridesOfModel);
+									this._spendLedgerService.record({
+										providerId: modelSelection.providerName,
+										modelId: modelSelection.modelName,
+										inputTokens: usage.promptTokens ?? 0,
+										outputTokens: usage.completionTokens ?? 0,
+										cachedInputTokens: usage.cachedInputTokens ?? 0,
+										price: capabilities.cost,
+									});
+								} catch (err) {
+									vibeLog.warn('chatThread', `spend ledger skipped: ${err}`);
+								}
+							})();
+						}
+
 						if (usage && (typeof usage.promptTokens === 'number' || typeof usage.completionTokens === 'number' || typeof usage.totalTokens === 'number')) {
 							this._setThreadState(threadId, { lastUsage: usage });
 							// Feed the real promptTokens back to the token-budget estimator so it self-calibrates
@@ -6163,12 +6253,28 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// what classification inputs. Debug-gated; invaluable when a run "just stops"
 						// (the 2026-06-07 rate-limit auto-wait silently not firing took a session to
 						// reconstruct without this line).
+						// `diagnostics` is what the provider itself reported (status, headers, the
+						// body-side refusal code, and the rate we were actually running at). It is
+						// logged verbatim because the empty-stream path carries no Error object:
+						// for months a MiniMax refusal was indistinguishable here from "the model
+						// stopped on its own" (docs/knowledge/chatUx/modelStalls.md, #001).
+						const refusal = error?.diagnostics;
 						vibeLog.debug('chatThread', 'onError', {
 							requestId: finalRequestId,
 							msgHead: (error?.message ?? '').slice(0, 100),
 							status: (error?.fullError as { statusCode?: number } | null | undefined)?.statusCode,
 							autopilot: this._settingsService.state.globalSettings.chatAgentAutopilot === true,
 							rateWaitStreak: this._rateLimitAutoWaitStreak.get(threadId) ?? 0,
+							...(refusal ? {
+								httpStatus: refusal.httpStatus,
+								bodyCode: refusal.bodyCode,
+								bodyMessage: refusal.bodyMessage,
+								refusalKind: refusal.refusalKind,
+								refusalAmbiguous: refusal.refusalAmbiguous,
+								requestsInWindow: refusal.requestsInWindow,
+								windowSeconds: refusal.windowSeconds,
+								rateLimitHeaders: pickRateLimitHeaders(refusal.headers),
+							} : {}),
 						});
 
 						// Empty-response circuit breaker. Parse provider/model out of OUR
@@ -6215,8 +6321,20 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							});
 						}
 
+						// Structural verdict from the provider's own body code, when it gave one.
+						// MiniMax answers HTTP 200 with `base_resp.status_code` set — so a throttle
+						// reaches us looking EXACTLY like an empty response. Judging by the body
+						// code instead of the message text is what tells the two apart.
+						const bodyRefusalKind = refusal?.refusalKind;
+						const isBodyRateLimit = bodyRefusalKind === 'rate-limit';
+						const isBodyQuota = bodyRefusalKind === 'quota';
+						const providerNameForError = modelSelection?.providerName ?? '—';
+
 						const emptyMatch = !overflowMatch && error?.message ? parseEmptyResponseError(error.message) : null;
-						if (emptyMatch) {
+						// A refusal the provider buried in the body is NOT the model falling silent:
+						// counting it toward the empty-response breaker would retire a perfectly
+						// healthy model over someone else's rate limit.
+						if (emptyMatch && !isBodyRateLimit && !isBodyQuota) {
 							const { providerName: errProvider, modelName: errModel } = emptyMatch;
 							this._modelHealthTracker.recordFailure(errProvider, errModel, 'empty-response');
 							const key = `${threadId}:${errProvider}:${errModel}`;
@@ -6248,6 +6366,25 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							}
 						}
 
+						// An exhausted quota is not a "slow down" — waiting out a 5-hour or weekly
+						// window inside a chat turn is hopeless, so say so instead of pausing.
+						// (MiniMax Token Plan uses rolling 5-hour and weekly windows on top of
+						// RPM/TPM: https://platform.minimax.io/docs/token-plan/intro)
+						if (isBodyQuota) {
+							effectiveError = {
+								message: localize(
+									'vibeide.chatThread.providerQuotaExhausted',
+									'Провайдер {0} отказал: квота ключа исчерпана (код {1}{2}). Ожидание не поможет — квотное окно длиннее хода. Пополните тариф, переключитесь на другую модель или подождите до сброса окна.',
+									providerNameForError,
+									String(refusal?.bodyCode ?? '—'),
+									refusal?.bodyMessage ? `, «${refusal.bodyMessage}»` : '',
+								),
+								fullError: error?.fullError ?? null,
+								recoverable: 'switchModel',
+							};
+							vibeLog.warn('chatThread', `Provider quota exhausted: ${providerNameForError} bodyCode=${refusal?.bodyCode} (threadId=${threadId}).`);
+						}
+
 						// Auto-wait on minute-window rate limits (token-economy follow-up): a 429
 						// whose retry-after is SECONDS (day-scale ones are re-statused to 402
 						// upstream — see customFetch) means «slow down», not «broken». Stopping the
@@ -6256,8 +6393,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// 3-4 manual resumes per task). Deliberately NOT gated on Autopilot — this
 						// is an infrastructure retry of the same LLM turn, no tools are executed
 						// during the pause, so it is safe in supervised mode too.
-						if (!overflowMatch && !emptyMatch
-							&& /rate.?limit|too many requests|\b429\b/i.test(error?.message ?? '')) {
+						//
+						// `isBodyRateLimit` deliberately bypasses the `!emptyMatch` guard: a provider
+						// that reports throttling INSIDE an HTTP 200 (MiniMax `base_resp`) produces an
+						// empty stream, and the original guard made auto-wait unreachable in exactly
+						// that case — the run stopped with "switch the model" instead of waiting the
+						// window out (docs/knowledge/chatUx/modelStalls.md, #001 and successors).
+						if (!overflowMatch && !isBodyQuota
+							&& (isBodyRateLimit
+								|| (!emptyMatch && /rate.?limit|too many requests|\b429\b/i.test(error?.message ?? '')))) {
 							const rawWaitMax = this._configurationService.getValue<unknown>('vibeide.chat.rateLimitAutoWaitMaxSeconds');
 							const waitMaxSec = (typeof rawWaitMax === 'number' && Number.isFinite(rawWaitMax) && rawWaitMax >= 0) ? Math.floor(rawWaitMax) : 120;
 							const rawWaitRetries = this._configurationService.getValue<unknown>('vibeide.chat.rateLimitAutoWaitMaxRetries');
@@ -6558,7 +6702,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								// Get all available models
 								const settingsState = this._settingsService.state;
 								const availableModels: ModelSelection[] = [];
-								for (const providerName of Object.keys(settingsState.settingsOfProvider) as ProviderName[]) {
+								for (const providerName of Object.keys(settingsState.settingsOfProvider)) {
 									const providerSettings = settingsState.settingsOfProvider[providerName];
 									if (!providerSettings._didFillInProviderSettings) { continue; }
 									for (const modelInfo of providerSettings.models) {
@@ -6777,6 +6921,154 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						reasoning: info.fullReasoning || '',
 						anthropicReasoning: info.anthropicReasoning ?? null,
 					});
+
+					// VERIFY-GATE: turn the "green tests before done" prompt instruction into a real gate.
+					// Only fires when the mode is on AND this run actually mutated files (edit-guard — a pure
+					// read/question run must not trigger a build). See docs/knowledge/runtimeQuirks/verifyGate.md.
+					const verifyMode = this._verifyGateService.getMode();
+					if (verifyMode !== 'off' && didMutateThisRun) {
+						const folders = this._workspaceContextService.getWorkspace().folders;
+						const cwd = folders.length ? folders[0]!.uri.fsPath : null;
+						const verify = await this._verifyGateService.runVerify(cwd);
+						const maxAttempts = this._verifyGateService.getMaxAttempts();
+						const decision = decideVerifyGate({
+							mode: verifyMode,
+							verified: verify !== null,
+							passed: verify?.passed ?? false,
+							attemptsUsed: verifyGateAttempts,
+							maxAttempts,
+						});
+						if (decision === 'bounce' && verify) {
+							verifyGateAttempts += 1;
+							const corrective = `⛔ VERIFY-GATE: команда «${verify.command}» завершилась с ошибкой (exit ${verify.exitCode ?? 'timeout'}). Задача НЕ считается выполненной — не вызывай vibe_complete, пока не станет зелёно. Исправь причину и продолжай работу инструментами (попытка ${verifyGateAttempts} из ${maxAttempts}).\n\nВывод команды:\n${verify.output}`;
+							this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
+							shouldSendAnotherMessage = true;
+							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+							continue;
+						}
+						if (decision === 'stop' && verify) {
+							const note = `⛔ VERIFY-GATE: верификация всё ещё падает после ${verifyGateAttempts} попыток (команда «${verify.command}», exit ${verify.exitCode ?? 'timeout'}). Прогон остановлен — доработай вручную.\n\nВывод команды:\n${verify.output}`;
+							this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+							this._finalizePlanIfComplete(threadId);
+							this._setStreamState(threadId, { isRunning: undefined });
+							return;
+						}
+						if (decision === 'warn-complete' && verify) {
+							const note = `⚠️ VERIFY-GATE (режим предупреждения): команда «${verify.command}» завершилась с ошибкой (exit ${verify.exitCode ?? 'timeout'}), но ход завершён. Проверь результат.\n\nВывод команды:\n${verify.output}`;
+							this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+						}
+						// decision === 'complete' → gate inert / verify passed: fall through to normal completion.
+					}
+
+					// TURN-CHECKS: what the turn actually did, checked deterministically — secrets written
+					// into changed files, writes onto closed paths, citations pointing at lines that do not
+					// exist. No model is consulted; a judge that hallucinates a verdict would be worse than
+					// no check. Same shape as the two gates above (mode → decision → bounce/stop).
+					const turnChecksMode = this._turnChecksService.getMode();
+					if (turnChecksMode !== 'off' && didMutateThisRun) {
+						const turnFacts = await this._turnChecksService.collect({
+							changedFiles: touchedPathsThisRun,
+							calledTools: calledToolsThisRun,
+							// The main agent's tool set is enforced by the mode itself, so there is no
+							// separate whitelist to violate here — an empty list disables that check.
+							allowedTools: [],
+							answerText: body,
+							tokensUsed: 0,
+							tokenQuota: 0,
+						});
+						const failures = evaluateTurnChecks(turnFacts, this._turnChecksService.getEnabledChecks()).filter(result => !result.passed);
+						// A failed security check is not just this turn's problem: it trips a latching
+						// breaker, so the same fault cannot quietly repeat next turn. The breaker keeps
+						// its state across restarts — reopening the IDE is not a way around it.
+						for (const failure of failures) {
+							if (failure.id === 'no-secret-leak') {
+								this._circuitBreakers.trip('secret-leak', failure.detail);
+							} else if (failure.id === 'no-protected-path') {
+								this._circuitBreakers.trip('protected-path', failure.detail);
+							}
+						}
+						// Debug, not info: this runs on every mutating turn, and paths are omitted on purpose —
+						// the point is "did the gate run and what did it see", not a file listing in the console.
+						vibeLog.debug('turnChecks', `режим=${turnChecksMode} файлов=${touchedPathsThisRun.length} секретов=${turnFacts.secretHits.length} закрытых=${turnFacts.protectedHits.length} провалов=${failures.length}`);
+						const maxTurnCheckAttempts = this._turnChecksService.getMaxAttempts();
+						const turnDecision = decideTurnChecks({
+							mode: turnChecksMode,
+							failures,
+							attemptsUsed: turnChecksAttempts,
+							maxAttempts: maxTurnCheckAttempts,
+						});
+						if (turnDecision === 'bounce') {
+							turnChecksAttempts += 1;
+							const corrective = renderTurnChecksCorrective(failures, turnChecksAttempts, maxTurnCheckAttempts);
+							this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
+							shouldSendAnotherMessage = true;
+							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+							continue;
+						}
+						if (turnDecision === 'stop') {
+							const note = `⛔ ПРОВЕРКИ ХОДА: после ${turnChecksAttempts} попыток проблемы остались. Прогон остановлен — посмотрите сами.\n\n${failures.map(f => `• ${f.detail}`).join('\n')}`;
+							this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+							this._finalizePlanIfComplete(threadId);
+							this._setStreamState(threadId, { isRunning: undefined });
+							return;
+						}
+						if (turnDecision === 'notify-complete') {
+							const note = `⚠️ ПРОВЕРКИ ХОДА: ход завершён, но кое-что стоит посмотреть.\n\n${failures.map(f => `• ${f.detail}`).join('\n')}`;
+							this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+						}
+					}
+
+					// DESIGN-HOOK: measure the page the run just changed, without being asked. Fires only
+					// when the turn wrote to interface files AND a preview is open — an unreachable page
+					// stays silent rather than reporting a clean sheet it never saw.
+					const designHookMode = (this._configurationService.getValue<string>(DESIGN_HOOK_MODE_KEY) ?? 'notify') as DesignHookMode;
+					if (designHookMode !== 'off' && touchesUi(touchedPathsThisRun)) {
+						// Both widths, exactly like `design_review` — a hook that measured only the
+						// desktop would be blind to the defects viewports exist for, and its counts
+						// would disagree with the tool's on the same page. Two numbers for one fact is
+						// how a report loses trust (caught by the live smoke: 8 errors vs 9).
+						const { context } = await this._designContextService.read();
+						const passes: Finding[][] = [];
+						let measured = true;
+						for (const width of DESIGN_HOOK_VIEWPORTS) {
+							const scan = await this._designScanService.scan(width);
+							if (!scan.ok) {
+								measured = false;
+								break;
+							}
+							passes.push(reviewDesign(scan.snapshot, context));
+						}
+						const findings = measured ? mergeViewportFindings(passes) : [];
+						const decision = decideDesignHook({
+							mode: designHookMode,
+							measured,
+							findings,
+							attemptsUsed: designHookAttempts,
+							maxAttempts: Math.max(1, this._configurationService.getValue<number>(DESIGN_HOOK_ATTEMPTS_KEY) ?? 2),
+						});
+						if (decision === 'bounce') {
+							designHookAttempts += 1;
+							const list = floorFindings(findings).map(f => `• ${f.message} — ${f.selector} (${f.evidence})`).join('\n');
+							const corrective = `⛔ DESIGN-HOOK: страница после правок нарушает пол качества — это дефекты, а не вкус. Задача НЕ закрыта: исправь и продолжай инструментами (попытка ${designHookAttempts}).\n\n${list}\n\nЕсли что-то из перечисленного — намеренный выбор продукта, впиши правило в раздел «Детектор» файла .vibe/design/design.md с причиной, а не игнорируй молча.`;
+							this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
+							shouldSendAnotherMessage = true;
+							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
+							continue;
+						}
+						if (decision === 'note') {
+							const counts = summarize(findings);
+							const head = `🎨 DESIGN-HOOK: измерил страницу после правок интерфейса — ${counts.error} ошибок, ${counts.warning} предупреждений, ${counts.info} замечаний по вкусу`
+								+ (counts.accepted ? `; ещё ${counts.accepted} проект считает своей идентичностью.` : '.');
+							const list = findings.filter(f => !f.accepted).slice(0, DESIGN_HOOK_NOTE_LIMIT)
+								.map(f => `• [${f.severity}] ${f.message} — ${f.selector}`).join('\n');
+							const tail = counts.total > DESIGN_HOOK_NOTE_LIMIT
+								? `\n… и ещё ${counts.total - DESIGN_HOOK_NOTE_LIMIT}. Полный список — инструментом design_review.`
+								: '';
+							this._addMessageToThread(threadId, { role: 'assistant', displayContent: `${head}\n\n${list}${tail}`, reasoning: '', anthropicReasoning: null });
+						}
+						// decision === 'quiet' → hook off, page unreachable, or nothing to report.
+					}
+
 					// Run-end via explicit completion: finalize the plan (status/lease/.plan.md) so an
 					// executing plan doesn't stay stuck after the model declares done.
 					this._finalizePlanIfComplete(threadId);
@@ -6968,6 +7260,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 									mcpTool?.mcpServerName,
 									{ preapproved: false, unvalidatedToolParams: toolParams }
 								);
+								noteToolCall(toolName, toolParams); // VERIFY-GATE edit-guard + DESIGN-HOOK paths + TURN-CHECKS tools
 
 								if (interrupted) {
 									this._setStreamState(threadId, undefined);
@@ -7172,6 +7465,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 								mcpTool?.mcpServerName,
 								{ preapproved: false, unvalidatedToolParams: toolParams }
 							);
+							noteToolCall(toolName, toolParams); // VERIFY-GATE edit-guard + DESIGN-HOOK paths + TURN-CHECKS tools
 
 							if (interrupted) {
 								this._setStreamState(threadId, undefined);
@@ -7340,6 +7634,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					}
 
 					const { awaitingUserApproval, interrupted } = await this._runToolCall(threadId, toolCall.name, toolCall.id, mcpTool?.mcpServerName, { preapproved: false, unvalidatedToolParams: toolCall.rawParams });
+				noteToolCall(toolCall.name, toolCall.rawParams); // VERIFY-GATE edit-guard + DESIGN-HOOK paths + TURN-CHECKS tools
 
 					// Tool-call resilience post-dispatch logic (roadmap O.1–O.7):
 					//   - Increment per-(provider×model) counter on tool_error/invalid_params,

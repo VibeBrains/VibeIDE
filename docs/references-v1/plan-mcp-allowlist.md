@@ -1,6 +1,6 @@
 # MCP allowlist on persisted plan steps
 
-Normative add-on for **`references/v1/plan-steps.schema.json`** and embedded JSON inside **`.vibe/plans/*.plan.md`**.
+Normative add-on for **`docs/references-v1/plan-steps.schema.json`** and embedded JSON inside **`.vibe/plans/*.plan.md`**.
 
 ## Fields (per step)
 

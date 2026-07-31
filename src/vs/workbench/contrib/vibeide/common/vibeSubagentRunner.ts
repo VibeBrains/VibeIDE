@@ -5,7 +5,7 @@
 
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import type { CancellationToken } from '../../../../base/common/cancellation.js';
-import type { ModelSelection, ProviderName } from './vibeideSettingsTypes.js';
+import type { ModelSelection, ProviderId } from './vibeideSettingsTypes.js';
 import type { SubagentType, ExploreSubagentReport } from './vibeSubagentService.js';
 import type { SubagentStopReason } from './subagentLoopPolicy.js';
 import type { ChatImageAttachment } from './chatThreadServiceTypes.js';
@@ -64,8 +64,14 @@ export interface SubagentRunOutcome {
 	/** Provider-reported prompt/completion token sums (raw, incl. cached reads) — for cost display. */
 	readonly promptTokensUsed?: number;
 	readonly completionTokensUsed?: number;
+	/**
+	 * Prompt-cache reads, already inside `promptTokensUsed`. Kept apart to SHOW the saving: the
+	 * role is not charged twice for context it already paid for (see `hopTokenCost`), and without
+	 * this number that discount is invisible.
+	 */
+	readonly cachedTokensUsed?: number;
 	/** Model that actually ran the role (per-role mapping may differ from the Chat model). */
-	readonly providerName?: ProviderName;
+	readonly providerName?: ProviderId;
 	readonly modelName?: string;
 	readonly exploreReport?: ExploreSubagentReport;
 }

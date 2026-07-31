@@ -17,6 +17,8 @@ import { localize } from '../../../../nls.js';
 import { IVibeSubagentService } from '../common/vibeSubagentService.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { VIBEIDE_OPEN_AGENTS_DISPATCH_ACTION_ID } from './vibeAgentsDispatchPane.js';
 
 // ── Spawn explore subagent ────────────────────────────────────────────────────
 
@@ -87,13 +89,17 @@ registerAction2(class extends Action2 {
 	async run(accessor: ServicesAccessor): Promise<void> {
 		const subagentSvc = accessor.get(IVibeSubagentService);
 		const quickInput = accessor.get(IQuickInputService);
+		// Capture synchronously before any await — accessor is only valid before the first await.
+		const notifications = accessor.get(INotificationService);
+		const commandService = accessor.get(ICommandService);
 
 		// Get all subagents across all parent threads
 		const allEntries = subagentSvc.getAll();
 
 		if (allEntries.length === 0) {
-			const notifications = accessor.get(INotificationService);
-			notifications.notify({ severity: Severity.Info, message: localize('vibeide.subagent.none', 'Нет активных субагентов.') });
+			// Nothing running is not the end of the answer: the dispatch panel also holds every run
+			// that already finished, which is what «кто что делал» usually means here.
+			await commandService.executeCommand(VIBEIDE_OPEN_AGENTS_DISPATCH_ACTION_ID);
 			return;
 		}
 
@@ -101,21 +107,35 @@ registerAction2(class extends Action2 {
 		// it — dispose really stops the runner loop since audit A (hop-boundary check + in-flight
 		// LLM abort), so this is the missing UI for «остановить роль».
 		const picked = await quickInput.pick(
-			allEntries.map(e => ({
-				label: localize('vibeide.subagent.listItemLabel', '{0} — {1}', String(e.type), String(e.status)),
-				description: e.handoff.goal.slice(0, 80),
-				detail: localize('vibeide.subagent.listItemDetail', 'id: {0} | parent: {1}', String(e.id), String(e.parentThreadId)),
-				entryId: e.id,
-				entryLive: e.status === 'running' || e.status === 'pending',
-			})),
+			[
+				{
+					label: localize('vibeide.subagent.openDispatch', 'Открыть диспетчерскую агентов'),
+					description: localize('vibeide.subagent.openDispatchHint', 'Все прогоны: работающие и завершённые, с расходом и итогом'),
+					detail: '',
+					entryId: '',
+					entryLive: false,
+					openDispatch: true,
+				},
+				...allEntries.map(e => ({
+					label: localize('vibeide.subagent.listItemLabel', '{0} — {1}', String(e.type), String(e.status)),
+					description: e.handoff.goal.slice(0, 80),
+					detail: localize('vibeide.subagent.listItemDetail', 'id: {0} | parent: {1}', String(e.id), String(e.parentThreadId)),
+					entryId: e.id,
+					entryLive: e.status === 'running' || e.status === 'pending',
+					openDispatch: false,
+				})),
+			],
 			{
 				title: localize('vibeide.subagent.listTitle', 'Активные субагенты'),
 				placeHolder: localize('vibeide.subagent.listPlaceholder', 'Выберите работающего субагента, чтобы отменить его'),
 			}
 		);
+		if (picked?.openDispatch) {
+			await commandService.executeCommand(VIBEIDE_OPEN_AGENTS_DISPATCH_ACTION_ID);
+			return;
+		}
 		if (picked?.entryLive) {
 			subagentSvc.disposeSubagent(picked.entryId);
-			const notifications = accessor.get(INotificationService);
 			notifications.notify({ severity: Severity.Info, message: localize('vibeide.subagent.cancelled', 'Субагент {0} отменён.', picked.label) });
 		}
 	}

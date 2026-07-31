@@ -7,7 +7,7 @@
 The Performance Guardrails service monitors runtime performance thresholds and records
 trips to `.vibe/perf-guardrails-events.jsonl` when thresholds are exceeded.
 
-This is **distinct** from the Performance SLA document (`references/v1/tab-completion-sla.md`):
+This is **distinct** from the Performance SLA document (`docs/references-v1/tab-completion-sla.md`):
 
 | | Performance SLA | Performance Guardrails |
 |---|---|---|

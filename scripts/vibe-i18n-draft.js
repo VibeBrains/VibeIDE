@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * vibe-i18n-draft — LLM-assisted draft translations for VibeIDE
  *
@@ -54,7 +59,7 @@ const lmStudioUrl = argVal('--lmstudio-url') ?? 'http://localhost:1234';
 const useOllama = !args.includes('--lmstudio');
 
 let outDir = path.join(process.cwd(), 'out');
-if (argVal('--out-dir')) outDir = path.resolve(argVal('--out-dir'));
+if (argVal('--out-dir')) {outDir = path.resolve(argVal('--out-dir'));}
 
 const localeName = LOCALE_NAMES[locale.toLowerCase()] ?? locale;
 

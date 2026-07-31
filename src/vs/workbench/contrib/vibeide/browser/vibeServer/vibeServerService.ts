@@ -16,6 +16,8 @@ import { URI } from '../../../../../base/common/uri.js';
 import { createDecorator } from '../../../../../platform/instantiation/common/instantiation.js';
 import { IVibeServerStarted, VibeServerRuntimeKind } from '../../common/vibeServer/vibeServerIpc.js';
 import { VibeServerPreviewTarget } from './vibeServerConstants.js';
+import { ViewportLabel } from '../../common/designReview/designSlopRules.js';
+import { DesignScanResult } from './vibeBrowserManager.js';
 
 // Реализация — `electron-browser/vibeServer/vibeServerService.ts`: класс держит `IMainProcessService`
 // (два канала: vibeServer + vibeServerProcess), запрещённый и в `common/**`, и в `browser/**`.
@@ -50,6 +52,17 @@ export interface IVibeServerService {
 	openPreviewNewTab(): Promise<void>;
 	/** Force-reloads all open embedded preview tabs. */
 	reloadPreview(): void;
+	/**
+	 * Measures the previewed page for the design rules (passive: reads computed styles, changes
+	 * nothing). Reports why it could not measure instead of returning an empty result — "nothing
+	 * found" and "nothing measured" must not look alike.
+	 */
+	scanDesign(viewport?: ViewportLabel): Promise<DesignScanResult>;
+	/**
+	 * Frames the given findings on the previewed page and labels each with its rule id; an empty
+	 * list clears the overlay. No-op when no preview is open.
+	 */
+	showDesignFindings(items: readonly { selector: string; rule: string; severity: string }[]): void;
 	/** Starts the server if needed, then opens the preview at the given workspace file. */
 	openPreviewForResource(resource: URI): Promise<void>;
 	/** Copies the running server URL to the clipboard. */

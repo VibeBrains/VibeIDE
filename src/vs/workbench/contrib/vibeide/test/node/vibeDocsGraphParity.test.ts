@@ -15,6 +15,7 @@
 
 import * as assert from 'assert';
 import { fileURLToPath, pathToFileURL } from 'url';
+// eslint-disable-next-line local/code-import-patterns -- node 'path' in a node test (by design)
 import { join } from 'path';
 import { parseDocLinks as parseInModel } from '../../common/vibeDocsGraph.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
@@ -53,7 +54,15 @@ suite('vibeDocsGraph — parity with scripts/vibe-docs-graph.mjs', () => {
 
 	let parseInScript: ParseFn;
 
-	suiteSetup(async () => {
+	suiteSetup(async function () {
+		// This node-only test dynamically imports scripts/vibe-docs-graph.mjs, which lives outside
+		// `out/`. The Electron renderer (where `test.sh` runs the unit suite) cannot fetch a file://
+		// module beyond the app bundle → "Failed to fetch dynamically imported module". The parity is
+		// exercised by the node test runner (`npm run test-node`), so skip it in the renderer.
+		const proc = (globalThis as { process?: { type?: string } }).process;
+		if (proc?.type === 'renderer') {
+			this.skip();
+		}
 		const scriptPath = join(repoRootOf(import.meta.url), 'scripts', 'vibe-docs-graph.mjs');
 		const script = await import(pathToFileURL(scriptPath).href);
 		parseInScript = script.parseDocLinks;

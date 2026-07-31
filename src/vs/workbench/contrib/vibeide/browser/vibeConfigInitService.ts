@@ -84,6 +84,7 @@ vendor/
 const DEFAULT_VIBE_GITIGNORE = `# VibeIDE — рантайм-артефакты (машинно-локальные, не конфиг проекта). Не коммитить.
 .window-lock.json
 agent-locks.json
+agent-runs.jsonl
 commands.trust.json
 snapshots/
 # Секреты провайдеров (apiKeyEnv из .vibe/providers.json резолвится отсюда) — НИКОГДА не коммитить.

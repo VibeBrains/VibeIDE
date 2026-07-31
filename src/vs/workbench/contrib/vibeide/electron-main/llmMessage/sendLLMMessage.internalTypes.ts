@@ -5,14 +5,14 @@
 
 
 import { LLMChatMessage, LLMFIMMessage, LLMRuntimeOptions, ModelListParams, OnError, OnFinalMessage, OnText } from '../../common/sendLLMMessageTypes.js';
-import { ChatMode, FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
+import { ChatMode, FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderId, SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { InternalToolInfo } from '../../common/prompt/prompts.js';
 
 export type InternalCommonMessageParams = {
 	onText: OnText;
 	onFinalMessage: OnFinalMessage;
 	onError: OnError;
-	providerName: ProviderName;
+	providerName: ProviderId;
 	settingsOfProvider: SettingsOfProvider;
 	modelSelectionOptions: ModelSelectionOptions | undefined;
 	overridesOfModel: OverridesOfModel | undefined;

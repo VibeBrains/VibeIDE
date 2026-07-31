@@ -1,6 +1,6 @@
 # VibeIDE v1 — Навигация
 
-> **📄 Public docs** — эта папка содержит публичные архитектурные документы (будущий сайт VibeIDE.io). Нормативные contracts для разработчиков → [`references/v1/`](../../references/v1/README.md).
+> **📄 Public docs** — эта папка содержит публичные архитектурные документы (будущий сайт VibeIDE.io). Нормативные contracts для разработчиков → [`docs/references-v1/`](../../docs/references-v1/README.md).
 
 > Cursor-like standalone IDE, open-source, без подписки.  
 > **Нарратив: «Ты видишь всё — и управляешь всем»**

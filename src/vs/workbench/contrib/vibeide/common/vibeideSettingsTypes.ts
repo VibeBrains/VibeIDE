@@ -16,6 +16,18 @@ type UnionOfKeys<T> = T extends T ? keyof T : never;
 export type ProviderName = keyof typeof defaultProviderSettings;
 export const providerNames = Object.keys(defaultProviderSettings) as ProviderName[];
 
+/**
+ * Runtime identifier of ANY active provider — built-in (`ProviderName`) or config-defined
+ * (`providers.json`, workspace or `~/.vibe`). Config providers are NOT second-class: model
+ * selection, routing, auto-fallback, capabilities and settings APIs all speak `ProviderId` and
+ * operate on the MERGED provider set. `ProviderName` survives only as the key type of the
+ * compile-time built-in defaults tables; everything downstream must accept `ProviderId`.
+ */
+export type ProviderId = string;
+
+/** Type guard: is this id a compile-time built-in? Narrows to `ProviderName` for typed table access. */
+export const isBuiltinProviderId = (id: ProviderId): id is ProviderName => (providerNames as readonly string[]).includes(id);
+
 export const localProviderNames = ['ollama', 'vLLM', 'lmStudio'] satisfies ProviderName[]; // all local names
 export const nonlocalProviderNames = providerNames.filter((name) => !(localProviderNames as string[]).includes(name)); // all non-local names
 
@@ -39,16 +51,94 @@ export const nonlocalProviderNames = providerNames.filter((name) => !(localProvi
  */
 export const autoModelFallbackProviderOrder = ['anthropic', 'openAI', 'gemini', 'xAI', 'mistral', 'deepseek', 'groq', 'ollama', 'vLLM', 'lmStudio', 'openAICompatible', 'openRouter', 'liteLLM', 'pollinations', 'openCodeZen', 'openCodeGo', 'minimax'] satisfies ProviderName[];
 
+/**
+ * Auto-fallback candidate order over the MERGED provider set: config providers (providers.json —
+ * workspace or `~/.vibe`) FIRST, then the hand-curated built-in order above. Config providers lead
+ * for the same reason they sit on top of the model picker — they are the user's explicit,
+ * deliberate configuration, which beats our generic preference list. Their relative order follows
+ * their state-map insertion order, which the seeding path keeps sorted by the file's `order` field
+ * (then name). Every "walk providers to auto-pick a model" MUST use this, not the raw built-in
+ * list — otherwise config providers become second-class in auto-selection.
+ */
+export const autoFallbackProviderIds = (settingsOfProvider: SettingsOfProvider): ProviderId[] => {
+	const configIds = Object.keys(settingsOfProvider).filter(id => !isBuiltinProviderId(id));
+	return [...configIds, ...autoModelFallbackProviderOrder];
+};
+
+/**
+ * Canonical OS-env variable carrying the API key of a built-in cloud provider — the
+ * conventional name each vendor documents (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …).
+ *
+ * Only providers whose SOLE required setting is `apiKey` are listed: the env key has to be
+ * enough to make the provider usable on its own, and `computeDidFillInProviderSettings`
+ * requires EVERY field of a provider to be non-empty. Multi-field providers (liteLLM /
+ * lmRoute need `endpoint`, microsoftAzure needs `project`, awsBedrock needs `region`) are
+ * deliberately absent — an env key alone would not unblock them. Providers with no
+ * established convention (openCodeZen / openCodeGo / pollinations) are absent too rather
+ * than inventing a name.
+ *
+ * The NAME lives here (shared); the VALUE is read only in electron-main, where
+ * `process.env` is reliable — the renderer never receives it, just the presence flag.
+ */
+export const apiKeyEnvVarOfProvider = {
+	anthropic: 'ANTHROPIC_API_KEY',
+	openAI: 'OPENAI_API_KEY',
+	gemini: 'GEMINI_API_KEY',
+	groq: 'GROQ_API_KEY',
+	deepseek: 'DEEPSEEK_API_KEY',
+	mistral: 'MISTRAL_API_KEY',
+	xAI: 'XAI_API_KEY',
+	openRouter: 'OPENROUTER_API_KEY',
+	minimax: 'MINIMAX_API_KEY',
+} as const satisfies Partial<Record<ProviderName, string>>;
+
+/** Providers that support picking their API key up from the OS environment. */
+export const envCapableProviderNames = Object.keys(apiKeyEnvVarOfProvider) as (keyof typeof apiKeyEnvVarOfProvider)[];
+
+/** Minimal view of an environment bag — `process.env` satisfies it, and tests can pass a literal. */
+export type EnvVars = Readonly<Record<string, string | undefined>>;
+
+/**
+ * Fall back to the provider's canonical OS-env API key when Settings holds none.
+ *
+ * A key typed into the UI always wins, so an explicit setting can override the environment. The env
+ * value is trimmed: shells and CI configs routinely leave a trailing newline, which would otherwise
+ * surface much later as an invalid-header failure inside the HTTP client.
+ *
+ * Pure by design (env is a parameter, not `process.env`) — the caller in electron-main supplies the
+ * real environment, which keeps this testable from `test/common` and usable from any layer.
+ */
+export const resolveApiKeyWithEnv = (configuredKey: string | undefined, providerName: ProviderId, env: EnvVars): string => {
+	if (configuredKey?.trim()) { return configuredKey; }
+	const envVarName = apiKeyEnvVarOfProvider[providerName as keyof typeof apiKeyEnvVarOfProvider];
+	if (!envVarName) { return configuredKey ?? ''; }
+	return (env[envVarName] ?? '').trim();
+};
+
+/**
+ * Same fallback applied to the whole provider-settings bag, so every downstream branch reading
+ * `settingsOfProvider[providerName].apiKey` picks the env key up without repeating the resolution.
+ * Returns the original object untouched when there is nothing to substitute.
+ */
+export const withEnvApiKey = (settingsOfProvider: SettingsOfProvider, providerName: ProviderId, env: EnvVars): SettingsOfProvider => {
+	const providerCfg = settingsOfProvider[providerName] as { apiKey?: string } | undefined;
+	if (!providerCfg || providerCfg.apiKey?.trim()) { return settingsOfProvider; }
+	const resolved = resolveApiKeyWithEnv(providerCfg.apiKey, providerName, env);
+	if (!resolved) { return settingsOfProvider; }
+	// Computed-key spread widens the mapped part of SettingsOfProvider — the value is a valid entry
+	// for `providerName`, so narrow it back.
+	return { ...settingsOfProvider, [providerName]: { ...providerCfg, apiKey: resolved } } as SettingsOfProvider;
+};
+
 type CustomSettingName = UnionOfKeys<typeof defaultProviderSettings[ProviderName]>;
 type CustomProviderSettings<providerName extends ProviderName> = {
 	[k in CustomSettingName]: k extends keyof typeof defaultProviderSettings[providerName] ? string : undefined
 };
-export const customSettingNamesOfProvider = (providerName: ProviderName) => {
-	const builtin = defaultProviderSettings[providerName];
-	// Dynamic providers (.vibe/providers.json) have no built-in field schema; the only editable field in
+export const customSettingNamesOfProvider = (providerName: ProviderId) => {
+	// Config providers (providers.json) have no built-in field schema; the only editable field in
 	// the Settings card is the API key (baseURL/headers stay file-owned).
-	if (!builtin) { return ['apiKey'] as CustomSettingName[]; }
-	return Object.keys(builtin) as CustomSettingName[];
+	if (!isBuiltinProviderId(providerName)) { return ['apiKey'] as CustomSettingName[]; }
+	return Object.keys(defaultProviderSettings[providerName]) as CustomSettingName[];
 };
 
 
@@ -71,9 +161,24 @@ type CommonProviderSettings = {
 
 export type SettingsAtProvider<providerName extends ProviderName> = CustomProviderSettings<providerName> & CommonProviderSettings;
 
-// part of state
+/**
+ * Supertype every provider entry in state satisfies — built-in (`SettingsAtProvider`) and
+ * config-provider seed (`DynamicProviderSeed`) alike. This is what indexing `settingsOfProvider`
+ * with a plain `ProviderId` yields, so consumers work on the MERGED provider set without casts.
+ * The `keyStatus`/`keySource`/`modelCapOverrides` extras only ever appear on config-provider seeds.
+ */
+export type AnyProviderSettings = CommonProviderSettings & { [k in CustomSettingName]?: string } & {
+	keyStatus?: 'valid' | 'invalid' | 'error' | 'pending' | 'unverified' | 'none';
+	keySource?: 'gui' | 'env' | 'ref' | 'none';
+	modelCapOverrides?: { [modelId: string]: object };
+};
+
+// part of state — built-ins are precisely typed; any other `ProviderId` key is a config-provider
+// entry seeded from providers.json (workspace or ~/.vibe). ONE map, both sources.
 export type SettingsOfProvider = {
 	[providerName in ProviderName]: SettingsAtProvider<providerName>
+} & {
+	[id: ProviderId]: AnyProviderSettings;
 };
 
 
@@ -84,7 +189,7 @@ type DisplayInfoForProviderName = {
 	desc?: string;
 };
 
-export const displayInfoOfProviderName = (providerName: ProviderName): DisplayInfoForProviderName => {
+export const displayInfoOfProviderName = (providerName: ProviderId): DisplayInfoForProviderName => {
 	if (providerName === 'anthropic') {
 		return { title: 'Anthropic', };
 	}
@@ -156,7 +261,7 @@ export const displayInfoOfProviderName = (providerName: ProviderName): DisplayIn
 	return { title: providerName };
 };
 
-export const subTextMdOfProviderName = (providerName: ProviderName): string => {
+export const subTextMdOfProviderName = (providerName: ProviderId): string => {
 
 	if (providerName === 'anthropic') { return '[Ключ API](https://console.anthropic.com/settings/keys).'; }
 	if (providerName === 'openAI') { return '[Ключ API](https://platform.openai.com/api-keys).'; }
@@ -190,7 +295,7 @@ type DisplayInfo = {
 	placeholder: string;
 	isPasswordField?: boolean;
 };
-export const displayInfoOfSettingName = (providerName: ProviderName, settingName: SettingName): DisplayInfo => {
+export const displayInfoOfSettingName = (providerName: ProviderId, settingName: SettingName): DisplayInfo => {
 	if (settingName === 'apiKey') {
 		return {
 			title: localize('vibeide.settings.apiKey', 'Ключ API'),
@@ -453,8 +558,9 @@ export const defaultSettingsOfProvider: SettingsOfProvider = {
 };
 
 
+// `providerName` is a ProviderId: built-in OR config provider — selections address the MERGED set.
 export type ModelSelection =
-	| { providerName: ProviderName; modelName: string }
+	| { providerName: ProviderId; modelName: string }
 	| { providerName: 'auto'; modelName: 'auto' }; // Special "Auto" selection for automatic routing
 
 export const modelSelectionsEqual = (m1: ModelSelection, m2: ModelSelection) => {
@@ -466,9 +572,9 @@ export const isAutoModelSelection = (selection: ModelSelection | null): boolean 
 };
 
 /**
- * Type guard to check if a ModelSelection has a valid ProviderName (not "auto")
+ * Type guard to check if a ModelSelection addresses a real provider (not "auto").
  */
-export const isValidProviderModelSelection = (selection: ModelSelection): selection is { providerName: ProviderName; modelName: string } => {
+export const isValidProviderModelSelection = (selection: ModelSelection): selection is { providerName: ProviderId; modelName: string } => {
 	return selection.providerName !== 'auto' && selection.modelName !== 'auto';
 };
 
@@ -502,7 +608,7 @@ export const hasDownloadButtonsOnModelsProviderNames = ['ollama'] as const satis
 
 
 // use this in isFeatuerNameDissbled
-export const isProviderNameDisabled = (providerName: ProviderName, settingsState: VibeideSettingsState) => {
+export const isProviderNameDisabled = (providerName: ProviderId, settingsState: VibeideSettingsState) => {
 
 	const settingsAtProvider = settingsState.settingsOfProvider[providerName];
 	// Dynamic providers (.vibe/providers.json) have no built-in settings entry. Their selectable
@@ -532,12 +638,16 @@ export const isFeatureNameDisabled = (featureName: FeatureName, settingsState: V
 		return isProviderNameDisabled(providerName, settingsState);
 	}
 
+	// The MERGED provider set — a configured config provider (providers.json) must count exactly
+	// like a built-in here, or the UI tells a fully-working setup that "no provider is configured".
+	const allProviderIds = Object.keys(settingsState.settingsOfProvider);
+
 	// if there are any models they can turn on, tell them that
-	const canTurnOnAModel = !!providerNames.find(providerName => settingsState.settingsOfProvider[providerName].models.filter(m => m.isHidden).length !== 0);
+	const canTurnOnAModel = !!allProviderIds.find(providerName => (settingsState.settingsOfProvider[providerName]?.models ?? []).filter(m => m.isHidden).length !== 0);
 	if (canTurnOnAModel) { return 'needToEnableModel'; }
 
 	// if there are any providers filled in, then they just need to add a model
-	const anyFilledIn = !!providerNames.find(providerName => settingsState.settingsOfProvider[providerName]._didFillInProviderSettings);
+	const anyFilledIn = !!allProviderIds.find(providerName => settingsState.settingsOfProvider[providerName]?._didFillInProviderSettings);
 	if (anyFilledIn) { return 'addModel'; }
 
 	return 'addProvider';
@@ -706,12 +816,14 @@ export type ModelSelectionOptions = {
 	reasoningEffort?: string;
 };
 
+// Keyed by ProviderId — per-model options/overrides apply to config providers exactly like
+// built-ins. Reads on an id that never stored anything yield `undefined` (callers optional-chain).
 export type OptionsOfModelSelection = {
-	[featureName in FeatureName]: Partial<{
-		[providerName in ProviderName]: {
+	[featureName in FeatureName]: {
+		[providerName: ProviderId]: {
 			[modelName: string]: ModelSelectionOptions | undefined;
-		}
-	}>
+		} | undefined;
+	}
 };
 
 
@@ -719,7 +831,7 @@ export type OptionsOfModelSelection = {
 
 
 export type OverridesOfModel = {
-	[providerName in ProviderName]: {
+	[providerName: ProviderId]: {
 		[modelName: string]: Partial<ModelOverrides> | undefined;
 	}
 };
