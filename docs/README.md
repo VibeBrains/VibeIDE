@@ -26,6 +26,7 @@
 **Руководства** — `manuals/` (только здесь, имена camelCase)
 - [ciCdGuide.md](manuals/ciCdGuide.md) — запуск VibeIDE в GitHub Actions / GitLab CI.
 - [codebaseGuide.md](manuals/codebaseGuide.md) — ориентир по кодовой базе форка.
+- [designWorkflow.md](manuals/designWorkflow.md) — дизайнер: предусловие (превью), первый запуск тремя шагами, три класса находок, вкус против дефекта, режимы авто-замера, словарь команд.
 - [firstRun.md](manuals/firstRun.md) — первый запуск: SmartScreen на Windows и Gatekeeper на macOS (в Sequoia и новее — только через Системные настройки).
 - [howToContribute.md](manuals/howToContribute.md) — сборка и запуск из исходников (prerequisites, dev mode).
 - [providersSpec.md](manuals/providersSpec.md) — формат `.vibe/providers.json` (скормить LLM → готовый конфиг).
