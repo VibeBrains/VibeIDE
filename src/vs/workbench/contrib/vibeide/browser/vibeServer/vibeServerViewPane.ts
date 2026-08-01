@@ -205,6 +205,10 @@ export class VibeServerViewPane extends ViewPane {
 		return [
 			{ id: VibeServerCommands.start, label: localize('vibeServer.act.start', "Запустить"), icon: Codicon.play },
 			{ id: VibeServerCommands.startEnvironment, label: localize('vibeServer.act.env', "Поднять окружение (Docker)"), icon: Codicon.package },
+			// Only offered while the project has no stack file — this branch renders exactly then.
+			// Without it the format is undiscoverable: it lives in TypeScript types, and asking the
+			// agent cold does not work (2026-07-31).
+			{ id: VibeServerCommands.createStackToChat, label: localize('vibeServer.act.createStack', "Создать стек проекта…"), icon: Codicon.newFile, group: true },
 			{ id: VibeServerCommands.openSettings, label: localize('vibeServer.act.settings', "Настройки"), icon: Codicon.settingsGear, group: true },
 		];
 	}

@@ -18,6 +18,7 @@ export const enum VibeServerCommands {
 	openExternal = 'vibeide.vibeServer.openExternal',
 	copyUrl = 'vibeide.vibeServer.copyUrl',
 	previewErrorsToChat = 'vibeide.vibeServer.previewErrorsToChat',
+	createStackToChat = 'vibeide.vibeServer.createStackToChat',
 	showLanAddress = 'vibeide.vibeServer.showLanAddress',
 	showLanQr = 'vibeide.vibeServer.showLanQr',
 	openSettings = 'vibeide.vibeServer.openSettings',

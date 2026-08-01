@@ -30,6 +30,7 @@
 - [firstRun.md](manuals/firstRun.md) — первый запуск: SmartScreen на Windows и Gatekeeper на macOS (в Sequoia и новее — только через Системные настройки).
 - [howToContribute.md](manuals/howToContribute.md) — сборка и запуск из исходников (prerequisites, dev mode).
 - [providersSpec.md](manuals/providersSpec.md) — формат `.vibe/providers.json` (скормить LLM → готовый конфиг).
+- [serversSpec.md](manuals/serversSpec.md) — формат `.vibe/servers.json`: дев-стек проекта, порядок запуска, проверки готовности (скормить LLM → готовый конфиг).
 - [securityFaq.md](manuals/securityFaq.md) — что уходит наружу, что остаётся локально.
 - [specsWorkflow.md](manuals/specsWorkflow.md) — как работать со спеками; **источник** справки «?» в панели «Спеки» (генерируется на сборке).
 - [vibeEnvironment.md](manuals/vibeEnvironment.md) — окружение `.vibe`: почему устаревает, две команды, lock-файл.

@@ -28,6 +28,8 @@ import { VibeServerViewPane } from './vibeServerViewPane.js';
 import { openLanQr } from './vibeServerQr.js';
 import { VibeServerStatusBarContribution } from './vibeServerStatusBar.js';
 import { IVibeServerService } from './vibeServerService.js';
+import { IChatThreadService } from '../chatThreadService.js';
+import { INotificationService } from '../../../../../platform/notification/common/notification.js';
 import {
 	VibeServerCommands,
 	VIBE_SERVER_RUNNING_CONTEXT_KEY,
@@ -279,6 +281,47 @@ registerAction2(
 		}
 		async run(accessor: ServicesAccessor): Promise<void> {
 			await accessor.get(IVibeServerService).sendPreviewErrorsToChat();
+		}
+	},
+);
+
+/**
+ * Seeds the chat with a ready prompt for building `.vibe/servers.json`, instead of leaving the
+ * user to discover the format. "Создай мне .vibe/servers.json" alone does not work: the schema
+ * lives in TypeScript types the agent will not open on its own (observed 2026-07-31 — the agent
+ * failed, then searched GitHub and found nothing, because no spec existed yet).
+ *
+ * Queued as a pending injection rather than sent: the user usually wants to add a detail
+ * ("бэкенд на 8080, не трогай storybook") before the turn starts — same pattern as
+ * `sendPreviewErrorsToChat`.
+ */
+registerAction2(
+	class VibeServerCreateStackToChat extends Action2 {
+		constructor() {
+			super({
+				id: VibeServerCommands.createStackToChat,
+				title: localize2('vibeServer.createStackToChat', 'Vibe Server: Создать стек проекта (.vibe/servers.json)'),
+				icon: Codicon.newFile,
+				category: vibeCategory,
+				f1: true,
+			});
+		}
+		async run(accessor: ServicesAccessor): Promise<void> {
+			const chatThreadService = accessor.get(IChatThreadService);
+			const notificationService = accessor.get(INotificationService);
+			const threadId = chatThreadService.state.currentThreadId;
+			if (!threadId) {
+				notificationService.info(localize('vibeServer.stack.noThread', "Нет активного чата — откройте чат и повторите."));
+				return;
+			}
+			// The example file carries the full annotated format and is seeded into every project,
+			// so the prompt stays short and cannot drift from the schema. The essentials are
+			// repeated inline for projects seeded before the example existed.
+			chatThreadService.addPendingInjection(threadId, localize(
+				'vibeServer.stack.prompt',
+				"Создай файл `.vibe/servers.json` — описание дев-стека этого проекта для Vibe Server.\n\nСначала прочитай `.vibe/servers.example.jsonc` рядом: там полный формат с комментариями. Затем осмотри проект (package.json, docker-compose, README, структуру папок) и определи, какие сервисы нужно поднимать и в каком порядке.\n\nКлючевое, если примера рядом не оказалось:\n- обязательные поля записи — `id` и `command`; файл: `{{\"version\": 1, \"servers\": [ … ]}}` в формате JSONC;\n- `kind`: `service` (долгоживущий процесс, по умолчанию) или `task` (одноразовая команда, обязана успешно завершиться до старта зависящих — докер, миграции, кодоген);\n- порядок задаётся `dependsOn` (массив id), а не позицией в массиве; неизвестный id отключает запись;\n- готовность: `readyCheck` = `port` (по умолчанию для service) | `http` (+`readyPath`) | `log` (+`readyPattern`) | `exit` (для task) | `spawn`; `port` объявляется явно; `readyTimeoutMs` по умолчанию 60000 — для Angular/Ionic ставь 420000, для тяжёлого бэкенда 180000;\n- прочее: `dir`, `env`, `envFile`, `pathPrepend`, `skipIf` (проба «уже запущено» для task), `autoStart`, `previewPath`, `stopCommand`, `active`, `note`.\n\nНе выдумывай порты и команды — бери из конфигов проекта, а чего не знаешь, спроси у меня. Покажи получившийся файл и объясни, откуда взял каждую команду и порт.",
+			));
+			notificationService.info(localize('vibeServer.stack.queued', "Запрос на создание стека добавлен в чат — отправьте сообщение (можно дописать детали)."));
 		}
 	},
 );
