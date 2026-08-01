@@ -116,7 +116,7 @@
 
 | Файл | О чём |
 |---|---|
-| [windowsToolchain.md](build/windowsToolchain.md) | VS C++ Build Tools, MSB8040 Spectre, native modules, `@vscode/vsce-sign`, кросс-платформенная сборка Windows из тега (доливка в релиз mac) |
+| [windowsToolchain.md](build/windowsToolchain.md) | VS C++ Build Tools, MSB8040 Spectre, native modules, `@vscode/vsce-sign`, кросс-платформенная сборка Windows из тега (доливка в релиз mac), `EBUSY` от зомби-процессов смоук-чека между Фазой 1 и Фазой 2 |
 | [linuxToolchain.md](build/linuxToolchain.md) | `release-linux.sh`: deb/rpm/AppImage/tar.gz × x64/arm64, двухфазный флоу, Docker-кросс-сборка, cross-toolchain arm64 |
 | [macosToolchain.md](build/macosToolchain.md) | `release-macos.sh`: DMG/ZIP arm64, двухфазный флоу, ad-hoc/Developer ID подпись + notarization, грабли сборки (OOM манглера, husky-бамп) и релизного флоу (расхождение origin/main → merge-не-rebase, замена авто-нот `--generate-notes` курируемыми), VERIFY-GATE целостности бандла (форкнутый воркер выпал из `.app` 1.9.0) |
 | [buildFromSource.md](build/buildFromSource.md) | `home-build.*`: самосборка портатива под свою ОС одной командой, self-contained bootstrap (fnm+Node+deps) + гейт намерений |
