@@ -86,7 +86,7 @@ import { IVibeSubagentService } from '../common/vibeSubagentService.js';
 import { IVibeVerifyGateService } from './vibeVerifyGateService.js';
 import { decideVerifyGate } from '../common/verifyGatePolicy.js';
 import { IVibeTurnChecksService } from './vibeTurnChecksService.js';
-import { decideTurnChecks, evaluateTurnChecks, renderTurnChecksCorrective } from '../common/agentTurnChecks.js';
+import { decideTurnChecks, evaluateTurnChecks, renderTurnChecksCorrective, TurnCheckResult, TurnChecksDecision } from '../common/agentTurnChecks.js';
 import { IVibeCircuitBreakerService } from './vibeCircuitBreakerService.js';
 import { DesignHookMode, decideDesignHook, floorFindings, touchesUi } from '../common/designReview/designHookPolicy.js';
 import { Finding, ViewportLabel, mergeViewportFindings, reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
@@ -4970,6 +4970,65 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			assistantTextThisRun.push(slice);
 			assistantTextChars += slice.length;
 		};
+		// TURN-CHECKS core, shared by every exit of the run. The gate used to live inline in the
+		// `vibe_complete` branch only, so a run that ended any other way — the model stopping with
+		// prose, or autopilot accepting a prose completion — wrote files with no check at all and
+		// left the security breakers unarmed. Facts and breaker latching are identical on all
+		// paths; what differs is what the caller can do with the verdict.
+		const evaluateTurnChecksNow = async (closingText: string): Promise<{ decision: TurnChecksDecision; failures: TurnCheckResult[] } | undefined> => {
+			const mode = this._turnChecksService.getMode();
+			if (mode === 'off' || !didMutateThisRun) {
+				return undefined;
+			}
+			const turnFacts = await this._turnChecksService.collect({
+				changedFiles: touchedPathsThisRun,
+				calledTools: calledToolsThisRun,
+				// The main agent's tool set is enforced by the mode itself, so there is no
+				// separate whitelist to violate here — an empty list disables that check.
+				allowedTools: [],
+				// Whole run, not just the closing message: the closing text is often a bare
+				// summary, while the `file:line` references live in the step where the agent
+				// reported the edit.
+				answerText: [...assistantTextThisRun, closingText].join('\n\n'),
+				tokensUsed: 0,
+				tokenQuota: 0,
+			});
+			const failures = evaluateTurnChecks(turnFacts, this._turnChecksService.getEnabledChecks()).filter(result => !result.passed);
+			// A failed security check is not just this turn's problem: it trips a latching
+			// breaker, so the same fault cannot quietly repeat next turn. The breaker keeps
+			// its state across restarts — reopening the IDE is not a way around it.
+			for (const failure of failures) {
+				if (failure.id === 'no-secret-leak') {
+					this._circuitBreakers.trip('secret-leak', failure.detail);
+				} else if (failure.id === 'no-protected-path') {
+					this._circuitBreakers.trip('protected-path', failure.detail);
+				}
+			}
+			// Debug, not info: this runs on every mutating turn, and paths are omitted on purpose —
+			// the point is "did the gate run and what did it see", not a file listing in the console.
+			vibeLog.debug('turnChecks', `режим=${mode} файлов=${touchedPathsThisRun.length} секретов=${turnFacts.secretHits.length} закрытых=${turnFacts.protectedHits.length} провалов=${failures.length}`);
+			return {
+				decision: decideTurnChecks({ mode, failures, attemptsUsed: turnChecksAttempts, maxAttempts: this._turnChecksService.getMaxAttempts() }),
+				failures,
+			};
+		};
+		/**
+		 * Report the verdict on an exit that cannot bounce the model: the run is already over
+		 * because the model stopped calling tools, so there is nothing to send it back to. `enforce`
+		 * therefore degrades to a stop notice rather than silently doing nothing — the findings and
+		 * the latched breakers are the same either way.
+		 */
+		const reportTurnChecksOnFinalExit = async (closingText: string): Promise<void> => {
+			const verdict = await evaluateTurnChecksNow(closingText);
+			if (!verdict || verdict.failures.length === 0) {
+				return;
+			}
+			const list = verdict.failures.map(f => `• ${f.detail}`).join('\n');
+			const note = verdict.decision === 'notify-complete'
+				? `⚠️ ПРОВЕРКИ ХОДА: ход завершён, но кое-что стоит посмотреть.\n\n${list}`
+				: `⛔ ПРОВЕРКИ ХОДА: ход завершён с проблемами, а вернуть агента на исправление уже некуда — он закончил без вызова инструмента.\n\n${list}`;
+			this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+		};
 		const noteToolCall = (toolName: string, rawParams?: unknown): void => {
 			calledToolsThisRun.push(toolName);
 			if (!MUTATING_TOOL_NAMES.has(toolName.toLowerCase())) { return; }
@@ -6979,42 +7038,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					// into changed files, writes onto closed paths, citations pointing at lines that do not
 					// exist. No model is consulted; a judge that hallucinates a verdict would be worse than
 					// no check. Same shape as the two gates above (mode → decision → bounce/stop).
-					const turnChecksMode = this._turnChecksService.getMode();
-					if (turnChecksMode !== 'off' && didMutateThisRun) {
-						const turnFacts = await this._turnChecksService.collect({
-							changedFiles: touchedPathsThisRun,
-							calledTools: calledToolsThisRun,
-							// The main agent's tool set is enforced by the mode itself, so there is no
-							// separate whitelist to violate here — an empty list disables that check.
-							allowedTools: [],
-							// Whole run, not just the closing message: `body` is often the bare
-							// `vibe_complete` summary, while the `file:line` references live in the
-							// step where the agent reported the edit.
-							answerText: [...assistantTextThisRun, body].join('\n\n'),
-							tokensUsed: 0,
-							tokenQuota: 0,
-						});
-						const failures = evaluateTurnChecks(turnFacts, this._turnChecksService.getEnabledChecks()).filter(result => !result.passed);
-						// A failed security check is not just this turn's problem: it trips a latching
-						// breaker, so the same fault cannot quietly repeat next turn. The breaker keeps
-						// its state across restarts — reopening the IDE is not a way around it.
-						for (const failure of failures) {
-							if (failure.id === 'no-secret-leak') {
-								this._circuitBreakers.trip('secret-leak', failure.detail);
-							} else if (failure.id === 'no-protected-path') {
-								this._circuitBreakers.trip('protected-path', failure.detail);
-							}
-						}
-						// Debug, not info: this runs on every mutating turn, and paths are omitted on purpose —
-						// the point is "did the gate run and what did it see", not a file listing in the console.
-						vibeLog.debug('turnChecks', `режим=${turnChecksMode} файлов=${touchedPathsThisRun.length} секретов=${turnFacts.secretHits.length} закрытых=${turnFacts.protectedHits.length} провалов=${failures.length}`);
+					const turnVerdict = await evaluateTurnChecksNow(body);
+					if (turnVerdict) {
+						const { decision: turnDecision, failures } = turnVerdict;
 						const maxTurnCheckAttempts = this._turnChecksService.getMaxAttempts();
-						const turnDecision = decideTurnChecks({
-							mode: turnChecksMode,
-							failures,
-							attemptsUsed: turnChecksAttempts,
-							maxAttempts: maxTurnCheckAttempts,
-						});
 						if (turnDecision === 'bounce') {
 							turnChecksAttempts += 1;
 							const corrective = renderTurnChecksCorrective(failures, turnChecksAttempts, maxTurnCheckAttempts);
@@ -7421,6 +7448,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						&& looksLikeCompletionText(info.fullText)) {
 						vibeLog.warn('chatThread', `[autopilot] implicit vibe_complete: model declared completion in prose after ${autoContinueOnTextCount} exhausted nudge(s) — ending run cleanly instead of «Продолжить».`);
 						// Same as the explicit vibe_complete path: finalize an executing plan on this exit.
+						await reportTurnChecksOnFinalExit(info.fullText);
 						this._finalizePlanIfComplete(threadId);
 						this._setStreamState(threadId, { isRunning: undefined });
 						return;
@@ -7428,6 +7456,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 					// Autopilot OFF, or the auto-continue budget is spent → stop with an explanation
 					// + a one-click resume affordance (rendered by SidebarChat on the last message).
+					await reportTurnChecksOnFinalExit(info.fullText);
 					this._addMessageToThread(threadId, {
 						role: 'assistant',
 						displayContent: localize('vibeide.agent.stoppedNoToolCall', 'Прогон завершён: модель закончила ход текстом без вызова инструмента. Если задача не доделана — нажмите «Продолжить» или напишите следующий шаг.'),
