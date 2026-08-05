@@ -36,7 +36,7 @@
 | [twoPatchesFolders.md](architecture/twoPatchesFolders.md) | `patches-node-modules/` vs `patches-vscode-source/` |
 | [upstreamBoundary.md](architecture/upstreamBoundary.md) | **[правило]** Граница наш код ↔ upstream: почему upstream-файлы НЕ правим ради стиля/линта (налог на merge-конфликты при синке VS Code, нулевая продуктовая ценность, наш конфиг строже их CI). Вместо правки — исключаем из гейта (`.eslint-ignore`/`tsec.exemptions`/layers-базлайн). Как отличить наш от upstream; когда трогать МОЖНО (баг/фича/security, не стиль) |
 | [modelQuirks.md](architecture/modelQuirks.md) | Catalog-driven per-model quirks (temperature/topP/topK/reasoning/tool-format) — `resources/model-quirks.json` + CDN refresh |
-| [modelPricing.md](architecture/modelPricing.md) | Прайс моделей: `getModelCapabilities().cost` (USD/1M), `{0,0}`=«неизвестно»≠$0; **ловушка**: каталожный cost per-token → `modelRouter.costPerM` врёт в 1e6 раз |
+| [modelPricing.md](architecture/modelPricing.md) | Прайс моделей: `getModelCapabilities().cost` (USD/1M), `{0,0}`=«неизвестно»≠$0; была ловушка «per-token → врёт в 1e6 раз», закрыта 06.08 через `catalogPricing.ts` |
 | [xmlToolNormalization.md](architecture/xmlToolNormalization.md) | XML tool-call pipeline (Layer 1 normalize / Layer 2 parser / Layer 3 safety net), DSML/self-closing/malformed-close coverage |
 | [xmlToolFormatMatrix.md](architecture/xmlToolFormatMatrix.md) | Living matrix: vendor × provider × format × coverage layer × test fixture |
 | [contextReport.md](architecture/contextReport.md) | Команда `vibeide.context.status` (аналог `/context`): `buildContextBreakdown` считает состав промпта по живым геттерам, шкала из context-guard, история — остаток; рендер в untitled-md |

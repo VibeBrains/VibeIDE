@@ -25,6 +25,7 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { IRequestService, asTextOrError } from '../../../../platform/request/common/request.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
 import { IRemoteCatalogService, RemoteModelInfo, DynamicKeyValidation } from '../common/remoteCatalogService.js';
+import { normaliseCatalogCost } from '../common/catalogPricing.js';
 
 /** Cached catalog entry with TTL. */
 interface CachedCatalog {
@@ -193,13 +194,10 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 			const supportsPDF = typeof (model as { supports_pdf_input?: unknown }).supports_pdf_input === 'boolean'
 				? (model as { supports_pdf_input: boolean }).supports_pdf_input
 				: undefined;
+			// LiteLLM quotes PER TOKEN; every consumer of `cost` works per million. Without the
+			// conversion a catalog model looked a million times cheaper — free, to the router.
 			const pricing = (model as { input_cost_per_token?: unknown; output_cost_per_token?: unknown });
-			const cost = typeof pricing.input_cost_per_token === 'number' || typeof pricing.output_cost_per_token === 'number'
-				? {
-					input: typeof pricing.input_cost_per_token === 'number' ? pricing.input_cost_per_token : 0,
-					output: typeof pricing.output_cost_per_token === 'number' ? pricing.output_cost_per_token : 0,
-				}
-				: undefined;
+			const cost = normaliseCatalogCost(pricing.input_cost_per_token, pricing.output_cost_per_token);
 			return {
 				id: String(model.id ?? ''),
 				name: String(model.id ?? model.name ?? ''),
@@ -501,10 +499,12 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 				supportsPDF: inputMods?.includes('file'),
 				supportsCode: nameStr.toLowerCase().includes('code') || nameStr.toLowerCase().includes('coder'),
 				modality,
-				cost: (model as { pricing?: { prompt?: number; completion?: number } }).pricing ? {
-					input: (model as { pricing: { prompt?: number } }).pricing.prompt || 0,
-					output: (model as { pricing: { completion?: number } }).pricing.completion || 0,
-				} : undefined,
+				// OpenRouter quotes per token AND sends the numbers as strings — the previous
+				// `pricing.prompt || 0` let a string into a numeric field untouched.
+				cost: normaliseCatalogCost(
+					(model as { pricing?: { prompt?: unknown } }).pricing?.prompt,
+					(model as { pricing?: { completion?: unknown } }).pricing?.completion,
+				),
 				deprecated: !!(model as { deprecated?: boolean }).deprecated,
 				beta: !!(model as { beta?: boolean }).beta,
 			};
