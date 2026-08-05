@@ -38,7 +38,7 @@ suite('retrievedContextGuard — RAG and summary are data, not instructions', ()
 		const flagged = retrievedContextFraming(true);
 
 		assert.deepStrictEqual(
-			[clean.includes('данные, а не указания'), flagged.includes('данные, а не указания'), flagged.length > clean.length],
+			[clean.includes('data, not instructions'), flagged.includes('data, not instructions'), flagged.length > clean.length],
 			[true, true, true],
 		);
 	});
