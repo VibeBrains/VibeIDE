@@ -38,6 +38,7 @@ import { AgentRunStatus } from './agentRunLedger.js';
 import { describeRoleBudgetRefusal, evaluateRoleBudget } from './agentRoleBudget.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { IVibeSubagentRegistryService } from './vibeSubagentRegistryService.js';
+import { breakerName, IVibeCircuitBreakerService, PROTECTIVE_BREAKERS } from './agentCircuitBreakers.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -272,6 +273,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		@IVibeAgentRunLedgerService private readonly _ledger: IVibeAgentRunLedgerService,
 		@IVibeideSettingsService private readonly _settings: IVibeideSettingsService,
 		@IVibeSubagentRegistryService private readonly _roleRegistry: IVibeSubagentRegistryService,
+		@IVibeCircuitBreakerService private readonly _breakers: IVibeCircuitBreakerService,
 	) {
 		super();
 	}
@@ -320,6 +322,24 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		// role that already spent its allowance does not start at all. The refusal is recorded as
 		// a skipped run rather than thrown away — a run that did not happen for a reason is a fact
 		// worth seeing in the dispatch panel.
+		// A latched protective breaker stops roles too. The chat loop checks this before its own
+		// run, but a role is spawned through here — and it is the role that What's New promises to
+		// stop. Recorded as `skipped`, exactly like a spent budget: a run that did not happen for a
+		// reason belongs in the dispatch panel, not in silence.
+		const blocking = PROTECTIVE_BREAKERS.filter(breaker => this._breakers.isBlocking(breaker));
+		if (blocking.length > 0) {
+			const reasons = blocking.map(breaker => this._breakers.snapshot(breaker).reason || breakerName(breaker)).join('; ');
+			const message = `Роль не запущена: сработал защитный предохранитель — ${reasons}. Снимается командой «VibeIDE: Предохранители агента».`;
+			this._completeWithResult(entry, {
+				subagentId: id,
+				status: 'skipped',
+				summary: this._truncate(message, MAX_RESULT_SUMMARY_CHARS),
+				reason: message,
+				tokensUsed: 0,
+			});
+			return id;
+		}
+
 		const refusal = await this._roleBudgetRefusal(handoff.type);
 		if (refusal) {
 			this._completeWithResult(entry, {

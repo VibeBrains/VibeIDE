@@ -87,7 +87,7 @@ import { IVibeVerifyGateService } from './vibeVerifyGateService.js';
 import { decideVerifyGate } from '../common/verifyGatePolicy.js';
 import { IVibeTurnChecksService } from './vibeTurnChecksService.js';
 import { decideTurnChecks, evaluateTurnChecks, renderTurnChecksCorrective, TurnCheckResult, TurnChecksDecision } from '../common/agentTurnChecks.js';
-import { breakerName, IVibeCircuitBreakerService } from './vibeCircuitBreakerService.js';
+import { breakerName, IVibeCircuitBreakerService, PROTECTIVE_BREAKERS } from '../common/agentCircuitBreakers.js';
 import { DesignHookMode, decideDesignHook, floorFindings, touchesUi } from '../common/designReview/designHookPolicy.js';
 import { Finding, ViewportLabel, mergeViewportFindings, reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
 import { IVibeDesignScanService } from './designReview/vibeDesignScanService.js';
@@ -4809,13 +4809,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// abandon work half-applied. Latched breakers only clear by human decision, so the message
 		// names the command that does it.
 		if (this._configurationService.getValue<boolean>('vibeide.agent.circuitBreakers.blockRun') !== false) {
-			const blocking = (['secret-leak', 'protected-path'] as const).filter(id => this._circuitBreakers.isBlocking(id));
+			const blocking = PROTECTIVE_BREAKERS.filter(id => this._circuitBreakers.isBlocking(id));
 			if (blocking.length > 0) {
-				// Reason first, breaker name in a trailing parenthesis: the reason comes from the
-				// check that tripped it and already names the problem, so prefixing it with the
-				// breaker's own title read as a stutter («Секрет в изменённых файлах: Похоже на
-				// секрет в изменённых файлах: …») in the live smoke.
-				const list = blocking.map(id => `• ${this._circuitBreakers.snapshot(id).reason || '—'} (предохранитель «${breakerName(id)}»)`).join('\n');
+				// Reason only. It comes from the check that tripped the breaker and already names the
+				// problem, so the breaker's own title adds nothing: read on screen, «Похоже на секрет
+				// в изменённых файлах: … (предохранитель «Секрет в изменённых файлах»)» says the same
+				// thing twice. The title is still what the management command lists — there it labels
+				// breakers that have no reason text yet.
+				const list = blocking.map(id => `• ${this._circuitBreakers.snapshot(id).reason || breakerName(id)}`).join('\n');
 				const note = localize('vibeide.agent.blockedByBreaker', '⛔ Агент не запущен: сработал защитный предохранитель. Он снимается только вашим решением — команда «VibeIDE: Предохранители агента».\n\n{0}', list);
 				this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
 				vibeLog.warn('circuitBreaker', `прогон отклонён: открыты предохранители ${blocking.join(', ')}`);

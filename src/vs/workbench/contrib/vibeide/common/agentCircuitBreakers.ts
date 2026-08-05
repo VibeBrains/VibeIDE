@@ -26,6 +26,9 @@
  * Pure: state in, state out. The service persists it and writes the audit trail.
  */
 
+import { Event } from '../../../../base/common/event.js';
+import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+
 export type BreakerId =
 	/** Turn checks found a secret in files the run changed. */
 	| 'secret-leak'
@@ -76,6 +79,34 @@ export interface BreakerSnapshot {
 export function initialBreaker(id: BreakerId): BreakerSnapshot {
 	return { id, state: 'closed', trips: 0, autoRecoveries: 0 };
 }
+
+/**
+ * The service contract lives here, next to the pure decisions, because both the chat loop
+ * (`browser/`) and the subagent service (`common/`) have to ask the same question before starting
+ * work. The implementation stays in `browser/` — it needs storage and the audit log.
+ */
+export const IVibeCircuitBreakerService = createDecorator<IVibeCircuitBreakerService>('vibeCircuitBreakerService');
+
+export interface IVibeCircuitBreakerService {
+	readonly _serviceBrand: undefined;
+
+	/** Register one occurrence; returns the resulting snapshot. */
+	trip(id: BreakerId, reason: string): BreakerSnapshot;
+
+	/** True when this breaker currently stops what it guards. */
+	isBlocking(id: BreakerId): boolean;
+
+	/** Attempt recovery. `manual: true` is a human decision and closes even a latched breaker. */
+	recover(id: BreakerId, manual: boolean): BreakerSnapshot;
+
+	snapshot(id: BreakerId): BreakerSnapshot;
+	all(): readonly BreakerSnapshot[];
+
+	readonly onDidChange: Event<BreakerSnapshot>;
+}
+
+/** Breakers that guard the user's data: they latch, and nothing may start while one is open. */
+export const PROTECTIVE_BREAKERS: readonly BreakerId[] = ['secret-leak', 'protected-path'];
 
 /** True when the breaker must stop whatever it guards. */
 export function isBreakerBlocking(snapshot: BreakerSnapshot): boolean {

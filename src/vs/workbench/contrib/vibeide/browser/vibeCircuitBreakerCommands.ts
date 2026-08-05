@@ -19,8 +19,7 @@ import { Codicon } from '../../../../base/common/codicons.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
-import { IVibeCircuitBreakerService } from './vibeCircuitBreakerService.js';
-import { BREAKER_CONFIGS, BreakerId, breakerName, describeBreaker } from '../common/agentCircuitBreakers.js';
+import { BREAKER_CONFIGS, BreakerId, breakerName, describeBreaker, IVibeCircuitBreakerService } from '../common/agentCircuitBreakers.js';
 
 export const VIBEIDE_CIRCUIT_BREAKERS_ACTION_ID = 'vibeide.agents.circuitBreakers';
 

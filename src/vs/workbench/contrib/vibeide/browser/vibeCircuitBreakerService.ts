@@ -18,14 +18,13 @@
 
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
-import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { vibeLog } from '../common/vibeLog.js';
 import { IAuditLogService } from '../common/auditLogService.js';
 import {
 	BREAKER_CONFIGS, BreakerId, BreakerSnapshot, breakerName, initialBreaker, isBreakerBlocking,
-	recoverBreaker, tripBreaker,
+	IVibeCircuitBreakerService, recoverBreaker, tripBreaker,
 } from '../common/agentCircuitBreakers.js';
 
 /** Workspace-scoped: the rules that trip these breakers (paths, budgets) are per project. */
@@ -43,26 +42,6 @@ const STORAGE_ENFORCEMENT_KEY = 'vibeide.agent.circuitBreakers.enforcementEpoch'
 const ENFORCEMENT_EPOCH = '1';
 
 const ALL_BREAKERS: readonly BreakerId[] = ['secret-leak', 'protected-path', 'provider-errors', 'role-budget'];
-
-export const IVibeCircuitBreakerService = createDecorator<IVibeCircuitBreakerService>('vibeCircuitBreakerService');
-
-export interface IVibeCircuitBreakerService {
-	readonly _serviceBrand: undefined;
-
-	/** Register one occurrence; returns the resulting snapshot. */
-	trip(id: BreakerId, reason: string): BreakerSnapshot;
-
-	/** True when this breaker currently stops what it guards. */
-	isBlocking(id: BreakerId): boolean;
-
-	/** Attempt recovery. `manual: true` is a human decision and closes even a latched breaker. */
-	recover(id: BreakerId, manual: boolean): BreakerSnapshot;
-
-	snapshot(id: BreakerId): BreakerSnapshot;
-	all(): readonly BreakerSnapshot[];
-
-	readonly onDidChange: Event<BreakerSnapshot>;
-}
 
 class VibeCircuitBreakerService extends Disposable implements IVibeCircuitBreakerService {
 	declare readonly _serviceBrand: undefined;
