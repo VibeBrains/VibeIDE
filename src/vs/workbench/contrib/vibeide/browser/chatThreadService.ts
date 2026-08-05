@@ -7364,13 +7364,29 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							? '⚙️ Авто-продолжение (автопилот): ты завершил ход вопросом, но автопилот включён — пользователь в этом режиме не отвечает. Прими решение самостоятельно (выбери разумный вариант по умолчанию, зафиксируй его одной строкой) и продолжай работу инструментами. Не жди подтверждения.'
 							: info.fullText.trim().length === 0
 								? '⚙️ Авто-продолжение (автопилот): твой предыдущий ход пришёл ПУСТЫМ (ни текста, ни вызова инструмента) — вероятно, сбой доставки ответа. Продолжай выполнение задачи с того места, где остановился: вызови следующий нужный инструмент или дай финальный ответ.'
-								: '⚙️ Авто-продолжение (автопилот): ты завершил ход текстом без вызова инструмента. Если задача НЕ закончена — продолжай, вызвав нужный инструмент. Если задача ПОЛНОСТЬЮ выполнена — вызови инструмент `vibe_complete` (но сначала перепроверь, что всё действительно сделано: правки применены, сборка/тесты проходят, шагов не осталось). Не пиши «Готово» просто текстом — это завершит ход только через `vibe_complete`. Если не хватает данных — прими разумное решение сам и продолжай.';
+									// Completion branch goes FIRST and is the default reading: a weak caller takes the
+									// first imperative as the instruction and loses the condition attached to it. The old
+									// wording opened with «НЕ закончена — продолжай» and closed with «прими разумное
+									// решение сам и продолжай» — the freshest line in context, read as a licence to
+									// invent. Observed 2026-07-31: MiniMax answered «понял, автопилот, пошёл дальше»
+									// on a FINISHED task and started fabricating `.vibe/servers.json` out of thin air.
+									// See docs/knowledge/chatUx/chatInterruptAndInject.md.
+									: '⚙️ Авто-продолжение (автопилот): ход не закрывается текстом — только вызовом инструмента.\n\n'
+									+ 'Задача выполнена → вызови `vibe_complete`. Это единственный способ закончить. Перед вызовом перепроверь: правки применены, сборка и тесты проходят, шагов не осталось.\n\n'
+									+ 'Задача НЕ выполнена → продолжай ровно ту работу, которая была поставлена: вызови нужный инструмент.\n\n'
+									+ 'ЗАПРЕЩЕНО: придумывать новую работу, о которой не просили; создавать файлы «на всякий случай»; выдумывать данные, которых нет в проекте. Если не знаешь, что делать дальше, — значит работа закончена: вызывай `vibe_complete`. Если для ПОСТАВЛЕННОЙ задачи не хватает данных — выбери разумный вариант из тех, что уже известны из проекта, назови его одной строкой и продолжай.';
 						// Text-only completion case only (not the question / empty-turn variants) gets the XML hint.
 						if (!askedQuestion && info.fullText.trim().length !== 0) { corrective += xmlCompleteHint; }
 						this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
 						shouldSendAnotherMessage = true;
 						// Force the follow-up turn to emit a tool call (vibe_complete or a real tool) so a
 						// weak caller can't return prose AGAIN. No-op in XML mode (no native tools sent).
+						//
+						// NOT narrowed to `vibe_complete` alone, though the fabrication incident tempted it
+						// (roadmap § AP-2): the nudge also fires on turns with real work left, and forcing the
+						// completion call there would close a live task on the model's behalf — a worse failure
+						// than the one being fixed, and a silent one. The wording above carries that decision
+						// instead: "не знаешь, что делать дальше — значит закончено".
 						forceToolUseNextTurn = this._configurationService.getValue<boolean>('vibeide.agent.forceToolUseOnNudge') !== false;
 						this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
 						continue;
