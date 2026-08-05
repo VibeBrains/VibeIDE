@@ -226,6 +226,7 @@
 
 | Файл | О чём |
 |---|---|
+| [owaspAgenticTop10.md](security/owaspAgenticTop10.md) | Сверка ASI01–ASI10 с нашими guard'ами: 8 из 10 закрыто, ASI07 неприменим, единственный гэп — отравление контекста через RAG-индекс и историю чата. Разбор Microsoft agent-governance-toolkit (не применим: он про изоляцию серверных агентов) |
 | [configGuard.md](security/configGuard.md) | Config Guard — статический скан `.vibe/providers.json` и `mcp.json` при загрузке (12 правил из AgentShield под поверхность VibeIDE): non-https/raw-IP endpoint, хардкод секретов, `curl\|sh`/`npx -y`/`--no-sandbox` в MCP. Чистый `vibeConfigGuard.ts`, `vibeide.configGuard.*` (warn/block), команда `vibeide.configGuard.showFindings`. Что НЕ дублирует: secretDetection + promptGuard |
 
 ---
