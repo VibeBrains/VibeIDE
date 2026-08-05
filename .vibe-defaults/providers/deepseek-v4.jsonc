@@ -32,7 +32,12 @@
 						"toolFormat": "openai",
 						"vision": false,
 						"reasoning": { "canTurnOff": true, "effort": ["low", "medium", "high"] },
-						"cost": { "input": 0.435, "output": 0.87 }
+						// cacheRead — не украшение: кэширование контекста у DeepSeek включено ПО УМОЛЧАНИЮ
+						// и бьёт по повторяющимся префиксам (системный промпт, few-shot, длинный документ),
+						// то есть в агентном цикле срабатывает почти на каждом ходе. Без этого поля панель
+						// расхода считает такие токены по полной цене и завышает траты в разы.
+						// $0.003625/M — цена попадания в кэш у V4 Pro (проверено 2026-08-05).
+						"cost": { "input": 0.435, "output": 0.87, "cacheRead": 0.003625 }
 					},
 					{
 						"id": "deepseek-v4-flash",
@@ -42,7 +47,8 @@
 						"toolFormat": "openai",
 						"vision": false,
 						"reasoning": { "canTurnOff": true, "effort": ["low", "medium", "high"] },
-						"cost": { "input": 0.14, "output": 0.28 }
+						// Кэш-хит $0.0028/M — в 50 раз дешевле промаха (проверено 2026-08-05).
+						"cost": { "input": 0.14, "output": 0.28, "cacheRead": 0.0028 }
 					}
 				]
 			}
