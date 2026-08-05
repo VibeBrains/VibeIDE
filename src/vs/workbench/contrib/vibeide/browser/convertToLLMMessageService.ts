@@ -11,6 +11,8 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ChatMessage, ChatImageAttachment } from '../common/chatThreadServiceTypes.js';
 import { recordChatTrace } from './vibeChatRunTrace.js';
+import { guardHistorySummary, guardRetrievedChunks, retrievedContextFraming } from '../common/retrievedContextGuard.js';
+import { IVibePromptGuardService } from '../common/vibePromptGuardService.js';
 import { VSBuffer, encodeBase64 } from '../../../../base/common/buffer.js';
 
 // Use VS Code's built-in base64 encoding (tested, optimized, handles edge cases)
@@ -1497,6 +1499,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@IVibeProjectRulesService private readonly projectRulesService: IVibeProjectRulesService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@ILLMMessageService private readonly llmMessageService: ILLMMessageService,
+		@IVibePromptGuardService private readonly vibePromptGuardService: IVibePromptGuardService,
 	) {
 		super();
 		// Restore persisted token-calibration factors (stable per model tokenizer) so the budget
@@ -1554,8 +1557,14 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				const oldest = this._historySummaryCache.keys().next().value;
 				if (oldest !== undefined) { this._historySummaryCache.delete(oldest); }
 			}
-			this._historySummaryCache.set(headKey, trimmed);
-			this._lastHistorySummaryText = trimmed;
+			// Same guard as retrieval: the summary is written by a model over history that may quote a
+			// hostile file, and a paraphrase can carry an injection across the eviction boundary.
+			const guarded = guardHistorySummary(trimmed, (content, label) => this.vibePromptGuardService.sanitizeFileContent(content, label));
+			if (guarded.warnings.length > 0) {
+				vibeLog.warn('convertToLLMMessage', `[HistorySummary] сводка истории очищена: ${guarded.warnings.length} находок${guarded.tainted ? ', есть похожее на попытку переопределить инструкции' : ''}`);
+			}
+			this._historySummaryCache.set(headKey, guarded.text);
+			this._lastHistorySummaryText = guarded.text;
 		};
 
 		let requestId: string | null = null;
@@ -2111,8 +2120,16 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			}
 
 			if (indexResults && indexResults.length > 0) {
-				const guidance = `\n\n<repo_guidance>\nYou have access to repository context via <repo_context>. Use it to answer repo-specific questions and make changes. Do not claim that you lack access to the repository or files. When asked what the repo is about, summarize based on README.md, package/product metadata, and top-level docs if present.\n\nIMPORTANT: When referencing code or files from the context, cite them explicitly using the file path and line ranges provided (e.g., "In repoIndexerService.ts:42-56, the function does..."). This helps users verify your answers and navigate to the relevant code.\n</repo_guidance>`;
-				const contextSection = `\n\n<repo_context>\nHere are relevant files and symbols from the codebase:\n${indexResults.map((r, i) => `${i + 1}. ${r}`).join('\n\n')}\n</repo_context>`;
+				// ASI06 (context poisoning): retrieval reaches files nobody opened, so a comment like
+				// `<!-- ignore previous instructions -->` in a hostile repo would arrive in the prompt
+				// unchallenged. Clean the machinery, keep the text, and say in the prompt that the
+				// block is data — see common/retrievedContextGuard.ts for why all three are needed.
+				const guarded = guardRetrievedChunks(indexResults, (content, label) => this.vibePromptGuardService.sanitizeFileContent(content, label));
+				if (guarded.warnings.length > 0) {
+					vibeLog.warn('convertToLLMMessage', `[RepoIndexer] контекст из индекса очищен: ${guarded.warnings.length} находок${guarded.tainted ? ', есть похожее на попытку переопределить инструкции' : ''}`);
+				}
+				const guidance = `\n\n<repo_guidance>\nYou have access to repository context via <repo_context>. Use it to answer repo-specific questions and make changes. Do not claim that you lack access to the repository or files. When asked what the repo is about, summarize based on README.md, package/product metadata, and top-level docs if present.\n\nIMPORTANT: When referencing code or files from the context, cite them explicitly using the file path and line ranges provided (e.g., "In repoIndexerService.ts:42-56, the function does..."). This helps users verify your answers and navigate to the relevant code.\n\n${retrievedContextFraming(guarded.tainted)}\n</repo_guidance>`;
+				const contextSection = `\n\n<repo_context>\nHere are relevant files and symbols from the codebase:\n${guarded.text}\n</repo_context>`;
 				repoContextUserBlock = (guidance + contextSection).trim();
 
 				// Log metrics for monitoring (vibeLog self-gates on level/category)
