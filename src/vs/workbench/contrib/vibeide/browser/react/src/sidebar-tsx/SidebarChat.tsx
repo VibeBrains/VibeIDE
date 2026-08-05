@@ -58,6 +58,21 @@ import { PDFMessageRenderer } from '../util/PDFMessageRenderer.js';
 
 const CHAT_MODES: readonly ChatMode[] = ['normal', 'gather', 'plan', 'agent'];
 
+/**
+ * How long a message found through search stays highlighted.
+ *
+ * Long enough to catch the eye after the scroll settles, short enough that the marker is gone by
+ * the time the user is reading — a permanent highlight would still be there tomorrow, when nobody
+ * remembers which search put it on the screen.
+ */
+const REVEAL_HIGHLIGHT_MS = 2600;
+
+/**
+ * When to re-issue the scroll after a reveal. Virtuoso remounts on a thread switch and opens at the
+ * end, so one attempt loses the race; these cover mount, measurement and the settled layout.
+ */
+const REVEAL_SCROLL_RETRIES_MS = [0, 90, 260];
+
 /** Narrow a persisted thread-config string to the `ProviderName` union. */
 function isProviderName(value: string): value is ProviderName {
 	return (providerNames as readonly string[]).includes(value);
@@ -5488,6 +5503,49 @@ export const SidebarChat = () => {
 		virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'auto', align: 'end' });
 	}, []);
 
+	// Reveal a specific message — how a search hit becomes a place in the conversation instead of a
+	// thread opened at the top. The highlight fades on its own: a permanent marker would still be
+	// there tomorrow, when the user has long forgotten which search put it on the screen.
+	const [revealedIdx, setRevealedIdx] = useState<number | null>(null);
+	const revealTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+	const clearRevealTimers = useCallback(() => {
+		revealTimersRef.current.forEach(clearTimeout);
+		revealTimersRef.current = [];
+	}, []);
+	const revealMessage = useCallback((messageIdx: number) => {
+		clearRevealTimers();
+		setRevealedIdx(messageIdx);
+		// Scroll is RETRIED rather than issued once. Switching threads changes Virtuoso's `key`, so
+		// it remounts and opens at the end; a single scroll fired a frame earlier is discarded, and
+		// the target message is not even mounted (virtualised) — which is exactly how the first
+		// version silently did nothing. Three attempts cover mount, measure and layout.
+		for (const delay of REVEAL_SCROLL_RETRIES_MS) {
+			revealTimersRef.current.push(setTimeout(() => {
+				virtuosoRef.current?.scrollToIndex({ index: messageIdx, behavior: 'auto', align: 'center' });
+			}, delay));
+		}
+		revealTimersRef.current.push(setTimeout(() => setRevealedIdx(null), REVEAL_HIGHLIGHT_MS));
+	}, [clearRevealTimers]);
+
+	// Two triggers, because a reveal arrives in two different situations (both seen live):
+	//   • the thread changed — the request was parked before this view existed;
+	//   • the thread is already open — no switch fires, only the event does.
+	useEffect(() => {
+		const pending = chatThreadsService.pullPendingReveal(currentThread.id);
+		if (pending !== undefined) { revealMessage(pending); }
+	}, [chatThreadsService, currentThread.id, revealMessage]);
+
+	useEffect(() => {
+		const disposable = chatThreadsService.onDidRequestReveal(({ threadId: target, messageIdx }) => {
+			if (target !== currentThread.id) { return; }
+			chatThreadsService.pullPendingReveal(target);
+			revealMessage(messageIdx);
+		});
+		return () => disposable.dispose();
+	}, [chatThreadsService, currentThread.id, revealMessage]);
+
+	useEffect(() => clearRevealTimers, [clearRevealTimers]);
+
 	const onSubmit = useCallback(async (_forceSubmit?: string) => {
 
 		if (isDisabled && !_forceSubmit) {return;}
@@ -5931,15 +5989,22 @@ export const SidebarChat = () => {
 			const key = count === 0 ? baseKey : `${baseKey}#${count}`;
 			items.push({
 				key,
-				render: () => <ChatBubble
-					currCheckpointIdx={currCheckpointIdx}
-					chatMessage={message}
-					messageIdx={i}
-					isCommitted={true}
-					chatIsRunning={isRunning}
-					threadId={threadId}
-					_scrollToBottom={scrollToBottomCallback}
-				/>
+				// Class WITHOUT the `vibe-` prefix on purpose: the React build runs the sources through
+				// `scope-tailwind -p "vibe-"`, which prefixes class names in the markup while leaving
+				// styles.css as written. Writing `vibe-revealed-message` here produced
+				// `vibe-vibe-revealed-message` in the built bundle and matched nothing — the whole
+				// highlight silently did nothing while the render itself ran correctly.
+				render: () => <div className={i === revealedIdx ? 'revealed-message' : undefined}>
+					<ChatBubble
+						currCheckpointIdx={currCheckpointIdx}
+						chatMessage={message}
+						messageIdx={i}
+						isCommitted={true}
+						chatIsRunning={isRunning}
+						threadId={threadId}
+						_scrollToBottom={scrollToBottomCallback}
+					/>
+				</div>
 			});
 		});
 
@@ -6152,6 +6217,7 @@ export const SidebarChat = () => {
 		currCheckpointIdx,
 		isRunning,
 		threadId,
+		revealedIdx,
 		scrollToBottomCallback,
 		currStreamingMessageHTML,
 		currThreadStreamState,
@@ -6189,9 +6255,12 @@ export const SidebarChat = () => {
 			// Treat "within 80px of the bottom" as at-bottom so streaming growth keeps auto-following
 			// (a 0px threshold drops follow on the slightest lag) and the jump button hides near the end.
 			atBottomThreshold={80}
-			// On initial mount, open at the latest item so histories behave like a
-			// normal chat (newest visible first).
-			initialTopMostItemIndex={Math.max(0, chatItems.length - 1)}
+			// On mount, open at the latest item so histories behave like a normal chat (newest
+			// visible first) — unless a search sent us to a specific message, in which case open
+			// THERE. Scrolling after mount loses the race: switching threads changes the `key`
+			// above, Virtuoso remounts, and a scrollToIndex issued a frame earlier is discarded
+			// while the list opens at the end (seen live: the highlight never even mounted).
+			initialTopMostItemIndex={revealedIdx ?? Math.max(0, chatItems.length - 1)}
 			components={{ Scroller: ChatScroller }}
 			// A small bottom buffer keeps the streaming bubble from popping in/out of
 			// measurement while it grows.

@@ -585,6 +585,23 @@ export interface IChatThreadService {
 	/** Always create a fresh thread (bypasses openNewThread's empty-thread reuse). Returns the new thread id. */
 	forceCreateNewThread(): string;
 	switchToThread(threadId: string): void;
+	/**
+	 * Open `threadId` and ask the chat view to scroll to `messageIdx` and highlight it — how a
+	 * search result becomes a place in the conversation instead of a thread opened at the top.
+	 */
+	revealMessageInThread(threadId: string, messageIdx: number): void;
+	/**
+	 * Pending reveal for `threadId`, consumed once. Like `pullChatHistoryPopoverPending`, the
+	 * request survives until the view is mounted and asks — a reveal issued while the chat was
+	 * closed must not be lost.
+	 */
+	pullPendingReveal(threadId: string): number | undefined;
+	/**
+	 * Fires on every reveal request, including one for the ALREADY OPEN thread — where no thread
+	 * switch happens, so a view listening only for thread changes would never react. Found by the
+	 * live smoke: jumping to a message in the chat you are already in did nothing.
+	 */
+	readonly onDidRequestReveal: Event<{ threadId: string; messageIdx: number }>;
 	/** Close an in-view chat tab (removes it from the open set; the thread stays in history). */
 	closeTab(threadId: string): void;
 	/** Reorder open chat tabs: move `fromId` to the slot of `toId` (drag-and-drop). Persisted. */
@@ -761,6 +778,33 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		}
 		this._pendingChatHistoryPopover = false;
 		return true;
+	}
+
+	/**
+	 * Reveal requests, by thread. A map rather than a single slot: switching threads is async (the
+	 * view mounts a frame later), and two quick clicks in the history list must not leave the first
+	 * thread's request stuck to the second thread's view.
+	 */
+	private readonly _pendingReveals = new Map<string, number>();
+
+	private readonly _onDidRequestReveal = this._register(new Emitter<{ threadId: string; messageIdx: number }>());
+	readonly onDidRequestReveal: Event<{ threadId: string; messageIdx: number }> = this._onDidRequestReveal.event;
+
+	revealMessageInThread(threadId: string, messageIdx: number): void {
+		if (messageIdx < 0) { return; }
+		// Both paths, on purpose: the pending slot covers "the chat view is not mounted yet" (the
+		// request must survive until it asks), the event covers "the thread is already current"
+		// (no switch fires, so there is nothing else to react to).
+		this._pendingReveals.set(threadId, messageIdx);
+		this.switchToThread(threadId);
+		this._onDidRequestReveal.fire({ threadId, messageIdx });
+	}
+
+	pullPendingReveal(threadId: string): number | undefined {
+		const idx = this._pendingReveals.get(threadId);
+		if (idx === undefined) { return undefined; }
+		this._pendingReveals.delete(threadId);
+		return idx;
 	}
 
 	readonly streamState: ThreadStreamState = {};

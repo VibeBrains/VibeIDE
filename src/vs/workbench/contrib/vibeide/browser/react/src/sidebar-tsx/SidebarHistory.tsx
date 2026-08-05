@@ -177,10 +177,10 @@ const HistoryContent = () => {
 
 	// The excerpt is only worth showing when the title does not already contain the query —
 	// otherwise the row would repeat itself.
-	const matchOf = useCallback((thread: ThreadType): { text: string; role: 'user' | 'assistant' | 'other' } | undefined => {
+	const matchOf = useCallback((thread: ThreadType): { text: string; role: 'user' | 'assistant' | 'other'; messageIdx: number } | undefined => {
 		const hit = hitsByThreadId?.get(thread.id);
 		if (!hit || hit.messageIndex === 0) { return undefined; }
-		return { text: hit.excerpt, role: hit.role };
+		return { text: hit.excerpt, role: hit.role, messageIdx: hit.messageIndex };
 	}, [hitsByThreadId]);
 
 	const dateGroups = useMemo(() => {

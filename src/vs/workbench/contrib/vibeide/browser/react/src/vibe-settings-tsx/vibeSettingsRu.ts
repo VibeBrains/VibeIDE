@@ -219,6 +219,7 @@ export const chatS = {
 	historyMatchFromUser: 'Вы:',
 	historyMatchFromAssistant: 'Ответ:',
 	historyMatchFromOther: 'В переписке:',
+	historyMatchJumpHint: 'Открыть чат на этом сообщении',
 	maximizeChatTitle: 'Развернуть чат на всю ширину (повторно — вернуть)',
 	maximizeChatAria: 'Развернуть/свернуть чат',
 	zenModeTitle: 'Zen-режим: скрыть всё, включая табы (повторно — выйти)',

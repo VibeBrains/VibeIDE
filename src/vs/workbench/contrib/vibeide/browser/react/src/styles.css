@@ -813,6 +813,41 @@ select.vibe-chat-like-control:disabled {
 	animation: message-fade-in 0.25s ease-out;
 }
 
+/*
+ * A message the user arrived at from search. The highlight FADES OUT rather than switching off:
+ * a marker that vanishes in one frame is easy to miss if the scroll animation stole the moment,
+ * while a fade keeps the eye on the spot and then hands the screen back to the conversation.
+ * Colour comes from the editor's own find-match token, so the meaning is the one the user already
+ * knows from Ctrl+F — and it follows their theme instead of inventing a fifth accent.
+ */
+@keyframes vibe-reveal-fade {
+	0% {
+		background-color: var(--vscode-editor-findMatchHighlightBackground, rgba(255, 200, 0, 0.35));
+		box-shadow: 0 0 0 1px var(--vscode-editor-findMatchBorder, transparent);
+	}
+	70% {
+		background-color: var(--vscode-editor-findMatchHighlightBackground, rgba(255, 200, 0, 0.35));
+		box-shadow: 0 0 0 1px var(--vscode-editor-findMatchBorder, transparent);
+	}
+	100% {
+		background-color: transparent;
+		box-shadow: none;
+	}
+}
+
+.vibe-revealed-message {
+	border-radius: 12px;
+	animation: vibe-reveal-fade 2.6s ease-out forwards;
+}
+
+/* Reduced motion: keep the highlight, drop the animation — the point is WHERE, not the movement. */
+@media (prefers-reduced-motion: reduce) {
+	.vibe-revealed-message {
+		animation: none;
+		background-color: var(--vscode-editor-findMatchHighlightBackground, rgba(255, 200, 0, 0.35));
+	}
+}
+
 /* Button animations */
 @keyframes button-press {
 	0% {

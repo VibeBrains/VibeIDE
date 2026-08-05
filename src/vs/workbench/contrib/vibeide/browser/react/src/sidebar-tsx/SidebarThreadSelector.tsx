@@ -278,7 +278,7 @@ export const PastThreadElement = memo(({
 	 * whole conversation, so a row can match on something said in the middle — showing the line
 	 * keeps the result explainable instead of looking like a bug.
 	 */
-	match?: { text: string; role: 'user' | 'assistant' | 'other' };
+	match?: { text: string; role: 'user' | 'assistant' | 'other'; messageIdx: number };
 }) => {
 
 
@@ -410,11 +410,21 @@ export const PastThreadElement = memo(({
 			</div>
 		</div>
 
-		{/* the matching line, when the thread was found by its content rather than its title */}
+		{/* the matching line, when the thread was found by its content rather than its title.
+		    Clicking it lands ON that message instead of at the top of the thread — the difference
+		    between "found the conversation" and "found the place in it". */}
 		{match && (
-			<div className="mt-1 flex items-baseline gap-1.5 min-w-0 text-[11px] text-vibe-fg-3">
+			<div
+				className="mt-1 flex items-baseline gap-1.5 min-w-0 text-[11px] text-vibe-fg-3 hover:text-vibe-fg-2"
+				title={chatS.historyMatchJumpHint}
+				onClick={event => {
+					event.stopPropagation();
+					chatThreadsService.revealMessageInThread(pastThread.id, match.messageIdx);
+					onAfterSwitch?.();
+				}}
+			>
 				<span className="shrink-0 opacity-70">{matchRoleLabel(match.role)}</span>
-				<span className="truncate overflow-hidden text-ellipsis" title={match.text}>{match.text}</span>
+				<span className="truncate overflow-hidden text-ellipsis">{match.text}</span>
 			</div>
 		)}
 	</div>;
@@ -478,10 +488,10 @@ export const ChatHistoryToolbarDropdown: React.FC<{ className?: string }> = ({ c
 	}, [sortedThreadIds, hitsByThreadId]);
 
 	// Shown only when the match is NOT the opening line — otherwise the row would repeat itself.
-	const matchOf = useCallback((threadId: string): { text: string; role: 'user' | 'assistant' | 'other' } | undefined => {
+	const matchOf = useCallback((threadId: string): { text: string; role: 'user' | 'assistant' | 'other'; messageIdx: number } | undefined => {
 		const hit = hitsByThreadId?.get(threadId);
 		if (!hit || hit.messageIndex === 0) { return undefined; }
-		return { text: hit.excerpt, role: hit.role };
+		return { text: hit.excerpt, role: hit.role, messageIdx: hit.messageIndex };
 	}, [hitsByThreadId]);
 
 	// CH.12 — matches hiding in OTHER projects while scoped, so a chat made elsewhere
