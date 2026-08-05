@@ -79,6 +79,18 @@ suite('agentRunComparison — the same goal on another model', () => {
 		);
 	});
 
+	test('the verdict word matches the unit — only money is «дороже»', () => {
+		// Caught by the live smoke: elapsed time was reported as «+3 с (+9%) — дороже», about
+		// seconds nobody paid for.
+		const replay = record({ runId: 'run-replay', tokensUsed: 50_000, stepsDone: 9, endedAt: 1_090_000 });
+		const markdown = renderRunComparisonMarkdown(compareRuns(ORIGINAL, replay, { originalUsd: 0.6, replayUsd: 0.9 }));
+
+		assert.deepStrictEqual(
+			['больше', 'меньше', 'медленнее', 'дороже'].map(word => markdown.includes(`— ${word}`)),
+			[true, true, true, true],
+		);
+	});
+
 	test('report states plainly that a replay re-does the work rather than replaying steps', () => {
 		const markdown = renderRunComparisonMarkdown(compareRuns(ORIGINAL, record({ runId: 'run-replay' })));
 		assert.deepStrictEqual(

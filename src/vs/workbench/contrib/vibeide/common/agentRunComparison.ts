@@ -90,6 +90,14 @@ function formatValue(value: number | undefined, unit: ComparisonDimension['unit'
 	}
 }
 
+/** Per-unit wording for the verdict: only money is «дороже», time is «медленнее», counts are «больше». */
+const VERDICT_WORDS: Record<ComparisonDimension['unit'], { worse: string; better: string }> = {
+	usd: { worse: 'дороже', better: 'дешевле' },
+	seconds: { worse: 'медленнее', better: 'быстрее' },
+	tokens: { worse: 'больше', better: 'меньше' },
+	steps: { worse: 'больше', better: 'меньше' },
+};
+
 /** Signed delta with the direction spelled out, because "-12%" alone reads ambiguously. */
 function formatDelta(dim: ComparisonDimension): string {
 	if (dim.unavailable || dim.delta === undefined) {
@@ -102,7 +110,9 @@ function formatDelta(dim: ComparisonDimension): string {
 	const magnitude = formatValue(Math.abs(dim.delta), dim.unit);
 	const share = dim.original ? ` (${dim.delta > 0 ? '+' : '−'}${Math.round(Math.abs(dim.delta) / dim.original * 100)}%)` : '';
 	// Less is better for every dimension here, so the wording states the outcome, not just the sign.
-	const verdict = dim.delta > 0 ? 'дороже' : 'дешевле';
+	// The word matches the unit: the live smoke produced «+3 с (+9%) — дороже» about elapsed time,
+	// where nothing was paid — only spent.
+	const verdict = VERDICT_WORDS[dim.unit][dim.delta > 0 ? 'worse' : 'better'];
 	return `${sign}${magnitude}${share} — ${verdict}`;
 }
 
