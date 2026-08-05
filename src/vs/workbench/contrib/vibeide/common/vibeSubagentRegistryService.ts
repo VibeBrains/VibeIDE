@@ -163,7 +163,7 @@ export const BUILT_IN_PRESETS: SubagentPreset[] = [
  * semantic_search/run_terminal_command — which the MVP stub never exercised.)
  */
 /** Read-only tool whitelist — roles that must not modify the workspace. */
-const ROLE_READONLY_TOOLS = ['read_file', 'ls_dir', 'grep', 'glob', 'search_for_files', 'search_pathnames_only'];
+const ROLE_READONLY_TOOLS = ['read_file', 'ls_dir', 'grep', 'glob', 'search_for_files', 'search_pathnames_only', 'docs_search'];
 /** Full tool whitelist — roles that build (write/edit/run). */
 const ROLE_FULL_TOOLS = [...ROLE_READONLY_TOOLS, 'edit_file', 'rewrite_file', 'create_file_or_folder', 'run_command'];
 

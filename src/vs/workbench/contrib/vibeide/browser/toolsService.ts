@@ -63,6 +63,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { formatProvenanceMarker, shouldMarkProvenance } from '../common/vibeAiProvenanceConfiguration.js';
 import { IGitAutoStashService } from '../common/gitAutoStashService.js';
 import { decideAutoStash } from '../common/autoStashPolicy.js';
+import { getDocsFiles, searchVibeDocs } from '../common/vibeDocsIndex.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { detectShellMisuse, ToolValidationError, truncateHeadTail, looksLikeShellAwaitingInput, formatTerminalTimeoutNotice, clampLineWindowToCharBudget } from '../common/toolHardening.js';
 import { IShellHardeningService } from './shellHardeningService.js';
@@ -586,6 +587,17 @@ export class ToolsService implements IToolsService {
 				// 'system' overwrites a measured file, so it shows the draft unless told otherwise.
 				const apply = typeof applyUnknown === 'boolean' ? applyUnknown : target === 'product';
 				return { target, name: text(name), ...product, platform, notes: text(notes), apply };
+			},
+
+			docs_search: (params: RawToolParamsObj) => {
+				const { query: queryUnknown, limit: limitUnknown } = params;
+				const query = typeof queryUnknown === 'string' ? queryUnknown.trim() : '';
+				if (!query) { throw new Error(`Invalid LLM output: query must be a non-empty search string, got ${queryUnknown}`); }
+				// Clamped rather than rejected: an out-of-range limit is a harmless mistake, and
+				// failing the call over it would push the model back to guessing.
+				const rawLimit = typeof limitUnknown === 'number' ? limitUnknown : Number(limitUnknown);
+				const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 20) : null;
+				return { query, limit };
 			},
 
 			code_graph: (params: RawToolParamsObj) => {
@@ -1418,6 +1430,19 @@ export class ToolsService implements IToolsService {
 				}
 				const writtenTo = await this.designContextService.writeDesign(draft);
 				return { result: { target, writtenTo, draft: rendered } };
+			},
+
+			docs_search: async ({ query, limit }) => {
+				// No service and no I/O: the corpus is compiled into the build, so this is a pure
+				// lookup that works offline and describes the installed version.
+				const hits = searchVibeDocs(query, limit ?? undefined);
+				return {
+					result: {
+						query,
+						filesSearched: getDocsFiles().length,
+						hits: hits.map(h => ({ file: h.section.file, heading: h.section.heading, line: h.section.line, excerpt: h.excerpt })),
+					},
+				};
 			},
 
 			code_graph: async ({ query, target, to }) => {
@@ -2784,6 +2809,19 @@ export class ToolsService implements IToolsService {
 					return `Черновик ${result.target === 'product' ? 'product.md' : 'design.md'} (НЕ записан, покажите пользователю и спросите, что поправить):\n\n${result.draft ?? ''}`;
 				}
 				return `Записано в ${result.writtenTo}. Файл принадлежит пользователю — предложите прочитать и вычеркнуть лишнее.\n\n${result.draft ?? ''}`;
+			},
+
+			docs_search: (params, result) => {
+				// The empty case names the corpus size and says what to do instead. A bare "nothing
+				// found" is what makes a model improvise; this closes that door explicitly.
+				if (!result.hits.length) {
+					return `No match for "${params.query}" in VibeIDE's bundled documentation (${result.filesSearched} file(s) searched). This means the topic is NOT documented here — ask the user instead of inventing an answer. Note that internal engineering notes (docs/knowledge) are not indexed.`;
+				}
+				const lines = result.hits.map(hit => {
+					const where = hit.heading ? `${hit.file} › ${hit.heading}` : hit.file;
+					return `--- ${where} (line ${hit.line})\n${hit.excerpt}`;
+				});
+				return `Found ${result.hits.length} section(s) for "${params.query}" in the bundled documentation (${result.filesSearched} file(s) searched). Cite file and heading when you rely on this.\n\n${lines.join('\n\n')}`;
 			},
 
 			code_graph: (params, result) => {

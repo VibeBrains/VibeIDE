@@ -231,7 +231,7 @@ const DEFAULT_MAX_STEPS = 20;
 // enforces this whitelist at every call, so a phantom name here silently bricks the role.
 // (Pre-3b these tables carried nonexistent names — list_dir/write_file/semantic_search/
 // run_terminal_command — which the MVP stub never exercised.)
-const READONLY_TOOLS: string[] = ['read_file', 'ls_dir', 'grep', 'glob', 'search_for_files', 'search_pathnames_only'];
+const READONLY_TOOLS: string[] = ['read_file', 'ls_dir', 'grep', 'glob', 'search_for_files', 'search_pathnames_only', 'docs_search'];
 const FULL_TOOLS: string[] = [...READONLY_TOOLS, 'edit_file', 'rewrite_file', 'create_file_or_folder', 'run_command'];
 
 const TOOL_WHITELIST: Record<SubagentType, string[]> = {

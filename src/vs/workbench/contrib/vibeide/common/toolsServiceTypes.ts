@@ -60,6 +60,7 @@ export type BuiltinToolCallParams = {
 	'go_to_definition': { uri: URI; line: number; column: number };
 	'find_references': { uri: URI; line: number; column: number };
 	'code_graph': { query: 'neighbors' | 'path' | 'why'; target: string; to: string | null };
+	'docs_search': { query: string; limit: number | null };
 	'design_review': { severity: 'error' | 'warning' | 'info' | null; viewport: 'desktop' | 'mobile' | 'both'; annotate: boolean };
 	// No parameters: the context is whatever the project wrote, and there is nothing to narrow.
 	'design_context': Record<never, never>;
@@ -118,6 +119,14 @@ export type BuiltinToolResultType = {
 	'find_references': { locations: Array<{ uri: URI; startLine: number; startColumn: number; endLine: number; endColumn: number }> };
 	// `indexReady: false` means the repo index has not warmed yet — an empty answer then means
 	// "we don't know", not "nothing is connected", and the stringifier says so out loud.
+	// `filesSearched` travels with the hits so an empty list can say WHAT was searched. "Not
+	// documented" and "the tool is broken" are different answers, and a silent empty result reads
+	// as the latter — which is what sent the agent guessing on the internet in the first place.
+	'docs_search': {
+		query: string;
+		filesSearched: number;
+		hits: Array<{ file: string; heading: string; line: number; excerpt: string }>;
+	};
 	'code_graph': {
 		indexReady: boolean;
 		nodes: Array<{ id: string; kind: string; label: string; file: string; line?: number }>;

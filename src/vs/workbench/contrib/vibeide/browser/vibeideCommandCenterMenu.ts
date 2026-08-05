@@ -32,6 +32,8 @@ import { IVibeProviderDashboardService } from './vibeProviderDashboard.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IUntitledTextResourceEditorInput } from '../../../common/editor.js';
+import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
+import { readVibeDocsFile, searchVibeDocs } from '../common/vibeDocsIndex.js';
 import { registerVibeideFaSolidIcon } from './vibeideFontAwesomeSolid.js';
 import { VibeSpecsCommands } from './vibeSpecsConstants.js';
 import { VIBEIDE_APPLY_DEFAULTS_CMD, VIBEIDE_SHOW_DEFAULTS_CMD } from './vibeDefaultsContribution.js';
@@ -76,6 +78,75 @@ registerAction2(class extends Action2 {
 		viewsService.openViewContainer(VIBEIDE_VIEW_CONTAINER_ID);
 		await chatThreadService.focusCurrentChat();
 		chatThreadService.requestChatHistoryPopover();
+	}
+});
+
+// ─── Documentation search command ─────────────────────────────────────────────
+
+export const VIBEIDE_SEARCH_DOCS_CMD = 'vibeide.searchDocs';
+
+/**
+ * Searches the documentation shipped inside this build. Lexical and offline on purpose: it answers
+ * about the version actually installed, not about whatever `main` looks like today.
+ *
+ * Two steps rather than one dump: pick a section from the hits, then read that file in full. A
+ * flat wall of excerpts is hard to act on, and the second step is where the answer usually is.
+ */
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: VIBEIDE_SEARCH_DOCS_CMD,
+			title: localize2('vibeideSearchDocs', 'VibeIDE: Справка — поиск по документации'),
+			category: localize2('vibeCategory', 'VibeIDE'),
+			f1: true,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const quickInputService = accessor.get(IQuickInputService);
+		const editorService = accessor.get(IEditorService);
+		const notificationService = accessor.get(INotificationService);
+
+		const query = await quickInputService.input({
+			title: localize('vibeideSearchDocs.title', "Справка VibeIDE"),
+			placeHolder: localize('vibeideSearchDocs.placeholder', "Что ищем? Например: servers.json, дизайн, провайдеры"),
+			prompt: localize('vibeideSearchDocs.prompt', "Поиск по документации, вшитой в эту сборку — работает без сети."),
+		});
+		if (!query?.trim()) {
+			return;
+		}
+
+		const hits = searchVibeDocs(query, 12);
+		if (!hits.length) {
+			notificationService.info(localize('vibeideSearchDocs.none', "По запросу «{0}» в документации ничего не найдено.", query));
+			return;
+		}
+
+		const picked = await quickInputService.pick(
+			hits.map(hit => ({
+				label: hit.section.heading || hit.section.file,
+				description: hit.section.file,
+				detail: hit.excerpt,
+				file: hit.section.file,
+			})),
+			{ title: localize('vibeideSearchDocs.pick', "Найдено: {0}", hits.length), matchOnDetail: true },
+		);
+		if (!picked) {
+			return;
+		}
+
+		const contents = readVibeDocsFile(picked.file);
+		if (!contents) {
+			notificationService.warn(localize('vibeideSearchDocs.missing', "Файл {0} отсутствует в сборке.", picked.file));
+			return;
+		}
+		const input: IUntitledTextResourceEditorInput = {
+			resource: undefined,
+			contents,
+			languageId: 'markdown',
+			options: { pinned: true },
+		};
+		await editorService.openEditor(input);
 	}
 });
 
@@ -205,6 +276,17 @@ MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
 	},
 	group: 'c_workspace',
 	order: 3,
+});
+
+// Next to the codebase search on purpose: same question shape ("где про это?"), different corpus —
+// the product's own documentation instead of the user's code.
+MenuRegistry.appendMenuItem(VibeideTitleBarMenuId, {
+	command: {
+		id: VIBEIDE_SEARCH_DOCS_CMD,
+		title: localize('vibeideSearchDocsMenu', 'Справка — поиск по документации'),
+	},
+	group: 'c_workspace',
+	order: 4,
 });
 
 // ── Group c_env ── (.vibe environment vs the release's defaults)

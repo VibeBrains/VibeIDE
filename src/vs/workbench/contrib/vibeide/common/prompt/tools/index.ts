@@ -21,6 +21,7 @@ import { GO_TO_DEFINITION_TOOL } from './go_to_definition.js';
 import { FIND_REFERENCES_TOOL } from './find_references.js';
 import { SEARCH_SYMBOLS_TOOL } from './search_symbols.js';
 import { CODE_GRAPH_TOOL } from './code_graph.js';
+import { DOCS_SEARCH_TOOL } from './docs_search.js';
 import { DESIGN_REVIEW_TOOL } from './design_review.js';
 import { DESIGN_CONTEXT_TOOL } from './design_context.js';
 import { DESIGN_DOCUMENT_TOOL } from './design_document.js';
@@ -73,6 +74,7 @@ export const builtinToolDefs = {
 	find_references: FIND_REFERENCES_TOOL,
 	search_symbols: SEARCH_SYMBOLS_TOOL,
 	code_graph: CODE_GRAPH_TOOL,
+	docs_search: DOCS_SEARCH_TOOL,
 	// design: read the context, measure the page, write the context back
 	design_context: DESIGN_CONTEXT_TOOL,
 	design_review: DESIGN_REVIEW_TOOL,

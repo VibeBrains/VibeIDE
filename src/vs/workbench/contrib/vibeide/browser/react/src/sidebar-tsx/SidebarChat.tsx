@@ -2768,6 +2768,7 @@ const titleOfBuiltinToolName = {
 	'go_to_definition': { done: 'Нашёл определение', proposed: 'Найти определение', running: loadingTitleWrapper('Ищет определение') },
 	'find_references': { done: 'Нашёл использования', proposed: 'Найти использования', running: loadingTitleWrapper('Ищет использования') },
 	'code_graph': { done: 'Построил граф кода', proposed: 'Построить граф кода', running: loadingTitleWrapper('Строит граф кода') },
+	'docs_search': { done: 'Нашёл в документации', proposed: 'Поискать в документации', running: loadingTitleWrapper('Ищет в документации') },
 	'search_symbols': { done: 'Нашёл символы', proposed: 'Найти символы', running: loadingTitleWrapper('Ищет символы') },
 	'automated_code_review': { done: 'Проверил код', proposed: 'Проверить код', running: loadingTitleWrapper('Проверяет код') },
 	'generate_tests': { done: 'Сгенерировал тесты', proposed: 'Сгенерировать тесты', running: loadingTitleWrapper('Генерирует тесты') },
