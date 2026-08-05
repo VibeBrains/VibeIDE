@@ -74,6 +74,7 @@
 |---|---|
 | [modesAndPolicies.md](chatUx/modesAndPolicies.md) | Normal/Plan/Agent, autopilot vs auto-approve, pre-flight, Trust Score, T&C Suite, confidence vs LLM-judge |
 | [attachments.md](chatUx/attachments.md) | Paste файлов, vision-capability gate (двойной), скрытый dead-code |
+| [chatHistoryScope.md](chatUx/chatHistoryScope.md) | Поиск по истории чата ищет только по ПЕРВОМУ сообщению треда, а не по транскрипту — единственный реальный гэп из сверки с Cursor v3.11 (side chats и hooks не переносятся, разбор внутри) |
 | [chatInterruptAndInject.md](chatUx/chatInterruptAndInject.md) | Дубль `tool_call id` после abort mid-tool-call (HTTP 400) — дедуп в `prepareMessages_openai_tools`; дизайн «подмешать контекст к следующему хопу» без прерывания; **правило: живой UI-статус в треде — транзиентом, не персистентным сообщением** (инвариант `messages[length-1]`, буфер notice до idle) |
 | [shortcuts.md](chatUx/shortcuts.md) | `Ctrl+Alt+I`, отвязка `workbench.action.chat.open`, скрытие builtin chat |
 | [autoRepairLoop.md](chatUx/autoRepairLoop.md) | Repair loop, DMS exclusions, pre-flight vs task decomposition |
