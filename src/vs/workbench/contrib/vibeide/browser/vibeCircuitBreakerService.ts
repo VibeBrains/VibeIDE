@@ -30,6 +30,17 @@ import {
 
 /** Workspace-scoped: the rules that trip these breakers (paths, budgets) are per project. */
 const STORAGE_KEY = 'vibeide.agent.circuitBreakers';
+/**
+ * Marks state written by the build where a tripped breaker actually stops the agent.
+ *
+ * Until then the breakers latched but blocked nothing, so projects accumulated open ones nobody
+ * had a reason to clear. Enforcing against that history would greet the user with "агент
+ * остановлен" on work that ran fine yesterday, for a leak they were never told about. The
+ * pre-enforcement state is therefore cleared once, on first load, and the marker keeps it a
+ * one-time event rather than a reset on every launch.
+ */
+const STORAGE_ENFORCEMENT_KEY = 'vibeide.agent.circuitBreakers.enforcementEpoch';
+const ENFORCEMENT_EPOCH = '1';
 
 const ALL_BREAKERS: readonly BreakerId[] = ['secret-leak', 'protected-path', 'provider-errors', 'role-budget'];
 
@@ -123,6 +134,14 @@ class VibeCircuitBreakerService extends Disposable implements IVibeCircuitBreake
 
 	private _load(): void {
 		const raw = this._storage.get(STORAGE_KEY, StorageScope.WORKSPACE);
+		if (this._storage.get(STORAGE_ENFORCEMENT_KEY, StorageScope.WORKSPACE) !== ENFORCEMENT_EPOCH) {
+			this._storage.store(STORAGE_ENFORCEMENT_KEY, ENFORCEMENT_EPOCH, StorageScope.WORKSPACE, StorageTarget.MACHINE);
+			if (raw) {
+				this._storage.remove(STORAGE_KEY, StorageScope.WORKSPACE);
+				vibeLog.info('circuitBreaker', 'состояние до включения блокировки сброшено один раз — прежние срабатывания ничего не останавливали');
+			}
+			return;
+		}
 		if (!raw) {
 			return;
 		}

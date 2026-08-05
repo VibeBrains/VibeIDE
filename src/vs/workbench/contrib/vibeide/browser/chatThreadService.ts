@@ -87,7 +87,7 @@ import { IVibeVerifyGateService } from './vibeVerifyGateService.js';
 import { decideVerifyGate } from '../common/verifyGatePolicy.js';
 import { IVibeTurnChecksService } from './vibeTurnChecksService.js';
 import { decideTurnChecks, evaluateTurnChecks, renderTurnChecksCorrective, TurnCheckResult, TurnChecksDecision } from '../common/agentTurnChecks.js';
-import { IVibeCircuitBreakerService } from './vibeCircuitBreakerService.js';
+import { breakerName, IVibeCircuitBreakerService } from './vibeCircuitBreakerService.js';
 import { DesignHookMode, decideDesignHook, floorFindings, touchesUi } from '../common/designReview/designHookPolicy.js';
 import { Finding, ViewportLabel, mergeViewportFindings, reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
 import { IVibeDesignScanService } from './designReview/vibeDesignScanService.js';
@@ -4801,6 +4801,27 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		if (existingRun === 'LLM' || existingRun === 'tool') {
 			vibeLog.warn('chatThread', `Refusing to start a second agent loop for threadId=${threadId} (existing run state: ${existingRun}).`);
 			return;
+		}
+
+		// A tripped protective breaker stops the run before it starts. Checked ONCE, here: both
+		// protective breakers are fed by TURN-CHECKS, which run at the END of a turn, so one cannot
+		// appear mid-run — a per-action check would re-ask the same question all run long and could
+		// abandon work half-applied. Latched breakers only clear by human decision, so the message
+		// names the command that does it.
+		if (this._configurationService.getValue<boolean>('vibeide.agent.circuitBreakers.blockRun') !== false) {
+			const blocking = (['secret-leak', 'protected-path'] as const).filter(id => this._circuitBreakers.isBlocking(id));
+			if (blocking.length > 0) {
+				// Reason first, breaker name in a trailing parenthesis: the reason comes from the
+				// check that tripped it and already names the problem, so prefixing it with the
+				// breaker's own title read as a stutter («Секрет в изменённых файлах: Похоже на
+				// секрет в изменённых файлах: …») in the live smoke.
+				const list = blocking.map(id => `• ${this._circuitBreakers.snapshot(id).reason || '—'} (предохранитель «${breakerName(id)}»)`).join('\n');
+				const note = localize('vibeide.agent.blockedByBreaker', '⛔ Агент не запущен: сработал защитный предохранитель. Он снимается только вашим решением — команда «VibeIDE: Предохранители агента».\n\n{0}', list);
+				this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
+				vibeLog.warn('circuitBreaker', `прогон отклонён: открыты предохранители ${blocking.join(', ')}`);
+				this._setStreamState(threadId, { isRunning: undefined });
+				return;
+			}
 		}
 
 		// CRITICAL: Validate and resolve model selection BEFORE starting the loop

@@ -134,6 +134,11 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			maximum: 100000000,
 			description: localize('vibeide.agent.softCheckpointTokens', 'Мягкий чекпоинт по токенам: когда расход за ОДИН агентский прогон превышает это число input+output токенов, агент паузится и спрашивает, продолжать ли. Работает вместе с `softCheckpointIterations` (что сработает раньше). `0` = выкл. ВАЖНО: при `softCheckpointIterations = 0` («полная автономия» / счётчик в тулбаре на ∞) токеновый чекпоинт тоже отключается — единый счётчик на `0` означает прогон без пауз. Дефолт 1 000 000.'),
 		},
+		'vibeide.agent.circuitBreakers.blockRun': {
+			type: 'boolean',
+			default: true,
+			description: localize('vibeide.agent.circuitBreakers.blockRun', 'Не запускать агента, пока сработавший защитный предохранитель («утечка секрета», «запись в закрытый путь») не снят вручную командой «VibeIDE: Предохранители агента». Проверка делается ОДИН раз, на старте прогона: эти предохранители взводятся проверками результата хода, то есть в конце прогона, — внутри уже начатой работы новый не появится, а обрыв на середине оставил бы правки применёнными наполовину. `false` = предохранитель только фиксируется в панели и журнале и ничего не останавливает.'),
+		},
 		'vibeide.agent.autoDowngradeThreshold': {
 			type: 'number',
 			default: 6,
