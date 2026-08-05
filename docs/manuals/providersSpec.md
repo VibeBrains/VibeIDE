@@ -256,6 +256,28 @@ microsoftAzure awsBedrock ollama  vLLM  lmStudio  openAICompatible
 }
 ```
 
+### 8.4. Локальная модель через vLLM (self-host)
+
+Локальный сервер подключается как обычный OpenAI-совместимый провайдер:
+
+```jsonc
+{
+  "id": "local-vllm",
+  "name": "Локальный vLLM",
+  "protocol": "openai",
+  "baseURL": "http://localhost:8000/v1",
+  "auth": "none",
+  "models": { "fetch": true }
+}
+```
+
+**Про tool calling — со стороны сервера, а не конфига.** vLLM по умолчанию не разбирает
+вызовы инструментов: сервер надо запускать с `--enable-auto-tool-choice` и подходящим
+`--tool-call-parser` (для Nemotron 3 формат qwen3-совместимый → `--tool-call-parser
+qwen3_coder`). Без этих флагов модель вызовы генерирует, но сервер отдаёт их простым
+текстом — со стороны IDE симптом неотличим от «модель не умеет инструменты», и правкой
+`providers.json` он не лечится.
+
 ---
 
 ## 9. Чек-лист валидного конфига

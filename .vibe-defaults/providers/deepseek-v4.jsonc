@@ -46,7 +46,12 @@
 						"maxOutputTokens": 32768,
 						"toolFormat": "openai",
 						"vision": false,
-						"reasoning": { "canTurnOff": true, "effort": ["low", "medium", "high"] },
+						// У Flash СВОЙ набор уровней усилия — "high" и "xhigh" (проверено 2026-08-05),
+						// а не общий low/medium/high, как у Pro. Значение уезжает в API дословно,
+						// поэтому чужой уровень здесь означал бы отвергнутый или молча искажённый запрос.
+						// Единый словарь эффортов на семейства моделей не натягивается: у K3, например,
+						// это low/high/max без medium.
+						"reasoning": { "canTurnOff": true, "effort": ["high", "xhigh"] },
 						// Кэш-хит $0.0028/M — в 50 раз дешевле промаха (проверено 2026-08-05).
 						"cost": { "input": 0.14, "output": 0.28, "cacheRead": 0.0028 }
 					}
