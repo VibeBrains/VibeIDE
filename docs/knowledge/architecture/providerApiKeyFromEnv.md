@@ -54,3 +54,24 @@
 Легальные пути для Claude в VibeIDE: **API-ключ** (текущий, по токенам; теперь ещё и из `ANTHROPIC_API_KEY`) либо локальные модели. Если пользователь хочет свою подписку — он использует Claude Code отдельно, вне IDE.
 
 **Связано:** [[apiProtocolRouting]], [[dynamicProviders]], [[providerDiagnostics]]
+
+---
+
+## [исследование] 2026-08-05 — тупик ОБОЙДЁН: Zed не подключает подписку, а запускает официальный клиент (ACP)
+
+**Заказ владельца:** «как Zed подключает подписку Claude — применимо ли то же у нас». Ответ переоткрывает тему, закрытую 22.07, потому что вопрос там стоял иначе.
+
+**Что делает Zed — фактами:**
+- Подписку он **не подключает вовсе**. Официальный Claude Code запускается как **отдельный процесс**, Zed даёт только UI и общается с ним по **ACP** (Agent Client Protocol) — JSON-RPC поверх stdio, по образцу LSP ([zed.dev/docs/ai/external-agents](https://zed.dev/docs/ai/external-agents)).
+- **«External Agent owns its own runtime, auth, model selection, tools»**, а «Zed does not charge for External Agents» — авторизация целиком внутри агента: пользователь делает `/login` в его сессии и выбирает API-ключ либо Claude Code. Токен Zed не видит и не пересылает.
+- **Особого соглашения с Anthropic нет** — в разборе Zed о нём ни слова, механизм общий для всех ACP-клиентов ([zed.dev/blog/anthropic-subscription-changes](https://zed.dev/blog/anthropic-subscription-changes)).
+
+**Почему это законно, а наш прошлый заход — нет.** Запрет ToS (февраль 2026, ужесточён баном 4 апреля) касается **использования OAuth-токенов подписки в стороннем продукте**: «OAuth токены из Free/Pro/Max во всех контекстах вне Claude Code и Claude.ai» ([alternativeto](https://alternativeto.net/news/2026/2/anthropic-officially-bans-using-subscription-authentication-for-third-party-claude-use)). Мы 22.07 пытались ходить токеном САМИ — это и есть запрещённое. При ACP токен остаётся внутри официального клиента Anthropic; сторонний редактор к нему не прикасается.
+
+**Критично для решения — биллинг:** разделение 15.06 (Agent SDK credit $20/$100/$200) **приостановлено в день вступления в силу**. `claude -p`, Agent SDK и сторонние приложения **продолжают тянуть из подписки Pro/Max/Team/Enterprise как раньше**, лимиты не изменились; Anthropic перерабатывает план и обещает предупредить заранее ([The New Stack](https://thenewstack.io/anthropic-pauses-claude-agent-sdk-subscription-change/)). То есть механизм работает **прямо сейчас**, а не гипотетически.
+
+**Трудоёмкость ниже ожидаемой:** протокол открытый, есть официальный TypeScript SDK `@agentclientprotocol/sdk` (v0.12.0) с готовой клиентской стороной — `client({name})`, хендлеры `requestPermission`/`sessionUpdate`, `connectWith(stream, …)`, плюс примеры клиентов в репозитории ([agentclientprotocol.com/libraries/typescript](https://agentclientprotocol.com/libraries/typescript)). Писать протокол с нуля не нужно.
+
+**Побочная выгода, которая может оказаться главной:** ACP — не про Claude. Реализовав клиента ОДИН раз, VibeIDE получает **любого ACP-агента**: Claude Code, Gemini CLI, Codex и всё из реестра ACP (Zed и JetBrains ведут его совместно с января 2026). Это не «ещё один провайдер», а второй класс интеграции рядом с BYOK.
+
+**Чего это НЕ отменяет:** запись выше про подписочный OAuth остаётся в силе — ходить токеном самим по-прежнему нельзя. ACP не обход запрета, а другая архитектура: мы не клиент API, мы хост чужого агента.
