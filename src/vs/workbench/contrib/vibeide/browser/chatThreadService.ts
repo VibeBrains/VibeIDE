@@ -165,6 +165,7 @@ const INITIAL_RETRY_DELAY = 1000; // Start with 1s for faster recovery
 const MAX_RETRY_DELAY = 5000; // Cap at 5s
 const DEFAULT_MAX_AGENT_LOOP_ITERATIONS = 30; // Default cap; overridable via `vibeide.agent.maxLoopIterations`. 0 in the setting disables the cap.
 const MAX_AGENT_LOOP_ITERATIONS_UPPER_BOUND = 200; // Hard ceiling for user-supplied values to avoid runaway loops via accidental large input.
+const MAX_RUN_TEXT_SCANNED_CHARS = 60_000; // TURN-CHECKS: cap on the assistant text kept per run for the citation scan. A long agent run can emit far more; the regex only feeds the first 20 citations anyway, so the tail buys nothing.
 const MAX_CONSECUTIVE_TOOL_ERRORS = 15; // Circuit-breaker: abort agent loop after this many back-to-back tool failures. opencode CLI has no breaker — model just keeps iterating until it succeeds. 15 gives breathing room (some models recover after 5-10 attempts before finding the right tool format) while still preventing infinite loops on truly broken combos.
 const AUTO_DOWNGRADE_THRESHOLD = 6; // After this many consecutive tool failures per-(provider×model), CONSIDER an `_autoDetected` override switching the model to XML-fallback — but only for the `numeric-tool-name` quirk (see the gate at the downgrade trigger). Other reasons (missing-required-field / wrong-tool-name / other) are transient, self-correcting failures that opencode just retries through on native FC, so we no longer shove the model into XML for them (that was the root cause of capable models like deepseek-v4-pro getting stuck — see model-stalls #008). Raised 3→6: 3 was trigger-happy on transient failures. Counter resets on `success`. See roadmap O.2.
 const ANTI_LOOP_SIGNATURE_RING = 50; // Anti-loop guard: how many recent tool-call signatures to retain per request. Bounds memory while spanning enough history to catch slow re-read cycles. See roadmap F (aggregator-failures section).
@@ -4956,6 +4957,19 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// forbidden-action check can compare the calls against the allowed list.
 		const calledToolsThisRun: string[] = [];
 		let turnChecksAttempts = 0;
+		// TURN-CHECKS state: the assistant text of EVERY step of the run, not just the closing one.
+		// The `source-location` check scans this for `file:line` references, and the agent writes
+		// those where it reports what it did — a step or two before `vibe_complete`, whose own text
+		// is usually a bare summary. Checking only the final message made the citation check inert.
+		const assistantTextThisRun: string[] = [];
+		let assistantTextChars = 0;
+		const noteAssistantText = (text: string): void => {
+			const trimmed = text.trim();
+			if (!trimmed || assistantTextChars >= MAX_RUN_TEXT_SCANNED_CHARS) { return; }
+			const slice = trimmed.slice(0, MAX_RUN_TEXT_SCANNED_CHARS - assistantTextChars);
+			assistantTextThisRun.push(slice);
+			assistantTextChars += slice.length;
+		};
 		const noteToolCall = (toolName: string, rawParams?: unknown): void => {
 			calledToolsThisRun.push(toolName);
 			if (!MUTATING_TOOL_NAMES.has(toolName.toLowerCase())) { return; }
@@ -6858,6 +6872,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 				// llm res success
 				let { toolCall, info } = llmRes;
+				noteAssistantText(info.fullText);
 
 				// CRITICAL: Check if model output JSON tool call format as text
 				// Some models output tool calls as JSON text instead of using native tool calling
@@ -6972,7 +6987,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							// The main agent's tool set is enforced by the mode itself, so there is no
 							// separate whitelist to violate here — an empty list disables that check.
 							allowedTools: [],
-							answerText: body,
+							// Whole run, not just the closing message: `body` is often the bare
+							// `vibe_complete` summary, while the `file:line` references live in the
+							// step where the agent reported the edit.
+							answerText: [...assistantTextThisRun, body].join('\n\n'),
 							tokensUsed: 0,
 							tokenQuota: 0,
 						});
