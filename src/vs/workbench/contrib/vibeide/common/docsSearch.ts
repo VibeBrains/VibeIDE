@@ -20,6 +20,8 @@
  * stays testable from `test/common/` without a filesystem.
  */
 
+import { buildExcerpt, countOccurrences, normalise, queryTerms } from './lexicalSearch.js';
+
 /** One indexed section: a heading and the prose under it, up to the next heading of any level. */
 export interface DocsSection {
 	/** Path as published, e.g. `manuals/serversSpec.md` — what a citation should show. */
@@ -40,9 +42,6 @@ export interface DocsSearchHit {
 	/** Body excerpt around the strongest match, for showing without dumping the section. */
 	readonly excerpt: string;
 }
-
-/** Excerpt width for sections too long to hand over whole. */
-const EXCERPT_CHARS = 320;
 
 /**
  * Sections at or under this size are returned IN FULL instead of excerpted.
@@ -71,12 +70,6 @@ const WEIGHT_BODY = 1;
 const WEIGHT_ALL_TERMS = 15;
 
 /**
- * Terms shorter than this are dropped: single letters and stray particles match everything and
- * only add noise. Two characters is short enough to keep meaningful queries ("m3", "ui").
- */
-const MIN_TERM_LENGTH = 2;
-
-/**
  * Saturation cap on body occurrences of ONE term. Without it a long section wins on bulk alone:
  * measured on the real corpus, the sprawling «Vibe Server» entry in `functional.md` outranked the
  * design manual's own section for "дизайн детектор превью" purely because it is longer. Mentioning
@@ -84,6 +77,8 @@ const MIN_TERM_LENGTH = 2;
  * settles that the topic is there.
  */
 const MAX_BODY_HITS_PER_TERM = 3;
+
+export { queryTerms };
 
 /** Splits a markdown document into heading-scoped sections. */
 export function splitIntoSections(file: string, content: string): DocsSection[] {
@@ -116,61 +111,6 @@ export function splitIntoSections(file: string, content: string): DocsSection[] 
 	}
 	flush();
 	return sections;
-}
-
-/** Normalises for matching: lowercase, punctuation to spaces, collapsed whitespace. */
-const normalise = (text: string): string =>
-	text.toLowerCase().replace(/[^\p{L}\p{N}_.-]+/gu, ' ').replace(/\s+/g, ' ').trim();
-
-/** Query terms, deduplicated and stripped of noise-length fragments. */
-export function queryTerms(query: string): string[] {
-	const seen = new Set<string>();
-	for (const term of normalise(query).split(' ')) {
-		if (term.length >= MIN_TERM_LENGTH) { seen.add(term); }
-	}
-	return [...seen];
-}
-
-/** Counts non-overlapping occurrences of `term` in already-normalised `haystack`. */
-const countOccurrences = (haystack: string, term: string): number => {
-	if (!term) { return 0; }
-	let count = 0;
-	let from = 0;
-	for (;;) {
-		const at = haystack.indexOf(term, from);
-		if (at === -1) { return count; }
-		count++;
-		from = at + term.length;
-	}
-};
-
-/** Builds an excerpt centred on the first matching term, on word boundaries where possible. */
-function buildExcerpt(body: string, terms: readonly string[]): string {
-	if (!body) { return ''; }
-	// Short enough to be useful whole — hand it over intact. Tables and step lists lose their
-	// meaning when cut, and most sections fit.
-	if (body.length <= FULL_SECTION_CHARS) { return body; }
-	const lower = body.toLowerCase();
-	let at = -1;
-	for (const term of terms) {
-		const found = lower.indexOf(term);
-		if (found !== -1 && (at === -1 || found < at)) { at = found; }
-	}
-	if (at === -1) { return body.slice(0, EXCERPT_CHARS).trim(); }
-
-	const half = Math.floor(EXCERPT_CHARS / 2);
-	let start = Math.max(0, at - half);
-	let end = Math.min(body.length, start + EXCERPT_CHARS);
-	// Snap to word boundaries so the excerpt does not begin mid-word.
-	if (start > 0) {
-		const space = body.indexOf(' ', start);
-		if (space !== -1 && space - start < 40) { start = space + 1; }
-	}
-	if (end < body.length) {
-		const space = body.lastIndexOf(' ', end);
-		if (space > start && end - space < 40) { end = space; }
-	}
-	return (start > 0 ? '…' : '') + body.slice(start, end).trim() + (end < body.length ? '…' : '');
 }
 
 /**
@@ -207,7 +147,7 @@ export function searchDocs(sections: readonly DocsSection[], query: string, limi
 		if (!section.body) { continue; }
 		if (matched === terms.length && terms.length > 1) { score += WEIGHT_ALL_TERMS; }
 
-		hits.push({ section, score, excerpt: buildExcerpt(section.body, terms) });
+		hits.push({ section, score, excerpt: buildExcerpt(section.body, terms, FULL_SECTION_CHARS) });
 	}
 
 	// Ties broken by shallower heading first (a top-level section is the better landing spot),

@@ -214,6 +214,11 @@ export const chatS = {
 	historyDateLast7: 'Последние 7 дней',
 	historyDateLast30: 'Последние 30 дней',
 	historyDateOlder: 'Ранее',
+	// Label on the excerpt shown under a thread found by its CONTENT: without it the row looks
+	// wrong — the title does not contain the query, and nothing says where the match came from.
+	historyMatchFromUser: 'Вы:',
+	historyMatchFromAssistant: 'Ответ:',
+	historyMatchFromOther: 'В переписке:',
 	maximizeChatTitle: 'Развернуть чат на всю ширину (повторно — вернуть)',
 	maximizeChatAria: 'Развернуть/свернуть чат',
 	zenModeTitle: 'Zen-режим: скрыть всё, включая табы (повторно — выйти)',

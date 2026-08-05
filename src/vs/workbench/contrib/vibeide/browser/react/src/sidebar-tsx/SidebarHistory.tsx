@@ -12,8 +12,8 @@ import '../styles.css';
 import ErrorBoundary from './ErrorBoundary.js';
 import { Search } from 'lucide-react';
 import { IsRunningType, ThreadType } from '../../../chatThreadService.js';
-import type { ChatMessage } from '../../../../common/chatThreadServiceTypes.js';
 import { threadMatchesWorkspace } from '../../../../common/chatHistoryScope.js';
+import { useThreadSearch } from '../util/threadSearch.js';
 import { chatS } from '../vibe-settings-tsx/vibeSettingsRu.js';
 
 const OPEN_CHAT_CMD = 'vibeide.chat.open';
@@ -158,24 +158,30 @@ const HistoryContent = () => {
 
 	const scope = useMemo((): HistoryScope => ({ showAll, currentWorkspaceId: wsId }), [showAll, wsId]);
 
-	const threadMatchesQuery = useCallback((t: ThreadType, q: string): boolean => {
-		const fu = t.messages.find((m): m is ChatMessage & { role: 'user' } => m.role === 'user');
-		return (fu?.displayContent || fu?.content || '').toLowerCase().includes(q);
-	}, []);
+	// Whole-transcript search, debounced inside the hook and shared with the composer dropdown.
+	const hitsByThreadId = useThreadSearch(messageThreads, filter);
 
 	const filteredThreads = useMemo(() => {
-		const q = filter.trim().toLowerCase();
-		if (!q) { return sortedThreads; }
-		return sortedThreads.filter(t => threadMatchesQuery(t, q));
-	}, [sortedThreads, filter, threadMatchesQuery]);
+		if (!hitsByThreadId) { return sortedThreads; }
+		// Kept in the list's own order (recency, grouping) rather than by score: the user is
+		// filtering a list they already know, and re-sorting it under them loses the place.
+		return sortedThreads.filter(t => hitsByThreadId.has(t.id));
+	}, [sortedThreads, hitsByThreadId]);
 
 	// CH.9 — when searching in scoped mode, count matches hiding in OTHER projects
 	// so a chat made elsewhere never looks "lost". Only meaningful while scoped.
 	const otherMatchesCount = useMemo(() => {
-		const q = filter.trim().toLowerCase();
-		if (!q || showAll) { return 0; }
-		return messageThreads.filter(t => !threadMatchesWorkspace(t, wsId, false) && threadMatchesQuery(t, q)).length;
-	}, [messageThreads, filter, showAll, wsId, threadMatchesQuery]);
+		if (!hitsByThreadId || showAll) { return 0; }
+		return messageThreads.filter(t => !threadMatchesWorkspace(t, wsId, false) && hitsByThreadId.has(t.id)).length;
+	}, [messageThreads, hitsByThreadId, showAll, wsId]);
+
+	// The excerpt is only worth showing when the title does not already contain the query —
+	// otherwise the row would repeat itself.
+	const matchOf = useCallback((thread: ThreadType): { text: string; role: 'user' | 'assistant' | 'other' } | undefined => {
+		const hit = hitsByThreadId?.get(thread.id);
+		if (!hit || hit.messageIndex === 0) { return undefined; }
+		return { text: hit.excerpt, role: hit.role };
+	}, [hitsByThreadId]);
 
 	const dateGroups = useMemo(() => {
 		if (filter.trim()) { return null; }
@@ -243,6 +249,7 @@ const HistoryContent = () => {
 										isActive={thread.id === currentThreadId}
 										onAfterSwitch={handleAfterSwitch}
 										scope={scope}
+										match={matchOf(thread)}
 									/>
 								))}
 							</div>

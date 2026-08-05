@@ -13,6 +13,7 @@ import { IconX } from './SidebarChat.js';
 import { Check, Copy, LoaderCircle, MessageCircleQuestion, Trash2, History, X, FolderInput } from 'lucide-react';
 import { IsRunningType, ThreadType } from '../../../chatThreadService.js';
 import { threadMatchesWorkspace, HISTORY_SHOW_ALL_PROJECTS_KEY } from '../../../../common/chatHistoryScope.js';
+import { useThreadSearch } from '../util/threadSearch.js';
 import { StorageScope } from '../../../../../../../platform/storage/common/storage.js';
 import { DisposableStore } from '../../../../../../../base/common/lifecycle.js';
 
@@ -262,6 +263,7 @@ export const PastThreadElement = memo(({
 	onAfterSwitch,
 	isActive = false,
 	scope,
+	match,
 }: {
 	pastThread: ThreadType;
 	idx: number;
@@ -271,6 +273,12 @@ export const PastThreadElement = memo(({
 	onAfterSwitch?: () => void;
 	isActive?: boolean;
 	scope?: HistoryScope;
+	/**
+	 * Why this thread is in the search results, when the reason is not its title. Search reads the
+	 * whole conversation, so a row can match on something said in the middle — showing the line
+	 * keeps the result explainable instead of looking like a bug.
+	 */
+	match?: { text: string; role: 'user' | 'assistant' | 'other' };
 }) => {
 
 
@@ -401,8 +409,24 @@ export const PastThreadElement = memo(({
 				)}
 			</div>
 		</div>
+
+		{/* the matching line, when the thread was found by its content rather than its title */}
+		{match && (
+			<div className="mt-1 flex items-baseline gap-1.5 min-w-0 text-[11px] text-vibe-fg-3">
+				<span className="shrink-0 opacity-70">{matchRoleLabel(match.role)}</span>
+				<span className="truncate overflow-hidden text-ellipsis" title={match.text}>{match.text}</span>
+			</div>
+		)}
 	</div>;
 });
+
+function matchRoleLabel(role: 'user' | 'assistant' | 'other'): string {
+	switch (role) {
+		case 'user': return chatS.historyMatchFromUser;
+		case 'assistant': return chatS.historyMatchFromAssistant;
+		default: return chatS.historyMatchFromOther;
+	}
+}
 
 
 /** Composer toolbar control: anchored popover listing past threads (same pattern as ChatModeDropdown). */
@@ -437,40 +461,40 @@ export const ChatHistoryToolbarDropdown: React.FC<{ className?: string }> = ({ c
 		return messageThreadIds.filter(id => !threadMatchesWorkspace(allThreads![id]!, wsId, false)).length;
 	}, [messageThreadIds, threadsState, wsId]);
 
-	const filteredIds = useMemo(() => {
-		const q = filter.trim().toLowerCase();
-		if (!q) {
-			return sortedThreadIds;
-		}
+	// Same whole-transcript search as the history panel — the dropdown used to carry its own
+	// copy of "compare with the first user message", so a chat found in one surface was missing
+	// in the other.
+	const searchableThreads = useMemo((): ThreadType[] => {
 		const { allThreads } = threadsState;
-		if (!allThreads) {
-			return [];
-		}
-		return sortedThreadIds.filter(id => {
-			const t = allThreads[id];
-			if (!t) {
-				return false;
-			}
-			const fu = t.messages.find(m => m.role === 'user');
-			const text = ((fu?.displayContent || fu?.content || '') + '').toLowerCase();
-			return text.includes(q);
-		});
-	}, [sortedThreadIds, filter, threadsState]);
+		if (!allThreads) { return []; }
+		return messageThreadIds.map(id => allThreads[id]).filter((t): t is ThreadType => !!t);
+	}, [messageThreadIds, threadsState]);
+
+	const hitsByThreadId = useThreadSearch(searchableThreads, filter);
+
+	const filteredIds = useMemo(() => {
+		if (!hitsByThreadId) { return sortedThreadIds; }
+		return sortedThreadIds.filter(id => hitsByThreadId.has(id));
+	}, [sortedThreadIds, hitsByThreadId]);
+
+	// Shown only when the match is NOT the opening line — otherwise the row would repeat itself.
+	const matchOf = useCallback((threadId: string): { text: string; role: 'user' | 'assistant' | 'other' } | undefined => {
+		const hit = hitsByThreadId?.get(threadId);
+		if (!hit || hit.messageIndex === 0) { return undefined; }
+		return { text: hit.excerpt, role: hit.role };
+	}, [hitsByThreadId]);
 
 	// CH.12 — matches hiding in OTHER projects while scoped, so a chat made elsewhere
 	// never looks lost (parity with the full history panel, CH.9).
 	const otherMatchesCount = useMemo(() => {
-		const q = filter.trim().toLowerCase();
-		if (!q || showAll) { return 0; }
+		if (!hitsByThreadId || showAll) { return 0; }
 		const { allThreads } = threadsState;
 		if (!allThreads) { return 0; }
 		return messageThreadIds.filter(id => {
 			const t = allThreads[id];
-			if (!t || threadMatchesWorkspace(t, wsId, false)) { return false; }
-			const fu = t.messages.find(m => m.role === 'user');
-			return ((fu?.displayContent || fu?.content || '') + '').toLowerCase().includes(q);
+			return !!t && !threadMatchesWorkspace(t, wsId, false) && hitsByThreadId.has(id);
 		}).length;
-	}, [messageThreadIds, filter, showAll, wsId, threadsState]);
+	}, [messageThreadIds, hitsByThreadId, showAll, wsId, threadsState]);
 
 	const runningThreadIds = useMemo(() => {
 		const result: { [threadId: string]: IsRunningType | undefined } = {};
@@ -652,6 +676,7 @@ export const ChatHistoryToolbarDropdown: React.FC<{ className?: string }> = ({ c
 										isRunning={runningThreadIds[pastThread.id]}
 										onAfterSwitch={close}
 										scope={{ showAll, currentWorkspaceId: wsId }}
+										match={matchOf(threadId)}
 									/>
 								);
 							})
