@@ -48,6 +48,7 @@ import { chatDiffCountLabel, chatFilesWithChangesLabel, chatModeDetail, chatMode
 import { persistentTerminalNameOfId } from '../../../terminalToolService.js';
 import { removeMCPToolNamePrefix } from '../../../../common/mcpServiceTypes.js';
 import { trackRenderLoop } from '../util/renderLoopGuard.js';
+import type { ProviderRefusalDiagnostics } from '../../../../common/sendLLMMessageTypes.js';
 import { useImageAttachments } from '../util/useImageAttachments.js';
 import { usePDFAttachments } from '../util/usePDFAttachments.js';
 import { PDFAttachmentList } from '../util/PDFAttachmentList.js';
@@ -6133,7 +6134,7 @@ export const SidebarChat = () => {
 
 		// Error block.
 		if (latestError !== undefined) {
-			const _err = latestError as { message: string; fullError: Error | null; recoverable?: 'dismissPlan' | 'forceReset' | 'switchModel' | 'retry' };
+			const _err = latestError as { message: string; fullError: Error | null; recoverable?: 'dismissPlan' | 'forceReset' | 'switchModel' | 'retry'; diagnostics?: ProviderRefusalDiagnostics };
 			const isPendingPlanGate = _err.recoverable === 'dismissPlan';
 			const isForceReset = _err.recoverable === 'forceReset';
 			const isSwitchModel = _err.recoverable === 'switchModel';
@@ -6144,6 +6145,7 @@ export const SidebarChat = () => {
 					<ErrorDisplay
 						message={_err.message}
 						fullError={_err.fullError}
+						diagnostics={_err.diagnostics}
 						onDismiss={() => { chatThreadsService.dismissStreamError(currentThread.id); }}
 						showDismiss={true}
 					/>

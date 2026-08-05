@@ -274,6 +274,7 @@ export const errorDisplayS = {
 	openLogsLabel: 'Открыть журналы',
 	openLogsAria: 'Открыть журналы',
 	technicalDetails: 'Технические подробности: ',
+	providerReported: 'Что сообщил провайдер',
 } as const;
 
 /** Russian UI strings for VibeTooltip (vibe-tooltip/VibeTooltip.tsx). */

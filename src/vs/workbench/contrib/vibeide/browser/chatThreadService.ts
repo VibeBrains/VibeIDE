@@ -22,7 +22,7 @@ import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '..
 import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, looksLikeCompletionText, QUESTION_AUTO_CONTINUE_DEFAULT } from '../common/agentLoopHeuristics.js';
 import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
 import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
-import { AnthropicReasoning, getErrorMessage, GeminiLLMChatMessage, LLMChatMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
+import { ProviderRefusalDiagnostics, AnthropicReasoning, getErrorMessage, GeminiLLMChatMessage, LLMChatMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { isQuotaLow, pickRateLimitHeaders, ProviderQuotaSnapshot, tightestBucket } from '../common/providerQuota.js';
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
 import { ModelHealthTracker, HEALTH_FAILURE_THRESHOLD, HEALTH_WINDOW_MS, classifyProviderError } from '../common/modelHealthTracker.js';
@@ -460,7 +460,17 @@ export type IsRunningType =
 export type ThreadStreamState = {
 	[threadId: string]: undefined | {
 		isRunning: undefined;
-		error?: { message: string; fullError: Error | null; recoverable?: 'dismissPlan' | 'forceReset' | 'switchModel' | 'retry' };
+		error?: {
+			message: string;
+			fullError: Error | null;
+			recoverable?: 'dismissPlan' | 'forceReset' | 'switchModel' | 'retry';
+			/**
+			 * What the provider itself reported about the refusal. Carried into the state — not just
+			 * the debug log — so the error card can answer "quota or unstable stream?" without the
+			 * user opening a log file they have no reason to know about.
+			 */
+			diagnostics?: ProviderRefusalDiagnostics;
+		};
 		// Provider rate-limit auto-pause: the run is waiting out a 429 retry-after and will resume the
 		// turn itself at `resumeAtMs`. Drives the inline countdown banner so the wait is visible.
 		pauseInfo?: { resumeAtMs: number; attempt: number; maxAttempts: number; reason: 'rateLimit' };
@@ -6683,7 +6693,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						}
 
 						// Clear stream state immediately so submit button becomes active (avoids stuck "Waiting for model response..." if audit or resolve fails)
-						this._setStreamState(threadId, { isRunning: undefined, error: effectiveError });
+						// `refusal` is what the provider reported; it now travels to the card, not only
+						// to the debug log — that log answered "quota or unstable stream?" for months
+						// while the user saw only «Empty response».
+						this._setStreamState(threadId, { isRunning: undefined, error: refusal ? { ...effectiveError!, diagnostics: refusal } : effectiveError });
 
 						// Unified error toast via agentErrorClassifier (L294).
 						// SUPPRESSED when the circuit breaker tripped — the sticky inline

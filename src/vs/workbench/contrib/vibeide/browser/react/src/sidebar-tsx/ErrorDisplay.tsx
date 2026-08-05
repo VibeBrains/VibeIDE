@@ -4,17 +4,20 @@
  *--------------------------------------------------------------------------------------------*/
 
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, ChevronDown, ChevronUp, X, RotateCcw, RefreshCw, FileText } from 'lucide-react';
 import { useSettingsState } from '../util/services.js';
 import { errorDetails } from '../../../../common/sendLLMMessageTypes.js';
 import { toErrorMessage } from '../../../../../../../base/common/errorMessage.js';
 import { errorDisplayS } from '../vibe-settings-tsx/vibeSettingsRu.js';
+import { describeProviderRefusal } from '../../../../common/providerErrorDetails.js';
+import type { ProviderRefusalDiagnostics } from '../../../../common/sendLLMMessageTypes.js';
 
 
 export const ErrorDisplay = ({
 	message: message_,
 	fullError,
+	diagnostics,
 	onDismiss,
 	showDismiss,
 	onRetry,
@@ -23,6 +26,8 @@ export const ErrorDisplay = ({
 }: {
 	message: string;
 	fullError: Error | null;
+	/** What the provider itself reported about the refusal, when it reported anything. */
+	diagnostics?: ProviderRefusalDiagnostics;
 	onDismiss: (() => void) | null;
 	showDismiss?: boolean;
 	onRetry?: (() => void) | null;
@@ -47,7 +52,11 @@ export const ErrorDisplay = ({
 
 	// Only show details in dev mode or when explicitly expanded (never show raw stacks)
 	const details = isExpanded && fullError ? errorDetails(fullError) : null;
-	const isExpandable = !!fullError && (fullError.stack || (fullError.message && fullError.message !== normalizedMessage));
+	// Provider-reported rows are the half that used to be unreachable: IPC strips non-enumerable
+	// `message`/`stack` off an Error, so the technical block stayed empty exactly on provider
+	// refusals — the case where a user most needs to know whether the quota ran out.
+	const providerRows = useMemo(() => describeProviderRefusal(diagnostics), [diagnostics]);
+	const isExpandable = providerRows.length > 0 || (!!fullError && (!!fullError.stack || (!!fullError.message && fullError.message !== normalizedMessage)));
 
 	const message = normalizedMessage + '';
 
@@ -135,12 +144,27 @@ export const ErrorDisplay = ({
 			)}
 
 			{/* Expandable Details (dev mode only, no raw stacks) */}
-			{isExpanded && details && (
+			{isExpanded && (details || providerRows.length > 0) && (
 				<div className='mt-4 space-y-3 border-t border-red-200 pt-3 overflow-auto animate-in fade-in slide-in-from-top-2 duration-200'>
-					<div>
-						<span className='font-semibold text-red-800 text-xs'>{errorDisplayS.technicalDetails}</span>
-						<pre className='text-red-700 text-xs mt-1.5 p-2 bg-red-100/50 rounded border border-red-200/50 overflow-x-auto'>{details}</pre>
-					</div>
+					{providerRows.length > 0 && (
+						<div>
+							<span className='font-semibold text-red-800 text-xs'>{errorDisplayS.providerReported}</span>
+							<div className='mt-1.5 p-2 bg-red-100/50 rounded border border-red-200/50 space-y-1'>
+								{providerRows.map(row => (
+									<div key={row.label} className='text-xs text-red-700 flex gap-2'>
+										<span className='opacity-70 shrink-0'>{row.label}:</span>
+										<span className='whitespace-pre-wrap break-all'>{row.value}</span>
+									</div>
+								))}
+							</div>
+						</div>
+					)}
+					{details && (
+						<div>
+							<span className='font-semibold text-red-800 text-xs'>{errorDisplayS.technicalDetails}</span>
+							<pre className='text-red-700 text-xs mt-1.5 p-2 bg-red-100/50 rounded border border-red-200/50 overflow-x-auto'>{details}</pre>
+						</div>
+					)}
 				</div>
 			)}
 		</div>
