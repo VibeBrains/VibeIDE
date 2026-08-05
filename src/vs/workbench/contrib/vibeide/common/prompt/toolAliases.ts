@@ -249,7 +249,11 @@ export const resolveToolNameAlias = (
 // call (e.g. a real `search_pathnames_only` getting turned into
 // `search_for_files`). Centralized here, next to the schemas they mirror.
 const COMMAND_OWNING_TOOLS: ReadonlySet<string> = new Set(['run_command', 'run_persistent_command']);
-const QUERY_OWNING_TOOLS: ReadonlySet<string> = new Set(['search_for_files', 'search_pathnames_only', 'search_symbols', 'search_in_file']);
+// `docs_search` earns its place here the hard way: on its first live run the model called it
+// correctly with `{query}`, and the shape router rewrote the call to `search_for_files` — the
+// tool could never have executed. Any new tool whose required field is `query` MUST be added,
+// or it is silently hijacked (2026-08-05 smoke).
+const QUERY_OWNING_TOOLS: ReadonlySet<string> = new Set(['search_for_files', 'search_pathnames_only', 'search_symbols', 'search_in_file', 'docs_search']);
 // Non-uri tools: their required field is command/query/pattern, so a bare
 // `{uri}` from them is an unambiguous misname → read_file. Tools that take a
 // `uri` (read_file, ls_dir, get_dir_tree, search_in_file, go_to_definition, …)

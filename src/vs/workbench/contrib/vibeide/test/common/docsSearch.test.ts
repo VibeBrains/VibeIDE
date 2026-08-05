@@ -98,8 +98,24 @@ suite('docsSearch', () => {
 		assert.strictEqual(top.section.file, 'focused.md');
 	});
 
+	test('a short section is returned in full — a cut table is useless', () => {
+		// The first live run failed here: the model got 320 chars of the spec's field table and
+		// answered "the table is not available to me".
+		const table = '| Поле | Смысл |\n|---|---|\n| id | ключ |\n| command | команда |';
+		const [hit] = searchDocs(splitIntoSections('spec.md', `# Поля\n\n${table}`), 'поле');
+		assert.strictEqual(hit.excerpt, table);
+	});
+
+	test('a heading with no prose of its own is not returned — its content lives in child sections', () => {
+		// Both sections match the query; only the one with actual prose is worth citing.
+		const corpus = splitIntoSections('spec.md', '# Поля записи\n\n## Обязательные\n\nОбязательные поля записи: id и command.');
+		const hits = searchDocs(corpus, 'поля записи');
+		assert.deepStrictEqual(hits.map(h => h.section.heading), ['Обязательные']);
+	});
+
 	test('excerpt centres on the match and marks truncation', () => {
-		const long = splitIntoSections('m.md', `# Раздел\n\n${'вода '.repeat(80)}ИСКОМОЕ ${'вода '.repeat(80)}`);
+		// Past FULL_SECTION_CHARS, so the excerpt path is what runs here.
+		const long = splitIntoSections('m.md', `# Раздел\n\n${'вода '.repeat(400)}ИСКОМОЕ ${'вода '.repeat(400)}`);
 		const [hit] = searchDocs(long, 'искомое');
 		assert.ok(hit.excerpt.toLowerCase().includes('искомое'), 'выдержка не содержит совпадения');
 		assert.ok(hit.excerpt.startsWith('…') && hit.excerpt.endsWith('…'), `выдержка не помечена обрезкой: ${hit.excerpt.slice(0, 40)}`);

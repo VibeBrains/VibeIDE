@@ -48,6 +48,13 @@ suite('detectToolByParamShape — shape→tool routing (model-stalls #010)', () 
 			assert.strictEqual(detectToolByParamShape({ query: 'MyClass' }, 'search_symbols'), undefined);
 		});
 
+		test('docs_search <- {query} -> undefined (owns `query`, must not be hijacked)', () => {
+			// Caught live on the tool's first run: the model called docs_search correctly and the
+			// router rewrote it to search_for_files, so the tool could never execute.
+			assert.strictEqual(detectToolByParamShape({ query: 'servers.json' }, 'docs_search'), undefined);
+			assert.strictEqual(detectToolByParamShape({ query: 'дизайн', limit: 3 }, 'docs_search'), undefined);
+		});
+
 		test('search_for_files <- {query, search_in_folder} -> undefined (already correct)', () => {
 			assert.strictEqual(detectToolByParamShape({ query: 'foo', search_in_folder: 'src' }, 'search_for_files'), undefined);
 		});

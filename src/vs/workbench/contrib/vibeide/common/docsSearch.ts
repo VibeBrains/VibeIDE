@@ -41,8 +41,19 @@ export interface DocsSearchHit {
 	readonly excerpt: string;
 }
 
-/** Excerpt width; enough for a sentence or two of context around the hit. */
+/** Excerpt width for sections too long to hand over whole. */
 const EXCERPT_CHARS = 320;
+
+/**
+ * Sections at or under this size are returned IN FULL instead of excerpted.
+ *
+ * Measured on the real corpus: 86 of 140 sections are longer than the excerpt window, and the
+ * first live run failed on exactly that — the model found the spec's field table, received 320
+ * characters of it, and had to answer "the table is not available to me". A section is already
+ * the author's unit of meaning; cutting it mid-table serves nobody. 2500 covers the 90th
+ * percentile (1315 chars) with room to spare, while still capping the handful of sprawling ones.
+ */
+const FULL_SECTION_CHARS = 2500;
 
 /**
  * Scoring weights. A hit in the heading outranks a hit in prose because headings are what the
@@ -136,6 +147,9 @@ const countOccurrences = (haystack: string, term: string): number => {
 /** Builds an excerpt centred on the first matching term, on word boundaries where possible. */
 function buildExcerpt(body: string, terms: readonly string[]): string {
 	if (!body) { return ''; }
+	// Short enough to be useful whole — hand it over intact. Tables and step lists lose their
+	// meaning when cut, and most sections fit.
+	if (body.length <= FULL_SECTION_CHARS) { return body; }
 	const lower = body.toLowerCase();
 	let at = -1;
 	for (const term of terms) {
@@ -186,6 +200,11 @@ export function searchDocs(sections: readonly DocsSection[], query: string, limi
 				+ Math.min(inBody, MAX_BODY_HITS_PER_TERM) * WEIGHT_BODY;
 		}
 		if (!score) { continue; }
+		// A heading with no prose of its own is a container — its content lives in the child
+		// sections, which are indexed separately. Returning it would spend a slot on an empty
+		// citation, which is how the first live run ended up with "the table is not available
+		// to me" while the table sat one heading below.
+		if (!section.body) { continue; }
 		if (matched === terms.length && terms.length > 1) { score += WEIGHT_ALL_TERMS; }
 
 		hits.push({ section, score, excerpt: buildExcerpt(section.body, terms) });
