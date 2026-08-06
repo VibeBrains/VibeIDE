@@ -314,6 +314,10 @@ class VibeServerService extends Disposable implements IVibeServerService {
 		await this._openUrl(started.url, 'embedded', true);
 	}
 
+	async openPreviewUrl(url: string, target?: VibeServerPreviewTarget): Promise<void> {
+		await this._openUrl(url, target);
+	}
+
 	async openPreviewForResource(resource: URI): Promise<void> {
 		if (this._status.state === 'stopped') {
 			await this.start();

@@ -172,6 +172,23 @@ export class VibeServerViewPane extends ViewPane {
 			store.add(this._hoverService.setupManagedHover(this._hoverDelegate, row, item.detail));
 		}
 
+		// A running entry is previewable on its own address: the header's "Открыть превью" targets
+		// the auto-detected single server, which in a multi-app stack is not this entry.
+		if (running && this._stackService.previewUrlFor(item.entry.id)) {
+			const preview = DOM.append(row, $('span.vibe-server-stack-action'));
+			preview.className = `vibe-server-stack-action ${ThemeIcon.asClassName(Codicon.openPreview)}`;
+			store.add(this._hoverService.setupManagedHover(this._hoverDelegate, preview, localize('vibeServer.stack.preview', "Открыть превью")));
+			store.add(DOM.addDisposableListener(preview, 'click', e => {
+				e.stopPropagation();
+				void this._openEntryPreview(item);
+			}));
+		}
+
+		// Clicking the row itself previews too — the same gesture the empty-preview welcome list uses.
+		if (item.state !== 'excluded') {
+			store.add(DOM.addDisposableListener(row, 'click', () => void this._openEntryPreview(item)));
+		}
+
 		const action = DOM.append(row, $('span.vibe-server-stack-action'));
 		const actionIcon = running || busy ? Codicon.debugStop : Codicon.play;
 		action.className = `vibe-server-stack-action ${ThemeIcon.asClassName(actionIcon)}`;
@@ -181,6 +198,17 @@ export class VibeServerViewPane extends ViewPane {
 			e.stopPropagation();
 			void (running || busy ? this._stackService.stopEntry(item.entry.id) : this._stackService.startEntry(item.entry.id));
 		}));
+	}
+
+	/** Starts the entry (with its dependencies) if needed, then previews its own URL. */
+	private async _openEntryPreview(item: IVibeServerStackEntry): Promise<void> {
+		if (item.state !== 'running') {
+			await this._stackService.startEntry(item.entry.id);
+		}
+		const url = this._stackService.previewUrlFor(item.entry.id);
+		if (url) {
+			await this._vibeServerService.openPreviewUrl(url);
+		}
 	}
 
 	private _actionsFor(state: IVibeServerService['status']['state']): IAction[] {

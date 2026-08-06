@@ -50,6 +50,11 @@ export interface IVibeServerService {
 	openPreview(target?: VibeServerPreviewTarget): Promise<void>;
 	/** Opens an additional embedded preview tab (multi-preview). */
 	openPreviewNewTab(): Promise<void>;
+	/**
+	 * Opens the preview at an arbitrary URL — a stack entry's own address, which is unrelated to
+	 * the auto-detected single server behind `openPreview()`. Multi-app stacks have no "the" server.
+	 */
+	openPreviewUrl(url: string, target?: VibeServerPreviewTarget): Promise<void>;
 	/** Force-reloads all open embedded preview tabs. */
 	reloadPreview(): void;
 	/**
