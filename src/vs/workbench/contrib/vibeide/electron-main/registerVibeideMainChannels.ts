@@ -30,6 +30,8 @@ import { VibeIdleWatchdogChannelService } from './vibeIdleWatchdogChannel.js';
 import { VIBE_IDLE_WATCHDOG_CHANNEL } from '../common/vibeIdleWatchdogTypes.js';
 import { VibeWindowAttentionMainService } from './vibeWindowAttentionMainService.js';
 import { VIBE_WINDOW_ATTENTION_CHANNEL } from '../common/vibeWindowAttentionIpc.js';
+import { VibeTelegramMainService } from './telegram/vibeTelegramMainService.js';
+import { VIBE_TELEGRAM_CHANNEL } from '../common/telegram/vibeTelegramTypes.js';
 import { VibeServerMainService } from './vibeServer/vibeServerMainService.js';
 import { VIBE_SERVER_CHANNEL } from '../common/vibeServer/vibeServerIpc.js';
 import { VibeServerProcessService } from './vibeServer/vibeServerProcessService.js';
@@ -131,6 +133,14 @@ export function registerVibeideMainProcessChannels(
 		accessor.get(IWindowsMainService),
 		accessor.get(ILogService),
 	));
+	// Telegram bridge: the poller belongs to the main process because there is exactly one per
+	// application — two windows polling the same bot would collide on 409 Conflict.
+	const telegramService = disposables.add(new VibeTelegramMainService(accessor.get(ILogService)));
+	mainProcessElectronServer.registerChannel(
+		VIBE_TELEGRAM_CHANNEL,
+		ProxyChannel.fromService(telegramService, disposables),
+	);
+
 	mainProcessElectronServer.registerChannel(
 		VIBE_WINDOW_ATTENTION_CHANNEL,
 		ProxyChannel.fromService(windowAttentionService, disposables),

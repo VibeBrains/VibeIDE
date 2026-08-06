@@ -195,6 +195,33 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.vibeServer.previewTarget.desc', 'Где открывать предпросмотр по умолчанию.'),
 					scope: ConfigurationScope.RESOURCE,
 				},
+				'vibeide.telegram.enabled': {
+					type: 'boolean',
+					default: false,
+					markdownDescription: localize('vibeide.telegram.enabled.desc', 'Мост в Telegram: управлять агентом с телефона — ставить задачи, видеть прогресс длинного прогона, отвечать на запросы подтверждения.\n\nБот у вас **свой**: создаётся за минуту у [@BotFather](https://t.me/BotFather), токен вставляется командой «VibeIDE: Токен Telegram-бота». Никакого нашего сервера в цепочке нет — IDE сама ходит в `api.telegram.org`, поэтому переписка никуда, кроме Telegram, не уходит.\n\nЧужой чат ничего не может: первое сообщение от неизвестного чата не выполняется, а спрашивает у вас разрешение. Подробности — `docs/manuals/telegramBridge.md`.'),
+					scope: ConfigurationScope.APPLICATION,
+					tags: ['usesOnlineServices'],
+				},
+				'vibeide.telegram.allowedChatIds': {
+					type: 'array',
+					items: { type: 'number' },
+					default: [],
+					markdownDescription: localize('vibeide.telegram.allowedChatIds.desc', 'Чаты, которым разрешено управлять агентом. Заполняется само, когда вы подтверждаете привязку; здесь можно отозвать доступ, удалив запись.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.telegram.proxy.url': {
+					type: 'string',
+					default: '',
+					markdownDescription: localize('vibeide.telegram.proxy.url.desc', 'Прокси для обращений к `api.telegram.org` — нужен там, где Telegram заблокирован. Пусто — прямое соединение.\n\nСхемы те же, что у прокси провайдеров: `http://`, `https://`, `socks5://`, `socks5h://`, `socks4://`, авторизация прямо в URL. Это **отдельный** адрес от `vibeide.llm.proxy.url`: Telegram и API моделей блокируются в разных местах, и один выход не обязан подходить обоим.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.telegram.progressIntervalMs': {
+					type: 'number',
+					default: 20000,
+					minimum: 5000,
+					markdownDescription: localize('vibeide.telegram.progressIntervalMs.desc', 'Как часто обновлять сообщение о ходе длинного прогона, в миллисекундах. Обновляется одно и то же сообщение, а не шлётся новое.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.vibeServer.previewTabs': {
 					type: 'string',
 					enum: ['single', 'perService'],

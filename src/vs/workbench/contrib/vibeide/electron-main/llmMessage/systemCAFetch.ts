@@ -126,26 +126,36 @@ const buildHttpProxyDispatcher = (proxy: URL, ca: string[]): ProxyAgent => {
 	return new ProxyAgent({ uri: clean.href, token, requestTls: { ca }, proxyTls: { ca } });
 };
 
-const buildDispatcher = (): Dispatcher => {
+/**
+ * Build a standalone dispatcher for `proxyUrl` (empty → direct), trusting the system CA bundle.
+ *
+ * Exported for callers that need their own exit independent of the LLM proxy — the Telegram
+ * bridge is one: `api.telegram.org` and the model APIs are blocked in different places, so
+ * forcing them through one address would break whichever of the two the address does not fit.
+ * `label` only names the owner in the log.
+ */
+export const createProxyDispatcher = (proxyUrl: string | undefined, label: string): Dispatcher => {
 	const ca = collectCAs();
-	if (_proxyUrl) {
+	if (proxyUrl) {
 		try {
-			const proxy = new URL(_proxyUrl);
+			const proxy = new URL(proxyUrl);
 			const scheme = proxy.protocol.replace(':', '').toLowerCase();
 			const agent = (scheme === 'socks' || scheme === 'socks4' || scheme === 'socks5' || scheme === 'socks5h')
 				? buildSocksDispatcher(proxy, ca)
 				: buildHttpProxyDispatcher(proxy, ca);
-			_dispatcherId += 1;
-			_dispatcherCreatedAtMs = Date.now();
-			vibeLog.info('systemCAFetch', `[dispatcher] pool #${_dispatcherId} via proxy ${redactProxyUrl(_proxyUrl)} (${scheme})`);
+			vibeLog.info('systemCAFetch', `[dispatcher] ${label} via proxy ${redactProxyUrl(proxyUrl)} (${scheme})`);
 			return agent;
 		} catch (e) {
 			// A bad proxy URL must not leave callers without a dispatcher — fall back to direct and warn
 			// loudly. The resulting requests will hit the original geo-block, which is a visible symptom.
-			vibeLog.error('systemCAFetch', `[dispatcher] proxy "${redactProxyUrl(_proxyUrl)}" unusable — falling back to direct:`, (e as Error).message);
+			vibeLog.error('systemCAFetch', `[dispatcher] ${label}: proxy "${redactProxyUrl(proxyUrl)}" unusable — falling back to direct:`, (e as Error).message);
 		}
 	}
-	const agent = new Agent({ connect: { ca } });
+	return new Agent({ connect: { ca } });
+};
+
+const buildDispatcher = (): Dispatcher => {
+	const agent = createProxyDispatcher(_proxyUrl, `pool #${_dispatcherId + 1}`);
 	_dispatcherId += 1;
 	_dispatcherCreatedAtMs = Date.now();
 	return agent;
