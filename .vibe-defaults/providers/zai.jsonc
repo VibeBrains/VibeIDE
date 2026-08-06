@@ -1,7 +1,15 @@
 // Z.AI (Zhipu / GLM) — OpenAI-совместимый API.
 // Скопируйте в .vibe/providers.json (или перенесите объект провайдера в свой массив providers).
 // Ключ: положите строку ZAI_API_KEY=<ваш-ключ> в .vibe/.env (не коммитится).
-// Coding Plan: смените baseURL и models.fetch на https://api.z.ai/api/coding/paas/v4(/models).
+//
+// ДВА РАЗНЫХ ЭНДПОИНТА — выберите тот, за который вы платите:
+//   • /api/coding/paas/v4  — GLM Coding Plan (подписка). Ключ из
+//     раздела «Model & Personal Coding Plan» работает ТОЛЬКО здесь. Это дефолт ниже.
+//   • /api/paas/v4         — оплата за токены (pay-as-you-go), см. комментарий у baseURL.
+//
+// Симптом перепутанного эндпоинта — не «неверный ключ», а HTTP 429 с кодом 1113
+// «Insufficient balance or no resource package. Please recharge»: подписочный ключ ушёл на
+// пер-токенный счёт, где денег нет (проверено живьём 06.08.2026).
 {
 	"version": 1,
 	"providers": [
@@ -9,7 +17,9 @@
 			"id": "zai",
 			"name": "Z.AI (GLM)",
 			"protocol": "openai",
-			"baseURL": "https://api.z.ai/api/paas/v4",
+			// Coding Plan (подписка). Для оплаты за токены замените обе строки на
+			// "https://api.z.ai/api/paas/v4" и "https://api.z.ai/api/paas/v4/models".
+			"baseURL": "https://api.z.ai/api/coding/paas/v4",
 			"auth": "bearer",
 			"apiKeyEnv": "ZAI_API_KEY",
 			"docsUrl": "https://docs.z.ai/",
@@ -18,7 +28,7 @@
 			"tags": ["glm", "zhipu"],
 			"models": {
 				// Каталог z.ai — на <baseURL>/models, не /v1/models → указываем полный URL.
-				"fetch": "https://api.z.ai/api/paas/v4/models",
+				"fetch": "https://api.z.ai/api/coding/paas/v4/models",
 				// Статический fallback (пока каталог не подтянулся / нет ключа).
 				"static": [
 					{

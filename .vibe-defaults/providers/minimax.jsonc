@@ -32,8 +32,13 @@
 
 		// ── MiniMax по нативному протоколу Anthropic ──────────────────────────────
 		// Вендор поднял Anthropic-совместимый Messages endpoint: те же модели, но запросы
-		// идут в формате Anthropic (SDK допишет к baseURL путь /v1/messages), а инструменты
-		// вызываются anthropic-стилем. Зачем: обходит расхождения OpenAI-слоя в tool-use и
+		// идут в формате Anthropic, а инструменты вызываются anthropic-стилем.
+		//
+		// ВНИМАНИЕ, baseURL заканчивается на /v1 — это обязательно. SDK дописывает РОВНО
+		// «/messages» к тому, что здесь указано (проверено живьём 06.08.2026: с baseURL без
+		// /v1 запрос уходил на /anthropic/messages и вендор отвечал 404 Not Found).
+		// Прежний комментарий здесь утверждал, будто SDK сам добавляет «/v1/messages», — это
+		// было неверно и стоило разбирательства на живом ключе. Зачем: обходит расхождения OpenAI-слоя в tool-use и
 		// даёт честный подсчёт токенов через /anthropic/v1/messages/count_tokens.
 		// Чего на этом эндпоинте НЕТ (по доке вендора): top_k, stop_sequences, mcp_servers,
 		// context_management, container и серверные инструменты вроде web_search.
@@ -44,7 +49,7 @@
 			"extends": "minimax",
 			"name": "MiniMax (Anthropic-протокол)",
 			"protocol": "anthropic",
-			"baseURL": "https://api.minimax.io/anthropic",
+			"baseURL": "https://api.minimax.io/anthropic/v1",
 			"auth": { "type": "header", "name": "x-api-key" },
 			"apiKeyRef": "minimax",
 			"order": 30,
