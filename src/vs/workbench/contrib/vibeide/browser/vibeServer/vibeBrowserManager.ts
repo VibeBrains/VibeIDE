@@ -28,6 +28,24 @@ import { DocumentSnapshot, ViewportLabel } from '../../common/designReview/desig
 const VIBE_BROWSER_VIEW_TYPE = 'vibeide.vibeBrowser';
 const VIBE_SERVER_CONSOLE_CHANNEL_ID = 'vibeide.vibeServerConsole';
 
+/**
+ * How a preview open lands on tabs: reuse the active one, keep one tab per service, or always
+ * add another.
+ */
+export type VibeBrowserOpenMode = 'reuse' | 'perService' | 'newTab';
+
+/**
+ * Scheme+host+port of `url`, used as the per-service tab key. Falls back to the raw string for
+ * anything unparseable so an odd URL still keys consistently instead of colliding on ''.
+ */
+function originOf(url: string): string {
+	try {
+		return new URL(url).origin;
+	} catch {
+		return url;
+	}
+}
+
 /** One element pick from the preview inspect mode (page → chrome → manager). */
 export interface IVibeBrowserElementPick {
 	/** CSS selector computed in the page (id → tag.class:nth-of-type chain). */
@@ -86,6 +104,14 @@ export class VibeBrowserManager extends Disposable {
 
 	/** Which preview URL each tab currently shows — drives cookie-compat origin (un)registration. */
 	private readonly _registeredUrlByInput = new Map<WebviewInput, string>();
+
+	/**
+	 * Which service origin (`http://localhost:5173`) each tab was opened for — the key for finding
+	 * "the tab of this service" again. Deliberately the origin and not the current URL: browsing
+	 * inside the preview changes the URL, and a full-URL key would lose the tab after one click.
+	 * Tracked unconditionally, unlike `_registeredUrlByInput`, which only fills with cookie-compat on.
+	 */
+	private readonly _originByInput = new Map<WebviewInput, string>();
 
 	/** Resolver for the design scan in flight, if any. One at a time — the scan is a snapshot, not a stream. */
 	private _pendingDesignScan: { resolve: (snapshot: DesignScanResult) => void; timer: unknown } | undefined;
@@ -186,27 +212,53 @@ export class VibeBrowserManager extends Disposable {
 	}
 
 	/**
-	 * Opens the embedded browser at `url`. By default re-points the active tab; with
-	 * `newTab` opens an additional preview (multi-preview).
+	 * Opens the embedded browser at `url`.
+	 *
+	 * - `reuse` (default) re-points the active tab — one preview for everything;
+	 * - `perService` reveals the tab already opened for this service's origin, or makes one;
+	 * - `newTab` always adds another preview.
+	 *
+	 * `title` names the tab in `perService` mode, where several previews coexist and a shared
+	 * "Vibe Server" label would make them indistinguishable.
 	 */
-	open(url: string, newTab = false): void {
+	open(url: string, mode: VibeBrowserOpenMode = 'reuse', title?: string): void {
 		const html = this._buildHtml(url);
-		if (!newTab && this._active) {
+		if (mode === 'reuse' && this._active) {
 			this._active.webview.setHtml(html);
 			this._trackPreviewUrl(this._active, url);
+			this._originByInput.set(this._active, originOf(url));
+			// Re-pointing keeps the tab but replaces what it shows, so its label has to follow —
+			// otherwise the tab still claims the previously previewed service.
+			this._active.setWebviewTitle(title ?? localize('vibeBrowser.title', "Vibe Server"));
 			this._webviewWorkbenchService.revealWebview(this._active, ACTIVE_GROUP, false);
 			return;
 		}
 
+		if (mode === 'perService') {
+			const origin = originOf(url);
+			for (const candidate of this._inputs) {
+				if (this._originByInput.get(candidate) !== origin) {
+					continue;
+				}
+				// The tab of this service already exists: bring it forward instead of duplicating it.
+				this._active = candidate;
+				this._webviewWorkbenchService.revealWebview(candidate, ACTIVE_GROUP, false);
+				return;
+			}
+		}
+
+		// The tab is named after whatever it shows, in every mode: a shared tab that keeps saying
+		// "Vibe Server" while showing a specific service is as misleading as a stale service name.
+		const tabTitle = title ?? localize('vibeBrowser.title', "Vibe Server");
 		const input = this._webviewWorkbenchService.openWebview(
 			{
-				title: localize('vibeBrowser.title', "Vibe Server"),
+				title: tabTitle,
 				options: { retainContextWhenHidden: true, enableFindWidget: true },
 				contentOptions: { allowScripts: true, allowForms: true },
 				extension: undefined,
 			},
 			VIBE_BROWSER_VIEW_TYPE,
-			localize('vibeBrowser.title', "Vibe Server"),
+			tabTitle,
 			undefined,
 			{ group: ACTIVE_GROUP, preserveFocus: false },
 		);
@@ -220,6 +272,7 @@ export class VibeBrowserManager extends Disposable {
 			this._inputs.delete(input);
 			this._perInput.deleteAndDispose(input);
 			this._untrackPreviewUrl(input);
+			this._originByInput.delete(input);
 			if (this._active === input) {
 				this._active = this._inputs.values().next().value;
 			}
@@ -227,6 +280,7 @@ export class VibeBrowserManager extends Disposable {
 
 		input.webview.setHtml(html);
 		this._trackPreviewUrl(input, url);
+		this._originByInput.set(input, originOf(url));
 	}
 
 	/** Force-reloads every open preview tab. */

@@ -1326,6 +1326,28 @@ body.monaco-workbench,
 .vibe-server-stack-action:hover {
 	background-color: var(--vscode-toolbar-hoverBackground);
 }
+.vibe-server-tabs-toggle {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px var(--vibeide-space-md) 4px;
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+}
+.vibe-server-tabs-toggle-option {
+	cursor: pointer;
+	padding: 1px 6px;
+	border-radius: 4px;
+	border: 1px solid transparent;
+}
+.vibe-server-tabs-toggle-option:hover {
+	background-color: var(--vscode-toolbar-hoverBackground);
+}
+.vibe-server-tabs-toggle-option.selected {
+	color: var(--vscode-foreground);
+	border-color: var(--vscode-focusBorder);
+	background-color: var(--vscode-list-activeSelectionBackground);
+}
 .vibe-server-stack-warning {
 	font-size: 11px;
 	color: var(--vscode-descriptionForeground);

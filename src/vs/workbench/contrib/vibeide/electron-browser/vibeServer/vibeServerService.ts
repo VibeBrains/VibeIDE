@@ -41,11 +41,11 @@ import { IVibeServerMain, IVibeServerStarted, VIBE_SERVER_CHANNEL, VibeServerRun
 import { IVibeServerPortOwner, IVibeServerProcessMain, VIBE_SERVER_PROCESS_CHANNEL } from '../../common/vibeServer/vibeServerProcessIpc.js';
 import { IVibeServerRuntime, StaticRuntime, DevServerRuntime, DevServerPortBusyError } from '../../browser/vibeServer/vibeServerRuntime.js';
 import { DockerRuntime } from '../../browser/vibeServer/vibeDockerRuntime.js';
-import { VibeBrowserManager, IVibeBrowserElementPick, DesignScanResult } from '../../browser/vibeServer/vibeBrowserManager.js';
+import { VibeBrowserManager, IVibeBrowserElementPick, DesignScanResult, VibeBrowserOpenMode } from '../../browser/vibeServer/vibeBrowserManager.js';
 import { IVibeDesignScanService } from '../../browser/designReview/vibeDesignScanService.js';
 import { ViewportLabel } from '../../common/designReview/designSlopRules.js';
 import { openVibeChatEditor } from '../../browser/vibeideChatPane.js';
-import { VibeServerConfigKeys, VibeServerPreviewTarget, VIBE_SERVER_RUNNING_CONTEXT_KEY } from '../../browser/vibeServer/vibeServerConstants.js';
+import { VibeServerConfigKeys, VibeServerPreviewTarget, VibeServerPreviewTabs, VIBE_SERVER_RUNNING_CONTEXT_KEY } from '../../browser/vibeServer/vibeServerConstants.js';
 import { IVibeServerService, IVibeServerStatus } from '../../browser/vibeServer/vibeServerService.js';
 
 class VibeServerService extends Disposable implements IVibeServerService {
@@ -311,11 +311,14 @@ class VibeServerService extends Disposable implements IVibeServerService {
 			this._notificationService.info(localize('vibeServer.notRunning', "Vibe Server не запущен."));
 			return;
 		}
-		await this._openUrl(started.url, 'embedded', true);
+		await this._openUrl(started.url, 'embedded', 'newTab');
 	}
 
-	async openPreviewUrl(url: string, target?: VibeServerPreviewTarget): Promise<void> {
-		await this._openUrl(url, target);
+	async openPreviewUrl(url: string, title?: string, target?: VibeServerPreviewTarget): Promise<void> {
+		// Only stack services honour the tab layout setting: the single auto-detected server has
+		// nothing to be laid out against.
+		const tabs = this._configurationService.getValue<VibeServerPreviewTabs>(VibeServerConfigKeys.previewTabs) ?? 'single';
+		await this._openUrl(url, target, tabs === 'perService' ? 'perService' : 'reuse', title);
 	}
 
 	async openPreviewForResource(resource: URI): Promise<void> {
@@ -330,7 +333,7 @@ class VibeServerService extends Disposable implements IVibeServerService {
 	}
 
 	/** Resolves the URL (tunnelled on remote) and opens it embedded or externally. */
-	private async _openUrl(rawUrl: string, target: VibeServerPreviewTarget | undefined, newTab = false): Promise<void> {
+	private async _openUrl(rawUrl: string, target: VibeServerPreviewTarget | undefined, tabMode: VibeBrowserOpenMode = 'reuse', title?: string): Promise<void> {
 		const mode: VibeServerPreviewTarget = target
 			?? (this._configurationService.getValue<VibeServerPreviewTarget>(VibeServerConfigKeys.previewTarget) ?? 'embedded');
 
@@ -339,7 +342,7 @@ class VibeServerService extends Disposable implements IVibeServerService {
 			await this._openerService.open(externalUrl, { openExternal: true });
 			return;
 		}
-		this._ensureBrowser().open(externalUrl.toString(true), newTab);
+		this._ensureBrowser().open(externalUrl.toString(true), tabMode, title);
 	}
 
 	/** asExternalUri equivalent: tunnelled on remote, identity on desktop. */

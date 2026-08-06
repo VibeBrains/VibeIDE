@@ -53,8 +53,10 @@ export interface IVibeServerService {
 	/**
 	 * Opens the preview at an arbitrary URL — a stack entry's own address, which is unrelated to
 	 * the auto-detected single server behind `openPreview()`. Multi-app stacks have no "the" server.
+	 * `title` names the tab when the per-service tab layout is on; honours
+	 * `vibeide.vibeServer.previewTabs`.
 	 */
-	openPreviewUrl(url: string, target?: VibeServerPreviewTarget): Promise<void>;
+	openPreviewUrl(url: string, title?: string, target?: VibeServerPreviewTarget): Promise<void>;
 	/** Force-reloads all open embedded preview tabs. */
 	reloadPreview(): void;
 	/**

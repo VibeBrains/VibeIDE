@@ -195,6 +195,17 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.vibeServer.previewTarget.desc', 'Где открывать предпросмотр по умолчанию.'),
 					scope: ConfigurationScope.RESOURCE,
 				},
+				'vibeide.vibeServer.previewTabs': {
+					type: 'string',
+					enum: ['single', 'perService'],
+					enumDescriptions: [
+						localize('vibeide.vibeServer.previewTabs.single', 'Одна вкладка предпросмотра: следующий сервис открывается в ней же.'),
+						localize('vibeide.vibeServer.previewTabs.perService', 'Своя вкладка на каждый сервис стека; повторное открытие переключает на уже существующую, а не создаёт вторую.'),
+					],
+					default: 'single',
+					description: localize('vibeide.vibeServer.previewTabs.desc', 'Как раскладывать предпросмотр сервисов по вкладкам.'),
+					scope: ConfigurationScope.RESOURCE,
+				},
 				'vibeide.vibeServer.openAutomatically': {
 					type: 'boolean',
 					default: true,

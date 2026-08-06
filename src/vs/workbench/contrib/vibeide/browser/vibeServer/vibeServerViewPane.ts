@@ -23,7 +23,7 @@ import { ICommandService } from '../../../../../platform/commands/common/command
 import { ViewPane, IViewPaneOptions } from '../../../../browser/parts/views/viewPane.js';
 import { IVibeServerService } from './vibeServerService.js';
 import { IVibeServerStackService, IVibeServerStackEntry, VibeServerEntryState } from './vibeServerStackService.js';
-import { VibeServerCommands } from './vibeServerConstants.js';
+import { VibeServerCommands, VibeServerConfigKeys, VibeServerPreviewTabs } from './vibeServerConstants.js';
 
 const $ = DOM.$;
 
@@ -72,6 +72,12 @@ export class VibeServerViewPane extends ViewPane {
 		this._hoverDelegate = this._register(instantiationService.createInstance(WorkbenchHoverDelegate, 'element', { dynamicDelay: () => 700 }, {}));
 		this._register(this._vibeServerService.onDidChangeStatus(() => this._render()));
 		this._register(this._stackService.onDidChangeStack(() => this._render()));
+		// The toggle reflects a setting, so it has to follow changes made anywhere (Settings UI, other window).
+		this._register(this.configurationService.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration(VibeServerConfigKeys.previewTabs)) {
+				this._render();
+			}
+		}));
 		// Discover `.vibe/servers.json` (if any) as soon as the pane exists.
 		void this._stackService.reload();
 	}
@@ -151,6 +157,8 @@ export class VibeServerViewPane extends ViewPane {
 		for (const warning of this._stackService.warnings) {
 			DOM.append(body, $('.vibe-server-stack-warning')).textContent = warning;
 		}
+
+		this._renderTabsToggle(body, store);
 	}
 
 	private _renderStackRow(list: HTMLElement, item: IVibeServerStackEntry, store: DisposableStore): void {
@@ -207,7 +215,26 @@ export class VibeServerViewPane extends ViewPane {
 		}
 		const url = this._stackService.previewUrlFor(item.entry.id);
 		if (url) {
-			await this._vibeServerService.openPreviewUrl(url);
+			await this._vibeServerService.openPreviewUrl(url, item.entry.name ?? item.entry.id);
+		}
+	}
+
+	/** Tab-layout toggle under the stack: one shared preview tab, or one per service. */
+	private _renderTabsToggle(body: HTMLElement, store: DisposableStore): void {
+		const current = this.configurationService.getValue<VibeServerPreviewTabs>(VibeServerConfigKeys.previewTabs) ?? 'single';
+		const row = DOM.append(body, $('.vibe-server-tabs-toggle'));
+		DOM.append(row, $('span.vibe-server-tabs-toggle-label')).textContent = localize('vibeServer.tabs.label', "Превью:");
+
+		for (const option of [
+			{ value: 'single' as const, label: localize('vibeServer.tabs.single', "в одной вкладке") },
+			{ value: 'perService' as const, label: localize('vibeServer.tabs.perService', "своя на сервис") },
+		]) {
+			const button = DOM.append(row, $('span.vibe-server-tabs-toggle-option'));
+			button.textContent = option.label;
+			button.classList.toggle('selected', current === option.value);
+			store.add(DOM.addDisposableListener(button, 'click', () => {
+				void this.configurationService.updateValue(VibeServerConfigKeys.previewTabs, option.value);
+			}));
 		}
 	}
 

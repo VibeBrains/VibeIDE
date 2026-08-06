@@ -50,7 +50,14 @@ export const VibeServerConfigKeys = {
 	bridgeProxy: 'vibeide.vibeServer.bridgeProxy',
 	https: 'vibeide.vibeServer.https',
 	cookieCompat: 'vibeide.vibeServer.cookieCompat',
+	previewTabs: 'vibeide.vibeServer.previewTabs',
 } as const;
 
 /** Where preview opens by default. */
 export type VibeServerPreviewTarget = 'embedded' | 'external';
+
+/**
+ * How embedded previews are laid out across tabs: one shared tab that gets re-pointed, or one tab
+ * per service — the latter matters only for multi-app stacks, where switching costs a re-load.
+ */
+export type VibeServerPreviewTabs = 'single' | 'perService';
