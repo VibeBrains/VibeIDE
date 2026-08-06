@@ -106,12 +106,15 @@ export class VibeBrowserManager extends Disposable {
 	private readonly _registeredUrlByInput = new Map<WebviewInput, string>();
 
 	/**
-	 * Which service origin (`http://localhost:5173`) each tab was opened for — the key for finding
-	 * "the tab of this service" again. Deliberately the origin and not the current URL: browsing
-	 * inside the preview changes the URL, and a full-URL key would lose the tab after one click.
+	 * What each tab is: the shared preview (re-pointed by the `reuse` mode) or the tab belonging to
+	 * one service, keyed by its origin (`http://localhost:5173`).
+	 *
+	 * The distinction is what keeps the two layouts from stepping on each other: `reuse` must never
+	 * grab a service's own tab just because it happens to be active, and `perService` must find its
+	 * service by origin — not by the current URL, which changes as you browse inside the preview.
 	 * Tracked unconditionally, unlike `_registeredUrlByInput`, which only fills with cookie-compat on.
 	 */
-	private readonly _originByInput = new Map<WebviewInput, string>();
+	private readonly _tabRoleByInput = new Map<WebviewInput, { readonly shared: boolean; readonly origin: string }>();
 
 	/** Resolver for the design scan in flight, if any. One at a time — the scan is a snapshot, not a stream. */
 	private _pendingDesignScan: { resolve: (snapshot: DesignScanResult) => void; timer: unknown } | undefined;
@@ -214,42 +217,47 @@ export class VibeBrowserManager extends Disposable {
 	/**
 	 * Opens the embedded browser at `url`.
 	 *
-	 * - `reuse` (default) re-points the active tab — one preview for everything;
+	 * - `reuse` (default) re-points the shared preview tab — one preview for everything;
 	 * - `perService` reveals the tab already opened for this service's origin, or makes one;
 	 * - `newTab` always adds another preview.
 	 *
-	 * `title` names the tab in `perService` mode, where several previews coexist and a shared
-	 * "Vibe Server" label would make them indistinguishable.
+	 * `title` names the tab after whatever it shows, so several previews stay distinguishable.
 	 */
 	open(url: string, mode: VibeBrowserOpenMode = 'reuse', title?: string): void {
 		const html = this._buildHtml(url);
-		if (mode === 'reuse' && this._active) {
-			this._active.webview.setHtml(html);
-			this._trackPreviewUrl(this._active, url);
-			this._originByInput.set(this._active, originOf(url));
+		const origin = originOf(url);
+
+		// The target is looked up by role, never "whatever is active": after working in the
+		// per-service layout the active tab belongs to some service, and re-pointing it would
+		// silently destroy that service's preview and leave two tabs claiming the same name.
+		const existing = mode === 'reuse'
+			? this._findTab(t => t.shared)
+			: mode === 'perService'
+				? this._findTab(t => !t.shared && t.origin === origin)
+				: undefined;
+
+		// The shared tab is labelled as such ("Превью: web"), never with the bare service name:
+		// after switching layouts a service's own tab may still be open, and two tabs carrying the
+		// identical name is exactly what makes the tab bar unreadable.
+		const label = mode === 'reuse' && title
+			? localize('vibeBrowser.sharedTitle', "Превью: {0}", title)
+			: title;
+
+		if (existing) {
+			existing.webview.setHtml(html);
+			this._trackPreviewUrl(existing, url);
+			this._tabRoleByInput.set(existing, { shared: mode === 'reuse', origin });
 			// Re-pointing keeps the tab but replaces what it shows, so its label has to follow —
 			// otherwise the tab still claims the previously previewed service.
-			this._active.setWebviewTitle(title ?? localize('vibeBrowser.title', "Vibe Server"));
-			this._webviewWorkbenchService.revealWebview(this._active, ACTIVE_GROUP, false);
+			existing.setWebviewTitle(label ?? localize('vibeBrowser.title', "Vibe Server"));
+			this._active = existing;
+			this._webviewWorkbenchService.revealWebview(existing, ACTIVE_GROUP, false);
 			return;
-		}
-
-		if (mode === 'perService') {
-			const origin = originOf(url);
-			for (const candidate of this._inputs) {
-				if (this._originByInput.get(candidate) !== origin) {
-					continue;
-				}
-				// The tab of this service already exists: bring it forward instead of duplicating it.
-				this._active = candidate;
-				this._webviewWorkbenchService.revealWebview(candidate, ACTIVE_GROUP, false);
-				return;
-			}
 		}
 
 		// The tab is named after whatever it shows, in every mode: a shared tab that keeps saying
 		// "Vibe Server" while showing a specific service is as misleading as a stale service name.
-		const tabTitle = title ?? localize('vibeBrowser.title', "Vibe Server");
+		const tabTitle = label ?? localize('vibeBrowser.title', "Vibe Server");
 		const input = this._webviewWorkbenchService.openWebview(
 			{
 				title: tabTitle,
@@ -272,7 +280,7 @@ export class VibeBrowserManager extends Disposable {
 			this._inputs.delete(input);
 			this._perInput.deleteAndDispose(input);
 			this._untrackPreviewUrl(input);
-			this._originByInput.delete(input);
+			this._tabRoleByInput.delete(input);
 			if (this._active === input) {
 				this._active = this._inputs.values().next().value;
 			}
@@ -280,7 +288,20 @@ export class VibeBrowserManager extends Disposable {
 
 		input.webview.setHtml(html);
 		this._trackPreviewUrl(input, url);
-		this._originByInput.set(input, originOf(url));
+		// A `newTab` preview is an extra copy, not the shared tab: it must not become the target
+		// that the single-tab layout re-points later.
+		this._tabRoleByInput.set(input, { shared: mode === 'reuse', origin });
+	}
+
+	/** First open tab whose role matches, or undefined. */
+	private _findTab(matches: (role: { shared: boolean; origin: string }) => boolean): WebviewInput | undefined {
+		for (const input of this._inputs) {
+			const role = this._tabRoleByInput.get(input);
+			if (role && matches(role)) {
+				return input;
+			}
+		}
+		return undefined;
 	}
 
 	/** Force-reloads every open preview tab. */
