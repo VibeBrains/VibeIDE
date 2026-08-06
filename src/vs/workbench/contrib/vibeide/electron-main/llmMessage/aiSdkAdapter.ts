@@ -38,6 +38,7 @@ import { ensureSystemCADispatcher } from './systemCAFetch.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper, stripThinkTagsWrapper, stripStandaloneThinkDelimitersWrapper } from './extractGrammar.js';
 import type { SendChatParams_Internal } from './sendLLMMessage.internalTypes.js';
 import { assertHttpHeaderSafe, getGoogleApiKey } from './llmHelpers.js';
+import { detectNoFundsRefusal, noFundsStatusText } from '../../common/providerFundsRefusal.js';
 
 // Providers handled by this adapter. The remaining providers (openAI native,
 // anthropic, gemini, ollama, vLLM, lmStudio) stay on the legacy path until
@@ -224,6 +225,12 @@ const headersToRecord = (headers: Headers): Record<string, string> => {
 // Built per call, not once per module: `onQuota` must land in the state of ITS OWN request.
 // Subagents run several turns concurrently, so a module-level sink would attribute one
 // provider's remaining quota to another provider's turn.
+/**
+ * How much of a refusal body to read before deciding. Vendor error JSON is a few hundred bytes;
+ * the cap keeps a pathological error page from being pulled into memory in full.
+ */
+const REFUSAL_BODY_PEEK_CHARS = 4_000;
+
 const makeCustomFetch = (opts: {
 	providerName: string;
 	onQuota?: (snapshot: ProviderQuotaSnapshot) => void;
@@ -237,6 +244,10 @@ const makeCustomFetch = (opts: {
 	const undiciInput = input as unknown as UndiciFetchParams[0];
 	const undiciInit = { ...(init as unknown as UndiciFetchParams[1]), dispatcher: ensureSystemCADispatcher() };
 	const response = await (undiciFetch(undiciInput, undiciInit) as unknown as Promise<Response>);
+	// Cloned HERE, before the diagnostics tap below starts consuming the stream: `clone()` throws
+	// once the body has been read, and the funds check further down needs the text. Refusals only —
+	// a success body must stay a single un-teed stream.
+	const refusalPeek = response.status >= 400 && response.status < 500 ? response.clone() : undefined;
 	const observedAt = Date.now();
 	// Every response carries the key's remaining allowance, not just refusals — that is the
 	// whole point of reading it here instead of at the 429 branch below.
@@ -268,6 +279,30 @@ const makeCustomFetch = (opts: {
 				refusalAmbiguous: refusal.ambiguous,
 			});
 		});
+	}
+
+	// "Out of funds" must not be retried: the answer cannot change until money is added or the
+	// endpoint is corrected, yet vendors return it as 429 and the SDK dutifully waits out five
+	// backoffs (observed live: six attempts over a minute against Z.AI code 1113). Read the body
+	// on refusals only — it is short there, and a success body must stay a stream.
+	if (refusalPeek) {
+		let bodyText: string | undefined;
+		try {
+			bodyText = (await refusalPeek.text()).slice(0, REFUSAL_BODY_PEEK_CHARS);
+		} catch {
+			// Unreadable body: fall through to the normal paths rather than guessing.
+		}
+		const funds = detectNoFundsRefusal(response.status, bodyText);
+		if (funds.isNoFunds) {
+			vibeLog.warn('aiSdkAdapter', `[${opts.providerName}] провайдер сообщает об отсутствии средств${funds.vendorCode ? ` (код ${funds.vendorCode})` : ''} — повторы отключены для этого запроса`);
+			// 402 rather than the original status: the SDK retries 429 and does not retry 402, and
+			// this is exactly the neighbouring trick used for a too-distant retry-after below.
+			return new Response(bodyText ?? null, {
+				status: 402,
+				statusText: noFundsStatusText(funds),
+				headers: response.headers,
+			});
+		}
 	}
 
 	if (response.status === 429) {

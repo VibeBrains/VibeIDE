@@ -40,8 +40,12 @@ const TRANSLATION_RULES: readonly { pattern: RegExp; ru: string }[] = [
 	},
 	// Billing / credits — before rate-limit ("quota" alone is ambiguous, billing wording is specific).
 	{
-		pattern: /insufficient[\s_-]*(?:credits?|balance|funds|quota)|payment required|billing|\b402\b|top up|exceeded your current quota/i,
-		ru: 'Недостаточно средств или исчерпана квота у провайдера. Проверьте баланс аккаунта.',
+		pattern: /insufficient[\s_-]*(?:credits?|balance|funds|quota)|payment required|billing|\b402\b|top up|exceeded your current quota|no resource package|please recharge/i,
+		// Второе предложение — из живого разбора 06.08.2026: у Z.AI подписка (Coding Plan) и оплата
+		// за токены обслуживаются РАЗНЫМИ адресами, и подписочный ключ на пер-токенном адресе даёт
+		// ровно этот отказ. Счёт при этом оплачен, а сообщение про баланс уводит не туда, поэтому
+		// адрес назван прямо здесь.
+		ru: 'Недостаточно средств или исчерпана квота у провайдера. Проверьте баланс аккаунта — и адрес API: у некоторых вендоров подписка и оплата за токены обслуживаются разными эндпоинтами, и ключ от одного тарифа на адресе другого выглядит именно так. Повторять запрос бесполезно, пока не исправлено.',
 	},
 	// Rate limit.
 	{
