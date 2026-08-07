@@ -16,6 +16,7 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { buildDocGraph, IDocFile, IDocGraph } from '../common/vibeDocsGraph.js';
 import { IVibeDocsService } from './vibeDocsService.js';
 
@@ -61,6 +62,7 @@ class VibeDocsGraphService extends Disposable implements IVibeDocsGraphService {
 	constructor(
 		@IFileService private readonly _files: IFileService,
 		@IVibeDocsService private readonly _docs: IVibeDocsService,
+		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 		@ILogService private readonly _log: ILogService,
 	) {
 		super();
@@ -115,7 +117,42 @@ class VibeDocsGraphService extends Disposable implements IVibeDocsGraphService {
 		}
 		const files: IDocFile[] = [];
 		await this._collect(root, root, files);
+		await this._collectSkills(files);
 		return buildDocGraph(files);
+	}
+
+	/**
+	 * Project skills, drawn alongside the docs they lean on.
+	 *
+	 * A skill is instructions the agent follows, and it usually points at the very knowledge the
+	 * docs hold — without them on the canvas it is invisible which document a skill depends on,
+	 * and which document nothing depends on any more. They enter the graph as `external`, so the
+	 * docs gate keeps meaning exactly what it meant before (see `IDocFile.external`).
+	 */
+	private async _collectSkills(out: IDocFile[]): Promise<void> {
+		const folder = this._workspace.getWorkspace().folders[0];
+		if (!folder) {
+			return;
+		}
+		const skillsRoot = joinPath(folder.uri, '.vibe', 'skills');
+		let stat;
+		try {
+			stat = await this._files.resolve(skillsRoot);
+		} catch {
+			return; // no skills in this project
+		}
+		for (const child of stat.children ?? []) {
+			if (!child.isDirectory) {
+				continue;
+			}
+			const skillFile = joinPath(child.resource, 'SKILL.md');
+			try {
+				const content = await this._files.readFile(skillFile);
+				out.push({ id: `.vibe/skills/${child.name}/SKILL.md`, content: content.value.toString(), external: true });
+			} catch {
+				// A folder without SKILL.md is not a skill; nothing to report.
+			}
+		}
 	}
 
 	private async _collect(root: URI, dir: URI, out: IDocFile[]): Promise<void> {

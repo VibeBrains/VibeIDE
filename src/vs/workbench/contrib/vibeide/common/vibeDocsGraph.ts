@@ -59,7 +59,19 @@ export interface IDocFile {
 	/** POSIX path relative to the docs root, including `.md`. */
 	readonly id: string;
 	readonly content: string;
+	/**
+	 * A file that lives OUTSIDE the docs tree but points into it — today, project skills.
+	 *
+	 * They are drawn so it is visible which knowledge a skill leans on, but they take no part in
+	 * the gate: their links must not make a stranded doc look reachable (that would blind the
+	 * `unreachable` check), they are never reported unreachable themselves, and their broken
+	 * links are not docs defects — a skill may legitimately reference files we do not index.
+	 */
+	readonly external?: boolean;
 }
+
+/** Domain assigned to external nodes, so the view can colour and filter them as one group. */
+export const DOC_GRAPH_EXTERNAL_DOMAIN = 'skills';
 
 /**
  * Relative markdown link: `[text](path.md)` / `[text](path.md#anchor)`.
@@ -132,10 +144,11 @@ function isExcluded(id: string): boolean {
 
 export function buildDocGraph(files: readonly IDocFile[]): IDocGraph {
 	const included = files.filter(f => !isExcluded(f.id));
-	const exact = new Set(included.map(f => f.id));
+	const docs = included.filter(f => !f.external);
+	const exact = new Set(docs.map(f => f.id));
 
 	const byBasename = new Map<string, string[]>();
-	for (const file of included) {
+	for (const file of docs) {
 		const key = posix.basename(file.id, '.md').toLowerCase();
 		const bucket = byBasename.get(key);
 		if (bucket) {
@@ -149,12 +162,15 @@ export function buildDocGraph(files: readonly IDocFile[]): IDocGraph {
 	const deadLinks: IDocDeadLink[] = [];
 	const outgoing = new Map<string, Set<string>>(included.map(f => [f.id, new Set<string>()]));
 	const degree = new Map<string, number>(included.map(f => [f.id, 0]));
+	/** Reachability walks docs only — see the note on `IDocFile.external`. */
+	const docOutgoing = new Map<string, Set<string>>(docs.map(f => [f.id, new Set<string>()]));
 
 	const addEdge = (from: string, to: string, kind: DocLinkKind): void => {
 		if (outgoing.get(from)!.has(to)) {
 			return; // one edge per pair, however many times a doc links to it
 		}
 		outgoing.get(from)!.add(to);
+		docOutgoing.get(from)?.add(to);
 		edges.push({ from, to, kind });
 		degree.set(from, degree.get(from)! + 1);
 		degree.set(to, (degree.get(to) ?? 0) + 1);
@@ -173,14 +189,18 @@ export function buildDocGraph(files: readonly IDocFile[]): IDocGraph {
 					continue;
 				}
 				if (!exact.has(resolved)) {
-					deadLinks.push({ from: file.id, target: link.target, kind: link.kind });
+					if (!file.external) {
+						deadLinks.push({ from: file.id, target: link.target, kind: link.kind });
+					}
 					continue;
 				}
 				addEdge(file.id, resolved, link.kind);
 			} else {
 				const resolved = resolveWiki(link.target, exact, byBasename);
 				if (resolved === undefined) {
-					deadLinks.push({ from: file.id, target: link.target, kind: link.kind });
+					if (!file.external) {
+						deadLinks.push({ from: file.id, target: link.target, kind: link.kind });
+					}
 					continue;
 				}
 				addEdge(file.id, resolved, link.kind);
@@ -188,17 +208,29 @@ export function buildDocGraph(files: readonly IDocFile[]): IDocGraph {
 		}
 	}
 
-	const reachable = collectReachable(outgoing);
+	const reachable = collectReachable(docOutgoing);
 	const nodes: IDocGraphNode[] = included.map(file => ({
 		id: file.id,
-		label: posix.basename(file.id, '.md'),
-		domain: file.id.includes('/') ? file.id.slice(0, file.id.indexOf('/')) : '',
+		label: externalLabel(file) ?? posix.basename(file.id, '.md'),
+		domain: file.external ? DOC_GRAPH_EXTERNAL_DOMAIN : file.id.includes('/') ? file.id.slice(0, file.id.indexOf('/')) : '',
 		degree: degree.get(file.id) ?? 0,
 		// Templates are deliberately unlinked skeletons — never flag them as stranded.
-		reachable: reachable.has(file.id) || isTemplateId(file.id),
+		reachable: file.external || reachable.has(file.id) || isTemplateId(file.id),
 	}));
 
 	return { nodes, edges, deadLinks };
+}
+
+/**
+ * A skill is named by its folder: every one of them is a file called `SKILL.md`, so the basename
+ * would label them all identically.
+ */
+function externalLabel(file: IDocFile): string | undefined {
+	if (!file.external) {
+		return undefined;
+	}
+	const parts = file.id.split('/');
+	return parts.length > 1 ? parts[parts.length - 2] : posix.basename(file.id, '.md');
 }
 
 /** BFS from the navigation root. A doc you cannot walk to from `README.md` is invisible. */

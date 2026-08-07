@@ -148,3 +148,43 @@ suite('vibeDocsGraph — local graph', () => {
 		assert.deepStrictEqual(local.nodes.map(n => n.id).sort(), ['README.md', 'leaf.md', 'mid.md']);
 	});
 });
+
+suite('vibeDocsGraph — skills on the canvas', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('a skill is drawn, but never lends reachability nor reports dead links', () => {
+		const graph = buildDocGraph([
+			{ id: 'README.md', content: 'nothing here' },
+			{ id: 'ui/stranded.md', content: 'orphan' },
+			{
+				id: '.vibe/skills/review-pr/SKILL.md',
+				content: 'см. [[stranded]] и [прочее](../../../docs/missing.md)',
+				external: true,
+			},
+		]);
+		const stranded = graph.nodes.find(n => n.id === 'ui/stranded.md')!;
+		const skill = graph.nodes.find(n => n.id === '.vibe/skills/review-pr/SKILL.md')!;
+		assert.deepStrictEqual(
+			{
+				// The gate must keep meaning what it meant: a doc nothing in docs/ links to stays
+				// stranded even when a skill points at it.
+				strandedStillUnreachable: stranded.reachable,
+				edge: graph.edges.map(e => `${e.from}→${e.to}`),
+				// Named by folder: every skill file is called SKILL.md.
+				skillLabel: skill.label,
+				skillDomain: skill.domain,
+				skillReachable: skill.reachable,
+				// A skill may legitimately point outside the indexed tree — that is not a docs defect.
+				deadLinks: graph.deadLinks.length,
+			},
+			{
+				strandedStillUnreachable: false,
+				edge: ['.vibe/skills/review-pr/SKILL.md→ui/stranded.md'],
+				skillLabel: 'review-pr',
+				skillDomain: 'skills',
+				skillReachable: true,
+				deadLinks: 0,
+			},
+		);
+	});
+});
