@@ -25,6 +25,7 @@ const snapshotIntegrity = require('./lib/snapshot-integrity-check.cjs');
 const memoryLayerRouter = require('./lib/memory-layer-router.cjs');
 const completionStats = require('./lib/completion-outcome-stats.cjs');
 const i18nDoctorReport = require('./lib/i18n-doctor-report.cjs');
+const contextFootprint = require('./lib/agent-context-footprint.cjs');
 
 const args = process.argv.slice(2);
 const MODE = {
@@ -445,6 +446,52 @@ function planFrontmatterStatus(raw) {
 }
 
 // Disk footprint + non-terminal plan statuses (full audit); mirrors checkpoint pruning UX hints.
+checkWarning('agent-context-footprint', () => {
+	// Everything the agent carries before the user types anything. Unlike a slow test or a stale
+	// lock, this cost is invisible: a manual added today taxes every run tomorrow, and nobody
+	// sees the bill unless something counts it.
+	const root = process.cwd();
+	const files = [];
+	const addFile = (category, filePath) => {
+		try {
+			const stat = fs.statSync(filePath);
+			if (stat.isFile()) {
+				files.push({ category, path: path.relative(root, filePath), chars: fs.readFileSync(filePath, 'utf-8').length });
+			}
+		} catch {
+			// A file that vanished mid-walk is not a finding — the next run will see the truth.
+		}
+	};
+	const addDir = (category, dir, matches, depth = 2) => {
+		if (!fs.existsSync(dir) || depth < 0) {return;}
+		for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+			const full = path.join(dir, entry.name);
+			if (entry.isDirectory()) {
+				addDir(category, full, matches, depth - 1);
+			} else if (matches(entry.name)) {
+				addFile(category, full);
+			}
+		}
+	};
+
+	const isMarkdown = name => /\.md$/i.test(name);
+	addDir('rules', path.join(root, '.vibe', 'rules'), isMarkdown);
+	addDir('skills', path.join(root, '.vibe', 'skills'), name => /^SKILL\.md$/i.test(name));
+	addDir('manuals', path.join(root, 'docs', 'manuals'), isMarkdown, 1);
+	for (const name of ['CLAUDE.md', 'AGENTS.md', '.github/copilot-instructions.md']) {
+		addFile('instructions', path.join(root, name));
+	}
+
+	const described = contextFootprint.describeContextFootprint(contextFootprint.summariseContextFootprint(files));
+	if (!described) {return '[skipped: nothing always-on found]';}
+	// A warning is returned as `null` so the doctor marks it — the message travels in the throw,
+	// matching how the other soft checks in this file report a finding.
+	if (described.level === 'warning') {
+		throw new Error(described.message);
+	}
+	return described.message;
+});
+
 checkWarning('plans-folder-footprint', () => {
 	const plansDir = path.join(process.cwd(), '.vibe', 'plans');
 	if (!fs.existsSync(plansDir)) {return '[skipped: no .vibe/plans]';}
