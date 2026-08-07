@@ -34,6 +34,7 @@ import { detectVisionDropResponse } from '../common/visionDropDetector.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { BuiltinToolCallParams, BuiltinToolResultType, TerminalResolveReason, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../common/prompt/tools/index.js';
+import { BranchMessageShape, resolveBranchCutoff } from '../common/threadBranching.js';
 import { toolMatchesPlanHints, resolveToolClass } from '../common/planToolDrift.js';
 import { IVibeSpecsService } from './vibeSpecsService.js';
 import { IVibeTokenSavingsService } from './vibeTokenSavingsService.js';
@@ -625,6 +626,11 @@ export interface IChatThreadService {
 	// thread selector
 	deleteThread(threadId: string): void;
 	duplicateThread(threadId: string): void;
+	/**
+	 * Copies a thread up to (and including) `messageIdx` into a new thread and opens it, leaving
+	 * the original untouched. Returns the new thread id, or `undefined` when nothing can be kept.
+	 */
+	branchThreadFromMessage(threadId: string, messageIdx: number): string | undefined;
 
 	// exposed getters/setters
 	// these all apply to current thread
@@ -9666,6 +9672,35 @@ We only need to do it for files that were edited since `from`, ie files between 
 			this._setState({ allThreads: newThreads, openTabIds });
 		}
 		this._onDidDeleteThread.fire(threadId);
+	}
+
+	branchThreadFromMessage(threadId: string, messageIdx: number): string | undefined {
+		const { allThreads: currentThreads } = this.state;
+		const source = currentThreads[threadId];
+		if (!source) { return undefined; }
+
+		const cutoff = resolveBranchCutoff(source.messages as readonly BranchMessageShape[], messageIdx);
+		if (cutoff === undefined) { return undefined; }
+
+		const newThread = {
+			...deepClone(source),
+			id: generateUuid(),
+			messages: deepClone(source.messages.slice(0, cutoff + 1)),
+			state: {
+				...deepClone(source.state),
+				// Editing state and checkpoint position belong to the original: the branch is a new
+				// conversation whose messages end earlier, and a focused index or a checkpoint from
+				// the discarded tail points at something the copy does not contain.
+				focusedMessageIdx: undefined,
+				currCheckpointIdx: null,
+				mountedInfo: undefined,
+			},
+		};
+		const newThreads = { ...currentThreads, [newThread.id]: newThread };
+		this._storeAllThreads(newThreads);
+		this._setState({ allThreads: newThreads });
+		this.switchToThread(newThread.id);
+		return newThread.id;
 	}
 
 	duplicateThread(threadId: string) {

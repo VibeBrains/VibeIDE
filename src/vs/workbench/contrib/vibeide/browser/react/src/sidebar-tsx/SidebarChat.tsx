@@ -29,7 +29,7 @@ import { ChatMode, displayInfoOfProviderName, FeatureName, isFeatureNameDisabled
 import { ICommandService } from '../../../../../../../platform/commands/common/commands.js';
 import { WarningBox } from '../vibe-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputTokenSpace } from '../../../../common/modelCapabilities.js';
-import { AlertTriangle, File, Ban, Check, ChevronRight, ChevronDown, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Paperclip, Waypoints, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward, Footprints, Mic } from 'lucide-react';
+import { AlertTriangle, File, Ban, Check, ChevronRight, ChevronDown, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Paperclip, Waypoints, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward, Footprints, Mic, GitBranch } from 'lucide-react';
 import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, ScoutMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment, normalizePendingInjections } from '../../../../common/chatThreadServiceTypes.js';
 import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER } from '../../../../common/chatTimestampFormatter.js';
 import { parseChatSlashCommand, splitWatchArgs, CHAT_SLASH_COMMANDS } from '../../../../common/chatSlashCommands.js';
@@ -2504,6 +2504,30 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
                     ${chatMessage.pinned ? 'opacity-100 fill-current' : isHovered ? 'opacity-100 text-vibe-fg-3' : 'opacity-0'}
                 `}
 						style={chatMessage.pinned ? { color: 'var(--vscode-vibeide-chatGroup-activeBorder, #fc28a8)' } : undefined}
+					/>
+				</span>
+			)}
+			{/* Branch: continue from this message in a copy, leaving the tail behind. Placed next to
+			    edit because it answers the same impulse — "this went wrong here" — without
+			    destroying what the original thread recorded. */}
+			{mode === 'display' && (
+				<span
+					title='Ветка отсюда: копия разговора до этого сообщения, хвост отбрасывается'
+					className='flex items-center'
+					onClick={(e) => {
+						e.stopPropagation();
+						chatThreadsService.branchThreadFromMessage(currentThreadId, messageIdx);
+					}}
+				>
+					<GitBranch
+						size={18}
+						className={`
+                    cursor-pointer
+                    p-[2px]
+                    bg-vibe-bg-1 border border-vibe-border-1 rounded-md
+                    transition-opacity duration-200 ease-in-out
+                    ${isHovered ? 'opacity-100 text-vibe-fg-3' : 'opacity-0'}
+                `}
 					/>
 				</span>
 			)}
