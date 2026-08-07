@@ -9,6 +9,7 @@ import { parseTelegramCommand, resolveProjectChoice } from '../../common/telegra
 import { decidePairing, extractPairingCode, generatePairingCode, PAIRING_PROMPT_COOLDOWN_MS } from '../../common/telegram/telegramPairing.js';
 import { markdownToTelegramHtml, splitForTelegram, escapeTelegramHtml, formatProgressLine, formatToolRequestPreview, TELEGRAM_MESSAGE_LIMIT, TELEGRAM_PREVIEW_VALUE_LIMIT } from '../../common/telegram/telegramFormat.js';
 import { shouldMirrorApproval } from '../../common/telegram/telegramApprovalPolicy.js';
+import { encodeCommandCallback, parseTelegramCallback, TELEGRAM_CALLBACK_DATA_LIMIT } from '../../common/telegram/telegramCallback.js';
 
 suite('Telegram bridge — command parsing', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -224,6 +225,42 @@ suite('Telegram bridge — approvals', () => {
 				offTerminal: shouldMirrorApproval('terminal', 'off'),
 			},
 			{ allEdits: true, dangerousEdits: false, dangerousTerminal: true, dangerousMcp: true, dangerousUnknown: true, offTerminal: false },
+		);
+	});
+});
+
+suite('Telegram bridge — remote control buttons', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('button payloads round-trip, and oversized commands are refused rather than cut', () => {
+		const long = `/use ${'п'.repeat(TELEGRAM_CALLBACK_DATA_LIMIT)}`;
+		assert.deepStrictEqual(
+			{
+				encoded: encodeCommandCallback('/status'),
+				roundTrip: parseTelegramCallback(encodeCommandCallback('/use BuzzBang')!),
+				// Cyrillic is two bytes per letter — the limit is measured in bytes, not characters.
+				tooLong: encodeCommandCallback(long),
+				approval: parseTelegramCallback('ok:a7'),
+				amend: parseTelegramCallback('ed:a7'),
+				empty: parseTelegramCallback('no:'),
+				garbage: parseTelegramCallback('whatever'),
+			},
+			{
+				encoded: 'c:/status',
+				roundTrip: { kind: 'command', text: '/use BuzzBang' },
+				tooLong: undefined,
+				approval: { kind: 'approval', token: 'a7', decision: 'approve' },
+				amend: { kind: 'approval', token: 'a7', decision: 'amend' },
+				empty: { kind: 'unknown' },
+				garbage: { kind: 'unknown' },
+			},
+		);
+	});
+
+	test('/menu is a command, unknown slash words stay tasks', () => {
+		assert.deepStrictEqual(
+			[parseTelegramCommand('/menu'), parseTelegramCommand('/menu@my_bot'), parseTelegramCommand('/menuscript сломался')],
+			[{ kind: 'menu' }, { kind: 'menu' }, { kind: 'run', prompt: '/menuscript сломался' }],
 		);
 	});
 });

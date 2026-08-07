@@ -95,6 +95,19 @@ export interface VibeTelegramOutbound {
 	readonly editMessageId?: number;
 	/** Renders "allow / deny / amend" buttons; the answer arrives as an approval reply. */
 	readonly approval?: { readonly token: string };
+	/**
+	 * Inline keyboard rows shown under the message — the remote control. Each button carries a
+	 * command that is executed as if it had been typed, so a button can never do more than the
+	 * chat itself may do.
+	 */
+	readonly keyboard?: readonly (readonly VibeTelegramButton[])[];
+}
+
+/** One inline button: what it says and what it runs. */
+export interface VibeTelegramButton {
+	readonly text: string;
+	/** Command to execute on press, e.g. `/status` or `/use BuzzBang`. */
+	readonly command: string;
 }
 
 /**

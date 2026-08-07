@@ -13,6 +13,7 @@ import { ILogService } from '../../../../../platform/log/common/log.js';
 import { vibeLog } from '../../common/vibeLog.js';
 import { createProxyDispatcher } from '../llmMessage/systemCAFetch.js';
 import { decidePairing } from '../../common/telegram/telegramPairing.js';
+import { encodeCommandCallback, parseTelegramCallback } from '../../common/telegram/telegramCallback.js';
 import { VoiceProfileId } from '../../common/voice/vibeVoiceTypes.js';
 import { VibeVoiceMainService } from '../voice/vibeVoiceMainService.js';
 import { VibeVideoMainService } from '../video/vibeVideoMainService.js';
@@ -187,6 +188,17 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 					{ text: '✏️ Поправить', callback_data: `ed:${message.approval.token}` },
 				]],
 			};
+		} else if (message.keyboard?.length) {
+			// A button whose command does not fit into Telegram's 64-byte payload is dropped rather
+			// than truncated: a half-command would run something the label did not promise.
+			const rows = message.keyboard
+				.map(row => row.map(button => ({ text: button.text, data: encodeCommandCallback(button.command) }))
+					.filter((button): button is { text: string; data: string } => button.data !== undefined)
+					.map(button => ({ text: button.text, callback_data: button.data })))
+				.filter(row => row.length);
+			if (rows.length) {
+				body.reply_markup = { inline_keyboard: rows };
+			}
 		}
 		if (message.editMessageId !== undefined) {
 			body.message_id = message.editMessageId;
@@ -358,10 +370,19 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 				vibeLog.info('Telegram', `callback from chat ${chatId ?? 'unknown'} outside the allow-list — ignored`);
 				return;
 			}
-			const decision = data.startsWith('ok:') ? 'approve' : data.startsWith('ed:') ? 'amend' : 'reject';
-			const token = data.slice(3);
-			if (token) {
-				this._onDidAnswerApproval.fire({ token, decision, chatId });
+			const callback = parseTelegramCallback(data);
+			if (callback.kind === 'approval') {
+				this._onDidAnswerApproval.fire({ token: callback.token, decision: callback.decision, chatId });
+			} else if (callback.kind === 'command') {
+				// A remote-control button is routed exactly like a typed message — same target
+				// window, same execution path — so the keyboard can never widen what a chat may do.
+				const windowId = this._resolveTarget(chatId);
+				if (windowId === undefined) {
+					void this.send({ chatId, text: 'Нет открытых окон VibeIDE — открой проект в IDE и повтори.' });
+					return;
+				}
+				vibeLog.info('Telegram', `chat ${chatId} pressed a button → window ${windowId}: ${callback.text}`);
+				this._onDidReceiveCommand.fire({ chatId, text: callback.text, windowId });
 			}
 			return;
 		}

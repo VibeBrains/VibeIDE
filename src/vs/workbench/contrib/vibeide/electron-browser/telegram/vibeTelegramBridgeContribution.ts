@@ -261,6 +261,9 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			case 'stop':
 				await this._stopRun(chatId);
 				return;
+			case 'menu':
+				await this._replyMenu(chatId);
+				return;
 			case 'run':
 				await this._run(chatId, command.prompt);
 				return;
@@ -274,7 +277,33 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			return;
 		}
 		const lines = windows.map(w => `• ${w.projectName ?? 'без проекта'}${w.windowId === this._windowId ? ' — сюда идут команды' : ''}`);
-		await this._reply(chatId, `Открытые окна:\n${lines.join('\n')}\n\nПереключиться: /use <имя>`);
+		// One button per project: typing `/use` with a name is the step people get wrong from a
+		// phone keyboard, and the name is already known here.
+		const buttons = windows
+			.filter(w => !!w.projectName)
+			.map(w => [{ text: `📁 ${w.projectName}`, command: `/use ${w.projectName}` }]);
+		await this._main.send({
+			chatId,
+			text: markdownToTelegramHtml(`Открытые окна:\n${lines.join('\n')}`),
+			keyboard: buttons.length ? buttons : undefined,
+		});
+	}
+
+	/**
+	 * The remote control: the everyday commands as buttons.
+	 *
+	 * A button only sends the command it is labelled with, through the same path as a typed
+	 * message — the keyboard is a shortcut, never a wider permission.
+	 */
+	private async _replyMenu(chatId: number): Promise<void> {
+		await this._main.send({
+			chatId,
+			text: markdownToTelegramHtml('Пульт. Задачу можно по-прежнему написать или наговорить текстом.'),
+			keyboard: [
+				[{ text: '📊 Статус', command: '/status' }, { text: '⏹ Остановить', command: '/stop' }],
+				[{ text: '📁 Проекты', command: '/projects' }, { text: '❓ Помощь', command: '/help' }],
+			],
+		});
 	}
 
 	private async _useProject(chatId: number, query: string): Promise<void> {
@@ -521,6 +550,7 @@ const HELP_TEXT = [
 	'• /use <проект> — куда слать команды',
 	'• /status — что сейчас происходит',
 	'• /stop — остановить прогон',
+	'• /menu — пульт с кнопками',
 ].join('\n');
 
 registerWorkbenchContribution2(VibeTelegramBridgeContribution.ID, VibeTelegramBridgeContribution, WorkbenchPhase.AfterRestored);

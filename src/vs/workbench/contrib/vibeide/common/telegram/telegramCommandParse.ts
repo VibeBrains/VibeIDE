@@ -15,6 +15,7 @@ export type VibeTelegramCommand =
 	| { readonly kind: 'projects' }
 	| { readonly kind: 'status' }
 	| { readonly kind: 'stop' }
+	| { readonly kind: 'menu' }
 	| { readonly kind: 'use'; readonly project: string }
 	| { readonly kind: 'run'; readonly prompt: string }
 	| { readonly kind: 'empty' };
@@ -53,6 +54,7 @@ export function parseTelegramCommand(rawText: string): VibeTelegramCommand {
 		case '/projects': return { kind: 'projects' };
 		case '/status': return { kind: 'status' };
 		case '/stop': return { kind: 'stop' };
+		case '/menu': return { kind: 'menu' };
 		case '/use': return { kind: 'use', project: rest };
 		case '/run': return rest ? { kind: 'run', prompt: rest } : { kind: 'empty' };
 		// An unknown slash-word is still a task, not an error: "/etc/hosts не читается" is a
