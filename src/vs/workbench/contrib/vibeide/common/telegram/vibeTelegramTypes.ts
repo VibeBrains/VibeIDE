@@ -35,6 +35,7 @@ export const VibeTelegramConfigKeys = {
 	pairingCode: 'vibeide.telegram.pairingCode',
 	proxyUrl: 'vibeide.telegram.proxy.url',
 	progressIntervalMs: 'vibeide.telegram.progressIntervalMs',
+	approvals: 'vibeide.telegram.approvals',
 } as const;
 
 /** SecretStorage key holding the bot token issued by @BotFather. */
@@ -92,9 +93,18 @@ export interface VibeTelegramOutbound {
 	 * keeps a long run from producing a wall of progress messages.
 	 */
 	readonly editMessageId?: number;
-	/** Renders "allow / deny" buttons; the answer arrives as an approval reply. */
+	/** Renders "allow / deny / amend" buttons; the answer arrives as an approval reply. */
 	readonly approval?: { readonly token: string };
 }
+
+/**
+ * What the owner tapped under an approval request.
+ *
+ * `amend` is neither yes nor no: the action is refused, and the next message from that chat is
+ * handed to the agent as a correction. Without it the only way to redirect a wrong tool call from
+ * the phone would be to reject it and retype the whole task.
+ */
+export type VibeTelegramApprovalDecision = 'approve' | 'reject' | 'amend';
 
 /** Result of delivering an outbound message. */
 export interface VibeTelegramDelivery {
@@ -138,8 +148,12 @@ export interface IVibeTelegramMain {
 	readonly onDidReceiveCommand: Event<VibeTelegramCommandForWindow & { readonly windowId: number }>;
 	/** Fires when an unknown chat wrote to the bot and the owner has to allow or refuse it. */
 	readonly onDidRequestBinding: Event<{ readonly chatId: number; readonly from: string | undefined }>;
-	/** Fires when a bound chat answered an approval request. */
-	readonly onDidAnswerApproval: Event<{ readonly token: string; readonly approved: boolean }>;
+	/**
+	 * Fires when a bound chat answered an approval request. `chatId` travels with the answer so
+	 * the window can check it against the chat that asked — a button press is an inbound message
+	 * like any other and must not be trusted by its token alone.
+	 */
+	readonly onDidAnswerApproval: Event<{ readonly token: string; readonly decision: VibeTelegramApprovalDecision; readonly chatId: number | undefined }>;
 
 	/**
 	 * Pushes token, proxy and the allow-list into the poller. Configuration and SecretStorage

@@ -85,6 +85,50 @@ export function splitForTelegram(text: string, limit: number = TELEGRAM_MESSAGE_
 	return chunks;
 }
 
+/**
+ * Parameters worth showing first in an approval preview, most telling one first.
+ *
+ * The point of the preview is that the owner sees WHAT is about to happen before deciding, so
+ * the command being run or the file being touched must be visible without scrolling — the rest
+ * of the parameters follow in their own order.
+ */
+const TELEGRAM_PREVIEW_LEADING_PARAMS = ['command', 'uri', 'searchInFolder', 'query'] as const;
+
+/** Longest single parameter value shown in a preview; the rest is cut with an ellipsis. */
+export const TELEGRAM_PREVIEW_VALUE_LIMIT = 300;
+
+/**
+ * Renders "the agent wants to do this" for an approval request in the chat.
+ *
+ * Built from the raw parameters rather than the IDE's own tool descriptions: those live in React
+ * and need an accessor, while an approval has to be rendered from the main window side and from
+ * a test. Values are shown as-is (inside code spans) — a paraphrase of a shell command is exactly
+ * the thing one must not approve blindly.
+ */
+export function formatToolRequestPreview(toolName: string, rawParams: { readonly [param: string]: string | undefined }): string {
+	const entries = Object.entries(rawParams).filter((entry): entry is [string, string] => !!entry[1]?.trim());
+	const rank = (param: string): number => {
+		const index = (TELEGRAM_PREVIEW_LEADING_PARAMS as readonly string[]).indexOf(param);
+		return index === -1 ? TELEGRAM_PREVIEW_LEADING_PARAMS.length : index;
+	};
+	const sorted = [...entries].sort((a, b) => rank(a[0]) - rank(b[0]));
+
+	const lines = [`🔐 Агент просит разрешение: \`${toolName}\``];
+	for (const [param, value] of sorted) {
+		const trimmed = value.trim();
+		const shown = trimmed.length > TELEGRAM_PREVIEW_VALUE_LIMIT
+			? `${trimmed.slice(0, TELEGRAM_PREVIEW_VALUE_LIMIT)}…`
+			: trimmed;
+		// Newlines inside a value would break the line-per-parameter shape; a multi-line command
+		// stays readable as a fenced block.
+		lines.push(shown.includes('\n') ? `${param}:\n\`\`\`\n${shown}\n\`\`\`` : `${param}: \`${shown}\``);
+	}
+	if (!entries.length) {
+		lines.push('_без параметров_');
+	}
+	return lines.join('\n');
+}
+
 /** Renders the one-line progress note that gets edited in place during a long run. */
 export function formatProgressLine(elapsedMs: number, lastActivity: string | undefined): string {
 	const seconds = Math.floor(elapsedMs / 1000);

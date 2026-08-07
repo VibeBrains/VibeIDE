@@ -20,6 +20,7 @@ import {
 	IVibeTelegramMain,
 	VibeTelegramCommandForWindow,
 	VibeTelegramDelivery,
+	VibeTelegramApprovalDecision,
 	VibeTelegramOutbound,
 	VibeTelegramStatus,
 	VibeTelegramTranscription,
@@ -65,8 +66,8 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 	private readonly _onDidRequestBinding = this._register(new Emitter<{ chatId: number; from: string | undefined }>());
 	readonly onDidRequestBinding: Event<{ chatId: number; from: string | undefined }> = this._onDidRequestBinding.event;
 
-	private readonly _onDidAnswerApproval = this._register(new Emitter<{ token: string; approved: boolean }>());
-	readonly onDidAnswerApproval: Event<{ token: string; approved: boolean }> = this._onDidAnswerApproval.event;
+	private readonly _onDidAnswerApproval = this._register(new Emitter<{ token: string; decision: VibeTelegramApprovalDecision; chatId: number | undefined }>());
+	readonly onDidAnswerApproval: Event<{ token: string; decision: VibeTelegramApprovalDecision; chatId: number | undefined }> = this._onDidAnswerApproval.event;
 
 	private _status: VibeTelegramStatus = { state: 'off' };
 	private _config: VibeTelegramRuntimeConfig = { token: undefined, proxyUrl: undefined, allowedChatIds: [], pairingCode: '', voiceProfile: 'ru' };
@@ -182,6 +183,8 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 				inline_keyboard: [[
 					{ text: '✅ Разрешить', callback_data: `ok:${message.approval.token}` },
 					{ text: '⛔️ Отклонить', callback_data: `no:${message.approval.token}` },
+				], [
+					{ text: '✏️ Поправить', callback_data: `ed:${message.approval.token}` },
 				]],
 			};
 		}
@@ -345,10 +348,20 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 	private _handleUpdate(update: TelegramUpdate): void {
 		if (update.callback_query) {
 			const data = update.callback_query.data ?? '';
-			const approved = data.startsWith('ok:');
+			const chatId = update.callback_query.message?.chat?.id;
+			// Telegram spins the button until the press is acknowledged, so answer first — the
+			// owner must see that the tap landed even while the IDE is still acting on it.
+			void this._call('answerCallbackQuery', { callback_query_id: update.callback_query.id });
+			if (chatId === undefined || !this._config.allowedChatIds.includes(chatId)) {
+				// A press is an inbound message like any other: a chat that lost its binding (or
+				// never had one) must not steer a run through an old keyboard.
+				vibeLog.info('Telegram', `callback from chat ${chatId ?? 'unknown'} outside the allow-list — ignored`);
+				return;
+			}
+			const decision = data.startsWith('ok:') ? 'approve' : data.startsWith('ed:') ? 'amend' : 'reject';
 			const token = data.slice(3);
 			if (token) {
-				this._onDidAnswerApproval.fire({ token, approved });
+				this._onDidAnswerApproval.fire({ token, decision, chatId });
 			}
 			return;
 		}
@@ -495,5 +508,9 @@ interface TelegramUpdate {
 		readonly voice?: { readonly file_id: string };
 		readonly from?: { readonly first_name?: string; readonly username?: string };
 	};
-	readonly callback_query?: { readonly data?: string };
+	readonly callback_query?: {
+		readonly id: string;
+		readonly data?: string;
+		readonly message?: { readonly chat?: { readonly id?: number } };
+	};
 }

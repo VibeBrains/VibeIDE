@@ -228,6 +228,18 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					markdownDescription: localize('vibeide.telegram.progressIntervalMs.desc', 'Как часто обновлять сообщение о ходе длинного прогона, в миллисекундах. Обновляется одно и то же сообщение, а не шлётся новое.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.telegram.approvals': {
+					type: 'string',
+					enum: ['all', 'dangerous', 'off'],
+					enumDescriptions: [
+						localize('vibeide.telegram.approvals.all', 'Любой запрос подтверждения — с кнопками в чате.'),
+						localize('vibeide.telegram.approvals.dangerous', 'Только команды терминала и MCP-инструменты; правки файлов ждут в IDE.'),
+						localize('vibeide.telegram.approvals.off', 'Не зеркалить: подтверждать только в IDE.'),
+					],
+					default: 'all',
+					scope: ConfigurationScope.APPLICATION,
+					markdownDescription: localize('vibeide.telegram.approvals.desc', 'Какие запросы подтверждения показывать в Telegram кнопками «Разрешить / Отклонить / Поправить».\n\nСообщение показывает, **что именно** будет сделано — команду или путь, — а не безымянное «действие». Молчание в течение 5 минут считается отказом: телефон может лежать в кармане, и тишина не должна означать «да».\n\nЭта настройка ничего не одобряет сама: незеркалированный запрос просто ждёт вас в IDE. Автоодобрение — отдельные настройки инструментов.'),
+				},
 				'vibeide.vibeServer.previewTabs': {
 					type: 'string',
 					enum: ['single', 'perService'],

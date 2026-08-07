@@ -4,7 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 
-import { Disposable } from '../../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, IDisposable } from '../../../../../base/common/lifecycle.js';
+import { disposableTimeout } from '../../../../../base/common/async.js';
 import { ProxyChannel } from '../../../../../base/parts/ipc/common/ipc.js';
 import { Action2, registerAction2 } from '../../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../../platform/instantiation/common/instantiation.js';
@@ -24,14 +25,29 @@ import { vibeLog } from '../../common/vibeLog.js';
 import { parseTelegramCommand, resolveProjectChoice } from '../../common/telegram/telegramCommandParse.js';
 import { generatePairingCode } from '../../common/telegram/telegramPairing.js';
 import { resolveVoiceProfile } from '../../common/voice/vibeVoiceModels.js';
-import { formatProgressLine, markdownToTelegramHtml, splitForTelegram } from '../../common/telegram/telegramFormat.js';
+import { escapeTelegramHtml, formatProgressLine, formatToolRequestPreview, markdownToTelegramHtml, splitForTelegram } from '../../common/telegram/telegramFormat.js';
+import { shouldMirrorApproval, VibeTelegramApprovalPolicy } from '../../common/telegram/telegramApprovalPolicy.js';
+import { approvalTypeOfBuiltinToolName } from '../../common/prompt/tools/index.js';
 import {
 	IVibeTelegramMain,
 	VIBE_TELEGRAM_CHANNEL,
 	VIBE_TELEGRAM_PROGRESS_INTERVAL_MS,
+	VIBE_TELEGRAM_APPROVAL_TIMEOUT_MS,
 	VIBE_TELEGRAM_TOKEN_SECRET_KEY,
+	VibeTelegramApprovalDecision,
 	VibeTelegramConfigKeys,
 } from '../../common/telegram/vibeTelegramTypes.js';
+
+/** One approval request live in a chat: what it belongs to and how to close it. */
+interface PendingApproval {
+	readonly threadId: string;
+	readonly chatId: number;
+	/** Id of the tool call being approved — tells a new question from a repeated stream event. */
+	readonly toolCallId: string;
+	/** Telegram message carrying the buttons, edited in place once the request is settled. */
+	readonly messageId: number | undefined;
+	readonly timer: IDisposable;
+}
 
 /**
  * Window side of the Telegram bridge: it owns configuration and secrets, announces this window
@@ -46,6 +62,13 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 	private readonly _main: IVibeTelegramMain;
 	/** Runs started from Telegram: thread id → the chat and progress message to update. */
 	private readonly _activeRuns = new Map<string, { chatId: number; progressMessageId?: number; startedAtMs: number; lastEditMs: number }>();
+	/** Approval requests currently shown in a chat, by the token carried on their buttons. */
+	private readonly _pendingApprovals = new Map<string, PendingApproval>();
+	/** Threads whose next chat message is a correction of a refused tool call, not a new task. */
+	private readonly _awaitingAmendment = new Map<number, string>();
+	/** Timers that turn an unanswered approval into a refusal; disposed with the window. */
+	private readonly _approvalTimers = this._register(new DisposableStore());
+	private _approvalCounter = 0;
 	private _windowId: number | undefined;
 
 	constructor(
@@ -72,6 +95,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			void this._executeCommand(e.chatId, e.text);
 		}));
 		this._register(this._main.onDidRequestBinding(e => void this._askToBind(e.chatId, e.from)));
+		this._register(this._main.onDidAnswerApproval(e => void this._onApprovalAnswered(e.token, e.decision, e.chatId)));
 		this._register(this._chatThreadService.onDidChangeStreamState(e => void this._onStreamStateChanged(e.threadId)));
 		this._register(this._configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration(VibeTelegramConfigKeys.section)) {
@@ -209,6 +233,15 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 
 	private async _executeCommand(chatId: number, rawText: string): Promise<void> {
 		const command = parseTelegramCommand(rawText);
+		// A correction promised after "✏️ Поправить" goes into the thread that was refused, so the
+		// agent still knows what it was denied. Commands stay commands — `/stop` must work even
+		// while a correction is expected, or a wrong run could not be stopped from the phone.
+		const amendThreadId = this._awaitingAmendment.get(chatId);
+		if (amendThreadId !== undefined && command.kind === 'run') {
+			this._awaitingAmendment.delete(chatId);
+			await this._continueThread(chatId, amendThreadId, command.prompt);
+			return;
+		}
 		switch (command.kind) {
 			case 'empty':
 				return;
@@ -280,7 +313,11 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 	}
 
 	private async _run(chatId: number, prompt: string): Promise<void> {
-		const threadId = this._chatThreadService.getCurrentThread().id;
+		await this._continueThread(chatId, this._chatThreadService.getCurrentThread().id, prompt);
+	}
+
+	/** Sends a message into a specific thread and mirrors that run back into the chat. */
+	private async _continueThread(chatId: number, threadId: string, prompt: string): Promise<void> {
 		const now = Date.now();
 		this._activeRuns.set(threadId, { chatId, startedAtMs: now, lastEditMs: 0 });
 		const started = await this._main.send({ chatId, text: formatProgressLine(0, undefined) });
@@ -313,6 +350,15 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		}
 		const state = this._chatThreadService.streamState[threadId];
 
+		if (state?.isRunning === 'awaiting_user') {
+			await this._mirrorApprovalRequest(threadId, run.chatId);
+			return;
+		}
+		// Any other transition means the request is no longer pending — most often because the
+		// owner answered it in the IDE. Leaving live buttons on the phone would let a later tap
+		// approve whatever the run has moved on to.
+		this._settleApprovalsOfThread(threadId, 'Решено в IDE.');
+
 		if (state?.isRunning) {
 			const interval = this._configurationService.getValue<number>(VibeTelegramConfigKeys.progressIntervalMs) ?? VIBE_TELEGRAM_PROGRESS_INTERVAL_MS;
 			const now = Date.now();
@@ -339,6 +385,106 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			return;
 		}
 		await this._reply(run.chatId, this._lastAssistantText(threadId) ?? '✅ Готово.');
+	}
+
+	// --- approvals -------------------------------------------------------------------------
+
+	/**
+	 * A run stopped to ask permission. Shows WHAT is about to happen and the buttons under it —
+	 * an approval reduced to "allow action #3" is not a decision, it is a reflex.
+	 *
+	 * Nothing here can approve anything: a request the policy does not mirror simply keeps
+	 * waiting in the IDE.
+	 */
+	private async _mirrorApprovalRequest(threadId: string, chatId: number): Promise<void> {
+		const thread = this._chatThreadService.state.allThreads[threadId];
+		const lastMessage = thread?.messages[thread.messages.length - 1];
+		if (!lastMessage || lastMessage.role !== 'tool' || lastMessage.type !== 'tool_request') {
+			return;
+		}
+		// The same thread re-enters `awaiting_user` on every stream event while it waits, so the
+		// tool call id — not the state — is what tells a new question from a repeated one.
+		for (const pending of this._pendingApprovals.values()) {
+			if (pending.threadId === threadId && pending.toolCallId === lastMessage.id) {
+				return;
+			}
+		}
+
+		const policy = this._configurationService.getValue<VibeTelegramApprovalPolicy>(VibeTelegramConfigKeys.approvals) ?? 'all';
+		const approvalType = approvalTypeOfBuiltinToolName[lastMessage.name as keyof typeof approvalTypeOfBuiltinToolName]
+			?? (lastMessage.mcpServerName ? 'MCP tools' : undefined);
+		if (!shouldMirrorApproval(approvalType, policy)) {
+			return;
+		}
+
+		const token = `a${++this._approvalCounter}`;
+		const preview = formatToolRequestPreview(lastMessage.name, lastMessage.rawParams);
+		const delivered = await this._main.send({
+			chatId,
+			text: markdownToTelegramHtml(preview),
+			approval: { token },
+		});
+		if (!delivered.ok) {
+			return;
+		}
+
+		const timeoutMs = VIBE_TELEGRAM_APPROVAL_TIMEOUT_MS;
+		const timer = disposableTimeout(() => void this._onApprovalAnswered(token, 'reject', chatId, true), timeoutMs);
+		this._approvalTimers.add(timer);
+		this._pendingApprovals.set(token, {
+			threadId,
+			chatId,
+			toolCallId: lastMessage.id,
+			messageId: delivered.messageId,
+			timer,
+		});
+	}
+
+	/** Answer from the phone: a tap on one of the three buttons, or the timeout acting as a refusal. */
+	private async _onApprovalAnswered(token: string, decision: VibeTelegramApprovalDecision, chatId: number | undefined, byTimeout = false): Promise<void> {
+		const pending = this._pendingApprovals.get(token);
+		if (!pending || (chatId !== undefined && chatId !== pending.chatId)) {
+			return;
+		}
+		this._closeApproval(token, pending, byTimeout
+			? '⏱ Никто не ответил — действие отклонено.'
+			: decision === 'approve' ? '✅ Разрешено.' : decision === 'amend' ? '✏️ Отклонено — жду, как поправить.' : '⛔️ Отклонено.');
+
+		if (decision === 'approve') {
+			this._chatThreadService.approveLatestToolRequest(pending.threadId);
+			return;
+		}
+		this._chatThreadService.rejectLatestToolRequest(pending.threadId);
+		if (decision === 'amend') {
+			// The correction goes into the same thread as an ordinary message: the agent keeps the
+			// context of what it was denied, which is the whole point of amending instead of
+			// rejecting and retyping the task.
+			this._awaitingAmendment.set(pending.chatId, pending.threadId);
+			await this._reply(pending.chatId, 'Напиши или наговори, что сделать вместо этого.');
+		}
+	}
+
+	/** Drops still-open requests of a thread, replacing their buttons with the given outcome. */
+	private _settleApprovalsOfThread(threadId: string, outcome: string): void {
+		for (const [token, pending] of [...this._pendingApprovals]) {
+			if (pending.threadId === threadId) {
+				this._closeApproval(token, pending, outcome);
+			}
+		}
+	}
+
+	/**
+	 * Removes the request from the map and rewrites its message to the outcome. Editing without
+	 * `approval` also strips the keyboard, so a stale button cannot be tapped afterwards.
+	 */
+	private _closeApproval(token: string, pending: PendingApproval, outcome: string): void {
+		this._pendingApprovals.delete(token);
+		// `DisposableStore.delete` disposes as it removes — the timer must not fire after the
+		// request it belonged to is gone.
+		this._approvalTimers.delete(pending.timer);
+		if (pending.messageId !== undefined) {
+			void this._main.send({ chatId: pending.chatId, editMessageId: pending.messageId, text: escapeTelegramHtml(outcome) });
+		}
 	}
 
 	/** Text of the last assistant message, for delivering the answer to the phone. */

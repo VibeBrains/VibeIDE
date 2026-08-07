@@ -7,7 +7,8 @@ import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { parseTelegramCommand, resolveProjectChoice } from '../../common/telegram/telegramCommandParse.js';
 import { decidePairing, extractPairingCode, generatePairingCode, PAIRING_PROMPT_COOLDOWN_MS } from '../../common/telegram/telegramPairing.js';
-import { markdownToTelegramHtml, splitForTelegram, escapeTelegramHtml, formatProgressLine, TELEGRAM_MESSAGE_LIMIT } from '../../common/telegram/telegramFormat.js';
+import { markdownToTelegramHtml, splitForTelegram, escapeTelegramHtml, formatProgressLine, formatToolRequestPreview, TELEGRAM_MESSAGE_LIMIT, TELEGRAM_PREVIEW_VALUE_LIMIT } from '../../common/telegram/telegramFormat.js';
+import { shouldMirrorApproval } from '../../common/telegram/telegramApprovalPolicy.js';
 
 suite('Telegram bridge — command parsing', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -185,6 +186,44 @@ suite('Telegram bridge — who may ask for access', () => {
 				fromEmpty: undefined,
 				generated: 'abcd-efgh',
 			},
+		);
+	});
+});
+
+suite('Telegram bridge — approvals', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('preview leads with the telling parameter and cuts long values', () => {
+		const long = 'x'.repeat(TELEGRAM_PREVIEW_VALUE_LIMIT + 50);
+		assert.deepStrictEqual(
+			[
+				formatToolRequestPreview('run_command', { cwd: '/repo', command: 'rm -rf build' }),
+				formatToolRequestPreview('edit_file', { uri: '/repo/a.ts', searchReplaceBlocks: 'один\nдва' }),
+				formatToolRequestPreview('read_file', {}),
+				formatToolRequestPreview('run_command', { command: long }).split('\n')[1].length,
+			],
+			[
+				'🔐 Агент просит разрешение: `run_command`\ncommand: `rm -rf build`\ncwd: `/repo`',
+				'🔐 Агент просит разрешение: `edit_file`\nuri: `/repo/a.ts`\nsearchReplaceBlocks:\n```\nодин\nдва\n```',
+				'🔐 Агент просит разрешение: `read_file`\n_без параметров_',
+				// "command: `" + limit + "…`"
+				'command: ``'.length + TELEGRAM_PREVIEW_VALUE_LIMIT + 1,
+			],
+		);
+	});
+
+	test('policy decides what is mirrored and never approves by itself', () => {
+		assert.deepStrictEqual(
+			{
+				allEdits: shouldMirrorApproval('edits', 'all'),
+				dangerousEdits: shouldMirrorApproval('edits', 'dangerous'),
+				dangerousTerminal: shouldMirrorApproval('terminal', 'dangerous'),
+				dangerousMcp: shouldMirrorApproval('MCP tools', 'dangerous'),
+				// Unclassified tools count as dangerous: an extra tap beats a silently stuck run.
+				dangerousUnknown: shouldMirrorApproval(undefined, 'dangerous'),
+				offTerminal: shouldMirrorApproval('terminal', 'off'),
+			},
+			{ allEdits: true, dangerousEdits: false, dangerousTerminal: true, dangerousMcp: true, dangerousUnknown: true, offTerminal: false },
 		);
 	});
 });
