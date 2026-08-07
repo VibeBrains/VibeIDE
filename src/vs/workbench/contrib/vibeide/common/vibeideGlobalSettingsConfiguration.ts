@@ -209,6 +209,12 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					markdownDescription: localize('vibeide.telegram.allowedChatIds.desc', 'Чаты, которым разрешено управлять агентом. Заполняется само, когда вы подтверждаете привязку; здесь можно отозвать доступ, удалив запись.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.telegram.pairingCode': {
+					type: 'string',
+					default: '',
+					markdownDescription: localize('vibeide.telegram.pairingCode.desc', 'Код привязки. Чужой чат, написавший боту **без этого кода, игнорируется молча** — имя бота публично, и без кода незнакомец мог бы дёргать вас окном подтверждения. Свой чат привязывается сообщением `/start <код>`. Генерируется автоматически, меняется кнопкой в настройках.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.telegram.proxy.url': {
 					type: 'string',
 					default: '',

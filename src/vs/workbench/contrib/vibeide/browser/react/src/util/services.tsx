@@ -37,6 +37,7 @@ import { ILanguageDetectionService } from '../../../../../../services/languageDe
 import { IKeybindingService } from '../../../../../../../platform/keybinding/common/keybinding.js';
 import { IEnvironmentService } from '../../../../../../../platform/environment/common/environment.js';
 import { IConfigurationService } from '../../../../../../../platform/configuration/common/configuration.js';
+import { ISecretStorageService } from '../../../../../../../platform/secrets/common/secrets.js';
 import { IPathService } from '../../../../../../../workbench/services/path/common/pathService.js';
 import { IMetricsService } from '../../../../../../../workbench/contrib/vibeide/common/metricsService.js';
 import { URI } from '../../../../../../../base/common/uri.js';
@@ -296,6 +297,9 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 			IWorkbenchLayoutService: accessor.get(IWorkbenchLayoutService),
 			IEnvironmentService: accessor.get(IEnvironmentService),
 			IConfigurationService: accessor.get(IConfigurationService),
+			// The Telegram bridge writes its bot token straight into the OS secret store — a UI
+			// field is fine, settings.json (synced between machines, screenshot-prone) is not.
+			ISecretStorageService: accessor.get(ISecretStorageService),
 			IPathService: accessor.get(IPathService),
 			IMetricsService: accessor.get(IMetricsService),
 			ITerminalToolService: accessor.get(ITerminalToolService),

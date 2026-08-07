@@ -6,6 +6,7 @@
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { parseTelegramCommand, resolveProjectChoice } from '../../common/telegram/telegramCommandParse.js';
+import { decidePairing, extractPairingCode, generatePairingCode, PAIRING_PROMPT_COOLDOWN_MS } from '../../common/telegram/telegramPairing.js';
 import { markdownToTelegramHtml, splitForTelegram, escapeTelegramHtml, formatProgressLine, TELEGRAM_MESSAGE_LIMIT } from '../../common/telegram/telegramFormat.js';
 
 suite('Telegram bridge — command parsing', () => {
@@ -121,6 +122,69 @@ suite('Telegram bridge — formatting', () => {
 				'⏳ Работаю 5 с',
 				'⏳ Работаю 1 мин 35 с: читаю vibeServerViewPane.ts',
 			],
+		);
+	});
+});
+
+suite('Telegram bridge — who may ask for access', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	const base = { chatType: 'private', expectedCode: 'abcd-2345', lastPromptAtMs: undefined, nowMs: 1_000_000 };
+
+	test('a stranger without the code is ignored silently', () => {
+		assert.deepStrictEqual(
+			[
+				decidePairing({ ...base, text: 'привет' }),
+				decidePairing({ ...base, text: '/start' }),
+				// Wrong code and no code must be indistinguishable, or the bot becomes a code oracle.
+				decidePairing({ ...base, text: '/start wxyz-9999' }),
+			],
+			[
+				{ kind: 'ignore' },
+				{ kind: 'ignore' },
+				{ kind: 'ignore' },
+			],
+		);
+	});
+
+	test('the right code asks the owner; bare code counts too', () => {
+		assert.deepStrictEqual(
+			[
+				decidePairing({ ...base, text: '/start abcd-2345' }),
+				decidePairing({ ...base, text: 'abcd-2345' }),
+				decidePairing({ ...base, text: '/start@my_bot abcd-2345' }),
+			],
+			[{ kind: 'ask' }, { kind: 'ask' }, { kind: 'ask' }],
+		);
+	});
+
+	test('groups are refused even with a valid code, and repeats are throttled', () => {
+		const group = decidePairing({ ...base, chatType: 'supergroup', text: '/start abcd-2345' });
+		const tooSoon = decidePairing({ ...base, text: '/start abcd-2345', lastPromptAtMs: base.nowMs - 1000 });
+		const afterCooldown = decidePairing({ ...base, text: '/start abcd-2345', lastPromptAtMs: base.nowMs - PAIRING_PROMPT_COOLDOWN_MS - 1 });
+
+		assert.deepStrictEqual(
+			{ group: group.kind, tooSoon: tooSoon.kind, afterCooldown: afterCooldown.kind },
+			{ group: 'reject', tooSoon: 'reject', afterCooldown: 'ask' },
+		);
+	});
+
+	test('code extraction and generation', () => {
+		let counter = 0;
+		assert.deepStrictEqual(
+			{
+				fromCommand: extractPairingCode('/start abcd-2345'),
+				fromBare: extractPairingCode('  abcd-2345  '),
+				fromEmpty: extractPairingCode('   '),
+				// Deterministic generator: the alphabet excludes lookalikes (no o/0, l/1).
+				generated: generatePairingCode(() => (counter++) % 32),
+			},
+			{
+				fromCommand: 'abcd-2345',
+				fromBare: 'abcd-2345',
+				fromEmpty: undefined,
+				generated: 'abcd-efgh',
+			},
 		);
 	});
 });

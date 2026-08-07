@@ -29,7 +29,8 @@ import { MCPServer } from '../../../../common/mcpServiceTypes.js';
 import { OPT_OUT_KEY } from '../../../../common/storageKeys.js';
 import { StorageScope, StorageTarget } from '../../../../../../../platform/storage/common/storage.js';
 import { generateUuid } from '../../../../../../../base/common/uuid.js';
-import { nav, modelsS, providersS, generalS, ollamaS, miscS, toolApprovalLabel, safetyS, modelDdS, notifyS } from './vibeSettingsRu.js';
+import { generatePairingCode } from '../../../../common/telegram/telegramPairing.js';
+import { nav, modelsS, providersS, generalS, ollamaS, miscS, toolApprovalLabel, safetyS, modelDdS, notifyS, telegramS } from './vibeSettingsRu.js';
 import { NOTIFY_DEFAULT_SOUND_IDS } from '../../../vibeNotifySoundService.js';
 
 type Tab =
@@ -1934,11 +1935,136 @@ const FeatureOptionsSectionCard = ({ children, wide }: { children: React.ReactNo
 	}>{children}</div>
 );
 
+/**
+ * Telegram bridge panel. The token field writes straight into the OS secret store: a UI field is
+ * the right place for it, `settings.json` (synced between machines, screenshot-prone) is not.
+ */
+const TelegramBridgeCard = () => {
+	const accessor = useAccessor();
+	const configurationService = accessor.get('IConfigurationService');
+	const secrets = accessor.get('ISecretStorageService');
+	const notificationService = accessor.get('INotificationService');
+
+	const [enabled, setEnabled] = useState<boolean>(() => configurationService.getValue<boolean>('vibeide.telegram.enabled') === true);
+	const [proxy, setProxy] = useState<string>(() => configurationService.getValue<string>('vibeide.telegram.proxy.url') ?? '');
+	const [allowedChats, setAllowedChats] = useState<number[]>(() => configurationService.getValue<number[]>('vibeide.telegram.allowedChatIds') ?? []);
+	const [pairingCode, setPairingCode] = useState<string>(() => configurationService.getValue<string>('vibeide.telegram.pairingCode') ?? '');
+	const [tokenPresent, setTokenPresent] = useState<boolean>(false);
+	const [tokenDraft, setTokenDraft] = useState<string>('');
+
+	useEffect(() => {
+		let alive = true;
+		// Only whether a token exists is shown — never the token itself, so a screenshot of this
+		// screen cannot leak control of the bot.
+		void secrets.get('vibeide.telegram.botToken').then(v => { if (alive) { setTokenPresent(!!v); } });
+		return () => { alive = false; };
+	}, [secrets]);
+
+	useEffect(() => {
+		const d = configurationService.onDidChangeConfiguration(e => {
+			if (!e.affectsConfiguration('vibeide.telegram')) { return; }
+			setEnabled(configurationService.getValue<boolean>('vibeide.telegram.enabled') === true);
+			setProxy(configurationService.getValue<string>('vibeide.telegram.proxy.url') ?? '');
+			setAllowedChats(configurationService.getValue<number[]>('vibeide.telegram.allowedChatIds') ?? []);
+			setPairingCode(configurationService.getValue<string>('vibeide.telegram.pairingCode') ?? '');
+		});
+		return () => d.dispose();
+	}, [configurationService]);
+
+	const saveToken = async (value: string) => {
+		const trimmed = value.trim();
+		if (!trimmed) {
+			await secrets.delete('vibeide.telegram.botToken');
+			setTokenPresent(false);
+			notificationService.info(telegramS.tokenCleared);
+			return;
+		}
+		await secrets.set('vibeide.telegram.botToken', trimmed);
+		setTokenPresent(true);
+		setTokenDraft('');
+		notificationService.info(telegramS.tokenSaved);
+		// Re-apply so the poller picks the new token up without a restart.
+		await configurationService.updateValue('vibeide.telegram.enabled', configurationService.getValue<boolean>('vibeide.telegram.enabled') === true);
+	};
+
+	return (
+		<FeatureOptionsSectionCard>
+			<h4 className={`text-base`}>{telegramS.title}</h4>
+			<div className='text-sm text-vibe-fg-3 mt-1'>{telegramS.subtitle}</div>
+
+			<div className='flex items-center gap-x-2 my-3'>
+				<VibeSwitch
+					size='xs'
+					value={enabled}
+					onChange={(newVal) => { void configurationService.updateValue('vibeide.telegram.enabled', newVal); }}
+				/>
+				<span className='text-sm'>{telegramS.enable}</span>
+				{enabled && !tokenPresent ? <span className='text-sm text-vibe-warning'>{telegramS.needToken}</span> : null}
+			</div>
+
+			<div className='my-2'>
+				<div className='text-sm mb-1'>{telegramS.tokenLabel}{tokenPresent ? ' ✓' : ''}</div>
+				<VibeSimpleInputBox
+					value={tokenDraft}
+					onChangeValue={setTokenDraft}
+					onBlur={() => { if (tokenDraft) { void saveToken(tokenDraft); } }}
+					placeholder={telegramS.tokenPlaceholder}
+					passwordBlur={true}
+					compact={true}
+				/>
+				<div className='py-1 opacity-50 text-sm'>{telegramS.tokenHint}</div>
+			</div>
+
+			<div className='my-2'>
+				<div className='text-sm mb-1'>{telegramS.pairingCode}</div>
+				<div className='flex items-center gap-x-2'>
+					<code className='text-sm px-2 py-1 rounded bg-vibe-bg-2'>{pairingCode || '—'}</code>
+					<VibeButtonBgDarken
+						className='px-2 py-1 text-sm'
+						onClick={() => { void configurationService.updateValue('vibeide.telegram.pairingCode', generatePairingCode(max => Math.floor(Math.random() * max))); }}
+					>{telegramS.newCode}</VibeButtonBgDarken>
+				</div>
+				<div className='py-1 opacity-50 text-sm'>{telegramS.pairingCodeHint}</div>
+			</div>
+
+			<div className='my-2'>
+				<div className='text-sm mb-1'>{telegramS.proxyLabel}</div>
+				<VibeSimpleInputBox
+					value={proxy}
+					onChangeValue={(v: string) => { setProxy(v); void configurationService.updateValue('vibeide.telegram.proxy.url', v); }}
+					placeholder={telegramS.proxyPlaceholder}
+					compact={true}
+				/>
+				<div className='py-1 opacity-50 text-sm'>{telegramS.proxyHint}</div>
+			</div>
+
+			<div className='my-2 text-sm'>
+				<span className='opacity-70'>{telegramS.allowedChats}: </span>
+				{allowedChats.length === 0
+					? <span className='opacity-50'>{telegramS.noAllowedChats}</span>
+					: allowedChats.map(chatId => (
+						<span key={chatId} className='mr-2'>
+							{chatId}
+							<button
+								className='ml-1 opacity-60 hover:opacity-100'
+								onClick={() => { void configurationService.updateValue('vibeide.telegram.allowedChatIds', allowedChats.filter(c => c !== chatId)); }}
+							>{telegramS.revoke}</button>
+						</span>
+					))}
+				<div className='py-1 opacity-50'>{telegramS.bindHint}</div>
+			</div>
+		</FeatureOptionsSectionCard>
+	);
+};
+
 const FeatureOptionsSettingsBody = () => {
 	const settingsState = useSettingsState();
 	const vibeideSettingsService = useAccessor().get('IVibeideSettingsService');
 	return (
 		<div className='flex flex-col gap-3 my-4'>
+			<ErrorBoundary>
+				<TelegramBridgeCard />
+			</ErrorBoundary>
 			<ErrorBoundary>
 				{/* FIM */}
 				<FeatureOptionsSectionCard>

@@ -1458,3 +1458,30 @@ export const commandsEditorS = {
 	fieldSingleton: 'singleton',
 	fieldConfirm: 'confirm',
 } as const;
+
+/** Мост в Telegram — управление агентом с телефона. */
+export const telegramS = {
+	title: 'Мост в Telegram',
+	subtitle: 'Ставить задачи агенту с телефона: обычный текст — задача, /projects — список окон, /stop — остановить прогон.',
+	enable: 'Включить мост',
+	tokenLabel: 'Токен бота',
+	tokenPlaceholder: '123456789:AA…',
+	tokenHint: 'Бот у вас свой: @BotFather → /newbot → токен сюда. Хранится в системном хранилище секретов, а не в файле настроек.',
+	tokenSaved: 'Токен сохранён',
+	tokenCleared: 'Токен удалён',
+	proxyLabel: 'Прокси для api.telegram.org',
+	proxyPlaceholder: 'socks5://127.0.0.1:1080',
+	proxyHint: 'Нужен там, где Telegram заблокирован. Отдельный от прокси провайдеров моделей: адреса блокируются в разных местах.',
+	statusOff: 'Мост выключен',
+	statusConnecting: 'Подключаюсь…',
+	statusListening: 'На связи',
+	statusError: 'Ошибка',
+	needToken: 'Мост включён, но токен не задан.',
+	bindHint: 'Отправьте боту «/start <код>» из строки выше — IDE спросит разрешение на привязку. Сообщение без кода игнорируется молча: имя бота публично, и без кода незнакомец мог бы дёргать вас окном подтверждения.',
+	pairingCode: 'Код привязки',
+	pairingCodeHint: 'Отправьте боту «/start <код>», чтобы привязать свой чат. Код секретный — не публикуйте вместе с именем бота.',
+	newCode: 'Новый код',
+	allowedChats: 'Разрешённые чаты',
+	noAllowedChats: 'пока ни одного',
+	revoke: 'Отозвать',
+} as const;

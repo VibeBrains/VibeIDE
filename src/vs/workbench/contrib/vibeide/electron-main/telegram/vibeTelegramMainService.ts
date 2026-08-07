@@ -9,6 +9,7 @@ import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { ILogService } from '../../../../../platform/log/common/log.js';
 import { vibeLog } from '../../common/vibeLog.js';
 import { createProxyDispatcher } from '../llmMessage/systemCAFetch.js';
+import { decidePairing } from '../../common/telegram/telegramPairing.js';
 import {
 	IVibeTelegramMain,
 	VibeTelegramCommandForWindow,
@@ -30,6 +31,8 @@ export interface VibeTelegramRuntimeConfig {
 	readonly token: string | undefined;
 	readonly proxyUrl: string | undefined;
 	readonly allowedChatIds: readonly number[];
+	/** Code an unbound chat must send before the owner is even asked. */
+	readonly pairingCode: string;
 }
 
 /**
@@ -56,7 +59,9 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 	readonly onDidAnswerApproval: Event<{ token: string; approved: boolean }> = this._onDidAnswerApproval.event;
 
 	private _status: VibeTelegramStatus = { state: 'off' };
-	private _config: VibeTelegramRuntimeConfig = { token: undefined, proxyUrl: undefined, allowedChatIds: [] };
+	private _config: VibeTelegramRuntimeConfig = { token: undefined, proxyUrl: undefined, allowedChatIds: [], pairingCode: '' };
+	/** When each unbound chat last made the IDE ask — throttles the confirmation prompt. */
+	private readonly _lastPairingPromptAtMs = new Map<number, number>();
 	/** Windows that announced themselves, newest registration last. */
 	private readonly _windows = new Map<number, VibeTelegramWindow>();
 	/** Which window each chat is currently talking to (`/use` switches it). */
@@ -68,6 +73,12 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 	private _generation = 0;
 	private _dispatcher: unknown;
 	private _dispatcherProxyUrl: string | undefined;
+	/**
+	 * Aborts the in-flight long poll. Without it a restart (any settings change) leaves the old
+	 * 30-second `getUpdates` in the air while the new loop starts another one — two concurrent
+	 * polls on one bot are exactly what Telegram answers with 409 Conflict.
+	 */
+	private _pollAbort: AbortController | undefined;
 
 	constructor(
 		private readonly _log: ILogService,
@@ -130,6 +141,8 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 	async stop(): Promise<void> {
 		this._polling = false;
 		this._generation += 1;
+		this._pollAbort?.abort();
+		this._pollAbort = undefined;
 		if (this._status.state !== 'off') {
 			this._setStatus({ state: 'off' });
 		}
@@ -159,8 +172,12 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 		const method = message.editMessageId !== undefined ? 'editMessageText' : 'sendMessage';
 		const res = await this._call<{ message_id?: number }>(method, body);
 		if (!res.ok) {
+			// Delivery failures were invisible before: the bridge looked alive while the user's
+			// phone stayed silent, which is the hardest possible symptom to diagnose.
+			vibeLog.warn('Telegram', `${method} to chat ${message.chatId} failed: ${res.error}`);
 			return { ok: false, error: res.error };
 		}
+		vibeLog.info('Telegram', `${method} to chat ${message.chatId} ok (${message.text.length} chars)`);
 		return { ok: true, messageId: res.result?.message_id };
 	}
 
@@ -185,18 +202,26 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 
 	private async _pollLoop(generation: number): Promise<void> {
 		while (this._polling && generation === this._generation) {
+			this._pollAbort = new AbortController();
 			const res = await this._call<TelegramUpdate[]>('getUpdates', {
 				offset: this._offset,
 				timeout: POLL_TIMEOUT_S,
 				allowed_updates: ['message', 'callback_query'],
-			}, (POLL_TIMEOUT_S + 10) * 1000);
+			}, (POLL_TIMEOUT_S + 10) * 1000, this._pollAbort.signal);
 
 			if (generation !== this._generation) {
+				return;
+			}
+			if (!res.ok && generation !== this._generation) {
+				// Aborted by a restart — expected, and reporting it would flash a false error.
 				return;
 			}
 			if (!res.ok) {
 				// Report but keep trying: a laptop that slept or a dropped VPN must heal by itself
 				// rather than leave a silent bridge that looks identical to "no messages".
+				// Logged as well as surfaced: a failing poll that only changes a status field is
+				// indistinguishable from silence when reading the log afterwards.
+				vibeLog.warn('Telegram', `getUpdates failed: ${res.error}`);
 				this._setStatus({ state: 'error', error: res.error });
 				await timeout(POLL_ERROR_BACKOFF_MS);
 				if (this._polling && generation === this._generation) {
@@ -205,7 +230,11 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 				continue;
 			}
 
-			for (const update of res.result ?? []) {
+			const updates = res.result ?? [];
+			if (updates.length) {
+				vibeLog.info('Telegram', `got ${updates.length} update(s)`);
+			}
+			for (const update of updates) {
 				this._offset = Math.max(this._offset, update.update_id + 1);
 				this._handleUpdate(update);
 			}
@@ -226,13 +255,32 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 		const message = update.message;
 		const chatId = message?.chat?.id;
 		if (!message || chatId === undefined) {
+			vibeLog.info('Telegram', `update ${update.update_id} carried no usable message — skipped`);
 			return;
 		}
 
 		if (!this._config.allowedChatIds.includes(chatId)) {
+			const decision = decidePairing({
+				text: message.text ?? '',
+				chatType: message.chat?.type,
+				expectedCode: this._config.pairingCode,
+				lastPromptAtMs: this._lastPairingPromptAtMs.get(chatId),
+				nowMs: Date.now(),
+			});
+			if (decision.kind === 'ignore') {
+				// Silent on purpose: any reply would tell a stranger the bot is live and let them
+				// probe codes. The owner is not disturbed either.
+				vibeLog.info('Telegram', `unbound chat ${chatId} without a valid pairing code — ignored`);
+				return;
+			}
+			if (decision.kind === 'reject') {
+				void this.send({ chatId, text: decision.reply });
+				return;
+			}
 			const from = [message.from?.first_name, message.from?.username && `@${message.from.username}`]
 				.filter(Boolean).join(' ') || undefined;
-			vibeLog.info('Telegram', `unbound chat ${chatId} wrote — asking the owner`);
+			this._lastPairingPromptAtMs.set(chatId, Date.now());
+			vibeLog.info('Telegram', `unbound chat ${chatId} sent a valid pairing code — asking the owner`);
 			this._onDidRequestBinding.fire({ chatId, from });
 			return;
 		}
@@ -248,6 +296,7 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 			void this.send({ chatId, text: 'Нет открытых окон VibeIDE — открой проект в IDE и повтори.' });
 			return;
 		}
+		vibeLog.info('Telegram', `chat ${chatId} → window ${windowId}: ${text.slice(0, 60)}`);
 		this._onDidReceiveCommand.fire({ chatId, text, voiceFileId, windowId });
 	}
 
@@ -285,10 +334,13 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 		return this._dispatcher;
 	}
 
-	private _fetch(url: string, body: unknown, timeoutMs = 30000): Promise<Response> {
+	private _fetch(url: string, body: unknown, timeoutMs = 30000, abortSignal?: AbortSignal): Promise<Response> {
+		const signal = abortSignal
+			? AbortSignal.any([abortSignal, AbortSignal.timeout(timeoutMs)])
+			: AbortSignal.timeout(timeoutMs);
 		const init: RequestInit & { dispatcher?: unknown } = {
 			method: body === undefined ? 'GET' : 'POST',
-			signal: AbortSignal.timeout(timeoutMs),
+			signal,
 			// Own dispatcher, not the LLM one: `api.telegram.org` and the model APIs are blocked
 			// in different places, and system CAs must still be honoured (plain undici ignores both
 			// the system store and the proxy — that already cost us the models.dev outage).
@@ -302,12 +354,12 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 	}
 
 	/** One Bot API call. Never throws: the caller gets a Russian reason instead. */
-	private async _call<T>(method: string, body: unknown, timeoutMs?: number): Promise<{ ok: boolean; result?: T; error?: string }> {
+	private async _call<T>(method: string, body: unknown, timeoutMs?: number, abortSignal?: AbortSignal): Promise<{ ok: boolean; result?: T; error?: string }> {
 		if (!this._config.token) {
 			return { ok: false, error: 'Токен бота не задан.' };
 		}
 		try {
-			const response = await this._fetch(`https://api.telegram.org/bot${this._config.token}/${method}`, body, timeoutMs);
+			const response = await this._fetch(`https://api.telegram.org/bot${this._config.token}/${method}`, body, timeoutMs, abortSignal);
 			const payload = await response.json() as { ok: boolean; result?: T; description?: string; error_code?: number };
 			if (!payload.ok) {
 				// 409 means another poller holds this bot — the one case where the cause is not
@@ -337,7 +389,7 @@ function timeout(ms: number): Promise<void> {
 interface TelegramUpdate {
 	readonly update_id: number;
 	readonly message?: {
-		readonly chat?: { readonly id?: number };
+		readonly chat?: { readonly id?: number; readonly type?: string };
 		readonly text?: string;
 		readonly voice?: { readonly file_id: string };
 		readonly from?: { readonly first_name?: string; readonly username?: string };

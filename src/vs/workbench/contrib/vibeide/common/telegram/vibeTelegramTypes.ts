@@ -32,6 +32,7 @@ export const VibeTelegramConfigKeys = {
 	section: 'vibeide.telegram',
 	enabled: 'vibeide.telegram.enabled',
 	allowedChatIds: 'vibeide.telegram.allowedChatIds',
+	pairingCode: 'vibeide.telegram.pairingCode',
 	proxyUrl: 'vibeide.telegram.proxy.url',
 	progressIntervalMs: 'vibeide.telegram.progressIntervalMs',
 } as const;
@@ -127,7 +128,7 @@ export interface IVibeTelegramMain {
 	 * Pushes token, proxy and the allow-list into the poller. Configuration and SecretStorage
 	 * live on the window side, so the main process is told rather than reading them itself.
 	 */
-	setConfig(config: { readonly token: string | undefined; readonly proxyUrl: string | undefined; readonly allowedChatIds: readonly number[] }): Promise<void>;
+	setConfig(config: { readonly token: string | undefined; readonly proxyUrl: string | undefined; readonly allowedChatIds: readonly number[]; readonly pairingCode: string }): Promise<void>;
 	/** Windows currently able to serve commands — the answer to `/projects`. */
 	listWindows(): Promise<readonly VibeTelegramWindow[]>;
 	/** Points a chat at a window; subsequent commands from that chat go there. */

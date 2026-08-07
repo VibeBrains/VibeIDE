@@ -22,6 +22,7 @@ import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase 
 import { IChatThreadService } from '../../browser/chatThreadService.js';
 import { vibeLog } from '../../common/vibeLog.js';
 import { parseTelegramCommand, resolveProjectChoice } from '../../common/telegram/telegramCommandParse.js';
+import { generatePairingCode } from '../../common/telegram/telegramPairing.js';
 import { formatProgressLine, markdownToTelegramHtml, splitForTelegram } from '../../common/telegram/telegramFormat.js';
 import {
 	IVibeTelegramMain,
@@ -71,6 +72,14 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 				void this._applyConfig();
 			}
 		}));
+		// The token lives in the secret store, not in settings, so a new token produces no
+		// configuration event — without this the bridge would keep polling with the old one
+		// (or stay silent) until the window was reloaded.
+		this._register(this._secrets.onDidChangeSecret(key => {
+			if (key === VIBE_TELEGRAM_TOKEN_SECRET_KEY) {
+				void this._applyConfig();
+			}
+		}));
 
 		void this._start();
 	}
@@ -97,10 +106,12 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 	private async _applyConfig(): Promise<void> {
 		const enabled = this._configurationService.getValue<boolean>(VibeTelegramConfigKeys.enabled) === true;
 		const token = await this._secrets.get(VIBE_TELEGRAM_TOKEN_SECRET_KEY);
+		const pairingCode = await this._ensurePairingCode();
 		await this._main.setConfig({
 			token: enabled ? token : undefined,
 			proxyUrl: this._configurationService.getValue<string>(VibeTelegramConfigKeys.proxyUrl) || undefined,
 			allowedChatIds: this._configurationService.getValue<number[]>(VibeTelegramConfigKeys.allowedChatIds) ?? [],
+			pairingCode,
 		});
 
 		if (!enabled) {
@@ -118,6 +129,20 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		} else if (status.state === 'listening') {
 			vibeLog.info('Telegram', `bridge listening as ${status.botUsername ?? 'бот'}`);
 		}
+	}
+
+	/**
+	 * The pairing code, generated on first use. Without it an unbound chat is ignored entirely,
+	 * so an empty code must never reach the poller — that would mean "anyone may ask".
+	 */
+	private async _ensurePairingCode(): Promise<string> {
+		const existing = this._configurationService.getValue<string>(VibeTelegramConfigKeys.pairingCode);
+		if (existing) {
+			return existing;
+		}
+		const code = generatePairingCode(max => Math.floor(Math.random() * max));
+		await this._configurationService.updateValue(VibeTelegramConfigKeys.pairingCode, code);
+		return code;
 	}
 
 	/**
@@ -255,7 +280,11 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		if (state?.isRunning) {
 			const interval = this._configurationService.getValue<number>(VibeTelegramConfigKeys.progressIntervalMs) ?? VIBE_TELEGRAM_PROGRESS_INTERVAL_MS;
 			const now = Date.now();
-			if (run.progressMessageId === undefined || now - run.lastEditMs < interval) {
+			// The FIRST update is not throttled: a run that ends quickly would otherwise leave
+			// "Работаю 0 с" on the phone forever, which reads as a hung bridge rather than a
+			// finished job. Subsequent updates keep the interval so the chat is not spammed.
+			const isFirstUpdate = run.lastEditMs === 0;
+			if (run.progressMessageId === undefined || (!isFirstUpdate && now - run.lastEditMs < interval)) {
 				return;
 			}
 			this._activeRuns.set(threadId, { ...run, lastEditMs: now });
