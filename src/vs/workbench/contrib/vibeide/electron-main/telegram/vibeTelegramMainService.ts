@@ -4,18 +4,26 @@
  *--------------------------------------------------------------------------------------------*/
 
 
+import { promises as fsPromises } from 'fs';
+import { join } from '../../../../../base/common/path.js';
+import { tmpdir } from 'os';
 import { Emitter, Event } from '../../../../../base/common/event.js';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { ILogService } from '../../../../../platform/log/common/log.js';
 import { vibeLog } from '../../common/vibeLog.js';
 import { createProxyDispatcher } from '../llmMessage/systemCAFetch.js';
 import { decidePairing } from '../../common/telegram/telegramPairing.js';
+import { VoiceProfileId } from '../../common/voice/vibeVoiceTypes.js';
+import { VibeVoiceMainService } from '../voice/vibeVoiceMainService.js';
+import { VibeVideoMainService } from '../video/vibeVideoMainService.js';
 import {
 	IVibeTelegramMain,
 	VibeTelegramCommandForWindow,
 	VibeTelegramDelivery,
 	VibeTelegramOutbound,
 	VibeTelegramStatus,
+	VibeTelegramTranscription,
+	VibeTelegramVoiceReadiness,
 	VibeTelegramWindow,
 	VSBufferLike,
 } from '../../common/telegram/vibeTelegramTypes.js';
@@ -33,6 +41,8 @@ export interface VibeTelegramRuntimeConfig {
 	readonly allowedChatIds: readonly number[];
 	/** Code an unbound chat must send before the owner is even asked. */
 	readonly pairingCode: string;
+	/** Language profile for transcribing voice messages — same setting the dictation uses. */
+	readonly voiceProfile: VoiceProfileId;
 }
 
 /**
@@ -59,7 +69,7 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 	readonly onDidAnswerApproval: Event<{ token: string; approved: boolean }> = this._onDidAnswerApproval.event;
 
 	private _status: VibeTelegramStatus = { state: 'off' };
-	private _config: VibeTelegramRuntimeConfig = { token: undefined, proxyUrl: undefined, allowedChatIds: [], pairingCode: '' };
+	private _config: VibeTelegramRuntimeConfig = { token: undefined, proxyUrl: undefined, allowedChatIds: [], pairingCode: '', voiceProfile: 'ru' };
 	/** When each unbound chat last made the IDE ask — throttles the confirmation prompt. */
 	private readonly _lastPairingPromptAtMs = new Map<number, number>();
 	/** Windows that announced themselves, newest registration last. */
@@ -82,13 +92,23 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 
 	constructor(
 		private readonly _log: ILogService,
+		// Voice re-uses what other features already downloaded: ffmpeg ships with the video tools
+		// (`/watch`), the offline model with local speech. Writing a second decoder here would
+		// mean a second download of the same binary.
+		private readonly _voice: VibeVoiceMainService,
+		private readonly _video: VibeVideoMainService,
 	) {
 		super();
 	}
 
+	/** Language profile of the offline recogniser, pushed from the window with the settings. */
+	private _voiceProfile: VoiceProfileId = 'ru';
+
+
 	/** Pushed from the window side, which owns configuration and SecretStorage. */
 	async setConfig(config: VibeTelegramRuntimeConfig): Promise<void> {
 		this._config = config;
+		this._voiceProfile = config.voiceProfile;
 	}
 
 	async getStatus(): Promise<VibeTelegramStatus> {
@@ -195,6 +215,87 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 		} catch (e) {
 			vibeLog.error('Telegram', `voice download failed: ${(e as Error).message}`);
 			return undefined;
+		}
+	}
+
+	/** Whether voice input can run right now, and what is still missing. */
+	async getVoiceReadiness(): Promise<VibeTelegramVoiceReadiness> {
+		const tools = this._video.getToolsState();
+		const model = this._voice.getBatchState(this._voiceProfile);
+		if (tools.state === 'missing' && tools.downloadBytes === 0) {
+			// The video tools report zero bytes on platforms they have no build for; voice cannot
+			// work there at all, and saying "download" would send the user in circles.
+			return { state: 'unsupported', downloadMb: 0, detail: 'Распознавание речи недоступно на этой платформе.' };
+		}
+		if (tools.state === 'downloading' || model.state === 'downloading') {
+			return { state: 'downloading', downloadMb: 0, detail: 'Компоненты распознавания скачиваются…' };
+		}
+		if (tools.state === 'ready' && model.state === 'ready') {
+			return { state: 'ready', downloadMb: 0, detail: 'Голосовые сообщения распознаются локально, на этом компьютере.' };
+		}
+		const bytes = (tools.state === 'ready' ? 0 : tools.downloadBytes) + (model.state === 'ready' ? 0 : model.downloadBytes);
+		const mb = Math.max(1, Math.round(bytes / (1024 * 1024)));
+		return {
+			state: 'needsDownload',
+			downloadMb: mb,
+			detail: `Для голосовых нужно скачать ~${mb} МБ (ffmpeg и офлайн-модель распознавания). Скачается автоматически при первом голосовом.`,
+		};
+	}
+
+	/** Downloads the voice components without waiting for a first voice message. */
+	async prepareVoice(): Promise<void> {
+		const readiness = await this.getVoiceReadiness();
+		if (readiness.state === 'ready' || readiness.state === 'unsupported') {
+			return;
+		}
+		await this._video.ensureTools();
+		await this._voice.ensureBatchModel(this._voiceProfile);
+	}
+
+	/**
+	 * Voice message → text, entirely on this machine. Reuses the `/watch` pipeline: the file is
+	 * handed to the video service as a local media path, which decodes it with ffmpeg and runs
+	 * the offline recogniser — no second decoder, no second copy of the binary.
+	 */
+	async transcribeVoice(fileId: string): Promise<VibeTelegramTranscription> {
+		const readiness = await this.getVoiceReadiness();
+		if (readiness.state === 'unsupported') {
+			return { ok: false, reason: readiness.detail };
+		}
+
+		let oggPath: string | undefined;
+		const requestId = `telegram-voice-${fileId.slice(-12)}`;
+		try {
+			if (readiness.state !== 'ready') {
+				vibeLog.info('Telegram', `voice components missing (~${readiness.downloadMb} MB) — downloading`);
+				await this._video.ensureTools();
+				await this._voice.ensureBatchModel(this._voiceProfile);
+			}
+
+			const audio = await this.downloadVoice(fileId);
+			if (!audio) {
+				return { ok: false, reason: 'Не удалось скачать голосовое сообщение из Telegram.' };
+			}
+			oggPath = join(tmpdir(), `${requestId}.oga`);
+			await fsPromises.writeFile(oggPath, audio.buffer);
+
+			await this._video.analyze({ requestId, input: oggPath });
+			const segments = await this._video.transcribe(requestId, this._voiceProfile);
+			const text = segments.map(s => s.text).join(' ').replace(/\s+/g, ' ').trim();
+			if (!text) {
+				return { ok: false, reason: 'В голосовом сообщении не разобрано ни слова — попробуйте ещё раз или напишите текстом.' };
+			}
+			vibeLog.info('Telegram', `voice transcribed: ${text.length} chars`);
+			return { ok: true, text };
+		} catch (e) {
+			vibeLog.error('Telegram', `voice transcription failed: ${(e as Error).message}`);
+			return { ok: false, reason: `Не смог распознать голосовое: ${(e as Error).message}` };
+		} finally {
+			// Both cleanups are best-effort: a leftover temp file must never fail the message.
+			try { await this._video.cleanup(requestId); } catch { /* already gone */ }
+			if (oggPath) {
+				try { await fsPromises.unlink(oggPath); } catch { /* already gone */ }
+			}
 		}
 	}
 

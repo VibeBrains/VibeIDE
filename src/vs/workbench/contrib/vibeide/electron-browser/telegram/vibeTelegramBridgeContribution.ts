@@ -23,6 +23,7 @@ import { IChatThreadService } from '../../browser/chatThreadService.js';
 import { vibeLog } from '../../common/vibeLog.js';
 import { parseTelegramCommand, resolveProjectChoice } from '../../common/telegram/telegramCommandParse.js';
 import { generatePairingCode } from '../../common/telegram/telegramPairing.js';
+import { resolveVoiceProfile } from '../../common/voice/vibeVoiceModels.js';
 import { formatProgressLine, markdownToTelegramHtml, splitForTelegram } from '../../common/telegram/telegramFormat.js';
 import {
 	IVibeTelegramMain,
@@ -61,9 +62,14 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		this._main = ProxyChannel.toService<IVibeTelegramMain>(mainProcessService.getChannel(VIBE_TELEGRAM_CHANNEL));
 
 		this._register(this._main.onDidReceiveCommand(e => {
-			if (e.windowId === this._windowId) {
-				void this._executeCommand(e.chatId, e.text);
+			if (e.windowId !== this._windowId) {
+				return;
 			}
+			if (e.voiceFileId) {
+				void this._executeVoice(e.chatId, e.voiceFileId);
+				return;
+			}
+			void this._executeCommand(e.chatId, e.text);
 		}));
 		this._register(this._main.onDidRequestBinding(e => void this._askToBind(e.chatId, e.from)));
 		this._register(this._chatThreadService.onDidChangeStreamState(e => void this._onStreamStateChanged(e.threadId)));
@@ -112,6 +118,9 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			proxyUrl: this._configurationService.getValue<string>(VibeTelegramConfigKeys.proxyUrl) || undefined,
 			allowedChatIds: this._configurationService.getValue<number[]>(VibeTelegramConfigKeys.allowedChatIds) ?? [],
 			pairingCode,
+			// Same setting the in-IDE dictation uses, so a voice message and the microphone are
+			// never recognised in different languages.
+			voiceProfile: resolveVoiceProfile(this._configurationService.getValue<unknown>('accessibility.voice.speechLanguage')),
 		});
 
 		if (!enabled) {
@@ -167,6 +176,33 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		}
 		await this._applyConfig();
 		await this._main.send({ chatId, text: markdownToTelegramHtml('Чат привязан. Напиши задачу текстом или `/help` — покажу команды.') });
+	}
+
+	/**
+	 * A voice message: transcribe locally, then treat the transcript exactly like typed text.
+	 * The transcript is echoed back first — recognition is never perfect, and seeing what the
+	 * agent was actually asked beats wondering why it did something else.
+	 */
+	private async _executeVoice(chatId: number, voiceFileId: string): Promise<void> {
+		const readiness = await this._main.getVoiceReadiness();
+		if (readiness.state === 'needsDownload') {
+			// Said once, before the wait: a silent minute of downloading reads as a hung bridge.
+			await this._reply(chatId, `🎧 Первое голосовое: скачиваю распознавание (~${readiness.downloadMb} МБ). Дальше будет сразу.`);
+		} else if (readiness.state !== 'ready') {
+			await this._reply(chatId, readiness.detail);
+			if (readiness.state === 'unsupported') {
+				return;
+			}
+		}
+
+		const notice = await this._main.send({ chatId, text: '🎧 Распознаю…' });
+		const result = await this._main.transcribeVoice(voiceFileId);
+		if (!result.ok) {
+			await this._main.send({ chatId, editMessageId: notice.messageId, text: `❌ ${result.reason}` });
+			return;
+		}
+		await this._main.send({ chatId, editMessageId: notice.messageId, text: `🎧 «${result.text}»` });
+		await this._executeCommand(chatId, result.text);
 	}
 
 	// --- commands --------------------------------------------------------------------------
@@ -377,5 +413,49 @@ registerAction2(class VibeTelegramSetToken extends Action2 {
 		}
 		await secrets.set(VIBE_TELEGRAM_TOKEN_SECRET_KEY, token.trim());
 		notifications.info(localize('vibeide.telegram.tokenSaved', "Токен сохранён. Включите мост настройкой «vibeide.telegram.enabled»."));
+	}
+});
+
+/**
+ * Voice readiness for the settings panel. A command rather than a service: the panel needs one
+ * number and one state, and the bridge already owns the channel to the main process.
+ */
+registerAction2(class VibeTelegramVoiceReadiness extends Action2 {
+	constructor() {
+		super({ id: 'vibeide.telegram.voiceReadiness', title: localize2('vibeide.telegram.voiceReadiness', 'VibeIDE: Состояние распознавания голосовых'), f1: false });
+	}
+
+	async run(accessor: ServicesAccessor): Promise<unknown> {
+		const main = ProxyChannel.toService<IVibeTelegramMain>(accessor.get(IMainProcessService).getChannel(VIBE_TELEGRAM_CHANNEL));
+		return main.getVoiceReadiness();
+	}
+});
+
+/** Downloads the voice components ahead of time, so the first voice message is not a wait. */
+registerAction2(class VibeTelegramDownloadVoice extends Action2 {
+	constructor() {
+		super({ id: 'vibeide.telegram.downloadVoice', title: localize2('vibeide.telegram.downloadVoice', 'VibeIDE: Скачать распознавание голосовых'), f1: true });
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const main = ProxyChannel.toService<IVibeTelegramMain>(accessor.get(IMainProcessService).getChannel(VIBE_TELEGRAM_CHANNEL));
+		const notifications = accessor.get(INotificationService);
+		const before = await main.getVoiceReadiness();
+		if (before.state === 'ready') {
+			notifications.info(localize('vibeide.telegram.voiceAlready', "Распознавание голосовых уже готово."));
+			return;
+		}
+		if (before.state === 'unsupported') {
+			notifications.warn(before.detail);
+			return;
+		}
+		notifications.info(localize('vibeide.telegram.voiceDownloading', "Качаю компоненты распознавания (~{0} МБ). Можно продолжать работать.", before.downloadMb));
+		await main.prepareVoice();
+		const after = await main.getVoiceReadiness();
+		if (after.state === 'ready') {
+			notifications.info(localize('vibeide.telegram.voiceReady', "Распознавание голосовых готово."));
+		} else {
+			notifications.error(localize('vibeide.telegram.voiceFailed', "Не удалось подготовить распознавание: {0}", after.detail));
+		}
 	}
 });

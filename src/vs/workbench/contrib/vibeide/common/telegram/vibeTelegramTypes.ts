@@ -105,6 +105,23 @@ export interface VibeTelegramDelivery {
 	readonly error?: string;
 }
 
+/** Outcome of transcribing one voice message. */
+export type VibeTelegramTranscription =
+	| { readonly ok: true; readonly text: string }
+	| { readonly ok: false; readonly reason: string };
+
+/**
+ * What voice input still needs. Both parts are downloaded on demand and shared with other
+ * features: `ffmpeg` comes with the video tools (`/watch`), the model with offline speech.
+ */
+export interface VibeTelegramVoiceReadiness {
+	readonly state: 'ready' | 'needsDownload' | 'downloading' | 'unsupported';
+	/** Total megabytes still to download, for an honest prompt before it starts. */
+	readonly downloadMb: number;
+	/** Human-readable detail in Russian for the settings panel. */
+	readonly detail: string;
+}
+
 /** State of the bridge, mirrored into the IDE UI. */
 export interface VibeTelegramStatus {
 	readonly state: 'off' | 'connecting' | 'listening' | 'error';
@@ -128,7 +145,7 @@ export interface IVibeTelegramMain {
 	 * Pushes token, proxy and the allow-list into the poller. Configuration and SecretStorage
 	 * live on the window side, so the main process is told rather than reading them itself.
 	 */
-	setConfig(config: { readonly token: string | undefined; readonly proxyUrl: string | undefined; readonly allowedChatIds: readonly number[]; readonly pairingCode: string }): Promise<void>;
+	setConfig(config: { readonly token: string | undefined; readonly proxyUrl: string | undefined; readonly allowedChatIds: readonly number[]; readonly pairingCode: string; readonly voiceProfile: 'ru' | 'en' }): Promise<void>;
 	/** Windows currently able to serve commands — the answer to `/projects`. */
 	listWindows(): Promise<readonly VibeTelegramWindow[]>;
 	/** Points a chat at a window; subsequent commands from that chat go there. */
@@ -145,6 +162,16 @@ export interface IVibeTelegramMain {
 	send(message: VibeTelegramOutbound): Promise<VibeTelegramDelivery>;
 	/** Downloads a voice message and returns its bytes for local transcription. */
 	downloadVoice(fileId: string): Promise<VSBufferLike | undefined>;
+	/**
+	 * Downloads a voice message and transcribes it locally (ffmpeg decode + offline STT).
+	 * Never throws: an unusable result comes back as a reason in Russian, because the only
+	 * place it can be shown is the chat the voice came from.
+	 */
+	transcribeVoice(fileId: string): Promise<VibeTelegramTranscription>;
+	/** Whether voice input is usable right now, and what is missing if not. */
+	getVoiceReadiness(): Promise<VibeTelegramVoiceReadiness>;
+	/** Downloads the voice components up front, so the first voice message is not a wait. */
+	prepareVoice(): Promise<void>;
 }
 
 /**

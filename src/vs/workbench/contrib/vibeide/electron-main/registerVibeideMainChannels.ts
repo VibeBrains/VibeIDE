@@ -133,14 +133,6 @@ export function registerVibeideMainProcessChannels(
 		accessor.get(IWindowsMainService),
 		accessor.get(ILogService),
 	));
-	// Telegram bridge: the poller belongs to the main process because there is exactly one per
-	// application — two windows polling the same bot would collide on 409 Conflict.
-	const telegramService = disposables.add(new VibeTelegramMainService(accessor.get(ILogService)));
-	mainProcessElectronServer.registerChannel(
-		VIBE_TELEGRAM_CHANNEL,
-		ProxyChannel.fromService(telegramService, disposables),
-	);
-
 	mainProcessElectronServer.registerChannel(
 		VIBE_WINDOW_ATTENTION_CHANNEL,
 		ProxyChannel.fromService(windowAttentionService, disposables),
@@ -185,6 +177,20 @@ export function registerVibeideMainProcessChannels(
 		vibeVoiceMainService,
 	));
 	mainProcessElectronServer.registerChannel(VIBE_VIDEO_CHANNEL, new VibeVideoChannel(vibeVideoMainService));
+
+	// Telegram bridge: the poller belongs to the main process because there is exactly one per
+	// application — two windows polling the same bot would collide on 409 Conflict. Created after
+	// voice and video because transcription of voice messages reuses both (ffmpeg + offline STT)
+	// instead of shipping a second decoder.
+	const telegramService = disposables.add(new VibeTelegramMainService(
+		accessor.get(ILogService),
+		vibeVoiceMainService,
+		vibeVideoMainService,
+	));
+	mainProcessElectronServer.registerChannel(
+		VIBE_TELEGRAM_CHANNEL,
+		ProxyChannel.fromService(telegramService, disposables),
+	);
 }
 
 // Re-exported for `app.ts#configureSession()`: keeps the vs/code → vibeide bridge to the

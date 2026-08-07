@@ -1944,6 +1944,7 @@ const TelegramBridgeCard = () => {
 	const configurationService = accessor.get('IConfigurationService');
 	const secrets = accessor.get('ISecretStorageService');
 	const notificationService = accessor.get('INotificationService');
+	const commandService = accessor.get('ICommandService');
 
 	const [enabled, setEnabled] = useState<boolean>(() => configurationService.getValue<boolean>('vibeide.telegram.enabled') === true);
 	const [proxy, setProxy] = useState<string>(() => configurationService.getValue<string>('vibeide.telegram.proxy.url') ?? '');
@@ -1951,6 +1952,7 @@ const TelegramBridgeCard = () => {
 	const [pairingCode, setPairingCode] = useState<string>(() => configurationService.getValue<string>('vibeide.telegram.pairingCode') ?? '');
 	const [tokenPresent, setTokenPresent] = useState<boolean>(false);
 	const [tokenDraft, setTokenDraft] = useState<string>('');
+	const [voice, setVoice] = useState<{ state: string; downloadMb: number } | undefined>(undefined);
 
 	useEffect(() => {
 		let alive = true;
@@ -1970,6 +1972,24 @@ const TelegramBridgeCard = () => {
 		});
 		return () => d.dispose();
 	}, [configurationService]);
+
+	useEffect(() => {
+		let alive = true;
+		const read = () => { void commandService.executeCommand('vibeide.telegram.voiceReadiness').then((r: unknown) => {
+			if (alive && r) { setVoice(r as { state: string; downloadMb: number }); }
+		}); };
+		read();
+		// Re-read while a download is in flight: the panel must stop saying "нужно скачать"
+		// on its own, or the user will think the click did nothing.
+		const timer = setInterval(read, 3000);
+		return () => { alive = false; clearInterval(timer); };
+	}, [commandService]);
+
+	const voiceLine = !voice ? ''
+		: voice.state === 'ready' ? telegramS.voiceReady
+			: voice.state === 'downloading' ? telegramS.voiceDownloading
+				: voice.state === 'unsupported' ? telegramS.voiceUnsupported
+					: telegramS.voiceNeedsDownload(voice.downloadMb);
 
 	const saveToken = async (value: string) => {
 		const trimmed = value.trim();
@@ -2036,6 +2056,18 @@ const TelegramBridgeCard = () => {
 					compact={true}
 				/>
 				<div className='py-1 opacity-50 text-sm'>{telegramS.proxyHint}</div>
+			</div>
+
+			<div className='my-2'>
+				<div className='text-sm mb-1'>{telegramS.voiceTitle}</div>
+				<div className='text-sm opacity-70'>{voiceLine}</div>
+				{voice?.state === 'needsDownload' ? (
+					<VibeButtonBgDarken
+						className='px-2 py-1 text-sm mt-1'
+						onClick={() => { void commandService.executeCommand('vibeide.telegram.downloadVoice'); }}
+					>{telegramS.voiceDownloadNow}</VibeButtonBgDarken>
+				) : null}
+				<div className='py-1 opacity-50 text-sm'>{telegramS.voiceShared}</div>
 			</div>
 
 			<div className='my-2 text-sm'>
