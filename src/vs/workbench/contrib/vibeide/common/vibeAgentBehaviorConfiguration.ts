@@ -113,6 +113,13 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			scope: ConfigurationScope.RESOURCE,
 			description: localize('vibeide.agent.externalAccessAllowlist', 'Список папок ВНЕ рабочей области, к которым агенту разрешён доступ (гранулярная альтернатива глобальному тогглу). Доступ распространяется на папку и её содержимое. Управляется командами «VibeIDE: Разрешить папку для доступа агента» / «Отозвать». Сессионные разрешения сюда не пишутся (живут до перезагрузки окна).'),
 		},
+		'vibeide.agent.referenceFolders': {
+			type: 'array',
+			items: { type: 'string' },
+			default: [],
+			scope: ConfigurationScope.RESOURCE,
+			markdownDescription: localize('vibeide.agent.referenceFolders', 'Папки-справочники ВНЕ рабочей области: агент может их **читать, но не изменять** — материалы, заметки, чужие репозитории, на которые вы ссылаетесь.\n\nОтличие от `vibeide.agent.externalAccessAllowlist`: тот список даёт и чтение, и запись. Здесь запись отклоняется всегда, поэтому «не трогай эту папку» перестаёт быть пожеланием в промте и становится настройкой. Доступ распространяется на папку и её содержимое.'),
+		},
 		'vibeide.agent.maxLoopIterations': {
 			type: 'number',
 			default: 0,

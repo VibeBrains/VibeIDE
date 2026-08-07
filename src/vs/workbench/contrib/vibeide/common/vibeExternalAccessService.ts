@@ -31,6 +31,9 @@ export class ExternalAccessRequiredError extends Error {
  *  read access globally. */
 export const PERSISTED_ALLOWLIST_KEY = 'vibeide.agent.externalAccessAllowlist';
 
+/** Reference folders: readable by the agent, never writable. See {@link isAllowed}. */
+export const READ_ONLY_FOLDERS_KEY = 'vibeide.agent.referenceFolders';
+
 // ── Pure core (testable, no DI) ────────────────────────────────────────────────
 
 /** Normalize a folder path for allowlist comparison: `\`→`/`, drop trailing slash,
@@ -60,8 +63,14 @@ export interface ExternalAccessEntry { readonly path: string; readonly scope: Ex
 export interface IVibeExternalAccessService {
 	readonly _serviceBrand: undefined;
 	readonly onDidChangeAllowlist: Event<void>;
-	/** True when `uri` is under a user-allowed external folder (session or workspace). */
-	isAllowed(uri: URI): boolean;
+	/**
+	 * True when `uri` is under a user-allowed external folder (session or workspace).
+	 *
+	 * Reference folders count for `read` only. A knowledge base is something to consult, not to
+	 * edit, and "don't touch it" in a prompt is a wish while a folder the write path never accepts
+	 * is a setting — the wish is the one that fails at 3am.
+	 */
+	isAllowed(uri: URI, accessKind?: 'read' | 'write'): boolean;
 	/** Authorize a folder (the file's containing folder when a file URI is passed). */
 	allowFolder(folder: URI, scope: ExternalAccessScope): Promise<void>;
 	/** Variant B — prompt the user to authorize the folder containing `uri` (deduped per folder
@@ -98,8 +107,15 @@ export class VibeExternalAccessService extends Disposable implements IVibeExtern
 		return this._config.getValue<string[]>(PERSISTED_ALLOWLIST_KEY) ?? [];
 	}
 
-	isAllowed(uri: URI): boolean {
-		return isPathAllowed(uri.fsPath, [...this._session, ...this._workspaceFolders()], this._caseSensitive);
+	/** Folders the agent may read but never write — reference material, not working copies. */
+	private _referenceFolders(): string[] {
+		return this._config.getValue<string[]>(READ_ONLY_FOLDERS_KEY) ?? [];
+	}
+
+	isAllowed(uri: URI, accessKind: 'read' | 'write' = 'read'): boolean {
+		const writable = [...this._session, ...this._workspaceFolders()];
+		const folders = accessKind === 'write' ? writable : [...writable, ...this._referenceFolders()];
+		return isPathAllowed(uri.fsPath, folders, this._caseSensitive);
 	}
 
 	async allowFolder(folder: URI, scope: ExternalAccessScope): Promise<void> {

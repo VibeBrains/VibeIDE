@@ -55,3 +55,23 @@ suite('vibeExternalAccess — per-folder allowlist (O.13 Variant A)', () => {
 		assert.strictEqual(normalizeFolderPath('/A/B/', true), '/A/B');
 	});
 });
+
+suite('vibeExternalAccess — reference folders are read-only', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('a reference folder answers yes to read and no to write', () => {
+		const writable = ['/work/project'];
+		const reference = ['/home/notes'];
+		const readFolders = [...writable, ...reference];
+		assert.deepStrictEqual(
+			{
+				readInReference: isPathAllowed('/home/notes/idea.md', readFolders, true),
+				writeInReference: isPathAllowed('/home/notes/idea.md', writable, true),
+				writeInAllowlist: isPathAllowed('/work/project/a.ts', writable, true),
+				// Boundary, not substring: allowing /home/notes must not leak /home/notes-secret.
+				neighbour: isPathAllowed('/home/notes-secret/x.md', readFolders, true),
+			},
+			{ readInReference: true, writeInReference: false, writeInAllowlist: true, neighbour: false },
+		);
+	});
+});

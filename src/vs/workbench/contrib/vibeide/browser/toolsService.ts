@@ -374,9 +374,11 @@ export class ToolsService implements IToolsService {
 			this._configurationService.getValue<boolean>('vibeide.agent.allowReadOutsideWorkspace') === false;
 		const requireWorkspaceForWrite = (): boolean =>
 			this._configurationService.getValue<boolean>('vibeide.agent.allowWriteOutsideWorkspace') !== true;
-		const isAllowedOutside = (u: URI) => this._externalAccess.isAllowed(u);
-		const validateReadURI = (u: unknown) => validateURI(u, workspaceContextService, requireWorkspaceForRead(), 'read', isAllowedOutside);
-		const validateWriteURI = (u: unknown) => validateURI(u, workspaceContextService, requireWorkspaceForWrite(), 'write', isAllowedOutside);
+		// Read and write ask separately: a reference folder answers yes to one and no to the other.
+		const isAllowedToRead = (u: URI) => this._externalAccess.isAllowed(u, 'read');
+		const isAllowedToWrite = (u: URI) => this._externalAccess.isAllowed(u, 'write');
+		const validateReadURI = (u: unknown) => validateURI(u, workspaceContextService, requireWorkspaceForRead(), 'read', isAllowedToRead);
+		const validateWriteURI = (u: unknown) => validateURI(u, workspaceContextService, requireWorkspaceForWrite(), 'write', isAllowedToWrite);
 		const validateOptionalReadURI = (u: unknown) => isFalsy(u) ? null : validateReadURI(u);
 
 		this.validateParams = {
