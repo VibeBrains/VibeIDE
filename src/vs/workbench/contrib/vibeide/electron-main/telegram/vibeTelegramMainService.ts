@@ -6,7 +6,7 @@
 
 import { promises as fsPromises } from 'fs';
 import { join } from '../../../../../base/common/path.js';
-import { tmpdir } from 'os';
+import { homedir, tmpdir } from 'os';
 import { Emitter, Event } from '../../../../../base/common/event.js';
 import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { ILogService } from '../../../../../platform/log/common/log.js';
@@ -14,6 +14,7 @@ import { vibeLog } from '../../common/vibeLog.js';
 import { createProxyDispatcher } from '../llmMessage/systemCAFetch.js';
 import { decidePairing } from '../../common/telegram/telegramPairing.js';
 import { encodeCommandCallback, parseTelegramCallback } from '../../common/telegram/telegramCallback.js';
+import { decideTelegramLock, VIBE_TELEGRAM_LOCK_REFRESH_MS, VibeTelegramLockFile } from '../../common/telegram/telegramLock.js';
 import { VoiceProfileId } from '../../common/voice/vibeVoiceTypes.js';
 import { VibeVoiceMainService } from '../voice/vibeVoiceMainService.js';
 import { VibeVideoMainService } from '../video/vibeVideoMainService.js';
@@ -91,6 +92,8 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 	 * polls on one bot are exactly what Telegram answers with 409 Conflict.
 	 */
 	private _pollAbort: AbortController | undefined;
+	/** Keeps the bot lock warm while this process polls; cleared on stop. */
+	private _lockHeartbeat: ReturnType<typeof setInterval> | undefined;
 
 	constructor(
 		private readonly _log: ILogService,
@@ -148,8 +151,19 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 		}
 
 		this._setStatus({ state: 'connecting' });
+
+		// Claim the bot before the first poll. Two instances polling one token is not an error
+		// Telegram reports — the loser just receives empty lists forever, looking perfectly
+		// healthy while every message goes to the other process.
+		const claim = await this._claimBotLock();
+		if (claim) {
+			vibeLog.warn('Telegram', `bot already served by pid ${claim.holderPid} — not polling here`);
+			return this._setStatus({ state: 'error', error: claim.message });
+		}
+
 		const me = await this._call<{ username?: string }>('getMe', {});
 		if (!me.ok) {
+			await this._releaseBotLock();
 			return this._setStatus({ state: 'error', error: me.error });
 		}
 
@@ -165,6 +179,7 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 		this._generation += 1;
 		this._pollAbort?.abort();
 		this._pollAbort = undefined;
+		await this._releaseBotLock();
 		if (this._status.state !== 'off') {
 			this._setStatus({ state: 'off' });
 		}
@@ -310,6 +325,82 @@ export class VibeTelegramMainService extends Disposable implements IVibeTelegram
 			try { await this._video.cleanup(requestId); } catch { /* already gone */ }
 			if (oggPath) {
 				try { await fsPromises.unlink(oggPath); } catch { /* already gone */ }
+			}
+		}
+	}
+
+	// --- bot ownership ---------------------------------------------------------------------
+
+	/**
+	 * Path of the lock, shared by EVERY VibeIDE on this machine.
+	 *
+	 * Deliberately not under `userData`: a dev build and an installed build have different
+	 * user-data folders, and those are exactly the two that end up fighting over one bot.
+	 */
+	private _lockPath(): string {
+		return join(homedir(), '.vibe', 'telegram-bot.lock');
+	}
+
+	/** Reads the lock, or `undefined` when it is missing or unreadable (treated as "free"). */
+	private async _readLock(): Promise<VibeTelegramLockFile | undefined> {
+		try {
+			const raw = await fsPromises.readFile(this._lockPath(), 'utf-8');
+			const parsed = JSON.parse(raw) as VibeTelegramLockFile;
+			return typeof parsed?.pid === 'number' ? parsed : undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
+	private async _writeLock(): Promise<void> {
+		const lock: VibeTelegramLockFile = { pid: process.pid, refreshedAtMs: Date.now(), appName: process.env['VSCODE_DEV'] ? 'VibeIDE (dev)' : 'VibeIDE' };
+		const path = this._lockPath();
+		await fsPromises.mkdir(join(homedir(), '.vibe'), { recursive: true });
+		await fsPromises.writeFile(path, JSON.stringify(lock), 'utf-8');
+	}
+
+	/**
+	 * Takes the bot lock, or reports who holds it. Returns `undefined` when polling may start.
+	 */
+	private async _claimBotLock(): Promise<{ holderPid: number; message: string } | undefined> {
+		const decision = decideTelegramLock({
+			existing: await this._readLock(),
+			nowMs: Date.now(),
+			ownPid: process.pid,
+			pidAlive: pid => {
+				try {
+					// Signal 0 probes existence without touching the process.
+					process.kill(pid, 0);
+					return true;
+				} catch {
+					return false;
+				}
+			},
+		});
+		if (decision.kind === 'yield') {
+			return {
+				holderPid: decision.holderPid,
+				message: `Бота уже слушает другой запущенный VibeIDE${decision.appName ? ` (${decision.appName})` : ''}, процесс ${decision.holderPid}. Один бот обслуживается одним приложением — закройте лишнее окно или выключите мост в нём.`,
+			};
+		}
+
+		await this._writeLock();
+		this._lockHeartbeat = setInterval(() => void this._writeLock().catch(() => { /* a missed heartbeat is recoverable */ }), VIBE_TELEGRAM_LOCK_REFRESH_MS);
+		return undefined;
+	}
+
+	/** Drops the lock so the next instance can take over without waiting out the stale window. */
+	private async _releaseBotLock(): Promise<void> {
+		if (this._lockHeartbeat) {
+			clearInterval(this._lockHeartbeat);
+			this._lockHeartbeat = undefined;
+		}
+		const existing = await this._readLock();
+		if (existing?.pid === process.pid) {
+			try {
+				await fsPromises.unlink(this._lockPath());
+			} catch {
+				// Someone removed it already, or the disk is unhappy; the stale window covers us.
 			}
 		}
 	}

@@ -10,6 +10,7 @@ import { decidePairing, extractPairingCode, generatePairingCode, PAIRING_PROMPT_
 import { markdownToTelegramHtml, splitForTelegram, escapeTelegramHtml, formatProgressLine, formatToolRequestPreview, TELEGRAM_MESSAGE_LIMIT, TELEGRAM_PREVIEW_VALUE_LIMIT } from '../../common/telegram/telegramFormat.js';
 import { shouldMirrorApproval } from '../../common/telegram/telegramApprovalPolicy.js';
 import { encodeCommandCallback, parseTelegramCallback, TELEGRAM_CALLBACK_DATA_LIMIT } from '../../common/telegram/telegramCallback.js';
+import { decideTelegramLock, VIBE_TELEGRAM_LOCK_STALE_MS } from '../../common/telegram/telegramLock.js';
 
 suite('Telegram bridge — command parsing', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -261,6 +262,41 @@ suite('Telegram bridge — remote control buttons', () => {
 		assert.deepStrictEqual(
 			[parseTelegramCommand('/menu'), parseTelegramCommand('/menu@my_bot'), parseTelegramCommand('/menuscript сломался')],
 			[{ kind: 'menu' }, { kind: 'menu' }, { kind: 'run', prompt: '/menuscript сломался' }],
+		);
+	});
+});
+
+suite('Telegram bridge — who owns the bot', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	const now = 1_700_000_000_000;
+	const alive = () => true;
+	const dead = () => false;
+
+	test('a live holder is respected; a dead or stale one is taken over', () => {
+		assert.deepStrictEqual(
+			[
+				decideTelegramLock({ existing: undefined, nowMs: now, ownPid: 10, pidAlive: alive }),
+				// Someone else is polling right now — starting a second poller would silently
+				// swallow every message, which is exactly the failure this lock exists to prevent.
+				decideTelegramLock({ existing: { pid: 7, refreshedAtMs: now - 1000, appName: 'VibeIDE (dev)' }, nowMs: now, ownPid: 10, pidAlive: alive }),
+				// Crashed holder: the pid is gone, so the bot must not stay hostage to a file.
+				decideTelegramLock({ existing: { pid: 7, refreshedAtMs: now - 1000 }, nowMs: now, ownPid: 10, pidAlive: dead }),
+				// Heartbeat stopped long ago — same conclusion without probing the pid.
+				decideTelegramLock({ existing: { pid: 7, refreshedAtMs: now - VIBE_TELEGRAM_LOCK_STALE_MS - 1 }, nowMs: now, ownPid: 10, pidAlive: alive }),
+				// Our own leftover: restarting the bridge after a settings change must not lock
+				// this very process out of its own bot.
+				decideTelegramLock({ existing: { pid: 10, refreshedAtMs: now - 1000 }, nowMs: now, ownPid: 10, pidAlive: alive }),
+				decideTelegramLock({ existing: { pid: 0, refreshedAtMs: now }, nowMs: now, ownPid: 10, pidAlive: alive }),
+			],
+			[
+				{ kind: 'take' },
+				{ kind: 'yield', holderPid: 7, appName: 'VibeIDE (dev)' },
+				{ kind: 'take' },
+				{ kind: 'take' },
+				{ kind: 'take' },
+				{ kind: 'take' },
+			],
 		);
 	});
 });

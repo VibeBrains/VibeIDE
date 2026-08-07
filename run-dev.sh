@@ -4,11 +4,17 @@
 #   ./run-dev.sh --compile    - `npm run compile` first, then launch (full compile; launch is
 #                               aborted if compilation fails). The flag is NOT passed to Electron.
 #   ./run-dev.sh --clear      - wipe the dev profile (handled by scripts/vibe-dev.sh).
+#   ./run-dev.sh --cdp        - expose the DevTools protocol on 9224 (--cdp=PORT for another one)
+#                               so a smoke test can drive the IDE. Off by default: an open port
+#                               lets any local process control the window.
 #   Flags combine: `./run-dev.sh --compile --clear`. Everything else is forwarded to Electron.
 #   Electron download: npmmirror by default unless VIBE_ELECTRON_MIRROR/ELECTRON_MIRROR are set
 #   (opt out of the fallback: VIBE_NO_ELECTRON_MIRROR_FALLBACK=1).
 
 set -o pipefail
+
+# Port used by `--cdp`; matches what the smoke recipes in docs/knowledge expect.
+CDP_DEFAULT_PORT=9224
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -86,15 +92,29 @@ ensure_native_node_modules() {
 	fi
 }
 
-# Strip --compile out of the args (the rest are forwarded to vibe-dev.sh / Electron verbatim).
+# Strip our own flags out of the args (the rest are forwarded to vibe-dev.sh / Electron verbatim).
 DO_COMPILE=0
 FWD_ARGS=()
 for arg in "$@"; do
-	if [[ "$arg" == '--compile' ]]; then
-		DO_COMPILE=1
-	else
-		FWD_ARGS+=("$arg")
-	fi
+	case "$arg" in
+		'--compile')
+			DO_COMPILE=1
+			;;
+		'--cdp')
+			# Opens the DevTools protocol so a smoke test can drive the running IDE (click a
+			# button, read the DOM) instead of asking a human to do it. Off by default: an open
+			# debugging port lets any local process take over the window.
+			FWD_ARGS+=("--remote-debugging-port=$CDP_DEFAULT_PORT")
+			echo "[run-dev] --cdp: DevTools protocol on http://127.0.0.1:$CDP_DEFAULT_PORT"
+			;;
+		'--cdp='*)
+			FWD_ARGS+=("--remote-debugging-port=${arg#--cdp=}")
+			echo "[run-dev] --cdp: DevTools protocol on http://127.0.0.1:${arg#--cdp=}"
+			;;
+		*)
+			FWD_ARGS+=("$arg")
+			;;
+	esac
 done
 
 ensure_npm || exit 1
