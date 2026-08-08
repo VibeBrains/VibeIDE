@@ -35,6 +35,7 @@ import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { BuiltinToolCallParams, BuiltinToolResultType, TerminalResolveReason, ToolCallParams, ToolName, ToolResult } from '../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../common/prompt/tools/index.js';
 import { BranchMessageShape, resolveBranchCutoff } from '../common/threadBranching.js';
+import { IVibeHooksService } from '../common/hooks/vibeHookTypes.js';
 import { toolMatchesPlanHints, resolveToolClass } from '../common/planToolDrift.js';
 import { IVibeSpecsService } from './vibeSpecsService.js';
 import { IVibeTokenSavingsService } from './vibeTokenSavingsService.js';
@@ -989,6 +990,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeideModelService private readonly _vibeideModelService: IVibeideModelService,
 		@ILLMMessageService private readonly _llmMessageService: ILLMMessageService,
 		@IToolsService private readonly _toolsService: IToolsService,
+		@IVibeHooksService private readonly _hooksService: IVibeHooksService,
 		@IVibeideSettingsService private readonly _settingsService: IVibeideSettingsService,
 		@ILanguageFeaturesService private readonly _languageFeaturesService: ILanguageFeaturesService,
 		@IMetricsService private readonly _metricsService: IMetricsService,
@@ -4630,6 +4632,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			// set stream state
 			this._setStreamState(threadId, { isRunning: 'tool', interrupt: interruptorPromise, toolInfo: { toolName, toolParams, id: toolId, content: 'interrupted...', rawParams: opts.unvalidatedToolParams, mcpServerName } });
 
+			// Project hooks, before the call. A refusal here is the project's policy speaking, not
+			// a model decision — so the tool does not run and the agent is told why in its own
+			// result, where it will read it as the outcome of the action it attempted.
+			const preHooks = await this._hooksService.run('preToolUse', { toolName, params: opts.unvalidatedToolParams as { [name: string]: unknown } });
+			if (preHooks.blocked) {
+				resolveInterruptor(() => { });
+				throw new Error(preHooks.agentMessage ?? 'Действие остановлено проверкой проекта.');
+			}
+
 			if (isBuiltInTool) {
 				const { result, interruptTool } = await this._toolsService.callTool[toolName](toolParams as never);
 				const interruptor = () => { interrupted = true; interruptTool?.(); };
@@ -4740,6 +4751,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			this._agentActivityLog.logError(`${toolActivityLabel}: stringify ${errorMessage}`);
 			vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false }); this._updateLatestTool(threadId, { role: 'tool', type: 'tool_error', params: toolParams, result: errorMessage, name: toolName, content: errorMessage, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
 			return {};
+		}
+
+		// Project hooks, after the call. They cannot undo what ran, so their verdict is appended to
+		// the tool result instead: the agent reads it in the same place it reads the outcome, which
+		// is where a "починить это" actually lands.
+		const postHooks = await this._hooksService.run('postToolUse', { toolName, params: opts.unvalidatedToolParams as { [name: string]: unknown } });
+		if (postHooks.agentMessage) {
+			toolResultStr = `${toolResultStr}\n\n[проверка проекта] ${postHooks.agentMessage}`;
 		}
 
 		// Anti-loop nudge (built-in tools only — MCP result signatures are opaque): if the model keeps
@@ -7152,6 +7171,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							const note = `⚠️ ПРОВЕРКИ ХОДА: ход завершён, но кое-что стоит посмотреть.\n\n${failures.map(f => `• ${f.detail}`).join('\n')}`;
 							this._addMessageToThread(threadId, { role: 'assistant', displayContent: note, reasoning: '', anthropicReasoning: null });
 						}
+					}
+
+					// Project hooks at the end of a turn: the project's own checks (tests, linters,
+					// policy scripts) run here rather than being described to the model in a rule.
+					// A refusal is delivered as a message the agent must answer, not as a block —
+					// the turn is already over, and stopping it retroactively is not a thing.
+					const turnHooks = await this._hooksService.run('turnEnd', { changedFiles: [...touchedPathsThisRun] });
+					if (turnHooks.agentMessage) {
+						this._addMessageToThread(threadId, { role: 'assistant', displayContent: `🪝 ПРОВЕРКА ПРОЕКТА\n\n${turnHooks.agentMessage}`, reasoning: '', anthropicReasoning: null });
 					}
 
 					// DESIGN-HOOK: measure the page the run just changed, without being asked. Fires only

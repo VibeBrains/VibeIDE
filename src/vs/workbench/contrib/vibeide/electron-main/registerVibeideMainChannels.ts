@@ -32,6 +32,8 @@ import { VibeWindowAttentionMainService } from './vibeWindowAttentionMainService
 import { VIBE_WINDOW_ATTENTION_CHANNEL } from '../common/vibeWindowAttentionIpc.js';
 import { VibeTelegramMainService } from './telegram/vibeTelegramMainService.js';
 import { VIBE_TELEGRAM_CHANNEL } from '../common/telegram/vibeTelegramTypes.js';
+import { VIBE_HOOKS_CHANNEL } from '../common/hooks/vibeHookTypes.js';
+import { VibeHooksMainService } from './hooks/vibeHooksMainService.js';
 import { VibeServerMainService } from './vibeServer/vibeServerMainService.js';
 import { VIBE_SERVER_CHANNEL } from '../common/vibeServer/vibeServerIpc.js';
 import { VibeServerProcessService } from './vibeServer/vibeServerProcessService.js';
@@ -103,6 +105,8 @@ export function registerVibeideMainProcessChannels(
 		accessor.get(IRequestService),
 	));
 	mainProcessElectronServer.registerChannel('vibeide-channel-update', ProxyChannel.fromService(vibeideUpdateService, disposables));
+
+	mainProcessElectronServer.registerChannel(VIBE_HOOKS_CHANNEL, ProxyChannel.fromService(new VibeHooksMainService(), disposables));
 
 	const ollamaInstallerChannel = new OllamaInstallerChannel();
 	mainProcessElectronServer.registerChannel('vibe-channel-ollamaInstaller', ollamaInstallerChannel);

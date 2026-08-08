@@ -113,6 +113,12 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			scope: ConfigurationScope.RESOURCE,
 			description: localize('vibeide.agent.externalAccessAllowlist', 'Список папок ВНЕ рабочей области, к которым агенту разрешён доступ (гранулярная альтернатива глобальному тогглу). Доступ распространяется на папку и её содержимое. Управляется командами «VibeIDE: Разрешить папку для доступа агента» / «Отозвать». Сессионные разрешения сюда не пишутся (живут до перезагрузки окна).'),
 		},
+		'vibeide.hooks.enabled': {
+			type: 'boolean',
+			default: false,
+			scope: ConfigurationScope.RESOURCE,
+			markdownDescription: localize('vibeide.hooks.enabled', 'Разрешить проекту выполнять **хуки** из файла `.vibe/hooks.json` вокруг работы агента: перед вызовом инструмента, после него и в конце хода.\n\nХук — обычная команда проекта (линтер, тесты, свой скрипт). Код выхода `2` останавливает действие и передаёт агенту причину; `0` — разрешает, а всё напечатанное уходит агенту заметкой; любой другой код считается **поломкой самого хука** и работу не блокирует.\n\nВыключено по умолчанию: клонирование чужого репозитория не должно означать выполнение его кода. Дополнительно требуется доверие к папке (Workspace Trust). Формат файла — `docs/manuals/hooksSpec.md`.'),
+		},
 		'vibeide.agent.referenceFolders': {
 			type: 'array',
 			items: { type: 'string' },
