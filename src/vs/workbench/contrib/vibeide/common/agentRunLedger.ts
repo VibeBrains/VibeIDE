@@ -110,6 +110,11 @@ export interface AgentRunPruneOptions {
 	readonly now: number;
 }
 
+/** Whether a stop code means "hit a ceiling" rather than "broke" — see {@link LIMIT_STOP_CODES}. */
+export function isLimitStopCode(stopCode: string | undefined): boolean {
+	return !!stopCode && LIMIT_STOP_CODES.has(stopCode);
+}
+
 export function isTerminalRunStatus(status: AgentRunStatus): boolean {
 	return TERMINAL_STATUSES.has(status);
 }

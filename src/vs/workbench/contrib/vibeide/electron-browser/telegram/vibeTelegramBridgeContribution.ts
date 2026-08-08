@@ -21,6 +21,8 @@ import { INativeHostService } from '../../../../../platform/native/common/native
 import { basename } from '../../../../../base/common/resources.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../../common/contributions.js';
 import { IChatThreadService } from '../../browser/chatThreadService.js';
+import { IVibeAgentRunLedgerService } from '../../common/vibeAgentRunLedgerService.js';
+import { buildAgentDailyDigest, formatAgentDailyDigest } from '../../common/agentDailyDigest.js';
 import { vibeLog } from '../../common/vibeLog.js';
 import { parseTelegramCommand, resolveProjectChoice } from '../../common/telegram/telegramCommandParse.js';
 import { generatePairingCode } from '../../common/telegram/telegramPairing.js';
@@ -37,6 +39,9 @@ import {
 	VibeTelegramApprovalDecision,
 	VibeTelegramConfigKeys,
 } from '../../common/telegram/vibeTelegramTypes.js';
+
+/** Window of the daily digest. */
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** One approval request live in a chat: what it belongs to and how to close it. */
 interface PendingApproval {
@@ -80,6 +85,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		@IWorkspaceContextService private readonly _workspaceService: IWorkspaceContextService,
 		@INativeHostService private readonly _nativeHostService: INativeHostService,
 		@IChatThreadService private readonly _chatThreadService: IChatThreadService,
+		@IVibeAgentRunLedgerService private readonly _runLedger: IVibeAgentRunLedgerService,
 	) {
 		super();
 		this._main = ProxyChannel.toService<IVibeTelegramMain>(mainProcessService.getChannel(VIBE_TELEGRAM_CHANNEL));
@@ -264,6 +270,9 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			case 'menu':
 				await this._replyMenu(chatId);
 				return;
+			case 'digest':
+				await this._replyDigest(chatId);
+				return;
 			case 'run':
 				await this._run(chatId, command.prompt);
 				return;
@@ -301,7 +310,8 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			text: markdownToTelegramHtml('Пульт. Задачу можно по-прежнему написать или наговорить текстом.'),
 			keyboard: [
 				[{ text: '📊 Статус', command: '/status' }, { text: '⏹ Остановить', command: '/stop' }],
-				[{ text: '📁 Проекты', command: '/projects' }, { text: '❓ Помощь', command: '/help' }],
+				[{ text: '📁 Проекты', command: '/projects' }, { text: '🗒 Сводка', command: '/digest' }],
+				[{ text: '❓ Помощь', command: '/help' }],
 			],
 		});
 	}
@@ -363,6 +373,21 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			this._activeRuns.delete(threadId);
 			await this._reply(chatId, `Не смог запустить: ${(e as Error).message}`);
 		}
+	}
+
+	/**
+	 * What the agents did in the last twenty-four hours.
+	 *
+	 * Ordered by what can still go wrong: failures are named, successes counted. Nothing to
+	 * report is said out loud rather than answered with an empty template — silence would read
+	 * as a broken command.
+	 */
+	private async _replyDigest(chatId: number): Promise<void> {
+		const runs = await this._runLedger.getRuns();
+		const now = Date.now();
+		const digest = buildAgentDailyDigest(runs, { fromMs: now - DAY_MS, toMs: now });
+		const text = formatAgentDailyDigest(digest);
+		await this._reply(chatId, text ?? 'За сутки прогонов агента не было.');
 	}
 
 	// --- run progress ----------------------------------------------------------------------
@@ -551,6 +576,7 @@ const HELP_TEXT = [
 	'• /status — что сейчас происходит',
 	'• /stop — остановить прогон',
 	'• /menu — пульт с кнопками',
+	'• /digest — что агенты сделали за сутки',
 ].join('\n');
 
 registerWorkbenchContribution2(VibeTelegramBridgeContribution.ID, VibeTelegramBridgeContribution, WorkbenchPhase.AfterRestored);
