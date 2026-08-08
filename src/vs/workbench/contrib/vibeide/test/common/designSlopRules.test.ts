@@ -190,6 +190,23 @@ suite('designSlopRules', () => {
 		]);
 	});
 
+	test('the overused-font list covers both generator defaults and template classics', () => {
+		// One finding per family, not per element: the decision was made once.
+		const page = doc([
+			el({ selector: '.a', text: 'Заголовок', fontFamily: '"Clash Display", sans-serif' }),
+			el({ selector: '.b', text: 'Ещё текст', fontFamily: 'Clash Display, sans-serif' }),
+			el({ selector: '.c', text: 'Абзац', fontFamily: 'Montserrat, sans-serif' }),
+			// A family nobody ships by default is not a finding — the point is "arrived unnoticed",
+			// not "unpopular".
+			el({ selector: '.d', text: 'Свой выбор', fontFamily: '"PT Root UI", sans-serif' }),
+		]);
+		const fonts = reviewDesign(page).filter(f => f.rule === 'overused-font');
+		assert.deepStrictEqual(
+			{ count: fonts.length, evidence: fonts.map(f => f.evidence).sort() },
+			{ count: 2, evidence: ['clash display', 'montserrat'] },
+		);
+	});
+
 	test('surface decoration: glass, side accent, extreme radius, invisible border', () => {
 		const page = doc([
 			el({ selector: '.glass', backdropFilter: 'blur(12px)' }),

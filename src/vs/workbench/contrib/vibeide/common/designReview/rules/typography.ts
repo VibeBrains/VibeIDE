@@ -36,8 +36,25 @@ const ICON_TILE_MIN_RADIUS_PX = 6;
 const DISPLAY_FONT_PX = 34;
 /** Words above which a display headline is a paragraph wearing a headline's clothes. */
 const MAX_DISPLAY_WORDS = 12;
-/** Families that arrive with the template rather than with a decision. */
-const OVERUSED_FAMILIES = ['inter', 'geist', 'space grotesk', 'instrument serif', 'plus jakarta sans', 'dm sans'];
+/**
+ * Families that arrive with the template rather than with a decision.
+ *
+ * Two groups, deliberately in one list because the finding is the same: the choice was made by
+ * the starter. First — what generators reach for by default (they were trained on the same
+ * landing pages); second — the classics so common that they carry no signal about the product.
+ *
+ * Not a ban: the finding is `info`, and a project that has genuinely chosen one of these declares
+ * it as identity in `design.md` (see the accepted-drift mechanism). What must not happen is the
+ * font arriving unnoticed.
+ */
+const OVERUSED_FAMILIES = [
+	// Generator defaults
+	'inter', 'geist', 'space grotesk', 'instrument serif', 'plus jakarta sans', 'dm sans',
+	'manrope', 'outfit', 'sora', 'satoshi', 'general sans', 'cabinet grotesk', 'clash display',
+	'bricolage grotesque', 'figtree', 'be vietnam pro',
+	// Template classics
+	'poppins', 'montserrat', 'playfair display', 'raleway',
+];
 
 const ratioTracking = (el: ElementSnapshot): number => el.fontSizePx > 0 ? el.letterSpacingPx / el.fontSizePx : 0;
 
