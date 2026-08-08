@@ -23,16 +23,9 @@ import { ITextModelService } from '../../../../editor/common/services/resolverSe
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { vibeTraceTs } from '../common/helpers/vibeTraceTs.js';
+import { ChatTraceEvent, renderChatTraceMarkdown } from '../common/chatTraceRender.js';
 
-export interface ChatTraceEvent {
-	/** epoch ms, for computing gaps between events */
-	readonly atMs: number;
-	/** wall-clock label in chat format (DD.MM.YYYY HH:mm:ss) */
-	readonly ts: string;
-	/** e.g. 'llmTurn:start', 'toolExec:done' */
-	readonly kind: string;
-	readonly detail: Readonly<Record<string, unknown>>;
-}
+export { ChatTraceEvent, renderChatTraceMarkdown };
 
 const MAX_EVENTS = 1000;
 const BUFFER: ChatTraceEvent[] = [];
@@ -53,23 +46,15 @@ export function clearChatTrace(): void {
 	BUFFER.length = 0;
 }
 
-/** Render the buffered events as a markdown timeline, annotating the gap since the previous event. */
-export function renderChatTraceMarkdown(events: readonly ChatTraceEvent[]): string {
-	if (events.length === 0) {
-		return '# Chat Run Timeline\n\n_Трейс пуст — запустите запрос в чате, затем откройте таймлайн снова._\n';
-	}
-	const lines: string[] = ['# Chat Run Timeline', '', `Событий: ${events.length}`, ''];
-	let prevMs = events[0].atMs;
-	for (const e of events) {
-		const gapMs = e.atMs - prevMs;
-		prevMs = e.atMs;
-		const gap = gapMs >= 1000 ? `  _(+${(gapMs / 1000).toFixed(1)}s)_` : '';
-		const detail = Object.entries(e.detail)
-			.map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`)
-			.join(', ');
-		lines.push(`- \`${e.ts}\` **${e.kind}** ${detail}${gap}`);
-	}
-	return lines.join('\n') + '\n';
+/**
+ * Attempt counter for the timeline.
+ *
+ * Monotonic across the process, not per thread: overlapping retries are exactly the case the
+ * marker exists for, and a per-thread counter would hand two live attempts the same number.
+ */
+let turnCounter = 0;
+export function nextChatTraceTurn(): number {
+	return ++turnCounter;
 }
 
 registerAction2(class extends Action2 {

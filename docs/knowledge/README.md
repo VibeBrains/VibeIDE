@@ -79,7 +79,7 @@
 | [chatInterruptAndInject.md](chatUx/chatInterruptAndInject.md) | Дубль `tool_call id` после abort mid-tool-call (HTTP 400) — дедуп в `prepareMessages_openai_tools`; дизайн «подмешать контекст к следующему хопу» без прерывания; **правило: живой UI-статус в треде — транзиентом, не персистентным сообщением** (инвариант `messages[length-1]`, буфер notice до idle) |
 | [shortcuts.md](chatUx/shortcuts.md) | `Ctrl+Alt+I`, отвязка `workbench.action.chat.open`, скрытие builtin chat |
 | [autoRepairLoop.md](chatUx/autoRepairLoop.md) | Repair loop, DMS exclusions, pre-flight vs task decomposition |
-| [modelStalls.md](chatUx/modelStalls.md) | Журнал обрывов/зависаний LLM-ассистента: триггерные слова, шаблон инцидента, гипотезы, митигации |
+| [modelStalls.md](chatUx/modelStalls.md) | **`turn=` в таймлайне** (чей таймер выстрелил: повторы накладываются, событие старой попытки помечается «от прошлой попытки» — верный лог иначе читается как мгновенное залипание). Журнал обрывов/зависаний LLM-ассистента: триггерные слова, шаблон инцидента, гипотезы, митигации |
 | [stuckChatRecovery.md](chatUx/stuckChatRecovery.md) | Stuck-chat recovery — три слоя защиты (abortRunning hard-timeout, stuck-state detection, submit-watchdog forceReset), `forceResetChatState` API, `recoverable` UI variants, Command Palette twins |
 | [circuitBreakers.md](chatUx/circuitBreakers.md) | Circuit breakers для repetitive failures: tool-invalid-params (Stage C) и empty-response (Stage K), no-hardcoded-names rule, reset semantics, anti-patterns (no auto-switch, no adaptive thresholds) |
 

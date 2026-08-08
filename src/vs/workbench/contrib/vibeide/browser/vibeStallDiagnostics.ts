@@ -72,6 +72,10 @@ export function buildStallReportMarkdown(input: StallReportInput): string {
 	lines.push('> Ищите `llmTurn:start` → большой разрыв → `llmTurn:soft-stall`/`llmTurn:hard-stall` с `anyToken=false`:');
 	lines.push('> это «тихий» провал send-path (запрос ушёл, ответ не начался). `llmTurn:transport-reset`');
 	lines.push('> показывает автоматическое пересоздание сетевого пула перед повтором.');
+	lines.push('>');
+	lines.push('> Поле `turn=` — номер попытки. Повторы накладываются друг на друга, поэтому событие');
+	lines.push('> помеченное «от прошлой попытки» относится к запросу, стартовавшему раньше, а не к тому,');
+	lines.push('> что начался секунду назад: без этого залипание старой попытки читается как мгновенное.');
 	lines.push('');
 	lines.push(traceMarkdown.trim());
 	lines.push('');

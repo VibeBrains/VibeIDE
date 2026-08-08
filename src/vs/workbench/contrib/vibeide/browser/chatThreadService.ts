@@ -16,7 +16,7 @@ import { joinPath } from '../../../../base/common/resources.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { compressGenericToolOutput } from '../common/commandOutputCompressor.js';
-import { recordChatTrace } from './vibeChatRunTrace.js';
+import { nextChatTraceTurn, recordChatTrace } from './vibeChatRunTrace.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '../common/prompt/toolAliases.js';
 import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, looksLikeCompletionText, QUESTION_AUTO_CONTINUE_DEFAULT } from '../common/agentLoopHeuristics.js';
@@ -5956,7 +5956,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					setInlineStall();
 					// Diagnostics: make the silent gap explicit in the chat-run trace timeline (it otherwise
 					// shows llmTurn:start → nothing until done/hard-stall). See vibeStallDiagnostics.
-					recordChatTrace('llmTurn:soft-stall', { kind, sec: kind === 'noFirstToken' ? firstTokenStallSeconds : midStreamStallSeconds, provider: modelSelection?.providerName, model: modelSelection?.modelName });
+					recordChatTrace('llmTurn:soft-stall', { turn: traceTurn, kind, sec: kind === 'noFirstToken' ? firstTokenStallSeconds : midStreamStallSeconds, provider: modelSelection?.providerName, model: modelSelection?.modelName });
 					const msg = kind === 'noFirstToken'
 						? localize('agentStall.noFirstToken', 'Агент ждёт ответ модели (>{0}с). Модель может быть медленной, либо соединение зависло.', firstTokenStallSeconds)
 						: localize('agentStall.midStream', 'Стрим ответа модели приостановился (>{0}с без новых токенов). Модель могла зависнуть.', midStreamStallSeconds);
@@ -5975,6 +5975,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				const hardStallEnabled = this._configurationService.getValue<boolean>('vibeide.chat.streamHardStallEnabled') ?? true;
 				const hardStallSeconds = readClampedNumberSetting(this._configurationService, 'vibeide.chat.streamHardStallSeconds', DEFAULT_HARD_STALL_SECONDS, 30, 1800);
 				let hardStallTimer: ReturnType<typeof setTimeout> | undefined;
+				/** Attempt number stamped on every trace event of this turn — see `nextChatTraceTurn`. */
+				let traceTurn = 0;
 				const onHardStall = () => {
 					// No partial content commit: hardStall resets on every token, so reaching it
 					// means nothing arrived. Abort the LLM call, drop the stream state, then either
@@ -5999,7 +6001,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 					// Diagnostics: record the hard-stall in the chat-run trace (anyToken=false confirms a
 					// truly silent send-path hang vs a mid-stream freeze). See vibeStallDiagnostics.
-					recordChatTrace('llmTurn:hard-stall', { sec: hardStallSeconds, anyToken: firstTokenReceived, provider: modelSelection?.providerName, model: modelSelection?.modelName });
+					recordChatTrace('llmTurn:hard-stall', { turn: traceTurn, sec: hardStallSeconds, anyToken: firstTokenReceived, provider: modelSelection?.providerName, model: modelSelection?.modelName });
 					vibeLog.warn('chatThread', `[stall] hard-stall after ${hardStallSeconds}s, anyToken=${firstTokenReceived}, provider=${modelSelection?.providerName}, model=${modelSelection?.modelName}`);
 
 					// Single retry by design: a SECOND hard-stall right after a fresh attempt means
@@ -6158,7 +6160,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// telemetry inaccuracy seen in the stall reports. The latency audit's mark* calls are
 				// idempotent (first attempt wins), so re-arming here can't skew TTFS metrics.
 				firstTokenReceived = false;
-				vibeLog.debug('llmTurn', 'start', { iter: nMessagesSent, msgs: messages.length, model: modelSelection?.modelName, provider: modelSelection?.providerName, chatMode }); recordChatTrace('llmTurn:start', { iter: nMessagesSent, msgs: messages.length, model: modelSelection?.modelName, provider: modelSelection?.providerName });
+				// Identifies THIS attempt in the timeline. Retries overlap, so without it a stall
+				// fired by an attempt started two minutes ago reads as "the request that just
+				// started hung after one second" — a wrong conclusion drawn from a true log.
+				traceTurn = nextChatTraceTurn();
+				vibeLog.debug('llmTurn', 'start', { turn: traceTurn, iter: nMessagesSent, msgs: messages.length, model: modelSelection?.modelName, provider: modelSelection?.providerName, chatMode }); recordChatTrace('llmTurn:start', { turn: traceTurn, iter: nMessagesSent, msgs: messages.length, model: modelSelection?.modelName, provider: modelSelection?.providerName });
 				// Consume the one-shot force flag (set by the premature-stop nudge below): this turn
 				// requests tool_choice=required so a weak caller can't return prose again.
 				const forceThisTurn = forceToolUseNextTurn;
@@ -6186,7 +6192,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (!firstTokenReceived && (fullText.length > 0 || fullReasoning.length > 0)) {
 							firstTokenReceived = true;
 							chatLatencyAudit.markNetworkEnd(finalRequestId); // Network complete when first token arrives
-							vibeLog.debug('llmTurn', 'first-activity', { afterMs: Date.now() - _turnStartMs, kind: fullText.length > 0 ? 'text' : 'reasoning' }); recordChatTrace('llmTurn:first-activity', { afterMs: Date.now() - _turnStartMs });
+							vibeLog.debug('llmTurn', 'first-activity', { afterMs: Date.now() - _turnStartMs, kind: fullText.length > 0 ? 'text' : 'reasoning' }); recordChatTrace('llmTurn:first-activity', { turn: traceTurn, afterMs: Date.now() - _turnStartMs });
 							chatLatencyAudit.markFirstToken(finalRequestId);
 						}
 
@@ -6246,7 +6252,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						});
 					},
 					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage, providerQuota }) => {
-						vibeLog.debug('llmTurn', 'done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null, textLen: fullText?.length ?? 0, reasoningLen: fullReasoning?.length ?? 0 }); recordChatTrace('llmTurn:done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null });
+						vibeLog.debug('llmTurn', 'done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null, textLen: fullText?.length ?? 0, reasoningLen: fullReasoning?.length ?? 0 }); recordChatTrace('llmTurn:done', { turn: traceTurn, afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null });
 						// Mark message as done to prevent late onText updates
 						messageIsDone = true;
 
