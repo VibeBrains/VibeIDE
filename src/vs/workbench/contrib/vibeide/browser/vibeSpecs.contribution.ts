@@ -20,7 +20,6 @@ import {
 	ViewContentGroups,
 } from '../../../common/views.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
-import { registerVibeideFaSolidIcon } from './vibeideFontAwesomeSolid.js';
 import {
 	VIBE_SPECS_PRODUCT_FILE,
 	VIBE_SPECS_ROOT_DEFAULT,
@@ -45,18 +44,10 @@ import { VIBEIDE_VIEW_CONTAINER_ID } from './sidebarPane.js';
 
 const whenVibeSpecsViewTitle = ContextKeyExpr.equals('view', VIBE_SPECS_VIEW_ID);
 
-/** FA6 Free Solid file-lines (U+F15C) — a document, reads as a written spec. */
-const vibeSpecsActivityGlyph = registerVibeideFaSolidIcon(
-	'vibeide-vibe-specs-activity',
-	'',
-	localize('vibeSpecs.activityIcon', 'Иконка «Спеки» на панели активности'),
-);
+/** Codicon `file-text` — a document, reads as a written spec (see the note in vibeDocs.contribution.ts). */
+const vibeSpecsActivityGlyph = Codicon.fileText;
 
-const vibeSpecsViewTabIcon = registerVibeideFaSolidIcon(
-	'vibeide-vibe-specs-view-tab',
-	'',
-	localize('vibeSpecs.viewTab', 'Вкладка представления «Спеки»'),
-);
+const vibeSpecsViewTabIcon = Codicon.fileText;
 
 const vibeSpecsViewContainerRegistry = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry);
 const vibeSpecsViewPaneWrapper = vibeSpecsViewContainerRegistry.registerViewContainer(

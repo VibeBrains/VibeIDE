@@ -22,7 +22,6 @@ import {
 } from '../../../common/views.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
-import { registerVibeideFaSolidIcon } from './vibeideFontAwesomeSolid.js';
 import {
 	VIBE_PROJECTS_VIEW_AS_LIST_CONTEXT_KEY,
 	VIBE_PROJECTS_VIEWLET_ID,
@@ -59,18 +58,10 @@ class VibeProjectsContextKeysContribution extends Disposable implements IWorkben
 }
 registerWorkbenchContribution2(VibeProjectsContextKeysContribution.ID, VibeProjectsContextKeysContribution, WorkbenchPhase.BlockRestore);
 
-/** FA6 Free Solid layer-group (U+F5FD) — stacked layers, reads as a projects collection. */
-const vibeProjectsActivityGlyph = registerVibeideFaSolidIcon(
-	'vibeide-vibe-projects-activity',
-	'\uf5fd',
-	localize('vibeProjects.activityIcon', 'Иконка Vibe Projects на панели активности'),
-);
+/** Codicon `layers` — stacked layers, reads as a projects collection (see vibeDocs.contribution.ts). */
+const vibeProjectsActivityGlyph = Codicon.layers;
 
-const vibeProjectsViewTabIcon = registerVibeideFaSolidIcon(
-	'vibeide-vibe-projects-view-tab',
-	'\uf5fd',
-	localize('vibeProjects.viewTab', 'Вкладка представления Vibe Projects'),
-);
+const vibeProjectsViewTabIcon = Codicon.layers;
 
 const vibeProjectsViewContainerRegistry = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry);
 const vibeProjectsViewPaneWrapper = vibeProjectsViewContainerRegistry.registerViewContainer(

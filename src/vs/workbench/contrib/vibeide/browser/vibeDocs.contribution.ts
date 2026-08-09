@@ -24,7 +24,6 @@ import {
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import { FocusedViewContext } from '../../../common/contextkeys.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
-import { registerVibeideFaSolidIcon } from './vibeideFontAwesomeSolid.js';
 import {
 	VIBE_DOCS_CONTEXT_MENU,
 	VIBE_DOCS_GRAPH_VIEW_ID,
@@ -47,18 +46,12 @@ import { ServicesAccessor } from '../../../../editor/browser/editorExtensions.js
 const whenVibeDocsViewTitle = ContextKeyExpr.equals('view', VIBE_DOCS_VIEW_ID);
 const vibeCategory = localize2('vibeCategory', 'VibeIDE');
 
-/** FA6 Free Solid book-open (U+F518) — reads as project documentation. */
-const vibeDocsActivityGlyph = registerVibeideFaSolidIcon(
-	'vibeide-vibe-docs-activity',
-	'',
-	localize('vibeDocs.activityIcon', 'Иконка «Документы» на панели активности'),
-);
+/** Codicon `book` — reads as project documentation.
+ * Codicon, not Font Awesome: FA Solid is a filled face on its own grid and reads as a foreign
+ * icon set beside the outline codicons the rest of the activity bar uses. */
+const vibeDocsActivityGlyph = Codicon.book;
 
-const vibeDocsViewTabIcon = registerVibeideFaSolidIcon(
-	'vibeide-vibe-docs-view-tab',
-	'',
-	localize('vibeDocs.viewTab', 'Вкладка представления «Документы»'),
-);
+const vibeDocsViewTabIcon = Codicon.book;
 
 const vibeDocsViewContainerRegistry = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry);
 const vibeDocsViewPaneWrapper = vibeDocsViewContainerRegistry.registerViewContainer(

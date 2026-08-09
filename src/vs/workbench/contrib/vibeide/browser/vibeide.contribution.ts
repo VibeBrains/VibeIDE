@@ -46,6 +46,10 @@ import './media/vibeModal.css';
 import './vibeNeonGlowTitleBar.js';
 import './vibeSimplifiedControlsToggle.js';
 import './vibeNeonThemeContribution.js';
+import './vibeThemeSwitch.js';
+import './vibeProjectCommandsTitleBarButton.js';
+import './vibeBrainTitleBarItem.js';
+import './vibeThemeDefaultMigration.js';
 
 // Native workspace bookmarks (Vibe Projects)
 import './vibeProjects.contribution.js';

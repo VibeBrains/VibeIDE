@@ -20,6 +20,7 @@
  */
 
 import { localize, localize2 } from '../../../../nls.js';
+import { Codicon } from '../../../../base/common/codicons.js';
 import { Action2, MenuId, MenuRegistry, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
@@ -34,7 +35,6 @@ import { IEditorService } from '../../../services/editor/common/editorService.js
 import { IUntitledTextResourceEditorInput } from '../../../common/editor.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { readVibeDocsFile, searchVibeDocs } from '../common/vibeDocsIndex.js';
-import { registerVibeideFaSolidIcon } from './vibeideFontAwesomeSolid.js';
 import { VibeSpecsCommands } from './vibeSpecsConstants.js';
 import { VIBEIDE_APPLY_DEFAULTS_CMD, VIBEIDE_SHOW_DEFAULTS_CMD } from './vibeDefaultsContribution.js';
 
@@ -44,11 +44,12 @@ import { VIBEIDE_APPLY_DEFAULTS_CMD, VIBEIDE_SHOW_DEFAULTS_CMD } from './vibeDef
 export const VibeideTitleBarMenuId = new MenuId('VibeideTitleBarMenu');
 
 /** FA6 solid `brain` (private use U+F5DC). */
-export const vibeideCommandCenterBrainIcon = registerVibeideFaSolidIcon(
-	'vibeide-command-center-brain',
-	'\uf5dc',
-	localize('vibeideCommandCenterBrainIcon', 'Иконка меню VibeIDE в командном центре заголовка.'),
-);
+/**
+ * Codicon `sparkle`, not the Font Awesome brain: FA Solid is a filled face on its own grid and
+ * read heavier than every neighbour in the Command Center. Sparkle is also what VS Code itself
+ * uses to mark AI surfaces, so the meaning survives the change of shape.
+ */
+export const vibeideCommandCenterBrainIcon = Codicon.sparkle;
 
 // ─── CommandCenter entry ──────────────────────────────────────────────────────
 

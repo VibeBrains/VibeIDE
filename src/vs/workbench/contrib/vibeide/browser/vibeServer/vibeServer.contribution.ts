@@ -23,7 +23,6 @@ import { Action2, MenuId, registerAction2 } from '../../../../../platform/action
 import { ServicesAccessor } from '../../../../../editor/browser/editorExtensions.js';
 import { IPreferencesService } from '../../../../services/preferences/common/preferences.js';
 import { IEditorService } from '../../../../services/editor/common/editorService.js';
-import { registerVibeideFaSolidIcon } from '../vibeideFontAwesomeSolid.js';
 import { VibeServerViewPane } from './vibeServerViewPane.js';
 import { openLanQr } from './vibeServerQr.js';
 import { VibeServerStatusBarContribution } from './vibeServerStatusBar.js';
@@ -47,18 +46,10 @@ const whenHtmlResource = ContextKeyExpr.or(
 	ContextKeyExpr.equals('resourceExtname', '.htm'),
 );
 
-/** FA6 Free Solid server () — reads as a running local server. */
-const vibeServerActivityGlyph = registerVibeideFaSolidIcon(
-	'vibeide-vibe-server-activity',
-	'\uf233',
-	localize('vibeServer.activityIcon', 'Иконка Vibe Server на панели активности'),
-);
+/** Codicon `server` — reads as a running local server (see vibeDocs.contribution.ts). */
+const vibeServerActivityGlyph = Codicon.server;
 
-const vibeServerViewTabIcon = registerVibeideFaSolidIcon(
-	'vibeide-vibe-server-view-tab',
-	'\uf233',
-	localize('vibeServer.viewTab', 'Вкладка представления Vibe Server'),
-);
+const vibeServerViewTabIcon = Codicon.server;
 
 const viewContainerRegistry = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry);
 const vibeServerContainer = viewContainerRegistry.registerViewContainer(

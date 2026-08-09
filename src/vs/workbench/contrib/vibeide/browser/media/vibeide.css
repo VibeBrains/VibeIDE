@@ -1354,3 +1354,33 @@ body.monaco-workbench,
 	padding: 2px var(--vibeide-space-md);
 	word-break: break-word;
 }
+
+/* VibeIDE's own Command Center buttons — ⌘ (commands) and the brain (VibeIDE menu). Both glyphs
+ * are drawn in vibeTitleBarGlyphs.ts rather than taken from a font: codicons have neither symbol,
+ * our Font Awesome face is filled, and a text character would follow system-font metrics. One
+ * size and one colour token here keep them in the same rhythm as the codicons beside them. */
+.vibeide-commands-command-center-item,
+.vibeide-commands-command-center-item .vibeide-commands-glyph,
+.vibeide-brain-command-center-item .vibeide-brain-glyph {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.vibeide-commands-command-center-item {
+	cursor: pointer;
+	padding: 0 4px;
+}
+
+.vibeide-commands-command-center-item .vibeide-commands-glyph,
+.vibeide-brain-command-center-item .vibeide-brain-glyph {
+	/* Active, not inactive: the muted variant reads washed-out against the title bar. The token
+	 * still flips per theme — near-white on dark themes, dark ink on light ones. */
+	color: var(--vscode-commandCenter-activeForeground, var(--vscode-titleBar-activeForeground));
+}
+
+.vibeide-commands-command-center-item .vibeide-commands-glyph svg,
+.vibeide-brain-command-center-item .vibeide-brain-glyph svg {
+	width: 17px;
+	height: 17px;
+}
