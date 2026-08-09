@@ -1391,7 +1391,14 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		// does not currently surface temperature/topP/topK, so catalog values apply
 		// unconditionally for matched models and are a no-op for everything else.
 		// User can override per-model via `vibeide.modelQuirks` setting.
+		// Order matters: the file's `default*` values come from `.vibe/providers.json` and act as
+		// the model's vendor-recommended defaults; the quirks catalog then overrides per field,
+		// because it is the curated fix-list for combinations known to misbehave. Previously the
+		// file's fields were dropped entirely — declared in the type and the spec, never read.
 		const modelParams: { temperature?: number; topP?: number; topK?: number } = {};
+		if (caps.defaultTemperature !== undefined) { modelParams.temperature = caps.defaultTemperature; }
+		if (caps.defaultTopP !== undefined) { modelParams.topP = caps.defaultTopP; }
+		if (caps.defaultTopK !== undefined) { modelParams.topK = caps.defaultTopK; }
 		if (quirks.temperature !== undefined) { modelParams.temperature = quirks.temperature; }
 		if (quirks.topP !== undefined) { modelParams.topP = quirks.topP; }
 		if (quirks.topK !== undefined) { modelParams.topK = quirks.topK; }

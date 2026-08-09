@@ -173,6 +173,16 @@ export type VibeideStaticModelInfo = { // not stateful
 
 	additionalOpenAIPayload?: { [key: string]: string }; // additional payload in the message body for requests that are openai-compatible (ollama, vllm, openai, openrouter, etc)
 
+	// Default sampling declared per model in `.vibe/providers.json` (`temperature`/`topP`/`topK`).
+	// Applied only when the quirks catalog says nothing about this model: the catalog is the
+	// curated fix-list for known-broken combinations and must stay authoritative, while these
+	// are the vendor's recommended defaults for a model the catalog has never heard of.
+	// Before this existed the three fields were declared in the type, documented in the spec and
+	// offered by the JSON schema — and silently dropped on the way to the request.
+	defaultTemperature?: number;
+	defaultTopP?: number;
+	defaultTopK?: number;
+
 	// reasoning options
 	reasoningCapabilities: false | {
 		readonly supportsReasoning: true; // for clarity, this must be true if anything below is specified

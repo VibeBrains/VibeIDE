@@ -53,9 +53,15 @@ const SYS_MSG_MAP: Record<string, 'system-role' | 'developer-role' | 'separated'
 	system: 'system-role', developer: 'developer-role', separated: 'separated',
 };
 
-/** Map a `.vibe/providers.json` model entry to VibeIDE's internal capability shape (Phase 1 fields;
- *  reasoning/FIM left to defaults for now). */
-function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStaticModelInfo> {
+/**
+ * Pure mapper: one `static` model entry from `.vibe/providers.json` → capability overrides.
+ *
+ * Exported for tests. A field declared in the type, documented in the spec and offered by the
+ * JSON schema but missing from this function is dropped in silence — that is how `fim` went
+ * missing once and `temperature`/`topP`/`topK` went missing after it. The test asserts the whole
+ * mapping at once so the next addition to the file format cannot be half-wired.
+ */
+export function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStaticModelInfo> {
 	const c: Record<string, unknown> = {};
 	if (typeof m.contextWindow === 'number') { c.contextWindow = m.contextWindow; }
 	if (typeof m.maxOutputTokens === 'number') { c.reservedOutputTokenSpace = m.maxOutputTokens; }
@@ -77,6 +83,11 @@ function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStaticModel
 	// body (sendViaAISdk → openAICompatExtraBody → transformRequestBody). Carries provider quirks
 	// like Moonshot `thinking: { type: "enabled" }`.
 	if (m.extraBody && typeof m.extraBody === 'object') { c.additionalOpenAIPayload = { ...m.extraBody }; }
+	// Sampling declared in the file. Carried as `default*` so the quirks catalog keeps the last
+	// word: these are vendor recommendations for the model, not a fix for a broken combination.
+	if (typeof m.temperature === 'number') { c.defaultTemperature = m.temperature; }
+	if (typeof m.topP === 'number') { c.defaultTopP = m.topP; }
+	if (typeof m.topK === 'number') { c.defaultTopK = m.topK; }
 	// reasoning → reasoningCapabilities. An `effort` list maps to an effort_slider, which the
 	// openai-compatible reasoning hook turns into `reasoning_effort` on the wire; reasoning_content
 	// is parsed back via the openai-compat output settings. Default to the highest effort (thinking
