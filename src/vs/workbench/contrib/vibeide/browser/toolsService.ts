@@ -30,6 +30,7 @@ import { DocumentSymbol } from '../../../../editor/common/languages.js';
 import { IVibeideCommandBarService } from './vibeideCommandBarService.js';
 import { computeDirectoryTree1Deep, IDirectoryStrService, stringifyDirectoryTree1Deep } from '../common/directoryStrService.js';
 import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/common/markers.js';
+import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { timeout } from '../../../../base/common/async.js';
 import { RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_INACTIVE_TIME, READ_FILE_DEFAULT_LINE_LIMIT, READ_FILE_LARGE_FILE_CHARS, READ_FILE_LARGE_FILE_WINDOW_CHARS, READ_FILE_MAX_LINE_LIMIT, ORIGINAL, DIVIDER, FINAL } from '../common/prompt/prompts.js';
@@ -62,7 +63,7 @@ import { IVibeAgentTerritorialLockService } from './vibeAgentTerritorialLockServ
 import { IAuditLogService } from '../common/auditLogService.js';
 
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import { formatProvenanceMarker, shouldMarkProvenance } from '../common/vibeAiProvenanceConfiguration.js';
+import { formatProvenanceMarker, isKnownProvenanceLanguage, shouldMarkProvenance } from '../common/vibeAiProvenanceConfiguration.js';
 import { IGitAutoStashService } from '../common/gitAutoStashService.js';
 import { decideAutoStash } from '../common/autoStashPolicy.js';
 import { getDocsFiles, searchVibeDocs } from '../common/vibeDocsIndex.js';
@@ -268,6 +269,7 @@ export class ToolsService implements IToolsService {
 		@IVibeideCommandBarService private readonly commandBarService: IVibeideCommandBarService,
 		@IDirectoryStrService private readonly directoryStrService: IDirectoryStrService,
 		@IMarkerService private readonly markerService: IMarkerService,
+		@ILanguageService private readonly languageService: ILanguageService,
 		@IVibeideSettingsService private readonly vibeideSettingsService: IVibeideSettingsService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@IRequestService private readonly requestService: IRequestService,
@@ -2028,10 +2030,15 @@ export class ToolsService implements IToolsService {
 				// AI provenance marker (opt-in via vibeide.aiProvenance.markGeneratedCode).
 				let effectiveContent = newContent;
 				if (shouldMarkProvenance(this._configurationService.getValue('vibeide.aiProvenance.markGeneratedCode'))) {
-					const ext = uri.path.split('.').pop() ?? '';
-					const marker = formatProvenanceMarker(ext, 'vibeide-agent', new Date().toISOString());
-					if (!effectiveContent.startsWith(marker)) {
-						effectiveContent = marker + '\n' + effectiveContent;
+					// Language ID, not the file extension: LANGUAGE_COMMENT_SYNTAX is keyed by id
+					// (`python`, `shellscript`), so passing `py`/`sh` missed every entry and fell back
+					// to `//` — a syntax error in Python, YAML, shell and Markdown alike.
+					const languageId = this.languageService.guessLanguageIdByFilepathOrFirstLine(uri) ?? '';
+					if (isKnownProvenanceLanguage(languageId)) {
+						const marker = formatProvenanceMarker(languageId, 'vibeide-agent', new Date().toISOString());
+						if (!effectiveContent.startsWith(marker)) {
+							effectiveContent = marker + '\n' + effectiveContent;
+						}
 					}
 				}
 				editCodeService.instantlyRewriteFile({ uri, newContent: effectiveContent });

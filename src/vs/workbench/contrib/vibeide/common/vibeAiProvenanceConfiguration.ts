@@ -93,6 +93,11 @@ const DEFAULT_SYNTAX: CommentSyntax = { kind: 'line', prefix: '//' };
  *
  * Unknown languages default to `//`. Callers handle the "is this language supported"
  * decision themselves; this helper never refuses a language.
+ *
+ * The argument is a LANGUAGE ID (`python`, `shellscript`), not a file extension (`py`, `sh`).
+ * Passing an extension silently lands on the `//` default and writes a syntactically invalid
+ * line into the file — which is exactly the bug this note exists to prevent. Callers must
+ * resolve the id (ILanguageService) and gate on {@link isKnownProvenanceLanguage}.
  */
 export function formatProvenanceMarker(languageId: string, modelId: string, isoTimestamp: string): string {
 	const syntax = LANGUAGE_COMMENT_SYNTAX[languageId.toLowerCase()] ?? DEFAULT_SYNTAX;
@@ -101,6 +106,17 @@ export function formatProvenanceMarker(languageId: string, modelId: string, isoT
 		return `${syntax.prefix} ${body}`;
 	}
 	return `${syntax.open} ${body} ${syntax.close}`;
+}
+
+/**
+ * Whether the comment syntax for this language is actually known.
+ *
+ * Exists so callers can choose silence over damage: for an unrecognised language the marker
+ * would fall back to `//`, and in Python, YAML or shell that is not a comment but a syntax
+ * error. Not marking a file costs an audit line; marking it wrongly costs a broken file.
+ */
+export function isKnownProvenanceLanguage(languageId: string): boolean {
+	return Object.hasOwn(LANGUAGE_COMMENT_SYNTAX, languageId.toLowerCase());
 }
 
 /**
