@@ -39,6 +39,7 @@ import { IStatusbarEntry, IStatusbarEntryAccessor, IStatusbarService, ITooltipWi
 import { IVibeCustomCommandsService } from './vibeCustomCommandsService.js';
 import { pickTopBarPinned, PROJECT_COMMANDS_PALETTE_IDS } from '../common/projectCommandsServiceContract.js';
 import { sortProjectCommandsForDisplay, ProjectCommand } from '../common/projectCommandsTypes.js';
+import { projectCommandColorId } from './projectCommandColorRegistry.js';
 import {
 	decodeProjectCommandsToolbarPosition,
 	ProjectCommandsToolbarPosition,
@@ -167,12 +168,14 @@ export class VibeProjectCommandsTopBarContribution extends Disposable implements
 					{ id: PROJECT_COMMANDS_PALETTE_IDS.delete, title: localize('vibeide.topbar.ctx.delete', 'Удалить') },
 				],
 			};
+			const colorId = projectCommandColorId(cmd.color);
 			const props: IStatusbarEntry = {
 				name: localize('vibeide.topbar.cmd', 'VibeIDE: {0}', cmd.name),
 				text: label,
 				ariaLabel: cmd.name,
 				tooltip: contextTooltip,
 				command: PROJECT_COMMANDS_PALETTE_IDS.run,
+				color: colorId ? { id: colorId } : undefined,
 			};
 			const statusbarEntryId = `${ENTRY_ID_PREFIX}${cmd.id}`;
 			const existing = this._entries.get(cmd.id);

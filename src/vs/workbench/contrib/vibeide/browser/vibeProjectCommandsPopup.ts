@@ -26,6 +26,7 @@ import { ICommandService } from '../../../../platform/commands/common/commands.j
 import { IContextViewService } from '../../../../platform/contextview/browser/contextView.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { asCssVariable } from '../../../../platform/theme/common/colorUtils.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { setPinnedInFile } from '../common/projectCommandsAddFormPolicy.js';
 import {
@@ -34,6 +35,7 @@ import {
 	sortProjectCommandsForDisplay,
 } from '../common/projectCommandsTypes.js';
 import { safeParseConfigJson } from '../common/vibeConfigJsonParser.js';
+import { projectCommandColorId } from './projectCommandColorRegistry.js';
 import { IVibeCustomCommandsService } from './vibeCustomCommandsService.js';
 
 export interface IProjectCommandsPopupServices {
@@ -179,6 +181,14 @@ function buildCommandRow(
 		void togglePinned(services, cmd, !isPinned);
 	}));
 	row.appendChild(pinBtn);
+
+	// ── Accent: optional `color` from the workspace file ────────────────
+	const colorId = projectCommandColorId(cmd.color);
+	if (colorId) {
+		const accent = $('span.vibe-cmd-popup-row__accent');
+		accent.style.setProperty('--vibe-cmd-accent', asCssVariable(colorId));
+		row.appendChild(accent);
+	}
 
 	// ── Center: label (click body = Run) ────────────────────────────────
 	const label = $('span.vibe-cmd-popup-row__label');

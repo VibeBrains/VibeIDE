@@ -1128,6 +1128,18 @@ body.monaco-workbench,
 	text-overflow: ellipsis;
 }
 
+/* Accent bar for commands declaring `color` in .vibe/commands.json. The colour
+ * itself arrives as an inline `--vibe-cmd-accent` resolved from a registered
+ * theme colour id, so it follows light/dark like the rest of the popup. */
+.vibe-cmd-popup-row__accent {
+	flex: 0 0 auto;
+	width: 3px;
+	align-self: stretch;
+	min-height: 12px;
+	border-radius: 2px;
+	background-color: var(--vibe-cmd-accent);
+}
+
 /* Pin toggle — left side of command rows. Pinned commands keep the original
  * accent (text-link); unpinned go grayscale via the disabled-fg token so the
  * affordance is obvious without breaking theme harmony. */
