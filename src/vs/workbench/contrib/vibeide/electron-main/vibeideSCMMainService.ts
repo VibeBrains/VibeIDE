@@ -12,7 +12,7 @@ import { copyFile, rm } from 'fs/promises';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { IVibeideSCMService, IWorkspaceSnapshotRestorePlan } from '../common/vibeideSCMTypes.js';
-import { isSnapshotTreeId, parsePathList, planSnapshotRestore, selectStaleSnapshotRefs, SNAPSHOT_ARGV } from '../common/workspaceSnapshotPolicy.js';
+import { isSnapshotTreeId, parsePathList, parsePinnedSnapshots, planSnapshotRestore, selectStaleSnapshotRefs, SNAPSHOT_ARGV } from '../common/workspaceSnapshotPolicy.js';
 
 interface NumStat {
 	file: string;
@@ -176,8 +176,8 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 	async pruneWorkspaceSnapshots(path: string, liveSnapshotIds: readonly string[]): Promise<number> {
 		try {
 			const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
-			const refNames = parsePathList(await gitArgv(SNAPSHOT_ARGV.listSnapshotRefs, root));
-			const stale = selectStaleSnapshotRefs(refNames, liveSnapshotIds);
+			const pinned = parsePinnedSnapshots(await gitArgv(SNAPSHOT_ARGV.listSnapshotRefs, root));
+			const stale = selectStaleSnapshotRefs(pinned, liveSnapshotIds, Date.now());
 			for (const id of stale) {
 				// Dropping the ref only un-pins the objects; git reclaims them on its own schedule, so
 				// nothing the user still points at can disappear as a side effect of this call.

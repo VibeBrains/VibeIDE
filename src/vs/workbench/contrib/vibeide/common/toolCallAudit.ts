@@ -23,6 +23,8 @@ const COMMAND_TOOLS: ReadonlySet<string> = new Set([
 	'run_command',
 	'run_persistent_command',
 	'kill_background_command',
+	// Natural-language shell: its parameter is a request that becomes a command line.
+	'run_nl_command',
 ]);
 
 export interface ToolCallAuditInput {
@@ -56,7 +58,10 @@ export function toolCallTargetPath(input: ToolCallAuditInput): string | undefine
 		return undefined;
 	}
 	const uri = params.uri;
-	const fromUri = uri && typeof uri === 'object' && Object.hasOwn(uri, 'fsPath')
+	// `URI.fsPath` is a GETTER ON THE PROTOTYPE, so `Object.hasOwn(uri, 'fsPath')` is false for every
+	// real URI — a check written that way silently records no path at all. Read the value and judge
+	// by its type instead.
+	const fromUri = uri && typeof uri === 'object'
 		? (uri as { fsPath?: unknown }).fsPath
 		: undefined;
 	const candidate = fromUri ?? params.path ?? params.dirUri;

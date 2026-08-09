@@ -65,6 +65,30 @@ export function rangesOverlap(a: EditRange, b: EditRange): boolean {
 }
 
 /**
+ * Whether a fix only ADDS text and never removes or replaces any.
+ *
+ * This is the safety line for applying editor fixes automatically. "Preferred" is the editor's
+ * notion of the most likely fix, not a promise that it is harmless: for TypeScript the preferred
+ * set includes "remove unused declaration" and "change spelling to X". Both are catastrophic here —
+ * the agent routinely writes a helper in one step and uses it in the next, so the declaration is
+ * legitimately unused for a moment, and a call to a function that does not exist YET looks exactly
+ * like a typo for a function that does. Deleting the first or silently renaming the second destroys
+ * work with no signal: the file still compiles, and it does the wrong thing.
+ *
+ * An insertion cannot do either. Adding a missing import — the case this feature exists for — is an
+ * insertion; so are "add missing await" and "add missing property". Anything that replaces a
+ * non-empty range is left to the model, which at least knows what it was trying to write.
+ */
+export function isPurelyAdditive<TEdit extends { readonly range: EditRange; readonly text: string }>(
+	fix: CandidateFix<TEdit>,
+): boolean {
+	return fix.edits.length > 0 && fix.edits.every(e =>
+		e.text.length > 0
+		&& e.range.startLineNumber === e.range.endLineNumber
+		&& e.range.startColumn === e.range.endColumn);
+}
+
+/**
  * Take fixes in the given order, keeping each one only if none of its edits touch a range already
  * claimed. Order matters and is the caller's: the editor lists its preferred fix first, so
  * first-come-first-served keeps the better fix and drops the one that would have fought it.

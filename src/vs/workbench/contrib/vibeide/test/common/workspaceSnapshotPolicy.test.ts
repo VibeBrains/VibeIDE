@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { isSnapshotTreeId, parsePathList, planSnapshotRestore, selectStaleSnapshotRefs } from '../../common/workspaceSnapshotPolicy.js';
+import { isSnapshotTreeId, parsePathList, parsePinnedSnapshots, planSnapshotRestore, selectStaleSnapshotRefs } from '../../common/workspaceSnapshotPolicy.js';
 
 suite('Workspace snapshot policy', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -35,21 +35,41 @@ suite('Workspace snapshot policy', () => {
 		);
 	});
 
+	const NOW = 10_000_000_000;
+	const OLD = NOW - 5 * 60 * 60 * 1000;
+
+	test('parses refs with their age and ignores anything outside our namespace', () => {
+		assert.deepStrictEqual(
+			parsePinnedSnapshots('refs/vibe/checkpoints/abc 1700000000\nrefs/heads/main 1700000001\nrefs/vibe/other/x 1700000002\n\n'),
+			[{ id: 'abc', committedAtMs: 1700000000000 }],
+		);
+	});
+
 	test('stale refs: only snapshots no checkpoint points at are released', () => {
 		const live = 'a'.repeat(40);
 		const dead = 'b'.repeat(40);
 		assert.deepStrictEqual(
 			selectStaleSnapshotRefs(
-				[`refs/vibe/checkpoints/${live}`, `refs/vibe/checkpoints/${dead}`, 'refs/heads/main'],
+				[{ id: live, committedAtMs: OLD }, { id: dead, committedAtMs: OLD }],
 				[live],
+				NOW,
 			),
 			[dead],
 		);
 	});
 
-	test('stale refs: an empty live set releases everything pinned, and only under our prefix', () => {
+	// The dangerous direction: another window may have just written a checkpoint that has not reached
+	// storage yet, so a young snapshot is spared even when it looks unreferenced.
+	test('a snapshot younger than the grace period is never released', () => {
 		assert.deepStrictEqual(
-			selectStaleSnapshotRefs(['refs/vibe/checkpoints/deadbeef', 'refs/tags/v1', 'refs/vibe/other/x'], []),
+			selectStaleSnapshotRefs([{ id: 'fresh', committedAtMs: NOW - 60_000 }], [], NOW),
+			[],
+		);
+	});
+
+	test('stale refs: an empty live set releases every old pinned snapshot', () => {
+		assert.deepStrictEqual(
+			selectStaleSnapshotRefs([{ id: 'deadbeef', committedAtMs: OLD }], [], NOW),
 			['deadbeef'],
 		);
 	});

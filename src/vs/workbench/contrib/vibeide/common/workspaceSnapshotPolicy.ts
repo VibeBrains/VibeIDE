@@ -58,29 +58,63 @@ export const SNAPSHOT_ARGV = {
 	listTree: (tree: string) => ['ls-tree', '-r', '--name-only', tree],
 	/** Everything git currently considers part of the working set, ignored files excluded. */
 	listWorking: ['ls-files', '--cached', '--others', '--exclude-standard'],
-	/** All snapshot refs currently pinned, as bare ids. */
-	listSnapshotRefs: ['for-each-ref', '--format=%(refname)', SNAPSHOT_REF_PREFIX],
+	/** Pinned snapshots with the age of each, so a young one can be spared. */
+	listSnapshotRefs: ['for-each-ref', '--format=%(refname) %(committerdate:unix)', SNAPSHOT_REF_PREFIX],
 	deleteRef: (id: string) => ['update-ref', '-d', snapshotRefName(id)],
 } as const;
 
 /**
- * Snapshot ids still referenced by a checkpoint somewhere. Everything else is a leftover: its
- * checkpoint is gone (thread deleted, history trimmed), and the ref is the only thing keeping a
- * whole worktree's worth of objects alive in the user's repository.
+ * How long a snapshot is spared regardless of what the live set says.
+ *
+ * Threads are persisted with coalescing and a second window may have just created a checkpoint that
+ * has not reached storage yet. Releasing that snapshot would destroy a rollback point nobody could
+ * recreate, so recency wins over tidiness: the objects survive one more sweep, and the next one
+ * collects them if they really are dead.
+ */
+export const SNAPSHOT_PRUNE_MIN_AGE_MS = 60 * 60 * 1000;
+
+export interface PinnedSnapshot {
+	readonly id: string;
+	/** Commit time of the snapshot, ms since epoch. */
+	readonly committedAtMs: number;
+}
+
+/** Parse `for-each-ref` output of the form `refs/vibe/checkpoints/<id> <unix-seconds>`. */
+export function parsePinnedSnapshots(stdout: string): PinnedSnapshot[] {
+	const out: PinnedSnapshot[] = [];
+	for (const line of stdout.split(/\r?\n/)) {
+		const [name, stamp] = line.trim().split(/\s+/);
+		if (!name || !name.startsWith(`${SNAPSHOT_REF_PREFIX}/`)) {
+			continue;
+		}
+		const id = name.slice(SNAPSHOT_REF_PREFIX.length + 1);
+		const seconds = Number(stamp);
+		if (id.length === 0 || !Number.isFinite(seconds)) {
+			continue;
+		}
+		out.push({ id, committedAtMs: seconds * 1000 });
+	}
+	return out;
+}
+
+/**
+ * Snapshot ids safe to release: referenced by no checkpoint AND old enough that no window could
+ * still be about to persist a checkpoint pointing at them.
  *
  * Deliberately computed from the LIVE set rather than from delete events: a missed event leaks
- * silently and forever, while a recomputed sweep is self-correcting.
+ * silently and forever, while a recomputed sweep is self-correcting. And deliberately conservative
+ * in both directions — leaking a snapshot costs disk, releasing a live one costs a rollback.
  */
 export function selectStaleSnapshotRefs(
-	pinnedRefNames: readonly string[],
+	pinned: readonly PinnedSnapshot[],
 	liveSnapshotIds: readonly string[],
+	nowMs: number,
+	minAgeMs: number = SNAPSHOT_PRUNE_MIN_AGE_MS,
 ): string[] {
 	const live = new Set(liveSnapshotIds);
-	return pinnedRefNames
-		.map(name => name.trim())
-		.filter(name => name.startsWith(`${SNAPSHOT_REF_PREFIX}/`))
-		.map(name => name.slice(SNAPSHOT_REF_PREFIX.length + 1))
-		.filter(id => id.length > 0 && !live.has(id));
+	return pinned
+		.filter(p => !live.has(p.id) && nowMs - p.committedAtMs >= minAgeMs)
+		.map(p => p.id);
 }
 
 /** A tree object id as printed by `git write-tree`. */

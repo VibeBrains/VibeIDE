@@ -13,7 +13,7 @@ import { IResolvedTextEditorModel, ITextModelService } from '../../../../editor/
 import { Range } from '../../../../editor/common/core/range.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { IReference } from '../../../../base/common/lifecycle.js';
-import { selectCompatibleFixes } from './quickFixSelection.js';
+import { isPurelyAdditive, selectCompatibleFixes } from './quickFixSelection.js';
 import { CodeActionContext, CodeActionTriggerType, IWorkspaceTextEdit, TextEdit, WorkspaceEdit } from '../../../../editor/common/languages.js';
 import { URI } from '../../../../base/common/uri.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -215,7 +215,10 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 		const candidates = errors
 			.map(e => e.quickFixes?.[0])
 			.filter((f): f is NonNullable<typeof f> => !!f)
-			.map(f => ({ title: f.title, edits: f.edit }));
+			.map(f => ({ title: f.title, edits: f.edit }))
+			// Only additive fixes are applied without asking — see `isPurelyAdditive` for why
+			// "preferred" is not the same as "safe".
+			.filter(isPurelyAdditive);
 		const chosen = selectCompatibleFixes(candidates);
 		if (chosen.length === 0) {
 			return [];
@@ -283,8 +286,9 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 			for (const provider of providers) {
 				if (token.isCancellationRequested) { break; }
 
+				let actions: Awaited<ReturnType<typeof provider.provideCodeActions>> | undefined;
 				try {
-					const actions = await provider.provideCodeActions(model, range, context, token);
+					actions = await provider.provideCodeActions(model, range, context, token);
 					if (actions?.actions) {
 						for (const action of actions.actions) {
 							if (action.isPreferred && action.edit) {
@@ -318,6 +322,11 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 				} catch (error) {
 					// Continue with other providers
 					vibeLog.debug('errorDetection', '[ErrorDetectionService] Provider error:', error);
+				} finally {
+					// `CodeActionList` owns provider-side resources and must be released. It mattered
+					// little while this ran on demand; the quick-fix pass now runs after EVERY file
+					// write, so a leak here would grow with every edit the agent makes.
+					actions?.dispose?.();
 				}
 			}
 		} catch (error) {

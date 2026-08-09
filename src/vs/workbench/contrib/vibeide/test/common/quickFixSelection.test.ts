@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { rangesOverlap, selectCompatibleFixes } from '../../common/quickFixSelection.js';
+import { isPurelyAdditive, rangesOverlap, selectCompatibleFixes } from '../../common/quickFixSelection.js';
 
 const at = (startLineNumber: number, startColumn: number, endLineNumber: number, endColumn: number) =>
 	({ startLineNumber, startColumn, endLineNumber, endColumn });
@@ -44,6 +44,25 @@ suite('Quick-fix selection', () => {
 			{ title: 'multi', edits: [{ range: at(1, 1, 1, 2), text: 'b' }, { range: at(5, 2, 5, 3), text: 'c' }] },
 		]);
 		assert.deepStrictEqual(chosen.map(c => c.title), ['first']);
+	});
+
+	// The safety line: "preferred" is the editor's most-likely fix, not a harmless one. TypeScript
+	// marks "remove unused declaration" and "change spelling to X" preferred, and both destroy the
+	// agent's work — a helper written one step before it is used is legitimately unused, and a call
+	// to a not-yet-written function looks exactly like a typo.
+	test('only additive fixes may be applied without asking', () => {
+		const insertImport = { title: 'add import', edits: [{ range: at(1, 1, 1, 1), text: "import x from 'x';\n" }] };
+		const deleteDecl = { title: 'remove unused declaration', edits: [{ range: at(4, 1, 5, 1), text: '' }] };
+		const renameCall = { title: "change spelling to 'computeTotal'", edits: [{ range: at(9, 5, 9, 18), text: 'computeTotal' }] };
+		const mixed = { title: 'mixed', edits: [{ range: at(1, 1, 1, 1), text: 'a' }, { range: at(3, 1, 3, 4), text: 'b' }] };
+		assert.deepStrictEqual(
+			[insertImport, deleteDecl, renameCall, mixed].map(isPurelyAdditive),
+			[true, false, false, false],
+		);
+	});
+
+	test('an insertion of empty text is not a fix either', () => {
+		assert.strictEqual(isPurelyAdditive({ title: 'noop', edits: [{ range: at(1, 1, 1, 1), text: '' }] }), false);
 	});
 
 	test('fixes without edits are skipped', () => {

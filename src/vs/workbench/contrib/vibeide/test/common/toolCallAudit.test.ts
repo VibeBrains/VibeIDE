@@ -5,15 +5,19 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { URI } from '../../../../../base/common/uri.js';
 import { buildToolCallAudit, toolCallTargetPath } from '../../common/toolCallAudit.js';
 
 suite('Tool call audit', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
+	// A REAL `URI`, not an object literal: `fsPath` is a getter on the prototype, and the first
+	// version of this check used `Object.hasOwn`, which is false for every real URI. The literal
+	// made the test pass while the runtime recorded no path at all.
 	test('file tools contribute their target path', () => {
 		assert.deepStrictEqual(
-			buildToolCallAudit({ toolName: 'edit_file', params: { uri: { fsPath: '/repo/src/a.ts' }, searchReplaceBlocks: 'secret-ish' } }),
-			{ files: ['/repo/src/a.ts'], meta: { tool: 'edit_file' } },
+			buildToolCallAudit({ toolName: 'edit_file', params: { uri: URI.file('/repo/src/a.ts'), searchReplaceBlocks: 'secret-ish' } }),
+			{ files: [URI.file('/repo/src/a.ts').fsPath], meta: { tool: 'edit_file' } },
 		);
 	});
 
@@ -36,7 +40,7 @@ suite('Tool call audit', () => {
 
 	test('an absurdly long path is truncated rather than logged whole', () => {
 		const long = '/repo/' + 'x'.repeat(500) + '.ts';
-		const target = toolCallTargetPath({ toolName: 'read_file', params: { uri: { fsPath: long } } });
+		const target = toolCallTargetPath({ toolName: 'read_file', params: { uri: URI.file(long) } });
 		assert.strictEqual(target?.length, 260);
 	});
 

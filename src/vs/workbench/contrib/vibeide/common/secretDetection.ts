@@ -151,7 +151,10 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 	{
 		id: 'aws-secret-key-named',
 		name: 'AWS Secret Key (assignment)',
-		pattern: /\b(AWS_SECRET_ACCESS_KEY|aws_secret_access_key)(\s*[=:]\s*["']?)([a-zA-Z0-9/+=]{40})\b/g,
+		// Ends with a lookahead, not `\b`: base64 keys routinely end in `=`, `+` or `/`, and a word
+		// boundary after such a character never matches — the rule silently skipped roughly the keys
+		// it was written for. Verified: `…EXAMPLEKE=` and `…8901+/` matched only after this change.
+		pattern: /\b(AWS_SECRET_ACCESS_KEY|aws_secret_access_key)(\s*[=:]\s*["']?)([a-zA-Z0-9/+=]{40})(?![a-zA-Z0-9/+=])/g,
 		enabled: true,
 		priority: 100,
 	},

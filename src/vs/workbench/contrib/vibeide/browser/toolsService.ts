@@ -2065,6 +2065,7 @@ export class ToolsService implements IToolsService {
 				const lintErrorsPromise = Promise.resolve().then(async () => {
 					await timeout(2000);
 					const quickFixesApplied = await this._applyFreeQuickFixes(uri);
+					await this._settleQuickFixes(uri, quickFixesApplied, vibeideModelService);
 					const { lintErrors } = this._getLintErrors(uri);
 					return { lintErrors, quickFixesApplied };
 				});
@@ -2166,6 +2167,7 @@ export class ToolsService implements IToolsService {
 				const lintErrorsPromise = Promise.resolve().then(async () => {
 					await timeout(2000);
 					const quickFixesApplied = await this._applyFreeQuickFixes(uri);
+					await this._settleQuickFixes(uri, quickFixesApplied, vibeideModelService);
 					const { lintErrors } = this._getLintErrors(uri);
 					return { lintErrors, indentationNote, quickFixesApplied };
 				});
@@ -3247,6 +3249,28 @@ export class ToolsService implements IToolsService {
 			vibeLog.warn('toolsService', '[toolsService] quick-fix pass failed:', error);
 			return undefined;
 		}
+	}
+
+	/**
+	 * Land the quick-fix pass: write it to disk and refresh the file's signature.
+	 *
+	 * Both halves are required and both were missing at first. The fixes are applied to the text
+	 * model AFTER the tool's own save, so without saving again the file stays dirty and disk keeps
+	 * the unfixed content. And the signature was recorded BEFORE the pass, so the very next edit to
+	 * the same file failed pre-apply verification against a file this tool had changed itself.
+	 */
+	private async _settleQuickFixes(
+		uri: URI,
+		applied: string[] | undefined,
+		modelService: IVibeideModelService,
+	): Promise<void> {
+		if (!applied?.length) { return; }
+		try {
+			await modelService.saveModel(uri);
+		} catch (error) {
+			vibeLog.warn('toolsService', '[toolsService] saving quick-fixes failed:', error);
+		}
+		this._markFileRead(uri, modelService.getModel(uri).model?.getValue(EndOfLinePreference.LF) ?? '', 'buffer');
 	}
 
 	private _getLintErrors(uri: URI): { lintErrors: LintErrorItem[] | null } {

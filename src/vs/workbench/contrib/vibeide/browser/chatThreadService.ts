@@ -4734,6 +4734,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			this._agentActivityLog.logError(`${toolActivityLabel}: ${errorMessage}`);
 			vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false });
 			this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, false, Date.now() - _toolExecStartMs);
+			// A failed edit leaves the cache stale in the one case that matters: the tool refused
+			// BECAUSE the file changed under the agent. Invalidation used to live past the try/catch,
+			// so an error returned before it ran — the agent was then told to re-read, got the cached
+			// pre-change content, and looped until the step limit. Drop the cache on the error paths
+			// too; the cost of being wrong here is one extra read.
+			if (isBuiltInTool && (toolName === 'edit_file' || toolName === 'rewrite_file' || toolName === 'delete_file_or_folder')) {
+				const failedUri = (toolParams as { uri?: { fsPath?: string } } | undefined)?.uri?.fsPath;
+				if (failedUri) { this._invalidateFileReadCache(threadId, failedUri); }
+			}
 			this._updateLatestTool(threadId, { role: 'tool', type: 'tool_error', params: toolParams, result: errorMessage, name: toolName, content: errorMessage, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
 			return {};
 		}
@@ -4760,6 +4769,15 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			this._agentActivityLog.logError(`${toolActivityLabel}: stringify ${errorMessage}`);
 			vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false });
 			this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, false, Date.now() - _toolExecStartMs);
+			// A failed edit leaves the cache stale in the one case that matters: the tool refused
+			// BECAUSE the file changed under the agent. Invalidation used to live past the try/catch,
+			// so an error returned before it ran — the agent was then told to re-read, got the cached
+			// pre-change content, and looped until the step limit. Drop the cache on the error paths
+			// too; the cost of being wrong here is one extra read.
+			if (isBuiltInTool && (toolName === 'edit_file' || toolName === 'rewrite_file' || toolName === 'delete_file_or_folder')) {
+				const failedUri = (toolParams as { uri?: { fsPath?: string } } | undefined)?.uri?.fsPath;
+				if (failedUri) { this._invalidateFileReadCache(threadId, failedUri); }
+			}
 			this._updateLatestTool(threadId, { role: 'tool', type: 'tool_error', params: toolParams, result: errorMessage, name: toolName, content: errorMessage, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
 			return {};
 		}
@@ -4834,29 +4852,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		if ((toolName === 'edit_file' || toolName === 'rewrite_file' || toolName === 'delete_file_or_folder') && isBuiltInTool) {
 			const fileParams = toolParams as BuiltinToolCallParams['edit_file'] | BuiltinToolCallParams['rewrite_file'] | BuiltinToolCallParams['delete_file_or_folder'];
 			const fileUri = fileParams.uri;
-			const threadCache = this._fileReadCache.get(threadId);
-			const lruList = this._fileReadCacheLRU.get(threadId);
-			if (threadCache) {
-				// Remove all cache entries for this file (any line range/page)
-				const keysToDelete: string[] = [];
-				for (const [cacheKey] of threadCache.entries()) {
-					if (cacheKey.startsWith(fileUri.fsPath + '|')) {
-						keysToDelete.push(cacheKey);
-						threadCache.delete(cacheKey);
-					}
-				}
-				// Also remove from LRU list
-				if (lruList) {
-					for (const key of keysToDelete) {
-						const lruIndex = lruList.indexOf(key);
-						if (lruIndex >= 0) {
-							lruList.splice(lruIndex, 1);
-						}
-					}
-				}
-			}
+			this._invalidateFileReadCache(threadId, fileUri.fsPath);
 		}
-
 		return {};
 	};
 
@@ -8615,17 +8612,44 @@ We only need to do it for files that were edited since `from`, ie files between 
 			.catch(() => { /* audit is observation, not control flow */ });
 	}
 
+	/**
+	 * Drop cached `read_file` results for a path.
+	 *
+	 * The cache is keyed by path + range + page, so every window of the file has to go: a stale page
+	 * is just as wrong as a stale whole file.
+	 */
+	private _invalidateFileReadCache(threadId: string, fsPath: string): void {
+		const threadCache = this._fileReadCache.get(threadId);
+		if (!threadCache) { return; }
+		const lruList = this._fileReadCacheLRU.get(threadId);
+		for (const cacheKey of [...threadCache.keys()]) {
+			if (!cacheKey.startsWith(fsPath + '|')) { continue; }
+			threadCache.delete(cacheKey);
+			const lruIndex = lruList?.indexOf(cacheKey) ?? -1;
+			if (lruList && lruIndex >= 0) { lruList.splice(lruIndex, 1); }
+		}
+	}
+
 	/** Release snapshots that no surviving checkpoint refers to. Best effort, never blocks. */
 	private async _pruneWorkspaceSnapshots(): Promise<void> {
-		const live: string[] = [];
-		for (const thread of Object.values(this.state.allThreads)) {
-			for (const message of thread?.messages ?? []) {
-				if (message.role === 'checkpoint' && message.workspaceSnapshotTree) {
-					live.push(message.workspaceSnapshotTree);
+		// The live set is the UNION of this window's state and what is on disk. Another window's
+		// threads exist only in storage, and releasing their snapshots would destroy rollback points
+		// that window still offers; our own unsaved state is not in storage yet, and would be missed
+		// the other way round. Recency in the pruner covers the remaining gap — a checkpoint written
+		// seconds ago by another window may be in neither list yet.
+		const live = new Set<string>();
+		const collect = (threads: ChatThreads | null | undefined) => {
+			for (const thread of Object.values(threads ?? {})) {
+				for (const message of thread?.messages ?? []) {
+					if (message.role === 'checkpoint' && message.workspaceSnapshotTree) {
+						live.add(message.workspaceSnapshotTree);
+					}
 				}
 			}
-		}
-		await this._workspaceSnapshotService.prune(live);
+		};
+		collect(this.state.allThreads);
+		collect(this._readAllThreads());
+		await this._workspaceSnapshotService.prune([...live]);
 	}
 
 	private async _offerWorkspaceSnapshotRestore(checkpoint: CheckpointEntry, shellCallCount: number): Promise<void> {
@@ -9761,10 +9785,6 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 	deleteThread(threadId: string): void {
 		this._planBindingRegistry.clearThread(threadId);
-		// A deleted thread takes its checkpoints with it, and every checkpoint snapshot pins a whole
-		// worktree of git objects. Recompute the live set and release the rest — computed from what
-		// still exists rather than from this one deletion, so a missed path self-corrects next time.
-		void this._pruneWorkspaceSnapshots();
 		this._taskDecompositionService.clearPersistedPlanTask(threadId);
 
 		// Release short-term session memory for this thread (roadmap §933).
@@ -9826,6 +9846,10 @@ We only need to do it for files that were edited since `from`, ie files between 
 		} else {
 			this._setState({ allThreads: newThreads, openTabIds });
 		}
+
+		// AFTER the thread is gone from both state and storage — running this earlier would compute a
+		// live set that still contains the very snapshots being orphaned, so nothing was ever released.
+		void this._pruneWorkspaceSnapshots();
 		this._onDidDeleteThread.fire(threadId);
 	}
 

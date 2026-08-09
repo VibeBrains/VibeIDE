@@ -19,6 +19,9 @@
 const SHELL_TOOL_NAMES: ReadonlySet<string> = new Set([
 	'run_command',
 	'run_persistent_command',
+	// Same effect through a different door: the model describes the command in words and the tool
+	// runs a shell command all the same.
+	'run_nl_command',
 ]);
 
 export function isShellToolName(name: string): boolean {
