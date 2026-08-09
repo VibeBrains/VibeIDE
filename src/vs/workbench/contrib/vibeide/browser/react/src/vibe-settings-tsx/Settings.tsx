@@ -11,6 +11,7 @@ import { ProviderName, SettingName, displayInfoOfSettingName, providerNames, Vib
 import { remoteCatalogCapableProviderNames } from '../../../../common/remoteCatalogService.js';
 import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js';
 import { VibeButtonBgDarken, VibeCustomDropdownBox, VibeInputBox2, VibeSimpleInputBox, VibeSwitch } from '../util/inputs.js';
+import { visibleProviderCards } from '../../../../common/providerCardVisibility.js';
 import { useAccessor, useIsDark, useIsOptedOut, useMCPServiceState, useRefreshModelListener, useRefreshModelState, useSettingsState } from '../util/services.js';
 import { X, RefreshCw, Loader2, Check, Asterisk, Plus, ChevronRight, ChevronDown, ImageOff, Image, Play } from 'lucide-react';
 import { joinPath } from '../../../../../../../base/common/resources.js';
@@ -620,6 +621,19 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 		return base.filter(p => !!settingsState.settingsOfProvider[p]?._didFillInProviderSettings);
 	}, [filteredProviders, settingsState.settingsOfProvider]);
 
+	/**
+	 * Providers that get a card. Local ones are "configured" by their default endpoint alone, so
+	 * empty Ollama / vLLM / LM Studio cards showed up for everyone. They are dropped here — but NOT
+	 * from `configuredProviders`, because the "Add model" dropdown below feeds off that list and
+	 * hiding them there would remove the only way to add their first model.
+	 */
+	const visibleProviders = useMemo(() => visibleProviderCards({
+		configured: configuredProviders,
+		modelCountOf: p => settingsState.settingsOfProvider[p]?.models.length ?? 0,
+		isLocal: p => (localProviderNames as readonly string[]).includes(p),
+		showEmptyLocal: settingsState.globalSettings.showEmptyLocalProviders === true,
+	}), [configuredProviders, settingsState.settingsOfProvider, settingsState.globalSettings.showEmptyLocalProviders]);
+
 	const modelsByProvider = useMemo(() => {
 		const out: Partial<Record<ProviderName, (VibeideStatefulModelInfo & { providerName: ProviderName })[]>> = {};
 		for (const providerName of configuredProviders) {
@@ -798,6 +812,9 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 		setErrorString('');
 	};
 
+	// Guard on `configuredProviders`, not on the visible subset: if every configured provider is an
+	// empty local one, the visible list is empty while the section is NOT — and returning here would
+	// take the toggle away with the cards, leaving no way to bring them back.
 	if (configuredProviders.length === 0) {
 		return <div className='text-sm text-vibe-fg-3 py-2 max-w-xl'>
 			<p className='mb-2'>{modelsS.noProviders}<strong className='text-vibe-fg-2'>{modelsS.providersTabStrong}</strong>{modelsS.noProviders2}</p>
@@ -806,7 +823,18 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 	}
 
 	return <div className=''>
-		{configuredProviders.map(providerName => {
+		{/* Escape hatch for the card rule above: local providers are hidden while empty, and this is
+		    where you get them back — next to the cards it affects, not buried in another tab. */}
+		<div className='flex items-center gap-2 mb-2'>
+			<VibeSwitch
+				size='xxs'
+				value={settingsState.globalSettings.showEmptyLocalProviders === true}
+				onChange={(v) => settingsStateService.setGlobalSetting('showEmptyLocalProviders', v)}
+			/>
+			<span className='text-vibe-fg-3 text-xs'>{modelsS.showEmptyLocal}</span>
+			<span className='text-vibe-fg-4 text-xs' title={modelsS.showEmptyLocalTitle}>(i)</span>
+		</div>
+		{visibleProviders.map(providerName => {
 			const allModels = modelsByProvider[providerName] ?? [];
 			const activeOnly = showOnlyActiveByProvider[providerName] === true;
 			const afterActive = activeOnly ? allModels.filter(m => !m.isHidden) : allModels;

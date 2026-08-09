@@ -672,6 +672,12 @@ export type MinimalismMode = 'off' | 'lite' | 'full' | 'ultra';
 
 export type GlobalSettings = {
 	autoRefreshModels: boolean;
+	/**
+	 * Show local providers (Ollama / vLLM / LM Studio) in the "Модели" section even when they hold
+	 * no models. They count as configured by their default endpoint alone, so without this they
+	 * would occupy the list on every machine that never installed a local server.
+	 */
+	showEmptyLocalProviders: boolean;
 	aiInstructions: string;
 	enableAutocomplete: boolean;
 	syncApplyToChat: boolean;
@@ -738,6 +744,7 @@ export type GlobalSettings = {
 
 export const defaultGlobalSettings: GlobalSettings = {
 	autoRefreshModels: true,
+	showEmptyLocalProviders: false,
 	aiInstructions: '',
 	enableAutocomplete: false,
 	syncApplyToChat: true,
