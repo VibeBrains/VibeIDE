@@ -116,6 +116,7 @@ import { IVibeCheckpointCoordinator } from '../common/vibeCheckpointCoordinatorS
 import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IVibeWorkspaceSnapshotService } from '../common/vibeideSCMTypes.js';
+import { checkpointCoverage, isShellToolName } from '../common/checkpointCoverage.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IVibeTokenCostForecastService } from '../common/vibeTokenCostForecastService.js';
 import {
@@ -8568,7 +8569,16 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 		this._setThreadState(threadId, { currCheckpointIdx: toIdx });
 
-		await this._offerWorkspaceSnapshotRestore(c[0]);
+		// Count shell calls in the span being undone: their effects are outside the chat's tracking,
+		// so they decide whether an un-snapshotted rollback is silently incomplete.
+		const [spanLo, spanHi] = toIdx < fromIdx ? [toIdx, fromIdx] : [fromIdx, toIdx];
+		let shellCallCount = 0;
+		for (let k = spanLo; k <= spanHi && k < thread.messages.length; k++) {
+			const m = thread.messages[k];
+			if (m.role === 'tool' && isShellToolName(m.name)) { shellCallCount++; }
+		}
+
+		await this._offerWorkspaceSnapshotRestore(c[0], shellCallCount);
 	}
 
 	/**
@@ -8579,13 +8589,27 @@ We only need to do it for files that were edited since `from`, ie files between 
 	 * files nobody in the chat touched — build output, terminal edits — and deletes files created
 	 * since. That is not something to do on a click, so the user is shown the counts and decides.
 	 */
-	private async _offerWorkspaceSnapshotRestore(checkpoint: CheckpointEntry): Promise<void> {
+	private async _offerWorkspaceSnapshotRestore(checkpoint: CheckpointEntry, shellCallCount: number): Promise<void> {
 		const tree = checkpoint.workspaceSnapshotTree;
-		if (!tree) { return; }
+		const plan = tree ? await this._workspaceSnapshotService.plan(tree) : undefined;
+		const coverage = checkpointCoverage({
+			hasSnapshot: !!tree && !!plan,
+			wouldChangeAnything: plan ? plan.delete.length > 0 : undefined,
+			shellCallCount,
+		});
 
-		const plan = await this._workspaceSnapshotService.plan(tree);
-		// Nothing outside the chat drifted — restoring would be a no-op, so do not ask.
-		if (!plan || plan.delete.length === 0) { return; }
+		if (coverage.kind === 'complete') { return; }
+		if (coverage.kind === 'uncovered') {
+			// No snapshot (folder is not a git repository), and the undone span ran shell commands.
+			// Their effects survived the rollback; saying nothing would read as "everything is back".
+			this._notificationService.warn(localize(
+				'vibeide.checkpoint.snapshot.uncovered',
+				"Откат вернул правки чата, но не последствия команд в терминале (их было {0}). Рабочая папка не под git, поэтому снять её состояние на момент чекпоинта было нечем — созданные и изменённые командами файлы остались как есть.",
+				coverage.shellCallCount,
+			));
+			return;
+		}
+		if (!tree || !plan) { return; }
 
 		const { confirmed } = await this._dialogService.confirm({
 			type: 'warning',
