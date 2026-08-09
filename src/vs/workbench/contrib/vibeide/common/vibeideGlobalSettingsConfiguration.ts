@@ -49,7 +49,11 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 				'vibeide.privacy.strict': {
 					type: 'boolean',
 					default: false,
-					description: localize('vibeide.privacy.strict', 'Строгий режим приватности: блокирует любые исходящие HTTP/HTTPS-запросы вне доверенного allowlist и разрешает только локальных LLM-провайдеров (в т.ч. для FIM-автодополнения). Off по умолчанию.'),
+					// Описание перечисляет ровно то, что код делает. Прежняя формулировка обещала
+					// «блокирует любые исходящие HTTP/HTTPS вне allowlist» — такой блокировки нет
+					// ни в одном исходящем вызове; обещание безопасности, которого нет, опаснее
+					// отсутствия настройки, потому что на него полагаются.
+					description: localize('vibeide.privacy.strict', 'Строгий режим приватности: автодополнение (FIM) обслуживают только локальные модели — Ollama или LM Studio, облачные провайдеры для него не используются даже если выбраны в чате. Исходящие запросы провайдеров при этом проверяются по доверенному списку и попадают в журнал, но НЕ блокируются. Off по умолчанию.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 			},

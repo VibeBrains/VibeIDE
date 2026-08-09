@@ -22,6 +22,13 @@
  * vscode-free: no imports beyond standard lib.
  */
 
+/**
+ * Settings id of the privacy switch. Exported so every consumer reads the SAME key —
+ * the FIM gate used to read a `privacyMode` field that existed nowhere, which left the
+ * gate permanently off while the setting claimed to enforce it.
+ */
+export const VIBEIDE_PRIVACY_STRICT = 'vibeide.privacy.strict';
+
 export interface OutboundAllowlistEntry {
 	pattern: string;
 	/** Required for wildcard / port-pinned matches. Optional for prefix matches. */

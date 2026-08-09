@@ -32,8 +32,10 @@ import { getPerformanceHarness } from '../common/performanceHarness.js';
 import { IModelWarmupService } from '../common/modelWarmupService.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { decideFIMProvider, describeFIMRouting, type FIMProvider, type FIMProviderKind } from '../common/fimProviderRouter.js';
+import { VIBEIDE_PRIVACY_STRICT } from '../common/outboundAllowlist.js';
 import { CompletionCache, makeCompletionCacheKey, hashCompletionPrefix } from '../common/completionCache.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { joinPath } from '../../../../base/common/resources.js';
@@ -981,7 +983,11 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		});
 		const fimDecision = decideFIMProvider({
 			pinnedModelId: modelSelection.modelName ?? '',
-			privacyStrict: !!(settingsState.globalSettings as { privacyMode?: boolean })?.privacyMode,
+			// The real setting, read from configuration. This used to cast globalSettings to a
+			// `privacyMode` field that exists nowhere — in the type, in the settings registry or in
+			// any writer — so the flag was permanently undefined and the privacy gate never fired:
+			// with `vibeide.privacy.strict` on, tab-completion still went to cloud providers.
+			privacyStrict: !!this._configurationService.getValue<boolean>(VIBEIDE_PRIVACY_STRICT),
 			providers: fimProviders,
 			chatDefaultProviderId: modelSelection.providerName ?? '',
 		});
@@ -1239,6 +1245,7 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		@ISecretDetectionService private readonly _secretDetectionService: ISecretDetectionService,
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspaceContext: IWorkspaceContextService,
+		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@IVibeFimContextCollector private readonly _fimContextCollector: IVibeFimContextCollector,
 		// @IContextGatheringService private readonly _contextGatheringService: IContextGatheringService,
 	) {
