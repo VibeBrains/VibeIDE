@@ -143,6 +143,18 @@ export const DEFAULT_SECRET_PATTERNS: SecretPattern[] = [
 		priority: 85,
 		validate: looksLikeAwsSecret,
 	},
+	// AWS secret key in its named form. The standalone rule above cannot allow '/', or every path
+	// segment of the right length would match — yet a real secret is base64 and very often contains
+	// one, so `AWS_SECRET_ACCESS_KEY=…` passed through unredacted while `AWS_ACCESS_KEY_ID` next to
+	// it was caught (observed 2026-08-05). Anchoring on the variable name makes '/' safe: nothing
+	// else is being assigned to that name.
+	{
+		id: 'aws-secret-key-named',
+		name: 'AWS Secret Key (assignment)',
+		pattern: /\b(AWS_SECRET_ACCESS_KEY|aws_secret_access_key)(\s*[=:]\s*["']?)([a-zA-Z0-9/+=]{40})\b/g,
+		enabled: true,
+		priority: 100,
+	},
 	// GitHub tokens
 	{
 		id: 'github-token',
