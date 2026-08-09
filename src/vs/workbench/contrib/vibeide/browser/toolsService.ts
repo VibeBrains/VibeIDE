@@ -24,6 +24,7 @@ import { IEditCodeService } from './editCodeServiceInterface.js';
 import { ITerminalToolService } from './terminalToolService.js';
 import { LintErrorItem, BuiltinToolCallParams, BuiltinToolResultType, BuiltinToolName } from '../common/toolsServiceTypes.js';
 import { IVibeideModelService } from '../common/vibeideModelService.js';
+import { IErrorDetectionService } from '../common/errorDetectionService.js';
 import { blocksApply, captureFileBase, FileBaseSignature, FileBaseSource, FileBaseVerdict, verifyFileBase } from '../common/fileBaseSignature.js';
 import { IRepoIndexerService } from './repoIndexerService.js';
 import { EndOfLinePreference } from '../../../../editor/common/model.js';
@@ -295,6 +296,7 @@ export class ToolsService implements IToolsService {
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@IGitAutoStashService private readonly _gitAutoStashService: IGitAutoStashService,
 		@ITextFileService private readonly _textFileService: ITextFileService,
+		@IErrorDetectionService private readonly _errorDetectionService: IErrorDetectionService,
 		@IShellHardeningService private readonly _shellHardeningService: IShellHardeningService,
 		@IVibeExternalAccessService private readonly _externalAccess: IVibeExternalAccessService,
 		@IVibeIgnoreService vibeIgnoreService: IVibeIgnoreService,
@@ -2062,8 +2064,9 @@ export class ToolsService implements IToolsService {
 				// at end, get lint errors
 				const lintErrorsPromise = Promise.resolve().then(async () => {
 					await timeout(2000);
+					const quickFixesApplied = await this._applyFreeQuickFixes(uri);
 					const { lintErrors } = this._getLintErrors(uri);
-					return { lintErrors };
+					return { lintErrors, quickFixesApplied };
 				});
 				return { result: lintErrorsPromise };
 			},
@@ -2162,8 +2165,9 @@ export class ToolsService implements IToolsService {
 				// at end, get lint errors
 				const lintErrorsPromise = Promise.resolve().then(async () => {
 					await timeout(2000);
+					const quickFixesApplied = await this._applyFreeQuickFixes(uri);
 					const { lintErrors } = this._getLintErrors(uri);
-					return { lintErrors, indentationNote };
+					return { lintErrors, indentationNote, quickFixesApplied };
 				});
 
 				return { result: lintErrorsPromise };
@@ -2704,6 +2708,12 @@ export class ToolsService implements IToolsService {
 			return truncateHeadTail(s, cap);
 		};
 
+		// Tell the model what the editor already repaired: a file that silently differs from what the
+		// model wrote is exactly how a confident model starts "fixing" what is no longer broken.
+		const quickFixNote = (applied: string[] | undefined) => applied?.length
+			? ` The editor applied its own quick fixes first (no tokens spent): ${applied.join('; ')}.`
+			: '';
+
 		const stringifyLintErrors = (lintErrors: LintErrorItem[]) => {
 			return lintErrors
 				.map((e, i) => `Error ${i + 1}:\nLines Affected: ${e.startLineNumber}-${e.endLineNumber}\nError message:${e.message}`)
@@ -2990,16 +3000,17 @@ export class ToolsService implements IToolsService {
 						: '');
 
 				const indentNote = result.indentationNote ? `\n${result.indentationNote}` : '';
-				return `Change successfully made to ${params.uri.fsPath}.${lintErrsString}${indentNote}`;
+				return `Change successfully made to ${params.uri.fsPath}.${quickFixNote(result.quickFixesApplied)}${lintErrsString}${indentNote}`;
 			},
 			rewrite_file: (params, result) => {
+				const quickFixes = quickFixNote(result.quickFixesApplied);
 				const lintErrsString = (
 					this.vibeideSettingsService.state.globalSettings.includeToolLintErrors ?
 						(result.lintErrors ? ` Lint errors found after change:\n${stringifyLintErrors(result.lintErrors)}.\nIf this is related to a change made while calling this tool, you might want to fix the error.`
 							: ` No lint errors found.`)
 						: '');
 
-				return `Change successfully made to ${params.uri.fsPath}.${lintErrsString}`;
+				return `Change successfully made to ${params.uri.fsPath}.${quickFixes}${lintErrsString}`;
 			},
 			run_command: (params, result) => {
 				const { resolveReason, result: result_, backgroundId } = result;
@@ -3215,6 +3226,27 @@ export class ToolsService implements IToolsService {
 	/** Compare the file as the agent read it against the content it is about to write over. */
 	private _verifyFileBase(uri: URI, currentContent: string, source: FileBaseSource): FileBaseVerdict {
 		return verifyFileBase(this._filesReadInSession.get(uri.toString()), captureFileBase(currentContent, source));
+	}
+
+	/**
+	 * Let the editor fix what it can before the remaining errors are billed to the model.
+	 *
+	 * A missing import, an unused qualifier, a misspelled member — the language service repairs
+	 * these deterministically and for free, while the agent loop was paying tokens for a round trip
+	 * to fix them. Applied fixes are reported back to the model so a file changing under it is never
+	 * a surprise. Failure is not fatal: the errors simply travel to the model as before.
+	 */
+	private async _applyFreeQuickFixes(uri: URI): Promise<string[] | undefined> {
+		if (!(this._configurationService.getValue<boolean>('vibeide.tools.autoQuickFix') ?? true)) {
+			return undefined;
+		}
+		try {
+			const applied = await this._errorDetectionService.applyPreferredQuickFixes(uri);
+			return applied.length > 0 ? applied : undefined;
+		} catch (error) {
+			vibeLog.warn('toolsService', '[toolsService] quick-fix pass failed:', error);
+			return undefined;
+		}
 	}
 
 	private _getLintErrors(uri: URI): { lintErrors: LintErrorItem[] | null } {

@@ -9,9 +9,11 @@ import { localize } from '../../../../nls.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/common/markers.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
-import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
+import { IResolvedTextEditorModel, ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { Range } from '../../../../editor/common/core/range.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { IReference } from '../../../../base/common/lifecycle.js';
+import { selectCompatibleFixes } from './quickFixSelection.js';
 import { CodeActionContext, CodeActionTriggerType, IWorkspaceTextEdit, TextEdit, WorkspaceEdit } from '../../../../editor/common/languages.js';
 import { URI } from '../../../../base/common/uri.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -74,6 +76,15 @@ export interface IErrorDetectionService {
 	 * Generate a minimal diff for fixing errors in a file
 	 */
 	generateFixDiff(uri: URI, errors: DetectedError[], token?: CancellationToken): Promise<ErrorFix | null>;
+
+	/**
+	 * Apply the editor's own preferred quick fixes to a file and report what was applied.
+	 *
+	 * Exists so the agent loop stops paying tokens for what the language service fixes for free
+	 * (a missing import above all). Only non-conflicting fixes are applied, and nothing is invented:
+	 * these are the same edits the lightbulb would apply.
+	 */
+	applyPreferredQuickFixes(uri: URI, token?: CancellationToken): Promise<string[]>;
 }
 
 const ERROR_FIX_PROMPT = `You are a code fix assistant. Generate a minimal, safe fix for the following error(s).
@@ -127,11 +138,12 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 			return [];
 		}
 
-		// Get model for code actions
-		let model: ITextModel | null = null;
+		// Get model for code actions. The reference is released in `finally`: it used to be disposed
+		// on the success path only, so any throw in the loop below leaked the model for the session.
+		let modelRef: IReference<IResolvedTextEditorModel> | undefined;
 		try {
-			const modelRef = await this.textModelService.createModelReference(uri);
-			model = modelRef.object.textEditorModel;
+			modelRef = await this.textModelService.createModelReference(uri);
+			const model = modelRef.object.textEditorModel;
 
 			for (const marker of relevantMarkers) {
 				if (token.isCancellationRequested) { break; }
@@ -160,9 +172,10 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 				errors.push(error);
 			}
 
-			modelRef.dispose();
 		} catch (error) {
 			vibeLog.error('errorDetection', '[ErrorDetectionService] Error detecting errors:', error);
+		} finally {
+			modelRef?.dispose();
 		}
 
 		return errors;
@@ -193,6 +206,39 @@ class ErrorDetectionService extends Disposable implements IErrorDetectionService
 		}
 
 		return fixes;
+	}
+
+	async applyPreferredQuickFixes(uri: URI, token: CancellationToken = CancellationToken.None): Promise<string[]> {
+		const errors = await this.detectErrorsInFile(uri, token);
+		// The first entry per marker is the preferred one — `_getQuickFixes` only keeps `isPreferred`
+		// actions and preserves provider order.
+		const candidates = errors
+			.map(e => e.quickFixes?.[0])
+			.filter((f): f is NonNullable<typeof f> => !!f)
+			.map(f => ({ title: f.title, edits: f.edit }));
+		const chosen = selectCompatibleFixes(candidates);
+		if (chosen.length === 0) {
+			return [];
+		}
+
+		const modelRef = await this.textModelService.createModelReference(uri);
+		try {
+			const model = modelRef.object.textEditorModel;
+			const operations = chosen.flatMap(fix => fix.edits.map(edit => ({
+				range: edit.range,
+				text: edit.text,
+			})));
+			// One undo entry for the whole batch: from the user's side this was a single automatic
+			// step, and undoing it fix-by-fix would be a puzzle.
+			model.pushStackElement();
+			model.pushEditOperations(null, operations.map(op => ({ range: op.range, text: op.text })), () => null);
+			model.pushStackElement();
+			return chosen.map(fix => fix.title);
+		} finally {
+			// Must run even when the edit throws: a leaked model reference keeps the model alive for
+			// the rest of the session.
+			modelRef.dispose();
+		}
 	}
 
 	async generateFixDiff(uri: URI, errors: DetectedError[], token: CancellationToken = CancellationToken.None): Promise<ErrorFix | null> {

@@ -1165,6 +1165,12 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.tools.readFileDefaultLineLimit', 'Сколько строк возвращает `read_file` при чтении файла БЕЗ явного диапазона/лимита. Прямо определяет, сколько контента одно чтение вливает в контекст = токен-стоимость. Дефолт 2000. Поднимите, если модель часто дочитывает файлы по частям; опустите на жёстко лимитированных по токенам провайдерах.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.tools.autoQuickFix': {
+					type: 'boolean',
+					default: true,
+					description: localize('vibeide.tools.autoQuickFix', 'После правки файла применять быстрые исправления редактора (те же, что предлагает лампочка) до того, как оставшиеся ошибки уедут модели. Недостающий импорт язык чинит сам, детерминированно и бесплатно, а раньше за это платили токенами и лишним ходом. Применяются только непротиворечащие друг другу исправления, и модель получает список применённых. Выключите, если хотите, чтобы файл менялся исключительно руками агента.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.tools.preApplyVerification': {
 					type: 'boolean',
 					default: true,

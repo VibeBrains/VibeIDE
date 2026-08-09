@@ -198,8 +198,8 @@ export type BuiltinToolResultType = {
 	'rename_symbol': { changes: Array<{ uri: URI; oldText: string; newText: string; line: number; column: number }> };
 	'extract_function': { newFunctionCode: string; replacementCode: string; insertLine: number };
 	// ---
-	'rewrite_file': Promise<{ lintErrors: LintErrorItem[] | null }>;
-	'edit_file': Promise<{ lintErrors: LintErrorItem[] | null; indentationNote?: string | null }>;
+	'rewrite_file': Promise<{ lintErrors: LintErrorItem[] | null; quickFixesApplied?: string[] }>;
+	'edit_file': Promise<{ lintErrors: LintErrorItem[] | null; indentationNote?: string | null; quickFixesApplied?: string[] }>;
 	'create_file_or_folder': {};
 	'delete_file_or_folder': {};
 	// ---
