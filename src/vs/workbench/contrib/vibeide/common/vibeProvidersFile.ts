@@ -32,8 +32,12 @@ export type VibeModelSystemMessage = 'system' | 'developer' | 'separated' | fals
 
 export interface VibeProviderModelReasoning {
 	readonly canTurnOff?: boolean;
-	/** Payload field carrying the reasoning toggle/effort (e.g. `thinking`, `reasoning_effort`). */
-	readonly field?: string;
+	// NOTE: there used to be a `field` here — the name of the payload key carrying the reasoning
+	// toggle. It was never read by any code, and could not be: a key name alone is not enough,
+	// because the VALUE shape differs per vendor (`{thinking:{type,budget_tokens}}` for Anthropic,
+	// `{reasoning_effort:'high'}` for openai-compatible, `{thinking:{type:'disabled'}}` for GLM).
+	// Removed rather than left as a promise. For a static toggle use the model's `extraBody`;
+	// a dynamic one for config providers is a roadmap item, see «тумблер размышления».
 	/** Allowed effort values, e.g. `["low","high"]`. */
 	readonly effort?: readonly string[];
 	/** Inline think-tag pair stripped from content, e.g. `["<think>","</think>"]`. */

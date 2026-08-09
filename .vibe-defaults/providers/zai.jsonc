@@ -40,7 +40,7 @@
 						"maxOutputTokens": 131072,
 						"toolFormat": "openai",
 						"systemMessage": "system",
-						"reasoning": { "canTurnOff": true, "field": "thinking" }
+						"reasoning": { "canTurnOff": true }
 					},
 					{
 						"id": "glm-4.5",
@@ -49,7 +49,7 @@
 						"maxOutputTokens": 98304,
 						"toolFormat": "openai",
 						"systemMessage": "system",
-						"reasoning": { "canTurnOff": true, "field": "thinking" }
+						"reasoning": { "canTurnOff": true }
 					},
 					{
 						"id": "glm-4.5-air",
@@ -58,7 +58,7 @@
 						"maxOutputTokens": 98304,
 						"toolFormat": "openai",
 						"systemMessage": "system",
-						"reasoning": { "canTurnOff": true, "field": "thinking" }
+						"reasoning": { "canTurnOff": true }
 					},
 					{
 						"id": "glm-4.5v",
