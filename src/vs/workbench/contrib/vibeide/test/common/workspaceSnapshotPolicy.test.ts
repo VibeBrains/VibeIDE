@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { isSnapshotTreeId, parsePathList, planSnapshotRestore } from '../../common/workspaceSnapshotPolicy.js';
+import { isSnapshotTreeId, parsePathList, planSnapshotRestore, selectStaleSnapshotRefs } from '../../common/workspaceSnapshotPolicy.js';
 
 suite('Workspace snapshot policy', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -32,6 +32,25 @@ suite('Workspace snapshot policy', () => {
 		assert.deepStrictEqual(
 			planSnapshotRestore(['tracked.txt', 'sub/deep.txt'], ['tracked.txt', 'garbage.txt']),
 			{ restore: ['sub/deep.txt', 'tracked.txt'], delete: ['garbage.txt'] },
+		);
+	});
+
+	test('stale refs: only snapshots no checkpoint points at are released', () => {
+		const live = 'a'.repeat(40);
+		const dead = 'b'.repeat(40);
+		assert.deepStrictEqual(
+			selectStaleSnapshotRefs(
+				[`refs/vibe/checkpoints/${live}`, `refs/vibe/checkpoints/${dead}`, 'refs/heads/main'],
+				[live],
+			),
+			[dead],
+		);
+	});
+
+	test('stale refs: an empty live set releases everything pinned, and only under our prefix', () => {
+		assert.deepStrictEqual(
+			selectStaleSnapshotRefs(['refs/vibe/checkpoints/deadbeef', 'refs/tags/v1', 'refs/vibe/other/x'], []),
+			['deadbeef'],
 		);
 	});
 

@@ -38,6 +38,16 @@ export interface IVibeideSCMService {
 	 */
 	restoreWorkspaceSnapshot(path: string, tree: string): Promise<IWorkspaceSnapshotRestorePlan>;
 	/**
+	 * Drop pinned snapshots no checkpoint refers to any more, returning how many were released.
+	 *
+	 * Each snapshot keeps a whole worktree of git objects alive, so a deleted thread would otherwise
+	 * leave that weight in the user's repository forever.
+	 *
+	 * @param path Any path inside the repository
+	 * @param liveSnapshotIds Ids still referenced by a checkpoint
+	 */
+	pruneWorkspaceSnapshots(path: string, liveSnapshotIds: readonly string[]): Promise<number>;
+	/**
 	 * Get git diff --stat
 	 *
 	 * @param path Path to the git repository
@@ -77,6 +87,8 @@ export interface IVibeWorkspaceSnapshotService {
 	plan(tree: string): Promise<IWorkspaceSnapshotRestorePlan | undefined>;
 	/** Overwrite the working tree from the snapshot. Destructive — confirm with the user first. */
 	restore(tree: string): Promise<IWorkspaceSnapshotRestorePlan>;
+	/** Release snapshots no checkpoint points at any more. Never throws. */
+	prune(liveSnapshotIds: readonly string[]): Promise<number>;
 }
 
 export const IVibeWorkspaceSnapshotService = createDecorator<IVibeWorkspaceSnapshotService>('vibeWorkspaceSnapshotService');

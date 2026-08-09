@@ -32,8 +32,10 @@ export interface SnapshotRestorePlan {
  * Refs live under a private namespace: `refs/vibe/...` never shows up in `git branch`, is not pushed
  * by default, and cannot collide with anything the user creates.
  */
+export const SNAPSHOT_REF_PREFIX = 'refs/vibe/checkpoints';
+
 export function snapshotRefName(id: string): string {
-	return `refs/vibe/checkpoints/${id}`;
+	return `${SNAPSHOT_REF_PREFIX}/${id}`;
 }
 
 /** Argv (without the leading `git`) for the commands a snapshot needs. */
@@ -56,7 +58,30 @@ export const SNAPSHOT_ARGV = {
 	listTree: (tree: string) => ['ls-tree', '-r', '--name-only', tree],
 	/** Everything git currently considers part of the working set, ignored files excluded. */
 	listWorking: ['ls-files', '--cached', '--others', '--exclude-standard'],
+	/** All snapshot refs currently pinned, as bare ids. */
+	listSnapshotRefs: ['for-each-ref', '--format=%(refname)', SNAPSHOT_REF_PREFIX],
+	deleteRef: (id: string) => ['update-ref', '-d', snapshotRefName(id)],
 } as const;
+
+/**
+ * Snapshot ids still referenced by a checkpoint somewhere. Everything else is a leftover: its
+ * checkpoint is gone (thread deleted, history trimmed), and the ref is the only thing keeping a
+ * whole worktree's worth of objects alive in the user's repository.
+ *
+ * Deliberately computed from the LIVE set rather than from delete events: a missed event leaks
+ * silently and forever, while a recomputed sweep is self-correcting.
+ */
+export function selectStaleSnapshotRefs(
+	pinnedRefNames: readonly string[],
+	liveSnapshotIds: readonly string[],
+): string[] {
+	const live = new Set(liveSnapshotIds);
+	return pinnedRefNames
+		.map(name => name.trim())
+		.filter(name => name.startsWith(`${SNAPSHOT_REF_PREFIX}/`))
+		.map(name => name.slice(SNAPSHOT_REF_PREFIX.length + 1))
+		.filter(id => id.length > 0 && !live.has(id));
+}
 
 /** A tree object id as printed by `git write-tree`. */
 const TREE_ID_PATTERN = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/;

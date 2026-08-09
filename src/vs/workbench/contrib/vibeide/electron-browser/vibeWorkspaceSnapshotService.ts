@@ -62,6 +62,18 @@ class VibeWorkspaceSnapshotService extends Disposable implements IVibeWorkspaceS
 		}
 	}
 
+	async prune(liveSnapshotIds: readonly string[]): Promise<number> {
+		const path = this._folderPath();
+		if (!path) { return 0; }
+		try {
+			return await this._scm.pruneWorkspaceSnapshots(path, liveSnapshotIds);
+		} catch (error) {
+			// Housekeeping must never surface as a failure to the user.
+			vibeLog.warn('workspaceSnapshot', '[WorkspaceSnapshot] prune failed:', error);
+			return 0;
+		}
+	}
+
 	async restore(tree: string): Promise<IWorkspaceSnapshotRestorePlan> {
 		const path = this._folderPath();
 		if (!path) { throw new Error('Нет открытой рабочей папки — восстанавливать нечего.'); }

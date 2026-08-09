@@ -8589,6 +8589,19 @@ We only need to do it for files that were edited since `from`, ie files between 
 	 * files nobody in the chat touched — build output, terminal edits — and deletes files created
 	 * since. That is not something to do on a click, so the user is shown the counts and decides.
 	 */
+	/** Release snapshots that no surviving checkpoint refers to. Best effort, never blocks. */
+	private async _pruneWorkspaceSnapshots(): Promise<void> {
+		const live: string[] = [];
+		for (const thread of Object.values(this.state.allThreads)) {
+			for (const message of thread?.messages ?? []) {
+				if (message.role === 'checkpoint' && message.workspaceSnapshotTree) {
+					live.push(message.workspaceSnapshotTree);
+				}
+			}
+		}
+		await this._workspaceSnapshotService.prune(live);
+	}
+
 	private async _offerWorkspaceSnapshotRestore(checkpoint: CheckpointEntry, shellCallCount: number): Promise<void> {
 		const tree = checkpoint.workspaceSnapshotTree;
 		const plan = tree ? await this._workspaceSnapshotService.plan(tree) : undefined;
@@ -9722,6 +9735,10 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 	deleteThread(threadId: string): void {
 		this._planBindingRegistry.clearThread(threadId);
+		// A deleted thread takes its checkpoints with it, and every checkpoint snapshot pins a whole
+		// worktree of git objects. Recompute the live set and release the rest — computed from what
+		// still exists rather than from this one deletion, so a missed path self-corrects next time.
+		void this._pruneWorkspaceSnapshots();
 		this._taskDecompositionService.clearPersistedPlanTask(threadId);
 
 		// Release short-term session memory for this thread (roadmap §933).

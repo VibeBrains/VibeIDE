@@ -12,7 +12,7 @@ import { copyFile, rm } from 'fs/promises';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { IVibeideSCMService, IWorkspaceSnapshotRestorePlan } from '../common/vibeideSCMTypes.js';
-import { isSnapshotTreeId, parsePathList, planSnapshotRestore, SNAPSHOT_ARGV } from '../common/workspaceSnapshotPolicy.js';
+import { isSnapshotTreeId, parsePathList, planSnapshotRestore, selectStaleSnapshotRefs, SNAPSHOT_ARGV } from '../common/workspaceSnapshotPolicy.js';
 
 interface NumStat {
 	file: string;
@@ -170,6 +170,22 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 			// No repository, no git on PATH, or a repository too broken to stage: checkpoints keep
 			// working with their own file snapshots, they just cannot cover terminal-side changes.
 			return undefined;
+		}
+	}
+
+	async pruneWorkspaceSnapshots(path: string, liveSnapshotIds: readonly string[]): Promise<number> {
+		try {
+			const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
+			const refNames = parsePathList(await gitArgv(SNAPSHOT_ARGV.listSnapshotRefs, root));
+			const stale = selectStaleSnapshotRefs(refNames, liveSnapshotIds);
+			for (const id of stale) {
+				// Dropping the ref only un-pins the objects; git reclaims them on its own schedule, so
+				// nothing the user still points at can disappear as a side effect of this call.
+				await gitArgv(SNAPSHOT_ARGV.deleteRef(id), root).catch(() => { /* already gone */ });
+			}
+			return stale.length;
+		} catch {
+			return 0;
 		}
 	}
 
