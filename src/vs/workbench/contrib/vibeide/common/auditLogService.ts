@@ -75,7 +75,9 @@ export interface AuditEvent {
 	| 'job_pr_creation'
 	| 'run_tests:start' | 'run_tests:complete'
 	| 'verify_gate:result'
-	| 'project_command:start' | 'project_command:complete' | 'project_command:trust_granted' | 'project_command:trust_revoked';
+	| 'project_command:start' | 'project_command:complete' | 'project_command:trust_granted' | 'project_command:trust_revoked'
+	// Agent tool access. Arguments and command bodies are never recorded — see `toolCallAudit.ts`.
+	| 'tool_call:start' | 'tool_call:done';
 	files?: string[];
 	diffStats?: { linesAdded: number; linesRemoved: number; hunks: number };
 	model?: string;

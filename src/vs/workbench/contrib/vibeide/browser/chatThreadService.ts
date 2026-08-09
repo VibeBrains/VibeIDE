@@ -117,6 +117,7 @@ import { IWorkbenchEnvironmentService } from '../../../services/environment/comm
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IVibeWorkspaceSnapshotService } from '../common/vibeideSCMTypes.js';
 import { checkpointCoverage, isShellToolName } from '../common/checkpointCoverage.js';
+import { buildToolCallAudit, ToolCallAuditInput } from '../common/toolCallAudit.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IVibeTokenCostForecastService } from '../common/vibeTokenCostForecastService.js';
 import {
@@ -4626,6 +4627,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			} catch { return ''; }
 		})();
 		vibeLog.debug('toolExec', 'start', { tool: toolName, hint: _toolHint, mcp: mcpServerName ?? null }); recordChatTrace('toolExec:start', { tool: toolName, hint: _toolHint });
+		// Audit the access itself: until now the only record that the agent touched the machine lived
+		// in the debug trace, which is not retained and not covered by the log's export/erase pair.
+		this._auditToolCall('tool_call:start', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, true);
 
 		let interrupted = false;
 		let resolveInterruptor: (r: () => void) => void = () => { };
@@ -4728,7 +4732,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 			const errorMessage = getErrorMessage(error);
 			this._agentActivityLog.logError(`${toolActivityLabel}: ${errorMessage}`);
-			vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false }); this._updateLatestTool(threadId, { role: 'tool', type: 'tool_error', params: toolParams, result: errorMessage, name: toolName, content: errorMessage, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
+			vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false });
+			this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, false, Date.now() - _toolExecStartMs);
+			this._updateLatestTool(threadId, { role: 'tool', type: 'tool_error', params: toolParams, result: errorMessage, name: toolName, content: errorMessage, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
 			return {};
 		}
 
@@ -4752,7 +4758,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		} catch (error) {
 			const errorMessage = this.toolErrMsgs.errWhenStringifying(error);
 			this._agentActivityLog.logError(`${toolActivityLabel}: stringify ${errorMessage}`);
-			vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false }); this._updateLatestTool(threadId, { role: 'tool', type: 'tool_error', params: toolParams, result: errorMessage, name: toolName, content: errorMessage, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
+			vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false });
+			this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, false, Date.now() - _toolExecStartMs);
+			this._updateLatestTool(threadId, { role: 'tool', type: 'tool_error', params: toolParams, result: errorMessage, name: toolName, content: errorMessage, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
 			return {};
 		}
 
@@ -4779,7 +4787,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			&& typeof toolResult === 'object' && toolResult !== null && Object.hasOwn(toolResult, 'resolveReason')
 			&& (toolResult as { resolveReason?: TerminalResolveReason }).resolveReason?.type === 'timeout';
 		const _toolOk = !_foregroundTerminalTimedOut;
-		vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: _toolOk }); recordChatTrace('toolExec:done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: _toolOk }); this._updateLatestTool(threadId, { role: 'tool', type: 'success', params: toolParams, result: toolResult, name: toolName, content: toolResultStr, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
+		vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: _toolOk }); recordChatTrace('toolExec:done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: _toolOk });
+		this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, _toolOk, Date.now() - _toolExecStartMs);
+		this._updateLatestTool(threadId, { role: 'tool', type: 'success', params: toolParams, result: toolResult, name: toolName, content: toolResultStr, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
 		this._agentActivityLog.logFinished(toolActivityLabel);
 
 		// Cache read_file results to prevent duplicate reads
@@ -8589,6 +8599,22 @@ We only need to do it for files that were edited since `from`, ie files between 
 	 * files nobody in the chat touched — build output, terminal edits — and deletes files created
 	 * since. That is not something to do on a click, so the user is shown the counts and decides.
 	 */
+	/**
+	 * Record a tool call in the audit log. Fire-and-forget: auditing must never delay or break the
+	 * call it is describing, and a disabled log costs one boolean.
+	 */
+	private _auditToolCall(
+		action: 'tool_call:start' | 'tool_call:done',
+		input: ToolCallAuditInput,
+		ok: boolean,
+		latencyMs?: number,
+	): void {
+		if (!this._auditLogService.isEnabled()) { return; }
+		const { files, meta } = buildToolCallAudit(input);
+		void this._auditLogService.append({ ts: Date.now(), action, ok, files, latencyMs, meta })
+			.catch(() => { /* audit is observation, not control flow */ });
+	}
+
 	/** Release snapshots that no surviving checkpoint refers to. Best effort, never blocks. */
 	private async _pruneWorkspaceSnapshots(): Promise<void> {
 		const live: string[] = [];
