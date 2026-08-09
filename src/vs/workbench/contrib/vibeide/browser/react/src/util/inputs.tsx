@@ -31,7 +31,7 @@ const _vibeideBlockCodeTTP: _BlockCodeTTP = (() => {
 	return policy;
 })();
 import { asCssVariable } from '../../../../../../../platform/theme/common/colorUtils.js';
-import { inputBackground, inputForeground } from '../../../../../../../platform/theme/common/colorRegistry.js';
+import { buttonBackground, buttonForeground, checkboxBorder, inputBackground, inputForeground } from '../../../../../../../platform/theme/common/colorRegistry.js';
 import { useFloating, autoUpdate, offset, flip, shift, size, autoPlacement } from '@floating-ui/react';
 import { URI } from '../../../../../../../base/common/uri.js';
 import { getBasename, getFolderName } from '../sidebar-tsx/SidebarChat.js';
@@ -406,7 +406,7 @@ type InputBox2Props = {
 	enableAtToMention?: boolean;
 	fnsRef?: { current: null | TextAreaFns };
 	className?: string;
-	appearance?: 'default' | 'chatDark';
+	appearance?: 'default' | 'chatTransparent';
 	style?: React.CSSProperties;
 	onChangeText?: (value: string) => void;
 	onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -836,15 +836,17 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 
 
 
-	const isChatDark = appearance === 'chatDark';
-	const appearanceClasses = isChatDark
-		? 'text-white placeholder:text-white/40'
-		: 'text-vibe-fg-1 placeholder:text-vibe-fg-3';
+	// 'chatTransparent' only means "no chrome of its own": the input sits directly on the chat
+	// surface, so it drops background/border/shadow. It says nothing about light vs dark — the
+	// foreground comes from the theme in both variants. (It was named 'chatDark' and hardcoded
+	// #fff, which made typed text invisible on light themes.)
+	const isChatTransparent = appearance === 'chatTransparent';
+	const appearanceClasses = 'text-vibe-fg-1 placeholder:text-vibe-fg-3';
 
-	const baseStyle: React.CSSProperties = isChatDark
+	const baseStyle: React.CSSProperties = isChatTransparent
 		? {
 			background: 'transparent',
-			color: '#fff',
+			color: asCssVariable(inputForeground),
 			border: 'none',
 			boxShadow: 'none',
 		}
@@ -854,8 +856,8 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 		};
 
 	// Caret-color must stay visible even when we make textarea text transparent for the
-	// overlay-trick. Mirrors the textarea's normal foreground per appearance variant.
-	const overlayCaretColor = isChatDark ? '#fff' : asCssVariable(inputForeground);
+	// overlay-trick. Mirrors the textarea's normal foreground.
+	const overlayCaretColor = asCssVariable(inputForeground);
 	// Why textShadow: 'none' — the neon theme applies `text-shadow: var(--vibe-neon-text-glow)`
 	// to .vibe-chat-neon-scope textarea (vibeide.css). With `color: transparent` the glyph
 	// disappears but text-shadow keeps rendering at the glyph positions — visible as a
@@ -1339,6 +1341,9 @@ export const VibeSlider = ({
 
 
 
+// Colors come from theme tokens, not from tailwind `dark:` variants: darkMode is 'selector'
+// (tailwind.config.js) and nothing ever puts a `dark` class on the tree, so every `dark:` here
+// was dead code — the off state rendered a literal `bg-white` track, invisible on light themes.
 export const VibeSwitch = ({
 	value,
 	onChange,
@@ -1355,10 +1360,23 @@ export const VibeSwitch = ({
 		<label className="inline-flex items-center" {...props}>
 			<div
 				onClick={() => !disabled && onChange(!value)}
+				style={{
+					// Measured in both themes before choosing (light modern + Vibe Neon): `input.background`
+					// equals the panel behind it in BOTH (#ffffff on light, #2a2139 in Neon), and
+					// `inputOption.activeBackground` is a 0.4-alpha near-panel tint in Neon — either would
+					// hand back the invisible switch the literal `bg-white` produced. The accent button
+					// background and the border token are the two that stay distinct from the surface.
+					// Accent at 72%, not full strength: the chat toolbar is a quiet grey field, and a
+					// saturated fill (#005fb8 on Light Modern) shouts across it. Mixing toward the input
+					// surface keeps the hue and the contrast while dropping the visual weight.
+					backgroundColor: value
+						? `color-mix(in srgb, ${asCssVariable(buttonBackground)} 72%, ${asCssVariable(inputBackground)})`
+						: asCssVariable(checkboxBorder),
+					border: `1px solid ${asCssVariable(checkboxBorder)}`,
+				}}
 				className={`
 			cursor-pointer
 			relative inline-flex items-center rounded-full transition-colors duration-200 ease-in-out
-			${value ? 'bg-zinc-900 dark:bg-white' : 'bg-white dark:bg-zinc-600'}
 			${disabled ? 'opacity-25' : ''}
 			${size === 'xxs' ? 'h-3 w-5' : ''}
 			${size === 'xs' ? 'h-4 w-7' : ''}
@@ -1368,8 +1386,17 @@ export const VibeSwitch = ({
 		`}
 			>
 				<span
+					style={{
+						// Each state pairs the knob with the foreground token that belongs to its own track:
+						// button.foreground over the accent fill, input.foreground over the neutral one.
+						// Measured: a single token loses on light themes, where input.foreground (#3b3b3b)
+						// on the accent track (#005fb8) is dark-on-dark.
+						backgroundColor: value
+							? asCssVariable(buttonForeground)
+							: asCssVariable(inputForeground),
+					}}
 					className={`
-						inline-block transform rounded-full bg-white dark:bg-zinc-900 shadow transition-transform duration-200 ease-in-out
+						inline-block transform rounded-full shadow transition-transform duration-200 ease-in-out
 						${size === 'xxs' ? 'h-2 w-2' : ''}
 						${size === 'xs' ? 'h-2.5 w-2.5' : ''}
 						${size === 'sm' ? 'h-3 w-3' : ''}

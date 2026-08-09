@@ -42,7 +42,7 @@ export const AcceptAllButtonWrapper = ({ text, onClick, className, ...props }: {
 		className={`
 			px-2 py-0.5
 			flex items-center gap-1
-			text-white text-[11px] text-nowrap
+			text-[11px] text-nowrap
 			h-full rounded-none
 			cursor-pointer
 			${className}
@@ -65,7 +65,7 @@ export const RejectAllButtonWrapper = ({ text, onClick, className, ...props }: {
 		className={`
 			px-2 py-0.5
 			flex items-center gap-1
-			text-white text-[11px] text-nowrap
+			text-[11px] text-nowrap
 			h-full rounded-none
 			cursor-pointer
 			${className}
