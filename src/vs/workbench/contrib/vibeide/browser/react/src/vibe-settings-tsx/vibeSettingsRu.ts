@@ -164,6 +164,10 @@ export const chatS = {
 	trainingTipMayTrain: 'Каталог: данные могут использоваться для обучения на типовых условиях.',
 	sendMessageAria: 'Отправить сообщение',
 	stopGenerationAria: 'Остановить генерацию',
+	themeSwitchToLightAria: 'Переключить на светлую тему',
+	themeSwitchToDarkAria: 'Переключить на тёмную тему',
+	themeSwitchToLightTooltip: 'Светлая тема — переключить (пара тем настраивается в «Оформлении»)',
+	themeSwitchToDarkTooltip: 'Тёмная тема — переключить (пара тем настраивается в «Оформлении»)',
 	uploadImagesAria: 'Загрузить изображения',
 	uploadImagesTitle: 'Загрузить изображения (или вставить / перетащить)',
 	uploadPdfsAria: 'Загрузить PDF',
@@ -711,6 +715,19 @@ export const toolApprovalLabel = (t: string): string => {
 	}
 };
 
+export const appearanceS = {
+	themesTitle: 'Тема оформления',
+	themesHint: 'Темы, которые поставляются с VibeIDE, и две базовые из VS Code. Установленные из маркетплейса — по кнопке ниже.',
+	ourThemeTag: 'наша',
+	themesEmpty: 'Список тем пока не загружен.',
+	allThemesButton: 'Все темы…',
+	dayNightTitle: 'День и ночь',
+	dayNightHint: 'Кнопка в панели чата переключает между этими двумя темами. Здесь выбирается, какие именно.',
+	dayThemeLabel: 'Днём:',
+	nightThemeLabel: 'Ночью:',
+	switchNowButton: 'Переключить сейчас',
+} as const;
+
 export const nav = {
 	workspace: 'Рабочая область',
 	models: 'Модели',
@@ -718,6 +735,7 @@ export const nav = {
 	providers: 'Облачные провайдеры',
 	featureOptions: 'Функции',
 	general: 'Общие',
+	appearance: 'Оформление',
 	notifications: 'Уведомления',
 	safety: 'Безопасность',
 	mcp: 'MCP',

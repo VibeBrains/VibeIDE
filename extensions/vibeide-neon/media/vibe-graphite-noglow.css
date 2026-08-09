@@ -1,0 +1,84 @@
+/* Graphite-aware tokens for chat/history (consumed in src/vs/workbench/contrib/vibeide/browser/media/vibeide.css).
+ * Injected by VibeNeonThemeContribution while the active color theme is `vibe-graphite` and the
+ * editor-glow toggle is off. Same slots as vibe-neon.css, tuned to a steel accent instead of the
+ * magenta/cyan pair — the vibe stays, the acid does not. */
+:root {
+  --vibe-neon-text-glow: none;
+  --vibe-neon-timestamp-fg: #d3b884;
+  --vibe-neon-timestamp-glow: none;
+
+  /* Skill-pill in the steel accent, matching the active-tab stripe below. */
+  --vibe-skill-pill-bg: rgba(91, 143, 185, 0.16);
+  --vibe-skill-pill-fg: #8fc1e0;
+  --vibe-skill-pill-border: rgba(91, 143, 185, 0.45);
+  --vibe-skill-pill-glow: none;
+}
+
+/* Chat panel + thread history: keep body text at the theme's own foreground rather than pure
+ * white — graphite is a low-contrast surface by design, and #fff would bloom against it. */
+.vibe-chat-neon-scope {
+  --vibe-fg-0: #f2f4f5;
+  --vibe-fg-1: #d4d7d9;
+  --vibe-fg-2: #c0c5c8;
+  --vibe-fg-3: #a9b0b4;
+  --vibe-fg-4: #9aa0a4;
+  color: #d4d7d9;
+}
+
+/* Active tab stripe — steel gradient instead of the neon pair. */
+.monaco-workbench .part.editor>.content .editor-group-container>.title .tabs-container>.tab.sizing-fit.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(to right, #4a6d8c, #8fc1e0) !important;
+  opacity: 1;
+  z-index: 6;
+}
+
+.monaco-workbench .part.editor>.content .editor-group-container>.title .tabs-container>.tab.sizing-fit::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 0px;
+  transition: opacity 1s;
+  opacity: 0;
+  z-index: 6;
+}
+
+/* Active activity-bar item — soft steel wash plus a left stripe. */
+.monaco-workbench .activitybar>.content .monaco-action-bar .action-item.checked {
+  box-shadow: inset 0 -5px 25px rgba(91, 143, 185, 0.18);
+  position: relative;
+}
+
+.monaco-workbench .activitybar>.content .monaco-action-bar .action-item.checked::after {
+  content: '';
+  position: absolute;
+  bottom: 0px;
+  top: 0px;
+  left: 0px;
+  width: 3px;
+  background: linear-gradient(to bottom, #4a6d8c, #8fc1e0) !important;
+  opacity: 1;
+}
+
+.monaco-workbench .activitybar>.content .monaco-action-bar .action-item::after {
+  content: '';
+  position: absolute;
+  bottom: 0px;
+  top: 0px;
+  left: 0px;
+  width: 0px;
+  transition: opacity 1s;
+  opacity: 0;
+}
+
+/* Project Commands top-bar buttons — quiet steel hover tint. */
+.monaco-workbench .statusbar-item[id^="vibeide.topbar."]:hover {
+  background: linear-gradient(to bottom, rgba(74, 109, 140, 0.16), rgba(143, 193, 224, 0.10));
+}

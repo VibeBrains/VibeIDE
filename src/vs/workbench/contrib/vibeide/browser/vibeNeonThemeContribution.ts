@@ -21,8 +21,18 @@ import { CONFIG_NEON_EDITOR_GLOW, NeonGlowTitleBarToggleVisible } from './vibeNe
 
 const VIBEIDE_NEON_EXTENSION_ID = 'vibeide.vibeide-neon';
 
-const CSS_GLOW = 'media/vibe-neon.css';
-const CSS_NO_GLOW = 'media/vibe-neon-noglow.css';
+/**
+ * Chrome stylesheets per shipped theme. `glow` is what the editor-glow toggle turns on; a theme
+ * whose two entries are equal simply ignores the toggle (that is how `vibe-neon-noglow` stays
+ * glow-free while still getting its chat tokens). Adding a theme means adding a row here — the
+ * resolver below reads this map instead of comparing ids, so nothing else has to change.
+ */
+const THEME_CHROME: ReadonlyMap<string, { readonly glow: string; readonly noGlow: string; readonly glowDefault: boolean }> = new Map([
+	['vibe-neon', { glow: 'media/vibe-neon.css', noGlow: 'media/vibe-neon-noglow.css', glowDefault: true }],
+	['vibe-neon-noglow', { glow: 'media/vibe-neon-noglow.css', noGlow: 'media/vibe-neon-noglow.css', glowDefault: false }],
+	['vibe-graphite', { glow: 'media/vibe-graphite.css', noGlow: 'media/vibe-graphite-noglow.css', glowDefault: false }],
+	['vibe-midnight', { glow: 'media/vibe-midnight.css', noGlow: 'media/vibe-midnight-noglow.css', glowDefault: false }],
+]);
 
 export class VibeNeonThemeContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.vibeideNeonThemeChrome';
@@ -60,15 +70,23 @@ export class VibeNeonThemeContribution extends Disposable implements IWorkbenchC
 	}
 
 	private resolveChromeStylesheet(theme: ColorThemeData): string | undefined {
-		const id = theme.settingsId;
-		if (id !== 'vibe-neon' && id !== 'vibe-neon-noglow') {
+		const chrome = theme.settingsId ? THEME_CHROME.get(theme.settingsId) : undefined;
+		if (!chrome) {
 			return undefined;
 		}
-		if (id === 'vibe-neon-noglow') {
-			return CSS_NO_GLOW;
-		}
-		const glowOn = this._configurationService.getValue<boolean>(CONFIG_NEON_EDITOR_GLOW) ?? true;
-		return glowOn ? CSS_GLOW : CSS_NO_GLOW;
+		// The glow setting is a single global boolean, but "on by default" is a per-theme answer:
+		// Vibe Neon is a neon theme and wants it, the calmer ones do not. So an untouched setting
+		// falls back to the theme's own default, and any explicit user/workspace value wins.
+		const inspected = this._configurationService.inspect<boolean>(CONFIG_NEON_EDITOR_GLOW);
+		const explicit = inspected.userValue ?? inspected.workspaceValue ?? inspected.workspaceFolderValue;
+		const glowOn = explicit ?? chrome.glowDefault;
+		return glowOn ? chrome.glow : chrome.noGlow;
+	}
+
+	/** The toggle is offered only where it changes something — i.e. the two stylesheets differ. */
+	private hasGlowToggle(theme: ColorThemeData): boolean {
+		const chrome = theme.settingsId ? THEME_CHROME.get(theme.settingsId) : undefined;
+		return chrome !== undefined && chrome.glow !== chrome.noGlow;
 	}
 
 	private async applyChromeWhenActive(): Promise<void> {
@@ -86,7 +104,7 @@ export class VibeNeonThemeContribution extends Disposable implements IWorkbenchC
 			const isOurExtensionTheme =
 				(theme.extensionData !== undefined && ExtensionIdentifier.equals(theme.extensionData.extensionId, VIBEIDE_NEON_EXTENSION_ID))
 				|| theme.location.fsPath.replace(/\\/g, '/').toLowerCase().includes('/vibeide-neon/');
-			this._neonGlowToggleVisibleKey.set(isOurExtensionTheme && theme.settingsId === 'vibe-neon');
+			this._neonGlowToggleVisibleKey.set(isOurExtensionTheme && this.hasGlowToggle(theme));
 
 			const cssRel = isOurExtensionTheme ? this.resolveChromeStylesheet(theme) : undefined;
 			if (!cssRel) {

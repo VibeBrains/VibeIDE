@@ -11,6 +11,8 @@ import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 
 import { useAccessor, useChatThreadsState, useChatThreadsStreamState, useSettingsState, useActiveURI, useCommandBarState, useFullChatThreadsStreamState, useSubagentActivity, useSubagentHandoffCount, SubagentActivityItem } from '../util/services.js';
 import { ScrollType } from '../../../../../../../editor/common/editorCommon.js';
+import { asCssVariable } from '../../../../../../../platform/theme/common/colorUtils.js';
+import { buttonSecondaryBackground } from '../../../../../../../platform/theme/common/colorRegistry.js';
 import { Schemas } from '../../../../../../../base/common/network.js';
 
 import { ChatMarkdownRender, ChatMessageLocation, getApplyBoxId } from '../markdown/ChatMarkdownRender.js';
@@ -1637,7 +1639,7 @@ export const ButtonSubmit = ({ className, disabled, ...props }: ButtonProps & Re
 		type='button'
 		className={`rounded-full flex-shrink-0 flex-grow-0 flex items-center justify-center
 			button-press-animation
-			${disabled ? 'bg-vscode-disabled-fg cursor-default opacity-50' : 'cursor-pointer bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] hover:bg-[var(--vscode-button-hoverBackground,var(--vscode-button-background))]'}
+			${disabled ? 'bg-vscode-disabled-fg cursor-default opacity-50' : 'cursor-pointer text-[var(--vscode-button-foreground)] bg-[color-mix(in_srgb,var(--vscode-button-background)_82%,var(--vscode-input-background))] hover:bg-[var(--vscode-button-hoverBackground,var(--vscode-button-background))]'}
 			${className}
 		`}
 		disabled={disabled}
@@ -1651,12 +1653,15 @@ export const ButtonSubmit = ({ className, disabled, ...props }: ButtonProps & Re
 	</button>;
 };
 
+// The track is a theme token, not a literal white disc: on light themes that disc vanished into
+// the chat surface. The red glyph is what carries the "stop" meaning, and it reads on both.
 export const ButtonStop = ({ className, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => {
 	return <button
 		className={`rounded-full flex-shrink-0 flex-grow-0 cursor-pointer flex items-center justify-center
-			bg-white hover:bg-red-50 button-press-animation
+			button-press-animation hover:brightness-110
 			${className}
 		`}
+		style={{ backgroundColor: asCssVariable(buttonSecondaryBackground) }}
 		type='button'
 		aria-label={chatS.stopGenerationAria}
 		{...props}
@@ -2423,7 +2428,7 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 		>
 			<VibeInputBox2
 				enableAtToMention
-				appearance="chatDark"
+				appearance="chatTransparent"
 				ref={setTextAreaRef}
 				className='min-h-[60px] px-3 py-3 rounded-2xl'
 				placeholder={chatS.placeholderFull}
@@ -6742,7 +6747,7 @@ export const SidebarChat = () => {
 	>
 		<VibeInputBox2
 			enableAtToMention
-			appearance="chatDark"
+			appearance="chatTransparent"
 			className={`min-h-[60px] px-3 py-3 rounded-2xl`}
 			placeholder={chatS.placeholderShort}
 			onChangeText={onChangeText}
@@ -7016,9 +7021,9 @@ export const SidebarChat = () => {
 						width: '30px',
 						height: '30px',
 						borderRadius: '9999px',
-						background: 'var(--vscode-button-secondaryBackground, rgba(40,40,40,0.9))',
-						color: 'var(--vscode-button-secondaryForeground, #e0e0e0)',
-						border: '1px solid rgba(255,255,255,0.12)',
+						background: 'var(--vscode-button-secondaryBackground, var(--vscode-editorWidget-background))',
+						color: 'var(--vscode-button-secondaryForeground, var(--vscode-foreground))',
+						border: '1px solid var(--vscode-button-border, var(--vscode-widget-border, transparent))',
 						boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
 						cursor: 'pointer',
 						opacity: 0.92,

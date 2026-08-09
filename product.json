@@ -4,6 +4,8 @@
 	"vibeVersion": "1.11.0",
 	"defaultLocale": "ru",
 	"pinnedWorkbenchColorThemeSettingsIds": [
+		"vibe-midnight",
+		"vibe-graphite",
 		"vibe-neon",
 		"vibe-neon-noglow"
 	],
@@ -210,6 +212,18 @@
 		}
 	],
 	"onboardingThemes": [
+		{
+			"id": "vibe-midnight",
+			"label": "Vibe Midnight",
+			"themeId": "vibe-midnight",
+			"type": "dark"
+		},
+		{
+			"id": "vibe-graphite",
+			"label": "Vibe Graphite",
+			"themeId": "vibe-graphite",
+			"type": "dark"
+		},
 		{
 			"id": "vibe-neon",
 			"label": "Vibe Neon",

@@ -16,8 +16,8 @@
 	"categories": ["Themes"],
 	"contributes": {
 		"configurationDefaults": {
-			"workbench.colorTheme": "vibe-neon",
-			"workbench.preferredDarkColorTheme": "vibe-neon"
+			"workbench.colorTheme": "vibe-midnight",
+			"workbench.preferredDarkColorTheme": "vibe-midnight"
 		},
 		"themes": [
 			{
@@ -31,6 +31,18 @@
 				"id": "vibe-neon-noglow",
 				"uiTheme": "vs-dark",
 				"path": "./themes/vibe-neon-noglow.json"
+			},
+			{
+				"label": "%theme.vibeGraphite.label%",
+				"id": "vibe-graphite",
+				"uiTheme": "vs-dark",
+				"path": "./themes/vibe-graphite.json"
+			},
+			{
+				"label": "%theme.vibeMidnight.label%",
+				"id": "vibe-midnight",
+				"uiTheme": "vs-dark",
+				"path": "./themes/vibe-midnight.json"
 			}
 		],
 		"commands": [

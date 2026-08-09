@@ -43,8 +43,13 @@ export namespace ThemeSettingDefaults {
 	export const COLOR_THEME_HC_DARK = 'Default High Contrast';
 	export const COLOR_THEME_HC_LIGHT = 'Default High Contrast Light';
 
-	/** Default `workbench.colorTheme` / preferred-dark id for VibeIDE desktop (`vibe-neon`). */
-	export const VIBEIDE_DEFAULT_THEME = 'vibe-neon';
+	/**
+	 * Default `workbench.colorTheme` / preferred-dark id for VibeIDE desktop.
+	 * `vibe-midnight` rather than `vibe-neon`: neon is a taste, and a first launch should not
+	 * open on one. Midnight follows what the most-installed themes settled on — a cool dark
+	 * ground, muted foreground, pastel accents — and its glow is opt-in (vibeNeonThemeContribution).
+	 */
+	export const VIBEIDE_DEFAULT_THEME = 'vibe-midnight';
 	/** Built-in “default dark” settings id (fallbacks, onboarding, sessions defaults). */
 	export const COLOR_THEME_DARK = VIBEIDE_DEFAULT_THEME;
 

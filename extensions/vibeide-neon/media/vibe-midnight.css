@@ -1,0 +1,85 @@
+/* Midnight-aware tokens for chat/history (consumed in src/vs/workbench/contrib/vibeide/browser/media/vibeide.css).
+ * Injected by VibeNeonThemeContribution only when the editor-glow toggle is ON — Vibe Midnight
+ * ships with it OFF, because the whole point of the theme is the quiet, market-consensus look. */
+:root {
+  --vibe-neon-text-glow: 0 0 2px rgba(200, 211, 245, 0.28), 0 0 6px rgba(122, 162, 247, 0.20);
+  --vibe-neon-timestamp-fg: #e0af68;
+  --vibe-neon-timestamp-glow: 0 0 4px rgba(224, 175, 104, 0.5), 0 0 8px rgba(224, 175, 104, 0.28);
+
+  --vibe-skill-pill-bg: rgba(122, 162, 247, 0.16);
+  --vibe-skill-pill-fg: #7dcfff;
+  --vibe-skill-pill-border: rgba(122, 162, 247, 0.45);
+  --vibe-skill-pill-glow: 0 0 4px rgba(122, 162, 247, 0.5), 0 0 8px rgba(122, 162, 247, 0.25);
+}
+
+.vibe-chat-neon-scope {
+  --vibe-fg-0: #f2f5fb;
+  --vibe-fg-1: #c4cbe3;
+  --vibe-fg-2: #b3bad2;
+  --vibe-fg-3: #9aa2c0;
+  --vibe-fg-4: #767e9c;
+  color: #c4cbe3;
+}
+
+/* Active tab stripe */
+.monaco-workbench .part.editor>.content .editor-group-container>.title .tabs-container>.tab.sizing-fit.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(to right, #7aa2f7, #bb9af7) !important;
+  opacity: 1;
+  z-index: 6;
+}
+
+.monaco-workbench .part.editor>.content .editor-group-container>.title .tabs-container>.tab.sizing-fit::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 0px;
+  transition: opacity 1s;
+  opacity: 0;
+  z-index: 6;
+}
+
+/* Active activity-bar item */
+.monaco-workbench .activitybar>.content .monaco-action-bar .action-item.checked {
+  box-shadow: inset 0 -5px 25px rgba(122, 162, 247, 0.18);
+  position: relative;
+}
+
+.monaco-workbench .activitybar>.content .monaco-action-bar .action-item.checked::after {
+  content: '';
+  position: absolute;
+  bottom: 0px;
+  top: 0px;
+  left: 0px;
+  width: 3px;
+  background: linear-gradient(to bottom, #7aa2f7, #bb9af7) !important;
+  opacity: 1;
+}
+
+.monaco-workbench .activitybar>.content .monaco-action-bar .action-item::after {
+  content: '';
+  position: absolute;
+  bottom: 0px;
+  top: 0px;
+  left: 0px;
+  width: 0px;
+  transition: opacity 1s;
+  opacity: 0;
+}
+
+/* Project Commands top-bar buttons */
+.monaco-workbench .statusbar-item[id^="vibeide.topbar."]:hover {
+  background: linear-gradient(to bottom, rgba(122, 162, 247, 0.16), rgba(187, 154, 247, 0.10));
+}
+
+/* Editor text glow — the part the toggle actually turns on. */
+.monaco-workbench .part.editor .view-lines {
+  text-shadow: 0 0 1px rgba(200, 211, 245, 0.22), 0 0 4px rgba(122, 162, 247, 0.14);
+}

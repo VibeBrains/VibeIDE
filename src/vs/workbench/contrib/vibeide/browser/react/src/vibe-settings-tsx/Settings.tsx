@@ -32,6 +32,7 @@ import { generateUuid } from '../../../../../../../base/common/uuid.js';
 import { generatePairingCode } from '../../../../common/telegram/telegramPairing.js';
 import { nav, modelsS, providersS, generalS, ollamaS, miscS, toolApprovalLabel, safetyS, modelDdS, notifyS, telegramS } from './vibeSettingsRu.js';
 import { NOTIFY_DEFAULT_SOUND_IDS } from '../../../vibeNotifySoundService.js';
+import { AppearancePanel } from './AppearancePanel.js';
 
 type Tab =
 	| 'models'
@@ -41,6 +42,7 @@ type Tab =
 	| 'mcp'
 	| 'workspace'
 	| 'general'
+	| 'appearance'
 	| 'notifications'
 	| 'safety'
 	| 'all';
@@ -3246,6 +3248,7 @@ export const Settings = () => {
 		{ tab: 'providers', label: nav.providers },
 		{ tab: 'featureOptions', label: nav.featureOptions },
 		{ tab: 'general', label: nav.general },
+		{ tab: 'appearance', label: nav.appearance },
 		{ tab: 'notifications', label: nav.notifications },
 		{ tab: 'safety', label: nav.safety },
 		{ tab: 'mcp', label: nav.mcp },
@@ -3682,7 +3685,24 @@ export const Settings = () => {
 
 
 
-							{/* Notifications section */}
+							{/* Appearance section */}
+							<div className={shouldShowTab('appearance') ? `` : 'hidden'}>
+								<ErrorBoundary>
+									{selectedSection === 'all' ? (
+										<AllSettingsFold
+											title={nav.appearance}
+											open={!!allSettingsExpanded.appearance}
+											onToggle={() => toggleAllSettingsGroup('appearance')}
+										>
+											<AppearancePanel />
+										</AllSettingsFold>
+									) : (
+										<AppearancePanel />
+									)}
+								</ErrorBoundary>
+							</div>
+
+						{/* Notifications section */}
 								<div className={shouldShowTab('notifications') ? `` : 'hidden'}>
 									<ErrorBoundary>
 										{selectedSection === 'all' ? (

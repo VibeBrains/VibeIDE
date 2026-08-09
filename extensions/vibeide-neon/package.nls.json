@@ -3,6 +3,8 @@
 	"description": "Default VibeIDE dark theme — vendored neon palette with separate settings ids so Marketplace color themes can replace it when installed.",
 	"theme.vibeNeon.label": "Vibe Neon",
 	"theme.vibeNeonNoGlow.label": "Vibe Neon (No editor glow)",
+	"theme.vibeGraphite.label": "Vibe Graphite",
+	"theme.vibeMidnight.label": "Vibe Midnight",
 	"command.trustScore.toggle.title": "VibeIDE: Toggle Trust Score (Manual → Supervised → Auto)",
 	"command.trustScore.setManual.title": "VibeIDE: Set Trust Score to Manual 🟢",
 	"command.trustScore.setSupervised.title": "VibeIDE: Set Trust Score to Supervised 🟡",
