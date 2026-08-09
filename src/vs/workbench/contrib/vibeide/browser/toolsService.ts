@@ -49,6 +49,8 @@ import { IVibeCodeGraphService } from './codeGraph/vibeCodeGraphService.js';
 import { IVibeDesignScanService, unreachableReasonOf } from './designReview/vibeDesignScanService.js';
 import { IVibeDesignContextService } from './designContext/vibeDesignContextService.js';
 import { Finding, ViewportLabel, mergeViewportFindings, reviewDesign, summarize } from '../common/designReview/designSlopRules.js';
+import { formatCouncilResult } from '../common/modelCouncil.js';
+import { IVibeModelCouncilService } from './vibeModelCouncilService.js';
 import { ALL_RULE_IDS, RULE_META } from '../common/designReview/ruleIds.js';
 import { DESIGN_PLATFORMS, renderDesignSystem, renderProductContext, unknownAcceptedDrift } from '../common/designContext/designContextFile.js';
 import { digestSnapshot } from '../common/designContext/summariseSnapshot.js';
@@ -279,6 +281,7 @@ export class ToolsService implements IToolsService {
 		@IVibeCodeGraphService private readonly codeGraphService: IVibeCodeGraphService,
 		@IVibeDesignScanService private readonly designScanService: IVibeDesignScanService,
 		@IVibeDesignContextService private readonly designContextService: IVibeDesignContextService,
+		@IVibeModelCouncilService private readonly modelCouncilService: IVibeModelCouncilService,
 		@IVibeConstraintsService private readonly vibeConstraintsService: IVibeConstraintsService,
 		@IVibePromptGuardService private readonly vibePromptGuardService: IVibePromptGuardService,
 		@IVibePerFilePermissionsService private readonly vibePermissionsService: IVibePerFilePermissionsService,
@@ -568,6 +571,11 @@ export class ToolsService implements IToolsService {
 			design_context: () => ({}),
 
 			design_doctor: () => ({}),
+
+			model_council: (params: RawToolParamsObj) => {
+				const { question, context } = params;
+				return { question: validateStr('question', question), context: validateOptionalStr('context', context) };
+			},
 
 			design_document: (params: RawToolParamsObj) => {
 				const { target: targetUnknown, name, audience, positioning, platform: platformUnknown, notes, apply: applyUnknown } = params;
@@ -1366,6 +1374,11 @@ export class ToolsService implements IToolsService {
 						},
 					},
 				};
+			},
+
+			model_council: async ({ question, context }) => {
+				const result = await this.modelCouncilService.ask({ question, context: context ?? undefined });
+				return { result };
 			},
 
 			design_doctor: async () => {
@@ -2786,6 +2799,10 @@ export class ToolsService implements IToolsService {
 					parts.push('Файла design.md нет: палитра, гарнитуры и правила не зафиксированы. Снимите систему с живой страницы через design_document target=system.');
 				}
 				return parts.join('\n\n');
+			},
+
+			model_council: (params, result) => {
+				return formatCouncilResult({ question: params.question, context: params.context ?? undefined }, result);
 			},
 
 			design_doctor: (_params, result) => {

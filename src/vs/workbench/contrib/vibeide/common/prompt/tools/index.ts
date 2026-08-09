@@ -26,6 +26,7 @@ import { DESIGN_REVIEW_TOOL } from './design_review.js';
 import { DESIGN_CONTEXT_TOOL } from './design_context.js';
 import { DESIGN_DOCUMENT_TOOL } from './design_document.js';
 import { DESIGN_DOCTOR_TOOL } from './design_doctor.js';
+import { MODEL_COUNCIL_TOOL } from './model_council.js';
 import { AUTOMATED_CODE_REVIEW_TOOL } from './automated_code_review.js';
 import { GENERATE_TESTS_TOOL } from './generate_tests.js';
 import { RENAME_SYMBOL_TOOL } from './rename_symbol.js';
@@ -80,6 +81,7 @@ export const builtinToolDefs = {
 	design_review: DESIGN_REVIEW_TOOL,
 	design_document: DESIGN_DOCUMENT_TOOL,
 	design_doctor: DESIGN_DOCTOR_TOOL,
+	model_council: MODEL_COUNCIL_TOOL,
 	// code analysis / generation
 	automated_code_review: AUTOMATED_CODE_REVIEW_TOOL,
 	generate_tests: GENERATE_TESTS_TOOL,

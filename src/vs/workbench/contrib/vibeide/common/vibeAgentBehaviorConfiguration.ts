@@ -113,6 +113,19 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			scope: ConfigurationScope.RESOURCE,
 			description: localize('vibeide.agent.externalAccessAllowlist', 'Список папок ВНЕ рабочей области, к которым агенту разрешён доступ (гранулярная альтернатива глобальному тогглу). Доступ распространяется на папку и её содержимое. Управляется командами «VibeIDE: Разрешить папку для доступа агента» / «Отозвать». Сессионные разрешения сюда не пишутся (живут до перезагрузки окна).'),
 		},
+		'vibeide.council.advisers': {
+			type: 'array',
+			items: { type: 'string' },
+			default: [],
+			scope: ConfigurationScope.APPLICATION,
+			markdownDescription: localize('vibeide.council.advisers', 'Модели-советники для инструмента «совет моделей», в формате `провайдер/модель` — например `anthropic/claude-sonnet-5`, `minimax/MiniMax-M3`, `deepseek/deepseek-chat`.\n\nВопрос уходит каждому советнику **независимо** (они не видят ответов друг друга), после чего отдельная модель сводит мнения: в чём согласны, в чём расходятся и какой факт закрывает спор. Смысл — в разных моделях: одна и та же, спрошенная дважды, соглашается сама с собой.\n\nПусто — инструмент выключен и честно об этом говорит. Стоит N запросов вместо одного, поэтому включается осознанно.'),
+		},
+		'vibeide.council.summariser': {
+			type: 'string',
+			default: '',
+			scope: ConfigurationScope.APPLICATION,
+			markdownDescription: localize('vibeide.council.summariser', 'Модель, которая сводит мнения советников, в формате `провайдер/модель`. Пусто — берётся модель чата.\n\nЛучше выбирать ту, что не входит в список советников: советник, подводящий итог собственной панели, — судья и сторона одновременно.'),
+		},
 		'vibeide.hooks.enabled': {
 			type: 'boolean',
 			default: false,

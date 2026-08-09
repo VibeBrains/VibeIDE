@@ -65,6 +65,7 @@ export type BuiltinToolCallParams = {
 	// No parameters: the context is whatever the project wrote, and there is nothing to narrow.
 	'design_context': Record<never, never>;
 	'design_doctor': Record<never, never>;
+	'model_council': { question: string; context: string | null };
 	'design_document': {
 		target: 'product' | 'system';
 		name: string | null;
@@ -182,6 +183,14 @@ export type BuiltinToolResultType = {
 		rules: { total: number; floor: number; drift: number };
 		acceptedDrift: { count: number; unknown: string[] };
 		hook: { mode: string; maxAttempts: number };
+	};
+	// Several models answered the same question; one folded the answers.
+	// Shape mirrors `CouncilResult` exactly (including `summary: string | undefined`), so the
+	// pure formatter can take the tool result without a copy or a cast.
+	'model_council': {
+		summary: string | undefined;
+		summaryError?: string;
+		opinions: readonly { readonly providerName: string; readonly modelName: string; readonly text: string; readonly error?: string; readonly durationMs: number }[];
 	};
 	'search_symbols': { symbols: Array<{ name: string; kind: string; uri: URI; startLine: number; startColumn: number; endLine: number; endColumn: number }> };
 	'automated_code_review': { issues: Array<{ severity: 'error' | 'warning' | 'info'; message: string; line: number; column: number; suggestion?: string }> };
