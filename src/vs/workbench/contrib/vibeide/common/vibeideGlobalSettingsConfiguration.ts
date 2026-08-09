@@ -1165,6 +1165,12 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.tools.readFileDefaultLineLimit', 'Сколько строк возвращает `read_file` при чтении файла БЕЗ явного диапазона/лимита. Прямо определяет, сколько контента одно чтение вливает в контекст = токен-стоимость. Дефолт 2000. Поднимите, если модель часто дочитывает файлы по частям; опустите на жёстко лимитированных по токенам провайдерах.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.tools.preApplyVerification': {
+					type: 'boolean',
+					default: true,
+					description: localize('vibeide.tools.preApplyVerification', '`edit_file`: сверять содержимое файла перед применением правки с тем, что агент читал. Между чтением и записью файл успевает изменить человек в редакторе, другой агент, сборка или `git checkout` — и правка, чей SEARCH после этого всё ещё совпал, молча затирает чужое изменение. При расхождении правка отклоняется, а агенту предлагается перечитать файл. Выключите, только если проверка мешает на файлах, которые постоянно переписываются извне.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.tools.rewriteFileTruncationGuard': {
 					type: 'boolean',
 					default: true,

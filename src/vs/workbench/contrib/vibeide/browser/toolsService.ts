@@ -24,6 +24,7 @@ import { IEditCodeService } from './editCodeServiceInterface.js';
 import { ITerminalToolService } from './terminalToolService.js';
 import { LintErrorItem, BuiltinToolCallParams, BuiltinToolResultType, BuiltinToolName } from '../common/toolsServiceTypes.js';
 import { IVibeideModelService } from '../common/vibeideModelService.js';
+import { blocksApply, captureFileBase, FileBaseSignature, FileBaseSource, FileBaseVerdict, verifyFileBase } from '../common/fileBaseSignature.js';
 import { IRepoIndexerService } from './repoIndexerService.js';
 import { EndOfLinePreference } from '../../../../editor/common/model.js';
 import { DocumentSymbol } from '../../../../editor/common/languages.js';
@@ -254,7 +255,9 @@ export class ToolsService implements IToolsService {
 	private readonly _offlineGate: OfflinePrivacyGate;
 	// Tracks which files were read in this session so edit_file can require a prior read
 	// (Claude-Code-style "must read before edit" guard). Persists for the lifetime of the singleton.
-	private readonly _filesReadInSession = new Set<string>();
+	// The value is the content signature at read time, which additionally lets the write path prove
+	// the file has not changed underneath the agent since — see `fileBaseSignature.ts`.
+	private readonly _filesReadInSession = new Map<string, FileBaseSignature>();
 	// Tracks pending background commands so kill_background_command can address them.
 	private readonly _backgroundCommands = new Map<string, { persistentTerminalId: string; command: string; startedAt: number }>();
 
@@ -328,6 +331,7 @@ export class ToolsService implements IToolsService {
 		const readFileMaxCharsPerPage = () => Math.max(10_000, Math.min(5_000_000, this._configurationService.getValue<number>('vibeide.tools.readFileMaxCharsPerPage') ?? MAX_FILE_CHARS_PAGE));
 		const largeFileThresholdChars = () => Math.max(10_000, Math.min(5_000_000, this._configurationService.getValue<number>('vibeide.tools.largeFileThresholdChars') ?? READ_FILE_LARGE_FILE_CHARS));
 		const largeFileWindowChars = () => Math.max(5_000, Math.min(2_000_000, this._configurationService.getValue<number>('vibeide.tools.largeFileWindowChars') ?? READ_FILE_LARGE_FILE_WINDOW_CHARS));
+		const preApplyVerificationEnabled = () => this._configurationService.getValue<boolean>('vibeide.tools.preApplyVerification') ?? true;
 		const isSearchBackendUnavailable = (e: unknown): boolean => {
 			const msg = e instanceof Error ? e.message : String(e ?? '');
 			return /ENOENT|spawn|ripgrep|\brg(\.exe)?\b/i.test(msg);
@@ -1029,8 +1033,10 @@ export class ToolsService implements IToolsService {
 					fileContents = labelled.join('\n');
 				}
 
-				// Mark the call so edit_file can later require "must read first".
-				this._markFileRead(uri);
+				// Mark the call so edit_file can later require "must read first". The signature is of
+				// the WHOLE file, not the returned page: a later edit is applied to the whole file, so
+				// a change outside the page the agent happened to read is just as dangerous.
+				this._markFileRead(uri, fullText, openModel ? 'buffer' : 'disk');
 
 				return { result: { fileContents, totalFileLen, hasNextPage, totalNumLines, linesReturned, startLineReturned, endLineReturned, truncatedByLineLimit } };
 			},
@@ -1943,8 +1949,9 @@ export class ToolsService implements IToolsService {
 				if (isFolder) { await fileService.createFolder(uri); }
 				else {
 					await fileService.createFile(uri);
-					// Newly-created file is implicitly "known" content — allow subsequent edit_file without a re-read.
-					this._markFileRead(uri);
+					// Newly-created file is implicitly "known" content — allow subsequent edit_file without
+					// a re-read. It is empty and not yet open in an editor, hence the disk-side signature.
+					this._markFileRead(uri, '', 'disk');
 				}
 				return { result: {} };
 			},
@@ -2043,7 +2050,7 @@ export class ToolsService implements IToolsService {
 				}
 				editCodeService.instantlyRewriteFile({ uri, newContent: effectiveContent });
 				// After rewrite we know the exact content — subsequent edit_file does not need a re-read.
-				this._markFileRead(uri);
+				this._markFileRead(uri, effectiveContent, 'buffer');
 				// Persist to disk and verify. instantlyRewriteFile triggers a save as a
 				// floating promise, so a save failure would otherwise be swallowed while the
 				// tool still reports success — the editor model holds the new content but disk
@@ -2085,6 +2092,31 @@ export class ToolsService implements IToolsService {
 					});
 				}
 				await this._checkAdvisoryTerritorialLocks(uri);
+				// Pre-apply verification: "was it read" says nothing about the window between the read
+				// and this write, and that window is where the user types, another agent edits, a build
+				// regenerates, `git checkout` swaps a branch. A SEARCH block that still matches after
+				// such a change silently overwrites someone else's work.
+				if (fileExistsForEdit && preApplyVerificationEnabled()) {
+					const liveModel = vibeideModelService.getModel(uri).model;
+					const currentContent = liveModel
+						? liveModel.getValue(EndOfLinePreference.LF)
+						: (await fileService.readFile(uri)).value.toString().replace(/\r\n/g, '\n');
+					const verdict = this._verifyFileBase(uri, currentContent, liveModel ? 'buffer' : 'disk');
+					if (blocksApply(verdict)) {
+						// Drop the stale baseline so the retry path is unambiguous: the next attempt hits
+						// the "must read first" pre-flight instead of this one, and the model is told the
+						// same thing either way — read the file again.
+						this._filesReadInSession.delete(uri.toString());
+						throw new ToolValidationError({
+							code: 'file_changed_since_read',
+							message: verdict.kind === 'source-changed'
+								? `Refusing to edit ${uri.fsPath}: you read it from ${verdict.from}, but the edit would apply to ${verdict.to}. Unsaved editor state may differ from the file you saw.`
+								: `Refusing to edit ${uri.fsPath}: its content changed after you read it. Applying the edit now could overwrite someone else's change.`,
+							hint: 'Call read_file again and rebuild the edit against the current content.',
+							suggestedTool: 'read_file',
+						});
+					}
+				}
 				// Same stale-existence-cache guard as rewrite_file: invalidate + re-init so the model
 				// resolves for a just-created file, and require it before applying edits — a missing
 				// model must surface as a tool_error, not a silent no-op against an empty buffer.
@@ -2117,8 +2149,9 @@ export class ToolsService implements IToolsService {
 					const widths = Array.from(new Set(applyInfo.indentAdjustments.map(a => a.fileIndentWidth))).sort((a, b) => a - b);
 					indentationNote = `Отступ твоего old_string/new_string не совпал с файлом (отступ якорной строки: ${widths.join('/')} пробел(ов)) — я УЖЕ автоматически выровнял блок по файлу, правка применена корректно. НЕ присылай повторные правки только ради пробелов/отступа и не перечитывай файл по кругу из-за этого: посмотри diff ОДИН раз. Если отступ в diff ВСЁ ЕЩЁ неверный — пришли new_string с ТОЧНЫМ отступом КАЖДОЙ строки (включая первую) ИЛИ используй rewrite_file для всего блока.`;
 				}
-				// File content has just been mutated — re-mark as read so chained edits still pass the guard.
-				this._markFileRead(uri);
+				// File content has just been mutated — re-mark as read so chained edits still pass the
+				// guard, and so the pre-apply check compares against what we just wrote.
+				this._markFileRead(uri, vibeideModelService.getModel(uri).model?.getValue(EndOfLinePreference.LF) ?? '', 'buffer');
 				// Persist to disk and verify (see rewrite_file): a failed save must surface as a
 				// tool_error rather than a silent success with stale on-disk content.
 				await vibeideModelService.saveModel(uri);
@@ -3166,12 +3199,22 @@ export class ToolsService implements IToolsService {
 		return 'low';
 	}
 
-	private _markFileRead(uri: URI): void {
-		this._filesReadInSession.add(uri.toString());
+	/**
+	 * Record what the agent now knows about a file: its content and where that content came from.
+	 * Called after a read and after every successful write, so a chain of edits keeps passing the
+	 * pre-apply check while a change made by anyone else does not.
+	 */
+	private _markFileRead(uri: URI, content: string, source: FileBaseSource): void {
+		this._filesReadInSession.set(uri.toString(), captureFileBase(content, source));
 	}
 
 	private _hasBeenRead(uri: URI): boolean {
 		return this._filesReadInSession.has(uri.toString());
+	}
+
+	/** Compare the file as the agent read it against the content it is about to write over. */
+	private _verifyFileBase(uri: URI, currentContent: string, source: FileBaseSource): FileBaseVerdict {
+		return verifyFileBase(this._filesReadInSession.get(uri.toString()), captureFileBase(currentContent, source));
 	}
 
 	private _getLintErrors(uri: URI): { lintErrors: LintErrorItem[] | null } {
