@@ -28,12 +28,28 @@ export interface SnapshotRestorePlan {
 	readonly delete: readonly string[];
 }
 
+/**
+ * Refs live under a private namespace: `refs/vibe/...` never shows up in `git branch`, is not pushed
+ * by default, and cannot collide with anything the user creates.
+ */
+export function snapshotRefName(id: string): string {
+	return `refs/vibe/checkpoints/${id}`;
+}
+
 /** Argv (without the leading `git`) for the commands a snapshot needs. */
 export const SNAPSHOT_ARGV = {
 	repoRoot: ['rev-parse', '--show-toplevel'],
 	/** Stage everything — tracked, modified and untracked alike — into the temporary index. */
 	stageAll: ['add', '-A'],
 	writeTree: ['write-tree'],
+	/**
+	 * Wrap the tree in a parentless commit. Without this the snapshot is an unreachable object and
+	 * `git gc` deletes it — verified: `git gc --prune=now` made a freshly written tree unreadable, so
+	 * restoring an older checkpoint would have failed with nothing to point at.
+	 */
+	commitTree: (tree: string, message: string) => ['commit-tree', tree, '-m', message],
+	/** Give the commit a ref so it stays reachable for good, out of the way of user branches. */
+	updateRef: (id: string, commit: string) => [`update-ref`, snapshotRefName(id), commit],
 	readTree: (tree: string) => ['read-tree', tree],
 	/** Write the temporary index out over the working tree. */
 	checkoutIndex: ['checkout-index', '-a', '-f'],
