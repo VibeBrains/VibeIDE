@@ -105,6 +105,20 @@ export function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStat
 	return c as Partial<VibeideStaticModelInfo>;
 }
 
+/**
+ * Order the file's `static` models for the picker: `default` first, then `pinned`, then the order
+ * they appear in the file. Stable — equal ranks keep their written order.
+ *
+ * This is what makes both flags do something. The picker takes `modelOptions[0]` whenever a
+ * feature has no valid selection yet (vibeideSettingsService), so "first in the list" and
+ * "auto-selected default" are the same lever. Before this, both fields were declared in the
+ * format, used by our own presets, and read by nobody.
+ */
+export function sortStaticModels(models: readonly VibeProviderModelEntry[]): VibeProviderModelEntry[] {
+	const rank = (m: VibeProviderModelEntry): number => (m.default === true ? 0 : m.pinned === true ? 1 : 2);
+	return [...models].map((m, i) => ({ m, i })).sort((a, b) => rank(a.m) - rank(b.m) || a.i - b.i).map(x => x.m);
+}
+
 /** How a file entry relates to the built-in provider set. */
 export type ResolvedProviderKind =
 	| 'definition'        // brand-new provider (id not a built-in, no extends-of-built-in)
@@ -682,7 +696,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				}
 				seedModels.push({ modelName: id, type: 'autodetected', isHidden: hidden, ...(fileNote ? { fileNote } : {}) });
 			};
-			const pushStatic = () => { for (const m of staticById.values()) { pushModel(m.id, m.name || m.id, 'manual'); } };
+			const pushStatic = () => { for (const m of sortStaticModels([...staticById.values()])) { pushModel(m.id, m.name || m.id, 'manual'); } };
 
 			let keyStatus: DynamicProviderSeed['keyStatus'];
 			if (!resolvedKey && this._hasOsEnvKey(p)) {

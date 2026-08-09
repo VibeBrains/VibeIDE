@@ -44,10 +44,6 @@ const GUARDED_INTERFACES = ['VibeProviderModelEntry', 'VibeProviderModelReasonin
  */
 const ALLOWED_UNREAD = new Map([
 	['note', 'Комментарий для человека, читающего файл. В код не идёт по замыслу.'],
-	// Known debt, tracked in roadmap («поля default/pinned у моделей не проведены в список»).
-	// Kept here so the gate stays green on the existing state while still refusing NEW dead fields.
-	['default', 'ДОЛГ: объявлено «модель по умолчанию», в список моделей не проведено. См. roadmap.'],
-	['pinned', 'ДОЛГ: объявлено «показывать первой», в список моделей не проведено. См. roadmap.'],
 ]);
 
 /** Extract field names from an interface body. */

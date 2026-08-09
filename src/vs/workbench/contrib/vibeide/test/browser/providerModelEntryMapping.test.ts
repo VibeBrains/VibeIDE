@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { modelEntryToCaps } from '../../browser/vibeDynamicProvidersService.js';
+import { modelEntryToCaps, sortStaticModels } from '../../browser/vibeDynamicProvidersService.js';
 
 /**
  * `.vibe/providers.json` → capabilities mapping.
@@ -17,6 +17,43 @@ import { modelEntryToCaps } from '../../browser/vibeDynamicProvidersService.js';
  */
 suite('providers.json → model capabilities', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
+
+	/**
+	 * `default` and `pinned` were declared in the format, used by our own shipped presets and read
+	 * by nobody — the picker showed models in file order and auto-selected whatever happened to be
+	 * first. Both flags land on the same lever: the settings service takes modelOptions[0] when a
+	 * feature has no valid selection, so ordering IS the default-selection.
+	 */
+	test('default comes first, then pinned, then file order', () => {
+		const ids = sortStaticModels([
+			{ id: 'plain-a' },
+			{ id: 'pinned-a', pinned: true },
+			{ id: 'the-default', default: true },
+			{ id: 'plain-b' },
+			{ id: 'pinned-b', pinned: true },
+		]).map(m => m.id);
+		assert.deepStrictEqual(ids, ['the-default', 'pinned-a', 'pinned-b', 'plain-a', 'plain-b']);
+	});
+
+	test('order is stable when no flags are set — the file decides', () => {
+		const ids = sortStaticModels([{ id: 'a' }, { id: 'b' }, { id: 'c' }]).map(m => m.id);
+		assert.deepStrictEqual(ids, ['a', 'b', 'c']);
+	});
+
+	test('two defaults keep their written order — no silent reshuffle', () => {
+		const ids = sortStaticModels([
+			{ id: 'second', default: true },
+			{ id: 'plain' },
+			{ id: 'first-written', default: true },
+		]).map(m => m.id);
+		assert.deepStrictEqual(ids, ['second', 'first-written', 'plain']);
+	});
+
+	test('the input array is not mutated', () => {
+		const input = [{ id: 'a' }, { id: 'z', default: true }];
+		sortStaticModels(input);
+		assert.deepStrictEqual(input.map(m => m.id), ['a', 'z']);
+	});
 
 	test('a fully populated entry maps every documented field', () => {
 		const caps = modelEntryToCaps({
