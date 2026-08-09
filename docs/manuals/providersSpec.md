@@ -133,14 +133,13 @@
 ```jsonc
 "reasoning": {
   "canTurnOff": true,               // размышление можно выключить
-  "field": "reasoning_effort",      // поле в теле запроса, несущее тумблер/усилие
   "effort": ["low", "medium", "high"], // допустимые значения усилия → слайдер в UI
   "thinkTags": ["<think>", "</think>"] // если модель отдаёт мысли инлайном — вырезать эту пару
 }
 ```
 
 - `effort` включает слайдер усилия; VibeIDE шлёт `reasoning_effort` и парсит `reasoning_content`.
-- **Провайдеро-специфичный** тумблер размышления (например Moonshot/Kimi `thinking`) кладётся не сюда, а в `extraBody` модели — он уходит в тело запроса без изменений.
+- **Провайдеро-специфичный** тумблер размышления (например Moonshot/Kimi `thinking`) кладётся не сюда, а в `extraBody` модели — он уходит в тело запроса без изменений. Учтите: `extraBody` статичен, он включает режим всегда; переключать его из интерфейса пока нельзя (раньше здесь значилось поле `field`, но оно не работало и удалено — одного имени ключа мало, форма значения у вендоров разная).
 - `"reasoning": false` — модель без размышления.
 
 ---
@@ -218,7 +217,7 @@ microsoftAzure awsBedrock ollama  vLLM  lmStudio  openAICompatible
             "maxOutputTokens": 131072,
             "toolFormat": "openai",
             "systemMessage": "system",
-            "reasoning": { "canTurnOff": true, "field": "thinking" }
+            "reasoning": { "canTurnOff": true }
           },
           {
             "id": "glm-4.5v",
