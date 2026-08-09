@@ -22,6 +22,7 @@
     "gen:docs-bundle": "node scripts/gen-docs-bundle.mjs",
     "gen:all": "npm run gen:vibe-defaults && npm run gen:specs-help && npm run gen:docs-bundle",
     "docs-graph-check": "node scripts/vibe-docs-graph.mjs --check",
+    "providers-fields-check": "node scripts/vibe-providers-fields.mjs",
     "service-registration-check": "node scripts/vibe-service-registration-check.mjs --check",
     "test": "echo Please run any of the test scripts from the scripts folder.",
     "test-browser": "npx playwright install && node test/unit/browser/index.js",
