@@ -211,6 +211,7 @@ import './contrib/vibeide/electron-browser/vibeIdleWatchdogProxy.js';
 import './contrib/vibeide/electron-browser/vibeServer/vibeServerService.js';
 import './contrib/vibeide/electron-browser/vibeServer/vibeServerStackService.js';
 import './contrib/vibeide/electron-browser/vibeideSCMService.js';
+import './contrib/vibeide/electron-browser/vibeWorkspaceSnapshotService.js';
 import './contrib/vibeide/electron-browser/vibeideUpdateService.js';
 import './contrib/vibeide/electron-browser/vibeLogMainSyncContribution.js';
 import './contrib/vibeide/electron-browser/vibeEnvApiKeysContribution.js';

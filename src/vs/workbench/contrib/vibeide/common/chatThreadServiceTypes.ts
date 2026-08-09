@@ -46,6 +46,15 @@ export type CheckpointEntry = {
 		voidFileSnapshotOfURI: { [fsPath: string]: VibeideFileSnapshot | undefined };
 	};
 	createdAt?: number; // unix ms when checkpoint was created
+	/**
+	 * Git tree id of the whole working folder at checkpoint time, when one could be taken.
+	 *
+	 * `voidFileSnapshotOfURI` only covers files the agent edited through `editCodeService`; a build
+	 * script, a `git checkout` or a `sed` in the terminal leaves no trace there. This is what lets a
+	 * rollback offer to restore those too — always behind an explicit confirmation, since applying
+	 * it overwrites the working tree.
+	 */
+	workspaceSnapshotTree?: string;
 };
 
 

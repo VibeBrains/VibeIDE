@@ -115,6 +115,7 @@ import { IVibeTaskDecompositionService } from '../common/vibeTaskDecompositionSe
 import { IVibeCheckpointCoordinator } from '../common/vibeCheckpointCoordinatorService.js';
 import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
+import { IVibeWorkspaceSnapshotService } from '../common/vibeideSCMTypes.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IVibeTokenCostForecastService } from '../common/vibeTokenCostForecastService.js';
 import {
@@ -1020,6 +1021,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IVibeTokenCostForecastService private readonly _costForecastService: IVibeTokenCostForecastService,
 		@IVibeSessionMemoryService private readonly _sessionMemoryService: IVibeSessionMemoryService,
 		@IVibeAgentTerritorialLockService private readonly _agentTerritorialLockService: IVibeAgentTerritorialLockService,
+		@IVibeWorkspaceSnapshotService private readonly _workspaceSnapshotService: IVibeWorkspaceSnapshotService,
 		@IVibeMentionService private readonly _mentionService: IVibeMentionService,
 		@IVibeSearchContextService private readonly _searchContextService: IVibeSearchContextService,
 		@IVibeAIDebuggingService private readonly _aiDebuggingService: IVibeAIDebuggingService,
@@ -8372,11 +8374,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 
 	private async _addUserCheckpoint({ threadId }: { threadId: string }): Promise<void> {
 		const { voidFileSnapshotOfURI } = this._computeNewCheckpointInfo({ threadId }) ?? {};
+		// Snapshot the folder here and not on every tool edit: this is the boundary a user rolls
+		// back to ("before the agent's turn"), and one `git add -A` per turn is affordable while one
+		// per edited file is not.
+		const workspaceSnapshotTree = await this._workspaceSnapshotService.capture();
 		await this._addCheckpoint(threadId, {
 			role: 'checkpoint',
 			type: 'user_edit',
 			voidFileSnapshotOfURI: voidFileSnapshotOfURI ?? {},
 			userModifications: { voidFileSnapshotOfURI: {}, },
+			workspaceSnapshotTree,
 		}, `chat:userEdit:${threadId}`);
 	}
 	// call this right after LLM edits a file
@@ -8560,6 +8567,53 @@ We only need to do it for files that were edited since `from`, ie files between 
 		}
 
 		this._setThreadState(threadId, { currCheckpointIdx: toIdx });
+
+		await this._offerWorkspaceSnapshotRestore(c[0]);
+	}
+
+	/**
+	 * Offer to roll the whole working folder back to the checkpoint's snapshot.
+	 *
+	 * Kept separate from the rollback above and gated behind a confirmation: that one restores file
+	 * contents the agent itself wrote, which the user asked for by jumping. This one overwrites
+	 * files nobody in the chat touched — build output, terminal edits — and deletes files created
+	 * since. That is not something to do on a click, so the user is shown the counts and decides.
+	 */
+	private async _offerWorkspaceSnapshotRestore(checkpoint: CheckpointEntry): Promise<void> {
+		const tree = checkpoint.workspaceSnapshotTree;
+		if (!tree) { return; }
+
+		const plan = await this._workspaceSnapshotService.plan(tree);
+		// Nothing outside the chat drifted — restoring would be a no-op, so do not ask.
+		if (!plan || plan.delete.length === 0) { return; }
+
+		const { confirmed } = await this._dialogService.confirm({
+			type: 'warning',
+			message: localize('vibeide.checkpoint.snapshot.title', "Вернуть рабочую папку к состоянию чекпоинта?"),
+			detail: localize(
+				'vibeide.checkpoint.snapshot.detail',
+				"Правки из терминала и сборки чат не отслеживает. Возврат перезапишет файлы папки состоянием на момент чекпоинта и удалит {0} файл(ов), созданных после него. Отменить это будет нечем.",
+				plan.delete.length,
+			),
+			primaryButton: localize('vibeide.checkpoint.snapshot.confirm', "Вернуть папку"),
+		});
+		if (!confirmed) { return; }
+
+		try {
+			const done = await this._workspaceSnapshotService.restore(tree);
+			this._notificationService.info(localize(
+				'vibeide.checkpoint.snapshot.done',
+				"Рабочая папка возвращена к чекпоинту: восстановлено файлов — {0}, удалено — {1}.",
+				done.restore.length,
+				done.delete.length,
+			));
+		} catch (error) {
+			this._notificationService.error(localize(
+				'vibeide.checkpoint.snapshot.failed',
+				"Не удалось вернуть рабочую папку: {0}",
+				getErrorMessage(error),
+			));
+		}
 	}
 
 
