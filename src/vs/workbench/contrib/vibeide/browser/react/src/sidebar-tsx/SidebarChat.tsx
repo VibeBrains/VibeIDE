@@ -4443,40 +4443,34 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 												{approvalState === 'pending' && !isRunning && (
 										<button
 											type="button"
-											aria-label={`${isDisabled ? 'Enable' : 'Disable'} step ${step.stepNumber}`}
+											aria-label={isDisabled ? chatS.stepEnableAria(step.stepNumber) : chatS.stepDisableAria(step.stepNumber)}
 														onClick={() => handleToggleStep(step.stepNumber)}
 														className="px-2 py-0.5 text-xs rounded bg-vibe-bg-2 text-vibe-fg-2 hover:bg-vibe-bg-2/80 border border-vibe-border-1 transition-colors"
 													>
-														{isDisabled ? 'Enable' : 'Disable'}
+														{isDisabled ? chatS.stepEnable : chatS.stepDisable}
 													</button>
 												)}
 									{approvalState === 'executing' && status === 'failed' && (
 													<>
 											<button
 												type="button"
-												aria-label={`Retry step ${step.stepNumber}`}
+												aria-label={chatS.stepRetryAria(step.stepNumber)}
 															onClick={() => chatThreadService.retryStep({ threadId, messageIdx, stepNumber: step.stepNumber })}
 															className="px-2 py-0.5 text-xs rounded bg-green-500/10 text-green-400 hover:bg-green-500/20 border border-green-500/20 transition-colors"
-														>
-															Retry
-														</button>
+														>{chatS.stepRetry}</button>
 											<button
 												type="button"
-												aria-label={`Skip step ${step.stepNumber}`}
+												aria-label={chatS.stepSkipAria(step.stepNumber)}
 															onClick={() => chatThreadService.skipStep({ threadId, messageIdx, stepNumber: step.stepNumber })}
 															className="px-2 py-0.5 text-xs rounded bg-gray-500/10 text-gray-400 hover:bg-gray-500/20 border border-gray-500/20 transition-colors"
-														>
-															Skip
-														</button>
+														>{chatS.stepSkip}</button>
 														{step.checkpointIdx !== undefined && step.checkpointIdx !== null && (
 								<button
 									type="button"
-									aria-label={`Rollback step ${step.stepNumber}`}
-									onClick={() => { if (confirm('Rollback to the checkpoint before this step?')) {chatThreadService.rollbackToStep({ threadId, messageIdx, stepNumber: step.stepNumber });} }}
+									aria-label={chatS.stepRollbackAria(step.stepNumber)}
+									onClick={() => { if (confirm(chatS.stepRollbackConfirm)) {chatThreadService.rollbackToStep({ threadId, messageIdx, stepNumber: step.stepNumber });} }}
 																className="px-2 py-0.5 text-xs rounded bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 border border-orange-500/20 transition-colors"
-															>
-																Rollback
-															</button>
+															>{chatS.stepRollback}</button>
 														)}
 													</>
 												)}

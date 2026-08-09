@@ -57,6 +57,19 @@ export function chatDiffCountLabel(n: number): string {
 
 /** Russian UI strings for VibeIDE sidebar chat (React). */
 export const chatS = {
+	// Plan-step controls. The card is the only place a user can steer a running plan, so its
+	// buttons follow the project rule like the rest of the UI.
+	stepEnable: 'Включить',
+	stepDisable: 'Отключить',
+	stepRetry: 'Повторить',
+	stepSkip: 'Пропустить',
+	stepRollback: 'Откатить',
+	stepEnableAria: (n: number) => `Включить шаг ${n}`,
+	stepDisableAria: (n: number) => `Отключить шаг ${n}`,
+	stepRetryAria: (n: number) => `Повторить шаг ${n}`,
+	stepSkipAria: (n: number) => `Пропустить шаг ${n}`,
+	stepRollbackAria: (n: number) => `Откатить шаг ${n}`,
+	stepRollbackConfirm: 'Вернуться к состоянию до этого шага?',
 	placeholderShort: 'План, @ для контекста',
 	placeholderFull: 'План, @ для контекста, / для команд',
 	contextTokens: (total: number, budget: number, pct: number) =>
