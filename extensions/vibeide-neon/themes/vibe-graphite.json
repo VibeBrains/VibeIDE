@@ -3,6 +3,27 @@
 	"name": "Vibe Graphite",
 	"type": "dark",
 	"semanticHighlighting": true,
+	"semanticTokenColors": {
+		"parameter": { "foreground": "#c0c5c8", "fontStyle": "italic" },
+		"property": { "foreground": "#9fc4d6" },
+		"property.readonly": { "foreground": "#cc8242" },
+		"variable": { "foreground": "#d4d7d9" },
+		"variable.readonly": { "foreground": "#cc8242" },
+		"variable.defaultLibrary": { "foreground": "#87c0be" },
+		"function": { "foreground": "#6fa8c7" },
+		"function.defaultLibrary": { "foreground": "#87c0be" },
+		"method": { "foreground": "#6fa8c7" },
+		"class": { "foreground": "#d3b884" },
+		"interface": { "foreground": "#d3b884" },
+		"type": { "foreground": "#d3b884" },
+		"typeParameter": { "foreground": "#d3b884", "fontStyle": "italic" },
+		"enum": { "foreground": "#d3b884" },
+		"enumMember": { "foreground": "#cc8242" },
+		"namespace": { "foreground": "#d3b884" },
+		"decorator": { "foreground": "#d8a657" },
+		"macro": { "foreground": "#b48ead" },
+		"*.deprecated": { "fontStyle": "strikethrough" }
+	},
 	"colors": {
 		"focusBorder": "#3a3e41",
 		"foreground": "#d4d7d9",
@@ -330,6 +351,101 @@
 			"name": "Decorator and annotation",
 			"scope": ["meta.decorator", "punctuation.decorator", "storage.type.annotation"],
 			"settings": { "foreground": "#d8a657" }
+		},
+		{
+			"name": "Control keywords — ветвление и потоки видно отдельно от объявлений",
+			"scope": ["keyword.control", "keyword.control.flow", "keyword.control.conditional", "keyword.control.loop"],
+			"settings": { "foreground": "#b48ead" }
+		},
+		{
+			"name": "Import/export — служебная механика модулей, приглушена наклоном",
+			"scope": ["keyword.control.import", "keyword.control.export", "keyword.control.from", "keyword.control.default"],
+			"settings": { "foreground": "#b48ead", "fontStyle": "italic" }
+		},
+		{
+			"name": "this / self / super — своя роль, а не «ещё одна переменная»",
+			"scope": ["variable.language.this", "variable.language.self", "variable.language.super", "variable.language.special"],
+			"settings": { "foreground": "#d8a657", "fontStyle": "italic" }
+		},
+		{
+			"name": "Константы и enum-члены — читаются как значения, а не как переменные",
+			"scope": ["variable.other.constant", "entity.name.constant", "constant.other.symbol", "support.constant"],
+			"settings": { "foreground": "#cc8242" }
+		},
+		{
+			"name": "Выражение внутри шаблонной строки — иначе сливается со строкой целиком",
+			"scope": ["meta.template.expression", "meta.embedded.line", "punctuation.section.embedded"],
+			"settings": { "foreground": "#d4d7d9" }
+		},
+		{
+			"name": "Границы подстановки ${…} — видно, где кончается строка",
+			"scope": ["punctuation.definition.template-expression.begin", "punctuation.definition.template-expression.end"],
+			"settings": { "foreground": "#cc8242" }
+		},
+		{
+			"name": "Встроенные типы отличаются от пользовательских",
+			"scope": ["support.type.primitive", "support.type.builtin", "storage.type.primitive"],
+			"settings": { "foreground": "#87c0be" }
+		},
+		{
+			"name": "Пространства имён и модули — раньше падали в цвет обычного текста",
+			"scope": ["entity.name.namespace", "entity.name.module", "support.other.namespace", "entity.name.scope-resolution"],
+			"settings": { "foreground": "#d3b884" }
+		},
+		{
+			"name": "Встроенные функции языка — не путать со своими",
+			"scope": ["support.function.builtin", "support.function.magic", "keyword.other.special-method"],
+			"settings": { "foreground": "#87c0be" }
+		},
+		{
+			"name": "Метки, ключи и поля — ближе к свойствам, чем к тексту",
+			"scope": ["entity.name.label", "variable.object.property", "meta.field.declaration"],
+			"settings": { "foreground": "#9fc4d6" }
+		},
+		{
+			"name": "Скобки и разделители блоков — тише кода, но не невидимы",
+			"scope": ["meta.brace", "punctuation.section.block", "punctuation.definition.tag", "punctuation.definition.parameters"],
+			"settings": { "foreground": "#a9b0b4" }
+		},
+		{
+			"name": "TODO/FIXME в комментарии — единственное, что должно кричать из серого",
+			"scope": ["keyword.codetag", "comment keyword.other", "storage.type.class.jsdoc"],
+			"settings": { "foreground": "#d8a657", "fontStyle": "bold" }
+		},
+		{
+			"name": "Единицы измерения в CSS и подобном",
+			"scope": ["keyword.other.unit", "constant.numeric.suffix"],
+			"settings": { "foreground": "#cc8242" }
+		},
+		{
+			"name": "Ключи JSON и YAML — структура документа видна без чтения значений",
+			"scope": ["support.type.property-name.json", "entity.name.tag.yaml", "support.type.property-name.yaml"],
+			"settings": { "foreground": "#9fc4d6" }
+		},
+		{
+			"name": "CSS: свойства отдельно от селекторов",
+			"scope": ["support.type.property-name.css", "support.constant.property-value.css"],
+			"settings": { "foreground": "#9fc4d6" }
+		},
+		{
+			"name": "Markdown: цитата тише текста, список — как ключевое слово",
+			"scope": ["markup.quote"],
+			"settings": { "foreground": "#6f7679", "fontStyle": "italic" }
+		},
+		{
+			"name": "Markdown: маркеры списка",
+			"scope": ["punctuation.definition.list.begin.markdown", "beginning.punctuation.definition.list"],
+			"settings": { "foreground": "#b48ead" }
+		},
+		{
+			"name": "Shell: встроенные команды и имена функций",
+			"scope": ["support.function.builtin.shell", "entity.name.function.shell"],
+			"settings": { "foreground": "#6fa8c7" }
+		},
+		{
+			"name": "Ссылки в тексте и документации",
+			"scope": ["string.other.link", "markup.underline.link.markdown"],
+			"settings": { "foreground": "#87c0be", "fontStyle": "underline" }
 		}
 	]
 }
