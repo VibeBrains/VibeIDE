@@ -61,7 +61,7 @@
 | [cssPipeline.md](ui/cssPipeline.md) | `vibeide.css`, `styles.css`, build flow, CSS MIME в dev |
 | [scopeTailwind.md](ui/scopeTailwind.md) | `@@`-escape, классы в константах (и в цвет-хелперах → SVG `stroke: none`), `.vibe-scope *` preflight, ID с точками, popup borders, quick pick |
 | [vibeModal.md](ui/vibeModal.md) | IVibeModalService: архитектура, `@@`-рассинхрон (инлайн vs переменная), blocking/non-blocking, размер+ресайз |
-| [themesAndChat.md](ui/themesAndChat.md) | Vibe Neon, theme tokens, theming чат-панели, fullscreen modes, secondary sidebar border, гонка setState при dispatchEvent('input'), **белым по белому на светлой теме** (инлайн `#fff` сильнее корректного CSS; `dark:`-варианты tailwind мертвы — класс `dark` не ставит никто, поэтому литерал+`dark:`-двойник = просто литерал) · **два id у темы** (`setColorTheme` берёт внутренний, не `settingsId` — опечатка даёт молчаливый `null`) · **глифы Command Center** (чужая гарнитура выдаёт себя весом; `IContextView` слушает документ, поэтому обработчик на элементе опаздывает; свой глиф — внутрь `action-label`) |
+| [themesAndChat.md](ui/themesAndChat.md) | Vibe Neon, theme tokens, theming чат-панели, fullscreen modes, secondary sidebar border, гонка setState при dispatchEvent('input'), **белым по белому на светлой теме** (инлайн `#fff` сильнее корректного CSS; `dark:`-варианты tailwind мертвы — класс `dark` не ставит никто, поэтому литерал+`dark:`-двойник = просто литерал) · **два id у темы** (`setColorTheme` берёт внутренний, не `settingsId` — опечатка даёт молчаливый `null`) · **глифы Command Center** (чужая гарнитура выдаёт себя весом; `IContextView` слушает документ, поэтому обработчик на элементе опаздывает; свой глиф — внутрь `action-label`) · **перенос чужой палитры в тему** (перекрашивание по якорной шкале светлот; светлоту отображать, а не сохранять; синтаксис разводить по кругу) · **кэш тем** (правка JSON под работающей IDE не видна) |
 | [viewTitleBar.md](ui/viewTitleBar.md) | ViewPaneContainer, дубли иконок, single-row aux bar |
 | [projectsPane.md](ui/projectsPane.md) | Vibe Projects native pane, decorations через ResourceLabel, FontAwesome escape |
 | [specsPane.md](ui/specsPane.md) | Панель «Спеки»: sidebar-view из `specs/<id>/` воркспейса; квартет файлов + correlated-watcher; паттерн добавления боковой панели; DnD из дерева в чат (`text/uri-list`, capture-фаза) + markdown-превью |
@@ -111,7 +111,7 @@
 
 | Файл | О чём |
 |---|---|
-| [languagePack.md](i18n/languagePack.md) | `vscode-loc` vs VSIX, встроенный core language pack, `&&` мнемоники |
+| [languagePack.md](i18n/languagePack.md) | `vscode-loc` vs VSIX, встроенный core language pack, `&&` мнемоники, перекрытие `package.nls.json` (имена тем не переводятся) |
 | [nlsIndices.md](i18n/nlsIndices.md) | Плейсхолдеры `{0}`, рассинхрон `nls.messages.json`, NLS extract в dev |
 | [russianFirst.md](i18n/russianFirst.md) | Правило: все user-facing тексты на русском сразу в исходнике; список исключений (ByteString/Latin-1, идентификаторы, бренды) |
 | [reactAndSettings.md](i18n/reactAndSettings.md) | `vibeSettingsRu.ts`, перевод настроек напрямую (без bundle), правило для будущих PR |

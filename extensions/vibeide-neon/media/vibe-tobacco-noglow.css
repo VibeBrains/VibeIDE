@@ -1,0 +1,84 @@
+/* Табак и латунь-aware tokens for chat/history (consumed in src/vs/workbench/contrib/vibeide/browser/media/vibeide.css).
+ * Injected by VibeNeonThemeContribution while the active color theme is `vibe-tobacco` and the
+ * editor-glow toggle is off. Same slots as vibe-neon.css, tuned to a warm accent instead of
+ * the magenta/cyan pair — the vibe stays, the acid does not. */
+:root {
+  --vibe-neon-text-glow: none;
+  --vibe-neon-timestamp-fg: #b99a58;
+  --vibe-neon-timestamp-glow: none;
+
+  /* Skill-pill in the theme's own accent, matching the active-tab stripe below. */
+  --vibe-skill-pill-bg: rgba(171, 141, 95, 0.16);
+  --vibe-skill-pill-fg: #bd9f70;
+  --vibe-skill-pill-border: rgba(171, 141, 95, 0.45);
+  --vibe-skill-pill-glow: none;
+}
+
+/* Chat panel + thread history: keep body text at the theme's own foreground rather than pure
+ * white — a warm surface is low-contrast by design, and #fff would bloom against it. */
+.vibe-chat-neon-scope {
+  --vibe-fg-0: #eee8de;
+  --vibe-fg-1: #d9cfc0;
+  --vibe-fg-2: #cdbfac;
+  --vibe-fg-3: #bdac92;
+  --vibe-fg-4: #b19c7e;
+  color: #d9cfc0;
+}
+
+/* Active tab stripe — warm gradient instead of the neon pair. */
+.monaco-workbench .part.editor>.content .editor-group-container>.title .tabs-container>.tab.sizing-fit.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(to right, #6c5839, #bd9f70) !important;
+  opacity: 1;
+  z-index: 6;
+}
+
+.monaco-workbench .part.editor>.content .editor-group-container>.title .tabs-container>.tab.sizing-fit::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 0px;
+  transition: opacity 1s;
+  opacity: 0;
+  z-index: 6;
+}
+
+/* Active activity-bar item — soft warm wash plus a left stripe. */
+.monaco-workbench .activitybar>.content .monaco-action-bar .action-item.checked {
+  box-shadow: inset 0 -5px 25px rgba(171, 141, 95, 0.18);
+  position: relative;
+}
+
+.monaco-workbench .activitybar>.content .monaco-action-bar .action-item.checked::after {
+  content: '';
+  position: absolute;
+  bottom: 0px;
+  top: 0px;
+  left: 0px;
+  width: 3px;
+  background: linear-gradient(to bottom, #6c5839, #bd9f70) !important;
+  opacity: 1;
+}
+
+.monaco-workbench .activitybar>.content .monaco-action-bar .action-item::after {
+  content: '';
+  position: absolute;
+  bottom: 0px;
+  top: 0px;
+  left: 0px;
+  width: 0px;
+  transition: opacity 1s;
+  opacity: 0;
+}
+
+/* Project Commands top-bar buttons — quiet warm hover tint. */
+.monaco-workbench .statusbar-item[id^="vibeide.topbar."]:hover {
+  background: linear-gradient(to bottom, rgba(108, 88, 57, 0.16), rgba(189, 159, 112, 0.10));
+}

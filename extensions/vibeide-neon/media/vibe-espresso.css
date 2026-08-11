@@ -1,0 +1,90 @@
+/* Обжаренный эспрессо-aware tokens for chat/history (consumed in src/vs/workbench/contrib/vibeide/browser/media/vibeide.css).
+ * Injected by VibeNeonThemeContribution while the active color theme is `vibe-espresso` and the
+ * editor-glow toggle is on. Same slots as vibe-neon.css, tuned to a warm accent instead of
+ * the magenta/cyan pair — the vibe stays, the acid does not. */
+:root {
+  --vibe-neon-text-glow: 0 0 2px rgba(233, 221, 207, 0.30), 0 0 6px rgba(201, 141, 92, 0.18);
+  --vibe-neon-timestamp-fg: #d4a94e;
+  --vibe-neon-timestamp-glow: 0 0 4px rgba(212, 169, 78, 0.55), 0 0 8px rgba(212, 169, 78, 0.30);
+
+  /* Skill-pill in the theme's own accent, matching the active-tab stripe below. */
+  --vibe-skill-pill-bg: rgba(201, 141, 92, 0.16);
+  --vibe-skill-pill-fg: #d9a06c;
+  --vibe-skill-pill-border: rgba(201, 141, 92, 0.45);
+  --vibe-skill-pill-glow: 0 0 4px rgba(201, 141, 92, 0.50), 0 0 8px rgba(201, 141, 92, 0.25);
+}
+
+/* Chat panel + thread history: keep body text at the theme's own foreground rather than pure
+ * white — a warm surface is low-contrast by design, and #fff would bloom against it. */
+.vibe-chat-neon-scope {
+  --vibe-fg-0: #f9f5ee;
+  --vibe-fg-1: #e9ddcf;
+  --vibe-fg-2: #deccb7;
+  --vibe-fg-3: #d0b799;
+  --vibe-fg-4: #c5a581;
+  color: #e9ddcf;
+}
+
+/* Active tab stripe — warm gradient instead of the neon pair. */
+.monaco-workbench .part.editor>.content .editor-group-container>.title .tabs-container>.tab.sizing-fit.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(to right, #88562d, #d9a06c) !important;
+  opacity: 1;
+  z-index: 6;
+}
+
+.monaco-workbench .part.editor>.content .editor-group-container>.title .tabs-container>.tab.sizing-fit::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 0px;
+  transition: opacity 1s;
+  opacity: 0;
+  z-index: 6;
+}
+
+/* Active activity-bar item — soft warm wash plus a left stripe. */
+.monaco-workbench .activitybar>.content .monaco-action-bar .action-item.checked {
+  box-shadow: inset 0 -5px 25px rgba(201, 141, 92, 0.18);
+  position: relative;
+}
+
+.monaco-workbench .activitybar>.content .monaco-action-bar .action-item.checked::after {
+  content: '';
+  position: absolute;
+  bottom: 0px;
+  top: 0px;
+  left: 0px;
+  width: 3px;
+  background: linear-gradient(to bottom, #88562d, #d9a06c) !important;
+  opacity: 1;
+}
+
+.monaco-workbench .activitybar>.content .monaco-action-bar .action-item::after {
+  content: '';
+  position: absolute;
+  bottom: 0px;
+  top: 0px;
+  left: 0px;
+  width: 0px;
+  transition: opacity 1s;
+  opacity: 0;
+}
+
+/* Project Commands top-bar buttons — quiet warm hover tint. */
+.monaco-workbench .statusbar-item[id^="vibeide.topbar."]:hover {
+  background: linear-gradient(to bottom, rgba(136, 86, 45, 0.16), rgba(217, 160, 108, 0.10));
+}
+
+/* Editor text glow: the warm themes keep a whisper of it so they still feel like ours.
+ * The noglow variant drops this block entirely. */
+.monaco-workbench .part.editor .view-lines {
+  text-shadow: 0 0 1px rgba(233, 221, 207, 0.20);
+}

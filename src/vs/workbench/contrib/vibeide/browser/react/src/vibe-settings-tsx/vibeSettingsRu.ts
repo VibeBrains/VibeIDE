@@ -730,7 +730,7 @@ export const toolApprovalLabel = (t: string): string => {
 
 export const appearanceS = {
 	themesTitle: 'Тема оформления',
-	themesHint: 'Темы, которые поставляются с VibeIDE, и две базовые из VS Code. Установленные из маркетплейса — по кнопке ниже.',
+	themesHint: 'Темы, которые поставляются с VibeIDE, и базовые из VS Code. Установленные из маркетплейса — по кнопке ниже.',
 	ourThemeTag: 'наша',
 	themesEmpty: 'Список тем пока не загружен.',
 	allThemesButton: 'Все темы…',

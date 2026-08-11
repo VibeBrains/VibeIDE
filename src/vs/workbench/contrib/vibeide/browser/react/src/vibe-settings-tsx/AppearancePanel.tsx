@@ -21,6 +21,47 @@ import {
 const isLightTheme = (t: IVibeColorThemeInfo) => t.type === 'light' || t.type === 'hcLight';
 
 /**
+ * Selection marker for a theme row. Drawn rather than taken from an icon set so the filled state
+ * follows the current theme's own accent instead of a fixed colour.
+ */
+const ThemeRadio = ({ checked }: { checked: boolean }) => (
+	<span
+		className='shrink-0 rounded-full border flex items-center justify-center'
+		style={{
+			width: 16,
+			height: 16,
+			borderColor: checked ? 'var(--vscode-focusBorder)' : 'var(--vscode-input-border, var(--vscode-editorWidget-border))',
+		}}
+	>
+		{checked && (
+			<span className='rounded-full' style={{ width: 8, height: 8, background: 'var(--vscode-focusBorder)' }} />
+		)}
+	</span>
+);
+
+/**
+ * Three dots naming a theme faster than its label does: background, accent, and the second colour
+ * that stands out. The background dot gets a hairline border — the near-black of a dark theme and
+ * the white of a light one would otherwise dissolve into whichever surface they sit on.
+ */
+const ThemeSwatch = ({ colors }: { colors: readonly string[] }) => (
+	<span className='shrink-0 flex items-center gap-1'>
+		{colors.map((color, i) => (
+			<span
+				key={i}
+				className='rounded-full'
+				style={{
+					width: 12,
+					height: 12,
+					background: color,
+					boxShadow: 'inset 0 0 0 1px var(--vscode-contrastBorder, rgba(128, 128, 128, 0.35))',
+				}}
+			/>
+		))}
+	</span>
+);
+
+/**
  * «Оформление» — a short, curated theme picker plus the day/night pair.
  * Deliberately not a mirror of the full VS Code picker: marketplace themes stay one click away
  * through the «Все темы» button, so this pane can show what we ship without becoming a list.
@@ -73,28 +114,34 @@ export const AppearancePanel = () => {
 				<h3 className='text-vibe-fg-1 text-base font-medium'>{appearanceS.themesTitle}</h3>
 				<p className='text-vibe-fg-3 text-sm'>{appearanceS.themesHint}</p>
 
-				<div className='flex flex-row flex-wrap gap-2 mt-1'>
-					{themes.map(t => (
+				<div className='flex flex-col mt-1 rounded-xl overflow-hidden border border-vibe-border-3'>
+					{themes.map((t, index) => (
 						<button
 							key={t.id}
 							type='button'
+							role='radio'
+							aria-checked={t.isCurrent}
 							onClick={() => { void applyTheme(t.id); }}
-							className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm transition-colors
-								${t.isCurrent
-									? 'border-vibe-border-1 text-vibe-fg-1'
-									: 'border-vibe-border-3 text-vibe-fg-2 hover:text-vibe-fg-1'}`}
+							className={`flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors
+								${index > 0 ? 'border-t border-vibe-border-3' : ''}
+								${t.isCurrent ? 'text-vibe-fg-1' : 'text-vibe-fg-2 hover:text-vibe-fg-1'}`}
 							style={{
 								backgroundColor: t.isCurrent
 									? 'var(--vscode-list-activeSelectionBackground)'
-									: 'var(--vscode-input-background)',
+									: 'transparent',
 							}}
 						>
-							{isLightTheme(t) ? <Sun size={14} /> : <Moon size={14} />}
-							<span className='whitespace-nowrap'>{t.label}</span>
+							{isLightTheme(t) ? <Sun size={14} className='shrink-0' /> : <Moon size={14} className='shrink-0' />}
+							<span className='flex-1 whitespace-nowrap'>{t.label}</span>
 							{t.isOurs && <span className='text-vibe-fg-4 text-xs'>{appearanceS.ourThemeTag}</span>}
+
+							{/* Marker first, swatch last: the eye lands on the colours, and the name is
+								only needed to tell two close palettes apart. */}
+							<ThemeRadio checked={t.isCurrent} />
+							<ThemeSwatch colors={t.swatch} />
 						</button>
 					))}
-					{themes.length === 0 && <span className='text-vibe-fg-3 text-sm'>{appearanceS.themesEmpty}</span>}
+					{themes.length === 0 && <span className='text-vibe-fg-3 text-sm px-4 py-3'>{appearanceS.themesEmpty}</span>}
 				</div>
 
 				<div className='mt-2'>

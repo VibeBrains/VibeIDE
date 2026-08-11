@@ -43,6 +43,30 @@
 				"id": "vibe-midnight",
 				"uiTheme": "vs-dark",
 				"path": "./themes/vibe-midnight.json"
+			},
+			{
+				"label": "%theme.vibeTerracotta.label%",
+				"id": "vibe-terracotta",
+				"uiTheme": "vs-dark",
+				"path": "./themes/vibe-terracotta.json"
+			},
+			{
+				"label": "%theme.vibeEspresso.label%",
+				"id": "vibe-espresso",
+				"uiTheme": "vs-dark",
+				"path": "./themes/vibe-espresso.json"
+			},
+			{
+				"label": "%theme.vibeHoney.label%",
+				"id": "vibe-honey",
+				"uiTheme": "vs-dark",
+				"path": "./themes/vibe-honey.json"
+			},
+			{
+				"label": "%theme.vibeTobacco.label%",
+				"id": "vibe-tobacco",
+				"uiTheme": "vs-dark",
+				"path": "./themes/vibe-tobacco.json"
 			}
 		],
 		"commands": [
