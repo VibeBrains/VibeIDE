@@ -39,7 +39,7 @@ import { IVibeHooksService } from '../common/hooks/vibeHookTypes.js';
 import { toolMatchesPlanHints, resolveToolClass } from '../common/planToolDrift.js';
 import { IVibeSpecsService } from './vibeSpecsService.js';
 import { IVibeTokenSavingsService } from './vibeTokenSavingsService.js';
-import { IToolsService } from './toolsService.js';
+import { IBackgroundCommandExit, IToolsService } from './toolsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage, PendingInjection, normalizePendingInjections, ScoutLead, ScoutMessage } from '../common/chatThreadServiceTypes.js';
@@ -1051,6 +1051,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		this._register(this._storageService.onWillSaveState(() => this._flushStoreThreads()));
 		this._register(toDisposable(() => this._flushStoreThreads()));
 
+		this._register(this._toolsService.onDidBackgroundCommandExit(exit => this._onBackgroundCommandExit(exit)));
+
 		const readThreads = this._readAllThreads() || {};
 
 		const allThreads = readThreads;
@@ -1101,6 +1103,12 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	// One-shot «scout my next message» — set by the input toggle (manual override C) and by the scout
 	// card's «Уточнить» action; forces a scout on the next turn regardless of continuation phrasing.
 	private readonly _scoutNextTurnByThread: Record<string, boolean> = {};
+	/**
+	 * `background_id` → the thread that started it, so the exit notice reaches the thread that is
+	 * waiting for it rather than whichever one happens to be open. In memory only: a command does
+	 * not survive the window it was started from, so neither should the pairing.
+	 */
+	private readonly _backgroundCommandThreads = new Map<string, string>();
 
 	async focusCurrentChat() {
 		const threadId = this.state.currentThreadId;
@@ -4654,6 +4662,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				resolveInterruptor(interruptor);
 
 				toolResult = await result;
+
+				// Remember whose background command this is. Without the pairing the exit notice
+				// would have to guess a thread, and "the current one" is wrong the moment the user
+				// switches threads while a build runs.
+				if (toolName === 'run_command') {
+					const backgroundId = (toolResult as BuiltinToolResultType['run_command'] | undefined)?.backgroundId;
+					if (backgroundId) { this._backgroundCommandThreads.set(backgroundId, threadId); }
+				}
 			}
 			else {
 				const mcpTools = this._mcpService.getMCPTools();
@@ -9960,6 +9976,45 @@ We only need to do it for files that were edited since `from`, ie files between 
 		// Deferred: we are inside the _setStreamState funnel; let the current state update settle before
 		// starting a new turn (which re-enters _setStreamState).
 		queueMicrotask(() => { void this._addUserMessageAndStreamResponse({ userMessage: content, threadId, displayContent: content, images, pdfs }); });
+	}
+
+	/**
+	 * A background command has stopped — tell the thread that started it.
+	 *
+	 * This is what turns `run_in_background` from polling into being woken: until now the only way
+	 * to learn that a command had finished was to call `read_background_output` during a turn the
+	 * agent was already having, so a command that ended while nobody was talking was never noticed.
+	 *
+	 * Two paths, and the choice is not cosmetic:
+	 * - thread busy → queue it. The note joins the next hop of the run in progress. Sending instead
+	 *   would ABORT that run (`_addUserMessageAndStreamResponse` aborts a running thread), which is
+	 *   the opposite of helpful — a build finishing must not kill the work that waits for it.
+	 * - thread idle → start a turn. The queue-only path would strand the note here: auto-send fires
+	 *   from the stream-state funnel, and an idle thread has no transition coming.
+	 *
+	 * The note carries no output on purpose. Reading the tail costs a terminal round-trip and is a
+	 * decision for the agent, which knows what it was waiting for; here we only say that it is over.
+	 */
+	private _onBackgroundCommandExit(exit: IBackgroundCommandExit): void {
+		const threadId = this._backgroundCommandThreads.get(exit.backgroundId);
+		if (!threadId) { return; }
+		this._backgroundCommandThreads.delete(exit.backgroundId);
+		if (!this.state.allThreads[threadId]) { return; } // thread deleted while the command ran
+		if (this._configurationService.getValue<boolean>('vibeide.agent.wakeOnBackgroundCommand') === false) { return; }
+
+		const ended = exit.resolveReason.type === 'timeout'
+			? `остановлена по таймауту (${Math.round(exit.durationMs / 1000)} с)`
+			: `завершилась с кодом ${exit.resolveReason.exitCode} за ${Math.round(exit.durationMs / 1000)} с`;
+		const notice = `[Фоновая команда] \`${exit.command}\` ${ended}. Вывод — read_background_output с background_id="${exit.backgroundId}".`;
+
+		const isRunning = this.streamState[threadId]?.isRunning !== undefined;
+		if (isRunning) {
+			this.addPendingInjection(threadId, notice);
+			vibeLog.warn('chatThreadService', `[background] команда завершилась, тред занят — заметка в очередь (${exit.backgroundId})`);
+			return;
+		}
+		vibeLog.warn('chatThreadService', `[background] команда завершилась, тред простаивает — новый ход (${exit.backgroundId})`);
+		void this._addUserMessageAndStreamResponse({ userMessage: notice, threadId, displayContent: notice });
 	}
 
 	addAssistantNotice(threadId: string, markdown: string): void {

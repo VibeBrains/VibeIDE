@@ -22,7 +22,7 @@ import { QueryBuilder } from '../../../services/search/common/queryBuilder.js';
 import { ISearchService } from '../../../services/search/common/search.js';
 import { IEditCodeService } from './editCodeServiceInterface.js';
 import { ITerminalToolService } from './terminalToolService.js';
-import { LintErrorItem, BuiltinToolCallParams, BuiltinToolResultType, BuiltinToolName } from '../common/toolsServiceTypes.js';
+import { LintErrorItem, BuiltinToolCallParams, BuiltinToolResultType, BuiltinToolName, TerminalResolveReason } from '../common/toolsServiceTypes.js';
 import { IVibeideModelService } from '../common/vibeideModelService.js';
 import { IErrorDetectionService } from '../common/errorDetectionService.js';
 import { blocksApply, captureFileBase, FileBaseSignature, FileBaseSource, FileBaseVerdict, verifyFileBase } from '../common/fileBaseSignature.js';
@@ -38,6 +38,8 @@ import { RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_INACTIVE_TIME, READ_FILE_DEFAULT_LINE_LIMIT, READ_FILE_LARGE_FILE_CHARS, READ_FILE_LARGE_FILE_WINDOW_CHARS, READ_FILE_MAX_LINE_LIMIT, ORIGINAL, DIVIDER, FINAL } from '../common/prompt/prompts.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IRequestService, asJson, asTextOrError } from '../../../../platform/request/common/request.js';
 import { IWebContentExtractorService } from '../../../../platform/webContentExtractor/common/webContentExtractor.js';
@@ -243,18 +245,38 @@ const checkIfIsFolder = (uriStr: string) => {
 	return false;
 };
 
+/** A background command that has stopped running, reported the moment it stops. */
+export interface IBackgroundCommandExit {
+	readonly backgroundId: string;
+	readonly command: string;
+	/** How it ended — `done` with an exit code, or `timeout` when the cap ran out. */
+	readonly resolveReason: TerminalResolveReason;
+	readonly durationMs: number;
+}
+
 export interface IToolsService {
 	readonly _serviceBrand: undefined;
 	validateParams: ValidateBuiltinParams;
 	callTool: CallBuiltinTool;
 	stringOfResult: BuiltinToolResultToString;
+	/**
+	 * Fires when a command started with `run_in_background` stops on its own.
+	 *
+	 * Deliberately NOT fired for a command the agent killed itself: it already knows, and a
+	 * notice about its own action would be noise. The event carries no output — whoever reacts
+	 * decides whether the output is worth reading, and reading it costs a terminal round-trip.
+	 */
+	readonly onDidBackgroundCommandExit: Event<IBackgroundCommandExit>;
 }
 
 export const IToolsService = createDecorator<IToolsService>('ToolsService');
 
-export class ToolsService implements IToolsService {
+export class ToolsService extends Disposable implements IToolsService {
 
 	readonly _serviceBrand: undefined;
+
+	private readonly _onDidBackgroundCommandExit = this._register(new Emitter<IBackgroundCommandExit>());
+	readonly onDidBackgroundCommandExit: Event<IBackgroundCommandExit> = this._onDidBackgroundCommandExit.event;
 
 	public validateParams: ValidateBuiltinParams;
 	public callTool: CallBuiltinTool;
@@ -280,7 +302,7 @@ export class ToolsService implements IToolsService {
 	private _optimizationBaseline: number | undefined;
 	private _optimizationAttempts: IOptimizationAttempt[] = [];
 	// Tracks pending background commands so kill_background_command can address them.
-	private readonly _backgroundCommands = new Map<string, { persistentTerminalId: string; command: string; startedAt: number }>();
+	private readonly _backgroundCommands = new Map<string, { persistentTerminalId: string; command: string; startedAt: number; exitedAt?: number }>();
 
 	constructor(
 		@IFileService fileService: IFileService,
@@ -321,6 +343,7 @@ export class ToolsService implements IToolsService {
 		@IVibeExternalAccessService private readonly _externalAccess: IVibeExternalAccessService,
 		@IVibeIgnoreService vibeIgnoreService: IVibeIgnoreService,
 	) {
+		super();
 		this._offlineGate = new OfflinePrivacyGate();
 		const queryBuilder = instantiationService.createInstance(QueryBuilder);
 
@@ -2224,9 +2247,29 @@ export class ToolsService implements IToolsService {
 				if (runInBackground) {
 					const persistentTerminalId = await this.terminalToolService.createPersistentTerminal({ cwd });
 					const backgroundId = generateUuid();
-					// Fire-and-forget; collect output later via read_terminal.
-					void this.terminalToolService.runCommand(command, { type: 'persistent', persistentTerminalId, timeoutMs: timeoutMs ?? 600_000 });
-					this._backgroundCommands.set(backgroundId, { persistentTerminalId, command, startedAt: Date.now() });
+					const startedAt = Date.now();
+					this._backgroundCommands.set(backgroundId, { persistentTerminalId, command, startedAt });
+					// Watch it to the end instead of forgetting it. The agent still gets its
+					// backgroundId immediately — this only adds a report when the command STOPS,
+					// which is the difference between polling and being told. A killed command is
+					// silent: `kill_background_command` drops the entry, and the check below sees
+					// that it is gone.
+					void (async () => {
+						try {
+							const { resPromise } = await this.terminalToolService.runCommand(command, { type: 'persistent', persistentTerminalId, timeoutMs: timeoutMs ?? 600_000 });
+							const { resolveReason } = await resPromise;
+							const entry = this._backgroundCommands.get(backgroundId);
+							// Gone means killed on purpose — stay silent. The entry itself STAYS on a
+							// natural exit: `read_background_output` addresses it by id, and the output
+							// of a finished command is exactly what the agent wants next.
+							if (!entry) { return; }
+							entry.exitedAt = Date.now();
+							this._onDidBackgroundCommandExit.fire({ backgroundId, command, resolveReason, durationMs: entry.exitedAt - startedAt });
+						} catch {
+							// The terminal itself broke. Nothing to report that the agent could act on,
+							// and throwing here would surface as an unhandled rejection in the window.
+						}
+					})();
 					return {
 						result: Promise.resolve({
 							result: `Command started in background. Use read_background_output with background_id="${backgroundId}" to fetch output, or kill_background_command to stop it.`,
@@ -2434,7 +2477,10 @@ export class ToolsService implements IToolsService {
 						hint: 'Start a command with run_command + run_in_background=true to obtain a background_id.',
 					});
 				}
-				const isRunning = this.terminalToolService.persistentTerminalExists(entry.persistentTerminalId);
+				// The persistent terminal outlives the command that ran in it, so its existence alone
+				// answers "is the terminal there", not "is the command still going" — polling used to
+				// see `isRunning: true` forever. Now the watcher stamps the real end.
+				const isRunning = entry.exitedAt === undefined && this.terminalToolService.persistentTerminalExists(entry.persistentTerminalId);
 				let output = '';
 				try {
 					output = await this.terminalToolService.readTerminal(entry.persistentTerminalId);
