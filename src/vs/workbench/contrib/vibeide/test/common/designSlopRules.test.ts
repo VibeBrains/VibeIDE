@@ -80,6 +80,9 @@ const el = (over: Partial<ElementSnapshot> = {}): ElementSnapshot => ({
 	inputType: '',
 	hasPlaceholder: false,
 	hasAltAttribute: true,
+	ariaInvalid: false,
+	describedByText: '',
+	isRequiredField: false,
 	...over,
 });
 
@@ -303,7 +306,7 @@ suite('designSlopRules', () => {
 		// printed function count next to an id split once, and arithmetic nobody trusts followed.
 		assert.deepStrictEqual(
 			[RULE_COUNT > 0, ALL_RULE_IDS.length, ALL_RULE_IDS.length >= RULE_COUNT],
-			[true, 61, true],
+			[true, 63, true],
 		);
 	});
 
@@ -455,6 +458,31 @@ suite('designSlopRules', () => {
 				el({ selector: '.divider', tag: 'img', imgSrc: '/img/line.svg', hasAltAttribute: true, accessibleName: '' }),
 			])).filter(f => f.rule === 'image-without-alt');
 			assert.deepStrictEqual(findings.map(f => f.selector), ['.photo']);
+		});
+
+		test('ошибочное поле без привязанного пояснения — находка; привязанное молчит', () => {
+			const findings = reviewDesign(doc([
+				el({ selector: '.mail', tag: 'input', isFormField: true, inputType: 'email', accessibleName: 'Почта', ariaInvalid: true }),
+				el({ selector: '.phone', tag: 'input', isFormField: true, inputType: 'tel', accessibleName: 'Телефон', ariaInvalid: true, describedByText: 'Нужен код страны' }),
+				el({ selector: '.ok', tag: 'input', isFormField: true, inputType: 'text', accessibleName: 'Имя' }),
+			])).filter(f => f.rule === 'error-not-linked-to-field');
+			assert.deepStrictEqual(findings.map(f => f.selector), ['.mail']);
+		});
+
+		test('ссылка aria-describedby в несуществующий id читается как её отсутствие', () => {
+			const findings = reviewDesign(doc([
+				el({ selector: '.mail', tag: 'input', isFormField: true, inputType: 'email', ariaInvalid: true, accessibleName: 'Почта', describedByText: '   ' }),
+			])).filter(f => f.rule === 'error-not-linked-to-field');
+			assert.deepStrictEqual(findings.map(f => f.selector), ['.mail']);
+		});
+
+		test('звёздочка вместо required — находка; с required молчим', () => {
+			const findings = reviewDesign(doc([
+				el({ selector: '.star', tag: 'input', isFormField: true, inputType: 'text', accessibleName: 'Почта *' }),
+				el({ selector: '.proper', tag: 'input', isFormField: true, inputType: 'text', accessibleName: 'Телефон *', isRequiredField: true }),
+				el({ selector: '.plain', tag: 'input', isFormField: true, inputType: 'text', accessibleName: 'Отчество' }),
+			])).filter(f => f.rule === 'required-only-visual');
+			assert.deepStrictEqual(findings.map(f => f.selector), ['.star']);
 		});
 	});
 });

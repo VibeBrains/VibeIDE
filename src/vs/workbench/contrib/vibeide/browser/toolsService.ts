@@ -1412,6 +1412,10 @@ export class ToolsService implements IToolsService {
 							unknownDrift: unknownAcceptedDrift(read.context, ALL_RULE_IDS),
 							text: design.raw,
 						},
+						components: read.context.components && {
+							names: read.context.components.notes.map(note => note.name),
+							text: read.context.components.raw,
+						},
 					},
 				};
 			},
@@ -2951,7 +2955,7 @@ export class ToolsService implements IToolsService {
 				if (!result.hasWorkspace) {
 					return 'Папка проекта не открыта — читать дизайн-контекст неоткуда.';
 				}
-				if (!result.product && !result.design) {
+				if (!result.product && !result.design && !result.components) {
 					return 'Дизайн-контекста в проекте нет: ни product.md, ни design.md.\n\nЭто значит, что любая генерация интерфейса будет обобщённой. Предложите пользователю собрать контекст: два вопроса про продукт (design_document target=product) и снятие визуальной системы с живой страницы (design_document target=system).';
 				}
 				const parts: string[] = [];
@@ -2973,6 +2977,12 @@ export class ToolsService implements IToolsService {
 					parts.push(`# Дизайн-система (${result.sources.design})\n\n${result.design.text.trim()}${rules}${drift}${unknown}`);
 				} else {
 					parts.push('Файла design.md нет: палитра, гарнитуры и правила не зафиксированы. Снимите систему с живой страницы через design_document target=system.');
+				}
+				if (result.components) {
+					// Памятки идут целиком и последними — их читают перед тем, как строить компонент,
+					// а не после. Детектор эти упущения не поймает: состояния отправки и пустоты на
+					// снимке готовой страницы просто нет.
+					parts.push(`# Памятки по компонентам (${result.sources.components})\n\nПрочитать памятку ДО того, как писать компонент такого вида: ${result.components.names.join(', ')}.\n\n${result.components.text.trim()}`);
 				}
 				return parts.join('\n\n');
 			},

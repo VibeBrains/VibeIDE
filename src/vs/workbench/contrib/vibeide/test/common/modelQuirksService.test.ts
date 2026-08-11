@@ -10,6 +10,7 @@ import {
 	matchQuirks,
 	validateCatalog,
 	applyUserOverride,
+	withReasoningEffortInSystemPrompt,
 	EMPTY_QUIRKS,
 	ModelQuirksRule,
 	ModelQuirksCatalog,
@@ -275,6 +276,37 @@ suite('ModelQuirks — applyUserOverride', () => {
 	});
 });
 
+suite('ModelQuirks — reasoning effort in the system prompt', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('effort is substituted and appended, prompt kept intact', () => {
+		const out = withReasoningEffortInSystemPrompt('Ты помощник.', 'Reasoning strength: {effort}', 'high');
+		assert.strictEqual(out, 'Ты помощник.\n\nReasoning strength: high');
+	});
+
+	test('no template or no effort → prompt untouched (a missing level is never guessed)', () => {
+		assert.strictEqual(withReasoningEffortInSystemPrompt('Ты помощник.', undefined, 'high'), 'Ты помощник.');
+		assert.strictEqual(withReasoningEffortInSystemPrompt('Ты помощник.', 'Reasoning strength: {effort}', undefined), 'Ты помощник.');
+	});
+
+	test('empty prompt → the line becomes the whole prompt, without a leading blank gap', () => {
+		assert.strictEqual(withReasoningEffortInSystemPrompt(undefined, 'Reasoning strength: {effort}', 'low'), 'Reasoning strength: low');
+	});
+
+	test('template survives the catalog validator as a string field', () => {
+		const parsed = validateCatalog({
+			version: 1,
+			rules: [
+				{ match: 'glimmer', reasoningEffortInSystemPrompt: 'Reasoning strength: {effort}' },
+				{ match: 'broken', reasoningEffortInSystemPrompt: 42 },
+			],
+		});
+		assert.strictEqual(parsed.rules[0].reasoningEffortInSystemPrompt, 'Reasoning strength: {effort}');
+		assert.strictEqual(parsed.rules[1].reasoningEffortInSystemPrompt, undefined);
+	});
+});
+
 suite('ModelQuirks — end-to-end integration via bundled rules', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -284,6 +316,7 @@ suite('ModelQuirks — end-to-end integration via bundled rules', () => {
 	const bundled: ModelQuirksCatalog = {
 		version: 1,
 		rules: [
+			{ match: 'glimmer', temperature: 1.0, topP: 0.95, topK: 64, reasoningEffortInSystemPrompt: 'Reasoning strength: {effort}' },
 			{ match: 'kimi-k3', temperature: 1.0, topP: 0.95, mirrorReasoningContent: true },
 			{ match: 'kimi-k2.6', temperature: 1.0, topP: 0.95, mirrorReasoningContent: true },
 			{ match: 'kimi-k2.5', temperature: 1.0, topP: 0.95, mirrorReasoningContent: true },

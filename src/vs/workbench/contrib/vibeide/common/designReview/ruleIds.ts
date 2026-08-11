@@ -66,6 +66,8 @@ export const RULE = {
 	controlWithoutName: 'control-without-name',
 	fieldWithoutLabel: 'field-without-label',
 	imageWithoutAlt: 'image-without-alt',
+	errorNotLinkedToField: 'error-not-linked-to-field',
+	requiredOnlyVisual: 'required-only-visual',
 
 	// layout and space
 	lineLength: 'line-length',
@@ -150,10 +152,12 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 	[RULE.focusNotVisible]: { ruleClass: 'floor', category: 'states' },
 	[RULE.disabledIndistinguishable]: { ruleClass: 'floor', category: 'states' },
 	[RULE.noHoverAffordance]: { ruleClass: 'drift', category: 'states' },
-	// Доступность не бывает вопросом вкуса проекта — все три floor.
+	// Доступность не бывает вопросом вкуса проекта — вся категория floor.
 	[RULE.controlWithoutName]: { ruleClass: 'floor', category: 'markup' },
 	[RULE.fieldWithoutLabel]: { ruleClass: 'floor', category: 'markup' },
 	[RULE.imageWithoutAlt]: { ruleClass: 'floor', category: 'markup' },
+	[RULE.errorNotLinkedToField]: { ruleClass: 'floor', category: 'markup' },
+	[RULE.requiredOnlyVisual]: { ruleClass: 'floor', category: 'markup' },
 
 	[RULE.lineLength]: { ruleClass: 'drift', category: 'layout' },
 	[RULE.crampedTarget]: { ruleClass: 'floor', category: 'layout' },

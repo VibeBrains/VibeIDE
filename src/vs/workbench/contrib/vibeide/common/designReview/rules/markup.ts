@@ -86,8 +86,54 @@ const ruleImageWithoutAlt: Rule = doc => doc.elements
 		evidence: el.imgSrc ? el.imgSrc.slice(-60) : 'без src',
 	}));
 
+/**
+ * Поле помечено ошибочным, но объяснения к нему не привязано.
+ *
+ * Красная рамка и текст под полем — это для глаза. Программа чтения с экрана произнесёт
+ * «неверное значение» и замолчит: сообщение живёт отдельным абзацем, который ни с чем не
+ * связан. Человек слышит, что ошибся, и не слышит, в чём. Лечится `aria-describedby` на
+ * идентификатор абзаца с текстом ошибки.
+ *
+ * Ссылка в никуда (id, которого на странице нет) считается отсутствующей намеренно — на слух
+ * это одно и то же, а опечатка в id как раз и есть частый способ так промахнуться.
+ */
+const ruleErrorNotLinkedToField: Rule = doc => doc.elements
+	.filter(el => el.isFormField && el.ariaInvalid)
+	.filter(el => !el.describedByText.trim())
+	.map(el => ({
+		rule: RULE.errorNotLinkedToField,
+		severity: 'error' as const,
+		message: 'Поле помечено ошибочным, но текст ошибки к нему не привязан',
+		why: 'Программа чтения с экрана скажет «неверное значение» и не скажет, что именно не так. Привязать сообщение через aria-describedby на его id.',
+		selector: el.selector,
+		evidence: el.accessibleName ? `поле «${el.accessibleName}»: aria-invalid без пояснения` : 'aria-invalid="true" без aria-describedby',
+	}));
+
+/**
+ * Обязательность поля показана только звёздочкой в подписи.
+ *
+ * Звёздочка — договорённость зрячих, и даже они узнают правило из сноски мелким шрифтом.
+ * Программе чтения с экрана она достаётся как символ посреди фразы: «Почта звёздочка». Что
+ * поле обязательное, не сказано нигде. Лечится атрибутом `required` (или `aria-required`) —
+ * звёздочку при этом можно оставить, она никому не мешает.
+ */
+const ruleRequiredOnlyVisual: Rule = doc => doc.elements
+	.filter(el => el.isFormField && !el.isRequiredField)
+	.filter(el => !FIELD_TYPES_WITHOUT_LABEL.has(el.inputType))
+	.filter(el => /[*∗﹡＊]/.test(el.accessibleName))
+	.map(el => ({
+		rule: RULE.requiredOnlyVisual,
+		severity: 'error' as const,
+		message: 'Обязательность поля объявлена только звёздочкой',
+		why: 'Звёздочка в подписи будет зачитана как символ, а не как «обязательное». Добавить атрибут required или aria-required="true" — звёздочку можно оставить.',
+		selector: el.selector,
+		evidence: `подпись «${el.accessibleName}», без required`,
+	}));
+
 export const MARKUP_RULES: readonly Rule[] = [
 	ruleControlWithoutName,
 	ruleFieldWithoutLabel,
 	ruleImageWithoutAlt,
+	ruleErrorNotLinkedToField,
+	ruleRequiredOnlyVisual,
 ];

@@ -173,7 +173,7 @@ export type BuiltinToolResultType = {
 	// distinct from an empty design system, which would read as "decided to have nothing".
 	'design_context': {
 		hasWorkspace: boolean;
-		sources: { product?: string; design?: string };
+		sources: { product?: string; design?: string; components?: string };
 		product?: { audience?: string; positioning?: string; platform?: string; text: string };
 		design?: {
 			fonts: string[];
@@ -183,6 +183,8 @@ export type BuiltinToolResultType = {
 			unknownDrift: string[];
 			text: string;
 		};
+		/** Памятки по видам компонентов — читаются ДО создания, детектору они не видны. */
+		components?: { names: string[]; text: string };
 	};
 	'design_document': {
 		target: 'product' | 'system';

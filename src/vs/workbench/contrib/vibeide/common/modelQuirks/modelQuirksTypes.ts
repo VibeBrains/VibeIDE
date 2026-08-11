@@ -64,6 +64,19 @@ export interface ModelQuirksRule {
 	 */
 	readonly mirrorReasoningContent?: boolean;
 
+	/**
+	 * Template appended to the system prompt to carry the reasoning-effort level for models
+	 * that read it as prose instead of an API field (observed: Muse Glimmer expects
+	 * `Reasoning strength: low|medium|high|xhigh` in the system prompt; `reasoning_effort`
+	 * is ignored, so the effort slider is dead without this).
+	 *
+	 * `{effort}` is substituted with the slider value. Applied ONLY when the effort slider
+	 * actually produced a value — no value means no line, never a fabricated default.
+	 * Independent of `includeInPayload`: a model may legitimately want both, and the
+	 * payload field is simply ignored by models that do not know it.
+	 */
+	readonly reasoningEffortInSystemPrompt?: string;
+
 	// ---------- Tool routing ----------
 	/**
 	 * Override default tool-call routing for this model.
@@ -212,6 +225,7 @@ export function validateCatalog(raw: unknown): ModelQuirksCatalog {
 			...readIntPositive(rr, 'topK'),
 			...readBool(rr, 'forceEmptyReasoning'),
 			...readBool(rr, 'mirrorReasoningContent'),
+			...readString(rr, 'reasoningEffortInSystemPrompt'),
 			...readEnum(rr, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 			...readBool(rr, 'forcedToolChoiceUnsupported'),
 			...readString(rr, 'note'),
@@ -290,8 +304,31 @@ export function applyUserOverride(catalogQuirks: ResolvedModelQuirks, userOverri
 		...readIntPositive(oo, 'topK'),
 		...readBool(oo, 'forceEmptyReasoning'),
 		...readBool(oo, 'mirrorReasoningContent'),
+		...readString(oo, 'reasoningEffortInSystemPrompt'),
 		...readEnum(oo, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 		...readBool(oo, 'forcedToolChoiceUnsupported'),
 	};
 	return sanitized;
+}
+
+/**
+ * Append the reasoning-effort line to a system prompt for models that read the level as prose.
+ *
+ * Returns the prompt unchanged when the quirk is absent or the effort slider produced no value —
+ * a missing level must never be guessed, because the fabricated word would look to the model
+ * exactly like a deliberate user choice.
+ *
+ * @param systemPrompt Prompt built by the normal pipeline; may be undefined for promptless calls.
+ * @param template Quirk template containing the `{effort}` placeholder.
+ * @param effort Effort level from the slider (e.g. `high`), or undefined when the slider is off.
+ */
+export function withReasoningEffortInSystemPrompt(
+	systemPrompt: string | undefined,
+	template: string | undefined,
+	effort: string | undefined,
+): string | undefined {
+	if (!template || !effort) { return systemPrompt; }
+	const line = template.replaceAll('{effort}', effort);
+	if (!line) { return systemPrompt; }
+	return systemPrompt ? `${systemPrompt}\n\n${line}` : line;
 }

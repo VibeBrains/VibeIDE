@@ -120,6 +120,11 @@ export function buildReloadClientScript(wsPath: string): string {
 		'var alt=el.getAttribute("alt");if(alt&&alt.trim()){return alt.trim().slice(0,120);}',
 		'return (el.getAttribute("title")||"").trim().slice(0,120);}',
 		'function dsFormField(el){var t=el.tagName.toLowerCase();return t==="input"||t==="select"||t==="textarea";}',
+		// Текст пояснения, разрешённый по `aria-describedby`. Ссылка на несуществующий id даёт
+		// пустую строку намеренно: на слух это ничем не отличается от отсутствия ссылки.
+		'function dsDescribedBy(el){var db=el.getAttribute("aria-describedby");if(!db){return "";}',
+		'var acc="";var ids=db.split(/\\s+/);for(var i=0;i<ids.length;i++){var t=document.getElementById(ids[i]);if(t){acc+=" "+(t.textContent||"");}}',
+		'return acc.trim().slice(0,120);}',
 		// Largest of the four corners: `borderRadius` is empty when the corners differ.
 		'function dsRadius(s){return Math.max(dsNum(s.borderTopLeftRadius),dsNum(s.borderTopRightRadius),dsNum(s.borderBottomRightRadius),dsNum(s.borderBottomLeftRadius));}',
 		// Colour of the THICKEST side: a one-sided accent border is the tell, and its colour is what matters.
@@ -183,7 +188,9 @@ export function buildReloadClientScript(wsPath: string): string {
 		'hasFocusRule:dsMatchesAny(el,dsStateRules().focus),hasHoverRule:dsMatchesAny(el,dsStateRules().hover),',
 		'disabled:dsDisabled(el),styleRulesUnreadable:dsStateBad,',
 		'accessibleName:dsAccName(el),isFormField:dsFormField(el),inputType:String(el.getAttribute("type")||"").toLowerCase(),',
-		'hasPlaceholder:!!(el.getAttribute("placeholder")||"").trim(),hasAltAttribute:el.hasAttribute("alt")});}',
+		'hasPlaceholder:!!(el.getAttribute("placeholder")||"").trim(),hasAltAttribute:el.hasAttribute("alt"),',
+		'ariaInvalid:el.getAttribute("aria-invalid")==="true",describedByText:dsDescribedBy(el),',
+		'isRequiredField:el.hasAttribute("required")||el.getAttribute("aria-required")==="true"});}',
 		'post({__vibeBrowser:"design-scan",snapshot:{url:location.href,viewport:vp||undefined,viewportWidthPx:window.innerWidth,viewportHeightPx:window.innerHeight,',
 		'documentScrollWidthPx:document.documentElement?document.documentElement.scrollWidth:0,elements:out,headings:heads,truncated:all.length>LIMIT}});',
 		'}',

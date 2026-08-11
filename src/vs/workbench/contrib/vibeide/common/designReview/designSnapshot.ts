@@ -138,6 +138,16 @@ export type ElementSnapshot = {
 	 * пропуск, при котором программа чтения зачитает имя файла.
 	 */
 	hasAltAttribute: boolean;
+	/** Поле помечено ошибочным: `aria-invalid="true"`. Красная рамка сама по себе сюда не считается. */
+	ariaInvalid: boolean;
+	/**
+	 * Текст, на который поле ссылается через `aria-describedby` — уже разрешённый страницей по
+	 * идентификаторам. Пусто означает и «ссылки нет», и «ссылка ведёт в никуда»: для читателя
+	 * с экранной программой это одно и то же — пояснения он не услышит.
+	 */
+	describedByText: string;
+	/** Обязательность объявлена программно: атрибут `required` или `aria-required="true"`. */
+	isRequiredField: boolean;
 };
 
 export type DocumentSnapshot = {

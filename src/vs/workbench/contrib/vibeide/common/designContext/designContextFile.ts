@@ -55,9 +55,28 @@ export interface DesignSystemContext {
 	raw: string;
 }
 
+/** Памятка по одному виду компонента: заголовок — название вида, тело — что не забыть. */
+export interface ComponentNote {
+	name: string;
+	body: string;
+}
+
+export interface ComponentNotesContext {
+	notes: ComponentNote[];
+	raw: string;
+}
+
 export interface DesignContext {
 	product?: ProductContext;
 	design?: DesignSystemContext;
+	/**
+	 * Третий слой контекста — памятки на момент СОЗДАНИЯ компонента.
+	 *
+	 * Детектор ловит то, что уже построено, и говорит числами. Памятка говорит словами и до того:
+	 * у формы бывает состояние отправки, у таблицы — узкий экран, у пустого состояния — причина
+	 * пустоты. Ни одно из этих упущений детектору не видно — на снимке страницы их просто нет.
+	 */
+	components?: ComponentNotesContext;
 }
 
 /**
@@ -67,6 +86,7 @@ export interface DesignContext {
  */
 export const PRODUCT_CONTEXT_PATHS: readonly string[] = ['.vibe/design/product.md', 'PRODUCT.md'];
 export const DESIGN_SYSTEM_PATHS: readonly string[] = ['.vibe/design/design.md', 'DESIGN.md'];
+export const COMPONENT_NOTES_PATHS: readonly string[] = ['.vibe/design/components.md', 'COMPONENTS.md'];
 
 /** Section titles we accept: ours (Russian) first, then the English ones other tools write. */
 const SECTION_ALIASES: Record<string, readonly string[]> = {
@@ -217,6 +237,27 @@ export function parseDesignSystem(raw: string | undefined | null): DesignSystemC
 	}
 
 	return { fonts, colors, namedRules, acceptedDrift, raw };
+}
+
+/**
+ * Разбирает памятки по компонентам: каждый заголовок — вид компонента, тело — что не забыть.
+ *
+ * Разбор нарочно грубый. Файл пишет человек своими словами, и единственное, что нам нужно
+ * машинно, — уметь достать памятку по названию вида; всё остальное уходит модели как есть.
+ * Заголовок без тела пропускается: пустой раздел — это заготовка, а не требование.
+ */
+export function parseComponentNotes(raw: string | undefined | null): ComponentNotesContext | undefined {
+	if (!raw || !raw.trim()) {
+		return undefined;
+	}
+	const notes: ComponentNote[] = [];
+	for (const section of splitSections(raw)) {
+		const body = section.body.trim();
+		if (section.title && body) {
+			notes.push({ name: section.title, body });
+		}
+	}
+	return { notes, raw };
 }
 
 /** The drift entry covering `rule`, if the project declared it deliberate. */
