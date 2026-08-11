@@ -1,6 +1,6 @@
 {
 	"$schema": "vscode://schemas/color-theme",
-	"name": "Vibe Dark",
+	"name": "2026 Dark",
 	"include": "./dark_modern.json",
 	"type": "dark",
 	"colors": {

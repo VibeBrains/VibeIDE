@@ -20920,15 +20920,15 @@
 		"vs/workbench/contrib/welcomeGettingStarted/common/media/theme_picker": {
 			"HighContrast": "Темная высококонтрастная",
 			"HighContrastLight": "Светлая высококонтрастная",
-			"dark": "Темная современная",
-			"light": "Светлая современная",
+			"dark": "Dark Modern",
+			"light": "Light Modern",
 			"seeMore": "Просмотреть другие темы…"
 		},
 		"vs/workbench/contrib/welcomeGettingStarted/common/media/theme_picker_small": {
 			"HighContrast": "Темная высококонтрастная",
 			"HighContrastLight": "Светлая высококонтрастная",
-			"dark": "Темная современная",
-			"light": "Светлая современная"
+			"dark": "Dark Modern",
+			"light": "Light Modern"
 		},
 		"vs/workbench/contrib/welcomeOnboarding/browser/onboardingVariationA": {
 			"onboarding.a.aria": "Добро пожаловать в Visual Studio Code",
