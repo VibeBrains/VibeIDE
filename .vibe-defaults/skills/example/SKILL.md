@@ -1,9 +1,13 @@
 ---
 name: example
 description: Когда нужна короткая демонстрация Agent Skill или проверка команд /skill: в этом проекте.
-vibeVersion: 1.0.0
-# depends:        # опционально — skill packs (DAG без циклов; см. vibe skills validate)
-#   - other-skill
+metadata:
+  # Всё наше — под metadata: спецификация Agent Skills разрешает на верхнем уровне только
+  # name, description, license, allowed-tools, compatibility и metadata, а эталонный
+  # валидатор отвергает остальное. Внутри metadata наши расширения читаются как прежде.
+  vibeVersion: "1.0.0"
+  # depends:      # опционально — skill packs (DAG без циклов; см. vibe skills validate)
+  #   - other-skill
 ---
 
 # Пример навыка (Agent Skill)

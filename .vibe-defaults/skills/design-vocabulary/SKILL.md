@@ -1,7 +1,8 @@
 ---
 name: design-vocabulary
 description: Общий словарь для работы над внешним видом интерфейса — вместо «сделай красивее» короткая команда с понятным контрактом (polish, critique, distill, bolder, quieter, typeset, layout, clarify, harden, audit, variants). Использовать, когда пользователь просит улучшить вид, отревьюить UI, «навести красоту», упростить или усилить экран, поправить типографику, отступы или тексты интерфейса.
-vibeVersion: 1.0.0
+metadata:
+  vibeVersion: "1.0.0"
 ---
 
 # design-vocabulary

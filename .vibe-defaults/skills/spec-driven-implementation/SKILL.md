@@ -1,7 +1,8 @@
 ---
 name: spec-driven-implementation
 description: Spec-first процесс для существенных фич — оркестратор: PRODUCT.md до реализации, TECH.md когда оправдан, реализация по утверждённым спекам. Использовать при старте значимой фичи, планировании агентной реализации или когда спеки нужно хранить в репозитории.
-vibeVersion: 1.1.0
+metadata:
+  vibeVersion: "1.1.0"
 ---
 
 # spec-driven-implementation

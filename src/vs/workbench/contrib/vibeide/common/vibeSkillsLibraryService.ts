@@ -38,6 +38,13 @@ export interface VibeSkillEntry {
 	tags?: string[];
 	requiresTools?: string[];
 	minVibeide?: string;
+	/**
+	 * Environment the skill needs, in plain words (YAML `compatibility`, Agent Skills spec):
+	 * system packages, network access, intended product. Sits alongside `minVibeide` and
+	 * `precheck` rather than replacing them — those cover an IDE version and a path check,
+	 * this covers everything else and is readable before the skill is expanded.
+	 */
+	compatibility?: string;
 	locale?: string;
 	/** Skill package format version (YAML `vibeVersion`, migrations / doctor). */
 	vibeVersion?: string;
@@ -200,6 +207,45 @@ export function orderedTransitiveDependencySkillIds(rootSkillId: string, skills:
 	return ordered.filter(id => id.toLowerCase() !== rootKey);
 }
 
+/**
+ * Reads a scalar frontmatter field, block form included (`description: |`).
+ *
+ * A single-line regex is not enough. The Agent Skills specification allows multi-line
+ * descriptions, and a skill written that way would yield the literal `|` — non-empty, so the
+ * validity check passes and a bare pipe character reaches the skill catalogue as its description.
+ */
+export function readFrontmatterScalar(block: string, field: string): string {
+	const inline = new RegExp(`^\\s*${field}:\\s*(.+)\\s*$`, 'm').exec(block)?.[1]?.trim();
+	if (!inline) {
+		return '';
+	}
+	if (!/^[|>][-+]?$/.test(inline)) {
+		return inline.replace(/^["']|["']$/g, '');
+	}
+
+	const lines = block.split(/\r?\n/);
+	const start = lines.findIndex(line => new RegExp(`^\\s*${field}:`).test(line));
+	if (start < 0) {
+		return '';
+	}
+	const baseIndent = /^\s*/.exec(lines[start])![0].length;
+	const collected: string[] = [];
+	for (let i = start + 1; i < lines.length; i++) {
+		const line = lines[i];
+		if (!line.trim()) {
+			collected.push('');
+			continue;
+		}
+		if (/^\s*/.exec(line)![0].length <= baseIndent) {
+			break;
+		}
+		collected.push(line.trim());
+	}
+	// `|` keeps newlines and `>` folds them; for a catalogue entry the difference does not
+	// survive rendering anyway, so both are joined with spaces.
+	return collected.join(' ').trim();
+}
+
 /** Parse SKILL.md YAML frontmatter (minimal roadmap contract). Invalid strict entries yield null (skipped). */
 export function parseSkillMarkdown(raw: string, relativePath: string, defaultId: string): VibeSkillEntry | null {
 	let rest = raw.replace(/^\uFEFF/, '');
@@ -210,23 +256,33 @@ export function parseSkillMarkdown(raw: string, relativePath: string, defaultId:
 	if (fm) {
 		const block = fm[1];
 		const nameLine = block.match(/^\s*name:\s*(.+)\s*$/m);
-		const descLine = block.match(/^\s*description:\s*(.+)\s*$/m);
+		const descriptionText = readFrontmatterScalar(block, 'description');
 		const dmiLine = block.match(/^\s*disable-model-invocation:\s*(true|false)\s*$/im);
 		const versionLine = block.match(/^\s*version:\s*["']?([^"'\n]+)["']?\s*$/im);
 		const licenseLine = block.match(/^\s*license:\s*["']?([^"'\n]+)["']?\s*$/im);
 		const localeLine = block.match(/^\s*locale:\s*["']?([^"'\n]+)["']?\s*$/im);
 		const minVibeLine = block.match(/^\s*min-vibeide:\s*["']?([^"'\n]+)["']?\s*$/im);
+		// `compatibility` из спецификации Agent Skills: требования к окружению словами
+		// (пакеты, сеть, целевой продукт). Читается на этапе метаданных, то есть ДО раскрытия
+		// скилла, — в отличие от нашего `precheck`, который проверяет путь, и `min-vibeide`,
+		// который знает только про версию IDE.
+		const compatibility = readFrontmatterScalar(block, 'compatibility');
 		const vibeVersionLine = block.match(/^\s*vibeVersion:\s*["']?([^"'\n]+)["']?\s*$/im);
 		const precheckLine = block.match(/^\s*precheck:\s*(.+)\s*$/im);
 		const tagsLine = block.match(/^\s*tags:\s*(.+)\s*$/im);
+		// `requires-tools` — наше исходное имя, `allowed-tools` — то же самое в спецификации
+		// Agent Skills (space-separated). Принимаются оба: свои скиллы продолжают работать,
+		// а скилл из экосистемы объявляет нужные инструменты и попадает в наш гейт одобрения.
 		const reqToolsLine = block.match(/^\s*requires-tools:\s*\[(.*?)]\s*$/ims)
-			?? block.match(/^\s*requires-tools:\s*(.+)\s*$/im);
+			?? block.match(/^\s*requires-tools:\s*(.+)\s*$/im)
+			?? block.match(/^\s*allowed-tools:\s*\[(.*?)]\s*$/ims)
+			?? block.match(/^\s*allowed-tools:\s*(.+)\s*$/im);
 
-		if (!nameLine?.[1]?.trim() || !descLine?.[1]?.trim()) {
+		if (!nameLine?.[1]?.trim() || !descriptionText) {
 			return null;
 		}
 		skillId = nameLine[1].trim().replace(/^["']|["']$/g, '');
-		description = descLine[1].trim().replace(/^["']|["']$/g, '');
+		description = descriptionText;
 
 		let tags: string[] | undefined;
 		if (tagsLine?.[1]) {
@@ -242,9 +298,12 @@ export function parseSkillMarkdown(raw: string, relativePath: string, defaultId:
 		if (reqToolsLine?.[1]) {
 			const inner = reqToolsLine[1].trim();
 			const br = /^\[(.*)]$/.exec(inner);
+			// Список пишут тремя способами: массивом, через запятую (наше) и через пробел
+			// (спецификация). Разделитель выбирается по содержимому, а не по имени поля —
+			// иначе `allowed-tools: Read, Write` распалось бы на «Read,» и «Write».
 			const rawT = br
 				? br[1].split(',').map(s => s.trim().replace(/^["']|["']$/g, ''))
-				: inner.split(/,\s+/).map(s => s.trim().replace(/^["']|["']$/g, ''));
+				: inner.split(inner.includes(',') ? /,/ : /\s+/).map(s => s.trim().replace(/^["']|["']$/g, ''));
 			requiresTools = rawT.filter(Boolean);
 		}
 
@@ -294,6 +353,7 @@ export function parseSkillMarkdown(raw: string, relativePath: string, defaultId:
 			requiresTools,
 			depends,
 			minVibeide: minVibeLine?.[1].trim(),
+			compatibility: compatibility || undefined,
 			locale: localeLine?.[1].trim(),
 			vibeVersion: vibeVersionLine?.[1].trim(),
 			precheck,

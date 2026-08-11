@@ -125,6 +125,54 @@ function walkSkillMarkdownFiles(rootDir, acc = []) {
 	return acc;
 }
 
+// Ограничения формата Agent Skills (agentskills/agentskills, docs/specification.mdx).
+// Держим их одним местом, чтобы при обновлении спеки правилась одна строка, а не пять проверок.
+const SPEC_MAX_NAME_LENGTH = 64;
+const SPEC_MAX_DESCRIPTION_LENGTH = 1024;
+const SPEC_MAX_COMPATIBILITY_LENGTH = 500;
+const SPEC_RECOMMENDED_BODY_LINES = 500;
+const SPEC_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * Читает скалярное поле фронтматтера, включая блочную форму YAML (`description: |`).
+ *
+ * Однострочного regex недостаточно: скилл, написанный по спецификации с многострочным
+ * описанием, дал бы описание «|» — формально непустое, поэтому проверка бы его пропустила,
+ * и в каталог попала бы палочка вместо текста.
+ */
+function readScalar(block, field) {
+	const inline = block.match(new RegExp(`^\\s*${field}:\\s*(.+)\\s*$`, 'm'))?.[1]?.trim();
+	if (inline && inline !== '|' && inline !== '>' && inline !== '|-' && inline !== '>-') {
+		return inline.replace(/^["']|["']$/g, '');
+	}
+	if (!inline) {
+		return '';
+	}
+	// Блочный скаляр: собираем последующие строки с бо́льшим отступом.
+	const lines = block.split(/\r?\n/);
+	const start = lines.findIndex(line => new RegExp(`^\\s*${field}:`).test(line));
+	if (start < 0) {
+		return '';
+	}
+	const baseIndent = (lines[start].match(/^\s*/) ?? [''])[0].length;
+	const collected = [];
+	for (let i = start + 1; i < lines.length; i++) {
+		const line = lines[i];
+		if (!line.trim()) {
+			collected.push('');
+			continue;
+		}
+		const indent = (line.match(/^\s*/) ?? [''])[0].length;
+		if (indent <= baseIndent) {
+			break;
+		}
+		collected.push(line.trim());
+	}
+	// `|` сохраняет переводы строк, `>` их складывает; для проверки длины и показа в каталоге
+	// разница несущественна, поэтому склеиваем пробелом в обоих случаях.
+	return collected.join(' ').trim();
+}
+
 function parseSkillFrontmatter(filePath, raw) {
 	const rel = path.relative(process.cwd(), filePath);
 	const fm = raw.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n?/);
@@ -133,16 +181,54 @@ function parseSkillFrontmatter(filePath, raw) {
 	}
 	const block = fm[1];
 	const errors = [];
+	const warnings = [];
 	const name = block.match(/^\s*name:\s*(.+)\s*$/m)?.[1]?.trim()?.replace(/^["']|["']$/g, '');
-	const description = block.match(/^\s*description:\s*(.+)\s*$/m)?.[1]?.trim()?.replace(/^["']|["']$/g, '');
-	const vv = block.match(/^\s*vibeVersion:\s*["']?([^"'\n]+)["']?\s*$/im)?.[1]?.trim();
+	const description = readScalar(block, 'description');
+	// vibeVersion — наше унаследованное поле. В спецификации Agent Skills его нет, кастомные
+	// свойства живут под `metadata`, поэтому читаем оба места и НЕ требуем ни одного: скилл,
+	// написанный по стандарту, обязан у нас работать.
+	const vv = block.match(/^\s*vibeVersion:\s*["']?([^"'\n]+)["']?\s*$/im)?.[1]?.trim()
+		?? block.match(/^\s+vibeVersion:\s*["']?([^"'\n]+)["']?\s*$/im)?.[1]?.trim();
 	const precheckRaw = block.match(/^\s*precheck:\s*(.+)\s*$/im)?.[1]?.trim()?.replace(/^["']|["']$/g, '') ?? '';
+	const compatibility = readScalar(block, 'compatibility');
+	const allowedTools = block.match(/^\s*allowed-tools:\s*(.+)\s*$/im)?.[1]?.trim()?.replace(/^["']|["']$/g, '') ?? '';
 
 	const depends = parseDependsBlock(block);
 
 	if (!name) {errors.push('missing name');}
 	if (!description) {errors.push('missing description');}
-	if (!vv) {errors.push('missing vibeVersion');}
+
+	// Ограничения ниже — из спецификации Agent Skills. Проверяются именно они, потому что
+	// нарушение каждого ломает вызов или отображение скилла, а прежний предел в 512 КБ при
+	// рекомендации в 500 строк не срабатывал никогда.
+	if (name) {
+		if (name.length > SPEC_MAX_NAME_LENGTH) {
+			errors.push(`name exceeds ${SPEC_MAX_NAME_LENGTH} characters`);
+		}
+		if (!SPEC_NAME_PATTERN.test(name)) {
+			errors.push(`name "${name}" must be lowercase letters, digits and single hyphens (not leading or trailing)`);
+		}
+		// Расхождение имени с папкой ломает вызов молча: каталог показывает одно, обращение
+		// идёт по другому.
+		const dirName = path.basename(path.dirname(filePath));
+		if (dirName && name !== dirName && !path.basename(filePath).toLowerCase().endsWith('.skill.md')) {
+			errors.push(`name "${name}" must match the skill directory "${dirName}"`);
+		}
+	}
+	if (description && description.length > SPEC_MAX_DESCRIPTION_LENGTH) {
+		errors.push(`description exceeds ${SPEC_MAX_DESCRIPTION_LENGTH} characters`);
+	}
+	if (compatibility && compatibility.length > SPEC_MAX_COMPATIBILITY_LENGTH) {
+		errors.push(`compatibility exceeds ${SPEC_MAX_COMPATIBILITY_LENGTH} characters`);
+	}
+
+	// Бюджет тела — рекомендация, а не запрет: длинный скилл работает, но съедает контекст,
+	// который спека предлагает тратить на подгружаемые по требованию файлы.
+	const body = raw.slice(fm[0].length);
+	const bodyLines = body.split(/\r?\n/).length;
+	if (bodyLines > SPEC_RECOMMENDED_BODY_LINES) {
+		warnings.push(`body is ${bodyLines} lines; the spec recommends keeping SKILL.md under ${SPEC_RECOMMENDED_BODY_LINES} and moving detail into references/`);
+	}
 
 	const maxBytes = 512 * 1024;
 	let size = 0;
@@ -164,9 +250,12 @@ function parseSkillFrontmatter(filePath, raw) {
 		rel,
 		ok: errors.length === 0,
 		errors,
+		warnings,
 		skillId: name || path.basename(path.dirname(filePath)),
 		description: description || '',
 		vibeVersion: vv || null,
+		compatibility: compatibility || null,
+		allowedTools: allowedTools || null,
 		size,
 		depends,
 		precheck,
@@ -303,7 +392,7 @@ function validate() {
 			continue;
 		}
 		const bundle = validateSkillBundle(f, p.precheck);
-		for (const w of bundle.warnings) {
+		for (const w of [...p.warnings, ...bundle.warnings]) {
 			console.warn(`⚠️  ${p.rel}: ${w}`);
 		}
 		if (bundle.errors.length) {
@@ -312,7 +401,7 @@ function validate() {
 			continue;
 		}
 		if (!canonicalSet.has(f)) {
-			console.log(`✅ ${p.rel} (${p.skillId}, vibeVersion ${p.vibeVersion}) [locale sibling — not canonical id]`);
+			console.log(`✅ ${p.rel} (${p.skillId}${p.vibeVersion ? `, vibeVersion ${p.vibeVersion}` : ''}) [locale sibling — not canonical id]`);
 			continue;
 		}
 		const key = p.skillId.toLowerCase();
@@ -323,7 +412,7 @@ function validate() {
 		}
 		byId.set(key, p.rel);
 		depGraph.push({ skillId: p.skillId, depends: p.depends || [], rel: p.rel });
-		console.log(`✅ ${p.rel} (${p.skillId}, vibeVersion ${p.vibeVersion})`);
+		console.log(`✅ ${p.rel} (${p.skillId}${p.vibeVersion ? `, vibeVersion ${p.vibeVersion}` : ''})`);
 	}
 	const idSet = new Set(depGraph.map(s => s.skillId.toLowerCase()));
 	for (const s of depGraph) {
