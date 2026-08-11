@@ -47,6 +47,7 @@ import { ViewportLabel } from '../../common/designReview/designSlopRules.js';
 import { openVibeChatEditor } from '../../browser/vibeideChatPane.js';
 import { VibeServerConfigKeys, VibeServerPreviewTarget, VibeServerPreviewTabs, VIBE_SERVER_RUNNING_CONTEXT_KEY } from '../../browser/vibeServer/vibeServerConstants.js';
 import { IVibeServerService, IVibeServerStatus } from '../../browser/vibeServer/vibeServerService.js';
+import { bridgeProxyKey } from '../../common/vibeServer/bridgeProxyKey.js';
 
 class VibeServerService extends Disposable implements IVibeServerService {
 	readonly _serviceBrand: undefined;
@@ -67,6 +68,13 @@ class VibeServerService extends Disposable implements IVibeServerService {
 	private _status: IVibeServerStatus = { state: 'stopped' };
 	/** Runtime kind forced by the last start (e.g. Docker via startEnvironment) — preserved on restart. */
 	private _lastForcedKind: VibeServerRuntimeKind | undefined;
+	/** Dev-server this window's own bridge proxy fronts — the key it is stopped by. */
+	private _bridgeUpstreamUrl: string | undefined;
+	/**
+	 * Proxy origin → the stack app behind it. One entry per previewed multi-app service, so each
+	 * keeps its own bridge instead of the newest one taking it from the rest.
+	 */
+	private readonly _bridgedOrigins = new Map<string, string>();
 
 	constructor(
 		@IMainProcessService mainProcessService: IMainProcessService,
@@ -160,6 +168,9 @@ class VibeServerService extends Disposable implements IVibeServerService {
 			try {
 				const proxied = await this._main.startBridgeProxy({ upstreamUrl: started.url, host: started.host });
 				this._logService.info(`[VibeServer] мост инжектируется через прокси ${proxied.url} → ${started.url}`);
+				// Remember the upstream, not the proxy: stopping addresses the proxy BY the server it
+				// fronts, and stopping "all of them" would take the bridge away from the stack apps.
+				this._bridgeUpstreamUrl = started.url;
 				started = { ...started, url: proxied.url, port: proxied.port, bridgeInjected: true };
 			} catch (err) {
 				this._logService.warn(`[VibeServer] прокси для моста не поднялся, превью без inspect/замера: ${err}`);
@@ -196,11 +207,25 @@ class VibeServerService extends Disposable implements IVibeServerService {
 		const runtime = this._runtime.value;
 		await runtime?.stop();
 		this._runtime.clear(); // disposes the runtime
-		// Release the proxy port too: leaving it listening in front of a dead dev-server would
-		// serve 502s from a URL that looks alive.
-		await this._main.stopBridgeProxy();
+		// Release this server's proxy port too: leaving it listening in front of a dead dev-server
+		// would serve 502s from a URL that looks alive. Only OURS — stack apps have their own.
+		if (this._bridgeUpstreamUrl) {
+			await this._main.stopBridgeProxy(this._bridgeUpstreamUrl);
+			this._bridgeUpstreamUrl = undefined;
+		}
 		this._setStatus({ state: 'stopped' });
 		// The embedded browser is intentionally kept open: a later start reuses the same tab.
+	}
+
+	/**
+	 * Tells the browser which origins carry the bridge: this window's own server when it does, plus
+	 * every proxied stack app. Pushed as a whole set so a tab is never left claiming support it lost.
+	 */
+	private _pushBridgedOrigins(manager: VibeBrowserManager): void {
+		const origins = [...this._bridgedOrigins.keys()];
+		const own = this._bridgeAvailable() ? this._status.started?.url : undefined;
+		if (own) { origins.push(bridgeProxyKey(own)); }
+		manager.setBridgedOrigins(origins);
 	}
 
 	/** True when the previewed pages carry the bridge script (inspect + design scan). */
@@ -318,7 +343,39 @@ class VibeServerService extends Disposable implements IVibeServerService {
 		// Only stack services honour the tab layout setting: the single auto-detected server has
 		// nothing to be laid out against.
 		const tabs = this._configurationService.getValue<VibeServerPreviewTabs>(VibeServerConfigKeys.previewTabs) ?? 'single';
-		await this._openUrl(url, target, tabs === 'perService' ? 'perService' : 'reuse', title);
+		await this._openUrl(await this._bridged(url), target, tabs === 'perService' ? 'perService' : 'reuse', title);
+	}
+
+	/**
+	 * Puts a bridge proxy in front of a stack app and returns the url to preview.
+	 *
+	 * Without this a multi-app workspace previewed the dev-server directly, so its pages carried no
+	 * bridge script: the ⌖ button toggled inspect into a page that had nobody listening, and the
+	 * click did nothing at all. The single auto-detected server got its proxy inside `_startWithKind`
+	 * and worked; every app in `.vibe/servers.json` did not — the whole feature was missing exactly
+	 * where there is most to inspect.
+	 *
+	 * Falling back to the raw url on failure is deliberate: a preview without inspect beats no
+	 * preview. `_openUrl` learns availability from the returned origin, so the button stays honest.
+	 */
+	private async _bridged(url: string): Promise<string> {
+		if (!this._bridgeProxyEnabled()) { return url; }
+		let host: string;
+		try { host = new URL(url).hostname; } catch { return url; }
+		try {
+			const proxied = await this._main.startBridgeProxy({ upstreamUrl: url, host });
+			this._bridgedOrigins.set(bridgeProxyKey(proxied.url), url);
+			this._logService.info(`[VibeServer] мост для стекового приложения: ${proxied.url} → ${url}`);
+			// Path and query belong to the app, only the origin moves to the proxy.
+			const target = new URL(url);
+			const proxiedOrigin = new URL(proxied.url);
+			target.protocol = proxiedOrigin.protocol;
+			target.host = proxiedOrigin.host;
+			return target.toString();
+		} catch (err) {
+			this._logService.warn(`[VibeServer] прокси для стекового приложения не поднялся, превью без прицела: ${err}`);
+			return url;
+		}
 	}
 
 	async openPreviewForResource(resource: URI): Promise<void> {
@@ -406,7 +463,7 @@ class VibeServerService extends Disposable implements IVibeServerService {
 			// always injects it; a dev-server does too, once the bridge proxy is in front of it — so
 			// availability follows what the start actually produced, not the runtime kind.
 			manager.onDidPickElement(pick => void this._handleInspectPick(pick));
-			manager.setInspectSupported(this._bridgeAvailable());
+			this._pushBridgedOrigins(manager);
 			// Clicking a finding marker asks about THAT finding — the same move as inspect, one step
 			// shorter than copying a selector out of a list.
 			manager.onDidClickFinding(({ selector, rule }) => void this._handleFindingClick(selector, rule));
@@ -691,7 +748,7 @@ class VibeServerService extends Disposable implements IVibeServerService {
 	private _setStatus(status: IVibeServerStatus): void {
 		this._status = status;
 		this._runningKey.set(status.state === 'running');
-		this._browser.value?.setInspectSupported(status.state === 'running' && status.kind === VibeServerRuntimeKind.static);
+		if (this._browser.value) { this._pushBridgedOrigins(this._browser.value); }
 		this._onDidChangeStatus.fire();
 	}
 }

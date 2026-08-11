@@ -190,6 +190,36 @@ suite('Telegram bridge — who may ask for access', () => {
 			},
 		);
 	});
+
+	test('код, набранный руками, принимается: регистр, пробел вместо дефиса, дефис потерян', () => {
+		const ask = (text: string) => decidePairing({ text, chatType: 'private', expectedCode: 'abcd-2345', lastPromptAtMs: undefined, nowMs: 1000 }).kind;
+		assert.deepStrictEqual(
+			{
+				exact: ask('/start abcd-2345'),
+				upperCase: ask('/start ABCD-2345'),
+				spaceInsteadOfHyphen: ask('abcd 2345'),
+				noHyphen: ask('/start abcd2345'),
+				trailingWords: ask('/start abcd-2345 привет'),
+			},
+			{ exact: 'ask', upperCase: 'ask', spaceInsteadOfHyphen: 'ask', noHyphen: 'ask', trailingWords: 'ask' },
+		);
+	});
+
+	test('чужой код молчит, и лишние символы кода не проходят как свои', () => {
+		const kind = (text: string) => decidePairing({ text, chatType: 'private', expectedCode: 'abcd-2345', lastPromptAtMs: undefined, nowMs: 1000 }).kind;
+		assert.deepStrictEqual(
+			{
+				wrongCode: kind('/start zzzz-9999'),
+				// Первые 8 символов кода — не те, дальше не смотрим: иначе «мусор + верный код» проходил бы.
+				codeAfterJunk: kind('/start qqqq-qqqq abcd-2345'),
+				bareStart: kind('/start'),
+				empty: kind('   '),
+				// Ожидаемого кода нет вовсе (мост не настроен) — тоже молчание, а не «подходит что угодно».
+				noExpected: decidePairing({ text: '/start abcd-2345', chatType: 'private', expectedCode: '', lastPromptAtMs: undefined, nowMs: 1000 }).kind,
+			},
+			{ wrongCode: 'ignore', codeAfterJunk: 'ignore', bareStart: 'ignore', empty: 'ignore', noExpected: 'ignore' },
+		);
+	});
 });
 
 suite('Telegram bridge — approvals', () => {

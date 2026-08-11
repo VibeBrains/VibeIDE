@@ -21,6 +21,7 @@ import { IDisposable } from '../../../../../base/common/lifecycle.js';
 import { ILogService } from '../../../../../platform/log/common/log.js';
 import { injectReloadScript, VIBE_RELOAD_WS_PATH } from '../../common/vibeServer/injectReloadScript.js';
 import { IVibeBridgeProxyOptions, IVibeServerMain, IVibeServerStartOptions, IVibeServerStarted, VibeServerChangeKind } from '../../common/vibeServer/vibeServerIpc.js';
+import { bridgeProxyKey } from '../../common/vibeServer/bridgeProxyKey.js';
 import { VibeBridgeProxyMain } from './vibeBridgeProxyMain.js';
 import { registerPreviewOrigin, unregisterPreviewOrigin } from './vibeCookieCompatMain.js';
 
@@ -78,7 +79,7 @@ export class VibeServerMainService implements IVibeServerMain, IDisposable {
 	 * channel: serving files from disk and forwarding someone else's traffic are different jobs,
 	 * but the renderer drives both through one contract.
 	 */
-	private readonly _bridgeProxy = new VibeBridgeProxyMain(this._log);
+	private readonly _bridgeProxies = new Map<string, { proxy: VibeBridgeProxyMain; started: IVibeServerStarted }>();
 
 	constructor(
 		@ILogService private readonly _log: ILogService,
@@ -112,13 +113,39 @@ export class VibeServerMainService implements IVibeServerMain, IDisposable {
 		return started;
 	}
 
+	/**
+	 * One proxy PER upstream, not one proxy.
+	 *
+	 * A multi-app workspace (`.vibe/servers.json`) previews several dev-servers at once, and a
+	 * single shared proxy meant the second app silently took the bridge away from the first —
+	 * `start()` stops whatever was running before it binds. Keyed by upstream origin: asking twice
+	 * for the same app returns the proxy already in front of it instead of rebinding a new port.
+	 */
 	async startBridgeProxy(options: IVibeBridgeProxyOptions): Promise<IVibeServerStarted> {
-		const started = await this._bridgeProxy.start(options);
-		return { ...started, bridgeInjected: true };
+		const key = bridgeProxyKey(options.upstreamUrl);
+		const existing = this._bridgeProxies.get(key);
+		if (existing?.proxy.active) {
+			return existing.started;
+		}
+		const proxy = existing?.proxy ?? new VibeBridgeProxyMain(this._log);
+		const started: IVibeServerStarted = { ...await proxy.start(options), bridgeInjected: true };
+		this._bridgeProxies.set(key, { proxy, started });
+		return started;
 	}
 
-	async stopBridgeProxy(): Promise<void> {
-		await this._bridgeProxy.stop();
+	/** Stops the proxy in front of `upstreamUrl`, or every one of them when no url is given. */
+	async stopBridgeProxy(upstreamUrl?: string): Promise<void> {
+		if (upstreamUrl === undefined) {
+			const all = [...this._bridgeProxies.values()];
+			this._bridgeProxies.clear();
+			await Promise.all(all.map(entry => entry.proxy.stop()));
+			return;
+		}
+		const key = bridgeProxyKey(upstreamUrl);
+		const entry = this._bridgeProxies.get(key);
+		if (!entry) { return; }
+		this._bridgeProxies.delete(key);
+		await entry.proxy.stop();
 	}
 
 	async registerPreviewOrigin(url: string): Promise<void> {
@@ -198,9 +225,10 @@ export class VibeServerMainService implements IVibeServerMain, IDisposable {
 
 	dispose(): void {
 		void this.stop();
-		// The proxy has its own lifetime (it fronts a dev-server, not our static root), so `stop()`
-		// leaves it alone — but nothing may outlive the service itself.
-		this._bridgeProxy.dispose();
+		// Proxies have their own lifetime (they front dev-servers, not our static root), so `stop()`
+		// leaves them alone — but nothing may outlive the service itself.
+		for (const { proxy } of this._bridgeProxies.values()) { proxy.dispose(); }
+		this._bridgeProxies.clear();
 	}
 
 	/** Listens on `host`, walking the port upward from the desired base on conflict. */

@@ -86,8 +86,12 @@ export interface IVibeServerMain {
 	 * measurement. Returns the upstream URL unchanged when proxying is disabled.
 	 */
 	startBridgeProxy(options: IVibeBridgeProxyOptions): Promise<IVibeServerStarted>;
-	/** Stops the bridge proxy. Safe to call when not running. */
-	stopBridgeProxy(): Promise<void>;
+	/**
+	 * Stops the proxy in front of `upstreamUrl`, or every proxy when no url is given. Safe to call
+	 * when nothing is running. A multi-app workspace has one proxy per app, so stopping a single
+	 * service must not take the bridge away from its neighbours.
+	 */
+	stopBridgeProxy(upstreamUrl?: string): Promise<void>;
 }
 
 export interface IVibeBridgeProxyOptions {

@@ -1527,6 +1527,8 @@ export const telegramS = {
 	pairingCode: 'Код привязки',
 	pairingCodeHint: 'Отправьте боту «/start <код>», чтобы привязать свой чат. Код секретный — не публикуйте вместе с именем бота.',
 	newCode: 'Новый код',
+	copyCode: 'Скопировать код',
+	codeCopied: 'Код скопирован',
 	allowedChats: 'Разрешённые чаты',
 	noAllowedChats: 'пока ни одного',
 	revoke: 'Отозвать',

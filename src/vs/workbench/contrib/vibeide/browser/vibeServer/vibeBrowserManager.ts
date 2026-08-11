@@ -96,11 +96,15 @@ export class VibeBrowserManager extends Disposable {
 	readonly onDidClickFinding: Event<{ selector: string; rule: string }> = this._onDidClickFinding.event;
 
 	/**
-	 * Inspect is only meaningful when the injected bridge script is present, i.e. the
-	 * static runtime; the service keeps this in sync with the runtime kind. The flag
-	 * bakes the initial button state into new chromes and is pushed into open ones.
+	 * Origins whose pages carry the injected bridge script — the only ones where inspect and the
+	 * design scan can work at all. The service owns the truth and pushes the whole set.
+	 *
+	 * Per ORIGIN, not one flag for the window: a multi-app workspace previews several apps side by
+	 * side, and each gets its own proxy (or none). One shared flag both lied and got in the way —
+	 * it left ⌖ enabled on a tab with no bridge, where the click silently did nothing, and any
+	 * restart of the single server switched the button off on every other tab as well.
 	 */
-	private _inspectSupported = false;
+	private readonly _bridgedOrigins = new Set<string>();
 
 	/** Which preview URL each tab currently shows — drives cookie-compat origin (un)registration. */
 	private readonly _registeredUrlByInput = new Map<WebviewInput, string>();
@@ -166,7 +170,7 @@ export class VibeBrowserManager extends Disposable {
 		if (!this._active) {
 			return { ok: false, reason: 'no-preview' };
 		}
-		if (!this._inspectSupported) {
+		if (!this._inspectSupportedFor(this._active)) {
 			return { ok: false, reason: 'unsupported' };
 		}
 		// A second request would orphan the first resolver; the newest caller wins the wait.
@@ -203,15 +207,26 @@ export class VibeBrowserManager extends Disposable {
 		pending.resolve(result);
 	}
 
-	/** Enables/disables the "pick element" toolbar button in every open preview chrome. */
-	setInspectSupported(supported: boolean): void {
-		if (this._inspectSupported === supported) {
+	/**
+	 * Declares which origins carry the bridge. Each open chrome is told about ITS own origin, so a
+	 * tab previewing an app without a proxy shows ⌖ disabled while its neighbour stays usable.
+	 */
+	setBridgedOrigins(origins: readonly string[]): void {
+		const next = new Set(origins);
+		if (next.size === this._bridgedOrigins.size && [...next].every(o => this._bridgedOrigins.has(o))) {
 			return;
 		}
-		this._inspectSupported = supported;
+		this._bridgedOrigins.clear();
+		for (const origin of next) { this._bridgedOrigins.add(origin); }
 		for (const input of this._inputs) {
-			void input.webview.postMessage({ type: 'inspect-supported', value: supported });
+			void input.webview.postMessage({ type: 'inspect-supported', value: this._inspectSupportedFor(input) });
 		}
+	}
+
+	/** Whether the tab's current origin carries the bridge. Unknown origin = no, never a guess. */
+	private _inspectSupportedFor(input: WebviewInput): boolean {
+		const origin = this._tabRoleByInput.get(input)?.origin;
+		return origin !== undefined && this._bridgedOrigins.has(origin);
 	}
 
 	/**
@@ -224,8 +239,10 @@ export class VibeBrowserManager extends Disposable {
 	 * `title` names the tab after whatever it shows, so several previews stay distinguishable.
 	 */
 	open(url: string, mode: VibeBrowserOpenMode = 'reuse', title?: string): void {
-		const html = this._buildHtml(url);
 		const origin = originOf(url);
+		// The button state is baked per tab: this chrome shows THIS origin, and only that origin's
+		// bridge decides whether ⌖ is usable here.
+		const html = this._buildHtml(url, this._bridgedOrigins.has(origin));
 
 		// The target is looked up by role, never "whatever is active": after working in the
 		// per-service layout the active tab belongs to some service, and re-pointing it would
@@ -311,9 +328,25 @@ export class VibeBrowserManager extends Disposable {
 		}
 	}
 
-	/** Navigates the active preview to `url` without rebuilding it. No-op when none open. */
+	/**
+	 * Navigates the active preview to `url`. No-op when none open.
+	 *
+	 * A same-origin move is a message to the page; a different origin needs the chrome document
+	 * REBUILT, because its CSP names one `frame-src` and the iframe would be blocked without a word
+	 * — the address bar accepted the url and the preview stayed blank. That is also how a tab moves
+	 * between apps of a multi-app workspace.
+	 */
 	navigate(url: string): void {
 		if (!this._active) {
+			return;
+		}
+		const origin = originOf(url);
+		const role = this._tabRoleByInput.get(this._active);
+		if (role && role.origin !== origin) {
+			this._tabRoleByInput.set(this._active, { shared: role.shared, origin });
+			this._active.webview.setHtml(this._buildHtml(url, this._bridgedOrigins.has(origin)));
+			this._trackPreviewUrl(this._active, url);
+			this._webviewWorkbenchService.revealWebview(this._active, ACTIVE_GROUP, true);
 			return;
 		}
 		void this._active.webview.postMessage({ type: 'navigate', url });
@@ -420,7 +453,7 @@ export class VibeBrowserManager extends Disposable {
 		this._outputService.getChannel(VIBE_SERVER_CONSOLE_CHANNEL_ID)?.append(`[${level}] ${text}\n`);
 	}
 
-	private _buildHtml(initialUrl: string): string {
+	private _buildHtml(initialUrl: string, inspectSupported: boolean): string {
 		const uri = URI.parse(initialUrl);
 		const frameOrigin = `${uri.scheme}://${uri.authority}`;
 		const nonce = generateUuid();
@@ -475,7 +508,7 @@ export class VibeBrowserManager extends Disposable {
 			<option value="1280x800">Десктоп 1280</option>
 		</select>
 		<button class="vb-btn" id="vb-rotate" title="Повернуть">⤧</button>
-		<button class="vb-btn" id="vb-inspect" title="Выбрать элемент: клик по элементу превью отправит его селектор в чат (Alt+клик — родитель, Esc — отмена). Нужен мост VibeIDE в странице: статическое превью несёт его всегда, dev-сервер — через прокси." ${this._inspectSupported ? '' : 'disabled '}>⌖</button>
+		<button class="vb-btn" id="vb-inspect" title="Выбрать элемент: клик по элементу превью отправит его селектор в чат (Alt+клик — родитель, Esc — отмена). Нужен мост VibeIDE в странице: статическое превью несёт его всегда, dev-сервер — через прокси." ${inspectSupported ? '' : 'disabled '}>⌖</button>
 		<button class="vb-btn" id="vb-findings" title="Скрыть отметки проверки дизайна на странице (появляются после проверки; клик по отметке отправляет находку в чат)." hidden>⚑</button>
 		<button class="vb-btn" id="vb-external" title="Открыть во внешнем браузере">↗</button>
 	</div>

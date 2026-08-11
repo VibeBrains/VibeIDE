@@ -57,7 +57,7 @@ import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js';
 import { VibeButtonBgDarken, VibeCustomDropdownBox, VibeInputBox2, VibeSimpleInputBox, VibeSwitch } from '../util/inputs.js';
 import { visibleProviderCards } from '../../../../common/providerCardVisibility.js';
 import { useAccessor, useIsDark, useIsOptedOut, useMCPServiceState, useRefreshModelListener, useRefreshModelState, useSettingsState } from '../util/services.js';
-import { X, RefreshCw, Loader2, Check, Asterisk, Plus, ChevronRight, ChevronDown, ImageOff, Image, Play } from 'lucide-react';
+import { X, RefreshCw, Loader2, Check, Asterisk, Plus, ChevronRight, ChevronDown, ImageOff, Image, Play, Copy } from 'lucide-react';
 import { joinPath } from '../../../../../../../base/common/resources.js';
 import { ModelDropdown } from './ModelDropdown.js';
 import { AgentRoleModels } from './AgentRoleModels.js';
@@ -2115,11 +2115,13 @@ const TelegramBridgeCard = () => {
 	const secrets = accessor.get('ISecretStorageService');
 	const notificationService = accessor.get('INotificationService');
 	const commandService = accessor.get('ICommandService');
+	const clipboardService = accessor.get('IClipboardService');
 
 	const [enabled, setEnabled] = useState<boolean>(() => configurationService.getValue<boolean>('vibeide.telegram.enabled') === true);
 	const [proxy, setProxy] = useState<string>(() => configurationService.getValue<string>('vibeide.telegram.proxy.url') ?? '');
 	const [allowedChats, setAllowedChats] = useState<number[]>(() => configurationService.getValue<number[]>('vibeide.telegram.allowedChatIds') ?? []);
 	const [pairingCode, setPairingCode] = useState<string>(() => configurationService.getValue<string>('vibeide.telegram.pairingCode') ?? '');
+	const [codeCopied, setCodeCopied] = useState<boolean>(false);
 	const [tokenPresent, setTokenPresent] = useState<boolean>(false);
 	const [tokenDraft, setTokenDraft] = useState<string>('');
 	const [voice, setVoice] = useState<{ state: string; downloadMb: number } | undefined>(undefined);
@@ -2160,6 +2162,19 @@ const TelegramBridgeCard = () => {
 			: voice.state === 'downloading' ? telegramS.voiceDownloading
 				: voice.state === 'unsupported' ? telegramS.voiceUnsupported
 					: telegramS.voiceNeedsDownload(voice.downloadMb);
+
+	// Копирование кода: подтверждение галочкой на две секунды, а не тостом. Код набирают в
+	// соседнем окне Telegram, и уведомление поверх IDE читать в этот момент уже некому —
+	// а вот вернувшись, полезно видеть, что клик сработал.
+	const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	useEffect(() => () => { if (copyTimer.current !== undefined) { clearTimeout(copyTimer.current); } }, []);
+	const copyPairingCode = () => {
+		if (!pairingCode) { return; }
+		void clipboardService.writeText(pairingCode);
+		setCodeCopied(true);
+		if (copyTimer.current !== undefined) { clearTimeout(copyTimer.current); }
+		copyTimer.current = setTimeout(() => setCodeCopied(false), 2000);
+	};
 
 	const saveToken = async (value: string) => {
 		const trimmed = value.trim();
@@ -2208,7 +2223,26 @@ const TelegramBridgeCard = () => {
 			<div className='my-2'>
 				<div className='text-sm mb-1'>{telegramS.pairingCode}</div>
 				<div className='flex items-center gap-x-2'>
-					<code className='text-sm px-2 py-1 rounded bg-vibe-bg-2'>{pairingCode || '—'}</code>
+					{/* Сам код — кнопка: по нему и хочется кликнуть. Иконка рядом для тех, кто
+					    не догадается, что надпись кликабельна: без неё это знание ниоткуда не следует. */}
+					<code
+						role='button'
+						tabIndex={pairingCode ? 0 : -1}
+						aria-label={pairingCode ? `${telegramS.copyCode}: ${pairingCode}` : undefined}
+						title={pairingCode ? telegramS.copyCode : undefined}
+						className={`text-sm px-2 py-1 rounded bg-vibe-bg-2 ${pairingCode ? 'cursor-pointer hover:brightness-125' : ''}`}
+						onClick={copyPairingCode}
+						onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); copyPairingCode(); } }}
+					>{pairingCode || '—'}</code>
+					<VibeButtonBgDarken
+						className='px-2 py-1 text-sm flex items-center gap-x-1'
+						disabled={!pairingCode}
+						title={telegramS.copyCode}
+						onClick={copyPairingCode}
+					>
+						{codeCopied ? <Check size={14} /> : <Copy size={14} />}
+						<span>{codeCopied ? telegramS.codeCopied : telegramS.copyCode}</span>
+					</VibeButtonBgDarken>
 					<VibeButtonBgDarken
 						className='px-2 py-1 text-sm'
 						onClick={() => { void configurationService.updateValue('vibeide.telegram.pairingCode', generatePairingCode(max => Math.floor(Math.random() * max))); }}
