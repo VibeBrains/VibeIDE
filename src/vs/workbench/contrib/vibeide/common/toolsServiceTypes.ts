@@ -60,6 +60,7 @@ export type BuiltinToolCallParams = {
 	'go_to_definition': { uri: URI; line: number; column: number };
 	'find_references': { uri: URI; line: number; column: number };
 	'code_graph': { query: 'neighbors' | 'path' | 'why'; target: string; to: string | null };
+	'measure_metric': { purpose: 'baseline' | 'candidate'; summary: string | null };
 	'docs_search': { query: string; limit: number | null };
 	'design_review': { severity: 'error' | 'warning' | 'info' | null; viewport: 'desktop' | 'mobile' | 'both'; annotate: boolean };
 	// No parameters: the context is whatever the project wrote, and there is nothing to narrow.
@@ -133,6 +134,21 @@ export type BuiltinToolResultType = {
 		nodes: Array<{ id: string; kind: string; label: string; file: string; line?: number }>;
 		edges: Array<{ from: string; to: string; kind: string; provenance: string }>;
 		trace: string[] | null;
+	};
+	// Вердикт принимает ИНСТРУМЕНТ, а не модель: агент, сам себе судья, склонен считать
+	// улучшением любое изменение. Поэтому наружу отдаётся готовое решение и число, на котором
+	// оно основано, — спорить с ним можно только новым замером.
+	'measure_metric': {
+		configured: boolean;
+		/** Причина, когда замерить не удалось: команда не задана, упала, не дала числа. */
+		unavailableReason?: string;
+		value?: number;
+		baseline?: number;
+		verdict?: 'keep' | 'discard' | 'noise' | 'unmeasured';
+		improvementRatio?: number;
+		message: string;
+		/** Сколько попыток подряд не дали улучшения — сигнал остановиться. */
+		consecutiveFailures?: number;
 	};
 	// `reachable: false` — превью не открыто или это dev-server/Docker, где скрипт-моста нет.
 	// Пустой список находок тогда читался бы как «чисто», а правда — «не измеряли».

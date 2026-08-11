@@ -21,6 +21,7 @@ import { GO_TO_DEFINITION_TOOL } from './go_to_definition.js';
 import { FIND_REFERENCES_TOOL } from './find_references.js';
 import { SEARCH_SYMBOLS_TOOL } from './search_symbols.js';
 import { CODE_GRAPH_TOOL } from './code_graph.js';
+import { MEASURE_METRIC_TOOL } from './measure_metric.js';
 import { DOCS_SEARCH_TOOL } from './docs_search.js';
 import { DESIGN_REVIEW_TOOL } from './design_review.js';
 import { DESIGN_CONTEXT_TOOL } from './design_context.js';
@@ -82,6 +83,8 @@ export const builtinToolDefs = {
 	design_document: DESIGN_DOCUMENT_TOOL,
 	design_doctor: DESIGN_DOCTOR_TOOL,
 	model_council: MODEL_COUNCIL_TOOL,
+	// «стало ли лучше» числом: замер проекта плюс вердикт оставить/откатить
+	measure_metric: MEASURE_METRIC_TOOL,
 	// code analysis / generation
 	automated_code_review: AUTOMATED_CODE_REVIEW_TOOL,
 	generate_tests: GENERATE_TESTS_TOOL,

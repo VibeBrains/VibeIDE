@@ -68,6 +68,16 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { formatProvenanceMarker, isKnownProvenanceLanguage, shouldMarkProvenance } from '../common/vibeAiProvenanceConfiguration.js';
 import { IGitAutoStashService } from '../common/gitAutoStashService.js';
 import { decideAutoStash } from '../common/autoStashPolicy.js';
+import {
+	MetricDirection,
+	OptimizationVerdict,
+	consecutiveFailures,
+	decideOptimization,
+	describeVerdict,
+	readMeasurement,
+	type IOptimizationAttempt,
+	type MetricContract,
+} from '../common/metricOptimization.js';
 import { getDocsFiles, searchVibeDocs } from '../common/vibeDocsIndex.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { detectShellMisuse, ToolValidationError, truncateHeadTail, looksLikeShellAwaitingInput, formatTerminalTimeoutNotice, clampLineWindowToCharBudget } from '../common/toolHardening.js';
@@ -259,6 +269,16 @@ export class ToolsService implements IToolsService {
 	// The value is the content signature at read time, which additionally lets the write path prove
 	// the file has not changed underneath the agent since — see `fileBaseSignature.ts`.
 	private readonly _filesReadInSession = new Map<string, FileBaseSignature>();
+
+	/**
+	 * Состояние цикла оптимизации по метрике: с чем сравнивать и что уже пробовали.
+	 *
+	 * Живёт в сервисе, а не в контексте модели, намеренно — это ровно то, что агент не должен
+	 * иметь возможности переписать. База сбрасывается новым замером `baseline` и сдвигается
+	 * только за удержанной правкой.
+	 */
+	private _optimizationBaseline: number | undefined;
+	private _optimizationAttempts: IOptimizationAttempt[] = [];
 	// Tracks pending background commands so kill_background_command can address them.
 	private readonly _backgroundCommands = new Map<string, { persistentTerminalId: string; command: string; startedAt: number }>();
 
@@ -629,6 +649,16 @@ export class ToolsService implements IToolsService {
 				const to = typeof toUnknown === 'string' && toUnknown.trim() ? toUnknown.trim() : null;
 				if (query === 'path' && !to) { throw new Error(`Invalid LLM output: query 'path' also needs 'to' — the destination node.`); }
 				return { query, target, to };
+			},
+
+			measure_metric: (params: RawToolParamsObj) => {
+				const { purpose: purposeUnknown, summary: summaryUnknown } = params;
+				const purpose = typeof purposeUnknown === 'string' ? purposeUnknown.trim().toLowerCase() : '';
+				if (purpose !== 'baseline' && purpose !== 'candidate') {
+					throw new Error(`Invalid LLM output: purpose must be 'baseline' or 'candidate', got ${purposeUnknown}`);
+				}
+				const summary = typeof summaryUnknown === 'string' && summaryUnknown.trim() ? summaryUnknown.trim() : null;
+				return { purpose, summary };
 			},
 
 			go_to_definition: (params: RawToolParamsObj) => {
@@ -2205,6 +2235,100 @@ export class ToolsService implements IToolsService {
 				const { resPromise, interrupt } = await this.terminalToolService.runCommand(command, { type: 'temporary', cwd, terminalId, timeoutMs: timeoutMs ?? undefined });
 				return { result: resPromise, interruptTool: interrupt };
 			},
+			measure_metric: async ({ purpose, summary }) => {
+				const command = this._configurationService.getValue<string>('vibeide.agent.optimize.command')?.trim() ?? '';
+				if (!command) {
+					return {
+						result: {
+							configured: false,
+							message: 'Команда замера не задана (vibeide.agent.optimize.command). Мерить нечем.',
+						},
+					};
+				}
+
+				const metricPath = this._configurationService.getValue<string>('vibeide.agent.optimize.metric')?.trim() ?? '';
+				const contract: MetricContract = metricPath ? { kind: 'jsonField', path: metricPath } : { kind: 'lastLine' };
+				const direction = this._configurationService.getValue<string>('vibeide.agent.optimize.direction') === 'higher'
+					? MetricDirection.Higher
+					: MetricDirection.Lower;
+				const noiseThreshold = this._configurationService.getValue<number>('vibeide.agent.optimize.noiseThreshold') ?? 0.02;
+				// Бюджет один и тот же для базы и для каждой попытки — в этом весь смысл: иначе
+				// выигрыш приходит от более долгого прогона, а не от лучшего решения.
+				const timeoutMs = this._configurationService.getValue<number>('vibeide.agent.optimize.timeoutMs') ?? 300_000;
+
+				const terminalId = generateUuid();
+				const { resPromise } = await this.terminalToolService.runCommand(command, { type: 'temporary', cwd: null, terminalId, timeoutMs });
+				const run = await resPromise;
+				const measured = readMeasurement({ stdout: run.result, contract });
+
+				if (!measured.ok) {
+					return {
+						result: {
+							configured: true,
+							unavailableReason: measured.reason,
+							verdict: 'unmeasured' as const,
+							message: describeVerdict({ verdict: OptimizationVerdict.Unmeasured, improvement: 0, improvementRatio: 0 }, measured.reason),
+						},
+					};
+				}
+
+				if (purpose === 'baseline') {
+					// База сбрасывает журнал: с этого момента сравнивать со старыми попытками
+					// бессмысленно — они относятся к другому состоянию кода.
+					this._optimizationBaseline = measured.value;
+					this._optimizationAttempts = [];
+					return {
+						result: {
+							configured: true,
+							value: measured.value,
+							message: `База зафиксирована: ${measured.value}. Дальше каждая правка сверяется с ней.`,
+						},
+					};
+				}
+
+				if (this._optimizationBaseline === undefined) {
+					return {
+						result: {
+							configured: true,
+							value: measured.value,
+							unavailableReason: 'База не зафиксирована.',
+							message: 'Сначала сделайте замер с purpose=baseline — сравнивать не с чем.',
+						},
+					};
+				}
+
+				const decision = decideOptimization({
+					baseline: this._optimizationBaseline,
+					candidate: measured.value,
+					direction,
+					noiseThreshold,
+				});
+				this._optimizationAttempts.push({
+					attempt: this._optimizationAttempts.length + 1,
+					summary: summary ?? 'без описания',
+					value: measured.value,
+					verdict: decision.verdict,
+					improvementRatio: decision.improvementRatio,
+				});
+				// База двигается только за удержанной правкой: иначе следующая попытка сравнивалась
+				// бы с откаченным состоянием, которого на диске уже нет.
+				if (decision.verdict === OptimizationVerdict.Keep) {
+					this._optimizationBaseline = measured.value;
+				}
+
+				return {
+					result: {
+						configured: true,
+						value: measured.value,
+						baseline: this._optimizationBaseline,
+						verdict: decision.verdict,
+						improvementRatio: decision.improvementRatio,
+						consecutiveFailures: consecutiveFailures(this._optimizationAttempts),
+						message: describeVerdict(decision),
+					},
+				};
+			},
+
 			run_nl_command: async ({ nlInput, cwd, terminalId }) => {
 				// Parse natural language to shell command.
 				const parsed = await this.nlShellParserService.parseNLToShell(nlInput, cwd, CancellationToken.None);
@@ -2893,6 +3017,26 @@ export class ToolsService implements IToolsService {
 					return `--- ${where} (line ${hit.line})\n${hit.excerpt}`;
 				});
 				return `Found ${result.hits.length} section(s) for "${params.query}" in the bundled documentation (${result.filesSearched} file(s) searched). Cite file and heading when you rely on this.\n\n${lines.join('\n\n')}`;
+			},
+
+			measure_metric: (params, result) => {
+				if (!result.configured) {
+					return `${result.message} Ask the user to set 'vibeide.agent.optimize.command' — do not substitute a benchmark of your own, and do not judge the change by reading the code.`;
+				}
+				if (result.verdict === 'unmeasured' || result.value === undefined) {
+					return `${result.message}\n\nThe measurement failed, which is not the same as the change being bad. Fix the measurement command first; do not draw a conclusion from a missing number.`;
+				}
+				if (params.purpose === 'baseline') {
+					return `${result.message}\n\nMake one change at a time, then measure again with purpose='candidate'.`;
+				}
+
+				const tail = result.verdict === 'keep'
+					? `Keep it. The baseline is now ${result.baseline}.`
+					: `Roll this change back before trying the next idea — the baseline is still ${result.baseline}.`;
+				const streak = (result.consecutiveFailures ?? 0) >= 3
+					? `\n\n${result.consecutiveFailures} attempts in a row without an improvement. The cheap ideas are spent: say what you tried and stop, rather than burning the budget on more of the same.`
+					: '';
+				return `Measured ${result.value} against a baseline of ${result.baseline}. ${result.message}\n\n${tail}${streak}`;
 			},
 
 			code_graph: (params, result) => {
