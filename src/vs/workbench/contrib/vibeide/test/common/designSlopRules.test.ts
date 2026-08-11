@@ -69,6 +69,12 @@ const el = (over: Partial<ElementSnapshot> = {}): ElementSnapshot => ({
 	linesEndingWithShortWord: 0,
 	lastLineWordCount: 0,
 	interactive: false,
+	outlineStyle: 'auto',
+	outlineWidthPx: 2,
+	hasFocusRule: true,
+	hasHoverRule: true,
+	disabled: false,
+	styleRulesUnreadable: false,
 	...over,
 });
 
@@ -287,12 +293,12 @@ suite('designSlopRules', () => {
 	});
 
 	test('the catalogue is wired up: every registered rule function and every id accounted for', () => {
-		// Two different measures on purpose: 53 functions emit 55 ids (tracking and backdrop rules
-		// each report two). A report must show ids — the doctor printed function count next to an
-		// id split once, and "53 rules (10 + 45)" is arithmetic nobody trusts.
+		// Two different measures on purpose: rule functions and emitted ids do not match one to
+		// one (tracking and backdrop rules each report two). A report must show ids — the doctor
+		// printed function count next to an id split once, and arithmetic nobody trusts followed.
 		assert.deepStrictEqual(
 			[RULE_COUNT > 0, ALL_RULE_IDS.length, ALL_RULE_IDS.length >= RULE_COUNT],
-			[true, 55, true],
+			[true, 58, true],
 		);
 	});
 
@@ -339,5 +345,68 @@ suite('designSlopRules', () => {
 			],
 			[21, 1, 252],
 		);
+	});
+	suite('состояния интерактивных элементов', () => {
+		const button = (over: Partial<ElementSnapshot> = {}) =>
+			el({ selector: 'button', tag: 'button', text: 'Отправить', interactive: true, widthPx: 120, heightPx: 44, ...over });
+
+		test('снятая обводка без замены — находка', () => {
+			const findings = reviewDesign(doc([button({ outlineStyle: 'none', outlineWidthPx: 0, hasFocusRule: false })]))
+				.filter(f => f.rule === 'focus-not-visible');
+			assert.deepStrictEqual(findings.map(f => f.selector), ['button']);
+		});
+
+		test('обводка снята, но свой стиль фокуса задан — молчим', () => {
+			const findings = reviewDesign(doc([button({ outlineStyle: 'none', outlineWidthPx: 0, hasFocusRule: true })]))
+				.filter(f => f.rule === 'focus-not-visible');
+			assert.deepStrictEqual(findings, []);
+		});
+
+		test('обводку никто не трогал — молчим: браузер нарисует сам', () => {
+			const findings = reviewDesign(doc([button({ hasFocusRule: false })]))
+				.filter(f => f.rule === 'focus-not-visible');
+			assert.deepStrictEqual(findings, []);
+		});
+
+		test('нечитаемые таблицы стилей: «не посмотрели» — не повод обвинять', () => {
+			const findings = reviewDesign(doc([
+				button({ outlineStyle: 'none', outlineWidthPx: 0, hasFocusRule: false, hasHoverRule: false, styleRulesUnreadable: true }),
+			])).filter(f => f.rule === 'focus-not-visible' || f.rule === 'no-hover-affordance');
+			assert.deepStrictEqual(findings, []);
+		});
+
+		test('выключенный элемент, неотличимый от рабочего соседа', () => {
+			const findings = reviewDesign(doc([
+				button({ selector: '.ok', parentSelector: '.row' }),
+				button({ selector: '.off', parentSelector: '.row', disabled: true }),
+			])).filter(f => f.rule === 'disabled-indistinguishable');
+			assert.deepStrictEqual(findings.map(f => f.selector), ['.off']);
+		});
+
+		test('выключенный приглушён — молчим', () => {
+			const findings = reviewDesign(doc([
+				button({ selector: '.ok', parentSelector: '.row', color: [20, 20, 20] }),
+				button({ selector: '.off', parentSelector: '.row', disabled: true, color: [170, 170, 170] }),
+			])).filter(f => f.rule === 'disabled-indistinguishable');
+			assert.deepStrictEqual(findings, []);
+		});
+
+		test('выключенный в одиночку — сравнивать не с чем, молчим', () => {
+			const findings = reviewDesign(doc([button({ selector: '.off', parentSelector: '.row', disabled: true })]))
+				.filter(f => f.rule === 'disabled-indistinguishable');
+			assert.deepStrictEqual(findings, []);
+		});
+
+		test('нет ни :hover, ни перехода — подсказка, но не дефект', () => {
+			const findings = reviewDesign(doc([button({ hasHoverRule: false, transitionProperty: 'none' })]))
+				.filter(f => f.rule === 'no-hover-affordance');
+			assert.deepStrictEqual(findings.map(f => f.severity), ['info']);
+		});
+
+		test('переход задан — отклик, возможно, где-то есть; молчим', () => {
+			const findings = reviewDesign(doc([button({ hasHoverRule: false, transitionProperty: 'background-color' })]))
+				.filter(f => f.rule === 'no-hover-affordance');
+			assert.deepStrictEqual(findings, []);
+		});
 	});
 });

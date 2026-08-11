@@ -57,6 +57,11 @@ export const RULE = {
 	shapeAssembledArt: 'shape-assembled-art',
 	invisibleBorder: 'invisible-border',
 
+	// состояния интерактивных элементов
+	focusNotVisible: 'focus-not-visible',
+	disabledIndistinguishable: 'disabled-indistinguishable',
+	noHoverAffordance: 'no-hover-affordance',
+
 	// layout and space
 	lineLength: 'line-length',
 	crampedTarget: 'cramped-target',
@@ -92,7 +97,7 @@ export const RULE = {
 export type RuleId = typeof RULE[keyof typeof RULE];
 
 /** Categories, in the order a report reads best: readability first, taste last. */
-export type RuleCategory = 'typography' | 'color' | 'visual' | 'layout' | 'motion' | 'copy' | 'imagery';
+export type RuleCategory = 'typography' | 'color' | 'visual' | 'layout' | 'motion' | 'copy' | 'imagery' | 'states';
 
 interface RuleMeta {
 	readonly ruleClass: RuleClass;
@@ -134,6 +139,12 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 	[RULE.decorativeGridBackground]: { ruleClass: 'drift', category: 'visual' },
 	[RULE.shapeAssembledArt]: { ruleClass: 'drift', category: 'visual' },
 	[RULE.invisibleBorder]: { ruleClass: 'drift', category: 'visual' },
+	// Фокус и различимость выключенного — пол качества: без них интерфейс нельзя пройти с
+	// клавиатуры и нельзя понять, почему кнопка не срабатывает. Отклик на наведение —
+	// вопрос вкуса и устройства ввода, поэтому drift.
+	[RULE.focusNotVisible]: { ruleClass: 'floor', category: 'states' },
+	[RULE.disabledIndistinguishable]: { ruleClass: 'floor', category: 'states' },
+	[RULE.noHoverAffordance]: { ruleClass: 'drift', category: 'states' },
 
 	[RULE.lineLength]: { ruleClass: 'drift', category: 'layout' },
 	[RULE.crampedTarget]: { ruleClass: 'floor', category: 'layout' },

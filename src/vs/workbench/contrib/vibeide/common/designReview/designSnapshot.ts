@@ -92,6 +92,27 @@ export type ElementSnapshot = {
 	lastLineWordCount: number;
 	/** True when the element responds to clicks (button, a, [role=button], onclick). */
 	interactive: boolean;
+
+	// --- Состояния интерактивного элемента -------------------------------------------------
+	//
+	// Их нельзя вывести из статического снимка: фокус, наведение и запрет живут в CSS-правилах,
+	// а не в вычисленном стиле покоя. Собираются чтением таблиц стилей документа — фокусировать
+	// элемент по-настоящему нельзя, это сдвинуло бы скролл и изменило измеряемую страницу.
+
+	/** `outline-style` в покое: `none` у элемента без замены — обычная причина невидимого фокуса. */
+	outlineStyle: string;
+	outlineWidthPx: number;
+	/** Есть ли в CSS правило `:focus` или `:focus-visible`, применимое к элементу. */
+	hasFocusRule: boolean;
+	/** Есть ли правило `:hover`. */
+	hasHoverRule: boolean;
+	/** Элемент действительно выключен: атрибут `disabled` или `aria-disabled="true"`. */
+	disabled: boolean;
+	/**
+	 * Не удалось прочитать часть таблиц стилей (cross-origin). Тогда «правила нет» означает
+	 * «не смогли посмотреть», и правила состояний обязаны промолчать, а не обвинить.
+	 */
+	styleRulesUnreadable: boolean;
 };
 
 export type DocumentSnapshot = {

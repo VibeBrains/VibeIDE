@@ -54,4 +54,19 @@ suite('Vibe Server — reload script injection', () => {
 			[true, true, true, true, false],
 		);
 	});
+	test('собранный скрипт — синтаксически валидный JavaScript', () => {
+		// Скрипт склеивается из строк, поэтому опечатка в нём — для TypeScript просто текст:
+		// её не поймают ни типы, ни остальные тесты. Всплыла бы она в браузере пользователя,
+		// молча сломав и живую перезагрузку, и дизайн-детектор. Здесь её ловит парсер JS.
+		const script = buildReloadClientScript('/__vibe_server_reload');
+		assert.doesNotThrow(() => new Function(script));
+	});
+
+	test('сборщик снимка отдаёт поля состояний — их читают правила фокуса и disabled', () => {
+		const script = buildReloadClientScript('/__vibe_server_reload');
+		assert.deepStrictEqual(
+			['hasFocusRule', 'hasHoverRule', 'disabled:', 'styleRulesUnreadable', 'outlineStyle']
+				.filter(field => !script.includes(field)),
+			[]);
+	});
 });

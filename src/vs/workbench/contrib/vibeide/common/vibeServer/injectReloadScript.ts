@@ -85,6 +85,27 @@ export function buildReloadClientScript(wsPath: string): string {
 		'function dsCardDepth(el){var d=0,n=el.parentElement;while(n&&n.nodeType===1&&n!==document.body){var s=getComputedStyle(n);if((s.borderStyle&&s.borderStyle!=="none"&&dsNum(s.borderTopWidth)>0)||(s.boxShadow&&s.boxShadow!=="none")||dsNum(s.borderRadius)>=6){d++;}n=n.parentElement;}return d;}',
 		'function dsOwnText(el){var t="";for(var i=0;i<el.childNodes.length;i++){var c=el.childNodes[i];if(c.nodeType===3){t+=c.nodeValue;}}return t.replace(/\\s+/g," ").trim().slice(0,300);}',
 		'function dsInteractive(el){var tag=el.tagName.toLowerCase();if(tag==="button"||tag==="select"||tag==="textarea"||(tag==="a"&&el.hasAttribute("href"))||tag==="input"){return true;}var r=el.getAttribute("role");return r==="button"||r==="link"||typeof el.onclick==="function";}',
+		// Состояния берутся из таблиц стилей, а не фокусировкой элемента: реальный focus() сдвинул
+		// бы скролл и изменил ту самую страницу, которую мы измеряем. Селекторы разбираются один
+		// раз на скан и кэшируются — обход правил на каждый элемент стоил бы слишком дорого.
+		'var dsStateSel=null,dsStateBad=false;',
+		'function dsStateRules(){if(dsStateSel){return dsStateSel;}var focus=[],hover=[];',
+		'var sheets=document.styleSheets||[];',
+		'for(var i=0;i<sheets.length;i++){var rules;',
+		// Cross-origin таблица бросает SecurityError. Это «не посмотрели», а не «правила нет»:
+		// флаг поднимается, и правила состояний на такой странице молчат.
+		'try{rules=sheets[i].cssRules;}catch(e){dsStateBad=true;continue;}',
+		'if(!rules){dsStateBad=true;continue;}',
+		'for(var j=0;j<rules.length;j++){var sel=rules[j].selectorText;if(!sel){continue;}',
+		'var parts=sel.split(",");',
+		'for(var k=0;k<parts.length;k++){var p=parts[k].trim();',
+		// Псевдокласс срезается, чтобы остаток можно было сопоставить с элементом через matches().
+		'if(/:focus(-visible|-within)?\\b/.test(p)){focus.push(p.replace(/:focus(-visible|-within)?/g,""));}',
+		'else if(/:hover\\b/.test(p)){hover.push(p.replace(/:hover/g,""));}}}}',
+		'dsStateSel={focus:focus,hover:hover};return dsStateSel;}',
+		'function dsMatchesAny(el,list){for(var i=0;i<list.length;i++){var s=(list[i]||"").trim();if(!s){continue;}',
+		'try{if(el.matches(s)){return true;}}catch(e){}}return false;}',
+		'function dsDisabled(el){return el.disabled===true||el.getAttribute("aria-disabled")==="true";}',
 		// Largest of the four corners: `borderRadius` is empty when the corners differ.
 		'function dsRadius(s){return Math.max(dsNum(s.borderTopLeftRadius),dsNum(s.borderTopRightRadius),dsNum(s.borderBottomRightRadius),dsNum(s.borderBottomLeftRadius));}',
 		// Colour of the THICKEST side: a one-sided accent border is the tell, and its colour is what matters.
@@ -143,7 +164,10 @@ export function buildReloadClientScript(wsPath: string): string {
 		'marginPx:{top:dsNum(s.marginTop),right:dsNum(s.marginRight),bottom:dsNum(s.marginBottom),left:dsNum(s.marginLeft)},',
 		'imgSrc:tag==="img"?String(el.currentSrc||el.getAttribute("src")||"").slice(0,200):"",imgNaturalWidthPx:tag==="img"?(el.naturalWidth||0):0,',
 		'svgShapeCount:dsSvgShapes(el),textLineCount:lines?lines.count:0,linesEndingWithShortWord:lines?lines.hanging:0,lastLineWordCount:lines?lines.lastWords:0,',
-		'interactive:dsInteractive(el)});}',
+		'interactive:dsInteractive(el),',
+		'outlineStyle:s.outlineStyle||"none",outlineWidthPx:dsNum(s.outlineWidth),',
+		'hasFocusRule:dsMatchesAny(el,dsStateRules().focus),hasHoverRule:dsMatchesAny(el,dsStateRules().hover),',
+		'disabled:dsDisabled(el),styleRulesUnreadable:dsStateBad});}',
 		'post({__vibeBrowser:"design-scan",snapshot:{url:location.href,viewport:vp||undefined,viewportWidthPx:window.innerWidth,viewportHeightPx:window.innerHeight,',
 		'documentScrollWidthPx:document.documentElement?document.documentElement.scrollWidth:0,elements:out,headings:heads,truncated:all.length>LIMIT}});',
 		'}',

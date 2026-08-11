@@ -127,6 +127,12 @@ const el = (over: Partial<ElementSnapshot> = {}): ElementSnapshot => ({
 	linesEndingWithShortWord: 0,
 	lastLineWordCount: 0,
 	interactive: false,
+	outlineStyle: 'auto',
+	outlineWidthPx: 2,
+	hasFocusRule: true,
+	hasHoverRule: true,
+	disabled: false,
+	styleRulesUnreadable: false,
 	...over,
 });
 
