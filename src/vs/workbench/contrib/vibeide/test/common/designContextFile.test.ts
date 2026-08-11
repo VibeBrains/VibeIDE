@@ -133,6 +133,11 @@ const el = (over: Partial<ElementSnapshot> = {}): ElementSnapshot => ({
 	hasHoverRule: true,
 	disabled: false,
 	styleRulesUnreadable: false,
+	accessibleName: 'элемент',
+	isFormField: false,
+	inputType: '',
+	hasPlaceholder: false,
+	hasAltAttribute: true,
 	...over,
 });
 

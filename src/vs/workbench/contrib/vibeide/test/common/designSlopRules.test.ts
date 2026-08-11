@@ -75,6 +75,11 @@ const el = (over: Partial<ElementSnapshot> = {}): ElementSnapshot => ({
 	hasHoverRule: true,
 	disabled: false,
 	styleRulesUnreadable: false,
+	accessibleName: 'элемент',
+	isFormField: false,
+	inputType: '',
+	hasPlaceholder: false,
+	hasAltAttribute: true,
 	...over,
 });
 
@@ -298,7 +303,7 @@ suite('designSlopRules', () => {
 		// printed function count next to an id split once, and arithmetic nobody trusts followed.
 		assert.deepStrictEqual(
 			[RULE_COUNT > 0, ALL_RULE_IDS.length, ALL_RULE_IDS.length >= RULE_COUNT],
-			[true, 58, true],
+			[true, 61, true],
 		);
 	});
 
@@ -407,6 +412,49 @@ suite('designSlopRules', () => {
 			const findings = reviewDesign(doc([button({ hasHoverRule: false, transitionProperty: 'background-color' })]))
 				.filter(f => f.rule === 'no-hover-affordance');
 			assert.deepStrictEqual(findings, []);
+		});
+	});
+	suite('разметка: доступные имена и подписи', () => {
+		test('кнопка-иконка без имени — находка', () => {
+			const findings = reviewDesign(doc([
+				el({ selector: '.close', tag: 'button', text: '', interactive: true, accessibleName: '' }),
+			])).filter(f => f.rule === 'control-without-name');
+			assert.deepStrictEqual(findings.map(f => f.selector), ['.close']);
+		});
+
+		test('кнопка с aria-label или текстом — молчим', () => {
+			const findings = reviewDesign(doc([
+				el({ selector: '.close', tag: 'button', text: '', interactive: true, accessibleName: 'Закрыть' }),
+				el({ selector: '.send', tag: 'button', text: 'Отправить', interactive: true, accessibleName: 'Отправить' }),
+			])).filter(f => f.rule === 'control-without-name');
+			assert.deepStrictEqual(findings, []);
+		});
+
+		test('поле без подписи, и отдельно — поле с одним плейсхолдером', () => {
+			const findings = reviewDesign(doc([
+				el({ selector: '.bare', tag: 'input', interactive: true, isFormField: true, inputType: 'text', accessibleName: '' }),
+				el({ selector: '.ph', tag: 'input', interactive: true, isFormField: true, inputType: 'email', accessibleName: '', hasPlaceholder: true }),
+			])).filter(f => f.rule === 'field-without-label');
+			assert.deepStrictEqual(
+				findings.map(f => `${f.selector}: ${f.message}`),
+				['.bare: У поля нет подписи', '.ph: У поля только плейсхолдер вместо подписи']);
+		});
+
+		test('поле с подписью, а также скрытое и кнопочное — молчим', () => {
+			const findings = reviewDesign(doc([
+				el({ selector: '.named', tag: 'input', interactive: true, isFormField: true, inputType: 'text', accessibleName: 'Почта' }),
+				el({ selector: '.hidden', tag: 'input', interactive: true, isFormField: true, inputType: 'hidden', accessibleName: '' }),
+				el({ selector: '.submit', tag: 'input', interactive: true, isFormField: true, inputType: 'submit', accessibleName: '' }),
+			])).filter(f => f.rule === 'field-without-label');
+			assert.deepStrictEqual(findings, []);
+		});
+
+		test('изображение без атрибута alt — находка; пустой alt законен', () => {
+			const findings = reviewDesign(doc([
+				el({ selector: '.photo', tag: 'img', imgSrc: '/img/team-photo.jpg', hasAltAttribute: false }),
+				el({ selector: '.divider', tag: 'img', imgSrc: '/img/line.svg', hasAltAttribute: true, accessibleName: '' }),
+			])).filter(f => f.rule === 'image-without-alt');
+			assert.deepStrictEqual(findings.map(f => f.selector), ['.photo']);
 		});
 	});
 });

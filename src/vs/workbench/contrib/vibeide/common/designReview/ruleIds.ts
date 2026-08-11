@@ -62,6 +62,11 @@ export const RULE = {
 	disabledIndistinguishable: 'disabled-indistinguishable',
 	noHoverAffordance: 'no-hover-affordance',
 
+	// разметка: то, что читает программа чтения с экрана
+	controlWithoutName: 'control-without-name',
+	fieldWithoutLabel: 'field-without-label',
+	imageWithoutAlt: 'image-without-alt',
+
 	// layout and space
 	lineLength: 'line-length',
 	crampedTarget: 'cramped-target',
@@ -97,7 +102,7 @@ export const RULE = {
 export type RuleId = typeof RULE[keyof typeof RULE];
 
 /** Categories, in the order a report reads best: readability first, taste last. */
-export type RuleCategory = 'typography' | 'color' | 'visual' | 'layout' | 'motion' | 'copy' | 'imagery' | 'states';
+export type RuleCategory = 'typography' | 'color' | 'visual' | 'layout' | 'motion' | 'copy' | 'imagery' | 'states' | 'markup';
 
 interface RuleMeta {
 	readonly ruleClass: RuleClass;
@@ -145,6 +150,10 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 	[RULE.focusNotVisible]: { ruleClass: 'floor', category: 'states' },
 	[RULE.disabledIndistinguishable]: { ruleClass: 'floor', category: 'states' },
 	[RULE.noHoverAffordance]: { ruleClass: 'drift', category: 'states' },
+	// Доступность не бывает вопросом вкуса проекта — все три floor.
+	[RULE.controlWithoutName]: { ruleClass: 'floor', category: 'markup' },
+	[RULE.fieldWithoutLabel]: { ruleClass: 'floor', category: 'markup' },
+	[RULE.imageWithoutAlt]: { ruleClass: 'floor', category: 'markup' },
 
 	[RULE.lineLength]: { ruleClass: 'drift', category: 'layout' },
 	[RULE.crampedTarget]: { ruleClass: 'floor', category: 'layout' },

@@ -62,10 +62,11 @@ suite('Vibe Server — reload script injection', () => {
 		assert.doesNotThrow(() => new Function(script));
 	});
 
-	test('сборщик снимка отдаёт поля состояний — их читают правила фокуса и disabled', () => {
+	test('сборщик снимка отдаёт поля состояний и разметки — их читают правила фокуса, disabled и подписей', () => {
 		const script = buildReloadClientScript('/__vibe_server_reload');
 		assert.deepStrictEqual(
-			['hasFocusRule', 'hasHoverRule', 'disabled:', 'styleRulesUnreadable', 'outlineStyle']
+			['hasFocusRule', 'hasHoverRule', 'disabled:', 'styleRulesUnreadable', 'outlineStyle',
+				'accessibleName', 'isFormField', 'hasPlaceholder', 'hasAltAttribute']
 				.filter(field => !script.includes(field)),
 			[]);
 	});

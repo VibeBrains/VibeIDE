@@ -106,6 +106,20 @@ export function buildReloadClientScript(wsPath: string): string {
 		'function dsMatchesAny(el,list){for(var i=0;i<list.length;i++){var s=(list[i]||"").trim();if(!s){continue;}',
 		'try{if(el.matches(s)){return true;}}catch(e){}}return false;}',
 		'function dsDisabled(el){return el.disabled===true||el.getAttribute("aria-disabled")==="true";}',
+		// Доступное имя — то, что произнесёт программа чтения с экрана. Порядок стандартный;
+		// собственный текст берётся ПОСЛЕ aria-атрибутов, потому что они его перекрывают.
+		// Плейсхолдер сюда не входит намеренно: он исчезает при вводе и подписью не является.
+		'function dsAccName(el){var v=(el.getAttribute("aria-label")||"").trim();if(v){return v.slice(0,120);}',
+		'var lb=el.getAttribute("aria-labelledby");',
+		'if(lb){var acc="";var ids=lb.split(/\\s+/);for(var i=0;i<ids.length;i++){var t=document.getElementById(ids[i]);if(t){acc+=" "+(t.textContent||"");}}',
+		'acc=acc.trim();if(acc){return acc.slice(0,120);}}',
+		'if(el.id){var lab=document.querySelector(\'label[for="\'+(window.CSS&&CSS.escape?CSS.escape(el.id):el.id)+\'"]\');',
+		'if(lab&&(lab.textContent||"").trim()){return lab.textContent.trim().slice(0,120);}}',
+		'if(el.closest){var wrap=el.closest("label");if(wrap&&(wrap.textContent||"").trim()){return wrap.textContent.trim().slice(0,120);}}',
+		'var own=(el.textContent||"").trim();if(own){return own.slice(0,120);}',
+		'var alt=el.getAttribute("alt");if(alt&&alt.trim()){return alt.trim().slice(0,120);}',
+		'return (el.getAttribute("title")||"").trim().slice(0,120);}',
+		'function dsFormField(el){var t=el.tagName.toLowerCase();return t==="input"||t==="select"||t==="textarea";}',
 		// Largest of the four corners: `borderRadius` is empty when the corners differ.
 		'function dsRadius(s){return Math.max(dsNum(s.borderTopLeftRadius),dsNum(s.borderTopRightRadius),dsNum(s.borderBottomRightRadius),dsNum(s.borderBottomLeftRadius));}',
 		// Colour of the THICKEST side: a one-sided accent border is the tell, and its colour is what matters.
@@ -167,7 +181,9 @@ export function buildReloadClientScript(wsPath: string): string {
 		'interactive:dsInteractive(el),',
 		'outlineStyle:s.outlineStyle||"none",outlineWidthPx:dsNum(s.outlineWidth),',
 		'hasFocusRule:dsMatchesAny(el,dsStateRules().focus),hasHoverRule:dsMatchesAny(el,dsStateRules().hover),',
-		'disabled:dsDisabled(el),styleRulesUnreadable:dsStateBad});}',
+		'disabled:dsDisabled(el),styleRulesUnreadable:dsStateBad,',
+		'accessibleName:dsAccName(el),isFormField:dsFormField(el),inputType:String(el.getAttribute("type")||"").toLowerCase(),',
+		'hasPlaceholder:!!(el.getAttribute("placeholder")||"").trim(),hasAltAttribute:el.hasAttribute("alt")});}',
 		'post({__vibeBrowser:"design-scan",snapshot:{url:location.href,viewport:vp||undefined,viewportWidthPx:window.innerWidth,viewportHeightPx:window.innerHeight,',
 		'documentScrollWidthPx:document.documentElement?document.documentElement.scrollWidth:0,elements:out,headings:heads,truncated:all.length>LIMIT}});',
 		'}',
