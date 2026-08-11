@@ -9,6 +9,50 @@ import { NormalizeCounterKey } from '../../../../common/xmlToolNormalize.js';
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react'; // Added useRef import just in case it was missed, though likely already present
 import { ProviderName, SettingName, displayInfoOfSettingName, providerNames, VibeideStatefulModelInfo, customSettingNamesOfProvider, RefreshableProviderName, refreshableProviderNames, displayInfoOfProviderName, nonlocalProviderNames, localProviderNames, GlobalSettingName, featureNames, displayInfoOfFeatureName, isProviderNameDisabled, FeatureName, hasDownloadButtonsOnModelsProviderNames, subTextMdOfProviderName } from '../../../../common/vibeideSettingsTypes.js';
 import { remoteCatalogCapableProviderNames } from '../../../../common/remoteCatalogService.js';
+import {
+	LocalModelFit,
+	estimateLocalModelFit,
+	estimateWeightsFromTag,
+	formatGigabytes,
+	parseModelShape,
+	parseTrainedContext,
+	type ILocalModelFitResult,
+} from '../../../../common/localModelFit.js';
+import type { LocalModelEntry } from '../../../../common/ollamaInstallerService.js';
+
+/**
+ * Контекст, по которому считается основной вердикт «влезет ли». Не максимум модели: почти никто
+ * не работает на полном окне, и вердикт по нему пугал бы там, где всё в порядке. Полное окно
+ * считается отдельной строкой, когда оно заметно больше рабочего.
+ */
+const WORKING_CONTEXT_TOKENS = 8192;
+
+/** Строка списка «скачанные модели и память машины». */
+type LocalModelFitRow = {
+	readonly model: LocalModelEntry;
+	readonly working: ILocalModelFitResult;
+	readonly full?: ILocalModelFitResult;
+	readonly trainedContext?: number;
+};
+
+const fitVerdict = (fit: LocalModelFit): string => {
+	switch (fit) {
+		case LocalModelFit.Fits: return ollamaS.fitVerdictFits;
+		case LocalModelFit.Tight: return ollamaS.fitVerdictTight;
+		case LocalModelFit.TooLarge: return ollamaS.fitVerdictTooLarge;
+		default: return ollamaS.fitVerdictUnknown;
+	}
+};
+
+// Цвета — токены темы, а не литералы: вердикт обязан читаться и на светлой, и на тёмной.
+const fitColor = (fit: LocalModelFit): string => {
+	switch (fit) {
+		case LocalModelFit.Fits: return 'var(--vscode-charts-green, var(--vscode-foreground))';
+		case LocalModelFit.Tight: return 'var(--vscode-editorWarning-foreground, var(--vscode-foreground))';
+		case LocalModelFit.TooLarge: return 'var(--vscode-editorError-foreground, var(--vscode-foreground))';
+		default: return 'var(--vscode-descriptionForeground, var(--vscode-foreground))';
+	}
+};
 import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js';
 import { VibeButtonBgDarken, VibeCustomDropdownBox, VibeInputBox2, VibeSimpleInputBox, VibeSwitch } from '../util/inputs.js';
 import { visibleProviderCards } from '../../../../common/providerCardVisibility.js';
@@ -1337,6 +1381,49 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
     const [terminalOutput, setTerminalOutput] = useState<string>('');
     const [modelTag, setModelTag] = useState<string>('llava'); // Default to vision model for better UX
     const [isHealthy, setIsHealthy] = useState<boolean | null>(null);
+    const ollamaInstallerService = accessor.get('IOllamaInstallerService');
+    const [hostMemory, setHostMemory] = useState<number>(0);
+    const [modelFits, setModelFits] = useState<LocalModelFitRow[] | null>(null);
+
+    // «Потянет ли машина» считается один раз при открытии и после каждой загрузки/удаления
+    // модели: и размер файла, и устройство модели меняются только тогда.
+    const refreshModelFits = useCallback(async () => {
+        const [memory, models] = await Promise.all([
+            ollamaInstallerService.hostMemoryBytes(),
+            ollamaInstallerService.listModels(),
+        ]);
+        setHostMemory(memory);
+        if (!memory || models.length === 0) {
+            setModelFits([]);
+            return;
+        }
+        const rows = await Promise.all(models.map(async (model) => {
+            const details = await ollamaInstallerService.inspectModel(model.name);
+            const shape = parseModelShape(details.modelInfo);
+            const trainedContext = parseTrainedContext(details.modelInfo);
+            const working = estimateLocalModelFit({
+                weightsBytes: model.sizeBytes,
+                totalMemoryBytes: memory,
+                contextTokens: WORKING_CONTEXT_TOKENS,
+                shape,
+            });
+            // Второй расчёт нужен там, где модель обучена на длинный контекст: она может
+            // свободно идти на рабочих 8k и не влезать на своих полных 128k, а человеку
+            // неоткуда это узнать — счёт за длинный контекст платит KV-кэш.
+            const full = trainedContext && trainedContext > WORKING_CONTEXT_TOKENS
+                ? estimateLocalModelFit({
+                    weightsBytes: model.sizeBytes,
+                    totalMemoryBytes: memory,
+                    contextTokens: trainedContext,
+                    shape,
+                })
+                : undefined;
+            return { model, working, full, trainedContext };
+        }));
+        setModelFits(rows);
+    }, [ollamaInstallerService]);
+
+    useEffect(() => { void refreshModelFits(); }, [refreshModelFits]);
 
     // Auto-select sensible default per OS and filter options label hints
     useEffect(() => {
@@ -1541,6 +1628,35 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                 </div>
             </div>
         )}
+        {hostMemory > 0 && (
+            <div className=' pl-6 mt-3'>
+                <div className='text-vibe-fg-2 text-xs font-medium'>{ollamaS.fitTitle}</div>
+                <div className='text-vibe-fg-4 text-xs mt-0.5'>{ollamaS.fitHint(formatGigabytes(hostMemory))}</div>
+                {modelFits === null && <div className='text-vibe-fg-3 text-xs mt-1'>{ollamaS.fitLoading}</div>}
+                {modelFits?.length === 0 && <div className='text-vibe-fg-3 text-xs mt-1'>{ollamaS.fitEmpty}</div>}
+                {!!modelFits?.length && (
+                    <div className='mt-1 flex flex-col gap-1'>
+                        {modelFits.map(row => (
+                            <div key={row.model.name} className='text-xs flex flex-wrap items-baseline gap-x-2'>
+                                <span className='text-vibe-fg-1'>{row.model.name}</span>
+                                <span className='text-vibe-fg-4'>{formatGigabytes(row.model.sizeBytes)}</span>
+                                {row.model.quantization && <span className='text-vibe-fg-4'>{row.model.quantization}</span>}
+                                <span style={{ color: fitColor(row.working.fit) }}>
+                                    {fitVerdict(row.working.fit)} {ollamaS.fitAtContext(WORKING_CONTEXT_TOKENS)}
+                                </span>
+                                {/* Вторая строка появляется только когда полное окно меняет вердикт —
+                                    иначе это шум, повторяющий уже сказанное. */}
+                                {row.full && row.trainedContext && row.full.fit !== row.working.fit && (
+                                    <span className='text-vibe-fg-3'>
+                                        {ollamaS.fitFullContext(row.trainedContext, fitVerdict(row.full.fit))}
+                                    </span>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        )}
         <div className=' pl-6 mt-2 flex items-center gap-2 whitespace-nowrap'>
             <span className='text-vibe-fg-3 text-xs'>{ollamaS.pullModel}</span>
             <select
@@ -1577,6 +1693,27 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                         return;
                     }
 
+                    // Предупреждаем ДО скачивания, иначе о нехватке памяти человек узнаёт,
+                    // выкачав десятки гигабайт. Судить можно только по весу: устройство модели
+                    // (`/api/show`) доступно лишь для уже установленных, а размер в теге есть не
+                    // всегда — если его нет, молчим, потому что выдуманное предупреждение хуже
+                    // отсутствующего. Даже такой прикидки хватает на главный случай: 70B на 16 ГБ.
+                    const tagWeights = estimateWeightsFromTag(modelTag);
+                    if (tagWeights && hostMemory > 0) {
+                        const preview = estimateLocalModelFit({
+                            weightsBytes: tagWeights,
+                            totalMemoryBytes: hostMemory,
+                            contextTokens: WORKING_CONTEXT_TOKENS,
+                        });
+                        if (preview.fit === LocalModelFit.TooLarge) {
+                            const proceed = window.confirm(ollamaS.fitPullWarning(
+                                modelTag,
+                                formatGigabytes(preview.requiredBytes),
+                                formatGigabytes(hostMemory)));
+                            if (!proceed) { return; }
+                        }
+                    }
+
                     try {
                         setStatus('running');
                         setStatusText(ollamaS.pulling(modelTag));
@@ -1611,6 +1748,8 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                                         setStatus('done');
                                         setStatusText(ollamaS.pullOk(modelTag));
                                         notificationService.info(ollamaS.pullOkNotif(modelTag));
+                                        // Список «влезет ли» иначе показывал бы состояние до загрузки.
+                                        void refreshModelFits();
 
                                         // Refresh models after a short delay
                                         setTimeout(() => {
@@ -1722,6 +1861,7 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
                                         setStatus('done');
                                         setStatusText(ollamaS.deleteOk(modelTag));
                                         notificationService.info(ollamaS.deleteOkNotif(modelTag));
+                                        void refreshModelFits();
 
                                         // Refresh models after a short delay
                                         setTimeout(() => {

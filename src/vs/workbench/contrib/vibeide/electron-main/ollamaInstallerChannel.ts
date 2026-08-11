@@ -7,8 +7,9 @@
 import { IServerChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { spawn } from 'child_process';
-import { platform } from 'os';
+import { platform, totalmem } from 'os';
 import { connect } from 'net';
+import { LocalModelDetails, LocalModelEntry } from '../common/ollamaInstallerService.js';
 
 type InstallParams = { method: 'auto' | 'brew' | 'curl' | 'winget' | 'choco'; modelTag?: string };
 export type ProbeResult = { running: boolean; modelCount: number };
@@ -16,6 +17,8 @@ export type ProbeResult = { running: boolean; modelCount: number };
 const OLLAMA_HOST = '127.0.0.1';
 const OLLAMA_PORT = 11434;
 const PROBE_TIMEOUT_MS = 1500;
+/** Metadata reads may queue behind generation on a busy server; a probe timeout is too short. */
+const REQUEST_TIMEOUT_MS = 5000;
 
 export class OllamaInstallerChannel implements IServerChannel {
 
@@ -36,7 +39,59 @@ export class OllamaInstallerChannel implements IServerChannel {
 		if (command === 'probe') {
 			return (await this.probe()) as T;
 		}
+		if (command === 'listModels') {
+			return (await this.listModels()) as T;
+		}
+		if (command === 'inspectModel') {
+			return (await this.inspectModel(String(params))) as T;
+		}
+		if (command === 'hostMemoryBytes') {
+			return totalmem() as T;
+		}
 		throw new Error(`Unknown command: ${command}`);
+	}
+
+	/**
+	 * Models already pulled onto this machine, with their real on-disk size — the term that
+	 * dominates the «will this run here?» estimate and the one that need not be guessed.
+	 * Ollama being absent is an ordinary answer, not a failure: the caller gets an empty list.
+	 */
+	private async listModels(): Promise<LocalModelEntry[]> {
+		const body = await this.getJson('/api/tags').catch(() => undefined);
+		const models = (body as { models?: unknown })?.models;
+		if (!Array.isArray(models)) {
+			return [];
+		}
+		return models.flatMap((entry: Record<string, unknown>) => {
+			const name = entry?.['name'];
+			const size = entry?.['size'];
+			if (typeof name !== 'string' || typeof size !== 'number') {
+				return [];
+			}
+			const details = entry['details'] as Record<string, unknown> | undefined;
+			const text = (key: string) => typeof details?.[key] === 'string' ? details[key] as string : undefined;
+			return [{
+				name,
+				sizeBytes: size,
+				quantization: text('quantization_level'),
+				parameterSize: text('parameter_size'),
+			}];
+		});
+	}
+
+	/**
+	 * `model_info` is handed over untouched: its keys carry the architecture as a prefix
+	 * (`llama.block_count`), so naming them here would mean hard-coding one architecture.
+	 */
+	private async inspectModel(tag: string): Promise<LocalModelDetails> {
+		if (!tag) {
+			return {};
+		}
+		const body = await this.getJson('/api/show', { model: tag }).catch(() => undefined);
+		const modelInfo = (body as { model_info?: unknown })?.model_info;
+		return modelInfo && typeof modelInfo === 'object'
+			? { modelInfo: modelInfo as Record<string, unknown> }
+			: {};
 	}
 
 	private probe(): Promise<ProbeResult> {
@@ -60,28 +115,54 @@ export class OllamaInstallerChannel implements IServerChannel {
 	}
 
 	private async fetchTags(): Promise<number> {
+		const body = await this.getJson('/api/tags');
+		return Array.isArray((body as { models?: unknown })?.models)
+			? ((body as { models: unknown[] }).models).length
+			: 0;
+	}
+
+	/**
+	 * One HTTP helper for every Ollama endpoint we touch. `payload` turns the call into a POST —
+	 * `/api/show` takes the model tag in the body, `/api/tags` takes nothing.
+	 *
+	 * Inspecting a model gets a longer timeout than the liveness probe: reading metadata can wait
+	 * on a busy server, and a false «unknown» would be shown to the user as if it were a fact.
+	 */
+	private async getJson(path: string, payload?: Record<string, unknown>): Promise<unknown> {
 		const { request: httpRequest } = await import('http');
-		return new Promise<number>((resolve, reject) => {
-			const req = httpRequest({ host: OLLAMA_HOST, port: OLLAMA_PORT, path: '/api/tags', method: 'GET', timeout: PROBE_TIMEOUT_MS }, res => {
+		const encoded = payload ? Buffer.from(JSON.stringify(payload), 'utf8') : undefined;
+		const timeout = payload ? REQUEST_TIMEOUT_MS : PROBE_TIMEOUT_MS;
+
+		return new Promise<unknown>((resolve, reject) => {
+			const req = httpRequest({
+				host: OLLAMA_HOST,
+				port: OLLAMA_PORT,
+				path,
+				method: encoded ? 'POST' : 'GET',
+				timeout,
+				headers: encoded
+					? { 'content-type': 'application/json', 'content-length': encoded.byteLength }
+					: undefined,
+			}, res => {
 				if (res.statusCode !== 200) {
 					res.resume();
-					resolve(0);
+					reject(new Error(`HTTP ${res.statusCode}`));
 					return;
 				}
 				const chunks: Buffer[] = [];
 				res.on('data', chunk => chunks.push(chunk as Buffer));
 				res.on('end', () => {
 					try {
-						const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-						resolve(Array.isArray(body?.models) ? body.models.length : 0);
-					} catch {
-						resolve(0);
+						resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+					} catch (err) {
+						reject(err);
 					}
 				});
 				res.on('error', reject);
 			});
 			req.on('error', reject);
 			req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+			if (encoded) { req.write(encoded); }
 			req.end();
 		});
 	}

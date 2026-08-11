@@ -24,6 +24,7 @@
 |---|---|
 | [chatPane.md](architecture/chatPane.md) | Две поверхности чата, `VibeChatEditorPane`, multi-chat tabs, lockdown, session restore |
 | [plansAndAgents.md](architecture/plansAndAgents.md) | Persisted plans, lease, JSONL journal, dashboard, subagents, background agent, stall watchdog, project rules, agent skills |
+| [localModelMemory.md](architecture/localModelMemory.md) | Влезет ли локальная модель в память: KV-кэш считается по форме внимания, а не «долей от веса» (GQA ломает прикидку в разы); ключи `model_info` префиксованы архитектурой; без формы внимания — `unknown`, а не «влезет» |
 | [llmAndContext.md](architecture/llmAndContext.md) | LLM-провайдеры, remote catalog, OpenCode Zen vs Go vs OpenRouter, context filter, `@diagram` |
 | [aiSdkMigrationWip.md](architecture/aiSdkMigrationWip.md) | **НЕЗАВЕРШЕНО.** Миграция провайдеров с нативных SDK на Vercel AI SDK (`ai` + `@ai-sdk/openai-compatible`). 14 провайдеров мигрировано, рантайм-тест не пройден, anthropic/gemini/local ещё не тронуты. |
 | [apiProtocolRouting.md](architecture/apiProtocolRouting.md) | `API_PROTOCOL_VALUES` const-as-source-of-truth, three-tier SDK routing (user override → models.dev → fallback), `ModelOverrides.apiProtocol` field, adapter quirks (anthropic-beta headers, Google functionDeclarations), checklist на добавление нового SDK |
