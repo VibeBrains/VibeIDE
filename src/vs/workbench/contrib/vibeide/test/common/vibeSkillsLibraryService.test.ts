@@ -6,7 +6,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { parseSkillMarkdown, orderedTransitiveDependencySkillIds, serializeSkillMarkdown } from '../../common/vibeSkillsLibraryService.js';
+import { parseSkillMarkdown, orderedTransitiveDependencySkillIds, serializeSkillMarkdown, describeSkillRequirements } from '../../common/vibeSkillsLibraryService.js';
 
 suite('Agent Skills — parseSkillMarkdown', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -195,6 +195,27 @@ precheck: scripts/check.sh
 			assert.deepStrictEqual(
 				{ compat: parsed!.compatibility, precheck: parsed!.precheck },
 				{ compat: 'Нужны ffmpeg и yt-dlp в PATH; требуется доступ в сеть.', precheck: 'scripts/check.sh' });
+		});
+	});
+	suite('describeSkillRequirements', () => {
+		test('пусто, когда скилл ничего не требует', () => {
+			assert.strictEqual(describeSkillRequirements({}), '');
+		});
+
+		test('три источника требований собираются в одну строку', () => {
+			assert.strictEqual(
+				describeSkillRequirements({
+					compatibility: 'Нужны ffmpeg и yt-dlp в PATH.',
+					requiresTools: ['Read', 'Bash'],
+					minVibeide: '1.12.0',
+				}),
+				'Нужны ffmpeg и yt-dlp в PATH. · Инструменты: Read, Bash · Нужна VibeIDE 1.12.0 или новее');
+		});
+
+		test('пустой список инструментов не порождает висящий разделитель', () => {
+			assert.strictEqual(
+				describeSkillRequirements({ compatibility: 'Только git.', requiresTools: [] }),
+				'Только git.');
 		});
 	});
 });

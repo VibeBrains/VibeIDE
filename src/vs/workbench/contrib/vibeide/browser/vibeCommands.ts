@@ -25,7 +25,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { IQuickInputService, IQuickPickItem } from '../../../../platform/quickinput/common/quickInput.js';
 import { ISecretStorageService } from '../../../../platform/secrets/common/secrets.js';
 import { GITHUB_TOKEN_SECRET_KEY } from '../common/vibeJobPRCompletionService.js';
-import { IVibeSkillsLibraryService } from '../common/vibeSkillsLibraryService.js';
+import { IVibeSkillsLibraryService, describeSkillRequirements } from '../common/vibeSkillsLibraryService.js';
 import { IFileDialogService, IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { ITerminalService } from '../../../contrib/terminal/browser/terminal.js';
 import { TerminalLocation } from '../../../../platform/terminal/common/terminal.js';
@@ -675,11 +675,17 @@ registerAction2(class extends Action2 {
 			return;
 		}
 		const active = new Set((cfg.getValue<string[]>('vibeide.skills.sessionActiveIds') ?? []).map(s => s.trim().toLowerCase()).filter(Boolean));
-		const items: (IQuickPickItem & { picked?: boolean })[] = loaded.map(s => ({
-			label: s.skillId,
-			description: s.description.length > 140 ? `${s.description.slice(0, 137)}…` : s.description,
-			picked: active.has(s.skillId.toLowerCase()),
-		}));
+		const items: (IQuickPickItem & { picked?: boolean })[] = loaded.map(s => {
+			// Требования показываются здесь, в момент выбора: скилл, которому нужен ffmpeg или
+			// доступ к терминалу, должен сообщать об этом до включения, а не отказом в работе.
+			const requirements = describeSkillRequirements(s);
+			return {
+				label: s.skillId,
+				description: s.description.length > 140 ? `${s.description.slice(0, 137)}…` : s.description,
+				detail: requirements ? `⚙ ${requirements}` : undefined,
+				picked: active.has(s.skillId.toLowerCase()),
+			};
+		});
 		const picked = await qi.pick(items, {
 			canPickMany: true,
 			placeHolder: localize('vibeideSkillsPickPh', 'Включить/выключить скиллы для обнаружения GUIDELINES (пустой выбор = все скиллы)'),

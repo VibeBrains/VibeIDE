@@ -5,6 +5,7 @@
 
 
 import { vibeLog } from './vibeLog.js';
+import { localize } from '../../../../nls.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -247,6 +248,29 @@ export function readFrontmatterScalar(block: string, field: string): string {
 }
 
 /** Parse SKILL.md YAML frontmatter (minimal roadmap contract). Invalid strict entries yield null (skipped). */
+/**
+ * One line describing what a skill needs before it is switched on: environment, tools, IDE
+ * version. Empty when the skill declares nothing.
+ *
+ * Requirements were being parsed and then dropped — `compatibility`, `requiresTools` and
+ * `minVibeide` reached the entry and no surface ever showed them. A requirement the user learns
+ * about only when the skill fails is the same as no requirement at all, and the whole point of
+ * `compatibility` in the spec is that it is readable *before* the skill body is expanded.
+ */
+export function describeSkillRequirements(skill: Pick<VibeSkillEntry, 'compatibility' | 'requiresTools' | 'minVibeide'>): string {
+	const parts: string[] = [];
+	if (skill.compatibility) {
+		parts.push(skill.compatibility.trim());
+	}
+	if (skill.requiresTools?.length) {
+		parts.push(localize('vibeide.skills.requiresTools', "Инструменты: {0}", skill.requiresTools.join(', ')));
+	}
+	if (skill.minVibeide) {
+		parts.push(localize('vibeide.skills.minVibeide', "Нужна VibeIDE {0} или новее", skill.minVibeide));
+	}
+	return parts.join(' · ');
+}
+
 export function parseSkillMarkdown(raw: string, relativePath: string, defaultId: string): VibeSkillEntry | null {
 	let rest = raw.replace(/^\uFEFF/, '');
 	let skillId = defaultId;
