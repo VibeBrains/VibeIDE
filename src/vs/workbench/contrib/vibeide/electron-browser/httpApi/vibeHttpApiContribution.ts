@@ -176,13 +176,18 @@ registerAction2(class VibeHttpApiShowToken extends Action2 {
 			return;
 		}
 		const port = config.getValue<number>(VibeHttpApiConfigKeys.port) ?? 0;
+		// The curl line is built OUTSIDE the localized string and passed in as a parameter. Its JSON
+		// body contains braces, and the message formatter treats those as placeholders: doubling
+		// them to escape does not survive the round trip — the dialog showed a literal `{{"task"…}}`,
+		// i.e. a command that fails when pasted. Verified live, which is the only way it surfaced.
+		const example = `curl -H "Authorization: Bearer <токен>" -H "Content-Type: application/json" -d '{"task":"собери проект"}' http://127.0.0.1:${port || '<порт>'}/run`;
 		await dialogs.info(
 			localize('vibeide.httpApi.tokenTitle', 'Токен HTTP API'),
 			localize(
 				'vibeide.httpApi.tokenDetail',
-				'{0}\n\nПример вызова:\ncurl -H "Authorization: Bearer <токен>" -H "Content-Type: application/json" -d \'{{"task":"собери проект"}}\' http://127.0.0.1:{1}/run\n\nОтвет содержит sessionId — передайте его следующим вызовом, чтобы продолжить ту же сессию.',
+				'{0}\n\nПример вызова:\n{1}\n\nОтвет содержит sessionId — передайте его следующим вызовом, чтобы продолжить ту же сессию.',
 				token,
-				port || '<порт>',
+				example,
 			),
 		);
 	}
