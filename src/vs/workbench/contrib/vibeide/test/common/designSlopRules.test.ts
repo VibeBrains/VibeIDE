@@ -306,7 +306,7 @@ suite('designSlopRules', () => {
 		// printed function count next to an id split once, and arithmetic nobody trusts followed.
 		assert.deepStrictEqual(
 			[RULE_COUNT > 0, ALL_RULE_IDS.length, ALL_RULE_IDS.length >= RULE_COUNT],
-			[true, 63, true],
+			[true, 64, true],
 		);
 	});
 
@@ -484,5 +484,63 @@ suite('designSlopRules', () => {
 			])).filter(f => f.rule === 'required-only-visual');
 			assert.deepStrictEqual(findings.map(f => f.selector), ['.star']);
 		});
+	});
+});
+
+suite('designSlopRules — двойной отступ между полосами', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	/** Две вертикально смежные полосы: верхняя высотой 400 от 0, нижняя сразу под ней. */
+	const bands = (over: { upperBottom: number; lowerTop: number; sameBg: boolean }) => [
+		el({
+			selector: 'section.a', parentSelector: 'body', tag: 'section',
+			widthPx: 1200, heightPx: 400, topPx: 0, leftPx: 0,
+			paddingPx: { top: 80, right: 0, bottom: over.upperBottom, left: 0 },
+			backgroundColor: [250, 250, 250],
+		}),
+		el({
+			selector: 'section.b', parentSelector: 'body', tag: 'section',
+			widthPx: 1200, heightPx: 400, topPx: 400, leftPx: 0,
+			paddingPx: { top: over.lowerTop, right: 0, bottom: 80, left: 0 },
+			backgroundColor: over.sameBg ? [250, 250, 250] : [20, 20, 20],
+		}),
+	];
+
+	const gaps = (elements: ElementSnapshot[]) =>
+		reviewDesign(doc(elements)).filter(f => f.rule === 'double-gap');
+
+	test('одинаковый фон и щедрые поля с обеих сторон — находка с суммой', () => {
+		const found = gaps(bands({ upperBottom: 80, lowerTop: 80, sameBg: true }));
+		assert.deepStrictEqual(
+			found.map(f => ({ selector: f.selector, severity: f.severity, evidence: f.evidence })),
+			[{
+				selector: 'section.b',
+				severity: 'warning',
+				evidence: 'section.a padding-bottom 80px + section.b padding-top 80px = 160px',
+			}],
+		);
+	});
+
+	test('разный фон — это два поля двух плоскостей, не находка', () => {
+		// Граница видна, значит воздух читается как принадлежащий каждой полосе отдельно.
+		assert.strictEqual(gaps(bands({ upperBottom: 80, lowerTop: 80, sameBg: false })).length, 0);
+	});
+
+	test('поле только с одной стороны — так и задумано', () => {
+		assert.strictEqual(gaps(bands({ upperBottom: 160, lowerTop: 0, sameBg: true })).length, 0);
+	});
+
+	test('маленькие поля не считаются полосой воздуха', () => {
+		// 16+16 — это внутренний отступ соседних блоков, а не провал между секциями.
+		assert.strictEqual(gaps(bands({ upperBottom: 16, lowerTop: 16, sameBg: true })).length, 0);
+	});
+
+	test('элементы, стоящие рядом по горизонтали, правилу не подчиняются', () => {
+		const columns = [
+			el({ selector: '.left', parentSelector: '.row', widthPx: 600, heightPx: 400, topPx: 0, leftPx: 0, paddingPx: { top: 80, right: 0, bottom: 80, left: 0 }, backgroundColor: [250, 250, 250] }),
+			el({ selector: '.right', parentSelector: '.row', widthPx: 600, heightPx: 400, topPx: 0, leftPx: 600, paddingPx: { top: 80, right: 0, bottom: 80, left: 0 }, backgroundColor: [250, 250, 250] }),
+		];
+		assert.strictEqual(gaps(columns).length, 0);
 	});
 });

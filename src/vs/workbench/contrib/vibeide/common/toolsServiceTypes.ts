@@ -185,7 +185,7 @@ export type BuiltinToolResultType = {
 	// distinct from an empty design system, which would read as "decided to have nothing".
 	'design_context': {
 		hasWorkspace: boolean;
-		sources: { product?: string; design?: string; components?: string };
+		sources: { product?: string; design?: string; components?: string; uiKit?: string };
 		product?: { audience?: string; positioning?: string; platform?: string; text: string };
 		design?: {
 			fonts: string[];
@@ -197,6 +197,8 @@ export type BuiltinToolResultType = {
 		};
 		/** Памятки по видам компонентов — читаются ДО создания, детектору они не видны. */
 		components?: { names: string[]; text: string };
+		/** Карта того, что в проекте уже построено: имена компонентов и где они лежат. */
+		uiKit?: { entries: Array<{ layer: string; file: string; contains: string }>; componentNames: string[]; text: string };
 	};
 	'design_document': {
 		target: 'product' | 'system';

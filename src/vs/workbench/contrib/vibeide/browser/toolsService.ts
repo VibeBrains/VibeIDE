@@ -1540,6 +1540,11 @@ export class ToolsService extends Disposable implements IToolsService {
 							names: read.context.components.notes.map(note => note.name),
 							text: read.context.components.raw,
 						},
+						uiKit: read.context.uiKit && {
+							entries: read.context.uiKit.entries,
+							componentNames: read.context.uiKit.componentNames,
+							text: read.context.uiKit.raw,
+						},
 					},
 				};
 			},
@@ -3153,10 +3158,23 @@ export class ToolsService extends Disposable implements IToolsService {
 				if (!result.hasWorkspace) {
 					return 'Папка проекта не открыта — читать дизайн-контекст неоткуда.';
 				}
-				if (!result.product && !result.design && !result.components) {
+				if (!result.product && !result.design && !result.components && !result.uiKit) {
 					return 'Дизайн-контекста в проекте нет: ни product.md, ни design.md.\n\nЭто значит, что любая генерация интерфейса будет обобщённой. Предложите пользователю собрать контекст: два вопроса про продукт (design_document target=product) и снятие визуальной системы с живой страницы (design_document target=system).';
 				}
 				const parts: string[] = [];
+				// Карта идёт ПЕРВОЙ и до всего остального: она отвечает на вопрос «есть ли уже
+				// готовое», и только потом остальные файлы отвечают «каким оно должно быть».
+				// Порядок здесь — не оформление: модель, прочитавшая палитру раньше карты, уже
+				// начала придумывать компонент, которого не надо было придумывать.
+				if (result.uiKit) {
+					const names = result.uiKit.componentNames.length
+						? `\n\nИмена, на которые ссылаться дословно: ${result.uiKit.componentNames.join(', ')}.`
+						: '';
+					const layers = result.uiKit.entries.length
+						? `\n\nГде что лежит:\n${result.uiKit.entries.map(e => `• ${e.layer} → ${e.file}${e.contains ? ` (${e.contains})` : ''}`).join('\n')}`
+						: '';
+					parts.push(`# Карта UI проекта (${result.sources.uiKit})\n\nПРЕЖДЕ ЧЕМ СОЗДАВАТЬ ЭЛЕМЕНТ ИНТЕРФЕЙСА — найдите его здесь. Если он есть, используйте существующий и не заводите новый: именно из «не нашёл и сделал свой» получается интерфейс, где пять разных кнопок.${names}${layers}\n\n${result.uiKit.text.trim()}`);
+				}
 				if (result.product) {
 					parts.push(`# Продукт (${result.sources.product})\n\n${result.product.text.trim()}`);
 				} else {

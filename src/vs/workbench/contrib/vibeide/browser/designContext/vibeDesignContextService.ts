@@ -13,6 +13,8 @@ import { createDecorator } from '../../../../../platform/instantiation/common/in
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import {
 	COMPONENT_NOTES_PATHS,
+	UI_KIT_PATHS,
+	parseUiKit,
 	DESIGN_SYSTEM_PATHS,
 	DesignContext,
 	DesignSystemDraft,
@@ -29,7 +31,7 @@ import {
 export interface DesignContextRead {
 	context: DesignContext;
 	/** Workspace-relative paths actually read; a missing entry means the file is absent. */
-	sources: { product?: string; design?: string; components?: string };
+	sources: { product?: string; design?: string; components?: string; uiKit?: string };
 	/** False when no folder is open — different from "no context written yet". */
 	hasWorkspace: boolean;
 }
@@ -74,13 +76,15 @@ class VibeDesignContextService extends Disposable implements IVibeDesignContextS
 		const product = await this._readFirst(root, PRODUCT_CONTEXT_PATHS);
 		const design = await this._readFirst(root, DESIGN_SYSTEM_PATHS);
 		const components = await this._readFirst(root, COMPONENT_NOTES_PATHS);
+		const uiKit = await this._readFirst(root, UI_KIT_PATHS);
 		return {
 			context: {
 				product: parseProductContext(product?.content),
 				design: parseDesignSystem(design?.content),
 				components: parseComponentNotes(components?.content),
+				uiKit: parseUiKit(uiKit?.content),
 			},
-			sources: { product: product?.path, design: design?.path, components: components?.path },
+			sources: { product: product?.path, design: design?.path, components: components?.path, uiKit: uiKit?.path },
 			hasWorkspace: true,
 		};
 	}
