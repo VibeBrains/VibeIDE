@@ -49,6 +49,7 @@ export const RULE = {
 
 	// surface decoration
 	extremeRadius: 'extreme-radius',
+	radiusScaleSprawl: 'radius-scale-sprawl',
 	hairlineWithShadow: 'hairline-with-shadow',
 	sideAccentBorder: 'side-accent-border',
 	glassmorphism: 'glassmorphism',
@@ -140,6 +141,7 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 	[RULE.beigeSurface]: { ruleClass: 'drift', category: 'color' },
 
 	[RULE.extremeRadius]: { ruleClass: 'drift', category: 'visual' },
+	[RULE.radiusScaleSprawl]: { ruleClass: 'drift', category: 'visual' },
 	[RULE.hairlineWithShadow]: { ruleClass: 'drift', category: 'visual' },
 	[RULE.sideAccentBorder]: { ruleClass: 'drift', category: 'visual' },
 	[RULE.glassmorphism]: { ruleClass: 'drift', category: 'visual' },

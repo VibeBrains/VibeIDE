@@ -306,7 +306,7 @@ suite('designSlopRules', () => {
 		// printed function count next to an id split once, and arithmetic nobody trusts followed.
 		assert.deepStrictEqual(
 			[RULE_COUNT > 0, ALL_RULE_IDS.length, ALL_RULE_IDS.length >= RULE_COUNT],
-			[true, 64, true],
+			[true, 65, true],
 		);
 	});
 
@@ -542,5 +542,43 @@ suite('designSlopRules — двойной отступ между полосам
 			el({ selector: '.right', parentSelector: '.row', widthPx: 600, heightPx: 400, topPx: 0, leftPx: 600, paddingPx: { top: 80, right: 0, bottom: 80, left: 0 }, backgroundColor: [250, 250, 250] }),
 		];
 		assert.strictEqual(gaps(columns).length, 0);
+	});
+});
+
+suite('designSlopRules — разнобой шкалы радиусов', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	const boxes = (radii: number[]) => radii.map((r, i) =>
+		el({ selector: `.box-${i}`, widthPx: 200, heightPx: 100, borderRadiusPx: r }));
+
+	const sprawl = (elements: ElementSnapshot[]) =>
+		reviewDesign(doc(elements)).filter(f => f.rule === 'radius-scale-sprawl');
+
+	test('шесть разных радиусов — находка со списком значений', () => {
+		const found = sprawl(boxes([4, 6, 8, 12, 16, 24, 4, 8]));
+		assert.deepStrictEqual(
+			found.map(f => f.evidence),
+			['6 значений на 8 элементах: 4, 6, 8, 12, 16, 24px'],
+		);
+	});
+
+	test('три ступени — это шкала, а не разнобой', () => {
+		assert.strictEqual(sprawl(boxes([4, 4, 8, 8, 8, 16, 16, 4])).length, 0);
+	});
+
+	test('прямые углы не считаются ступенью шкалы', () => {
+		// Ноль — осознанное решение, а не ещё одно значение радиуса.
+		assert.strictEqual(sprawl(boxes([0, 0, 0, 0, 8, 8, 12, 12])).length, 0);
+	});
+
+	test('дробные значения одной ступени не размножают её', () => {
+		// 11.98 и 12.02 приходят от вычисленной ширины, а не от чьего-то выбора.
+		assert.strictEqual(sprawl(boxes([11.98, 12.02, 12, 11.99, 12.01, 12, 12, 12])).length, 0);
+	});
+
+	test('на странице из пары элементов правило молчит', () => {
+		// Выводить «шкалы нет» по трём коробкам — гадание, а не измерение.
+		assert.strictEqual(sprawl(boxes([4, 8, 16])).length, 0);
 	});
 });

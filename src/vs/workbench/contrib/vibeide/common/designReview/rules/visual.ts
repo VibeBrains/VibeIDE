@@ -62,6 +62,40 @@ const ruleExtremeRadius: Rule = doc => doc.elements
 		evidence: `border-radius: ${el.borderRadiusPx.toFixed(0)}px при ширине ${el.widthPx.toFixed(0)}px`,
 	}));
 
+
+/**
+ * Сколько РАЗНЫХ радиусов скругления живёт на одной странице.
+ *
+ * Это измеримая форма правила «значение, которое повторяется, выносится в токен», вывернутая с той
+ * стороны, которую видно на готовой странице: если радиусов шесть и все разные, значит шкалы нет и
+ * каждый элемент решал за себя. Ровно так выглядит интерфейс, собранный по частям — глазу он
+ * кажется неаккуратным, но причину без замера не назвать, потому что каждый радиус по отдельности
+ * выглядит нормально.
+ *
+ * Ноль не считается: прямые углы — это осознанное решение, а не ещё одна ступень шкалы. Мелочь
+ * вроде 1–3px тоже пропускается: такие значения приходят от бордеров и артефактов округления,
+ * а не от чьего-то выбора.
+ */
+const ruleRadiusScaleSprawl: Rule = doc => {
+	const MIN_RADIUS_PX = 4;
+	const MAX_DISTINCT = 5;
+	const MIN_ELEMENTS = 8;
+	const boxes = doc.elements.filter(el =>
+		el.borderRadiusPx >= MIN_RADIUS_PX && el.widthPx >= 40 && el.heightPx >= 24);
+	if (boxes.length < MIN_ELEMENTS) { return []; }
+	// Округление до целого: 11.98px и 12px — одна ступень, различие пришло от вычисленной ширины.
+	const distinct = [...new Set(boxes.map(el => Math.round(el.borderRadiusPx)))].sort((a, b) => a - b);
+	if (distinct.length <= MAX_DISTINCT) { return []; }
+	return [{
+		rule: RULE.radiusScaleSprawl,
+		severity: 'info',
+		message: `${distinct.length} разных радиусов скругления на странице: ${distinct.join(', ')}px`,
+		why: 'Шкала радиусов — такой же токен, как цвет: две-три ступени на продукт. Когда их шесть и больше, значение выбиралось каждый раз заново, и страница выглядит собранной по частям.',
+		selector: 'body',
+		evidence: `${distinct.length} значений на ${boxes.length} элементах: ${distinct.join(', ')}px`,
+	}];
+};
+
 /** A thin border AND a wide soft shadow: the edge is stated twice, in two different languages. */
 const ruleHairlineWithShadow: Rule = doc => doc.elements
 	.filter(el => el.borderAlpha > 0.05 && maxBorder(el) > 0 && maxBorder(el) <= HAIRLINE_MAX_WIDTH_PX)
@@ -161,6 +195,7 @@ const ruleInvisibleBorder: Rule = doc => doc.elements
 
 export const VISUAL_RULES: readonly Rule[] = [
 	ruleExtremeRadius,
+	ruleRadiusScaleSprawl,
 	ruleHairlineWithShadow,
 	ruleSideAccentBorder,
 	ruleGlassmorphism,

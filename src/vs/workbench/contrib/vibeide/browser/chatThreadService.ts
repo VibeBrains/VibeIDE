@@ -7286,7 +7286,13 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (decision === 'bounce') {
 							designHookAttempts += 1;
 							const list = floorFindings(findings).map(f => `• ${f.message} — ${f.selector} (${f.evidence})`).join('\n');
-							const corrective = `⛔ DESIGN-HOOK: страница после правок нарушает пол качества — это дефекты, а не вкус. Задача НЕ закрыта: исправь и продолжай инструментами (попытка ${designHookAttempts}).\n\n${list}\n\nЕсли что-то из перечисленного — намеренный выбор продукта, впиши правило в раздел «Детектор» файла .vibe/design/design.md с причиной, а не игнорируй молча.`;
+							// Про карту напоминаем ТОЛЬКО когда она в проекте есть: совет «проверьте карту»
+							// в проекте без карты — это совет открыть несуществующий файл, и он учит
+							// игнорировать весь остальной текст сообщения.
+							const uiKitReminder = context.uiKit
+								? '\n\nПеред тем как чинить: если правка требует элемента интерфейса, найдите его в карте UI (.vibe/design/uiKit.md) и используйте существующий, а не заводите новый.'
+								: '';
+							const corrective = `⛔ DESIGN-HOOK: страница после правок нарушает пол качества — это дефекты, а не вкус. Задача НЕ закрыта: исправь и продолжай инструментами (попытка ${designHookAttempts}).\n\n${list}${uiKitReminder}\n\nЕсли что-то из перечисленного — намеренный выбор продукта, впиши правило в раздел «Детектор» файла .vibe/design/design.md с причиной, а не игнорируй молча.`;
 							traceAgentStep({ threadId, kind: 'nudge' });
 							this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
 							shouldSendAnotherMessage = true;
