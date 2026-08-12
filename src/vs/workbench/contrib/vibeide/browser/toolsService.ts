@@ -695,11 +695,15 @@ export class ToolsService extends Disposable implements IToolsService {
 				if (action !== 'write' && action !== 'read') {
 					throw new Error(`Invalid LLM output: action must be 'write' or 'read', got ${actionUnknown}`);
 				}
+				// Те же формы, что и у чек-листа, по той же причине (см. там): массив, строка со
+				// списком, одиночное значение. Пустой список — законный ответ «нечего сказать», а не
+				// повод отказать: раздел «не указано» честнее выдуманного пункта.
 				const strList = (raw: unknown): string[] => {
 					if (Array.isArray(raw)) { return raw.map(v => String(v).trim()).filter(Boolean); }
 					if (typeof raw === 'string' && raw.trim()) {
 						return raw.split('\n').map(line => line.replace(/^\s*[-*\d.)\s]+/, '').trim()).filter(Boolean);
 					}
+					if (raw && typeof raw === 'object') { return [String(raw).trim()].filter(t => t && t !== '[object Object]'); }
 					return [];
 				};
 				const title = typeof titleUnknown === 'string' && titleUnknown.trim() ? titleUnknown.trim() : null;
@@ -727,6 +731,15 @@ export class ToolsService extends Disposable implements IToolsService {
 					} catch {
 						raw = text.split('\n').map(line => line.replace(/^\s*[-*\d.)\s]+/, '').trim()).filter(Boolean);
 					}
+				}
+				// Модели присылают список ещё двумя формами, и обе читаются человеком без труда:
+				// ОДИН объект вместо массива из одного (частый случай) и вложенность `{items: [...]}`
+				// — повтор имени параметра внутри значения. Живой прогон 12.08: MiniMax четыре раза
+				// подряд прислал единственный объект, упёрся в отказ и выбил детектор петли. Отказ на
+				// форме, которую видно глазами, — это отказ ради формальности.
+				if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+					const nested = (raw as { items?: unknown }).items;
+					raw = Array.isArray(nested) ? nested : [raw];
 				}
 				if (!Array.isArray(raw)) {
 					throw new Error(`Invalid LLM output: items must be an array of {text, how}, got ${typeof itemsUnknown}`);
