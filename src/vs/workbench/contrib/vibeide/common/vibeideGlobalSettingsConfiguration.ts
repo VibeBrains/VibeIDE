@@ -938,6 +938,21 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.chat.autoSendPendingInjections', 'Авто-досыл подмешанного контекста: если, пока агент работал, вы по Enter поставили текст в очередь (полоска над полем ввода), но ход завершился раньше, чем очередь успела подмешаться, — отправить накопленное автоматически новым ходом вместо того, чтобы оставить его висеть. Срабатывает только на штатном завершении (выполнено / остановка с «Продолжить»); при ошибке, прерывании или ожидании ответа пользователя очередь не трогается. Выключите, если хотите досылать очередь вручную.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.codeReview.models': {
+					type: 'array',
+					items: { type: 'string' },
+					default: [],
+					description: localize('vibeide.codeReview.models', 'Модели для ревью кода, в форме `провайдер:модель` — например `anthropic:claude-...`. Когда их несколько, один и тот же файл уходит всем параллельно, а находки сливаются по согласию: одиночная модель как детектор уязвимостей ненадёжна (уверенно называет дырой безопасный код и так же уверенно пропускает настоящую), и именно согласие нескольких — то, чего у одной нет в принципе. Пусто — прежнее поведение, одна модель чата: звать три провайдера там, где настроен один, значит втрое увеличить счёт без спроса.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.codeReview.minAgreement': {
+					type: 'number',
+					default: 2,
+					minimum: 1,
+					maximum: 5,
+					description: localize('vibeide.codeReview.minAgreement', 'Сколько моделей должны назвать находку, чтобы она попала в отчёт. Применяется только когда моделей больше одной: порог 2 на единственной модели вычистил бы весь список, и «находок нет» читалось бы как «чисто», хотя означало бы «сравнивать было не с чем».'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.agent.knowledgeLibrarian': {
 					type: 'boolean',
 					default: true,
