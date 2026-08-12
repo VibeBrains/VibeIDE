@@ -147,6 +147,7 @@ import './modelsDevCatalogStatusContribution.js';
 import './modelQuirksCatalogStatusContribution.js';
 // VibeIDE: status-bar indicator for the active model-quirks catalog source (1678)
 import './vibeModelQuirksSourceStatusBar.js';
+import './vibeVerifyGateStatusBar.js';
 
 // edit risk scoring
 import '../common/editRiskScoringService.js';

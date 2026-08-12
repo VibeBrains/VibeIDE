@@ -138,3 +138,65 @@ export function describeShellSafetyResult(result: ShellSafetyResult): string {
 	}
 	return `DESTRUCTIVE: \`${head}\`\nReasons: ${result.reasons.join(', ')}\n\nThis will likely cause data loss. Confirm twice if you really intend it.`;
 }
+
+/**
+ * Splits a raw shell line into the simple commands it will actually run.
+ *
+ * The classifier above judges a parsed `(command, args)` pair, but the terminal tool receives a
+ * line — and the dangerous half of `npm test && rm -rf build` is the half after the `&&`. Judging
+ * only the first word would wave that through.
+ *
+ * Deliberately shallow: separators (`&&`, `||`, `;`, `|`, newline) and quotes, nothing else. It is
+ * a triage step before a confirmation dialog, not a shell. Substitutions, redirects and here-docs
+ * are left inside the arguments where the argument patterns can still see them, and anything this
+ * misparses shows up as a stranger-looking command in the dialog the user reads — never as silent
+ * permission.
+ */
+export function splitShellSegments(line: string): Array<{ command: string; args: string[] }> {
+	const segments: Array<{ command: string; args: string[] }> = [];
+	let tokens: string[] = [];
+	let current = '';
+	let quote: '"' | '\'' | undefined;
+
+	const endToken = () => { if (current) { tokens.push(current); current = ''; } };
+	const endSegment = () => {
+		endToken();
+		if (tokens.length > 0) { segments.push({ command: tokens[0], args: tokens.slice(1) }); }
+		tokens = [];
+	};
+
+	for (let i = 0; i < line.length; i++) {
+		const ch = line[i];
+		if (quote) {
+			if (ch === quote) { quote = undefined; } else { current += ch; }
+			continue;
+		}
+		if (ch === '"' || ch === '\'') { quote = ch; continue; }
+		if (ch === '\\' && i + 1 < line.length) { current += line[++i]; continue; }
+		if (ch === '\n' || ch === ';' || ch === '|' || ch === '&') {
+			// `&&` and `||` are two characters; a single `|` or `&` separates just as well for us.
+			if ((ch === '|' || ch === '&') && line[i + 1] === ch) { i++; }
+			endSegment();
+			continue;
+		}
+		if (ch === ' ' || ch === '\t') { endToken(); continue; }
+		current += ch;
+	}
+	endSegment();
+	return segments;
+}
+
+/**
+ * Worst verdict over every simple command in a raw shell line, or undefined when nothing is
+ * destructive. Returning the offending segment (not just a flag) is the point: the dialog must
+ * name the command the user is being asked about.
+ */
+export function analyzeShellLine(line: string): ShellSafetyResult | undefined {
+	for (const segment of splitShellSegments(line)) {
+		const verdict = analyzeNLShellSafety(segment.command, segment.args);
+		if (verdict.safety === 'destructive') {
+			return verdict;
+		}
+	}
+	return undefined;
+}

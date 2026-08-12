@@ -938,6 +938,12 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.chat.autoSendPendingInjections', 'Авто-досыл подмешанного контекста: если, пока агент работал, вы по Enter поставили текст в очередь (полоска над полем ввода), но ход завершился раньше, чем очередь успела подмешаться, — отправить накопленное автоматически новым ходом вместо того, чтобы оставить его висеть. Срабатывает только на штатном завершении (выполнено / остановка с «Продолжить»); при ошибке, прерывании или ожидании ответа пользователя очередь не трогается. Выключите, если хотите досылать очередь вручную.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.agent.confirmDestructiveCommands': {
+					type: 'boolean',
+					default: true,
+					description: localize('vibeide.agent.confirmDestructiveCommands', 'Спрашивать подтверждение перед разрушительной командой в терминале (`rm -rf`, `dd`, `mkfs`, `chmod 777`, `git push --force`, `git reset --hard`, `git clean -fd` и подобные). Проверка детерминированная, без модели: разбирается вся строка, а не первое слово, поэтому опасная половина `npm test && rm -rf build` тоже видна. Диалог называет саму команду и признак, по которому она признана разрушительной. Выключение оставляет только уведомление постфактум — команда выполнится.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.agent.wakeOnBackgroundCommand': {
 					type: 'boolean',
 					default: true,

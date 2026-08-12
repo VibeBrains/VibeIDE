@@ -48,6 +48,8 @@ import { OfflinePrivacyGate } from '../common/offlinePrivacyGate.js';
 import { INLShellParserService } from '../common/nlShellParserService.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
+import { analyzeShellLine } from '../common/nlShellSafetyAnalyzer.js';
+import { localize } from '../../../../nls.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { IVibeCodeGraphService } from './codeGraph/vibeCodeGraphService.js';
@@ -2233,13 +2235,7 @@ export class ToolsService extends Disposable implements IToolsService {
 			},
 			// ---
 			run_command: async ({ command, cwd, terminalId, timeoutMs, runInBackground }) => {
-				// Check for dangerous commands and warn
-				const dangerLevel = this._detectCommandDanger(command);
-				if (dangerLevel === 'high') {
-					this.notificationService.warn(`⚠️ High-risk command detected: ${command}\nThis command may cause data loss or system changes. Please review carefully.`);
-				} else if (dangerLevel === 'medium') {
-					this.notificationService.info(`⚠️ Potentially risky command: ${command}\nReview before execution.`);
-				}
+				await this._gateDestructiveCommand(command);
 
 				// Background mode: spin up a persistent (but hidden) terminal, kick off the command,
 				// and return immediately with a backgroundId. The caller polls via read_background_output
@@ -2438,13 +2434,7 @@ export class ToolsService extends Disposable implements IToolsService {
 				return { result: maskedResPromise, interruptTool: interrupt };
 			},
 			run_persistent_command: async ({ command, persistentTerminalId, timeoutMs }) => {
-				// Check for dangerous commands and warn
-				const dangerLevel = this._detectCommandDanger(command);
-				if (dangerLevel === 'high') {
-					this.notificationService.warn(`⚠️ High-risk command detected: ${command}\nThis command may cause data loss or system changes. Please review carefully.`);
-				} else if (dangerLevel === 'medium') {
-					this.notificationService.info(`⚠️ Potentially risky command: ${command}\nReview before execution.`);
-				}
+				await this._gateDestructiveCommand(command);
 				const { resPromise, interrupt } = await this.terminalToolService.runCommand(command, { type: 'persistent', persistentTerminalId, timeoutMs: timeoutMs ?? undefined });
 				return { result: resPromise, interruptTool: interrupt };
 			},
@@ -3343,6 +3333,51 @@ export class ToolsService extends Disposable implements IToolsService {
 	 * Detects dangerous terminal commands that may cause data loss or system changes.
 	 * Returns 'high' for extremely dangerous commands, 'medium' for potentially risky, or 'low' for safe.
 	 */
+	/**
+	 * Stops before a destructive shell command and asks the human, in words, about THIS command.
+	 *
+	 * The deterministic classifier already existed (`analyzeNLShellSafety`, with tests and named
+	 * reasons) but was wired only to the natural-language parser — the terminal tool, the path the
+	 * agent actually uses, judged nothing about content. What stood here instead was a warning
+	 * notification: it appeared next to a command that ran anyway, which is a label on a decision
+	 * already made, not a decision point.
+	 *
+	 * The whole line is judged, not its first word: the dangerous half of `npm test && rm -rf build`
+	 * is the half after the `&&`.
+	 *
+	 * `ambiguous` is deliberately NOT gated. It means "a bare `git`/`npm` without arguments" — that
+	 * is a question for the natural-language parser, which has to guess an intent; a shell line that
+	 * says exactly `git` is harmless, and a dialog there would train the user to click through.
+	 *
+	 * The medium-risk notification stays as it was: informational, non-blocking.
+	 */
+	private async _gateDestructiveCommand(command: string): Promise<void> {
+		const destructive = analyzeShellLine(command);
+		if (!destructive) {
+			if (this._detectCommandDanger(command) === 'medium') {
+				this.notificationService.info(`⚠️ Potentially risky command: ${command}\nReview before execution.`);
+			}
+			return;
+		}
+		if (this._configurationService.getValue<boolean>('vibeide.agent.confirmDestructiveCommands') === false) {
+			this.notificationService.warn(`⚠️ Разрушительная команда выполнена без подтверждения (проверка выключена): ${command}`);
+			return;
+		}
+		const { confirmed } = await this.dialogService.confirm({
+			type: 'warning',
+			message: localize('vibeide.destructiveCommand', "Выполнить разрушительную команду?"),
+			detail: localize('vibeide.destructiveCommand.detail', "{0}\n\nПризнаки: {1}\n\nЭто действие может уничтожить данные, и отменить его нечем.", command.split('\n')[0].slice(0, 300), destructive.reasons.join(', ')),
+			primaryButton: localize('vibeide.destructiveCommand.run', "Выполнить"),
+		});
+		if (!confirmed) {
+			throw new ToolValidationError({
+				code: 'destructive_command_declined',
+				message: `Пользователь отказался выполнять разрушительную команду (${destructive.reasons.join(', ')}). Предложите более безопасный путь или спросите, что делать.`,
+				hint: 'Не повторяйте ту же команду: решение принял человек.',
+			});
+		}
+	}
+
 	private _detectCommandDanger(command: string): 'high' | 'medium' | 'low' {
 		const normalizedCmd = command.trim().toLowerCase();
 

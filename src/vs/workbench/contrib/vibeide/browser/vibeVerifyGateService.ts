@@ -7,6 +7,7 @@
 import { vibeLog } from '../common/vibeLog.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -40,12 +41,41 @@ export interface IVibeVerifyGateService {
 	 * an inert/broken gate must never block completion. `cwd` is the workspace-root fsPath.
 	 */
 	runVerify(cwd: string | null): Promise<VerifyResult | null>;
+
+	/** True while a verify command is running. */
+	readonly isRunning: boolean;
+
+	/**
+	 * Fires when the gate starts or finishes running its command.
+	 *
+	 * The gate runs a build or a test suite — minutes, not milliseconds — at the end of a turn, and
+	 * until now it did that silently: the IDE looked idle while a command was holding the turn open.
+	 */
+	readonly onDidChangeRunning: Event<boolean>;
 }
 
 const MAX_OUTPUT_CHARS = 8000;
 
 class VibeVerifyGateService extends Disposable implements IVibeVerifyGateService {
 	declare readonly _serviceBrand: undefined;
+
+	private readonly _onDidChangeRunning = this._register(new Emitter<boolean>());
+	readonly onDidChangeRunning: Event<boolean> = this._onDidChangeRunning.event;
+
+	/** Depth, not a flag: a second verify while one runs must not switch the indicator off early. */
+	private _running = 0;
+
+	get isRunning(): boolean {
+		return this._running > 0;
+	}
+
+	private _setRunning(delta: 1 | -1): void {
+		const was = this.isRunning;
+		this._running = Math.max(0, this._running + delta);
+		if (this.isRunning !== was) {
+			this._onDidChangeRunning.fire(this.isRunning);
+		}
+	}
 
 	constructor(
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
@@ -76,6 +106,7 @@ class VibeVerifyGateService extends Disposable implements IVibeVerifyGateService
 
 		const start = Date.now();
 		vibeLog.info('VerifyGate', `Running verify: ${command}`);
+		this._setRunning(1);
 		try {
 			const { resPromise } = await this._terminalToolService.runCommand(command, {
 				type: 'temporary',
@@ -113,6 +144,8 @@ class VibeVerifyGateService extends Disposable implements IVibeVerifyGateService
 				});
 			}
 			return null;
+		} finally {
+			this._setRunning(-1);
 		}
 	}
 }
