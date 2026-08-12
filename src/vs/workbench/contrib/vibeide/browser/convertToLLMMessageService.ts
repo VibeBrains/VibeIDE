@@ -1676,6 +1676,36 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 
 	// system message with caching
+	/**
+	 * Per-model volume budgets, resolved once for both prompt builders.
+	 *
+	 * `maxTools` comes only from the model profile (`.vibe/providers.json`) — there is no global
+	 * default on purpose: a limit that applies to every model would quietly cripple the frontier
+	 * ones, and the whole point is that the number differs per model. The prompt budget DOES have a
+	 * global default, because every model pays for the file-tree overview and most users want one
+	 * number rather than a line per model.
+	 */
+	private _promptBudgets(providerName?: string, modelName?: string): { maxTools?: number; directoryOverviewChars?: number } {
+		const configured = this.configurationService.getValue<number>('vibeide.prompt.directoryOverviewChars');
+		const directoryOverviewChars = typeof configured === 'number' && configured > 0 ? configured : undefined;
+		if (!providerName || !modelName) { return { directoryOverviewChars }; }
+		try {
+			const caps = getModelCapabilities(
+				providerName,
+				modelName,
+				this.vibeideSettingsService.state.overridesOfModel,
+				this.remoteCatalogService.getCachedModelInfo(providerName, modelName),
+			);
+			return {
+				maxTools: caps.maxTools,
+				directoryOverviewChars: caps.maxPromptDirectoryChars ?? directoryOverviewChars,
+			};
+		} catch {
+			// An unknown model must not break prompt assembly — it simply gets no budget.
+			return { directoryOverviewChars };
+		}
+	}
+
 	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined, providerName?: string, modelName?: string) => {
 		const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
 
@@ -1745,7 +1775,12 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			}
 		}
 
-		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, modelFamily });
+		// Volume budgets for this model: how many tools it is handed and how much of the file-tree
+		// overview it is shown. Both default to "as before" — an unset budget must never quietly
+		// start trimming a frontier model. `providerName`/`modelName` are already part of the cache
+		// key above, so a per-model budget cannot leak into another model's cached prompt.
+		const budgets = this._promptBudgets(providerName, modelName);
+		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, modelFamily, ...budgets });
 
 		// Cache the result
 		this._systemMessageCache.set(cacheKey, { message: systemMessage, timestamp: now });
@@ -2068,7 +2103,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				}
 			}
 
-			systemMessage = chat_systemMessage_local({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', modelFamily });
+			systemMessage = chat_systemMessage_local({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', modelFamily , ...this._promptBudgets(providerName, modelName) });
 		} else {
 			// Use full system message for cloud models
 			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat, validProviderName, modelName);

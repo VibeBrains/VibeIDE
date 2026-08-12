@@ -1206,6 +1206,14 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.tools.readFileDefaultLineLimit', 'Сколько строк возвращает `read_file` при чтении файла БЕЗ явного диапазона/лимита. Прямо определяет, сколько контента одно чтение вливает в контекст = токен-стоимость. Дефолт 2000. Поднимите, если модель часто дочитывает файлы по частям; опустите на жёстко лимитированных по токенам провайдерах.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.prompt.directoryOverviewChars': {
+					type: 'number',
+					default: 10000,
+					minimum: 500,
+					maximum: 200000,
+					description: localize('vibeide.prompt.directoryOverviewChars', 'Сколько символов обзора файлов проекта вставлять в системный промпт. Обзор — единственная часть промпта, которая растёт с размером репозитория, а не с задачей, поэтому именно её имеет смысл ограничивать. Отдельной модели значение можно задать полем `maxPromptDirectoryChars` в `.vibe/providers.json` — оно сильнее этой настройки. Меньше значение — модель больше исследует инструментами и меньше читает обрезанное дерево, которое всё равно не удержит.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.dailyDigest.enabled': {
 					type: 'boolean',
 					default: false,

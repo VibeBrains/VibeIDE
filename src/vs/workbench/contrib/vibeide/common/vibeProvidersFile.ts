@@ -69,6 +69,27 @@ export interface VibeProviderModelEntry {
 	readonly topK?: number;
 	/** Extra fields merged into the request body (provider/model quirks). */
 	readonly extraBody?: Readonly<Record<string, unknown>>;
+
+	/**
+	 * How many tools this model is handed at once. Omitted (the default) = no limit, which is how
+	 * every model behaved before this field existed.
+	 *
+	 * Weak and local models miss tool calls not because they do not know the protocol but because
+	 * they drown in 44 built-ins plus MCP. The core tools are never cut, whatever the number says —
+	 * see `common/prompt/toolBudget.ts`.
+	 */
+	readonly maxTools?: number;
+
+	/**
+	 * How much of the workspace file-system overview is pasted into the system prompt, in
+	 * characters. Omitted = the global default (`vibeide.prompt.directoryOverviewChars`).
+	 *
+	 * The overview is the one part of the prompt that grows with the repository rather than with
+	 * the task, so it is the part worth capping per model. Set it low for a small local model and
+	 * it explores with tools instead of reading a truncated tree it cannot hold anyway.
+	 */
+	readonly maxPromptDirectoryChars?: number;
+
 	readonly note?: string;
 }
 

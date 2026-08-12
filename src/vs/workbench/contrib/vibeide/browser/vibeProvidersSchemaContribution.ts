@@ -43,6 +43,8 @@ const modelSchema: IJSONSchema = {
 		vision: { type: 'boolean', description: 'Поддержка изображений.' },
 		systemMessage: { enum: ['system', 'developer', 'separated', false], description: 'Как доставляется system-сообщение.' },
 		fim: { type: 'boolean', description: 'Поддержка fill-in-the-middle (автодополнение).' },
+		maxTools: { type: 'number', minimum: 1, description: 'Сколько инструментов давать модели за раз. Не указано — без ограничения. Для слабых и локальных моделей: они мажут по вызовам не потому, что не знают протокол, а потому что тонут в четырёх десятках инструментов. Базовые инструменты (чтение, правка, поиск, запуск команды, завершение) не урезаются никогда.' },
+		maxPromptDirectoryChars: { type: 'number', minimum: 1, description: 'Сколько символов обзора файлов проекта вставлять в системный промпт. Не указано — глобальная настройка `vibeide.prompt.directoryOverviewChars`. Обзор — единственная часть промпта, растущая с размером репозитория, а не с задачей.' },
 		reasoning: {
 			description: 'false — без reasoning; объект — параметры размышления.',
 			oneOf: [

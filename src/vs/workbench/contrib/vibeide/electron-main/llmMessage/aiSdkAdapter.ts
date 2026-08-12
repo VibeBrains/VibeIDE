@@ -1266,7 +1266,9 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// `invalid` pseudo-tool only injected when tools are passed; otherwise the
 	// repair hook has nothing to repair.
 	const tools = specialToolFormat
-		? convertToolsToAiSdkToolSet(availableTools(chatMode, mcpTools), true)
+		// `caps.maxTools` is the per-model tool budget from `.vibe/providers.json`. Undefined means
+		// no limit — a model without a declared budget must get exactly the list it got before.
+		? convertToolsToAiSdkToolSet(availableTools(chatMode, mcpTools, { maxTools: caps.maxTools }), true)
 		: undefined;
 	const activeTools = tools
 		? Object.keys(tools).filter(k => k !== INVALID_TOOL_NAME)

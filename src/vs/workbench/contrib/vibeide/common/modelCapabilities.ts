@@ -183,6 +183,14 @@ export type VibeideStaticModelInfo = { // not stateful
 	defaultTopP?: number;
 	defaultTopK?: number;
 
+	// Per-model budgets. Undefined = no limit / global default, which is how every model behaved
+	// before these existed — a frontier model must not change behaviour because the field appeared.
+	// The quirks catalog governs the PROTOCOL; these two govern the VOLUME, and nothing else did.
+	/** Max tools handed to the model at once. Core tools survive any budget — see prompt/toolBudget.ts. */
+	maxTools?: number;
+	/** Max characters of the workspace file-tree overview pasted into the system prompt. */
+	maxPromptDirectoryChars?: number;
+
 	// reasoning options
 	reasoningCapabilities: false | {
 		readonly supportsReasoning: true; // for clarity, this must be true if anything below is specified
