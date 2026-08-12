@@ -530,6 +530,7 @@ class VibeServerService extends Disposable implements IVibeServerService {
 		// поштучно, — это десять исследований одного и того же кода; пакет читает код один раз.
 		if (this._chatThreadService.state.allThreads[threadId]?.state.editBatch?.collecting) {
 			this._chatThreadService.addEditBatchItem(threadId, {
+				source: 'preview',
 				selector: pick.selector,
 				page: pick.path || pick.href,
 				file: candidate ? candidate.relative + (line !== undefined ? `:${line}` : '') : undefined,

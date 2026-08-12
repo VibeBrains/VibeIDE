@@ -23,6 +23,9 @@ import { INotificationService, Severity } from '../../../../platform/notificatio
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IQuickInputService, IQuickPickItem } from '../../../../platform/quickinput/common/quickInput.js';
+import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
+import { ILabelService } from '../../../../platform/label/common/label.js';
+import { MenuId } from '../../../../platform/actions/common/actions.js';
 import { ISecretStorageService } from '../../../../platform/secrets/common/secrets.js';
 import { GITHUB_TOKEN_SECRET_KEY } from '../common/vibeJobPRCompletionService.js';
 import { IVibeSkillsLibraryService, describeSkillRequirements } from '../common/vibeSkillsLibraryService.js';
@@ -375,6 +378,69 @@ CommandsRegistry.registerCommand('vibeide.memory.persist', (accessor: ServicesAc
  * туда» задают ПОСЛЕ того, как он уже пошёл, и ответ должен открываться одной командой, а не
  * собираться из логов. Открывается как обычный текст — его можно скопировать в issue целиком.
  */
+/**
+ * Комментарий к строке кода → в пакет правок.
+ *
+ * Роадмап предполагал построить свой богатый diff-компонент в React. Взят другой путь: дифф
+ * агента УЖЕ отрисован в настоящем редакторе (`editCodeService` показывает его инлайном), и свой
+ * просмотрщик был бы хуже родного на переносах, свёрнутых ханках и больших файлах — то есть мы
+ * построили бы худшую копию того, что и так есть. Комментарий берётся там, где человек уже смотрит
+ * на изменение: курсор на строке, команда, одна фраза.
+ *
+ * Правка попадает в тот же пакет, что и клики по превью, и уезжает агенту тем же заданием —
+ * «сначала прочитай код всех мест, потом правь». Два входа, один цикл.
+ */
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.diff.commentLine',
+			f1: true,
+			title: localize2('vibeide.diff.commentLine.title', 'VibeIDE: Комментарий к строке → в пакет правок'),
+			category: localize2('vibeCategory', 'VibeIDE'),
+			menu: [{ id: MenuId.EditorContext, group: 'vibeide', order: 10 }],
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const chatThreadService = accessor.get(IChatThreadService);
+		const editorService = accessor.get(IEditorService);
+		const quickInput = accessor.get(IQuickInputService);
+		const notifications = accessor.get(INotificationService);
+
+		const editor = accessor.get(ICodeEditorService).getActiveCodeEditor();
+		const resource = editor?.getModel()?.uri ?? editorService.activeEditor?.resource;
+		if (!editor || !resource) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.diff.noEditor', 'Нет открытого файла — комментировать нечего.') });
+			return;
+		}
+		const threadId = chatThreadService.state.currentThreadId;
+		if (!threadId) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.diff.noThread', 'Нет активного чата — пакет правок собирать некуда.') });
+			return;
+		}
+
+		const line = editor.getPosition()?.lineNumber ?? 1;
+		const lineText = editor.getModel()?.getLineContent(line)?.trim() ?? '';
+		const note = await quickInput.input({
+			prompt: localize('vibeide.diff.prompt', 'Что не так с этой строкой?'),
+			placeHolder: lineText.slice(0, 80),
+		});
+		// Отмена ввода — это отказ, а не пустой комментарий: молча положить в пакет место без
+		// описания здесь нельзя, человек передумал.
+		if (note === undefined) { return; }
+
+		const relative = accessor.get(ILabelService).getUriLabel(resource, { relative: true });
+		chatThreadService.addEditBatchItem(threadId, {
+			source: 'code',
+			page: `${relative}:${line}`,
+			file: `${relative}:${line}`,
+			note: note.trim(),
+		});
+		chatThreadService.setEditBatchCollecting(threadId, true);
+		notifications.notify({ severity: Severity.Info, message: localize('vibeide.diff.added', 'Строка {0}:{1} добавлена в пакет правок.', relative, line) });
+	}
+});
+
 registerAction2(class extends Action2 {
 	constructor() {
 		super({

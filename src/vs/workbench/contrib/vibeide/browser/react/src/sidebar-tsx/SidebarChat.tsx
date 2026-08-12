@@ -1053,7 +1053,7 @@ const EditBatchCard = ({ threadId, batch }: { threadId: string; batch: EditBatch
 			>{batch.collecting ? 'Сбор включён' : 'Сбор выключен'}</button>
 		</div>
 		{batch.items.length === 0
-			? <div className="text-xs text-vibe-fg-3">Кликайте прицелом (⌖) по элементам превью — они соберутся сюда.</div>
+			? <div className="text-xs text-vibe-fg-3">Кликайте прицелом (⌖) по элементам превью или комментируйте строки кода командой «Комментарий к строке» — всё соберётся сюда.</div>
 			: <ul className="flex flex-col gap-2 list-none p-0 m-0">
 				{batch.items.map((item, index) => <li key={item.id} className="flex items-start gap-2">
 					<span className="text-xs text-vibe-fg-3 mt-1.5 flex-shrink-0">{index + 1}.</span>
@@ -1061,19 +1061,21 @@ const EditBatchCard = ({ threadId, batch }: { threadId: string; batch: EditBatch
 						<input
 							type="text"
 							value={item.note}
-							aria-label={`Что переделать: ${item.selector}`}
+							aria-label={`Что переделать: ${item.selector ?? item.file ?? item.page}`}
 							placeholder="Что здесь переделать?"
 							onChange={e => chatThreadsService.setEditBatchNote(threadId, item.id, e.target.value)}
 							className="w-full text-xs px-2 py-1 rounded border border-vibe-border-2 bg-vibe-bg-1"
 						/>
-						<div className="text-xs text-vibe-fg-3 truncate" title={item.file ? `${item.selector} · ${item.file}` : item.selector}>
-							{item.selector}{item.file ? ` · ${item.file}` : ''}
+						<div className="text-xs text-vibe-fg-3 truncate" title={[item.selector, item.file].filter(Boolean).join(' · ')}>
+							{/* Правка из превью опознаётся селектором, из кода — файлом со строкой. Показываем
+							    то, что есть: подставлять пустой селектор ради единообразия значит врать. */}
+							{item.source === 'code' ? '⌗ ' : '⌖ '}{[item.selector, item.file].filter(Boolean).join(' · ')}
 						</div>
 					</div>
 					<button
 						type="button"
 						title="Убрать из пакета"
-						aria-label={`Убрать из пакета: ${item.selector}`}
+						aria-label={`Убрать из пакета: ${item.selector ?? item.file ?? item.page}`}
 						onClick={() => chatThreadsService.removeEditBatchItem(threadId, item.id)}
 						className="flex-shrink-0 text-xs px-2 py-1 rounded border border-vibe-border-2 text-vibe-fg-3 hover:text-vibe-fg-1"
 					>✕</button>

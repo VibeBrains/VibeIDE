@@ -10039,9 +10039,11 @@ We only need to do it for files that were edited since `from`, ie files between 
 		];
 		current.items.forEach((item, index) => {
 			lines.push(`${index + 1}. ${item.note.trim() || '(описание не задано — спроси, что здесь переделать)'}`);
-			lines.push(`   Селектор: ${item.selector}`);
-			lines.push(`   Страница: ${item.page}`);
-			if (item.file) { lines.push(`   Файл-кандидат: ${item.file}`); }
+			if (item.selector) { lines.push(`   Селектор: ${item.selector}`); }
+			// У правки из превью «место» — страница, у правки из кода — файл со строкой. Подписи
+			// разные, потому что путать «где это видно» и «где это написано» дороже, чем повторить слово.
+			lines.push(item.source === 'code' ? `   Место: ${item.page}` : `   Страница: ${item.page}`);
+			if (item.file) { lines.push(item.source === 'code' ? `   Файл: ${item.file}` : `   Файл-кандидат: ${item.file}`); }
 		});
 		this._deliverToAgent(threadId, lines.join('\n'));
 	}
