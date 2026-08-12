@@ -1904,6 +1904,46 @@ const openRouterModelOptions_assumingOpenAICompat = {
 		supportsSystemMessage: 'system-role',
 		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false },
 	},
+	// Meituan LongCat-2.0 — 1M context, native tool-calling, cheap ($0.30/$1.20 per 1M).
+	// Active parameters float between 33B and 56B per request, so latency varies noticeably
+	// on identical prompts; that is the model's design, not a stall on our side.
+	'meituan/longcat-2.0': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: .30, output: 1.20 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false },
+	},
+	// Thinking Machines Inkling — 1M context, strong coder, expensive ($1.00/$4.05 per 1M).
+	// The vendor exposes reasoning effort as a NUMBER in 0.2..0.99, and the upper end inflates
+	// output cost several-fold. The budget default is deliberately NOT wired here: the exact
+	// payload field name is not confirmed by vendor docs, and inventing one would repeat the
+	// Kimi K3 precedent (a rule written from a secondary source, never verified live).
+	'thinkingmachines/inkling': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: 1.00, output: 4.05 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false },
+	},
+	// InclusionAI Ling-3.0-flash (MIT, 124B total / 5.1B active). Sampling for this model lives
+	// in resources/model-quirks.json — see the `ling-3.0` rule and the note there for why.
+	'inclusionai/ling-3.0-flash': {
+		contextWindow: 128_000,
+		reservedOutputTokenSpace: null,
+		cost: { input: .07, output: .28 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'system-role',
+		specialToolFormat: 'openai-style',
+		reasoningCapabilities: { supportsReasoning: true, canIOReasoning: true, canTurnOffReasoning: false },
+	},
 	'microsoft/phi-4-reasoning-plus:free': { // a 14B model...
 		contextWindow: 32_768,
 		reservedOutputTokenSpace: null,

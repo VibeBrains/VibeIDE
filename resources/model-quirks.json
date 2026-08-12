@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"date": "2026-08-11",
+	"date": "2026-08-12",
 	"description": "VibeIDE model behaviour quirks. Source of truth — see README.md section 'Model behaviour quirks'. PRs welcome. Schema: ./src/vs/workbench/contrib/vibeide/common/modelQuirks/modelQuirksTypes.ts.",
 	"docs": "https://github.com/VibeBrains/VibeIDE#model-behaviour-quirks",
 	"rules": [
@@ -119,8 +119,28 @@
 			"match": "qwen",
 			"temperature": 0.55,
 			"topP": 1.0,
+			"note": "Qwen-family — sampling only, NO tool-format force. This rule used to carry forceToolCallFormat:'xml' and, being a bare substring, it silently overrode the explicit toolFormat:'openai' that the shipped alibaba-coding-plan preset declares for qwen3.7-plus / qwen3-coder-next: quirks are Tier 1 in aiSdkAdapter and beat provider capabilities outright. The XML force was observed on the 2.5 generation via the direct API (param-name hallucination, path_pattern→pattern) and now lives on the narrow 'qwen2.5' rule below; the root cause it worked around is handled generically by arg-repair (0.13.18), which is also why the openCode-scoped rule was already flipped back to native. A test guards this class: no catalog rule may force a tool format onto a model that a shipped preset declares a toolFormat for."
+		},
+		{
+			"match": "qwen2.5",
+			"temperature": 0.55,
+			"topP": 1.0,
 			"forceToolCallFormat": "xml",
-			"note": "Qwen-family (DIRECT API) — native FC unreliable (hallucinates param names like 'path_pattern' instead of 'pattern'). Forcing XML routes through extractXMLToolsWrapper which handles the naked-tag <grep><pattern>...</pattern></grep> form. NOTE: openCode-scoped override below flips qwen-via-openCode to native (XML there proved to be silent hallucination — model claims no file access)."
+			"note": "Qwen 2.5 (DIRECT API) — native FC unreliable on this generation (hallucinates param names like 'path_pattern' instead of 'pattern'). Forcing XML routes through extractXMLToolsWrapper which handles the naked-tag <grep><pattern>...</pattern></grep> form. Scoped to the generation on purpose — see the family rule above."
+		},
+		{
+			"match": "qwen3.8",
+			"temperature": 0.6,
+			"topP": 0.95,
+			"topK": 20,
+			"note": "Qwen3.8-Max (Alibaba) — sampling from the vendor model card. Reasoning is controlled by 'enable_thinking' plus 'reasoning_effort' (low/medium/xhigh); the vendor states the two cannot be combined with 'thinking_budget'. Effort levels belong in the provider preset, not here. mirrorReasoningContent is deliberately NOT set: the vendor documents accuracy degradation without mirrored history, not the HTTP 400 that DeepSeek returns — the K3 precedent (a rule added from a secondary source and never smoke-tested) is not repeated. Not verified live: qwen3.8 is absent from the bundled catalog and no key is available."
+		},
+		{
+			"match": "ling-3.0",
+			"temperature": 0.6,
+			"topP": 0.95,
+			"topK": 20,
+			"note": "Ling-3.0-flash (InclusionAI, MIT, 124B total / 5.1B active) — sampling from the vendor model card, reached via OpenRouter. Sampling has to live HERE rather than in a providers.json preset: preset values land on defaultTemperature/defaultTopP/defaultTopK, which apply only when this catalog says nothing about the model. Reasoning must be declared explicitly on the model entry, otherwise our own default (reasoningCapabilities: false) leaves thinking switched off."
 		},
 		{
 			"match": "qwen",
