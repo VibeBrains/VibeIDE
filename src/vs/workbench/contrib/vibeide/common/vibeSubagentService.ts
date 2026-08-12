@@ -47,6 +47,20 @@ export type SubagentType =
 	| 'explore' | 'implement-step' | 'recover-or-skip'
 	// Vibe Agents — curated role pack (VA). Read-only roles get a read-only tool whitelist.
 	| 'orchestrator' | 'planner' | 'designer' | 'frontend-dev' | 'backend-dev' | 'code-reviewer' | 'qa' | 'security';
+/**
+ * Every role id, as data. The union above is the contract; this is the same list a runtime caller
+ * can check a string against — a pipeline file names roles as plain text, and casting an unknown
+ * string into the union would hand the tool whitelist an id nobody defined.
+ */
+export const SUBAGENT_TYPES: readonly SubagentType[] = [
+	'explore', 'implement-step', 'recover-or-skip',
+	'orchestrator', 'planner', 'designer', 'frontend-dev', 'backend-dev', 'code-reviewer', 'qa', 'security',
+];
+
+export function isSubagentType(value: string): value is SubagentType {
+	return (SUBAGENT_TYPES as readonly string[]).includes(value);
+}
+
 export type SubagentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'stopped' | 'skipped' | 'disposed';
 
 /** What the parent sends to spawn a subagent */

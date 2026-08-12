@@ -751,6 +751,9 @@ import '../common/vibeBackgroundJobService.js';
 // VibeIDE: Background job contribution — checkpoint before run, morning digest, schedule hint
 import './vibeBackgroundJobContribution.js';
 
+// VibeIDE: Pipelines — ordered agent steps where each picks up the previous one's artifacts
+import './vibePipelineService.js';
+
 // VibeIDE: Daily digest of agent runs on a schedule (missed slots are delivered late, not dropped)
 import './vibeDailyDigestContribution.js';
 
