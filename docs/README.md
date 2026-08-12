@@ -30,6 +30,7 @@
 - [firstRun.md](manuals/firstRun.md) — первый запуск: SmartScreen на Windows и Gatekeeper на macOS (в Sequoia и новее — только через Системные настройки).
 - [howToContribute.md](manuals/howToContribute.md) — сборка и запуск из исходников (prerequisites, dev mode).
 - [providersSpec.md](manuals/providersSpec.md) — формат `.vibe/providers.json` (скормить LLM → готовый конфиг).
+- [handoffSpec.md](manuals/handoffSpec.md) — формат `.vibe/handoffs/*.md`: передача работы между агентами, тредами и машинами (скормить LLM → готовый хендофф).
 - [serversSpec.md](manuals/serversSpec.md) — формат `.vibe/servers.json`: дев-стек проекта, порядок запуска, проверки готовности (скормить LLM → готовый конфиг).
 - [hooksSpec.md](manuals/hooksSpec.md) — формат `.vibe/hooks.json`: команды проекта вокруг работы агента (скормить LLM → готовый конфиг).
 - [skillSpec.md](manuals/skillSpec.md) — формат `SKILL.md`: навыки агента, поля, ограничения, наши расширения (скормить LLM → готовый навык).

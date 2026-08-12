@@ -63,6 +63,7 @@ export type BuiltinToolCallParams = {
 	'code_graph': { query: 'neighbors' | 'path' | 'why'; target: string; to: string | null };
 	'measure_metric': { purpose: 'baseline' | 'candidate'; summary: string | null };
 	'review_checklist': { summary: string; items: Array<{ text: string; how?: string }> };
+	'handoff': { action: 'write' | 'read'; title: string | null; done: string[]; blockers: string[]; next: string[]; environment: string | null };
 	'docs_search': { query: string; limit: number | null };
 	'design_review': { severity: 'error' | 'warning' | 'info' | null; viewport: 'desktop' | 'mobile' | 'both'; annotate: boolean };
 	// No parameters: the context is whatever the project wrote, and there is nothing to narrow.
@@ -156,6 +157,7 @@ export type BuiltinToolResultType = {
 	// не может зависеть от сервиса тредов (тот зависит от него — вышел бы цикл), а идентификатор
 	// треда известен только на стороне оркестрации. Она и применит.
 	'review_checklist': { itemCount: number; message: string; checklist: ReviewChecklist };
+	'handoff': { action: 'write' | 'read'; path?: string; text?: string; problems?: string[]; message: string };
 	// `reachable: false` — превью не открыто или это dev-server/Docker, где скрипт-моста нет.
 	// Пустой список находок тогда читался бы как «чисто», а правда — «не измеряли».
 	'design_review': {

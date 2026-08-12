@@ -2984,6 +2984,7 @@ const titleOfBuiltinToolName = {
 	'model_council': { done: 'Собрал совет моделей', proposed: 'Собрать совет моделей', running: loadingTitleWrapper('Опрашивает советников') },
 	'measure_metric': { done: 'Замерил метрику', proposed: 'Замерить метрику', running: loadingTitleWrapper('Меряет метрику') },
 	'review_checklist': { done: 'Отдал чек-лист на проверку', proposed: 'Отдать чек-лист на проверку', running: loadingTitleWrapper('Собирает чек-лист') },
+	'handoff': { done: 'Передал работу хендоффом', proposed: 'Записать хендофф', running: loadingTitleWrapper('Записывает хендофф') },
 } as const satisfies Record<BuiltinToolName, { done: any; proposed: any; running: any }>;
 
 

@@ -50,6 +50,8 @@ import { ISecretDetectionService } from '../common/secretDetectionService.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { analyzeShellLine } from '../common/nlShellSafetyAnalyzer.js';
 import { ReviewChecklist } from '../common/chatThreadServiceTypes.js';
+import { HANDOFF_DIR, renderHandoff, validateHandoff } from '../common/agentHandoff.js';
+import { VSBuffer } from '../../../../base/common/buffer.js';
 import { localize } from '../../../../nls.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
@@ -308,7 +310,7 @@ export class ToolsService extends Disposable implements IToolsService {
 	private readonly _backgroundCommands = new Map<string, { persistentTerminalId: string; command: string; startedAt: number; exitedAt?: number }>();
 
 	constructor(
-		@IFileService fileService: IFileService,
+		@IFileService private readonly fileService: IFileService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@ISearchService searchService: ISearchService,
 		@IInstantiationService instantiationService: IInstantiationService,
@@ -685,6 +687,30 @@ export class ToolsService extends Disposable implements IToolsService {
 				}
 				const summary = typeof summaryUnknown === 'string' && summaryUnknown.trim() ? summaryUnknown.trim() : null;
 				return { purpose, summary };
+			},
+
+			handoff: (params: RawToolParamsObj) => {
+				const { action: actionUnknown, title: titleUnknown, done, blockers, next, environment } = params;
+				const action = typeof actionUnknown === 'string' ? actionUnknown.trim().toLowerCase() : '';
+				if (action !== 'write' && action !== 'read') {
+					throw new Error(`Invalid LLM output: action must be 'write' or 'read', got ${actionUnknown}`);
+				}
+				const strList = (raw: unknown): string[] => {
+					if (Array.isArray(raw)) { return raw.map(v => String(v).trim()).filter(Boolean); }
+					if (typeof raw === 'string' && raw.trim()) {
+						return raw.split('\n').map(line => line.replace(/^\s*[-*\d.)\s]+/, '').trim()).filter(Boolean);
+					}
+					return [];
+				};
+				const title = typeof titleUnknown === 'string' && titleUnknown.trim() ? titleUnknown.trim() : null;
+				if (action === 'write' && !title) {
+					throw new Error('Invalid LLM output: a handoff needs a title.');
+				}
+				return {
+					action, title,
+					done: strList(done), blockers: strList(blockers), next: strList(next),
+					environment: typeof environment === 'string' && environment.trim() ? environment.trim() : null,
+				};
 			},
 
 			review_checklist: (params: RawToolParamsObj) => {
@@ -2310,6 +2336,47 @@ export class ToolsService extends Disposable implements IToolsService {
 				const { resPromise, interrupt } = await this.terminalToolService.runCommand(command, { type: 'temporary', cwd, terminalId, timeoutMs: timeoutMs ?? undefined });
 				return { result: resPromise, interruptTool: interrupt };
 			},
+			handoff: async ({ action, title, done, blockers, next, environment }) => {
+				const folder = this.workspaceContextService.getWorkspace().folders[0]?.uri;
+				if (!folder) {
+					return { result: { action, message: 'Папка проекта не открыта — хендоффу негде жить.' } };
+				}
+				const dir = URI.joinPath(folder, ...HANDOFF_DIR.split('/'));
+				if (action === 'read') {
+					// Берётся САМЫЙ СВЕЖИЙ: хендоффов со временем накапливается много, и «прочитай
+					// хендофф» без уточнения означает «последний», а не «все сразу».
+					let entries: Array<{ name: string }> = [];
+					try {
+						entries = (await this.fileService.resolve(dir)).children?.map(c => ({ name: c.name })) ?? [];
+					} catch {
+						return { result: { action, message: 'Хендоффов в проекте ещё нет.' } };
+					}
+					const latest = entries.map(e => e.name).filter(n => n.endsWith('.md')).sort().pop();
+					if (!latest) {
+						return { result: { action, message: 'Хендоффов в проекте ещё нет.' } };
+					}
+					const text = (await this.fileService.readFile(URI.joinPath(dir, latest))).value.toString();
+					return { result: { action, path: `${HANDOFF_DIR}/${latest}`, text, message: `Прочитан хендофф ${latest}.` } };
+				}
+
+				const handoff = { title: title ?? '', done, blockers, next, environment: environment ?? undefined, createdAtMs: Date.now() };
+				const problems = validateHandoff(handoff);
+				// Неполный хендофф всё равно пишется: он лучше ненаписанного, а решать, дописывать ли,
+				// должен человек. Но замечания возвращаются агенту, чтобы молчаливо неполный не
+				// превратился в ту же передачу «на словах», ради замены которой формат и заведён.
+				const name = `${new Date(handoff.createdAtMs).toISOString().replace(/[:.]/g, '-')}.md`;
+				const target = URI.joinPath(dir, name);
+				await this.fileService.writeFile(target, VSBuffer.fromString(renderHandoff(handoff)));
+				return {
+					result: {
+						action,
+						path: `${HANDOFF_DIR}/${name}`,
+						problems: problems.length > 0 ? problems : undefined,
+						message: `Хендофф записан: ${HANDOFF_DIR}/${name}.`,
+					},
+				};
+			},
+
 			review_checklist: async ({ summary, items }) => {
 				// Здесь только сборка структуры: положить её в тред может лишь оркестрация (у неё есть
 				// идентификатор треда, а зависеть от неё этот сервис не может — вышел бы цикл).
@@ -3112,6 +3179,16 @@ export class ToolsService extends Disposable implements IToolsService {
 					return `--- ${where} (line ${hit.line})\n${hit.excerpt}`;
 				});
 				return `Found ${result.hits.length} section(s) for "${params.query}" in the bundled documentation (${result.filesSearched} file(s) searched). Cite file and heading when you rely on this.\n\n${lines.join('\n\n')}`;
+			},
+
+			handoff: (_params, result) => {
+				if (result.text) {
+					return `${result.message}\n\n${result.text}`;
+				}
+				const problems = result.problems?.length
+					? `\nНезаполнено: ${result.problems.join('; ')}. Допиши, если знаешь ответ, — принимающему это и нужно.`
+					: '';
+				return `${result.message}${problems}`;
 			},
 
 			review_checklist: (_params, result) => {
