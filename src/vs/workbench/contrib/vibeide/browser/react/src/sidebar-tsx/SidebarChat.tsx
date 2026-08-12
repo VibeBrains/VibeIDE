@@ -32,7 +32,7 @@ import { ICommandService } from '../../../../../../../platform/commands/common/c
 import { WarningBox } from '../vibe-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputTokenSpace } from '../../../../common/modelCapabilities.js';
 import { AlertTriangle, File, Ban, Check, ChevronRight, ChevronDown, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Paperclip, Waypoints, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward, Footprints, Mic, GitBranch } from 'lucide-react';
-import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, ScoutMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment, normalizePendingInjections } from '../../../../common/chatThreadServiceTypes.js';
+import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, ScoutMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment, normalizePendingInjections, ReviewChecklist } from '../../../../common/chatThreadServiceTypes.js';
 import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER } from '../../../../common/chatTimestampFormatter.js';
 import { parseChatSlashCommand, splitWatchArgs, CHAT_SLASH_COMMANDS } from '../../../../common/chatSlashCommands.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
@@ -935,6 +935,98 @@ const SUBPIN_RESUMES_KEY = 'vibeide.subagent.maxResumes';
 /** One running-role line in the live activity indicator: «🧩 Роль «X» работает… (шаг N/M · ~Xk / Yk · ⏱ 2:34)».
  *  Steps/tokens are the binding limits; the wall-clock deadline counts DOWN via an internal 1s ticker
  *  (independent of the per-hop status events, which can be tens of seconds apart). Role's own budgets. */
+/**
+ * Чек-лист «проверь глазами»: агент не закрывает задачу словом, её закрывает отметка.
+ *
+ * Пункт можно отметить рабочим или сломанным; у сломанного открывается поле «что не так» — без
+ * него отчёт агенту звучал бы как «не работает», и он пошёл бы чинить наугад. Кнопка отправки
+ * доступна всегда: непроверенные пункты уходят агенту именно как непроверенные, потому что
+ * «не смотрел» и «работает» — разные ответы, и подменять первое вторым как раз и есть та болезнь,
+ * от которой чек-лист придуман.
+ */
+const ReviewChecklistCard = ({ threadId, checklist }: { threadId: string; checklist: ReviewChecklist }) => {
+	const accessor = useAccessor();
+	const chatThreadsService = accessor.get('IChatThreadService');
+	const [commentFor, setCommentFor] = useState<string | undefined>(undefined);
+	const [commentText, setCommentText] = useState('');
+
+	const okCount = checklist.items.filter(i => i.status === 'ok').length;
+	const failCount = checklist.items.filter(i => i.status === 'fail').length;
+	const pendingCount = checklist.items.length - okCount - failCount;
+
+	const mark = (itemId: string, status: 'ok' | 'fail') => {
+		if (status === 'fail') {
+			setCommentFor(itemId);
+			setCommentText('');
+			chatThreadsService.markReviewChecklistItem(threadId, itemId, 'fail');
+			return;
+		}
+		setCommentFor(prev => prev === itemId ? undefined : prev);
+		chatThreadsService.markReviewChecklistItem(threadId, itemId, 'ok');
+	};
+
+	const saveComment = (itemId: string) => {
+		chatThreadsService.markReviewChecklistItem(threadId, itemId, 'fail', commentText.trim() || undefined);
+		setCommentFor(undefined);
+	};
+
+	return <div className="rounded border border-vibe-border-2 bg-vibe-bg-2 p-3 my-2" role="group" aria-label="Чек-лист проверки">
+		<div className="text-sm font-medium mb-1">Проверьте глазами</div>
+		<div className="text-sm text-vibe-fg-2 mb-2">{checklist.summary}</div>
+		<ul className="flex flex-col gap-2 list-none p-0 m-0">
+			{checklist.items.map(item => <li key={item.id} className="flex flex-col gap-1">
+				<div className="flex items-start gap-2">
+					<button
+						type="button"
+						aria-pressed={item.status === 'ok'}
+						title="Работает"
+						onClick={() => mark(item.id, 'ok')}
+						className={`flex-shrink-0 px-2 py-0.5 rounded border text-sm ${item.status === 'ok' ? 'border-green-500 text-green-500' : 'border-vibe-border-2 text-vibe-fg-2 hover:text-vibe-fg-1'}`}
+					>✓</button>
+					<button
+						type="button"
+						aria-pressed={item.status === 'fail'}
+						title="Не работает"
+						onClick={() => mark(item.id, 'fail')}
+						className={`flex-shrink-0 px-2 py-0.5 rounded border text-sm ${item.status === 'fail' ? 'border-red-500 text-red-500' : 'border-vibe-border-2 text-vibe-fg-2 hover:text-vibe-fg-1'}`}
+					>✗</button>
+					<div className="min-w-0">
+						<div className="text-sm">{item.text}</div>
+						{item.how ? <div className="text-xs text-vibe-fg-3">{item.how}</div> : null}
+						{item.comment ? <div className="text-xs text-red-400">{item.comment}</div> : null}
+					</div>
+				</div>
+				{commentFor === item.id ? <div className="flex items-center gap-2 pl-10">
+					<input
+						type="text"
+						autoFocus
+						value={commentText}
+						aria-label="Что именно не так"
+						placeholder="Что именно не так?"
+						onChange={e => setCommentText(e.target.value)}
+						onKeyDown={e => { if (e.key === 'Enter') { saveComment(item.id); } }}
+						className="flex-1 min-w-0 text-xs px-2 py-1 rounded border border-vibe-border-2 bg-vibe-bg-1"
+					/>
+					<button type="button" className="text-xs px-2 py-1 rounded border border-vibe-border-2" onClick={() => saveComment(item.id)}>Ок</button>
+				</div> : null}
+			</li>)}
+		</ul>
+		<div className="flex items-center gap-2 mt-3">
+			<button
+				type="button"
+				onClick={() => chatThreadsService.submitReviewChecklist(threadId)}
+				className="text-sm px-3 py-1 rounded border border-vibe-border-1 hover:bg-vibe-bg-1"
+			>Отправить результат</button>
+			<button
+				type="button"
+				onClick={() => chatThreadsService.dismissReviewChecklist(threadId)}
+				className="text-sm px-2 py-1 rounded text-vibe-fg-3 hover:text-vibe-fg-1"
+			>Скрыть</button>
+			<span className="text-xs text-vibe-fg-3">{okCount} ок · {failCount} не ок · {pendingCount} не проверено</span>
+		</div>
+	</div>;
+};
+
 const SubagentActivityRow = ({ role }: { role: SubagentActivityItem }) => {
 	const [now, setNow] = useState<number>(() => Date.now());
 	const hasDeadline = !!role.deadlineAtMs && role.deadlineAtMs > 0;
@@ -2827,6 +2919,8 @@ const titleOfBuiltinToolName = {
 	'design_document': { done: 'Записал дизайн-контекст', proposed: 'Записать дизайн-контекст', running: loadingTitleWrapper('Описывает дизайн-контекст') },
 	'design_doctor': { done: 'Проверил дизайн-обвязку', proposed: 'Проверить дизайн-обвязку', running: loadingTitleWrapper('Проверяет дизайн-обвязку') },
 	'model_council': { done: 'Собрал совет моделей', proposed: 'Собрать совет моделей', running: loadingTitleWrapper('Опрашивает советников') },
+	'measure_metric': { done: 'Замерил метрику', proposed: 'Замерить метрику', running: loadingTitleWrapper('Меряет метрику') },
+	'review_checklist': { done: 'Отдал чек-лист на проверку', proposed: 'Отдать чек-лист на проверку', running: loadingTitleWrapper('Собирает чек-лист') },
 } as const satisfies Record<BuiltinToolName, { done: any; proposed: any; running: any }>;
 
 
@@ -5919,6 +6013,10 @@ export const SidebarChat = () => {
 	const openHandoffCount = useSubagentHandoffCount();
 	const threadStreamRunning = useChatThreadsStreamState(threadId)?.isRunning;
 	const showResumeRole = openHandoffCount > 0 && (threadStreamRunning === undefined || threadStreamRunning === 'idle');
+	// Чек-лист «проверь глазами» — транзиентный, как индикатор ролей: приходит ПОСРЕДИ хода, а
+	// вставка в thread.messages в этот момент сдвинула бы хвост и сломала одобрение инструментов
+	// (docs/knowledge/chatUx/chatInterruptAndInject.md).
+	const reviewChecklist = chatThreadsState.allThreads[threadId]?.state?.reviewChecklist;
 	const currCheckpointIdx = chatThreadsState.allThreads[threadId]?.state?.currCheckpointIdx ?? undefined;  // if not exist, treat like checkpoint is last message (infinity)
 	// Notes the user queued mid-run (via onInject). Shown as a pinned "queued" strip above the input until
 	// the agent drains them into a real message on its next hop (then pendingInjections clears → strip gone).
@@ -6097,6 +6195,13 @@ export const SidebarChat = () => {
 		// Live subagent activity — curated roles currently working under this thread. Transient
 		// (never a persisted message), so it can appear mid-turn without breaking the streaming
 		// last-message invariant. Renders below the streaming content, above the escape hint.
+		if (reviewChecklist && reviewChecklist.items.length > 0) {
+			items.push({
+				key: 'review-checklist',
+				render: () => <ProseWrapper><ReviewChecklistCard threadId={threadId} checklist={reviewChecklist} /></ProseWrapper>,
+			});
+		}
+
 		if (showSubagentActivity) {
 			items.push({
 				key: 'subagent-activity',
@@ -6255,6 +6360,7 @@ export const SidebarChat = () => {
 		commandService,
 		currentThread.id,
 		showSubagentActivity,
+		reviewChecklist,
 		subagentActivity,
 		showResumeRole,
 		openHandoffCount,

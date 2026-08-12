@@ -49,6 +49,7 @@ import { INLShellParserService } from '../common/nlShellParserService.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { analyzeShellLine } from '../common/nlShellSafetyAnalyzer.js';
+import { ReviewChecklist } from '../common/chatThreadServiceTypes.js';
 import { localize } from '../../../../nls.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
@@ -684,6 +685,37 @@ export class ToolsService extends Disposable implements IToolsService {
 				}
 				const summary = typeof summaryUnknown === 'string' && summaryUnknown.trim() ? summaryUnknown.trim() : null;
 				return { purpose, summary };
+			},
+
+			review_checklist: (params: RawToolParamsObj) => {
+				const { summary: summaryUnknown, items: itemsUnknown } = params;
+				const summary = validateStr('summary', summaryUnknown);
+				// Модели присылают список то массивом, то JSON-строкой, то одной строкой с переносами.
+				// Разбираем все три формы: отказ на форме, которую человек прочитал бы без труда, —
+				// это отказ ради формальности.
+				let raw: unknown = itemsUnknown;
+				if (typeof raw === 'string') {
+					const text = raw.trim();
+					try {
+						raw = JSON.parse(text);
+					} catch {
+						raw = text.split('\n').map(line => line.replace(/^\s*[-*\d.)\s]+/, '').trim()).filter(Boolean);
+					}
+				}
+				if (!Array.isArray(raw)) {
+					throw new Error(`Invalid LLM output: items must be an array of {text, how}, got ${typeof itemsUnknown}`);
+				}
+				const items = raw.map(entry => {
+					if (typeof entry === 'string') { return { text: entry.trim() }; }
+					const obj = (entry ?? {}) as { text?: unknown; how?: unknown };
+					const text = typeof obj.text === 'string' ? obj.text.trim() : '';
+					const how = typeof obj.how === 'string' && obj.how.trim() ? obj.how.trim() : undefined;
+					return { text, how };
+				}).filter(item => item.text.length > 0);
+				if (items.length === 0) {
+					throw new Error('Invalid LLM output: the checklist has no items with text.');
+				}
+				return { summary, items };
 			},
 
 			go_to_definition: (params: RawToolParamsObj) => {
@@ -2278,6 +2310,23 @@ export class ToolsService extends Disposable implements IToolsService {
 				const { resPromise, interrupt } = await this.terminalToolService.runCommand(command, { type: 'temporary', cwd, terminalId, timeoutMs: timeoutMs ?? undefined });
 				return { result: resPromise, interruptTool: interrupt };
 			},
+			review_checklist: async ({ summary, items }) => {
+				// Здесь только сборка структуры: положить её в тред может лишь оркестрация (у неё есть
+				// идентификатор треда, а зависеть от неё этот сервис не может — вышел бы цикл).
+				const checklist: ReviewChecklist = {
+					createdAtMs: Date.now(),
+					summary,
+					items: items.map(item => ({ id: generateUuid(), text: item.text, how: item.how, status: 'pending' as const })),
+				};
+				return {
+					result: {
+						itemCount: checklist.items.length,
+						message: `Чек-лист из ${checklist.items.length} пунктов отдан пользователю на проверку.`,
+						checklist,
+					},
+				};
+			},
+
 			measure_metric: async ({ purpose, summary }) => {
 				const command = this._configurationService.getValue<string>('vibeide.agent.optimize.command')?.trim() ?? '';
 				if (!command) {
@@ -3063,6 +3112,12 @@ export class ToolsService extends Disposable implements IToolsService {
 					return `--- ${where} (line ${hit.line})\n${hit.excerpt}`;
 				});
 				return `Found ${result.hits.length} section(s) for "${params.query}" in the bundled documentation (${result.filesSearched} file(s) searched). Cite file and heading when you rely on this.\n\n${lines.join('\n\n')}`;
+			},
+
+			review_checklist: (_params, result) => {
+				// Агенту возвращается только факт: список ушёл человеку. Пересказывать ему его же
+				// пункты незачем — он их и написал, а вот итог проверки придёт отдельным сообщением.
+				return `${result.message} Не отвечай «готово», пока не придёт результат проверки: пункты, отмеченные как нерабочие, вернутся тебе словами пользователя.`;
 			},
 
 			measure_metric: (params, result) => {

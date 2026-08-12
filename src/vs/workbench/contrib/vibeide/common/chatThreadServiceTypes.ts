@@ -183,6 +183,34 @@ export type PendingInjection = {
 	pdfs?: ChatPDFAttachment[];
 };
 
+/** Один пункт чек-листа «проверь глазами». */
+export type ReviewChecklistItem = {
+	readonly id: string;
+	/** Что проверять — формулировкой пользователя, а не именем функции. */
+	readonly text: string;
+	/** Как проверить: где нажать, что должно произойти. Необязательно, но без него пункт часто нечитаем. */
+	readonly how?: string;
+	status: 'pending' | 'ok' | 'fail';
+	/** Что именно не так — заполняется пользователем при отметке «не ок». */
+	comment?: string;
+};
+
+/**
+ * Чек-лист, который агент выдаёт вместо слова «сделал».
+ *
+ * Смысл механики в том, что закрывает задачу не агент, а проверка: «сделал» — это утверждение, а
+ * отмеченный пункт — факт. Поэтому у чек-листа есть состояние отметок и он переживает перезапуск
+ * вместе с тредом.
+ */
+export type ReviewChecklist = {
+	readonly createdAtMs: number;
+	/** Одной строкой: что агент считает сделанным. */
+	readonly summary: string;
+	items: ReviewChecklistItem[];
+	/** Результат уже отправлен агенту — второй раз тот же чек-лист не досылается. */
+	delivered?: boolean;
+};
+
 /**
  * Coerce persisted pending-injection entries into the current object shape. Threads saved before
  * attachments were supported stored plain strings; map those to `{ text }` so reads stay uniform.
