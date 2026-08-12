@@ -25,17 +25,6 @@ import { mainWindow } from '../../../../base/browser/window.js';
 /** VS Code built-in chat container id (stable since 1.90, still correct in 1.118+). */
 const CHAT_VIEW_CONTAINER_ID = 'workbench.panel.chat';
 
-/*
- * Upstream's «Generate Commit Message» sparkle lives in the SCM input box (`scmInput.ts`, command
- * `scm.input.triggerSetup`). It is shown while the Copilot setup is NOT completed — and in VibeIDE
- * it never completes, so the button stays there forever, offering a flow we do not ship. VibeIDE
- * has its own commit-message generation; this is the other one's button.
- *
- * Hidden with CSS rather than by editing `scmInput.ts` (upstream files are not touched for our
- * preferences — `upstreamBoundary.md`) and rather than with `setForceHidden`, which would remove
- * the whole Copilot-setup surface instead of this single control. See the rule below for why it
- * matches the icon rather than the command id.
- */
 
 const HIDE_CSS = /* css */ `
 /* ── Auxiliary bar composite-bar tab for built-in chat ─────────────────── */
@@ -84,16 +73,6 @@ const HIDE_CSS = /* css */ `
 /* ── AgentTitleBarStatusWidget: CHAT / Copilot status area in title bar ─ */
 .monaco-workbench .part.titlebar .agent-title-bar-status,
 .monaco-workbench .part.titlebar .agents-title-bar-widget {
-	display: none !important;
-}
-
-/* ── Upstream «Generate Commit Message» sparkle in the SCM input box ──── */
-/* Scoped to the SCM input toolbar and matched by the codicon: action items are plain <li> with  */
-/* no attribute carrying the command id (checked in actionbar.ts — data-action-id is never set   */
-/* by upstream), so the glyph inside the SCM input is the only thing there is to match. The scope */
-/* is what keeps this from taking unrelated sparkle buttons with it.                             */
-.monaco-workbench .scm-editor-container .monaco-action-bar .codicon-sparkle,
-.monaco-workbench .scm-editor .monaco-action-bar .codicon-sparkle {
 	display: none !important;
 }
 
