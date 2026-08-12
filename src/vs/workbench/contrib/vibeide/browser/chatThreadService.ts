@@ -8449,7 +8449,19 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// Snapshot the folder here and not on every tool edit: this is the boundary a user rolls
 		// back to ("before the agent's turn"), and one `git add -A` per turn is affordable while one
 		// per edited file is not.
-		const workspaceSnapshotTree = await this._workspaceSnapshotService.capture();
+		// Снимок подписывается ходом: `git log refs/vibe/checkpoints/*` тогда читается как история
+		// работы агента, а не как столбец одинаковых фраз. Предыдущий снимок передаётся, чтобы ход,
+		// ничего не изменивший в папке, не порождал второй одинаковый объект.
+		const thread = this.state.allThreads[threadId];
+		const previousSnapshot = thread?.messages
+			.filter((m): m is ChatMessage & { role: 'checkpoint' } => m.role === 'checkpoint')
+			.map(m => m.workspaceSnapshotTree)
+			.filter((t): t is string => typeof t === 'string' && t.length > 0)
+			.pop();
+		const workspaceSnapshotTree = await this._workspaceSnapshotService.capture(
+			{ turnIndex: thread?.messages.length ?? 0, threadId },
+			previousSnapshot,
+		);
 		await this._addCheckpoint(threadId, {
 			role: 'checkpoint',
 			type: 'user_edit',

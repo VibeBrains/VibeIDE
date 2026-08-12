@@ -5757,6 +5757,18 @@ export const SidebarChat = () => {
 			void videoChatService.startWatch(threadId, target, hint);
 			return;
 		}
+		if (slash.matched && slash.parsed.command === 'shot') {
+			// Снимок кладётся вложением в очередь, а не отправляется сам: пользователь ещё должен
+			// сказать, что на картинке править. Поле ввода поэтому НЕ чистим — набранное после
+			// команды осталось бы потерянным.
+			if (textAreaFnsRef.current) { textAreaFnsRef.current.setValue(''); }
+			chatThreadsService.setThreadDraft(threadId, '');
+			// Через команду, а не через сервис напрямую: расширять React-аксессор ради одного вызова
+			// незачем, а команда нужна и сама по себе — из палитры.
+			void commandService.executeCommand('vibeide.preview.shotToChat');
+			textAreaRef.current?.focus();
+			return;
+		}
 
 			// Resolve @references in the input into staging selections before sending
 			// Supports tokens like: @"src/app/file.ts", @path/to/file.ts, @folder, @workspace, @recent, @selection, @agent

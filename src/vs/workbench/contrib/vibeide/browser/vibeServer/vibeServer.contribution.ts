@@ -371,6 +371,27 @@ registerAction2(
 );
 
 registerAction2(
+	class VibeServerShotToChat extends Action2 {
+		constructor() {
+			super({
+				id: 'vibeide.preview.shotToChat',
+				title: localize2('vibeServer.shotToChat', 'Снимок превью в чат'),
+				category: vibeCategory,
+				f1: true,
+			});
+		}
+		async run(accessor: ServicesAccessor): Promise<void> {
+			const result = await accessor.get(IVibeServerService).shotPreviewToChat();
+			if (!result.ok) {
+				// Причина словами: «нет превью» и «снимок не получился» — разные беды с разными
+				// действиями, и общее «не вышло» заставляло бы гадать, что чинить.
+				accessor.get(INotificationService).info(result.reason);
+			}
+		}
+	},
+);
+
+registerAction2(
 	class VibeServerOpenWith extends Action2 {
 		constructor() {
 			super({

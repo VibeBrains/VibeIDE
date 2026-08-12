@@ -61,7 +61,53 @@ export const SNAPSHOT_ARGV = {
 	/** Pinned snapshots with the age of each, so a young one can be spared. */
 	listSnapshotRefs: ['for-each-ref', '--format=%(refname) %(committerdate:unix)', SNAPSHOT_REF_PREFIX],
 	deleteRef: (id: string) => ['update-ref', '-d', snapshotRefName(id)],
+	/** Tree behind an existing snapshot commit — the basis for skipping an unchanged turn. */
+	treeOfCommit: (commit: string) => ['rev-parse', `${commit}^{tree}`],
 } as const;
+
+/** Что известно о ходе в момент снимка. Всё необязательно: снимок ценен и без подписи. */
+export interface SnapshotCommitMeta {
+	/** Порядковый номер хода в треде. */
+	readonly turnIndex?: number;
+	/** Инструмент, после которого сделан снимок, если снимок привязан к нему. */
+	readonly toolName?: string;
+	readonly threadId?: string;
+}
+
+/**
+ * Сообщение коммита-снимка.
+ *
+ * Раньше это была одна и та же строка на все снимки, и `git log` по нашим ссылкам показывал
+ * столбец одинаковых фраз — то есть не отвечал ни на один вопрос, ради которого в него смотрят.
+ * Номер хода, инструмент и дерево делают снимок читаемым без нашего интерфейса: `git log
+ * refs/vibe/checkpoints/*` становится историей работы агента, а не списком «snapshot».
+ *
+ * Первая строка короткая (её показывает `--oneline`), подробности — телом.
+ */
+export function snapshotCommitMessage(treeSha: string, meta: SnapshotCommitMeta = {}): string {
+	const head = meta.turnIndex !== undefined
+		? `VibeIDE checkpoint: ход ${meta.turnIndex}${meta.toolName ? ` (${meta.toolName})` : ''}`
+		: 'VibeIDE checkpoint snapshot';
+	const body = [
+		`tree ${treeSha}`,
+		meta.turnIndex !== undefined ? `turnIndex ${meta.turnIndex}` : undefined,
+		meta.toolName ? `toolName ${meta.toolName}` : undefined,
+		meta.threadId ? `threadId ${meta.threadId}` : undefined,
+	].filter(Boolean).join('\n');
+	return `${head}\n\n${body}`;
+}
+
+/**
+ * Нужен ли новый снимок.
+ *
+ * Дерево того же содержания даёт тот же sha, поэтому ход, ничего не изменивший в рабочей папке
+ * (агент только читал), не порождает второго объекта: возвращается предыдущий снимок. Это не
+ * только экономия — одинаковые снимки подряд превращают историю ходов в шум, где не видно, какой
+ * ход что-то сделал.
+ */
+export function shouldReuseSnapshot(newTree: string, previousTree: string | undefined): boolean {
+	return previousTree !== undefined && previousTree.trim() === newTree.trim() && newTree.trim().length > 0;
+}
 
 /**
  * How long a snapshot is spared regardless of what the live set says.

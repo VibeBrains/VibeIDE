@@ -321,6 +321,24 @@ export class VibeBrowserManager extends Disposable {
 		return undefined;
 	}
 
+	/**
+	 * Прямоугольник активного превью в координатах окна — то, что нужно снимку экрана.
+	 *
+	 * Снять содержимое iframe изнутри нельзя: canvas-capture чужого origin в webview заблокирован
+	 * (знание записано в previewInspectElement). Рабочий путь — нативный снимок окна с обрезкой по
+	 * этому прямоугольнику, поэтому здесь отдаётся именно геометрия, а не картинка.
+	 *
+	 * `undefined` означает «превью не открыто или ещё не разложено» — снимать тогда нечего, и
+	 * подменять это снимком всего окна нельзя: пользователь просил превью.
+	 */
+	getPreviewRect(): { x: number; y: number; width: number; height: number } | undefined {
+		const container = this._active?.webview.container;
+		if (!container) { return undefined; }
+		const rect = container.getBoundingClientRect();
+		if (rect.width < 1 || rect.height < 1) { return undefined; }
+		return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) };
+	}
+
 	/** Force-reloads every open preview tab. */
 	reloadAll(): void {
 		for (const input of this._inputs) {

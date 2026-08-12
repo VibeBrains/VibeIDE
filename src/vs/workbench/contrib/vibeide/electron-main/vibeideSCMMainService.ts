@@ -12,7 +12,7 @@ import { copyFile, rm } from 'fs/promises';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { IVibeideSCMService, IWorkspaceSnapshotRestorePlan } from '../common/vibeideSCMTypes.js';
-import { isSnapshotTreeId, parsePathList, parsePinnedSnapshots, planSnapshotRestore, selectStaleSnapshotRefs, SNAPSHOT_ARGV } from '../common/workspaceSnapshotPolicy.js';
+import { isSnapshotTreeId, parsePathList, parsePinnedSnapshots, planSnapshotRestore, selectStaleSnapshotRefs, shouldReuseSnapshot, snapshotCommitMessage, SnapshotCommitMeta, SNAPSHOT_ARGV } from '../common/workspaceSnapshotPolicy.js';
 
 interface NumStat {
 	file: string;
@@ -90,7 +90,6 @@ const SNAPSHOT_IDENTITY = {
 	GIT_COMMITTER_EMAIL: 'snapshot@vibeide.local',
 } as const;
 
-const SNAPSHOT_COMMIT_MESSAGE = 'VibeIDE checkpoint snapshot';
 
 /**
  * Run `body` against a scratch index that is deleted afterwards, leaving the real index untouched.
@@ -142,7 +141,7 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 		return git('git log --pretty=format:"%h|%s|%ad" --date=short --no-merges -n 5', path);
 	}
 
-	async createWorkspaceSnapshot(path: string): Promise<string | undefined> {
+	async createWorkspaceSnapshot(path: string, meta?: SnapshotCommitMeta, previousCommit?: string): Promise<string | undefined> {
 		try {
 			const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);
 			return await withTemporaryIndex(root, async indexFile => {
@@ -151,11 +150,25 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 				if (!isSnapshotTreeId(tree)) {
 					return undefined;
 				}
+				// Ход, ничего не изменивший в папке (агент только читал), не порождает второго
+				// объекта: одинаковое содержимое даёт одинаковый sha дерева. Экономия здесь
+				// второстепенна — важнее, что подряд идущие одинаковые снимки превращают историю
+				// ходов в шум, где не видно, какой ход что-то сделал.
+				if (previousCommit) {
+					try {
+						const previousTree = await gitArgv(SNAPSHOT_ARGV.treeOfCommit(previousCommit), root);
+						if (shouldReuseSnapshot(tree, previousTree)) {
+							return previousCommit;
+						}
+					} catch {
+						// Предыдущего коммита уже нет (сборка мусора, чужая правка ссылок) — пишем новый.
+					}
+				}
 				// A bare tree is unreachable and `git gc` deletes it (verified: `gc --prune=now` made a
 				// fresh tree unreadable). Wrap it in a commit and give that commit a ref, so a snapshot
 				// survives for as long as the checkpoint that points at it.
 				const commit = await gitArgv(
-					SNAPSHOT_ARGV.commitTree(tree.trim(), SNAPSHOT_COMMIT_MESSAGE),
+					SNAPSHOT_ARGV.commitTree(tree.trim(), snapshotCommitMessage(tree.trim(), meta)),
 					root,
 					indexFile,
 					SNAPSHOT_IDENTITY,

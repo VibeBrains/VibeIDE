@@ -48,6 +48,9 @@ import { openVibeChatEditor } from '../../browser/vibeideChatPane.js';
 import { VibeServerConfigKeys, VibeServerPreviewTarget, VibeServerPreviewTabs, VIBE_SERVER_RUNNING_CONTEXT_KEY } from '../../browser/vibeServer/vibeServerConstants.js';
 import { IVibeServerService, IVibeServerStatus } from '../../browser/vibeServer/vibeServerService.js';
 import { bridgeProxyKey } from '../../common/vibeServer/bridgeProxyKey.js';
+import { IHostService } from '../../../../services/host/browser/host.js';
+import { ChatImageAttachment } from '../../common/chatThreadServiceTypes.js';
+import { generateUuid } from '../../../../../base/common/uuid.js';
 
 class VibeServerService extends Disposable implements IVibeServerService {
 	readonly _serviceBrand: undefined;
@@ -91,6 +94,7 @@ class VibeServerService extends Disposable implements IVibeServerService {
 		@IChatThreadService private readonly _chatThreadService: IChatThreadService,
 		@IVibeDesignScanService private readonly _designScanService: IVibeDesignScanService,
 		@ILogService private readonly _logService: ILogService,
+		@IHostService private readonly _hostService: IHostService,
 	) {
 		super();
 
@@ -426,6 +430,41 @@ class VibeServerService extends Disposable implements IVibeServerService {
 
 	showDesignFindings(items: readonly { selector: string; rule: string; severity: string }[]): void {
 		this._browser.value?.showFindings(items);
+	}
+
+	async shotPreviewToChat(): Promise<{ ok: true } | { ok: false; reason: string }> {
+		const threadId = this._chatThreadService.state.currentThreadId;
+		if (!threadId) {
+			return { ok: false, reason: localize('vibeServer.shot.noThread', "Нет активного чата — снимок отправлять некуда.") };
+		}
+		const rect = this._browser.value?.getPreviewRect();
+		if (!rect) {
+			// Снимок всего окна вместо превью здесь был бы не «лучше, чем ничего», а подменой:
+			// просили превью, а пришёл бы интерфейс IDE с превью где-то внутри.
+			return { ok: false, reason: localize('vibeServer.shot.noPreview', "Превью не открыто — снимать нечего.") };
+		}
+		const captured = await this._hostService.getScreenshot(rect);
+		if (!captured) {
+			return { ok: false, reason: localize('vibeServer.shot.failed', "Снимок не получился — окно свёрнуто или закрыто.") };
+		}
+		const image: ChatImageAttachment = {
+			id: generateUuid(),
+			data: captured.buffer,
+			// `getScreenshot` отдаёт JPEG — заявлять png значит соврать модели о формате.
+			mimeType: 'image/jpeg',
+			filename: 'preview.jpg',
+			width: rect.width,
+			height: rect.height,
+			size: captured.byteLength,
+		};
+		this._chatThreadService.addPendingInjection(
+			threadId,
+			localize('vibeServer.shot.note', "Снимок открытого превью ({0}×{1}). Опишите, что на нём поправить.", rect.width, rect.height),
+			[image],
+		);
+		await openVibeChatEditor(this._instantiationService);
+		await this._chatThreadService.focusCurrentChat();
+		return { ok: true };
 	}
 
 	async scanDesign(viewport: ViewportLabel = 'desktop'): Promise<DesignScanResult> {

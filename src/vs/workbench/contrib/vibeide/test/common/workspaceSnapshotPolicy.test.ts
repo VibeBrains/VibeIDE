@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { isSnapshotTreeId, parsePathList, parsePinnedSnapshots, planSnapshotRestore, selectStaleSnapshotRefs } from '../../common/workspaceSnapshotPolicy.js';
+import { isSnapshotTreeId, parsePathList, parsePinnedSnapshots, planSnapshotRestore, selectStaleSnapshotRefs, shouldReuseSnapshot, snapshotCommitMessage } from '../../common/workspaceSnapshotPolicy.js';
 
 suite('Workspace snapshot policy', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -78,6 +78,35 @@ suite('Workspace snapshot policy', () => {
 		assert.deepStrictEqual(
 			planSnapshotRestore(['a', 'b'], ['a']),
 			{ restore: ['a', 'b'], delete: [] },
+		);
+	});
+});
+
+suite('workspaceSnapshotPolicy — подпись снимка и пропуск неизменённого', () => {
+
+	test('сообщение несёт ход, инструмент и дерево; первая строка коротка для --oneline', () => {
+		const msg = snapshotCommitMessage('abc123', { turnIndex: 7, toolName: 'edit_file', threadId: 't1' });
+		const [head, blank, ...body] = msg.split('\n');
+		assert.deepStrictEqual(
+			[head, blank, body.join('|')],
+			['VibeIDE checkpoint: ход 7 (edit_file)', '', 'tree abc123|turnIndex 7|toolName edit_file|threadId t1'],
+		);
+	});
+
+	test('без метаданных сообщение остаётся прежним — снимок ценен и без подписи', () => {
+		assert.match(snapshotCommitMessage('abc123'), /^VibeIDE checkpoint snapshot\n\ntree abc123$/);
+	});
+
+	test('то же дерево — переиспользуем прошлый снимок; другое или пустое — нет', () => {
+		assert.deepStrictEqual(
+			[
+				shouldReuseSnapshot('aaa', 'aaa'),
+				shouldReuseSnapshot('aaa\n', ' aaa '),
+				shouldReuseSnapshot('aaa', 'bbb'),
+				shouldReuseSnapshot('aaa', undefined),
+				shouldReuseSnapshot('', ''),
+			],
+			[true, true, false, false, false],
 		);
 	});
 });
