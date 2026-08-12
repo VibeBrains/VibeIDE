@@ -332,6 +332,66 @@ export class McpHTTPHandle extends Disposable {
 	private readonly _requestSequencer = new Sequencer();
 	private readonly _postEndpoint = new DeferredPromise<{ url: string; transport: McpServerTransportHTTP }>();
 	private _mode: HttpModeT = { value: HttpMode.Unknown };
+
+	/**
+	 * Protocol version to advertise on every HTTP request (`MCP-Protocol-Version`, required since
+	 * revision 2025-06-18 and the basis of routing in 2026-07-28). Starts at the version we ask for
+	 * and switches to whatever the server negotiated, so the header never contradicts the session.
+	 */
+	private _protocolVersion: string = MCP.LATEST_PROTOCOL_VERSION;
+
+	/**
+	 * Notes the negotiated protocol version out of an `initialize` result.
+	 *
+	 * Sniffed in the transport rather than passed down from the request handler because the header
+	 * is an HTTP concern and only this layer sends it — the same reason `Mcp-Session-Id` is read
+	 * here. Anything unparseable or unrelated is ignored: this must never fail a message.
+	 */
+	/**
+	 * Routing headers `Mcp-Method` / `Mcp-Name` (SEP-2243), required from revision 2026-07-28.
+	 *
+	 * Sent already: a gateway or load balancer can then route and meter without opening the body,
+	 * and a server that predates the revision ignores unknown headers. Both values are derived FROM
+	 * the body we are about to send, so they cannot disagree with it — which is what a 2026-07-28
+	 * server rejects with `-32020`.
+	 *
+	 * A JSON-RPC batch is skipped on purpose: several methods in one POST have no single answer,
+	 * and a wrong header is worse than none.
+	 */
+	private _routingHeaders(message: string): Record<string, string> {
+		let parsed: { method?: unknown; params?: { name?: unknown; uri?: unknown } };
+		try {
+			parsed = JSON.parse(message);
+		} catch {
+			return {};
+		}
+		if (Array.isArray(parsed) || typeof parsed?.method !== 'string') {
+			return {};
+		}
+		const headers: Record<string, string> = { 'Mcp-Method': parsed.method };
+		// `Mcp-Name` names the thing being addressed; only these methods address one.
+		const named = parsed.method === 'tools/call' || parsed.method === 'prompts/get'
+			? parsed.params?.name
+			: parsed.method === 'resources/read' ? parsed.params?.uri : undefined;
+		if (typeof named === 'string' && named) {
+			headers['Mcp-Name'] = named;
+		}
+		return headers;
+	}
+
+	private _noteNegotiatedVersion(raw: string): void {
+		if (!raw.includes('protocolVersion')) { return; }
+		try {
+			const parsed = JSON.parse(raw) as { result?: { protocolVersion?: unknown } };
+			const version = parsed?.result?.protocolVersion;
+			if (typeof version === 'string' && version && version !== this._protocolVersion) {
+				this._log(LogLevel.Info, `Server negotiated MCP protocol version ${version} (asked for ${this._protocolVersion})`);
+				this._protocolVersion = version;
+			}
+		} catch {
+			// Not a JSON-RPC object (SSE comment, partial frame) — nothing to learn, nothing to report.
+		}
+	}
 	private readonly _cts = new CancellationTokenSource();
 	private readonly _abortCtrl = new AbortController();
 	private _authMetadata?: AuthMetadata;
@@ -383,6 +443,7 @@ export class McpHTTPHandle extends Disposable {
 		const headers: Record<string, string> = {
 			...Object.fromEntries(this._launch.headers),
 			'Mcp-Session-Id': sessionId,
+			'MCP-Protocol-Version': this._protocolVersion,
 		};
 
 		try {
@@ -424,6 +485,10 @@ export class McpHTTPHandle extends Disposable {
 			'Content-Type': 'application/json',
 			'Content-Length': String(asBytes.length),
 			Accept: 'text/event-stream, application/json',
+			// Required since revision 2025-06-18 and the basis of body-free routing in 2026-07-28;
+			// we were sending it only during metadata discovery, i.e. never on a real call.
+			'MCP-Protocol-Version': this._protocolVersion,
+			...this._routingHeaders(message),
 		};
 		if (sessionId) {
 			headers['Mcp-Session-Id'] = sessionId;
@@ -500,6 +565,7 @@ export class McpHTTPHandle extends Disposable {
 		if (contentType.startsWith('text/event-stream')) {
 			const parser = new SSEParser(event => {
 				if (event.type === 'message') {
+					this._noteNegotiatedVersion(event.data);
 					this._proxy.$onDidReceiveMessage(this._id, event.data);
 				} else if (event.type === 'endpoint') {
 					// An SSE server that didn't correctly return a 4xx status when we POSTed
@@ -515,10 +581,13 @@ export class McpHTTPHandle extends Disposable {
 				this._log(LogLevel.Warning, `Error reading SSE stream: ${String(err)}`);
 			}
 		} else if (contentType.startsWith('application/json')) {
-			this._proxy.$onDidReceiveMessage(this._id, await res.text());
+			const body = await res.text();
+			this._noteNegotiatedVersion(body);
+			this._proxy.$onDidReceiveMessage(this._id, body);
 		} else {
 			const responseBody = await res.text();
 			if (isJSON(responseBody)) { // try to read as JSON even if the server didn't set the content type
+				this._noteNegotiatedVersion(responseBody);
 				this._proxy.$onDidReceiveMessage(this._id, responseBody);
 			} else {
 				this._log(LogLevel.Warning, `Unexpected ${res.status} response for request: ${responseBody}`);
@@ -547,6 +616,7 @@ export class McpHTTPHandle extends Disposable {
 				const headers: Record<string, string> = {
 					...Object.fromEntries(this._launch.headers),
 					'Accept': 'text/event-stream',
+					'MCP-Protocol-Version': this._protocolVersion,
 				};
 				await this._addAuthHeader(headers);
 
@@ -586,6 +656,7 @@ export class McpHTTPHandle extends Disposable {
 					canReconnectAt = Date.now() + event.retry;
 				}
 				if (event.type === 'message' && event.data) {
+					this._noteNegotiatedVersion(event.data);
 					this._proxy.$onDidReceiveMessage(this._id, event.data);
 				}
 				if (event.id) {
@@ -634,7 +705,8 @@ export class McpHTTPHandle extends Disposable {
 
 		const parser = new SSEParser(event => {
 			if (event.type === 'message') {
-				this._proxy.$onDidReceiveMessage(this._id, event.data);
+				this._noteNegotiatedVersion(event.data);
+					this._proxy.$onDidReceiveMessage(this._id, event.data);
 			} else if (event.type === 'endpoint') {
 				postEndpoint.complete(new URL(event.data, this._launch.uri.toString(true)).toString());
 			}

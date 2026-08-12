@@ -13,7 +13,7 @@ import { INTERNAL_AUTH_PROVIDER_PREFIX, isAuthenticationWwwAuthenticateRequest }
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
 import { IExtHostRpcService } from './extHostRpcService.js';
 import { URI, UriComponents } from '../../../base/common/uri.js';
-import { AuthorizationErrorType, fetchDynamicRegistration, getClaimsFromJWT, IAuthorizationJWTClaims, IAuthorizationProtectedResourceMetadata, IAuthorizationServerMetadata, IAuthorizationTokenResponse, isAuthorizationErrorResponse, isAuthorizationTokenResponse } from '../../../base/common/oauth.js';
+import { AuthorizationErrorType, fetchDynamicRegistration, getClaimsFromJWT, IAuthorizationJWTClaims, IAuthorizationProtectedResourceMetadata, IAuthorizationServerMetadata, IAuthorizationTokenResponse, isAuthorizationErrorResponse, isAuthorizationTokenResponse, verifyAuthorizationResponseIssuer } from '../../../base/common/oauth.js';
 import { IExtHostWindow } from './extHostWindow.js';
 import { IExtHostInitDataService } from './extHostInitDataService.js';
 import { ILogger, ILoggerService, ILogService } from '../../../platform/log/common/log.js';
@@ -626,6 +626,26 @@ export class DynamicAuthProvider implements vscode.AuthenticationProvider {
 		let code: string | undefined;
 		try {
 			const response = await raceCancellationError(promise, token);
+			// RFC 9207 mix-up protection, same check the loopback flow already performs: with more
+			// than one authorization server in play, a response minted by server B must not be
+			// accepted as one from server A. The state check proves the response belongs to OUR
+			// request, not that it came from the server we asked. Servers that advertise the
+			// parameter must send it; older ones are let through unchecked, and that is logged.
+			const issuerVerdict = verifyAuthorizationResponseIssuer(
+				response,
+				this._serverMetadata.issuer,
+				{ issuerParameterSupported: this._serverMetadata.authorization_response_iss_parameter_supported },
+			);
+			if (!issuerVerdict.ok) {
+				const detail = issuerVerdict.reason === 'mismatch'
+					? `expected issuer ${issuerVerdict.expected}, got ${issuerVerdict.received}`
+					: `expected issuer ${issuerVerdict.expected}, response carried no 'iss'`;
+				this._logger.error(`Authorization response rejected (RFC 9207): ${detail}`);
+				throw new Error(`Authorization response did not come from the expected authorization server (${detail}).`);
+			}
+			if (!issuerVerdict.checked) {
+				this._logger.info(`Authorization response accepted without an 'iss' check (RFC 9207) — the server does not advertise the parameter.`);
+			}
 			code = response.code;
 		} catch (err) {
 			if (isCancellationError(err)) {
@@ -663,7 +683,7 @@ export class DynamicAuthProvider implements vscode.AuthenticationProvider {
 			.replace(/=+$/, '');
 	}
 
-	private async waitForAuthorizationCode(expectedState: URI): Promise<{ code: string }> {
+	private async waitForAuthorizationCode(expectedState: URI): Promise<{ code: string; iss?: string }> {
 		const result = await this._proxy.$waitForUriHandler(expectedState);
 		// Extract the code parameter directly from the query string. NOTE, URLSearchParams does not work here because
 		// it will decode the query string and we need to keep it encoded.
@@ -672,7 +692,10 @@ export class DynamicAuthProvider implements vscode.AuthenticationProvider {
 			// No code parameter found in the query string
 			throw new Error('Authentication failed: No authorization code received');
 		}
-		return { code: codeMatch[1] };
+		// `iss` (RFC 9207) is decoded, unlike `code`: it is an issuer URL to be compared with the
+		// recorded one, not a value forwarded verbatim to the token endpoint.
+		const issMatch = /[?&]iss=([^&]+)/.exec(result.query || '');
+		return { code: codeMatch[1], iss: issMatch ? decodeURIComponent(issMatch[1]) : undefined };
 	}
 
 	protected async exchangeCodeForToken(code: string, codeVerifier: string, redirectUri: string): Promise<IAuthorizationTokenResponse> {

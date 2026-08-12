@@ -138,6 +138,13 @@ export class McpServerRequestHandler extends Disposable {
 						}
 					}
 				}, token);
+				// What the server negotiated was accepted without a glance: a server answering with a
+				// version we never asked for was treated as agreement. Logged rather than refused —
+				// an older server that steps down still speaks a dialect we handle, and failing the
+				// connection here would break working setups over a version string.
+				if (initialized.protocolVersion !== MCP.LATEST_PROTOCOL_VERSION) {
+					opts.logger.warn(`Server negotiated MCP protocol version ${initialized.protocolVersion}; this client asked for ${MCP.LATEST_PROTOCOL_VERSION}. Continuing — report anything that misbehaves.`);
+				}
 				mcp._serverInit = initialized;
 				mcp._sendLogLevelToServer(opts.logger.getLevel());
 
