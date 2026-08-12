@@ -32,6 +32,7 @@ import { TerminalLocation } from '../../../../platform/terminal/common/terminal.
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { formatAgentTurnTrace, getAgentTurnTrace } from '../common/agentTurnTrace.js';
 import { isCodeEditor } from '../../../../editor/browser/editorBrowser.js';
 import { ITextResourceEditorInput } from '../../../../platform/editor/common/editor.js';
 import { IChatThreadService } from './chatThreadService.js';
@@ -367,6 +368,37 @@ CommandsRegistry.registerCommand('vibeide.memory.persist', (accessor: ServicesAc
 });
 
 // Semantic search — when invoked without a query (palette/keybinding), prompt for one, then show
+/**
+ * Показывает пошаговый трейс текущего хода агента в редакторе.
+ *
+ * Кольцо само по себе бесполезно, пока в него нельзя заглянуть: вопрос «почему агент пошёл не
+ * туда» задают ПОСЛЕ того, как он уже пошёл, и ответ должен открываться одной командой, а не
+ * собираться из логов. Открывается как обычный текст — его можно скопировать в issue целиком.
+ */
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.agent.showTurnTrace',
+			f1: true,
+			title: localize2('vibeide.agent.showTurnTrace.title', 'VibeIDE: Показать трейс хода агента'),
+			category: localize2('vibeCategory', 'VibeIDE'),
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const chatThreadService = accessor.get(IChatThreadService);
+		const editorService = accessor.get(IEditorService);
+		const notifications = accessor.get(INotificationService);
+		const threadId = chatThreadService.state.currentThreadId;
+		if (!threadId) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.trace.noThread', 'Нет активного треда — трейс показывать не для чего.') });
+			return;
+		}
+		const text = formatAgentTurnTrace(threadId, getAgentTurnTrace());
+		await editorService.openEditor({ resource: undefined, contents: text, languageId: 'plaintext', options: { pinned: true } });
+	}
+});
+
 // hits in a quick pick that opens the chosen file. Was log-only (invisible) and unusable from the UI.
 CommandsRegistry.registerCommand('vibeide.search.semantic', async (accessor: ServicesAccessor, query?: string) => {
 	const search = accessor.get(IVibeSemanticSearchService);

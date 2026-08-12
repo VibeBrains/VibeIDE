@@ -40,6 +40,7 @@ import { toolMatchesPlanHints, resolveToolClass } from '../common/planToolDrift.
 import { IVibeSpecsService } from './vibeSpecsService.js';
 import { IVibeTokenSavingsService } from './vibeTokenSavingsService.js';
 import { IBackgroundCommandExit, IToolsService } from './toolsService.js';
+import { traceAgentStep } from '../common/agentTurnTrace.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage, PendingInjection, normalizePendingInjections, ScoutLead, ScoutMessage } from '../common/chatThreadServiceTypes.js';
@@ -4176,6 +4177,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		opts: { preapproved: true; unvalidatedToolParams: RawToolParamsObj; validatedParams: ToolCallParams<ToolName> } | { preapproved: false; unvalidatedToolParams: RawToolParamsObj },
 	): Promise<{ awaitingUserApproval?: boolean; interrupted?: boolean }> => {
 
+		// Пошаговый трейс хода: имя инструмента, но НИКОГДА его аргументы — см. agentTurnTrace.ts.
+		const toolStartedAtMs = Date.now();
+		traceAgentStep({ threadId, kind: 'tool-call', name: requestedToolName });
+
 		// Repair short-circuits applied before main dispatch:
 		//
 		// 1. `invalid` pseudo-tool — aiSdkAdapter's experimental_repairToolCall
@@ -4662,6 +4667,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				resolveInterruptor(interruptor);
 
 				toolResult = await result;
+
+				traceAgentStep({ threadId, kind: 'tool-result', name: requestedToolName, durationMs: Date.now() - toolStartedAtMs, ok: true });
 
 				// Remember whose background command this is. Without the pairing the exit notice
 				// would have to guess a thread, and "the current one" is wrong the moment the user
@@ -7151,6 +7158,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (decision === 'bounce' && verify) {
 							verifyGateAttempts += 1;
 							const corrective = `⛔ VERIFY-GATE: команда «${verify.command}» завершилась с ошибкой (exit ${verify.exitCode ?? 'timeout'}). Задача НЕ считается выполненной — не вызывай vibe_complete, пока не станет зелёно. Исправь причину и продолжай работу инструментами (попытка ${verifyGateAttempts} из ${maxAttempts}).\n\nВывод команды:\n${verify.output}`;
+							traceAgentStep({ threadId, kind: 'nudge' });
 							this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
 							shouldSendAnotherMessage = true;
 							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
@@ -7181,6 +7189,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (turnDecision === 'bounce') {
 							turnChecksAttempts += 1;
 							const corrective = renderTurnChecksCorrective(failures, turnChecksAttempts, maxTurnCheckAttempts);
+							traceAgentStep({ threadId, kind: 'nudge' });
 							this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
 							shouldSendAnotherMessage = true;
 							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
@@ -7240,6 +7249,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							designHookAttempts += 1;
 							const list = floorFindings(findings).map(f => `• ${f.message} — ${f.selector} (${f.evidence})`).join('\n');
 							const corrective = `⛔ DESIGN-HOOK: страница после правок нарушает пол качества — это дефекты, а не вкус. Задача НЕ закрыта: исправь и продолжай инструментами (попытка ${designHookAttempts}).\n\n${list}\n\nЕсли что-то из перечисленного — намеренный выбор продукта, впиши правило в раздел «Детектор» файла .vibe/design/design.md с причиной, а не игнорируй молча.`;
+							traceAgentStep({ threadId, kind: 'nudge' });
 							this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
 							shouldSendAnotherMessage = true;
 							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
@@ -8932,6 +8942,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 
 	private async _addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId, images, pdfs, noPlan, displayContent, forceScout }: { userMessage: string; _chatSelections?: StagingSelectionItem[]; threadId: string; images?: ChatImageAttachment[]; pdfs?: ChatPDFAttachment[]; noPlan?: boolean; displayContent?: string; forceScout?: boolean }) {
+		traceAgentStep({ threadId, kind: 'turn-start' });
 		const thread = this.state.allThreads[threadId];
 		if (!thread) { return; } // should never happen
 

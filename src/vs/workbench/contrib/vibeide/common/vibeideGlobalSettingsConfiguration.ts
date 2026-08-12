@@ -938,6 +938,20 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.chat.autoSendPendingInjections', 'Авто-досыл подмешанного контекста: если, пока агент работал, вы по Enter поставили текст в очередь (полоска над полем ввода), но ход завершился раньше, чем очередь успела подмешаться, — отправить накопленное автоматически новым ходом вместо того, чтобы оставить его висеть. Срабатывает только на штатном завершении (выполнено / остановка с «Продолжить»); при ошибке, прерывании или ожидании ответа пользователя очередь не трогается. Выключите, если хотите досылать очередь вручную.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.agent.knowledgeLibrarian': {
+					type: 'boolean',
+					default: true,
+					description: localize('vibeide.agent.knowledgeLibrarian', 'Подкладывать агенту список заметок из базы знаний проекта (`docs/knowledge`), похожих на текущую задачу. Подбор делается кодом — по заголовкам заметок и связям между ними, — а не отдельным запросом к модели: ретривер на модели означал бы лишний платный вызов перед каждым ходом. Подкладывается только список «путь — название — почему подошла»; тексты агент читает сам, если сочтёт нужным.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.agent.knowledgeLibrarian.limit': {
+					type: 'number',
+					default: 5,
+					minimum: 1,
+					maximum: 12,
+					description: localize('vibeide.agent.knowledgeLibrarian.limit', 'Сколько заметок подкладывать. Больше — не значит лучше: длинный список вытесняет из контекста саму задачу, ради которой его принесли.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.agent.confirmDestructiveCommands': {
 					type: 'boolean',
 					default: true,

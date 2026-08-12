@@ -18,6 +18,7 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { buildDocGraph, IDocFile, IDocGraph } from '../common/vibeDocsGraph.js';
+import { IRetrievedDoc, rankDocsForTask } from '../common/docsRetrieval.js';
 import { IVibeDocsService } from './vibeDocsService.js';
 
 export const IVibeDocsGraphService = createDecorator<IVibeDocsGraphService>('vibeDocsGraphService');
@@ -32,6 +33,15 @@ export interface IVibeDocsGraphService {
 	idOf(resource: URI): string | undefined;
 	/** Resource behind a graph node id. */
 	uriOf(id: string): URI | undefined;
+
+	/**
+	 * Notes worth reading for a task, picked by code — never by a model.
+	 *
+	 * A retriever built on an LLM means one more paid, slow, fallible call before every turn, just
+	 * to decide what to show the LLM. Here it is word overlap over labels and headings plus one hop
+	 * along links the author drew by hand.
+	 */
+	findRelevantNotes(query: string, limit: number): Promise<IRetrievedDoc[]>;
 
 	/**
 	 * The doc the user is currently looking at, which is NOT derivable from the active editor:
@@ -79,6 +89,18 @@ class VibeDocsGraphService extends Disposable implements IVibeDocsGraphService {
 			this._cached = this._build();
 		}
 		return this._cached;
+	}
+
+	async findRelevantNotes(query: string, limit: number): Promise<IRetrievedDoc[]> {
+		try {
+			const graph = await this.readGraph();
+			return rankDocsForTask(query, graph.nodes, graph.edges, limit);
+		} catch (e) {
+			// A corpus that cannot be read is not worth failing a turn over — the agent simply
+			// starts without the suggested notes, exactly as it did before this existed.
+			this._log.warn(`[VibeDocsGraph] не удалось подобрать заметки: ${e}`);
+			return [];
+		}
 	}
 
 	idOf(resource: URI): string | undefined {
