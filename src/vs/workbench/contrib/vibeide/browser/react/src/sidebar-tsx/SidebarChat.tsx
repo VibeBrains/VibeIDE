@@ -2987,6 +2987,7 @@ const titleOfBuiltinToolName = {
 	'measure_metric': { done: 'Замерил метрику', proposed: 'Замерить метрику', running: loadingTitleWrapper('Меряет метрику') },
 	'review_checklist': { done: 'Отдал чек-лист на проверку', proposed: 'Отдать чек-лист на проверку', running: loadingTitleWrapper('Собирает чек-лист') },
 	'handoff': { done: 'Передал работу хендоффом', proposed: 'Записать хендофф', running: loadingTitleWrapper('Записывает хендофф') },
+	'git_state': { done: 'Посмотрел состояние репозитория', proposed: 'Посмотреть состояние репозитория', running: loadingTitleWrapper('Смотрит состояние репозитория') },
 } as const satisfies Record<BuiltinToolName, { done: any; proposed: any; running: any }>;
 
 
@@ -4598,7 +4599,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 										</div>
 
 										{/* Actions Row */}
-										{(approvalState === 'pending' || (approvalState === 'executing' && status === 'failed')) && !isCheckpointGhost && (
+										{(approvalState === 'pending' || (approvalState === 'executing' && (status === 'failed' || (status === 'succeeded' && step.checkpointIdx !== undefined && step.checkpointIdx !== null)))) && !isCheckpointGhost && (
 											<div className="flex items-center gap-2 mt-2">
 												{approvalState === 'pending' && !isRunning && (
 										<button
@@ -4624,15 +4625,19 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 															onClick={() => chatThreadService.skipStep({ threadId, messageIdx, stepNumber: step.stepNumber })}
 															className="px-2 py-0.5 text-xs rounded bg-gray-500/10 text-gray-400 hover:bg-gray-500/20 border border-gray-500/20 transition-colors"
 														>{chatS.stepSkip}</button>
-														{step.checkpointIdx !== undefined && step.checkpointIdx !== null && (
-								<button
-									type="button"
-									aria-label={chatS.stepRollbackAria(step.stepNumber)}
-									onClick={() => { if (confirm(chatS.stepRollbackConfirm)) {chatThreadService.rollbackToStep({ threadId, messageIdx, stepNumber: step.stepNumber });} }}
-																className="px-2 py-0.5 text-xs rounded bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 border border-orange-500/20 transition-colors"
-															>{chatS.stepRollback}</button>
-														)}
 													</>
+												)}
+												{/* Rollback lives outside the failed-only block: a step that SUCCEEDED can still be
+												    the one you want undone («получилось, но не так»). The confirmation differs by
+												    status on purpose — next to failed work the user is already looking for a way
+												    back, next to work that worked a habitual click costs what the step produced. */}
+												{approvalState === 'executing' && (status === 'failed' || status === 'succeeded') && step.checkpointIdx !== undefined && step.checkpointIdx !== null && (
+													<button
+														type="button"
+														aria-label={chatS.stepRollbackAria(step.stepNumber)}
+														onClick={() => { if (confirm(status === 'succeeded' ? chatS.stepRollbackConfirmDone : chatS.stepRollbackConfirm)) { chatThreadService.rollbackToStep({ threadId, messageIdx, stepNumber: step.stepNumber }); } }}
+														className="px-2 py-0.5 text-xs rounded bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 border border-orange-500/20 transition-colors"
+													>{chatS.stepRollback}</button>
 												)}
 											</div>
 										)}

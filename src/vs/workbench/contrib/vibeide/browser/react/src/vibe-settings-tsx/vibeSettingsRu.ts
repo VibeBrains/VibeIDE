@@ -70,6 +70,10 @@ export const chatS = {
 	stepSkipAria: (n: number) => `Пропустить шаг ${n}`,
 	stepRollbackAria: (n: number) => `Откатить шаг ${n}`,
 	stepRollbackConfirm: 'Вернуться к состоянию до этого шага?',
+	// A successful step gets its own wording. The failed-step dialog appears when the user is
+	// already looking for a way back; this one sits next to work that WORKED, where a click made
+	// out of habit costs exactly what the step produced.
+	stepRollbackConfirmDone: 'Шаг выполнен успешно. Откат вернёт файлы к состоянию ДО него — всё, что этот шаг сделал, будет потеряно. Продолжить?',
 	placeholderShort: 'План, @ для контекста',
 	placeholderFull: 'План, @ для контекста, / для команд',
 	contextTokens: (total: number, budget: number, pct: number) =>
