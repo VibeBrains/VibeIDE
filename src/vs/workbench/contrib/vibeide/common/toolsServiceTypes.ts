@@ -72,7 +72,7 @@ export type BuiltinToolCallParams = {
 	'design_doctor': Record<never, never>;
 	'model_council': { question: string; context: string | null };
 	'design_document': {
-		target: 'product' | 'system';
+		target: 'product' | 'uikit' | 'system';
 		name: string | null;
 		audience: string | null;
 		positioning: string | null;
@@ -201,7 +201,7 @@ export type BuiltinToolResultType = {
 		uiKit?: { entries: Array<{ layer: string; file: string; contains: string }>; componentNames: string[]; text: string };
 	};
 	'design_document': {
-		target: 'product' | 'system';
+		target: 'product' | 'uikit' | 'system';
 		/** Set when the file was written; absent when only a draft came back. */
 		writtenTo?: string;
 		draft?: string;

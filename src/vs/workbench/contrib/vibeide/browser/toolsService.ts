@@ -13,6 +13,7 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { IVibeConstraintsService, ConstraintViolationError } from '../common/vibeConstraintsService.js';
 import { IVibeExternalAccessService, ExternalAccessRequiredError, SourceFolderReadOnlyError } from '../common/vibeExternalAccessService.js';
 import { IVibeGitReadService } from '../common/vibeideSCMTypes.js';
+import { buildUiKitDraft, UiKitSourceFile } from '../common/designContext/uiKitDraft.js';
 import { IVibePromptGuardService } from '../common/vibePromptGuardService.js';
 import { IVibePerFilePermissionsService } from '../common/vibePerFilePermissionsService.js';
 import { IVibeIgnoreService } from './vibeIgnoreService.js';
@@ -426,6 +427,11 @@ export class ToolsService extends Disposable implements IToolsService {
 		// Upper bound on glob matches. A broad pattern (**/*) on a large repo otherwise enumerates the
 		// whole tree; capping makes the backend stop early and return fast. 10 pages of MAX_CHILDREN_URIs_PAGE.
 		const GLOB_MAX_RESULTS = MAX_CHILDREN_URIs_PAGE * 10;
+		// Карта UI: сколько файлов вообще смотреть и насколько большой файл ещё имеет смысл читать.
+		// Ограничения нужны обе: без первого сбор карты на большом репозитории превращается в обход
+		// всего дерева, без второго один сгенерированный бандл съедает весь бюджет чтения.
+		const UI_KIT_MAX_FILES = 400;
+		const UI_KIT_MAX_FILE_BYTES = 300_000;
 
 		// Workspace-boundary policy — config-driven (see vibeAgentBehaviorConfiguration.ts).
 		// Reads default-allowed (`allowReadOutsideWorkspace`=true), writes default-blocked
@@ -656,8 +662,8 @@ export class ToolsService extends Disposable implements IToolsService {
 			design_document: (params: RawToolParamsObj) => {
 				const { target: targetUnknown, name, audience, positioning, platform: platformUnknown, notes, apply: applyUnknown } = params;
 				const target = typeof targetUnknown === 'string' ? targetUnknown.trim().toLowerCase() : '';
-				if (target !== 'product' && target !== 'system') {
-					throw new Error(`Invalid LLM output: target must be 'product' or 'system', got ${targetUnknown}`);
+				if (target !== 'product' && target !== 'system' && target !== 'uikit') {
+					throw new Error(`Invalid LLM output: target must be 'product', 'uikit' or 'system', got ${targetUnknown}`);
 				}
 				const text = (value: unknown): string | null => typeof value === 'string' && value.trim() ? value.trim() : null;
 				const platformRaw = typeof platformUnknown === 'string' ? platformUnknown.trim().toLowerCase() : '';
@@ -1582,6 +1588,16 @@ export class ToolsService extends Disposable implements IToolsService {
 			},
 
 			design_document: async ({ target, name, audience, positioning, platform, notes, apply }) => {
+				/** Путь относительно корня проекта: в карте абсолютные пути бесполезны. */
+				const relativePathOf = (uri: URI, roots: readonly URI[]): string => {
+					for (const root of roots) {
+						const rootPath = root.fsPath.replace(/[\\/]+$/, '');
+						if (uri.fsPath.startsWith(rootPath + '/') || uri.fsPath.startsWith(rootPath + '\\')) {
+							return uri.fsPath.slice(rootPath.length + 1).replace(/\\/g, '/');
+						}
+					}
+					return uri.fsPath.replace(/\\/g, '/');
+				};
 				const fallbackName = this.workspaceContextService.getWorkspace().folders[0]?.name ?? 'проект';
 				if (target === 'product') {
 					const draft = {
@@ -1596,6 +1612,39 @@ export class ToolsService extends Disposable implements IToolsService {
 					}
 					const writtenTo = await this.designContextService.writeProduct(draft);
 					return { result: { target, writtenTo, draft: renderProductContext(draft) } };
+				}
+
+				if (target === 'uikit') {
+					// Снимается с КОДА, а не со страницы: превью показывает, что победило на одном
+					// экране, а карта отвечает, что вообще объявлено в проекте. Поэтому здесь нет
+					// требования открытого превью — и это единственная ветка, которой оно не нужно.
+					const folders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri);
+					const query = queryBuilder.file(folders, {
+						includePattern: '**/*.{css,scss,sass,less,tsx,jsx,vue,svelte}',
+						excludePattern: [{ pattern: '**/{node_modules,dist,build,out,.next,coverage}/**' }],
+						expandPatterns: true,
+						sortByScore: false,
+						maxResults: UI_KIT_MAX_FILES,
+					});
+					const found = await fileSearchCapped(query);
+					const sources: UiKitSourceFile[] = [];
+					for (const result of found.results.slice(0, UI_KIT_MAX_FILES)) {
+						try {
+							const content = (await fileService.readFile(result.resource)).value.toString();
+							// Огромный сгенерированный бандл ничего не добавляет в карту, зато съедает
+							// весь бюджет чтения — а карта нужна про то, что писали руками.
+							if (content.length > UI_KIT_MAX_FILE_BYTES) { continue; }
+							sources.push({ path: relativePathOf(result.resource, folders), content });
+						} catch {
+							// Нечитаемый файл — не повод ронять сбор карты: пропускаем и идём дальше.
+						}
+					}
+					const draft = buildUiKitDraft(sources, name ?? fallbackName);
+					if (!apply) {
+						return { result: { target, draft: draft.markdown } };
+					}
+					const writtenTo = await this.designContextService.writeUiKit(draft.markdown);
+					return { result: { target, writtenTo, draft: draft.markdown } };
 				}
 
 				const scan = await this.designScanService.scan();

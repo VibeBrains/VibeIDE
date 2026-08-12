@@ -60,6 +60,7 @@
 | Файл | О чём |
 |---|---|
 | [cssPipeline.md](ui/cssPipeline.md) | `vibeide.css`, `styles.css`, build flow, CSS MIME в dev |
+| [designSystemForModels.md](ui/designSystemForModels.md) | Почему «сделай стильнее» не работает, карта UI как четвёртый слой контура, двойной отступ |
 | [scopeTailwind.md](ui/scopeTailwind.md) | `@@`-escape, классы в константах (и в цвет-хелперах → SVG `stroke: none`), `.vibe-scope *` preflight, ID с точками, popup borders, quick pick |
 | [vibeModal.md](ui/vibeModal.md) | IVibeModalService: архитектура, `@@`-рассинхрон (инлайн vs переменная), blocking/non-blocking, размер+ресайз |
 | [themesAndChat.md](ui/themesAndChat.md) | Vibe Neon, theme tokens, theming чат-панели, fullscreen modes, secondary sidebar border, гонка setState при dispatchEvent('input'), **белым по белому на светлой теме** (инлайн `#fff` сильнее корректного CSS; `dark:`-варианты tailwind мертвы — класс `dark` не ставит никто, поэтому литерал+`dark:`-двойник = просто литерал) · **два id у темы** (`setColorTheme` берёт внутренний, не `settingsId` — опечатка даёт молчаливый `null`) · **глифы Command Center** (чужая гарнитура выдаёт себя весом; `IContextView` слушает документ, поэтому обработчик на элементе опаздывает; свой глиф — внутрь `action-label`) · **перенос чужой палитры в тему** (перекрашивание по якорной шкале светлот; светлоту отображать, а не сохранять; синтаксис разводить по кругу) · **кэш тем** (правка JSON под работающей IDE не видна) |

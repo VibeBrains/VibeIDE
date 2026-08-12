@@ -46,6 +46,8 @@ export interface IVibeDesignContextService {
 	writeProduct(draft: ProductContextDraft): Promise<string | undefined>;
 	/** Writes `design.md`, returning where it landed. */
 	writeDesign(draft: DesignSystemDraft): Promise<string | undefined>;
+	/** Записать карту UI (`uiKit.md`). Черновик собирается из кода вызывающим — здесь только запись. */
+	writeUiKit(markdown: string): Promise<string | undefined>;
 }
 
 /**
@@ -95,6 +97,12 @@ class VibeDesignContextService extends Disposable implements IVibeDesignContextS
 
 	async writeDesign(draft: DesignSystemDraft): Promise<string | undefined> {
 		return this._write(DESIGN_SYSTEM_PATHS, renderDesignSystem(draft));
+	}
+
+	async writeUiKit(markdown: string): Promise<string | undefined> {
+		// Карта приходит уже отрисованной: её собирает чистая функция из содержимого файлов проекта,
+		// и сервису остаётся только положить результат туда, где его будут искать.
+		return this._write(UI_KIT_PATHS, markdown);
 	}
 
 	private async _write(candidates: readonly string[], content: string): Promise<string | undefined> {
