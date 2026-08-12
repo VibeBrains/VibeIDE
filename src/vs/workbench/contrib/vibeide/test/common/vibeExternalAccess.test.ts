@@ -6,7 +6,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { isPathAllowed, normalizeFolderPath } from '../../common/vibeExternalAccessService.js';
+import { isPathAllowed, normalizeFolderPath, resolveSourceFolders } from '../../common/vibeExternalAccessService.js';
 
 suite('vibeExternalAccess — per-folder allowlist (O.13 Variant A)', () => {
 
@@ -72,6 +72,48 @@ suite('vibeExternalAccess — reference folders are read-only', () => {
 				neighbour: isPathAllowed('/home/notes-secret/x.md', readFolders, true),
 			},
 			{ readInReference: true, writeInReference: false, writeInAllowlist: true, neighbour: false },
+		);
+	});
+});
+
+suite('vibeExternalAccess — source folders inside the workspace', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('a relative entry expands against EVERY workspace root', () => {
+		// Expanding only the first root would leave the other projects writable — silently, which
+		// is the exact failure this setting exists to prevent.
+		assert.deepStrictEqual(
+			resolveSourceFolders(['raw'], ['/w/one', '/w/two']),
+			['/w/one/raw', '/w/two/raw'],
+		);
+	});
+
+	test('junk entries are dropped instead of matching everything', () => {
+		// An empty or `..` entry resolved to the root itself would freeze the whole project.
+		assert.deepStrictEqual(
+			resolveSourceFolders(['', '   ', '../escape', './docs/sources/', 'raw\\nested'], ['/w']),
+			['/w/docs/sources', '/w/raw/nested'],
+		);
+	});
+
+	test('absolute entries pass through untouched', () => {
+		assert.deepStrictEqual(
+			resolveSourceFolders(['/mnt/archive', 'C:\\corpus'], ['/w']),
+			['/mnt/archive', 'C:\\corpus'],
+		);
+	});
+
+	test('protection covers the folder and its contents, and stops at the boundary', () => {
+		const folders = resolveSourceFolders(['raw'], ['/w']);
+		assert.deepStrictEqual(
+			{
+				folder: isPathAllowed('/w/raw', folders, true),
+				inside: isPathAllowed('/w/raw/talks/2026.md', folders, true),
+				lookalike: isPathAllowed('/w/raw-notes/x.md', folders, true),
+				elsewhere: isPathAllowed('/w/docs/x.md', folders, true),
+			},
+			{ folder: true, inside: true, lookalike: false, elsewhere: false },
 		);
 	});
 });

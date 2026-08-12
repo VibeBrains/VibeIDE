@@ -176,6 +176,13 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			scope: ConfigurationScope.RESOURCE,
 			markdownDescription: localize('vibeide.agent.referenceFolders', 'Папки-справочники ВНЕ рабочей области: агент может их **читать, но не изменять** — материалы, заметки, чужие репозитории, на которые вы ссылаетесь.\n\nОтличие от `vibeide.agent.externalAccessAllowlist`: тот список даёт и чтение, и запись. Здесь запись отклоняется всегда, поэтому «не трогай эту папку» перестаёт быть пожеланием в промте и становится настройкой. Доступ распространяется на папку и её содержимое.'),
 		},
+		'vibeide.agent.sourceFolders': {
+			type: 'array',
+			items: { type: 'string' },
+			default: [],
+			scope: ConfigurationScope.RESOURCE,
+			markdownDescription: localize('vibeide.agent.sourceFolders', 'Папки-источники ВНУТРИ проекта: агент **читает их, но не изменяет**. Пути указываются относительно корня рабочей папки (`raw`, `docs/sources`) — в проекте с несколькими корнями относительный путь раскрывается в каждом.\n\nДля чего: держать материалы отдельно от выводов. Статьи, стенограммы, выгрузки, чужие тексты лежат неизменными, а знания из них агент пишет в обычные файлы проекта и связывает ссылками. Без такой настройки самое уязвимое место — исходник, который агент как раз читает: перезаписать его нечем помешать, а «не трогай эту папку» в промте остаётся пожеланием.\n\nОтличие от `vibeide.agent.referenceFolders`: тот список про папки ВНЕ рабочей области. Здесь — внутри неё, где агент иначе пишет свободно.'),
+		},
 		'vibeide.agent.maxLoopIterations': {
 			type: 'number',
 			default: 0,

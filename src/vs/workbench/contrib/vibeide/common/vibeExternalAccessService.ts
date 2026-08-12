@@ -14,6 +14,7 @@ import { IConfigurationService, ConfigurationTarget } from '../../../../platform
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IVibeModalService } from './vibeModalService.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 
 /** Variant B — thrown by the sync URI validator when a tool targets a path outside the
  *  workspace that the user hasn't authorized. The tool-dispatch layer catches it, prompts
@@ -33,6 +34,20 @@ export const PERSISTED_ALLOWLIST_KEY = 'vibeide.agent.externalAccessAllowlist';
 
 /** Reference folders: readable by the agent, never writable. See {@link isAllowed}. */
 export const READ_ONLY_FOLDERS_KEY = 'vibeide.agent.referenceFolders';
+
+/**
+ * Source folders INSIDE the workspace: readable, never writable.
+ *
+ * `referenceFolders` above only covers paths outside the open workspace — inside it the agent
+ * writes wherever it likes, because the workspace boundary was the only question being asked.
+ * That leaves no way to keep a folder of raw sources (articles, transcripts, exports) intact
+ * while the agent generates knowledge pages FROM them: the one thing that must not be rewritten
+ * is the thing it is reading.
+ *
+ * Paths are relative to a workspace folder root (`raw`, `docs/sources`). Absolute paths work too
+ * and are matched as-is.
+ */
+export const SOURCE_FOLDERS_KEY = 'vibeide.agent.sourceFolders';
 
 // ── Pure core (testable, no DI) ────────────────────────────────────────────────
 
@@ -55,6 +70,40 @@ export const isPathAllowed = (targetPath: string, allowedFolders: readonly strin
 	return false;
 };
 
+/**
+ * Resolve configured source folders against the workspace roots.
+ *
+ * A relative entry is expanded against EVERY root rather than just the first: a multi-root
+ * workspace with `raw` configured means "the raw folder of each project", and expanding only the
+ * first root would silently leave the others writable — the failure mode being guarded against.
+ */
+export const resolveSourceFolders = (patterns: readonly string[], workspaceRoots: readonly string[]): string[] => {
+	const out: string[] = [];
+	for (const raw of patterns) {
+		const entry = raw?.trim();
+		if (!entry) { continue; }
+		const isAbsolute = entry.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(entry) || entry.includes('://');
+		if (isAbsolute) {
+			out.push(entry);
+			continue;
+		}
+		const relative = entry.replace(/^\.\//, '').replace(/\\/g, '/').replace(/\/+$/, '');
+		if (!relative || relative.startsWith('..')) { continue; } // `..` would escape the root it is anchored to
+		for (const root of workspaceRoots) {
+			out.push(`${root.replace(/[\\/]+$/, '')}/${relative}`);
+		}
+	}
+	return out;
+};
+
+/** Thrown when a tool tries to write into a declared source folder. */
+export class SourceFolderReadOnlyError extends Error {
+	constructor(readonly uri: URI) {
+		super(localize('vibeide.sourceFolder.readOnly', 'Папка объявлена источником: агент читает её, но не изменяет. Путь: {0}. Список папок — настройка `{1}`.', uri.fsPath, SOURCE_FOLDERS_KEY));
+		this.name = 'SourceFolderReadOnlyError';
+	}
+}
+
 // ── Service ─────────────────────────────────────────────────────────────────────
 
 export type ExternalAccessScope = 'session' | 'workspace';
@@ -76,6 +125,12 @@ export interface IVibeExternalAccessService {
 	/** Variant B — prompt the user to authorize the folder containing `uri` (deduped per folder
 	 *  while a prompt is in flight). Resolves true if now allowed, false if denied/dismissed. */
 	requestAccess(uri: URI): Promise<boolean>;
+	/**
+	 * True when `uri` sits inside a declared source folder, which the agent may read but never
+	 * write. Unlike {@link isAllowed} this applies INSIDE the workspace too — that is the whole
+	 * point: the raw material the agent generates knowledge from lives in the repository.
+	 */
+	isSourceReadOnly(uri: URI): boolean;
 	/** Current allowlist (session + workspace), for the revoke UI. */
 	listAllowed(): ExternalAccessEntry[];
 	/** Remove a folder from both scopes (by normalized path equality). */
@@ -99,6 +154,7 @@ export class VibeExternalAccessService extends Disposable implements IVibeExtern
 	constructor(
 		@IConfigurationService private readonly _config: IConfigurationService,
 		@IVibeModalService private readonly _modal: IVibeModalService,
+		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 	) {
 		super();
 	}
@@ -116,6 +172,13 @@ export class VibeExternalAccessService extends Disposable implements IVibeExtern
 		const writable = [...this._session, ...this._workspaceFolders()];
 		const folders = accessKind === 'write' ? writable : [...writable, ...this._referenceFolders()];
 		return isPathAllowed(uri.fsPath, folders, this._caseSensitive);
+	}
+
+	isSourceReadOnly(uri: URI): boolean {
+		const patterns = this._config.getValue<string[]>(SOURCE_FOLDERS_KEY) ?? [];
+		if (patterns.length === 0) { return false; }
+		const roots = this._workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
+		return isPathAllowed(uri.fsPath, resolveSourceFolders(patterns, roots), this._caseSensitive);
 	}
 
 	async allowFolder(folder: URI, scope: ExternalAccessScope): Promise<void> {

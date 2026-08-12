@@ -11,7 +11,7 @@ import { isAbsolute as pathIsAbsolute } from '../../../../base/common/path.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IVibeConstraintsService, ConstraintViolationError } from '../common/vibeConstraintsService.js';
-import { IVibeExternalAccessService, ExternalAccessRequiredError } from '../common/vibeExternalAccessService.js';
+import { IVibeExternalAccessService, ExternalAccessRequiredError, SourceFolderReadOnlyError } from '../common/vibeExternalAccessService.js';
 import { IVibePromptGuardService } from '../common/vibePromptGuardService.js';
 import { IVibePerFilePermissionsService } from '../common/vibePerFilePermissionsService.js';
 import { IVibeIgnoreService } from './vibeIgnoreService.js';
@@ -437,7 +437,16 @@ export class ToolsService extends Disposable implements IToolsService {
 		const isAllowedToRead = (u: URI) => this._externalAccess.isAllowed(u, 'read');
 		const isAllowedToWrite = (u: URI) => this._externalAccess.isAllowed(u, 'write');
 		const validateReadURI = (u: unknown) => validateURI(u, workspaceContextService, requireWorkspaceForRead(), 'read', isAllowedToRead);
-		const validateWriteURI = (u: unknown) => validateURI(u, workspaceContextService, requireWorkspaceForWrite(), 'write', isAllowedToWrite);
+		// Source folders are refused AFTER the workspace check, and unlike it they apply inside the
+		// workspace too: the raw material the agent generates knowledge from lives in the repo, and
+		// the one file that must survive is the one being read. Not an `ExternalAccessRequiredError`
+		// on purpose — that error means "ask the user"; this one is a standing decision the user
+		// already made, so there is nothing to ask.
+		const validateWriteURI = (u: unknown) => {
+			const uri = validateURI(u, workspaceContextService, requireWorkspaceForWrite(), 'write', isAllowedToWrite);
+			if (this._externalAccess.isSourceReadOnly(uri)) { throw new SourceFolderReadOnlyError(uri); }
+			return uri;
+		};
 		const validateOptionalReadURI = (u: unknown) => isFalsy(u) ? null : validateReadURI(u);
 
 		this.validateParams = {
