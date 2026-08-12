@@ -43,7 +43,7 @@ import { IBackgroundCommandExit, IToolsService } from './toolsService.js';
 import { traceAgentStep } from '../common/agentTurnTrace.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
-import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage, PendingInjection, ReviewChecklist, ReviewChecklistItem, normalizePendingInjections, ScoutLead, ScoutMessage } from '../common/chatThreadServiceTypes.js';
+import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage, PendingInjection, ReviewChecklist, ReviewChecklistItem, EditBatch, EditBatchItem, normalizePendingInjections, ScoutLead, ScoutMessage } from '../common/chatThreadServiceTypes.js';
 import { trimThreadMessages, capToolResultSizes } from '../common/chatThreadTrim.js';
 import { Position } from '../../../../editor/common/core/position.js';
 import { IMetricsService } from '../common/metricsService.js';
@@ -425,6 +425,8 @@ export type ThreadType = {
 		 * живой индикатор ролей.
 		 */
 		reviewChecklist?: ReviewChecklist;
+		/** Пакет правок, собираемый кликами по превью. Живёт рядом с чек-листом и по той же причине. */
+		editBatch?: EditBatch;
 		focusedMessageIdx: number | undefined; // index of the user message that is being edited (undefined if none)
 
 		linksOfMessageIdx: { // eg. link = linksOfMessageIdx[4]['RangeFunction']
@@ -716,6 +718,16 @@ export interface IChatThreadService {
 	addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId, images, pdfs, noPlan, displayContent, forceScout }: { userMessage: string; _chatSelections?: StagingSelectionItem[]; threadId: string; images?: ChatImageAttachment[]; pdfs?: ChatPDFAttachment[]; noPlan?: boolean; displayContent?: string; forceScout?: boolean }): Promise<void>;
 	/** Queue context to be merged into the NEXT agent hop without aborting the running turn. */
 	addPendingInjection(threadId: string, text: string, images?: ChatImageAttachment[], pdfs?: ChatPDFAttachment[]): void;
+
+	/** Включает/выключает сбор правок кликами по превью. */
+	setEditBatchCollecting(threadId: string, collecting: boolean): void;
+	/** Добавляет правку в пакет. Вызывается по клику прицела, когда сбор включён. */
+	addEditBatchItem(threadId: string, item: Omit<EditBatchItem, 'id'>): void;
+	/** Меняет словесное описание правки. */
+	setEditBatchNote(threadId: string, itemId: string, note: string): void;
+	removeEditBatchItem(threadId: string, itemId: string): void;
+	/** Отдаёт весь пакет агенту одним заданием и очищает список. */
+	submitEditBatch(threadId: string): void;
 
 	/** Кладёт в тред чек-лист «проверь глазами». Вызывается инструментом агента. */
 	setReviewChecklist(threadId: string, checklist: ReviewChecklist): void;
@@ -9976,6 +9988,50 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const cur = this.state.allThreads[threadId]?.state.pendingInjections ?? [];
 		const note: PendingInjection = { text: t, images: imgs.length ? imgs : undefined, pdfs: docs.length ? docs : undefined };
 		this._setThreadState(threadId, { pendingInjections: [...cur, note] });
+	}
+
+	setEditBatchCollecting(threadId: string, collecting: boolean): void {
+		const current = this.state.allThreads[threadId]?.state.editBatch;
+		this._setThreadState(threadId, { editBatch: { items: current?.items ?? [], collecting } });
+	}
+
+	addEditBatchItem(threadId: string, item: Omit<EditBatchItem, 'id'>): void {
+		const current = this.state.allThreads[threadId]?.state.editBatch;
+		const items = [...(current?.items ?? []), { ...item, id: generateUuid() }];
+		this._setThreadState(threadId, { editBatch: { items, collecting: current?.collecting ?? true } });
+	}
+
+	setEditBatchNote(threadId: string, itemId: string, note: string): void {
+		const current = this.state.allThreads[threadId]?.state.editBatch;
+		if (!current) { return; }
+		this._setThreadState(threadId, { editBatch: { ...current, items: current.items.map(i => i.id === itemId ? { ...i, note } : i) } });
+	}
+
+	removeEditBatchItem(threadId: string, itemId: string): void {
+		const current = this.state.allThreads[threadId]?.state.editBatch;
+		if (!current) { return; }
+		this._setThreadState(threadId, { editBatch: { ...current, items: current.items.filter(i => i.id !== itemId) } });
+	}
+
+	submitEditBatch(threadId: string): void {
+		const current = this.state.allThreads[threadId]?.state.editBatch;
+		if (!current || current.items.length === 0) { return; }
+		// Очищаем ПЕРВЫМ делом: доставка ниже может начать новый ход, а он перечитает состояние.
+		this._setThreadState(threadId, { editBatch: { items: [], collecting: false } });
+
+		const lines = [
+			`[Пакет правок: ${current.items.length}] Это список мелких правок по интерфейсу, собранный кликами по превью.`,
+			'Сначала прочитай код всех затронутых мест, потом правь — по одной правке за раз, но исследование одно на весь пакет.',
+			'В конце отчитайся по КАЖДОМУ пункту отдельно и отдай чек-лист «проверь глазами» на весь пакет.',
+			'',
+		];
+		current.items.forEach((item, index) => {
+			lines.push(`${index + 1}. ${item.note.trim() || '(описание не задано — спроси, что здесь переделать)'}`);
+			lines.push(`   Селектор: ${item.selector}`);
+			lines.push(`   Страница: ${item.page}`);
+			if (item.file) { lines.push(`   Файл-кандидат: ${item.file}`); }
+		});
+		this._deliverToAgent(threadId, lines.join('\n'));
 	}
 
 	setReviewChecklist(threadId: string, checklist: ReviewChecklist): void {

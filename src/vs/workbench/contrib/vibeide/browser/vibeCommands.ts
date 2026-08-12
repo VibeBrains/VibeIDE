@@ -378,6 +378,35 @@ CommandsRegistry.registerCommand('vibeide.memory.persist', (accessor: ServicesAc
 registerAction2(class extends Action2 {
 	constructor() {
 		super({
+			id: 'vibeide.preview.toggleEditBatch',
+			f1: true,
+			title: localize2('vibeide.preview.toggleEditBatch.title', 'VibeIDE: Копить правки пакетом (прицел в превью)'),
+			category: localize2('vibeCategory', 'VibeIDE'),
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const chatThreadService = accessor.get(IChatThreadService);
+		const notifications = accessor.get(INotificationService);
+		const threadId = chatThreadService.state.currentThreadId;
+		if (!threadId) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.batch.noThread', 'Нет активного чата — пакет правок собирать некуда.') });
+			return;
+		}
+		const collecting = chatThreadService.state.allThreads[threadId]?.state.editBatch?.collecting === true;
+		chatThreadService.setEditBatchCollecting(threadId, !collecting);
+		notifications.notify({
+			severity: Severity.Info,
+			message: collecting
+				? localize('vibeide.batch.off', 'Сбор пакета выключен — клик прицела снова отправляет правку сразу.')
+				: localize('vibeide.batch.on', 'Сбор пакета включён — клики прицелом копятся списком в чате.'),
+		});
+	}
+});
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
 			id: 'vibeide.agent.showTurnTrace',
 			f1: true,
 			title: localize2('vibeide.agent.showTurnTrace.title', 'VibeIDE: Показать трейс хода агента'),

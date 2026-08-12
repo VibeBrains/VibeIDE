@@ -32,7 +32,7 @@ import { ICommandService } from '../../../../../../../platform/commands/common/c
 import { WarningBox } from '../vibe-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputTokenSpace } from '../../../../common/modelCapabilities.js';
 import { AlertTriangle, File, Ban, Check, ChevronRight, ChevronDown, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Paperclip, Waypoints, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward, Footprints, Mic, GitBranch } from 'lucide-react';
-import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, ScoutMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment, normalizePendingInjections, ReviewChecklist } from '../../../../common/chatThreadServiceTypes.js';
+import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, ScoutMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment, normalizePendingInjections, ReviewChecklist, EditBatch } from '../../../../common/chatThreadServiceTypes.js';
 import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER } from '../../../../common/chatTimestampFormatter.js';
 import { parseChatSlashCommand, splitWatchArgs, CHAT_SLASH_COMMANDS } from '../../../../common/chatSlashCommands.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
@@ -1024,6 +1024,69 @@ const ReviewChecklistCard = ({ threadId, checklist }: { threadId: string; checkl
 			>Скрыть</button>
 			<span className="text-xs text-vibe-fg-3">{okCount} ок · {failCount} не ок · {pendingCount} не проверено</span>
 		</div>
+	</div>;
+};
+
+/**
+ * Пакет мелких правок: собрал кликами по превью — отправил одним заданием.
+ *
+ * Десять мелочей, отправленных поштучно, — это десять исследований одного и того же кода. Здесь
+ * агент читает код один раз, а правит всё; поэтому кнопка отправки одна на список, а не на пункт.
+ *
+ * Пункт без описания отправляется намеренно: клик по элементу — это уже «здесь что-то не так», и
+ * терять помеченное место из-за незаполненного поля хуже, чем донести его агенту с просьбой
+ * уточнить. Так работает и сбор с телефона, где печатать неудобно.
+ */
+const EditBatchCard = ({ threadId, batch }: { threadId: string; batch: EditBatch }) => {
+	const accessor = useAccessor();
+	const chatThreadsService = accessor.get('IChatThreadService');
+	const described = batch.items.filter(i => i.note.trim()).length;
+
+	return <div className="rounded border border-vibe-border-2 bg-vibe-bg-2 p-3 my-2" role="group" aria-label="Пакет правок">
+		<div className="flex items-center justify-between gap-2 mb-2">
+			<div className="text-sm font-medium">Пакет правок · {batch.items.length}</div>
+			<button
+				type="button"
+				onClick={() => chatThreadsService.setEditBatchCollecting(threadId, !batch.collecting)}
+				title={batch.collecting ? 'Клик прицела копит правки' : 'Клик прицела отправляет правку сразу'}
+				className={`text-xs px-2 py-1 rounded border ${batch.collecting ? 'border-blue-500 text-blue-400' : 'border-vibe-border-2 text-vibe-fg-3'}`}
+			>{batch.collecting ? 'Сбор включён' : 'Сбор выключен'}</button>
+		</div>
+		{batch.items.length === 0
+			? <div className="text-xs text-vibe-fg-3">Кликайте прицелом (⌖) по элементам превью — они соберутся сюда.</div>
+			: <ul className="flex flex-col gap-2 list-none p-0 m-0">
+				{batch.items.map((item, index) => <li key={item.id} className="flex items-start gap-2">
+					<span className="text-xs text-vibe-fg-3 mt-1.5 flex-shrink-0">{index + 1}.</span>
+					<div className="flex-1 min-w-0">
+						<input
+							type="text"
+							value={item.note}
+							aria-label={`Что переделать: ${item.selector}`}
+							placeholder="Что здесь переделать?"
+							onChange={e => chatThreadsService.setEditBatchNote(threadId, item.id, e.target.value)}
+							className="w-full text-xs px-2 py-1 rounded border border-vibe-border-2 bg-vibe-bg-1"
+						/>
+						<div className="text-xs text-vibe-fg-3 truncate" title={item.file ? `${item.selector} · ${item.file}` : item.selector}>
+							{item.selector}{item.file ? ` · ${item.file}` : ''}
+						</div>
+					</div>
+					<button
+						type="button"
+						title="Убрать из пакета"
+						aria-label={`Убрать из пакета: ${item.selector}`}
+						onClick={() => chatThreadsService.removeEditBatchItem(threadId, item.id)}
+						className="flex-shrink-0 text-xs px-2 py-1 rounded border border-vibe-border-2 text-vibe-fg-3 hover:text-vibe-fg-1"
+					>✕</button>
+				</li>)}
+			</ul>}
+		{batch.items.length > 0 ? <div className="flex items-center gap-2 mt-3">
+			<button
+				type="button"
+				onClick={() => chatThreadsService.submitEditBatch(threadId)}
+				className="text-sm px-3 py-1 rounded border border-vibe-border-1 hover:bg-vibe-bg-1"
+			>Выполнить пакет</button>
+			<span className="text-xs text-vibe-fg-3">{described} из {batch.items.length} описаны</span>
+		</div> : null}
 	</div>;
 };
 
@@ -6017,6 +6080,7 @@ export const SidebarChat = () => {
 	// вставка в thread.messages в этот момент сдвинула бы хвост и сломала одобрение инструментов
 	// (docs/knowledge/chatUx/chatInterruptAndInject.md).
 	const reviewChecklist = chatThreadsState.allThreads[threadId]?.state?.reviewChecklist;
+	const editBatch = chatThreadsState.allThreads[threadId]?.state?.editBatch;
 	const currCheckpointIdx = chatThreadsState.allThreads[threadId]?.state?.currCheckpointIdx ?? undefined;  // if not exist, treat like checkpoint is last message (infinity)
 	// Notes the user queued mid-run (via onInject). Shown as a pinned "queued" strip above the input until
 	// the agent drains them into a real message on its next hop (then pendingInjections clears → strip gone).
@@ -6195,6 +6259,13 @@ export const SidebarChat = () => {
 		// Live subagent activity — curated roles currently working under this thread. Transient
 		// (never a persisted message), so it can appear mid-turn without breaking the streaming
 		// last-message invariant. Renders below the streaming content, above the escape hint.
+		if (editBatch && (editBatch.collecting || editBatch.items.length > 0)) {
+			items.push({
+				key: 'edit-batch',
+				render: () => <ProseWrapper><EditBatchCard threadId={threadId} batch={editBatch} /></ProseWrapper>,
+			});
+		}
+
 		if (reviewChecklist && reviewChecklist.items.length > 0) {
 			items.push({
 				key: 'review-checklist',
@@ -6361,6 +6432,7 @@ export const SidebarChat = () => {
 		currentThread.id,
 		showSubagentActivity,
 		reviewChecklist,
+		editBatch,
 		subagentActivity,
 		showResumeRole,
 		openHandoffCount,

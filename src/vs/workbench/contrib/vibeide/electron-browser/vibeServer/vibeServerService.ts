@@ -487,6 +487,20 @@ class VibeServerService extends Disposable implements IVibeServerService {
 		const candidate = await this._inspectFileCandidate(pick.path);
 		const line = candidate ? await this._findSelectorLine(candidate.uri, pick.selector) : undefined;
 
+		// Режим сбора пакета: клик копит правку, а не отправляет её. Десять мелочей, посланных
+		// поштучно, — это десять исследований одного и того же кода; пакет читает код один раз.
+		if (this._chatThreadService.state.allThreads[threadId]?.state.editBatch?.collecting) {
+			this._chatThreadService.addEditBatchItem(threadId, {
+				selector: pick.selector,
+				page: pick.path || pick.href,
+				file: candidate ? candidate.relative + (line !== undefined ? `:${line}` : '') : undefined,
+				note: '',
+			});
+			await openVibeChatEditor(this._instantiationService);
+			this._notificationService.info(localize('vibeServer.inspect.batched', "Элемент {0} добавлен в пакет правок — опишите, что переделать.", pick.selector));
+			return;
+		}
+
 		const fileNote = candidate
 			? candidate.spaGuess
 				? localize('vibeServer.inspect.fileSpa', "Файл-кандидат (SPA fallback, предположительно): {0}", candidate.relative + (line !== undefined ? `:${line}` : ''))
