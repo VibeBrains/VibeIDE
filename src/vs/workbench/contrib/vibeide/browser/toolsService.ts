@@ -2310,7 +2310,7 @@ export class ToolsService extends Disposable implements IToolsService {
 					// that it is gone.
 					void (async () => {
 						try {
-							const { resPromise } = await this.terminalToolService.runCommand(command, { type: 'persistent', persistentTerminalId, timeoutMs: timeoutMs ?? 600_000 });
+							const { resPromise } = await this.terminalToolService.runCommand(command, { type: 'persistent', persistentTerminalId, timeoutMs: timeoutMs ?? 600_000, detectCompletion: true });
 							const { resolveReason } = await resPromise;
 							const entry = this._backgroundCommands.get(backgroundId);
 							// Gone means killed on purpose — stay silent. The entry itself STAYS on a
