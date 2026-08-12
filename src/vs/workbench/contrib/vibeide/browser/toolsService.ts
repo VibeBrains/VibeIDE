@@ -12,6 +12,7 @@ import { joinPath } from '../../../../base/common/resources.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IVibeConstraintsService, ConstraintViolationError } from '../common/vibeConstraintsService.js';
 import { IVibeExternalAccessService, ExternalAccessRequiredError, SourceFolderReadOnlyError } from '../common/vibeExternalAccessService.js';
+import { IVibeGitReadService } from '../common/vibeideSCMTypes.js';
 import { IVibePromptGuardService } from '../common/vibePromptGuardService.js';
 import { IVibePerFilePermissionsService } from '../common/vibePerFilePermissionsService.js';
 import { IVibeIgnoreService } from './vibeIgnoreService.js';
@@ -346,6 +347,7 @@ export class ToolsService extends Disposable implements IToolsService {
 		@IErrorDetectionService private readonly _errorDetectionService: IErrorDetectionService,
 		@IShellHardeningService private readonly _shellHardeningService: IShellHardeningService,
 		@IVibeExternalAccessService private readonly _externalAccess: IVibeExternalAccessService,
+		@IVibeGitReadService private readonly _gitRead: IVibeGitReadService,
 		@IVibeIgnoreService vibeIgnoreService: IVibeIgnoreService,
 	) {
 		super();
@@ -596,6 +598,15 @@ export class ToolsService extends Disposable implements IToolsService {
 				if (headLimit > 10_000) { headLimit = 10_000; }
 				const pageNumber = validatePageNum(pageNumberUnknown);
 				return { pattern, glob: globPat, fileType, searchInFolder, outputMode, contextBefore, contextAfter, caseInsensitive, multiline, headLimit, pageNumber };
+			},
+
+			git_state: (params: RawToolParamsObj) => {
+				// An unknown or absent selector becomes "status" rather than an error: the common case
+				// is the model asking "what changed", and refusing the call over a synonym would spend
+				// a turn teaching it our vocabulary.
+				const raw = typeof params.what === 'string' ? params.what.trim().toLowerCase() : '';
+				const what = raw === 'diff' || raw === 'branch' || raw === 'log' ? raw : 'status';
+				return { what };
 			},
 
 			read_lint_errors: (params: RawToolParamsObj) => {
@@ -1450,6 +1461,14 @@ export class ToolsService extends Disposable implements IToolsService {
 				await timeout(1000);
 				const { lintErrors } = this._getLintErrors(uri);
 				return { result: { lintErrors } };
+			},
+
+			git_state: async ({ what }) => {
+				const text = what === 'diff' ? await this._gitRead.sampledDiffs()
+					: what === 'branch' ? await this._gitRead.branch()
+						: what === 'log' ? await this._gitRead.log()
+							: await this._gitRead.stat();
+				return { result: { what, text } };
 			},
 
 			open_file: async ({ uri }) => {
@@ -3098,6 +3117,11 @@ export class ToolsService extends Disposable implements IToolsService {
 				return result.lintErrors ?
 					stringifyLintErrors(result.lintErrors)
 					: 'No lint errors found.';
+			},
+			git_state: (_params, result) => {
+				// Returned verbatim: git's own wording is what the model reads best, and reformatting
+				// it here would drop whatever we did not think to keep.
+				return result.text;
 			},
 			open_file: (params, _result) => {
 				return `File opened: ${params.uri.fsPath}`;

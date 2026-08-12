@@ -240,9 +240,15 @@ suite('ToolHardening', () => {
 	});
 
 	suite('detectShellMisuse — passthrough', () => {
-		test('git is allowed', () => {
-			assert.strictEqual(detectShellMisuse('git status'), null);
-			assert.strictEqual(detectShellMisuse('git log --oneline -20'), null);
+		// git USED to pass through wholesale. Since the `git_state` tool exists, the four read
+		// subcommands are redirected to it (see the «git reads» suite) — everything else about git
+		// still belongs to the terminal, which is what this test now pins down.
+		test('git keeps passing through for everything the tool does not cover', () => {
+			assert.deepStrictEqual(
+				['git commit --amend', 'git rebase -i main', 'git remote -v', 'git config user.name']
+					.map(c => detectShellMisuse(c)),
+				[null, null, null, null],
+			);
 		});
 
 		test('npm/pnpm/yarn are allowed', () => {
@@ -384,6 +390,33 @@ suite('ToolHardening', () => {
 		test('clamps endLine beyond the array length', () => {
 			const lines = ['a', 'b'];
 			assert.strictEqual(clampLineWindowToCharBudget(lines, 1, 99, 1000), 2);
+		});
+	});
+
+	suite('detectShellMisuse — git reads', () => {
+		test('read subcommands are redirected to the git_state tool', () => {
+			assert.deepStrictEqual(
+				['git status', 'git diff --stat', 'git branch', 'git log -5', 'GIT STATUS']
+					.map(c => detectShellMisuse(c)?.suggestedTool),
+				['git_state', 'git_state', 'git_state', 'git_state', 'git_state'],
+			);
+		});
+
+		test('writing subcommands keep working through the terminal', () => {
+			// A rule on bare `git` would have blocked every one of these — the tool only reads.
+			assert.deepStrictEqual(
+				['git commit -m x', 'git checkout main', 'git push', 'git add .', 'git stash']
+					.map(c => detectShellMisuse(c)),
+				[null, null, null, null, null],
+			);
+		});
+
+		test('a pipeline is left alone — the tool has no pipe to offer', () => {
+			assert.strictEqual(detectShellMisuse('git log | head -20'), null);
+		});
+
+		test('a subcommand that merely starts with the same letters does not match', () => {
+			assert.strictEqual(detectShellMisuse('git statusless-custom-alias'), null);
 		});
 	});
 });

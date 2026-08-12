@@ -16,6 +16,7 @@ import { SEARCH_IN_FILE_TOOL } from './search_in_file.js';
 import { GLOB_TOOL } from './glob.js';
 import { GREP_TOOL } from './grep.js';
 import { READ_LINT_ERRORS_TOOL } from './read_lint_errors.js';
+import { GIT_STATE_TOOL } from './git_state.js';
 import { OPEN_FILE_TOOL } from './open_file.js';
 import { GO_TO_DEFINITION_TOOL } from './go_to_definition.js';
 import { FIND_REFERENCES_TOOL } from './find_references.js';
@@ -72,6 +73,7 @@ export const builtinToolDefs = {
 	grep: GREP_TOOL,
 	search_in_file: SEARCH_IN_FILE_TOOL,
 	read_lint_errors: READ_LINT_ERRORS_TOOL,
+	git_state: GIT_STATE_TOOL,
 	open_file: OPEN_FILE_TOOL,
 	// LSP / code navigation
 	go_to_definition: GO_TO_DEFINITION_TOOL,

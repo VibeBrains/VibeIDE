@@ -36,6 +36,19 @@ export const DEFAULT_SHELL_HARDENING_RULES: readonly ShellHardeningRule[] = [
 		hint: 'Use read_file with start_line/end_line/line_limit instead of {bareName}. read_file returns numbered lines suitable for subsequent edit_file calls.',
 	},
 
+	// 2b. git reads. Only the read subcommands: `git commit`, `git checkout` and the rest must
+	//      keep working through the terminal, and a rule matching bare `git` would block them all.
+	//      Piped forms are left alone — `git log | head -20` is someone composing deliberately, and
+	//      the tool has no pipe to offer them.
+	{
+		id: 'git_state_reads',
+		bareName: '^git$',
+		requires: { tailMatches: '^\\s*(status|diff|branch|log)\\b', notPiped: true },
+		kind: 'git_state',
+		suggestedTool: 'git_state',
+		hint: 'Use the git_state tool (what: status | diff | branch | log) instead of running git in the terminal. It reads the same data without a terminal approval, without shell quoting, and with bounded output.',
+	},
+
 	// 3a. tree — recursive by default, always flag head-of-command.
 	{
 		id: 'list_tree',

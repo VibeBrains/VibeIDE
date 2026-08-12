@@ -98,3 +98,27 @@ export interface IVibeWorkspaceSnapshotService {
 }
 
 export const IVibeWorkspaceSnapshotService = createDecorator<IVibeWorkspaceSnapshotService>('vibeWorkspaceSnapshotService');
+
+/**
+ * Repository state as the agent asks for it: no path to pass, and a folder that is not a git
+ * repository answers with a plain sentence instead of throwing.
+ *
+ * Exists so the agent can learn what changed WITHOUT the terminal. Reading state through
+ * `run_command` costs a terminal approval for what is a read, drags shell quoting and locale into
+ * the answer, and hands the model a wall of output whose size nobody bounded. The main process
+ * already runs these four commands for commit-message generation — this is the same data, offered
+ * as a tool rather than re-implemented.
+ */
+export interface IVibeGitReadService {
+	readonly _serviceBrand: undefined;
+	/** `git diff --stat` of the open folder, or a sentence explaining why there is nothing. */
+	stat(): Promise<string>;
+	/** Diffs of the most substantially changed files (sampled, so the output stays bounded). */
+	sampledDiffs(): Promise<string>;
+	/** Current branch name. */
+	branch(): Promise<string>;
+	/** Last commits, merges excluded. */
+	log(): Promise<string>;
+}
+
+export const IVibeGitReadService = createDecorator<IVibeGitReadService>('vibeGitReadService');

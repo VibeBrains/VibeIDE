@@ -57,6 +57,7 @@ export type BuiltinToolCallParams = {
 	'glob': { pattern: string; searchInFolder: URI | null; pageNumber: number };
 	'grep': { pattern: string; glob: string | null; fileType: string | null; searchInFolder: URI | null; outputMode: 'content' | 'files_with_matches' | 'count'; contextBefore: number; contextAfter: number; caseInsensitive: boolean; multiline: boolean; headLimit: number; pageNumber: number };
 	'read_lint_errors': { uri: URI };
+	'git_state': { what: 'status' | 'diff' | 'branch' | 'log' };
 	'open_file': { uri: URI };
 	'go_to_definition': { uri: URI; line: number; column: number };
 	'find_references': { uri: URI; line: number; column: number };
@@ -119,6 +120,9 @@ export type BuiltinToolResultType = {
 	'glob': { uris: URI[]; hasNextPage: boolean; totalMatches: number; limitHit: boolean };
 	'grep': { mode: 'content' | 'files_with_matches' | 'count'; matches: Array<{ uri: URI; line: number; column: number; preview: string }>; files: Array<{ uri: URI; count?: number }>; hasNextPage: boolean; totalMatches: number };
 	'read_lint_errors': { lintErrors: LintErrorItem[] | null };
+	// Plain text on purpose: git's own output is what the model is best at reading, and parsing it
+	// into a structure here would throw away the parts we did not think to model.
+	'git_state': { what: 'status' | 'diff' | 'branch' | 'log'; text: string };
 	'open_file': {};
 	'go_to_definition': { locations: Array<{ uri: URI; startLine: number; startColumn: number; endLine: number; endColumn: number }> };
 	'find_references': { locations: Array<{ uri: URI; startLine: number; startColumn: number; endLine: number; endColumn: number }> };
