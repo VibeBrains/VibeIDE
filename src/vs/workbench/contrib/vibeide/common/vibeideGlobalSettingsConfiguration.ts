@@ -1206,6 +1206,19 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.tools.readFileDefaultLineLimit', 'Сколько строк возвращает `read_file` при чтении файла БЕЗ явного диапазона/лимита. Прямо определяет, сколько контента одно чтение вливает в контекст = токен-стоимость. Дефолт 2000. Поднимите, если модель часто дочитывает файлы по частям; опустите на жёстко лимитированных по токенам провайдерах.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.dailyDigest.enabled': {
+					type: 'boolean',
+					default: false,
+					description: localize('vibeide.dailyDigest.enabled', 'Показывать дневную сводку по прогонам агента в назначенное время: что упало, что упёрлось в лимит, сколько потрачено. Выключено по умолчанию — это уведомление по расписанию, и включать его должен пользователь, а не мы за него. Если IDE была закрыта в назначенную минуту, сводка придёт при следующем запуске и покроет весь пропущенный промежуток, а не последние сутки.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.dailyDigest.time': {
+					type: 'string',
+					default: '09:00',
+					pattern: '^\\d{1,2}:\\d{2}$',
+					description: localize('vibeide.dailyDigest.time', 'Во сколько показывать дневную сводку, в формате `ЧЧ:ММ` по местному времени. Неразобранное значение не подменяется умолчанием: сводка просто не приходит, и об этом говорится в журнале — иначе опечатка тихо переносила бы отчёт на час, который вы не выбирали.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.tools.autoQuickFix': {
 					type: 'boolean',
 					default: true,

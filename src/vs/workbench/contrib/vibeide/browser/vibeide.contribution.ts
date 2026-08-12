@@ -751,6 +751,9 @@ import '../common/vibeBackgroundJobService.js';
 // VibeIDE: Background job contribution — checkpoint before run, morning digest, schedule hint
 import './vibeBackgroundJobContribution.js';
 
+// VibeIDE: Daily digest of agent runs on a schedule (missed slots are delivered late, not dropped)
+import './vibeDailyDigestContribution.js';
+
 // VibeIDE: PR-native job completion — optional draft PR creation after successful job
 import '../common/vibeJobPRCompletionService.js';
 

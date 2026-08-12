@@ -76,4 +76,22 @@ suite('Agent daily digest', () => {
 			{ starts: true, mentionsTokens: true, mentionsFiles: true },
 		);
 	});
+
+	test('a late digest says how long it actually covers, instead of claiming a day', () => {
+		const headline = (fromMs: number) =>
+			formatAgentDailyDigest(buildAgentDailyDigest([run({})], { fromMs, toMs: NOW }))!.split('\n')[0];
+
+		// The header is the only place the reader learns the span. A digest delivered days late
+		// still said "за сутки" before this — a claim the reader has no way to check.
+		assert.deepStrictEqual(
+			[DAY, DAY + 5 * 3600_000, 2 * DAY, 5 * DAY, 21 * DAY].map(span => headline(NOW - span)),
+			[
+				'✅ Сводка за сутки: 1 прогонов, всё прошло без срывов.',
+				'✅ Сводка за сутки: 1 прогонов, всё прошло без срывов.',
+				'✅ Сводка за 2 дня: 1 прогонов, всё прошло без срывов.',
+				'✅ Сводка за 5 дней: 1 прогонов, всё прошло без срывов.',
+				'✅ Сводка за 21 день: 1 прогонов, всё прошло без срывов.',
+			],
+		);
+	});
 });

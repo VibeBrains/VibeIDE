@@ -83,6 +83,28 @@ function describeRun(record: AgentRunRecord): string {
 }
 
 /**
+ * How long the digest actually covers, in words.
+ *
+ * Said out loud because a scheduled digest is not always a daily one: when the IDE was closed at
+ * the appointed minute the report is delivered late and stretches over the whole gap. A header
+ * that reads "за сутки" on a two-day report is a lie the reader has no way to catch.
+ *
+ * Rounded to whole days with a 12-hour tolerance, so the ordinary case — a run of the schedule an
+ * hour late — still reads as "за сутки" rather than as an oddly precise "за 25 часов".
+ */
+function describePeriod(fromMs: number, toMs: number): string {
+	const hours = Math.max(0, toMs - fromMs) / 3_600_000;
+	if (hours <= 36) { return 'за сутки'; }
+	// Days rather than "суток": `сутки` is pluralia tantum and needs a collective numeral
+	// («за двое суток»), which does not survive being built from a number at runtime.
+	const days = Math.round(hours / 24);
+	const lastTwo = days % 100;
+	const last = days % 10;
+	const tail = lastTwo >= 11 && lastTwo <= 14 ? 'дней' : last === 1 ? 'день' : last >= 2 && last <= 4 ? 'дня' : 'дней';
+	return `за ${days} ${tail}`;
+}
+
+/**
  * The digest as markdown, ready for the chat and for the IDE.
  *
  * Returns `undefined` when nothing happened: an empty daily report trains the reader to ignore
@@ -94,9 +116,10 @@ export function formatAgentDailyDigest(digest: AgentDailyDigest): string | undef
 	}
 	const lines: string[] = [];
 	const problems = digest.failed.length + digest.limited.length;
+	const period = describePeriod(digest.periodFromMs, digest.periodToMs);
 	lines.push(problems > 0
-		? `⚠️ Сводка за сутки: ${digest.total} прогонов, из них требуют внимания ${problems}.`
-		: `✅ Сводка за сутки: ${digest.total} прогонов, всё прошло без срывов.`);
+		? `⚠️ Сводка ${period}: ${digest.total} прогонов, из них требуют внимания ${problems}.`
+		: `✅ Сводка ${period}: ${digest.total} прогонов, всё прошло без срывов.`);
 
 	if (digest.failed.length) {
 		lines.push('', `**Упали (${digest.failed.length}):**`, ...digest.failed.slice(0, MAX_NAMED_RUNS).map(describeRun));
