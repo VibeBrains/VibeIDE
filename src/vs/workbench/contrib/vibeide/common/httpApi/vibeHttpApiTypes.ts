@@ -27,6 +27,11 @@
  */
 
 import { Event } from '../../../../../base/common/event.js';
+// One implementation of "is this request local", shared with the MCP gateway: two copies drift, and
+// the copy that drifts is the one nobody tested.
+import { isLoopbackHost, isRemoteLoopback, secretEquals } from '../../../../../base/common/loopbackAdmission.js';
+
+export { isLoopbackHost, isRemoteLoopback, secretEquals };
 
 export const VIBE_HTTP_API_CHANNEL = 'vibeide-channel-httpApi';
 
@@ -97,45 +102,6 @@ export type AdmissionVerdict =
 	| { readonly ok: true }
 	| { readonly ok: false; readonly status: number; readonly reason: string };
 
-/**
- * Compare two secrets without leaking their contents through timing.
- *
- * Length is compared first and non-secretly on purpose: the length of a token we generate
- * ourselves is not the secret, and folding it into the loop would either short-circuit (leaking
- * position) or index out of bounds.
- */
-export function secretEquals(a: string, b: string): boolean {
-	if (a.length !== b.length) { return false; }
-	let diff = 0;
-	for (let i = 0; i < a.length; i++) {
-		diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-	}
-	return diff === 0;
-}
-
-/** Hostnames that mean "this machine" and are therefore safe as a `Host` header. */
-const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
-
-/**
- * Is the `Host` header addressed to this machine by a loopback name?
- *
- * The port part is ignored — it is not a security property, and demanding an exact match would
- * break the moment the listener picks a different free port.
- */
-export function isLoopbackHost(hostHeader: string | undefined): boolean {
-	if (!hostHeader) { return false; }
-	const host = hostHeader.trim().toLowerCase();
-	// IPv6 literals carry their own brackets: `[::1]:1234`. A bare `::1` violates RFC 7230, which
-	// requires the brackets, but it is still unambiguously this machine and cannot be made to point
-	// at someone else's domain — so it is recognised rather than refused on a formality. It is
-	// detected by having more than one colon, which no `host:port` pair does.
-	const withoutPort = host.startsWith('[')
-		? host.slice(0, host.indexOf(']') + 1)
-		: host.indexOf(':') !== host.lastIndexOf(':')
-			? host
-			: host.split(':')[0];
-	return LOOPBACK_HOSTS.has(withoutPort);
-}
 
 /**
  * Everything that must be true before a request is allowed to reach the agent.
@@ -171,17 +137,6 @@ export function admitRequest(params: {
 	return { ok: true };
 }
 
-/**
- * A socket peer that is this machine.
- *
- * IPv4-mapped IPv6 (`::ffff:127.0.0.1`) is what a dual-stack listener actually reports for a
- * plain IPv4 loopback client, so rejecting it would refuse ordinary local callers.
- */
-export function isRemoteLoopback(remoteAddress: string | undefined): boolean {
-	if (!remoteAddress) { return false; }
-	const addr = remoteAddress.toLowerCase();
-	return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1' || addr.startsWith('127.');
-}
 
 /** Parse and validate a run request body. Returns a reason instead of throwing — the caller answers 400. */
 export function parseRunRequest(body: string): { readonly ok: true; readonly value: VibeHttpRunRequest } | { readonly ok: false; readonly reason: string } {
