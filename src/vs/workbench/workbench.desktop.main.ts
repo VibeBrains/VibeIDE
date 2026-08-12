@@ -217,6 +217,7 @@ import './contrib/vibeide/electron-browser/vibeLogMainSyncContribution.js';
 import './contrib/vibeide/electron-browser/vibeEnvApiKeysContribution.js';
 import './contrib/vibeide/electron-browser/voice/vibeVoiceInputService.js';
 import './contrib/vibeide/electron-browser/telegram/vibeTelegramBridgeContribution.js';
+import './contrib/vibeide/electron-browser/httpApi/vibeHttpApiContribution.js';
 import './contrib/vibeide/electron-browser/hooks/vibeHooksService.js';
 import './contrib/vibeide/electron-browser/video/vibeVideoChatService.js';
 

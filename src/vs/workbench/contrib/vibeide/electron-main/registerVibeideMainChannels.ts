@@ -32,6 +32,8 @@ import { VibeWindowAttentionMainService } from './vibeWindowAttentionMainService
 import { VIBE_WINDOW_ATTENTION_CHANNEL } from '../common/vibeWindowAttentionIpc.js';
 import { VibeTelegramMainService } from './telegram/vibeTelegramMainService.js';
 import { VIBE_TELEGRAM_CHANNEL } from '../common/telegram/vibeTelegramTypes.js';
+import { VibeHttpApiMainService } from './httpApi/vibeHttpApiMainService.js';
+import { VIBE_HTTP_API_CHANNEL } from '../common/httpApi/vibeHttpApiTypes.js';
 import { VIBE_HOOKS_CHANNEL } from '../common/hooks/vibeHookTypes.js';
 import { VibeHooksMainService } from './hooks/vibeHooksMainService.js';
 import { VibeServerMainService } from './vibeServer/vibeServerMainService.js';
@@ -194,6 +196,15 @@ export function registerVibeideMainProcessChannels(
 	mainProcessElectronServer.registerChannel(
 		VIBE_TELEGRAM_CHANNEL,
 		ProxyChannel.fromService(telegramService, disposables),
+	);
+
+	// Incoming HTTP API: the listener belongs to the main process for the same reason as the
+	// Telegram poller — one process per application, so two windows cannot fight over the port and
+	// leave the second one broken with EADDRINUSE.
+	const httpApiService = disposables.add(new VibeHttpApiMainService());
+	mainProcessElectronServer.registerChannel(
+		VIBE_HTTP_API_CHANNEL,
+		ProxyChannel.fromService(httpApiService, disposables),
 	);
 }
 

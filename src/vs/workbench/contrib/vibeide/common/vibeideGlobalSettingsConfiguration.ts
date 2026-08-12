@@ -1206,6 +1206,20 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					description: localize('vibeide.tools.readFileDefaultLineLimit', 'Сколько строк возвращает `read_file` при чтении файла БЕЗ явного диапазона/лимита. Прямо определяет, сколько контента одно чтение вливает в контекст = токен-стоимость. Дефолт 2000. Поднимите, если модель часто дочитывает файлы по частям; опустите на жёстко лимитированных по токенам провайдерах.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
+				'vibeide.httpApi.enabled': {
+					type: 'boolean',
+					default: false,
+					description: localize('vibeide.httpApi.enabled', 'Принимать задачи для агента по HTTP — «дёрнуть агента из CI, бота или крона». Слушает **только** 127.0.0.1 и требует токен: каждый запрос — это исполнение кода на вашем компьютере. Токен создаётся при включении и хранится в защищённом хранилище ОС, а не в настройках (настройки синхронизируются и попадают в демонстрацию экрана); посмотреть его — команда «VibeIDE: Показать токен HTTP API». Ответ содержит `sessionId`: передайте его следующим вызовом, чтобы продолжить ту же сессию. Выключено по умолчанию.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.httpApi.port': {
+					type: 'number',
+					default: 0,
+					minimum: 0,
+					maximum: 65535,
+					description: localize('vibeide.httpApi.port', 'Порт входящего HTTP API. `0` — занять любой свободный (порт виден в журнале и в диалоге с токеном). Слушается всегда только 127.0.0.1.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
 				'vibeide.prompt.directoryOverviewChars': {
 					type: 'number',
 					default: 10000,
