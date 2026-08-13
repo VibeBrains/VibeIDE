@@ -37,6 +37,8 @@
 - [pipelinesSpec.md](manuals/pipelinesSpec.md) — формат `.vibe/pipelines.json`: последовательность шагов агентов с передачей артефактов (скормить LLM → готовый файл).
 - [skillSpec.md](manuals/skillSpec.md) — формат `SKILL.md`: навыки агента, поля, ограничения, наши расширения (скормить LLM → готовый навык).
 - [optimizeByMetric.md](manuals/optimizeByMetric.md) — оптимизация под метрику: команда замера, контракт вывода, порог шума, что защищает честность цикла.
+- [learningWorkspaceSpec.md](manuals/learningWorkspaceSpec.md) — формат `.vibe/learning/`: миссия, источники, следы уроков, правила выбора сложности (скормить LLM → готовый `MISSION.md`).
+- [teachLearning.md](manuals/teachLearning.md) — как учиться в VibeIDE: отдельная папка на тему, миссия-гейт, цикл уроков, что ломает систему.
 - [securityFaq.md](manuals/securityFaq.md) — что уходит наружу, что остаётся локально.
 - [telegramBridge.md](manuals/telegramBridge.md) — мост в Telegram: свой бот за минуту, токен в хранилище секретов, привязка чата, работа за прокси.
 - [specsWorkflow.md](manuals/specsWorkflow.md) — как работать со спеками; **источник** справки «?» в панели «Спеки» (генерируется на сборке).

@@ -133,6 +133,20 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			maximum: 1800000,
 			description: localize('vibeide.agent.optimize.timeoutMs', 'Бюджет времени на один замер. Одинаковый для всех попыток намеренно: без фиксированного бюджета выигрыш приходит от более долгого прогона, а не от лучшего решения, и попытки перестают быть сравнимыми. По истечении замер прерывается и считается несостоявшимся.'),
 		},
+		'vibeide.learning.stuckRepeatsForEasier': {
+			type: 'number',
+			default: 2,
+			minimum: 1,
+			maximum: 10,
+			description: localize('vibeide.learning.stuckRepeatsForEasier', 'Учебный workspace: сколько раз одна и та же трудность должна повториться в следах уроков, чтобы следующий урок вернулся к ней вместо движения дальше. Дефолт 2 — единичная запинка бывает и от усталости, повтор уже означает пробел. Единица делает возврат мгновенным, но топчется на месте.'),
+		},
+		'vibeide.learning.cleanRunForHarder': {
+			type: 'number',
+			default: 2,
+			minimum: 1,
+			maximum: 10,
+			description: localize('vibeide.learning.cleanRunForHarder', 'Учебный workspace: сколько уроков подряд должны пройти без застреваний, чтобы поднять сложность. Дефолт 2. Слишком большое значение оставляет ученика в зоне, где он всё уже умеет, — это иллюзия прогресса, а не обучение.'),
+		},
 		'vibeide.agent.allowReadOutsideWorkspace': {
 			type: 'boolean',
 			default: true,

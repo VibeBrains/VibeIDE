@@ -25,6 +25,8 @@ import { CODE_GRAPH_TOOL } from './code_graph.js';
 import { MEASURE_METRIC_TOOL } from './measure_metric.js';
 import { REVIEW_CHECKLIST_TOOL } from './review_checklist.js';
 import { HANDOFF_TOOL } from './handoff.js';
+import { LEARNING_STATE_TOOL } from './learning_state.js';
+import { LEARNING_RECORD_TOOL } from './learning_record.js';
 import { DOCS_SEARCH_TOOL } from './docs_search.js';
 import { DESIGN_REVIEW_TOOL } from './design_review.js';
 import { DESIGN_CONTEXT_TOOL } from './design_context.js';
@@ -91,6 +93,9 @@ export const builtinToolDefs = {
 	measure_metric: MEASURE_METRIC_TOOL,
 	review_checklist: REVIEW_CHECKLIST_TOOL,
 	handoff: HANDOFF_TOOL,
+	// обучение, переживающее конец треда: прочитать накопленное — записать след урока
+	learning_state: LEARNING_STATE_TOOL,
+	learning_record: LEARNING_RECORD_TOOL,
 	// code analysis / generation
 	automated_code_review: AUTOMATED_CODE_REVIEW_TOOL,
 	generate_tests: GENERATE_TESTS_TOOL,

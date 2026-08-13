@@ -55,6 +55,7 @@ import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { analyzeShellLine } from '../common/nlShellSafetyAnalyzer.js';
 import { ReviewChecklist } from '../common/chatThreadServiceTypes.js';
 import { HANDOFF_DIR, renderHandoff, validateHandoff } from '../common/agentHandoff.js';
+import { LEARNING_DIR, LESSONS_SUBDIR, MISSION_FILE, NOTES_FILE, RECORDS_SUBDIR, RESOURCES_FILE, renderRecord, summarizeLearning, type IDifficultyThresholds, type ILearningRecord } from '../common/learningWorkspace.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { localize } from '../../../../nls.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
@@ -743,6 +744,26 @@ export class ToolsService extends Disposable implements IToolsService {
 					done: strList(done), blockers: strList(blockers), next: strList(next),
 					environment: typeof environment === 'string' && environment.trim() ? environment.trim() : null,
 				};
+			},
+
+			learning_state: () => ({}),
+
+			learning_record: (params: RawToolParamsObj) => {
+				const { lesson: lessonUnknown, learned, stuck } = params;
+				const lesson = typeof lessonUnknown === 'string' && lessonUnknown.trim() ? lessonUnknown.trim() : '';
+				if (!lesson) {
+					throw new Error('Invalid LLM output: a learning record needs the lesson it belongs to.');
+				}
+				// Те же три формы, что у чек-листа и хендоффа (см. там): массив, строка со списком,
+				// одиночное значение. Пустой `stuck` — законный и содержательный ответ, а не пропуск.
+				const strList = (raw: unknown): string[] => {
+					if (Array.isArray(raw)) { return raw.map(v => String(v).trim()).filter(Boolean); }
+					if (typeof raw === 'string' && raw.trim()) {
+						return raw.split('\n').map(line => line.replace(/^\s*[-*\d.)\s]+/, '').trim()).filter(Boolean);
+					}
+					return [];
+				};
+				return { lesson, learned: strList(learned), stuck: strList(stuck) };
 			},
 
 			review_checklist: (params: RawToolParamsObj) => {
@@ -2483,6 +2504,90 @@ export class ToolsService extends Disposable implements IToolsService {
 				};
 			},
 
+			learning_state: async () => {
+				const folder = this.workspaceContextService.getWorkspace().folders[0]?.uri;
+				if (!folder) {
+					return {
+						result: {
+							missionReady: false, missingQuestions: [], lessons: [], records: [],
+							difficulty: 'hold' as const, difficultyReason: '', revisit: [],
+							message: 'Папка не открыта — учебному workspace негде жить.',
+						},
+					};
+				}
+				const dir = URI.joinPath(folder, ...LEARNING_DIR.split('/'));
+				const readText = async (...segments: string[]): Promise<string> => {
+					try {
+						return (await this.fileService.readFile(URI.joinPath(dir, ...segments))).value.toString();
+					} catch {
+						return '';
+					}
+				};
+				const listNames = async (subdir: string): Promise<string[]> => {
+					try {
+						const stat = await this.fileService.resolve(URI.joinPath(dir, subdir));
+						return (stat.children ?? []).filter(child => !child.isDirectory).map(child => child.name).sort();
+					} catch {
+						return [];
+					}
+				};
+
+				const [missionMarkdown, resources, notes, lessons, recordNames] = await Promise.all([
+					readText(MISSION_FILE), readText(RESOURCES_FILE), readText(NOTES_FILE),
+					listNames(LESSONS_SUBDIR), listNames(RECORDS_SUBDIR),
+				]);
+				const recordMarkdowns = await Promise.all(recordNames.map(name => readText(RECORDS_SUBDIR, name)));
+
+				const thresholds: IDifficultyThresholds = {
+					stuckRepeatsForEasier: this._configurationService.getValue<number>('vibeide.learning.stuckRepeatsForEasier') ?? 2,
+					cleanRunForHarder: this._configurationService.getValue<number>('vibeide.learning.cleanRunForHarder') ?? 2,
+				};
+				const summary = summarizeLearning({ missionMarkdown, lessonCount: lessons.length, recordMarkdowns, thresholds });
+
+				return {
+					result: {
+						missionReady: summary.missionReady,
+						missingQuestions: [...summary.missingQuestions],
+						mission: summary.missionReady ? summary.mission : undefined,
+						resources: resources.trim() || undefined,
+						notes: notes.trim() || undefined,
+						lessons,
+						records: summary.records.map(record => ({ lesson: record.lesson, learned: [...record.learned], stuck: [...record.stuck] })),
+						difficulty: summary.verdict.difficulty,
+						difficultyReason: summary.verdict.reason,
+						revisit: [...summary.verdict.revisit],
+						message: summary.missionReady
+							? `Учебный workspace: уроков ${lessons.length}, записей ${summary.records.length}.`
+							: 'Миссия не заполнена — обучение начинать нельзя.',
+					},
+				};
+			},
+
+			learning_record: async ({ lesson, learned, stuck }) => {
+				const folder = this.workspaceContextService.getWorkspace().folders[0]?.uri;
+				if (!folder) {
+					return { result: { message: 'Папка не открыта — записывать след урока некуда.' } };
+				}
+				const record: ILearningRecord = { lesson, learned, stuck, createdAtMs: Date.now() };
+				// Имя по времени: записи читаются в хронологическом порядке, и лексикографическая
+				// сортировка обязана совпадать с ним — от неё зависит вердикт по сложности.
+				const name = `${new Date(record.createdAtMs).toISOString().replace(/[:.]/g, '-')}.md`;
+				const target = URI.joinPath(folder, ...LEARNING_DIR.split('/'), RECORDS_SUBDIR, name);
+				await this.fileService.writeFile(target, VSBuffer.fromString(renderRecord(record)));
+				// Пустое «Освоено» — не отказ в записи, а замечание: урок без единого усвоенного
+				// пункта бывает, но молчаливо записанный он выглядит как удачный.
+				const problems = learned.length === 0
+					? ['пустое «Освоено» — если ученик ничего не показал, следующий урок должен это учесть']
+					: undefined;
+				return {
+					result: {
+						path: `${LEARNING_DIR}/${RECORDS_SUBDIR}/${name}`,
+						problems,
+						message: `След урока записан: ${LEARNING_DIR}/${RECORDS_SUBDIR}/${name}.`,
+					},
+				};
+			},
+
 			review_checklist: async ({ summary, items }) => {
 				// Здесь только сборка структуры: положить её в тред может лишь оркестрация (у неё есть
 				// идентификатор треда, а зависеть от неё этот сервис не может — вышел бы цикл).
@@ -3313,6 +3418,38 @@ export class ToolsService extends Disposable implements IToolsService {
 					? `\nНезаполнено: ${result.problems.join('; ')}. Допиши, если знаешь ответ, — принимающему это и нужно.`
 					: '';
 				return `${result.message}${problems}`;
+			},
+
+			learning_state: (_params, result) => {
+				if (!result.missionReady) {
+					const questions = result.missingQuestions.map(question => `- ${question}`).join('\n');
+					return `${result.message}\n\nAsk the learner these, then write the answers into ${LEARNING_DIR}/${MISSION_FILE} before building any lesson:\n${questions}\n\nDo not answer them on their behalf, and do not start teaching around them: a lesson built without a mission is a retelling of a textbook — correct and useless.`;
+				}
+				const mission = result.mission;
+				const missionText = mission
+					? `Зачем: ${mission.why}\nУровень: ${mission.level}\nУспех: ${mission.success}\nФормат: ${mission.format}`
+					: '';
+				const history = result.records.length === 0
+					? 'Записей пока нет — это первый урок.'
+					: result.records.map(record => {
+						const stuck = record.stuck.length > 0 ? `застрял: ${record.stuck.join('; ')}` : 'без застреваний';
+						return `- ${record.lesson} — освоено: ${record.learned.join('; ') || '—'}; ${stuck}`;
+					}).join('\n');
+				const instruction = result.difficulty === 'easier'
+					? `Build the next lesson around exactly this, do not move on: ${result.revisit.join('; ')}.`
+					: result.difficulty === 'harder'
+						? `Step the difficulty up by one notch — not a whole course, one step.`
+						: `Hold the current level.`;
+				const sources = result.resources
+					? `\n\nИсточники (учить только по ним):\n${result.resources.trim()}`
+					: `\n\nВ ${LEARNING_DIR}/${RESOURCES_FILE} источников нет. Ask the learner for the primary sources rather than teaching from memory.`;
+				const notes = result.notes ? `\n\nПредпочтения ученика:\n${result.notes.trim()}` : '';
+				return `${result.message}\n\n${missionText}\n\nИстория:\n${history}\n\nСложность: ${result.difficulty} — ${result.difficultyReason}\n${instruction}${sources}${notes}\n\nEnd the lesson with a 'learning_record' call; nothing else survives this thread.`;
+			},
+
+			learning_record: (_params, result) => {
+				const problems = result.problems?.length ? `\n${result.problems.join('; ')}.` : '';
+				return `${result.message}${problems} Следующая сессия начнёт с этой записи, а не с нуля.`;
 			},
 
 			review_checklist: (_params, result) => {

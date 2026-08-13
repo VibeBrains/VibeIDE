@@ -65,6 +65,9 @@ export type BuiltinToolCallParams = {
 	'measure_metric': { purpose: 'baseline' | 'candidate'; summary: string | null };
 	'review_checklist': { summary: string; items: Array<{ text: string; how?: string }> };
 	'handoff': { action: 'write' | 'read'; title: string | null; done: string[]; blockers: string[]; next: string[]; environment: string | null };
+	// Читать нечего сужать: ответ целиком и есть контекст обучения.
+	'learning_state': Record<never, never>;
+	'learning_record': { lesson: string; learned: string[]; stuck: string[] };
 	'docs_search': { query: string; limit: number | null };
 	'design_review': { severity: 'error' | 'warning' | 'info' | null; viewport: 'desktop' | 'mobile' | 'both'; annotate: boolean };
 	// No parameters: the context is whatever the project wrote, and there is nothing to narrow.
@@ -162,6 +165,26 @@ export type BuiltinToolResultType = {
 	// треда известен только на стороне оркестрации. Она и применит.
 	'review_checklist': { itemCount: number; message: string; checklist: ReviewChecklist };
 	'handoff': { action: 'write' | 'read'; path?: string; text?: string; problems?: string[]; message: string };
+	// Вердикт по сложности принимает ИНСТРУМЕНТ, а не модель — по той же причине, что и в
+	// `measure_metric`: сам себе судья, модель считает удачным собственный урок. Здесь цена ошибки
+	// выше: перехвалив ученика, следующий урок делают неподъёмным, и обучение кончается.
+	'learning_state': {
+		/** false — миссии нет или она неполна; учить нельзя, надо спросить `missingQuestions`. */
+		missionReady: boolean;
+		missingQuestions: string[];
+		mission?: { why: string; level: string; success: string; format: string };
+		/** Первоисточники как есть, текстом: чем разрешено учить. */
+		resources?: string;
+		notes?: string;
+		lessons: string[];
+		records: Array<{ lesson: string; learned: string[]; stuck: string[] }>;
+		difficulty: 'easier' | 'hold' | 'harder';
+		difficultyReason: string;
+		/** Темы, к которым нужно вернуться (непусто только при 'easier'). */
+		revisit: string[];
+		message: string;
+	};
+	'learning_record': { path?: string; problems?: string[]; message: string };
 	// `reachable: false` — превью не открыто или это dev-server/Docker, где скрипт-моста нет.
 	// Пустой список находок тогда читался бы как «чисто», а правда — «не измеряли».
 	'design_review': {
