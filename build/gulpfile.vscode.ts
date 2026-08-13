@@ -527,7 +527,14 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 			const shortcut = gulp.src('resources/darwin/bin/code.sh')
 				.pipe(replace('@@APPNAME@@', product.applicationName))
 				.pipe(replace('@@NAME@@', product.nameShort))
-				.pipe(rename('bin/code'));
+				.pipe(rename('bin/code'))
+				// VibeIDE: бит выставляется здесь, а не наследуется с диска. Общий
+				// `setExecutableBit(['**/*.sh'])` этот файл не покрывает — к моменту упаковки он уже
+				// переименован в `bin/code`, без расширения. Пока у разработчика на диске лежал
+				// исторический 755, всё работало; на чистом клоне git отдаёт индексные 644, и в .app
+				// уезжал неисполняемый CLI — `code --version` молчал, а смоук-проверка сборки падала
+				// строкой «app CLI produced no output».
+				.pipe(util.setExecutableBit());
 			const policyDest = gulp.src('.build/policies/darwin/**', { base: '.build/policies/darwin' })
 				.pipe(rename(f => f.dirname = `policies/${f.dirname}`));
 			all = es.merge(all, shortcut, policyDest);
