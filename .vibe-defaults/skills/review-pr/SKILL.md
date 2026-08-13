@@ -1,7 +1,8 @@
 ---
 name: review-pr
 description: Ревью diff'а pull request с записью структурированного результата в review.json для публикации workflow'ом. Использовать при ревью выкачанного PR по локальным артефактам pr_diff.txt и pr_description.txt; в GitHub напрямую ничего не постится.
-vibeVersion: 1.1.0
+metadata:
+  vibeVersion: "1.1.0"
 ---
 
 # Ревью PR

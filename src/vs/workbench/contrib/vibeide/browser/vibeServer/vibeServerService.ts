@@ -70,6 +70,14 @@ export interface IVibeServerService {
 	 * list clears the overlay. No-op when no preview is open.
 	 */
 	showDesignFindings(items: readonly { selector: string; rule: string; severity: string }[]): void;
+
+	/**
+	 * Снимок открытого превью картинкой в чат.
+	 *
+	 * Возвращает причину отказа словами, а не `false`: «нет превью» и «снимок не получился» —
+	 * разные беды с разными действиями, и общий «не вышло» заставлял бы гадать.
+	 */
+	shotPreviewToChat(): Promise<{ ok: true } | { ok: false; reason: string }>;
 	/** Starts the server if needed, then opens the preview at the given workspace file. */
 	openPreviewForResource(resource: URI): Promise<void>;
 	/** Copies the running server URL to the clipboard. */

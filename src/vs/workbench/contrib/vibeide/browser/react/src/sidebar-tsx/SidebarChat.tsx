@@ -32,7 +32,7 @@ import { ICommandService } from '../../../../../../../platform/commands/common/c
 import { WarningBox } from '../vibe-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputTokenSpace } from '../../../../common/modelCapabilities.js';
 import { AlertTriangle, File, Ban, Check, ChevronRight, ChevronDown, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Paperclip, Waypoints, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward, Footprints, Mic, GitBranch } from 'lucide-react';
-import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, ScoutMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment, normalizePendingInjections } from '../../../../common/chatThreadServiceTypes.js';
+import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, ScoutMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment, normalizePendingInjections, ReviewChecklist, EditBatch } from '../../../../common/chatThreadServiceTypes.js';
 import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER } from '../../../../common/chatTimestampFormatter.js';
 import { parseChatSlashCommand, splitWatchArgs, CHAT_SLASH_COMMANDS } from '../../../../common/chatSlashCommands.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
@@ -935,6 +935,163 @@ const SUBPIN_RESUMES_KEY = 'vibeide.subagent.maxResumes';
 /** One running-role line in the live activity indicator: «🧩 Роль «X» работает… (шаг N/M · ~Xk / Yk · ⏱ 2:34)».
  *  Steps/tokens are the binding limits; the wall-clock deadline counts DOWN via an internal 1s ticker
  *  (independent of the per-hop status events, which can be tens of seconds apart). Role's own budgets. */
+/**
+ * Чек-лист «проверь глазами»: агент не закрывает задачу словом, её закрывает отметка.
+ *
+ * Пункт можно отметить рабочим или сломанным; у сломанного открывается поле «что не так» — без
+ * него отчёт агенту звучал бы как «не работает», и он пошёл бы чинить наугад. Кнопка отправки
+ * доступна всегда: непроверенные пункты уходят агенту именно как непроверенные, потому что
+ * «не смотрел» и «работает» — разные ответы, и подменять первое вторым как раз и есть та болезнь,
+ * от которой чек-лист придуман.
+ */
+const ReviewChecklistCard = ({ threadId, checklist }: { threadId: string; checklist: ReviewChecklist }) => {
+	const accessor = useAccessor();
+	const chatThreadsService = accessor.get('IChatThreadService');
+	const [commentFor, setCommentFor] = useState<string | undefined>(undefined);
+	const [commentText, setCommentText] = useState('');
+
+	const okCount = checklist.items.filter(i => i.status === 'ok').length;
+	const failCount = checklist.items.filter(i => i.status === 'fail').length;
+	const pendingCount = checklist.items.length - okCount - failCount;
+
+	const mark = (itemId: string, status: 'ok' | 'fail') => {
+		if (status === 'fail') {
+			setCommentFor(itemId);
+			setCommentText('');
+			chatThreadsService.markReviewChecklistItem(threadId, itemId, 'fail');
+			return;
+		}
+		setCommentFor(prev => prev === itemId ? undefined : prev);
+		chatThreadsService.markReviewChecklistItem(threadId, itemId, 'ok');
+	};
+
+	const saveComment = (itemId: string) => {
+		chatThreadsService.markReviewChecklistItem(threadId, itemId, 'fail', commentText.trim() || undefined);
+		setCommentFor(undefined);
+	};
+
+	return <div className="rounded border border-vibe-border-2 bg-vibe-bg-2 p-3 my-2" role="group" aria-label="Чек-лист проверки">
+		<div className="text-sm font-medium mb-1">Проверьте глазами</div>
+		<div className="text-sm text-vibe-fg-2 mb-2">{checklist.summary}</div>
+		<ul className="flex flex-col gap-2 list-none p-0 m-0">
+			{checklist.items.map(item => <li key={item.id} className="flex flex-col gap-1">
+				<div className="flex items-start gap-2">
+					<button
+						type="button"
+						aria-pressed={item.status === 'ok'}
+						title="Работает"
+						onClick={() => mark(item.id, 'ok')}
+						className={`flex-shrink-0 px-2 py-0.5 rounded border text-sm ${item.status === 'ok' ? 'border-green-500 text-green-500' : 'border-vibe-border-2 text-vibe-fg-2 hover:text-vibe-fg-1'}`}
+					>✓</button>
+					<button
+						type="button"
+						aria-pressed={item.status === 'fail'}
+						title="Не работает"
+						onClick={() => mark(item.id, 'fail')}
+						className={`flex-shrink-0 px-2 py-0.5 rounded border text-sm ${item.status === 'fail' ? 'border-red-500 text-red-500' : 'border-vibe-border-2 text-vibe-fg-2 hover:text-vibe-fg-1'}`}
+					>✗</button>
+					<div className="min-w-0">
+						<div className="text-sm">{item.text}</div>
+						{item.how ? <div className="text-xs text-vibe-fg-3">{item.how}</div> : null}
+						{item.comment ? <div className="text-xs text-red-400">{item.comment}</div> : null}
+					</div>
+				</div>
+				{commentFor === item.id ? <div className="flex items-center gap-2 pl-10">
+					<input
+						type="text"
+						autoFocus
+						value={commentText}
+						aria-label="Что именно не так"
+						placeholder="Что именно не так?"
+						onChange={e => setCommentText(e.target.value)}
+						onKeyDown={e => { if (e.key === 'Enter') { saveComment(item.id); } }}
+						className="flex-1 min-w-0 text-xs px-2 py-1 rounded border border-vibe-border-2 bg-vibe-bg-1"
+					/>
+					<button type="button" className="text-xs px-2 py-1 rounded border border-vibe-border-2" onClick={() => saveComment(item.id)}>Ок</button>
+				</div> : null}
+			</li>)}
+		</ul>
+		<div className="flex items-center gap-2 mt-3">
+			<button
+				type="button"
+				onClick={() => chatThreadsService.submitReviewChecklist(threadId)}
+				className="text-sm px-3 py-1 rounded border border-vibe-border-1 hover:bg-vibe-bg-1"
+			>Отправить результат</button>
+			<button
+				type="button"
+				onClick={() => chatThreadsService.dismissReviewChecklist(threadId)}
+				className="text-sm px-2 py-1 rounded text-vibe-fg-3 hover:text-vibe-fg-1"
+			>Скрыть</button>
+			<span className="text-xs text-vibe-fg-3">{okCount} ок · {failCount} не ок · {pendingCount} не проверено</span>
+		</div>
+	</div>;
+};
+
+/**
+ * Пакет мелких правок: собрал кликами по превью — отправил одним заданием.
+ *
+ * Десять мелочей, отправленных поштучно, — это десять исследований одного и того же кода. Здесь
+ * агент читает код один раз, а правит всё; поэтому кнопка отправки одна на список, а не на пункт.
+ *
+ * Пункт без описания отправляется намеренно: клик по элементу — это уже «здесь что-то не так», и
+ * терять помеченное место из-за незаполненного поля хуже, чем донести его агенту с просьбой
+ * уточнить. Так работает и сбор с телефона, где печатать неудобно.
+ */
+const EditBatchCard = ({ threadId, batch }: { threadId: string; batch: EditBatch }) => {
+	const accessor = useAccessor();
+	const chatThreadsService = accessor.get('IChatThreadService');
+	const described = batch.items.filter(i => i.note.trim()).length;
+
+	return <div className="rounded border border-vibe-border-2 bg-vibe-bg-2 p-3 my-2" role="group" aria-label="Пакет правок">
+		<div className="flex items-center justify-between gap-2 mb-2">
+			<div className="text-sm font-medium">Пакет правок · {batch.items.length}</div>
+			<button
+				type="button"
+				onClick={() => chatThreadsService.setEditBatchCollecting(threadId, !batch.collecting)}
+				title={batch.collecting ? 'Клик прицела копит правки' : 'Клик прицела отправляет правку сразу'}
+				className={`text-xs px-2 py-1 rounded border ${batch.collecting ? 'border-blue-500 text-blue-400' : 'border-vibe-border-2 text-vibe-fg-3'}`}
+			>{batch.collecting ? 'Сбор включён' : 'Сбор выключен'}</button>
+		</div>
+		{batch.items.length === 0
+			? <div className="text-xs text-vibe-fg-3">Кликайте прицелом (⌖) по элементам превью или комментируйте строки кода командой «Комментарий к строке» — всё соберётся сюда.</div>
+			: <ul className="flex flex-col gap-2 list-none p-0 m-0">
+				{batch.items.map((item, index) => <li key={item.id} className="flex items-start gap-2">
+					<span className="text-xs text-vibe-fg-3 mt-1.5 flex-shrink-0">{index + 1}.</span>
+					<div className="flex-1 min-w-0">
+						<input
+							type="text"
+							value={item.note}
+							aria-label={`Что переделать: ${item.selector ?? item.file ?? item.page}`}
+							placeholder="Что здесь переделать?"
+							onChange={e => chatThreadsService.setEditBatchNote(threadId, item.id, e.target.value)}
+							className="w-full text-xs px-2 py-1 rounded border border-vibe-border-2 bg-vibe-bg-1"
+						/>
+						<div className="text-xs text-vibe-fg-3 truncate" title={[item.selector, item.file].filter(Boolean).join(' · ')}>
+							{/* Правка из превью опознаётся селектором, из кода — файлом со строкой. Показываем
+							    то, что есть: подставлять пустой селектор ради единообразия значит врать. */}
+							{item.source === 'code' ? '⌗ ' : '⌖ '}{[item.selector, item.file].filter(Boolean).join(' · ')}
+						</div>
+					</div>
+					<button
+						type="button"
+						title="Убрать из пакета"
+						aria-label={`Убрать из пакета: ${item.selector ?? item.file ?? item.page}`}
+						onClick={() => chatThreadsService.removeEditBatchItem(threadId, item.id)}
+						className="flex-shrink-0 text-xs px-2 py-1 rounded border border-vibe-border-2 text-vibe-fg-3 hover:text-vibe-fg-1"
+					>✕</button>
+				</li>)}
+			</ul>}
+		{batch.items.length > 0 ? <div className="flex items-center gap-2 mt-3">
+			<button
+				type="button"
+				onClick={() => chatThreadsService.submitEditBatch(threadId)}
+				className="text-sm px-3 py-1 rounded border border-vibe-border-1 hover:bg-vibe-bg-1"
+			>Выполнить пакет</button>
+			<span className="text-xs text-vibe-fg-3">{described} из {batch.items.length} описаны</span>
+		</div> : null}
+	</div>;
+};
+
 const SubagentActivityRow = ({ role }: { role: SubagentActivityItem }) => {
 	const [now, setNow] = useState<number>(() => Date.now());
 	const hasDeadline = !!role.deadlineAtMs && role.deadlineAtMs > 0;
@@ -2827,6 +2984,10 @@ const titleOfBuiltinToolName = {
 	'design_document': { done: 'Записал дизайн-контекст', proposed: 'Записать дизайн-контекст', running: loadingTitleWrapper('Описывает дизайн-контекст') },
 	'design_doctor': { done: 'Проверил дизайн-обвязку', proposed: 'Проверить дизайн-обвязку', running: loadingTitleWrapper('Проверяет дизайн-обвязку') },
 	'model_council': { done: 'Собрал совет моделей', proposed: 'Собрать совет моделей', running: loadingTitleWrapper('Опрашивает советников') },
+	'measure_metric': { done: 'Замерил метрику', proposed: 'Замерить метрику', running: loadingTitleWrapper('Меряет метрику') },
+	'review_checklist': { done: 'Отдал чек-лист на проверку', proposed: 'Отдать чек-лист на проверку', running: loadingTitleWrapper('Собирает чек-лист') },
+	'handoff': { done: 'Передал работу хендоффом', proposed: 'Записать хендофф', running: loadingTitleWrapper('Записывает хендофф') },
+	'git_state': { done: 'Посмотрел состояние репозитория', proposed: 'Посмотреть состояние репозитория', running: loadingTitleWrapper('Смотрит состояние репозитория') },
 } as const satisfies Record<BuiltinToolName, { done: any; proposed: any; running: any }>;
 
 
@@ -4438,7 +4599,7 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 										</div>
 
 										{/* Actions Row */}
-										{(approvalState === 'pending' || (approvalState === 'executing' && status === 'failed')) && !isCheckpointGhost && (
+										{(approvalState === 'pending' || (approvalState === 'executing' && (status === 'failed' || (status === 'succeeded' && step.checkpointIdx !== undefined && step.checkpointIdx !== null)))) && !isCheckpointGhost && (
 											<div className="flex items-center gap-2 mt-2">
 												{approvalState === 'pending' && !isRunning && (
 										<button
@@ -4464,15 +4625,19 @@ const PlanComponent = React.memo(({ message, isCheckpointGhost, threadId, messag
 															onClick={() => chatThreadService.skipStep({ threadId, messageIdx, stepNumber: step.stepNumber })}
 															className="px-2 py-0.5 text-xs rounded bg-gray-500/10 text-gray-400 hover:bg-gray-500/20 border border-gray-500/20 transition-colors"
 														>{chatS.stepSkip}</button>
-														{step.checkpointIdx !== undefined && step.checkpointIdx !== null && (
-								<button
-									type="button"
-									aria-label={chatS.stepRollbackAria(step.stepNumber)}
-									onClick={() => { if (confirm(chatS.stepRollbackConfirm)) {chatThreadService.rollbackToStep({ threadId, messageIdx, stepNumber: step.stepNumber });} }}
-																className="px-2 py-0.5 text-xs rounded bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 border border-orange-500/20 transition-colors"
-															>{chatS.stepRollback}</button>
-														)}
 													</>
+												)}
+												{/* Rollback lives outside the failed-only block: a step that SUCCEEDED can still be
+												    the one you want undone («получилось, но не так»). The confirmation differs by
+												    status on purpose — next to failed work the user is already looking for a way
+												    back, next to work that worked a habitual click costs what the step produced. */}
+												{approvalState === 'executing' && (status === 'failed' || status === 'succeeded') && step.checkpointIdx !== undefined && step.checkpointIdx !== null && (
+													<button
+														type="button"
+														aria-label={chatS.stepRollbackAria(step.stepNumber)}
+														onClick={() => { if (confirm(status === 'succeeded' ? chatS.stepRollbackConfirmDone : chatS.stepRollbackConfirm)) { chatThreadService.rollbackToStep({ threadId, messageIdx, stepNumber: step.stepNumber }); } }}
+														className="px-2 py-0.5 text-xs rounded bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 border border-orange-500/20 transition-colors"
+													>{chatS.stepRollback}</button>
 												)}
 											</div>
 										)}
@@ -5600,6 +5765,18 @@ export const SidebarChat = () => {
 			void videoChatService.startWatch(threadId, target, hint);
 			return;
 		}
+		if (slash.matched && slash.parsed.command === 'shot') {
+			// Снимок кладётся вложением в очередь, а не отправляется сам: пользователь ещё должен
+			// сказать, что на картинке править. Поле ввода поэтому НЕ чистим — набранное после
+			// команды осталось бы потерянным.
+			if (textAreaFnsRef.current) { textAreaFnsRef.current.setValue(''); }
+			chatThreadsService.setThreadDraft(threadId, '');
+			// Через команду, а не через сервис напрямую: расширять React-аксессор ради одного вызова
+			// незачем, а команда нужна и сама по себе — из палитры.
+			void commandService.executeCommand('vibeide.preview.shotToChat');
+			textAreaRef.current?.focus();
+			return;
+		}
 
 			// Resolve @references in the input into staging selections before sending
 			// Supports tokens like: @"src/app/file.ts", @path/to/file.ts, @folder, @workspace, @recent, @selection, @agent
@@ -5919,6 +6096,11 @@ export const SidebarChat = () => {
 	const openHandoffCount = useSubagentHandoffCount();
 	const threadStreamRunning = useChatThreadsStreamState(threadId)?.isRunning;
 	const showResumeRole = openHandoffCount > 0 && (threadStreamRunning === undefined || threadStreamRunning === 'idle');
+	// Чек-лист «проверь глазами» — транзиентный, как индикатор ролей: приходит ПОСРЕДИ хода, а
+	// вставка в thread.messages в этот момент сдвинула бы хвост и сломала одобрение инструментов
+	// (docs/knowledge/chatUx/chatInterruptAndInject.md).
+	const reviewChecklist = chatThreadsState.allThreads[threadId]?.state?.reviewChecklist;
+	const editBatch = chatThreadsState.allThreads[threadId]?.state?.editBatch;
 	const currCheckpointIdx = chatThreadsState.allThreads[threadId]?.state?.currCheckpointIdx ?? undefined;  // if not exist, treat like checkpoint is last message (infinity)
 	// Notes the user queued mid-run (via onInject). Shown as a pinned "queued" strip above the input until
 	// the agent drains them into a real message on its next hop (then pendingInjections clears → strip gone).
@@ -6097,6 +6279,20 @@ export const SidebarChat = () => {
 		// Live subagent activity — curated roles currently working under this thread. Transient
 		// (never a persisted message), so it can appear mid-turn without breaking the streaming
 		// last-message invariant. Renders below the streaming content, above the escape hint.
+		if (editBatch && (editBatch.collecting || editBatch.items.length > 0)) {
+			items.push({
+				key: 'edit-batch',
+				render: () => <ProseWrapper><EditBatchCard threadId={threadId} batch={editBatch} /></ProseWrapper>,
+			});
+		}
+
+		if (reviewChecklist && reviewChecklist.items.length > 0) {
+			items.push({
+				key: 'review-checklist',
+				render: () => <ProseWrapper><ReviewChecklistCard threadId={threadId} checklist={reviewChecklist} /></ProseWrapper>,
+			});
+		}
+
 		if (showSubagentActivity) {
 			items.push({
 				key: 'subagent-activity',
@@ -6255,6 +6451,8 @@ export const SidebarChat = () => {
 		commandService,
 		currentThread.id,
 		showSubagentActivity,
+		reviewChecklist,
+		editBatch,
 		subagentActivity,
 		showResumeRole,
 		openHandoffCount,

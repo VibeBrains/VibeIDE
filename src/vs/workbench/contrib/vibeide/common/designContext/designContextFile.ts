@@ -55,9 +55,65 @@ export interface DesignSystemContext {
 	raw: string;
 }
 
+/** Памятка по одному виду компонента: заголовок — название вида, тело — что не забыть. */
+export interface ComponentNote {
+	name: string;
+	body: string;
+}
+
+export interface ComponentNotesContext {
+	notes: ComponentNote[];
+	raw: string;
+}
+
+/**
+ * Одна строка карты UI: где в проекте лежит слой и что именно в нём.
+ *
+ * Карта отвечает на вопрос, которого нет ни у одного из трёх прежних файлов: «а как ЭТО уже
+ * сделано у нас». Палитра говорит, каким цветом; памятка — что не забыть у формы; карта —
+ * что кнопка называется `.btn`, живёт в `styles/portal.css`, и её не надо изобретать заново.
+ */
+export interface UiKitEntry {
+	/** Слой: токены, компоненты CSS, React-примитивы, иконки, живой каталог. */
+	layer: string;
+	/** Путь в проекте. */
+	file: string;
+	/** Что внутри: имена классов, компонентов, переменных. */
+	contains: string;
+}
+
+/**
+ * Четвёртый слой контекста — карта того, что в проекте УЖЕ построено.
+ *
+ * Без неё модель, которой велено «добавь кнопку», добавляет новую кнопку: имён она не знает, а
+ * пустое место достраивает сама. Это самый дешёвый источник однотипного интерфейса — не потому
+ * что модель плохо рисует, а потому что ей не сказали, что рисовать нечего, всё уже есть.
+ */
+export interface UiKitContext {
+	entries: UiKitEntry[];
+	/** Имена компонентов, на которые агент может ссылаться дословно. */
+	componentNames: string[];
+	raw: string;
+}
+
 export interface DesignContext {
 	product?: ProductContext;
 	design?: DesignSystemContext;
+	/**
+	 * Четвёртый слой — карта реальных компонентов проекта (`uiKit.md`).
+	 *
+	 * Порядок чтения важен: карта читается ПЕРВОЙ, когда правится интерфейс, потому что отвечает
+	 * «есть ли уже готовое», и только потом остальные файлы отвечают «каким оно должно быть».
+	 */
+	uiKit?: UiKitContext;
+	/**
+	 * Третий слой контекста — памятки на момент СОЗДАНИЯ компонента.
+	 *
+	 * Детектор ловит то, что уже построено, и говорит числами. Памятка говорит словами и до того:
+	 * у формы бывает состояние отправки, у таблицы — узкий экран, у пустого состояния — причина
+	 * пустоты. Ни одно из этих упущений детектору не видно — на снимке страницы их просто нет.
+	 */
+	components?: ComponentNotesContext;
 }
 
 /**
@@ -67,6 +123,8 @@ export interface DesignContext {
  */
 export const PRODUCT_CONTEXT_PATHS: readonly string[] = ['.vibe/design/product.md', 'PRODUCT.md'];
 export const DESIGN_SYSTEM_PATHS: readonly string[] = ['.vibe/design/design.md', 'DESIGN.md'];
+export const COMPONENT_NOTES_PATHS: readonly string[] = ['.vibe/design/components.md', 'COMPONENTS.md'];
+export const UI_KIT_PATHS: readonly string[] = ['.vibe/design/uiKit.md', 'ui-kit.md', 'UI-KIT.md'];
 
 /** Section titles we accept: ours (Russian) first, then the English ones other tools write. */
 const SECTION_ALIASES: Record<string, readonly string[]> = {
@@ -217,6 +275,67 @@ export function parseDesignSystem(raw: string | undefined | null): DesignSystemC
 	}
 
 	return { fonts, colors, namedRules, acceptedDrift, raw };
+}
+
+/**
+ * Разбирает памятки по компонентам: каждый заголовок — вид компонента, тело — что не забыть.
+ *
+ * Разбор нарочно грубый. Файл пишет человек своими словами, и единственное, что нам нужно
+ * машинно, — уметь достать памятку по названию вида; всё остальное уходит модели как есть.
+ * Заголовок без тела пропускается: пустой раздел — это заготовка, а не требование.
+ */
+export function parseComponentNotes(raw: string | undefined | null): ComponentNotesContext | undefined {
+	if (!raw || !raw.trim()) {
+		return undefined;
+	}
+	const notes: ComponentNote[] = [];
+	for (const section of splitSections(raw)) {
+		const body = section.body.trim();
+		if (section.title && body) {
+			notes.push({ name: section.title, body });
+		}
+	}
+	return { notes, raw };
+}
+
+/**
+ * Разобрать карту UI (`uiKit.md`).
+ *
+ * Читаются две вещи: markdown-таблица «Слой | Файл | Что внутри» и имена компонентов, встреченные
+ * в обратных кавычках. Имена собираются из ВСЕГО файла, а не только из таблицы: карта пишется
+ * человеком, и половина имён живёт в прозе рядом с объяснением, когда какой компонент брать.
+ *
+ * Разделитель таблицы (`|---|---|`) и строка заголовка пропускаются. Файл без таблицы — не ошибка:
+ * останутся имена, а карта без имён бесполезна, тогда как имена без таблицы всё ещё говорят
+ * агенту, что изобретать нечего.
+ */
+export function parseUiKit(raw: string | undefined | null): UiKitContext | undefined {
+	if (!raw || !raw.trim()) {
+		return undefined;
+	}
+	const entries: UiKitEntry[] = [];
+	for (const line of raw.split(/\r?\n/)) {
+		const trimmed = line.trim();
+		if (!trimmed.startsWith('|') || !trimmed.endsWith('|')) { continue; }
+		const cells = trimmed.slice(1, -1).split('|').map(c => c.trim());
+		if (cells.length < 3) { continue; }
+		// Разделитель `|---|` и шапка таблицы — не данные.
+		if (cells.every(c => /^:?-{3,}:?$/.test(c))) { continue; }
+		const [layer, file, contains] = cells;
+		if (!layer || !file) { continue; }
+		if (/^(слой|layer)$/i.test(layer)) { continue; }
+		entries.push({ layer, file, contains: contains ?? '' });
+	}
+
+	const names = new Set<string>();
+	for (const match of raw.matchAll(/`([^`\n]+)`/g)) {
+		const token = match[1].trim();
+		// Имя компонента, а не путь и не фраза: `.btn`, `CardTitle`, `--rs-accent`.
+		if (!token || token.length > 60 || token.includes(' ') || token.includes('/')) { continue; }
+		names.add(token);
+	}
+
+	return { entries, componentNames: [...names], raw };
 }
 
 /** The drift entry covering `rule`, if the project declared it deliberate. */

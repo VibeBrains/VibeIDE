@@ -25,6 +25,7 @@ import { mainWindow } from '../../../../base/browser/window.js';
 /** VS Code built-in chat container id (stable since 1.90, still correct in 1.118+). */
 const CHAT_VIEW_CONTAINER_ID = 'workbench.panel.chat';
 
+
 const HIDE_CSS = /* css */ `
 /* ── Auxiliary bar composite-bar tab for built-in chat ─────────────────── */
 .monaco-workbench .part.auxiliarybar .action-item[data-action-id="${CHAT_VIEW_CONTAINER_ID}"],

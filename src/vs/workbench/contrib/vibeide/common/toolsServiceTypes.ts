@@ -8,6 +8,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { RawMCPToolCall } from './mcpServiceTypes.js';
 import { SnakeCaseKeys } from './prompt/snakeCase.js';
 import { RawToolParamsObj } from './sendLLMMessageTypes.js';
+import { ReviewChecklist } from './chatThreadServiceTypes.js';
 
 
 
@@ -56,10 +57,14 @@ export type BuiltinToolCallParams = {
 	'glob': { pattern: string; searchInFolder: URI | null; pageNumber: number };
 	'grep': { pattern: string; glob: string | null; fileType: string | null; searchInFolder: URI | null; outputMode: 'content' | 'files_with_matches' | 'count'; contextBefore: number; contextAfter: number; caseInsensitive: boolean; multiline: boolean; headLimit: number; pageNumber: number };
 	'read_lint_errors': { uri: URI };
+	'git_state': { what: 'status' | 'diff' | 'branch' | 'log' };
 	'open_file': { uri: URI };
 	'go_to_definition': { uri: URI; line: number; column: number };
 	'find_references': { uri: URI; line: number; column: number };
 	'code_graph': { query: 'neighbors' | 'path' | 'why'; target: string; to: string | null };
+	'measure_metric': { purpose: 'baseline' | 'candidate'; summary: string | null };
+	'review_checklist': { summary: string; items: Array<{ text: string; how?: string }> };
+	'handoff': { action: 'write' | 'read'; title: string | null; done: string[]; blockers: string[]; next: string[]; environment: string | null };
 	'docs_search': { query: string; limit: number | null };
 	'design_review': { severity: 'error' | 'warning' | 'info' | null; viewport: 'desktop' | 'mobile' | 'both'; annotate: boolean };
 	// No parameters: the context is whatever the project wrote, and there is nothing to narrow.
@@ -67,7 +72,7 @@ export type BuiltinToolCallParams = {
 	'design_doctor': Record<never, never>;
 	'model_council': { question: string; context: string | null };
 	'design_document': {
-		target: 'product' | 'system';
+		target: 'product' | 'uikit' | 'system';
 		name: string | null;
 		audience: string | null;
 		positioning: string | null;
@@ -115,6 +120,9 @@ export type BuiltinToolResultType = {
 	'glob': { uris: URI[]; hasNextPage: boolean; totalMatches: number; limitHit: boolean };
 	'grep': { mode: 'content' | 'files_with_matches' | 'count'; matches: Array<{ uri: URI; line: number; column: number; preview: string }>; files: Array<{ uri: URI; count?: number }>; hasNextPage: boolean; totalMatches: number };
 	'read_lint_errors': { lintErrors: LintErrorItem[] | null };
+	// Plain text on purpose: git's own output is what the model is best at reading, and parsing it
+	// into a structure here would throw away the parts we did not think to model.
+	'git_state': { what: 'status' | 'diff' | 'branch' | 'log'; text: string };
 	'open_file': {};
 	'go_to_definition': { locations: Array<{ uri: URI; startLine: number; startColumn: number; endLine: number; endColumn: number }> };
 	'find_references': { locations: Array<{ uri: URI; startLine: number; startColumn: number; endLine: number; endColumn: number }> };
@@ -134,6 +142,26 @@ export type BuiltinToolResultType = {
 		edges: Array<{ from: string; to: string; kind: string; provenance: string }>;
 		trace: string[] | null;
 	};
+	// Вердикт принимает ИНСТРУМЕНТ, а не модель: агент, сам себе судья, склонен считать
+	// улучшением любое изменение. Поэтому наружу отдаётся готовое решение и число, на котором
+	// оно основано, — спорить с ним можно только новым замером.
+	'measure_metric': {
+		configured: boolean;
+		/** Причина, когда замерить не удалось: команда не задана, упала, не дала числа. */
+		unavailableReason?: string;
+		value?: number;
+		baseline?: number;
+		verdict?: 'keep' | 'discard' | 'noise' | 'unmeasured';
+		improvementRatio?: number;
+		message: string;
+		/** Сколько попыток подряд не дали улучшения — сигнал остановиться. */
+		consecutiveFailures?: number;
+	};
+	// Готовый чек-лист едет РЕЗУЛЬТАТОМ, а не выставляется инструментом напрямую: `toolsService`
+	// не может зависеть от сервиса тредов (тот зависит от него — вышел бы цикл), а идентификатор
+	// треда известен только на стороне оркестрации. Она и применит.
+	'review_checklist': { itemCount: number; message: string; checklist: ReviewChecklist };
+	'handoff': { action: 'write' | 'read'; path?: string; text?: string; problems?: string[]; message: string };
 	// `reachable: false` — превью не открыто или это dev-server/Docker, где скрипт-моста нет.
 	// Пустой список находок тогда читался бы как «чисто», а правда — «не измеряли».
 	'design_review': {
@@ -157,7 +185,7 @@ export type BuiltinToolResultType = {
 	// distinct from an empty design system, which would read as "decided to have nothing".
 	'design_context': {
 		hasWorkspace: boolean;
-		sources: { product?: string; design?: string };
+		sources: { product?: string; design?: string; components?: string; uiKit?: string };
 		product?: { audience?: string; positioning?: string; platform?: string; text: string };
 		design?: {
 			fonts: string[];
@@ -167,9 +195,13 @@ export type BuiltinToolResultType = {
 			unknownDrift: string[];
 			text: string;
 		};
+		/** Памятки по видам компонентов — читаются ДО создания, детектору они не видны. */
+		components?: { names: string[]; text: string };
+		/** Карта того, что в проекте уже построено: имена компонентов и где они лежат. */
+		uiKit?: { entries: Array<{ layer: string; file: string; contains: string }>; componentNames: string[]; text: string };
 	};
 	'design_document': {
-		target: 'product' | 'system';
+		target: 'product' | 'uikit' | 'system';
 		/** Set when the file was written; absent when only a draft came back. */
 		writtenTo?: string;
 		draft?: string;
@@ -198,8 +230,13 @@ export type BuiltinToolResultType = {
 	'rename_symbol': { changes: Array<{ uri: URI; oldText: string; newText: string; line: number; column: number }> };
 	'extract_function': { newFunctionCode: string; replacementCode: string; insertLine: number };
 	// ---
-	'rewrite_file': Promise<{ lintErrors: LintErrorItem[] | null; quickFixesApplied?: string[] }>;
-	'edit_file': Promise<{ lintErrors: LintErrorItem[] | null; indentationNote?: string | null; quickFixesApplied?: string[] }>;
+	'rewrite_file': Promise<{
+		lintErrors: LintErrorItem[] | null;
+		quickFixesApplied?: string[];
+		/** Предупреждение, если перезапись заводит компонент, который уже есть в карте UI. */
+		reinvented?: string;
+	}>;
+	'edit_file': Promise<{ lintErrors: LintErrorItem[] | null; indentationNote?: string | null; quickFixesApplied?: string[]; /** Предупреждение, если правка заводит компонент, который уже есть в карте UI. */ reinvented?: string }>;
 	'create_file_or_folder': {};
 	'delete_file_or_folder': {};
 	// ---

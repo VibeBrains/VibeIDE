@@ -88,6 +88,12 @@ export function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStat
 	if (typeof m.temperature === 'number') { c.defaultTemperature = m.temperature; }
 	if (typeof m.topP === 'number') { c.defaultTopP = m.topP; }
 	if (typeof m.topK === 'number') { c.defaultTopK = m.topK; }
+	// Volume budgets. Unlike sampling these are NOT vendor recommendations the quirks catalog may
+	// override — they are the user saying how much this particular model can carry, so they go
+	// straight through. Zero and negatives are dropped rather than clamped: "0 tools" is a typo,
+	// and honouring it would leave an agent that cannot do anything at all.
+	if (typeof m.maxTools === 'number' && m.maxTools > 0) { c.maxTools = Math.floor(m.maxTools); }
+	if (typeof m.maxPromptDirectoryChars === 'number' && m.maxPromptDirectoryChars > 0) { c.maxPromptDirectoryChars = Math.floor(m.maxPromptDirectoryChars); }
 	// reasoning → reasoningCapabilities. An `effort` list maps to an effort_slider, which the
 	// openai-compatible reasoning hook turns into `reasoning_effort` on the wire; reasoning_content
 	// is parsed back via the openai-compat output settings. Default to the highest effort (thinking

@@ -40,6 +40,8 @@ import { LAYOUT_RULES } from './rules/layout.js';
 import { MOTION_RULES } from './rules/motion.js';
 import { TYPOGRAPHY_RULES } from './rules/typography.js';
 import { VISUAL_RULES } from './rules/visual.js';
+import { STATE_RULES } from './rules/states.js';
+import { MARKUP_RULES } from './rules/markup.js';
 
 export {
 	contrastRatio,
@@ -61,6 +63,8 @@ const RULES: readonly Rule[] = [
 	...TYPOGRAPHY_RULES,
 	...COLOR_RULES,
 	...VISUAL_RULES,
+	...STATE_RULES,
+	...MARKUP_RULES,
 	...LAYOUT_RULES,
 	...MOTION_RULES,
 	...COPY_RULES,

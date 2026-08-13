@@ -91,6 +91,7 @@ import { EndOfLinePreference } from '../../../../editor/common/model.js';
 import { ToolName } from '../common/toolsServiceTypes.js';
 import { IMCPService } from '../common/mcpService.js';
 import { IRepoIndexerService, QueryMetrics } from './repoIndexerService.js';
+import { IVibeDocsGraphService } from './vibeDocsGraphService.js';
 import { IMemoriesService } from '../common/memoriesService.js';
 import { IVibeSkillsLibraryService } from '../common/vibeSkillsLibraryService.js';
 import { IVibeSlashCommandService } from '../common/vibeSlashCommandService.js';
@@ -1493,6 +1494,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@IVibeSlashCommandService private readonly slashCommandService: IVibeSlashCommandService,
 		@IAuditLogService private readonly auditLogService: IAuditLogService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@IVibeDocsGraphService private readonly vibeDocsGraphService: IVibeDocsGraphService,
 		@IVibeContextGuardService private readonly contextGuardService: IVibeContextGuardService,
 		@IRemoteCatalogService private readonly remoteCatalogService: IRemoteCatalogService,
 		@IStorageService private readonly storageService: IStorageService,
@@ -1674,6 +1676,36 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 
 	// system message with caching
+	/**
+	 * Per-model volume budgets, resolved once for both prompt builders.
+	 *
+	 * `maxTools` comes only from the model profile (`.vibe/providers.json`) — there is no global
+	 * default on purpose: a limit that applies to every model would quietly cripple the frontier
+	 * ones, and the whole point is that the number differs per model. The prompt budget DOES have a
+	 * global default, because every model pays for the file-tree overview and most users want one
+	 * number rather than a line per model.
+	 */
+	private _promptBudgets(providerName?: string, modelName?: string): { maxTools?: number; directoryOverviewChars?: number } {
+		const configured = this.configurationService.getValue<number>('vibeide.prompt.directoryOverviewChars');
+		const directoryOverviewChars = typeof configured === 'number' && configured > 0 ? configured : undefined;
+		if (!providerName || !modelName) { return { directoryOverviewChars }; }
+		try {
+			const caps = getModelCapabilities(
+				providerName,
+				modelName,
+				this.vibeideSettingsService.state.overridesOfModel,
+				this.remoteCatalogService.getCachedModelInfo(providerName, modelName),
+			);
+			return {
+				maxTools: caps.maxTools,
+				directoryOverviewChars: caps.maxPromptDirectoryChars ?? directoryOverviewChars,
+			};
+		} catch {
+			// An unknown model must not break prompt assembly — it simply gets no budget.
+			return { directoryOverviewChars };
+		}
+	}
+
 	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined, providerName?: string, modelName?: string) => {
 		const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
 
@@ -1743,7 +1775,12 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			}
 		}
 
-		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, modelFamily });
+		// Volume budgets for this model: how many tools it is handed and how much of the file-tree
+		// overview it is shown. Both default to "as before" — an unset budget must never quietly
+		// start trimming a frontier model. `providerName`/`modelName` are already part of the cache
+		// key above, so a per-model budget cannot leak into another model's cached prompt.
+		const budgets = this._promptBudgets(providerName, modelName);
+		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, modelFamily, ...budgets });
 
 		// Cache the result
 		this._systemMessageCache.set(cacheKey, { message: systemMessage, timestamp: now });
@@ -2066,7 +2103,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				}
 			}
 
-			systemMessage = chat_systemMessage_local({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', modelFamily });
+			systemMessage = chat_systemMessage_local({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', modelFamily , ...this._promptBudgets(providerName, modelName) });
 		} else {
 			// Use full system message for cloud models
 			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat, validProviderName, modelName);
@@ -2077,6 +2114,27 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// Prompt-caching (knowledge/roadmap/tokenEconomy.md, A): retrieval output changes every
 		// turn, so it must NOT be appended to the system message — that invalidated the provider's
 		// prefix cache on every request. It rides in the last user turn instead (prepended below).
+		// «Библиотекарь»: заметки из базы знаний, подобранные КОДОМ под текущую задачу.
+		//
+		// Рядом с индексатором и по той же причине не в системном сообщении: подбор меняется каждый
+		// ход, а системное сообщение — кэшируемый префикс, и запись туда обнуляла бы кэш провайдера
+		// на каждом запросе (roadmap просил инъекцию в `chat_systemMessage` — это оказалось неверно,
+		// см. соседний комментарий про tokenEconomy). Здесь только СПИСОК заметок: путь, название и
+		// почему подошла. Тела не подкладываются намеренно — агент прочитает нужное сам, а десяток
+		// заметок целиком вытеснил бы из контекста саму задачу.
+		let knowledgeNotesUserBlock = '';
+		if (!disableSystemMessage && this.configurationService.getValue<boolean>('vibeide.agent.knowledgeLibrarian') !== false) {
+			const userQuery = this._lastRealUserQuery(chatMessages);
+			if (userQuery.trim()) {
+				const limit = Math.max(1, Math.min(12, this.configurationService.getValue<number>('vibeide.agent.knowledgeLibrarian.limit') ?? 5));
+				const notes = await this.vibeDocsGraphService.findRelevantNotes(userQuery, limit);
+				if (notes.length > 0) {
+					const lines = notes.map(n => `- \`${n.id}\` — ${n.label} (${n.why})`).join('\n');
+					knowledgeNotesUserBlock = `<knowledge_notes>\nВ базе знаний проекта есть заметки, похожие на эту задачу. Подобраны кодом по заголовкам и связям, не моделью, поэтому список может быть неточен — это подсказка, где искать, а не факты. Прочитай те, что относятся к делу, прежде чем решать; если решение расходится с записанным там, скажи об этом прямо.\n${lines}\n</knowledge_notes>`;
+				}
+			}
+		}
+
 		let repoContextUserBlock = '';
 		if (this.vibeideSettingsService.state.globalSettings.enableRepoIndexer && !disableSystemMessage) {
 			let indexResults: string[] | null = null;
@@ -2288,7 +2346,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// load-bearing step that makes /skill:NAME and @rule:NAME actually take effect, and the
 		// cache-friendly home for everything that varies per turn (repo retrieval, implicit skill
 		// hints, language directive) — see knowledge/roadmap/tokenEconomy.md (A).
-		const userTurnPrefix = [repoContextUserBlock, explicitSkillsUserPrefix, ruleInvocationPrefix, implicitSkills.trim(), langDirective.trim()].filter(s => s.length > 0).join('\n\n');
+		const userTurnPrefix = [repoContextUserBlock, knowledgeNotesUserBlock, explicitSkillsUserPrefix, ruleInvocationPrefix, implicitSkills.trim(), langDirective.trim()].filter(s => s.length > 0).join('\n\n');
 		if (userTurnPrefix.length > 0) {
 			for (let i = llmMessages.length - 1; i >= 0; i--) {
 				const m = llmMessages[i];

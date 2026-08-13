@@ -32,6 +32,10 @@ const THEME_CHROME: ReadonlyMap<string, { readonly glow: string; readonly noGlow
 	['vibe-neon-noglow', { glow: 'media/vibe-neon-noglow.css', noGlow: 'media/vibe-neon-noglow.css', glowDefault: false }],
 	['vibe-graphite', { glow: 'media/vibe-graphite.css', noGlow: 'media/vibe-graphite-noglow.css', glowDefault: false }],
 	['vibe-midnight', { glow: 'media/vibe-midnight.css', noGlow: 'media/vibe-midnight-noglow.css', glowDefault: false }],
+	['vibe-terracotta', { glow: 'media/vibe-terracotta.css', noGlow: 'media/vibe-terracotta-noglow.css', glowDefault: false }],
+	['vibe-espresso', { glow: 'media/vibe-espresso.css', noGlow: 'media/vibe-espresso-noglow.css', glowDefault: false }],
+	['vibe-honey', { glow: 'media/vibe-honey.css', noGlow: 'media/vibe-honey-noglow.css', glowDefault: false }],
+	['vibe-tobacco', { glow: 'media/vibe-tobacco.css', noGlow: 'media/vibe-tobacco-noglow.css', glowDefault: false }],
 ]);
 
 export class VibeNeonThemeContribution extends Disposable implements IWorkbenchContribution {

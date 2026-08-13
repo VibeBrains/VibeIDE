@@ -15,6 +15,7 @@ import { approvalTypeOfBuiltinToolName, builtinToolDefs } from './tools/index.js
 import { ChatMode, MinimalismMode } from '../vibeideSettingsTypes.js';
 import type { ModelFamily } from './modelFamily.js';
 import { DIVIDER, FINAL, ORIGINAL, searchReplaceBlockTemplate, tripleTick } from './tools/_constants.js';
+import { applyToolBudget } from './toolBudget.js';
 
 // Re-export shared leaf-constants for external callers that still import them
 // from `prompts.ts`. The canonical definitions live in `tools/_constants.ts`
@@ -155,7 +156,16 @@ const EXPENSIVE_SEARCH_TOOLS = new Set<string>(['grep', 'glob', 'search_for_file
 export const availableTools = (
 	chatMode: ChatMode | null,
 	mcpTools: InternalToolInfo[] | undefined,
-	opts?: { disableExpensiveSearchInNonAgent?: boolean },
+	opts?: {
+		disableExpensiveSearchInNonAgent?: boolean;
+		/**
+		 * Per-model tool budget (`maxTools` in `.vibe/providers.json`). Undefined = no limit,
+		 * which is how every model behaved before the budget existed. Applied here, at the single
+		 * place the tool list is assembled, so every transport (AI-SDK, OpenAI, Anthropic, Gemini,
+		 * XML grammar) sees the same list rather than each trimming its own way.
+		 */
+		maxTools?: number;
+	},
 ) => {
 
 	const builtinToolNames: BuiltinToolName[] | undefined = chatMode === 'normal' ? undefined
@@ -177,8 +187,15 @@ export const availableTools = (
 		tools = tools.filter(t => !EXPENSIVE_SEARCH_TOOLS.has(t.name));
 	}
 
+	if (tools && opts?.maxTools !== undefined) {
+		tools = applyToolBudget(tools, opts.maxTools, BUILTIN_TOOL_NAME_SET).tools;
+	}
+
 	return tools;
 };
+
+/** Names of the shipped built-ins — anything else in a tool list came from MCP. */
+const BUILTIN_TOOL_NAME_SET: ReadonlySet<string> = new Set(Object.keys(builtinTools));
 
 const toolCallDefinitionsXMLString = (tools: InternalToolInfo[]) => {
 	return `${tools.map((t) => {
@@ -202,8 +219,8 @@ export const reParsedToolXMLString = (toolName: ToolName, toolParams: RawToolPar
 
 /* We expect tools to come at the end - not a hard limit, but that's just how we process them, and the flow makes more sense that way. */
 // - You are allowed to call multiple tools by specifying them consecutively. However, there should be NO text or writing between tool calls or after them.
-export const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined) => {
-	const tools = availableTools(chatMode, mcpTools);
+export const systemToolsXMLPrompt = (chatMode: ChatMode, mcpTools: InternalToolInfo[] | undefined, maxTools?: number) => {
+	const tools = availableTools(chatMode, mcpTools, { maxTools });
 	if (!tools || tools.length === 0) { return null; }
 
 	const toolXMLDefinitions = (`\
@@ -321,7 +338,7 @@ ${MINIMALISM_RULES_PRECEDENCE}
 // ======================================================== chat (normal, gather, agent) ========================================================
 
 
-export const chat_systemMessage = ({ workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments, minimalismMode, modelFamily: _modelFamily }: { workspaceFolders: string[]; directoryStr: string; openedURIs: string[]; activeURI: string | undefined; persistentTerminalIDs: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; relevantMemories?: string; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; modelFamily?: ModelFamily }) => {
+export const chat_systemMessage = ({ maxTools, directoryOverviewChars, workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments, minimalismMode, modelFamily: _modelFamily }: { workspaceFolders: string[]; directoryStr: string; openedURIs: string[]; activeURI: string | undefined; persistentTerminalIDs: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; relevantMemories?: string; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; modelFamily?: ModelFamily; maxTools?: number; directoryOverviewChars?: number }) => {
 	const header = (`You are an expert coding ${mode === 'agent' ? 'agent' : 'assistant'} running inside VibeIDE whose job is \
 ${mode === 'agent' ? `to help the user develop, run, and make changes to their codebase.`
 			: mode === 'gather' ? `to search, understand, and reference files in the user's codebase.`
@@ -353,7 +370,13 @@ ${openedURIs.join('\n') || 'NO OPENED FILES'}${''/* separator */}${mode === 'age
 
 	// Truncate directoryStr if too long (optimize for token budget)
 	// Further reduced for better TTFS - directory info can be fetched via tools if needed
-	const MAX_DIRSTR_LENGTH = mode === 'agent' ? 10_000 : 8_000; // More aggressive truncation for normal mode
+	// Budget for the file-tree overview: the per-model `maxPromptDirectoryChars`, else the global
+	// `vibeide.prompt.directoryOverviewChars` passed in by the caller, else the historical default.
+	// Non-agent modes stay slightly tighter — they explore less and pay the same tokens.
+	const DEFAULT_DIRSTR_LENGTH = mode === 'agent' ? 10_000 : 8_000;
+	const MAX_DIRSTR_LENGTH = directoryOverviewChars && directoryOverviewChars > 0
+		? (mode === 'agent' ? directoryOverviewChars : Math.round(directoryOverviewChars * 0.8))
+		: DEFAULT_DIRSTR_LENGTH;
 	const truncatedDirStr = directoryStr.length > MAX_DIRSTR_LENGTH
 		? directoryStr.substring(0, MAX_DIRSTR_LENGTH) + '\n... (truncated - use tools to explore more)'
 		: directoryStr;
@@ -364,7 +387,7 @@ ${truncatedDirStr}
 </files_overview>`);
 
 
-	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools) : null;
+	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools, maxTools) : null;
 
 	const details: string[] = [];
 
@@ -452,7 +475,7 @@ ${toolDefinitions}
 
 // Minimal chat system message for local models (drastically reduced)
 // Used for local models to minimize token usage and latency
-export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeURI, chatMode: mode, includeXMLToolDefinitions, relevantMemories, mcpTools, strictJsonToolArguments, minimalismMode, modelFamily: _modelFamily }: { workspaceFolders: string[]; directoryStr: string; openedURIs: string[]; activeURI: string | undefined; persistentTerminalIDs: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; relevantMemories?: string; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; modelFamily?: ModelFamily }) => {
+export const chat_systemMessage_local = ({ maxTools, directoryOverviewChars, workspaceFolders, openedURIs, activeURI, chatMode: mode, includeXMLToolDefinitions, relevantMemories, mcpTools, strictJsonToolArguments, minimalismMode, modelFamily: _modelFamily }: { workspaceFolders: string[]; directoryStr: string; openedURIs: string[]; activeURI: string | undefined; persistentTerminalIDs: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; relevantMemories?: string; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; modelFamily?: ModelFamily; maxTools?: number; directoryOverviewChars?: number }) => {
 	const header = mode === 'agent'
 		? 'Coding agent. Use tools for actions.'
 		: mode === 'gather'
@@ -463,7 +486,7 @@ export const chat_systemMessage_local = ({ workspaceFolders, openedURIs, activeU
 
 	const sysInfo = `System: ${os}\nWorkspace: ${workspaceFolders.join(', ') || 'none'}\nActive: ${activeURI || 'none'}\nOpen: ${openedURIs.slice(0, 3).join(', ') || 'none'}${openedURIs.length > 3 ? '...' : ''}`;
 
-	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools) : null;
+	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools, maxTools) : null;
 
 	const details: string[] = [];
 	if (mode === 'agent') {

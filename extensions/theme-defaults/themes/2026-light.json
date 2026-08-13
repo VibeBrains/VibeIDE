@@ -690,7 +690,93 @@
 			"settings": {
 				"foreground": "#0a3069"
 			}
+		},
+		{
+			"name": "Имена типов, классов и интерфейсов — правила не было вовсе, они шли цветом текста",
+			"scope": ["entity.name.type", "entity.name.class", "entity.name.interface", "entity.name.enum", "support.type", "support.class", "entity.other.inherited-class"],
+			"settings": {"foreground": "#953800"}
+		},
+		{
+			"name": "Параметры — отличаются от локальных переменных наклоном",
+			"scope": ["variable.parameter", "meta.parameters variable"],
+			"settings": {"foreground": "#953800", "fontStyle": "italic"}
+		},
+		{
+			"name": "this / self / super — своя роль",
+			"scope": ["variable.language.this", "variable.language.self", "variable.language.super"],
+			"settings": {"foreground": "#cf222e", "fontStyle": "italic"}
+		},
+		{
+			"name": "Пространства имён и модули",
+			"scope": ["entity.name.namespace", "entity.name.module", "support.other.namespace"],
+			"settings": {"foreground": "#953800"}
+		},
+		{
+			"name": "Свойства объектов и ключи структур",
+			"scope": ["variable.other.property", "variable.other.object.property", "meta.object-literal.key", "support.type.property-name", "support.type.property-name.json", "entity.name.tag.yaml"],
+			"settings": {"foreground": "#0550ae"}
+		},
+		{
+			"name": "Выражение внутри шаблонной строки — иначе неотличимо от самой строки",
+			"scope": ["meta.template.expression", "meta.embedded.line", "punctuation.section.embedded"],
+			"settings": {"foreground": "#1f2328"}
+		},
+		{
+			"name": "Границы подстановки ${…}",
+			"scope": ["punctuation.definition.template-expression.begin", "punctuation.definition.template-expression.end"],
+			"settings": {"foreground": "#cf222e"}
+		},
+		{
+			"name": "Декораторы и аннотации",
+			"scope": ["meta.decorator", "punctuation.decorator", "storage.type.annotation", "entity.name.function.decorator"],
+			"settings": {"foreground": "#8250df"}
+		},
+		{
+			"name": "Встроенные функции языка",
+			"scope": ["support.function.builtin", "support.function.magic", "keyword.other.special-method"],
+			"settings": {"foreground": "#8250df"}
+		},
+		{
+			"name": "TODO/FIXME — единственное, что должно быть видно из серого комментария",
+			"scope": ["keyword.codetag", "comment keyword.other"],
+			"settings": {"foreground": "#82071e", "fontStyle": "bold"}
+		},
+		{
+			"name": "Скобки и разделители — тише кода, но различимы",
+			"scope": ["meta.brace", "punctuation.section.block", "punctuation.definition.parameters"],
+			"settings": {"foreground": "#6e7781"}
+		},
+		{
+			"name": "Регулярные выражения",
+			"scope": ["string.regexp"],
+			"settings": {"foreground": "#116329"}
+		},
+		{
+			"name": "Единицы измерения",
+			"scope": ["keyword.other.unit", "constant.numeric.suffix"],
+			"settings": {"foreground": "#0550ae"}
 		}
 	],
+	"semanticTokenColors": {
+		"parameter": { "foreground": "#953800", "fontStyle": "italic" },
+		"property": { "foreground": "#0550ae" },
+		"property.readonly": { "foreground": "#0550ae" },
+		"variable": { "foreground": "#1f2328" },
+		"variable.readonly": { "foreground": "#0550ae" },
+		"variable.defaultLibrary": { "foreground": "#0550ae" },
+		"function": { "foreground": "#8250df" },
+		"function.defaultLibrary": { "foreground": "#8250df" },
+		"method": { "foreground": "#8250df" },
+		"class": { "foreground": "#953800" },
+		"interface": { "foreground": "#953800" },
+		"type": { "foreground": "#953800" },
+		"typeParameter": { "foreground": "#953800", "fontStyle": "italic" },
+		"enum": { "foreground": "#953800" },
+		"enumMember": { "foreground": "#0550ae" },
+		"namespace": { "foreground": "#953800" },
+		"decorator": { "foreground": "#8250df" },
+		"macro": { "foreground": "#8250df" },
+		"*.deprecated": { "fontStyle": "strikethrough" }
+	},
 	"semanticHighlighting": true
 }

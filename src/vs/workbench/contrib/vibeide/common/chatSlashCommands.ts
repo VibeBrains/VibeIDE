@@ -14,7 +14,7 @@
  * commands land.
  */
 
-export type ChatSlashCommandName = 'commit' | 'watch';
+export type ChatSlashCommandName = 'commit' | 'watch' | 'shot';
 
 export interface ChatSlashCommandParsed {
 	readonly command: ChatSlashCommandName;
@@ -26,7 +26,7 @@ export type ChatSlashCommandParseResult =
 	| { readonly matched: true; readonly parsed: ChatSlashCommandParsed }
 	| { readonly matched: false };
 
-const KNOWN_COMMANDS: ReadonlySet<ChatSlashCommandName> = new Set(['commit', 'watch']);
+const KNOWN_COMMANDS: ReadonlySet<ChatSlashCommandName> = new Set(['commit', 'watch', 'shot']);
 
 const SLASH_LEADER_RE = /^\s*\/([a-z][a-z0-9_-]*)(?:\s+([\s\S]+))?$/i;
 
@@ -96,4 +96,5 @@ export const CHAT_SLASH_COMMANDS: ReadonlyArray<{
 }> = [
 		{ name: 'commit', description: 'Сгенерировать Conventional Commit из застейдженных изменений' },
 		{ name: 'watch', description: 'Посмотреть видео целиком: кадры по сменам сцен + транскрипт → разбор с тайм-кодами', argsHint: '<ссылка или путь> [вопрос]' },
+		{ name: 'shot', description: 'Снимок открытого превью картинкой в чат — показать глазами вместо описания словами' },
 	];

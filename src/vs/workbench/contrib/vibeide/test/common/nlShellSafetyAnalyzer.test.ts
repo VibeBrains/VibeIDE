@@ -7,6 +7,8 @@
 import * as assert from 'assert';
 import {
 	analyzeNLShellSafety,
+	analyzeShellLine,
+	splitShellSegments,
 	describeShellSafetyResult,
 } from '../../common/nlShellSafetyAnalyzer.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
@@ -131,6 +133,42 @@ suite('NL shell safety analyzer (1056)', () => {
 			const r = describeShellSafetyResult(analyzeNLShellSafety('rm', ['-rf', '/']));
 			assert.match(r, /DESTRUCTIVE/);
 			assert.match(r, /rm-binary/);
+		});
+	});
+
+	suite('splitShellSegments — разбор сырой строки', () => {
+		test('разделители режут строку на простые команды', () => {
+			assert.deepStrictEqual(
+				splitShellSegments('npm test && rm -rf build; ls | grep x').map(s => [s.command, ...s.args].join(' ')),
+				['npm test', 'rm -rf build', 'ls', 'grep x'],
+			);
+		});
+
+		test('кавычки держат аргумент целиком, экранирование не режет', () => {
+			assert.deepStrictEqual(
+				splitShellSegments('git commit -m "не разделяй; меня"').map(s => s.args),
+				[['commit', '-m', 'не разделяй; меня']],
+			);
+		});
+
+		test('пустая строка и одни разделители не рождают команд', () => {
+			assert.deepStrictEqual([splitShellSegments('   '), splitShellSegments('&& ; ||')], [[], []]);
+		});
+	});
+
+	suite('analyzeShellLine — вердикт по всей строке', () => {
+		test('опасное во второй половине строки не проходит мимо', () => {
+			const r = analyzeShellLine('npm test && rm -rf build');
+			assert.deepStrictEqual([r?.safety, r?.command], ['destructive', 'rm']);
+		});
+
+		test('безопасная строка не даёт вердикта, неоднозначная — тоже (гейт только на разрушительное)', () => {
+			assert.deepStrictEqual([analyzeShellLine('ls -la && git status'), analyzeShellLine('git')], [undefined, undefined]);
+		});
+
+		test('переносы строк считаются разделителем', () => {
+			// Признаков два: общий `--force` в аргументах и составной `git push --force`.
+			assert.strictEqual(analyzeShellLine('echo hi\ngit push --force')?.reasons.join(','), 'force-flag,git-push-force');
 		});
 	});
 });

@@ -1,7 +1,11 @@
 ---
 name: resolve-merge-conflicts
 description: Разрешение Git-конфликтов через компактные выжимки (хвосты ours/base/theirs и diff) вместо загрузки целых файлов в контекст. Использовать, когда merge, rebase, cherry-pick или stash pop остановились на конфликтах, git status показывает unmerged paths или в файлах есть маркеры конфликтов.
-vibeVersion: 1.1.0
+compatibility: >
+  Нужны git и python3 в PATH: выжимки готовит скрипт
+  scripts/extract_conflict_context.py, запускаемый из терминала. Сеть не требуется.
+metadata:
+  vibeVersion: "1.1.0"
 ---
 
 # Разрешение merge-конфликтов

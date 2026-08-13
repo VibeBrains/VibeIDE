@@ -23,15 +23,19 @@ import { INotificationService, Severity } from '../../../../platform/notificatio
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IQuickInputService, IQuickPickItem } from '../../../../platform/quickinput/common/quickInput.js';
+import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
+import { ILabelService } from '../../../../platform/label/common/label.js';
+import { MenuId } from '../../../../platform/actions/common/actions.js';
 import { ISecretStorageService } from '../../../../platform/secrets/common/secrets.js';
 import { GITHUB_TOKEN_SECRET_KEY } from '../common/vibeJobPRCompletionService.js';
-import { IVibeSkillsLibraryService } from '../common/vibeSkillsLibraryService.js';
+import { IVibeSkillsLibraryService, describeSkillRequirements } from '../common/vibeSkillsLibraryService.js';
 import { IFileDialogService, IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { ITerminalService } from '../../../contrib/terminal/browser/terminal.js';
 import { TerminalLocation } from '../../../../platform/terminal/common/terminal.js';
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { formatAgentTurnTrace, getAgentTurnTrace } from '../common/agentTurnTrace.js';
 import { isCodeEditor } from '../../../../editor/browser/editorBrowser.js';
 import { ITextResourceEditorInput } from '../../../../platform/editor/common/editor.js';
 import { IChatThreadService } from './chatThreadService.js';
@@ -367,6 +371,129 @@ CommandsRegistry.registerCommand('vibeide.memory.persist', (accessor: ServicesAc
 });
 
 // Semantic search — when invoked without a query (palette/keybinding), prompt for one, then show
+/**
+ * Показывает пошаговый трейс текущего хода агента в редакторе.
+ *
+ * Кольцо само по себе бесполезно, пока в него нельзя заглянуть: вопрос «почему агент пошёл не
+ * туда» задают ПОСЛЕ того, как он уже пошёл, и ответ должен открываться одной командой, а не
+ * собираться из логов. Открывается как обычный текст — его можно скопировать в issue целиком.
+ */
+/**
+ * Комментарий к строке кода → в пакет правок.
+ *
+ * Роадмап предполагал построить свой богатый diff-компонент в React. Взят другой путь: дифф
+ * агента УЖЕ отрисован в настоящем редакторе (`editCodeService` показывает его инлайном), и свой
+ * просмотрщик был бы хуже родного на переносах, свёрнутых ханках и больших файлах — то есть мы
+ * построили бы худшую копию того, что и так есть. Комментарий берётся там, где человек уже смотрит
+ * на изменение: курсор на строке, команда, одна фраза.
+ *
+ * Правка попадает в тот же пакет, что и клики по превью, и уезжает агенту тем же заданием —
+ * «сначала прочитай код всех мест, потом правь». Два входа, один цикл.
+ */
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.diff.commentLine',
+			f1: true,
+			title: localize2('vibeide.diff.commentLine.title', 'VibeIDE: Комментарий к строке → в пакет правок'),
+			category: localize2('vibeCategory', 'VibeIDE'),
+			menu: [{ id: MenuId.EditorContext, group: 'vibeide', order: 10 }],
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const chatThreadService = accessor.get(IChatThreadService);
+		const editorService = accessor.get(IEditorService);
+		const quickInput = accessor.get(IQuickInputService);
+		const notifications = accessor.get(INotificationService);
+
+		const editor = accessor.get(ICodeEditorService).getActiveCodeEditor();
+		const resource = editor?.getModel()?.uri ?? editorService.activeEditor?.resource;
+		if (!editor || !resource) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.diff.noEditor', 'Нет открытого файла — комментировать нечего.') });
+			return;
+		}
+		const threadId = chatThreadService.state.currentThreadId;
+		if (!threadId) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.diff.noThread', 'Нет активного чата — пакет правок собирать некуда.') });
+			return;
+		}
+
+		const line = editor.getPosition()?.lineNumber ?? 1;
+		const lineText = editor.getModel()?.getLineContent(line)?.trim() ?? '';
+		const note = await quickInput.input({
+			prompt: localize('vibeide.diff.prompt', 'Что не так с этой строкой?'),
+			placeHolder: lineText.slice(0, 80),
+		});
+		// Отмена ввода — это отказ, а не пустой комментарий: молча положить в пакет место без
+		// описания здесь нельзя, человек передумал.
+		if (note === undefined) { return; }
+
+		const relative = accessor.get(ILabelService).getUriLabel(resource, { relative: true });
+		chatThreadService.addEditBatchItem(threadId, {
+			source: 'code',
+			page: `${relative}:${line}`,
+			file: `${relative}:${line}`,
+			note: note.trim(),
+		});
+		chatThreadService.setEditBatchCollecting(threadId, true);
+		notifications.notify({ severity: Severity.Info, message: localize('vibeide.diff.added', 'Строка {0}:{1} добавлена в пакет правок.', relative, line) });
+	}
+});
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.preview.toggleEditBatch',
+			f1: true,
+			title: localize2('vibeide.preview.toggleEditBatch.title', 'VibeIDE: Копить правки пакетом (прицел в превью)'),
+			category: localize2('vibeCategory', 'VibeIDE'),
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const chatThreadService = accessor.get(IChatThreadService);
+		const notifications = accessor.get(INotificationService);
+		const threadId = chatThreadService.state.currentThreadId;
+		if (!threadId) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.batch.noThread', 'Нет активного чата — пакет правок собирать некуда.') });
+			return;
+		}
+		const collecting = chatThreadService.state.allThreads[threadId]?.state.editBatch?.collecting === true;
+		chatThreadService.setEditBatchCollecting(threadId, !collecting);
+		notifications.notify({
+			severity: Severity.Info,
+			message: collecting
+				? localize('vibeide.batch.off', 'Сбор пакета выключен — клик прицела снова отправляет правку сразу.')
+				: localize('vibeide.batch.on', 'Сбор пакета включён — клики прицелом копятся списком в чате.'),
+		});
+	}
+});
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.agent.showTurnTrace',
+			f1: true,
+			title: localize2('vibeide.agent.showTurnTrace.title', 'VibeIDE: Показать трейс хода агента'),
+			category: localize2('vibeCategory', 'VibeIDE'),
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const chatThreadService = accessor.get(IChatThreadService);
+		const editorService = accessor.get(IEditorService);
+		const notifications = accessor.get(INotificationService);
+		const threadId = chatThreadService.state.currentThreadId;
+		if (!threadId) {
+			notifications.notify({ severity: Severity.Info, message: localize('vibeide.trace.noThread', 'Нет активного треда — трейс показывать не для чего.') });
+			return;
+		}
+		const text = formatAgentTurnTrace(threadId, getAgentTurnTrace());
+		await editorService.openEditor({ resource: undefined, contents: text, languageId: 'plaintext', options: { pinned: true } });
+	}
+});
+
 // hits in a quick pick that opens the chosen file. Was log-only (invisible) and unusable from the UI.
 CommandsRegistry.registerCommand('vibeide.search.semantic', async (accessor: ServicesAccessor, query?: string) => {
 	const search = accessor.get(IVibeSemanticSearchService);
@@ -675,11 +802,17 @@ registerAction2(class extends Action2 {
 			return;
 		}
 		const active = new Set((cfg.getValue<string[]>('vibeide.skills.sessionActiveIds') ?? []).map(s => s.trim().toLowerCase()).filter(Boolean));
-		const items: (IQuickPickItem & { picked?: boolean })[] = loaded.map(s => ({
-			label: s.skillId,
-			description: s.description.length > 140 ? `${s.description.slice(0, 137)}…` : s.description,
-			picked: active.has(s.skillId.toLowerCase()),
-		}));
+		const items: (IQuickPickItem & { picked?: boolean })[] = loaded.map(s => {
+			// Требования показываются здесь, в момент выбора: скилл, которому нужен ffmpeg или
+			// доступ к терминалу, должен сообщать об этом до включения, а не отказом в работе.
+			const requirements = describeSkillRequirements(s);
+			return {
+				label: s.skillId,
+				description: s.description.length > 140 ? `${s.description.slice(0, 137)}…` : s.description,
+				detail: requirements ? `⚙ ${requirements}` : undefined,
+				picked: active.has(s.skillId.toLowerCase()),
+			};
+		});
 		const picked = await qi.pick(items, {
 			canPickMany: true,
 			placeHolder: localize('vibeideSkillsPickPh', 'Включить/выключить скиллы для обнаружения GUIDELINES (пустой выбор = все скиллы)'),

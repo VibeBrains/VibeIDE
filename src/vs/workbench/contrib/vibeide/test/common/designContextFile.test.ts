@@ -8,6 +8,7 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/tes
 import {
 	acceptedDriftFor,
 	hasUsableContext,
+	parseComponentNotes,
 	parseDesignSystem,
 	parseProductContext,
 	renderDesignSystem,
@@ -127,6 +128,20 @@ const el = (over: Partial<ElementSnapshot> = {}): ElementSnapshot => ({
 	linesEndingWithShortWord: 0,
 	lastLineWordCount: 0,
 	interactive: false,
+	outlineStyle: 'auto',
+	outlineWidthPx: 2,
+	hasFocusRule: true,
+	hasHoverRule: true,
+	disabled: false,
+	styleRulesUnreadable: false,
+	accessibleName: 'элемент',
+	isFormField: false,
+	inputType: '',
+	hasPlaceholder: false,
+	hasAltAttribute: true,
+	ariaInvalid: false,
+	describedByText: '',
+	isRequiredField: false,
 	...over,
 });
 
@@ -230,6 +245,45 @@ suite('designContextFile', () => {
 				[{ rule: 'single-font', reason: 'моногарнитура — это выбор' }],
 			],
 		);
+	});
+});
+
+suite('designContextFile — памятки по компонентам', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	const COMPONENTS_MD = [
+		'# Памятки по компонентам',
+		'',
+		'Вступление, которое разделом не является по смыслу, но телом заголовка является.',
+		'',
+		'## Форма',
+		'',
+		'- Кнопка блокируется на время отправки.',
+		'',
+		'## Таблица',
+		'',
+		'- Числа выровнены по правому краю.',
+		'',
+		'## Заготовка',
+		'',
+	].join('\n');
+
+	test('заголовки становятся памятками, пустой раздел не считается', () => {
+		const parsed = parseComponentNotes(COMPONENTS_MD);
+		assert.deepStrictEqual(parsed?.notes.map(note => note.name), ['Памятки по компонентам', 'Форма', 'Таблица']);
+	});
+
+	test('тело памятки достаётся целиком и сырой текст сохраняется', () => {
+		const parsed = parseComponentNotes(COMPONENTS_MD);
+		assert.deepStrictEqual(
+			[parsed?.notes.find(note => note.name === 'Форма')?.body, parsed?.raw === COMPONENTS_MD],
+			['- Кнопка блокируется на время отправки.', true]);
+	});
+
+	test('пустой или отсутствующий файл — молчание, а не пустая структура', () => {
+		assert.deepStrictEqual(
+			[parseComponentNotes(undefined), parseComponentNotes(null), parseComponentNotes('   ')],
+			[undefined, undefined, undefined]);
 	});
 });
 

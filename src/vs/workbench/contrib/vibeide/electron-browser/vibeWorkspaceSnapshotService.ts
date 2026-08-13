@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { SnapshotCommitMeta } from '../common/workspaceSnapshotPolicy.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
@@ -39,11 +40,11 @@ class VibeWorkspaceSnapshotService extends Disposable implements IVibeWorkspaceS
 		return this._workspace.getWorkspace().folders[0]?.uri.fsPath;
 	}
 
-	async capture(): Promise<string | undefined> {
+	async capture(meta?: SnapshotCommitMeta, previousCommit?: string): Promise<string | undefined> {
 		const path = this._folderPath();
 		if (!path) { return undefined; }
 		try {
-			return await this._scm.createWorkspaceSnapshot(path);
+			return await this._scm.createWorkspaceSnapshot(path, meta, previousCommit);
 		} catch (error) {
 			// A snapshot is an extra safety net; failing to take one must never break the checkpoint.
 			vibeLog.warn('workspaceSnapshot', '[WorkspaceSnapshot] capture failed:', error);

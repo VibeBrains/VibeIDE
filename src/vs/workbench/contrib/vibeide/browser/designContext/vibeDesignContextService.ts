@@ -12,11 +12,15 @@ import { InstantiationType, registerSingleton } from '../../../../../platform/in
 import { createDecorator } from '../../../../../platform/instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import {
+	COMPONENT_NOTES_PATHS,
+	UI_KIT_PATHS,
+	parseUiKit,
 	DESIGN_SYSTEM_PATHS,
 	DesignContext,
 	DesignSystemDraft,
 	PRODUCT_CONTEXT_PATHS,
 	ProductContextDraft,
+	parseComponentNotes,
 	parseDesignSystem,
 	parseProductContext,
 	renderDesignSystem,
@@ -27,7 +31,7 @@ import {
 export interface DesignContextRead {
 	context: DesignContext;
 	/** Workspace-relative paths actually read; a missing entry means the file is absent. */
-	sources: { product?: string; design?: string };
+	sources: { product?: string; design?: string; components?: string; uiKit?: string };
 	/** False when no folder is open — different from "no context written yet". */
 	hasWorkspace: boolean;
 }
@@ -36,16 +40,18 @@ export const IVibeDesignContextService = createDecorator<IVibeDesignContextServi
 
 export interface IVibeDesignContextService {
 	readonly _serviceBrand: undefined;
-	/** Reads both context files. Absent files are silence, not an error. */
+	/** Reads the context files. Absent files are silence, not an error. */
 	read(): Promise<DesignContextRead>;
 	/** Writes `product.md`, returning where it landed. */
 	writeProduct(draft: ProductContextDraft): Promise<string | undefined>;
 	/** Writes `design.md`, returning where it landed. */
 	writeDesign(draft: DesignSystemDraft): Promise<string | undefined>;
+	/** Записать карту UI (`uiKit.md`). Черновик собирается из кода вызывающим — здесь только запись. */
+	writeUiKit(markdown: string): Promise<string | undefined>;
 }
 
 /**
- * Reads and writes the project's design context (`product.md` + `design.md`).
+ * Reads and writes the project's design context (`product.md` + `design.md` + `components.md`).
  *
  * No cache and no watcher on purpose: the files are two small markdown documents read on an agent
  * command, not on a hot path, and a cache here would add an invalidation problem in exchange for
@@ -71,12 +77,16 @@ class VibeDesignContextService extends Disposable implements IVibeDesignContextS
 		}
 		const product = await this._readFirst(root, PRODUCT_CONTEXT_PATHS);
 		const design = await this._readFirst(root, DESIGN_SYSTEM_PATHS);
+		const components = await this._readFirst(root, COMPONENT_NOTES_PATHS);
+		const uiKit = await this._readFirst(root, UI_KIT_PATHS);
 		return {
 			context: {
 				product: parseProductContext(product?.content),
 				design: parseDesignSystem(design?.content),
+				components: parseComponentNotes(components?.content),
+				uiKit: parseUiKit(uiKit?.content),
 			},
-			sources: { product: product?.path, design: design?.path },
+			sources: { product: product?.path, design: design?.path, components: components?.path, uiKit: uiKit?.path },
 			hasWorkspace: true,
 		};
 	}
@@ -87,6 +97,12 @@ class VibeDesignContextService extends Disposable implements IVibeDesignContextS
 
 	async writeDesign(draft: DesignSystemDraft): Promise<string | undefined> {
 		return this._write(DESIGN_SYSTEM_PATHS, renderDesignSystem(draft));
+	}
+
+	async writeUiKit(markdown: string): Promise<string | undefined> {
+		// Карта приходит уже отрисованной: её собирает чистая функция из содержимого файлов проекта,
+		// и сервису остаётся только положить результат туда, где его будут искать.
+		return this._write(UI_KIT_PATHS, markdown);
 	}
 
 	private async _write(candidates: readonly string[], content: string): Promise<string | undefined> {

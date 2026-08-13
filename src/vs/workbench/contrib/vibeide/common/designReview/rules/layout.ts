@@ -277,6 +277,66 @@ const ruleMonotonousSpacing: Rule = doc => {
 	}];
 };
 
+
+/**
+ * Один ли это фон визуально.
+ *
+ * Сравнение с допуском, а не точное: полосы часто отличаются на единицу канала из-за
+ * полупрозрачного слоя поверх одинаковой подложки, и такая разница глазу недоступна — граница
+ * между полосами всё равно не читается, а значит поля всё равно складываются.
+ */
+const sameColor = (a: readonly [number, number, number], b: readonly [number, number, number]): boolean =>
+	Math.abs(a[0] - b[0]) <= 2 && Math.abs(a[1] - b[1]) <= 2 && Math.abs(a[2] - b[2]) <= 2;
+
+/**
+ * Двойной отступ между соседними полосами одного цвета.
+ *
+ * Классический промах непрофессионала, и модель повторяет его чаще всего: у верхней секции есть
+ * нижний внутренний отступ, у нижней — верхний, оба щедрые. Пока фон у секций разный, это два
+ * поля двух разных плоскостей и читается нормально. Как только фон совпал, граница между ними
+ * исчезает — и на странице появляется провал в два раза шире задуманного, которого никто не
+ * закладывал: воздух задаёт кто-то ОДИН из соседей.
+ *
+ * Считается по `padding`, а не по `margin`, намеренно: вертикальные margin соседей CSS схлопывает
+ * в максимум, поэтому «двойного» из них не получается вовсе — а padding складывается всегда.
+ */
+const ruleDoubleGap: Rule = doc => {
+	const MIN_SIDE_PX = 24;       // ниже этого — обычный внутренний отступ, а не полоса воздуха
+	const MIN_TOTAL_PX = 96;      // суммарный провал, с которого разрыв виден глазом
+	const findings: RuleFinding[] = [];
+	const byParent = new Map<string, ElementSnapshot[]>();
+	for (const node of doc.elements) {
+		const siblings = byParent.get(node.parentSelector);
+		if (siblings) { siblings.push(node); } else { byParent.set(node.parentSelector, [node]); }
+	}
+	for (const siblings of byParent.values()) {
+		if (siblings.length < 2) { continue; }
+		const ordered = [...siblings].sort((a, b) => a.topPx - b.topPx);
+		for (let i = 0; i < ordered.length - 1; i++) {
+			const upper = ordered[i];
+			const lower = ordered[i + 1];
+			// Только вертикальные соседи: колонки рядом друг с другом к этому правилу не относятся.
+			const upperBottom = upper.topPx + upper.heightPx;
+			if (Math.abs(lower.topPx - upperBottom) > 2) { continue; }
+			if (upper.widthPx < 200 || lower.widthPx < 200) { continue; }
+			const bottom = upper.paddingPx.bottom;
+			const top = lower.paddingPx.top;
+			if (bottom < MIN_SIDE_PX || top < MIN_SIDE_PX || bottom + top < MIN_TOTAL_PX) { continue; }
+			// Разный фон = видимая граница, и два поля законны.
+			if (!sameColor(upper.backgroundColor, lower.backgroundColor)) { continue; }
+			findings.push({
+				rule: RULE.doubleGap,
+				severity: 'warning',
+				message: `Двойной отступ между соседними полосами одного цвета: ${bottom}px снизу и ${top}px сверху`,
+				why: 'Границы между полосами нет — фон один, поэтому поля складываются в провал вдвое шире задуманного. Воздух между соседями задаёт кто-то один из них.',
+				selector: lower.selector,
+				evidence: `${upper.selector} padding-bottom ${bottom}px + ${lower.selector} padding-top ${top}px = ${bottom + top}px`,
+			});
+		}
+	}
+	return findings;
+};
+
 /** Big number, small caption, three of them in a row, gradient optional. */
 const ruleHeroMetrics: Rule = doc => {
 	const findings: RuleFinding[] = [];
@@ -416,6 +476,7 @@ export const LAYOUT_RULES: readonly Rule[] = [
 	ruleOccludedText,
 	ruleIdenticalCards,
 	ruleMonotonousSpacing,
+	ruleDoubleGap,
 	ruleHeroMetrics,
 	ruleNumberedSectionLabels,
 	ruleColumnImbalance,

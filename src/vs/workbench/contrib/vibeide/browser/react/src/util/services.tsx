@@ -58,6 +58,7 @@ import { IMCPService } from '../../../../common/mcpService.js';
 import { IStorageService, StorageScope } from '../../../../../../../platform/storage/common/storage.js';
 import { OPT_OUT_KEY } from '../../../../common/storageKeys.js';
 import { IRepoIndexerService } from '../../../repoIndexerService.js';
+import { IOllamaInstallerService } from '../../../../common/ollamaInstallerService.js';
 import { ISecretDetectionService } from '../../../../common/secretDetectionService.js';
 import { IVibeModelsRegistryService } from '../../../../common/vibeModelsRegistryService.js';
 import { IVibeWorkspaceFormsService } from '../../../vibeWorkspaceFormsService.js';
@@ -316,6 +317,7 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 			IExtensionTransferService: accessor.get(IExtensionTransferService),
 			IMCPService: accessor.get(IMCPService),
 			IRepoIndexerService: accessor.get(IRepoIndexerService),
+			IOllamaInstallerService: accessor.get(IOllamaInstallerService),
 			ISecretDetectionService: accessor.get(ISecretDetectionService),
 			IVibeModelsRegistryService: accessor.get(IVibeModelsRegistryService),
 			IVibeWorkspaceFormsService: accessor.get(IVibeWorkspaceFormsService),

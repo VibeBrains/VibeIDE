@@ -147,6 +147,7 @@ import './modelsDevCatalogStatusContribution.js';
 import './modelQuirksCatalogStatusContribution.js';
 // VibeIDE: status-bar indicator for the active model-quirks catalog source (1678)
 import './vibeModelQuirksSourceStatusBar.js';
+import './vibeVerifyGateStatusBar.js';
 
 // edit risk scoring
 import '../common/editRiskScoringService.js';
@@ -749,6 +750,12 @@ import '../common/vibeBackgroundJobService.js';
 
 // VibeIDE: Background job contribution — checkpoint before run, morning digest, schedule hint
 import './vibeBackgroundJobContribution.js';
+
+// VibeIDE: Pipelines — ordered agent steps where each picks up the previous one's artifacts
+import './vibePipelineService.js';
+
+// VibeIDE: Daily digest of agent runs on a schedule (missed slots are delivered late, not dropped)
+import './vibeDailyDigestContribution.js';
 
 // VibeIDE: PR-native job completion — optional draft PR creation after successful job
 import '../common/vibeJobPRCompletionService.js';

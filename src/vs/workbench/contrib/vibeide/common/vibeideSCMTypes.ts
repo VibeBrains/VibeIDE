@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 
+import { SnapshotCommitMeta } from './workspaceSnapshotPolicy.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 
 /** What a working-tree restore would touch, shown to the user before anything is overwritten. */
@@ -21,7 +22,11 @@ export interface IVibeideSCMService {
 	 *
 	 * @param path Any path inside the repository
 	 */
-	createWorkspaceSnapshot(path: string): Promise<string | undefined>;
+	/**
+	 * Снимок рабочей папки. `meta` подписывает коммит (ход, инструмент), `previousCommit` позволяет
+	 * не плодить объект, когда папка с прошлого снимка не менялась, — тогда он же и возвращается.
+	 */
+	createWorkspaceSnapshot(path: string, meta?: SnapshotCommitMeta, previousCommit?: string): Promise<string | undefined>;
 	/**
 	 * What `restoreWorkspaceSnapshot` would overwrite and delete, without touching anything.
 	 *
@@ -82,7 +87,8 @@ export const IVibeideSCMService = createDecorator<IVibeideSCMService>('vibeideSC
 export interface IVibeWorkspaceSnapshotService {
 	readonly _serviceBrand: undefined;
 	/** Snapshot the open folder, or `undefined` if it is not a usable git repository. */
-	capture(): Promise<string | undefined>;
+	/** Снимок папки. `meta` подписывает коммит, `previousCommit` даёт переиспользовать неизменённое. */
+	capture(meta?: SnapshotCommitMeta, previousCommit?: string): Promise<string | undefined>;
 	/** What restoring the snapshot would touch, without touching anything. */
 	plan(tree: string): Promise<IWorkspaceSnapshotRestorePlan | undefined>;
 	/** Overwrite the working tree from the snapshot. Destructive — confirm with the user first. */
@@ -92,3 +98,27 @@ export interface IVibeWorkspaceSnapshotService {
 }
 
 export const IVibeWorkspaceSnapshotService = createDecorator<IVibeWorkspaceSnapshotService>('vibeWorkspaceSnapshotService');
+
+/**
+ * Repository state as the agent asks for it: no path to pass, and a folder that is not a git
+ * repository answers with a plain sentence instead of throwing.
+ *
+ * Exists so the agent can learn what changed WITHOUT the terminal. Reading state through
+ * `run_command` costs a terminal approval for what is a read, drags shell quoting and locale into
+ * the answer, and hands the model a wall of output whose size nobody bounded. The main process
+ * already runs these four commands for commit-message generation — this is the same data, offered
+ * as a tool rather than re-implemented.
+ */
+export interface IVibeGitReadService {
+	readonly _serviceBrand: undefined;
+	/** `git diff --stat` of the open folder, or a sentence explaining why there is nothing. */
+	stat(): Promise<string>;
+	/** Diffs of the most substantially changed files (sampled, so the output stays bounded). */
+	sampledDiffs(): Promise<string>;
+	/** Current branch name. */
+	branch(): Promise<string>;
+	/** Last commits, merges excluded. */
+	log(): Promise<string>;
+}
+
+export const IVibeGitReadService = createDecorator<IVibeGitReadService>('vibeGitReadService');

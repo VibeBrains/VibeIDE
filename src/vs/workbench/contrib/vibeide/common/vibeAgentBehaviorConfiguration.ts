@@ -96,6 +96,43 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			maximum: 1800000,
 			description: localize('vibeide.agent.verifyGate.timeoutMs', 'Таймаут verify-команды VERIFY-GATE в миллисекундах. Verify обычно тяжелее быстрых post-apply тестов (сборка + полный прогон), поэтому лимит выше. По истечении команда прерывается и трактуется как непройденная. Диапазон 5000–1800000, дефолт 300000 (5 мин).'),
 		},
+		// Оптимизация по метрике: цикл «правка → замер → оставить или откатить». В отличие от
+		// VERIFY-GATE, отвечающего одним битом «зелено/красно», здесь метрика непрерывная и
+		// вопрос другой — стало ли ЛУЧШЕ, чем было.
+		'vibeide.agent.optimize.command': {
+			type: 'string',
+			default: '',
+			description: localize('vibeide.agent.optimize.command', 'Команда замера для задач вида «ускорь», «урежь», «подними покрытие»: запускается в корне рабочей области и должна напечатать одно число. Пусто = инструмент `measure_metric` сообщит агенту, что мерить нечем, и попросит задать команду (вместо того чтобы выдумать бенчмарк). Пример: `npm run bench`.'),
+		},
+		'vibeide.agent.optimize.metric': {
+			type: 'string',
+			default: '',
+			description: localize('vibeide.agent.optimize.metric', 'Как достать число из вывода команды замера. Пусто = число печатается последней строкой (допускаются единицы: `12.4ms`). Иначе — путь к полю JSON, например `results.mean`. Догадок по произвольному тексту нет намеренно: неверно прочитанная метрика хуже отсутствующей.'),
+		},
+		'vibeide.agent.optimize.direction': {
+			type: 'string',
+			enum: ['lower', 'higher'],
+			enumDescriptions: [
+				localize('vibeide.agent.optimize.direction.lower', 'Меньше — лучше: время, размер, число ошибок.'),
+				localize('vibeide.agent.optimize.direction.higher', 'Больше — лучше: покрытие, пропускная способность.'),
+			],
+			default: 'lower',
+			description: localize('vibeide.agent.optimize.direction', 'Куда двигать метрику.'),
+		},
+		'vibeide.agent.optimize.noiseThreshold': {
+			type: 'number',
+			default: 0.02,
+			minimum: 0,
+			maximum: 0.5,
+			description: localize('vibeide.agent.optimize.noiseThreshold', 'Порог значимости долей от базы: изменения меньше него считаются дрожанием замера, и правка откатывается. Без порога агент «улучшал» бы метрику случайными правками. Дефолт 0.02 (2%); для стабильного замера можно снизить.'),
+		},
+		'vibeide.agent.optimize.timeoutMs': {
+			type: 'number',
+			default: 300000,
+			minimum: 5000,
+			maximum: 1800000,
+			description: localize('vibeide.agent.optimize.timeoutMs', 'Бюджет времени на один замер. Одинаковый для всех попыток намеренно: без фиксированного бюджета выигрыш приходит от более долгого прогона, а не от лучшего решения, и попытки перестают быть сравнимыми. По истечении замер прерывается и считается несостоявшимся.'),
+		},
 		'vibeide.agent.allowReadOutsideWorkspace': {
 			type: 'boolean',
 			default: true,
@@ -138,6 +175,13 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			default: [],
 			scope: ConfigurationScope.RESOURCE,
 			markdownDescription: localize('vibeide.agent.referenceFolders', 'Папки-справочники ВНЕ рабочей области: агент может их **читать, но не изменять** — материалы, заметки, чужие репозитории, на которые вы ссылаетесь.\n\nОтличие от `vibeide.agent.externalAccessAllowlist`: тот список даёт и чтение, и запись. Здесь запись отклоняется всегда, поэтому «не трогай эту папку» перестаёт быть пожеланием в промте и становится настройкой. Доступ распространяется на папку и её содержимое.'),
+		},
+		'vibeide.agent.sourceFolders': {
+			type: 'array',
+			items: { type: 'string' },
+			default: [],
+			scope: ConfigurationScope.RESOURCE,
+			markdownDescription: localize('vibeide.agent.sourceFolders', 'Папки-источники ВНУТРИ проекта: агент **читает их, но не изменяет**. Пути указываются относительно корня рабочей папки (`raw`, `docs/sources`) — в проекте с несколькими корнями относительный путь раскрывается в каждом.\n\nДля чего: держать материалы отдельно от выводов. Статьи, стенограммы, выгрузки, чужие тексты лежат неизменными, а знания из них агент пишет в обычные файлы проекта и связывает ссылками. Без такой настройки самое уязвимое место — исходник, который агент как раз читает: перезаписать его нечем помешать, а «не трогай эту папку» в промте остаётся пожеланием.\n\nОтличие от `vibeide.agent.referenceFolders`: тот список про папки ВНЕ рабочей области. Здесь — внутри неё, где агент иначе пишет свободно.'),
 		},
 		'vibeide.agent.maxLoopIterations': {
 			type: 'number',

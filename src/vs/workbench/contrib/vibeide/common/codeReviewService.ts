@@ -16,6 +16,9 @@ import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Range } from '../../../../editor/common/core/range.js';
 import { Position } from '../../../../editor/common/core/position.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { ModelSelection } from './vibeideSettingsTypes.js';
+import { describeAgreement, mergeReviewAnnotations } from './reviewFindingMerge.js';
 
 export const ICodeReviewService = createDecorator<ICodeReviewService>('codeReviewService');
 
@@ -131,6 +134,7 @@ class CodeReviewService extends Disposable implements ICodeReviewService {
 		@IModelService private readonly modelService: IModelService,
 		@ILLMMessageService private readonly llmMessageService: ILLMMessageService,
 		@IVibeideSettingsService private readonly settingsService: IVibeideSettingsService,
+		@IConfigurationService private readonly _configurationService: IConfigurationService,
 	) {
 		super();
 	}
@@ -192,97 +196,40 @@ Provide your review annotations as a JSON array:`;
 				};
 			}
 
-			const modelOptions = settings.optionsOfModelSelection['Chat']?.[modelSelection.providerName]?.[modelSelection.modelName];
-			const overrides = settings.overridesOfModel;
+			// Панель моделей: одна и та же диффа уходит нескольким провайдерам параллельно, а находки
+			// сливаются по согласию. Одиночная модель как детектор уязвимостей ненадёжна — это вывод
+			// рецензируемого исследования, а не наше впечатление: она уверенно называет дырой
+			// безопасный код и так же уверенно пропускает настоящую. Несколько моделей дают то, чего
+			// у одной нет в принципе — согласие, и именно оно показывается в отчёте.
+			const panel = this._resolveReviewPanel(modelSelection);
+			const runs = await Promise.all(panel.map(async selection => {
+				const options = settings.optionsOfModelSelection['Chat']?.[selection.providerName]?.[selection.modelName];
+				const outcome = await this._askModel(selection, options, settings.overridesOfModel, reviewPrompt, fileName, model, token);
+				return { model: `${selection.providerName}/${selection.modelName}`, outcome };
+			}));
 
-			// Call LLM directly
-			let response = '';
-			let isComplete = false;
-			let errorMessage: string | undefined;
-
-			const requestId = this.llmMessageService.sendLLMMessage({
-				messagesType: 'chatMessages',
-				chatMode: 'normal',
-				messages: [
-					{ role: 'system', content: CODE_REVIEW_PROMPT },
-					{ role: 'user', content: reviewPrompt },
-				],
-				modelSelection,
-				modelSelectionOptions: modelOptions,
-				overridesOfModel: overrides,
-				separateSystemMessage: CODE_REVIEW_PROMPT,
-				logging: { loggingName: 'Code Review', loggingExtras: { file: fileName } },
-				onText: ({ fullText }) => {
-					response = fullText;
-					if (token.isCancellationRequested) {
-						this.llmMessageService.abort(requestId || '');
-					}
-				},
-				onFinalMessage: ({ fullText }) => {
-					response = fullText;
-					isComplete = true;
-				},
-				onError: ({ message }) => {
-					errorMessage = message;
-					isComplete = true;
-				},
-				onAbort: () => {
-					isComplete = true;
-				},
-			});
-
-			if (!requestId) {
-				return {
-					uri,
-					annotations: [],
-					summary: 'Failed to start LLM request',
-					success: false,
-					error: 'Could not initialize LLM service',
-				};
-			}
-
-			// Wait for completion
-			await new Promise<void>((resolve) => {
-				const timeout = setTimeout(() => {
-					if (requestId && !isComplete) {
-						this.llmMessageService.abort(requestId);
-						errorMessage = 'Timeout after 30 seconds';
-						isComplete = true;
-					}
-					resolve();
-				}, 30000);
-
-				const checkInterval = setInterval(() => {
-					if (token.isCancellationRequested) {
-						clearInterval(checkInterval);
-						clearTimeout(timeout);
-						if (requestId && !isComplete) {
-							this.llmMessageService.abort(requestId);
-						}
-						isComplete = true;
-						resolve();
-						return;
-					}
-					if (isComplete) {
-						clearInterval(checkInterval);
-						clearTimeout(timeout);
-						resolve();
-					}
-				}, 100);
-			});
-
-			if (errorMessage) {
+			const succeeded = runs.filter(r => !r.outcome.error);
+			if (succeeded.length === 0) {
 				return {
 					uri,
 					annotations: [],
 					summary: 'Review failed',
 					success: false,
-					error: errorMessage,
+					// Модели могли упасть по-разному; называем все причины, иначе «не сработало»
+					// невозможно чинить.
+					error: runs.map(r => `${r.model}: ${r.outcome.error}`).join('; ') || 'Unknown error',
 				};
 			}
 
-			// Parse response to extract annotations
-			const annotations = this._parseReviewResponse(response, model);
+			const minAgreement = Math.max(1, this._configurationService.getValue<number>('vibeide.codeReview.minAgreement') ?? 2);
+			const merged = mergeReviewAnnotations(succeeded.map(r => ({ model: r.model, annotations: r.outcome.annotations })), minAgreement);
+			// Согласие дописывается в объяснение находки: это то, чем мультимодельный отчёт отличается
+			// от одиночного, и прятать его в отдельном поле, которого никто не рендерит, бессмысленно.
+			const annotations: CodeReviewAnnotation[] = merged.map(item => {
+				const agreement = describeAgreement(item, succeeded.length);
+				const extra = [agreement, ...item.otherMessages.map(m => `иначе: ${m}`)].filter(Boolean).join(' · ');
+				return extra ? { ...item, explanation: item.explanation ? `${item.explanation}\n${extra}` : extra } : { ...item };
+			});
 
 			const summary = this._generateSummary(annotations);
 
@@ -301,6 +248,119 @@ Provide your review annotations as a JSON array:`;
 				error: error instanceof Error ? error.message : String(error),
 			};
 		}
+	}
+
+	/**
+	 * Один прогон ревью одной моделью.
+	 *
+	 * Вынесено из `reviewFile` целиком ради панели: раньше запрос был вшит в метод, и второй
+	 * провайдер потребовал бы копии всего блока вместе с таймаутом и опросом отмены.
+	 */
+	private async _askModel(
+		modelSelection: ModelSelection,
+		modelOptions: unknown,
+		overrides: unknown,
+		reviewPrompt: string,
+		fileName: string,
+		model: ITextModel,
+		token: CancellationToken,
+	): Promise<{ annotations: CodeReviewAnnotation[]; error?: string }> {
+		let response = '';
+		let isComplete = false;
+		let errorMessage: string | undefined;
+
+		const requestId = this.llmMessageService.sendLLMMessage({
+			messagesType: 'chatMessages',
+			chatMode: 'normal',
+			messages: [
+				{ role: 'system', content: CODE_REVIEW_PROMPT },
+				{ role: 'user', content: reviewPrompt },
+			],
+			modelSelection,
+			modelSelectionOptions: modelOptions as never,
+			overridesOfModel: overrides as never,
+			separateSystemMessage: CODE_REVIEW_PROMPT,
+			logging: { loggingName: 'Code Review', loggingExtras: { file: fileName, model: `${modelSelection.providerName}/${modelSelection.modelName}` } },
+			onText: ({ fullText }) => {
+				response = fullText;
+				if (token.isCancellationRequested) {
+					this.llmMessageService.abort(requestId || '');
+				}
+			},
+			onFinalMessage: ({ fullText }) => {
+				response = fullText;
+				isComplete = true;
+			},
+			onError: ({ message }) => {
+				errorMessage = message;
+				isComplete = true;
+			},
+			onAbort: () => {
+				isComplete = true;
+			},
+		});
+
+		if (!requestId) {
+			return { annotations: [], error: 'Could not initialize LLM service' };
+		}
+
+		await new Promise<void>((resolve) => {
+			const timeout = setTimeout(() => {
+				if (!isComplete) {
+					this.llmMessageService.abort(requestId);
+					errorMessage = 'Timeout after 30 seconds';
+					isComplete = true;
+				}
+				resolve();
+			}, 30000);
+
+			const checkInterval = setInterval(() => {
+				if (token.isCancellationRequested) {
+					clearInterval(checkInterval);
+					clearTimeout(timeout);
+					if (!isComplete) {
+						this.llmMessageService.abort(requestId);
+					}
+					isComplete = true;
+					resolve();
+					return;
+				}
+				if (isComplete) {
+					clearInterval(checkInterval);
+					clearTimeout(timeout);
+					resolve();
+				}
+			}, 100);
+		});
+
+		if (errorMessage) {
+			return { annotations: [], error: errorMessage };
+		}
+		return { annotations: this._parseReviewResponse(response, model) };
+	}
+
+	/**
+	 * Кого спрашивать. Пусто в настройке — прежнее поведение, одна модель чата: молча звать три
+	 * провайдера там, где пользователь настроил одного, значит втрое увеличить его счёт без спроса.
+	 */
+	private _resolveReviewPanel(fallback: ModelSelection): ModelSelection[] {
+		const raw = this._configurationService.getValue<string[]>('vibeide.codeReview.models');
+		if (!Array.isArray(raw) || raw.length === 0) {
+			return [fallback];
+		}
+		const panel: ModelSelection[] = [];
+		for (const entry of raw) {
+			if (typeof entry !== 'string') { continue; }
+			// Форма `provider:model`; двоеточие в имени модели допустимо, поэтому режем по первому.
+			const at = entry.indexOf(':');
+			if (at <= 0 || at === entry.length - 1) { continue; }
+			const providerName = entry.slice(0, at).trim();
+			const modelName = entry.slice(at + 1).trim();
+			if (providerName && modelName) {
+				panel.push({ providerName, modelName } as ModelSelection);
+			}
+		}
+		return panel.length > 0 ? panel : [fallback];
 	}
 
 	async reviewFiles(uris: URI[], token: CancellationToken = CancellationToken.None): Promise<CodeReviewResult[]> {

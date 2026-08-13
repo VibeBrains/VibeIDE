@@ -69,6 +69,20 @@ const el = (over: Partial<ElementSnapshot> = {}): ElementSnapshot => ({
 	linesEndingWithShortWord: 0,
 	lastLineWordCount: 0,
 	interactive: false,
+	outlineStyle: 'auto',
+	outlineWidthPx: 2,
+	hasFocusRule: true,
+	hasHoverRule: true,
+	disabled: false,
+	styleRulesUnreadable: false,
+	accessibleName: 'элемент',
+	isFormField: false,
+	inputType: '',
+	hasPlaceholder: false,
+	hasAltAttribute: true,
+	ariaInvalid: false,
+	describedByText: '',
+	isRequiredField: false,
 	...over,
 });
 
@@ -287,12 +301,12 @@ suite('designSlopRules', () => {
 	});
 
 	test('the catalogue is wired up: every registered rule function and every id accounted for', () => {
-		// Two different measures on purpose: 53 functions emit 55 ids (tracking and backdrop rules
-		// each report two). A report must show ids — the doctor printed function count next to an
-		// id split once, and "53 rules (10 + 45)" is arithmetic nobody trusts.
+		// Two different measures on purpose: rule functions and emitted ids do not match one to
+		// one (tracking and backdrop rules each report two). A report must show ids — the doctor
+		// printed function count next to an id split once, and arithmetic nobody trusts followed.
 		assert.deepStrictEqual(
 			[RULE_COUNT > 0, ALL_RULE_IDS.length, ALL_RULE_IDS.length >= RULE_COUNT],
-			[true, 55, true],
+			[true, 65, true],
 		);
 	});
 
@@ -339,5 +353,232 @@ suite('designSlopRules', () => {
 			],
 			[21, 1, 252],
 		);
+	});
+	suite('состояния интерактивных элементов', () => {
+		const button = (over: Partial<ElementSnapshot> = {}) =>
+			el({ selector: 'button', tag: 'button', text: 'Отправить', interactive: true, widthPx: 120, heightPx: 44, ...over });
+
+		test('снятая обводка без замены — находка', () => {
+			const findings = reviewDesign(doc([button({ outlineStyle: 'none', outlineWidthPx: 0, hasFocusRule: false })]))
+				.filter(f => f.rule === 'focus-not-visible');
+			assert.deepStrictEqual(findings.map(f => f.selector), ['button']);
+		});
+
+		test('обводка снята, но свой стиль фокуса задан — молчим', () => {
+			const findings = reviewDesign(doc([button({ outlineStyle: 'none', outlineWidthPx: 0, hasFocusRule: true })]))
+				.filter(f => f.rule === 'focus-not-visible');
+			assert.deepStrictEqual(findings, []);
+		});
+
+		test('обводку никто не трогал — молчим: браузер нарисует сам', () => {
+			const findings = reviewDesign(doc([button({ hasFocusRule: false })]))
+				.filter(f => f.rule === 'focus-not-visible');
+			assert.deepStrictEqual(findings, []);
+		});
+
+		test('нечитаемые таблицы стилей: «не посмотрели» — не повод обвинять', () => {
+			const findings = reviewDesign(doc([
+				button({ outlineStyle: 'none', outlineWidthPx: 0, hasFocusRule: false, hasHoverRule: false, styleRulesUnreadable: true }),
+			])).filter(f => f.rule === 'focus-not-visible' || f.rule === 'no-hover-affordance');
+			assert.deepStrictEqual(findings, []);
+		});
+
+		test('выключенный элемент, неотличимый от рабочего соседа', () => {
+			const findings = reviewDesign(doc([
+				button({ selector: '.ok', parentSelector: '.row' }),
+				button({ selector: '.off', parentSelector: '.row', disabled: true }),
+			])).filter(f => f.rule === 'disabled-indistinguishable');
+			assert.deepStrictEqual(findings.map(f => f.selector), ['.off']);
+		});
+
+		test('выключенный приглушён — молчим', () => {
+			const findings = reviewDesign(doc([
+				button({ selector: '.ok', parentSelector: '.row', color: [20, 20, 20] }),
+				button({ selector: '.off', parentSelector: '.row', disabled: true, color: [170, 170, 170] }),
+			])).filter(f => f.rule === 'disabled-indistinguishable');
+			assert.deepStrictEqual(findings, []);
+		});
+
+		test('выключенный в одиночку — сравнивать не с чем, молчим', () => {
+			const findings = reviewDesign(doc([button({ selector: '.off', parentSelector: '.row', disabled: true })]))
+				.filter(f => f.rule === 'disabled-indistinguishable');
+			assert.deepStrictEqual(findings, []);
+		});
+
+		test('нет ни :hover, ни перехода — подсказка, но не дефект', () => {
+			const findings = reviewDesign(doc([button({ hasHoverRule: false, transitionProperty: 'none' })]))
+				.filter(f => f.rule === 'no-hover-affordance');
+			assert.deepStrictEqual(findings.map(f => f.severity), ['info']);
+		});
+
+		test('переход задан — отклик, возможно, где-то есть; молчим', () => {
+			const findings = reviewDesign(doc([button({ hasHoverRule: false, transitionProperty: 'background-color' })]))
+				.filter(f => f.rule === 'no-hover-affordance');
+			assert.deepStrictEqual(findings, []);
+		});
+	});
+	suite('разметка: доступные имена и подписи', () => {
+		test('кнопка-иконка без имени — находка', () => {
+			const findings = reviewDesign(doc([
+				el({ selector: '.close', tag: 'button', text: '', interactive: true, accessibleName: '' }),
+			])).filter(f => f.rule === 'control-without-name');
+			assert.deepStrictEqual(findings.map(f => f.selector), ['.close']);
+		});
+
+		test('кнопка с aria-label или текстом — молчим', () => {
+			const findings = reviewDesign(doc([
+				el({ selector: '.close', tag: 'button', text: '', interactive: true, accessibleName: 'Закрыть' }),
+				el({ selector: '.send', tag: 'button', text: 'Отправить', interactive: true, accessibleName: 'Отправить' }),
+			])).filter(f => f.rule === 'control-without-name');
+			assert.deepStrictEqual(findings, []);
+		});
+
+		test('поле без подписи, и отдельно — поле с одним плейсхолдером', () => {
+			const findings = reviewDesign(doc([
+				el({ selector: '.bare', tag: 'input', interactive: true, isFormField: true, inputType: 'text', accessibleName: '' }),
+				el({ selector: '.ph', tag: 'input', interactive: true, isFormField: true, inputType: 'email', accessibleName: '', hasPlaceholder: true }),
+			])).filter(f => f.rule === 'field-without-label');
+			assert.deepStrictEqual(
+				findings.map(f => `${f.selector}: ${f.message}`),
+				['.bare: У поля нет подписи', '.ph: У поля только плейсхолдер вместо подписи']);
+		});
+
+		test('поле с подписью, а также скрытое и кнопочное — молчим', () => {
+			const findings = reviewDesign(doc([
+				el({ selector: '.named', tag: 'input', interactive: true, isFormField: true, inputType: 'text', accessibleName: 'Почта' }),
+				el({ selector: '.hidden', tag: 'input', interactive: true, isFormField: true, inputType: 'hidden', accessibleName: '' }),
+				el({ selector: '.submit', tag: 'input', interactive: true, isFormField: true, inputType: 'submit', accessibleName: '' }),
+			])).filter(f => f.rule === 'field-without-label');
+			assert.deepStrictEqual(findings, []);
+		});
+
+		test('изображение без атрибута alt — находка; пустой alt законен', () => {
+			const findings = reviewDesign(doc([
+				el({ selector: '.photo', tag: 'img', imgSrc: '/img/team-photo.jpg', hasAltAttribute: false }),
+				el({ selector: '.divider', tag: 'img', imgSrc: '/img/line.svg', hasAltAttribute: true, accessibleName: '' }),
+			])).filter(f => f.rule === 'image-without-alt');
+			assert.deepStrictEqual(findings.map(f => f.selector), ['.photo']);
+		});
+
+		test('ошибочное поле без привязанного пояснения — находка; привязанное молчит', () => {
+			const findings = reviewDesign(doc([
+				el({ selector: '.mail', tag: 'input', isFormField: true, inputType: 'email', accessibleName: 'Почта', ariaInvalid: true }),
+				el({ selector: '.phone', tag: 'input', isFormField: true, inputType: 'tel', accessibleName: 'Телефон', ariaInvalid: true, describedByText: 'Нужен код страны' }),
+				el({ selector: '.ok', tag: 'input', isFormField: true, inputType: 'text', accessibleName: 'Имя' }),
+			])).filter(f => f.rule === 'error-not-linked-to-field');
+			assert.deepStrictEqual(findings.map(f => f.selector), ['.mail']);
+		});
+
+		test('ссылка aria-describedby в несуществующий id читается как её отсутствие', () => {
+			const findings = reviewDesign(doc([
+				el({ selector: '.mail', tag: 'input', isFormField: true, inputType: 'email', ariaInvalid: true, accessibleName: 'Почта', describedByText: '   ' }),
+			])).filter(f => f.rule === 'error-not-linked-to-field');
+			assert.deepStrictEqual(findings.map(f => f.selector), ['.mail']);
+		});
+
+		test('звёздочка вместо required — находка; с required молчим', () => {
+			const findings = reviewDesign(doc([
+				el({ selector: '.star', tag: 'input', isFormField: true, inputType: 'text', accessibleName: 'Почта *' }),
+				el({ selector: '.proper', tag: 'input', isFormField: true, inputType: 'text', accessibleName: 'Телефон *', isRequiredField: true }),
+				el({ selector: '.plain', tag: 'input', isFormField: true, inputType: 'text', accessibleName: 'Отчество' }),
+			])).filter(f => f.rule === 'required-only-visual');
+			assert.deepStrictEqual(findings.map(f => f.selector), ['.star']);
+		});
+	});
+});
+
+suite('designSlopRules — двойной отступ между полосами', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	/** Две вертикально смежные полосы: верхняя высотой 400 от 0, нижняя сразу под ней. */
+	const bands = (over: { upperBottom: number; lowerTop: number; sameBg: boolean }) => [
+		el({
+			selector: 'section.a', parentSelector: 'body', tag: 'section',
+			widthPx: 1200, heightPx: 400, topPx: 0, leftPx: 0,
+			paddingPx: { top: 80, right: 0, bottom: over.upperBottom, left: 0 },
+			backgroundColor: [250, 250, 250],
+		}),
+		el({
+			selector: 'section.b', parentSelector: 'body', tag: 'section',
+			widthPx: 1200, heightPx: 400, topPx: 400, leftPx: 0,
+			paddingPx: { top: over.lowerTop, right: 0, bottom: 80, left: 0 },
+			backgroundColor: over.sameBg ? [250, 250, 250] : [20, 20, 20],
+		}),
+	];
+
+	const gaps = (elements: ElementSnapshot[]) =>
+		reviewDesign(doc(elements)).filter(f => f.rule === 'double-gap');
+
+	test('одинаковый фон и щедрые поля с обеих сторон — находка с суммой', () => {
+		const found = gaps(bands({ upperBottom: 80, lowerTop: 80, sameBg: true }));
+		assert.deepStrictEqual(
+			found.map(f => ({ selector: f.selector, severity: f.severity, evidence: f.evidence })),
+			[{
+				selector: 'section.b',
+				severity: 'warning',
+				evidence: 'section.a padding-bottom 80px + section.b padding-top 80px = 160px',
+			}],
+		);
+	});
+
+	test('разный фон — это два поля двух плоскостей, не находка', () => {
+		// Граница видна, значит воздух читается как принадлежащий каждой полосе отдельно.
+		assert.strictEqual(gaps(bands({ upperBottom: 80, lowerTop: 80, sameBg: false })).length, 0);
+	});
+
+	test('поле только с одной стороны — так и задумано', () => {
+		assert.strictEqual(gaps(bands({ upperBottom: 160, lowerTop: 0, sameBg: true })).length, 0);
+	});
+
+	test('маленькие поля не считаются полосой воздуха', () => {
+		// 16+16 — это внутренний отступ соседних блоков, а не провал между секциями.
+		assert.strictEqual(gaps(bands({ upperBottom: 16, lowerTop: 16, sameBg: true })).length, 0);
+	});
+
+	test('элементы, стоящие рядом по горизонтали, правилу не подчиняются', () => {
+		const columns = [
+			el({ selector: '.left', parentSelector: '.row', widthPx: 600, heightPx: 400, topPx: 0, leftPx: 0, paddingPx: { top: 80, right: 0, bottom: 80, left: 0 }, backgroundColor: [250, 250, 250] }),
+			el({ selector: '.right', parentSelector: '.row', widthPx: 600, heightPx: 400, topPx: 0, leftPx: 600, paddingPx: { top: 80, right: 0, bottom: 80, left: 0 }, backgroundColor: [250, 250, 250] }),
+		];
+		assert.strictEqual(gaps(columns).length, 0);
+	});
+});
+
+suite('designSlopRules — разнобой шкалы радиусов', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	const boxes = (radii: number[]) => radii.map((r, i) =>
+		el({ selector: `.box-${i}`, widthPx: 200, heightPx: 100, borderRadiusPx: r }));
+
+	const sprawl = (elements: ElementSnapshot[]) =>
+		reviewDesign(doc(elements)).filter(f => f.rule === 'radius-scale-sprawl');
+
+	test('шесть разных радиусов — находка со списком значений', () => {
+		const found = sprawl(boxes([4, 6, 8, 12, 16, 24, 4, 8]));
+		assert.deepStrictEqual(
+			found.map(f => f.evidence),
+			['6 значений на 8 элементах: 4, 6, 8, 12, 16, 24px'],
+		);
+	});
+
+	test('три ступени — это шкала, а не разнобой', () => {
+		assert.strictEqual(sprawl(boxes([4, 4, 8, 8, 8, 16, 16, 4])).length, 0);
+	});
+
+	test('прямые углы не считаются ступенью шкалы', () => {
+		// Ноль — осознанное решение, а не ещё одно значение радиуса.
+		assert.strictEqual(sprawl(boxes([0, 0, 0, 0, 8, 8, 12, 12])).length, 0);
+	});
+
+	test('дробные значения одной ступени не размножают её', () => {
+		// 11.98 и 12.02 приходят от вычисленной ширины, а не от чьего-то выбора.
+		assert.strictEqual(sprawl(boxes([11.98, 12.02, 12, 11.99, 12.01, 12, 12, 12])).length, 0);
+	});
+
+	test('на странице из пары элементов правило молчит', () => {
+		// Выводить «шкалы нет» по трём коробкам — гадание, а не измерение.
+		assert.strictEqual(sprawl(boxes([4, 8, 16])).length, 0);
 	});
 });

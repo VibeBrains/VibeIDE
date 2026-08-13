@@ -31,7 +31,15 @@ export interface ITerminalToolService {
 
 	listPersistentTerminalIds(): string[];
 	runCommand(command: string, opts:
-		| { type: 'persistent'; persistentTerminalId: string; timeoutMs?: number }
+		/**
+		 * `detectCompletion` — дожидаться РЕАЛЬНОГО конца команды, а не только жёсткого лимита.
+		 *
+		 * У персистентного терминала маячок завершения выключен: он интерактивный, и эхо маркера
+		 * мозолило бы глаза. Но скрытый терминал фоновой команды никто не смотрит, а без маячка
+		 * «команда закончилась» определяется только через shell integration — она не монтируется в
+		 * поломанном rc (проверено живьём 12.08: sleep 20 «завершался» бы через 600 с).
+		 */
+		| { type: 'persistent'; persistentTerminalId: string; timeoutMs?: number; detectCompletion?: boolean }
 		| { type: 'temporary'; cwd: string | null; terminalId: string; timeoutMs?: number }
 		// | { type: 'apply', terminalId: string }
 	): Promise<{ interrupt: () => void; resPromise: Promise<{ result: string; resolveReason: TerminalResolveReason }> }>;
@@ -371,7 +379,7 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 			// with real output, and the regex requires True/False/digits so it never matches the literal
 			// `$?` in the echoed command line itself.
 			const marker = `VIBEDONE${generateUuid().replace(/-/g, '')}`;
-			const useSentinel = !isPersistent;
+			const useSentinel = !isPersistent || params.detectCompletion === true;
 			const waitUntilSentinel = new Promise<void>(resolve => {
 				if (!useSentinel) { return; }
 				let buf = '';

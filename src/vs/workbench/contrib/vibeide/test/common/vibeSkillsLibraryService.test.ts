@@ -6,7 +6,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { parseSkillMarkdown, orderedTransitiveDependencySkillIds, serializeSkillMarkdown } from '../../common/vibeSkillsLibraryService.js';
+import { parseSkillMarkdown, orderedTransitiveDependencySkillIds, serializeSkillMarkdown, describeSkillRequirements } from '../../common/vibeSkillsLibraryService.js';
 
 suite('Agent Skills — parseSkillMarkdown', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -111,5 +111,111 @@ depends:
 		assert.strictEqual(parsed!.description, 'Round trip test.');
 		assert.strictEqual(parsed!.vibeVersion, '1.0.0');
 		assert.ok(parsed!.body.includes('Things.'));
+	});
+	suite('совместимость со спецификацией Agent Skills', () => {
+		test('блочное описание читается текстом, а не палочкой', () => {
+			const raw = `---
+name: block-desc
+description: |
+  Первая строка описания,
+  вторая строка описания.
+---
+
+Тело.
+`;
+			const parsed = parseSkillMarkdown(raw, '.vibe/skills/block-desc/SKILL.md', 'fallback');
+			assert.strictEqual(parsed!.description, 'Первая строка описания, вторая строка описания.');
+		});
+
+		test('свёрнутый скаляр и его вариант с минусом тоже читаются', () => {
+			const make = (marker: string) => `---
+name: folded
+description: ${marker}
+  Одно описание в две строки.
+---
+
+Тело.
+`;
+			assert.deepStrictEqual(
+				['>', '|-', '>-'].map(m => parseSkillMarkdown(make(m), '.vibe/skills/folded/SKILL.md', 'x')!.description),
+				['Одно описание в две строки.', 'Одно описание в две строки.', 'Одно описание в две строки.']);
+		});
+
+		test('скилл по стандарту, без нашего vibeVersion, разбирается', () => {
+			const raw = `---
+name: standard-skill
+description: Написан по спецификации, без наших полей.
+---
+
+Тело.
+`;
+			const parsed = parseSkillMarkdown(raw, '.vibe/skills/standard-skill/SKILL.md', 'fallback');
+			assert.deepStrictEqual(
+				{ id: parsed!.skillId, version: parsed!.vibeVersion },
+				{ id: 'standard-skill', version: undefined });
+		});
+
+		test('allowed-tools принимается наравне с requires-tools и делится по пробелам', () => {
+			const raw = `---
+name: tools-skill
+description: Объявляет инструменты по спецификации.
+allowed-tools: Read Write Bash
+---
+
+Тело.
+`;
+			const parsed = parseSkillMarkdown(raw, '.vibe/skills/tools-skill/SKILL.md', 'x');
+			assert.deepStrictEqual(parsed!.requiresTools, ['Read', 'Write', 'Bash']);
+		});
+
+		test('наш формат через запятую не распадается по пробелам', () => {
+			const raw = `---
+name: tools-comma
+description: Наш прежний формат списка инструментов.
+requires-tools: Read, Write, Bash
+---
+
+Тело.
+`;
+			const parsed = parseSkillMarkdown(raw, '.vibe/skills/tools-comma/SKILL.md', 'x');
+			assert.deepStrictEqual(parsed!.requiresTools, ['Read', 'Write', 'Bash']);
+		});
+
+		test('compatibility читается и не подменяет собой precheck', () => {
+			const raw = `---
+name: needs-tools
+description: Требует внешних программ.
+compatibility: Нужны ffmpeg и yt-dlp в PATH; требуется доступ в сеть.
+precheck: scripts/check.sh
+---
+
+Тело.
+`;
+			const parsed = parseSkillMarkdown(raw, '.vibe/skills/needs-tools/SKILL.md', 'x');
+			assert.deepStrictEqual(
+				{ compat: parsed!.compatibility, precheck: parsed!.precheck },
+				{ compat: 'Нужны ffmpeg и yt-dlp в PATH; требуется доступ в сеть.', precheck: 'scripts/check.sh' });
+		});
+	});
+	suite('describeSkillRequirements', () => {
+		test('пусто, когда скилл ничего не требует', () => {
+			assert.strictEqual(describeSkillRequirements({}), '');
+		});
+
+		test('три источника требований собираются в одну строку', () => {
+			assert.strictEqual(
+				describeSkillRequirements({
+					compatibility: 'Нужны ffmpeg и yt-dlp в PATH.',
+					requiresTools: ['Read', 'Bash'],
+					minVibeide: '1.12.0',
+				}),
+				'Нужны ffmpeg и yt-dlp в PATH. · Инструменты: Read, Bash · Нужна VibeIDE 1.12.0 или новее');
+		});
+
+		test('пустой список инструментов не порождает висящий разделитель', () => {
+			assert.strictEqual(
+				describeSkillRequirements({ compatibility: 'Только git.', requiresTools: [] }),
+				'Только git.');
+		});
 	});
 });

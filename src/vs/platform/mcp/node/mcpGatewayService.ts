@@ -10,6 +10,7 @@ import { JsonRpcMessage, JsonRpcProtocol } from '../../../base/common/jsonRpcPro
 import { Disposable, DisposableStore } from '../../../base/common/lifecycle.js';
 import { URI } from '../../../base/common/uri.js';
 import { generateUuid } from '../../../base/common/uuid.js';
+import { isLoopbackHost, isRemoteLoopback } from '../../../base/common/loopbackAdmission.js';
 import { ILogger, ILoggerService } from '../../log/common/log.js';
 import { IMcpGatewayInfo, IMcpGatewayServerDescriptor, IMcpGatewayServerInfo, IMcpGatewayService, IMcpGatewaySingleServerInvoker, IMcpGatewayToolInvoker } from '../common/mcpGateway.js';
 import { isInitializeMessage, McpGatewaySession } from './mcpGatewaySession.js';
@@ -345,6 +346,22 @@ export class McpGatewayService extends Disposable implements IMcpGatewayService 
 	}
 
 	private _handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+		// VibeIDE: admission check before anything else.
+		//
+		// The listener binds 127.0.0.1 and every route id is a UUID, so an attacker cannot reach or
+		// guess a route from the network. What that does NOT stop is DNS rebinding: a web page the
+		// user visits can resolve its own domain to 127.0.0.1 and have the browser POST here with
+		// the site's credentials. Reaching a gateway route means invoking MCP tools — side effects
+		// on the user's machine — so a request addressed to somebody else's hostname is refused
+		// before it is routed. The peer check costs nothing and keeps the invariant explicit rather
+		// than implied by the bind address.
+		if (!isRemoteLoopback(req.socket.remoteAddress) || !isLoopbackHost(req.headers.host)) {
+			this._logger.warn(`[McpGatewayService] refused non-local request (peer: ${req.socket.remoteAddress}, host: ${req.headers.host})`);
+			res.writeHead(403, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'Forbidden' }));
+			return;
+		}
+
 		const url = new URL(req.url!, `http://${req.headers.host}`);
 		const pathParts = url.pathname.split('/').filter(Boolean);
 

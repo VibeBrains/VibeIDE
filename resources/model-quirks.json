@@ -1,49 +1,173 @@
 {
 	"version": 1,
-	"date": "2026-07-26",
+	"date": "2026-08-12",
 	"description": "VibeIDE model behaviour quirks. Source of truth — see README.md section 'Model behaviour quirks'. PRs welcome. Schema: ./src/vs/workbench/contrib/vibeide/common/modelQuirks/modelQuirksTypes.ts.",
 	"docs": "https://github.com/VibeBrains/VibeIDE#model-behaviour-quirks",
 	"rules": [
-		{ "match": "kimi-k3", "temperature": 1.0, "topP": 0.95, "mirrorReasoningContent": true,
-		  "note": "Kimi K3 (Moonshot, 2026-07) — CONFIRMED by the vendor. kimi.com/blog/kimi-k3 states outright: 'K3 was trained in the preserved thinking history mode. If the agent harness fails to pass back all the historical thinking content as required ... generation quality may become highly unstable.' That is exactly what mirrorReasoningContent does, so the rule is no longer an analogy with the kimi-k2.x family. Without an explicit k3 rule the substring matcher would fall through to the broad 'kimi' preset, which omits mirroring entirely. Reasoning effort: the promised modes SHIPPED — platform.kimi.ai now states 'Reasoning effort supports low, high, and max (default max)' (verified 2026-08-05), and the preset in .vibe-defaults/providers/moonshot-kimi.jsonc carries all three. Note there is no 'medium' on K3 (unlike K2.7) and thinking still cannot be turned off, so the effort level is the only cost lever on this model. See docs/knowledge/architecture/modelQuirks.md." },
-		{ "match": "kimi-k2.6", "temperature": 1.0, "topP": 0.95, "mirrorReasoningContent": true,
-		  "note": "kimi-k2.x family — opencode upstream transform.ts:478-510" },
-		{ "match": "kimi-k2.5", "temperature": 1.0, "topP": 0.95, "mirrorReasoningContent": true },
-		{ "match": "kimi-k2-thinking", "temperature": 1.0, "topP": 0.95, "mirrorReasoningContent": true },
-		{ "match": "kimi-k2", "temperature": 0.6,
-		  "note": "Legacy kimi-k2 (non-thinking, non-versioned) — opencode upstream uses T=0.6" },
-		{ "match": "kimi", "temperature": 1.0, "topP": 0.95,
-		  "note": "Future kimi versions — defaults to 'new-style' preset" },
-
-		{ "match": "minimax-m2.7", "temperature": 1.0, "topP": 0.95, "topK": 40, "forceEmptyReasoning": true, "mirrorReasoningContent": true },
-		{ "match": "minimax-m2.5", "temperature": 1.0, "topP": 0.95, "topK": 40, "forceEmptyReasoning": true, "mirrorReasoningContent": true },
-		{ "match": "minimax-m2", "temperature": 1.0, "topP": 0.95, "topK": 20, "forceEmptyReasoning": true, "mirrorReasoningContent": true,
-		  "note": "Base minimax-m2 — opencode upstream uses topK=20; m2.x variants prefer topK=40. Interleaved-reasoning family: needs empty-reasoning slot + mirrored reasoning_content roundtrip on every assistant turn, else openCode closes the stream with an empty body → 'Empty response (reason: unknown)' (model-stalls #001/#009)." },
-		{ "match": "minimax", "temperature": 1.0, "topP": 0.95, "topK": 40, "forceEmptyReasoning": true, "mirrorReasoningContent": true, "forcedToolChoiceUnsupported": true,
-		  "note": "Future minimax versions — higher topK + reasoning-roundtrip (interleaved-reasoning family). forcedToolChoiceUnsupported: minimax OpenAI-compatible API ignores tool_choice:'required' (returns prose), so the agent loop skips the forced nudge and leans on the implicit-completion net. Covers all minimax-* via field-merge." },
-
-		{ "match": "kimi", "provider": "openCode", "temperature": 1.0, "topP": 0.95, "forceToolCallFormat": "auto",
-		  "note": "kimi via openCode — native FC (auto = native-first + auto-downgrade safety net). XML fallback was forced because native FC was unreliable, but XML itself proved broken for openCode aggregator models (tags leak / model stalls / hallucinates, 0.13.17-19). arg-repair (0.13.18) + invalid-routing now handle native arg confusion; auto-downgrade reverts to XML only if native genuinely keeps failing. Revert to xml if native stalls." },
-		{ "match": "deepseek", "provider": "openCode", "forceEmptyReasoning": true, "mirrorReasoningContent": true, "forceToolCallFormat": "auto",
-		  "note": "DeepSeek via openCode — native FC (auto = native-first + auto-downgrade). Was forced to XML (native confused tool names with cross-tool args), but XML proved worse: model emits attribute self-closing / paired-attr tags that leak into chat and never execute (0.13.17-19). arg-repair (0.13.18) + invalid-routing handle the arg confusion now. Revert to xml if native stalls." },
-
-		{ "match": "minimax", "provider": "openCode", "temperature": 1.0, "topP": 0.95, "topK": 40, "forceToolCallFormat": "auto",
-		  "note": "minimax via openCode — native FC (auto = native-first + auto-downgrade). Was forced to XML over cross-tool arg confusion (read_file with {nl_input}), but on XML minimax just stalls without emitting a parseable call (0.13.17-19). arg-repair (0.13.18) + invalid-routing turn the arg confusion into a clean recoverable error instead of a 120s stall. Revert to xml if native stalls." },
-
-		{ "match": "deepseek", "forceEmptyReasoning": true, "mirrorReasoningContent": true,
-		  "note": "DeepSeek family (all providers) — every assistant message must carry a reasoning slot (HTTP 400 otherwise); reasoning text must be mirrored on top-level message field. Native FC is left enabled here for direct API users; the openCode-scoped rule above forces XML for that aggregator." },
-
-		{ "match": "qwen", "temperature": 0.55, "topP": 1.0, "forceToolCallFormat": "xml",
-		  "note": "Qwen-family (DIRECT API) — native FC unreliable (hallucinates param names like 'path_pattern' instead of 'pattern'). Forcing XML routes through extractXMLToolsWrapper which handles the naked-tag <grep><pattern>...</pattern></grep> form. NOTE: openCode-scoped override below flips qwen-via-openCode to native (XML there proved to be silent hallucination — model claims no file access)." },
-		{ "match": "qwen", "provider": "openCode", "temperature": 0.55, "topP": 1.0, "forceToolCallFormat": "auto",
-		  "note": "qwen via openCode — native FC (auto = native-first + auto-downgrade). On XML qwen did NOT execute tools — it hallucinated a plausible summary then admitted 'no file-system access' (observed 2026-05-26). Param-name hallucination (path_pattern→pattern) is now caught by arg-repair (0.13.18). Revert to xml if native stalls." },
-
-		{ "match": "glm", "temperature": 1.0,
-		  "note": "GLM family (z.ai) — 4.6/4.7/5/5.1, single preset" },
-
-		{ "match": "gemini-2", "temperature": 1.0, "topP": 0.95, "topK": 64,
-		  "note": "Gemini 2.x via aggregator (NOT native @ai-sdk/google path, which has its own settings). Scoped to a GENERATION on purpose: Google deprecated temperature/top_p/top_k — 'deprecated and ignored. In future model generations, supplying these parameters returns an HTTP 400 error' (ai.google.dev/gemini-api/docs/changelog). A broad 'gemini' match would keep sending them to Gemini 3.x and beyond, where depth is set by thinking_level instead." },
-		{ "match": "gemini-1.5", "temperature": 1.0, "topP": 0.95, "topK": 64,
-		  "note": "Gemini 1.5 via aggregator — same sampling preset as 2.x, kept for the legacy generation that still honours these parameters." }
+		{
+			"match": "glimmer",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"topK": 64,
+			"reasoningEffortInSystemPrompt": "Reasoning strength: {effort}",
+			"note": "Muse Glimmer 30B (Meta, 2026-08-10) — открытая локальная модель под Apache 2.0. Значения сэмплинга взяты из карточки модели на Hugging Face (temperature 1.0, top_p 0.95, top_k 64) и совпадают с параметрами сборки в Ollama — это рекомендация вендора, а не наш подбор. Правило матчится по 'glimmer', а не по 'muse': облачная Muse Spark — другая модель другого семейства, и общий префикс распространил бы локальные настройки на неё. ВАЖНОЕ, ЧЕГО ЗДЕСЬ НЕТ: Glimmer отдаёт вызовы инструментов XML-подобной разметкой ATEM, а не JSON, и размышление шлёт отдельным каналом. Это лечится НЕ квирком, а флагами сервера (--tool-call-parser muse_glimmer вместе с --reasoning-parser muse_glimmer); из IDE симптом выглядит как «модель не умеет инструменты». Подробности — в пресете .vibe-defaults/providers/muse-glimmer-local.jsonc. Сила размышления у модели задаётся строкой 'Reasoning strength: low|medium|high|xhigh' в СИСТЕМНОМ ПРОМПТЕ, а не полем reasoning_effort — для этого и заведено поле reasoningEffortInSystemPrompt: значение слайдера подставляется в {effort} и дописывается к системному промпту. Уровни слайдера объявлены в пресете провайдера и совпадают со словарём модели. Живьём не проверялось: 30B не помещается в память машины разработки."
+		},
+		{
+			"match": "kimi-k3",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"mirrorReasoningContent": true,
+			"note": "Kimi K3 (Moonshot, 2026-07) — CONFIRMED by the vendor. kimi.com/blog/kimi-k3 states outright: 'K3 was trained in the preserved thinking history mode. If the agent harness fails to pass back all the historical thinking content as required ... generation quality may become highly unstable.' That is exactly what mirrorReasoningContent does, so the rule is no longer an analogy with the kimi-k2.x family. Without an explicit k3 rule the substring matcher would fall through to the broad 'kimi' preset, which omits mirroring entirely. Reasoning effort: the promised modes SHIPPED — platform.kimi.ai now states 'Reasoning effort supports low, high, and max (default max)' (verified 2026-08-05), and the preset in .vibe-defaults/providers/moonshot-kimi.jsonc carries all three. Note there is no 'medium' on K3 (unlike K2.7) and thinking still cannot be turned off, so the effort level is the only cost lever on this model. See docs/knowledge/architecture/modelQuirks.md."
+		},
+		{
+			"match": "kimi-k2.6",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"mirrorReasoningContent": true,
+			"note": "kimi-k2.x family — opencode upstream transform.ts:478-510"
+		},
+		{
+			"match": "kimi-k2.5",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"mirrorReasoningContent": true
+		},
+		{
+			"match": "kimi-k2-thinking",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"mirrorReasoningContent": true
+		},
+		{
+			"match": "kimi-k2",
+			"temperature": 0.6,
+			"note": "Legacy kimi-k2 (non-thinking, non-versioned) — opencode upstream uses T=0.6"
+		},
+		{
+			"match": "kimi",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"note": "Future kimi versions — defaults to 'new-style' preset"
+		},
+		{
+			"match": "minimax-m2.7",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"topK": 40,
+			"forceEmptyReasoning": true,
+			"mirrorReasoningContent": true
+		},
+		{
+			"match": "minimax-m2.5",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"topK": 40,
+			"forceEmptyReasoning": true,
+			"mirrorReasoningContent": true
+		},
+		{
+			"match": "minimax-m2",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"topK": 20,
+			"forceEmptyReasoning": true,
+			"mirrorReasoningContent": true,
+			"note": "Base minimax-m2 — opencode upstream uses topK=20; m2.x variants prefer topK=40. Interleaved-reasoning family: needs empty-reasoning slot + mirrored reasoning_content roundtrip on every assistant turn, else openCode closes the stream with an empty body → 'Empty response (reason: unknown)' (model-stalls #001/#009)."
+		},
+		{
+			"match": "minimax",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"topK": 40,
+			"forceEmptyReasoning": true,
+			"mirrorReasoningContent": true,
+			"forcedToolChoiceUnsupported": true,
+			"note": "Future minimax versions — higher topK + reasoning-roundtrip (interleaved-reasoning family). forcedToolChoiceUnsupported: minimax OpenAI-compatible API ignores tool_choice:'required' (returns prose), so the agent loop skips the forced nudge and leans on the implicit-completion net. Covers all minimax-* via field-merge."
+		},
+		{
+			"match": "kimi",
+			"provider": "openCode",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"forceToolCallFormat": "auto",
+			"note": "kimi via openCode — native FC (auto = native-first + auto-downgrade safety net). XML fallback was forced because native FC was unreliable, but XML itself proved broken for openCode aggregator models (tags leak / model stalls / hallucinates, 0.13.17-19). arg-repair (0.13.18) + invalid-routing now handle native arg confusion; auto-downgrade reverts to XML only if native genuinely keeps failing. Revert to xml if native stalls."
+		},
+		{
+			"match": "deepseek",
+			"provider": "openCode",
+			"forceEmptyReasoning": true,
+			"mirrorReasoningContent": true,
+			"forceToolCallFormat": "auto",
+			"note": "DeepSeek via openCode — native FC (auto = native-first + auto-downgrade). Was forced to XML (native confused tool names with cross-tool args), but XML proved worse: model emits attribute self-closing / paired-attr tags that leak into chat and never execute (0.13.17-19). arg-repair (0.13.18) + invalid-routing handle the arg confusion now. Revert to xml if native stalls."
+		},
+		{
+			"match": "minimax",
+			"provider": "openCode",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"topK": 40,
+			"forceToolCallFormat": "auto",
+			"note": "minimax via openCode — native FC (auto = native-first + auto-downgrade). Was forced to XML over cross-tool arg confusion (read_file with {nl_input}), but on XML minimax just stalls without emitting a parseable call (0.13.17-19). arg-repair (0.13.18) + invalid-routing turn the arg confusion into a clean recoverable error instead of a 120s stall. Revert to xml if native stalls."
+		},
+		{
+			"match": "deepseek",
+			"forceEmptyReasoning": true,
+			"mirrorReasoningContent": true,
+			"note": "DeepSeek family (all providers) — every assistant message must carry a reasoning slot (HTTP 400 otherwise); reasoning text must be mirrored on top-level message field. Native FC is left enabled here for direct API users; the openCode-scoped rule above forces XML for that aggregator."
+		},
+		{
+			"match": "qwen",
+			"temperature": 0.55,
+			"topP": 1.0,
+			"note": "Qwen-family — sampling only, NO tool-format force. This rule used to carry forceToolCallFormat:'xml' and, being a bare substring, it silently overrode the explicit toolFormat:'openai' that the shipped alibaba-coding-plan preset declares for qwen3.7-plus / qwen3-coder-next: quirks are Tier 1 in aiSdkAdapter and beat provider capabilities outright. The XML force was observed on the 2.5 generation via the direct API (param-name hallucination, path_pattern→pattern) and now lives on the narrow 'qwen2.5' rule below; the root cause it worked around is handled generically by arg-repair (0.13.18), which is also why the openCode-scoped rule was already flipped back to native. A test guards this class: no catalog rule may force a tool format onto a model that a shipped preset declares a toolFormat for."
+		},
+		{
+			"match": "qwen2.5",
+			"temperature": 0.55,
+			"topP": 1.0,
+			"forceToolCallFormat": "xml",
+			"note": "Qwen 2.5 (DIRECT API) — native FC unreliable on this generation (hallucinates param names like 'path_pattern' instead of 'pattern'). Forcing XML routes through extractXMLToolsWrapper which handles the naked-tag <grep><pattern>...</pattern></grep> form. Scoped to the generation on purpose — see the family rule above."
+		},
+		{
+			"match": "qwen3.8",
+			"temperature": 0.6,
+			"topP": 0.95,
+			"topK": 20,
+			"note": "Qwen3.8-Max (Alibaba) — sampling from the vendor model card. Reasoning is controlled by 'enable_thinking' plus 'reasoning_effort' (low/medium/xhigh); the vendor states the two cannot be combined with 'thinking_budget'. Effort levels belong in the provider preset, not here. mirrorReasoningContent is deliberately NOT set: the vendor documents accuracy degradation without mirrored history, not the HTTP 400 that DeepSeek returns — the K3 precedent (a rule added from a secondary source and never smoke-tested) is not repeated. Not verified live: qwen3.8 is absent from the bundled catalog and no key is available."
+		},
+		{
+			"match": "ling-3.0",
+			"temperature": 0.6,
+			"topP": 0.95,
+			"topK": 20,
+			"note": "Ling-3.0-flash (InclusionAI, MIT, 124B total / 5.1B active) — sampling from the vendor model card, reached via OpenRouter. Sampling has to live HERE rather than in a providers.json preset: preset values land on defaultTemperature/defaultTopP/defaultTopK, which apply only when this catalog says nothing about the model. Reasoning must be declared explicitly on the model entry, otherwise our own default (reasoningCapabilities: false) leaves thinking switched off."
+		},
+		{
+			"match": "qwen",
+			"provider": "openCode",
+			"temperature": 0.55,
+			"topP": 1.0,
+			"forceToolCallFormat": "auto",
+			"note": "qwen via openCode — native FC (auto = native-first + auto-downgrade). On XML qwen did NOT execute tools — it hallucinated a plausible summary then admitted 'no file-system access' (observed 2026-05-26). Param-name hallucination (path_pattern→pattern) is now caught by arg-repair (0.13.18). Revert to xml if native stalls."
+		},
+		{
+			"match": "glm",
+			"temperature": 1.0,
+			"note": "GLM family (z.ai) — 4.6/4.7/5/5.1, single preset"
+		},
+		{
+			"match": "gemini-2",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"topK": 64,
+			"note": "Gemini 2.x via aggregator (NOT native @ai-sdk/google path, which has its own settings). Scoped to a GENERATION on purpose: Google deprecated temperature/top_p/top_k — 'deprecated and ignored. In future model generations, supplying these parameters returns an HTTP 400 error' (ai.google.dev/gemini-api/docs/changelog). A broad 'gemini' match would keep sending them to Gemini 3.x and beyond, where depth is set by thinking_level instead."
+		},
+		{
+			"match": "gemini-1.5",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"topK": 64,
+			"note": "Gemini 1.5 via aggregator — same sampling preset as 2.x, kept for the legacy generation that still honours these parameters."
+		}
 	]
 }

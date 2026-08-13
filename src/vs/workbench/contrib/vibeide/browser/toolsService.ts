@@ -11,7 +11,11 @@ import { isAbsolute as pathIsAbsolute } from '../../../../base/common/path.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IVibeConstraintsService, ConstraintViolationError } from '../common/vibeConstraintsService.js';
-import { IVibeExternalAccessService, ExternalAccessRequiredError } from '../common/vibeExternalAccessService.js';
+import { IVibeExternalAccessService, ExternalAccessRequiredError, SourceFolderReadOnlyError } from '../common/vibeExternalAccessService.js';
+import { IVibeGitReadService } from '../common/vibeideSCMTypes.js';
+import { buildUiKitDraft, UiKitSourceFile } from '../common/designContext/uiKitDraft.js';
+import { extractReplaceSides, findReinventedComponents, findReinventedInRewrite, renderReinventedWarning } from '../common/designContext/reinventedComponents.js';
+import { touchesUi } from '../common/designReview/designHookPolicy.js';
 import { IVibePromptGuardService } from '../common/vibePromptGuardService.js';
 import { IVibePerFilePermissionsService } from '../common/vibePerFilePermissionsService.js';
 import { IVibeIgnoreService } from './vibeIgnoreService.js';
@@ -22,7 +26,7 @@ import { QueryBuilder } from '../../../services/search/common/queryBuilder.js';
 import { ISearchService } from '../../../services/search/common/search.js';
 import { IEditCodeService } from './editCodeServiceInterface.js';
 import { ITerminalToolService } from './terminalToolService.js';
-import { LintErrorItem, BuiltinToolCallParams, BuiltinToolResultType, BuiltinToolName } from '../common/toolsServiceTypes.js';
+import { LintErrorItem, BuiltinToolCallParams, BuiltinToolResultType, BuiltinToolName, TerminalResolveReason } from '../common/toolsServiceTypes.js';
 import { IVibeideModelService } from '../common/vibeideModelService.js';
 import { IErrorDetectionService } from '../common/errorDetectionService.js';
 import { blocksApply, captureFileBase, FileBaseSignature, FileBaseSource, FileBaseVerdict, verifyFileBase } from '../common/fileBaseSignature.js';
@@ -38,6 +42,8 @@ import { RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_INACTIVE_TIME, READ_FILE_DEFAULT_LINE_LIMIT, READ_FILE_LARGE_FILE_CHARS, READ_FILE_LARGE_FILE_WINDOW_CHARS, READ_FILE_MAX_LINE_LIMIT, ORIGINAL, DIVIDER, FINAL } from '../common/prompt/prompts.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IRequestService, asJson, asTextOrError } from '../../../../platform/request/common/request.js';
 import { IWebContentExtractorService } from '../../../../platform/webContentExtractor/common/webContentExtractor.js';
@@ -46,6 +52,11 @@ import { OfflinePrivacyGate } from '../common/offlinePrivacyGate.js';
 import { INLShellParserService } from '../common/nlShellParserService.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
+import { analyzeShellLine } from '../common/nlShellSafetyAnalyzer.js';
+import { ReviewChecklist } from '../common/chatThreadServiceTypes.js';
+import { HANDOFF_DIR, renderHandoff, validateHandoff } from '../common/agentHandoff.js';
+import { VSBuffer } from '../../../../base/common/buffer.js';
+import { localize } from '../../../../nls.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { IVibeCodeGraphService } from './codeGraph/vibeCodeGraphService.js';
@@ -68,6 +79,16 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { formatProvenanceMarker, isKnownProvenanceLanguage, shouldMarkProvenance } from '../common/vibeAiProvenanceConfiguration.js';
 import { IGitAutoStashService } from '../common/gitAutoStashService.js';
 import { decideAutoStash } from '../common/autoStashPolicy.js';
+import {
+	MetricDirection,
+	OptimizationVerdict,
+	consecutiveFailures,
+	decideOptimization,
+	describeVerdict,
+	readMeasurement,
+	type IOptimizationAttempt,
+	type MetricContract,
+} from '../common/metricOptimization.js';
 import { getDocsFiles, searchVibeDocs } from '../common/vibeDocsIndex.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { detectShellMisuse, ToolValidationError, truncateHeadTail, looksLikeShellAwaitingInput, formatTerminalTimeoutNotice, clampLineWindowToCharBudget } from '../common/toolHardening.js';
@@ -233,18 +254,38 @@ const checkIfIsFolder = (uriStr: string) => {
 	return false;
 };
 
+/** A background command that has stopped running, reported the moment it stops. */
+export interface IBackgroundCommandExit {
+	readonly backgroundId: string;
+	readonly command: string;
+	/** How it ended — `done` with an exit code, or `timeout` when the cap ran out. */
+	readonly resolveReason: TerminalResolveReason;
+	readonly durationMs: number;
+}
+
 export interface IToolsService {
 	readonly _serviceBrand: undefined;
 	validateParams: ValidateBuiltinParams;
 	callTool: CallBuiltinTool;
 	stringOfResult: BuiltinToolResultToString;
+	/**
+	 * Fires when a command started with `run_in_background` stops on its own.
+	 *
+	 * Deliberately NOT fired for a command the agent killed itself: it already knows, and a
+	 * notice about its own action would be noise. The event carries no output — whoever reacts
+	 * decides whether the output is worth reading, and reading it costs a terminal round-trip.
+	 */
+	readonly onDidBackgroundCommandExit: Event<IBackgroundCommandExit>;
 }
 
 export const IToolsService = createDecorator<IToolsService>('ToolsService');
 
-export class ToolsService implements IToolsService {
+export class ToolsService extends Disposable implements IToolsService {
 
 	readonly _serviceBrand: undefined;
+
+	private readonly _onDidBackgroundCommandExit = this._register(new Emitter<IBackgroundCommandExit>());
+	readonly onDidBackgroundCommandExit: Event<IBackgroundCommandExit> = this._onDidBackgroundCommandExit.event;
 
 	public validateParams: ValidateBuiltinParams;
 	public callTool: CallBuiltinTool;
@@ -259,11 +300,21 @@ export class ToolsService implements IToolsService {
 	// The value is the content signature at read time, which additionally lets the write path prove
 	// the file has not changed underneath the agent since — see `fileBaseSignature.ts`.
 	private readonly _filesReadInSession = new Map<string, FileBaseSignature>();
+
+	/**
+	 * Состояние цикла оптимизации по метрике: с чем сравнивать и что уже пробовали.
+	 *
+	 * Живёт в сервисе, а не в контексте модели, намеренно — это ровно то, что агент не должен
+	 * иметь возможности переписать. База сбрасывается новым замером `baseline` и сдвигается
+	 * только за удержанной правкой.
+	 */
+	private _optimizationBaseline: number | undefined;
+	private _optimizationAttempts: IOptimizationAttempt[] = [];
 	// Tracks pending background commands so kill_background_command can address them.
-	private readonly _backgroundCommands = new Map<string, { persistentTerminalId: string; command: string; startedAt: number }>();
+	private readonly _backgroundCommands = new Map<string, { persistentTerminalId: string; command: string; startedAt: number; exitedAt?: number }>();
 
 	constructor(
-		@IFileService fileService: IFileService,
+		@IFileService private readonly fileService: IFileService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@ISearchService searchService: ISearchService,
 		@IInstantiationService instantiationService: IInstantiationService,
@@ -299,8 +350,10 @@ export class ToolsService implements IToolsService {
 		@IErrorDetectionService private readonly _errorDetectionService: IErrorDetectionService,
 		@IShellHardeningService private readonly _shellHardeningService: IShellHardeningService,
 		@IVibeExternalAccessService private readonly _externalAccess: IVibeExternalAccessService,
+		@IVibeGitReadService private readonly _gitRead: IVibeGitReadService,
 		@IVibeIgnoreService vibeIgnoreService: IVibeIgnoreService,
 	) {
+		super();
 		this._offlineGate = new OfflinePrivacyGate();
 		const queryBuilder = instantiationService.createInstance(QueryBuilder);
 
@@ -376,6 +429,11 @@ export class ToolsService implements IToolsService {
 		// Upper bound on glob matches. A broad pattern (**/*) on a large repo otherwise enumerates the
 		// whole tree; capping makes the backend stop early and return fast. 10 pages of MAX_CHILDREN_URIs_PAGE.
 		const GLOB_MAX_RESULTS = MAX_CHILDREN_URIs_PAGE * 10;
+		// Карта UI: сколько файлов вообще смотреть и насколько большой файл ещё имеет смысл читать.
+		// Ограничения нужны обе: без первого сбор карты на большом репозитории превращается в обход
+		// всего дерева, без второго один сгенерированный бандл съедает весь бюджет чтения.
+		const UI_KIT_MAX_FILES = 400;
+		const UI_KIT_MAX_FILE_BYTES = 300_000;
 
 		// Workspace-boundary policy — config-driven (see vibeAgentBehaviorConfiguration.ts).
 		// Reads default-allowed (`allowReadOutsideWorkspace`=true), writes default-blocked
@@ -389,7 +447,16 @@ export class ToolsService implements IToolsService {
 		const isAllowedToRead = (u: URI) => this._externalAccess.isAllowed(u, 'read');
 		const isAllowedToWrite = (u: URI) => this._externalAccess.isAllowed(u, 'write');
 		const validateReadURI = (u: unknown) => validateURI(u, workspaceContextService, requireWorkspaceForRead(), 'read', isAllowedToRead);
-		const validateWriteURI = (u: unknown) => validateURI(u, workspaceContextService, requireWorkspaceForWrite(), 'write', isAllowedToWrite);
+		// Source folders are refused AFTER the workspace check, and unlike it they apply inside the
+		// workspace too: the raw material the agent generates knowledge from lives in the repo, and
+		// the one file that must survive is the one being read. Not an `ExternalAccessRequiredError`
+		// on purpose — that error means "ask the user"; this one is a standing decision the user
+		// already made, so there is nothing to ask.
+		const validateWriteURI = (u: unknown) => {
+			const uri = validateURI(u, workspaceContextService, requireWorkspaceForWrite(), 'write', isAllowedToWrite);
+			if (this._externalAccess.isSourceReadOnly(uri)) { throw new SourceFolderReadOnlyError(uri); }
+			return uri;
+		};
 		const validateOptionalReadURI = (u: unknown) => isFalsy(u) ? null : validateReadURI(u);
 
 		this.validateParams = {
@@ -541,6 +608,15 @@ export class ToolsService implements IToolsService {
 				return { pattern, glob: globPat, fileType, searchInFolder, outputMode, contextBefore, contextAfter, caseInsensitive, multiline, headLimit, pageNumber };
 			},
 
+			git_state: (params: RawToolParamsObj) => {
+				// An unknown or absent selector becomes "status" rather than an error: the common case
+				// is the model asking "what changed", and refusing the call over a synonym would spend
+				// a turn teaching it our vocabulary.
+				const raw = typeof params.what === 'string' ? params.what.trim().toLowerCase() : '';
+				const what = raw === 'diff' || raw === 'branch' || raw === 'log' ? raw : 'status';
+				return { what };
+			},
+
 			read_lint_errors: (params: RawToolParamsObj) => {
 				const {
 					uri: uriUnknown,
@@ -588,8 +664,8 @@ export class ToolsService implements IToolsService {
 			design_document: (params: RawToolParamsObj) => {
 				const { target: targetUnknown, name, audience, positioning, platform: platformUnknown, notes, apply: applyUnknown } = params;
 				const target = typeof targetUnknown === 'string' ? targetUnknown.trim().toLowerCase() : '';
-				if (target !== 'product' && target !== 'system') {
-					throw new Error(`Invalid LLM output: target must be 'product' or 'system', got ${targetUnknown}`);
+				if (target !== 'product' && target !== 'system' && target !== 'uikit') {
+					throw new Error(`Invalid LLM output: target must be 'product', 'uikit' or 'system', got ${targetUnknown}`);
 				}
 				const text = (value: unknown): string | null => typeof value === 'string' && value.trim() ? value.trim() : null;
 				const platformRaw = typeof platformUnknown === 'string' ? platformUnknown.trim().toLowerCase() : '';
@@ -629,6 +705,84 @@ export class ToolsService implements IToolsService {
 				const to = typeof toUnknown === 'string' && toUnknown.trim() ? toUnknown.trim() : null;
 				if (query === 'path' && !to) { throw new Error(`Invalid LLM output: query 'path' also needs 'to' — the destination node.`); }
 				return { query, target, to };
+			},
+
+			measure_metric: (params: RawToolParamsObj) => {
+				const { purpose: purposeUnknown, summary: summaryUnknown } = params;
+				const purpose = typeof purposeUnknown === 'string' ? purposeUnknown.trim().toLowerCase() : '';
+				if (purpose !== 'baseline' && purpose !== 'candidate') {
+					throw new Error(`Invalid LLM output: purpose must be 'baseline' or 'candidate', got ${purposeUnknown}`);
+				}
+				const summary = typeof summaryUnknown === 'string' && summaryUnknown.trim() ? summaryUnknown.trim() : null;
+				return { purpose, summary };
+			},
+
+			handoff: (params: RawToolParamsObj) => {
+				const { action: actionUnknown, title: titleUnknown, done, blockers, next, environment } = params;
+				const action = typeof actionUnknown === 'string' ? actionUnknown.trim().toLowerCase() : '';
+				if (action !== 'write' && action !== 'read') {
+					throw new Error(`Invalid LLM output: action must be 'write' or 'read', got ${actionUnknown}`);
+				}
+				// Те же формы, что и у чек-листа, по той же причине (см. там): массив, строка со
+				// списком, одиночное значение. Пустой список — законный ответ «нечего сказать», а не
+				// повод отказать: раздел «не указано» честнее выдуманного пункта.
+				const strList = (raw: unknown): string[] => {
+					if (Array.isArray(raw)) { return raw.map(v => String(v).trim()).filter(Boolean); }
+					if (typeof raw === 'string' && raw.trim()) {
+						return raw.split('\n').map(line => line.replace(/^\s*[-*\d.)\s]+/, '').trim()).filter(Boolean);
+					}
+					if (raw && typeof raw === 'object') { return [String(raw).trim()].filter(t => t && t !== '[object Object]'); }
+					return [];
+				};
+				const title = typeof titleUnknown === 'string' && titleUnknown.trim() ? titleUnknown.trim() : null;
+				if (action === 'write' && !title) {
+					throw new Error('Invalid LLM output: a handoff needs a title.');
+				}
+				return {
+					action, title,
+					done: strList(done), blockers: strList(blockers), next: strList(next),
+					environment: typeof environment === 'string' && environment.trim() ? environment.trim() : null,
+				};
+			},
+
+			review_checklist: (params: RawToolParamsObj) => {
+				const { summary: summaryUnknown, items: itemsUnknown } = params;
+				const summary = validateStr('summary', summaryUnknown);
+				// Модели присылают список то массивом, то JSON-строкой, то одной строкой с переносами.
+				// Разбираем все три формы: отказ на форме, которую человек прочитал бы без труда, —
+				// это отказ ради формальности.
+				let raw: unknown = itemsUnknown;
+				if (typeof raw === 'string') {
+					const text = raw.trim();
+					try {
+						raw = JSON.parse(text);
+					} catch {
+						raw = text.split('\n').map(line => line.replace(/^\s*[-*\d.)\s]+/, '').trim()).filter(Boolean);
+					}
+				}
+				// Модели присылают список ещё двумя формами, и обе читаются человеком без труда:
+				// ОДИН объект вместо массива из одного (частый случай) и вложенность `{items: [...]}`
+				// — повтор имени параметра внутри значения. Живой прогон 12.08: MiniMax четыре раза
+				// подряд прислал единственный объект, упёрся в отказ и выбил детектор петли. Отказ на
+				// форме, которую видно глазами, — это отказ ради формальности.
+				if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+					const nested = (raw as { items?: unknown }).items;
+					raw = Array.isArray(nested) ? nested : [raw];
+				}
+				if (!Array.isArray(raw)) {
+					throw new Error(`Invalid LLM output: items must be an array of {text, how}, got ${typeof itemsUnknown}`);
+				}
+				const items = raw.map(entry => {
+					if (typeof entry === 'string') { return { text: entry.trim() }; }
+					const obj = (entry ?? {}) as { text?: unknown; how?: unknown };
+					const text = typeof obj.text === 'string' ? obj.text.trim() : '';
+					const how = typeof obj.how === 'string' && obj.how.trim() ? obj.how.trim() : undefined;
+					return { text, how };
+				}).filter(item => item.text.length > 0);
+				if (items.length === 0) {
+					throw new Error('Invalid LLM output: the checklist has no items with text.');
+				}
+				return { summary, items };
 			},
 
 			go_to_definition: (params: RawToolParamsObj) => {
@@ -1317,6 +1471,14 @@ export class ToolsService implements IToolsService {
 				return { result: { lintErrors } };
 			},
 
+			git_state: async ({ what }) => {
+				const text = what === 'diff' ? await this._gitRead.sampledDiffs()
+					: what === 'branch' ? await this._gitRead.branch()
+						: what === 'log' ? await this._gitRead.log()
+							: await this._gitRead.stat();
+				return { result: { what, text } };
+			},
+
 			open_file: async ({ uri }) => {
 				// Verify file exists
 				const exists = await fileService.exists(uri);
@@ -1382,6 +1544,15 @@ export class ToolsService implements IToolsService {
 							unknownDrift: unknownAcceptedDrift(read.context, ALL_RULE_IDS),
 							text: design.raw,
 						},
+						components: read.context.components && {
+							names: read.context.components.notes.map(note => note.name),
+							text: read.context.components.raw,
+						},
+						uiKit: read.context.uiKit && {
+							entries: read.context.uiKit.entries,
+							componentNames: read.context.uiKit.componentNames,
+							text: read.context.uiKit.raw,
+						},
 					},
 				};
 			},
@@ -1419,6 +1590,16 @@ export class ToolsService implements IToolsService {
 			},
 
 			design_document: async ({ target, name, audience, positioning, platform, notes, apply }) => {
+				/** Путь относительно корня проекта: в карте абсолютные пути бесполезны. */
+				const relativePathOf = (uri: URI, roots: readonly URI[]): string => {
+					for (const root of roots) {
+						const rootPath = root.fsPath.replace(/[\\/]+$/, '');
+						if (uri.fsPath.startsWith(rootPath + '/') || uri.fsPath.startsWith(rootPath + '\\')) {
+							return uri.fsPath.slice(rootPath.length + 1).replace(/\\/g, '/');
+						}
+					}
+					return uri.fsPath.replace(/\\/g, '/');
+				};
 				const fallbackName = this.workspaceContextService.getWorkspace().folders[0]?.name ?? 'проект';
 				if (target === 'product') {
 					const draft = {
@@ -1433,6 +1614,39 @@ export class ToolsService implements IToolsService {
 					}
 					const writtenTo = await this.designContextService.writeProduct(draft);
 					return { result: { target, writtenTo, draft: renderProductContext(draft) } };
+				}
+
+				if (target === 'uikit') {
+					// Снимается с КОДА, а не со страницы: превью показывает, что победило на одном
+					// экране, а карта отвечает, что вообще объявлено в проекте. Поэтому здесь нет
+					// требования открытого превью — и это единственная ветка, которой оно не нужно.
+					const folders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri);
+					const query = queryBuilder.file(folders, {
+						includePattern: '**/*.{css,scss,sass,less,tsx,jsx,vue,svelte}',
+						excludePattern: [{ pattern: '**/{node_modules,dist,build,out,.next,coverage}/**' }],
+						expandPatterns: true,
+						sortByScore: false,
+						maxResults: UI_KIT_MAX_FILES,
+					});
+					const found = await fileSearchCapped(query);
+					const sources: UiKitSourceFile[] = [];
+					for (const result of found.results.slice(0, UI_KIT_MAX_FILES)) {
+						try {
+							const content = (await fileService.readFile(result.resource)).value.toString();
+							// Огромный сгенерированный бандл ничего не добавляет в карту, зато съедает
+							// весь бюджет чтения — а карта нужна про то, что писали руками.
+							if (content.length > UI_KIT_MAX_FILE_BYTES) { continue; }
+							sources.push({ path: relativePathOf(result.resource, folders), content });
+						} catch {
+							// Нечитаемый файл — не повод ронять сбор карты: пропускаем и идём дальше.
+						}
+					}
+					const draft = buildUiKitDraft(sources, name ?? fallbackName);
+					if (!apply) {
+						return { result: { target, draft: draft.markdown } };
+					}
+					const writtenTo = await this.designContextService.writeUiKit(draft.markdown);
+					return { result: { target, writtenTo, draft: draft.markdown } };
 				}
 
 				const scan = await this.designScanService.scan();
@@ -2050,6 +2264,9 @@ export class ToolsService implements IToolsService {
 						}
 					}
 				}
+				// Снимок ДО записи: у перезаписи целого файла нет половины «что добавили», и без него
+				// объявления, прожившие в файле год, выглядели бы только что придуманными.
+				const contentBeforeRewrite = modelForRewrite.getValue();
 				editCodeService.instantlyRewriteFile({ uri, newContent: effectiveContent });
 				// After rewrite we know the exact content — subsequent edit_file does not need a re-read.
 				this._markFileRead(uri, effectiveContent, 'buffer');
@@ -2067,7 +2284,8 @@ export class ToolsService implements IToolsService {
 					const quickFixesApplied = await this._applyFreeQuickFixes(uri);
 					await this._settleQuickFixes(uri, quickFixesApplied, vibeideModelService);
 					const { lintErrors } = this._getLintErrors(uri);
-					return { lintErrors, quickFixesApplied };
+					const reinvented = await this._checkReinventedInRewrite(uri, contentBeforeRewrite, effectiveContent);
+					return { lintErrors, quickFixesApplied, reinvented };
 				});
 				return { result: lintErrorsPromise };
 			},
@@ -2169,20 +2387,19 @@ export class ToolsService implements IToolsService {
 					const quickFixesApplied = await this._applyFreeQuickFixes(uri);
 					await this._settleQuickFixes(uri, quickFixesApplied, vibeideModelService);
 					const { lintErrors } = this._getLintErrors(uri);
-					return { lintErrors, indentationNote, quickFixesApplied };
+					// Не изобретён ли компонент заново. Считается по тому, что правка ДОБАВЛЯЕТ, а не
+					// по готовому файлу: на готовом новый `.card-wrapper` неотличим от написанного год
+					// назад. Молчит, когда карты в проекте нет — советовать сверяться с несуществующим
+					// файлом значит учить игнорировать и всё остальное в ответе.
+					const reinvented = await this._checkReinventedComponents(uri, searchReplaceBlocks);
+					return { lintErrors, indentationNote, quickFixesApplied, reinvented };
 				});
 
 				return { result: lintErrorsPromise };
 			},
 			// ---
 			run_command: async ({ command, cwd, terminalId, timeoutMs, runInBackground }) => {
-				// Check for dangerous commands and warn
-				const dangerLevel = this._detectCommandDanger(command);
-				if (dangerLevel === 'high') {
-					this.notificationService.warn(`⚠️ High-risk command detected: ${command}\nThis command may cause data loss or system changes. Please review carefully.`);
-				} else if (dangerLevel === 'medium') {
-					this.notificationService.info(`⚠️ Potentially risky command: ${command}\nReview before execution.`);
-				}
+				await this._gateDestructiveCommand(command);
 
 				// Background mode: spin up a persistent (but hidden) terminal, kick off the command,
 				// and return immediately with a backgroundId. The caller polls via read_background_output
@@ -2190,9 +2407,29 @@ export class ToolsService implements IToolsService {
 				if (runInBackground) {
 					const persistentTerminalId = await this.terminalToolService.createPersistentTerminal({ cwd });
 					const backgroundId = generateUuid();
-					// Fire-and-forget; collect output later via read_terminal.
-					void this.terminalToolService.runCommand(command, { type: 'persistent', persistentTerminalId, timeoutMs: timeoutMs ?? 600_000 });
-					this._backgroundCommands.set(backgroundId, { persistentTerminalId, command, startedAt: Date.now() });
+					const startedAt = Date.now();
+					this._backgroundCommands.set(backgroundId, { persistentTerminalId, command, startedAt });
+					// Watch it to the end instead of forgetting it. The agent still gets its
+					// backgroundId immediately — this only adds a report when the command STOPS,
+					// which is the difference between polling and being told. A killed command is
+					// silent: `kill_background_command` drops the entry, and the check below sees
+					// that it is gone.
+					void (async () => {
+						try {
+							const { resPromise } = await this.terminalToolService.runCommand(command, { type: 'persistent', persistentTerminalId, timeoutMs: timeoutMs ?? 600_000, detectCompletion: true });
+							const { resolveReason } = await resPromise;
+							const entry = this._backgroundCommands.get(backgroundId);
+							// Gone means killed on purpose — stay silent. The entry itself STAYS on a
+							// natural exit: `read_background_output` addresses it by id, and the output
+							// of a finished command is exactly what the agent wants next.
+							if (!entry) { return; }
+							entry.exitedAt = Date.now();
+							this._onDidBackgroundCommandExit.fire({ backgroundId, command, resolveReason, durationMs: entry.exitedAt - startedAt });
+						} catch {
+							// The terminal itself broke. Nothing to report that the agent could act on,
+							// and throwing here would surface as an unhandled rejection in the window.
+						}
+					})();
 					return {
 						result: Promise.resolve({
 							result: `Command started in background. Use read_background_output with background_id="${backgroundId}" to fetch output, or kill_background_command to stop it.`,
@@ -2205,6 +2442,158 @@ export class ToolsService implements IToolsService {
 				const { resPromise, interrupt } = await this.terminalToolService.runCommand(command, { type: 'temporary', cwd, terminalId, timeoutMs: timeoutMs ?? undefined });
 				return { result: resPromise, interruptTool: interrupt };
 			},
+			handoff: async ({ action, title, done, blockers, next, environment }) => {
+				const folder = this.workspaceContextService.getWorkspace().folders[0]?.uri;
+				if (!folder) {
+					return { result: { action, message: 'Папка проекта не открыта — хендоффу негде жить.' } };
+				}
+				const dir = URI.joinPath(folder, ...HANDOFF_DIR.split('/'));
+				if (action === 'read') {
+					// Берётся САМЫЙ СВЕЖИЙ: хендоффов со временем накапливается много, и «прочитай
+					// хендофф» без уточнения означает «последний», а не «все сразу».
+					let entries: Array<{ name: string }> = [];
+					try {
+						entries = (await this.fileService.resolve(dir)).children?.map(c => ({ name: c.name })) ?? [];
+					} catch {
+						return { result: { action, message: 'Хендоффов в проекте ещё нет.' } };
+					}
+					const latest = entries.map(e => e.name).filter(n => n.endsWith('.md')).sort().pop();
+					if (!latest) {
+						return { result: { action, message: 'Хендоффов в проекте ещё нет.' } };
+					}
+					const text = (await this.fileService.readFile(URI.joinPath(dir, latest))).value.toString();
+					return { result: { action, path: `${HANDOFF_DIR}/${latest}`, text, message: `Прочитан хендофф ${latest}.` } };
+				}
+
+				const handoff = { title: title ?? '', done, blockers, next, environment: environment ?? undefined, createdAtMs: Date.now() };
+				const problems = validateHandoff(handoff);
+				// Неполный хендофф всё равно пишется: он лучше ненаписанного, а решать, дописывать ли,
+				// должен человек. Но замечания возвращаются агенту, чтобы молчаливо неполный не
+				// превратился в ту же передачу «на словах», ради замены которой формат и заведён.
+				const name = `${new Date(handoff.createdAtMs).toISOString().replace(/[:.]/g, '-')}.md`;
+				const target = URI.joinPath(dir, name);
+				await this.fileService.writeFile(target, VSBuffer.fromString(renderHandoff(handoff)));
+				return {
+					result: {
+						action,
+						path: `${HANDOFF_DIR}/${name}`,
+						problems: problems.length > 0 ? problems : undefined,
+						message: `Хендофф записан: ${HANDOFF_DIR}/${name}.`,
+					},
+				};
+			},
+
+			review_checklist: async ({ summary, items }) => {
+				// Здесь только сборка структуры: положить её в тред может лишь оркестрация (у неё есть
+				// идентификатор треда, а зависеть от неё этот сервис не может — вышел бы цикл).
+				const checklist: ReviewChecklist = {
+					createdAtMs: Date.now(),
+					summary,
+					items: items.map(item => ({ id: generateUuid(), text: item.text, how: item.how, status: 'pending' as const })),
+				};
+				return {
+					result: {
+						itemCount: checklist.items.length,
+						message: `Чек-лист из ${checklist.items.length} пунктов отдан пользователю на проверку.`,
+						checklist,
+					},
+				};
+			},
+
+			measure_metric: async ({ purpose, summary }) => {
+				const command = this._configurationService.getValue<string>('vibeide.agent.optimize.command')?.trim() ?? '';
+				if (!command) {
+					return {
+						result: {
+							configured: false,
+							message: 'Команда замера не задана (vibeide.agent.optimize.command). Мерить нечем.',
+						},
+					};
+				}
+
+				const metricPath = this._configurationService.getValue<string>('vibeide.agent.optimize.metric')?.trim() ?? '';
+				const contract: MetricContract = metricPath ? { kind: 'jsonField', path: metricPath } : { kind: 'lastLine' };
+				const direction = this._configurationService.getValue<string>('vibeide.agent.optimize.direction') === 'higher'
+					? MetricDirection.Higher
+					: MetricDirection.Lower;
+				const noiseThreshold = this._configurationService.getValue<number>('vibeide.agent.optimize.noiseThreshold') ?? 0.02;
+				// Бюджет один и тот же для базы и для каждой попытки — в этом весь смысл: иначе
+				// выигрыш приходит от более долгого прогона, а не от лучшего решения.
+				const timeoutMs = this._configurationService.getValue<number>('vibeide.agent.optimize.timeoutMs') ?? 300_000;
+
+				const terminalId = generateUuid();
+				const { resPromise } = await this.terminalToolService.runCommand(command, { type: 'temporary', cwd: null, terminalId, timeoutMs });
+				const run = await resPromise;
+				const measured = readMeasurement({ stdout: run.result, contract });
+
+				if (!measured.ok) {
+					return {
+						result: {
+							configured: true,
+							unavailableReason: measured.reason,
+							verdict: 'unmeasured' as const,
+							message: describeVerdict({ verdict: OptimizationVerdict.Unmeasured, improvement: 0, improvementRatio: 0 }, measured.reason),
+						},
+					};
+				}
+
+				if (purpose === 'baseline') {
+					// База сбрасывает журнал: с этого момента сравнивать со старыми попытками
+					// бессмысленно — они относятся к другому состоянию кода.
+					this._optimizationBaseline = measured.value;
+					this._optimizationAttempts = [];
+					return {
+						result: {
+							configured: true,
+							value: measured.value,
+							message: `База зафиксирована: ${measured.value}. Дальше каждая правка сверяется с ней.`,
+						},
+					};
+				}
+
+				if (this._optimizationBaseline === undefined) {
+					return {
+						result: {
+							configured: true,
+							value: measured.value,
+							unavailableReason: 'База не зафиксирована.',
+							message: 'Сначала сделайте замер с purpose=baseline — сравнивать не с чем.',
+						},
+					};
+				}
+
+				const decision = decideOptimization({
+					baseline: this._optimizationBaseline,
+					candidate: measured.value,
+					direction,
+					noiseThreshold,
+				});
+				this._optimizationAttempts.push({
+					attempt: this._optimizationAttempts.length + 1,
+					summary: summary ?? 'без описания',
+					value: measured.value,
+					verdict: decision.verdict,
+					improvementRatio: decision.improvementRatio,
+				});
+				// База двигается только за удержанной правкой: иначе следующая попытка сравнивалась
+				// бы с откаченным состоянием, которого на диске уже нет.
+				if (decision.verdict === OptimizationVerdict.Keep) {
+					this._optimizationBaseline = measured.value;
+				}
+
+				return {
+					result: {
+						configured: true,
+						value: measured.value,
+						baseline: this._optimizationBaseline,
+						verdict: decision.verdict,
+						improvementRatio: decision.improvementRatio,
+						consecutiveFailures: consecutiveFailures(this._optimizationAttempts),
+						message: describeVerdict(decision),
+					},
+				};
+			},
+
 			run_nl_command: async ({ nlInput, cwd, terminalId }) => {
 				// Parse natural language to shell command.
 				const parsed = await this.nlShellParserService.parseNLToShell(nlInput, cwd, CancellationToken.None);
@@ -2267,13 +2656,7 @@ export class ToolsService implements IToolsService {
 				return { result: maskedResPromise, interruptTool: interrupt };
 			},
 			run_persistent_command: async ({ command, persistentTerminalId, timeoutMs }) => {
-				// Check for dangerous commands and warn
-				const dangerLevel = this._detectCommandDanger(command);
-				if (dangerLevel === 'high') {
-					this.notificationService.warn(`⚠️ High-risk command detected: ${command}\nThis command may cause data loss or system changes. Please review carefully.`);
-				} else if (dangerLevel === 'medium') {
-					this.notificationService.info(`⚠️ Potentially risky command: ${command}\nReview before execution.`);
-				}
+				await this._gateDestructiveCommand(command);
 				const { resPromise, interrupt } = await this.terminalToolService.runCommand(command, { type: 'persistent', persistentTerminalId, timeoutMs: timeoutMs ?? undefined });
 				return { result: resPromise, interruptTool: interrupt };
 			},
@@ -2306,7 +2689,10 @@ export class ToolsService implements IToolsService {
 						hint: 'Start a command with run_command + run_in_background=true to obtain a background_id.',
 					});
 				}
-				const isRunning = this.terminalToolService.persistentTerminalExists(entry.persistentTerminalId);
+				// The persistent terminal outlives the command that ran in it, so its existence alone
+				// answers "is the terminal there", not "is the command still going" — polling used to
+				// see `isRunning: true` forever. Now the watcher stamps the real end.
+				const isRunning = entry.exitedAt === undefined && this.terminalToolService.persistentTerminalExists(entry.persistentTerminalId);
 				let output = '';
 				try {
 					output = await this.terminalToolService.readTerminal(entry.persistentTerminalId);
@@ -2797,6 +3183,11 @@ export class ToolsService implements IToolsService {
 					stringifyLintErrors(result.lintErrors)
 					: 'No lint errors found.';
 			},
+			git_state: (_params, result) => {
+				// Returned verbatim: git's own wording is what the model reads best, and reformatting
+				// it here would drop whatever we did not think to keep.
+				return result.text;
+			},
 			open_file: (params, _result) => {
 				return `File opened: ${params.uri.fsPath}`;
 			},
@@ -2827,10 +3218,23 @@ export class ToolsService implements IToolsService {
 				if (!result.hasWorkspace) {
 					return 'Папка проекта не открыта — читать дизайн-контекст неоткуда.';
 				}
-				if (!result.product && !result.design) {
+				if (!result.product && !result.design && !result.components && !result.uiKit) {
 					return 'Дизайн-контекста в проекте нет: ни product.md, ни design.md.\n\nЭто значит, что любая генерация интерфейса будет обобщённой. Предложите пользователю собрать контекст: два вопроса про продукт (design_document target=product) и снятие визуальной системы с живой страницы (design_document target=system).';
 				}
 				const parts: string[] = [];
+				// Карта идёт ПЕРВОЙ и до всего остального: она отвечает на вопрос «есть ли уже
+				// готовое», и только потом остальные файлы отвечают «каким оно должно быть».
+				// Порядок здесь — не оформление: модель, прочитавшая палитру раньше карты, уже
+				// начала придумывать компонент, которого не надо было придумывать.
+				if (result.uiKit) {
+					const names = result.uiKit.componentNames.length
+						? `\n\nИмена, на которые ссылаться дословно: ${result.uiKit.componentNames.join(', ')}.`
+						: '';
+					const layers = result.uiKit.entries.length
+						? `\n\nГде что лежит:\n${result.uiKit.entries.map(e => `• ${e.layer} → ${e.file}${e.contains ? ` (${e.contains})` : ''}`).join('\n')}`
+						: '';
+					parts.push(`# Карта UI проекта (${result.sources.uiKit})\n\nПРЕЖДЕ ЧЕМ СОЗДАВАТЬ ЭЛЕМЕНТ ИНТЕРФЕЙСА — найдите его здесь. Если он есть, используйте существующий и не заводите новый: именно из «не нашёл и сделал свой» получается интерфейс, где пять разных кнопок.${names}${layers}\n\n${result.uiKit.text.trim()}`);
+				}
 				if (result.product) {
 					parts.push(`# Продукт (${result.sources.product})\n\n${result.product.text.trim()}`);
 				} else {
@@ -2849,6 +3253,12 @@ export class ToolsService implements IToolsService {
 					parts.push(`# Дизайн-система (${result.sources.design})\n\n${result.design.text.trim()}${rules}${drift}${unknown}`);
 				} else {
 					parts.push('Файла design.md нет: палитра, гарнитуры и правила не зафиксированы. Снимите систему с живой страницы через design_document target=system.');
+				}
+				if (result.components) {
+					// Памятки идут целиком и последними — их читают перед тем, как строить компонент,
+					// а не после. Детектор эти упущения не поймает: состояния отправки и пустоты на
+					// снимке готовой страницы просто нет.
+					parts.push(`# Памятки по компонентам (${result.sources.components})\n\nПрочитать памятку ДО того, как писать компонент такого вида: ${result.components.names.join(', ')}.\n\n${result.components.text.trim()}`);
 				}
 				return parts.join('\n\n');
 			},
@@ -2893,6 +3303,42 @@ export class ToolsService implements IToolsService {
 					return `--- ${where} (line ${hit.line})\n${hit.excerpt}`;
 				});
 				return `Found ${result.hits.length} section(s) for "${params.query}" in the bundled documentation (${result.filesSearched} file(s) searched). Cite file and heading when you rely on this.\n\n${lines.join('\n\n')}`;
+			},
+
+			handoff: (_params, result) => {
+				if (result.text) {
+					return `${result.message}\n\n${result.text}`;
+				}
+				const problems = result.problems?.length
+					? `\nНезаполнено: ${result.problems.join('; ')}. Допиши, если знаешь ответ, — принимающему это и нужно.`
+					: '';
+				return `${result.message}${problems}`;
+			},
+
+			review_checklist: (_params, result) => {
+				// Агенту возвращается только факт: список ушёл человеку. Пересказывать ему его же
+				// пункты незачем — он их и написал, а вот итог проверки придёт отдельным сообщением.
+				return `${result.message} Не отвечай «готово», пока не придёт результат проверки: пункты, отмеченные как нерабочие, вернутся тебе словами пользователя.`;
+			},
+
+			measure_metric: (params, result) => {
+				if (!result.configured) {
+					return `${result.message} Ask the user to set 'vibeide.agent.optimize.command' — do not substitute a benchmark of your own, and do not judge the change by reading the code.`;
+				}
+				if (result.verdict === 'unmeasured' || result.value === undefined) {
+					return `${result.message}\n\nThe measurement failed, which is not the same as the change being bad. Fix the measurement command first; do not draw a conclusion from a missing number.`;
+				}
+				if (params.purpose === 'baseline') {
+					return `${result.message}\n\nMake one change at a time, then measure again with purpose='candidate'.`;
+				}
+
+				const tail = result.verdict === 'keep'
+					? `Keep it. The baseline is now ${result.baseline}.`
+					: `Roll this change back before trying the next idea — the baseline is still ${result.baseline}.`;
+				const streak = (result.consecutiveFailures ?? 0) >= 3
+					? `\n\n${result.consecutiveFailures} attempts in a row without an improvement. The cheap ideas are spent: say what you tried and stop, rather than burning the budget on more of the same.`
+					: '';
+				return `Measured ${result.value} against a baseline of ${result.baseline}. ${result.message}\n\n${tail}${streak}`;
 			},
 
 			code_graph: (params, result) => {
@@ -3002,7 +3448,10 @@ export class ToolsService implements IToolsService {
 						: '');
 
 				const indentNote = result.indentationNote ? `\n${result.indentationNote}` : '';
-				return `Change successfully made to ${params.uri.fsPath}.${quickFixNote(result.quickFixesApplied)}${lintErrsString}${indentNote}`;
+				// Предупреждение идёт ПОСЛЕ подтверждения правки: файл изменён, это факт, и подменять
+				// его тревогой нельзя — иначе агент решит, что правка не прошла, и станет повторять её.
+				const reinventedNote = result.reinvented ? `\n\n${result.reinvented}` : '';
+				return `Change successfully made to ${params.uri.fsPath}.${quickFixNote(result.quickFixesApplied)}${lintErrsString}${indentNote}${reinventedNote}`;
 			},
 			rewrite_file: (params, result) => {
 				const quickFixes = quickFixNote(result.quickFixesApplied);
@@ -3012,7 +3461,9 @@ export class ToolsService implements IToolsService {
 							: ` No lint errors found.`)
 						: '');
 
-				return `Change successfully made to ${params.uri.fsPath}.${quickFixes}${lintErrsString}`;
+				// Как и в edit_file: предупреждение после подтверждения записи, а не вместо него.
+				const reinventedNote = result.reinvented ? `\n\n${result.reinvented}` : '';
+				return `Change successfully made to ${params.uri.fsPath}.${quickFixes}${lintErrsString}${reinventedNote}`;
 			},
 			run_command: (params, result) => {
 				const { resolveReason, result: result_, backgroundId } = result;
@@ -3143,6 +3594,51 @@ export class ToolsService implements IToolsService {
 	 * Detects dangerous terminal commands that may cause data loss or system changes.
 	 * Returns 'high' for extremely dangerous commands, 'medium' for potentially risky, or 'low' for safe.
 	 */
+	/**
+	 * Stops before a destructive shell command and asks the human, in words, about THIS command.
+	 *
+	 * The deterministic classifier already existed (`analyzeNLShellSafety`, with tests and named
+	 * reasons) but was wired only to the natural-language parser — the terminal tool, the path the
+	 * agent actually uses, judged nothing about content. What stood here instead was a warning
+	 * notification: it appeared next to a command that ran anyway, which is a label on a decision
+	 * already made, not a decision point.
+	 *
+	 * The whole line is judged, not its first word: the dangerous half of `npm test && rm -rf build`
+	 * is the half after the `&&`.
+	 *
+	 * `ambiguous` is deliberately NOT gated. It means "a bare `git`/`npm` without arguments" — that
+	 * is a question for the natural-language parser, which has to guess an intent; a shell line that
+	 * says exactly `git` is harmless, and a dialog there would train the user to click through.
+	 *
+	 * The medium-risk notification stays as it was: informational, non-blocking.
+	 */
+	private async _gateDestructiveCommand(command: string): Promise<void> {
+		const destructive = analyzeShellLine(command);
+		if (!destructive) {
+			if (this._detectCommandDanger(command) === 'medium') {
+				this.notificationService.info(`⚠️ Potentially risky command: ${command}\nReview before execution.`);
+			}
+			return;
+		}
+		if (this._configurationService.getValue<boolean>('vibeide.agent.confirmDestructiveCommands') === false) {
+			this.notificationService.warn(`⚠️ Разрушительная команда выполнена без подтверждения (проверка выключена): ${command}`);
+			return;
+		}
+		const { confirmed } = await this.dialogService.confirm({
+			type: 'warning',
+			message: localize('vibeide.destructiveCommand', "Выполнить разрушительную команду?"),
+			detail: localize('vibeide.destructiveCommand.detail', "{0}\n\nПризнаки: {1}\n\nЭто действие может уничтожить данные, и отменить его нечем.", command.split('\n')[0].slice(0, 300), destructive.reasons.join(', ')),
+			primaryButton: localize('vibeide.destructiveCommand.run', "Выполнить"),
+		});
+		if (!confirmed) {
+			throw new ToolValidationError({
+				code: 'destructive_command_declined',
+				message: `Пользователь отказался выполнять разрушительную команду (${destructive.reasons.join(', ')}). Предложите более безопасный путь или спросите, что делать.`,
+				hint: 'Не повторяйте ту же команду: решение принял человек.',
+			});
+		}
+	}
+
 	private _detectCommandDanger(command: string): 'high' | 'medium' | 'low' {
 		const normalizedCmd = command.trim().toLowerCase();
 
@@ -3238,6 +3734,46 @@ export class ToolsService implements IToolsService {
 	 * to fix them. Applied fixes are reported back to the model so a file changing under it is never
 	 * a surprise. Failure is not fatal: the errors simply travel to the model as before.
 	 */
+	/**
+	 * То же для перезаписи файла целиком: сравнивается со снимком ДО записи, поэтому объявления,
+	 * которые в файле уже были, находкой не считаются.
+	 */
+	private async _checkReinventedInRewrite(uri: URI, previousContent: string, newContent: string): Promise<string | undefined> {
+		try {
+			if (!touchesUi([uri.fsPath])) { return undefined; }
+			const { context } = await this.designContextService.read();
+			const names = context.uiKit?.componentNames ?? [];
+			if (names.length === 0) { return undefined; }
+			const found = findReinventedInRewrite(previousContent, newContent, names);
+			return renderReinventedWarning(found, '.vibe/design/uiKit.md') || undefined;
+		} catch {
+			// Проверка вспомогательная: её поломка не должна отменять успешную перезапись.
+			return undefined;
+		}
+	}
+
+	/**
+	 * Предупреждение, если правка объявляет компонент, который в проекте уже есть.
+	 *
+	 * Только для файлов интерфейса: объявление класса в тесте или в документации ничего не дублирует.
+	 * Из блоков SEARCH/REPLACE берутся только REPLACE-части — SEARCH это то, что было, и объявления
+	 * в нём принадлежат существующему коду.
+	 */
+	private async _checkReinventedComponents(uri: URI, searchReplaceBlocks: string): Promise<string | undefined> {
+		try {
+			if (!touchesUi([uri.fsPath])) { return undefined; }
+			const { context } = await this.designContextService.read();
+			const names = context.uiKit?.componentNames ?? [];
+			if (names.length === 0) { return undefined; }
+			const added = extractReplaceSides(searchReplaceBlocks);
+			const found = findReinventedComponents(added, names);
+			return renderReinventedWarning(found, '.vibe/design/uiKit.md') || undefined;
+		} catch {
+			// Проверка вспомогательная: её поломка не должна отменять успешную правку файла.
+			return undefined;
+		}
+	}
+
 	private async _applyFreeQuickFixes(uri: URI): Promise<string[] | undefined> {
 		if (!(this._configurationService.getValue<boolean>('vibeide.tools.autoQuickFix') ?? true)) {
 			return undefined;

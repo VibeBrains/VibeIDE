@@ -1,0 +1,48 @@
+name: quirks-conflicts
+
+# Guards the model-quirks catalog against silently overriding an explicitly declared tool format.
+#
+# The catalog matcher is a bare case-insensitive SUBSTRING over the model id, and quirks are Tier 1
+# in `aiSdkAdapter.sendViaAISdk` — they beat provider capabilities outright. A family rule written
+# for one generation therefore reaches every future model whose id contains the same letters.
+#
+# Precedent (2026-08-12): `match: "qwen"` with `forceToolCallFormat: "xml"`, added for the 2.5
+# generation on the direct API, routed `qwen3.7-plus` and `qwen3-coder-next` through the XML grammar
+# even though our own `alibaba-coding-plan` preset declares `toolFormat: "openai"` for both. Nothing
+# failed loudly — the models just behaved worse than they should. Two JSON files, so neither the
+# compiler nor a matcher unit test can see it.
+
+on:
+  pull_request:
+    paths:
+      - "resources/model-quirks.json"
+      - ".vibe-defaults/providers/**"
+      - "scripts/vibe-quirks-conflicts.mjs"
+      - ".github/workflows/quirks-conflicts.yml"
+  push:
+    branches: [main]
+    paths:
+      - "resources/model-quirks.json"
+      - ".vibe-defaults/providers/**"
+      - "scripts/vibe-quirks-conflicts.mjs"
+      - ".github/workflows/quirks-conflicts.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  conflicts:
+    name: no quirks rule overrides a declared toolFormat
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Dependency-free (fs/path only) — no `npm ci` needed, so the guard stays fast.
+      - name: Check quirks/preset tool-format conflicts
+        run: npm run quirks-conflicts-check

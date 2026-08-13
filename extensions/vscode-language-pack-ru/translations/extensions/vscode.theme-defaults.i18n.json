@@ -9,19 +9,19 @@
 	"version": "1.0.0",
 	"contents": {
 		"package": {
-			"dark2026ThemeLabel": "Темная 2026",
-			"darkColorThemeLabel": "Темная (Visual Studio)",
-			"darkModernThemeLabel": "Темная современная",
-			"darkPlusColorThemeLabel": "Темная+",
+			"dark2026ThemeLabel": "Dark 2026",
+			"darkColorThemeLabel": "Dark (Visual Studio)",
+			"darkModernThemeLabel": "Dark Modern",
+			"darkPlusColorThemeLabel": "Dark+",
 			"description": "Темная и светлая темы Visual Studio по умолчанию",
 			"displayName": "Темы по умолчанию",
-			"hcColorThemeLabel": "Темная высокая контрастность",
-			"light2026ThemeLabel": "Светлая 2026",
-			"lightColorThemeLabel": "Светлая (Visual Studio)",
-			"lightHcColorThemeLabel": "Светлая высококонтрастная",
-			"lightModernThemeLabel": "Светлая современная",
-			"lightPlusColorThemeLabel": "Светлая+",
-			"minimalIconThemeLabel": "Минимальная (Visual Studio Code)"
+			"hcColorThemeLabel": "Dark High Contrast",
+			"light2026ThemeLabel": "Light 2026",
+			"lightColorThemeLabel": "Light (Visual Studio)",
+			"lightHcColorThemeLabel": "Light High Contrast",
+			"lightModernThemeLabel": "Light Modern",
+			"lightPlusColorThemeLabel": "Light+",
+			"minimalIconThemeLabel": "Minimal (Visual Studio Code)"
 		}
 	}
 }

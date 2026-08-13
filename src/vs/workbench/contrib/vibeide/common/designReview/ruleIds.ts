@@ -49,6 +49,7 @@ export const RULE = {
 
 	// surface decoration
 	extremeRadius: 'extreme-radius',
+	radiusScaleSprawl: 'radius-scale-sprawl',
 	hairlineWithShadow: 'hairline-with-shadow',
 	sideAccentBorder: 'side-accent-border',
 	glassmorphism: 'glassmorphism',
@@ -56,6 +57,18 @@ export const RULE = {
 	decorativeGridBackground: 'decorative-grid-background',
 	shapeAssembledArt: 'shape-assembled-art',
 	invisibleBorder: 'invisible-border',
+
+	// состояния интерактивных элементов
+	focusNotVisible: 'focus-not-visible',
+	disabledIndistinguishable: 'disabled-indistinguishable',
+	noHoverAffordance: 'no-hover-affordance',
+
+	// разметка: то, что читает программа чтения с экрана
+	controlWithoutName: 'control-without-name',
+	fieldWithoutLabel: 'field-without-label',
+	imageWithoutAlt: 'image-without-alt',
+	errorNotLinkedToField: 'error-not-linked-to-field',
+	requiredOnlyVisual: 'required-only-visual',
 
 	// layout and space
 	lineLength: 'line-length',
@@ -67,6 +80,7 @@ export const RULE = {
 	occludedText: 'occluded-text',
 	identicalCards: 'identical-cards',
 	monotonousSpacing: 'monotonous-spacing',
+	doubleGap: 'double-gap',
 	heroMetrics: 'hero-metrics',
 	numberedSectionLabel: 'numbered-section-label',
 	columnImbalance: 'column-imbalance',
@@ -92,7 +106,7 @@ export const RULE = {
 export type RuleId = typeof RULE[keyof typeof RULE];
 
 /** Categories, in the order a report reads best: readability first, taste last. */
-export type RuleCategory = 'typography' | 'color' | 'visual' | 'layout' | 'motion' | 'copy' | 'imagery';
+export type RuleCategory = 'typography' | 'color' | 'visual' | 'layout' | 'motion' | 'copy' | 'imagery' | 'states' | 'markup';
 
 interface RuleMeta {
 	readonly ruleClass: RuleClass;
@@ -127,6 +141,7 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 	[RULE.beigeSurface]: { ruleClass: 'drift', category: 'color' },
 
 	[RULE.extremeRadius]: { ruleClass: 'drift', category: 'visual' },
+	[RULE.radiusScaleSprawl]: { ruleClass: 'drift', category: 'visual' },
 	[RULE.hairlineWithShadow]: { ruleClass: 'drift', category: 'visual' },
 	[RULE.sideAccentBorder]: { ruleClass: 'drift', category: 'visual' },
 	[RULE.glassmorphism]: { ruleClass: 'drift', category: 'visual' },
@@ -134,6 +149,18 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 	[RULE.decorativeGridBackground]: { ruleClass: 'drift', category: 'visual' },
 	[RULE.shapeAssembledArt]: { ruleClass: 'drift', category: 'visual' },
 	[RULE.invisibleBorder]: { ruleClass: 'drift', category: 'visual' },
+	// Фокус и различимость выключенного — пол качества: без них интерфейс нельзя пройти с
+	// клавиатуры и нельзя понять, почему кнопка не срабатывает. Отклик на наведение —
+	// вопрос вкуса и устройства ввода, поэтому drift.
+	[RULE.focusNotVisible]: { ruleClass: 'floor', category: 'states' },
+	[RULE.disabledIndistinguishable]: { ruleClass: 'floor', category: 'states' },
+	[RULE.noHoverAffordance]: { ruleClass: 'drift', category: 'states' },
+	// Доступность не бывает вопросом вкуса проекта — вся категория floor.
+	[RULE.controlWithoutName]: { ruleClass: 'floor', category: 'markup' },
+	[RULE.fieldWithoutLabel]: { ruleClass: 'floor', category: 'markup' },
+	[RULE.imageWithoutAlt]: { ruleClass: 'floor', category: 'markup' },
+	[RULE.errorNotLinkedToField]: { ruleClass: 'floor', category: 'markup' },
+	[RULE.requiredOnlyVisual]: { ruleClass: 'floor', category: 'markup' },
 
 	[RULE.lineLength]: { ruleClass: 'drift', category: 'layout' },
 	[RULE.crampedTarget]: { ruleClass: 'floor', category: 'layout' },
@@ -144,6 +171,7 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 	[RULE.occludedText]: { ruleClass: 'floor', category: 'layout' },
 	[RULE.identicalCards]: { ruleClass: 'drift', category: 'layout' },
 	[RULE.monotonousSpacing]: { ruleClass: 'drift', category: 'layout' },
+	[RULE.doubleGap]: { ruleClass: 'drift', category: 'layout' },
 	[RULE.heroMetrics]: { ruleClass: 'drift', category: 'layout' },
 	[RULE.numberedSectionLabel]: { ruleClass: 'drift', category: 'layout' },
 	[RULE.columnImbalance]: { ruleClass: 'drift', category: 'layout' },

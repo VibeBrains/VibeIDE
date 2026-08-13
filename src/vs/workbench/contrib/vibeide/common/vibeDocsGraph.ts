@@ -35,6 +35,15 @@ export interface IDocGraphNode {
 	readonly degree: number;
 	/** Reachable from {@link DOC_GRAPH_NAV_ROOT} by following links. */
 	readonly reachable: boolean;
+	/**
+	 * Headings of the note, first one first — what it is ABOUT, in the author's own words.
+	 *
+	 * The graph itself only ever needed links, but a retriever has nothing to match a task against
+	 * without them: a filename says `modelQuirks`, a heading says «симптом ‹модель не умеет
+	 * инструменты› проверять на стороне сервера». Kept as plain text, capped, so the graph stays a
+	 * structure and does not become a second copy of the corpus.
+	 */
+	readonly headings: readonly string[];
 }
 
 export interface IDocGraphEdge {
@@ -216,9 +225,47 @@ export function buildDocGraph(files: readonly IDocFile[]): IDocGraph {
 		degree: degree.get(file.id) ?? 0,
 		// Templates are deliberately unlinked skeletons — never flag them as stranded.
 		reachable: file.external || reachable.has(file.id) || isTemplateId(file.id),
+		headings: parseDocHeadings(file.content),
 	}));
 
 	return { nodes, edges, deadLinks };
+}
+
+/** How many headings of one note are kept — enough to describe it, not enough to store it. */
+const MAX_HEADINGS_PER_DOC = 12;
+/** Longer than this a heading is a sentence, and its tail adds noise rather than meaning. */
+const MAX_HEADING_CHARS = 120;
+
+/**
+ * Markdown headings of a document, in order, stripped of markers.
+ *
+ * Fenced code is skipped: a `# comment` inside a shell block is not a heading, and treating it as
+ * one would file the note under whatever that comment happened to mention.
+ */
+export function parseDocHeadings(content: string): string[] {
+	const out: string[] = [];
+	let inFence = false;
+	for (const line of content.split(/\r?\n/)) {
+		if (/^\s*(```|~~~)/.test(line)) {
+			inFence = !inFence;
+			continue;
+		}
+		if (inFence) {
+			continue;
+		}
+		const heading = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
+		if (!heading) {
+			continue;
+		}
+		const text = heading[2].replace(/[`*_[\]]/g, '').trim();
+		if (text) {
+			out.push(text.slice(0, MAX_HEADING_CHARS));
+		}
+		if (out.length >= MAX_HEADINGS_PER_DOC) {
+			break;
+		}
+	}
+	return out;
 }
 
 /**

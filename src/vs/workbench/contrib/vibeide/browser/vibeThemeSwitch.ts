@@ -30,17 +30,30 @@ const DEFAULT_DAY_THEME = 'Light Modern';
 const DEFAULT_NIGHT_THEME = 'vibe-midnight';
 
 /**
- * Themes offered in VibeIDE's own settings pane. This is deliberately a short, curated list —
- * the pane is not a replacement for the full theme picker, which stays one click away. Anything
- * the user installed from the marketplace is reachable there, not here.
+ * Themes offered in VibeIDE's own settings pane, in the order they are shown. This is deliberately
+ * a curated list — the pane is not a replacement for the full theme picker, which stays one click
+ * away. Anything the user installed from the marketplace is reachable there, not here.
+ *
+ * Each entry carries its own three-colour swatch: background, accent, and the second colour that
+ * actually stands out in the theme (`editor.background` / `button.background` /
+ * `textLink.foreground` of the theme file). The swatch is spelled out here rather than read from
+ * the theme because `getColorThemes()` hands back themes whose colour maps are not loaded yet —
+ * `getColor` on those falls through to the registry default, and every swatch would come out the
+ * same. Adding a theme means adding a row.
  */
-export const VIBEIDE_CURATED_THEME_IDS: readonly string[] = [
-	'vibe-midnight',
-	'vibe-graphite',
-	'vibe-neon',
-	'vibe-neon-noglow',
-	'Dark Modern',
-	'Light Modern',
+export const VIBEIDE_CURATED_THEMES: readonly { readonly id: string; readonly swatch: readonly [string, string, string] }[] = [
+	{ id: 'vibe-midnight', swatch: ['#171923', '#4a6fb5', '#7aa2f7'] },
+	{ id: 'vibe-graphite', swatch: ['#1f2123', '#4a6d8c', '#7fb3d5'] },
+	{ id: 'vibe-neon', swatch: ['#262335', '#614d85', '#f97e72'] },
+	{ id: 'vibe-neon-noglow', swatch: ['#262335', '#614d85', '#f97e72'] },
+	{ id: 'vibe-terracotta', swatch: ['#1c1714', '#7f422a', '#d98a68'] },
+	{ id: 'vibe-espresso', swatch: ['#171310', '#88562d', '#d9a06c'] },
+	{ id: 'vibe-honey', swatch: ['#191512', '#826226', '#d8ad5a'] },
+	{ id: 'vibe-tobacco', swatch: ['#16130f', '#6c5839', '#bd9f70'] },
+	{ id: 'Dark 2026', swatch: ['#121314', '#297aa0', '#48a0c7'] },
+	{ id: 'Light 2026', swatch: ['#ffffff', '#0069cc', '#0069cc'] },
+	{ id: 'Dark Modern', swatch: ['#1f1f1f', '#0078d4', '#4daafc'] },
+	{ id: 'Light Modern', swatch: ['#ffffff', '#005fb8', '#005fb8'] },
 ];
 
 export interface IVibeColorThemeInfo {
@@ -51,6 +64,8 @@ export interface IVibeColorThemeInfo {
 	readonly isCurrent: boolean;
 	/** True when this theme ships with VibeIDE rather than with upstream VS Code. */
 	readonly isOurs: boolean;
+	/** Background, accent, and second stand-out colour — drawn as three dots in the picker. */
+	readonly swatch: readonly string[];
 }
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
@@ -150,7 +165,7 @@ class ListColorThemesAction extends Action2 {
 		const byId = new Map(installed.map(t => [t.settingsId, t]));
 		// Curated order, and only what is actually installed — a missing id must not render a
 		// card that silently does nothing when clicked.
-		return VIBEIDE_CURATED_THEME_IDS.flatMap(id => {
+		return VIBEIDE_CURATED_THEMES.flatMap(({ id, swatch }) => {
 			const theme = byId.get(id);
 			if (!theme) {
 				return [];
@@ -161,6 +176,7 @@ class ListColorThemesAction extends Action2 {
 				type: String(theme.type),
 				isCurrent: id === currentId,
 				isOurs: id.startsWith('vibe-'),
+				swatch,
 			}];
 		});
 	}

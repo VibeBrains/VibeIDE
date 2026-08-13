@@ -540,8 +540,8 @@ const toOpenAICompatibleTool = (toolInfo: InternalToolInfo) => {
 	} satisfies OpenAI.Chat.Completions.ChatCompletionTool;
 };
 
-const openAITools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined) => {
-	const allowedTools = availableTools(chatMode, mcpTools);
+const openAITools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined, maxTools?: number) => {
+	const allowedTools = availableTools(chatMode, mcpTools, { maxTools });
 	if (!allowedTools || Object.keys(allowedTools).length === 0) { return null; }
 
 	const openAITools: OpenAI.Chat.Completions.ChatCompletionTool[] = [];
@@ -730,7 +730,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 	};
 
 	// tools
-	const potentialTools = openAITools(chatMode, mcpTools);
+	const potentialTools = openAITools(chatMode, mcpTools, caps.maxTools);
 	const nativeToolsObj = potentialTools && specialToolFormat === 'openai-style' ?
 		{ tools: potentialTools } as const
 		: {};
@@ -1224,8 +1224,8 @@ const toAnthropicTool = (toolInfo: InternalToolInfo) => {
 	} satisfies Anthropic.Messages.Tool;
 };
 
-const anthropicTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined) => {
-	const allowedTools = availableTools(chatMode, mcpTools);
+const anthropicTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined, maxTools?: number) => {
+	const allowedTools = availableTools(chatMode, mcpTools, { maxTools });
 	if (!allowedTools || Object.keys(allowedTools).length === 0) { return null; }
 
 	const anthropicTools: Anthropic.Messages.ToolUnion[] = [];
@@ -1242,6 +1242,7 @@ const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessag
 	const {
 		modelName,
 		specialToolFormat,
+		maxTools,
 	} = getModelCapabilities(providerName, modelName_, overridesOfModel);
 
 	// Falls back to ANTHROPIC_API_KEY when Settings has no key (see withEnvApiKey).
@@ -1256,7 +1257,7 @@ const sendAnthropicChat = async ({ messages, providerName, onText, onFinalMessag
 	const maxTokens = getReservedOutputTokenSpace(providerName, modelName_, { isReasoningEnabled: !!reasoningInfo?.isReasoningEnabled, overridesOfModel });
 
 	// tools
-	const potentialTools = anthropicTools(chatMode, mcpTools);
+	const potentialTools = anthropicTools(chatMode, mcpTools, maxTools);
 	const nativeToolsObj = potentialTools && specialToolFormat === 'anthropic-style' ?
 		{ tools: potentialTools, tool_choice: { type: 'auto' } } as const
 		: {};
@@ -1508,8 +1509,8 @@ const toGeminiFunctionDecl = (toolInfo: InternalToolInfo) => {
 	} satisfies FunctionDeclaration;
 };
 
-const geminiTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined): GeminiTool[] | null => {
-	const allowedTools = availableTools(chatMode, mcpTools);
+const geminiTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | undefined, maxTools?: number): GeminiTool[] | null => {
+	const allowedTools = availableTools(chatMode, mcpTools, { maxTools });
 	if (!allowedTools || Object.keys(allowedTools).length === 0) { return null; }
 	const functionDecls: FunctionDeclaration[] = [];
 	for (const t in allowedTools ?? {}) {
@@ -1561,6 +1562,7 @@ const sendGeminiChat = async ({
 	const {
 		modelName,
 		specialToolFormat,
+		maxTools,
 		// reasoningCapabilities,
 	} = getModelCapabilities(providerName, modelName_, overridesOfModel);
 
@@ -1583,7 +1585,7 @@ const sendGeminiChat = async ({
 				: undefined;
 
 	// tools
-	const potentialTools = geminiTools(chatMode, mcpTools);
+	const potentialTools = geminiTools(chatMode, mcpTools, maxTools);
 	const toolConfig = potentialTools && specialToolFormat === 'gemini-style' ?
 		potentialTools
 		: undefined;

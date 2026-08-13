@@ -1,7 +1,8 @@
 ---
 name: roadmap-autopilot
 description: Исполняемый плейбук автономных прогонов roadmap — механика порций, процедура defer/отката, гигиена коммитов, критерии hard stop. Принципы и активация — в .vibe/rules/roadmap-autopilot.mdc.
-vibeVersion: 2.0.0
+metadata:
+  vibeVersion: "2.0.0"
 ---
 
 # Roadmap Autopilot — процедура

@@ -33,6 +33,7 @@ import { parseProviderQuotaHeaders, ProviderQuotaSnapshot } from '../../common/p
 import { ProviderRequestRateWindow } from '../../common/providerRequestRate.js';
 import { readMiniMaxRefusal } from '../../common/minimaxBaseResp.js';
 import { getModelQuirks } from '../modelQuirks/modelQuirksService.js';
+import { withReasoningEffortInSystemPrompt } from '../../common/modelQuirks/modelQuirksTypes.js';
 import { SettingsOfProvider } from '../../common/vibeideSettingsTypes.js';
 import { ensureSystemCADispatcher } from './systemCAFetch.js';
 import { extractReasoningWrapper, extractXMLToolsWrapper, stripThinkTagsWrapper, stripStandaloneThinkDelimitersWrapper } from './extractGrammar.js';
@@ -1202,7 +1203,15 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	//   2. the LAST message — Anthropic reuses the longest previously-cached prefix, so
 	//      marking the tail makes each turn cache the whole conversation for the next one.
 	// Harmless when a proxy (openCodeGo Zen) strips the field — it is purely additive.
-	let systemForCall: string | undefined = separateSystemMessage;
+	// Reasoning effort as PROSE for models that never learned the API field (quirk
+	// `reasoningEffortInSystemPrompt`, e.g. Muse Glimmer). Applied before the caching
+	// branches below, so the line is inside the block that gets the cache breakpoint —
+	// it is stable across turns and must not split the cached prefix.
+	let systemForCall: string | undefined = withReasoningEffortInSystemPrompt(
+		separateSystemMessage,
+		quirks.reasoningEffortInSystemPrompt,
+		reasoningInfo?.type === 'effort_slider_value' ? reasoningInfo.reasoningEffort : undefined,
+	);
 	if (sdkNpm === '@ai-sdk/anthropic') {
 		const cacheCtl: MessageProviderOptions = { anthropic: { cacheControl: { type: 'ephemeral' } } };
 		if (systemForCall) {
@@ -1257,7 +1266,9 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// `invalid` pseudo-tool only injected when tools are passed; otherwise the
 	// repair hook has nothing to repair.
 	const tools = specialToolFormat
-		? convertToolsToAiSdkToolSet(availableTools(chatMode, mcpTools), true)
+		// `caps.maxTools` is the per-model tool budget from `.vibe/providers.json`. Undefined means
+		// no limit — a model without a declared budget must get exactly the list it got before.
+		? convertToolsToAiSdkToolSet(availableTools(chatMode, mcpTools, { maxTools: caps.maxTools }), true)
 		: undefined;
 	const activeTools = tools
 		? Object.keys(tools).filter(k => k !== INVALID_TOOL_NAME)

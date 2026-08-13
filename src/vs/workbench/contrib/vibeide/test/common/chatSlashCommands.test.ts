@@ -109,9 +109,9 @@ suite('chatSlashCommands', () => {
 
 	suite('CHAT_SLASH_COMMANDS catalog', () => {
 
-		test('contains commit and watch entries', () => {
+		test('contains commit, shot and watch entries', () => {
 			const names = CHAT_SLASH_COMMANDS.map(c => c.name);
-			assert.deepStrictEqual([...names].sort(), ['commit', 'watch']);
+			assert.deepStrictEqual([...names].sort(), ['commit', 'shot', 'watch']);
 			assert.ok(CHAT_SLASH_COMMANDS.every(c => c.description.length > 0));
 		});
 	});

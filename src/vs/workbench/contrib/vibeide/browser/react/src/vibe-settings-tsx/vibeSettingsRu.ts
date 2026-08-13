@@ -70,6 +70,10 @@ export const chatS = {
 	stepSkipAria: (n: number) => `Пропустить шаг ${n}`,
 	stepRollbackAria: (n: number) => `Откатить шаг ${n}`,
 	stepRollbackConfirm: 'Вернуться к состоянию до этого шага?',
+	// A successful step gets its own wording. The failed-step dialog appears when the user is
+	// already looking for a way back; this one sits next to work that WORKED, where a click made
+	// out of habit costs exactly what the step produced.
+	stepRollbackConfirmDone: 'Шаг выполнен успешно. Откат вернёт файлы к состоянию ДО него — всё, что этот шаг сделал, будет потеряно. Продолжить?',
 	placeholderShort: 'План, @ для контекста',
 	placeholderFull: 'План, @ для контекста, / для команд',
 	contextTokens: (total: number, budget: number, pct: number) =>
@@ -730,7 +734,7 @@ export const toolApprovalLabel = (t: string): string => {
 
 export const appearanceS = {
 	themesTitle: 'Тема оформления',
-	themesHint: 'Темы, которые поставляются с VibeIDE, и две базовые из VS Code. Установленные из маркетплейса — по кнопке ниже.',
+	themesHint: 'Темы, которые поставляются с VibeIDE, и базовые из VS Code. Установленные из маркетплейса — по кнопке ниже.',
 	ourThemeTag: 'наша',
 	themesEmpty: 'Список тем пока не загружен.',
 	allThemesButton: 'Все темы…',
@@ -1034,6 +1038,19 @@ export const ollamaS = {
 	btnCopyLog: 'Копировать журнал',
 	btnClear: 'Очистить',
 	pullModel: 'Скачать модель:',
+	// «Потянет ли машина» — расчёт по реальному размеру файла и реальной архитектуре модели.
+	fitTitle: 'Скачанные модели и память машины',
+	fitHint: (total: string) => `На машине ${total}. Оценка — по фактическому размеру модели и её устройству; на компьютере с отдельной видеокартой решает её память, а не общая.`,
+	fitEmpty: 'Скачанных моделей нет — или Ollama сейчас не запущена.',
+	fitLoading: 'Считаем…',
+	fitAtContext: (ctx: number) => `при контексте ${ctx.toLocaleString('ru-RU')} токенов`,
+	fitFullContext: (ctx: number, verdict: string) => `На полном контексте (${ctx.toLocaleString('ru-RU')}) — ${verdict}.`,
+	fitVerdictFits: 'свободно',
+	fitVerdictTight: 'впритык',
+	fitVerdictTooLarge: 'не поместится',
+	fitVerdictUnknown: 'неизвестно',
+	fitPullWarning: (tag: string, need: string, total: string) =>
+		`Модели ${tag} нужно около ${need}, а на машине ${total}. Скорее всего она не запустится или будет работать очень медленно. Всё равно скачать?`,
 	btnPull: 'Скачать',
 	btnDelete: 'Удалить',
 	groupCode: 'Кодовые модели',
@@ -1514,6 +1531,8 @@ export const telegramS = {
 	pairingCode: 'Код привязки',
 	pairingCodeHint: 'Отправьте боту «/start <код>», чтобы привязать свой чат. Код секретный — не публикуйте вместе с именем бота.',
 	newCode: 'Новый код',
+	copyCode: 'Скопировать код',
+	codeCopied: 'Код скопирован',
 	allowedChats: 'Разрешённые чаты',
 	noAllowedChats: 'пока ни одного',
 	revoke: 'Отозвать',

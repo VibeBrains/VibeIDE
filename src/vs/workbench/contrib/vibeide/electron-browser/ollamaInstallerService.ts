@@ -24,7 +24,7 @@
 import { Emitter } from '../../../../base/common/event.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
-import { InstallOptions, IOllamaInstallerService, ProbeResult } from '../common/ollamaInstallerService.js';
+import { InstallOptions, IOllamaInstallerService, LocalModelDetails, LocalModelEntry, ProbeResult } from '../common/ollamaInstallerService.js';
 
 export class OllamaInstallerService implements IOllamaInstallerService {
 	declare readonly _serviceBrand: undefined;
@@ -51,6 +51,25 @@ export class OllamaInstallerService implements IOllamaInstallerService {
 	async probe(): Promise<ProbeResult> {
 		const channel = this.mainProcessService.getChannel('vibe-channel-ollamaInstaller');
 		return channel.call('probe', undefined);
+	}
+
+	// The three reads below back the «will this model run here?» estimate. Each answers with an
+	// empty result rather than throwing: Ollama not running is an ordinary state on most machines,
+	// and a rejected promise here would surface as an error where there is no error.
+
+	async listModels(): Promise<LocalModelEntry[]> {
+		const channel = this.mainProcessService.getChannel('vibe-channel-ollamaInstaller');
+		return channel.call<LocalModelEntry[]>('listModels', undefined).catch(() => []);
+	}
+
+	async inspectModel(tag: string): Promise<LocalModelDetails> {
+		const channel = this.mainProcessService.getChannel('vibe-channel-ollamaInstaller');
+		return channel.call<LocalModelDetails>('inspectModel', tag).catch(() => ({}));
+	}
+
+	async hostMemoryBytes(): Promise<number> {
+		const channel = this.mainProcessService.getChannel('vibe-channel-ollamaInstaller');
+		return channel.call<number>('hostMemoryBytes', undefined).catch(() => 0);
 	}
 }
 

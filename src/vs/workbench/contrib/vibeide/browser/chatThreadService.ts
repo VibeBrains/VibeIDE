@@ -39,10 +39,11 @@ import { IVibeHooksService } from '../common/hooks/vibeHookTypes.js';
 import { toolMatchesPlanHints, resolveToolClass } from '../common/planToolDrift.js';
 import { IVibeSpecsService } from './vibeSpecsService.js';
 import { IVibeTokenSavingsService } from './vibeTokenSavingsService.js';
-import { IToolsService } from './toolsService.js';
+import { IBackgroundCommandExit, IToolsService } from './toolsService.js';
+import { traceAgentStep } from '../common/agentTurnTrace.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
-import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage, PendingInjection, normalizePendingInjections, ScoutLead, ScoutMessage } from '../common/chatThreadServiceTypes.js';
+import { ChatMessage, ChatImageAttachment, ChatPDFAttachment, CheckpointEntry, CodespanLocationLink, StagingSelectionItem, ToolMessage, PlanMessage, PlanStep, StepStatus, ReviewMessage, PendingInjection, ReviewChecklist, ReviewChecklistItem, EditBatch, EditBatchItem, normalizePendingInjections, ScoutLead, ScoutMessage } from '../common/chatThreadServiceTypes.js';
 import { trimThreadMessages, capToolResultSizes } from '../common/chatThreadTrim.js';
 import { Position } from '../../../../editor/common/core/position.js';
 import { IMetricsService } from '../common/metricsService.js';
@@ -414,6 +415,18 @@ export type ThreadType = {
 		 *  next agent hop (no abort needed). See docs/knowledge/chatUx/chatInterruptAndInject.md.
 		 *  `string` entries are legacy (text-only) and tolerated on read via normalizePendingInjections. */
 		pendingInjections?: (string | PendingInjection)[];
+		/**
+		 * Чек-лист «проверь глазами», выданный агентом в конце работы.
+		 *
+		 * Живёт в СОСТОЯНИИ треда, а не в `messages`, и это не деталь оформления: чек-лист приходит
+		 * ПОСРЕДИ хода (агент вызывает инструмент), а вставка в `messages` в этот момент сдвигает
+		 * хвост и ломает одобрение инструментов и подстановку их результатов — см.
+		 * docs/knowledge/chatUx/chatInterruptAndInject.md. Рендерится транзиентным элементом, как
+		 * живой индикатор ролей.
+		 */
+		reviewChecklist?: ReviewChecklist;
+		/** Пакет правок, собираемый кликами по превью. Живёт рядом с чек-листом и по той же причине. */
+		editBatch?: EditBatch;
 		focusedMessageIdx: number | undefined; // index of the user message that is being edited (undefined if none)
 
 		linksOfMessageIdx: { // eg. link = linksOfMessageIdx[4]['RangeFunction']
@@ -705,6 +718,25 @@ export interface IChatThreadService {
 	addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId, images, pdfs, noPlan, displayContent, forceScout }: { userMessage: string; _chatSelections?: StagingSelectionItem[]; threadId: string; images?: ChatImageAttachment[]; pdfs?: ChatPDFAttachment[]; noPlan?: boolean; displayContent?: string; forceScout?: boolean }): Promise<void>;
 	/** Queue context to be merged into the NEXT agent hop without aborting the running turn. */
 	addPendingInjection(threadId: string, text: string, images?: ChatImageAttachment[], pdfs?: ChatPDFAttachment[]): void;
+
+	/** Включает/выключает сбор правок кликами по превью. */
+	setEditBatchCollecting(threadId: string, collecting: boolean): void;
+	/** Добавляет правку в пакет. Вызывается по клику прицела, когда сбор включён. */
+	addEditBatchItem(threadId: string, item: Omit<EditBatchItem, 'id'>): void;
+	/** Меняет словесное описание правки. */
+	setEditBatchNote(threadId: string, itemId: string, note: string): void;
+	removeEditBatchItem(threadId: string, itemId: string): void;
+	/** Отдаёт весь пакет агенту одним заданием и очищает список. */
+	submitEditBatch(threadId: string): void;
+
+	/** Кладёт в тред чек-лист «проверь глазами». Вызывается инструментом агента. */
+	setReviewChecklist(threadId: string, checklist: ReviewChecklist): void;
+	/** Отмечает пункт. `comment` осмыслен только для `fail` — что именно не так. */
+	markReviewChecklistItem(threadId: string, itemId: string, status: ReviewChecklistItem['status'], comment?: string): void;
+	/** Отдаёт агенту итог проверки: закрывать или доделывать. Убирает чек-лист из треда. */
+	submitReviewChecklist(threadId: string): void;
+	/** Снимает чек-лист, ничего не отправляя. */
+	dismissReviewChecklist(threadId: string): void;
 	/** Remove a still-queued injection by index (user cancelled it before it was drained into context). */
 	removePendingInjection(threadId: string, index: number): void;
 
@@ -1051,6 +1083,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		this._register(this._storageService.onWillSaveState(() => this._flushStoreThreads()));
 		this._register(toDisposable(() => this._flushStoreThreads()));
 
+		this._register(this._toolsService.onDidBackgroundCommandExit(exit => this._onBackgroundCommandExit(exit)));
+
 		const readThreads = this._readAllThreads() || {};
 
 		const allThreads = readThreads;
@@ -1101,6 +1135,12 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	// One-shot «scout my next message» — set by the input toggle (manual override C) and by the scout
 	// card's «Уточнить» action; forces a scout on the next turn regardless of continuation phrasing.
 	private readonly _scoutNextTurnByThread: Record<string, boolean> = {};
+	/**
+	 * `background_id` → the thread that started it, so the exit notice reaches the thread that is
+	 * waiting for it rather than whichever one happens to be open. In memory only: a command does
+	 * not survive the window it was started from, so neither should the pairing.
+	 */
+	private readonly _backgroundCommandThreads = new Map<string, string>();
 
 	async focusCurrentChat() {
 		const threadId = this.state.currentThreadId;
@@ -4168,6 +4208,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		opts: { preapproved: true; unvalidatedToolParams: RawToolParamsObj; validatedParams: ToolCallParams<ToolName> } | { preapproved: false; unvalidatedToolParams: RawToolParamsObj },
 	): Promise<{ awaitingUserApproval?: boolean; interrupted?: boolean }> => {
 
+		// Пошаговый трейс хода: имя инструмента, но НИКОГДА его аргументы — см. agentTurnTrace.ts.
+		const toolStartedAtMs = Date.now();
+		traceAgentStep({ threadId, kind: 'tool-call', name: requestedToolName });
+
 		// Repair short-circuits applied before main dispatch:
 		//
 		// 1. `invalid` pseudo-tool — aiSdkAdapter's experimental_repairToolCall
@@ -4654,6 +4698,23 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				resolveInterruptor(interruptor);
 
 				toolResult = await result;
+
+				traceAgentStep({ threadId, kind: 'tool-result', name: requestedToolName, durationMs: Date.now() - toolStartedAtMs, ok: true });
+
+				// Чек-лист кладём здесь по той же причине, что и пару background_id → тред: у
+				// `toolsService` нет идентификатора треда, а зависеть от нас он не может.
+				if (requestedToolName === 'review_checklist') {
+					const checklist = (toolResult as BuiltinToolResultType['review_checklist'] | undefined)?.checklist;
+					if (checklist) { this.setReviewChecklist(threadId, checklist); }
+				}
+
+				// Remember whose background command this is. Without the pairing the exit notice
+				// would have to guess a thread, and "the current one" is wrong the moment the user
+				// switches threads while a build runs.
+				if (toolName === 'run_command') {
+					const backgroundId = (toolResult as BuiltinToolResultType['run_command'] | undefined)?.backgroundId;
+					if (backgroundId) { this._backgroundCommandThreads.set(backgroundId, threadId); }
+				}
 			}
 			else {
 				const mcpTools = this._mcpService.getMCPTools();
@@ -7135,6 +7196,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (decision === 'bounce' && verify) {
 							verifyGateAttempts += 1;
 							const corrective = `⛔ VERIFY-GATE: команда «${verify.command}» завершилась с ошибкой (exit ${verify.exitCode ?? 'timeout'}). Задача НЕ считается выполненной — не вызывай vibe_complete, пока не станет зелёно. Исправь причину и продолжай работу инструментами (попытка ${verifyGateAttempts} из ${maxAttempts}).\n\nВывод команды:\n${verify.output}`;
+							traceAgentStep({ threadId, kind: 'nudge' });
 							this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
 							shouldSendAnotherMessage = true;
 							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
@@ -7165,6 +7227,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (turnDecision === 'bounce') {
 							turnChecksAttempts += 1;
 							const corrective = renderTurnChecksCorrective(failures, turnChecksAttempts, maxTurnCheckAttempts);
+							traceAgentStep({ threadId, kind: 'nudge' });
 							this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
 							shouldSendAnotherMessage = true;
 							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
@@ -7223,7 +7286,14 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (decision === 'bounce') {
 							designHookAttempts += 1;
 							const list = floorFindings(findings).map(f => `• ${f.message} — ${f.selector} (${f.evidence})`).join('\n');
-							const corrective = `⛔ DESIGN-HOOK: страница после правок нарушает пол качества — это дефекты, а не вкус. Задача НЕ закрыта: исправь и продолжай инструментами (попытка ${designHookAttempts}).\n\n${list}\n\nЕсли что-то из перечисленного — намеренный выбор продукта, впиши правило в раздел «Детектор» файла .vibe/design/design.md с причиной, а не игнорируй молча.`;
+							// Про карту напоминаем ТОЛЬКО когда она в проекте есть: совет «проверьте карту»
+							// в проекте без карты — это совет открыть несуществующий файл, и он учит
+							// игнорировать весь остальной текст сообщения.
+							const uiKitReminder = context.uiKit
+								? '\n\nПеред тем как чинить: если правка требует элемента интерфейса, найдите его в карте UI (.vibe/design/uiKit.md) и используйте существующий, а не заводите новый.'
+								: '';
+							const corrective = `⛔ DESIGN-HOOK: страница после правок нарушает пол качества — это дефекты, а не вкус. Задача НЕ закрыта: исправь и продолжай инструментами (попытка ${designHookAttempts}).\n\n${list}${uiKitReminder}\n\nЕсли что-то из перечисленного — намеренный выбор продукта, впиши правило в раздел «Детектор» файла .vibe/design/design.md с причиной, а не игнорируй молча.`;
+							traceAgentStep({ threadId, kind: 'nudge' });
 							this._addMessageToThread(threadId, { role: 'user', content: corrective, displayContent: corrective, selections: null, isSyntheticNudge: true, state: defaultMessageState });
 							shouldSendAnotherMessage = true;
 							this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' });
@@ -8385,7 +8455,19 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// Snapshot the folder here and not on every tool edit: this is the boundary a user rolls
 		// back to ("before the agent's turn"), and one `git add -A` per turn is affordable while one
 		// per edited file is not.
-		const workspaceSnapshotTree = await this._workspaceSnapshotService.capture();
+		// Снимок подписывается ходом: `git log refs/vibe/checkpoints/*` тогда читается как история
+		// работы агента, а не как столбец одинаковых фраз. Предыдущий снимок передаётся, чтобы ход,
+		// ничего не изменивший в папке, не порождал второй одинаковый объект.
+		const thread = this.state.allThreads[threadId];
+		const previousSnapshot = thread?.messages
+			.filter((m): m is ChatMessage & { role: 'checkpoint' } => m.role === 'checkpoint')
+			.map(m => m.workspaceSnapshotTree)
+			.filter((t): t is string => typeof t === 'string' && t.length > 0)
+			.pop();
+		const workspaceSnapshotTree = await this._workspaceSnapshotService.capture(
+			{ turnIndex: thread?.messages.length ?? 0, threadId },
+			previousSnapshot,
+		);
 		await this._addCheckpoint(threadId, {
 			role: 'checkpoint',
 			type: 'user_edit',
@@ -8916,6 +8998,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 
 	private async _addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId, images, pdfs, noPlan, displayContent, forceScout }: { userMessage: string; _chatSelections?: StagingSelectionItem[]; threadId: string; images?: ChatImageAttachment[]; pdfs?: ChatPDFAttachment[]; noPlan?: boolean; displayContent?: string; forceScout?: boolean }) {
+		traceAgentStep({ threadId, kind: 'turn-start' });
 		const thread = this.state.allThreads[threadId];
 		if (!thread) { return; } // should never happen
 
@@ -9925,6 +10008,113 @@ We only need to do it for files that were edited since `from`, ie files between 
 		this._setThreadState(threadId, { pendingInjections: [...cur, note] });
 	}
 
+	setEditBatchCollecting(threadId: string, collecting: boolean): void {
+		const current = this.state.allThreads[threadId]?.state.editBatch;
+		this._setThreadState(threadId, { editBatch: { items: current?.items ?? [], collecting } });
+	}
+
+	addEditBatchItem(threadId: string, item: Omit<EditBatchItem, 'id'>): void {
+		const current = this.state.allThreads[threadId]?.state.editBatch;
+		const items = [...(current?.items ?? []), { ...item, id: generateUuid() }];
+		this._setThreadState(threadId, { editBatch: { items, collecting: current?.collecting ?? true } });
+	}
+
+	setEditBatchNote(threadId: string, itemId: string, note: string): void {
+		const current = this.state.allThreads[threadId]?.state.editBatch;
+		if (!current) { return; }
+		this._setThreadState(threadId, { editBatch: { ...current, items: current.items.map(i => i.id === itemId ? { ...i, note } : i) } });
+	}
+
+	removeEditBatchItem(threadId: string, itemId: string): void {
+		const current = this.state.allThreads[threadId]?.state.editBatch;
+		if (!current) { return; }
+		this._setThreadState(threadId, { editBatch: { ...current, items: current.items.filter(i => i.id !== itemId) } });
+	}
+
+	submitEditBatch(threadId: string): void {
+		const current = this.state.allThreads[threadId]?.state.editBatch;
+		if (!current || current.items.length === 0) { return; }
+		// Очищаем ПЕРВЫМ делом: доставка ниже может начать новый ход, а он перечитает состояние.
+		this._setThreadState(threadId, { editBatch: { items: [], collecting: false } });
+
+		const lines = [
+			`[Пакет правок: ${current.items.length}] Это список мелких правок по интерфейсу, собранный кликами по превью.`,
+			'Сначала прочитай код всех затронутых мест, потом правь — по одной правке за раз, но исследование одно на весь пакет.',
+			'В конце отчитайся по КАЖДОМУ пункту отдельно и отдай чек-лист «проверь глазами» на весь пакет.',
+			'',
+		];
+		current.items.forEach((item, index) => {
+			lines.push(`${index + 1}. ${item.note.trim() || '(описание не задано — спроси, что здесь переделать)'}`);
+			if (item.selector) { lines.push(`   Селектор: ${item.selector}`); }
+			// У правки из превью «место» — страница, у правки из кода — файл со строкой. Подписи
+			// разные, потому что путать «где это видно» и «где это написано» дороже, чем повторить слово.
+			lines.push(item.source === 'code' ? `   Место: ${item.page}` : `   Страница: ${item.page}`);
+			if (item.file) { lines.push(item.source === 'code' ? `   Файл: ${item.file}` : `   Файл-кандидат: ${item.file}`); }
+		});
+		this._deliverToAgent(threadId, lines.join('\n'));
+	}
+
+	setReviewChecklist(threadId: string, checklist: ReviewChecklist): void {
+		this._setThreadState(threadId, { reviewChecklist: checklist });
+	}
+
+	markReviewChecklistItem(threadId: string, itemId: string, status: ReviewChecklistItem['status'], comment?: string): void {
+		const current = this.state.allThreads[threadId]?.state.reviewChecklist;
+		if (!current) { return; }
+		const items = current.items.map(item => item.id === itemId
+			// Комментарий держится только у «не ок»: у отмеченного как рабочий он ни о чём и попал бы
+			// в отчёт агенту как претензия.
+			? { ...item, status, comment: status === 'fail' ? comment : undefined }
+			: item);
+		this._setThreadState(threadId, { reviewChecklist: { ...current, items } });
+	}
+
+	dismissReviewChecklist(threadId: string): void {
+		this._setThreadState(threadId, { reviewChecklist: undefined });
+	}
+
+	submitReviewChecklist(threadId: string): void {
+		const current = this.state.allThreads[threadId]?.state.reviewChecklist;
+		if (!current || current.delivered) { return; }
+		// Снимаем ПЕРВЫМ делом: доставка ниже может начать новый ход, а тот перечитает состояние —
+		// оставленный чек-лист уехал бы агенту второй раз.
+		this._setThreadState(threadId, { reviewChecklist: undefined });
+
+		const failed = current.items.filter(i => i.status === 'fail');
+		const ok = current.items.filter(i => i.status === 'ok');
+		const skipped = current.items.filter(i => i.status === 'pending');
+		const lines = [`[Результат проверки] Подтверждено: ${ok.length} из ${current.items.length}.`];
+		if (failed.length > 0) {
+			lines.push('НЕ РАБОТАЕТ:');
+			for (const item of failed) {
+				lines.push(`- ${item.text}${item.comment ? ` — ${item.comment}` : ''}`);
+			}
+			lines.push('Почини это и снова выдай чек-лист. Не отвечай «сделал» без проверки.');
+		}
+		if (skipped.length > 0) {
+			lines.push(`Не проверено (${skipped.length}): ${skipped.map(i => i.text).join('; ')}. Считать сделанным нельзя — скажи, как проверить, или проверь сам.`);
+		}
+		if (failed.length === 0 && skipped.length === 0) {
+			lines.push('Всё подтверждено — задача закрыта, доделывать нечего.');
+		}
+		this._deliverToAgent(threadId, lines.join('\n'));
+	}
+
+	/**
+	 * Отдаёт агенту текст: занятому — в очередь, простаивающему — новым ходом.
+	 *
+	 * Та же развилка, что у завершения фоновой команды, и по той же причине: отправка на занятом
+	 * треде ПРЕРВАЛА бы идущий ход, а одна очередь на простаивающем зависла бы навсегда —
+	 * авто-досылка стартует из воронки смены состояния, а перехода там не будет.
+	 */
+	private _deliverToAgent(threadId: string, text: string): void {
+		if (this.streamState[threadId]?.isRunning !== undefined) {
+			this.addPendingInjection(threadId, text);
+			return;
+		}
+		void this._addUserMessageAndStreamResponse({ userMessage: text, threadId, displayContent: text });
+	}
+
 	removePendingInjection(threadId: string, index: number): void {
 		const cur = this.state.allThreads[threadId]?.state.pendingInjections ?? [];
 		if (index < 0 || index >= cur.length) { return; }
@@ -9960,6 +10150,35 @@ We only need to do it for files that were edited since `from`, ie files between 
 		// Deferred: we are inside the _setStreamState funnel; let the current state update settle before
 		// starting a new turn (which re-enters _setStreamState).
 		queueMicrotask(() => { void this._addUserMessageAndStreamResponse({ userMessage: content, threadId, displayContent: content, images, pdfs }); });
+	}
+
+	/**
+	 * A background command has stopped — tell the thread that started it.
+	 *
+	 * This is what turns `run_in_background` from polling into being woken: until now the only way
+	 * to learn that a command had finished was to call `read_background_output` during a turn the
+	 * agent was already having, so a command that ended while nobody was talking was never noticed.
+	 *
+	 * Delivery (queue while busy, new turn while idle) is `_deliverToAgent` — the fork is shared
+	 * with the review checklist, and the reasoning behind it lives there.
+	 *
+	 * The note carries no output on purpose. Reading the tail costs a terminal round-trip and is a
+	 * decision for the agent, which knows what it was waiting for; here we only say that it is over.
+	 */
+	private _onBackgroundCommandExit(exit: IBackgroundCommandExit): void {
+		const threadId = this._backgroundCommandThreads.get(exit.backgroundId);
+		if (!threadId) { return; }
+		this._backgroundCommandThreads.delete(exit.backgroundId);
+		if (!this.state.allThreads[threadId]) { return; } // thread deleted while the command ran
+		if (this._configurationService.getValue<boolean>('vibeide.agent.wakeOnBackgroundCommand') === false) { return; }
+
+		const ended = exit.resolveReason.type === 'timeout'
+			? `остановлена по таймауту (${Math.round(exit.durationMs / 1000)} с)`
+			: `завершилась с кодом ${exit.resolveReason.exitCode} за ${Math.round(exit.durationMs / 1000)} с`;
+		const notice = `[Фоновая команда] \`${exit.command}\` ${ended}. Вывод — read_background_output с background_id="${exit.backgroundId}".`;
+
+		vibeLog.warn('chatThreadService', `[background] команда завершилась (${exit.backgroundId})`);
+		this._deliverToAgent(threadId, notice);
 	}
 
 	addAssistantNotice(threadId: string, markdown: string): void {

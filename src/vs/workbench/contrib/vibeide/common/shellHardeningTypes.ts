@@ -24,7 +24,8 @@ export type ShellMisuseKind =
 	| 'search_content'
 	| 'edit_file'
 	| 'write_file'
-	| 'tree';
+	| 'tree'
+	| 'git_state';
 
 export interface ShellMisuse {
 	readonly kind: ShellMisuseKind;

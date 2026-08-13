@@ -10,11 +10,13 @@ import {
 	matchQuirks,
 	validateCatalog,
 	applyUserOverride,
+	withReasoningEffortInSystemPrompt,
 	EMPTY_QUIRKS,
 	ModelQuirksRule,
 	ModelQuirksCatalog,
 	ResolvedModelQuirks,
 } from '../../common/modelQuirks/modelQuirksTypes.js';
+import { loadBundledCatalog } from '../../common/modelQuirks/bundledCatalog.js';
 
 suite('ModelQuirks — matchQuirks', () => {
 
@@ -275,35 +277,60 @@ suite('ModelQuirks — applyUserOverride', () => {
 	});
 });
 
+suite('ModelQuirks — reasoning effort in the system prompt', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('effort is substituted and appended, prompt kept intact', () => {
+		const out = withReasoningEffortInSystemPrompt('Ты помощник.', 'Reasoning strength: {effort}', 'high');
+		assert.strictEqual(out, 'Ты помощник.\n\nReasoning strength: high');
+	});
+
+	test('no template or no effort → prompt untouched (a missing level is never guessed)', () => {
+		assert.strictEqual(withReasoningEffortInSystemPrompt('Ты помощник.', undefined, 'high'), 'Ты помощник.');
+		assert.strictEqual(withReasoningEffortInSystemPrompt('Ты помощник.', 'Reasoning strength: {effort}', undefined), 'Ты помощник.');
+	});
+
+	test('empty prompt → the line becomes the whole prompt, without a leading blank gap', () => {
+		assert.strictEqual(withReasoningEffortInSystemPrompt(undefined, 'Reasoning strength: {effort}', 'low'), 'Reasoning strength: low');
+	});
+
+	test('template survives the catalog validator as a string field', () => {
+		const parsed = validateCatalog({
+			version: 1,
+			rules: [
+				{ match: 'glimmer', reasoningEffortInSystemPrompt: 'Reasoning strength: {effort}' },
+				{ match: 'broken', reasoningEffortInSystemPrompt: 42 },
+			],
+		});
+		assert.strictEqual(parsed.rules[0].reasoningEffortInSystemPrompt, 'Reasoning strength: {effort}');
+		assert.strictEqual(parsed.rules[1].reasoningEffortInSystemPrompt, undefined);
+	});
+});
+
 suite('ModelQuirks — end-to-end integration via bundled rules', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	// Verify the actual rules in resources/model-quirks.json work as expected.
-	// Re-construct the rule list here (kept in sync with the JSON catalog).
-	const bundled: ModelQuirksCatalog = {
-		version: 1,
-		rules: [
-			{ match: 'kimi-k3', temperature: 1.0, topP: 0.95, mirrorReasoningContent: true },
-			{ match: 'kimi-k2.6', temperature: 1.0, topP: 0.95, mirrorReasoningContent: true },
-			{ match: 'kimi-k2.5', temperature: 1.0, topP: 0.95, mirrorReasoningContent: true },
-			{ match: 'kimi-k2-thinking', temperature: 1.0, topP: 0.95, mirrorReasoningContent: true },
-			{ match: 'kimi-k2', temperature: 0.6 },
-			{ match: 'kimi', temperature: 1.0, topP: 0.95 },
-			{ match: 'minimax-m2.7', temperature: 1.0, topP: 0.95, topK: 40 },
-			{ match: 'minimax-m2.5', temperature: 1.0, topP: 0.95, topK: 40 },
-			{ match: 'minimax-m2', temperature: 1.0, topP: 0.95, topK: 20 },
-			{ match: 'minimax', temperature: 1.0, topP: 0.95, topK: 40 },
-			{ match: 'deepseek', forceEmptyReasoning: true, mirrorReasoningContent: true },
-			{ match: 'qwen', temperature: 0.55, topP: 1.0, forceToolCallFormat: 'xml' },
-			{ match: 'glm', temperature: 1.0 },
-			{ match: 'gemini-2', temperature: 1.0, topP: 0.95, topK: 64 },
-			{ match: 'gemini-1.5', temperature: 1.0, topP: 0.95, topK: 64 },
-		],
-	};
+	// The REAL catalog, loaded the same way the product loads it. This used to be a hand-kept
+	// copy of the rule list, "kept in sync with the JSON catalog" by eye — which is the very
+	// second source of truth that `bundledCatalog.ts` exists to prevent. It drifted exactly as
+	// predicted: the suite kept passing while the shipped catalog said something else, so a rule
+	// change looked verified when nothing had verified it. Loading the file makes the drift
+	// impossible instead of merely discouraged.
+	let bundled: ModelQuirksCatalog;
+	suiteSetup(async () => {
+		bundled = validateCatalog(await loadBundledCatalog());
+	});
 
 	const cases: Array<[string, ResolvedModelQuirks | null]> = [
-		['qwen3.6-plus', { temperature: 0.55, topP: 1.0, forceToolCallFormat: 'xml' }],
+		// The family rule carries sampling ONLY. It used to force XML, which silently overrode the
+		// explicit `toolFormat: "openai"` that shipped presets declare for the qwen3 generation —
+		// quirks are Tier 1 and beat provider capabilities. The force now lives on `qwen2.5`.
+		['qwen3.6-plus', { temperature: 0.55, topP: 1.0 }],
+		['qwen2.5-coder', { temperature: 0.55, topP: 1.0, forceToolCallFormat: 'xml' }],
+		['qwen3.8-max', { temperature: 0.6, topP: 0.95, topK: 20 }],
+		['ling-3.0-flash', { temperature: 0.6, topP: 0.95, topK: 20 }],
 		['deepseek-v4-pro', { forceEmptyReasoning: true, mirrorReasoningContent: true }],
 		['kimi-k2.6', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
 		// K3 is preserved-thinking-history: it must inherit the mirror flag, not just the
