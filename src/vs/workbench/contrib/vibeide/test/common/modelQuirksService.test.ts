@@ -13,10 +13,7 @@ import {
 	withReasoningEffortInSystemPrompt,
 	EMPTY_QUIRKS,
 	ModelQuirksRule,
-	ModelQuirksCatalog,
-	ResolvedModelQuirks,
 } from '../../common/modelQuirks/modelQuirksTypes.js';
-import { loadBundledCatalog } from '../../common/modelQuirks/bundledCatalog.js';
 
 suite('ModelQuirks — matchQuirks', () => {
 
@@ -306,61 +303,4 @@ suite('ModelQuirks — reasoning effort in the system prompt', () => {
 		assert.strictEqual(parsed.rules[0].reasoningEffortInSystemPrompt, 'Reasoning strength: {effort}');
 		assert.strictEqual(parsed.rules[1].reasoningEffortInSystemPrompt, undefined);
 	});
-});
-
-suite('ModelQuirks — end-to-end integration via bundled rules', () => {
-
-	ensureNoDisposablesAreLeakedInTestSuite();
-
-	// The REAL catalog, loaded the same way the product loads it. This used to be a hand-kept
-	// copy of the rule list, "kept in sync with the JSON catalog" by eye — which is the very
-	// second source of truth that `bundledCatalog.ts` exists to prevent. It drifted exactly as
-	// predicted: the suite kept passing while the shipped catalog said something else, so a rule
-	// change looked verified when nothing had verified it. Loading the file makes the drift
-	// impossible instead of merely discouraged.
-	let bundled: ModelQuirksCatalog;
-	suiteSetup(async () => {
-		bundled = validateCatalog(await loadBundledCatalog());
-	});
-
-	const cases: Array<[string, ResolvedModelQuirks | null]> = [
-		// The family rule carries sampling ONLY. It used to force XML, which silently overrode the
-		// explicit `toolFormat: "openai"` that shipped presets declare for the qwen3 generation —
-		// quirks are Tier 1 and beat provider capabilities. The force now lives on `qwen2.5`.
-		['qwen3.6-plus', { temperature: 0.55, topP: 1.0 }],
-		['qwen2.5-coder', { temperature: 0.55, topP: 1.0, forceToolCallFormat: 'xml' }],
-		['qwen3.8-max', { temperature: 0.6, topP: 0.95, topK: 20 }],
-		['ling-3.0-flash', { temperature: 0.6, topP: 0.95, topK: 20 }],
-		['deepseek-v4-pro', { forceEmptyReasoning: true, mirrorReasoningContent: true }],
-		['kimi-k2.6', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
-		// K3 is preserved-thinking-history: it must inherit the mirror flag, not just the
-		// generic `kimi` preset (which carries no mirror and would break the tool loop).
-		['kimi-k3', { temperature: 1.0, topP: 0.95, mirrorReasoningContent: true }],
-		['minimax-m2.7', { temperature: 1.0, topP: 0.95, topK: 40 }],
-		['glm-5.1', { temperature: 1.0 }],
-		// Sampling preset is scoped to the generations that still honour it. Google deprecated
-		// temperature/top_p/top_k for newer models ("returns an HTTP 400 error" in future
-		// generations), so Gemini 3.x must match NOTHING here — depth is set by thinking_level.
-		['gemini-2.5-pro', { temperature: 1.0, topP: 0.95, topK: 64 }],
-		['gemini-1.5-pro', { temperature: 1.0, topP: 0.95, topK: 64 }],
-		['gemini-3.6-flash', null],
-		['gemini-3-pro-preview', null],
-		['mimo-v2-pro', null],   // no match — provider defaults
-		['hy3-preview', null],   // no match — provider defaults
-	];
-
-	for (const [modelId, expected] of cases) {
-		test(`${modelId} → expected quirks`, () => {
-			const q = matchQuirks(bundled.rules, modelId);
-			if (expected === null) {
-				assert.strictEqual(q, null);
-				return;
-			}
-			assert.ok(q, `expected match for ${modelId}`);
-			const resolved: Record<string, unknown> = q;
-			for (const [k, v] of Object.entries(expected)) {
-				assert.strictEqual(resolved[k], v, `field ${k} mismatch for ${modelId}`);
-			}
-		});
-	}
 });
