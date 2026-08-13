@@ -144,3 +144,30 @@ export function extractReplaceSides(searchReplaceBlocks: string): string {
 	}
 	return parts.join('\n');
 }
+
+/**
+ * То же самое для перезаписи файла целиком.
+ *
+ * У `rewrite_file` нет половины «что добавили»: в новом тексте объявления, прожившие в файле год,
+ * выглядят ровно так же, как только что придуманные. Поэтому «добавленным» здесь считается то,
+ * чего в старом тексте НЕ БЫЛО — иначе предупреждение сработало бы на каждой второй перезаписи и
+ * его перестали бы читать, что убило бы проверку и для `edit_file`.
+ *
+ * Новый файл (пустой старый текст) намеренно проверяется как есть: там всё объявляется впервые, и
+ * это ровно тот случай, ради которого проверка существует.
+ */
+export function findReinventedInRewrite(
+	previousContent: string,
+	newContent: string,
+	existingNames: readonly string[],
+): ReinventedName[] {
+	const before = new Set(collectDeclaredNames(previousContent));
+	const introduced = collectDeclaredNames(newContent).filter(name => !before.has(name));
+	if (introduced.length === 0) { return []; }
+	// Синтетический текст из одних объявлений: `findReinventedComponents` разбирает код, а здесь
+	// уже готовый список имён — восстанавливаем форму, которую он умеет читать.
+	const asDeclarations = introduced
+		.map(name => name.startsWith('.') ? `${name} {}` : `export function ${name}() {}`)
+		.join('\n');
+	return findReinventedComponents(asDeclarations, existingNames);
+}

@@ -14,7 +14,7 @@ import { IVibeConstraintsService, ConstraintViolationError } from '../common/vib
 import { IVibeExternalAccessService, ExternalAccessRequiredError, SourceFolderReadOnlyError } from '../common/vibeExternalAccessService.js';
 import { IVibeGitReadService } from '../common/vibeideSCMTypes.js';
 import { buildUiKitDraft, UiKitSourceFile } from '../common/designContext/uiKitDraft.js';
-import { extractReplaceSides, findReinventedComponents, renderReinventedWarning } from '../common/designContext/reinventedComponents.js';
+import { extractReplaceSides, findReinventedComponents, findReinventedInRewrite, renderReinventedWarning } from '../common/designContext/reinventedComponents.js';
 import { touchesUi } from '../common/designReview/designHookPolicy.js';
 import { IVibePromptGuardService } from '../common/vibePromptGuardService.js';
 import { IVibePerFilePermissionsService } from '../common/vibePerFilePermissionsService.js';
@@ -2264,6 +2264,9 @@ export class ToolsService extends Disposable implements IToolsService {
 						}
 					}
 				}
+				// Снимок ДО записи: у перезаписи целого файла нет половины «что добавили», и без него
+				// объявления, прожившие в файле год, выглядели бы только что придуманными.
+				const contentBeforeRewrite = modelForRewrite.getValue();
 				editCodeService.instantlyRewriteFile({ uri, newContent: effectiveContent });
 				// After rewrite we know the exact content — subsequent edit_file does not need a re-read.
 				this._markFileRead(uri, effectiveContent, 'buffer');
@@ -2281,7 +2284,8 @@ export class ToolsService extends Disposable implements IToolsService {
 					const quickFixesApplied = await this._applyFreeQuickFixes(uri);
 					await this._settleQuickFixes(uri, quickFixesApplied, vibeideModelService);
 					const { lintErrors } = this._getLintErrors(uri);
-					return { lintErrors, quickFixesApplied };
+					const reinvented = await this._checkReinventedInRewrite(uri, contentBeforeRewrite, effectiveContent);
+					return { lintErrors, quickFixesApplied, reinvented };
 				});
 				return { result: lintErrorsPromise };
 			},
@@ -3457,7 +3461,9 @@ export class ToolsService extends Disposable implements IToolsService {
 							: ` No lint errors found.`)
 						: '');
 
-				return `Change successfully made to ${params.uri.fsPath}.${quickFixes}${lintErrsString}`;
+				// Как и в edit_file: предупреждение после подтверждения записи, а не вместо него.
+				const reinventedNote = result.reinvented ? `\n\n${result.reinvented}` : '';
+				return `Change successfully made to ${params.uri.fsPath}.${quickFixes}${lintErrsString}${reinventedNote}`;
 			},
 			run_command: (params, result) => {
 				const { resolveReason, result: result_, backgroundId } = result;
@@ -3728,6 +3734,24 @@ export class ToolsService extends Disposable implements IToolsService {
 	 * to fix them. Applied fixes are reported back to the model so a file changing under it is never
 	 * a surprise. Failure is not fatal: the errors simply travel to the model as before.
 	 */
+	/**
+	 * То же для перезаписи файла целиком: сравнивается со снимком ДО записи, поэтому объявления,
+	 * которые в файле уже были, находкой не считаются.
+	 */
+	private async _checkReinventedInRewrite(uri: URI, previousContent: string, newContent: string): Promise<string | undefined> {
+		try {
+			if (!touchesUi([uri.fsPath])) { return undefined; }
+			const { context } = await this.designContextService.read();
+			const names = context.uiKit?.componentNames ?? [];
+			if (names.length === 0) { return undefined; }
+			const found = findReinventedInRewrite(previousContent, newContent, names);
+			return renderReinventedWarning(found, '.vibe/design/uiKit.md') || undefined;
+		} catch {
+			// Проверка вспомогательная: её поломка не должна отменять успешную перезапись.
+			return undefined;
+		}
+	}
+
 	/**
 	 * Предупреждение, если правка объявляет компонент, который в проекте уже есть.
 	 *

@@ -9,6 +9,7 @@ import {
 	collectDeclaredNames,
 	extractReplaceSides,
 	findReinventedComponents,
+	findReinventedInRewrite,
 	normaliseComponentName,
 	renderReinventedWarning,
 } from '../../common/designContext/reinventedComponents.js';
@@ -103,5 +104,35 @@ suite('reinventedComponents — компонент заведён заново',
 		// Такая правка всё равно не применится, но терять уже прочитанное незачем.
 		const blocks = '<<<<<<< ORIGINAL\n.card {}\n=======\n.card-wrapper {}';
 		assert.strictEqual(extractReplaceSides(blocks).trim(), '.card-wrapper {}');
+	});
+
+	test('перезапись: имя, которое в файле уже было, находкой не считается', () => {
+		// Иначе предупреждение сработало бы на каждой второй перезаписи и его перестали бы читать —
+		// вместе с проверкой для edit_file.
+		const before = '.card-wrapper { padding: 8px }';
+		const after = '.card-wrapper { padding: 12px }\n.header {}';
+		assert.deepStrictEqual(findReinventedInRewrite(before, after, existing), []);
+	});
+
+	test('перезапись: имя, появившееся впервые, ловится', () => {
+		const before = '.header {}';
+		const after = '.header {}\n.card-wrapper { padding: 12px }';
+		assert.deepStrictEqual(
+			findReinventedInRewrite(before, after, existing),
+			[{ declared: '.card-wrapper', existing: '.card' }],
+		);
+	});
+
+	test('новый файл проверяется целиком', () => {
+		// Пустой «до» — это создание файла, где всё объявляется впервые: ровно тот случай, ради
+		// которого проверка и существует.
+		assert.deepStrictEqual(
+			findReinventedInRewrite('', 'export function CardBox() { return null }', existing),
+			[{ declared: 'CardBox', existing: '.card' }],
+		);
+	});
+
+	test('перезапись без единого объявления молчит', () => {
+		assert.deepStrictEqual(findReinventedInRewrite('.card {}', 'const x = 1;', existing), []);
 	});
 });
