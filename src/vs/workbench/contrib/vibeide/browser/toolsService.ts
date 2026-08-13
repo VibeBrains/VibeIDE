@@ -14,6 +14,8 @@ import { IVibeConstraintsService, ConstraintViolationError } from '../common/vib
 import { IVibeExternalAccessService, ExternalAccessRequiredError, SourceFolderReadOnlyError } from '../common/vibeExternalAccessService.js';
 import { IVibeGitReadService } from '../common/vibeideSCMTypes.js';
 import { buildUiKitDraft, UiKitSourceFile } from '../common/designContext/uiKitDraft.js';
+import { extractReplaceSides, findReinventedComponents, renderReinventedWarning } from '../common/designContext/reinventedComponents.js';
+import { touchesUi } from '../common/designReview/designHookPolicy.js';
 import { IVibePromptGuardService } from '../common/vibePromptGuardService.js';
 import { IVibePerFilePermissionsService } from '../common/vibePerFilePermissionsService.js';
 import { IVibeIgnoreService } from './vibeIgnoreService.js';
@@ -2381,7 +2383,12 @@ export class ToolsService extends Disposable implements IToolsService {
 					const quickFixesApplied = await this._applyFreeQuickFixes(uri);
 					await this._settleQuickFixes(uri, quickFixesApplied, vibeideModelService);
 					const { lintErrors } = this._getLintErrors(uri);
-					return { lintErrors, indentationNote, quickFixesApplied };
+					// Не изобретён ли компонент заново. Считается по тому, что правка ДОБАВЛЯЕТ, а не
+					// по готовому файлу: на готовом новый `.card-wrapper` неотличим от написанного год
+					// назад. Молчит, когда карты в проекте нет — советовать сверяться с несуществующим
+					// файлом значит учить игнорировать и всё остальное в ответе.
+					const reinvented = await this._checkReinventedComponents(uri, searchReplaceBlocks);
+					return { lintErrors, indentationNote, quickFixesApplied, reinvented };
 				});
 
 				return { result: lintErrorsPromise };
@@ -3437,7 +3444,10 @@ export class ToolsService extends Disposable implements IToolsService {
 						: '');
 
 				const indentNote = result.indentationNote ? `\n${result.indentationNote}` : '';
-				return `Change successfully made to ${params.uri.fsPath}.${quickFixNote(result.quickFixesApplied)}${lintErrsString}${indentNote}`;
+				// Предупреждение идёт ПОСЛЕ подтверждения правки: файл изменён, это факт, и подменять
+				// его тревогой нельзя — иначе агент решит, что правка не прошла, и станет повторять её.
+				const reinventedNote = result.reinvented ? `\n\n${result.reinvented}` : '';
+				return `Change successfully made to ${params.uri.fsPath}.${quickFixNote(result.quickFixesApplied)}${lintErrsString}${indentNote}${reinventedNote}`;
 			},
 			rewrite_file: (params, result) => {
 				const quickFixes = quickFixNote(result.quickFixesApplied);
@@ -3718,6 +3728,28 @@ export class ToolsService extends Disposable implements IToolsService {
 	 * to fix them. Applied fixes are reported back to the model so a file changing under it is never
 	 * a surprise. Failure is not fatal: the errors simply travel to the model as before.
 	 */
+	/**
+	 * Предупреждение, если правка объявляет компонент, который в проекте уже есть.
+	 *
+	 * Только для файлов интерфейса: объявление класса в тесте или в документации ничего не дублирует.
+	 * Из блоков SEARCH/REPLACE берутся только REPLACE-части — SEARCH это то, что было, и объявления
+	 * в нём принадлежат существующему коду.
+	 */
+	private async _checkReinventedComponents(uri: URI, searchReplaceBlocks: string): Promise<string | undefined> {
+		try {
+			if (!touchesUi([uri.fsPath])) { return undefined; }
+			const { context } = await this.designContextService.read();
+			const names = context.uiKit?.componentNames ?? [];
+			if (names.length === 0) { return undefined; }
+			const added = extractReplaceSides(searchReplaceBlocks);
+			const found = findReinventedComponents(added, names);
+			return renderReinventedWarning(found, '.vibe/design/uiKit.md') || undefined;
+		} catch {
+			// Проверка вспомогательная: её поломка не должна отменять успешную правку файла.
+			return undefined;
+		}
+	}
+
 	private async _applyFreeQuickFixes(uri: URI): Promise<string[] | undefined> {
 		if (!(this._configurationService.getValue<boolean>('vibeide.tools.autoQuickFix') ?? true)) {
 			return undefined;

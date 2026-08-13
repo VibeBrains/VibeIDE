@@ -231,7 +231,7 @@ export type BuiltinToolResultType = {
 	'extract_function': { newFunctionCode: string; replacementCode: string; insertLine: number };
 	// ---
 	'rewrite_file': Promise<{ lintErrors: LintErrorItem[] | null; quickFixesApplied?: string[] }>;
-	'edit_file': Promise<{ lintErrors: LintErrorItem[] | null; indentationNote?: string | null; quickFixesApplied?: string[] }>;
+	'edit_file': Promise<{ lintErrors: LintErrorItem[] | null; indentationNote?: string | null; quickFixesApplied?: string[]; /** Предупреждение, если правка заводит компонент, который уже есть в карте UI. */ reinvented?: string }>;
 	'create_file_or_folder': {};
 	'delete_file_or_folder': {};
 	// ---
