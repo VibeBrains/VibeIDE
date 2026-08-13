@@ -26,6 +26,7 @@ import { INotificationService, Severity } from '../../../../../platform/notifica
 import { ISecretStorageService } from '../../../../../platform/secrets/common/secrets.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../../common/contributions.js';
 import { IChatThreadService } from '../../browser/chatThreadService.js';
+import { IVibeideSettingsService } from '../../common/vibeideSettingsService.js';
 import { vibeLog } from '../../common/vibeLog.js';
 import {
 	IVibeHttpApiMain,
@@ -51,6 +52,7 @@ export class VibeHttpApiContribution extends Disposable implements IWorkbenchCon
 		@ISecretStorageService private readonly _secrets: ISecretStorageService,
 		@IChatThreadService private readonly _chatThreadService: IChatThreadService,
 		@INotificationService private readonly _notifications: INotificationService,
+		@IVibeideSettingsService private readonly _settings: IVibeideSettingsService,
 	) {
 		super();
 		this._main = ProxyChannel.toService<IVibeHttpApiMain>(mainProcessService.getChannel(VIBE_HTTP_API_CHANNEL));
@@ -104,6 +106,13 @@ export class VibeHttpApiContribution extends Disposable implements IWorkbenchCon
 				this._chatThreadService.switchToThread(known);
 			} else {
 				this._chatThreadService.openNewThread();
+			}
+			// Внешний вызов работает в агентском режиме. Режим — глобальная настройка ОКНА, поэтому
+			// без этого задача из CI выполнялась бы в том режиме, в каком человек оставил интерфейс:
+			// в «Обзоре» и «Плане» инструменты правки вообще не выдаются модели, и запрос «поправь
+			// файл» завершался бы рассказом о том, что таких инструментов нет. Найдено живым смоуком.
+			if (this._settings.state.globalSettings.chatMode !== 'agent') {
+				await this._settings.setGlobalSetting('chatMode', 'agent');
 			}
 			const threadId = this._chatThreadService.getCurrentThread().id;
 			const streamed = this._chatThreadService.addUserMessageAndStreamResponse({
