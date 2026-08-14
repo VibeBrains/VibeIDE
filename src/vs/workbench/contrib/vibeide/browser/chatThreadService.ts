@@ -74,7 +74,6 @@ import { chatLatencyAudit } from '../common/chatLatencyAudit.js';
 import { suggestAlternateTool as suggestAlternateToolPure } from '../common/toolSchemaSuggest.js';
 import { IEditRiskScoringService, EditContext, EditRiskScore } from '../common/editRiskScoringService.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
-import { TextEdit } from '../../../../editor/common/core/edits/textEdit.js';
 import { toAction } from '../../../../base/common/actions.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { localize } from '../../../../nls.js';
@@ -4007,7 +4006,6 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		let uri: URI;
 		let originalContent: string | undefined;
 		let newContent: string | undefined;
-		let textEdits: TextEdit[] | undefined;
 		let operation: EditContext['operation'];
 
 		// Get URI and operation type
@@ -4087,42 +4085,16 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			// Ignore errors
 		}
 
-		// Get model selection from thread state (if available)
-		// Model selection is stored in the thread's last assistant message or stream state
-		let modelSelection: ModelSelection | undefined;
-		try {
-			const thread = this.state.allThreads[threadId];
-			if (thread) {
-				// Try to get from the most recent assistant message that has model selection
-				for (let i = thread.messages.length - 1; i >= 0; i--) {
-					const msg = thread.messages[i];
-					// `modelSelection` is not part of the assistant message type but may be present
-					// at runtime on legacy/persisted threads — read it defensively without widening.
-					if (msg.role === 'assistant' && Object.hasOwn(msg, 'modelSelection')) {
-						modelSelection = (msg as { modelSelection?: ModelSelection }).modelSelection;
-						break;
-					}
-				}
-			}
-		} catch {
-			// Ignore errors
-		}
-
-		// Count total files in operation (simplified - assume 1 for now)
-		// In a real implementation, we'd track batched operations
+		// Один вызов инструмента правит один файл, поэтому единица здесь — честное значение, а не
+		// заглушка. Признак заведён под батч правок, которого в текущем протоколе нет.
 		const totalFilesInOperation = 1;
 
 		return {
 			uri,
 			originalContent,
 			newContent,
-			textEdits,
 			operation,
 			fileWasRead,
-			modelSelection: modelSelection ? {
-				providerName: modelSelection.providerName,
-				modelName: modelSelection.modelName,
-			} : undefined,
 			totalFilesInOperation,
 		};
 	}
