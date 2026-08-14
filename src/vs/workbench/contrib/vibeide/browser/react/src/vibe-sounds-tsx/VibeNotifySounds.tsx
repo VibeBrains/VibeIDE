@@ -322,7 +322,11 @@ export const VibeNotifySounds: React.FC = () => {
 
 	return (
 		<VibeModalForm open={open} title={notifyS.modalTitle} onClose={close} defaultWidth={680} defaultHeight={620}>
-			<div className='@@vibe-scope flex flex-col gap-5'>
+			{/* Классов оформления на корне со `@@vibe-scope` быть не может: правила генерируются
+			    как `.vibe-scope .vibe-flex`, то есть для потомков, и на самом корне не срабатывают.
+			    Раскладка живёт на внутренней обёртке. */}
+			<div className='@@vibe-scope'>
+				<div className='flex flex-col gap-5'>
 				{/* Sound list */}
 				<div>
 					<h3 className='text-base font-medium text-vibe-fg-1 mb-2'>{notifyS.soundTitle}</h3>
@@ -392,6 +396,7 @@ export const VibeNotifySounds: React.FC = () => {
 							</div>
 						</>
 					)}
+				</div>
 				</div>
 			</div>
 		</VibeModalForm>

@@ -91,25 +91,25 @@ function describeOutcome(run: AgentRunRecord): string | undefined {
 // ── Presentational pieces ─────────────────────────────────────────────────────
 
 const Label = ({ children }: { children: React.ReactNode }) =>
-	<div className='text-[10px] uppercase tracking-[0.12em] text-vibe-fg-3'>{children}</div>;
+	<div className='text-root uppercase tracking-[0.12em] text-vibe-fg-2'>{children}</div>;
 
 const Cell = ({ label, value, hint }: { label: string; value: string; hint?: string }) =>
 	<div className='rounded-md border border-vibe-border-4 bg-vibe-bg-1 px-3 py-2'>
 		<Label>{label}</Label>
-		<div className='mt-0.5 text-sm text-vibe-fg-1 truncate' title={value}>{value}</div>
-		{hint && <div className='mt-0.5 text-[10px] text-vibe-fg-3 truncate' title={hint}>{hint}</div>}
+		<div className='mt-0.5 text-root text-vibe-fg-1 truncate' title={value}>{value}</div>
+		{hint && <div className='mt-0.5 text-root text-vibe-fg-2 truncate' title={hint}>{hint}</div>}
 	</div>;
 
 const StatusPill = ({ status }: { status: AgentRunStatus }) =>
-	<span className='inline-flex items-center gap-1.5 rounded-full border border-vibe-border-3 px-2 py-0.5 text-xs text-vibe-fg-2'>
+	<span className='inline-flex items-center gap-1.5 rounded-full border border-vibe-border-3 px-2 py-0.5 text-root text-vibe-fg-2'>
 		<span className='inline-block size-1.5 rounded-full' style={{ background: STATUS_COLORS[status] }} />
 		{STATUS_NAMES[status]}
 	</span>;
 
 const AttentionTile = ({ label, count }: { label: string; count: number }) =>
 	<div className='flex items-center justify-between rounded-md border border-vibe-border-4 bg-vibe-bg-1 px-3 py-2'>
-		<span className='text-xs text-vibe-fg-2'>{label}</span>
-		<span className={`text-sm tabular-nums ${count > 0 ? 'text-vibe-fg-0' : 'text-vibe-fg-3'}`}>{count}</span>
+		<span className='text-root text-vibe-fg-2'>{label}</span>
+		<span className={`text-root tabular-nums ${count > 0 ? 'text-vibe-fg-0' : 'text-vibe-fg-2'}`}>{count}</span>
 	</div>;
 
 const RunCard = ({ run }: { run: AgentRunRecord }) => {
@@ -140,12 +140,12 @@ const RunCard = ({ run }: { run: AgentRunRecord }) => {
 
 		{files.length > 0 && <div className='mt-3'>
 			<Label>Файлы</Label>
-			<div className='mt-1 font-mono text-[11px] text-vibe-fg-2 break-all'>{files.join(', ')}</div>
+			<div className='mt-1 font-mono text-root text-vibe-fg-2 break-all'>{files.join(', ')}</div>
 		</div>}
 
 		<div className='mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-vibe-border-4 pt-2'>
-			<span className='font-mono text-[11px] text-vibe-fg-4'>{run.runId}</span>
-			<div className='flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-vibe-fg-3'>
+			<span className='font-mono text-root text-vibe-fg-2'>{run.runId}</span>
+			<div className='flex flex-wrap items-center gap-x-3 gap-y-1 text-root text-vibe-fg-2'>
 				{run.replayOfRunId && <span title={`повтор прогона ${run.replayOfRunId}`}>повтор</span>}
 				{run.resumeReason && <span>{`продолжен на новом основании: ${sessionMismatchToRussian(run.resumeReason as AgentSessionMismatch)}`}</span>}
 				{outcome && <span>{outcome}</span>}
@@ -205,25 +205,32 @@ export const AgentsDispatch = () => {
 	// `@@vibe-scope` is mandatory: scope-tailwind wraps every generated rule in `.vibe-scope`,
 	// so a React root without it renders completely unstyled — the markup is right, the CSS
 	// simply never matches. `dark` drives Tailwind's selector-based dark mode.
-	return <div className={`@@vibe-scope ${isDark ? 'dark' : ''} h-full w-full overflow-y-auto bg-vibe-bg-1 px-6 py-5 text-vibe-fg-1`}>
-		<div className='mx-auto flex max-w-5xl flex-col gap-4'>
+	//
+	// The root carries NO utility classes. Rules are generated as `.vibe-scope .vibe-px-6`, i.e.
+	// for DESCENDANTS, so anything put here silently does nothing — measured: `padding: 0px`
+	// while `px-6 py-5` was declared. Sizing and background go through inline style; the rest
+	// lives on the inner wrapper.
+	return <div
+		className={`@@vibe-scope ${isDark ? 'dark' : ''}`}
+		style={{ height: '100%', width: '100%', overflowY: 'auto', background: 'var(--vibe-bg-1)' }}
+	>
+		<div className='mx-auto flex max-w-5xl flex-col gap-4 px-8 py-8 text-vibe-fg-1'>
 
 			<div className='flex items-end justify-between gap-4'>
 				<div>
-					<Label>Агенты</Label>
-					<h1 className='text-2xl font-semibold text-vibe-fg-0'>Диспетчерская</h1>
-					<div className='mt-0.5 text-sm text-vibe-fg-3'>Кто что делает и что сделал</div>
+					<h1 className='text-4xl font-semibold text-vibe-fg-0'>Диспетчерская агентов</h1>
+					<div className='mt-0.5 text-root text-vibe-fg-2'>Кто что делает и что сделал</div>
 				</div>
 				<div className='flex items-center gap-2'>
 					<button
-						className='rounded-md border border-vibe-border-3 px-3 py-1.5 text-xs text-vibe-fg-2 hover:bg-vibe-bg-2-hover'
+						className='rounded-md border border-vibe-border-3 px-3 py-1.5 text-root text-vibe-fg-1 transition-colors hover:bg-vibe-bg-2-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-vibe-border-1'
 						title='Показать, что агенту или роли будет разрешено — ничего не запуская'
 						onClick={() => void accessor.get('ICommandService').executeCommand('vibeide.agents.preflight')}
 					>
 						Проверить запуск
 					</button>
 					<button
-						className='rounded-md border border-vibe-border-3 px-3 py-1.5 text-xs text-vibe-fg-2 hover:bg-vibe-bg-2-hover'
+						className='rounded-md border border-vibe-border-3 px-3 py-1.5 text-root text-vibe-fg-1 transition-colors hover:bg-vibe-bg-2-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-vibe-border-1'
 						onClick={() => void reload()}
 					>
 						Обновить
@@ -231,8 +238,8 @@ export const AgentsDispatch = () => {
 				</div>
 			</div>
 
-			{!enabled && <div className='rounded-md border border-vibe-border-3 bg-vibe-bg-2 px-3 py-2 text-sm text-vibe-warning'>
-				Журнал прогонов выключен (<span className='font-mono text-[11px]'>vibeide.agents.ledger.enable</span>). Новые прогоны не записываются — список показывает только то, что было записано раньше.
+			{!enabled && <div className='rounded-md border border-vibe-border-3 bg-vibe-bg-2 px-3 py-2 text-root text-vibe-warning'>
+				Журнал прогонов выключен (<span className='font-mono text-root'>vibeide.agents.ledger.enable</span>). Новые прогоны не записываются — список показывает только то, что было записано раньше.
 			</div>}
 
 			<div className='grid grid-cols-1 gap-2 sm:grid-cols-3'>
@@ -245,35 +252,41 @@ export const AgentsDispatch = () => {
 				{(Object.keys(FILTER_NAMES) as RunFilter[]).map(key =>
 					<button
 						key={key}
-						className={`rounded-full border px-3 py-1 text-xs transition-colors ${filter === key
+						className={`rounded-full border px-3 py-1 text-root transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-vibe-border-1 ${filter === key
 							? 'border-vibe-border-1 bg-vibe-bg-2 text-vibe-fg-0'
-							: 'border-vibe-border-4 text-vibe-fg-3 hover:text-vibe-fg-1'}`}
+							: 'border-vibe-border-4 text-vibe-fg-2 hover:text-vibe-fg-1'}`}
 						onClick={() => setFilter(key)}
 					>
 						{FILTER_NAMES[key]}
 					</button>
 				)}
-				<input
-					className='ml-auto w-56 rounded-md border border-vibe-border-3 bg-vibe-bg-1 px-3 py-1.5 text-xs text-vibe-fg-1 placeholder:text-vibe-fg-4'
-					placeholder='Цель, роль или модель'
-					value={query}
-					onChange={e => setQuery(e.target.value)}
-				/>
+				<label className='ml-auto flex items-center gap-2 text-root text-vibe-fg-2' htmlFor='vibe-dispatch-search'>
+					Поиск
+					<input
+						id='vibe-dispatch-search'
+						className='w-56 rounded-md border border-vibe-border-3 bg-vibe-bg-1 px-3 py-1.5 text-root text-vibe-fg-1 placeholder:text-vibe-fg-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-vibe-border-1'
+						placeholder='Цель, роль или модель'
+						value={query}
+						onChange={e => setQuery(e.target.value)}
+					/>
+				</label>
 			</div>
 
 			{visible.length === 0
-				? <div className='rounded-lg border border-dashed border-vibe-border-3 px-4 py-10 text-center text-sm text-vibe-fg-3'>
+				? <div className='rounded-lg border border-dashed border-vibe-border-3 mx-auto max-w-[70ch] px-4 py-10 text-center text-root text-vibe-fg-2'>
 					{!loaded
 						? 'Читаю журнал…'
 						: runs.length === 0
-							? 'Прогонов ещё не было. Здесь появится каждый запуск роли — и пока он работает, и после того как закончил.'
+							// Неразрывные пробелы после коротких слов: иначе «и», «он», «как» повисают
+						// в конце строки — то самое, что наш же детектор считает дефектом набора.
+						? 'Прогонов ещё не было. Здесь появится каждый запуск роли — и пока он работает, и после того как закончил.'
 							: 'Под фильтр ничего не подошло.'}
 				</div>
 				: <div className='flex flex-col gap-3'>
 					{visible.map(run => <RunCard key={run.runId} run={run} />)}
 				</div>}
 
-			<div className='pt-1 text-center text-xs text-vibe-fg-4'>
+			<div className='mx-auto max-w-[70ch] pt-1 text-center text-root text-vibe-fg-2'>
 				{`Всего прогонов: ${formatCount(summary.total)} · токенов израсходовано: ${formatCount(summary.tokensTotal)}. `}
 				В журнал попадают только метаданные прогона — переписка с моделью, промпты и аргументы инструментов в него не пишутся.
 			</div>
