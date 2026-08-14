@@ -11,6 +11,7 @@ export default defineConfig({
 		'./src2/sidebar-tsx/index.tsx',
 		'./src2/vibe-settings-tsx/index.tsx',
 		'./src2/vibe-agents-tsx/index.tsx',
+		'./src2/vibe-external-agents-tsx/index.tsx',
 		'./src2/vibe-tooltip/index.tsx',
 		'./src2/vibe-onboarding/index.tsx',
 		'./src2/quick-edit-tsx/index.tsx',
