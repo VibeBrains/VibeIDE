@@ -32,6 +32,10 @@ import { VibeWindowAttentionMainService } from './vibeWindowAttentionMainService
 import { VIBE_WINDOW_ATTENTION_CHANNEL } from '../common/vibeWindowAttentionIpc.js';
 import { VibeTelegramMainService } from './telegram/vibeTelegramMainService.js';
 import { VIBE_TELEGRAM_CHANNEL } from '../common/telegram/vibeTelegramTypes.js';
+import { join } from '../../../../base/common/path.js';
+import { VibeClaudeCodeMainService } from './claudeCode/vibeClaudeCodeMainService.js';
+import { CLAUDE_SDK_DIR } from '../common/claudeCode/claudeCodeProvision.js';
+import { VIBE_CLAUDE_CODE_CHANNEL } from '../common/claudeCode/vibeClaudeCodeTypes.js';
 import { VibeHttpApiMainService } from './httpApi/vibeHttpApiMainService.js';
 import { VIBE_HTTP_API_CHANNEL } from '../common/httpApi/vibeHttpApiTypes.js';
 import { VIBE_HOOKS_CHANNEL } from '../common/hooks/vibeHookTypes.js';
@@ -196,6 +200,16 @@ export function registerVibeideMainProcessChannels(
 	mainProcessElectronServer.registerChannel(
 		VIBE_TELEGRAM_CHANNEL,
 		ProxyChannel.fromService(telegramService, disposables),
+	);
+
+	// Claude Code bridge: one per application, like the poller above. The SDK is not bundled — it
+	// carries its own copy of Claude Code, so it is installed once into user data on first use.
+	const claudeCodeService = disposables.add(new VibeClaudeCodeMainService(
+		join(accessor.get(IEnvironmentMainService).userDataPath, CLAUDE_SDK_DIR),
+	));
+	mainProcessElectronServer.registerChannel(
+		VIBE_CLAUDE_CODE_CHANNEL,
+		ProxyChannel.fromService(claudeCodeService, disposables),
 	);
 
 	// Incoming HTTP API: the listener belongs to the main process for the same reason as the

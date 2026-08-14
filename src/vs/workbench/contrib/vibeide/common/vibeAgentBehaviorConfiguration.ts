@@ -133,6 +133,34 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			maximum: 1800000,
 			description: localize('vibeide.agent.optimize.timeoutMs', 'Бюджет времени на один замер. Одинаковый для всех попыток намеренно: без фиксированного бюджета выигрыш приходит от более долгого прогона, а не от лучшего решения, и попытки перестают быть сравнимыми. По истечении замер прерывается и считается несостоявшимся.'),
 		},
+		'vibeide.claudeCode.permissionMode': {
+			type: 'string',
+			enum: ['default', 'plan', 'acceptEdits'],
+			default: 'default',
+			enumDescriptions: [
+				localize('vibeide.claudeCode.mode.default', 'Спрашивать про каждое действие, кроме разрешённых списком.'),
+				localize('vibeide.claudeCode.mode.plan', 'Только изучать и предлагать план; правки не выполняются без подтверждения.'),
+				localize('vibeide.claudeCode.mode.acceptEdits', 'Правки файлов в рабочей папке без вопроса; команды по-прежнему спрашиваются.'),
+			],
+			description: localize('vibeide.claudeCode.permissionMode', 'Мост Claude Code: режим разрешений для задач, запущенных с телефона. Режим `bypassPermissions` намеренно недоступен — он снимает подтверждения целиком, а ради них мост и сделан.'),
+		},
+		'vibeide.claudeCode.allowedTools': {
+			type: 'array',
+			items: { type: 'string' },
+			default: [],
+			description: localize('vibeide.claudeCode.allowedTools', 'Мост Claude Code: инструменты, разрешённые без подтверждения (например `Read`, `Grep`). Имя без уточнения разрешает ВСЕ вызовы инструмента — подтверждение по нему больше не придёт никогда.'),
+		},
+		'vibeide.claudeCode.disallowedTools': {
+			type: 'array',
+			items: { type: 'string' },
+			default: [],
+			description: localize('vibeide.claudeCode.disallowedTools', 'Мост Claude Code: инструменты, запрещённые полностью. Запись вида `Bash(rm *)` запрещает только совпадающие вызовы, оставляя остальные.'),
+		},
+		'vibeide.claudeCode.mirrorReadOnly': {
+			type: 'boolean',
+			default: false,
+			description: localize('vibeide.claudeCode.mirrorReadOnly', 'Мост Claude Code: присылать подтверждения и на читающие инструменты (`Read`, `Grep`, `Glob`). По умолчанию выключено: поток подтверждений на чтение приучает нажимать «Разрешить» не глядя, и это опаснее, чем не спрашивать вовсе.'),
+		},
 		'vibeide.coupling.historyDays': {
 			type: 'number',
 			default: 365,

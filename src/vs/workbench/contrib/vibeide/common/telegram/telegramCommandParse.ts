@@ -19,6 +19,12 @@ export type VibeTelegramCommand =
 	| { readonly kind: 'digest' }
 	| { readonly kind: 'use'; readonly project: string }
 	| { readonly kind: 'run'; readonly prompt: string }
+	/** Задача Claude Code вместо агента VibeIDE. */
+	| { readonly kind: 'claude'; readonly prompt: string }
+	/** Прервать прогон Claude Code. */
+	| { readonly kind: 'claudeStop' }
+	/** Состояние моста Claude Code, включая поставку SDK. */
+	| { readonly kind: 'claudeStatus' }
 	| { readonly kind: 'empty' };
 
 /**
@@ -59,6 +65,11 @@ export function parseTelegramCommand(rawText: string): VibeTelegramCommand {
 		case '/digest': return { kind: 'digest' };
 		case '/use': return { kind: 'use', project: rest };
 		case '/run': return rest ? { kind: 'run', prompt: rest } : { kind: 'empty' };
+		// Claude Code — отдельный исполнитель, поэтому отдельная команда: без неё нельзя было бы
+		// выбрать, кто делает задачу, а два агента в одном чате различаются только этим.
+		case '/cc': return rest ? { kind: 'claude', prompt: rest } : { kind: 'empty' };
+		case '/cc_stop': return { kind: 'claudeStop' };
+		case '/cc_status': return { kind: 'claudeStatus' };
 		// An unknown slash-word is still a task, not an error: "/etc/hosts не читается" is a
 		// sentence, and answering "unknown command" to it would be pedantic and useless.
 		default: return { kind: 'run', prompt: text };

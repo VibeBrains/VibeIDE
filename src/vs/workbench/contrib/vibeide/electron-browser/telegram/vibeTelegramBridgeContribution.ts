@@ -28,6 +28,8 @@ import { parseTelegramCommand, resolveProjectChoice } from '../../common/telegra
 import { generatePairingCode } from '../../common/telegram/telegramPairing.js';
 import { resolveVoiceProfile } from '../../common/voice/vibeVoiceModels.js';
 import { escapeTelegramHtml, formatProgressLine, formatToolRequestPreview, markdownToTelegramHtml, splitForTelegram } from '../../common/telegram/telegramFormat.js';
+import { IVibeClaudeCodeMain, VIBE_CLAUDE_CODE_CHANNEL, type ClaudeRunEvent } from '../../common/claudeCode/vibeClaudeCodeTypes.js';
+import { describeSdkStatus } from '../../common/claudeCode/claudeCodeProvision.js';
 import { shouldMirrorApproval, VibeTelegramApprovalPolicy } from '../../common/telegram/telegramApprovalPolicy.js';
 import { approvalTypeOfBuiltinToolName } from '../../common/prompt/tools/index.js';
 import {
@@ -75,6 +77,16 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 	private readonly _approvalTimers = this._register(new DisposableStore());
 	private _approvalCounter = 0;
 	private _windowId: number | undefined;
+	/** Мост Claude Code: живёт в main-процессе, как и телеграм-поллер. */
+	private readonly _claude: IVibeClaudeCodeMain;
+	/** Подтверждения Claude Code: токен кнопки → запрос, который ждёт ответа. */
+	private readonly _claudeApprovals = new Map<string, { requestId: string; chatId: number; messageId?: number }>();
+	/** Чаты, чьё следующее сообщение — правка отклонённого действия Claude Code. */
+	private readonly _claudeAmendOf = new Map<number, string>();
+	/** Идущие прогоны Claude Code по чатам: чат → прогон и сообщение прогресса. */
+	private readonly _claudeRuns = new Map<number, { runId: string; messageId?: number }>();
+	/** Последняя сессия Claude Code в чате — чтобы следующая задача продолжала работу. */
+	private readonly _claudeSession = new Map<number, string>();
 
 	constructor(
 		@IMainProcessService mainProcessService: IMainProcessService,
@@ -102,6 +114,8 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		}));
 		this._register(this._main.onDidRequestBinding(e => void this._askToBind(e.chatId, e.from)));
 		this._register(this._main.onDidAnswerApproval(e => void this._onApprovalAnswered(e.token, e.decision, e.chatId)));
+		this._claude = ProxyChannel.toService<IVibeClaudeCodeMain>(mainProcessService.getChannel(VIBE_CLAUDE_CODE_CHANNEL));
+		this._register(this._claude.onEvent(e => void this._onClaudeEvent(e)));
 		this._register(this._chatThreadService.onDidChangeStreamState(e => void this._onStreamStateChanged(e.threadId)));
 		this._register(this._configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration(VibeTelegramConfigKeys.section)) {
@@ -242,6 +256,12 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		// A correction promised after "✏️ Поправить" goes into the thread that was refused, so the
 		// agent still knows what it was denied. Commands stay commands — `/stop` must work even
 		// while a correction is expected, or a wrong run could not be stopped from the phone.
+		const claudeAmendRequest = this._claudeAmendOf.get(chatId);
+		if (claudeAmendRequest !== undefined && command.kind === 'run') {
+			this._claudeAmendOf.delete(chatId);
+			await this._claude.answerApproval(claudeAmendRequest, 'amend', command.prompt);
+			return;
+		}
 		const amendThreadId = this._awaitingAmendment.get(chatId);
 		if (amendThreadId !== undefined && command.kind === 'run') {
 			this._awaitingAmendment.delete(chatId);
@@ -276,7 +296,123 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			case 'run':
 				await this._run(chatId, command.prompt);
 				return;
+			case 'claude':
+				await this._runClaude(chatId, command.prompt);
+				return;
+			case 'claudeStop':
+				await this._stopClaude(chatId);
+				return;
+			case 'claudeStatus':
+				await this._reply(chatId, describeSdkStatus(await this._claude.status()));
+				return;
 		}
+	}
+
+	/**
+	 * Запустить задачу в Claude Code.
+	 *
+	 * Рабочая папка берётся у ОКНА, к которому привязан чат, и передаётся явно: агент с телефона
+	 * получает доступ к файлам, и «он работал не в той папке» — самый дорогой сюрприз этого моста.
+	 */
+	private async _runClaude(chatId: number, prompt: string): Promise<void> {
+		const status = await this._claude.status();
+		if (status.state === 'missing') {
+			await this._reply(chatId, `${describeSdkStatus(status)}\n\nСтавлю — это разовая операция, займёт минуту.`);
+			const installed = await this._claude.install();
+			if (installed.state !== 'ready') {
+				await this._reply(chatId, describeSdkStatus(installed));
+				return;
+			}
+		} else if (status.state !== 'ready') {
+			await this._reply(chatId, describeSdkStatus(status));
+			return;
+		}
+
+		const folder = this._workspaceService.getWorkspace().folders[0]?.uri.fsPath;
+		if (!folder) {
+			await this._reply(chatId, 'В этом окне не открыта папка — Claude Code негде работать. Откройте проект или переключитесь командой /use.');
+			return;
+		}
+		if (this._claudeRuns.has(chatId)) {
+			await this._reply(chatId, 'Прогон Claude Code уже идёт. Дождитесь его или остановите: /cc_stop');
+			return;
+		}
+
+		const config = this._configurationService;
+		try {
+			const handle = await this._claude.start({
+				task: prompt,
+				cwd: folder,
+				resumeSessionId: this._claudeSession.get(chatId),
+				permissionMode: config.getValue<'default' | 'plan' | 'acceptEdits'>('vibeide.claudeCode.permissionMode') ?? 'default',
+				allowedTools: config.getValue<string[]>('vibeide.claudeCode.allowedTools') ?? undefined,
+				disallowedTools: config.getValue<string[]>('vibeide.claudeCode.disallowedTools') ?? undefined,
+				mirrorReadOnly: config.getValue<boolean>('vibeide.claudeCode.mirrorReadOnly') === true,
+			});
+			const delivered = await this._main.send({ chatId, text: markdownToTelegramHtml(`🤖 Claude Code взял задачу в \`${folder}\``) });
+			this._claudeRuns.set(chatId, { runId: handle.runId, messageId: delivered.messageId });
+		} catch (err) {
+			await this._reply(chatId, `Не удалось запустить Claude Code: ${err instanceof Error ? err.message : String(err)}`);
+		}
+	}
+
+	private async _stopClaude(chatId: number): Promise<void> {
+		const run = this._claudeRuns.get(chatId);
+		if (!run) {
+			await this._reply(chatId, 'Прогонов Claude Code нет.');
+			return;
+		}
+		await this._claude.stop(run.runId);
+		this._claudeRuns.delete(chatId);
+		await this._reply(chatId, '⛔️ Прогон Claude Code остановлен.');
+	}
+
+	/** Чат, которому принадлежит прогон. Прогон один на чат, поэтому обратный поиск дёшев. */
+	private _chatOfClaudeRun(runId: string): number | undefined {
+		for (const [chatId, run] of this._claudeRuns) {
+			if (run.runId === runId) { return chatId; }
+		}
+		return undefined;
+	}
+
+	private async _onClaudeEvent(event: ClaudeRunEvent): Promise<void> {
+		if (event.kind === 'approval') {
+			const chatId = this._chatOfClaudeRun(event.approval.runId);
+			if (chatId === undefined) { return; }
+			const token = `c${++this._approvalCounter}`;
+			const delivered = await this._main.send({
+				chatId,
+				text: markdownToTelegramHtml(event.approval.card),
+				approval: { token },
+			});
+			// Таймера здесь нет намеренно, в отличие от подтверждений агента IDE: владелец выбрал
+			// ждать сколько угодно. Отказ по таймауту означал бы, что Claude Code пошёл обходным
+			// путём, пока человек был за рулём, — и узнал бы он об этом постфактум.
+			this._claudeApprovals.set(token, { requestId: event.approval.requestId, chatId, messageId: delivered.messageId });
+			return;
+		}
+
+		const chatId = this._chatOfClaudeRun(event.runId);
+		if (chatId === undefined) { return; }
+
+		if (event.kind === 'text') {
+			const run = this._claudeRuns.get(chatId)!;
+			const delivered = await this._main.send({
+				chatId,
+				text: markdownToTelegramHtml(event.text),
+				editMessageId: run.messageId,
+			});
+			if (!run.messageId && delivered.messageId) { run.messageId = delivered.messageId; }
+			return;
+		}
+		if (event.kind === 'done') {
+			if (event.sessionId) { this._claudeSession.set(chatId, event.sessionId); }
+			this._claudeRuns.delete(chatId);
+			await this._reply(chatId, event.result ? `✅ Готово.\n\n${event.result}` : '✅ Claude Code закончил.');
+			return;
+		}
+		this._claudeRuns.delete(chatId);
+		await this._reply(chatId, `❌ Claude Code упал: ${event.error}`);
 	}
 
 	private async _replyProjects(chatId: number): Promise<void> {
@@ -496,6 +632,21 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 
 	/** Answer from the phone: a tap on one of the three buttons, or the timeout acting as a refusal. */
 	private async _onApprovalAnswered(token: string, decision: VibeTelegramApprovalDecision, chatId: number | undefined, byTimeout = false): Promise<void> {
+		const claudePending = this._claudeApprovals.get(token);
+		if (claudePending) {
+			if (chatId !== undefined && chatId !== claudePending.chatId) { return; }
+			this._claudeApprovals.delete(token);
+			if (decision === 'amend') {
+				// Ответ уходит не сейчас, а следующим сообщением владельца: правка без указания
+				// отправила бы агента гадать, что именно нужно вместо отклонённого действия.
+				this._claudeAmendOf.set(claudePending.chatId, claudePending.requestId);
+				await this._reply(claudePending.chatId, '✏️ Отклонено. Напиши или наговори, что сделать вместо этого.');
+				return;
+			}
+			await this._claude.answerApproval(claudePending.requestId, decision === 'approve' ? 'approve' : 'reject');
+			await this._reply(claudePending.chatId, decision === 'approve' ? '✅ Разрешено.' : '⛔️ Отклонено.');
+			return;
+		}
 		const pending = this._pendingApprovals.get(token);
 		if (!pending || (chatId !== undefined && chatId !== pending.chatId)) {
 			return;
@@ -577,6 +728,11 @@ const HELP_TEXT = [
 	'• /stop — остановить прогон',
 	'• /menu — пульт с кнопками',
 	'• /digest — что агенты сделали за сутки',
+	'',
+	'Claude Code (отдельный исполнитель):',
+	'• /cc <задача> — поставить задачу Claude Code',
+	'• /cc_stop — остановить его прогон',
+	'• /cc_status — состояние моста и SDK',
 ].join('\n');
 
 registerWorkbenchContribution2(VibeTelegramBridgeContribution.ID, VibeTelegramBridgeContribution, WorkbenchPhase.AfterRestored);
