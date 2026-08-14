@@ -161,6 +161,40 @@ export type DocumentSnapshot = {
 	elements: ElementSnapshot[];
 	/** Headings in document order, for hierarchy checks. */
 	headings: { tag: string; text: string; fontSizePx: number }[];
+	/**
+	 * Что страница сообщает о себе поисковику и мессенджеру.
+	 *
+	 * Необязательно намеренно: снимки, снятые прежними сборщиками, и страницы, до `<head>` которых
+	 * не добрались, должны читаться дальше. Отсутствие поля означает «не измеряли», и правила
+	 * молчат — в отличие от пустой строки, которая означает «измерили, там пусто».
+	 */
+	seo?: SeoSnapshot;
+};
+
+/** Метаданные документа, которые не видно на скриншоте, но по ним страницу находят. */
+export type SeoSnapshot = {
+	title: string;
+	metaDescription: string;
+	/** Значение `<html lang>`. */
+	htmlLang: string;
+	/** `href` канонической ссылки как он записан — относительность проверяют правила. */
+	canonical: string;
+	/** Содержимое `<meta name="robots">`, в нижнем регистре. */
+	robots: string;
+	/** Есть ли `<meta name="viewport">`. */
+	hasViewportMeta: boolean;
+	/** Открытый граф: то, что увидят в мессенджере при отправке ссылки. */
+	ogTitle: string;
+	ogDescription: string;
+	ogImage: string;
+	/** Сколько блоков JSON-LD на странице и сколько из них не разбираются как JSON. */
+	jsonLdCount: number;
+	jsonLdBroken: number;
+	/** Типы `@type` из разобранных блоков — по ним видно, что страница о себе заявляет. */
+	jsonLdTypes: string[];
+	/** Картинки без атрибута `alt` вообще (пустой alt — законное «декоративная»). */
+	imagesWithoutAlt: number;
+	imagesTotal: number;
 };
 
 export type Severity = 'error' | 'warning' | 'info';

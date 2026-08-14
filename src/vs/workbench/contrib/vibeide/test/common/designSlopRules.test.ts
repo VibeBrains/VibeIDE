@@ -306,7 +306,8 @@ suite('designSlopRules', () => {
 		// printed function count next to an id split once, and arithmetic nobody trusts followed.
 		assert.deepStrictEqual(
 			[RULE_COUNT > 0, ALL_RULE_IDS.length, ALL_RULE_IDS.length >= RULE_COUNT],
-			[true, 65, true],
+			// 65 + 13 правил находимости (категория `seo`, добавлена 14.08.2026).
+			[true, 78, true],
 		);
 	});
 

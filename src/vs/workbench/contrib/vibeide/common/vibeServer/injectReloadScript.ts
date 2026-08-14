@@ -191,8 +191,24 @@ export function buildReloadClientScript(wsPath: string): string {
 		'hasPlaceholder:!!(el.getAttribute("placeholder")||"").trim(),hasAltAttribute:el.hasAttribute("alt"),',
 		'ariaInvalid:el.getAttribute("aria-invalid")==="true",describedByText:dsDescribedBy(el),',
 		'isRequiredField:el.hasAttribute("required")||el.getAttribute("aria-required")==="true"});}',
+		// SEO-часть снимка: то, чего не видно на скриншоте, но по чему страницу находят. Собирается
+		// здесь же, потому что страница и так измеряется — второй проход стоил бы ещё одной
+		// перезагрузки, а `<head>` от прогона к прогону не меняется.
+		'var dsMeta=function(sel,attr){var n=document.querySelector(sel);return n?String(n.getAttribute(attr)||"").trim():"";};',
+		'var dsLd=function(){var r={n:0,broken:0,types:[]};var ns=document.querySelectorAll(\'script[type="application/ld+json"]\');',
+		'for(var i=0;i<ns.length;i++){r.n++;try{var p=JSON.parse(ns[i].textContent||"");var arr=Array.isArray(p)?p:[p];',
+		'for(var j=0;j<arr.length;j++){var t=arr[j]&&arr[j]["@type"];if(t){r.types.push(String(t));}}}catch(e){r.broken++;}}return r;};',
+		'var dsImgs=function(){var im=document.images||[];var no=0;for(var i=0;i<im.length;i++){if(!im[i].hasAttribute("alt")){no++;}}return {total:im.length,noAlt:no};};',
+		'var dsL=dsLd();var dsI=dsImgs();',
 		'post({__vibeBrowser:"design-scan",snapshot:{url:location.href,viewport:vp||undefined,viewportWidthPx:window.innerWidth,viewportHeightPx:window.innerHeight,',
-		'documentScrollWidthPx:document.documentElement?document.documentElement.scrollWidth:0,elements:out,headings:heads,truncated:all.length>LIMIT}});',
+		'documentScrollWidthPx:document.documentElement?document.documentElement.scrollWidth:0,elements:out,headings:heads,truncated:all.length>LIMIT,',
+		'seo:{title:String(document.title||"").trim(),metaDescription:dsMeta(\'meta[name="description"]\',"content"),',
+		'htmlLang:document.documentElement?String(document.documentElement.getAttribute("lang")||"").trim():"",',
+		'canonical:dsMeta(\'link[rel="canonical"]\',"href"),robots:dsMeta(\'meta[name="robots"]\',"content").toLowerCase(),',
+		'hasViewportMeta:!!document.querySelector(\'meta[name="viewport"]\'),',
+		'ogTitle:dsMeta(\'meta[property="og:title"]\',"content"),ogDescription:dsMeta(\'meta[property="og:description"]\',"content"),',
+		'ogImage:dsMeta(\'meta[property="og:image"]\',"content"),',
+		'jsonLdCount:dsL.n,jsonLdBroken:dsL.broken,jsonLdTypes:dsL.types,imagesWithoutAlt:dsI.noAlt,imagesTotal:dsI.total}}});',
 		'}',
 		'window.addEventListener("message",function(ev){var d=ev.data;if(d&&d.__vibeServerDesignScan){try{dsScan(typeof d.viewport==="string"?d.viewport:undefined);}catch(e){post({__vibeBrowser:"design-scan",error:String(e&&e.message||e)});}}});',
 		// Findings overlay: the chrome sends {__vibeServerDesignOverlay:[{selector,rule,severity}]}

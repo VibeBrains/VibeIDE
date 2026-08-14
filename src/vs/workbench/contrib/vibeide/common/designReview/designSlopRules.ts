@@ -42,6 +42,7 @@ import { TYPOGRAPHY_RULES } from './rules/typography.js';
 import { VISUAL_RULES } from './rules/visual.js';
 import { STATE_RULES } from './rules/states.js';
 import { MARKUP_RULES } from './rules/markup.js';
+import { SEO_RULES } from './rules/seo.js';
 
 export {
 	contrastRatio,
@@ -65,6 +66,7 @@ const RULES: readonly Rule[] = [
 	...VISUAL_RULES,
 	...STATE_RULES,
 	...MARKUP_RULES,
+	...SEO_RULES,
 	...LAYOUT_RULES,
 	...MOTION_RULES,
 	...COPY_RULES,

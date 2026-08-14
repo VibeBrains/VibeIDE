@@ -101,12 +101,26 @@ export const RULE = {
 	// imagery
 	brokenImage: 'broken-image',
 	placeholderImage: 'placeholder-image',
+	// seo — находимость: не видно на скриншоте, но решает, найдут ли страницу
+	seoMissingTitle: 'seo-missing-title',
+	seoTitleLength: 'seo-title-length',
+	seoMissingDescription: 'seo-missing-description',
+	seoDescriptionLength: 'seo-description-length',
+	seoH1Count: 'seo-h1-count',
+	seoNoindex: 'seo-noindex',
+	seoMissingCanonical: 'seo-missing-canonical',
+	seoRelativeCanonical: 'seo-relative-canonical',
+	seoMissingLang: 'seo-missing-lang',
+	seoMissingViewport: 'seo-missing-viewport',
+	seoMissingOpenGraph: 'seo-missing-open-graph',
+	seoBrokenJsonLd: 'seo-broken-json-ld',
+	seoImageWithoutAlt: 'seo-image-without-alt',
 } as const;
 
 export type RuleId = typeof RULE[keyof typeof RULE];
 
 /** Categories, in the order a report reads best: readability first, taste last. */
-export type RuleCategory = 'typography' | 'color' | 'visual' | 'layout' | 'motion' | 'copy' | 'imagery' | 'states' | 'markup';
+export type RuleCategory = 'typography' | 'color' | 'visual' | 'layout' | 'motion' | 'copy' | 'imagery' | 'states' | 'markup' | 'seo';
 
 interface RuleMeta {
 	readonly ruleClass: RuleClass;
@@ -189,6 +203,22 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 
 	[RULE.brokenImage]: { ruleClass: 'floor', category: 'imagery' },
 	[RULE.placeholderImage]: { ruleClass: 'drift', category: 'imagery' },
+	// Полом объявлено только объективное: без заголовка, без h1 или с двумя, закрытая от
+	// индексации, битая разметка данных, картинка без alt. Длины — рекомендация поисковика,
+	// она меняется и зависит от языка, поэтому дрейф: проект вправе объявить свою норму.
+	[RULE.seoMissingTitle]: { ruleClass: 'floor', category: 'seo' },
+	[RULE.seoTitleLength]: { ruleClass: 'drift', category: 'seo' },
+	[RULE.seoMissingDescription]: { ruleClass: 'drift', category: 'seo' },
+	[RULE.seoDescriptionLength]: { ruleClass: 'drift', category: 'seo' },
+	[RULE.seoH1Count]: { ruleClass: 'floor', category: 'seo' },
+	[RULE.seoNoindex]: { ruleClass: 'floor', category: 'seo' },
+	[RULE.seoMissingCanonical]: { ruleClass: 'drift', category: 'seo' },
+	[RULE.seoRelativeCanonical]: { ruleClass: 'floor', category: 'seo' },
+	[RULE.seoMissingLang]: { ruleClass: 'floor', category: 'seo' },
+	[RULE.seoMissingViewport]: { ruleClass: 'floor', category: 'seo' },
+	[RULE.seoMissingOpenGraph]: { ruleClass: 'drift', category: 'seo' },
+	[RULE.seoBrokenJsonLd]: { ruleClass: 'floor', category: 'seo' },
+	[RULE.seoImageWithoutAlt]: { ruleClass: 'floor', category: 'seo' },
 };
 
 /** Every id the catalogue can report. */
