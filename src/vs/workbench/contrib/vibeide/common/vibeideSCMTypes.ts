@@ -76,6 +76,14 @@ export interface IVibeideSCMService {
 	 * @param path Path to the git repository
 	 */
 	gitLog(path: string): Promise<string>;
+	/**
+	 * History with the files each commit touched: `%H\0%at\0%subject` then one path per line.
+	 *
+	 * @param path Path to the git repository
+	 * @param days How far back to look
+	 * @param maxCommits Hard ceiling, so a long-lived repository cannot stall the read
+	 */
+	gitCouplingLog(path: string, days: number, maxCommits: number): Promise<string>;
 }
 
 export const IVibeideSCMService = createDecorator<IVibeideSCMService>('vibeideSCMService');
@@ -119,6 +127,8 @@ export interface IVibeGitReadService {
 	branch(): Promise<string>;
 	/** Last commits, merges excluded. */
 	log(): Promise<string>;
+	/** History with per-commit file lists, for change-coupling and bug-history analysis. */
+	couplingLog(days: number, maxCommits: number): Promise<string>;
 }
 
 export const IVibeGitReadService = createDecorator<IVibeGitReadService>('vibeGitReadService');

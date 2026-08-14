@@ -21,6 +21,7 @@ import { timeout } from '../../../../base/common/async.js';
 import { truncateHeadTail } from '../common/toolHardening.js';
 import { compressCommandOutput } from '../common/commandOutputCompressor.js';
 import { IVibeTokenSavingsService } from './vibeTokenSavingsService.js';
+import { IVibeOutputArchiveService } from '../common/vibeOutputArchiveService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 
@@ -118,6 +119,7 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IVibeTokenSavingsService private readonly tokenSavingsService: IVibeTokenSavingsService,
+		@IVibeOutputArchiveService private readonly outputArchiveService: IVibeOutputArchiveService,
 	) {
 		super();
 
@@ -463,6 +465,10 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 			// "ok"-spam, progress bars and duplicate lines; errors/summaries stay verbatim.
 			// The char clamp below remains the safety net for unrecognised huge output.
 			result = removeAnsiEscapeCodes(result);
+			// Сырой текст запоминается ДО любой обрезки: и профиль, и клампа по символам выкидывают
+			// строки безвозвратно, а перезапуск команды ради подробности стоит дороже и на
+			// недетерминированном прогоне даёт другой вывод.
+			const rawForArchive = result;
 			if (this.configurationService.getValue<boolean>('vibeide.terminal.condenseOutput') !== false) {
 				// Command-aware profiles (git/test/ls/docker) run first, then the generic condenser.
 				// Profiles are opt-out via `vibeide.terminal.compressProfiles`; the generic stage always runs.
@@ -472,6 +478,7 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 				this.tokenSavingsService.record('terminal', before, result.length);
 			}
 			result = truncateHeadTail(result, this.maxTerminalOutputChars());
+			result = this.outputArchiveService.keep(command, rawForArchive, result);
 			return { result, resolveReason };
 
 		};

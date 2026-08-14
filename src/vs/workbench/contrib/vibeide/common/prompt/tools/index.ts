@@ -27,6 +27,7 @@ import { REVIEW_CHECKLIST_TOOL } from './review_checklist.js';
 import { HANDOFF_TOOL } from './handoff.js';
 import { LEARNING_STATE_TOOL } from './learning_state.js';
 import { LEARNING_RECORD_TOOL } from './learning_record.js';
+import { EXPAND_OUTPUT_TOOL } from './expand_output.js';
 import { DOCS_SEARCH_TOOL } from './docs_search.js';
 import { DESIGN_REVIEW_TOOL } from './design_review.js';
 import { DESIGN_CONTEXT_TOOL } from './design_context.js';
@@ -76,6 +77,8 @@ export const builtinToolDefs = {
 	search_in_file: SEARCH_IN_FILE_TOOL,
 	read_lint_errors: READ_LINT_ERRORS_TOOL,
 	git_state: GIT_STATE_TOOL,
+	// вернуть свёрнутое сжатием: дешевле и безопаснее повторного запуска команды
+	expand_output: EXPAND_OUTPUT_TOOL,
 	open_file: OPEN_FILE_TOOL,
 	// LSP / code navigation
 	go_to_definition: GO_TO_DEFINITION_TOOL,

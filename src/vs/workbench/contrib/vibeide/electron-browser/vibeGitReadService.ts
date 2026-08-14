@@ -72,6 +72,12 @@ class VibeGitReadService extends Disposable implements IVibeGitReadService {
 	log(): Promise<string> {
 		return this._read(p => this._scm.gitLog(p), localize('vibeide.git.noLog', 'В репозитории пока нет коммитов.'));
 	}
+
+	couplingLog(days: number, maxCommits: number): Promise<string> {
+		return this._read(
+			p => this._scm.gitCouplingLog(p, days, maxCommits),
+			localize('vibeide.git.noHistory', 'История коммитов за этот период пуста.'));
+	}
 }
 
 registerSingleton(IVibeGitReadService, VibeGitReadService, InstantiationType.Delayed);

@@ -141,6 +141,25 @@ export class VibeideSCMService extends Disposable implements IVibeideSCMService 
 		return git('git log --pretty=format:"%h|%s|%ad" --date=short --no-merges -n 5', path);
 	}
 
+	/**
+	 * История с составом коммитов — сырьё для анализа связанности и починок.
+	 *
+	 * Идёт через `gitArgv`, а не через оболочку: формат с NUL-разделителем (`%x00`) в кавычках
+	 * оболочки не переживает, а именно NUL и делает разбор надёжным — заголовок коммита может
+	 * содержать что угодно, кроме него. Слияния исключены: коммит слияния перечисляет чужие
+	 * файлы и создал бы связанность там, где её никто не вносил.
+	 */
+	gitCouplingLog(path: string, days: number, maxCommits: number): Promise<string> {
+		return gitArgv([
+			'log',
+			'--no-merges',
+			`--since=${Math.max(1, Math.floor(days))}.days.ago`,
+			`-n${Math.max(1, Math.floor(maxCommits))}`,
+			'--name-only',
+			'--pretty=format:%H%x00%at%x00%s',
+		], path);
+	}
+
 	async createWorkspaceSnapshot(path: string, meta?: SnapshotCommitMeta, previousCommit?: string): Promise<string | undefined> {
 		try {
 			const root = await gitArgv(SNAPSHOT_ARGV.repoRoot, path);

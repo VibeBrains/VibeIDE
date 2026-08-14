@@ -23,7 +23,7 @@ import { condenseTerminalOutput } from './terminalOutputCondenser.js';
  */
 
 /** Recognised command families with a dedicated reducer; everything else is `unknown`. */
-export type CommandKind = 'git' | 'test' | 'ls' | 'docker' | 'find' | 'install' | 'unknown';
+export type CommandKind = 'git' | 'test' | 'ls' | 'docker' | 'find' | 'install' | 'lint' | 'build' | 'search' | 'unknown';
 
 /** Minimum shrink (fraction of original length) before a profile result is used. */
 const MIN_GAIN_RATIO = 0.9;
@@ -40,6 +40,27 @@ const TEST_RUNNERS = new Set(['jest', 'vitest', 'mocha', 'pytest', 'cargo', 'go'
 /** Package-install commands whose progress spam ("already satisfied", downloads) is safe to fold. */
 const INSTALL_TOOLS = new Set(['pip', 'pip3', 'apt', 'apt-get', 'brew', 'gem', 'cargo', 'go']);
 const INSTALL_SUBS = new Set(['install', 'i', 'add', 'ci', 'get']);
+
+/** Linters and type-checkers: diagnostics around a final tally. */
+const LINT_TOOLS = new Set(['eslint', 'tsc', 'tsgo', 'biome', 'ruff', 'flake8', 'mypy', 'pylint', 'stylelint', 'golangci-lint', 'shellcheck', 'oxlint']);
+
+/** Compilers and bundlers: progress chatter around diagnostics. */
+const BUILD_TOOLS = new Set(['make', 'webpack', 'rollup', 'esbuild', 'vite', 'gulp', 'ninja', 'cmake', 'msbuild', 'swc']);
+
+/** Search tools whose output floods on a common term. */
+const SEARCH_TOOLS = new Set(['grep', 'rg', 'ripgrep', 'ag', 'ack', 'ugrep']);
+
+/**
+ * `npm run <script>` says nothing by itself — the SCRIPT NAME does. Without this a
+ * `npm run typecheck` was classified as a test run (`run` was folded into the test branch), so
+ * type errors were filtered by a profile built for a different shape of output.
+ */
+const scriptKind = (script: string): CommandKind | undefined => {
+	if (/(^|[:-])(test|spec)([:-]|$)/i.test(script)) { return 'test'; }
+	if (/lint|typecheck|check-ts|tsc|types?$/i.test(script)) { return 'lint'; }
+	if (/build|compile|bundle|dist|package/i.test(script)) { return 'build'; }
+	return undefined;
+};
 
 /**
  * Detect the command family from a raw command string. Handles a leading `$ ` echo, env-var
@@ -63,9 +84,15 @@ export const detectCommandKind = (command: string): CommandKind => {
 	if (head === 'ls') { return 'ls'; }
 	if (head === 'find') { return 'find'; }
 	if (head === 'docker' || head === 'docker-compose') { return 'docker'; }
+	if (SEARCH_TOOLS.has(head)) { return 'search'; }
+	if (LINT_TOOLS.has(head)) { return 'lint'; }
 	// Test detection precedes install for cargo/go (`cargo test` is a test run, `cargo install` an install).
-	if (PACKAGE_MANAGERS.has(head) && (sub === 'test' || sub === 't' || sub === 'run')) { return 'test'; }
+	if (PACKAGE_MANAGERS.has(head) && (sub === 'test' || sub === 't')) { return 'test'; }
+	// `npm run <script>` — the script name decides, not the word `run`.
+	if (PACKAGE_MANAGERS.has(head) && sub === 'run') { return scriptKind(rest[1] ?? '') ?? 'unknown'; }
 	if (TEST_RUNNERS.has(head) && (head !== 'cargo' && head !== 'go' ? true : sub === 'test')) { return 'test'; }
+	if (BUILD_TOOLS.has(head)) { return 'build'; }
+	if ((head === 'cargo' || head === 'go' || head === 'gradle' || head === 'mvn') && sub === 'build') { return 'build'; }
 	if ((INSTALL_TOOLS.has(head) || PACKAGE_MANAGERS.has(head)) && INSTALL_SUBS.has(sub)) { return 'install'; }
 	return 'unknown';
 };
@@ -190,7 +217,102 @@ const reduceInstall = (output: string): string => {
 	return out.join('\n');
 };
 
+/** A diagnostic line: `path/to/file.ts:12:3  error  message  rule-id` and its compiler variants. */
+const DIAGNOSTIC_PATTERN = /^\s*(\S.*?):(\d+)(?::(\d+))?[\s:-]+(error|warning|warn|note|info)\b/i;
+/** Rule identifier at the end of an eslint-style line, or `TS2322` inside a compiler one. */
+const RULE_ID_PATTERN = /\b(TS\d{4}|[A-Z]{1,5}\d{3,4})\b|\s{2,}([a-z@][\w./@-]+)\s*$/;
+
+/**
+ * lint / typecheck: errors stay verbatim, warnings are grouped by rule with a count and one
+ * example anchor.
+ *
+ * Errors are what the agent must act on; a hundred `prefer-const` warnings are one fact repeated
+ * a hundred times. Grouping keeps the fact and the place to look, and drops the repetition — but
+ * only for warnings, because collapsing two errors into "2 errors" removes the very lines the
+ * next edit depends on.
+ */
+const reduceLint = (output: string): string => {
+	const lines = output.split('\n');
+	const out: string[] = [];
+	const warnGroups = new Map<string, { count: number; readonly example: string }>();
+	for (const line of lines) {
+		const diagnostic = DIAGNOSTIC_PATTERN.exec(line);
+		const severity = diagnostic?.[4]?.toLowerCase();
+		if (diagnostic && (severity === 'warning' || severity === 'warn')) {
+			const ruleMatch = RULE_ID_PATTERN.exec(line);
+			const rule = (ruleMatch?.[1] ?? ruleMatch?.[2] ?? 'warning').trim();
+			const group = warnGroups.get(rule);
+			if (group) { group.count += 1; } else { warnGroups.set(rule, { count: 1, example: line.trim() }); }
+			continue;
+		}
+		out.push(line);
+	}
+	for (const [rule, { count, example }] of warnGroups) {
+		out.push(count === 1 ? example : `[${rule}: ${count} warnings] ${example}`);
+	}
+	return out.join('\n');
+};
+
+/** Build chatter: per-file progress that carries no diagnostic. */
+const BUILD_NOISE_PATTERN = /^\s*(Compiling|Compiled|Building|Built|Bundling|Bundled|Transforming|Generating|Copying|Cleaning|Linking|Emitting|\[\d+\/\d+\]|Starting '|Finished '|CC |CXX |AR )\b|^\s*\.{3,}\s*$/i;
+
+/**
+ * build: drop progress lines, keep every diagnostic and summary.
+ *
+ * A build log is mostly a list of things that went right. What the agent needs is the first line
+ * that went wrong, and progress lines push it out of the window.
+ */
+const reduceBuild = (output: string): string => {
+	const lines = output.split('\n');
+	const out: string[] = [];
+	let dropped = 0;
+	const flush = () => { if (dropped > 0) { out.push(`[… +${dropped} progress lines]`); dropped = 0; } };
+	for (const line of lines) {
+		if (KEEP_PATTERN.test(line) || DIAGNOSTIC_PATTERN.test(line)) { flush(); out.push(line); continue; }
+		if (BUILD_NOISE_PATTERN.test(line)) { dropped++; continue; }
+		flush();
+		out.push(line);
+	}
+	flush();
+	return out.join('\n');
+};
+
+/** How many matching lines per file survive a search flood. */
+const SEARCH_KEEP_PER_FILE = 3;
+/** `path:12:match` (grep -n) or `path:match`. */
+const SEARCH_HIT_PATTERN = /^([^\s:][^:]*):(?:(\d+):)?/;
+
+/**
+ * search: group a grep/rg flood by file, keeping the first few hits per file and counting the rest.
+ *
+ * A search that returns 400 lines answers "where does this appear" with 400 repetitions of the
+ * same answer. The file list plus a few examples per file is the same information at a tenth of
+ * the cost; the exact remaining lines are one narrower search away.
+ */
+const reduceSearch = (output: string): string => {
+	const lines = output.split('\n');
+	const out: string[] = [];
+	const seen = new Map<string, number>();
+	const hidden = new Map<string, number>();
+	for (const line of lines) {
+		const hit = SEARCH_HIT_PATTERN.exec(line);
+		if (!hit || !line.trim()) { out.push(line); continue; }
+		const file = hit[1];
+		const count = (seen.get(file) ?? 0) + 1;
+		seen.set(file, count);
+		if (count <= SEARCH_KEEP_PER_FILE) { out.push(line); continue; }
+		hidden.set(file, (hidden.get(file) ?? 0) + 1);
+	}
+	for (const [file, count] of hidden) {
+		out.push(`[${file}: +${count} more matches]`);
+	}
+	return out.join('\n');
+};
+
 const PROFILES: Record<Exclude<CommandKind, 'unknown'>, (output: string) => string> = {
+	lint: reduceLint,
+	build: reduceBuild,
+	search: reduceSearch,
 	git: reduceGit,
 	test: reduceTest,
 	ls: reduceLs,

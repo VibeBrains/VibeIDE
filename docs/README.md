@@ -39,6 +39,7 @@
 - [optimizeByMetric.md](manuals/optimizeByMetric.md) — оптимизация под метрику: команда замера, контракт вывода, порог шума, что защищает честность цикла.
 - [learningWorkspaceSpec.md](manuals/learningWorkspaceSpec.md) — формат `.vibe/learning/`: миссия, источники, следы уроков, правила выбора сложности (скормить LLM → готовый `MISSION.md`).
 - [teachLearning.md](manuals/teachLearning.md) — как учиться в VibeIDE: отдельная папка на тему, миссия-гейт, цикл уроков, что ломает систему.
+- [outputCompression.md](manuals/outputCompression.md) — сжатие вывода команд: что сворачивается по типам команд, как вернуть подробность через `expand_output`, чем это лучше перезапуска, как отключить.
 - [securityFaq.md](manuals/securityFaq.md) — что уходит наружу, что остаётся локально.
 - [telegramBridge.md](manuals/telegramBridge.md) — мост в Telegram: свой бот за минуту, токен в хранилище секретов, привязка чата, работа за прокси.
 - [specsWorkflow.md](manuals/specsWorkflow.md) — как работать со спеками; **источник** справки «?» в панели «Спеки» (генерируется на сборке).

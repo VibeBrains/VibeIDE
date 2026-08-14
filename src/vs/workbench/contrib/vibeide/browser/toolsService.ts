@@ -56,6 +56,8 @@ import { analyzeShellLine } from '../common/nlShellSafetyAnalyzer.js';
 import { ReviewChecklist } from '../common/chatThreadServiceTypes.js';
 import { HANDOFF_DIR, renderHandoff, validateHandoff } from '../common/agentHandoff.js';
 import { LEARNING_DIR, LESSONS_SUBDIR, MISSION_FILE, NOTES_FILE, RECORDS_SUBDIR, RESOURCES_FILE, renderRecord, summarizeLearning, type IDifficultyThresholds, type ILearningRecord } from '../common/learningWorkspace.js';
+import { IVibeOutputArchiveService } from '../common/vibeOutputArchiveService.js';
+import { DEFAULT_COUPLING_THRESHOLDS, bugHistory, changedFilesFromStat, coupledWith, parseCommitLog, renderCoupling, type ICouplingThresholds } from '../common/changeCoupling.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { localize } from '../../../../nls.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
@@ -352,6 +354,7 @@ export class ToolsService extends Disposable implements IToolsService {
 		@IShellHardeningService private readonly _shellHardeningService: IShellHardeningService,
 		@IVibeExternalAccessService private readonly _externalAccess: IVibeExternalAccessService,
 		@IVibeGitReadService private readonly _gitRead: IVibeGitReadService,
+		@IVibeOutputArchiveService private readonly _outputArchive: IVibeOutputArchiveService,
 		@IVibeIgnoreService vibeIgnoreService: IVibeIgnoreService,
 	) {
 		super();
@@ -614,7 +617,7 @@ export class ToolsService extends Disposable implements IToolsService {
 				// is the model asking "what changed", and refusing the call over a synonym would spend
 				// a turn teaching it our vocabulary.
 				const raw = typeof params.what === 'string' ? params.what.trim().toLowerCase() : '';
-				const what = raw === 'diff' || raw === 'branch' || raw === 'log' ? raw : 'status';
+				const what = raw === 'diff' || raw === 'branch' || raw === 'log' || raw === 'coupling' ? raw : 'status';
 				return { what };
 			},
 
@@ -744,6 +747,16 @@ export class ToolsService extends Disposable implements IToolsService {
 					done: strList(done), blockers: strList(blockers), next: strList(next),
 					environment: typeof environment === 'string' && environment.trim() ? environment.trim() : null,
 				};
+			},
+
+			expand_output: (params: RawToolParamsObj) => {
+				const { ref: refUnknown, query: queryUnknown } = params;
+				const ref = typeof refUnknown === 'string' ? refUnknown.trim() : '';
+				if (!ref) {
+					throw new Error('Invalid LLM output: expand_output needs the ref from the output marker, e.g. "o3".');
+				}
+				const query = typeof queryUnknown === 'string' && queryUnknown.trim() ? queryUnknown.trim() : null;
+				return { ref, query };
 			},
 
 			learning_state: () => ({}),
@@ -1493,6 +1506,9 @@ export class ToolsService extends Disposable implements IToolsService {
 			},
 
 			git_state: async ({ what }) => {
+				if (what === 'coupling') {
+					return { result: { what, text: await this._couplingReport() } };
+				}
 				const text = what === 'diff' ? await this._gitRead.sampledDiffs()
 					: what === 'branch' ? await this._gitRead.branch()
 						: what === 'log' ? await this._gitRead.log()
@@ -2504,6 +2520,10 @@ export class ToolsService extends Disposable implements IToolsService {
 				};
 			},
 
+			expand_output: async ({ ref, query }) => {
+				return { result: this._outputArchive.expand(ref, query ?? undefined) };
+			},
+
 			learning_state: async () => {
 				const folder = this.workspaceContextService.getWorkspace().folders[0]?.uri;
 				if (!folder) {
@@ -3420,6 +3440,16 @@ export class ToolsService extends Disposable implements IToolsService {
 				return `${result.message}${problems}`;
 			},
 
+			expand_output: (params, result) => {
+				if (!result.found) {
+					return `${result.message} Не перезапускай команду ради этого сам — сперва скажи пользователю, что подробность недоступна.`;
+				}
+				const more = result.truncated
+					? `\n\n[показаны первые ${result.shownLines} из ${result.totalLines} строк — сузь запрос параметром query]`
+					: '';
+				return `Команда: ${result.command}\n${result.message}\n\n${result.text}${more}`;
+			},
+
 			learning_state: (_params, result) => {
 				if (!result.missionReady) {
 					const questions = result.missingQuestions.map(question => `- ${question}`).join('\n');
@@ -3698,6 +3728,35 @@ export class ToolsService extends Disposable implements IToolsService {
 
 
 
+	}
+
+	/**
+	 * Что история говорит о файлах, которые правятся прямо сейчас.
+	 *
+	 * Набор файлов берётся из рабочей папки, а не от модели: вопрос «что вы забыли тронуть» имеет
+	 * смысл только про фактическую правку, а не про ту, которую агент собирался сделать.
+	 */
+	private async _couplingReport(): Promise<string> {
+		const changed = changedFilesFromStat(await this._gitRead.stat());
+		if (changed.length === 0) {
+			return localize('vibeide.coupling.noChanges', "Изменений нет — сопоставлять с историей нечего.");
+		}
+		const days = this._configurationService.getValue<number>('vibeide.coupling.historyDays') ?? 365;
+		const maxCommits = this._configurationService.getValue<number>('vibeide.coupling.maxCommits') ?? 2000;
+		const thresholds: ICouplingThresholds = {
+			maxFilesPerCommit: this._configurationService.getValue<number>('vibeide.coupling.maxFilesPerCommit') ?? DEFAULT_COUPLING_THRESHOLDS.maxFilesPerCommit,
+			minPairCommits: this._configurationService.getValue<number>('vibeide.coupling.minPairCommits') ?? DEFAULT_COUPLING_THRESHOLDS.minPairCommits,
+			minPairRatio: this._configurationService.getValue<number>('vibeide.coupling.minPairRatio') ?? DEFAULT_COUPLING_THRESHOLDS.minPairRatio,
+			bugWindowDays: this._configurationService.getValue<number>('vibeide.coupling.bugWindowDays') ?? DEFAULT_COUPLING_THRESHOLDS.bugWindowDays,
+		};
+
+		const commits = parseCommitLog(await this._gitRead.couplingLog(days, maxCommits));
+		if (commits.length === 0) {
+			return localize('vibeide.coupling.noHistory', "История за выбранное окно пуста — выводы делать не из чего.");
+		}
+		const pairs = coupledWith(commits, changed, thresholds);
+		const bugs = bugHistory(commits, changed, Date.now(), thresholds);
+		return `${localize('vibeide.coupling.changed', "Сейчас изменены: {0}", changed.join(', '))}\n\n${renderCoupling(pairs, bugs)}`;
 	}
 
 	/** Roadmap § B.2: advisory territorial locks (.vibe/agent-locks.json) — supervised blocks, auto → audit */

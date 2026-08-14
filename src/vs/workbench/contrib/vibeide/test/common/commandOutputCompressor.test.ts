@@ -33,7 +33,9 @@ suite('commandOutputCompressor', () => {
 					detectCommandKind('echo hello'),
 					detectCommandKind(''),
 				],
-				['git', 'git', 'docker', 'test', 'test', 'test', 'unknown', 'ls', 'find', 'install', 'install', 'install', 'unknown', 'unknown'],
+				// `cargo build` перестало быть 'unknown' с появлением профиля сборки — у неё своя
+				// форма вывода (прогресс вокруг диагностик), и общий проход её не разбирал.
+				['git', 'git', 'docker', 'test', 'test', 'test', 'build', 'ls', 'find', 'install', 'install', 'install', 'unknown', 'unknown'],
 			);
 		});
 	});
