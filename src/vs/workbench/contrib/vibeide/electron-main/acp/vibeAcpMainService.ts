@@ -15,8 +15,10 @@ import {
 	ACP_CLIENT_METHOD,
 	AcpStreamDecoder,
 	AcpStopReason,
+	IAcpAuthMethod,
 	JSON_RPC_ERROR,
 	JsonValue,
+	authMethodsOf,
 	encodeMessage,
 	errorFrame,
 	initializeParams,
@@ -24,13 +26,44 @@ import {
 	isRequest,
 	isResponse,
 	newSessionParams,
+	parseSessionUpdate,
 	promptParams,
 	requestFrame,
 	resultFrame,
 	stopReasonOf,
-	textOfSessionUpdate,
+	toolCallFacts,
 } from '../../common/acp/acpProtocol.js';
 import { AcpEvent, IAcpAgentLaunch, IAcpSession, IVibeAcpMain } from '../../common/acp/acpTypes.js';
+
+/** Отказ агента на вызов: код нужен, чтобы отличать «не авторизован» от прочих бед. */
+class AcpCallError extends Error {
+	constructor(message: string, readonly code: number) {
+		super(`${message} (код ${code})`);
+	}
+}
+
+/**
+ * Похоже ли на «войдите».
+ *
+ * Кода для этого случая в JSON-RPC нет: адаптер Claude Code отвечает -32000 (диапазон, отданный
+ * спецификацией на усмотрение реализации) со словами «Authentication required». Поэтому смотрим
+ * и на код, и на текст: полагаться на один код значит принять за отказ входа любую чужую ошибку
+ * из того же диапазона.
+ */
+function isAuthRequired(err: unknown): boolean {
+	const message = err instanceof Error ? err.message.toLowerCase() : '';
+	return /auth/.test(message) && (err instanceof AcpCallError ? err.code <= -32000 : true);
+}
+
+/** Окружение дочернего процесса: своё поверх нашего, за вычетом чужих меток сессии. */
+function childEnv(extra: Readonly<Record<string, string>> | undefined): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = { ...process.env, ...(extra ?? {}) };
+	for (const marker of NESTED_SESSION_MARKERS) {
+		if (extra && marker in extra) { continue; }
+		delete env[marker];
+	}
+	return env;
+}
 
 interface IPendingCall {
 	readonly resolve: (result: JsonValue) => void;
@@ -44,7 +77,29 @@ interface IAgentProcess {
 	readonly pending: Map<number, IPendingCall>;
 	sessionId?: string;
 	nextId: number;
+	/** Способы входа, объявленные агентом: понадобятся, когда он откажет по авторизации. */
+	authMethods: readonly IAcpAuthMethod[];
 }
+
+/**
+ * Переменные, которыми Claude Code метит свою сессию.
+ *
+ * Унаследованные, они заставляют агента считать себя запущенным внутри другой своей сессии и
+ * отказываться стартовать («nested sessions share runtime resources»). Проверено живьём: с ними
+ * `session/new` падает, без них проходит. Гасятся у ЛЮБОГО агента — чужие переменные чужого
+ * инструмента не должны доставаться никому.
+ */
+const NESTED_SESSION_MARKERS = [
+	'CLAUDECODE',
+	'CLAUDE_CODE_ENTRYPOINT',
+	'CLAUDE_CODE_SESSION_ID',
+	'CLAUDE_CODE_HOST_SESSION_ID',
+	'CLAUDE_CODE_CHILD_SESSION',
+	'CLAUDE_CODE_MESSAGING_SOCKET',
+	'CLAUDE_CODE_MESSAGING_TOKEN',
+	'CLAUDE_CODE_EXECPATH',
+	'CLAUDE_AGENT_SDK_VERSION',
+] as const;
 
 /**
  * Хост ACP: VibeIDE как клиент, внешний агент как процесс.
@@ -70,12 +125,12 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 	async startSession(launch: IAcpAgentLaunch): Promise<IAcpSession> {
 		const child = spawn(launch.command, [...launch.args], {
 			cwd: launch.cwd,
-			env: { ...process.env, ...(launch.env ?? {}) },
+			env: childEnv(launch.env),
 			stdio: ['pipe', 'pipe', 'pipe'],
 			shell: false,
 		}) as ChildProcessWithoutNullStreams;
 
-		const agent: IAgentProcess = { launch, child, decoder: new AcpStreamDecoder(), pending: new Map(), nextId: 1 };
+		const agent: IAgentProcess = { launch, child, decoder: new AcpStreamDecoder(), pending: new Map(), nextId: 1, authMethods: [] };
 		child.stdout.setEncoding('utf8');
 		child.stdout.on('data', chunk => this._onStdout(agent, String(chunk)));
 		// stderr агента — не протокол, а его собственные жалобы. В лог, но не в разбор: смешать
@@ -85,7 +140,8 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 		child.on('error', err => this._fail(agent, `процесс не запустился: ${err.message}`));
 		child.on('exit', code => this._fail(agent, `процесс агента завершился с кодом ${code}`));
 
-		await this._call(agent, ACP_AGENT_METHOD.initialize, initializeParams());
+		const greeting = await this._call(agent, ACP_AGENT_METHOD.initialize, initializeParams());
+		agent.authMethods = authMethodsOf(greeting);
 		const created = await this._call(agent, ACP_AGENT_METHOD.newSession, newSessionParams(launch.cwd));
 		const sessionId = readString(created, 'sessionId');
 		if (!sessionId) {
@@ -100,7 +156,17 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 
 	async prompt(sessionId: string, text: string): Promise<AcpStopReason> {
 		const agent = this._require(sessionId);
-		const result = await this._call(agent, ACP_AGENT_METHOD.prompt, promptParams(sessionId, text));
+		let result: JsonValue;
+		try {
+			result = await this._call(agent, ACP_AGENT_METHOD.prompt, promptParams(sessionId, text));
+		} catch (err) {
+			// Отказ по авторизации выглядит как обычная ошибка вызова, и человек видит голый код.
+			// Между тем ответ на неё известен и лежит в способах входа, объявленных при знакомстве.
+			if (isAuthRequired(err)) {
+				this._onEvent.fire({ kind: 'authRequired', sessionId, agentName: agent.launch.name, methods: agent.authMethods });
+			}
+			throw err;
+		}
 		const stopReason = stopReasonOf(readValue(result, 'stopReason'));
 		this._onEvent.fire({ kind: 'done', sessionId, stopReason });
 		return stopReason;
@@ -147,7 +213,7 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 				if (!pending) { continue; }
 				agent.pending.delete(message.id as number);
 				if (message.error) {
-					pending.reject(new Error(`${message.error.message} (код ${message.error.code})`));
+					pending.reject(new AcpCallError(message.error.message, message.error.code));
 				} else {
 					pending.resolve(message.result ?? null);
 				}
@@ -158,11 +224,41 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 				continue;
 			}
 			if (isNotification(message) && message.method === ACP_CLIENT_METHOD.sessionUpdate) {
-				const text = textOfSessionUpdate(message.params);
-				if (text && agent.sessionId) {
-					this._onEvent.fire({ kind: 'text', sessionId: agent.sessionId, text });
-				}
+				this._onUpdate(agent, message.params);
 			}
+		}
+	}
+
+	/**
+	 * Что рассказал агент о своей работе.
+	 *
+	 * Вызовы инструментов важны наравне с текстом: правку файла Claude Code делает сам, и о том,
+	 * ЧТО именно изменилось, мы узнаём только отсюда — из диффа в кадре, а не из запроса на запись.
+	 */
+	private _onUpdate(agent: IAgentProcess, params: JsonValue | undefined): void {
+		const sessionId = agent.sessionId;
+		if (!sessionId) { return; }
+		const update = parseSessionUpdate(params);
+		if (!update) { return; }
+		switch (update.kind) {
+			case 'text':
+				this._onEvent.fire({ kind: 'text', sessionId, text: update.text, thought: update.thought });
+				return;
+			case 'tool':
+				this._onEvent.fire({
+					kind: 'tool',
+					sessionId,
+					toolCallId: update.toolCallId,
+					title: update.title,
+					toolKind: update.toolKind,
+					status: update.status,
+					paths: update.paths,
+					diffs: update.diffs,
+				});
+				return;
+			case 'usage':
+				this._onEvent.fire({ kind: 'usage', sessionId, used: update.used, size: update.size, ...(update.costUsd === undefined ? {} : { costUsd: update.costUsd }) });
+				return;
 		}
 	}
 
@@ -208,11 +304,15 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 	 *
 	 * Ответ агенту не отправляется до решения: пока человек молчит, ход стоит. Автоматический
 	 * отказ по времени означал бы, что агент пошёл другим путём, пока владелец отвлёкся.
+	 *
+	 * Здесь же — единственный момент, когда правка ещё не применена, а уже известна целиком:
+	 * вместе с вопросом наружу уезжают пути и дифф, и по ним снимается чекпоинт.
 	 */
 	private _askHuman(agent: IAgentProcess, rpcId: number | string, params: JsonValue | undefined): void {
 		const requestId = generateUuid();
 		this._permissions.set(requestId, { agent, rpcId });
 		const toolCall = readObject(params, 'toolCall');
+		const facts = toolCallFacts(toolCall ?? null);
 		const rawOptions = readValue(params, 'options');
 		const options = Array.isArray(rawOptions)
 			? rawOptions
@@ -228,8 +328,10 @@ export class VibeAcpMainService extends Disposable implements IVibeAcpMain {
 			request: {
 				requestId,
 				sessionId: agent.sessionId ?? '',
-				title: readString(toolCall, 'title') ?? readString(toolCall, 'kind') ?? 'действие',
+				title: facts.title || facts.toolKind || 'действие',
 				detail: describeToolCall(toolCall),
+				paths: facts.paths,
+				diffs: facts.diffs,
 				options,
 			},
 		});

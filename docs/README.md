@@ -32,6 +32,7 @@
 - [providersSpec.md](manuals/providersSpec.md) — формат `.vibe/providers.json` (скормить LLM → готовый конфиг).
 - [handoffSpec.md](manuals/handoffSpec.md) — формат `.vibe/handoffs/*.md`: передача работы между агентами, тредами и машинами (скормить LLM → готовый хендофф).
 - [serversSpec.md](manuals/serversSpec.md) — формат `.vibe/servers.json`: дев-стек проекта, порядок запуска, проверки готовности (скормить LLM → готовый конфиг).
+- [agentsSpec.md](manuals/agentsSpec.md) — формат `.vibe/agents.json`: внешние агенты проекта по ACP, разрешения и чекпоинты по их правкам (скормить LLM → готовый конфиг).
 - [hooksSpec.md](manuals/hooksSpec.md) — формат `.vibe/hooks.json`: команды проекта вокруг работы агента (скормить LLM → готовый конфиг).
 - [httpApiSpec.md](manuals/httpApiSpec.md) — входящий HTTP API: запуск агента из CI, бота или крона с продолжением сессии (скормить LLM → готовый вызов).
 - [pipelinesSpec.md](manuals/pipelinesSpec.md) — формат `.vibe/pipelines.json`: последовательность шагов агентов с передачей артефактов (скормить LLM → готовый файл).

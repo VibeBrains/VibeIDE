@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Event } from '../../../../../base/common/event.js';
-import { AcpStopReason } from './acpProtocol.js';
+import { AcpStopReason, AcpToolStatus, IAcpAuthMethod, IAcpDiff } from './acpProtocol.js';
 
 /**
  * Контракт хоста ACP: VibeIDE как клиент, внешний агент как процесс.
@@ -35,17 +35,27 @@ export interface IAcpPermissionRequest {
 	readonly title: string;
 	/** Что именно он собирается сделать — готовая строка для показа. */
 	readonly detail: string;
+	/** Файлы, которых коснётся действие: по ним снимается чекпоинт ДО применения. */
+	readonly paths: readonly string[];
+	/** «Было → стало», как их показал сам агент. Пусто, если действие не про правку файла. */
+	readonly diffs: readonly IAcpDiff[];
 	/** Варианты, предложенные самим агентом: их идентификаторы уходят обратно в ответе. */
 	readonly options: readonly { readonly optionId: string; readonly name: string; readonly kind: string }[];
 }
 
 export type AcpEvent =
 	/** Кусок ответа агента. */
-	| { readonly kind: 'text'; readonly sessionId: string; readonly text: string }
+	| { readonly kind: 'text'; readonly sessionId: string; readonly text: string; readonly thought: boolean }
 	/** Агент просит разрешения. */
 	| { readonly kind: 'permission'; readonly request: IAcpPermissionRequest }
-	/** Агент записал файл — правка уже прошла через наши ворота. */
+	/** Агент взялся за инструмент: чем занят и что меняет. */
+	| { readonly kind: 'tool'; readonly sessionId: string; readonly toolCallId: string; readonly title: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] }
+	/** Расход контекста и денег за ход. */
+	| { readonly kind: 'usage'; readonly sessionId: string; readonly used: number; readonly size: number; readonly costUsd?: number }
+	/** Агент записал файл нашими руками — путь `fs/write_text_file`. */
 	| { readonly kind: 'wrote'; readonly sessionId: string; readonly path: string }
+	/** Агент не авторизован: ход не начнётся, пока человек не войдёт. */
+	| { readonly kind: 'authRequired'; readonly sessionId: string; readonly agentName: string; readonly methods: readonly IAcpAuthMethod[] }
 	/** Ход закончился. */
 	| { readonly kind: 'done'; readonly sessionId: string; readonly stopReason: AcpStopReason }
 	/** Связь с агентом оборвалась. */

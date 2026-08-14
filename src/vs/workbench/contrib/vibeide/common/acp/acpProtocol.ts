@@ -7,11 +7,15 @@
  * Agent Client Protocol — транспорт и диспетчер, чистая часть.
  *
  * ACP описывает разговор редактора с внешним агентом поверх JSON-RPC 2.0: агент живёт отдельным
- * процессом, редактор даёт ему файлы, терминал и разрешения. Отличие от нашего моста к Claude Code
- * через его SDK принципиальное и стоит того, чтобы быть названным: там агент правит файлы САМ,
- * мимо IDE, поэтому его работы не видят ни чекпоинты, ни снимок рабочей папки, ни журнал правок.
- * Здесь правка приходит запросом `fs/write_text_file` — и проходит через те же ворота, что правка
- * нашего собственного агента.
+ * процессом, редактор даёт ему файлы, терминал и разрешения. Ради этого разговора всё и затевалось:
+ * работа внешнего агента должна быть видна IDE так же, как работа собственного.
+ *
+ * Живой прогон с Claude Code поправил замысел в важном месте. Клиентскую файловую систему
+ * (`fs/read_text_file`, `fs/write_text_file`) он не вызывает вовсе — правит своими инструментами,
+ * а нам присылает вызов инструмента с готовым диффом и спрашивает разрешение ДО применения.
+ * Значит воротами служит не запись файла, а `session/request_permission` и кадры `tool_call`:
+ * в них есть и путь, и «было → стало». Клиентская ФС остаётся реализованной — ею пользуются
+ * другие агенты, — но полагаться на неё как на единственный источник правды нельзя.
  *
  * Модуль занимается ровно двумя вещами: режет поток на сообщения и разводит их по обработчикам.
  * Ни процессов, ни файловой системы — поэтому проверяется из `test/common/`.
@@ -163,6 +167,33 @@ export const initializeParams = (): JsonValue => ({
 	clientInfo: { name: 'VibeIDE', version: '1' },
 });
 
+/** Способ войти, объявленный агентом в ответе на `initialize`. */
+export interface IAcpAuthMethod {
+	readonly id: string;
+	readonly name: string;
+	readonly description: string;
+}
+
+/**
+ * Способы входа из ответа на `initialize`.
+ *
+ * Нужны не для автоматического входа, а для честного сообщения человеку: агент, отвечающий на ход
+ * «Authentication required», без этого списка не объясняет, ЧТО делать. Claude Code, например,
+ * ждёт `claude /login` в терминале и метод `authenticate` не реализует вовсе.
+ */
+export function authMethodsOf(initializeResult: JsonValue | undefined): readonly IAcpAuthMethod[] {
+	const raw = asObject(initializeResult)?.['authMethods'];
+	if (!Array.isArray(raw)) { return []; }
+	const methods: IAcpAuthMethod[] = [];
+	for (const entry of raw) {
+		const record = asObject(entry);
+		const id = stringAt(record, 'id');
+		if (!id) { continue; }
+		methods.push({ id, name: stringAt(record, 'name') ?? id, description: stringAt(record, 'description') ?? '' });
+	}
+	return methods;
+}
+
 /** Параметры `session/new`. Путь обязан быть абсолютным — это требование спецификации. */
 export const newSessionParams = (cwd: string): JsonValue => ({
 	cwd,
@@ -207,17 +238,147 @@ export function stopReasonOf(raw: unknown): AcpStopReason {
 	}
 }
 
-/** Текст из уведомления `session/update`, если это кусок ответа. Иначе `undefined`. */
-export function textOfSessionUpdate(params: JsonValue | undefined): string | undefined {
-	if (!params || typeof params !== 'object' || Array.isArray(params)) { return undefined; }
-	const update = (params as Record<string, JsonValue>)['update'];
-	if (!update || typeof update !== 'object' || Array.isArray(update)) { return undefined; }
-	const record = update as Record<string, JsonValue>;
-	// Дискриминатор в спецификации в snake_case, в отличие от остальных полей.
-	const kind = record['sessionUpdate'];
-	if (kind !== 'agent_message_chunk' && kind !== 'agent_thought_chunk') { return undefined; }
-	const content = record['content'];
-	if (!content || typeof content !== 'object' || Array.isArray(content)) { return undefined; }
-	const text = (content as Record<string, JsonValue>)['text'];
-	return typeof text === 'string' && text ? text : undefined;
+/** Правка файла так, как её показывает агент: до и после, без применения. */
+export interface IAcpDiff {
+	readonly path: string;
+	readonly oldText: string;
+	readonly newText: string;
 }
+
+/** Стадия вызова инструмента. Неизвестное не выдаётся за завершённое. */
+export type AcpToolStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'unknown';
+
+/**
+ * Что приехало в `session/update`.
+ *
+ * Разбор шире, чем «взять текст», по факту живого прогона: Claude Code клиентскую файловую
+ * систему не вызывает — правит сам, а нам присылает вызов инструмента с готовым диффом. Значит
+ * единственный достоверный источник знания о правке — эти кадры, и терять их нельзя.
+ */
+export type AcpUpdate =
+	/** Кусок ответа или размышления агента. */
+	| { readonly kind: 'text'; readonly text: string; readonly thought: boolean }
+	/** Вызов инструмента: чем занят агент и что именно меняет. */
+	| { readonly kind: 'tool'; readonly toolCallId: string; readonly title: string; readonly toolKind: string; readonly status: AcpToolStatus; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] }
+	/** Расход контекста и денег за ход. */
+	| { readonly kind: 'usage'; readonly used: number; readonly size: number; readonly costUsd?: number };
+
+/** Разбор уведомления `session/update`. `undefined` — кадр, который нам нечего показать. */
+export function parseSessionUpdate(params: JsonValue | undefined): AcpUpdate | undefined {
+	const update = objectAt(params, 'update');
+	if (!update) { return undefined; }
+	// Дискриминатор в спецификации в snake_case, в отличие от остальных полей.
+	const kind = update['sessionUpdate'];
+
+	if (kind === 'agent_message_chunk' || kind === 'agent_thought_chunk') {
+		const text = stringAt(objectAt(update, 'content'), 'text');
+		return text ? { kind: 'text', text, thought: kind === 'agent_thought_chunk' } : undefined;
+	}
+
+	if (kind === 'tool_call' || kind === 'tool_call_update') {
+		const toolCallId = stringAt(update, 'toolCallId');
+		if (!toolCallId) { return undefined; }
+		const facts = toolCallFacts(update);
+		return {
+			kind: 'tool',
+			toolCallId,
+			title: facts.title,
+			toolKind: facts.toolKind,
+			status: toolStatusOf(update['status']),
+			paths: facts.paths,
+			diffs: facts.diffs,
+		};
+	}
+
+	if (kind === 'usage_update') {
+		const used = numberAt(update, 'used');
+		const size = numberAt(update, 'size');
+		if (used === undefined || size === undefined) { return undefined; }
+		const costUsd = numberAt(objectAt(update, 'cost'), 'amount');
+		return { kind: 'usage', used, size, ...(costUsd === undefined ? {} : { costUsd }) };
+	}
+
+	return undefined;
+}
+
+function toolStatusOf(raw: JsonValue | undefined): AcpToolStatus {
+	switch (typeof raw === 'string' ? raw : '') {
+		case 'pending': return 'pending';
+		case 'in_progress': return 'in_progress';
+		case 'completed': return 'completed';
+		case 'failed': return 'failed';
+		default: return 'unknown';
+	}
+}
+
+/**
+ * Факты о вызове инструмента: чем занят агент и чего это касается.
+ *
+ * Одна и та же форма приходит дважды — уведомлением `tool_call` и внутри
+ * `session/request_permission`. Разбор общий: иначе вопрос человеку и журнал правок однажды
+ * разойдутся в том, какой файл меняется.
+ */
+export function toolCallFacts(toolCall: JsonValue | undefined): { readonly title: string; readonly toolKind: string; readonly paths: readonly string[]; readonly diffs: readonly IAcpDiff[] } {
+	const record = asObject(toolCall) ?? {};
+	return {
+		title: stringAt(record, 'title') ?? '',
+		toolKind: stringAt(record, 'kind') ?? '',
+		paths: pathsOf(record),
+		diffs: diffsOf(record['content']),
+	};
+}
+
+/**
+ * Файлы, которых касается вызов.
+ *
+ * Берутся и из `locations`, и из путей диффов, и из аргументов инструмента: живой агент шлёт
+ * кадры, где заполнено только одно из трёх, а пропущенный путь означает не снятый чекпоинт.
+ */
+function pathsOf(update: Record<string, JsonValue>): readonly string[] {
+	const found: string[] = [];
+	const locations = update['locations'];
+	if (Array.isArray(locations)) {
+		for (const location of locations) {
+			const path = stringAt(asObject(location), 'path');
+			if (path) { found.push(path); }
+		}
+	}
+	for (const diff of diffsOf(update['content'])) {
+		found.push(diff.path);
+	}
+	const filePath = stringAt(asObject(update['rawInput']), 'file_path');
+	if (filePath) { found.push(filePath); }
+	return [...new Set(found)];
+}
+
+function diffsOf(content: JsonValue | undefined): readonly IAcpDiff[] {
+	if (!Array.isArray(content)) { return []; }
+	const diffs: IAcpDiff[] = [];
+	for (const entry of content) {
+		const record = asObject(entry);
+		if (!record || record['type'] !== 'diff') { continue; }
+		const path = stringAt(record, 'path');
+		if (!path) { continue; }
+		// Пустая строка — законное содержимое: так выглядит создание файла и удаление текста.
+		diffs.push({ path, oldText: textOrEmpty(record['oldText']), newText: textOrEmpty(record['newText']) });
+	}
+	return diffs;
+}
+
+const textOrEmpty = (value: JsonValue | undefined): string => (typeof value === 'string' ? value : '');
+
+const asObject = (value: JsonValue | undefined): Record<string, JsonValue> | undefined =>
+	value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, JsonValue>) : undefined;
+
+const objectAt = (source: JsonValue | undefined, key: string): Record<string, JsonValue> | undefined =>
+	asObject(asObject(source)?.[key]);
+
+const stringAt = (source: Record<string, JsonValue> | undefined, key: string): string | undefined => {
+	const value = source?.[key];
+	return typeof value === 'string' && value ? value : undefined;
+};
+
+const numberAt = (source: Record<string, JsonValue> | undefined, key: string): number | undefined => {
+	const value = source?.[key];
+	return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+};

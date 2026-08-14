@@ -221,6 +221,7 @@ import './contrib/vibeide/electron-browser/httpApi/vibeHttpApiContribution.js';
 import './contrib/vibeide/electron-browser/vibeGitReadService.js';
 import './contrib/vibeide/electron-browser/hooks/vibeHooksService.js';
 import './contrib/vibeide/electron-browser/video/vibeVideoChatService.js';
+import './contrib/vibeide/electron-browser/acp/vibeAcpService.js';
 
 //#endregion
 
