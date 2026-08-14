@@ -97,6 +97,92 @@ const doc = (elements: ElementSnapshot[], over: Partial<DocumentSnapshot> = {}):
 
 const rulesFired = (snapshot: DocumentSnapshot): string[] => [...new Set(reviewDesign(snapshot).map(f => f.rule))].sort();
 
+suite('компонентные правила', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	const cell = (over: Partial<ElementSnapshot>) => el({ tag: 'td', parentSelector: 'table > tbody', widthPx: 90, heightPx: 24, ...over });
+
+	test('столбец чисел, выключенный влево, — находка', () => {
+		const page = doc([
+			cell({ selector: 'td.sum:nth-of-type(1)', text: '1 200', leftPx: 300, topPx: 0 }),
+			cell({ selector: 'td.sum:nth-of-type(2)', text: '340', leftPx: 300, topPx: 30 }),
+			cell({ selector: 'td.sum:nth-of-type(3)', text: '12 000,50', leftPx: 300, topPx: 60 }),
+		]);
+		assert.ok(rulesFired(page).includes(RULE.numericColumnNotRightAligned), rulesFired(page).join(', '));
+	});
+
+	test('тот же столбец по правому краю молчит', () => {
+		const page = doc([
+			cell({ selector: 'td.sum:nth-of-type(1)', text: '1 200', leftPx: 300, topPx: 0, textAlign: 'right' }),
+			cell({ selector: 'td.sum:nth-of-type(2)', text: '340', leftPx: 300, topPx: 30, textAlign: 'right' }),
+			cell({ selector: 'td.sum:nth-of-type(3)', text: '12 000,50', leftPx: 300, topPx: 60, textAlign: 'right' }),
+		]);
+		assert.ok(!rulesFired(page).includes(RULE.numericColumnNotRightAligned), rulesFired(page).join(', '));
+	});
+
+	test('столбец слов правилу не подчиняется', () => {
+		// Текст выравнивают по левому краю, и это не дефект, а норма набора.
+		const page = doc([
+			cell({ selector: 'td.name:nth-of-type(1)', text: 'Первый', leftPx: 40, topPx: 0 }),
+			cell({ selector: 'td.name:nth-of-type(2)', text: 'Второй', leftPx: 40, topPx: 30 }),
+			cell({ selector: 'td.name:nth-of-type(3)', text: 'Третий', leftPx: 40, topPx: 60 }),
+		]);
+		assert.ok(!rulesFired(page).includes(RULE.numericColumnNotRightAligned), rulesFired(page).join(', '));
+	});
+
+	test('длинная таблица без закреплённых заголовков — замечание', () => {
+		const page = doc([
+			el({ selector: 'table', tag: 'table', widthPx: 900, heightPx: 1400, text: '' }),
+			el({ selector: 'table > thead > th', tag: 'th', parentSelector: 'table > thead', text: 'Дата', widthPx: 200, heightPx: 32 }),
+		]);
+		assert.ok(rulesFired(page).includes(RULE.tableHeaderScrollsAway), rulesFired(page).join(', '));
+	});
+
+	test('закреплённая шапка снимает вопрос, короткая таблица — тоже', () => {
+		const sticky = doc([
+			el({ selector: 'table', tag: 'table', widthPx: 900, heightPx: 1400, text: '' }),
+			el({ selector: 'table > thead > th', tag: 'th', parentSelector: 'table > thead', text: 'Дата', widthPx: 200, heightPx: 32, position: 'sticky' }),
+		]);
+		const short = doc([
+			el({ selector: 'table', tag: 'table', widthPx: 900, heightPx: 300, text: '' }),
+			el({ selector: 'table > thead > th', tag: 'th', parentSelector: 'table > thead', text: 'Дата', widthPx: 200, heightPx: 32 }),
+		]);
+		assert.deepStrictEqual(
+			[rulesFired(sticky).includes(RULE.tableHeaderScrollsAway), rulesFired(short).includes(RULE.tableHeaderScrollsAway)],
+			[false, false]);
+	});
+
+	test('модалка выше экрана без внутренней прокрутки — ошибка', () => {
+		// Окно, переросшее экран, прячет собственные кнопки: решение принять нельзя.
+		const page = doc([el({ selector: 'dialog', tag: 'dialog', widthPx: 600, heightPx: 1200, text: 'Подтвердите' })]);
+		assert.ok(rulesFired(page).includes(RULE.dialogOverflowsViewport), rulesFired(page).join(', '));
+	});
+
+	test('модалка с прокруткой внутри молчит', () => {
+		const page = doc([el({ selector: 'dialog', tag: 'dialog', widthPx: 600, heightPx: 1200, text: 'Подтвердите', overflowY: 'auto' })]);
+		assert.ok(!rulesFired(page).includes(RULE.dialogOverflowsViewport), rulesFired(page).join(', '));
+	});
+
+	test('ряд плиток метрик не считается забором из карточек', () => {
+		// Три счётчика в шапке панели: одинаковая форма здесь и есть смысл — их сравнивают.
+		const tile = (index: number) => el({
+			selector: `div.tiles > div:nth-of-type(${index})`, parentSelector: 'div.tiles',
+			childTags: ['span', 'span'], widthPx: 300, heightPx: 40, leftPx: index * 310, text: '',
+		});
+		const page = doc([tile(1), tile(2), tile(3)]);
+		assert.ok(!rulesFired(page).includes(RULE.identicalCards), rulesFired(page).join(', '));
+	});
+
+	test('настоящие карточки-клоны по-прежнему ловятся', () => {
+		const card = (index: number) => el({
+			selector: `div.grid > article:nth-of-type(${index})`, parentSelector: 'div.grid', tag: 'article',
+			childTags: ['svg', 'h3', 'p'], widthPx: 300, heightPx: 220, leftPx: index * 310, text: '',
+		});
+		const page = doc([card(1), card(2), card(3)]);
+		assert.ok(rulesFired(page).includes(RULE.identicalCards), rulesFired(page).join(', '));
+	});
+});
+
 suite('перекрытый текст', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
@@ -360,7 +446,7 @@ suite('designSlopRules', () => {
 		assert.deepStrictEqual(
 			[RULE_COUNT > 0, ALL_RULE_IDS.length, ALL_RULE_IDS.length >= RULE_COUNT],
 			// 65 + 13 правил находимости (категория `seo`, добавлена 14.08.2026).
-			[true, 78, true],
+			[true, 81, true],
 		);
 	});
 

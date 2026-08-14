@@ -28,6 +28,12 @@ const CLIP_TOLERANCE_PX = 2;
 const OCCLUSION_MIN_COVER = 0.6;
 /** Identical siblings from this count on are a template rather than a coincidence. */
 const IDENTICAL_CARDS_MIN = 3;
+/** Меньше — это не столбец, а пара значений: выключка там ничего не выравнивает. */
+const NUMERIC_COLUMN_MIN_CELLS = 3;
+/** Сколько детей делают блок карточкой: иконка, заголовок и текст — а не подпись с числом. */
+const IDENTICAL_CARDS_MIN_CHILDREN = 3;
+/** Ниже этого блок читается как строка сводки, а не как карточка в сетке. */
+const IDENTICAL_CARDS_MIN_HEIGHT_PX = 72;
 /** Sizes within this ratio count as "the same size" when comparing sibling cards. */
 const SAME_SIZE_TOLERANCE = 0.08;
 /** Gaps to sample before deciding a page has one rhythm and no other. */
@@ -246,13 +252,112 @@ const ruleOccludedText: Rule = doc => {
 	return findings;
 };
 
+/**
+ * Числовой столбец, выключенный не вправо.
+ *
+ * Колонку чисел сравнивают взглядом по разрядам, а для этого хвосты должны стоять друг под
+ * другом. Проверяется только то, что видно на снимке: ячейки одного столбца, в которых стоят
+ * числа, и их выключка.
+ */
+const ruleNumericColumnNotRightAligned: Rule = doc => {
+	const findings: RuleFinding[] = [];
+	const cellsByColumn = new Map<string, ElementSnapshot[]>();
+	for (const el of doc.elements) {
+		if (el.tag !== 'td' || !isNumericCell(el.text)) { continue; }
+		// Столбец задаётся горизонтальным положением: разметка таблицы в снимке не хранится,
+		// а колонка — это как раз то, что стоит одно под другим.
+		const key = `${el.parentSelector}|${Math.round(el.leftPx / 8)}`;
+		const bucket = cellsByColumn.get(key);
+		if (bucket) { bucket.push(el); } else { cellsByColumn.set(key, [el]); }
+	}
+	const byLeft = new Map<number, ElementSnapshot[]>();
+	for (const [key, cells] of cellsByColumn) {
+		const left = Number(key.split('|')[1]);
+		const bucket = byLeft.get(left);
+		if (bucket) { bucket.push(...cells); } else { byLeft.set(left, [...cells]); }
+	}
+	for (const [, cells] of byLeft) {
+		if (cells.length < NUMERIC_COLUMN_MIN_CELLS) { continue; }
+		const misaligned = cells.filter(cell => cell.textAlign !== 'right' && cell.textAlign !== 'end');
+		if (misaligned.length !== cells.length) { continue; }
+		findings.push({
+			rule: RULE.numericColumnNotRightAligned,
+			severity: 'warning',
+			message: `Столбец из ${cells.length} чисел выключен не вправо`,
+			why: 'Числа сравнивают по разрядам, а для этого их хвосты должны стоять друг под другом.',
+			selector: cells[0].selector,
+			evidence: `выключка «${cells[0].textAlign}», ячеек ${cells.length}`,
+		});
+	}
+	return findings;
+};
+
+/** Число в ячейке: деньги, проценты и разряды с пробелами — тоже числа. */
+function isNumericCell(text: string): boolean {
+	const trimmed = text.trim();
+	if (!trimmed || trimmed.length > 24) { return false; }
+	return /^[−+-]?[$€₽]?\s?[\d\u00a0\s.,]+\s?[%$€₽]?$/.test(trimmed) && /\d/.test(trimmed);
+}
+
+/**
+ * Длинная таблица, у которой заголовки уезжают вверх.
+ *
+ * Пока строк меньше экрана, липкая шапка не нужна; когда таблица длиннее окна, столбец без
+ * заголовка перестаёт быть понятным на второй сотне строк. Отсюда и порог — высота окна.
+ */
+const ruleTableHeaderScrollsAway: Rule = doc => {
+	const findings: RuleFinding[] = [];
+	for (const table of doc.elements) {
+		if (table.tag !== 'table' || table.heightPx <= doc.viewportHeightPx) { continue; }
+		const headers = doc.elements.filter(el => el.tag === 'th' && el.selector.startsWith(table.selector));
+		if (headers.length === 0 || headers.some(header => header.position === 'sticky' || header.position === 'fixed')) { continue; }
+		findings.push({
+			rule: RULE.tableHeaderScrollsAway,
+			severity: 'info',
+			message: `Таблица выше экрана, а заголовки столбцов не закреплены`,
+			why: 'На второй сотне строк столбец без заголовка перестаёт быть понятным — приходится прокручивать вверх и обратно.',
+			selector: table.selector,
+			evidence: `высота ${table.heightPx.toFixed(0)}px при окне ${doc.viewportHeightPx}px, заголовков ${headers.length}`,
+		});
+	}
+	return findings;
+};
+
+/**
+ * Модальное окно, выросшее за край экрана.
+ *
+ * Внутри окна содержимое должно прокручиваться само; окно, переросшее экран, прячет и свои
+ * кнопки — то есть человек не может ни принять решение, ни отказаться от него.
+ */
+const ruleDialogOverflowsViewport: Rule = doc => {
+	const findings: RuleFinding[] = [];
+	for (const el of doc.elements) {
+		if (el.tag !== 'dialog') { continue; }
+		if (el.heightPx <= doc.viewportHeightPx) { continue; }
+		const scrolls = el.overflowY === 'auto' || el.overflowY === 'scroll';
+		if (scrolls) { continue; }
+		findings.push({
+			rule: RULE.dialogOverflowsViewport,
+			severity: 'error',
+			message: `Модальное окно выше экрана и не прокручивается внутри`,
+			why: 'Окно, переросшее экран, прячет собственные кнопки: решение принять нельзя и отказаться тоже.',
+			selector: el.selector,
+			evidence: `высота ${el.heightPx.toFixed(0)}px при окне ${doc.viewportHeightPx}px, overflow-y «${el.overflowY}»`,
+		});
+	}
+	return findings;
+};
+
 /** Identical icon+heading+text cards repeated across a grid. */
 const ruleIdenticalCards: Rule = doc => {
 	const findings: RuleFinding[] = [];
 	for (const [parent, children] of siblingGroups(doc)) {
 		const byShape = new Map<string, ElementSnapshot[]>();
 		for (const child of children) {
-			if (child.childTags.length < 2 || child.widthPx < 80) { continue; }
+			// Карточка — крупный блок с содержимым; плитка метрики (подпись и число в строке) им
+			// не является. Прежние пороги считали забором любой ряд одинаковых плиток — например,
+			// три счётчика в шапке панели, где одинаковая форма и есть смысл: их сравнивают.
+			if (child.childTags.length < IDENTICAL_CARDS_MIN_CHILDREN || child.widthPx < 80 || child.heightPx < IDENTICAL_CARDS_MIN_HEIGHT_PX) { continue; }
 			const key = child.childTags.join('/') + '|' + Math.round(child.widthPx / 10);
 			const bucket = byShape.get(key);
 			if (bucket) { bucket.push(child); } else { byShape.set(key, [child]); }
@@ -502,6 +607,9 @@ export const LAYOUT_RULES: readonly Rule[] = [
 	ruleClippedPositionedChild,
 	ruleOccludedText,
 	ruleIdenticalCards,
+	ruleNumericColumnNotRightAligned,
+	ruleTableHeaderScrollsAway,
+	ruleDialogOverflowsViewport,
 	ruleMonotonousSpacing,
 	ruleDoubleGap,
 	ruleHeroMetrics,

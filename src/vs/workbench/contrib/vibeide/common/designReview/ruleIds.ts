@@ -115,6 +115,13 @@ export const RULE = {
 	seoMissingOpenGraph: 'seo-missing-open-graph',
 	seoBrokenJsonLd: 'seo-broken-json-ld',
 	seoImageWithoutAlt: 'seo-image-without-alt',
+
+	// Компонентные проверки: то из памяток по компонентам, что вообще измеримо по снимку.
+	// Остальное там остаётся памяткой — состояние отправки формы или причину пустоты
+	// на снимке не увидеть, о них можно только вспомнить заранее.
+	numericColumnNotRightAligned: 'numeric-column-not-right-aligned',
+	tableHeaderScrollsAway: 'table-header-scrolls-away',
+	dialogOverflowsViewport: 'dialog-overflows-viewport',
 } as const;
 
 export type RuleId = typeof RULE[keyof typeof RULE];
@@ -219,6 +226,9 @@ export const RULE_META: Record<RuleId, RuleMeta> = {
 	[RULE.seoMissingOpenGraph]: { ruleClass: 'drift', category: 'seo' },
 	[RULE.seoBrokenJsonLd]: { ruleClass: 'floor', category: 'seo' },
 	[RULE.seoImageWithoutAlt]: { ruleClass: 'floor', category: 'seo' },
+	[RULE.numericColumnNotRightAligned]: { ruleClass: 'floor', category: 'layout' },
+	[RULE.tableHeaderScrollsAway]: { ruleClass: 'drift', category: 'layout' },
+	[RULE.dialogOverflowsViewport]: { ruleClass: 'floor', category: 'layout' },
 };
 
 /** Every id the catalogue can report. */
