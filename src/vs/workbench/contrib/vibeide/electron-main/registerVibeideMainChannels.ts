@@ -36,6 +36,8 @@ import { join } from '../../../../base/common/path.js';
 import { VibeClaudeCodeMainService } from './claudeCode/vibeClaudeCodeMainService.js';
 import { CLAUDE_SDK_DIR } from '../common/claudeCode/claudeCodeProvision.js';
 import { VIBE_CLAUDE_CODE_CHANNEL } from '../common/claudeCode/vibeClaudeCodeTypes.js';
+import { VibeAcpMainService } from './acp/vibeAcpMainService.js';
+import { VIBE_ACP_CHANNEL } from '../common/acp/acpTypes.js';
 import { VibeHttpApiMainService } from './httpApi/vibeHttpApiMainService.js';
 import { VIBE_HTTP_API_CHANNEL } from '../common/httpApi/vibeHttpApiTypes.js';
 import { VIBE_HOOKS_CHANNEL } from '../common/hooks/vibeHookTypes.js';
@@ -210,6 +212,14 @@ export function registerVibeideMainProcessChannels(
 	mainProcessElectronServer.registerChannel(
 		VIBE_CLAUDE_CODE_CHANNEL,
 		ProxyChannel.fromService(claudeCodeService, disposables),
+	);
+
+	// ACP host: external agents run as processes and ask US for files and permissions, so the
+	// editor sees their work — unlike an agent that edits the folder on its own.
+	const acpService = disposables.add(new VibeAcpMainService());
+	mainProcessElectronServer.registerChannel(
+		VIBE_ACP_CHANNEL,
+		ProxyChannel.fromService(acpService, disposables),
 	);
 
 	// Incoming HTTP API: the listener belongs to the main process for the same reason as the
