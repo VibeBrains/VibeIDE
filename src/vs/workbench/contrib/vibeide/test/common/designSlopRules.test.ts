@@ -15,7 +15,7 @@ import {
 	RULE_COUNT,
 	summarize,
 } from '../../common/designReview/designSlopRules.js';
-import { ALL_RULE_IDS, RULE_META, RuleId } from '../../common/designReview/ruleIds.js';
+import { ALL_RULE_IDS, RULE, RULE_META, RuleId } from '../../common/designReview/ruleIds.js';
 
 /** A neutral element: dark text on white, comfortable everything. Tests override one field at a time. */
 const el = (over: Partial<ElementSnapshot> = {}): ElementSnapshot => ({
@@ -96,6 +96,59 @@ const doc = (elements: ElementSnapshot[], over: Partial<DocumentSnapshot> = {}):
 });
 
 const rulesFired = (snapshot: DocumentSnapshot): string[] => [...new Set(reviewDesign(snapshot).map(f => f.rule))].sort();
+
+suite('перекрытый текст', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	/**
+	 * Непрозрачный предок — это вложенность, а не слой поверх.
+	 *
+	 * Случай снят с живой панели: корень приложения записан от `body`, потомок — от другого узла,
+	 * общего префикса у селекторов нет. Правило, сравнивавшее строки, ругалось на каждую строку
+	 * текста внутри такого контейнера.
+	 */
+	test('текст внутри непрозрачного предка не считается перекрытым', () => {
+		const page = doc([
+			el({
+				selector: 'body > div.app', parentSelector: 'body', parentId: -1,
+				ownBackgroundAlpha: 1, position: 'relative', zIndex: 1,
+				widthPx: 1280, heightPx: 800, text: '',
+			}),
+			el({
+				selector: 'div.pane > h1', parentSelector: 'div.pane', parentId: 0, tag: 'h1',
+				text: 'Заголовок панели', fontSizePx: 24,
+				widthPx: 400, heightPx: 32, leftPx: 40, topPx: 40,
+			}),
+		]);
+		assert.ok(!rulesFired(page).includes(RULE.occludedText), rulesFired(page).join(', '));
+	});
+
+	test('настоящее перекрытие по-прежнему ловится', () => {
+		// Слой-сосед, а не предок: лежит поверх текста и полностью его накрывает.
+		const page = doc([
+			el({
+				selector: 'div.text', parentSelector: 'body > div.app', parentId: -1,
+				text: 'Этот текст читатель не увидит',
+				widthPx: 400, heightPx: 40, leftPx: 40, topPx: 40,
+			}),
+			el({
+				selector: 'div.overlay', parentSelector: 'body > div.app', parentId: -1,
+				ownBackgroundAlpha: 1, position: 'fixed', zIndex: 5, text: '',
+				widthPx: 400, heightPx: 40, leftPx: 40, topPx: 40,
+			}),
+		]);
+		assert.ok(rulesFired(page).includes(RULE.occludedText), rulesFired(page).join(', '));
+	});
+
+	test('снимок прежнего сборщика без parentId читается по-старому', () => {
+		// Поле необязательное: снимок без него не должен ни падать, ни выдавать предка за слой.
+		const page = doc([
+			el({ selector: 'div.app', parentSelector: 'body', ownBackgroundAlpha: 1, position: 'relative', zIndex: 1, widthPx: 1280, heightPx: 800, text: '' }),
+			el({ selector: 'div.app > h1', parentSelector: 'div.app', tag: 'h1', text: 'Заголовок панели', fontSizePx: 24, widthPx: 400, heightPx: 32, leftPx: 40, topPx: 40 }),
+		]);
+		assert.ok(!rulesFired(page).includes(RULE.occludedText), rulesFired(page).join(', '));
+	});
+});
 
 suite('designSlopRules', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();

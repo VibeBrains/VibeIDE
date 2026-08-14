@@ -194,15 +194,42 @@ const ruleClippedPositionedChild: Rule = doc => {
 	return findings;
 };
 
+/**
+ * Родство внутри снимка.
+ *
+ * Считается по `parentId` — числовой связи, которую проставляет сборщик. По селекторам родство не
+ * восстанавливается: предок может быть записан от `body` (`body > div.app`), а потомок — от другого
+ * узла, и общего префикса у них нет. Снимки прежних сборщиков поля не несут, и для них остаётся
+ * прежняя догадка по строкам: без неё правило начало бы ругаться на всё подряд.
+ */
+function isAncestorOf(doc: DocumentSnapshot, ancestor: ElementSnapshot, descendant: ElementSnapshot, indexOf: ReadonlyMap<ElementSnapshot, number>): boolean {
+	if (descendant.parentId === undefined) {
+		return ancestor.selector === descendant.parentSelector || descendant.selector.startsWith(ancestor.selector);
+	}
+	const ancestorIndex = indexOf.get(ancestor);
+	if (ancestorIndex === undefined) { return false; }
+	// Подъём ограничен длиной списка: битый снимок с закольцованными ссылками не должен вешать разбор.
+	let current: number | undefined = descendant.parentId;
+	for (let step = 0; step <= doc.elements.length && current !== undefined && current >= 0; step++) {
+		if (current === ancestorIndex) { return true; }
+		current = doc.elements[current]?.parentId;
+	}
+	return false;
+}
+
 /** Text under an opaque layer: readable in the DOM, gone on screen. */
 const ruleOccludedText: Rule = doc => {
 	const findings: RuleFinding[] = [];
 	const texts = doc.elements.filter(el => el.text.length >= 4 && el.widthPx > 0 && el.heightPx > 0);
 	const covers = doc.elements.filter(el => el.ownBackgroundAlpha >= 0.9 && el.position !== 'static');
+	const indexOf = new Map(doc.elements.map((el, index) => [el, index] as const));
 	for (const text of texts) {
 		const area = text.widthPx * text.heightPx;
 		for (const cover of covers) {
-			if (cover === text || cover.selector === text.parentSelector || text.selector.startsWith(cover.selector)) { continue; }
+			// Собственный предок перекрывает потомка по площади всегда — это вложенность, а не слой
+			// поверх. Фон панели, обёртка страницы и корень приложения иначе давали бы ошибку на
+			// каждой строке текста внутри них.
+			if (cover === text || isAncestorOf(doc, cover, text, indexOf)) { continue; }
 			if (cover.zIndex < text.zIndex) { continue; }
 			if (overlapArea(text, cover) / area < OCCLUSION_MIN_COVER) { continue; }
 			findings.push({

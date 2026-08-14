@@ -156,6 +156,10 @@ export function buildReloadClientScript(wsPath: string): string {
 		'}',
 		'function dsScan(vp){',
 		'var out=[],heads=[],all=document.body?document.body.querySelectorAll("*"):[];',
+		// Родство запоминается по ходу обхода: `querySelectorAll` идёт в документном порядке,
+		// поэтому предок уже лежит в карте к моменту, когда доходит очередь до потомка. Без этой
+		// связи правила восстанавливали её из селекторов и принимали предка за чужой слой.
+		'var dsIds=new WeakMap();',
 		// Cap the payload: a snapshot is a sample of the page, not a copy of it.
 		'var LIMIT=400;',
 		'for(var i=0;i<all.length&&out.length<LIMIT;i++){var el=all[i];',
@@ -167,7 +171,11 @@ export function buildReloadClientScript(wsPath: string): string {
 		'var bc=dsBorderColor(s,bw);var kids=[];for(var k=0;k<el.children.length&&k<6;k++){kids.push(el.children[k].tagName.toLowerCase());}',
 		'var lh=s.lineHeight==="normal"?dsNum(s.fontSize)*1.2:dsNum(s.lineHeight);var lines=(text&&lh>0&&r.height>lh*1.4)?dsLines(el):null;',
 		'if(/^h[1-4]$/.test(tag)&&text){heads.push({tag:tag,text:text.slice(0,80),fontSizePx:dsNum(s.fontSize)});}',
-		'out.push({selector:inspSel(el),parentSelector:el.parentElement?inspSel(el.parentElement):"",tag:tag,text:text,classes:(typeof el.className==="string"?el.className:"").trim().split(/\\s+/).filter(Boolean).slice(0,8),',
+		// Ближайший предок, который сам попал в выборку: невидимые и служебные узлы пропускаются,
+		// поэтому цепочка ведётся не до parentElement, а до первого известного.
+		'var dsPid=-1;for(var pp=el.parentElement;pp;pp=pp.parentElement){if(dsIds.has(pp)){dsPid=dsIds.get(pp);break;}}',
+		'dsIds.set(el,out.length);',
+		'out.push({selector:inspSel(el),parentSelector:el.parentElement?inspSel(el.parentElement):"",parentId:dsPid,tag:tag,text:text,classes:(typeof el.className==="string"?el.className:"").trim().split(/\\s+/).filter(Boolean).slice(0,8),',
 		'childTags:kids,cardDepth:dsCardDepth(el),fontSizePx:dsNum(s.fontSize),lineHeightPx:lh,',
 		'letterSpacingPx:s.letterSpacing==="normal"?0:dsNum(s.letterSpacing),fontFamily:s.fontFamily||"",fontWeight:dsNum(s.fontWeight)||400,',
 		'fontStyle:s.fontStyle||"normal",textTransform:s.textTransform||"none",textAlign:s.textAlign||"start",color:col?col.c:[0,0,0],backgroundColor:dsBg(el),',

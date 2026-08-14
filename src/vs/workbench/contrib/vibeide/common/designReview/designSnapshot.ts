@@ -20,6 +20,17 @@ export type ElementSnapshot = {
 	selector: string;
 	/** Selector of the parent, so rules can group siblings without walking a tree. */
 	parentSelector: string;
+	/**
+	 * Индекс ближайшего предка, попавшего в снимок, в `elements`; `-1` — предка в выборке нет.
+	 *
+	 * Родство приходится хранить числом, потому что по селекторам его не восстановить: предок
+	 * может быть записан от `body` (`body > div.app`), а потомок — от другого узла, и префиксного
+	 * совпадения между ними нет. Правило, сравнивавшее строки, объявляло непрозрачного предка
+	 * перекрывающим слоем — то есть ругалось на обычную вложенность.
+	 *
+	 * Необязательное: снимки прежних сборщиков поля не несут, и правила обязаны работать без него.
+	 */
+	parentId?: number;
 	tag: string;
 	/** Visible text, trimmed and collapsed; empty for layout-only nodes. */
 	text: string;
