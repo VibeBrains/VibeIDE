@@ -315,28 +315,35 @@ if (Test-Path $signerScript) {
     Write-Warning "[release-windows] scripts\sign-windows.ps1 missing — installer left unsigned."
 }
 
-# ── 3b. Smoke check — verify the built exe responds (roadmap L1160) ─────────
-# Runs code.exe --version; fails the build if it exits non-zero or produces
-# no output. Full releaseSmokeChecker.evaluateSmokeRun is the TypeScript helper;
-# this PowerShell gate covers the minimal acceptance criterion without it.
+# ── 3b. Smoke check — verify the built app responds (roadmap L1160) ─────────
+# Runs the CLI wrapper `bin\<applicationName>.cmd --version`, NOT the GUI exe.
+#
+# Why the wrapper: the packaged .exe is a Windows-subsystem binary, so it never writes to the
+# parent console — `& $exe --version` returned empty on every release since 1.10.0 and the gate
+# degraded to a warning nobody could act on. Worse, the GUI process stayed alive: four releases
+# in a row ended with a handful of orphaned VibeIDE.exe to kill by hand. The wrapper sets
+# ELECTRON_RUN_AS_NODE=1 and runs out/cli.js, which prints the version and exits — exactly what
+# release-macos.sh already does with bin/vibeide. Build emits it in gulpfile.vscode.ts:607.
 Step "Smoke-checking built application..."
-$appExe = "$Root\..\VibeIDE-win32-x64\Code.exe"
-if (-not (Test-Path $appExe)) {
-    $appExe = "$Root\..\VibeIDE-win32-x64\VibeIDE.exe"
-}
-if (Test-Path $appExe) {
-    $smokeOut = & $appExe --version 2>&1
+$appRoot = "$Root\..\VibeIDE-win32-x64"
+$appName = (Get-Content $productPath -Raw | ConvertFrom-Json).applicationName
+$smokeCli = "$appRoot\bin\$appName.cmd"
+if (Test-Path $smokeCli) {
+    $smokeOut = & $smokeCli --version 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "[release] Smoke check FAILED: $appExe --version exited $LASTEXITCODE"
+        Write-Error "[release] Smoke check FAILED: $smokeCli --version exited $LASTEXITCODE"
         exit 1
     }
     if (-not $smokeOut) {
-        Write-Warning "[release] Smoke check WARNING: $appExe --version produced no output (non-fatal)"
-    } else {
-        OK "Smoke check passed: $($smokeOut -join ' / ')"
+        # Fatal on purpose. A silent smoke check is worse than none: it reports success for a
+        # build nobody verified, which is how a broken binary reaches a release.
+        Write-Error "[release] Smoke check FAILED: $smokeCli --version produced no output"
+        exit 1
     }
+    OK "Smoke check passed: $($smokeOut -join ' / ')"
 } else {
-    Write-Warning "[release] Smoke check SKIPPED: built exe not found at expected path — verify gulp output dir."
+    Write-Error "[release] Smoke check FAILED: CLI wrapper not found at $smokeCli — the package is incomplete."
+    exit 1
 }
 
 if ($SkipPublish) {

@@ -611,6 +611,10 @@ export interface IChatThreadService {
 	openNewThread(): void;
 	/** Always create a fresh thread (bypasses openNewThread's empty-thread reuse). Returns the new thread id. */
 	forceCreateNewThread(): string;
+	/** Create a thread WITHOUT making it current or opening a tab — for runs started from outside the window. */
+	createBackgroundThread(): string;
+	/** Chat mode for one thread, overriding the window-wide setting. Pass `undefined` to clear. */
+	setThreadChatMode(threadId: string, mode: ChatMode | undefined): void;
 	switchToThread(threadId: string): void;
 	/**
 	 * Open `threadId` and ask the chat view to scroll to `messageIdx` and highlight it — how a
@@ -5183,7 +5187,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// _runToolCall does not need setStreamState({idle}) before it, but it needs it after it. (handles its own setStreamState)
 
 		// above just defines helpers, below starts the actual function
-		const { chatMode } = this._settingsService.state.globalSettings; // should not change as we loop even if user changes it, so it goes here
+		// Режим прогона: переопределение треда сильнее глобальной настройки окна. Нужно внешним
+		// вызовам (HTTP API, расписание): раньше они переключали ГЛОБАЛЬНЫЙ режим, чтобы получить
+		// инструменты правки, — то есть у человека, работавшего в это время в «Обзоре», режим
+		// менялся под руками. Внутри цикла значение не перечитывается намеренно (см. ниже).
+		const chatMode = this._chatModeOverrideOfThread.get(threadId) ?? this._settingsService.state.globalSettings.chatMode; // should not change as we loop even if user changes it, so it goes here
 		const { overridesOfModel } = this._settingsService.state;
 
 		let nMessagesSent = 0;
@@ -9820,6 +9828,41 @@ We only need to do it for files that were edited since `from`, ie files between 
 		this._storeAllThreads(newThreads);
 		this._storeOpenTabIds(openTabIds);
 		this._setState({ allThreads: newThreads, currentThreadId: newThread.id, openTabIds });
+	}
+
+	/**
+	 * Тред для внешнего запуска: создаётся и остаётся НЕВИДИМЫМ — ни текущим, ни вкладкой.
+	 *
+	 * Внешний вызов (HTTP API из CI, бот, расписание) приходит, пока человек работает в этом же
+	 * окне. Переключение текущего треда уводило у него разговор из-под рук посреди фразы, а вкладка
+	 * добавляла в его ряд чужую задачу. Тред при этом обычный: он виден в истории, к нему можно
+	 * вернуться, и второй шаг конвейера продолжит его по тому же `sessionId`.
+	 */
+	createBackgroundThread(): string {
+		const ws = this._currentWorkspace();
+		const newThread = newThreadObject(ws.id, ws.label);
+		const newThreads: ChatThreads = { ...this.state.allThreads, [newThread.id]: newThread };
+		this._storeAllThreads(newThreads);
+		// `currentThreadId` и `openTabIds` не трогаем — в этом весь смысл метода.
+		this._setState({ allThreads: newThreads });
+		return newThread.id;
+	}
+
+	/**
+	 * Режим для одного треда, поверх глобального.
+	 *
+	 * Живёт в памяти окна и не персистится: это свойство ПРОГОНА, а не разговора. Пережив
+	 * перезапуск, он превратился бы в невидимую настройку, объясняющую странное поведение старого
+	 * треда через неделю.
+	 */
+	private readonly _chatModeOverrideOfThread = new Map<string, ChatMode>();
+
+	setThreadChatMode(threadId: string, mode: ChatMode | undefined): void {
+		if (mode) {
+			this._chatModeOverrideOfThread.set(threadId, mode);
+		} else {
+			this._chatModeOverrideOfThread.delete(threadId);
+		}
 	}
 
 	forceCreateNewThread(): string {

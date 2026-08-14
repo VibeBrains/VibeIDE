@@ -59,6 +59,7 @@
 
 | Файл | О чём |
 |---|---|
+| [uiSelectorsFromLiveApp.md](ui/uiSelectorsFromLiveApp.md) | **[правило]** CSS-обвязку против чужого UI писать только с живой IDE: пять правил `hideBuiltinChat` целили в `data-action-id`, которого в разметке нет вовсе, а два правила по `aria-label="Chat"` попадали в НАШУ вкладку чата и скрыли бы её при английской локали. Селектор по видимому тексту = решение по строке, запрещённое правилом локализации. Как снимать разметку через CDP |
 | [cssPipeline.md](ui/cssPipeline.md) | `vibeide.css`, `styles.css`, build flow, CSS MIME в dev |
 | [designSystemForModels.md](ui/designSystemForModels.md) | Почему «сделай стильнее» не работает, карта UI как четвёртый слой контура, двойной отступ |
 | [scopeTailwind.md](ui/scopeTailwind.md) | `@@`-escape, классы в константах (и в цвет-хелперах → SVG `stroke: none`), `.vibe-scope *` preflight, ID с точками, popup borders, quick pick |

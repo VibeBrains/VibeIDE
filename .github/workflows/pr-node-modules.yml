@@ -219,7 +219,13 @@ jobs:
 
   windows:
     name: Windows
-    runs-on: [ self-hosted, windows, x64 ]
+    # Своя виндовая машина: GitHub-раннеры не тянут сборку нативных модулей по памяти.
+    # Она же — единственная точка отказа: когда машина выключена или теряет сеть, джоба падает
+    # с «self-hosted runner lost communication», и красный цвет здесь означает состояние машины,
+    # а не состояние кода (проверено на прогоне 31698288654 — шагов с ошибкой ноль).
+    # Тот же выключатель, что в release.yml: поставьте переменную репозитория
+    # USE_GITHUB_RUNNER=true, чтобы собрать на windows-latest, пока своя машина недоступна.
+    runs-on: ${{ vars.USE_GITHUB_RUNNER == 'true' && 'windows-latest' || fromJSON('["self-hosted", "windows", "x64"]') }}
     env:
       NPM_ARCH: x64
       VSCODE_ARCH: x64

@@ -26,7 +26,6 @@ import { INotificationService, Severity } from '../../../../../platform/notifica
 import { ISecretStorageService } from '../../../../../platform/secrets/common/secrets.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../../common/contributions.js';
 import { IChatThreadService } from '../../browser/chatThreadService.js';
-import { IVibeideSettingsService } from '../../common/vibeideSettingsService.js';
 import { vibeLog } from '../../common/vibeLog.js';
 import {
 	IVibeHttpApiMain,
@@ -52,7 +51,6 @@ export class VibeHttpApiContribution extends Disposable implements IWorkbenchCon
 		@ISecretStorageService private readonly _secrets: ISecretStorageService,
 		@IChatThreadService private readonly _chatThreadService: IChatThreadService,
 		@INotificationService private readonly _notifications: INotificationService,
-		@IVibeideSettingsService private readonly _settings: IVibeideSettingsService,
 	) {
 		super();
 		this._main = ProxyChannel.toService<IVibeHttpApiMain>(mainProcessService.getChannel(VIBE_HTTP_API_CHANNEL));
@@ -102,19 +100,14 @@ export class VibeHttpApiContribution extends Disposable implements IWorkbenchCon
 		try {
 			const requested = run.request.sessionId;
 			const known = requested && this._chatThreadService.state.allThreads[requested] ? requested : undefined;
-			if (known) {
-				this._chatThreadService.switchToThread(known);
-			} else {
-				this._chatThreadService.openNewThread();
-			}
-			// Внешний вызов работает в агентском режиме. Режим — глобальная настройка ОКНА, поэтому
-			// без этого задача из CI выполнялась бы в том режиме, в каком человек оставил интерфейс:
-			// в «Обзоре» и «Плане» инструменты правки вообще не выдаются модели, и запрос «поправь
-			// файл» завершался бы рассказом о том, что таких инструментов нет. Найдено живым смоуком.
-			if (this._settings.state.globalSettings.chatMode !== 'agent') {
-				await this._settings.setGlobalSetting('chatMode', 'agent');
-			}
-			const threadId = this._chatThreadService.getCurrentThread().id;
+			// Ни переключения текущего треда, ни новой вкладки: запрос приходит, пока человек
+			// работает в этом же окне, и раньше уводил у него разговор из-под рук посреди фразы.
+			const threadId = known ?? this._chatThreadService.createBackgroundThread();
+			// Внешний вызов работает в агентском режиме: в «Обзоре» и «Плане» инструменты правки
+			// модели не выдаются, и задача из CI тихо превращалась в рассказ «такого инструмента
+			// нет» (найдено живым смоуком). Режим ставится ТРЕДУ, а не окну — глобальная настройка
+			// принадлежит человеку, и менять её за него ради своего прогона нельзя.
+			this._chatThreadService.setThreadChatMode(threadId, 'agent');
 			const streamed = this._chatThreadService.addUserMessageAndStreamResponse({
 				userMessage: run.request.task,
 				threadId,
