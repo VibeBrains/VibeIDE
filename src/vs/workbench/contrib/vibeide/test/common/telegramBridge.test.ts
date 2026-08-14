@@ -294,6 +294,29 @@ suite('Telegram bridge — remote control buttons', () => {
 			[{ kind: 'menu' }, { kind: 'menu' }, { kind: 'run', prompt: '/menuscript сломался' }],
 		);
 	});
+
+	test('внешний агент по ACP — свои команды, отличные от команд Claude Code', () => {
+		// Исполнитель выбирается командой и больше ничем: одинаковый разбор `/cc` и `/acp`
+		// означал бы, что задача уходит не тому.
+		assert.deepStrictEqual(
+			[
+				parseTelegramCommand('/acp почини тесты'),
+				parseTelegramCommand('/acp_stop'),
+				parseTelegramCommand('/acp_agents@my_vibe_bot'),
+				parseTelegramCommand('/acp_use claude'),
+				parseTelegramCommand('/acp'),
+				parseTelegramCommand('/acp_use'),
+			],
+			[
+				{ kind: 'acp', prompt: 'почини тесты' },
+				{ kind: 'acpStop' },
+				{ kind: 'acpAgents' },
+				{ kind: 'acpUse', agent: 'claude' },
+				{ kind: 'empty' },
+				{ kind: 'empty' },
+			],
+		);
+	});
 });
 
 suite('Telegram bridge — who owns the bot', () => {

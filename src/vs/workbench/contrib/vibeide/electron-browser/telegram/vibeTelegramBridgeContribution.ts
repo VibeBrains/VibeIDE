@@ -30,6 +30,9 @@ import { resolveVoiceProfile } from '../../common/voice/vibeVoiceModels.js';
 import { escapeTelegramHtml, formatProgressLine, formatToolRequestPreview, markdownToTelegramHtml, splitForTelegram } from '../../common/telegram/telegramFormat.js';
 import { IVibeClaudeCodeMain, VIBE_CLAUDE_CODE_CHANNEL, type ClaudeRunEvent } from '../../common/claudeCode/vibeClaudeCodeTypes.js';
 import { describeSdkStatus } from '../../common/claudeCode/claudeCodeProvision.js';
+import { IVibeAcpSessionsService, IVibeAcpSessionView } from '../../browser/acp/vibeAcpSessionsService.js';
+import { IVibeAcpRegistryService } from '../../browser/acp/vibeAcpRegistryService.js';
+import { allowOptionOf, formatAcpPermissionCard, formatAcpTurnEnd } from '../../common/acp/acpPermissionCard.js';
 import { shouldMirrorApproval, VibeTelegramApprovalPolicy } from '../../common/telegram/telegramApprovalPolicy.js';
 import { approvalTypeOfBuiltinToolName } from '../../common/prompt/tools/index.js';
 import {
@@ -87,6 +90,26 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 	private readonly _claudeRuns = new Map<number, { runId: string; messageId?: number }>();
 	/** Последняя сессия Claude Code в чате — чтобы следующая задача продолжала работу. */
 	private readonly _claudeSession = new Map<number, string>();
+	/**
+	 * Сессии внешних ACP-агентов по чатам.
+	 *
+	 * Сессия одна на чат по той же причине, что и прогон Claude Code: два хода в одном чате
+	 * различались бы только текстом, и ответ «разрешить» уходил бы наугад.
+	 */
+	private readonly _acpSessionOf = new Map<number, string>();
+	/**
+	 * Идущий ход: сообщение, которое редактируется по мере ответа.
+	 *
+	 * Отдельно от сессии, потому что сессия переживает ход: после «готово» запись хода исчезает,
+	 * а сессия остаётся, и следующая задача продолжает ту же работу, а не начинает с нуля.
+	 */
+	private readonly _acpTurns = new Map<number, { messageId?: number; lastEditMs: number; lastText: string }>();
+	/** Выбранный агент реестра по чатам; пусто — берётся единственный активный. */
+	private readonly _acpAgentOf = new Map<number, string>();
+	/** Вопросы внешнего агента, показанные в чате: токен кнопки → сессия, которая ждёт ответа. */
+	private readonly _acpApprovals = new Map<string, { sessionId: string; chatId: number; messageId?: number }>();
+	/** Чаты, чьё следующее сообщение — правка отклонённого действия внешнего агента. */
+	private readonly _acpAmendOf = new Set<number>();
 
 	constructor(
 		@IMainProcessService mainProcessService: IMainProcessService,
@@ -98,6 +121,8 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		@INativeHostService private readonly _nativeHostService: INativeHostService,
 		@IChatThreadService private readonly _chatThreadService: IChatThreadService,
 		@IVibeAgentRunLedgerService private readonly _runLedger: IVibeAgentRunLedgerService,
+		@IVibeAcpSessionsService private readonly _acp: IVibeAcpSessionsService,
+		@IVibeAcpRegistryService private readonly _acpRegistry: IVibeAcpRegistryService,
 	) {
 		super();
 		this._main = ProxyChannel.toService<IVibeTelegramMain>(mainProcessService.getChannel(VIBE_TELEGRAM_CHANNEL));
@@ -116,6 +141,7 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 		this._register(this._main.onDidAnswerApproval(e => void this._onApprovalAnswered(e.token, e.decision, e.chatId)));
 		this._claude = ProxyChannel.toService<IVibeClaudeCodeMain>(mainProcessService.getChannel(VIBE_CLAUDE_CODE_CHANNEL));
 		this._register(this._claude.onEvent(e => void this._onClaudeEvent(e)));
+		this._register(this._acp.onDidChange(() => void this._onAcpChanged()));
 		this._register(this._chatThreadService.onDidChangeStreamState(e => void this._onStreamStateChanged(e.threadId)));
 		this._register(this._configurationService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration(VibeTelegramConfigKeys.section)) {
@@ -262,6 +288,13 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			await this._claude.answerApproval(claudeAmendRequest, 'amend', command.prompt);
 			return;
 		}
+		// То же для внешнего агента: отказ ему уже отправлен, а это сообщение — указание, что
+		// делать вместо отклонённого, поэтому уходит ему же, а не агенту IDE.
+		if (this._acpAmendOf.has(chatId) && command.kind === 'run') {
+			this._acpAmendOf.delete(chatId);
+			await this._runAcp(chatId, command.prompt);
+			return;
+		}
 		const amendThreadId = this._awaitingAmendment.get(chatId);
 		if (amendThreadId !== undefined && command.kind === 'run') {
 			this._awaitingAmendment.delete(chatId);
@@ -305,7 +338,205 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 			case 'claudeStatus':
 				await this._reply(chatId, describeSdkStatus(await this._claude.status()));
 				return;
+			case 'acp':
+				await this._runAcp(chatId, command.prompt);
+				return;
+			case 'acpStop':
+				await this._stopAcp(chatId);
+				return;
+			case 'acpAgents':
+				await this._replyAcpAgents(chatId);
+				return;
+			case 'acpUse':
+				await this._useAcpAgent(chatId, command.agent);
+				return;
 		}
+	}
+
+	// --- внешние агенты по ACP ----------------------------------------------------------------
+
+	/**
+	 * Поставить задачу внешнему агенту.
+	 *
+	 * Сессия переиспользуется: следующая задача продолжает ту же работу, как `/cc` продолжает
+	 * сессию Claude Code. Рабочая папка берётся у ОКНА, к которому привязан чат, — реестр
+	 * агентов читается оттуда же, поэтому «он работал не в той папке» здесь невозможно.
+	 */
+	private async _runAcp(chatId: number, prompt: string): Promise<void> {
+		const knownId = this._acpSessionOf.get(chatId);
+		const session = knownId ? this._acp.sessions.find(view => view.sessionId === knownId) : undefined;
+		if (session?.busy) {
+			await this._reply(chatId, 'Внешний агент уже работает. Дождитесь конца хода или прервите: /acp_stop');
+			return;
+		}
+
+		let sessionId = session?.sessionId;
+		if (!sessionId) {
+			const agent = this._chosenAcpAgent(chatId);
+			if (!agent) {
+				await this._reply(chatId, this._acpRegistry.agents.length === 0
+					? 'Реестра .vibe/agents.json в этой папке нет — звать некого. Формат описан в docs/manuals/agentsSpec.md: его можно отдать модели и попросить собрать файл.'
+					: 'В реестре несколько агентов — выберите: /acp_use <id>, список: /acp_agents');
+				return;
+			}
+			try {
+				const started = await this._acp.startSession(agent);
+				sessionId = started.sessionId;
+			} catch (err) {
+				await this._reply(chatId, `Не удалось запустить агента: ${err instanceof Error ? err.message : String(err)}`);
+				return;
+			}
+		}
+
+		const delivered = await this._main.send({ chatId, text: escapeTelegramHtml('🤝 Задача ушла внешнему агенту.') });
+		this._acpSessionOf.set(chatId, sessionId);
+		this._acpTurns.set(chatId, { messageId: delivered.messageId, lastEditMs: 0, lastText: '' });
+		void this._acp.prompt(sessionId, prompt);
+	}
+
+	private async _stopAcp(chatId: number): Promise<void> {
+		const sessionId = this._acpSessionOf.get(chatId);
+		if (!sessionId) {
+			await this._reply(chatId, 'Внешних агентов в этом чате не запущено.');
+			return;
+		}
+		await this._acp.cancel(sessionId);
+		await this._reply(chatId, '⛔️ Ход внешнего агента прерван.');
+	}
+
+	private async _replyAcpAgents(chatId: number): Promise<void> {
+		const agents = this._acpRegistry.agents;
+		if (agents.length === 0) {
+			await this._reply(chatId, 'Реестра .vibe/agents.json в этой папке нет — звать некого.');
+			return;
+		}
+		const chosen = this._acpAgentOf.get(chatId);
+		const lines = agents.map(agent => `${agent.id === chosen ? '▶️' : '•'} ${agent.id} — ${agent.name ?? agent.id}`);
+		await this._reply(chatId, [`Агенты этой папки:`, ...lines, '', 'Выбрать: /acp_use <id>'].join('\n'));
+	}
+
+	private async _useAcpAgent(chatId: number, id: string): Promise<void> {
+		const agent = this._acpRegistry.agents.find(entry => entry.id === id.trim());
+		if (!agent) {
+			await this._reply(chatId, `Агента «${id}» в реестре нет. Список: /acp_agents`);
+			return;
+		}
+		this._acpAgentOf.set(chatId, agent.id);
+		await this._reply(chatId, `Выбран ${agent.name ?? agent.id}. Задача: /acp <что сделать>`);
+	}
+
+	/** Единственный активный агент — или выбранный явно; иначе выбор за человеком. */
+	private _chosenAcpAgent(chatId: number) {
+		const agents = this._acpRegistry.agents;
+		const chosen = this._acpAgentOf.get(chatId);
+		if (chosen) { return agents.find(agent => agent.id === chosen); }
+		return agents.length === 1 ? agents[0] : undefined;
+	}
+
+	/**
+	 * Сессии изменились: показать ход и вопросы тем чатам, которые их ждут.
+	 *
+	 * Источник правды один — сервис сессий, поэтому телефон и вкладка всегда показывают одно и
+	 * то же состояние, а ответ существует в единственном экземпляре.
+	 */
+	private async _onAcpChanged(): Promise<void> {
+		for (const [chatId, sessionId] of [...this._acpSessionOf]) {
+			const session = this._acp.sessions.find(view => view.sessionId === sessionId);
+			if (!session) {
+				// Сессию закрыли во вкладке: чат про неё больше ничего не знает.
+				this._acpSessionOf.delete(chatId);
+				this._acpTurns.delete(chatId);
+				continue;
+			}
+			await this._mirrorAcpPermission(chatId, session);
+			await this._mirrorAcpProgress(chatId, session);
+		}
+	}
+
+	/**
+	 * Вопрос — на телефон, ответ — в общую очередь.
+	 *
+	 * Карточка гаснет, если на вопрос ответили во вкладке: живая кнопка на телефоне разрешила бы
+	 * потом то, к чему агент уже перешёл. Обратное тоже верно — ответ с телефона снимает вопрос
+	 * во вкладке, потому что очередь одна.
+	 */
+	private async _mirrorAcpPermission(chatId: number, session: IVibeAcpSessionView): Promise<void> {
+		const shown = [...this._acpApprovals].find(([, pending]) => pending.sessionId === session.sessionId);
+		const pending = session.pendingPermission;
+
+		if (!pending) {
+			if (shown) {
+				const [token, entry] = shown;
+				this._acpApprovals.delete(token);
+				if (entry.messageId !== undefined) {
+					await this._main.send({ chatId: entry.chatId, editMessageId: entry.messageId, text: escapeTelegramHtml('Решено в IDE.') });
+				}
+			}
+			return;
+		}
+		// Тот же вопрос второй карточкой — два ответа на один запрос.
+		if (shown) { return; }
+
+		const token = `p${++this._approvalCounter}`;
+		const delivered = await this._main.send({
+			chatId,
+			text: markdownToTelegramHtml(formatAcpPermissionCard({
+				agentName: session.agentName,
+				title: pending.title,
+				paths: pending.paths,
+				diffs: pending.diffs,
+			})),
+			approval: { token },
+		});
+		// Таймера нет намеренно, как и у `/cc`: ход стоит, пока человек не ответит. Отказ по
+		// времени означал бы, что агент пошёл другим путём, пока владелец был за рулём.
+		this._acpApprovals.set(token, { sessionId: session.sessionId, chatId, messageId: delivered.messageId });
+	}
+
+	/**
+	 * Ход агента одним редактируемым сообщением.
+	 *
+	 * Текст приезжает кусками по несколько символов, поэтому правка сообщения на каждый кусок
+	 * упёрлась бы в ограничение частоты Telegram и превратила чат в мигающую строку. Интервал
+	 * тот же, что у прогресса собственного агента.
+	 */
+	private async _mirrorAcpProgress(chatId: number, session: IVibeAcpSessionView): Promise<void> {
+		const live = this._acpTurns.get(chatId);
+		// Хода нет — значит ответ уже доложен; лента могла измениться от работы во вкладке.
+		if (!live) { return; }
+
+		const text = session.log.entries
+			.map(entry => entry.kind === 'message'
+				? (entry.thought ? '' : entry.text)
+				: `▸ ${entry.title || 'действие'}`)
+			.filter(Boolean)
+			.join('\n')
+			.trim();
+
+		if (session.busy) {
+			const interval = this._configurationService.getValue<number>(VibeTelegramConfigKeys.progressIntervalMs) ?? VIBE_TELEGRAM_PROGRESS_INTERVAL_MS;
+			const now = Date.now();
+			if (!text || text === live.lastText || (live.lastEditMs !== 0 && now - live.lastEditMs < interval)) { return; }
+			this._acpTurns.set(chatId, { ...live, lastEditMs: now, lastText: text });
+			if (live.messageId !== undefined) {
+				await this._main.send({ chatId, editMessageId: live.messageId, text: markdownToTelegramHtml(text) });
+			}
+			return;
+		}
+
+		// Ход кончился: досылаем последнее состояние целиком, даже если интервал не истёк —
+		// иначе на телефоне навсегда останется предпоследняя фраза.
+		// Ход кончился ровно один раз: запись хода удаляется до отправки итога, поэтому
+		// следующее изменение ленты (например, работа во вкладке) не пришлёт «готово» повторно.
+		this._acpTurns.delete(chatId);
+		if (session.error) {
+			await this._reply(chatId, `❌ Внешний агент упал: ${session.error}`);
+			return;
+		}
+		if (text && text !== live.lastText && live.messageId !== undefined) {
+			await this._main.send({ chatId, editMessageId: live.messageId, text: markdownToTelegramHtml(text) });
+		}
+		await this._reply(chatId, formatAcpTurnEnd(session.lastStopReason, session.log.spend));
 	}
 
 	/**
@@ -632,6 +863,33 @@ export class VibeTelegramBridgeContribution extends Disposable implements IWorkb
 
 	/** Answer from the phone: a tap on one of the three buttons, or the timeout acting as a refusal. */
 	private async _onApprovalAnswered(token: string, decision: VibeTelegramApprovalDecision, chatId: number | undefined, byTimeout = false): Promise<void> {
+		const acpPending = this._acpApprovals.get(token);
+		if (acpPending) {
+			if (chatId !== undefined && chatId !== acpPending.chatId) { return; }
+			this._acpApprovals.delete(token);
+			const session = this._acp.sessions.find(view => view.sessionId === acpPending.sessionId);
+			const request = session?.pendingPermission;
+			if (!request) {
+				await this._reply(acpPending.chatId, 'Этот вопрос уже решён.');
+				return;
+			}
+			if (decision === 'amend') {
+				// Отказ уходит сразу, а указание — следующим сообщением: без него агент пошёл бы
+				// гадать, что делать вместо отклонённого действия.
+				await this._acp.answerPermission(acpPending.sessionId, undefined);
+				this._acpAmendOf.add(acpPending.chatId);
+				await this._reply(acpPending.chatId, '✏️ Отклонено. Напиши или наговори, что сделать вместо этого.');
+				return;
+			}
+			// Разрешение — это ВАРИАНТ АГЕНТА, отказ — отмена: какой из чужих вариантов означает
+			// «нет», угадывать нельзя.
+			const optionId = decision === 'approve' ? allowOptionOf(request.options) : undefined;
+			await this._acp.answerPermission(acpPending.sessionId, optionId);
+			await this._reply(acpPending.chatId, decision === 'approve'
+				? (optionId ? '✅ Разрешено.' : '⚠️ Агент не предложил варианта «разрешить один раз» — действие отменено.')
+				: '⛔️ Отклонено.');
+			return;
+		}
 		const claudePending = this._claudeApprovals.get(token);
 		if (claudePending) {
 			if (chatId !== undefined && chatId !== claudePending.chatId) { return; }
@@ -733,6 +991,10 @@ const HELP_TEXT = [
 	'• /cc <задача> — поставить задачу Claude Code',
 	'• /cc_stop — остановить его прогон',
 	'• /cc_status — состояние моста и SDK',
+	'• /acp <задача> — поставить задачу внешнему агенту по ACP',
+	'• /acp_agents — кого можно позвать в этой папке',
+	'• /acp_use <id> — выбрать агента реестра',
+	'• /acp_stop — прервать его ход',
 ].join('\n');
 
 registerWorkbenchContribution2(VibeTelegramBridgeContribution.ID, VibeTelegramBridgeContribution, WorkbenchPhase.AfterRestored);

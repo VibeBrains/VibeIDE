@@ -25,6 +25,14 @@ export type VibeTelegramCommand =
 	| { readonly kind: 'claudeStop' }
 	/** Состояние моста Claude Code, включая поставку SDK. */
 	| { readonly kind: 'claudeStatus' }
+	/** Задача внешнему агенту по ACP — тому, кого объявляет `.vibe/agents.json`. */
+	| { readonly kind: 'acp'; readonly prompt: string }
+	/** Прервать ход внешнего агента. */
+	| { readonly kind: 'acpStop' }
+	/** Кого можно позвать в этой рабочей папке. */
+	| { readonly kind: 'acpAgents' }
+	/** Выбрать агента реестра для этого чата. */
+	| { readonly kind: 'acpUse'; readonly agent: string }
 	| { readonly kind: 'empty' };
 
 /**
@@ -70,6 +78,12 @@ export function parseTelegramCommand(rawText: string): VibeTelegramCommand {
 		case '/cc': return rest ? { kind: 'claude', prompt: rest } : { kind: 'empty' };
 		case '/cc_stop': return { kind: 'claudeStop' };
 		case '/cc_status': return { kind: 'claudeStatus' };
+		// Внешний агент по ACP — третий исполнитель в том же чате. Отдельная команда по той же
+		// причине, что и `/cc`: выбор исполнителя больше нигде не выражается.
+		case '/acp': return rest ? { kind: 'acp', prompt: rest } : { kind: 'empty' };
+		case '/acp_stop': return { kind: 'acpStop' };
+		case '/acp_agents': return { kind: 'acpAgents' };
+		case '/acp_use': return rest ? { kind: 'acpUse', agent: rest } : { kind: 'empty' };
 		// An unknown slash-word is still a task, not an error: "/etc/hosts не читается" is a
 		// sentence, and answering "unknown command" to it would be pedantic and useless.
 		default: return { kind: 'run', prompt: text };
