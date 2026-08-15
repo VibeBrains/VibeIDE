@@ -1,0 +1,63 @@
+# Ожидаемые расхождения проверки оверлея при обновлении базы VS Code
+#
+# Формат: <путь>	<подстрока>	<причина>
+#
+# Скрипт проверки (scripts/vibe-upstream-overlay-check.mjs) сверяет, что каждая строка,
+# добавленная нами поверх апстримной базы, присутствует в дереве после слияния. Строка,
+# которая переехала в другой файл или заменена эквивалентом, формально «пропадает» — и
+# должна быть объявлена здесь, иначе проверка обязана падать.
+#
+# Пустая причина запрещена: без неё запись превращается в способ спрятать реальную потерю.
+
+# --- 1.118.1 → 1.133.0 -------------------------------------------------------
+
+src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	_welcomeStack	Апстрим перевёл welcome-экран браузера на contributed widgets. Наш стек `.vibe/servers.json` целиком переехал в features/vibeServerStackFeature.ts — поведение то же, редактор остался без форк-правок.
+src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	IVibeServerStackService	Там же: инъекция сервиса переехала в конструктор контрибуции.
+src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	DisposableStore	Там же.
+src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	_stackService	Там же.
+src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	browser-welcome-stack	Там же: разметка строки стека переехала в контрибуцию.
+src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	_onWelcomeStackAction	Там же; навигация переведена с удалённого navigateToUrl на input.navigate.
+
+src/vs/platform/log/common/log.ts	console.log	Апстрим завёл общий logToConsole(); наш временной штамп vibeTimestamp() сохранён внутри новых вызовов, менялась только форма записи.
+
+test/unit/assert.js	function match	Апстрим сам добавил assert.match/doesNotMatch. Наш шим удалён: вместе с апстримным получались два экспорта `match` — SyntaxError, который ронял весь unit-прогон.
+test/unit/assert.js	doesNotMatch	Там же.
+test/unit/assert.js	EXTENSION!	Там же: комментарий шима.
+
+src/vs/workbench/contrib/chat/browser/chat.contribution.ts	VibeIDE removed	Апстрим переселил содержимое файла в chat.shared.contribution.ts; наши вырезки Copilot перенесены туда же.
+
+src/vs/base/browser/ui/scrollbar/scrollableElement.ts	horizontalScrollbarSize	Апстрим вынес размер в globalDefaultScrollbarSize; наш размер 5 задан через DEFAULT_SCROLLBAR_SIZE.
+src/vs/base/browser/ui/scrollbar/scrollableElement.ts	verticalScrollbarSize	Там же.
+
+src/vs/workbench/contrib/terminal/browser/xterm/xtermTerminal.ts	width: 7	Апстрим вынес параметры скроллбара в _getScrollbarOptions(); наш guard лигатур сохранён.
+src/vs/workbench/contrib/terminal/browser/xterm/xtermTerminal.ts	readonly _ligaturesAddonConfig	Апстрим снял readonly с поля; наш флаг _ligaturesAddonLoadFailed на месте.
+
+src/vs/workbench/contrib/chat/browser/aiCustomization/aiCustomizationItemSource.ts	mergeBuiltinSkills	Наша правка была doc-комментарием к методу, который апстрим переписал.
+src/vs/workbench/contrib/chat/browser/aiCustomization/aiCustomizationItemSource.ts	BUILTIN_STORAGE	Там же.
+
+package.json	engines	Файл пересобран программно из апстримного с наложением наших зависимостей и скриптов; поле версии базы теперь 1.133.0.
+
+.github/workflows/pr-win32-test.yml	windows-2022	Раннер сохранён, изменилась строка объявления.
+build/azure-pipelines/product-build.yml	copilot	Шаги Copilot вырезаны вместе с расширением.
+build/azure-pipelines/linux/steps/product-build-linux-test.yml	copilot	Там же.
+build/azure-pipelines/win32/steps/product-build-win32-test.yml	copilot	Там же.
+
+# Переезд welcome-стека в контрибуцию затронул весь блок методов — перечислять построчно
+# бессмысленно, объявляем зону целиком (код целиком лежит в features/vibeServerStackFeature.ts).
+src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	welcome	Переезд welcome-стека в features/vibeServerStackFeature.ts.
+src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	item.entry	Там же: разметка строки стека.
+src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	item.state	Там же.
+src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	host	Там же.
+src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	row	Там же.
+src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	button	Там же.
+src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	icon	Там же.
+src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	name.textContent	Там же.
+src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	port	Там же.
+src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	stack	Там же.
+
+src/vs/platform/log/common/log.ts	console.warn	Апстримный logToConsole(); наш штамп vibeTimestamp() внутри сохранён.
+src/vs/platform/log/common/log.ts	console.error	Там же.
+
+# Апстрим удалил эти workflow целиком; наши правки в них умерли вместе с файлами.
+.github/workflows/screenshot-test.yml	*	Гейт скриншотов сверялся с внешним сервисом апстрима (403 для форка) и был отключён нами; апстрим удалил файл.
+.github/workflows/component-fixture-tests.yml	*	Апстрим заменил на component-fixtures.yml; наши paths-ignore перенесены туда.

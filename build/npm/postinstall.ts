@@ -342,16 +342,6 @@ async function main() {
 		log('.', `Created ${claudeSkillsLinkType} .claude/skills -> .agents/skills`);
 	}
 
-	// (missing .js extension on vscode-jsonrpc/node). Fixed upstream in v0.1.32.
-	for (const dir of ['', 'remote']) {
-		if (fs.existsSync(sessionFile)) {
-			const content = fs.readFileSync(sessionFile, 'utf8');
-			const patched = content.replace(/from "vscode-jsonrpc\/node"/g, 'from "vscode-jsonrpc/node.js"');
-			if (content !== patched) {
-				fs.writeFileSync(sessionFile, patched);
-			}
-		}
-	}
 
 	// addon and native core libraries from fixed, package-relative paths. We do
 	// not ship that native payload (its addon requires a newer glibc than our
