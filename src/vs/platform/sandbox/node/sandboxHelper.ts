@@ -109,15 +109,11 @@ export class SandboxHelperService implements ISandboxHelperService {
 			return undefined;
 		}
 
-		const { getAvailableToolsPolicy, getUserProfilePolicy, getTemporaryFilesPolicy } = await import('@microsoft/mxc-sdk');
-		const availableToolsPolicy = getAvailableToolsPolicy(process.env, { containerType: 'processcontainer' });
-		const userProfilePolicy = getUserProfilePolicy();
-		const temporaryFilesPolicy = getTemporaryFilesPolicy(process.env);
-		const psHome = await this._getPSHome();
-		return {
-			readonlyPaths: [...new Set([...availableToolsPolicy.readonlyPaths, ...userProfilePolicy.readonlyPaths, ...temporaryFilesPolicy.readonlyPaths, ...(psHome ? [psHome] : [])])],
-			readwritePaths: [...new Set([...availableToolsPolicy.readwritePaths, ...userProfilePolicy.readwritePaths, ...temporaryFilesPolicy.readwritePaths])],
-		};
+		// [VibeIDE] The Windows MXC sandbox runs on `@microsoft/mxc-sdk`, which this fork does not
+		// ship: its only consumer is upstream's agent terminal tooling, which VibeIDE replaces with
+		// its own agent stack. Reporting "no policy" is the same state upstream reaches on hosts
+		// without the runtime, so callers degrade gracefully instead of sandboxing incorrectly.
+		return undefined;
 	}
 
 	async getWindowsMxcEnvironment(): Promise<string[] | undefined> {
@@ -157,8 +153,9 @@ export class SandboxHelperService implements ISandboxHelperService {
 			return undefined;
 		}
 
-		const { buildSandboxPayload } = await import('@microsoft/mxc-sdk');
-		return buildSandboxPayload(commandLine, policy, workingDirectory, containerName, containment);
+		// [VibeIDE] See `getWindowsMxcFilesystemPolicy`: no MXC runtime is shipped, so no payload
+		// can be built. Callers treat `undefined` as "sandboxing unavailable".
+		return undefined;
 	}
 
 	private async _getPSHome(): Promise<string | undefined> {

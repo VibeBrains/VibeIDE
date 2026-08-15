@@ -45,7 +45,7 @@ import { IPluginGitService } from '../common/plugins/pluginGitService.js';
 import { registerChatDeveloperActions } from './actions/chatDeveloperActions.js';
 import { registerChatExportZipAction } from './actions/chatExportZip.js';
 import { registerExportAgentTracesDbAction } from './actions/exportAgentTracesDb.js';
-import { registerInstallDictationModelAction } from './actions/installDictationModelAction.js';
+// [VibeIDE removed] Foundry Local dictation model download; speech runs through our sherpa-onnx provider.
 import { shouldWarnForSessionShutdown } from './chatLifecycle.js';
 import { HoldToVoiceChatInChatViewAction, InlineVoiceChatAction, KeywordActivationContribution, QuickVoiceChatAction, ReadChatResponseAloud, StartVoiceChatAction, StopListeningAction, StopListeningAndSubmitAction, StopReadAloud, StopReadChatItemAloud, VoiceChatInChatViewAction } from './actions/voiceChatActions.js';
 import { OpenWorkspaceInAgentsWindowAction, OpenWorkspaceInAgentsContribution, OpenAgentsWindowAction, OpenChatSessionInAgentsWindowAction, AgentsHandoffInputTipContribution, ToggleOpenInAgentsWindowTitleBarAction, OpenWorkspaceInAgentsWindowChatTitleAction, OpenWorkspaceInAgentsWindowTitleBarAction } from './agentSessions/agentSessionsActions.js';
@@ -255,7 +255,7 @@ registerAction2(StopReadAloud);
 registerChatDeveloperActions();
 registerChatExportZipAction();
 registerExportAgentTracesDbAction();
-registerInstallDictationModelAction();
+	// [VibeIDE removed] registerInstallDictationModelAction();
 
 registerWorkbenchContribution2(KeywordActivationContribution.ID, KeywordActivationContribution, WorkbenchPhase.AfterRestored);
 registerWorkbenchContribution2(NativeBuiltinToolsContribution.ID, NativeBuiltinToolsContribution, WorkbenchPhase.AfterRestored);

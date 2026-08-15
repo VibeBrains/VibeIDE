@@ -3,9 +3,17 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import type { TelemetryConfig } from '@github/copilot-sdk';
 import type { URI } from '../../../../base/common/uri.js';
 import { createDecorator } from '../../../instantiation/common/instantiation.js';
+
+// [VibeIDE] `@github/copilot-sdk` is not a dependency of this fork; the telemetry config
+// shape is declared locally so the (inactive) agent host still type-checks.
+interface TelemetryConfig {
+	readonly endpoint?: string;
+	readonly headers?: Readonly<Record<string, string>>;
+	readonly enabled?: boolean;
+}
+
 
 
 /**

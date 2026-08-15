@@ -59,7 +59,9 @@ import './services/mcp/electron-browser/mcpWorkbenchManagementService.js';
 import './services/encryption/electron-browser/encryptionService.js';
 import './services/imageResize/electron-browser/imageResizeService.js';
 // [VibeIDE removed] облачная диктовка Foundry Local — у нас своя локальная sherpa-onnx
-// import './services/localTranscription/electron-browser/localTranscriptionService.js';
+// [VibeIDE] Upstream's Foundry Local transcription is replaced by a stub reporting
+// "unsupported"; local speech runs through our sherpa-onnx ISpeechService provider.
+import './services/localTranscription/browser/localTranscriptionService.js';
 import './services/secrets/electron-browser/secretStorageService.js';
 import './services/localization/electron-browser/languagePackService.js';
 import './services/telemetry/electron-browser/telemetryService.js';

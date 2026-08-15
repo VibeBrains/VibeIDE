@@ -6,7 +6,6 @@
 import { mkdir } from 'fs/promises';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { dirname, join } from '../../../../base/common/path.js';
-import type { TelemetryConfig } from '@github/copilot-sdk';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
@@ -25,6 +24,21 @@ import { ICompletedSpanData, SpanStatusCode } from '../../../otel/common/spanDat
 import { OTelSqliteStore } from '../../../otel/node/sqlite/otelSqliteStore.js';
 import { AgentHostOTelSpansDbSubPath } from '../../common/agentService.js';
 import { AgentHostOTelServiceName, AgentHostOTelServiceNamespace, AgentHostSessionSpanName, AgentHostSessionTitleAttribute, AgentHostSessionTitleSpanName, AgentHostSessionUriAttribute, IAgentHostNativeOTelConfig, IAgentHostOTelService, IAgentHostTraceContext } from '../../common/otel/agentHostOTelService.js';
+
+// [VibeIDE] `@github/copilot-sdk` is not a dependency of this fork; the telemetry config
+// shape is declared locally so the (inactive) agent host still type-checks.
+interface TelemetryConfig {
+	readonly enabled?: boolean;
+	readonly exporterType?: 'otlp-http' | 'otlp-grpc' | 'console' | 'file';
+	readonly otlpEndpoint?: string;
+	readonly otlpProtocol?: string;
+	readonly filePath?: string;
+	readonly sourceName?: string;
+	readonly captureContent?: boolean;
+	readonly headers?: Record<string, string>;
+	readonly dbSpanExporter?: unknown;
+}
+
 
 /** Sub-path under the user data directory where the span DB lives. */
 const SPANS_DB_SUBPATH = AgentHostOTelSpansDbSubPath;
