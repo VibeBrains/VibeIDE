@@ -78,6 +78,7 @@ We use tabs, not spaces.
 - Use camelCase for `function` and `method` names
 - Use camelCase for `property` names and `local variables`
 - Use whole words in names when possible
+- For maps from domain A to domain B, prefer `bOfA` names (`settingsOfProvider`, `overridesOfModel`, `diffAreaOfId`, `modelSelectionOfFeature`) — this is the prevailing convention in `contrib/vibeide` with hundreds of call sites
 
 ### Types
 

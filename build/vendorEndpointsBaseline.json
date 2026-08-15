@@ -1,0 +1,19 @@
+{
+	"note": "Инвентарь вендорных эндпоинтов, унаследованных от базы VS Code. Растёт при обновлении базы — каждая новая строка требует решения: вырезать, заглушить или принять.",
+	"entries": [
+		"build/azure-pipelines/common/checkDistroCommit.ts#api.github.com",
+		"build/lib/fetch.ts#api.github.com",
+		"build/linux/debian/install-sysroot.ts#api.github.com",
+		"extensions/theme-seti/build/update-icon-theme.js#api.github.com",
+		"src/vs/platform/agentHost/common/state/protocol/commands.ts#api.github.com",
+		"src/vs/platform/agentHost/common/state/protocol/notifications.ts#api.github.com",
+		"src/vs/platform/agentHost/common/state/protocol/state.ts#api.github.com",
+		"src/vs/platform/agentHost/node/copilot/copilotAgent.ts#api.github.com",
+		"src/vs/platform/mcp/common/mcpManagementService.ts#api.githubcopilot.com",
+		"src/vs/platform/telemetry/common/1dsAppender.ts#mobile.events.data.microsoft.com",
+		"src/vs/workbench/contrib/extensions/electron-browser/extensionsSlowActions.ts#api.github.com",
+		"src/vs/workbench/contrib/issue/browser/baseIssueReporterService.ts#api.github.com",
+		"src/vs/workbench/contrib/issue/electron-browser/issueReporterService.ts#api.github.com",
+		"src/vs/workbench/contrib/policyExport/electron-browser/policyExport.contribution.ts#api.github.com"
+	]
+}
