@@ -25,6 +25,7 @@
 
 **Руководства** — `manuals/` (только здесь, имена camelCase)
 - [ciCdGuide.md](manuals/ciCdGuide.md) — запуск VibeIDE в GitHub Actions / GitLab CI.
+- [upstreamSync.md](manuals/upstreamSync.md) — обновление базы VS Code: измеренная карта конфликтов, стратегия «три graft + squash-коммит», порядок этапов, инварианты «наш код не потерялся» и защита от возврата вендорных поверхностей.
 - [codebaseGuide.md](manuals/codebaseGuide.md) — ориентир по кодовой базе форка.
 - [designWorkflow.md](manuals/designWorkflow.md) — дизайнер: предусловие (превью), первый запуск тремя шагами, три класса находок, вкус против дефекта, режимы авто-замера, словарь команд.
 - [firstRun.md](manuals/firstRun.md) — первый запуск: SmartScreen на Windows и Gatekeeper на macOS (в Sequoia и новее — только через Системные настройки).
