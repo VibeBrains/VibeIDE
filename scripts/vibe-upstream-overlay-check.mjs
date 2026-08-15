@@ -97,7 +97,10 @@ const treeBase = treeOf(BASE);
 // --- Инвариант 1: наши собственные файлы -------------------------------------
 const ourOwnFiles = [...treeBefore.keys()].filter(f => !treeBase.has(f));
 const lost = ourOwnFiles.filter(f => !treeAfter.has(f));
-const mutated = ourOwnFiles.filter(f => treeAfter.has(f) && treeAfter.get(f) !== treeBefore.get(f));
+// Файл, который мы осознанно правили уже после слияния, объявляется в реестре — иначе
+// каждая последующая работа над своим же кодом выглядела бы как потеря.
+const mutated = ourOwnFiles.filter(f => treeAfter.has(f) && treeAfter.get(f) !== treeBefore.get(f)
+	&& !expectedDrops.some(d => d.file === f));
 
 // --- Инварианты 2 и 3: наши правки внутри апстримных файлов -------------------
 const overlayFiles = [...treeBefore.keys()].filter(f => treeBase.has(f) && treeBefore.get(f) !== treeBase.get(f) && !f.endsWith('package-lock.json'));

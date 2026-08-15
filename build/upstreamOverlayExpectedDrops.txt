@@ -93,7 +93,7 @@ build/lib/i18n.resources.json	workbench.	Сдвиг индексов после 
 
 # Мёртвые конвейеры Microsoft (мы собираем через GitHub Actions): брендинг путей вернулся
 # к апстримному, стадии и шаблоны Copilot вычищены. К продукту отношения не имеют.
-build/azure-pipelines/product-build.yml	VibeIDE-	Брендинг путей в неиспользуемом конвейере Microsoft.
+build/azure-pipelines/product-build.yml	analyzeTargetGlob	Брендинг путей в неиспользуемом конвейере Microsoft вернулся к апстримному.
 build/azure-pipelines/linux/steps/product-build-linux-test.yml	VibeIDE-	Там же.
 build/azure-pipelines/win32/steps/product-build-win32-test.yml	VibeIDE-	Там же.
 build/darwin/create-universal-app.ts	*	Апстримный механизм сборки универсального пакета вернулся целиком; мы собираем под одну архитектуру, вреда нет.
@@ -114,3 +114,13 @@ src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	*	Вес�
 
 # Наш шим assert.match удалён: апстрим добавил свой, два экспорта давали SyntaxError.
 test/unit/assert.js	*	Апстрим реализовал assert.match/doesNotMatch сам; наш шим убран целиком.
+
+scripts/release-windows.ps1	*	Добавлено явное указание репозитория для gh: после появления remotes апстрима он выбирал чужой.
+
+# Строки, где наш код на месте, а изменилось только объявление или общий соседний код.
+build/lib/extensions.ts	esbuildConfigFileName	Поддержка esbuild.mts на месте; объявление стало изменяемым (let) из-за апстримной развилки для web.
+build/lib/extensions.ts	hasEsbuild	Там же.
+build/gulpfile.hygiene.ts	repoRoot	Общий апстримный код вычисления корня репозитория, к нашим правкам отношения не имеет.
+build/hygiene.ts	return undefined	Там же: тривиальный возврат в апстримной ветке.
+build/lib/preLaunch.ts	runProcess(npm	Наши ретраи установки Electron на месте (preLaunch.ts:44-50); эта строка — апстримная ветка без ретраев.
+eslint.config.js	vs/workbench/contrib/*/~	Апстримное правило слоёв; наши исключения рядом.
