@@ -99,9 +99,10 @@ const desktopEntryPoints = [
 	'vs/workbench/workbench.desktop.main',
 	'vs/workbench/contrib/debug/node/telemetryApp',
 	'vs/platform/files/node/watcher/watcherMain',
+	// [VibeIDE removed] vs/platform/localTranscription/node/localTranscriptionMain
 	'vs/platform/terminal/node/ptyHostMain',
-	'vs/platform/agentHost/node/agentHostMain',
-	'vs/platform/agentHost/node/diffWorkerMain',
+	// [VibeIDE removed] vs/platform/agentHost/node/agentHostMain
+	// [VibeIDE removed] vs/platform/agentHost/node/diffWorkerMain
 	// VibeIDE: STT utility process (voice input / dictation). Desktop-only; must be listed
 	// here (the esbuild packaging entry points) in addition to build/buildfile.ts, or the
 	// worker is silently omitted from the .app and voice input dies with ERR_MODULE_NOT_FOUND.
@@ -132,8 +133,8 @@ const serverEntryPoints = [
 	'vs/workbench/api/node/extensionHostProcess',
 	'vs/platform/files/node/watcher/watcherMain',
 	'vs/platform/terminal/node/ptyHostMain',
-	'vs/platform/agentHost/node/agentHostMain',
-	'vs/platform/agentHost/node/diffWorkerMain',
+	// [VibeIDE removed] vs/platform/agentHost/node/agentHostMain
+	// [VibeIDE removed] vs/platform/agentHost/node/diffWorkerMain
 ];
 
 // Bootstrap files per target
@@ -243,6 +244,7 @@ const commonResourcePatterns = [
 	// VibeIDE — Font Awesome solid webfont (Command Center brain icon, neon toggle, etc.)
 	'vs/workbench/contrib/vibeide/browser/media/fonts/*.woff2',
 	'vs/workbench/browser/parts/editor/media/letterpress*.svg',
+	'vs/workbench/contrib/chat/browser/widget/media/chatPet/*.{gif,png}',
 ];
 
 // Resources for desktop target
@@ -275,6 +277,7 @@ const desktopResourcePatterns = [
 
 	// Media - audio
 	'vs/platform/accessibilitySignal/browser/media/*.mp3',
+	'vs/workbench/contrib/agentsVoice/browser/media/*.mp3',
 
 	// Media - images
 	'vs/workbench/contrib/welcomeGettingStarted/common/media/**/*.svg',
@@ -331,6 +334,7 @@ const serverWebResourcePatterns = [
 
 	// Media - audio
 	'vs/platform/accessibilitySignal/browser/media/*.mp3',
+	'vs/workbench/contrib/agentsVoice/browser/media/*.mp3',
 
 	// Media - images
 	'vs/workbench/contrib/welcomeGettingStarted/common/media/**/*.svg',
@@ -358,6 +362,7 @@ const webResourcePatterns = [
 
 	// Media - audio
 	'vs/platform/accessibilitySignal/browser/media/*.mp3',
+	'vs/workbench/contrib/agentsVoice/browser/media/*.mp3',
 
 	// Media - images
 	'vs/workbench/contrib/welcomeGettingStarted/common/media/**/*.svg',

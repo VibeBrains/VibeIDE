@@ -308,7 +308,10 @@ const newOpenAICompatibleSDK = async ({ settingsOfProvider, providerName, includ
 		const apiVersion = thisConfig.azureApiVersion ?? '2024-04-01-preview';
 		const apiKeyRaw = thisConfig.apiKey;
 		const apiKey = typeof apiKeyRaw === 'string' ? apiKeyRaw : '';
-		return new AzureOpenAI({ ...commonPayloadOpts, endpoint, apiKey, apiVersion });
+		// `AzureClientOptions` fixes `provider` to `undefined` (Azure is its own provider), while the
+		// shared `ClientOptions` may carry one. Drop the field instead of casting the whole payload.
+		const { provider: _azureProviderIsImplicit, ...azurePayloadOpts } = commonPayloadOpts;
+		return new AzureOpenAI({ ...azurePayloadOpts, endpoint, apiKey, apiVersion });
 	}
 	else if (providerName === 'awsBedrock') {
 		/**

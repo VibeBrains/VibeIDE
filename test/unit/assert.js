@@ -222,20 +222,6 @@ const create = Object.create || function (p) {
   }
   assert.ok = ok;
 
-  // EXTENSION! Node's assert.match / assert.doesNotMatch (used by VibeIDE tests but absent from this
-  // browser shim). match passes when regexp.test(string); doesNotMatch passes when it does not.
-  export function match(string, regexp, message) {
-	if (!(regexp instanceof RegExp)) { fail(regexp, 'RegExp', message || 'The "regexp" argument must be an instance of RegExp.', 'match', assert.match); }
-	if (typeof string !== 'string' || !regexp.test(string)) { fail(string, regexp, message, 'match', assert.match); }
-  }
-  assert.match = match;
-
-  export function doesNotMatch(string, regexp, message) {
-	if (!(regexp instanceof RegExp)) { fail(regexp, 'RegExp', message || 'The "regexp" argument must be an instance of RegExp.', 'doesNotMatch', assert.doesNotMatch); }
-	if (typeof string === 'string' && regexp.test(string)) { fail(string, regexp, message, 'doesNotMatch', assert.doesNotMatch); }
-  }
-  assert.doesNotMatch = doesNotMatch;
-
   // 5. The equality assertion tests shallow, coercive equality with
   // ==.
   // assert.equal(actual, expected, message_opt);
@@ -492,6 +478,34 @@ const create = Object.create || function (p) {
 	expectsError(false, await waitForActual(fn), message);
   };
 
+	assert.match = function match(string, regexp, message) {
+		if (typeof string !== 'string') {
+			throw new TypeError(`The "string" argument must be of type string. Received type ${typeof string}`);
+		}
+
+		if (!(regexp instanceof RegExp)) {
+			throw new TypeError(`The "regexp" argument must be an instance of RegExp. Received type ${typeof regexp}`);
+		}
+
+		if (!regexp.test(string)) {
+			fail(string, regexp, message, 'match', assert.match);
+		}
+	};
+
+	assert.doesNotMatch = function doesNotMatch(string, regexp, message) {
+		if (typeof string !== 'string') {
+			throw new TypeError(`The "string" argument must be of type string. Received type ${typeof string}`);
+		}
+
+		if (!(regexp instanceof RegExp)) {
+			throw new TypeError(`The "regexp" argument must be an instance of RegExp. Received type ${typeof regexp}`);
+		}
+
+		if (regexp.test(string)) {
+			fail(string, regexp, message, 'doesNotMatch', assert.doesNotMatch);
+		}
+	};
+
   // ESM export
   export default assert;
   export const AssertionError = assert.AssertionError
@@ -510,3 +524,6 @@ const create = Object.create || function (p) {
   export const ifError = assert.ifError
   export const rejects = assert.rejects
   export const doesNotReject = assert.doesNotReject
+
+	export const match = assert.match
+	export const doesNotMatch = assert.doesNotMatch

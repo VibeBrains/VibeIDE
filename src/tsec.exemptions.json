@@ -18,7 +18,6 @@
 		"vs/workbench/contrib/notebook/browser/view/renderers/webviewPreloads.ts"
 	],
 	"ban-worker-calls": [
-		"vs/base/browser/webWorkerFactory.ts",
 		"vs/platform/webWorker/browser/webWorkerServiceImpl.ts",
 		"vs/workbench/services/extensions/browser/webWorkerExtensionHost.ts"
 	],
@@ -28,6 +27,7 @@
 		"vs/workbench/api/worker/extensionHostWorker.ts"
 	],
 	"ban-domparser-parsefromstring": [
+		"vs/base/browser/htmlToMarkdown.ts",
 		"vs/base/browser/markdownRenderer.ts",
 		"vs/base/test/browser/markdownRenderer.test.ts"
 	],
