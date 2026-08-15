@@ -43,6 +43,7 @@ const FORBIDDEN_PATHS = [
 	['src/vs/platform/localTranscription/node', 'реализация диктовки на Foundry Local'],
 	['.github/workflows/copilot-setup-steps.yml', 'workflow подготовки Copilot'],
 	['.github/ISSUE_TEMPLATE/copilot_bug_report.md', 'шаблон issue про Copilot'],
+	['test/smoke/src/areas/chat/copilotCli.test.ts', 'smoke-тесты харнесса Copilot CLI'],
 ];
 
 /** 2. Пакеты, которые тянут вендорный код в продукт. */
