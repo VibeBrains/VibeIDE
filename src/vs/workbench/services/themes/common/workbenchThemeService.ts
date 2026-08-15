@@ -53,7 +53,12 @@ export namespace ThemeSettingDefaults {
 	/** Built-in “default dark” settings id (fallbacks, onboarding, sessions defaults). */
 	export const COLOR_THEME_DARK = VIBEIDE_DEFAULT_THEME;
 
-	export const FILE_ICON_THEME = 'vs-seti';
+	/**
+	 * Default `workbench.iconTheme`. Upstream ships its refreshed icon set in
+	 * `extensions/theme-modern-icons` but keeps `vs-seti` as the default; VibeIDE makes the modern
+	 * set the default so the explorer matches the refreshed workbench styling.
+	 */
+	export const FILE_ICON_THEME = 'vscode-modern-icons';
 	export const PRODUCT_ICON_THEME = 'Default';
 }
 

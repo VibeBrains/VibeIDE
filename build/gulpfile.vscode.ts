@@ -384,6 +384,11 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 				'**/sherpa-onnx-linux-x64/**',
 			], [
 				'**/*.mk',
+				// VibeIDE keeps dependencies as real files instead of packing them into the archive:
+				// the main process is ESM, and Node's ESM resolver cannot look inside an ASAR. The
+				// negated glob matches everything except `vsda`, so only `vsda` ends up archived —
+				// extensions still expect to find it there.
+				'!node_modules/vsda/**'
 			], [
 				'node_modules/vsda/**', // retain copy of `vsda` in node_modules for internal use
 				// The sandbox runtime is spawned as a standalone Node subprocess (no ASAR

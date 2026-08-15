@@ -288,6 +288,15 @@ else
 	die 'Smoke check FAILED: app CLI produced no output (bin/vibeide and bin/code both failed)'
 fi
 
+# The CLI answers --version without loading the main process bundle, so it cannot see a
+# dependency that ended up unreachable. Verify the imports the first window will need.
+step 'Verifying main-process dependencies resolve...'
+if node "$ROOT/scripts/vibe-verify-app-imports.mjs" "$APP"; then
+	ok 'Main-process dependencies resolve'
+else
+	die 'App would fail on launch: some main-process imports are unreachable (see above)'
+fi
+
 if [[ "$SKIP_PUBLISH" == '1' ]]; then
 	ok 'Test build complete (--skip-publish): tag + GitHub release SKIPPED.'
 	printf '\n\033[36m📦 Artifacts ready for manual smoke-test:\033[0m\n   %s\n   %s\n' "$DMG_PATH" "$ZIP_PATH"

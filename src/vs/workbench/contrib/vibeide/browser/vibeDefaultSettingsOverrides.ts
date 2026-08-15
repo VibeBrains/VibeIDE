@@ -14,7 +14,12 @@ import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '.
  * web build, so it's not used here.
  *
  * - `editor.wordWrap: 'on'` — users overwhelmingly turn word wrap ON; ship it on by default.
+ * - `workbench.experimental.modernUI: true` — the refreshed workbench styling (floating side bars
+ *   with rounded corners, reworked tabs, pane headers and title bar). Upstream keeps it behind an
+ *   experiment it rolls out through its own A/B service, which this fork does not talk to — so
+ *   without an explicit default nobody here would ever see it.
  */
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerDefaultConfigurations([
 	{ overrides: { 'editor.wordWrap': 'on' } },
+	{ overrides: { 'workbench.experimental.modernUI': true } },
 ]);
