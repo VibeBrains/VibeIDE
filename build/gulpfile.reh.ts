@@ -29,9 +29,8 @@ import * as cp from 'child_process';
 import crypto from 'crypto';
 import log from 'fancy-log';
 import buildfile from './buildfile.ts';
-import { fetchUrls, fetchGithub } from './lib/fetch.ts';
-import jsonEditor from 'gulp-json-editor';
 import { fetchUrls } from './lib/fetch.ts';
+import { getRipgrepExcludeFilter } from './lib/ripgrepPlatforms.ts';
 import { downloadFeedPackage } from './lib/azureFeed.ts';
 
 
@@ -414,16 +413,9 @@ function packageTask(type: string, platform: string, arch: string, sourceFolderN
 				json.commit = commit;
 				json.date = readISODate(sourceFolderName);
 				json.version = version;
-				// Stamp agentSdks from the per-platform results file produced
-				// by `build/agent-sdk/produce.ts`. REH-only: REH-web is
-				// browser-served and the agent host is node-only, so the
-				// SDK config has no consumer there.
-				if (type === 'reh') {
-					const agentSdks = readAgentSdkResults();
-					if (Object.keys(agentSdks).length > 0) {
-						json.agentSdks = agentSdks;
-					}
-				}
+				// [VibeIDE removed] Upstream stamps `agentSdks` here from the payloads produced by
+				// `build/agent-sdk/produce.ts` — the Copilot/Claude/Codex CLI harnesses. This fork
+				// ships its own agent stack and does not bundle them.
 				return json;
 			}))
 			.pipe(es.through(function (file) {
@@ -437,12 +429,11 @@ function packageTask(type: string, platform: string, arch: string, sourceFolderN
 
 		const productionDependencies = getProductionDependencies(REMOTE_FOLDER);
 		const dependenciesSrc = productionDependencies.map(d => path.relative(REPO_ROOT, d)).map(d => [`${d}/**`, `!${d}/**/{test,tests}/**`, `!${d}/.bin/**`]).flat();
-		const cleanedDeps = gulp.src(dependenciesSrc, { base: 'remote', dot: true })
+		const deps = gulp.src(dependenciesSrc, { base: 'remote', dot: true })
 			// filter out unnecessary files, no source maps in server build
 			.pipe(filter(['**', '!**/package-lock.json', '!**/*.{js,css}.map']))
 			.pipe(util.cleanNodeModules(path.join(import.meta.dirname, '.moduleignore')))
 			.pipe(util.cleanNodeModules(path.join(import.meta.dirname, `.moduleignore.${process.platform}`)))
-			.pipe(util.cleanNodeModules(path.join(import.meta.dirname, `.moduleignore.${process.platform}`)));
 			.pipe(filter(getRipgrepExcludeFilter(platform, arch)))
 			.pipe(jsFilter)
 			.pipe(util.stripSourceMappingURL())

@@ -11,6 +11,30 @@ import { makeUniversalApp } from 'vscode-universal-bundler';
 const root = path.dirname(path.dirname(import.meta.dirname));
 
 
+const nodeModulesBases = [
+	path.join('Contents', 'Resources', 'app', 'node_modules'),
+	path.join('Contents', 'Resources', 'app', 'node_modules.asar.unpacked')
+];
+
+/**
+ * Ensures a directory exists in both the x64 and arm64 app bundles by copying
+ * it from whichever build has it to the one that does not. This is needed for
+ * platform-specific native module directories that npm only installs for the
+ * host architecture.
+ */
+function crossCopyPlatformDir(x64AppPath: string, arm64AppPath: string, relativePath: string): void {
+	const inX64 = path.join(x64AppPath, relativePath);
+	const inArm64 = path.join(arm64AppPath, relativePath);
+
+	if (fs.existsSync(inX64) && !fs.existsSync(inArm64)) {
+		fs.mkdirSync(inArm64, { recursive: true });
+		fs.cpSync(inX64, inArm64, { recursive: true });
+	} else if (fs.existsSync(inArm64) && !fs.existsSync(inX64)) {
+		fs.mkdirSync(inX64, { recursive: true });
+		fs.cpSync(inArm64, inX64, { recursive: true });
+	}
+}
+
 async function main(buildDir?: string) {
 	const arch = process.env['VSCODE_ARCH'];
 
@@ -37,11 +61,6 @@ async function main(buildDir?: string) {
 			crossCopyPlatformDir(x64AppPath, arm64AppPath, path.join(base, '@vscode', `os-proxy-resolver-${plat}`));
 			// @vscode/ripgrep-universal/bin/{platform} (rg binary)
 			crossCopyPlatformDir(x64AppPath, arm64AppPath, path.join(base, '@vscode', 'ripgrep-universal', 'bin', plat));
-		}
-
-	}
-
-	for (const base of nodeModulesBases) {
 		}
 	}
 

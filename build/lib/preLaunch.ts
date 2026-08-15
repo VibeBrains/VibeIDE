@@ -64,6 +64,9 @@ async function getElectron() {
 	// already-present Electron matches the expected version; any detection
 	// failure falls back to a (re)download to preserve the previous behavior.
 	if (await isExpectedElectronInstalled()) {
+		return;
+	}
+
 	await runProcess(npm, ['run', 'electron']);
 }
 

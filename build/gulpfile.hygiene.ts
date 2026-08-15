@@ -6,7 +6,7 @@ import { gulp } from './lib/gulp/facade.ts';
 import es from 'event-stream';
 import path from 'path';
 import fs from 'fs';
-import { hygiene } from './hygiene.ts';
+import { checkNoNewJavaScriptFiles, hygiene } from './hygiene.ts';
 import * as task from './lib/gulp/task.ts';
 
 const dirName = path.dirname(new URL(import.meta.url).pathname);
@@ -43,7 +43,6 @@ const checkPackageJSONTask = task.define('check-package-json', () => {
 			checkPackageJSON.call(this, 'build/package.json');
 
 			const repoRoot = path.join(dirName, '..');
-			}
 			const jsAllowlistError = checkNoNewJavaScriptFiles(repoRoot);
 			if (jsAllowlistError) {
 				this.emit('error', jsAllowlistError);

@@ -10,10 +10,10 @@ import { createRequire } from 'node:module';
 import { monacoTypecheckTask /* , monacoTypecheckWatchTask */ } from './gulpfile.editor.ts';
 import { compileExtensionMediaTask, compileExtensionsTask, watchExtensionsTask } from './gulpfile.extensions.ts';
 import * as compilation from './lib/compilation.ts';
+import { gulp } from './lib/gulp/facade.ts';
 import * as task from './lib/gulp/task.ts';
 import * as util from './lib/util.ts';
 import { buildVibeideBrowserReactTask } from './lib/vibeideReactBuild.ts';
-import { runEsbuildTranspile } from './lib/esbuild.ts';
 
 // Extension point names
 task.task(compilation.compileExtensionPointNamesTask);

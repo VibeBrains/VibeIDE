@@ -353,11 +353,6 @@ if (import.meta.main) {
 				const some = out.split(/\r?\n/).filter((l) => !!l);
 
 				if (some.length > 0) {
-					console.log('Reading git index versions...');
-							process.exit(1);
-						}
-					}
-
 					// Check that no new .js/.cjs/.mjs files are being added outside of the allowlist
 					if (some.some(f => /\.(js|cjs|mjs)$/.test(f) || f === '.eslint-allowed-javascript-files')) {
 						const jsAllowlistError = checkNoNewJavaScriptFiles(process.cwd());
