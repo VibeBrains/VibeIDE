@@ -8,6 +8,7 @@ __pycache__/
 node_modules/
 .tmp/
 .build/
+/extensionsCG/
 .vscode/extensions/**/out/
 extensions/**/dist/
 !extensions/open-remote-ssh/dist/
@@ -17,6 +18,7 @@ src/vs/base/browser/ui/codicons/codicon/codicon.ttf
 build/node_modules
 build/darwin/.dmgbuild
 coverage/
+!/src/vs/platform/agentHost/test/node/e2e/coverage/
 test_data/
 test-results/
 test-results.xml
@@ -28,6 +30,7 @@ vscode.db
 product.overrides.json
 *.snap.actual
 *.tsbuildinfo
+.eslintcache
 .vscode-test
 .chat-simulation-data
 vscode-telemetry-docs/

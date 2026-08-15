@@ -55,6 +55,8 @@
 		"https://open-vsx.org",
 		"https://github.com/VibeBrains/VibeIDE"
 	],
+	"nodejsArtifactFeed": "",
+	"electronArtifactFeed": "",
 	"webviewContentExternalBaseUrlTemplate": "https://{{uuid}}.vscode-cdn.net/insider/ef65ac1ba57f57f2a3961bfe94aa20481caca4c6/out/vs/workbench/contrib/webview/browser/pre/",
 	"builtInExtensions": [
 		{
@@ -91,8 +93,8 @@
 		},
 		{
 			"name": "ms-vscode.vscode-js-profile-table",
-			"version": "1.0.10",
-			"sha256": "7361748ddf9fd09d8a2ed1f2a2d7376a2cf9aae708692820b799708385c38e08",
+			"version": "1.0.11",
+			"sha256": "50d002706213bc90d695f05f56d42fffd825035945eaf1cb1ba175effb7ff408",
 			"repo": "https://github.com/microsoft/vscode-js-profile-visualizer",
 			"metadata": {
 				"id": "7e52b41b-71ad-457b-ab7e-0620f1fc4feb",
@@ -107,23 +109,22 @@
 		}
 	],
 	"defaultChatAgent": {
-		"extensionId": "GitHub.copilot",
-		"chatExtensionId": "GitHub.copilot-chat",
-		"chatExtensionOutputId": "GitHub.copilot-chat.GitHub Copilot Chat.log",
-		"chatExtensionOutputExtensionStateCommand": "github.copilot.debug.extensionState",
-		"documentationUrl": "https://aka.ms/github-copilot-overview",
-		"termsStatementUrl": "https://aka.ms/github-copilot-terms-statement",
-		"privacyStatementUrl": "https://aka.ms/github-copilot-privacy-statement",
-		"skusDocumentationUrl": "https://aka.ms/github-copilot-plans",
-		"publicCodeMatchesUrl": "https://aka.ms/github-copilot-match-public-code",
-		"manageSettingsUrl": "https://aka.ms/github-copilot-settings",
-		"managePlanUrl": "https://aka.ms/github-copilot-manage-plan",
-		"manageOverageUrl": "https://aka.ms/github-copilot-manage-overage",
-		"upgradePlanUrl": "https://aka.ms/github-copilot-upgrade-plan",
-		"signUpUrl": "https://aka.ms/github-sign-up",
+		"extensionId": "vibeide.none",
+		"chatExtensionId": "vibeide.none",
+		"chatExtensionOutputId": "",
+		"chatExtensionOutputExtensionStateCommand": "",
+		"documentationUrl": "",
+		"termsStatementUrl": "",
+		"privacyStatementUrl": "",
+		"skusDocumentationUrl": "",
+		"optimizeUsageDocumentationUrl": "",
+		"publicCodeMatchesUrl": "",
+		"managePlanUrl": "",
+		"upgradePlanUrl": "",
+		"signUpUrl": "",
 		"provider": {
 			"default": {
-				"id": "github",
+				"id": "vibeide-none",
 				"name": "GitHub"
 			},
 			"enterprise": {
@@ -139,7 +140,7 @@
 				"name": "Apple"
 			}
 		},
-		"providerExtensionId": "vscode.github-authentication",
+		"providerExtensionId": "vibeide.none",
 		"providerUriSetting": "github-enterprise.uri",
 		"providerScopes": [
 			[
@@ -157,16 +158,16 @@
 		],
 		"entitlementUrl": "",
 		"entitlementSignupLimitedUrl": "",
-		"chatQuotaExceededContext": "github.copilot.chat.quotaExceeded",
-		"completionsQuotaExceededContext": "github.copilot.completions.quotaExceeded",
-		"walkthroughCommand": "github.copilot.open.walkthrough",
-		"completionsMenuCommand": "github.copilot.toggleStatusMenu",
-		"chatRefreshTokenCommand": "github.copilot.refreshToken",
+		"chatQuotaExceededContext": "",
+		"completionsQuotaExceededContext": "",
+		"walkthroughCommand": "",
+		"completionsMenuCommand": "",
+		"chatRefreshTokenCommand": "",
 		"generateCommitMessageCommand": "vibe.generateCommitMessageAction",
-		"resolveMergeConflictsCommand": "github.copilot.git.resolveMergeConflicts",
-		"completionsAdvancedSetting": "github.copilot.advanced",
-		"completionsEnablementSetting": "github.copilot.enable",
-		"nextEditSuggestionsSetting": "github.copilot.nextEditSuggestions.enabled",
+		"resolveMergeConflictsCommand": "",
+		"completionsAdvancedSetting": "",
+		"completionsEnablementSetting": "",
+		"nextEditSuggestionsSetting": "",
 		"tokenEntitlementUrl": "",
 		"mcpRegistryDataUrl": ""
 	},

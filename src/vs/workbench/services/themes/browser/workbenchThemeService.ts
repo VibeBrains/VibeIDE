@@ -51,7 +51,7 @@ import { toAction } from '../../../../base/common/actions.js';
 
 const defaultThemeExtensionId = 'vscode-theme-defaults';
 
-const DEFAULT_FILE_ICON_THEME_ID = 'vscode.vscode-theme-seti-vs-seti';
+const DEFAULT_FILE_ICON_THEME_ID = 'vscode.vscode-modern-icons-vscode-modern-icons';
 const fileIconsEnabledClass = 'file-icons-enabled';
 
 const colorThemeRulesClassName = 'contributedColorTheme';
@@ -449,8 +449,11 @@ export class WorkbenchThemeService extends Disposable implements IWorkbenchTheme
 	// preferred scheme handling
 
 	private installPreferredSchemeListener() {
+		let previous = { dark: this.hostColorService.dark, highContrast: this.hostColorService.highContrast };
 		this._register(this.hostColorService.onDidChangeColorScheme(() => {
-			if (this.settings.isDetectingColorScheme()) {
+			const restoreColorTheme = this.settings.isPreferredColorSchemeChange(previous);
+			previous = { dark: this.hostColorService.dark, highContrast: this.hostColorService.highContrast };
+			if (restoreColorTheme) {
 				this.restoreColorTheme();
 			}
 		}));

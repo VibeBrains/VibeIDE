@@ -370,16 +370,20 @@ if ($tagExists) {
 }
 
 # ── 5. GitHub Release: create, or upload into the existing one (mac first) ────
-gh release view $Version *> $null
+# Explicit repository for every `gh` call. With upstream remotes present (added when the
+# VS Code base is updated) `gh` picks a repository on its own and can target the wrong one.
+$ghRepo = (git remote get-url origin) -replace '^(git@github\.com:|https://github\.com/)', '' -replace '\.git$', ''
+gh release view $Version -R $ghRepo *> $null
 if ($LASTEXITCODE -eq 0) {
     Step "Release $Version exists — uploading Windows artifacts into it..."
-    & gh release upload $Version @artifacts
+    & gh release upload $Version -R $ghRepo @artifacts
     if ($LASTEXITCODE -ne 0) { Write-Error "gh release upload failed"; exit 1 }
 } else {
     Step "Creating GitHub Release $Version..."
 
     $releaseArgs = @(
         "release", "create", $Version,
+        "-R", $ghRepo,
         "--title", "VibeIDE $Version",
         "--generate-notes"
     )
