@@ -62,11 +62,11 @@ function updateExtensionPackageJSON(input: Stream, update: (data: any) => any): 
 
 function fromLocal(extensionPath: string, forWeb: boolean, _disableMangle: boolean): Stream {
 
-	const esbuildConfigFileName = forWeb
+	// Both are reassigned below by our fallback lookup, so neither can be `const`.
+	let esbuildConfigFileName = forWeb
 		? 'esbuild.browser.mts'
 		: 'esbuild.mts';
 
-	const hasEsbuild = fs.existsSync(path.join(extensionPath, esbuildConfigFileName));
 	let hasEsbuild = fs.existsSync(path.join(extensionPath, esbuildConfigFileName));
 
 	if (!hasEsbuild && !forWeb) {

@@ -143,12 +143,10 @@ export function compileTask(src: string, out: string, build: boolean, options: {
 			throw new Error('compilation requires 4GB of RAM');
 		}
 
-		const compile = createCompile(src, { build, emitError: true, transpileOnly: false, preserveEnglish: !!options.preserveEnglish });
-		const srcPipe = gulp.src(clientSrcGlobs(src), { base: `${src}` });
-		// For dev builds we can transpile with esbuild for speed and type-check with tsgo (no emit).
+		// For dev builds we can transpile with esbuild for speed and type-check separately (no emit).
 		// For `build`, keep the full tsb pipeline because the NLS step requires `file.sourceMap`.
 		const compile = createCompile(src, { build, emitError: true, transpileOnly: build ? false : { esbuild: true }, preserveEnglish: !!options.preserveEnglish });
-		const srcPipe = gulp.src(`${src}/**`, { base: `${src}` });
+		const srcPipe = gulp.src(clientSrcGlobs(src), { base: `${src}` });
 		const generator = new MonacoGenerator(false);
 		if (src === 'src') {
 			generator.execute();
