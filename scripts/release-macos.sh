@@ -35,6 +35,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
 
+# Explicit repository for every `gh` call. With upstream remotes present (added when the
+# VS Code base is updated) `gh` picks a repository on its own and can target the wrong one.
+GH_REPO="$(git remote get-url origin | sed -E 's#(git@github\.com:|https://github\.com/)##; s#\.git$##')"
+
 step() { printf '\033[33m▶ %s\033[0m\n' "$1"; }
 ok()   { printf '\033[32m✓ %s\033[0m\n' "$1"; }
 die()  { printf '\033[31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
@@ -315,15 +319,15 @@ else
 fi
 
 # ── 4. GitHub Release: create, or upload into the existing one (Windows first) ─
-if gh release view "$VERSION" > /dev/null 2>&1; then
+if gh release view "$VERSION" -R "$GH_REPO" > /dev/null 2>&1; then
 	step "Release $VERSION exists — uploading mac artifacts into it..."
-	gh release upload "$VERSION" "$DMG_PATH" "$ZIP_PATH"
+	gh release upload "$VERSION" -R "$GH_REPO" "$DMG_PATH" "$ZIP_PATH"
 else
 	step "Creating GitHub Release $VERSION..."
 	DRAFT_ARGS=()
 	if [[ "$DRAFT" == '1' ]]; then DRAFT_ARGS+=(--draft); fi
 	# ${arr[@]+...} guard: empty-array expansion under `set -u` errors on macOS bash 3.2
-	gh release create "$VERSION" --title "VibeIDE $VERSION" --generate-notes ${DRAFT_ARGS[@]+"${DRAFT_ARGS[@]}"} "$DMG_PATH" "$ZIP_PATH"
+	gh release create "$VERSION" -R "$GH_REPO" --title "VibeIDE $VERSION" --generate-notes ${DRAFT_ARGS[@]+"${DRAFT_ARGS[@]}"} "$DMG_PATH" "$ZIP_PATH"
 fi
 
 ok "Release $VERSION published!"

@@ -87,7 +87,8 @@ function loadExpectedDrops() {
 }
 
 const expectedDrops = loadExpectedDrops();
-const excused = (file, line) => expectedDrops.some(d => d.file === file && line.includes(d.needle));
+/** `*` в реестре объявляет файл целиком; иначе сверяется подстрока. */
+const excused = (file, line) => expectedDrops.some(d => d.file === file && (d.needle === '*' || line.includes(d.needle)));
 
 const treeBefore = treeOf(BEFORE);
 const treeAfter = treeOf(AFTER);

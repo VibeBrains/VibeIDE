@@ -77,3 +77,40 @@ src/vs/platform/agentHost/node/agentHostServerMain.ts	*	Точка входа а
 src/vs/workbench/contrib/chat/browser/aiCustomization/aiCustomizationItemSource.ts	*	Файл переписан апстримом; наши правки здесь были комментариями.
 src/vs/workbench/contrib/terminal/browser/xterm/xtermTerminal.ts	resource load 404	Комментарий к guard'у лигатур; сам guard (_ligaturesAddonLoadFailed) на месте.
 src/vs/workbench/contrib/vibeide/electron-main/llmMessage/sendLLMMessage.impl.ts	*	Наш файл, изменённый нами уже после слияния: новый SDK OpenAI фиксирует поле provider для Azure, поэтому оно отбрасывается перед созданием клиента.
+
+# --- Разобрано при подготовке релиза 1.15.0 ----------------------------------
+
+# Правки, сделанные НАМИ уже после слияния, — проверка сравнивает с состоянием до него.
+build/gulpfile.vibeide-i18n.ts	*	Переведён на новый API задач апстрима (lib/gulp/task.ts): старый lib/task.ts удалён в 1.133.
+build/lib/vibeideReactBuild.ts	*	Там же: сборка React-части переведена на новый API задач.
+scripts/release-macos.sh	*	Добавлены проверка зависимостей собранного приложения и явное указание репозитория для gh.
+src/vs/workbench/contrib/vibeide/browser/vibeDefaultSettingsOverrides.ts	*	Включено обновлённое оформление базы (modernUI) как дефолт продукта.
+src/vs/workbench/contrib/vibeide/common/vibeDocsBundle.generated.ts	*	Генерируемый файл: пересобран из docs/ при сборке.
+
+# Нумерация записей сдвинулась целиком — файл представляет собой пронумерованный список,
+# в который апстрим добавил новые модули. Наши записи на месте, изменились только индексы.
+build/lib/i18n.resources.json	workbench.	Сдвиг индексов после добавления апстримом новых модулей локализации.
+
+# Мёртвые конвейеры Microsoft (мы собираем через GitHub Actions): брендинг путей вернулся
+# к апстримному, стадии и шаблоны Copilot вычищены. К продукту отношения не имеют.
+build/azure-pipelines/product-build.yml	VibeIDE-	Брендинг путей в неиспользуемом конвейере Microsoft.
+build/azure-pipelines/linux/steps/product-build-linux-test.yml	VibeIDE-	Там же.
+build/azure-pipelines/win32/steps/product-build-win32-test.yml	VibeIDE-	Там же.
+build/darwin/create-universal-app.ts	*	Апстримный механизм сборки универсального пакета вернулся целиком; мы собираем под одну архитектуру, вреда нет.
+SECURITY.md	aka.ms	Ссылка на политику апстрима в конце документа; наш контакт для сообщений об уязвимостях на месте.
+build/gulpfile.hygiene.ts	import { hygiene }	Импорт на месте, в строку добавился второй экспорт (checkNoNewJavaScriptFiles).
+build/lib/extensions.ts	const esbuildConfigFileName	Наша поддержка esbuild.mts на месте, объявление стало изменяемым (let).
+build/lib/extensions.ts	const hasEsbuild	Там же.
+
+# Версии зависимостей выровнены по апстриму намеренно: он поднимал их вместе с переходом на
+# Node 24 / Electron 42, и наши старые значения ломали установку (конфликт override у yauzl).
+package.json	devDependencies.	Версии инструментов приведены к апстримным при переходе на новый тулчейн.
+package.json	dependencies.	Там же.
+
+.github/workflows/pr-win32-test.yml	timeout-minutes	Таймаут джобы приведён к апстримному значению вместе с переработкой workflow.
+
+# Полный переезд welcome-стека браузера в контрибуцию (features/vibeServerStackFeature.ts).
+src/vs/workbench/contrib/browserView/electron-browser/browserEditor.ts	*	Весь стек `.vibe/servers.json` вынесен в отдельную контрибуцию; редактор остался без форк-правок.
+
+# Наш шим assert.match удалён: апстрим добавил свой, два экспорта давали SyntaxError.
+test/unit/assert.js	*	Апстрим реализовал assert.match/doesNotMatch сам; наш шим убран целиком.

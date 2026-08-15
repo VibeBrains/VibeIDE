@@ -102,8 +102,6 @@ const vscodeResourceIncludes = [
 	// Chat Pet
 	'out-build/vs/workbench/contrib/chat/browser/widget/media/chatPet/*.{gif,png}',
 
-	// Sessions
-
 	// Extensions
 	'out-build/vs/workbench/contrib/extensions/browser/media/{theme-icon.png,language-icon.svg}',
 	'out-build/vs/workbench/services/extensionManagement/common/media/*.{svg,png}',
