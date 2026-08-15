@@ -48,7 +48,8 @@ import { registerExportAgentTracesDbAction } from './actions/exportAgentTracesDb
 // [VibeIDE removed] Foundry Local dictation model download; speech runs through our sherpa-onnx provider.
 import { shouldWarnForSessionShutdown } from './chatLifecycle.js';
 import { HoldToVoiceChatInChatViewAction, InlineVoiceChatAction, KeywordActivationContribution, QuickVoiceChatAction, ReadChatResponseAloud, StartVoiceChatAction, StopListeningAction, StopListeningAndSubmitAction, StopReadAloud, StopReadChatItemAloud, VoiceChatInChatViewAction } from './actions/voiceChatActions.js';
-import { OpenWorkspaceInAgentsWindowAction, OpenWorkspaceInAgentsContribution, OpenAgentsWindowAction, OpenChatSessionInAgentsWindowAction, AgentsHandoffInputTipContribution, ToggleOpenInAgentsWindowTitleBarAction, OpenWorkspaceInAgentsWindowChatTitleAction, OpenWorkspaceInAgentsWindowTitleBarAction } from './agentSessions/agentSessionsActions.js';
+// [VibeIDE removed] Actions opening the upstream Agents window: that window (src/vs/sessions)
+// is not part of this fork, so the commands would lead nowhere.
 import { NativeBuiltinToolsContribution } from './builtInTools/tools.js';
 import { NativePluginGitCommandService } from './pluginGitCommandService.js';
 
@@ -232,12 +233,7 @@ class ChatLifecycleHandler extends Disposable {
 	}
 }
 
-registerAction2(OpenWorkspaceInAgentsWindowAction);
-registerAction2(OpenWorkspaceInAgentsWindowChatTitleAction);
-registerAction2(OpenWorkspaceInAgentsWindowTitleBarAction);
-registerAction2(ToggleOpenInAgentsWindowTitleBarAction);
-registerAction2(OpenAgentsWindowAction);
-registerAction2(OpenChatSessionInAgentsWindowAction);
+// [VibeIDE removed] registerAction2 for the Agents window commands.
 registerAction2(StartVoiceChatAction);
 
 registerAction2(VoiceChatInChatViewAction);
@@ -262,8 +258,7 @@ registerWorkbenchContribution2(NativeBuiltinToolsContribution.ID, NativeBuiltinT
 registerWorkbenchContribution2(ChatCommandLineHandler.ID, ChatCommandLineHandler, WorkbenchPhase.BlockRestore);
 registerWorkbenchContribution2(ChatSuspendThrottlingHandler.ID, ChatSuspendThrottlingHandler, WorkbenchPhase.AfterRestored);
 registerWorkbenchContribution2(ChatLifecycleHandler.ID, ChatLifecycleHandler, WorkbenchPhase.AfterRestored);
-registerWorkbenchContribution2(OpenWorkspaceInAgentsContribution.ID, OpenWorkspaceInAgentsContribution, WorkbenchPhase.BlockRestore);
-registerWorkbenchContribution2(AgentsHandoffInputTipContribution.ID, AgentsHandoffInputTipContribution, WorkbenchPhase.Eventually);
+// [VibeIDE removed] Contributions promoting the Agents window (workspace hand-off, input tip).
 
 // How long to wait for the agent host to surface an AgentInfo before
 // throwing an error. Long enough for normal startup, short enough to avoid
