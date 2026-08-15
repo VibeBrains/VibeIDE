@@ -342,41 +342,6 @@ async function main() {
 		log('.', `Created ${claudeSkillsLinkType} .claude/skills -> .agents/skills`);
 	}
 
-
-	// addon and native core libraries from fixed, package-relative paths. We do
-	// not ship that native payload (its addon requires a newer glibc than our
-	// minimum supported Linux distros); it is downloaded on demand at runtime
-	// into a per-user cache. Patch the SDK loader so it honors the
-	// the addon and the core libraries, falling back to the original
-	// package-relative logic so dev-from-source still works. Idempotent.
-	for (const dir of ['', 'remote']) {
-		if (!fs.existsSync(coreInteropFile)) {
-			continue;
-		}
-		const content = fs.readFileSync(coreInteropFile, 'utf8');
-		// Apply the addon and core patches independently. They previously shared
-		// one SDK needle changed the file was left half-patched and every later
-		// run skipped it entirely — and since packaging removes both native
-		// fallbacks, a missing half makes shipped dictation unusable. Use a
-		// distinct marker per half and apply whichever is absent.
-		const addonNeedle = `    const platformKey = \`\${platform}-\${arch}\`;\n    // The prebuilt addon ships inside the SDK package under prebuilds/<platform>/\n    const sdkRoot = path.resolve(__dirname, '..', '..');`;
-		let patched = content;
-		if (!patched.includes(addonMarker)) {
-			if (patched.includes(addonNeedle)) {
-				patched = patched.replace(addonNeedle, addonReplacement);
-			} else {
-			}
-		}
-		if (!patched.includes(coreMarker)) {
-			if (patched.includes(coreNeedle)) {
-				patched = patched.replace(coreNeedle, coreReplacement);
-			} else {
-			}
-		}
-		if (content !== patched) {
-			fs.writeFileSync(coreInteropFile, patched);
-		}
-	}
 }
 
 main().catch(err => {
