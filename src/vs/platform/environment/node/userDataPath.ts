@@ -5,7 +5,6 @@
 
 import { homedir } from 'os';
 import { NativeParsedArgs } from '../common/argv.js';
-import { INodeProcess } from '../../../base/common/platform.js';
 // This file used to be a pure JS file and was always
 // importing `path` from node.js even though we ship
 // our own version of the library and prefer to use
@@ -58,11 +57,7 @@ function doGetUserDataPath(cliArgs: NativeParsedArgs, productName: string): stri
 
 	// 0. Running out of sources: isolate dev user-data dir from stable installs
 	if (process.env['VSCODE_DEV']) {
-		if ((process as INodeProcess).isEmbeddedApp) {
-			productName = 'agents-oss-dev';
-		} else {
-			productName = `${devUserDataProfileSlug(productName)}-dev`;
-		}
+		productName = `${devUserDataProfileSlug(productName)}-dev`;
 	}
 
 	// 1. Support portable mode

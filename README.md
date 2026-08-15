@@ -1,5 +1,17 @@
+# Visual Studio Code - Open Source ("Code - OSS")
+[![Feature Requests](https://img.shields.io/github/issues/microsoft/vscode/feature-request.svg)](https://github.com/microsoft/vscode/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-request+sort%3Areactions-%2B1-desc)
+[![Bugs](https://img.shields.io/github/issues/microsoft/vscode/bug.svg)](https://github.com/microsoft/vscode/issues?utf8=✓&q=is%3Aissue+is%3Aopen+label%3Abug)
+[![Gitter](https://img.shields.io/badge/chat-on%20gitter-yellow.svg)](https://gitter.im/Microsoft/vscode)
+
+## The Repository
+
+This repository ("`Code - OSS`") is where we (Microsoft) develop the [Visual Studio Code](https://code.visualstudio.com) product together with the community. Not only do we work on code and issues here, but we also publish our [roadmap](https://github.com/microsoft/vscode/wiki/Roadmap), [monthly iteration plans](https://github.com/microsoft/vscode/wiki/Iteration-Plans), and our [endgame plans](https://github.com/microsoft/vscode/wiki/Running-the-Endgame). This source code is available to everyone under the standard [MIT license](https://github.com/microsoft/vscode/blob/main/LICENSE.txt).
+
+## Visual Studio Code
+
 <p align="center">
   <img src="media/logo-final.png" alt="VibeIDE" width="180" />
+  <img alt="VS Code in action" src="https://github.com/user-attachments/assets/56af271c-949d-454c-a3ea-16188c063414">
 </p>
 
 <h1 align="center">VibeIDE</h1>
@@ -14,6 +26,7 @@
   <a href="https://github.com/VibeBrains/VibeIDE/issues"><img src="https://img.shields.io/github/issues/VibeBrains/VibeIDE.svg" alt="Issues" /></a>
   <a href="https://open-vsx.org"><img src="https://img.shields.io/badge/extensions-Open%20VSX-purple.svg" alt="Open VSX" /></a>
 </p>
+Visual Studio Code is updated monthly with new features and bug fixes. You can download it for Windows, macOS, and Linux on the [Visual Studio Code website](https://code.visualstudio.com/Download). To get the latest releases every day, install the [Insiders build](https://code.visualstudio.com/insiders).
 
 <p align="center">
   <a href="https://github.com/VibeBrains/VibeIDE/releases/latest/download/VibeIDESetup.exe"><img src="https://img.shields.io/badge/Скачать%20для%20Windows-VibeIDESetup.exe-2ea44f?style=for-the-badge&logo=windows" alt="Скачать VibeIDE для Windows" /></a>
@@ -24,8 +37,12 @@
 </p>
 
 ---
+* [Submit bugs and feature requests](https://github.com/microsoft/vscode/issues), and help us verify them as they are checked in
+* Review [source code changes](https://github.com/microsoft/vscode/pulls)
+* Review the [documentation](https://github.com/microsoft/vscode-docs) and make pull requests for anything from typos to new content.
 
 ## Что такое VibeIDE?
+If you are interested in fixing issues and contributing directly to the codebase, please see the document [How to Contribute](https://github.com/microsoft/vscode/wiki/How-to-Contribute), which covers the following:
 
 VibeIDE — форк [VS Code open source (Code-OSS)](https://github.com/microsoft/vscode) с глубоко встроенным AI: не как расширение поверх редактора, а как часть самого редактора. Полностью открытый исходный код (MIT), работает с любым LLM-провайдером, не отправляет никакой телеметрии.
 
@@ -82,11 +99,14 @@ VibeIDE — форк [VS Code open source (Code-OSS)](https://github.com/microso
 ---
 
 ## 🏠 ДОМАШНЯЯ СБОРКА — собери VibeIDE сам, одной командой
+* For [Dev Containers](https://aka.ms/vscode-remote/download/containers), use the **Dev Containers: Clone Repository in Container Volume...** command, which creates a Docker volume for better disk I/O on macOS and Windows.
+  * If you already have VS Code and Docker installed, you can also click [here](https://vscode.dev/redirect?url=vscode://ms-vscode-remote.remote-containers/cloneInVolume?url=https://github.com/microsoft/vscode) to get started. This will cause VS Code to automatically install the Dev Containers extension if needed, clone the source code into a container volume, and spin up a dev container for use.
 
 > ### ⚡ САМОЕ ПРОСТОЕ, ЧТО ЗДЕСЬ ЕСТЬ
 > Одна команда — и на руках **готовый портативный VibeIDE под твою систему**. Скрипт **сам** поставит `fnm`, скачает нужную версию Node, установит зависимости и соберёт приложение. Перед запуском он **объявит, что именно сделает, и спросит подтверждение** — ничего не ставится молча.
 
 **Linux / macOS:**
+Docker / the Codespace should have at least **4 cores and 6 GB of RAM (8 GB recommended)** to run a full build. See the [development container README](.devcontainer/README.md) for more information.
 
 ```bash
 git clone https://github.com/VibeBrains/VibeIDE.git && cd VibeIDE
@@ -94,6 +114,7 @@ git clone https://github.com/VibeBrains/VibeIDE.git && cd VibeIDE
 ```
 
 **Windows:**
+This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/). For more information, see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
 
 ```bat
 git clone https://github.com/VibeBrains/VibeIDE.git && cd VibeIDE

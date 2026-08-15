@@ -25,6 +25,7 @@ export const all = Object.freeze<string[]>([
 	'!cli/**/*',
 	'!out*/**',
 	'!extensions/**/out*/**',
+	'!extensions/**/*-out/**',
 	'!test/**/out/**',
 	'!**/node_modules/**',
 	'!**/*.js.map',
@@ -41,7 +42,7 @@ export const unicodeFilter = Object.freeze<string[]>([
 	'!LICENSES.chromium.html',
 	'!**/LICENSE',
 
-	'!**/*.{dll,exe,png,bmp,jpg,scpt,cur,ttf,woff,eot,template,ico,icns,opus,wasm}',
+	'!**/*.{dll,exe,png,bmp,jpg,gif,scpt,cur,ttf,woff,eot,template,ico,icns,opus,wasm}',
 	'!**/test/**',
 	'!**/*.test.ts',
 	'!**/*.{d.ts,json,md}',
@@ -51,8 +52,9 @@ export const unicodeFilter = Object.freeze<string[]>([
 
 	'!build/win32/**',
 	'!extensions/markdown-language-features/notebook-out/*.js',
+	'!extensions/markdown-language-features/markdown-editor-out/*.js',
 	'!extensions/markdown-math/notebook-out/**',
-	'!extensions/mermaid-chat-features/chat-webview-out/**',
+	'!extensions/mermaid-markdown-features/chat-webview-out/**',
 	'!extensions/ipynb/notebook-out/**',
 	'!extensions/notebook-renderers/renderer-out/**',
 	'!extensions/php-language-features/src/features/phpGlobalFunctions.ts',
@@ -88,6 +90,8 @@ export const unicodeFilter = Object.freeze<string[]>([
 	// (status glyphs, box-drawing) in console/UI strings — same "rich Unicode by design"
 	// rationale as src/**/vibeide/** above.
 	'!extensions/vibeide-*/**',
+	// Files with licences
+	'!src/vs/platform/endpoint/common/licenseAgreement.ts',
 ]);
 
 export const indentationFilter = Object.freeze<string[]>([
@@ -101,6 +105,8 @@ export const indentationFilter = Object.freeze<string[]>([
 	'!**/LICENSE',
 	'!**/*.mp3',
 	'!src/vs/base/browser/dompurify/*',
+	'!src/vs/base/common/lit-html/**',
+	'!src/vs/base/common/signals-core/**',
 	'!src/vs/base/common/marked/marked.js',
 	'!src/vs/base/common/semver/semver.js',
 	'!src/vs/base/node/terminateProcess.sh',
@@ -113,6 +119,7 @@ export const indentationFilter = Object.freeze<string[]>([
 	'!build/darwin/patch-dmg.py',
 	'!build/npm/gyp/patches/gyp_spectre_mitigation_support.patch',
 	'!product.overrides.json',
+	'!src/vs/platform/endpoint/common/licenseAgreement.ts',
 
 	// except specific folders
 	'!test/automation/out/**',
@@ -153,12 +160,12 @@ export const indentationFilter = Object.freeze<string[]>([
 	'!src/vs/*/**/*.d.ts',
 	'!src/typings/**/*.d.ts',
 	'!extensions/**/*.d.ts',
-	'!**/*.{svg,exe,png,bmp,jpg,scpt,bat,cmd,cur,ttf,woff,eot,md,ps1,psm1,template,yaml,yml,d.ts.recipe,ico,icns,plist,opus,admx,adml,wasm}',
+	'!**/*.{svg,exe,png,bmp,jpg,gif,scpt,bat,cmd,cur,ttf,woff,eot,md,ps1,psm1,template,yaml,yml,d.ts.recipe,ico,icns,plist,opus,admx,adml,wasm}',
 	'!build/{lib,download,linux,darwin}/**/*.js',
 	'!build/**/*.sh',
 	'!build/azure-pipelines/**/*.js',
 	'!build/azure-pipelines/**/*.config',
-	'!build/npm/gyp/custom-headers/*.patch',
+	'!build/npm/gyp/custom-headers/**',
 	'!**/Dockerfile',
 	'!**/Dockerfile.*',
 	'!**/*.Dockerfile',
@@ -166,8 +173,11 @@ export const indentationFilter = Object.freeze<string[]>([
 	'!**/*.tiff',
 
 	// except for built files
-	'!extensions/mermaid-chat-features/chat-webview-out/*.js',
+	'!extensions/mermaid-markdown-features/chat-webview-out/*.js',
+	'!extensions/mermaid-markdown-features/markdown-preview-out/*.js',
+	'!extensions/mermaid-markdown-features/notebook-out/*.js',
 	'!extensions/markdown-language-features/media/*.js',
+	'!extensions/markdown-language-features/markdown-editor-out/*.js',
 	'!extensions/markdown-language-features/notebook-out/*.js',
 	'!extensions/markdown-math/notebook-out/*.js',
 	'!extensions/ipynb/notebook-out/**',
@@ -207,6 +217,7 @@ export const copyrightFilter = Object.freeze<string[]>([
 	'!**/*.bat',
 	'!**/*.cmd',
 	'!**/*.ico',
+	'!**/*.gif',
 	'!**/*.opus',
 	'!**/*.mp3',
 	'!**/*.icns',
@@ -226,7 +237,7 @@ export const copyrightFilter = Object.freeze<string[]>([
 	'!build/**/*.init',
 	'!build/darwin/patch-dmg.py',
 	'!build/linux/libcxx-fetcher.*',
-	'!build/npm/gyp/custom-headers/*.patch',
+	'!build/npm/gyp/custom-headers/**',
 	'!resources/linux/snap/snapcraft.yaml',
 	'!resources/win32/bin/code.js',
 	'!resources/completions/**',
@@ -239,8 +250,15 @@ export const copyrightFilter = Object.freeze<string[]>([
 	'!extensions/typescript-language-features/node-maintainer/**',
 	'!extensions/html-language-features/server/src/modes/typescript/*',
 	'!extensions/*/server/bin/*',
+	'!src/vs/platform/agentHost/node/codex/protocol/generated/**',
 	'!src/vs/workbench/contrib/terminal/common/scripts/psreadline/**',
-	'!extensions/mermaid-chat-features/chat-webview-out/**',
+	'!extensions/mermaid-markdown-features/chat-webview-out/**',
+	'!extensions/mermaid-markdown-features/markdown-preview-out/**',
+	'!extensions/mermaid-markdown-features/notebook-out/**',
+
+	// vendored third-party libraries
+	'!src/vs/base/common/lit-html/**',
+	'!src/vs/base/common/signals-core/**',
 
 	// VibeIDE neon theme stylesheets are theme token data, not source: the fork's own glue
 	// CSS under media/ and the vendored upstream neon-theme snapshots under upstream/ neither
@@ -266,15 +284,15 @@ export const tsFormattingFilter = Object.freeze<string[]>([
 	'!extensions/html-language-features/server/lib/jquery.d.ts',
 	'!extensions/terminal-suggest/src/shell/zshBuiltinsCache.ts',
 	'!extensions/terminal-suggest/src/shell/fishBuiltinsCache.ts',
+	'!src/vs/platform/agentHost/node/codex/protocol/generated/**',
 
 ]);
 
 export const eslintFilter = Object.freeze<string[]>([
-	'**/*.js',
-	'**/*.cjs',
-	'**/*.mjs',
-	'**/*.ts',
+	'**/*.{js,cjs,mjs}',
+	'**/*.{ts,tsx,mts,cts}',
 	'.eslint-plugin-local/**/*.ts',
+	'!src/vs/platform/agentHost/node/codex/protocol/generated/**',
 	...readFileSync(join(import.meta.dirname, '..', '.eslint-ignore'))
 		.toString()
 		.split(/\r\n|\n/)

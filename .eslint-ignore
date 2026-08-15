@@ -1,5 +1,4 @@
-**/build/*/**/*.js
-**/dist/**/*.js
+**/dist/**/*
 **/extensions/**/*.d.ts
 **/extensions/**/build/**
 **/extensions/**/colorize-fixtures/**
@@ -10,7 +9,9 @@
 **/extensions/markdown-language-features/media/**
 **/extensions/markdown-language-features/notebook-out/**
 **/extensions/markdown-math/notebook-out/**
-**/extensions/mermaid-chat-features/chat-webview-out/**
+**/extensions/mermaid-markdown-features/chat-webview-out/**
+**/extensions/mermaid-markdown-features/markdown-preview-out/**
+**/extensions/mermaid-markdown-features/notebook-out/**
 **/extensions/notebook-renderers/renderer-out/index.js
 **/extensions/simple-browser/media/index.js
 **/extensions/terminal-suggest/src/completions/upstream/**
@@ -31,6 +32,7 @@
 **/src/typings/**/*.d.ts
 **/src/vs/*/**/*.d.ts
 **/src/vs/base/test/common/filters.perf.data.js
+**/src/vs/platform/agentHost/node/codex/protocol/generated/**
 **/test/unit/assert.js
 **/test/automation/out/**
 **/typings/**
@@ -54,4 +56,9 @@
 **/src/vs/workbench/contrib/terminal/test/browser/terminalInstance.test.ts
 **/src/vs/workbench/contrib/terminalContrib/chatAgentTools/browser/commandLineAutoApprover.ts
 **/build/lib/i18n.ts
+**/.vscode-test/**
 !.vscode
+
+# Vendored third-party libraries
+src/vs/base/common/lit-html/**
+src/vs/base/common/signals-core/**

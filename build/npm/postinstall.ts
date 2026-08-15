@@ -79,7 +79,7 @@ async function npmInstallAsync(dir: string, opts?: child_process.SpawnOptions): 
 			'docker', 'run',
 			'-e', 'GITHUB_TOKEN',
 			'-v', `${process.env['VSCODE_HOST_MOUNT']}:/root/vscode`,
-			'-v', `${process.env['VSCODE_HOST_MOUNT']}/.build/.netrc:/root/.netrc`,
+			'-v', `${process.env['VSCODE_HOST_MOUNT']}/.build/.gitconfig-distro:/root/.gitconfig`,
 			'-v', `${process.env['VSCODE_NPMRC_PATH']}:/root/.npmrc`,
 			'-w', path.resolve('/root/vscode', dir),
 			process.env['VSCODE_REMOTE_DEPENDENCIES_CONTAINER_NAME'],
@@ -131,7 +131,11 @@ function setNpmrcConfig(dir: string, env: NodeJS.ProcessEnv) {
 	}
 
 	if (dir === 'build') {
-		env['npm_config_target'] = process.versions.node;
+		// Temporarily lock the target version.
+		// Node 24 V8 headers require C++20, but tree-sitter hard-pin "c++17" in their binding.gyp.
+		// This is fixed in v0.25.1 however the version is not published to npm, refs
+		// https://github.com/tree-sitter/node-tree-sitter/issues/268.
+		// env['npm_config_target'] = process.versions.node;
 		env['npm_config_arch'] = process.arch;
 	}
 }
@@ -336,6 +340,52 @@ async function main() {
 		log('.', 'Skipped .claude/skills symlink: .agents/skills not found (optional local harness; CI may omit .agents/)');
 	} else if (claudeSkillsLinkType !== 'existing') {
 		log('.', `Created ${claudeSkillsLinkType} .claude/skills -> .agents/skills`);
+	}
+
+	// (missing .js extension on vscode-jsonrpc/node). Fixed upstream in v0.1.32.
+	for (const dir of ['', 'remote']) {
+		if (fs.existsSync(sessionFile)) {
+			const content = fs.readFileSync(sessionFile, 'utf8');
+			const patched = content.replace(/from "vscode-jsonrpc\/node"/g, 'from "vscode-jsonrpc/node.js"');
+			if (content !== patched) {
+				fs.writeFileSync(sessionFile, patched);
+			}
+		}
+	}
+
+	// addon and native core libraries from fixed, package-relative paths. We do
+	// not ship that native payload (its addon requires a newer glibc than our
+	// minimum supported Linux distros); it is downloaded on demand at runtime
+	// into a per-user cache. Patch the SDK loader so it honors the
+	// the addon and the core libraries, falling back to the original
+	// package-relative logic so dev-from-source still works. Idempotent.
+	for (const dir of ['', 'remote']) {
+		if (!fs.existsSync(coreInteropFile)) {
+			continue;
+		}
+		const content = fs.readFileSync(coreInteropFile, 'utf8');
+		// Apply the addon and core patches independently. They previously shared
+		// one SDK needle changed the file was left half-patched and every later
+		// run skipped it entirely — and since packaging removes both native
+		// fallbacks, a missing half makes shipped dictation unusable. Use a
+		// distinct marker per half and apply whichever is absent.
+		const addonNeedle = `    const platformKey = \`\${platform}-\${arch}\`;\n    // The prebuilt addon ships inside the SDK package under prebuilds/<platform>/\n    const sdkRoot = path.resolve(__dirname, '..', '..');`;
+		let patched = content;
+		if (!patched.includes(addonMarker)) {
+			if (patched.includes(addonNeedle)) {
+				patched = patched.replace(addonNeedle, addonReplacement);
+			} else {
+			}
+		}
+		if (!patched.includes(coreMarker)) {
+			if (patched.includes(coreNeedle)) {
+				patched = patched.replace(coreNeedle, coreReplacement);
+			} else {
+			}
+		}
+		if (content !== patched) {
+			fs.writeFileSync(coreInteropFile, patched);
+		}
 	}
 }
 

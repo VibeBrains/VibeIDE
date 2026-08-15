@@ -17,26 +17,19 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout microsoft/vscode
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
 
-      - name: Prepare node_modules cache key
-        run: mkdir -p .build && node build/azure-pipelines/common/computeNodeModulesCacheKey.ts compile $(node -p process.arch) > .build/packagelockhash
-
       - name: Restore node_modules cache
         id: cache-node-modules
-        uses: actions/cache@v5
+        uses: ./.github/actions/restore-node-modules
         with:
-          path: .build/node_modules_cache
-          key: "node_modules-compile-${{ hashFiles('.build/packagelockhash') }}"
-
-      - name: Extract node_modules cache
-        if: steps.cache-node-modules.outputs.cache-hit == 'true'
-        run: tar -xzf .build/node_modules_cache/cache.tgz
+          key-prefix: node_modules-compile
+          key-args: "compile $(node -p process.arch)"
 
       - name: Install build tools
         if: steps.cache-node-modules.outputs.cache-hit != 'true'
@@ -60,13 +53,9 @@ jobs:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create node_modules archive
+      - name: Save node_modules cache
         if: steps.cache-node-modules.outputs.cache-hit != 'true'
-        run: |
-          set -e
-          node build/azure-pipelines/common/listNodeModules.ts .build/node_modules_list.txt
-          mkdir -p .build/node_modules_cache
-          tar -czf .build/node_modules_cache/cache.tgz --files-from .build/node_modules_list.txt
+        uses: ./.github/actions/save-node-modules
 
       - name: Prepare built-in extensions cache key
         run: |
@@ -76,7 +65,7 @@ jobs:
 
       - name: Restore built-in extensions cache
         id: cache-builtin-extensions
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           enableCrossOsArchive: true
           path: .build/builtInExtensions
@@ -96,22 +85,20 @@ jobs:
       VSCODE_ARCH: x64
     steps:
       - name: Checkout microsoft/vscode
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
 
-      - name: Prepare node_modules cache key
-        run: mkdir -p .build && node build/azure-pipelines/common/computeNodeModulesCacheKey.ts linux $VSCODE_ARCH $(node -p process.arch) > .build/packagelockhash
-
       - name: Restore node_modules cache
         id: cache-node-modules
-        uses: actions/cache@v5
+        uses: ./.github/actions/restore-node-modules
         with:
-          path: .build/node_modules_cache
-          key: "node_modules-linux-${{ hashFiles('.build/packagelockhash') }}"
+          key-prefix: node_modules-linux
+          key-args: "linux ${{ env.VSCODE_ARCH }} $(node -p process.arch)"
+          lookup-only: 'true'
 
       - name: Install build dependencies
         if: steps.cache-node-modules.outputs.cache-hit != 'true'
@@ -152,13 +139,13 @@ jobs:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create node_modules archive
+      - name: Verify native optional dependency binaries
         if: steps.cache-node-modules.outputs.cache-hit != 'true'
-        run: |
-          set -e
-          node build/azure-pipelines/common/listNodeModules.ts .build/node_modules_list.txt
-          mkdir -p .build/node_modules_cache
-          tar -czf .build/node_modules_cache/cache.tgz --files-from .build/node_modules_list.txt
+        run: node build/azure-pipelines/common/checkNativeOptionalDeps.ts
+
+      - name: Save node_modules cache
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        uses: ./.github/actions/save-node-modules
 
   macOS:
     name: macOS
@@ -168,22 +155,20 @@ jobs:
       VSCODE_ARCH: arm64
     steps:
       - name: Checkout microsoft/vscode
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
 
-      - name: Prepare node_modules cache key
-        run: mkdir -p .build && node build/azure-pipelines/common/computeNodeModulesCacheKey.ts darwin $VSCODE_ARCH $(node -p process.arch) > .build/packagelockhash
-
       - name: Restore node_modules cache
         id: cache-node-modules
-        uses: actions/cache@v5
+        uses: ./.github/actions/restore-node-modules
         with:
-          path: .build/node_modules_cache
-          key: "node_modules-macos-${{ hashFiles('.build/packagelockhash') }}"
+          key-prefix: node_modules-macos
+          key-args: "darwin ${{ env.VSCODE_ARCH }} $(node -p process.arch)"
+          lookup-only: 'true'
 
       - name: Install dependencies
         if: steps.cache-node-modules.outputs.cache-hit != 'true'
@@ -209,13 +194,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GYP_DEFINES: "kerberos_use_rtld=false"
 
-      - name: Create node_modules archive
+      - name: Verify native optional dependency binaries
         if: steps.cache-node-modules.outputs.cache-hit != 'true'
-        run: |
-          set -e
-          node build/azure-pipelines/common/listNodeModules.ts .build/node_modules_list.txt
-          mkdir -p .build/node_modules_cache
-          tar -czf .build/node_modules_cache/cache.tgz --files-from .build/node_modules_list.txt
+        run: node build/azure-pipelines/common/checkNativeOptionalDeps.ts
+
+      - name: Save node_modules cache
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
+        uses: ./.github/actions/save-node-modules
 
   windows:
     name: Windows
@@ -231,25 +216,20 @@ jobs:
       VSCODE_ARCH: x64
     steps:
       - name: Checkout microsoft/vscode
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
 
-      - name: Prepare node_modules cache key
-        shell: pwsh
-        run: |
-          mkdir .build -ea 0
-          node build/azure-pipelines/common/computeNodeModulesCacheKey.ts win32 ${{ env.VSCODE_ARCH }} $(node -p process.arch) > .build/packagelockhash
-
       - name: Restore node_modules cache
-        uses: actions/cache@v5
         id: node-modules-cache
+        uses: ./.github/actions/restore-node-modules
         with:
-          path: .build/node_modules_cache
-          key: "node_modules-windows-${{ hashFiles('.build/packagelockhash') }}"
+          key-prefix: node_modules-windows
+          key-args: "win32 ${{ env.VSCODE_ARCH }} $(node -p process.arch)"
+          lookup-only: 'true'
 
       - name: Install dependencies
         if: steps.node-modules-cache.outputs.cache-hit != 'true'
@@ -257,7 +237,6 @@ jobs:
         run: |
           . build/azure-pipelines/win32/exec.ps1
           $ErrorActionPreference = "Stop"
-
           for ($i = 1; $i -le 5; $i++) {
             try {
               exec { npm ci }
@@ -280,12 +259,11 @@ jobs:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create node_modules archive
+      - name: Verify native optional dependency binaries
         if: steps.node-modules-cache.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          . build/azure-pipelines/win32/exec.ps1
-          $ErrorActionPreference = "Stop"
-          exec { node build/azure-pipelines/common/listNodeModules.ts .build/node_modules_list.txt }
-          exec { mkdir -Force .build/node_modules_cache }
-          exec { 7z.exe a .build/node_modules_cache/cache.7z -mx3 `@.build/node_modules_list.txt }
+        run: node build/azure-pipelines/common/checkNativeOptionalDeps.ts
+
+      - name: Save node_modules cache
+        if: steps.node-modules-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/save-node-modules
+
