@@ -95,7 +95,6 @@ import { IActionWidgetService } from '../../../../platform/actionWidget/browser/
 import { IAnyWorkspaceIdentifier } from '../../../../platform/workspace/common/workspace.js';
 import { TestMenuService } from '../workbenchTestServices.js';
 import { IAccessibilitySignalService } from '../../../../platform/accessibilitySignal/browser/accessibilitySignalService.js';
-import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { IResolvedTextEditorModel, ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { IChatEditingService } from '../../../contrib/chat/common/editing/chatEditingService.js';
 import { constObservable } from '../../../../base/common/observable.js';

@@ -26,8 +26,6 @@ import { getZoomFactor, onDidChangeZoomLevel } from '../../../../base/browser/br
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { ILayoutService } from '../../../../platform/layout/browser/layoutService.js';
-import { ILifecycleService, ShutdownReason } from '../../../services/lifecycle/common/lifecycle.js';
-import { IVibeServerStackService, IVibeServerStackEntry } from '../../vibeide/browser/vibeServer/vibeServerStackService.js';
 import { IAction } from '../../../../base/common/actions.js';
 import { IActionViewItem } from '../../../../base/browser/ui/actionbar/actionbar.js';
 import { IActionViewItemOptions } from '../../../../base/browser/ui/actionbar/actionViewItems.js';
@@ -444,12 +442,6 @@ export class BrowserEditor extends EditorPane {
 	private _hasErrorContext!: IContextKey<boolean>;
 
 	private readonly _inputDisposables = this._register(new DisposableStore());
-	/** Host for the `.vibe/servers.json` stack list inside the welcome screen. */
-	private _welcomeStackContainer: HTMLElement | undefined;
-	private readonly _welcomeStackDisposables = this._register(new DisposableStore());
-	private overlayManager: BrowserOverlayManager | undefined;
-	private _screenshotTimeout: ReturnType<typeof setTimeout> | undefined;
-	private readonly _certActionButton = this._register(new MutableDisposable<ButtonBar>());
 	private _currentPadding: { top: number; right: number; bottom: number; left: number } = { top: 0, right: 0, bottom: 0, left: 0 };
 
 	override get input(): BrowserEditorInput | undefined { return super.input as BrowserEditorInput | undefined; }
@@ -462,22 +454,8 @@ export class BrowserEditor extends EditorPane {
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IContextKeyService private readonly contextKeyService: IContextKeyService,
 		@ILayoutService private readonly layoutService: ILayoutService,
-		@ILifecycleService private readonly lifecycleService: ILifecycleService,
-		@IVibeServerStackService private readonly _stackService: IVibeServerStackService,
 	) {
 		super(BrowserEditorInput.EDITOR_ID, group, telemetryService, themeService, storageService);
-
-		// Be sure to hide the view when the workbench is reloading, as `clearInput()` may not be called.
-		this._register(this.lifecycleService.onWillShutdown((e) => {
-			if (e.reason === ShutdownReason.RELOAD) {
-				this._model?.setVisible(false);
-			}
-		}));
-
-		// Keep the welcome-screen stack list in sync with the orchestrator, and discover
-		// `.vibe/servers.json` on first paint.
-		this._register(this._stackService.onDidChangeStack(() => this._renderWelcomeStack()));
-		void this._stackService.reload();
 	}
 
 	protected override createEditor(parent: HTMLElement): void {
@@ -665,203 +643,6 @@ export class BrowserEditor extends EditorPane {
 	/**
 	 * Close this editor tab (i.e. the editor input owning the current page).
 	 */
-	revokeAndClose(certError: IBrowserViewCertificateError): void {
-		// This method automatically closes the browser view.
-		this._model?.untrustCertificate(certError.host, certError.fingerprint);
-	}
-
-	async navigateToUrl(url: string): Promise<void> {
-		if (this._model) {
-			this.group.pinEditor(this.input); // pin editor on navigation
-
-			// Special case localhost URLs (e.g., "localhost:3000") to add http://
-			if (/^localhost(:|\/|$)/i.test(url)) {
-				url = 'http://' + url;
-			} else if (!URL.parse(url)?.protocol) {
-				// If no scheme provided, default to http (sites will generally upgrade to https)
-				url = 'http://' + url;
-			}
-
-			this.ensureBrowserFocus();
-			await this._model.loadURL(url);
-		}
-	}
-
-	focusUrlInput(): void {
-		this._navigationBar.focusUrlInput();
-	}
-
-	async goBack(): Promise<void> {
-		return this._model?.goBack();
-	}
-
-	async goForward(): Promise<void> {
-		return this._model?.goForward();
-	}
-
-	async reload(hard?: boolean): Promise<void> {
-		return this._model?.reload(hard);
-	}
-
-	async toggleDevTools(): Promise<void> {
-		return this._model?.toggleDevTools();
-	}
-
-	async clearStorage(): Promise<void> {
-		return this._model?.clearStorage();
-	}
-
-	/**
-	 * Update navigation state and context keys
-	 */
-	private updateNavigationState(event: IBrowserViewNavigationEvent): void {
-		// Update navigation bar UI
-		this._navigationBar.updateFromNavigationEvent(event);
-		this._navigationBar.setCertificateError(event.certificateError);
-
-		// Update context keys for command enablement
-		this._canGoBackContext.set(event.canGoBack);
-		this._canGoForwardContext.set(event.canGoForward);
-		this._hasUrlContext.set(!!event.url);
-
-		// Update visibility (welcome screen, error, browser view)
-		this.updateVisibility();
-	}
-
-	/**
-	 * Create the welcome container shown when no URL is loaded
-	 */
-	private createWelcomeContainer(): HTMLElement {
-		const container = $('.browser-welcome-container');
-		const content = $('.browser-welcome-content');
-
-		const iconContainer = $('.browser-welcome-icon');
-		iconContainer.appendChild(renderIcon(Codicon.globe));
-		content.appendChild(iconContainer);
-
-		const title = $('.browser-welcome-title');
-		title.textContent = localize('browser.welcomeTitle', "Browser");
-		content.appendChild(title);
-
-		const subtitle = $('.browser-welcome-subtitle');
-		const chatEnabled = this.contextKeyService.getContextKeyValue<boolean>(ChatContextKeys.enabled.key);
-		subtitle.textContent = chatEnabled
-			? localize('browser.welcomeSubtitleChat', "Use Add Element to Chat to reference UI elements in chat prompts.")
-			: localize('browser.welcomeSubtitle', "Enter a URL above to get started.");
-		content.appendChild(subtitle);
-
-		// The project's dev stack (.vibe/servers.json): a start-and-open list, filled in reactively.
-		this._welcomeStackContainer = $('.browser-welcome-stack');
-		content.appendChild(this._welcomeStackContainer);
-		this._renderWelcomeStack();
-
-		container.appendChild(content);
-		return container;
-	}
-
-	/** (Re)builds the welcome-screen stack list from the orchestrator's current entries. */
-	private _renderWelcomeStack(): void {
-		const host = this._welcomeStackContainer;
-		if (!host) {
-			return;
-		}
-		this._welcomeStackDisposables.clear();
-		host.textContent = '';
-		if (!this._stackService.available) {
-			return;
-		}
-		for (const item of this._stackService.entries) {
-			this._renderWelcomeStackRow(host, item);
-		}
-	}
-
-	private _renderWelcomeStackRow(host: HTMLElement, item: IVibeServerStackEntry): void {
-		const running = item.state === 'running';
-		const busy = item.state === 'starting';
-		const row = $('.browser-welcome-stack-row');
-
-		const name = $('.browser-welcome-stack-name');
-		name.textContent = item.entry.name ?? item.entry.id;
-		row.appendChild(name);
-
-		const port = $('.browser-welcome-stack-port');
-		port.textContent = typeof item.entry.port === 'number' ? `:${item.entry.port}` : '';
-		row.appendChild(port);
-
-		const button = $('.browser-welcome-stack-action');
-		const icon = busy ? Codicon.loading : running ? Codicon.linkExternal : Codicon.play;
-		const iconEl = renderIcon(icon);
-		if (busy) {
-			iconEl.classList.add('codicon-modifier-spin');
-		}
-		button.appendChild(iconEl);
-		row.appendChild(button);
-
-		this._welcomeStackDisposables.add(addDisposableListener(button, EventType.CLICK, () => void this._onWelcomeStackAction(item)));
-		host.appendChild(row);
-	}
-
-	/** A welcome-screen row was clicked: start the entry (with its deps) if needed, then open its preview. */
-	private async _onWelcomeStackAction(item: IVibeServerStackEntry): Promise<void> {
-		if (item.state !== 'running') {
-			await this._stackService.startEntry(item.entry.id);
-		}
-		const url = this._stackService.previewUrlFor(item.entry.id);
-		if (url) {
-			await this.navigateToUrl(url);
-		}
-	}
-
-	private setBackgroundImage(buffer: VSBuffer | undefined): void {
-		if (buffer) {
-			const dataUrl = `data:image/jpeg;base64,${encodeBase64(buffer)}`;
-			this._placeholderScreenshot.style.backgroundImage = `url('${dataUrl}')`;
-		} else {
-			this._placeholderScreenshot.style.backgroundImage = '';
-		}
-	}
-
-	private async doScreenshot(): Promise<void> {
-		if (!this._model) {
-			return;
-		}
-
-		// Cancel any existing timeout
-		this.cancelScheduledScreenshot();
-
-		// Only take screenshots if the model is visible
-		if (!this._model.visible) {
-			return;
-		}
-
-		try {
-			// Capture screenshot and set as background image
-			const screenshot = await this._model.captureScreenshot({ quality: 80 });
-			this.setBackgroundImage(screenshot);
-		} catch (error) {
-			this.logService.error('Failed to capture browser view screenshot', error);
-		}
-
-		// Schedule next screenshot in 1 second
-		this._screenshotTimeout = setTimeout(() => this.doScreenshot(), 1000);
-	}
-
-	private cancelScheduledScreenshot(): void {
-		if (this._screenshotTimeout) {
-			clearTimeout(this._screenshotTimeout);
-			this._screenshotTimeout = undefined;
-		}
-	}
-
-	private async handleKeyEventFromBrowserView(keyEvent: IBrowserViewKeyDownEvent): Promise<void> {
-		try {
-			const syntheticEvent = new KeyboardEvent('keydown', keyEvent);
-			const standardEvent = new StandardKeyboardEvent(syntheticEvent);
-
-			this.keybindingService.dispatchEvent(standardEvent, this._browserContainer);
-		} catch (error) {
-			this.logService.error('BrowserEditor.handleKeyEventFromBrowserView: Error dispatching key event', error);
-		}
 	closeTab(): void {
 		this.group?.closeEditor(this.input);
 	}

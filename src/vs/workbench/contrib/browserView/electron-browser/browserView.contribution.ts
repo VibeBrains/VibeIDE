@@ -34,6 +34,7 @@ import './features/browserEditorZoomFeature.js';
 import './features/browserEditorEmulationFeatures.js';
 import './features/browserAutoReloadFeatures.js';
 import './features/browserEditorFindFeature.js';
+import './features/vibeServerStackFeature.js';
 import './features/browserSearchFeatures.js';
 import './features/browserTabManagementFeatures.js';
 import './features/browserRemoteFeatures.js';

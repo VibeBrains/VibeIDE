@@ -36,9 +36,9 @@ jobs:
       sdl:
         binskim:
           ${{ if eq(parameters.VSCODE_ARCH, 'armhf') }}:
-            analyzeTargetGlob: '$(Agent.BuildDirectory)/VSCode-linux-$(VSCODE_ARCH)/**/*.node'
+            analyzeTargetGlob: '$(Agent.BuildDirectory)/VibeIDE-linux-$(VSCODE_ARCH)/**/*.node'
           ${{ else }}:
-            analyzeTargetGlob: '$(Agent.BuildDirectory)/VSCode-linux-$(VSCODE_ARCH)/**/*.node;$(Agent.BuildDirectory)/vscode-server-linux-$(VSCODE_ARCH)/**/*.node;$(Agent.BuildDirectory)/vscode-server-linux-$(VSCODE_ARCH)-web/**/*.node'
+            analyzeTargetGlob: '$(Agent.BuildDirectory)/VibeIDE-linux-$(VSCODE_ARCH)/**/*.node;$(Agent.BuildDirectory)/vscode-server-linux-$(VSCODE_ARCH)/**/*.node;$(Agent.BuildDirectory)/vscode-server-linux-$(VSCODE_ARCH)-web/**/*.node'
           preReleaseVersion: '4.3.1'
       outputParentDirectory: $(Build.ArtifactStagingDirectory)/out
       outputs:
@@ -68,7 +68,7 @@ jobs:
           targetPath: $(Build.ArtifactStagingDirectory)/out/client/$(CLIENT_ARCHIVE_NAME)
           artifactName: vscode_client_linux_$(VSCODE_ARCH)_archive-unsigned
           displayName: Publish client archive
-          sbomBuildDropPath: $(Agent.BuildDirectory)/VSCode-linux-$(VSCODE_ARCH)
+          sbomBuildDropPath: $(Agent.BuildDirectory)/VibeIDE-linux-$(VSCODE_ARCH)
           sbomPackageName: "VS Code Linux $(VSCODE_ARCH) (unsigned)"
           sbomPackageVersion: $(Build.SourceVersion)
         - ${{ if ne(parameters.VSCODE_ARCH, 'armhf') }}:

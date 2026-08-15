@@ -46,7 +46,7 @@ jobs:
             # path rather than one relative to the sources root.
             . $(Build.SourcesDirectory)/build/azure-pipelines/win32/exec.ps1
             $ErrorActionPreference = "Stop"
-            exec { 7z.exe a -tzip $(Build.ArtifactStagingDirectory)\app.zip VSCode-win32-x64 }
+            exec { 7z.exe a -tzip $(Build.ArtifactStagingDirectory)\app.zip VibeIDE-win32-x64 }
           workingDirectory: $(Agent.BuildDirectory)
           displayName: Archive packaged app for reuse by test jobs
       archiveServerSteps:
@@ -131,7 +131,7 @@ jobs:
             - powershell: |
                 . build/azure-pipelines/win32/exec.ps1
                 $ErrorActionPreference = "Stop"
-                $AppRoot = "$(agent.builddirectory)\VSCode-win32-$(VSCODE_ARCH)"
+                $AppRoot = "$(agent.builddirectory)\VibeIDE-win32-$(VSCODE_ARCH)"
                 $ProductJsonPath = (Get-ChildItem -Path "$AppRoot" -Name "product.json" -Recurse | Select-Object -First 1)
                 $AppProductJson = Get-Content -Raw -Path "$AppRoot\$ProductJsonPath" | ConvertFrom-Json
                 $AppNameShort = $AppProductJson.nameShort
@@ -148,7 +148,7 @@ jobs:
           # log files open and would otherwise break the 1ES "Publish Log Files" output.
           - powershell: |
               $ErrorActionPreference = "Continue"
-              $appRoot = "$(agent.builddirectory)\VSCode-win32-$(VSCODE_ARCH)"
+              $appRoot = "$(agent.builddirectory)\VibeIDE-win32-$(VSCODE_ARCH)"
               $serverRoot = "$(agent.builddirectory)\vscode-server-win32-$(VSCODE_ARCH)"
               Get-CimInstance Win32_Process -Filter "ExecutablePath IS NOT NULL" -ErrorAction SilentlyContinue |
                 Where-Object { $_.ExecutablePath -like "$appRoot\*" -or $_.ExecutablePath -like "$serverRoot\*" } |
@@ -189,7 +189,7 @@ jobs:
         testSteps:
           - ${{ each i in parameters.iterations }}:
             - powershell: |
-                npm run smoketest-no-compile -- --tracing --build "$(agent.builddirectory)\VSCode-win32-$(VSCODE_ARCH)"
+                npm run smoketest-no-compile -- --tracing --build "$(agent.builddirectory)\VibeIDE-win32-$(VSCODE_ARCH)"
                 $status = $LASTEXITCODE
                 if ($status -ne 0 -and (Test-Path .build\logs\smoke-tests-electron)) {
                   Move-Item .build\logs\smoke-tests-electron ".build\logs\failed-iteration-${{ i }}"

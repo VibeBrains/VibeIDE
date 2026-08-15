@@ -28,16 +28,6 @@ interface VinylFileWithLines extends VinylFile {
 }
 
 /**
- * Returns an error message if mismatched, or undefined if OK.
- */
-	const rootPkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
-	const expected = `^${rootPkg.version}`;
-	if (actual !== expected) {
-	}
-	return undefined;
-}
-
-/**
  * Checks that every tracked .js/.cjs/.mjs file in the repo is listed in
  * `.eslint-allowed-javascript-files`. This complements the
  * `local/code-no-new-javascript-files` ESLint rule by also covering files

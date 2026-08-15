@@ -2290,6 +2290,8 @@ suite('OAuth', () => {
 				verifyAuthorizationResponseIssuer({ iss: 'https://auth.example.com' }, undefined),
 				{ ok: true, checked: false }
 			);
+		});
+	});
 
 	suite('Cross App Access (ID-JAG) wire format', () => {
 		// Spec: draft-ietf-oauth-identity-assertion-authz-grant-03

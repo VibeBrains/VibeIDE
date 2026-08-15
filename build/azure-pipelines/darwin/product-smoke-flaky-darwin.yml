@@ -32,7 +32,7 @@ jobs:
             tar -czf $(Build.ArtifactStagingDirectory)/repo.tar.gz --exclude=.git -C $(Build.SourcesDirectory) .
           displayName: Archive built workspace for reuse by test jobs
       archiveAppSteps:
-        - script: tar -czf $(Build.ArtifactStagingDirectory)/app.tar.gz -C $(Agent.BuildDirectory) VSCode-darwin-arm64
+        - script: tar -czf $(Build.ArtifactStagingDirectory)/app.tar.gz -C $(Agent.BuildDirectory) VibeIDE-darwin-arm64
           displayName: Archive packaged app for reuse by test jobs
       archiveServerSteps:
         - script: tar -czf $(Build.ArtifactStagingDirectory)/server.tar.gz -C $(Agent.BuildDirectory) vscode-server-darwin-arm64
@@ -105,7 +105,7 @@ jobs:
           - ${{ each i in parameters.iterations }}:
             - script: |
                 set -e
-                APP_ROOT="$(agent.builddirectory)/VSCode-darwin-$(VSCODE_ARCH)"
+                APP_ROOT="$(agent.builddirectory)/VibeIDE-darwin-$(VSCODE_ARCH)"
                 APP_NAME="`ls $APP_ROOT | head -n 1`"
                 ProductJsonPath=$(find "$APP_ROOT" -name "product.json" -type f | head -n 1)
                 BINARY_NAME=$(jq -r '.nameShort' "$ProductJsonPath")
@@ -145,7 +145,7 @@ jobs:
           - ${{ each i in parameters.iterations }}:
             - script: |
                 set -e
-                APP_ROOT=$(agent.builddirectory)/VSCode-darwin-$(VSCODE_ARCH)
+                APP_ROOT=$(agent.builddirectory)/VibeIDE-darwin-$(VSCODE_ARCH)
                 APP_NAME="`ls $APP_ROOT | head -n 1`"
                 status=0
                 npm run smoketest-no-compile -- --tracing --build "$APP_ROOT/$APP_NAME" || status=$?

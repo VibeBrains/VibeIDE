@@ -222,20 +222,6 @@ const create = Object.create || function (p) {
   }
   assert.ok = ok;
 
-  // EXTENSION! Node's assert.match / assert.doesNotMatch (used by VibeIDE tests but absent from this
-  // browser shim). match passes when regexp.test(string); doesNotMatch passes when it does not.
-  export function match(string, regexp, message) {
-	if (!(regexp instanceof RegExp)) { fail(regexp, 'RegExp', message || 'The "regexp" argument must be an instance of RegExp.', 'match', assert.match); }
-	if (typeof string !== 'string' || !regexp.test(string)) { fail(string, regexp, message, 'match', assert.match); }
-  }
-  assert.match = match;
-
-  export function doesNotMatch(string, regexp, message) {
-	if (!(regexp instanceof RegExp)) { fail(regexp, 'RegExp', message || 'The "regexp" argument must be an instance of RegExp.', 'doesNotMatch', assert.doesNotMatch); }
-	if (typeof string === 'string' && regexp.test(string)) { fail(string, regexp, message, 'doesNotMatch', assert.doesNotMatch); }
-  }
-  assert.doesNotMatch = doesNotMatch;
-
   // 5. The equality assertion tests shallow, coercive equality with
   // ==.
   // assert.equal(actual, expected, message_opt);
