@@ -5,7 +5,7 @@
 
 import * as cp from 'child_process';
 import * as path from 'path';
-import * as task from './task.ts';
+import * as task from './gulp/task.ts';
 
 const root = path.dirname(path.dirname(import.meta.dirname));
 

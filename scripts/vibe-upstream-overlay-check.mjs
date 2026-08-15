@@ -192,10 +192,14 @@ for (const file of overlayFiles) {
 }
 
 // --- Отчёт -------------------------------------------------------------------
+// `--all` печатает список целиком: при разборе итогов слияния усечённый вывод скрывает
+// как раз то, ради чего проверка существует.
+const LIMIT = process.argv.includes('--all') ? Number.POSITIVE_INFINITY : 25;
+
 const report = (title, rows, render) => {
 	console.log(`\n${rows.length === 0 ? '✅' : '❌'} ${title}: ${rows.length}`);
-	for (const r of rows.slice(0, 25)) { console.log('   ' + render(r)); }
-	if (rows.length > 25) { console.log(`   … и ещё ${rows.length - 25}`); }
+	for (const r of rows.slice(0, LIMIT)) { console.log('   ' + render(r)); }
+	if (rows.length > LIMIT) { console.log(`   … и ещё ${rows.length - LIMIT}`); }
 };
 
 console.log('🧩 Проверка оверлея форка после обновления базы');

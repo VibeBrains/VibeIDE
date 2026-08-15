@@ -26,10 +26,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
-import gulp from 'gulp';
 import fancyLog from 'fancy-log';
 import ansiColors from 'ansi-colors';
-import * as task from './lib/task.ts';
+import * as task from './lib/gulp/task.ts';
 import { partitionPathsByExclusion, type I18nExclusionReason } from '../src/vs/workbench/contrib/vibeide/common/i18nExtractionPolicy.ts';
 import { buildMetadataContextEntry, type MetadataContextInput } from '../src/vs/workbench/contrib/vibeide/common/i18nMetadataContext.ts';
 
@@ -165,7 +164,7 @@ export const extractVibeideLocaleStringsTask = task.define('extract-vibeide-loca
 	log(`Wrote ${path.relative(REPO_ROOT, metadataPath)} (with translator context)`);
 });
 
-gulp.task(extractVibeideLocaleStringsTask);
+task.task(extractVibeideLocaleStringsTask);
 
 // --------------------------------------------------------------------------
 // Task: build-vibeide-language-packs
@@ -276,11 +275,11 @@ export const buildVibeideLanguagePacksTask = task.define('build-vibeide-language
 	log('Language pack build complete.');
 });
 
-gulp.task(buildVibeideLanguagePacksTask);
+task.task(buildVibeideLanguagePacksTask);
 
 // Convenience combined task
 export const vibeideI18nTask = task.define(
 	'vibeide-i18n',
 	task.series(extractVibeideLocaleStringsTask, buildVibeideLanguagePacksTask),
 );
-gulp.task(vibeideI18nTask);
+task.task(vibeideI18nTask);

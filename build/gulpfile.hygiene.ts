@@ -6,7 +6,6 @@ import { gulp } from './lib/gulp/facade.ts';
 import es from 'event-stream';
 import path from 'path';
 import fs from 'fs';
-import * as task from './lib/task.ts';
 import { hygiene } from './hygiene.ts';
 import * as task from './lib/gulp/task.ts';
 

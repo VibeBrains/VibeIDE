@@ -61,3 +61,19 @@ src/vs/platform/log/common/log.ts	console.error	Там же.
 # Апстрим удалил эти workflow целиком; наши правки в них умерли вместе с файлами.
 .github/workflows/screenshot-test.yml	*	Гейт скриншотов сверялся с внешним сервисом апстрима (403 для форка) и был отключён нами; апстрим удалил файл.
 .github/workflows/component-fixture-tests.yml	*	Апстрим заменил на component-fixtures.yml; наши paths-ignore перенесены туда.
+
+# --- Разобрано при проверке результата слияния -------------------------------
+# Ниже — строки, которые проверка считает пропавшими или воскресшими из-за построчного
+# сравнения, хотя код на месте: изменился отступ, появилась развилка, либо файл заменён
+# нашей заглушкой. Каждая запись проверена глазами по текущему дереву.
+
+src/vs/base/browser/ui/toggle/toggle.ts	this.domNode.style	Наш флаг skipInlineCheckedStyles на месте (toggle.ts:240) и делает ранний выход; апстримные строки ниже — ветка для случая без флага, они и должны существовать.
+src/vs/workbench/browser/parts/titlebar/titlebarPart.ts	GLOBAL_ACTIVITY_TITLE_ACTION	Строка не удалялась, а обёрнута нашим условием — в дереве она с другим отступом.
+src/vs/workbench/browser/parts/titlebar/menubar.contribution.ts	order: 9	Наш порядок пунктов меню на месте (menubar.contribution.ts:89) рядом с MenubarVibeProjectCommandsMenu.
+src/vs/platform/cssDev/node/cssDevService.ts	StopWatch	Наш обход файловой системы (readdir) на месте; замер времени — апстримный, они сосуществуют.
+src/vs/platform/cssDev/node/cssDevService.ts	logService.error	Там же.
+src/vs/workbench/services/textfile/test/node/encoding/fixtures/some_utf8.css	*	Тестовая фикстура кодировок: восстановлена апстримная версия, содержимое к продукту отношения не имеет.
+src/vs/platform/agentHost/node/agentHostServerMain.ts	*	Точка входа агент-хоста удалена вместе с вендорными харнессами: она запускала Copilot/Claude/Codex CLI.
+src/vs/workbench/contrib/chat/browser/aiCustomization/aiCustomizationItemSource.ts	*	Файл переписан апстримом; наши правки здесь были комментариями.
+src/vs/workbench/contrib/terminal/browser/xterm/xtermTerminal.ts	resource load 404	Комментарий к guard'у лигатур; сам guard (_ligaturesAddonLoadFailed) на месте.
+src/vs/workbench/contrib/vibeide/electron-main/llmMessage/sendLLMMessage.impl.ts	*	Наш файл, изменённый нами уже после слияния: новый SDK OpenAI фиксирует поле provider для Azure, поэтому оно отбрасывается перед созданием клиента.
