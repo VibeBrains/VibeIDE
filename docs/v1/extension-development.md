@@ -11,7 +11,7 @@ constraints — as acceptance proof of the API.
 
 ## Prerequisites
 
-- Node.js 22.x (matches VibeIDE runtime).
+- Node.js 24.x (matches VibeIDE runtime since 1.15.1; earlier releases used 22.x).
 - VibeIDE installed locally (`scripts\vibe-dev.bat` for development build).
 - Optional: VS Code itself for editing — the extension can be authored anywhere.
 

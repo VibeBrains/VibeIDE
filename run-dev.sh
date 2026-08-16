@@ -19,12 +19,15 @@ CDP_DEFAULT_PORT=9224
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---- pin the project's Node (.nvmrc) ahead of any system Node ------------------
-# The build MUST run under the fnm-pinned version (.nvmrc = 22.22.1): it matches the Electron 39
-# runtime and the build toolchain. A newer system Node silently breaks the build (Node 24 stalls
-# gulp-electron's zip extraction), so ALWAYS resolve the fnm install dir for the pinned version
-# and prepend it — do NOT early-out just because some node is already on PATH.
+# The build MUST run under the version pinned in .nvmrc (24.18.0 since VibeIDE 1.15.1, when the
+# base moved to VS Code 1.133): it matches the Electron runtime and the build toolchain, and
+# `build/npm/preinstall.ts` refuses to install under a different major. A system Node shadowing it
+# breaks the build silently, so ALWAYS resolve the fnm install dir for the pinned version and
+# prepend it — do NOT early-out just because some node is already on PATH.
+# (Historical note: on the 1.118 base the pin was 22.22.1 and Node 24 stalled Electron's zip
+# extraction. Upstream fixed that; the pin is now enforced, not merely recommended.)
 ensure_npm() {
-	local node_ver='22.22.1'
+	local node_ver='24.18.0'  # fallback only; .nvmrc below is the source of truth
 	if [[ -f "$REPO_ROOT/.nvmrc" ]]; then
 		node_ver="$(tr -d '[:space:]' < "$REPO_ROOT/.nvmrc")"
 	fi

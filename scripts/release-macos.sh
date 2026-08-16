@@ -27,7 +27,7 @@
 # Signing: ad-hoc by default (Gatekeeper will require «Open Anyway» on first launch). When
 # VIBE_MAC_SIGNING_IDENTITY is set, signs Developer ID + hardened runtime instead; notarization
 # stays manual via scripts/notarize-macos.sh until Apple Developer credentials exist.
-# Requires: fnm (Node 22.22.1 via .nvmrc), gh CLI (brew install gh), Xcode CLT.
+# Requires: fnm (Node version from .nvmrc — 24.18.0 since 1.15.1), gh CLI (brew install gh), Xcode CLT.
 
 set -euo pipefail
 
@@ -66,7 +66,7 @@ if [[ "$PACKAGE_ONLY" == '1' ]]; then SKIP_COMPILE=1; fi
 [[ "$(uname -m)" == 'arm64' ]] || die 'arm64-only pipeline for now (Universal Binary deferred — see build-macos-universal.sh)'
 
 # ── Pin the project's Node (.nvmrc) via fnm — same rationale as run-dev.sh ────
-NODE_VER="$(tr -d '[:space:]' < "$ROOT/.nvmrc" 2> /dev/null || echo 22.22.1)"
+NODE_VER="$(tr -d '[:space:]' < "$ROOT/.nvmrc" 2> /dev/null || echo 24.18.0)"
 NODE_DIR=''
 for fnm_root in "${FNM_DIR:-}" "$HOME/Library/Application Support/fnm" "$HOME/.fnm" "${XDG_DATA_HOME:-$HOME/.local/share}/fnm"; do
 	[[ -n "$fnm_root" && -x "$fnm_root/node-versions/v$NODE_VER/installation/bin/npm" ]] || continue

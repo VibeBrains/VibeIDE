@@ -54,15 +54,20 @@ VS C++ Build Tools, MSB8040 Spectre, native modules, ripgrep, `@vscode/vsce-sign
 
 **Контекст:** сборка VibeIDE на новой Windows-машине; `npm run gulp vscode-win32-x64` (и `release-windows.ps1`) молча падает на этапе **`package-win32-x64`** — `The following tasks did not complete: vscode-win32-x64` / `Did you forget to signal async completion?`, **без стека** даже с `--stack-trace` (2026-06).
 
-**Суть:** TS-компиляция (esbuild/tsgo) проходит на **любой** ноде, поэтому ошибка обманывает — билд доходит до упаковки и только там умирает. Корень: **`gulp-atom-electron`** в `package-win32-x64` ломается на неверной **мажорной** версии Node и глотает ошибку стрима. Требуемая версия пинится в **`.nvmrc`** (на 1.2.2 — **`22.22.1`**); сборка на Node 24 даёт именно этот тихий фейл. Поднимать TS-компиляцию мало — упаковке нужна правильная нода.
+> ⚠️ **С версии 1.15.1 требуемая нода — `24.18.0`** (обновление базы до VS Code 1.133). Ниже описан
+> случай 1.2.2, когда пином была `22.22.1`, а Node 24 ронял упаковку. **Сегодня всё наоборот:**
+> `build/npm/preinstall.ts` требует мажор ровно из `.nvmrc`, и на Node 22 установка не начнётся.
+> Механика граблей осталась прежней — важно совпадение с `.nvmrc`, а не конкретная цифра.
 
-**Управление версиями — через `fnm`** (не nvm-windows: тот завязан на симлинк `C:\Program Files\nodejs` и требует сноса standalone). `winget install Schniz.fnm`; `fnm install 22.22.1` (+ при желании `fnm install 24.16.0` — вернуть 24 под fnm).
+**Суть:** TS-компиляция проходит на **любой** ноде, поэтому ошибка обманывает — билд доходит до упаковки и только там умирает. Корень: **`gulp-atom-electron`** в `package-win32-x64` ломается на неверной **мажорной** версии Node и глотает ошибку стрима. Требуемая версия пинится в **`.nvmrc`**; сборка на чужом мажоре даёт именно этот тихий фейл. Поднимать TS-компиляцию мало — упаковке нужна правильная нода.
+
+**Управление версиями — через `fnm`** (не nvm-windows: тот завязан на симлинк `C:\Program Files\nodejs` и требует сноса standalone). `winget install Schniz.fnm`; `fnm install 24.18.0` (версия из `.nvmrc`; на релизах до 1.15.0 — `22.22.1`).
 
 Грабли Windows:
 - **`fnm exec --using=<v> npm …` падает** `program not found` — fnm спавнит `npm` как exe напрямую, а это `npm.cmd` (PATHEXT не резолвится). Внутри `cmd`/pwsh `npm.cmd` работает штатно — гонять npm/gulp через шелл, не через `fnm exec` напрямую.
 - **Standalone Node (MSI `OpenJS.NodeJS.*`) перебивает fnm в PATH** → `node -v` остаётся старым даже после `fnm use`. Снести standalone, тогда fnm — единственный источник. Uninstall MSI требует **elevation** (winget без админа → код **1603**); удалять из «Установка и удаление программ» или из админ-терминала.
 - **Для скриптовой сборки надёжнее всего префиксовать PATH каталогом установки**, а не полагаться на `fnm env`-симлинк (в неинтерактивном шелле капризничает):
-  `$node = Split-Path (fnm exec --using=22.22.1 node -e "process.stdout.write(process.execPath)"); $env:Path = "$node;$env:Path"` → дальше `node`/`npm.cmd`/gulp резолвятся в нужную версию (путь вида `…\AppData\Roaming\fnm\node-versions\v22.22.1\installation`).
+  `$node = Split-Path (fnm exec --using=24.18.0 node -e "process.stdout.write(process.execPath)"); $env:Path = "$node;$env:Path"` → дальше `node`/`npm.cmd`/gulp резолвятся в нужную версию (путь вида `…\AppData\Roaming\fnm\node-versions\v24.18.0\installation`).
 - **Авто-переключение по `.nvmrc`:** в профиль PowerShell добавить `fnm env --use-on-cd | Out-String | Invoke-Expression` — при входе в проект нужная версия подхватывается сама (важно после апдейта базы VS Code, меняющего `.nvmrc`).
 
 **Применение:** onboarding сборки на чистой Windows-машине; диагностика «`vscode-win32-x64 did not complete`» без стека (первым делом сверить `node -v` с `.nvmrc`); апдейт upstream VS Code, бампающий требуемый Node.

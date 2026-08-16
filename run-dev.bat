@@ -42,14 +42,14 @@ call "%~dp0scripts\vibe-dev.bat" !FWD_ARGS!
 exit /b !errorlevel!
 
 REM ---- pin the project's Node (.nvmrc) ahead of any system Node ----------------
-REM The build MUST run under the version fnm pins for this repo (.nvmrc = 22.22.1): it matches
-REM the Electron 39 runtime and the build toolchain. A standalone system Node (e.g. 24 at
-REM C:\Program Files\nodejs) otherwise shadows fnm on PATH and silently breaks the build — Node 24
-REM stalls gulp-electron's zip extraction, so `npm run electron` yields no executable. Therefore
+REM The build MUST run under the version pinned in .nvmrc (24.18.0 since VibeIDE 1.15.1, when the
+REM base moved to VS Code 1.133): it matches the Electron runtime and the build toolchain, and
+REM build/npm/preinstall.ts refuses to install under a different major. A standalone system Node at
+REM C:\Program Files\nodejs otherwise shadows fnm on PATH and silently breaks the build. Therefore
 REM ALWAYS resolve the fnm install dir for the pinned version and prepend it; do NOT early-out just
 REM because some npm is already on PATH. `fnm exec ... npm` can't spawn a .cmd, so we locate the dir.
 :ensure_npm
-set "NODE_VER=22.22.1"
+set "NODE_VER=24.18.0"
 if exist "%~dp0.nvmrc" for /f "usebackq tokens=* delims=" %%v in ("%~dp0.nvmrc") do set "NODE_VER=%%v"
 REM Search KNOWN fnm roots for the installed version's bin dir. FNM_DIR may be unset OR point
 REM somewhere the versions don't actually live (observed), so we check all candidates, not just it.
