@@ -3682,12 +3682,12 @@ export const Settings = () => {
 				backgroundColor: 'var(--vscode-editor-background)',
 			}}
 		>
-			<div className="flex flex-col md:flex-row w-full gap-6 max-w-[900px] mx-auto mb-32" style={{ minHeight: '80vh' }}>
+			<div className="flex flex-col md:flex-row w-full gap-3 max-w-[1040px] mx-auto mb-32" style={{ minHeight: '80vh' }}>
 				{/* --- SIDEBAR --- */}
 
-				<aside className="md:w-1/4 w-full p-6 shrink-0">
+				<aside className="md:w-1/4 w-full pl-4 pr-2 py-4 shrink-0">
 					{/* vertical tab list */}
-					<div className="flex flex-col gap-2 mt-12">
+					<div className="flex flex-col gap-2 mt-1">
 						{navItems.map(({ tab, label }) => (
 							<button
 								key={tab}
@@ -3709,7 +3709,7 @@ export const Settings = () => {
 				</aside>
 
 				{/* --- MAIN PANE --- */}
-				<main className="flex-1 p-6 select-none">
+				<main className="flex-1 py-4 pr-4 pl-2 select-none">
 
 
 
