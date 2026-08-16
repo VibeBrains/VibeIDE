@@ -927,6 +927,11 @@ export const modelsS = {
 	/** Inline pill rendered next to free models (Pollinations + `:free`-suffixed ids). */
 	freeBadgeLabel: 'free',
 	freeBadgeTooltip: 'Бесплатная модель',
+	/** Vendor grouping: catalogues like OpenRouter ship hundreds of models under `vendor/name` ids. */
+	modelsGroupOther: 'Прочие',
+	modelsGroupHint: 'Модели сгруппированы по вендору — так их видно целиком, а не сплошным списком.',
+	modelsGroupExpandAll: 'Развернуть все',
+	modelsGroupCollapseAll: 'Свернуть все',
 } as const;
 
 export const providersS = {

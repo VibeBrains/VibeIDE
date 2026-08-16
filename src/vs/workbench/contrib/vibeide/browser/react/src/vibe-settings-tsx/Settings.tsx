@@ -650,6 +650,9 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 	const [expandedByProvider, setExpandedByProvider] = useState<Partial<Record<ProviderName, boolean>>>({});
 	const [modelSearchByProvider, setModelSearchByProvider] = useState<Partial<Record<ProviderName, string>>>({});
 	const [showOnlyActiveByProvider, setShowOnlyActiveByProvider] = useState<Partial<Record<ProviderName, boolean>>>({});
+	// Vendor groups the user opened, keyed `provider/vendor`. Groups start collapsed: a catalogue
+	// like OpenRouter ships 400+ models, and expanding everything just restores the flat wall.
+	const [openVendorGroups, setOpenVendorGroups] = useState<Record<string, boolean>>({});
 
 	const refreshModelService = accessor.get('IRefreshModelService');
 
@@ -941,7 +944,64 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 							</div>
 						</div>
 					</div>
-					{models.map(m => renderModelRow(m))}
+					{(() => {
+						// Below this count a flat list is easier to scan than groups; catalogues
+						// like OpenRouter (400+) are the case grouping exists for.
+						const GROUPING_THRESHOLD = 24;
+						// Search results stay flat: the user already narrowed the list, and hiding
+						// hits behind collapsed groups would answer a question with more clicking.
+						if (models.length < GROUPING_THRESHOLD || tokens.length > 0) {
+							return models.map(m => renderModelRow(m));
+						}
+						// Ids in these catalogues read `vendor/model`; everything else shares one bucket.
+						const groups = new Map<string, typeof models>();
+						for (const m of models) {
+							const slash = m.modelName.indexOf('/');
+							const vendor = slash > 0 ? m.modelName.slice(0, slash) : modelsS.modelsGroupOther;
+							const bucket = groups.get(vendor);
+							if (bucket) { bucket.push(m); } else { groups.set(vendor, [m]); }
+						}
+						// Bigger vendors first — that is the order the eye needs when scanning a
+						// catalogue; alphabetical would bury a 60-model vendor between two singles.
+						const ordered = [...groups.entries()].sort((a, b) =>
+							b[1].length - a[1].length || a[0].localeCompare(b[0]));
+						const allOpen = ordered.every(([vendor]) => openVendorGroups[`${providerName}/${vendor}`]);
+						return <>
+							<div className='flex items-center justify-between gap-2 px-2 pb-1'>
+								<span className='text-vibe-fg-4 text-xs'>{modelsS.modelsGroupHint}</span>
+								<button
+									type='button'
+									className='text-vibe-fg-3 text-xs bg-transparent hover:text-vibe-fg-1 shrink-0'
+									onClick={() => {
+										setOpenVendorGroups(prev => {
+											const next = { ...prev };
+											for (const [vendor] of ordered) { next[`${providerName}/${vendor}`] = !allOpen; }
+											return next;
+										});
+									}}
+								>{allOpen ? modelsS.modelsGroupCollapseAll : modelsS.modelsGroupExpandAll}</button>
+							</div>
+							{ordered.map(([vendor, vendorModels]) => {
+								const key = `${providerName}/${vendor}`;
+								const open = openVendorGroups[key] === true;
+								const activeCount = vendorModels.filter(m => !m.isHidden).length;
+								return <div key={key}>
+									<button
+										type='button'
+										className='w-full flex items-center gap-2 px-3 py-1 text-left text-sm bg-transparent hover:bg-[var(--vscode-list-hoverBackground)] text-vibe-fg-2'
+										onClick={() => { setOpenVendorGroups(prev => ({ ...prev, [key]: !open })); }}
+									>
+										{open ? <ChevronDown size={14} className='shrink-0 opacity-70' /> : <ChevronRight size={14} className='shrink-0 opacity-70' />}
+										<span className='truncate'>{vendor}</span>
+										<span className='text-vibe-fg-4 text-xs shrink-0'>
+											{activeCount > 0 ? `${activeCount}/${vendorModels.length}` : vendorModels.length}
+										</span>
+									</button>
+									{open ? vendorModels.map(m => renderModelRow(m)) : null}
+								</div>;
+							})}
+						</>;
+					})()}
 				</div> : null}
 			</div>;
 		})}
