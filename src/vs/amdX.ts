@@ -3,8 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { AppResourcePath, FileAccess, nodeModulesAsarPath, nodeModulesPath, Schemas, VSCODE_AUTHORITY } from './base/common/network.js';
-import * as platform from './base/common/platform.js';
+import { appNodeModulesPath, AppResourcePath, FileAccess, Schemas, VSCODE_AUTHORITY } from './base/common/network.js';
 import { IProductConfiguration } from './base/common/product.js';
 import { URI } from './base/common/uri.js';
 import { generateUuid } from './base/common/uuid.js';
@@ -223,9 +222,10 @@ export async function importAMDNodeModule<T>(nodeModuleName: string, pathInsideN
 		// bit of a special case for: src/vs/workbench/services/languageDetection/browser/languageDetectionWebWorker.ts
 		scriptSrc = nodeModulePath;
 	} else {
-		const useASAR = (isBuilt && (platform.isElectron || (platform.isWebWorker && platform.hasElectronUserAgent)));
-		const actualNodeModulesPath = (useASAR ? nodeModulesAsarPath : nodeModulesPath);
-		const resourcePath: AppResourcePath = `${actualNodeModulesPath}/${nodeModulePath}`;
+		// `appNodeModulesPath` instead of choosing the archive: VibeIDE ships dependencies as plain
+		// files (its main process is ESM and cannot resolve inside an archive), so loading from
+		// `node_modules.asar` fails — silently, because a failed module here just disables a feature.
+		const resourcePath: AppResourcePath = `${appNodeModulesPath}/${nodeModulePath}`;
 		scriptSrc = FileAccess.asBrowserUri(resourcePath).toString(true);
 	}
 	const result = AMDModuleImporter.INSTANCE.load<T>(scriptSrc);
@@ -234,12 +234,8 @@ export async function importAMDNodeModule<T>(nodeModuleName: string, pathInsideN
 }
 
 export function resolveAmdNodeModulePath(nodeModuleName: string, pathInsideNodeModule: string): string {
-	const product = globalThis._VSCODE_PRODUCT_JSON as unknown as IProductConfiguration;
-	const isBuilt = Boolean((product ?? globalThis.vscode?.context?.configuration()?.product)?.commit);
-	const useASAR = (isBuilt && (platform.isElectron || (platform.isWebWorker && platform.hasElectronUserAgent)));
-
-	const nodeModulePath = `${nodeModuleName}/${pathInsideNodeModule}`;
-	const actualNodeModulesPath = (useASAR ? nodeModulesAsarPath : nodeModulesPath);
-	const resourcePath: AppResourcePath = `${actualNodeModulesPath}/${nodeModulePath}`;
+	// See `appNodeModulesPath`: dependencies ship as plain files in this fork, so the archive
+	// path upstream picks for packaged builds does not exist here.
+	const resourcePath: AppResourcePath = `${appNodeModulesPath}/${nodeModuleName}/${pathInsideNodeModule}`;
 	return FileAccess.asBrowserUri(resourcePath).toString(true);
 }
