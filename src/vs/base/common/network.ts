@@ -286,6 +286,9 @@ export const nodeModulesAsarUnpackedPath: AppResourcePath = 'vs/../../node_modul
  */
 export const appNodeModulesPath: AppResourcePath = nodeModulesPath;
 
+/** Bare directory name of {@link appNodeModulesPath}, for callers that build paths themselves. */
+export const appNodeModulesDirName = 'node_modules';
+
 export const VSCODE_AUTHORITY = 'vscode-app';
 
 class FileAccessImpl {

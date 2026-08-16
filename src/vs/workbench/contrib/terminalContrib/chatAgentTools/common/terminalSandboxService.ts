@@ -8,7 +8,7 @@ import { CancellationToken } from '../../../../../base/common/cancellation.js';
 import { Emitter, Event } from '../../../../../base/common/event.js';
 import { MarkdownString } from '../../../../../base/common/htmlContent.js';
 import { Disposable, DisposableStore } from '../../../../../base/common/lifecycle.js';
-import { FileAccess } from '../../../../../base/common/network.js';
+import { appNodeModulesDirName, FileAccess } from '../../../../../base/common/network.js';
 import { dirname } from '../../../../../base/common/path.js';
 import { OperatingSystem, OS } from '../../../../../base/common/platform.js';
 import { arch } from '../../../../../base/common/process.js';
@@ -186,7 +186,9 @@ export class TerminalSandboxService extends Disposable implements ITerminalSandb
 		const localAppRootUri = FileAccess.asFileUri('');
 		const localAppRoot = OS === OperatingSystem.Windows ? dirname(localAppRootUri.fsPath) : dirname(localAppRootUri.path);
 		const nativeEnv = this._environmentService as IEnvironmentService & { execPath?: string };
-		const nativeModulesDir = this._environmentService.isBuilt ? 'node_modules.asar.unpacked' : 'node_modules';
+		// See `appNodeModulesDirName`: this fork ships dependencies as plain files, so the
+		// unpacked-archive directory upstream derives from `isBuilt` does not exist here.
+		const nativeModulesDir = appNodeModulesDirName;
 		return { appRoot: localAppRoot, execPath: nativeEnv.execPath, runAsNode: true, arch, nativeModulesDir };
 	}
 
