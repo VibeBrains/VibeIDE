@@ -136,9 +136,16 @@ export type BuiltinToolResultType = {
 	// `filesSearched` travels with the hits so an empty list can say WHAT was searched. "Not
 	// documented" and "the tool is broken" are different answers, and a silent empty result reads
 	// as the latter — which is what sent the agent guessing on the internet in the first place.
+	// `file` — имя ВНУТРИ вшитой документации, а не путь на диске: этих файлов в проекте
+	// пользователя нет. Читается такой источник только полем `excerpt` и повторным поиском.
+	// Без явного признака модель принимает координаты за путь, зовёт `read_file`, получает
+	// «не найдено» — и либо объявляет документацию недоступной, либо (хуже) открывает
+	// одноимённый файл проекта и цитирует его как нашу документацию. Прецедент 16.08.2026.
 	'docs_search': {
 		query: string;
 		filesSearched: number;
+		/** Источник: вшит в приложение — на диске проекта его нет. */
+		source: 'shipped-docs';
 		hits: Array<{ file: string; heading: string; line: number; excerpt: string }>;
 	};
 	'code_graph': {

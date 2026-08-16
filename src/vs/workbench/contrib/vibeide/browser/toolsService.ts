@@ -1716,6 +1716,11 @@ export class ToolsService extends Disposable implements IToolsService {
 					result: {
 						query,
 						filesSearched: getDocsFiles().length,
+						// Документация вшита в приложение: на диске проекта этих файлов нет, и
+						// `file`/`line` — координаты внутри бандла, а не путь. Признак едет в
+						// ответе, потому что иначе модель принимает их за путь и уходит искать
+						// одноимённый файл проекта.
+						source: 'shipped-docs' as const,
 						hits: hits.map(h => ({ file: h.section.file, heading: h.section.heading, line: h.section.line, excerpt: h.excerpt })),
 					},
 				};
@@ -3427,7 +3432,17 @@ export class ToolsService extends Disposable implements IToolsService {
 					const where = hit.heading ? `${hit.file} › ${hit.heading}` : hit.file;
 					return `--- ${where} (line ${hit.line})\n${hit.excerpt}`;
 				});
-				return `Found ${result.hits.length} section(s) for "${params.query}" in the bundled documentation (${result.filesSearched} file(s) searched). Cite file and heading when you rely on this.\n\n${lines.join('\n\n')}`;
+				// The coordinates look like a file path, so a model reads them as one, calls
+				// `read_file`, gets "not found" — and then either declares the documentation
+				// unreachable or, worse, opens a same-named file in the user's project and quotes
+				// it as ours. Both happened on one live run (2026-08-16), so say it outright:
+				// these names live inside the app, the excerpt is the whole of what can be read,
+				// and a project file with the same name is a different document.
+				return `Found ${result.hits.length} section(s) for "${params.query}" in VibeIDE's bundled documentation (${result.filesSearched} file(s) searched). Cite file and heading when you rely on this.
+
+These names are locations INSIDE the app bundle, not paths on disk — do not pass them to \`read_file\`, \`glob\` or \`search_for_files\`, and do not treat a same-named file in the user's project as this document. The excerpt below is the readable content; for more, search again with a narrower query.
+
+${lines.join('\n\n')}`;
 			},
 
 			handoff: (_params, result) => {
