@@ -6,6 +6,22 @@ VS C++ Build Tools, MSB8040 Spectre, native modules, ripgrep, `@vscode/vsce-sign
 
 ---
 
+## [баг] База 1.133: три барьера Windows-сборки подряд (Node 24, манглер, signtool)
+
+**Контекст:** первый Windows-догон после обновления базы VS Code 1.118.1 → 1.133.0 (релиз 1.15.1, 2026-08-16). Мак ту же версию собрал без единой правки — все три барьера видны только на Windows.
+
+**Суть:** барьеры срабатывают строго по очереди, каждый маскирует следующий, и каждый стоит полного прогона.
+
+1. **Node 24 обязателен.** `.nvmrc` = `24.18.0`, `preinstall.ts` отвергает Node 22 явным сообщением. Привычное `fnm use 22` из прошлых релизов теперь ломает `npm install` на первом же шаге. Плюс новая зависимость `@typescript/native` (tsgo) — без `npm install` компиляция падает на `Cannot find module '@typescript/native/package.json'`.
+2. **Манглер портит апстримный код.** `compile-build-with-mangling` выдал **41 ошибку** в апстримных файлах (`extHostXaaAuthProvider.ts` — 23, плюс три теста): «member must have an `override` modifier», «Property 'g' not assignable to base type `$86d`» — все против **мангленных** имён типов. Исходники при этом чистые: `npm run compile-check-ts-native` над `src/tsconfig.json` даёт **0 ошибок**. То есть ломает именно манглер, а не наш или апстримный код. `release-windows.ps1` звал `npm run compile-build` (= with-mangling) жёстко, тогда как `release-macos.sh` с 1.10.0 использует `compile-build-without-mangling` — **паритета скриптов не было**, поэтому мак этого не видел. Починено: `VIBE_BUILD_MANGLE` с дефолтом `0` в обоих скриптах.
+3. **`signtool.exe` должен быть в PATH.** С 1.133 упаковка зовёт `signtool verify` / `remove` по голому имени (`gulpfile.vscode.ts:586`) — без SDK в PATH таск `vscode-win32-x64` умирает с `spawn signtool.exe ENOENT` **после ~8 минут упаковки**. Апстрим в CI решает это хардкодом пути SDK; у нас скрипт резолвит новейшую установленную версию сам.
+
+**Цена диагностики:** ~50 минут прогонов, потому что каждый барьер обнаруживается только дойдя до него.
+
+**Применение:** любой Windows-релиз на базе ≥1.133; проверять до Фазы 1 — `node --version` = 24.x, `Test-Path node_modules\@typescript\native`, `Get-Command signtool.exe`.
+
+---
+
 ## [баг] npm install — требует Visual Studio C++ toolchain на Windows
 
 **Контекст:** первая попытка `npm install` в VibeIDE repo на Windows.
