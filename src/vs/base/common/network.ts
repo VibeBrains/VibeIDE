@@ -273,6 +273,19 @@ export const nodeModulesPath: AppResourcePath = 'vs/../../node_modules';
 export const nodeModulesAsarPath: AppResourcePath = 'vs/../../node_modules.asar';
 export const nodeModulesAsarUnpackedPath: AppResourcePath = 'vs/../../node_modules.asar.unpacked';
 
+/**
+ * Where the app's bundled modules actually live at runtime.
+ *
+ * Upstream packs dependencies into `node_modules.asar` and unpacks the ones that must be real
+ * files into `node_modules.asar.unpacked`, so it derives the location from "is this a built app".
+ * VibeIDE ships dependencies as plain files instead — its main process is ESM, and Node's ESM
+ * resolver cannot look inside an archive — so that assumption points at a directory this build
+ * does not have, and whatever is loaded from it (the tokenizer WASM, tree-sitter) silently fails.
+ *
+ * Callers that fetch a file out of `node_modules` must use this, never the archive path directly.
+ */
+export const appNodeModulesPath: AppResourcePath = nodeModulesPath;
+
 export const VSCODE_AUTHORITY = 'vscode-app';
 
 class FileAccessImpl {

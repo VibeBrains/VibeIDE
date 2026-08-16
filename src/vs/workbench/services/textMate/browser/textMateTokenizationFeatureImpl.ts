@@ -9,7 +9,7 @@ import { equals as equalArray } from '../../../../base/common/arrays.js';
 import { Color } from '../../../../base/common/color.js';
 import { onUnexpectedError } from '../../../../base/common/errors.js';
 import { Disposable, DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
-import { FileAccess, nodeModulesAsarUnpackedPath, nodeModulesPath } from '../../../../base/common/network.js';
+import { appNodeModulesPath, FileAccess } from '../../../../base/common/network.js';
 import { IObservable, observableFromEvent } from '../../../../base/common/observable.js';
 import { isWeb } from '../../../../base/common/platform.js';
 import * as resources from '../../../../base/common/resources.js';
@@ -67,7 +67,7 @@ export class TextMateTokenizationFeature extends Disposable implements ITextMate
 		@ILogService private readonly _logService: ILogService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@IProgressService private readonly _progressService: IProgressService,
-		@IWorkbenchEnvironmentService private readonly _environmentService: IWorkbenchEnvironmentService,
+		@IWorkbenchEnvironmentService _environmentService: IWorkbenchEnvironmentService,
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
 		@ITelemetryService private readonly _telemetryService: ITelemetryService,
 	) {
@@ -399,9 +399,10 @@ export class TextMateTokenizationFeature extends Disposable implements ITextMate
 			// We therefore use the non-streaming compiler :(.
 			return await response.arrayBuffer();
 		} else {
-			const response = await fetch(this._environmentService.isBuilt
-				? FileAccess.asBrowserUri(`${nodeModulesAsarUnpackedPath}/vscode-oniguruma/release/onig.wasm`).toString(true)
-				: FileAccess.asBrowserUri(`${nodeModulesPath}/vscode-oniguruma/release/onig.wasm`).toString(true));
+			// `appNodeModulesPath` instead of the archive path: this fork ships dependencies as
+			// plain files, so the unpacked-archive directory upstream assumes does not exist here.
+			// Getting this wrong costs all syntax highlighting — every token falls back to one colour.
+			const response = await fetch(FileAccess.asBrowserUri(`${appNodeModulesPath}/vscode-oniguruma/release/onig.wasm`).toString(true));
 			return response;
 		}
 	}

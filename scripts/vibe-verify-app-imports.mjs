@@ -92,6 +92,44 @@ function externalImportsOf(file) {
 const missing = [];
 const checked = [];
 
+/**
+ * Ресурсы, которые код грузит из `node_modules` по пути, вычисленному в рантайме. Апстрим
+ * выводит его из «это собранное приложение» и попадает в распакованный архив; форк раскладывает
+ * зависимости обычными файлами. Промах здесь не роняет запуск — он тихо выключает целую
+ * подсистему (подсветку синтаксиса), поэтому проверяется отдельно.
+ */
+const RUNTIME_RESOURCES = [
+	['vscode-oniguruma/release/onig.wasm', 'движок токенизации — без него пропадает подсветка синтаксиса'],
+	['@vscode/tree-sitter-wasm/wasm/tree-sitter.wasm', 'tree-sitter — разбор кода для подсветки и структуры'],
+];
+
+const hasUnpackedDir = fs.existsSync(unpackedDir);
+
+for (const [rel, why] of RUNTIME_RESOURCES) {
+	const inPlain = fs.existsSync(path.join(nodeModulesDir, rel));
+	const inUnpacked = hasUnpackedDir && fs.existsSync(path.join(unpackedDir, rel));
+	if (!inPlain && !inUnpacked) {
+		missing.push({ entry: `ресурс: ${why}`, pkg: rel });
+	}
+}
+
+// Мало, чтобы ресурс просто существовал: важно, что код ищет его там, где он лежит. Апстрим
+// вычисляет путь как «собранное приложение → распакованный архив»; если этой директории в сборке
+// нет, а бандл всё ещё на неё ссылается, подсистема молча отключится.
+if (!hasUnpackedDir) {
+	const bundles = ['out/vs/workbench/workbench.desktop.main.js', 'out/vs/code/electron-browser/workbench/workbench.js'];
+	for (const rel of bundles) {
+		const file = path.join(appRoot, rel);
+		if (!fs.existsSync(file)) { continue; }
+		if (fs.readFileSync(file, 'utf8').includes('node_modules.asar.unpacked')) {
+			missing.push({
+				entry: `${rel} ссылается на node_modules.asar.unpacked`,
+				pkg: 'раскладка модулей',
+			});
+		}
+	}
+}
+
 for (const rel of ENTRY_FILES) {
 	const file = path.join(appRoot, rel);
 	if (!fs.existsSync(file)) { continue; }
