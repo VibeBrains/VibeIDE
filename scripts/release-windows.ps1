@@ -129,6 +129,25 @@ function Gulp([string]$task) {
     if ($LASTEXITCODE -ne 0) { throw "gulp $task failed (exit $LASTEXITCODE)" }
 }
 
+# ── 0a. Windows SDK on PATH (signtool) ───────────────────────────────────────
+# Since the 1.133 base, packaging calls `signtool.exe verify` / `remove` on bundled PEs
+# (gulpfile.vscode.ts:586) and spawns it by bare name — without the SDK on PATH the whole
+# vscode-win32-x64 task dies with `spawn signtool.exe ENOENT`, after ~8 minutes of packaging.
+# Upstream solves this in CI by prepending a hard-coded SDK path; we resolve the newest
+# installed version instead, so a machine that updates its SDK keeps working.
+if (-not (Get-Command signtool.exe -ErrorAction SilentlyContinue)) {
+    $sdkBin = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -match '\\x64\\' } |
+        Sort-Object { [version]($_.Directory.Parent.Name) } -Descending |
+        Select-Object -First 1
+    if (-not $sdkBin) {
+        Write-Error "[release] signtool.exe not found. Install the Windows 10/11 SDK (Signing Tools) — packaging cannot run without it."
+        exit 1
+    }
+    $env:PATH = "$($sdkBin.DirectoryName);$env:PATH"
+    OK "Windows SDK on PATH: $($sdkBin.DirectoryName)"
+}
+
 # ── 0. Extract VibeIDE NLS strings (pre-build i18n step) ─────────────────────
 Step "Extracting VibeIDE NLS strings..."
 try {
@@ -160,9 +179,21 @@ if (-not $SkipCompile) {
 }
 
 # ── 1. Compile TypeScript ─────────────────────────────────────────────────────
+# Identifier mangling (mangleExports / manglePrivateFields) is OFF by default here, matching
+# release-macos.sh — the two scripts must agree on what they compile, or a version that builds
+# on one platform fails on the other. macOS turned it off for memory reasons; on the 1.133 base
+# it also produces wrong code: the mangled pass reported 41 errors in upstream files
+# (extHostXaaAuthProvider.ts and three tests) about members that need an `override` modifier or
+# no longer match their base class — all against mangled type names like '$86d'. The sources are
+# clean: `compile-check-ts-native` over src/tsconfig.json passes with zero errors, so the mangler
+# is what breaks them. `compile-build-without-mangling` is an upstream task (VS Code uses it for
+# PR builds) — esbuild minification still runs, only identifier shortening is skipped, so the
+# bundle is a few percent larger and behaves identically. Set VIBE_BUILD_MANGLE=1 to opt back in.
+$buildMangle = if ($env:VIBE_BUILD_MANGLE) { $env:VIBE_BUILD_MANGLE } else { '0' }
+$compileBuildTask = if ($buildMangle -eq '1') { 'compile-build-with-mangling' } else { 'compile-build-without-mangling' }
 if (-not $SkipCompile) {
-    Step "Compiling TypeScript (npm run compile-build)..."
-    Npm "run compile-build"
+    Step "Compiling TypeScript (gulp $compileBuildTask)..."
+    Gulp $compileBuildTask
     OK "TypeScript compiled"
     # Stamp out-build with the version it was compiled at. A later two-phase publish
     # (-SkipCompile) verifies this stamp == product.json before shipping, so prebuilt
