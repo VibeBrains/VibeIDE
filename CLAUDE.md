@@ -157,11 +157,11 @@ scripts\test-integration.bat      # Интеграционные тесты
 **Перед работой с сидами — подтянуть свежее:**
 
 ```bash
-git -c protocol.file.allow=always submodule update --remote .vibe-defaults
+git submodule update --remote .vibe-defaults
 ```
 
-Флаг нужен, пока URL подмодуля локальный (`/Users/…/VibeBrains`): git по умолчанию запрещает
-протокол `file` для подмодулей. Когда набор переедет на GitHub, флаг из команды уйдёт.
+URL подмодуля — https://github.com/VibeBrains/VibeBrains (локальный клон-спутник:
+`/Users/borodatych/Projects/VibeCode/VibeBrains`).
 
 **Правка сидов делается в VibeBrains, а не здесь.** Коммит уходит в тот репозиторий, после чего
 в этом бампается указатель submodule:
