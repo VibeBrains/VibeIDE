@@ -29,7 +29,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
+import { IFileService, IFileStat } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
@@ -40,7 +40,7 @@ import { builtinProviderIdOf, isBuiltinProviderId, VibeideStatefulModelInfo } fr
 import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig, DynamicProviderSeed } from '../common/vibeideSettingsService.js';
 import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo } from '../common/modelCapabilities.js';
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
-import { parseProvidersFile, mergeProviderEntry, mergeProvidersLists, VibeProviderEntry, VibeProviderModelEntry } from '../common/vibeProvidersFile.js';
+import { VibeProviderEntry, VibeProviderModelEntry, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseProvidersFile } from '../common/vibeProvidersFile.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
 import { VIBE_CONFIG_PROVIDERS_CACHE_KEY } from '../common/storageKeys.js';
 import { ILifecycleService, LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
@@ -255,6 +255,18 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 					void this.reload();
 				}
 			}));
+			// The catalogue is a subdirectory, and a non-recursive watcher does not see into it —
+			// so it gets its own. Without this, editing `~/.vibe/providers/openai.jsonc` would only
+			// take effect after a restart.
+			const catalogueDir = this._globalCatalogueDirUri();
+			if (catalogueDir) {
+				const catalogueWatcher = this._fileService.createWatcher(catalogueDir, { recursive: false, excludes: [] });
+				this._register(catalogueWatcher);
+				this._register(catalogueWatcher.onDidChange(() => {
+					vibeLog.debug('DynProviders', '~/.vibe/providers/ changed on disk — reloading');
+					void this.reload();
+				}));
+			}
 			void this.reload();
 		}, () => { void this.reload(); }); // no user home (web?) — workspace file still works
 		// A window opened DIRECTLY on a folder fires no onDidChangeWorkspaceFolders, and the service
@@ -266,8 +278,9 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		this._register(this._fileService.onDidFilesChange(e => {
 			const uri = this._fileUri();
 			const envUri = this._envFileUri();
-			if ((uri && e.affects(uri)) || (envUri && e.affects(envUri))) {
-				vibeLog.debug('DynProviders', 'providers.json / .vibe/.env changed on disk — reloading');
+			const catalogueDir = this._catalogueDirUri();
+			if ((uri && e.affects(uri)) || (envUri && e.affects(envUri)) || (catalogueDir && e.affects(catalogueDir))) {
+				vibeLog.debug('DynProviders', 'providers.json / providers/ / .vibe/.env changed on disk — reloading');
 				void this.reload();
 			}
 		}));
@@ -325,6 +338,47 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 
 	private _globalEnvUri(): URI | undefined {
 		return this._globalVibeDir ? joinPath(this._globalVibeDir, '.env') : undefined;
+	}
+
+	/** `<ws>/.vibe/providers/` — the seeded catalogue, read as a live registry. */
+	private _catalogueDirUri(): URI | undefined {
+		const folder = this._workspaceContextService.getWorkspace().folders[0]?.uri;
+		return folder ? joinPath(folder, '.vibe', 'providers') : undefined;
+	}
+
+	/** `~/.vibe/providers/` — same catalogue, user-wide. */
+	private _globalCatalogueDirUri(): URI | undefined {
+		return this._globalVibeDir ? joinPath(this._globalVibeDir, 'providers') : undefined;
+	}
+
+	/**
+	 * Read one catalogue directory: every `*.json`/`*.jsonc` in it, sorted by name so the outcome
+	 * does not depend on the order the file system happens to return. Bookkeeping files the
+	 * catalogue carries (`versions.json` and friends) are skipped — they hold no providers.
+	 *
+	 * A missing directory is the normal case (no catalogue seeded yet) → empty list, no warning.
+	 */
+	private async _readCatalogueDirAt(dirUri: URI | undefined): Promise<readonly { readonly name: string; readonly raw: string }[]> {
+		if (!dirUri) { return []; }
+		let listing: IFileStat;
+		try {
+			listing = await this._fileService.resolve(dirUri);
+		} catch {
+			return [];
+		}
+		const files = (listing.children ?? [])
+			.filter(child => !child.isDirectory && isProviderCatalogueFile(child.name))
+			.sort((a, b) => a.name.localeCompare(b.name, 'en'));
+		const out: { name: string; raw: string }[] = [];
+		for (const file of files) {
+			try {
+				const buf = await this._fileService.readFile(file.resource);
+				out.push({ name: file.name, raw: buf.value.toString() });
+			} catch {
+				// Unreadable single file: skip it, the rest of the catalogue still loads.
+			}
+		}
+		return out;
 	}
 
 	/** Read + parse a `.env`. Absent file is the normal case → empty map. */
@@ -388,13 +442,18 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		]);
 		this._envFileVars = { ...globalEnv, ...wsEnv };
 
-		const [globalRaw, wsRaw] = await Promise.all([
+		// Four layers, weakest first. The seeded `providers/` catalogue sits BELOW both hand-written
+		// files: it ships with every project and stands in for built-in providers, so ranking it
+		// higher would let a seeded `"active": false` switch off a provider the user turned on.
+		const [globalCatalogue, wsCatalogue, globalRaw, wsRaw] = await Promise.all([
+			this._readCatalogueDirAt(this._globalCatalogueDirUri()),
+			this._readCatalogueDirAt(this._catalogueDirUri()),
 			this._readProvidersFileAt(globalUri),
 			this._readProvidersFileAt(wsUri),
 		]);
 
-		if (globalRaw === undefined && wsRaw === undefined) {
-			vibeLog.debug('DynProviders', 'no providers.json (neither ~/.vibe nor workspace)');
+		if (globalRaw === undefined && wsRaw === undefined && globalCatalogue.length === 0 && wsCatalogue.length === 0) {
+			vibeLog.debug('DynProviders', 'no providers.json and no providers/ catalogue (neither ~/.vibe nor workspace)');
 			this._writeCache([]);
 			this._setState(EMPTY_STATE);
 			return;
@@ -408,7 +467,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			if (raw === undefined) { return []; }
 			const parsed = parseProvidersFile(raw);
 			if (!parsed.ok) {
-				vibeLog.warn('DynProviders', `${label} providers.json parse failed: ${parsed.error}`);
+				vibeLog.warn('DynProviders', `${label} parse failed: ${parsed.error}`);
 				warnings.push(`${label}: файл не распознан: ${parsed.error}`);
 				parseError = parsed.error;
 				return [];
@@ -416,9 +475,19 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			warnings.push(...parsed.warnings.map(w => `${label}: ${w}`));
 			return parsed.providers;
 		};
-		const globalEntries = parseSide(globalRaw, '~/.vibe');
-		const wsEntries = parseSide(wsRaw, 'workspace');
-		const mergedEntries = mergeProvidersLists(globalEntries, wsEntries);
+		// Every catalogue file is parsed on its own and NAMED in its warnings: with a dozen files in
+		// the directory, «файл не распознан» without a name leaves nowhere to look for the typo.
+		// A broken file costs its own entries only — the rest of the catalogue still loads.
+		const parseCatalogue = (files: readonly { readonly name: string; readonly raw: string }[], where: string): (readonly VibeProviderEntry[])[] =>
+			files.map(file => parseSide(file.raw, `${where}/providers/${file.name}`));
+
+		const layers: readonly (readonly VibeProviderEntry[])[] = [
+			...parseCatalogue(globalCatalogue, '~/.vibe'),
+			...parseCatalogue(wsCatalogue, 'workspace'),
+			parseSide(globalRaw, '~/.vibe/providers.json'),
+			parseSide(wsRaw, 'workspace/providers.json'),
+		];
+		const mergedEntries = mergeProviderLayers(layers);
 
 		if (mergedEntries.length === 0 && parseError) {
 			// Everything present failed to parse — surface the error, keep the cache (last good set):

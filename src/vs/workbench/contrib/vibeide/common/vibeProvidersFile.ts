@@ -187,6 +187,35 @@ export function parseProvidersFile(raw: string | undefined | null): VibeProvider
 }
 
 /**
+ * Files of the seeded `providers/` catalogue that are NOT provider definitions. VibeIDEA keeps its
+ * catalogue bookkeeping next to the entries; reading those as providers would surface bogus ids.
+ */
+const CATALOGUE_NON_PROVIDER_FILES: ReadonlySet<string> = new Set(['versions.json', 'deprecated.json', 'bump.mjs']);
+
+/** Is this catalogue file a provider definition? Case-insensitive; only `.json`/`.jsonc` qualify. */
+export function isProviderCatalogueFile(fileName: string): boolean {
+	const lower = fileName.toLowerCase();
+	if (CATALOGUE_NON_PROVIDER_FILES.has(lower)) { return false; }
+	return lower.endsWith('.json') || lower.endsWith('.jsonc');
+}
+
+/**
+ * Merge provider layers, weakest first. Later layers override earlier ones by id, field by field
+ * (`models.static` merges by model id) — `mergeProvidersLists` applied along the chain.
+ *
+ * The order the caller must use, weakest to strongest:
+ *   `~/.vibe/providers/*.jsonc` → `<ws>/.vibe/providers/*.jsonc` → `~/.vibe/providers.json` → `<ws>/.vibe/providers.json`
+ *
+ * Why the catalogue is the WEAKEST layer, below both hand-written files: it is seeded into every
+ * project and plays the role built-in providers play elsewhere. Ranked above the user's own files
+ * it would silence live config — a seeded `"active": false` would switch off a provider the user
+ * enabled globally. (VibeIDEA hit exactly that in review; decision of 2026-08-28.)
+ */
+export function mergeProviderLayers(layers: readonly (readonly VibeProviderEntry[])[]): VibeProviderEntry[] {
+	return layers.reduce<VibeProviderEntry[]>((acc, layer) => mergeProvidersLists(acc, layer), []);
+}
+
+/**
  * Merge the GLOBAL (`~/.vibe/providers.json`) and WORKSPACE (`<folder>/.vibe/providers.json`)
  * provider lists into the single active set. Same semantics as VS Code settings: the workspace
  * entry wins — field-level, via `mergeProviderEntry` (so a workspace entry can override just one
