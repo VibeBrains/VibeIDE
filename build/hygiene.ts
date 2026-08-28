@@ -341,7 +341,10 @@ if (import.meta.main) {
 		});
 	} else {
 		cp.exec(
-			'git diff --cached --name-only',
+			// `--diff-filter=d` drops DELETED paths: they are staged too, but reading them back with
+			// `git show :<path>` fails — there is no index version of a file being removed. A commit
+			// that deletes many files at once (e.g. a directory becoming a submodule) hit exactly that.
+			'git diff --cached --name-only --diff-filter=d',
 			{ maxBuffer: 2000 * 1024 },
 			(err, out) => {
 				if (err) {
@@ -350,7 +353,15 @@ if (import.meta.main) {
 					process.exit(1);
 				}
 
-				const some = out.split(/\r?\n/).filter((l) => !!l);
+				// Submodules are staged as gitlinks (mode 160000): they have no blob in the index, so
+				// `git show :<path>` fails on them the same way it fails on deletions.
+				const gitlinks = new Set(
+					cp.execSync('git ls-files --stage', { cwd: process.cwd(), encoding: 'utf8', maxBuffer: 2000 * 1024 })
+						.split(/\r?\n/)
+						.filter(line => line.startsWith('160000 '))
+						.map(line => line.slice(line.indexOf('\t') + 1))
+				);
+				const some = out.split(/\r?\n/).filter((l) => !!l && !gitlinks.has(l));
 
 				if (some.length > 0) {
 					// Check that no new .js/.cjs/.mjs files are being added outside of the allowlist

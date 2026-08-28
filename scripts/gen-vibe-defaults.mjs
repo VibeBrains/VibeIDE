@@ -30,6 +30,10 @@ async function collectFiles(dir) {
 	const out = [];
 	const entries = await fs.readdir(dir, { withFileTypes: true });
 	for (const entry of entries) {
+		// `.vibe-defaults` is a submodule (the seed set lives in the VibeBrains repo), so its root
+		// holds a `.git` gitlink — a FILE, not a directory. Without this it would ship inside the
+		// product as a seed and land in every new project's `.vibe/`.
+		if (entry.name === '.git') { continue; }
 		const abs = path.join(dir, entry.name);
 		if (entry.isDirectory()) {
 			out.push(...await collectFiles(abs));

@@ -26,7 +26,25 @@ export const providerNames = Object.keys(defaultProviderSettings) as ProviderNam
 export type ProviderId = string;
 
 /** Type guard: is this id a compile-time built-in? Narrows to `ProviderName` for typed table access. */
-export const isBuiltinProviderId = (id: ProviderId): id is ProviderName => (providerNames as readonly string[]).includes(id);
+/**
+ * Built-in ids are camelCase (`openAI`, `openCodeZen`), while the shared seed set in the VibeBrains
+ * repo — the one both products install into `.vibe/` — writes them lowercase-with-dashes
+ * (`openai`, `opencode-zen`), because VibeIDEA reads them that way. A user copying a seed file into
+ * their `providers.json` would otherwise DEFINE a second provider next to the built-in instead of
+ * patching it, and end up with two "OpenAI" entries in the model list.
+ *
+ * So matching ignores case and separators. This cannot merge two distinct built-ins: their
+ * normalised forms are all unique (asserted by unit test).
+ */
+const normalizeProviderId = (id: string): string => id.toLowerCase().replace(/[-_]/g, '');
+
+/** Built-in id under the canonical spelling, or `undefined` when the id defines a new provider. */
+export const builtinProviderIdOf = (id: ProviderId): ProviderName | undefined => {
+	const wanted = normalizeProviderId(id);
+	return (providerNames as readonly ProviderName[]).find(name => normalizeProviderId(name) === wanted);
+};
+
+export const isBuiltinProviderId = (id: ProviderId): id is ProviderName => builtinProviderIdOf(id) !== undefined;
 
 export const localProviderNames = ['ollama', 'vLLM', 'lmStudio'] satisfies ProviderName[]; // all local names
 export const nonlocalProviderNames = providerNames.filter((name) => !(localProviderNames as string[]).includes(name)); // all non-local names

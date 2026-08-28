@@ -36,7 +36,7 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
 import { scanProviderConfig, ConfigGuardFinding } from '../common/vibeConfigGuard.js';
-import { isBuiltinProviderId, VibeideStatefulModelInfo } from '../common/vibeideSettingsTypes.js';
+import { builtinProviderIdOf, isBuiltinProviderId, VibeideStatefulModelInfo } from '../common/vibeideSettingsTypes.js';
 import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig, DynamicProviderSeed } from '../common/vibeideSettingsService.js';
 import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo } from '../common/modelCapabilities.js';
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
@@ -497,10 +497,15 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			const resolved = resolveFileExtends(entry, new Set<string>());
 			let kind: ResolvedProviderKind;
 			let extendsBuiltin: string | undefined;
-			if (entry.extends && isBuiltinProviderId(entry.extends)) {
+			// Ids from the shared seed set are lowercase-with-dashes (`openai`, `opencode-zen`) while
+			// built-ins are camelCase — resolve to the canonical spelling so such an entry patches
+			// the built-in instead of defining a twin next to it.
+			const builtinBase = entry.extends ? builtinProviderIdOf(entry.extends) : undefined;
+			const builtinSelf = builtinProviderIdOf(entry.id);
+			if (builtinBase) {
 				kind = 'extends-builtin';
-				extendsBuiltin = entry.extends;
-			} else if (isBuiltinProviderId(entry.id)) {
+				extendsBuiltin = builtinBase;
+			} else if (builtinSelf) {
 				kind = 'override';
 			} else {
 				kind = 'definition';
@@ -508,7 +513,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 					warnings.push(`«${entry.id}»: новый провайдер без baseURL — он не сможет отправлять запросы`);
 				}
 			}
-			return { id: entry.id, kind, extendsBuiltin, entry: resolved };
+			return { id: builtinSelf ?? entry.id, kind, extendsBuiltin, entry: resolved };
 		});
 
 		return { providers, warnings };
