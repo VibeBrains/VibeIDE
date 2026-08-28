@@ -21,7 +21,7 @@ import { IVibeideModelService } from '../common/vibeideModelService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { getDefaultVibeReadmeMarkdown, VIBE_WORKSPACE_FORMAT_VERSION } from '../common/vibeDefaultWorkspaceReadme.js';
 import { serializeProjectCommandsInitTemplate } from '../common/projectCommandsInitTemplate.js';
-import { applyVibeDefaults, diffVibeDefaults } from '../common/vibeDefaults.js';
+import { applyVibeDefaults, cleanupDeprecatedVibeDefaults, diffVibeDefaults } from '../common/vibeDefaults.js';
 import { VIBEIDE_APPLY_DEFAULTS_CMD, VIBEIDE_ENV_NOTIFY_SETTING, VIBEIDE_SHOW_DEFAULTS_CMD } from './vibeDefaultsContribution.js';
 
 const VIBE_VERSION = VIBE_WORKSPACE_FORMAT_VERSION;
@@ -241,6 +241,15 @@ export class VibeConfigInitContribution extends Disposable implements IWorkbench
 			// (regenerated from disk on every build). Create-if-missing → user edits are preserved.
 			const seeded = await applyVibeDefaults(this._fileService, vibeDir);
 			vibeLog.debug('vibeConfigInit', `.vibe defaults seeded: +${seeded.created}, kept ${seeded.skipped}`);
+
+			// Stale seeds (dropped/renamed in the shared set): delete untouched copies, keep edited ones.
+			const cleaned = await cleanupDeprecatedVibeDefaults(this._fileService, vibeDir);
+			if (cleaned.removed.length > 0) {
+				vibeLog.info('vibeConfigInit', `.vibe stale seeds removed: ${cleaned.removed.join(', ')}`);
+			}
+			if (cleaned.keptModified.length > 0) {
+				vibeLog.warn('vibeConfigInit', `.vibe stale seeds kept (user-edited): ${cleaned.keptModified.join(', ')}`);
+			}
 
 			vibeLog.info('vibeConfigInit', '.vibe/ configuration initialized');
 

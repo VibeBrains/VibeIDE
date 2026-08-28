@@ -57,14 +57,29 @@ async function main() {
 	files.sort();
 
 	const entries = [];
+	let deprecated = [];
 	for (const abs of files) {
 		const rel = path.relative(SRC_DIR, abs).split(path.sep).join('/');
 		// Normalize CRLF → LF so the embedded bytes are platform-independent. The generator reads the
 		// working-tree copy, which `text=auto` checks out as CRLF on Windows; without this, regenerating
 		// on Windows vs macOS flips every embedded string's line endings and churns the whole manifest.
 		const contents = (await fs.readFile(abs, 'utf8')).replace(/\r\n/g, '\n');
+		// Set metadata, not a seed: deprecated.json lists files DROPPED from the set with the sha256
+		// of every known historical version — the seeder deletes an untouched stale copy and never
+		// a user-edited one. Seeding the manifest itself into projects would be noise.
+		if (rel === 'deprecated.json') {
+			try {
+				deprecated = JSON.parse(contents).deprecated ?? [];
+			} catch (err) {
+				console.error(`[gen-vibe-defaults] bad deprecated.json: ${err.message}`);
+				process.exit(1);
+			}
+			continue;
+		}
 		entries.push(`\t{ path: ${JSON.stringify(rel)}, contents: ${JSON.stringify(contents)} },`);
 	}
+	const deprecatedEntries = deprecated.map(d =>
+		`\t{ path: ${JSON.stringify(d.path)}, replacedBy: ${JSON.stringify(d.replacedBy ?? null)}, sha256: ${JSON.stringify(d.sha256 ?? [])} },`);
 
 	const banner = `/*---------------------------------------------------------------------------------------------
  *  Copyright 2026 VibeIDE Team. All rights reserved.
@@ -82,6 +97,21 @@ export interface VibeDefaultFile {
 
 export const VIBE_DEFAULTS_MANIFEST: ReadonlyArray<VibeDefaultFile> = [
 ${entries.join('\n')}
+];
+
+/**
+ * A seed the set has since dropped or renamed. \`sha256\` holds the hex digest of every known
+ * historical version (LF-normalized UTF-8) — a workspace copy matching one of them was never
+ * edited by the user and is safe to delete; anything else is the user's work and stays.
+ */
+export interface VibeDeprecatedSeed {
+	readonly path: string;
+	readonly replacedBy: string | null;
+	readonly sha256: readonly string[];
+}
+
+export const VIBE_DEPRECATED_MANIFEST: ReadonlyArray<VibeDeprecatedSeed> = [
+${deprecatedEntries.join('\n')}
 ];
 `;
 

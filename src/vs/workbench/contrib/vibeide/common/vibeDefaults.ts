@@ -9,7 +9,7 @@ import { joinPath } from '../../../../base/common/resources.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { StringSHA1 } from '../../../../base/common/hash.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
-import { VIBE_DEFAULTS_MANIFEST } from './vibeDefaultsManifest.generated.js';
+import { VIBE_DEFAULTS_MANIFEST, VIBE_DEPRECATED_MANIFEST, VibeDeprecatedSeed } from './vibeDefaultsManifest.generated.js';
 
 export interface ApplyVibeDefaultsResult {
 	readonly created: number;
@@ -265,4 +265,84 @@ export async function applyVibeDefaults(
 	}
 
 	return { created, skipped };
+}
+
+/**
+ * SHA-256 hex over LF-normalized UTF-8 — the digest convention of `deprecated.json` in the shared
+ * VibeBrains set (hashes there were taken from LF files; normalizing here keeps Windows checkouts
+ * with CRLF from looking «edited» purely on line endings). SHA-1 above serves the lock; deprecated
+ * hashes are produced outside this codebase, so the algorithm is part of the set's contract.
+ */
+async function sha256Hex(text: string): Promise<string> {
+	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(normalizeEol(text)));
+	return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export interface CleanupDeprecatedResult {
+	/** Stale seeds deleted: byte-matched a known historical version, so nothing of the user's was lost. */
+	readonly removed: readonly string[];
+	/** Stale seeds LEFT in place: the copy differs from every known version — it is the user's work. */
+	readonly keptModified: readonly string[];
+}
+
+/**
+ * Deletes stale seeds — files the shared set has dropped or renamed (`deprecated.json` in
+ * VibeBrains) — but ONLY when the workspace copy matches a known historical version. Runs after
+ * seeding on workspace open; an edited copy is reported, never touched. Removed paths also leave
+ * the reconciliation lock, otherwise the next diff would resurrect them as `unknown`.
+ */
+export async function cleanupDeprecatedVibeDefaults(
+	fileService: IFileService,
+	vibeDir: URI,
+	entries: ReadonlyArray<VibeDeprecatedSeed> = VIBE_DEPRECATED_MANIFEST,
+): Promise<CleanupDeprecatedResult> {
+	const removed: string[] = [];
+	const keptModified: string[] = [];
+	for (const entry of entries) {
+		const target = joinPath(vibeDir, ...entry.path.split('/'));
+		let raw: string;
+		try {
+			raw = (await fileService.readFile(target)).value.toString();
+		} catch {
+			continue; // already gone — nothing to clean
+		}
+		if (entry.sha256.includes(await sha256Hex(raw))) {
+			try {
+				await fileService.del(target);
+				removed.push(entry.path);
+			} catch {
+				// Deletion is best-effort: a locked file stays until the next open.
+			}
+		} else {
+			keptModified.push(entry.path);
+		}
+	}
+	if (removed.length > 0) {
+		await removeFromVibeDefaultsLock(fileService, vibeDir, removed);
+	}
+	return { removed, keptModified };
+}
+
+/** Drops [paths] from the lock so a deleted stale seed does not linger as a phantom entry. */
+async function removeFromVibeDefaultsLock(
+	fileService: IFileService,
+	vibeDir: URI,
+	paths: readonly string[],
+): Promise<void> {
+	const files = { ...await readLock(fileService, vibeDir) };
+	let changed = false;
+	for (const path of paths) {
+		if (path in files) {
+			delete files[path];
+			changed = true;
+		}
+	}
+	if (!changed) {
+		return;
+	}
+	const lock: VibeDefaultsLock = { version: 1, files };
+	await fileService.writeFile(
+		joinPath(vibeDir, VIBE_DEFAULTS_LOCK_FILE),
+		VSBuffer.fromString(JSON.stringify(lock, null, '\t') + '\n'),
+	);
 }
