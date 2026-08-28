@@ -58,6 +58,7 @@ async function main() {
 
 	const entries = [];
 	let deprecated = [];
+	let versions = {};
 	for (const abs of files) {
 		const rel = path.relative(SRC_DIR, abs).split(path.sep).join('/');
 		// Normalize CRLF → LF so the embedded bytes are platform-independent. The generator reads the
@@ -67,6 +68,21 @@ async function main() {
 		// Set metadata, not a seed: deprecated.json lists files DROPPED from the set with the sha256
 		// of every known historical version — the seeder deletes an untouched stale copy and never
 		// a user-edited one. Seeding the manifest itself into projects would be noise.
+		if (rel === 'versions.json') {
+			// Реестр ревизий набора: sha256 текущей версии каждого файла и всех прошлых.
+			// По нему сеялка отличает нетронутую копию старого релиза (обновляется молча)
+			// от правки пользователя (не трогаем). Сам в проекты не сеется.
+			try {
+				versions = JSON.parse(contents).files ?? {};
+			} catch (err) {
+				console.error(`[gen-vibe-defaults] bad versions.json: ${err.message}`);
+				process.exit(1);
+			}
+			continue;
+		}
+		if (rel === 'bump.mjs') {
+			continue; // скрипт набора, не сид
+		}
 		if (rel === 'deprecated.json') {
 			try {
 				deprecated = JSON.parse(contents).deprecated ?? [];
@@ -78,6 +94,8 @@ async function main() {
 		}
 		entries.push(`\t{ path: ${JSON.stringify(rel)}, contents: ${JSON.stringify(contents)} },`);
 	}
+	const versionEntries = Object.entries(versions).map(([path, v]) =>
+		`\t{ path: ${JSON.stringify(path)}, version: ${JSON.stringify(v.version ?? 1)}, sha256: ${JSON.stringify(v.sha256)}, history: ${JSON.stringify(v.history ?? [])} },`);
 	const deprecatedEntries = deprecated.map(d =>
 		`\t{ path: ${JSON.stringify(d.path)}, replacedBy: ${JSON.stringify(d.replacedBy ?? null)}, sha256: ${JSON.stringify(d.sha256 ?? [])} },`);
 
@@ -112,6 +130,21 @@ export interface VibeDeprecatedSeed {
 
 export const VIBE_DEPRECATED_MANIFEST: ReadonlyArray<VibeDeprecatedSeed> = [
 ${deprecatedEntries.join('\n')}
+];
+
+/**
+ * Ревизия файла набора. \`history\` — sha256 всех прошлых версий: копия, совпавшая с одной из
+ * них, никем не правилась, и обновить её можно молча. Хэши считаются от LF-нормализованного UTF-8.
+ */
+export interface VibeSeedRevision {
+	readonly path: string;
+	readonly version: number;
+	readonly sha256: string;
+	readonly history: readonly string[];
+}
+
+export const VIBE_VERSIONS_MANIFEST: ReadonlyArray<VibeSeedRevision> = [
+${versionEntries.join('\n')}
 ];
 `;
 

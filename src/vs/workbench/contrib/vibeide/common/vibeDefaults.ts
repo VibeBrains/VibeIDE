@@ -9,7 +9,7 @@ import { joinPath } from '../../../../base/common/resources.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { StringSHA1 } from '../../../../base/common/hash.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
-import { VIBE_DEFAULTS_MANIFEST, VIBE_DEPRECATED_MANIFEST, VibeDeprecatedSeed } from './vibeDefaultsManifest.generated.js';
+import { VIBE_DEFAULTS_MANIFEST, VIBE_DEPRECATED_MANIFEST, VIBE_VERSIONS_MANIFEST, VibeDeprecatedSeed, VibeSeedRevision } from './vibeDefaultsManifest.generated.js';
 
 export interface ApplyVibeDefaultsResult {
 	readonly created: number;
@@ -182,7 +182,12 @@ export async function diffVibeDefaults(
 
 		const lock = locks[file.path];
 		if (!lock) {
-			entries.push({ path: file.path, status: 'unknown' });
+			// Нет точки сверки — но реестр ревизий набора помнит sha256 всех прошлых версий файла.
+			// Совпадение означает нетронутую копию старого релиза: обновлять её безопасно, и
+			// спрашивать не о чем. Так классифицируются проекты, засеянные до появления lock —
+			// иначе каждый их файл навсегда оставался бы «unknown» и никогда не обновлялся.
+			const known = await isUntouchedPastRevision(file.path, localText);
+			entries.push({ path: file.path, status: known ? 'outdated' : 'unknown' });
 			continue;
 		}
 
@@ -345,4 +350,21 @@ async function removeFromVibeDefaultsLock(
 		joinPath(vibeDir, VIBE_DEFAULTS_LOCK_FILE),
 		VSBuffer.fromString(JSON.stringify(lock, null, '\t') + '\n'),
 	);
+}
+
+/**
+ * Знает ли набор эту копию как одну из своих ревизий (значит, её никто не правил).
+ * [revisions] параметром — чтобы тесты гоняли обе ветки, не завися от текущего набора.
+ */
+export async function isUntouchedPastRevision(
+	path: string,
+	localText: string,
+	revisions: ReadonlyArray<VibeSeedRevision> = VIBE_VERSIONS_MANIFEST,
+): Promise<boolean> {
+	const revision = revisions.find(r => r.path === path);
+	if (!revision) {
+		return false;
+	}
+	const digest = await sha256Hex(localText);
+	return digest === revision.sha256 || revision.history.includes(digest);
 }
