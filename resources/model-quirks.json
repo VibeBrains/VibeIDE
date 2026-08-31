@@ -1,7 +1,7 @@
 {
 	"version": 1,
 	"date": "2026-08-12",
-	"description": "VibeIDE model behaviour quirks. Source of truth — see README.md section 'Model behaviour quirks'. PRs welcome. Schema: ./src/vs/workbench/contrib/vibeide/common/modelQuirks/modelQuirksTypes.ts.",
+	"description": "VibeIDE model behaviour quirks. Source of truth — see README.md section 'Model behaviour quirks'. PRs welcome. Каждое правило — утверждение о чужом сервере: указывайте `source` (ссылка/коммит/лог) и `observedAt`; правило без источника считается черновиком и называется проверкой `npm run quirks-provenance-check`. Schema: ./src/vs/workbench/contrib/vibeide/common/modelQuirks/modelQuirksTypes.ts.",
 	"docs": "https://github.com/VibeBrains/VibeIDE#model-behaviour-quirks",
 	"rules": [
 		{
@@ -10,21 +10,25 @@
 			"topP": 0.95,
 			"topK": 64,
 			"reasoningEffortInSystemPrompt": "Reasoning strength: {effort}",
-			"note": "Muse Glimmer 30B (Meta, 2026-08-10) — открытая локальная модель под Apache 2.0. Значения сэмплинга взяты из карточки модели на Hugging Face (temperature 1.0, top_p 0.95, top_k 64) и совпадают с параметрами сборки в Ollama — это рекомендация вендора, а не наш подбор. Правило матчится по 'glimmer', а не по 'muse': облачная Muse Spark — другая модель другого семейства, и общий префикс распространил бы локальные настройки на неё. ВАЖНОЕ, ЧЕГО ЗДЕСЬ НЕТ: Glimmer отдаёт вызовы инструментов XML-подобной разметкой ATEM, а не JSON, и размышление шлёт отдельным каналом. Это лечится НЕ квирком, а флагами сервера (--tool-call-parser muse_glimmer вместе с --reasoning-parser muse_glimmer); из IDE симптом выглядит как «модель не умеет инструменты». Подробности — в пресете .vibe-defaults/providers/muse-glimmer-local.jsonc. Сила размышления у модели задаётся строкой 'Reasoning strength: low|medium|high|xhigh' в СИСТЕМНОМ ПРОМПТЕ, а не полем reasoning_effort — для этого и заведено поле reasoningEffortInSystemPrompt: значение слайдера подставляется в {effort} и дописывается к системному промпту. Уровни слайдера объявлены в пресете провайдера и совпадают со словарём модели. Живьём не проверялось: 30B не помещается в память машины разработки."
+			"note": "Muse Glimmer 30B (Meta, 2026-08-10) — открытая локальная модель под Apache 2.0. Значения сэмплинга взяты из карточки модели на Hugging Face (temperature 1.0, top_p 0.95, top_k 64) и совпадают с параметрами сборки в Ollama — это рекомендация вендора, а не наш подбор. Правило матчится по 'glimmer', а не по 'muse': облачная Muse Spark — другая модель другого семейства, и общий префикс распространил бы локальные настройки на неё. ВАЖНОЕ, ЧЕГО ЗДЕСЬ НЕТ: Glimmer отдаёт вызовы инструментов XML-подобной разметкой ATEM, а не JSON, и размышление шлёт отдельным каналом. Это лечится НЕ квирком, а флагами сервера (--tool-call-parser muse_glimmer вместе с --reasoning-parser muse_glimmer); из IDE симптом выглядит как «модель не умеет инструменты». Подробности — в пресете .vibe-defaults/providers/muse-glimmer-local.jsonc. Сила размышления у модели задаётся строкой 'Reasoning strength: low|medium|high|xhigh' в СИСТЕМНОМ ПРОМПТЕ, а не полем reasoning_effort — для этого и заведено поле reasoningEffortInSystemPrompt: значение слайдера подставляется в {effort} и дописывается к системному промпту. Уровни слайдера объявлены в пресете провайдера и совпадают со словарём модели. Живьём не проверялось: 30B не помещается в память машины разработки.",
+			"observedAt": "2026-08-10"
 		},
 		{
 			"match": "kimi-k3",
 			"temperature": 1.0,
 			"topP": 0.95,
 			"mirrorReasoningContent": true,
-			"note": "Kimi K3 (Moonshot, 2026-07) — CONFIRMED by the vendor. kimi.com/blog/kimi-k3 states outright: 'K3 was trained in the preserved thinking history mode. If the agent harness fails to pass back all the historical thinking content as required ... generation quality may become highly unstable.' That is exactly what mirrorReasoningContent does, so the rule is no longer an analogy with the kimi-k2.x family. Without an explicit k3 rule the substring matcher would fall through to the broad 'kimi' preset, which omits mirroring entirely. Reasoning effort: the promised modes SHIPPED — platform.kimi.ai now states 'Reasoning effort supports low, high, and max (default max)' (verified 2026-08-05), and the preset in .vibe-defaults/providers/moonshot-kimi.jsonc carries all three. Note there is no 'medium' on K3 (unlike K2.7) and thinking still cannot be turned off, so the effort level is the only cost lever on this model. See docs/knowledge/architecture/modelQuirks.md."
+			"note": "Kimi K3 (Moonshot, 2026-07) — CONFIRMED by the vendor. kimi.com/blog/kimi-k3 states outright: 'K3 was trained in the preserved thinking history mode. If the agent harness fails to pass back all the historical thinking content as required ... generation quality may become highly unstable.' That is exactly what mirrorReasoningContent does, so the rule is no longer an analogy with the kimi-k2.x family. Without an explicit k3 rule the substring matcher would fall through to the broad 'kimi' preset, which omits mirroring entirely. Reasoning effort: the promised modes SHIPPED — platform.kimi.ai now states 'Reasoning effort supports low, high, and max (default max)' (verified 2026-08-05), and the preset in .vibe-defaults/providers/moonshot-kimi.jsonc carries all three. Note there is no 'medium' on K3 (unlike K2.7) and thinking still cannot be turned off, so the effort level is the only cost lever on this model. See docs/knowledge/architecture/modelQuirks.md.",
+			"source": "kimi.com/blog/kimi-k3",
+			"observedAt": "2026-08-05"
 		},
 		{
 			"match": "kimi-k2.6",
 			"temperature": 1.0,
 			"topP": 0.95,
 			"mirrorReasoningContent": true,
-			"note": "kimi-k2.x family — opencode upstream transform.ts:478-510"
+			"note": "kimi-k2.x family — opencode upstream transform.ts:478-510",
+			"source": "transform.ts:478-510"
 		},
 		{
 			"match": "kimi-k2.5",
@@ -148,7 +152,8 @@
 			"temperature": 0.55,
 			"topP": 1.0,
 			"forceToolCallFormat": "auto",
-			"note": "qwen via openCode — native FC (auto = native-first + auto-downgrade). On XML qwen did NOT execute tools — it hallucinated a plausible summary then admitted 'no file-system access' (observed 2026-05-26). Param-name hallucination (path_pattern→pattern) is now caught by arg-repair (0.13.18). Revert to xml if native stalls."
+			"note": "qwen via openCode — native FC (auto = native-first + auto-downgrade). On XML qwen did NOT execute tools — it hallucinated a plausible summary then admitted 'no file-system access' (observed 2026-05-26). Param-name hallucination (path_pattern→pattern) is now caught by arg-repair (0.13.18). Revert to xml if native stalls.",
+			"observedAt": "2026-05-26"
 		},
 		{
 			"match": "glm",
@@ -160,7 +165,8 @@
 			"temperature": 1.0,
 			"topP": 0.95,
 			"topK": 64,
-			"note": "Gemini 2.x via aggregator (NOT native @ai-sdk/google path, which has its own settings). Scoped to a GENERATION on purpose: Google deprecated temperature/top_p/top_k — 'deprecated and ignored. In future model generations, supplying these parameters returns an HTTP 400 error' (ai.google.dev/gemini-api/docs/changelog). A broad 'gemini' match would keep sending them to Gemini 3.x and beyond, where depth is set by thinking_level instead."
+			"note": "Gemini 2.x via aggregator (NOT native @ai-sdk/google path, which has its own settings). Scoped to a GENERATION on purpose: Google deprecated temperature/top_p/top_k — 'deprecated and ignored. In future model generations, supplying these parameters returns an HTTP 400 error' (ai.google.dev/gemini-api/docs/changelog). A broad 'gemini' match would keep sending them to Gemini 3.x and beyond, where depth is set by thinking_level instead.",
+			"source": "ai.google.dev/gemini-api/docs/changelog)"
 		},
 		{
 			"match": "gemini-1.5",

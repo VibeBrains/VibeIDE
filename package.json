@@ -95,6 +95,7 @@
     "docs-graph-check": "node scripts/vibe-docs-graph.mjs --check",
     "providers-fields-check": "node scripts/vibe-providers-fields.mjs",
     "quirks-conflicts-check": "node scripts/vibe-quirks-conflicts.mjs",
+    "quirks-provenance-check": "node scripts/vibe-quirks-provenance.mjs",
     "service-registration-check": "node scripts/vibe-service-registration-check.mjs --check",
     "repair:windows-native": "node scripts/postinstall-windows-native-modules.mjs",
     "precompile": "npm run gen:all",

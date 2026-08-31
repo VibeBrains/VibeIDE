@@ -132,6 +132,43 @@ suite('Provider failover FSM (1187)', () => {
 		});
 	});
 
+	suite('processOutcome — revoked credentials (401/403)', () => {
+		// A withdrawn key does not heal on retry: waiting for three of them means three dead
+		// requests for a provider that will never answer. Modelled on OpenAI cutting Cursor's
+		// model access off in 2026 — from the user's side that is exactly a refused credential.
+		test('a single refusal switches immediately', () => {
+			const s = initFailoverState('anthropic');
+			const r = processOutcome(s, 'auth-revoked', NOW, cfg());
+			assert.deepStrictEqual(r.decision, {
+				kind: 'switch', from: 'anthropic', to: 'openai', reason: 'auth-revoked',
+			});
+			assert.strictEqual(r.state.currentProviderId, 'openai');
+		});
+
+		test('a refusal does NOT reset the outage counter the way a plain 4xx does', () => {
+			let s = initFailoverState('anthropic');
+			s = processOutcome(s, 'timeout', NOW, cfg({ authFailureThreshold: 5 })).state;
+			s = processOutcome(s, 'server-5xx', NOW, cfg({ authFailureThreshold: 5 })).state;
+			const r = processOutcome(s, 'auth-revoked', NOW, cfg({ authFailureThreshold: 5 }));
+			assert.strictEqual(r.state.consecutiveFailures, 3, 'счётчик должен расти, а не обнуляться');
+		});
+
+		test('threshold is configurable for providers that 401 while refreshing a token', () => {
+			let s = initFailoverState('anthropic');
+			const conf = cfg({ authFailureThreshold: 2 });
+			const first = processOutcome(s, 'auth-revoked', NOW, conf);
+			assert.deepStrictEqual(first.decision, { kind: 'increment-failure-count', newCount: 1 });
+			s = first.state;
+			assert.strictEqual(processOutcome(s, 'auth-revoked', NOW, conf).decision.kind, 'switch');
+		});
+
+		test('refusal at the end of the chain reports exhaustion, not a phantom switch', () => {
+			const s = initFailoverState('ollama');
+			const r = processOutcome(s, 'auth-revoked', NOW, cfg());
+			assert.deepStrictEqual(r.decision, { kind: 'chain-exhausted', lastTriedProviderId: 'ollama' });
+		});
+	});
+
 	suite('initFailoverState', () => {
 		test('initializes with given provider and zero failures', () => {
 			const s = initFailoverState('anthropic');

@@ -53,7 +53,9 @@ import {
 function toFailoverOutcome(o: RequestOutcome): ProviderRequestOutcome {
 	switch (o) {
 		case 'success': return 'success';
-		case 'authError': return 'client-4xx';
+		// A refused credential is its own class: it never recovers on retry, so it must not
+		// reset the failure count the way an ordinary 4xx does.
+		case 'authError': return 'auth-revoked';
 		case 'networkError': return 'timeout';
 		case 'serverError': return 'server-5xx';
 	}
@@ -90,14 +92,23 @@ export class VibeProviderFailoverContribution extends Disposable implements IWor
 
 		if (decision.kind === 'switch') {
 			this._log.warn(`[ProviderFailover] Switching provider: ${decision.from} → ${decision.to} (${decision.reason})`);
+			// Two different causes deserve two different texts: "недоступен" sends the user to check
+			// the network, which is the wrong place to look when the provider refused the key.
 			this._notifications.notify({
 				severity: Severity.Warning,
-				message: localize(
-					'vibeide.providerFailover.switched',
-					'Провайдер "{0}" недоступен после 3 подряд неудач. Выполняется переключение на "{1}".',
-					decision.from,
-					decision.to,
-				),
+				message: decision.reason === 'auth-revoked'
+					? localize(
+						'vibeide.providerFailover.switchedAuth',
+						'Провайдер "{0}" отклонил ключ (доступ отозван, план закончился или модель отключена). Переключаюсь на "{1}" — повторные попытки с тем же ключом не помогут.',
+						decision.from,
+						decision.to,
+					)
+					: localize(
+						'vibeide.providerFailover.switched',
+						'Провайдер "{0}" недоступен после 3 подряд неудач. Выполняется переключение на "{1}".',
+						decision.from,
+						decision.to,
+					),
 			});
 			void this._audit.append({ ts: Date.now(), action: 'provider_failover_switch', ok: true, meta: { from: decision.from, to: decision.to } });
 		} else if (decision.kind === 'chain-exhausted') {

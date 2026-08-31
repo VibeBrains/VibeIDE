@@ -42,6 +42,21 @@ export interface ModelQuirksRule {
 	/** Optional case-insensitive provider-name substring. When set, rule applies only to that provider. */
 	readonly provider?: string;
 
+	// ---------- Provenance ----------
+	/**
+	 * Where the behaviour was seen: an issue, a vendor changelog, a commit, or our own log.
+	 * Not decoration — a quirk is a claim about someone else's server, and six months on there is
+	 * no way to tell a verified observation from a guess that once looked plausible. A rule without
+	 * a source is a draft: it still applies, but `npm run quirks-provenance-check` names it.
+	 *
+	 * Vendor benchmark posts are a poor source for quirks specifically: agentic scores measure the
+	 * model together with its harness, so a number quoted there says little about how the model
+	 * behaves under ours. Prefer a reproduction over a percentage.
+	 */
+	readonly source?: string;
+	/** ISO date (YYYY-MM-DD) when the behaviour was last observed. Vendors change servers silently. */
+	readonly observedAt?: string;
+
 	// ---------- Generation parameters ----------
 	/** `temperature` for streamText / completion. Range typically 0..2. */
 	readonly temperature?: number;

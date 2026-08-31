@@ -20,6 +20,14 @@ export type ProviderRequestOutcome =
 	| 'timeout'
 	| 'server-5xx'
 	| 'client-4xx'
+	/**
+	 * The provider refused the credential itself (401/403): key revoked, plan cancelled, access to
+	 * the model withdrawn. Unlike other 4xx this does NOT get better on retry and does NOT reset the
+	 * failure count — waiting for three of them means three dead requests in a row for a provider
+	 * that will never answer again. (OpenAI withdrew Cursor's model access on two weeks' notice in
+	 * August 2026; a user whose key is cut off sees exactly this.)
+	 */
+	| 'auth-revoked'
 	| 'cancelled';
 
 export interface ProviderHealthState {
@@ -31,6 +39,12 @@ export interface ProviderHealthState {
 export interface FailoverConfig {
 	chain: ReadonlyArray<string>;
 	consecutiveFailureThreshold: number;
+	/**
+	 * How many refused credentials before switching. One by default: a revoked key is a verdict,
+	 * not a hiccup — retrying it only spends the user's time. Raise it if a provider is known to
+	 * answer 401 while a token refreshes.
+	 */
+	authFailureThreshold: number;
 	/** Min ms between switches — protects against ping-pong when every provider is down. */
 	switchCooldownMs: number;
 }
@@ -38,6 +52,7 @@ export interface FailoverConfig {
 export const FAILOVER_DEFAULTS: FailoverConfig = {
 	chain: [],
 	consecutiveFailureThreshold: 3,
+	authFailureThreshold: 1,
 	switchCooldownMs: 30_000,
 };
 
@@ -45,7 +60,7 @@ export type FailoverDecision =
 	| { kind: 'no-op' }
 	| { kind: 'reset-failure-count' }
 	| { kind: 'increment-failure-count'; newCount: number }
-	| { kind: 'switch'; from: string; to: string; reason: 'consecutive-failures' }
+	| { kind: 'switch'; from: string; to: string; reason: 'consecutive-failures' | 'auth-revoked' }
 	| { kind: 'chain-exhausted'; lastTriedProviderId: string };
 
 /**
@@ -84,6 +99,8 @@ export function processOutcome(
 	}
 
 	if (outcome === 'success' || outcome === 'client-4xx') {
+		// A plain 4xx is a bad request, not a dead provider — resetting keeps one malformed call
+		// from counting towards an outage. `auth-revoked` is deliberately NOT in this branch.
 		if (state.consecutiveFailures === 0) {
 			return { state, decision: { kind: 'no-op' } };
 		}
@@ -94,8 +111,11 @@ export function processOutcome(
 	}
 
 	const nextCount = state.consecutiveFailures + 1;
+	const threshold = outcome === 'auth-revoked'
+		? Math.max(1, config.authFailureThreshold)
+		: config.consecutiveFailureThreshold;
 
-	if (nextCount < config.consecutiveFailureThreshold) {
+	if (nextCount < threshold) {
 		return {
 			state: { ...state, consecutiveFailures: nextCount },
 			decision: { kind: 'increment-failure-count', newCount: nextCount },
@@ -120,7 +140,12 @@ export function processOutcome(
 
 	return {
 		state: { currentProviderId: nextProviderId, consecutiveFailures: 0, lastSwitchAt: now },
-		decision: { kind: 'switch', from: state.currentProviderId, to: nextProviderId, reason: 'consecutive-failures' },
+		decision: {
+			kind: 'switch',
+			from: state.currentProviderId,
+			to: nextProviderId,
+			reason: outcome === 'auth-revoked' ? 'auth-revoked' : 'consecutive-failures',
+		},
 	};
 }
 
