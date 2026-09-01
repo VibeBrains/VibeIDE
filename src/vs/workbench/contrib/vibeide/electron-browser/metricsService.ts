@@ -27,6 +27,7 @@ import { localize2 } from '../../../../nls.js';
 import { registerAction2, Action2 } from '../../../../platform/actions/common/actions.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IMetricsService } from '../common/metricsService.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 // implemented by calling channel
 export class MetricsService implements IMetricsService {
@@ -66,7 +67,8 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeDebugInfo',
 			f1: true,
-			title: localize2('vibeMetricsDebug', 'VibeIDE: Log Debug Info'),
+			title: localize2('vibeMetricsDebug', 'Записать отладочные сведения в лог'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {

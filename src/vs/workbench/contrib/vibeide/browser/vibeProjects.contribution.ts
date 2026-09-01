@@ -42,6 +42,7 @@ import { IHostService } from '../../../services/host/browser/host.js';
 import { extname } from '../../../../base/common/path.js';
 import { IFolderToOpen, IWorkspaceToOpen } from '../../../../platform/window/common/window.js';
 import { IPreferencesService } from '../../../services/preferences/common/preferences.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 const whenVibeProjectsViewTitle = ContextKeyExpr.equals('view', VIBE_PROJECTS_VIEW_ID);
 
@@ -115,7 +116,6 @@ vibeProjectsViewsRegistry.registerViewWelcomeContent(VIBE_PROJECTS_VIEW_ID, {
 	order: 1,
 });
 
-const vibeCategory = localize2('vibeCategory', 'VibeIDE');
 
 registerAction2(
 	class VibeProjectsSaveProject extends Action2 {
@@ -124,7 +124,7 @@ registerAction2(
 				id: VibeProjectsCommands.saveProject,
 				title: localize2('vibeProjects.saveProject', 'Vibe Projects: Сохранить проект'),
 				icon: Codicon.save,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [
 					{ id: MenuId.ViewTitle, group: 'navigation', order: 10, when: whenVibeProjectsViewTitle },
@@ -176,7 +176,7 @@ registerAction2(
 				id: VibeProjectsCommands.editProjects,
 				title: localize2('vibeProjects.editProjects', 'Vibe Projects: Редактировать проекты'),
 				icon: Codicon.edit,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [
 					{ id: MenuId.ViewTitle, group: 'navigation', order: 11, when: whenVibeProjectsViewTitle },
@@ -212,7 +212,7 @@ registerAction2(
 				id: VibeProjectsCommands.viewAsTags,
 				title: localize2('vibeProjects.viewAsTags', 'Vibe Projects: Показать по тегам'),
 				icon: Codicon.listTree,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [
 					{ id: MenuId.ViewTitle, group: 'navigation', order: 12, when: whenViewIsList },
@@ -233,7 +233,7 @@ registerAction2(
 				id: VibeProjectsCommands.viewAsList,
 				title: localize2('vibeProjects.viewAsList', 'Vibe Projects: Показать списком'),
 				icon: Codicon.listFlat,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [
 					{ id: MenuId.ViewTitle, group: 'navigation', order: 13, when: whenViewIsTags },
@@ -254,7 +254,7 @@ registerAction2(
 				id: VibeProjectsCommands.listProjects,
 				title: localize2('vibeProjects.listProjects', 'Vibe Projects: Открыть проект из списка'),
 				icon: Codicon.search,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [
 					{ id: MenuId.ViewTitle, group: 'navigation', order: 14, when: whenVibeProjectsViewTitle },
@@ -297,7 +297,7 @@ registerAction2(
 				id: VibeProjectsCommands.filterByTag,
 				title: localize2('vibeProjects.filterByTag', 'Vibe Projects: Фильтр проектов по тегу'),
 				icon: Codicon.tag,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [
 					{ id: MenuId.ViewTitle, group: 'navigation', order: 15, when: whenVibeProjectsViewTitle },
@@ -319,7 +319,7 @@ registerAction2(
 				id: VibeProjectsCommands.collapseAll,
 				title: localize2('vibeProjects.collapseAll', 'Vibe Projects: Свернуть всё'),
 				icon: Codicon.collapseAll,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [
 					{ id: MenuId.ViewTitle, group: 'navigation', order: 16, when: whenViewIsTags },
@@ -340,7 +340,7 @@ registerAction2(
 			super({
 				id: VibeProjectsCommands.openSettings,
 				title: localize2('vibeProjects.openSettings', 'Vibe Projects: Открыть настройки'),
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [
 					{ id: MenuId.ViewTitle, group: '2_settings', order: 0, when: whenVibeProjectsViewTitle },

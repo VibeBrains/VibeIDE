@@ -27,6 +27,7 @@ import { localize, localize2 } from '../../../../nls.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IVibeIdleWatchdogProxy } from '../common/vibeIdleWatchdogProxy.js';
 import type { WatchdogLine, WatchdogSampleBase } from '../common/vibeIdleWatchdogTypes.js';
+import { VIBE_DIAGNOSTICS_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 class VibeIdleWatchdogTimelineAction extends Action2 {
 	static readonly ID = 'vibeide.watchdog.showTimeline';
@@ -35,7 +36,7 @@ class VibeIdleWatchdogTimelineAction extends Action2 {
 		super({
 			id: VibeIdleWatchdogTimelineAction.ID,
 			title: localize2('vibeide.watchdog.showTimeline.title', 'Показать Idle Watchdog Timeline'),
-			category: { value: 'VibeIDE Diagnostics', original: 'VibeIDE Diagnostics' },
+			category: VIBE_DIAGNOSTICS_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

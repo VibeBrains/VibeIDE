@@ -15,6 +15,7 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { URI } from '../../../../base/common/uri.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 // CH.7 — bulk-claim legacy (untagged) chat threads onto the current project.
 // Companion to the per-thread "move to this project" hover action; useful as a
@@ -25,7 +26,7 @@ registerAction2(class ClaimUntaggedThreadsAction extends Action2 {
 			id: 'vibeide.history.claimUntaggedThreads',
 			title: localize2('vibeide.history.claimUntaggedThreads', 'Привязать историю без проекта к текущему'),
 			f1: true,
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -105,7 +106,7 @@ registerAction2(class ExportProjectHistoryAction extends Action2 {
 			id: 'vibeide.history.exportProject',
 			title: localize2('vibeide.history.exportProject', 'Экспортировать историю текущего проекта'),
 			f1: true,
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -164,7 +165,7 @@ registerAction2(class ClearProjectHistoryAction extends Action2 {
 			id: 'vibeide.history.clearProject',
 			title: localize2('vibeide.history.clearProject', 'Удалить историю текущего проекта'),
 			f1: true,
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 

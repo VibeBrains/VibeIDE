@@ -26,6 +26,7 @@ import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { openVibeChatEditor } from './vibeideChatPane.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 // ---------- Register commands and keybindings ----------
 
@@ -67,7 +68,8 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_OPEN_SIDEBAR_ACTION_ID,
-			title: localize2('vibeOpenSidebar', 'VibeIDE: Открыть чат'),
+			title: localize2('vibeOpenSidebar', 'Открыть чат'),
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 			keybinding: {
 				weight: KeybindingWeight.ExternalExtension,
@@ -98,7 +100,8 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_CTRL_L_ACTION_ID,
 			f1: true,
-			title: localize2('vibeCmdL', 'VibeIDE: Добавить выделение в чат'),
+			title: localize2('vibeCmdL', 'Добавить выделение в чат'),
+			category: VIBE_COMMAND_CATEGORY,
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyCode.KeyL,
 				weight: KeybindingWeight.ExternalExtension
@@ -162,7 +165,8 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_CMD_SHIFT_L_ACTION_ID,
-			title: localize2('vibeNewChatPalette', 'VibeIDE: Новый чат'),
+			title: localize2('vibeNewChatPalette', 'Новый чат'),
+			category: VIBE_COMMAND_CATEGORY,
 			keybinding: {
 				weight: KeybindingWeight.ExternalExtension,
 				primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KeyI,
@@ -248,6 +252,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibe.settingsAction',
 			title: localize2('vibeSettingsSidebar', 'Настройки VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 			icon: { id: 'settings-gear' },
 			menu: [{ id: MenuId.ViewTitle, group: 'navigation', order: 3, when: ContextKeyExpr.equals('view', VIBEIDE_CHAT_VIEW_ID), }]
 		});
@@ -263,7 +268,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibe.webSearch',
-			title: localize2('vibeWebSearch', 'VibeIDE: Поиск в интернете'),
+			title: localize2('vibeWebSearch', 'Поиск в интернете'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 			f1: true,
 		});
@@ -298,7 +303,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibe.browseUrl',
-			title: localize2('vibeBrowseUrl', 'VibeIDE: Открыть URL в ридере'),
+			title: localize2('vibeBrowseUrl', 'Открыть URL в ридере'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 			f1: true,
 		});

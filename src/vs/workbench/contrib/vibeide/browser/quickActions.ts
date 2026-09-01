@@ -201,7 +201,7 @@ function registerQuickAction({ id, title, kb, task, promptMaker }: {
 // Explain Code
 registerQuickAction({
 	id: 'vibe.explainCode',
-	title: localize2('vibeExplainCode', 'VibeIDE: Explain Code'),
+	title: localize2('vibeExplainCode', 'Explain Code'),
 	kb: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyX,
 	task: 'explainCode',
 	promptMaker: ({ path, language, startLine, endLine }) => makeUserPayload({
@@ -212,7 +212,7 @@ registerQuickAction({
 // Refactor Code
 registerQuickAction({
 	id: 'vibe.refactorCode',
-	title: localize2('vibeRefactorCode', 'VibeIDE: Refactor Code'),
+	title: localize2('vibeRefactorCode', 'Refactor Code'),
 	kb: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyR,
 	task: 'refactorCode',
 	promptMaker: ({ path, language, startLine, endLine }) => makeUserPayload({
@@ -223,7 +223,7 @@ registerQuickAction({
 // Add Tests
 registerQuickAction({
 	id: 'vibe.addTests',
-	title: localize2('vibeAddTests', 'VibeIDE: Add Tests'),
+	title: localize2('vibeAddTests', 'Add Tests'),
 	kb: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyT,
 	task: 'addTests',
 	promptMaker: ({ path, language, startLine, endLine }) => makeUserPayload({
@@ -234,7 +234,7 @@ registerQuickAction({
 // Fix Tests
 registerQuickAction({
 	id: 'vibe.fixTests',
-	title: localize2('vibeFixTests', 'VibeIDE: Fix Failing Tests'),
+	title: localize2('vibeFixTests', 'Fix Failing Tests'),
 	kb: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyF,
 	task: 'fixTests',
 	promptMaker: ({ path, language, startLine, endLine }) => makeUserPayload({
@@ -245,7 +245,7 @@ registerQuickAction({
 // Write Docstring
 registerQuickAction({
 	id: 'vibe.writeDocstring',
-	title: localize2('vibeWriteDocstring', 'VibeIDE: Write Docstring'),
+	title: localize2('vibeWriteDocstring', 'Write Docstring'),
 	kb: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyD,
 	task: 'writeDocstring',
 	promptMaker: ({ path, language, startLine, endLine }) => makeUserPayload({
@@ -256,7 +256,7 @@ registerQuickAction({
 // Optimize Code
 registerQuickAction({
 	id: 'vibe.optimizeCode',
-	title: localize2('vibeOptimizeCode', 'VibeIDE: Optimize Code'),
+	title: localize2('vibeOptimizeCode', 'Optimize Code'),
 	kb: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyO,
 	task: 'optimizeCode',
 	promptMaker: ({ path, language, startLine, endLine }) => makeUserPayload({
@@ -267,7 +267,7 @@ registerQuickAction({
 // Debug Code
 registerQuickAction({
 	id: 'vibe.debugCode',
-	title: localize2('vibeDebugCode', 'VibeIDE: Debug Code'),
+	title: localize2('vibeDebugCode', 'Debug Code'),
 	kb: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyB,
 	task: 'debugCode',
 	promptMaker: ({ path, language, startLine, endLine }) => makeUserPayload({

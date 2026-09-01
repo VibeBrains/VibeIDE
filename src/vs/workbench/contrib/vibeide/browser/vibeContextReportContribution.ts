@@ -13,6 +13,7 @@ import { ICommandService } from '../../../../platform/commands/common/commands.j
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IConvertToLLMMessageService, ContextBreakdown } from './convertToLLMMessageService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 // Visual gauge dimensions: a `ROWS × COLS` grid of cells whose filled fraction mirrors the
 // context-window fill. Plain-text editor → no ANSI colour, so a single fill glyph (no per-category
@@ -126,7 +127,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.context.status',
 			title: { value: localize('vibeide.context.report', 'Отчёт об использовании контекста'), original: 'Show Context Usage Report' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

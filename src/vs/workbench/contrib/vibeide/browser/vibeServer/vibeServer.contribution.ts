@@ -29,6 +29,7 @@ import { VibeServerStatusBarContribution } from './vibeServerStatusBar.js';
 import { IVibeServerService } from './vibeServerService.js';
 import { IChatThreadService } from '../chatThreadService.js';
 import { INotificationService } from '../../../../../platform/notification/common/notification.js';
+import { VIBE_COMMAND_CATEGORY } from '../../common/vibeCommandCategory.js';
 import {
 	VibeServerCommands,
 	VIBE_SERVER_RUNNING_CONTEXT_KEY,
@@ -36,7 +37,6 @@ import {
 	VIBE_SERVER_VIEWLET_ID,
 } from './vibeServerConstants.js';
 
-const vibeCategory = localize2('vibeCategory', 'VibeIDE');
 
 const whenServerView = ContextKeyExpr.equals('view', VIBE_SERVER_VIEW_ID);
 const whenRunning = ContextKeyExpr.equals(VIBE_SERVER_RUNNING_CONTEXT_KEY, true);
@@ -103,7 +103,7 @@ registerAction2(
 				id: VibeServerCommands.start,
 				title: localize2('vibeServer.start', 'Vibe Server: Запустить'),
 				icon: Codicon.play,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [{ id: MenuId.ViewTitle, group: 'navigation', order: 10, when: ContextKeyExpr.and(whenServerView, whenStopped) }],
 			});
@@ -121,7 +121,7 @@ registerAction2(
 				id: VibeServerCommands.startEnvironment,
 				title: localize2('vibeServer.startEnvironment', 'Vibe Server: Поднять окружение (Docker)'),
 				icon: Codicon.package,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [{ id: MenuId.ViewTitle, group: 'navigation', order: 9, when: ContextKeyExpr.and(whenServerView, whenStopped) }],
 			});
@@ -139,7 +139,7 @@ registerAction2(
 				id: VibeServerCommands.stop,
 				title: localize2('vibeServer.stop', 'Vibe Server: Остановить'),
 				icon: Codicon.debugStop,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [{ id: MenuId.ViewTitle, group: 'navigation', order: 10, when: ContextKeyExpr.and(whenServerView, whenRunning) }],
 			});
@@ -157,7 +157,7 @@ registerAction2(
 				id: VibeServerCommands.restart,
 				title: localize2('vibeServer.restart', 'Vibe Server: Перезапустить'),
 				icon: Codicon.refresh,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [{ id: MenuId.ViewTitle, group: '1_preview', order: 10.5, when: ContextKeyExpr.and(whenServerView, whenRunning) }],
 			});
@@ -175,7 +175,7 @@ registerAction2(
 				id: VibeServerCommands.openPreview,
 				title: localize2('vibeServer.openPreview', 'Vibe Server: Открыть превью'),
 				icon: Codicon.openPreview,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [{ id: MenuId.ViewTitle, group: 'navigation', order: 11, when: ContextKeyExpr.and(whenServerView, whenRunning) }],
 			});
@@ -193,7 +193,7 @@ registerAction2(
 				id: VibeServerCommands.openPreviewNewTab,
 				title: localize2('vibeServer.openPreviewNewTab', 'Vibe Server: Новое превью (вкладка)'),
 				icon: Codicon.splitHorizontal,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [{ id: MenuId.ViewTitle, group: '1_preview', order: 11.5, when: ContextKeyExpr.and(whenServerView, whenRunning) }],
 			});
@@ -211,7 +211,7 @@ registerAction2(
 				id: VibeServerCommands.reloadPreview,
 				title: localize2('vibeServer.reloadPreview', 'Vibe Server: Обновить превью'),
 				icon: Codicon.sync,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [{ id: MenuId.ViewTitle, group: 'navigation', order: 11.2, when: ContextKeyExpr.and(whenServerView, whenRunning) }],
 			});
@@ -229,7 +229,7 @@ registerAction2(
 				id: VibeServerCommands.openExternal,
 				title: localize2('vibeServer.openExternal', 'Vibe Server: Открыть во внешнем браузере'),
 				icon: Codicon.linkExternal,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [{ id: MenuId.ViewTitle, group: 'navigation', order: 12, when: ContextKeyExpr.and(whenServerView, whenRunning) }],
 			});
@@ -247,7 +247,7 @@ registerAction2(
 				id: VibeServerCommands.copyUrl,
 				title: localize2('vibeServer.copyUrl', 'Vibe Server: Копировать URL'),
 				icon: Codicon.copy,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [{ id: MenuId.ViewTitle, group: '1_preview', order: 13, when: ContextKeyExpr.and(whenServerView, whenRunning) }],
 			});
@@ -265,7 +265,7 @@ registerAction2(
 				id: VibeServerCommands.previewErrorsToChat,
 				title: localize2('vibeServer.previewErrorsToChat', 'Vibe Server: Ошибки превью в чат'),
 				icon: Codicon.commentDiscussion,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [{ id: MenuId.ViewTitle, group: '1_preview', order: 14, when: ContextKeyExpr.and(whenServerView, whenRunning) }],
 			});
@@ -293,7 +293,7 @@ registerAction2(
 				id: VibeServerCommands.createStackToChat,
 				title: localize2('vibeServer.createStackToChat', 'Vibe Server: Создать стек проекта (.vibe/servers.json)'),
 				icon: Codicon.newFile,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 			});
 		}
@@ -324,7 +324,7 @@ registerAction2(
 				id: VibeServerCommands.showLanAddress,
 				title: localize2('vibeServer.showLanAddress', 'Vibe Server: Адрес для телефона (LAN)'),
 				icon: Codicon.deviceMobile,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [{ id: MenuId.ViewTitle, group: '1_preview', order: 15, when: ContextKeyExpr.and(whenServerView, whenRunning) }],
 			});
@@ -342,7 +342,7 @@ registerAction2(
 				id: VibeServerCommands.showLanQr,
 				title: localize2('vibeServer.showLanQr', 'Vibe Server: QR для телефона'),
 				icon: Codicon.deviceMobile,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [{ id: MenuId.ViewTitle, group: '1_preview', order: 16, when: ContextKeyExpr.and(whenServerView, whenRunning) }],
 			});
@@ -359,7 +359,7 @@ registerAction2(
 			super({
 				id: VibeServerCommands.openSettings,
 				title: localize2('vibeServer.openSettings', 'Vibe Server: Открыть настройки'),
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [{ id: MenuId.ViewTitle, group: '2_settings', order: 0, when: whenServerView }],
 			});
@@ -376,7 +376,7 @@ registerAction2(
 			super({
 				id: 'vibeide.preview.shotToChat',
 				title: localize2('vibeServer.shotToChat', 'Снимок превью в чат'),
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 			});
 		}
@@ -397,7 +397,7 @@ registerAction2(
 			super({
 				id: 'vibeide.vibeServer.openWith',
 				title: localize2('vibeServer.openWith', 'Открыть в Vibe Server'),
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: false,
 				menu: [
 					{ id: MenuId.ExplorerContext, group: 'navigation', order: 20, when: whenHtmlResource },

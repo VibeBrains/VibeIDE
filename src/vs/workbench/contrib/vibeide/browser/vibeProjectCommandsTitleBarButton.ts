@@ -161,7 +161,7 @@ registerAction2(class VibeideOpenProjectCommandsFromTitleBar extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_COMMANDS_TITLE_BAR_COMMAND_ID,
-			title: localize2('vibeide.commands.openFromTitleBar', 'VibeIDE: Команды проекта'),
+			title: localize2('vibeide.commands.openFromTitleBar', 'Команды проекта'),
 			category: Categories.View,
 			f1: true,
 			// order < 10001 keeps it left of the VibeIDE brain (vibeideCommandCenterMenu.ts).

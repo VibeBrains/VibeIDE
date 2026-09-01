@@ -42,9 +42,9 @@ import { VibeDocsGraphInput, VIBE_DOCS_GRAPH_OPEN_TITLE } from './vibeDocsGraphE
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../editor/browser/editorExtensions.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 const whenVibeDocsViewTitle = ContextKeyExpr.equals('view', VIBE_DOCS_VIEW_ID);
-const vibeCategory = localize2('vibeCategory', 'VibeIDE');
 
 /** Codicon `book` — reads as project documentation.
  * Codicon, not Font Awesome: FA Solid is a filled face on its own grid and reads as a foreign
@@ -129,7 +129,7 @@ registerAction2(
 				id: VibeDocsCommands.refresh,
 				title: localize2('vibeDocs.refresh', 'Документы: Обновить'),
 				icon: Codicon.refresh,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [
 					{ id: MenuId.ViewTitle, group: 'navigation', order: 30, when: whenVibeDocsViewTitle },
@@ -181,7 +181,7 @@ function registerDocsAction(options: IDocsActionOptions): void {
 					id: options.id,
 					title: { value: options.title, original: options.id },
 					icon: options.icon,
-					category: vibeCategory,
+					category: VIBE_COMMAND_CATEGORY,
 					f1: false,
 					keybinding: options.keybinding
 						? { ...options.keybinding, weight: KeybindingWeight.WorkbenchContrib, when: whenVibeDocsFocused }
@@ -242,7 +242,7 @@ registerAction2(
 				id: VibeDocsCommands.showGraph,
 				title: VIBE_DOCS_GRAPH_OPEN_TITLE,
 				icon: Codicon.typeHierarchy,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [{ id: MenuId.ViewTitle, group: 'navigation', order: 35, when: whenVibeDocsViewTitle }],
 			});

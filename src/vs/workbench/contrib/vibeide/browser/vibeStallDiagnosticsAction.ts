@@ -31,6 +31,7 @@ import { IChatThreadService } from './chatThreadService.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { getChatTrace, renderChatTraceMarkdown } from './vibeChatRunTrace.js';
 import { buildStallReportMarkdown, StallReportTransport } from './vibeStallDiagnostics.js';
+import { VIBE_DIAGNOSTICS_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 export const VIBE_COLLECT_STALL_DIAGNOSTICS_ID = 'vibeide.chat.collectStallDiagnostics';
 const BUNDLE_CRASH_REPORT_ID = 'vibeide.watchdog.bundleCrashReport';
@@ -40,7 +41,7 @@ class VibeCollectStallDiagnosticsAction extends Action2 {
 		super({
 			id: VIBE_COLLECT_STALL_DIAGNOSTICS_ID,
 			title: localize2('vibeide.chat.collectStallDiagnostics.title', 'Собрать диагностику зависания стрима'),
-			category: { value: 'VibeIDE Diagnostics', original: 'VibeIDE Diagnostics' },
+			category: VIBE_DIAGNOSTICS_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

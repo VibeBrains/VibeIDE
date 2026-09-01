@@ -15,7 +15,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: REBUILD_REPO_INDEX_ACTION_ID,
-			title: localize2('rebuildRepoIndex', 'VibeIDE: Rebuild Repo Index'),
+			title: localize2('rebuildRepoIndex', 'Пересобрать индекс репозитория'),
 			f1: true,
 			category: localize2('vibeide', 'VibeIDE'),
 		});

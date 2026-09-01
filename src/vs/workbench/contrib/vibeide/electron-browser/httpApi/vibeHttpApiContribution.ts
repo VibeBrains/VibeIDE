@@ -27,6 +27,7 @@ import { ISecretStorageService } from '../../../../../platform/secrets/common/se
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../../common/contributions.js';
 import { IChatThreadService } from '../../browser/chatThreadService.js';
 import { vibeLog } from '../../common/vibeLog.js';
+import { VIBE_COMMAND_CATEGORY } from '../../common/vibeCommandCategory.js';
 import {
 	IVibeHttpApiMain,
 	VIBE_HTTP_API_CHANNEL,
@@ -159,8 +160,8 @@ registerAction2(class VibeHttpApiShowToken extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.httpApi.showToken',
-			title: localize2('vibeide.httpApi.showToken', 'VibeIDE: Показать токен HTTP API'),
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			title: localize2('vibeide.httpApi.showToken', 'Показать токен HTTP API'),
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

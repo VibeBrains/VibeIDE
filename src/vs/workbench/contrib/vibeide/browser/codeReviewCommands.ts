@@ -26,7 +26,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibe.codeReview.reviewFile',
 			f1: true,
-			title: localize2('vibeCodeReviewFile', 'VibeIDE: Провести код-ревью этого файла'),
+			title: localize2('vibeCodeReviewFile', 'Провести код-ревью этого файла'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyR,
@@ -116,7 +116,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibe.codeReview.applyFix',
 			f1: false, // Not in command palette, called programmatically
-			title: localize2('vibeCodeReviewApplyFix', 'VibeIDE: Применить исправление'),
+			title: localize2('vibeCodeReviewApplyFix', 'Применить исправление'),
 		});
 	}
 

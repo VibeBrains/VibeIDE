@@ -40,6 +40,7 @@ import { IEditorService } from '../../../services/editor/common/editorService.js
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { parseRuleFrontmatter, isRuleFileName, parseAlwaysApply, parseTriggers, parseGlobs, decideRuleActivation, ruleNameFromPath } from '../common/prompt/ruleFrontmatter.js';
 import { IConfigurationService, ConfigurationTarget } from '../../../../platform/configuration/common/configuration.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -508,7 +509,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.projectRules.reload',
 			title: { value: localize('vibeide.projectRules.reload', 'Перезагрузить правила проекта (принудительная инвалидация)'), original: 'Reload Project Rules (force invalidation)' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
@@ -535,7 +536,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.projectRules.addRule',
 			title: { value: localize('vibeide.projectRules.addRule', 'Добавить правило проекта (.vibe/rules.md)'), original: 'Add Project Rule (.vibe/rules.md)' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
@@ -576,7 +577,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.projectRules.open',
 			title: { value: localize('vibeide.projectRules.open', 'Открыть правила проекта (.vibe/rules.md)'), original: 'Open Project Rules (.vibe/rules.md)' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
@@ -605,7 +606,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.projectRules.showSources',
 			title: { value: localize('vibeide.projectRules.showSources', 'Показать загруженные источники правил проекта'), original: 'Show Loaded Project Rule Sources' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

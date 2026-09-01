@@ -30,6 +30,7 @@ import { ServicesAccessor } from '../../../../platform/instantiation/common/inst
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { IChatThreadService } from './chatThreadService.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 registerAction2(class ForceResetChatStateAction extends Action2 {
 	constructor() {
@@ -37,7 +38,7 @@ registerAction2(class ForceResetChatStateAction extends Action2 {
 			id: 'vibeide.chat.forceResetChatState',
 			title: localize2('vibeide.chat.forceResetChatState', 'Принудительно сбросить состояние чата'),
 			f1: true,
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 

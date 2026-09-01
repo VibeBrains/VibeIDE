@@ -26,6 +26,7 @@ import { registerSingleton, InstantiationType } from '../../../../platform/insta
 import { createDecorator, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 interface ModelOptions {
 	modelSelection: ModelSelection | null;
@@ -199,7 +200,8 @@ class GenerateCommitMessageAction extends Action2 {
 	constructor() {
 		super({
 			id: 'vibe.generateCommitMessageAction',
-			title: localize2('vibeCommitMessagePrompt', 'VibeIDE: Generate Commit Message'),
+			title: localize2('vibeCommitMessagePrompt', 'Сгенерировать сообщение коммита'),
+			category: VIBE_COMMAND_CATEGORY,
 			icon: ThemeIcon.fromId('sparkle'),
 			tooltip: localize2('vibeCommitMessagePromptTooltip', 'VibeIDE: Generate Commit Message'),
 			f1: true,
@@ -221,7 +223,7 @@ class LoadingGenerateCommitMessageAction extends Action2 {
 	constructor() {
 		super({
 			id: 'vibe.loadingGenerateCommitMessageAction',
-			title: localize2('vibeCommitMessagePromptCancel', 'VibeIDE: Cancel Commit Message Generation'),
+			title: localize2('vibeCommitMessagePromptCancel', 'Cancel Commit Message Generation'),
 			icon: ThemeIcon.fromId('stop-circle'),
 			tooltip: localize2('vibeCommitMessagePromptCancelTooltip', 'VibeIDE: Cancel Commit Message Generation'),
 			f1: false, //Having a cancel command in the command palette is more confusing than useful.

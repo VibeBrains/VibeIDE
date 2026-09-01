@@ -53,7 +53,7 @@ registerAction2(class VibeideToggleSimplifiedControls extends Action2 {
 	constructor() {
 		super({
 			id: VibeideToggleSimplifiedControls.ID,
-			title: localize2('vibeide.toggleSimplifiedControls', 'VibeIDE: переключить упрощённый вид настроек чата'),
+			title: localize2('vibeide.toggleSimplifiedControls', 'переключить упрощённый вид настроек чата'),
 			tooltip: localize('vibeide.toggleSimplifiedControlsTooltip', 'Упрощённый вид: показать только «Режим» и «Модель», спрятав остальные настройки (автопилот и рекурсия по ссылкам остаются включёнными).'),
 			category: Categories.View,
 			f1: true,

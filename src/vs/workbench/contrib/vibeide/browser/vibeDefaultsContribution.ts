@@ -24,6 +24,7 @@ import {
 	VibeDefaultsDiffEntry,
 } from '../common/vibeDefaults.js';
 import { VibeDefaultsContentProvider } from './vibeDefaultsContentProvider.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 export const VIBEIDE_APPLY_DEFAULTS_CMD = 'vibeide.defaults.apply';
 export const VIBEIDE_SHOW_DEFAULTS_CMD = 'vibeide.defaults.show';
@@ -47,7 +48,6 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 /** How many paths to list per group before collapsing into «и ещё N» — keeps the modal readable. */
 const MAX_LISTED = 12;
 
-const category = { value: 'VibeIDE', original: 'VibeIDE' } as const;
 
 function vibeDirOf(accessor: ServicesAccessor): URI | undefined {
 	const folders = accessor.get(IWorkspaceContextService).getWorkspace().folders;
@@ -126,8 +126,8 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_SHOW_DEFAULTS_CMD,
-			title: localize2('vibeide.defaults.show', 'VibeIDE: Показать новое в окружении из релиза'),
-			category,
+			title: localize2('vibeide.defaults.show', 'Показать новое в окружении из релиза'),
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
@@ -178,8 +178,8 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_APPLY_DEFAULTS_CMD,
-			title: localize2('vibeide.defaults.apply', 'VibeIDE: Обновить окружение из релиза'),
-			category,
+			title: localize2('vibeide.defaults.apply', 'Обновить окружение из релиза'),
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

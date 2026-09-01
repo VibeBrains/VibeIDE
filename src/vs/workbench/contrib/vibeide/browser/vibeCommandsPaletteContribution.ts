@@ -13,6 +13,7 @@ import { ILayoutService } from '../../../../platform/layout/browser/layoutServic
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IVibeCommandsPaletteService } from '../common/vibeCommandsPaletteService.js';
 import { mountVibeCommandsPalette } from './react/out/commands-palette-tsx/index.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 export const VIBEIDE_SHOW_COMMANDS_PALETTE_CMD = 'vibeide.commands.showPalette';
 
@@ -23,7 +24,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_SHOW_COMMANDS_PALETTE_CMD,
 			title: localize2('vibeide.commands.showPalette', 'Команды'),
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

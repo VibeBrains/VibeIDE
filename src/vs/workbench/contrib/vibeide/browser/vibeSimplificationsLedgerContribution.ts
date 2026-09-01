@@ -25,6 +25,7 @@ import { CancellationTokenSource } from '../../../../base/common/cancellation.js
 import { localize, localize2 } from '../../../../nls.js';
 import { URI } from '../../../../base/common/uri.js';
 import { basename } from '../../../../base/common/resources.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 /** Comment marker harvested by the ledger; also referenced in the minimalism prompt block (prompts.ts). */
 export const VIBE_LATER_MARKER = 'vibe-later:';
@@ -50,7 +51,7 @@ class VibeSimplificationsScanAction extends Action2 {
 		super({
 			id: VibeSimplificationsScanAction.ID,
 			title: localize2('vibeide.simplifications.scan.title', 'Леджер отложенных упрощений (vibe-later)'),
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

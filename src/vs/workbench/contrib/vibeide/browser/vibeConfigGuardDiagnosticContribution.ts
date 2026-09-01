@@ -21,6 +21,7 @@ import { IEditorService } from '../../../services/editor/common/editorService.js
 import { IVibeDynamicProvidersService } from './vibeDynamicProvidersService.js';
 import { IMCPService } from '../common/mcpService.js';
 import { ConfigGuardFinding, ConfigGuardSeverity } from '../common/vibeConfigGuard.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 const SEVERITY_ORDER: Record<ConfigGuardSeverity, number> = { critical: 0, high: 1, medium: 2 };
 const SEVERITY_BADGE: Record<ConfigGuardSeverity, string> = { critical: '🔴 critical', high: '🟠 high', medium: '🟡 medium' };
@@ -51,7 +52,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.configGuard.showFindings',
 			title: localize2('vibeide.configGuard.showFindings', 'Config Guard — показать находки (.vibe/providers.json, mcp.json)'),
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

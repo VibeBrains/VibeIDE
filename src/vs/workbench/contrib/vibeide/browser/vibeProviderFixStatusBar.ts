@@ -26,6 +26,7 @@ import { IStatusbarEntry, IStatusbarEntryAccessor, IStatusbarService, StatusbarA
 import { IVibeUnifiedStatusBarService } from '../common/vibeUnifiedStatusBarService.js';
 import { ILLMMessageService } from '../common/sendLLMMessageService.js';
 import { registerVibeideFaSolidIcon } from './vibeideFontAwesomeSolid.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 // FA6 Solid fa-wrench (U+F0AD) — reads as "repair / починить". See vibeideFontAwesomeSolid.ts.
 const providerFixIcon = registerVibeideFaSolidIcon(
@@ -44,7 +45,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_FIX_PROVIDER_TRANSPORT_CMD,
 			title: localize2('vibeide.providers.fixTransport', 'Починить связь с провайдерами'),
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

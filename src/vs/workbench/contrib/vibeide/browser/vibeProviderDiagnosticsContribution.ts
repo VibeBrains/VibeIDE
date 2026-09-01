@@ -13,6 +13,7 @@ import { ServicesAccessor, IInstantiationService } from '../../../../platform/in
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IVibeProviderDiagnosticsService } from '../common/vibeProviderDiagnosticsService.js';
 import { mountVibeProviderDiagnostics } from './react/out/provider-diagnostics-tsx/index.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 export const VIBEIDE_CHECK_PROVIDERS_CMD = 'vibeide.commands.checkProviders';
 
@@ -23,7 +24,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_CHECK_PROVIDERS_CMD,
 			title: localize2('vibeide.commands.checkProviders', 'Проверка провайдеров'),
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

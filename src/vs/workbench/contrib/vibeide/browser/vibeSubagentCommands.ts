@@ -19,6 +19,7 @@ import { IQuickInputService } from '../../../../platform/quickinput/common/quick
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { VIBEIDE_OPEN_AGENTS_DISPATCH_ACTION_ID } from './vibeAgentsDispatchPane.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 // ── Spawn explore subagent ────────────────────────────────────────────────────
 
@@ -27,7 +28,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.subagent.spawnExplore',
 			title: { value: localize('vibeide.subagent.spawnExplore', 'Субагент: запустить исследование (поиск по кодовой базе, только чтение)'), original: 'Subagent: Spawn Explore (read-only codebase search)' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
@@ -81,7 +82,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.subagent.listActive',
 			title: { value: localize('vibeide.subagent.listActive', 'Субагент: список активных субагентов'), original: 'Subagent: List Active Subagents' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

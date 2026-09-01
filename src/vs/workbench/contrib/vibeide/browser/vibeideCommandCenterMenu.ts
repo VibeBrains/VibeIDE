@@ -66,7 +66,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_SHOW_CHAT_HISTORY_CMD,
-			title: localize2('vibeideChatHistory', 'VibeIDE: История чата'),
+			title: localize2('vibeideChatHistory', 'История чата'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 			f1: true,
 		});
@@ -97,7 +97,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_SEARCH_DOCS_CMD,
-			title: localize2('vibeideSearchDocs', 'VibeIDE: Справка — поиск по документации'),
+			title: localize2('vibeideSearchDocs', 'Справка — поиск по документации'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 			f1: true,
 		});
@@ -159,7 +159,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_PROVIDER_DASHBOARD_CMD,
-			title: localize2('vibeideProviderDashboard', 'VibeIDE: Ключи и расход'),
+			title: localize2('vibeideProviderDashboard', 'Ключи и расход'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 			f1: true,
 		});

@@ -26,7 +26,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibe.codebase.query',
 			f1: true,
-			title: localize2('vibeCodebaseQuery', 'VibeIDE: Query Codebase'),
+			title: localize2('vibeCodebaseQuery', 'Спросить по кодовой базе'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyQ,

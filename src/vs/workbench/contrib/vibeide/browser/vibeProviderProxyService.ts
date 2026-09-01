@@ -37,6 +37,7 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -266,7 +267,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.debug.openProviderProxyLog',
 			title: { value: localize('vibeide.debug.openProviderProxyLog', 'Debug: Открыть лог прокси провайдера'), original: 'Debug: Open Provider Proxy Log' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
@@ -302,7 +303,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.debug.clearProviderProxyLog',
 			title: { value: localize('vibeide.debug.clearProviderProxyLog', 'Debug: Очистить лог прокси провайдера'), original: 'Debug: Clear Provider Proxy Log' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

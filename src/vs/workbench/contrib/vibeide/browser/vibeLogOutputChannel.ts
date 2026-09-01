@@ -84,7 +84,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.logging.showChannel',
 			f1: true,
-			title: localize2('vibeide.logging.showChannel', 'VibeIDE: Показать лог-канал'),
+			title: localize2('vibeide.logging.showChannel', 'Показать лог-канал'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}

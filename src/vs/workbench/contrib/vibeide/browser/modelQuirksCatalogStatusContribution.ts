@@ -14,6 +14,7 @@ import { ServicesAccessor } from '../../../../platform/instantiation/common/inst
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { URI } from '../../../../base/common/uri.js';
 import { toAction } from '../../../../base/common/actions.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 /**
  * Once per VibeIDE startup: query main-process for the model-quirks catalog status and,
@@ -83,7 +84,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.modelQuirks.refresh',
 			title: localize2('vibeide.modelQuirks.refresh', 'Обновить каталог квирков моделей (model-quirks) с CDN'),
 			f1: true,
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
@@ -111,7 +112,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.modelQuirks.showStatus',
 			title: localize2('vibeide.modelQuirks.showStatus', 'Показать активный каталог квирков моделей'),
 			f1: true,
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {

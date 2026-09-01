@@ -29,6 +29,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { isSubagentType, IVibeSubagentService, SUBAGENT_TYPES } from '../common/vibeSubagentService.js';
 import { vibeLog } from '../common/vibeLog.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 import {
 	buildStepInput,
 	parsePipelineFile,
@@ -182,8 +183,8 @@ registerAction2(class VibeRunPipeline extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.pipeline.run',
-			title: localize2('vibeide.pipeline.run', 'VibeIDE: Запустить пайплайн'),
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			title: localize2('vibeide.pipeline.run', 'Запустить пайплайн'),
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

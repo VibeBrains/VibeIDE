@@ -33,6 +33,7 @@ import { IQuickInputService } from '../../../../platform/quickinput/common/quick
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { URI } from '../../../../base/common/uri.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 // ── Contribution ──────────────────────────────────────────────────────────────
 
@@ -88,7 +89,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.backgroundJob.createCheckpoint',
 			title: { value: localize('vibeide.backgroundJob.createCheckpoint', 'Фоновая задача: создать контрольную точку перед запуском'), original: 'Background Job: Create Checkpoint Before Run' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
@@ -128,7 +129,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.backgroundJob.listJobs',
 			title: { value: localize('vibeide.backgroundJob.listJobs', 'Фоновые задачи: список всех задач'), original: 'Background Job: List All Jobs' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
@@ -153,7 +154,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.backgroundJob.scheduleHint',
 			title: { value: localize('vibeide.backgroundJob.scheduleHint', 'Фоновые задачи: инструкция по настройке локального расписания'), original: 'Background Job: Show Local Schedule Setup Instructions' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

@@ -31,6 +31,7 @@ import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IVibeRoadmapAgentExecutor } from './vibeRoadmapAgentExecutor.js';
 import { RoadmapItem } from '../common/roadmapAgentLoop.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 // ── Commands ──────────────────────────────────────────────────────────────────
 
@@ -39,7 +40,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.roadmapAgent.start',
 			title: { value: localize('vibeide.roadmapAgent.start', 'Запустить Roadmap Agent (оркестрация делегированных субагентов)'), original: 'Start Roadmap Agent (orchestrate delegated subagents)' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
@@ -124,7 +125,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.roadmapAgent.executeDelegation',
 			title: { value: localize('vibeide.roadmapAgent.executeDelegation', 'Выполнить Roadmap Agent (делегирование субагентам)'), original: 'Execute Roadmap Agent (real subagent delegation)' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
@@ -189,7 +190,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.roadmapAgent.previewDelegation',
 			title: { value: localize('vibeide.roadmapAgent.previewDelegation', 'Предпросмотр делегирования роадмапа (какие пункты уйдут субагентам?)'), original: 'Preview Roadmap Delegation' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

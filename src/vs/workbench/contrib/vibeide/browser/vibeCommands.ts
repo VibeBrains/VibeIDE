@@ -232,7 +232,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.git.setGithubToken',
 			f1: true,
-			title: localize2('vibeide.git.setToken.title', 'VibeIDE: Задать GitHub-токен для job-PR'),
+			title: localize2('vibeide.git.setToken.title', 'Задать GitHub-токен для job-PR'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -395,7 +395,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.diff.commentLine',
 			f1: true,
-			title: localize2('vibeide.diff.commentLine.title', 'VibeIDE: Комментарий к строке → в пакет правок'),
+			title: localize2('vibeide.diff.commentLine.title', 'Комментарий к строке → в пакет правок'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 			menu: [{ id: MenuId.EditorContext, group: 'vibeide', order: 10 }],
 		});
@@ -446,7 +446,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.preview.toggleEditBatch',
 			f1: true,
-			title: localize2('vibeide.preview.toggleEditBatch.title', 'VibeIDE: Копить правки пакетом (прицел в превью)'),
+			title: localize2('vibeide.preview.toggleEditBatch.title', 'Копить правки пакетом (прицел в превью)'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -475,7 +475,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.agent.showTurnTrace',
 			f1: true,
-			title: localize2('vibeide.agent.showTurnTrace.title', 'VibeIDE: Показать трейс хода агента'),
+			title: localize2('vibeide.agent.showTurnTrace.title', 'Показать трейс хода агента'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -595,7 +595,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.skills.showFolder',
 			f1: true,
-			title: localize2('vibeideSkillsShowFolderTitle', 'VibeIDE: Открыть папку скиллов агента (.vibe/skills)'),
+			title: localize2('vibeideSkillsShowFolderTitle', 'Открыть папку скиллов агента (.vibe/skills)'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -631,7 +631,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.toolFormat.resetAutoDetectedOverrides',
 			f1: true,
-			title: localize2('vibeideResetToolFormatTitle', 'VibeIDE: Сбросить авто-определённые tool-format оверрайды (включить native tool calling)'),
+			title: localize2('vibeideResetToolFormatTitle', 'Сбросить авто-определённые tool-format оверрайды (включить native tool calling)'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -676,7 +676,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.rules.addRule',
 			f1: true,
-			title: localize2('vibeideAddRuleTitle', 'VibeIDE: Добавить правило в .vibe/rules.md'),
+			title: localize2('vibeideAddRuleTitle', 'Добавить правило в .vibe/rules.md'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -730,7 +730,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.skills.newTemplate',
 			f1: true,
-			title: localize2('vibeideSkillsNewTemplateTitle', 'VibeIDE: Новый шаблон скилла агента (.vibe/skills)'),
+			title: localize2('vibeideSkillsNewTemplateTitle', 'Новый шаблон скилла агента (.vibe/skills)'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -781,7 +781,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.skills.pickSession',
 			f1: true,
-			title: localize2('vibeideSkillsPickSessionTitle', 'VibeIDE: Скиллы — выбрать для сессии'),
+			title: localize2('vibeideSkillsPickSessionTitle', 'Скиллы — выбрать для сессии'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -830,7 +830,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.skills.clearSession',
 			f1: true,
-			title: localize2('vibeideSkillsClearSessionTitle', 'VibeIDE: Скиллы — очистить фильтр сессии'),
+			title: localize2('vibeideSkillsClearSessionTitle', 'Скиллы — очистить фильтр сессии'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -845,7 +845,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.plans.newInWorkspace',
 			f1: true,
-			title: localize2('vibeidePlansNewInWorkspaceTitle', 'VibeIDE: Новый план в рабочей области (.vibe/plans)'),
+			title: localize2('vibeidePlansNewInWorkspaceTitle', 'Новый план в рабочей области (.vibe/plans)'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -904,7 +904,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.plans.showPlansFolder',
 			f1: true,
-			title: localize2('vibeidePlansShowFolderTitle', 'VibeIDE: Открыть папку .vibe/plans в проводнике'),
+			title: localize2('vibeidePlansShowFolderTitle', 'Открыть папку .vibe/plans в проводнике'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -1067,7 +1067,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.context.attachApiSpec',
 			f1: true,
-			title: localize2('vibeideAttachApiSpecTitle', 'VibeIDE: Прикрепить спецификацию OpenAPI / GraphQL к чату'),
+			title: localize2('vibeideAttachApiSpecTitle', 'Прикрепить спецификацию OpenAPI / GraphQL к чату'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -1138,7 +1138,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.skills.importCommunityUrl',
 			f1: true,
-			title: localize2('vibeideSkillsImportCommunityUrlTitle', 'VibeIDE: Импортировать скилл агента из URL (манифест сообщества или сырой SKILL.md)'),
+			title: localize2('vibeideSkillsImportCommunityUrlTitle', 'Импортировать скилл агента из URL (манифест сообщества или сырой SKILL.md)'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -1230,7 +1230,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.skills.browseCommunityCatalog',
 			f1: true,
-			title: localize2('vibeideSkillsBrowseCommunityCatalogTitle', 'VibeIDE: Просмотр каталога скиллов агента сообщества'),
+			title: localize2('vibeideSkillsBrowseCommunityCatalogTitle', 'Просмотр каталога скиллов агента сообщества'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -1318,7 +1318,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.skills.saveAsFromChat',
 			f1: true,
-			title: localize2('vibeideSkillsSaveAsFromChatTitle', 'VibeIDE: Сохранить последний ответ ассистента как скилл агента'),
+			title: localize2('vibeideSkillsSaveAsFromChatTitle', 'Сохранить последний ответ ассистента как скилл агента'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}
@@ -1396,7 +1396,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.copyIssueReport',
 			f1: true,
-			title: localize2('vibeideCopyIssueReportTitle', 'VibeIDE: Скопировать диагностический отчёт для отчёта об ошибке'),
+			title: localize2('vibeideCopyIssueReportTitle', 'Скопировать диагностический отчёт для отчёта об ошибке'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 		});
 	}

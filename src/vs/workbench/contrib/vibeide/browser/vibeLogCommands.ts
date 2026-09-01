@@ -27,7 +27,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.logging.copyRecent',
 			f1: true,
-			title: localize2('vibeide.logging.copyRecent', 'VibeIDE: Скопировать недавние логи'),
+			title: localize2('vibeide.logging.copyRecent', 'Скопировать недавние логи'),
 			category: CATEGORY,
 		});
 	}
@@ -49,7 +49,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.logging.setLevel',
 			f1: true,
-			title: localize2('vibeide.logging.setLevel', 'VibeIDE: Уровень логирования'),
+			title: localize2('vibeide.logging.setLevel', 'Уровень логирования'),
 			category: CATEGORY,
 		});
 	}
@@ -73,7 +73,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.logging.filterCategories',
 			f1: true,
-			title: localize2('vibeide.logging.filterCategories', 'VibeIDE: Фильтр категорий логов'),
+			title: localize2('vibeide.logging.filterCategories', 'Фильтр категорий логов'),
 			category: CATEGORY,
 		});
 	}
@@ -103,7 +103,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.logging.toggle',
 			f1: true,
-			title: localize2('vibeide.logging.toggle', 'VibeIDE: Включить/выключить логирование'),
+			title: localize2('vibeide.logging.toggle', 'Включить/выключить логирование'),
 			category: CATEGORY,
 		});
 	}

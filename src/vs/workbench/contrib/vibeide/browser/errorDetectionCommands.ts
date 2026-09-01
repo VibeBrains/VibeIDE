@@ -14,6 +14,7 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { URI } from '../../../../base/common/uri.js';
 import { ErrorDetectionEditorContribution } from './errorDetectionEditorContribution.js';
 import { CancellationTokenSource, CancellationToken } from '../../../../base/common/cancellation.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 /**
  * Command to detect errors in the active editor
@@ -22,7 +23,8 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: 'vibe.errorDetection.detectErrors',
-			title: localize2('vibeErrorDetectionDetectErrors', 'VibeIDE: Обнаружить ошибки'),
+			title: localize2('vibeErrorDetectionDetectErrors', 'Обнаружить ошибки'),
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 			keybinding: {
 				weight: 100,
@@ -102,7 +104,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibe.errorDetection.applyFix',
 			f1: false, // Not in command palette, called programmatically
-			title: localize2('vibeErrorDetectionApplyFix', 'VibeIDE: Применить исправление'),
+			title: localize2('vibeErrorDetectionApplyFix', 'Применить исправление'),
 		});
 	}
 

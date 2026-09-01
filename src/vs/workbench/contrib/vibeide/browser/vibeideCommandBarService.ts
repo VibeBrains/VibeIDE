@@ -28,6 +28,7 @@ import { KeyMod } from '../../../../editor/common/services/editorBaseApi.js';
 import { KeyCode } from '../../../../base/common/keyCodes.js';
 import { ScrollType } from '../../../../editor/common/editorCommon.js';
 import { IVibeideModelService } from '../common/vibeideModelService.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 type VibeCommandBarModule = typeof import('./react/out/vibe-editor-widgets-tsx/index.js');
 let mountVibeCommandBarPromise: Promise<VibeCommandBarModule['mountVibeCommandBar']> | undefined;
@@ -600,7 +601,8 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_ACCEPT_DIFF_ACTION_ID,
 			f1: true,
-			title: localize2('vibeAcceptDiffAction', 'VibeIDE: Accept Diff'),
+			title: localize2('vibeAcceptDiffAction', 'Принять правку'),
+			category: VIBE_COMMAND_CATEGORY,
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyMod.Shift | KeyCode.Enter,
 				mac: { primary: KeyMod.WinCtrl | KeyMod.Alt | KeyCode.Enter },
@@ -643,7 +645,8 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_REJECT_DIFF_ACTION_ID,
 			f1: true,
-			title: localize2('vibeRejectDiffAction', 'VibeIDE: Reject Diff'),
+			title: localize2('vibeRejectDiffAction', 'Отклонить правку'),
+			category: VIBE_COMMAND_CATEGORY,
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyMod.Shift | KeyCode.Backspace,
 				mac: { primary: KeyMod.WinCtrl | KeyMod.Alt | KeyCode.Backspace },
@@ -684,7 +687,8 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_GOTO_NEXT_DIFF_ACTION_ID,
 			f1: true,
-			title: localize2('vibeGoToNextDiffAction', 'VibeIDE: Go to Next Diff'),
+			title: localize2('vibeGoToNextDiffAction', 'Перейти к следующей правке'),
+			category: VIBE_COMMAND_CATEGORY,
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyMod.Shift | KeyCode.DownArrow,
 				mac: { primary: KeyMod.WinCtrl | KeyMod.Alt | KeyCode.DownArrow },
@@ -711,7 +715,8 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_GOTO_PREV_DIFF_ACTION_ID,
 			f1: true,
-			title: localize2('vibeGoToPrevDiffAction', 'VibeIDE: Go to Previous Diff'),
+			title: localize2('vibeGoToPrevDiffAction', 'Перейти к предыдущей правке'),
+			category: VIBE_COMMAND_CATEGORY,
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyMod.Shift | KeyCode.UpArrow,
 				mac: { primary: KeyMod.WinCtrl | KeyMod.Alt | KeyCode.UpArrow },
@@ -738,7 +743,8 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_GOTO_NEXT_URI_ACTION_ID,
 			f1: true,
-			title: localize2('vibeGoToNextUriAction', 'VibeIDE: Go to Next File with Diffs'),
+			title: localize2('vibeGoToNextUriAction', 'Перейти к следующему файлу с правками'),
+			category: VIBE_COMMAND_CATEGORY,
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyMod.Shift | KeyCode.RightArrow,
 				mac: { primary: KeyMod.WinCtrl | KeyMod.Alt | KeyCode.RightArrow },
@@ -765,7 +771,8 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_GOTO_PREV_URI_ACTION_ID,
 			f1: true,
-			title: localize2('vibeGoToPrevUriAction', 'VibeIDE: Go to Previous File with Diffs'),
+			title: localize2('vibeGoToPrevUriAction', 'Перейти к предыдущему файлу с правками'),
+			category: VIBE_COMMAND_CATEGORY,
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyMod.Shift | KeyCode.LeftArrow,
 				mac: { primary: KeyMod.WinCtrl | KeyMod.Alt | KeyCode.LeftArrow },
@@ -792,7 +799,8 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_ACCEPT_FILE_ACTION_ID,
 			f1: true,
-			title: localize2('vibeAcceptFileAction', 'VibeIDE: Accept All Diffs in Current File'),
+			title: localize2('vibeAcceptFileAction', 'Принять все правки в этом файле'),
+			category: VIBE_COMMAND_CATEGORY,
 			keybinding: {
 				primary: KeyMod.Alt | KeyMod.Shift | KeyCode.Enter,
 				weight: KeybindingWeight.ExternalExtension,
@@ -823,7 +831,8 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_REJECT_FILE_ACTION_ID,
 			f1: true,
-			title: localize2('vibeRejectFileAction', 'VibeIDE: Reject All Diffs in Current File'),
+			title: localize2('vibeRejectFileAction', 'Отклонить все правки в этом файле'),
+			category: VIBE_COMMAND_CATEGORY,
 			keybinding: {
 				primary: KeyMod.Alt | KeyMod.Shift | KeyCode.Backspace,
 				weight: KeybindingWeight.ExternalExtension,
@@ -854,7 +863,8 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_ACCEPT_ALL_DIFFS_ACTION_ID,
 			f1: true,
-			title: localize2('vibeAcceptAllDiffsAction', 'VibeIDE: Accept All Diffs in All Files'),
+			title: localize2('vibeAcceptAllDiffsAction', 'Принять все правки во всех файлах'),
+			category: VIBE_COMMAND_CATEGORY,
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Enter,
 				weight: KeybindingWeight.ExternalExtension,
@@ -879,7 +889,8 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_REJECT_ALL_DIFFS_ACTION_ID,
 			f1: true,
-			title: localize2('vibeRejectAllDiffsAction', 'VibeIDE: Reject All Diffs in All Files'),
+			title: localize2('vibeRejectAllDiffsAction', 'Отклонить все правки во всех файлах'),
+			category: VIBE_COMMAND_CATEGORY,
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Backspace,
 				weight: KeybindingWeight.ExternalExtension,

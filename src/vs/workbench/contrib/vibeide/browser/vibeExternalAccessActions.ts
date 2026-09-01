@@ -14,6 +14,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { ConfigurationTarget } from '../../../../platform/configuration/common/configuration.js';
 import { IVibeExternalAccessService, ExternalAccessScope, READ_ONLY_FOLDERS_KEY, normalizeFolderPath } from '../common/vibeExternalAccessService.js';
 import { isWindows } from '../../../../base/common/platform.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 // O.13 Variant A — pre-authorize / revoke per-folder agent access outside the workspace.
 
@@ -23,7 +24,7 @@ registerAction2(class AllowExternalFolderAction extends Action2 {
 			id: 'vibeide.agent.allowExternalFolder',
 			title: localize2('vibeide.agent.allowExternalFolder', 'Разрешить папку для доступа агента'),
 			f1: true,
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -69,7 +70,7 @@ registerAction2(class AddReferenceFolderAction extends Action2 {
 			id: 'vibeide.agent.addReferenceFolder',
 			title: localize2('vibeide.agent.addReferenceFolder', 'Добавить папку-справочник для агента (только чтение)'),
 			f1: true,
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -106,7 +107,7 @@ registerAction2(class RevokeExternalAccessAction extends Action2 {
 			id: 'vibeide.agent.revokeExternalAccess',
 			title: localize2('vibeide.agent.revokeExternalAccess', 'Отозвать разрешение папки для агента'),
 			f1: true,
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 

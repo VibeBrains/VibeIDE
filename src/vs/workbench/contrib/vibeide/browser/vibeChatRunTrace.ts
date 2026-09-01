@@ -24,6 +24,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
 import { vibeTraceTs } from '../common/helpers/vibeTraceTs.js';
 import { ChatTraceEvent, renderChatTraceMarkdown } from '../common/chatTraceRender.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 export { ChatTraceEvent, renderChatTraceMarkdown };
 
@@ -62,7 +63,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.chatRunTrace.show',
 			title: { value: localize('vibeide.chatRunTrace.show', 'Показать трейс прогона чата'), original: 'Show Chat Run Timeline' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

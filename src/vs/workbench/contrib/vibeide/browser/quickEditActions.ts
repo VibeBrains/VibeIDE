@@ -27,6 +27,7 @@ import { CancellationTokenSource } from '../../../../base/common/cancellation.js
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 export type QuickEditPropsType = {
 	diffareaid: number;
@@ -51,7 +52,8 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_CTRL_K_ACTION_ID,
 			f1: true,
-			title: localize2('vibeQuickEditAction', 'VibeIDE: Quick Edit'),
+			title: localize2('vibeQuickEditAction', 'Быстрая правка'),
+			category: VIBE_COMMAND_CATEGORY,
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyCode.KeyK,
 				weight: KeybindingWeight.ExternalExtension,
@@ -92,7 +94,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibe.inlineEdit',
 			f1: true,
-			title: localize2('vibeInlineEditAction', 'VibeIDE: Inline Edit (AI)'),
+			title: localize2('vibeInlineEditAction', 'Правка на месте (AI)'),
 			category: localize2('vibeCategory', 'VibeIDE'),
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyE,

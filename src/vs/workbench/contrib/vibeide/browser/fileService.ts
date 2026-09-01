@@ -12,6 +12,7 @@ import { IClipboardService } from '../../../../platform/clipboard/common/clipboa
 import { IDirectoryStrService } from '../common/directoryStrService.js';
 import { messageOfSelection } from '../common/prompt/prompts.js';
 import { IVibeideModelService } from '../common/vibeideModelService.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 
 
@@ -21,7 +22,8 @@ class FilePromptActionService extends Action2 {
 	constructor() {
 		super({
 			id: FilePromptActionService.VIBEIDE_COPY_FILE_PROMPT_ID,
-			title: localize2('vibeCopyPrompt', 'VibeIDE: Copy Prompt'),
+			title: localize2('vibeCopyPrompt', 'Скопировать промпт'),
+			category: VIBE_COMMAND_CATEGORY,
 			menu: [{
 				id: MenuId.ExplorerContext,
 				group: '8_void',

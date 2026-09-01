@@ -25,6 +25,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IStatusbarEntry, IStatusbarEntryAccessor, IStatusbarService, StatusbarAlignment } from '../../../services/statusbar/browser/statusbar.js';
 import { IVibeUnifiedStatusBarService } from '../common/vibeUnifiedStatusBarService.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 const PROXY_SETTING_KEY = 'vibeide.llm.proxy.url';
 export const VIBEIDE_OPEN_PROXY_SETTINGS_CMD = 'vibeide.llm.proxy.openSettings';
@@ -49,7 +50,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_OPEN_PROXY_SETTINGS_CMD,
 			title: localize2('vibeide.llm.proxy.openSettings', 'Открыть настройку прокси для AI-провайдеров'),
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

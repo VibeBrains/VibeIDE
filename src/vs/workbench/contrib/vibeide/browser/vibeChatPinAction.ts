@@ -9,6 +9,7 @@ import { ServicesAccessor } from '../../../../platform/instantiation/common/inst
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { IChatThreadService } from './chatThreadService.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 // Pin-context — keyboard-accessible pin toggle for the LAST user message of the
 // current thread (unambiguous target). The per-message UI button (SidebarChat)
@@ -19,7 +20,7 @@ registerAction2(class TogglePinLastUserMessageAction extends Action2 {
 			id: 'vibeide.chat.togglePinLastUserMessage',
 			title: localize2('vibeide.chat.togglePinLastUserMessage', 'Закрепить/открепить последнее сообщение'),
 			f1: true,
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 

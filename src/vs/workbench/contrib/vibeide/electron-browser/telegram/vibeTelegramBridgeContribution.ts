@@ -35,6 +35,7 @@ import { IVibeAcpRegistryService } from '../../browser/acp/vibeAcpRegistryServic
 import { allowOptionOf, formatAcpPermissionCard, formatAcpTurnEnd } from '../../common/acp/acpPermissionCard.js';
 import { shouldMirrorApproval, VibeTelegramApprovalPolicy } from '../../common/telegram/telegramApprovalPolicy.js';
 import { approvalTypeOfBuiltinToolName } from '../../common/prompt/tools/index.js';
+import { VIBE_COMMAND_CATEGORY } from '../../common/vibeCommandCategory.js';
 import {
 	IVibeTelegramMain,
 	VIBE_TELEGRAM_CHANNEL,
@@ -1007,7 +1008,8 @@ registerAction2(class VibeTelegramSetToken extends Action2 {
 	constructor() {
 		super({
 			id: 'vibeide.telegram.setToken',
-			title: localize2('vibeide.telegram.setToken', 'VibeIDE: Токен Telegram-бота'),
+			title: localize2('vibeide.telegram.setToken', 'Токен Telegram-бота'),
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
@@ -1042,7 +1044,7 @@ registerAction2(class VibeTelegramSetToken extends Action2 {
  */
 registerAction2(class VibeTelegramVoiceReadiness extends Action2 {
 	constructor() {
-		super({ id: 'vibeide.telegram.voiceReadiness', title: localize2('vibeide.telegram.voiceReadiness', 'VibeIDE: Состояние распознавания голосовых'), f1: false });
+		super({ id: 'vibeide.telegram.voiceReadiness', title: localize2('vibeide.telegram.voiceReadiness', 'Состояние распознавания голосовых'), f1: false });
 	}
 
 	async run(accessor: ServicesAccessor): Promise<unknown> {
@@ -1054,7 +1056,7 @@ registerAction2(class VibeTelegramVoiceReadiness extends Action2 {
 /** Downloads the voice components ahead of time, so the first voice message is not a wait. */
 registerAction2(class VibeTelegramDownloadVoice extends Action2 {
 	constructor() {
-		super({ id: 'vibeide.telegram.downloadVoice', title: localize2('vibeide.telegram.downloadVoice', 'VibeIDE: Скачать распознавание голосовых'), f1: true });
+		super({ id: 'vibeide.telegram.downloadVoice', title: localize2('vibeide.telegram.downloadVoice', 'Скачать распознавание голосовых'), category: VIBE_COMMAND_CATEGORY, f1: true });
 	}
 
 	async run(accessor: ServicesAccessor): Promise<void> {

@@ -37,6 +37,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IVibeModalService } from '../common/vibeModalService.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 // ── Storage key ────────────────────────────────────────────────────────────────
 
@@ -106,7 +107,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.showAlternativesComparison',
 			title: { value: localize('vibeide.showAlternativesComparison', 'Чем мы отличаемся от Cursor/Continue.dev/Aider?'), original: 'How are we different from Cursor/Continue.dev/Aider?' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

@@ -26,6 +26,7 @@ import { localize, localize2 } from '../../../../nls.js';
 import { IVibeIdleWatchdogProxy } from '../common/vibeIdleWatchdogProxy.js';
 import { clusterCrashes } from '../common/vibeIdleWatchdogCrashClustering.js';
 import type { WatchdogLine, WatchdogSampleBase } from '../common/vibeIdleWatchdogTypes.js';
+import { VIBE_DIAGNOSTICS_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 class VibeIdleWatchdogAiDiagnosisAction extends Action2 {
 	static readonly ID = 'vibeide.watchdog.aiDiagnose';
@@ -34,7 +35,7 @@ class VibeIdleWatchdogAiDiagnosisAction extends Action2 {
 		super({
 			id: VibeIdleWatchdogAiDiagnosisAction.ID,
 			title: localize2('vibeide.watchdog.aiDiagnose.title', 'Диагностика памяти через AI'),
-			category: { value: 'VibeIDE Diagnostics', original: 'VibeIDE Diagnostics' },
+			category: VIBE_DIAGNOSTICS_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

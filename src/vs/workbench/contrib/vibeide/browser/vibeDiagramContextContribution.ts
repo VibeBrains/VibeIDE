@@ -43,6 +43,7 @@ import { ITextModelService } from '../../../../editor/common/services/resolverSe
 import { IVibeStealthModeService } from '../common/vibeStealthModeService.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -285,7 +286,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.context.pickDiagram',
 			title: { value: localize('vibeide.context.pickDiagram', 'Выбрать диаграмму / изображение для контекста агента (@diagram)'), original: 'Pick Diagram / Image for Agent Context (@diagram)' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
@@ -345,7 +346,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.context.previewDiagram',
 			title: { value: localize('vibeide.context.previewDiagram', 'Предпросмотр блока контекста диаграммы (что видит агент)'), original: 'Preview Diagram Context Block' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

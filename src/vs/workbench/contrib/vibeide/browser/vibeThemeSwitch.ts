@@ -122,7 +122,7 @@ class ToggleDayNightThemeAction extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_TOGGLE_DAY_NIGHT_COMMAND_ID,
-			title: localize2('vibeide.theme.toggleDayNight', 'VibeIDE: Переключить светлую и тёмную тему'),
+			title: localize2('vibeide.theme.toggleDayNight', 'Переключить светлую и тёмную тему'),
 			category: Categories.Preferences,
 			f1: true,
 		});
@@ -151,7 +151,7 @@ class ListColorThemesAction extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_LIST_COLOR_THEMES_COMMAND_ID,
-			title: localize2('vibeide.theme.listColorThemes', 'VibeIDE: Список тем оформления (для панели настроек)'),
+			title: localize2('vibeide.theme.listColorThemes', 'Список тем оформления (для панели настроек)'),
 			category: Categories.Preferences,
 			f1: false,
 		});
@@ -186,7 +186,7 @@ class ApplyColorThemeAction extends Action2 {
 	constructor() {
 		super({
 			id: VIBEIDE_APPLY_COLOR_THEME_COMMAND_ID,
-			title: localize2('vibeide.theme.applyColorTheme', 'VibeIDE: Применить тему оформления'),
+			title: localize2('vibeide.theme.applyColorTheme', 'Применить тему оформления'),
 			category: Categories.Preferences,
 			f1: false,
 		});

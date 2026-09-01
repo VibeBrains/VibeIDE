@@ -41,6 +41,7 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { IChatThreadService } from './chatThreadService.js';
 import { VIBEIDE_VIEW_CONTAINER_ID } from './sidebarPane.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 const whenVibeSpecsViewTitle = ContextKeyExpr.equals('view', VIBE_SPECS_VIEW_ID);
 
@@ -106,7 +107,6 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 	},
 });
 
-const vibeCategory = localize2('vibeCategory', 'VibeIDE');
 
 registerAction2(
 	class VibeSpecsHelp extends Action2 {
@@ -115,7 +115,7 @@ registerAction2(
 				id: VibeSpecsCommands.help,
 				title: localize2('vibeSpecs.help', 'Спеки: Как работать со спеками'),
 				icon: Codicon.question,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [
 					{ id: MenuId.ViewTitle, group: 'navigation', order: 13, when: whenVibeSpecsViewTitle },
@@ -147,7 +147,7 @@ registerAction2(
 				id: VibeSpecsCommands.refresh,
 				title: localize2('vibeSpecs.refresh', 'Спеки: Обновить'),
 				icon: Codicon.refresh,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [
 					{ id: MenuId.ViewTitle, group: 'navigation', order: 10, when: whenVibeSpecsViewTitle },
@@ -174,7 +174,7 @@ registerAction2(
 				id: VibeSpecsCommands.specFromTask,
 				title: localize2('vibeSpecs.specFromTask', 'Спеки: Спека из задачи'),
 				icon: Codicon.sparkle,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [
 					{ id: MenuId.ViewTitle, group: 'navigation', order: 11, when: whenVibeSpecsViewTitle },
@@ -245,7 +245,7 @@ registerAction2(
 				id: VibeSpecsCommands.newSpec,
 				title: localize2('vibeSpecs.newSpec', 'Спеки: Новая спека (пустая)'),
 				icon: Codicon.add,
-				category: vibeCategory,
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [
 					{ id: MenuId.ViewTitle, group: 'navigation', order: 12, when: whenVibeSpecsViewTitle },

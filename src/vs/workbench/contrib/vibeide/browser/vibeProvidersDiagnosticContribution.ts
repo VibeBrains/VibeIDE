@@ -20,6 +20,7 @@ import { IEditorService } from '../../../services/editor/common/editorService.js
 import { IVibeDynamicProvidersService, ResolvedProviderEntry } from './vibeDynamicProvidersService.js';
 import { normalizeAuth } from '../common/vibeProvidersFile.js';
 import { providerNames, displayInfoOfProviderName } from '../common/vibeideSettingsTypes.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 /** The built-in provider ids users can copy for `id` (override) / `extends` / `apiKeyRef`. Pulled
  *  from `providerNames` (single source of truth) so this never drifts from the actual provider set. */
@@ -66,7 +67,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.providers.showResolved',
 			title: localize2('vibeide.providers.showResolved', 'Показать распознанные провайдеры (.vibe/providers.json)'),
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

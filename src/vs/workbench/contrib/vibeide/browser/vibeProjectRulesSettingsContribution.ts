@@ -36,6 +36,7 @@ import { ServicesAccessor } from '../../../../platform/instantiation/common/inst
 import { IVibeProjectRulesService } from './vibeProjectRulesService.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -125,7 +126,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.projectRules.toggleSource',
 			title: { value: localize('vibeide.projectRules.toggleSource', 'Переключить источник правил проекта (включить/выключить для AI-контекста)'), original: 'Toggle Project Rule Source (enable/disable for AI context)' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
@@ -175,7 +176,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.projectRules.showStats',
 			title: { value: localize('vibeide.projectRules.showStats', 'Показать статистику правил проекта (предпросмотр токенного бюджета)'), original: 'Show Project Rules Stats (token budget preview)' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

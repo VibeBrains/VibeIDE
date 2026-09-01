@@ -24,6 +24,7 @@ import { Action2, registerAction2 } from '../../../../platform/actions/common/ac
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 const ENTRY_ID = 'vibeide.unified';
 const SHOW_COMMAND = 'vibeide.unified.showStatusPopup';
@@ -96,7 +97,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: SHOW_COMMAND,
 			title: { value: localize('vibeide.unified.showPopup', 'Показать всплывающее окно статуса'), original: 'Show Status Popup' },
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

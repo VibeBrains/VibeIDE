@@ -13,6 +13,7 @@ import { localize, localize2 } from '../../../../nls.js';
 import { IModelsDevCatalogStatusService, ModelsDevCatalogStatus } from '../common/modelsDevCatalogStatusService.js';
 import { labelOfSource, MODELS_DEV_URL } from '../common/modelsDevCatalogConstants.js';
 import { IVibeModalService } from '../common/vibeModalService.js';
+import { VIBE_DIAGNOSTICS_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 /** Auto-dismiss timeout for the "Catalog updated" success modal — 4 seconds
  *  is enough to read the one-line message but doesn't interrupt workflow. */
@@ -44,7 +45,7 @@ class ModelsDevCatalogRecheckAction extends Action2 {
 		super({
 			id: ModelsDevCatalogRecheckAction.ID,
 			title: localize2('vibeide.modelsDevCatalog.recheck.title', 'Перепроверить каталог models.dev'),
-			category: { value: 'VibeIDE Diagnostics', original: 'VibeIDE Diagnostics' },
+			category: VIBE_DIAGNOSTICS_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

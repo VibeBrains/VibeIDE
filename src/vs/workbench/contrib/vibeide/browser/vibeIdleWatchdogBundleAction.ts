@@ -20,6 +20,7 @@ import { IFileDialogService } from '../../../../platform/dialogs/common/dialogs.
 import { joinPath } from '../../../../base/common/resources.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { IVibeIdleWatchdogProxy } from '../common/vibeIdleWatchdogProxy.js';
+import { VIBE_DIAGNOSTICS_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 class VibeIdleWatchdogBundleAction extends Action2 {
 	static readonly ID = 'vibeide.watchdog.bundleCrashReport';
@@ -28,7 +29,7 @@ class VibeIdleWatchdogBundleAction extends Action2 {
 		super({
 			id: VibeIdleWatchdogBundleAction.ID,
 			title: localize2('vibeide.watchdog.bundleCrashReport.title', 'Собрать crash report (Idle Watchdog)'),
-			category: { value: 'VibeIDE Diagnostics', original: 'VibeIDE Diagnostics' },
+			category: VIBE_DIAGNOSTICS_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

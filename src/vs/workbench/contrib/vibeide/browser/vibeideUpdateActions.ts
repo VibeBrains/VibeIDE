@@ -18,6 +18,7 @@ import * as dom from '../../../../base/browser/dom.js';
 import { IUpdateService } from '../../../../platform/update/common/update.js';
 import { VibeideCheckUpdateResponse } from '../common/vibeideUpdateServiceTypes.js';
 import { IAction } from '../../../../base/common/actions.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 
 
@@ -196,7 +197,8 @@ registerAction2(class extends Action2 {
 		super({
 			f1: true,
 			id: 'vibe.checkUpdate',
-			title: localize2('vibeCheckUpdate', 'VibeIDE: проверить наличие обновлений'),
+			title: localize2('vibeCheckUpdate', 'проверить наличие обновлений'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {

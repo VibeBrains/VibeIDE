@@ -13,6 +13,7 @@ import { ILayoutService } from '../../../../platform/layout/browser/layoutServic
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IVibeNotifySoundsModalService } from '../common/vibeNotifySoundsModalService.js';
 import { mountVibeNotifySounds } from './react/out/vibe-sounds-tsx/index.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 export const VIBEIDE_OPEN_SOUNDS_CMD = 'vibeide.sounds.open';
 
@@ -23,7 +24,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_OPEN_SOUNDS_CMD,
 			title: localize2('vibeide.sounds.open', 'VibeIDE Звуки'),
-			category: { value: 'VibeIDE', original: 'VibeIDE' },
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
