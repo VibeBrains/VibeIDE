@@ -37,6 +37,7 @@ const modelSchema: IJSONSchema = {
 		active: { type: 'boolean', default: true, description: 'false — скрыть модель из выбора.' },
 		default: { type: 'boolean', description: 'Пометить как модель по умолчанию (авто-выбор).' },
 		pinned: { type: 'boolean', description: 'Показывать вверху списка.' },
+		protocol: { enum: ['openai', 'anthropic', 'gemini'], description: 'Формат API для ЭТОЙ модели — сильнее protocol провайдера. Нужен агрегаторам, которые на одном ключе отдают разные модели разными форматами.' },
 		contextWindow: { type: 'number', description: 'Размер контекстного окна (входные токены).' },
 		maxOutputTokens: { type: 'number', description: 'Резерв на вывод (токены).' },
 		toolFormat: { enum: ['openai', 'anthropic', 'gemini', 'none'], description: 'Формат tool-calling.' },

@@ -338,6 +338,12 @@ export interface DynProviderTransportConfig {
 	/** Wire protocol declared in the file (`openai` | `anthropic` | `gemini`). Feeds the SDK pick in
 	 *  aiSdkAdapter with priority override → FILE → models.dev catalog → openai-compat fallback. */
 	readonly protocol?: string;
+	/**
+	 * Wire protocol per model id, from the file's `models.static[].protocol`. Beats `protocol`
+	 * above for the models it names — an aggregator can serve one key over several formats and
+	 * choose by model, so a single per-provider value cannot describe the whole catalogue.
+	 */
+	readonly modelProtocols?: Readonly<Record<string, string>>;
 }
 
 export interface VibeProviderActiveOverrides {

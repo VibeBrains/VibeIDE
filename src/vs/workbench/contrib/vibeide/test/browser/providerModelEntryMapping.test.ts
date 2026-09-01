@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { modelEntryToCaps, sortStaticModels } from '../../browser/vibeDynamicProvidersService.js';
+import { modelEntryToCaps, modelProtocolsOf, sortStaticModels } from '../../browser/vibeDynamicProvidersService.js';
 
 /**
  * `.vibe/providers.json` → capabilities mapping.
@@ -104,5 +104,24 @@ suite('providers.json → model capabilities', () => {
 			modelEntryToCaps({ id: 'm', temperature: 0, topP: 0 }),
 			{ defaultTemperature: 0, defaultTopP: 0 },
 		);
+	});
+
+	/**
+	 * Per-model `protocol`. An aggregator can serve one key over several wire formats and choose by
+	 * model — OpenCode Go routes GLM/Kimi to chat-completions, MiniMax/Qwen to Anthropic messages —
+	 * so the provider-level `protocol` describes at best part of such a catalogue.
+	 */
+	test('per-model protocol is collected, and a uniform catalogue carries nothing', () => {
+		assert.deepStrictEqual(
+			modelProtocolsOf([
+				{ id: 'glm-5.3' },
+				{ id: 'MiniMax-M3', protocol: 'anthropic' },
+				{ id: 'qwen3.8-max', protocol: 'anthropic' },
+			]),
+			// Ключи в нижнем регистре: сид пишет `minimax-m3`, каталог вендора отвечает `MiniMax-M3`.
+			{ 'minimax-m3': 'anthropic', 'qwen3.8-max': 'anthropic' },
+		);
+		assert.strictEqual(modelProtocolsOf([{ id: 'a' }, { id: 'b' }]), undefined);
+		assert.strictEqual(modelProtocolsOf(undefined), undefined);
 	});
 });

@@ -128,6 +128,7 @@
 | `pinned` | `boolean` | `false` | Показывать вверху списка. |
 | `contextWindow` | `number` | — | Размер окна контекста (токены). |
 | `maxOutputTokens` | `number` | — | Максимум выходных токенов. |
+| `protocol` | `"openai" \| "anthropic" \| "gemini"` | — | **Формат API для этой модели**, сильнее `protocol` провайдера. Нужен, когда один ключ и один `baseURL` обслуживают модели разными форматами (см. врезку ниже). Приоритет: ручной выбор «протокол API» у модели в Настройках → **это поле** → `protocol` провайдера → каталог models.dev → openai-совместимый fallback. |
 | `toolFormat` | `"openai" \| "anthropic" \| "gemini" \| "none"` | — | Формат вызова инструментов. Для OpenAI-совместимых — `"openai"`. |
 | `vision` | `boolean` | — | Поддержка изображений. |
 | `systemMessage` | `"system" \| "developer" \| "separated" \| false` | — | Как передавать системное сообщение. Обычно `"system"`. |
@@ -140,6 +141,30 @@
 | `maxTools` | `number` | — | Сколько инструментов давать модели за раз (см. §6.2). Не указано — без ограничения. |
 | `maxPromptDirectoryChars` | `number` | — | Сколько символов обзора файлов проекта вставлять в системный промпт (см. §6.2). Не указано — глобальная настройка. |
 | `note` | `string` | — | Заметка. |
+
+> **Агрегатор с несколькими форматами на одном ключе.** У OpenCode Go базовый URL один, ключ один,
+> а формат привязан к модели: GLM, Kimi, DeepSeek и MiMo обслуживаются на `/v1/chat/completions`,
+> MiniMax и Qwen — на `/v1/messages` (Anthropic), Grok и GPT — на `/v1/responses`. Провайдерского
+> `protocol` для такого каталога не хватает по построению: любое одно значение будет верным лишь
+> для части моделей, а остальные уйдут не тем форматом. Поэтому формат объявляется у модели:
+>
+> ```jsonc
+> {
+>   "id": "opencode-go",
+>   "protocol": "openai",                       // большинство моделей каталога
+>   "baseURL": "https://opencode.ai/zen/go/v1",
+>   "models": {
+>     "static": [
+>       { "id": "glm-5.3" },                                    // наследует openai
+>       { "id": "MiniMax-M3",  "protocol": "anthropic" },       // /v1/messages
+>       { "id": "qwen3.8-max", "protocol": "anthropic" }
+>     ]
+>   }
+> }
+> ```
+>
+> `/v1/responses` (Grok 4.6, GPT 5.6 Luna, Muse Spark) пока не поддерживается — у нас нет
+> соответствующего значения `protocol`, эти модели через конфиг не подключить.
 
 ### 6.2. `maxTools` и `maxPromptDirectoryChars` — бюджеты объёма
 

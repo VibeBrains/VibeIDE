@@ -55,6 +55,19 @@ export interface VibeProviderModelEntry {
 	/** Surface first in the model list. */
 	readonly pinned?: boolean;
 
+	/**
+	 * Wire format for THIS model, overriding the provider's `protocol`.
+	 *
+	 * Needed because an aggregator can serve one key over several wire formats and pick by model:
+	 * OpenCode Go routes GLM/Kimi/DeepSeek to `/v1/chat/completions`, MiniMax and Qwen to
+	 * `/v1/messages`, and Grok/GPT to `/v1/responses` — one `baseURL`, one key, three protocols.
+	 * A per-provider declaration can only be right for part of such a catalogue.
+	 *
+	 * Weaker than the user's own «протокол API» override in Settings, stronger than the provider's
+	 * `protocol` and the models.dev catalogue.
+	 */
+	readonly protocol?: VibeProviderProtocol;
+
 	readonly contextWindow?: number;
 	readonly maxOutputTokens?: number;
 	readonly toolFormat?: VibeModelToolFormat;

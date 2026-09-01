@@ -61,6 +61,23 @@ const SYS_MSG_MAP: Record<string, 'system-role' | 'developer-role' | 'separated'
  * missing once and `temperature`/`topP`/`topK` went missing after it. The test asserts the whole
  * mapping at once so the next addition to the file format cannot be half-wired.
  */
+/**
+ * Per-model wire format from the file's `static` list → map for the transport config.
+ *
+ * Exported for tests for the same reason `modelEntryToCaps` is: a field declared in the type,
+ * documented in the spec and offered by the schema, but not wired here, is dropped in silence —
+ * the user writes it, the editor autocompletes it, and the request still goes out in the provider's
+ * format. `undefined` for a uniform catalogue so nothing extra travels to the send path.
+ */
+export function modelProtocolsOf(models: readonly VibeProviderModelEntry[] | undefined): Record<string, string> | undefined {
+	const declared = (models ?? []).filter(m => m.protocol);
+	// Keys are lower-cased because the file and the vendor disagree on case for the same model:
+	// our seed writes `minimax-m3`, the aggregator's catalogue answers `MiniMax-M3`. A case-exact
+	// lookup would quietly miss and send the model in the provider's format — the very failure this
+	// field exists to prevent.
+	return declared.length ? Object.fromEntries(declared.map(m => [m.id.toLowerCase(), m.protocol!])) : undefined;
+}
+
 export function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStaticModelInfo> {
 	const c: Record<string, unknown> = {};
 	if (typeof m.contextWindow === 'number') { c.contextWindow = m.contextWindow; }
@@ -736,6 +753,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			// only needs a baseURL. extends-builtin without baseURL inherits downstream (follow-up).
 			if (p.entry.baseURL) {
 				const fetchSpec = p.entry.models?.fetch;
+				const modelProtocols = modelProtocolsOf(p.entry.models?.static);
 				transportConfigs[p.id] = {
 					baseURL: p.entry.baseURL,
 					...(resolvedKey ? { apiKey: resolvedKey } : {}),
@@ -743,6 +761,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 					...(p.entry.headers ? { headers: { ...p.entry.headers } } : {}),
 					...(typeof fetchSpec === 'string' ? { modelsUrl: fetchSpec } : {}),
 					...(p.entry.protocol ? { protocol: p.entry.protocol } : {}),
+					...(modelProtocols ? { modelProtocols } : {}),
 				};
 			}
 

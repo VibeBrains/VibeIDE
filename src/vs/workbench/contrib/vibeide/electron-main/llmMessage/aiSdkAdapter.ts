@@ -1107,7 +1107,16 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	const sdkNpmFromOverride: string | undefined = apiProtocolOverride
 		? API_PROTOCOL_TO_SDK_NPM[apiProtocolOverride]
 		: undefined;
-	const fileProtocol = (settingsOfProvider[providerName] as { protocol?: string } | undefined)?.protocol;
+	// A model's own `protocol` beats the provider's: one aggregator key can serve several wire
+	// formats and pick by model (OpenCode Go — chat-completions, messages and responses on the same
+	// baseURL), so a per-provider value describes at best part of such a catalogue.
+	const fileSettings = settingsOfProvider[providerName] as { protocol?: string; modelProtocols?: Record<string, string> } | undefined;
+	// Looked up under both names: `modelName` is what goes on the wire after capability resolution,
+	// `modelName_` is what the user picked. They differ when a model is selected through an alias,
+	// and the file's key can honestly be either.
+	const fileProtocol = fileSettings?.modelProtocols?.[modelName.toLowerCase()]
+		?? fileSettings?.modelProtocols?.[modelName_.toLowerCase()]
+		?? fileSettings?.protocol;
 	const sdkNpmFromFile = sdkNpmOfFileProtocol(fileProtocol);
 	const sdkNpm = sdkNpmFromOverride ?? sdkNpmFromFile ?? await getModelSdkNpm(baseURL, modelName);
 	// Diagnostic: log which SDK path was taken on the FIRST request per
