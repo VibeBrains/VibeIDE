@@ -22,7 +22,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { URI } from '../../../../base/common/uri.js';
-import { IQuickInputService, IQuickPickItem } from '../../../../platform/quickinput/common/quickInput.js';
+import { IQuickInputService, IQuickPickItem, IQuickPickSeparator } from '../../../../platform/quickinput/common/quickInput.js';
 import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
 import { ILabelService } from '../../../../platform/label/common/label.js';
 import { MenuId } from '../../../../platform/actions/common/actions.js';
@@ -52,6 +52,7 @@ import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { ProviderId } from '../common/vibeideSettingsTypes.js';
 import { isWindows, isMacintosh, isLinux } from '../../../../base/common/platform.js';
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
+import { groupSkillsByDomain, shouldGroupSkills } from '../common/skillDomains.js';
 
 const VIBEIDE_OPEN_SIDEBAR_CMD = 'vibeide.sidebar.open';
 
@@ -851,7 +852,7 @@ registerAction2(class extends Action2 {
 			return;
 		}
 		const active = new Set((cfg.getValue<string[]>('vibeide.skills.sessionActiveIds') ?? []).map(s => s.trim().toLowerCase()).filter(Boolean));
-		const items: (IQuickPickItem & { picked?: boolean })[] = loaded.map(s => {
+		const toItem = (s: typeof loaded[number]): IQuickPickItem & { picked?: boolean } => {
 			// Требования показываются здесь, в момент выбора: скилл, которому нужен ffmpeg или
 			// доступ к терминалу, должен сообщать об этом до включения, а не отказом в работе.
 			const requirements = describeSkillRequirements(s);
@@ -861,7 +862,16 @@ registerAction2(class extends Action2 {
 				detail: requirements ? `⚙ ${requirements}` : undefined,
 				picked: active.has(s.skillId.toLowerCase()),
 			};
-		});
+		};
+		// Разделы по домену (первый тег скилла). Плоский список читается, пока скиллов десяток;
+		// на трёх десятках человек проглядывает все описания в поисках «того, про деплой».
+		// Группировка включается только когда разделов больше одного и список успел вырасти —
+		// заголовок над всем списком это не структура, а лишняя строка.
+		const groups = groupSkillsByDomain(loaded);
+		type SkillPick = (IQuickPickItem & { picked?: boolean }) | IQuickPickSeparator;
+		const items: SkillPick[] = shouldGroupSkills(groups, loaded.length)
+			? groups.flatMap((g): SkillPick[] => [{ type: 'separator', label: g.label }, ...g.skills.map(toItem)])
+			: loaded.map(toItem);
 		const picked = await qi.pick(items, {
 			canPickMany: true,
 			placeHolder: localize('vibeideSkillsPickPh', 'Включить/выключить скиллы для обнаружения GUIDELINES (пустой выбор = все скиллы)'),
@@ -869,6 +879,8 @@ registerAction2(class extends Action2 {
 		if (picked === undefined) {
 			return;
 		}
+		// Разделители сюда не приходят по типу: `pick` возвращает только выбираемые элементы,
+		// поэтому имя раздела не может уехать в список активных скиллов под видом id.
 		const next = picked.map(p => p.label).filter(Boolean);
 		await cfg.updateValue('vibeide.skills.sessionActiveIds', next, ConfigurationTarget.WORKSPACE);
 	}

@@ -672,7 +672,11 @@ suite('ChatStatusDashboard', () => {
 	});
 
 	test('Enterprise Managed — PRU with credits used (compact): shows plan title, credits and reset', () => {
-		const resetAt = Math.floor(Date.UTC(2026, 4, 31, 21, 0, 0) / 1000);
+		// Noon UTC on purpose. The reset date is rendered in the machine's LOCAL time zone, so an
+		// evening UTC timestamp lands on the next day anywhere east of UTC+3 and the assertion below
+		// fails for a reason that has nothing to do with the dashboard. Midday keeps the date stable
+		// from UTC-11 to UTC+12.
+		const resetAt = Math.floor(Date.UTC(2026, 4, 31, 12, 0, 0) / 1000);
 		const dashboard = createDashboard(createEntitlementService({
 			premiumChat: { percentRemaining: 100, unlimited: true, creditsUsed: 1284, resetAt },
 			completions: { percentRemaining: 100, unlimited: true },

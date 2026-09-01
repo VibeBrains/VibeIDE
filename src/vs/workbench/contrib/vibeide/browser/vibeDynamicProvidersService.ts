@@ -109,6 +109,9 @@ export function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStat
 	// override — they are the user saying how much this particular model can carry, so they go
 	// straight through. Zero and negatives are dropped rather than clamped: "0 tools" is a typo,
 	// and honouring it would leave an agent that cannot do anything at all.
+	// Retirement announced by the vendor. Carried through as-is; the judgement (retired / soon /
+	// announced) is made at display time, because it depends on the clock and this mapping does not.
+	if (m.deprecation && typeof m.deprecation === 'object') { c.deprecation = { ...m.deprecation }; }
 	if (typeof m.maxTools === 'number' && m.maxTools > 0) { c.maxTools = Math.floor(m.maxTools); }
 	if (typeof m.maxPromptDirectoryChars === 'number' && m.maxPromptDirectoryChars > 0) { c.maxPromptDirectoryChars = Math.floor(m.maxPromptDirectoryChars); }
 	// reasoning → reasoningCapabilities. An `effort` list maps to an effort_slider, which the

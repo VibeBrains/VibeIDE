@@ -190,6 +190,11 @@ export type VibeideStaticModelInfo = { // not stateful
 	maxTools?: number;
 	/** Max characters of the workspace file-tree overview pasted into the system prompt. */
 	maxPromptDirectoryChars?: number;
+	/**
+	 * Vendor-announced retirement, straight from `providers.json`. Judged against the clock at
+	 * display time by `modelDeprecation.ts` — storing a verdict here would go stale the next day.
+	 */
+	deprecation?: { date?: string; replacedBy?: string; note?: string };
 
 	// reasoning options
 	reasoningCapabilities: false | {

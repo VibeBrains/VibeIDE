@@ -41,12 +41,18 @@ suite('McpStdioStateHandler', () => {
 	}
 
 	test('stdin ends process', async () => {
-		const { child, handler, output } = run(`
+		const { child, handler, output, processId } = run(`
 			const data = require('fs').readFileSync(0, 'utf-8');
 			process.stdout.write('Data received: ' + data);
 			process.on('SIGTERM', () => process.stdout.write('SIGTERM received'));
 		`);
 
+		// Wait for the spawn before writing and stopping. Without it the test races the child: the
+		// write lands in a pipe of a process that has not started, `stop()` closes stdin behind it,
+		// and the assertion sees an empty string — a failure that says nothing about the handler.
+		// Observed on macOS, where starting Electron-as-node is slow enough for the race to land
+		// consistently.
+		await processId;
 		await new Promise<void>(r => child.stdin.write('Hello MCP!', () => r()));
 		handler.stop();
 		const result = await output;

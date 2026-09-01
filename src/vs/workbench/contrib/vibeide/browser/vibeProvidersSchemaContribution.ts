@@ -38,6 +38,15 @@ const modelSchema: IJSONSchema = {
 		default: { type: 'boolean', description: 'Пометить как модель по умолчанию (авто-выбор).' },
 		pinned: { type: 'boolean', description: 'Показывать вверху списка.' },
 		protocol: { enum: ['openai', 'openai-responses', 'anthropic', 'gemini'], description: 'Формат API для ЭТОЙ модели — сильнее protocol провайдера. Нужен агрегаторам, которые на одном ключе отдают разные модели разными форматами.' },
+		deprecation: {
+			type: 'object',
+			description: 'Вендор объявил отключение модели. Показывается при выборе модели; отключённая не участвует в авто-выборе.',
+			properties: {
+				date: { type: 'string', description: 'День отключения, ISO YYYY-MM-DD.' },
+				replacedBy: { type: 'string', description: 'Id модели, на которую переходить.' },
+				note: { type: 'string', description: 'Где объявлено — ссылка или фраза.' },
+			},
+		},
 		contextWindow: { type: 'number', description: 'Размер контекстного окна (входные токены).' },
 		maxOutputTokens: { type: 'number', description: 'Резерв на вывод (токены).' },
 		toolFormat: { enum: ['openai', 'anthropic', 'gemini', 'none'], description: 'Формат tool-calling.' },
