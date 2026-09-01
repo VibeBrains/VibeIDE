@@ -1,0 +1,26 @@
+{
+	// Typecheck for the CommonJS scripts in this folder.
+	//
+	// WHY it exists: the pre-commit hook forbids new JavaScript files, so every script written from
+	// now on is TypeScript — and until this config appeared, nothing looked at those types at all.
+	// The rule produced .ts files and no checking, which is the worst of both worlds.
+	//
+	// WHY only some files: `scripts/package.json` pins CommonJS, and most scripts here follow it with
+	// require(). `vibe-nls-extract.ts` is the exception — it is ESM run through `tsx` (import.meta,
+	// .ts import paths) and cannot share a CommonJS config. It is excluded by name rather than by a
+	// loosened setting, so the exception stays visible instead of weakening the check for everyone.
+	"compilerOptions": {
+		"module": "commonjs",
+		"target": "es2022",
+		"lib": ["es2023"],
+		"types": ["node"],
+		"strict": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		// Each script is a standalone program, not a module: without this they share one global
+		// scope and every `const fs` collides with its neighbour.
+		"moduleDetection": "force"
+	},
+	"include": ["*.ts"],
+	"exclude": ["vibe-nls-extract.ts"]
+}

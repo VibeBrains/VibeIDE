@@ -98,6 +98,7 @@
     "quirks-provenance-check": "node scripts/vibe-quirks-provenance.mjs",
     "command-titles-check": "node scripts/vibe-command-titles.ts",
     "generated-fresh-check": "node scripts/vibe-generated-fresh.ts",
+    "scripts-typecheck": "tsgo --project scripts/tsconfig.json",
     "service-registration-check": "node scripts/vibe-service-registration-check.mjs --check",
     "repair:windows-native": "node scripts/postinstall-windows-native-modules.mjs",
     "precompile": "npm run gen:all",

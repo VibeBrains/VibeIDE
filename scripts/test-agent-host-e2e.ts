@@ -169,7 +169,7 @@ function runSync(command: string, args: readonly string[], environment: NodeJS.P
 async function runSuite(suite: ISuite, forwardedArgs: readonly string[], surfaceOutput: string | undefined): Promise<IRunResult> {
 	console.log(`Starting Agent Host E2E — ${suite.label}`);
 	const startedAt = process.hrtime.bigint();
-	const environment = {
+	const environment: NodeJS.ProcessEnv = {
 		...process.env,
 		VSCODE_SKIP_PRELAUNCH: '1',
 		...(surfaceOutput ? { AGENT_HOST_PROTOCOL_SURFACE_OUT: surfaceOutput } : {}),
