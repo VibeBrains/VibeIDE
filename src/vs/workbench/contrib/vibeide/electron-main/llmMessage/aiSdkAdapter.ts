@@ -1159,19 +1159,29 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			},
 			fetch: callFetch,
 		})(modelName)
-		: sdkNpm === '@ai-sdk/openai'
-			? // Native OpenAI SDK. Default `.chat()` shape — chat-completions endpoint
-			// (NOT the new Responses API; that'd be `.responses()` and requires
-			// downstream payload changes we haven't done). Functionally equivalent
-			// to openai-compatible for our use-case, but uses the native serializer
-			// which preserves OpenAI-specific fields (logprobs, parallel_tool_calls,
-			// etc.) without the openai-compatible "unknown field" stripping.
+		: sdkNpm === '@ai-sdk/openai#responses'
+			? // OpenAI Responses API — a DIFFERENT endpoint (`/v1/responses`), not a dialect of
+			// chat-completions. Reached only when asked for explicitly, because a model served
+			// there answers 404 on chat-completions and vice versa. OpenCode Go serves Grok 4.6,
+			// GPT 5.6 Luna and Muse Spark only here.
 			createOpenAI({
 				baseURL,
 				apiKey,
 				headers,
 				fetch: callFetch,
-			}).chat(modelName)
+			}).responses(modelName)
+			: sdkNpm === '@ai-sdk/openai'
+				? // Native OpenAI SDK. Default `.chat()` shape — chat-completions endpoint.
+				// Functionally equivalent to openai-compatible for our use-case, but uses the
+				// native serializer which preserves OpenAI-specific fields (logprobs,
+				// parallel_tool_calls, etc.) without the openai-compatible "unknown field"
+				// stripping.
+				createOpenAI({
+					baseURL,
+					apiKey,
+					headers,
+					fetch: callFetch,
+				}).chat(modelName)
 			: sdkNpm === '@ai-sdk/google'
 				? // Native Google Generative AI (Gemini). Activated when models.dev
 				// catalog returns this SDK for the (baseURL, modelName) pair, or

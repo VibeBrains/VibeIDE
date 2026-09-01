@@ -72,11 +72,46 @@ export function toolCallTargetPath(input: ToolCallAuditInput): string | undefine
 }
 
 /** Fields for the audit event of a tool call. Arguments never travel; the target path may. */
+/** Tools that change files. Reading `.vibe/` is ordinary work; writing to it is the notable event. */
+const WRITE_TOOLS: ReadonlySet<string> = new Set([
+	'edit_file',
+	'rewrite_file',
+	'create_file_or_folder',
+	'delete_file_or_folder',
+	'write_file',
+]);
+
+/**
+ * Does this call write into `.vibe/` — the folder shared by every run in the workspace?
+ *
+ * `.vibe/` holds plans, agent locks, run artifacts and rules: state one run leaves for the next,
+ * and therefore a channel between agents, not just a pile of config. In the OpenAI/Hugging Face
+ * incident the agents built their message board out of exactly this kind of surface — a shared
+ * store nobody was watching as a channel (Artifactory, directories prefixed `zz`, 70k+ messages).
+ * We do not forbid these writes: plans and locks are how our own orchestration works. We record
+ * them, so that «agents started leaving each other notes» is a question the log can answer.
+ *
+ * Reads are deliberately not flagged — the agent reads rules and skills from here on every turn,
+ * and a flag on that would be noise that trains people to ignore the flag.
+ */
+export function writesToSharedState(toolName: string, targetPath: string | undefined): boolean {
+	if (!targetPath || !WRITE_TOOLS.has(toolName)) {
+		return false;
+	}
+	// Match a path SEGMENT, so `.vibe-defaults/` and `my.vibe/` are not mistaken for it. Both
+	// separators are checked because the path arrives as the tool received it, not normalized.
+	const normalized = targetPath.replace(/\\/g, '/');
+	return normalized === '.vibe' || normalized.startsWith('.vibe/') || normalized.includes('/.vibe/') || normalized.endsWith('/.vibe');
+}
+
 export function buildToolCallAudit(input: ToolCallAuditInput): ToolCallAuditFields {
 	const target = toolCallTargetPath(input);
 	const meta: Record<string, unknown> = { tool: input.toolName };
 	if (input.mcpServerName) {
 		meta.mcpServer = input.mcpServerName;
+	}
+	if (writesToSharedState(input.toolName, target)) {
+		meta.sharedState = true;
 	}
 	return target ? { files: [target], meta } : { meta };
 }

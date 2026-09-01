@@ -6,7 +6,7 @@
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { URI } from '../../../../../base/common/uri.js';
-import { buildToolCallAudit, toolCallTargetPath } from '../../common/toolCallAudit.js';
+import { buildToolCallAudit, toolCallTargetPath, writesToSharedState } from '../../common/toolCallAudit.js';
 
 suite('Tool call audit', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -53,5 +53,44 @@ suite('Tool call audit', () => {
 			},
 			{ none: undefined, empty: undefined, odd: undefined },
 		);
+	});
+
+	/**
+	 * `.vibe/` is state one run leaves for the next — plans, locks, artifacts — which makes it a
+	 * channel between agents and not merely config. We do not forbid the writes (our own
+	 * orchestration works through them); we make them answerable in the log.
+	 */
+	suite('writes into the shared .vibe folder are flagged', () => {
+		test('a write inside .vibe is flagged, a read of the same path is not', () => {
+			assert.strictEqual(writesToSharedState('edit_file', '.vibe/plans/current.json'), true);
+			assert.strictEqual(writesToSharedState('rewrite_file', '/repo/.vibe/agent-locks.json'), true);
+			assert.strictEqual(writesToSharedState('create_file_or_folder', '.vibe'), true);
+			// Reading rules and skills happens every turn — flagging it would train people to ignore
+			// the flag.
+			assert.strictEqual(writesToSharedState('read_file', '.vibe/rules.md'), false);
+			assert.strictEqual(writesToSharedState('ls_dir', '.vibe'), false);
+		});
+
+		test('lookalike paths are not mistaken for the shared folder', () => {
+			assert.strictEqual(writesToSharedState('edit_file', '.vibe-defaults/providers.jsonc'), false);
+			assert.strictEqual(writesToSharedState('edit_file', 'src/my.vibe/thing.json'), false);
+			assert.strictEqual(writesToSharedState('edit_file', 'src/app.ts'), false);
+			assert.strictEqual(writesToSharedState('edit_file', undefined), false);
+		});
+
+		test('the flag reaches the audit event, and stays absent for ordinary files', () => {
+			// Params carry a real URI, exactly as the tool receives it — the path is read off
+			// `fsPath`, so a plain string here would test nothing that happens in production.
+			const shared = URI.file('/repo/.vibe/plans/p1.json');
+			assert.deepStrictEqual(
+				buildToolCallAudit({ toolName: 'edit_file', params: { uri: shared } }),
+				{ files: [shared.fsPath], meta: { tool: 'edit_file', sharedState: true } },
+			);
+			const ordinary = URI.file('/repo/src/app.ts');
+			assert.deepStrictEqual(
+				buildToolCallAudit({ toolName: 'edit_file', params: { uri: ordinary } }),
+				{ files: [ordinary.fsPath], meta: { tool: 'edit_file' } },
+			);
+		});
 	});
 });

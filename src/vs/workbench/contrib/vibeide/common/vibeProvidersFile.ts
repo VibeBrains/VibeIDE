@@ -19,7 +19,9 @@
 
 import { safeParseConfigJson } from './vibeConfigJsonParser.js';
 
-export type VibeProviderProtocol = 'openai' | 'anthropic' | 'gemini';
+// `openai-responses` — эндпоинт /v1/responses, а не диалект chat-completions: модель оттуда
+// отвечает 404 на /v1/chat/completions и наоборот, поэтому значение всегда объявляется явно.
+export type VibeProviderProtocol = 'openai' | 'openai-responses' | 'anthropic' | 'gemini';
 
 /** Auth shorthand `"bearer"` or the explicit object form. `header`/`query` carry the field name. */
 export type VibeProviderAuth =

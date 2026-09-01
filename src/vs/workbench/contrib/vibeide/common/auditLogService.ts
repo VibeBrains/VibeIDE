@@ -17,6 +17,7 @@ import { IEnvironmentService } from '../../../../platform/environment/common/env
 import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
+import { AUDIT_CHAIN_ROOT, chainRecord, chainTailOf } from './auditChain.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 
 import { localize } from '../../../../nls.js';
@@ -131,6 +132,8 @@ class AuditLogService extends Disposable implements IAuditLogService {
 	private _logPath: URI | null = null;
 	/** Where the log lived before it was moved out of the agent's reach; migrated once on startup. */
 	private _legacyLogPath: URI | undefined;
+	/** Hash of the last written record — the link the next one points back to. */
+	private _chainTail: string = AUDIT_CHAIN_ROOT;
 	private _pendingWrites: AuditEvent[] = [];
 	private _writeScheduler: RunOnceScheduler;
 	private _rotationSizeMB: number = 10;
@@ -274,13 +277,18 @@ class AuditLogService extends Disposable implements IAuditLogService {
 
 		await this._migrateLegacyLog();
 
-		// Check current file size
+		// Check current file size, and pick up where the chain left off. Without reading the tail a
+		// restart would start a fresh chain from the root and the verifier would report a break at
+		// the first line written after it — a false accusation, and the worst kind for this file.
 		try {
 			const stat = await this._fileService.stat(this._logPath);
 			this._currentFileSize = stat.size;
+			const existing = await this._fileService.readFile(this._logPath);
+			this._chainTail = chainTailOf(existing.value.toString().split('\n'));
 		} catch {
 			// File doesn't exist yet, will be created on first write
 			this._currentFileSize = 0;
+			this._chainTail = AUDIT_CHAIN_ROOT;
 		}
 	}
 
@@ -319,7 +327,15 @@ class AuditLogService extends Disposable implements IAuditLogService {
 		}
 
 		const events = this._pendingWrites.splice(0);
-		const lines = events.map(e => JSON.stringify(e)).join('\n') + '\n';
+		// Chain the batch: every record carries the hash of the one before it, so a line cut out of
+		// the middle stops adding up at a nameable place instead of vanishing without trace.
+		const chained: string[] = [];
+		for (const event of events) {
+			const { line, hash } = chainRecord(event, this._chainTail);
+			chained.push(line);
+			this._chainTail = hash;
+		}
+		const lines = chained.join('\n') + '\n';
 		const buffer = VSBuffer.fromString(lines);
 		const sizeBytes = buffer.byteLength;
 
@@ -383,9 +399,12 @@ class AuditLogService extends Disposable implements IAuditLogService {
 			// Write compressed file
 			await this._fileService.writeFile(rotatedPath, VSBuffer.wrap(compressed));
 
-			// Create new empty log file
+			// Create new empty log file. The chain restarts from the root here: the rotated part is a
+			// closed file of its own and verifies on its own terms, while a link pointing into an
+			// archive would make every fresh log unverifiable without it.
 			await this._fileService.writeFile(this._logPath, VSBuffer.fromString(''));
 			this._currentFileSize = 0;
+			this._chainTail = AUDIT_CHAIN_ROOT;
 
 			vibeLog.debug('auditLog', `[AuditLog] Rotated log file to ${rotatedPath.path}`);
 		} catch (err) {

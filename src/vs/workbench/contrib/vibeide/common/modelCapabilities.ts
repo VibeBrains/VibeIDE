@@ -277,13 +277,16 @@ export const AUTO_DOWNGRADE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
  *   - 'openai'        → @ai-sdk/openai (native OpenAI, preserves provider-specific fields)
  *   - 'anthropic'     → @ai-sdk/anthropic (Messages wire format)
  *   - 'google'        → @ai-sdk/google (Gemini native — used when aggregator serves Gemini)
+ *   - 'openai-responses' → @ai-sdk/openai via `.responses()` (OpenAI Responses API — a different
+ *                        endpoint, not a dialect of chat-completions; OpenCode Go serves Grok,
+ *                        GPT and Muse Spark only there)
  *
  * NOTE: setting `apiProtocol: 'google'` only takes effect for models that flow
  * through `sendViaAISdk` (e.g. Gemini-through-aggregator). The standalone
  * `gemini` provider still uses its own `sendGeminiChat` path and ignores this
  * override — separate migration.
  */
-export const API_PROTOCOL_VALUES = ['openai-compat', 'openai', 'anthropic', 'google'] as const;
+export const API_PROTOCOL_VALUES = ['openai-compat', 'openai', 'openai-responses', 'anthropic', 'google'] as const;
 export type ApiProtocolOverride = typeof API_PROTOCOL_VALUES[number];
 
 /**
@@ -296,6 +299,9 @@ export type ApiProtocolOverride = typeof API_PROTOCOL_VALUES[number];
 export const API_PROTOCOL_TO_SDK_NPM: Record<ApiProtocolOverride, string> = {
 	'openai-compat': '@ai-sdk/openai-compatible',
 	'openai': '@ai-sdk/openai',
+	// Same package as 'openai', different endpoint — the suffix keeps the two apart in the routing
+	// ternary, which selects on this string. Stripped before the package is used.
+	'openai-responses': '@ai-sdk/openai#responses',
 	'anthropic': '@ai-sdk/anthropic',
 	'google': '@ai-sdk/google',
 };
@@ -308,6 +314,7 @@ export const API_PROTOCOL_TO_SDK_NPM: Record<ApiProtocolOverride, string> = {
  */
 export const sdkNpmOfFileProtocol = (fileProtocol: string | undefined): string | undefined => {
 	if (fileProtocol === 'openai') { return API_PROTOCOL_TO_SDK_NPM['openai-compat']; }
+	if (fileProtocol === 'openai-responses') { return API_PROTOCOL_TO_SDK_NPM['openai-responses']; }
 	if (fileProtocol === 'anthropic') { return API_PROTOCOL_TO_SDK_NPM['anthropic']; }
 	if (fileProtocol === 'gemini') { return API_PROTOCOL_TO_SDK_NPM['google']; }
 	return undefined;

@@ -37,7 +37,7 @@ const modelSchema: IJSONSchema = {
 		active: { type: 'boolean', default: true, description: 'false — скрыть модель из выбора.' },
 		default: { type: 'boolean', description: 'Пометить как модель по умолчанию (авто-выбор).' },
 		pinned: { type: 'boolean', description: 'Показывать вверху списка.' },
-		protocol: { enum: ['openai', 'anthropic', 'gemini'], description: 'Формат API для ЭТОЙ модели — сильнее protocol провайдера. Нужен агрегаторам, которые на одном ключе отдают разные модели разными форматами.' },
+		protocol: { enum: ['openai', 'openai-responses', 'anthropic', 'gemini'], description: 'Формат API для ЭТОЙ модели — сильнее protocol провайдера. Нужен агрегаторам, которые на одном ключе отдают разные модели разными форматами.' },
 		contextWindow: { type: 'number', description: 'Размер контекстного окна (входные токены).' },
 		maxOutputTokens: { type: 'number', description: 'Резерв на вывод (токены).' },
 		toolFormat: { enum: ['openai', 'anthropic', 'gemini', 'none'], description: 'Формат tool-calling.' },
@@ -84,7 +84,7 @@ const providerSchema: IJSONSchema = {
 		order: { type: 'number', description: 'Порядок среди ВАШИХ провайдеров (меньше = выше); они показываются НАД встроенными в выборе модели. Без значения — в конец вашего блока, по имени. Встроенные между собой не двигаются.' },
 		tags: { type: 'array', items: { type: 'string' } },
 		note: { type: 'string' },
-		protocol: { enum: ['openai', 'anthropic', 'gemini'], default: 'openai', description: 'Протокол транспорта. В Фазе 1 надёжно работает openai.' },
+		protocol: { enum: ['openai', 'openai-responses', 'anthropic', 'gemini'], default: 'openai', description: 'Формат API провайдера по умолчанию. `openai-responses` — эндпоинт /v1/responses, это другой эндпоинт, а не диалект chat-completions.' },
 		baseURL: { type: 'string', description: 'Базовый URL API.' },
 		auth: {
 			description: 'Авторизация. "bearer" или объект.',
