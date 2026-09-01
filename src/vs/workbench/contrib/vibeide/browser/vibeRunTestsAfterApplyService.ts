@@ -72,6 +72,7 @@ class VibeRunTestsAfterApplyService extends Disposable implements IVibeRunTestsA
 		if (this._auditLogService.isEnabled()) {
 			void this._auditLogService.append({
 				ts: start,
+				actor: 'agent',
 				action: 'run_tests:start',
 				ok: true,
 				meta: { command },
@@ -97,6 +98,7 @@ class VibeRunTestsAfterApplyService extends Disposable implements IVibeRunTestsA
 			if (this._auditLogService.isEnabled()) {
 				void this._auditLogService.append({
 					ts: Date.now(),
+					actor: 'agent',
 					action: 'run_tests:complete',
 					ok: true,
 					latencyMs: result.durationMs,
@@ -111,6 +113,7 @@ class VibeRunTestsAfterApplyService extends Disposable implements IVibeRunTestsA
 			if (this._auditLogService.isEnabled()) {
 				void this._auditLogService.append({
 					ts: Date.now(),
+					actor: 'agent',
 					action: 'run_tests:complete',
 					ok: false,
 					latencyMs: Date.now() - start,

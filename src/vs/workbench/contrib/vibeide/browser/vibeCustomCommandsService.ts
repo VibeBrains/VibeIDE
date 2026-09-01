@@ -331,6 +331,7 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		for (const entry of buildTrustRevokeAuditEntries(result)) {
 			void this._audit.append({
 				ts: Date.now(),
+				actor: 'system',
 				action: 'project_command:trust_revoked',
 				ok: true,
 				meta: entry,
@@ -348,6 +349,7 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		for (const entry of buildTrustRevokeAuditEntries(result)) {
 			void this._audit.append({
 				ts: Date.now(),
+				actor: 'system',
 				action: 'project_command:trust_revoked',
 				ok: true,
 				meta: entry,
@@ -563,6 +565,7 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 				await this._upsertTrustEntry(next);
 				await this._audit.append({
 					ts: Date.now(),
+					actor: 'human',
 					action: 'project_command:trust_granted',
 					ok: true,
 					meta: { id: cmd.id, hash: currentHash.slice(0, 8) },
@@ -593,6 +596,7 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		if (auditStart !== null) {
 			void this._audit.append({
 				ts: startedAtMs,
+				actor: 'human',
 				action: 'project_command:start',
 				ok: true,
 				meta: { invocationId, ...auditStart },
@@ -636,7 +640,7 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 				exitCode, durationMs: endedAtMs - startedAtMs,
 			}, auditFlags);
 			if (auditEnd !== null) {
-				void this._audit.append({ ts: endedAtMs, action: 'project_command:complete', ok: outcome === 'success', meta: { invocationId, outcome, ...auditEnd } });
+				void this._audit.append({ actor: 'human', ts: endedAtMs, action: 'project_command:complete', ok: outcome === 'success', meta: { invocationId, outcome, ...auditEnd } });
 			}
 		};
 

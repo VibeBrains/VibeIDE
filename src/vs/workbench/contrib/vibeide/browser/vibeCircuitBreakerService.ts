@@ -67,6 +67,7 @@ class VibeCircuitBreakerService extends Disposable implements IVibeCircuitBreake
 			vibeLog.warn('circuitBreaker', `${id}: ${before.state} → ${after.state} (${reason})`);
 			this._audit.append({
 				ts: Date.now(),
+				actor: 'system',
 				action: 'circuit_breaker_opened',
 				ok: false,
 				meta: { breaker: id, state: after.state, reason, trips: after.trips },
@@ -87,6 +88,7 @@ class VibeCircuitBreakerService extends Disposable implements IVibeCircuitBreake
 			vibeLog.info('circuitBreaker', `${id}: восстановление ${manual ? 'вручную' : 'автоматически'} — ${result.recovered ? 'выполнено' : `отказано (${result.refusal})`}`);
 			this._audit.append({
 				ts: Date.now(),
+				actor: 'system',
 				action: 'circuit_breaker_recovered',
 				ok: result.recovered,
 				meta: { breaker: id, manual, refusal: result.refusal, state: result.snapshot.state },

@@ -111,7 +111,7 @@ class VibeJobPRCompletionService extends Disposable implements IVibeJobPRComplet
 
 		if (!token || !repoSlug) {
 			this._log.warn('[VibeJobPR] Missing GitHub token (команда «Задать GitHub-токен для job-PR») or vibeide.git.repoSlug — skipping GitHub PR creation');
-			this._audit.append({ ts: Date.now(), action: 'job_pr_creation', ok: false, meta: { jobId: request.jobId, reason: 'no-token-or-slug' } });
+			this._audit.append({ actor: 'agent', ts: Date.now(), action: 'job_pr_creation', ok: false, meta: { jobId: request.jobId, reason: 'no-token-or-slug' } });
 			return { status: 'disabled', reason: 'github-token-or-repo-slug-not-configured', branchName };
 		}
 
@@ -138,25 +138,25 @@ class VibeJobPRCompletionService extends Disposable implements IVibeJobPRComplet
 			const data = await asJson<GitHubPRResponse>(ctx);
 
 			if (ctx.res.statusCode === 422 && data?.message?.toLowerCase().includes('already exists')) {
-				this._audit.append({ ts: Date.now(), action: 'job_pr_creation', ok: true, meta: { jobId: request.jobId, branchName, status: 'already_exists' } });
+				this._audit.append({ actor: 'agent', ts: Date.now(), action: 'job_pr_creation', ok: true, meta: { jobId: request.jobId, branchName, status: 'already_exists' } });
 				return { status: 'already_exists', branchName };
 			}
 
 			if (!ctx.res.statusCode || ctx.res.statusCode >= 400) {
 				const reason = data?.message ?? `HTTP ${ctx.res.statusCode}`;
 				this._log.error(`[VibeJobPR] GitHub API error: ${reason}`);
-				this._audit.append({ ts: Date.now(), action: 'job_pr_creation', ok: false, meta: { jobId: request.jobId, reason } });
+				this._audit.append({ actor: 'agent', ts: Date.now(), action: 'job_pr_creation', ok: false, meta: { jobId: request.jobId, reason } });
 				return { status: 'failed', reason, branchName };
 			}
 
 			const prUrl = data?.html_url;
 			this._log.info(`[VibeJobPR] PR created: ${prUrl}`);
-			this._audit.append({ ts: Date.now(), action: 'job_pr_creation', ok: true, meta: { jobId: request.jobId, branchName, prUrl, draft } });
+			this._audit.append({ actor: 'agent', ts: Date.now(), action: 'job_pr_creation', ok: true, meta: { jobId: request.jobId, branchName, prUrl, draft } });
 			return { status: 'created', branchName, prUrl };
 		} catch (err: unknown) {
 			const reason = err instanceof Error ? err.message : String(err);
 			this._log.error(`[VibeJobPR] Request failed: ${reason}`);
-			this._audit.append({ ts: Date.now(), action: 'job_pr_creation', ok: false, meta: { jobId: request.jobId, reason } });
+			this._audit.append({ actor: 'agent', ts: Date.now(), action: 'job_pr_creation', ok: false, meta: { jobId: request.jobId, reason } });
 			return { status: 'failed', reason, branchName };
 		}
 	}

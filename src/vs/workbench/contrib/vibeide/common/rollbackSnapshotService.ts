@@ -245,6 +245,7 @@ class RollbackSnapshotService extends Disposable implements IRollbackSnapshotSer
 		if (this._auditLogService.isEnabled()) {
 			await this._auditLogService.append({
 				ts: Date.now(),
+				actor: 'agent',
 				action: 'snapshot:create',
 				files: fileSnapshots.map(f => f.path),
 				ok: true,
@@ -298,6 +299,7 @@ class RollbackSnapshotService extends Disposable implements IRollbackSnapshotSer
 			if (this._auditLogService.isEnabled()) {
 				await this._auditLogService.append({
 					ts: Date.now(),
+					actor: 'human',
 					action: 'snapshot:restore',
 					files: snapshot.files.map(f => f.path),
 					ok: true,
@@ -308,6 +310,7 @@ class RollbackSnapshotService extends Disposable implements IRollbackSnapshotSer
 			if (this._auditLogService.isEnabled()) {
 				await this._auditLogService.append({
 					ts: Date.now(),
+					actor: 'human',
 					action: 'snapshot:restore',
 					ok: false,
 					meta: { snapshotId: id, error: String(error) },
@@ -335,6 +338,7 @@ class RollbackSnapshotService extends Disposable implements IRollbackSnapshotSer
 		if (this._auditLogService.isEnabled()) {
 			await this._auditLogService.append({
 				ts: Date.now(),
+				actor: 'human',
 				action: 'snapshot:discard',
 				ok: true,
 				meta: { snapshotId: id },

@@ -3789,6 +3789,7 @@ ${lines.join('\n\n')}`;
 			if (this._auditLogService.isEnabled()) {
 				void this._auditLogService.append({
 					ts: Date.now(),
+					actor: 'agent',
 					action: 'advisory_territorial_lock',
 					ok: true,
 					files: [uri.fsPath],

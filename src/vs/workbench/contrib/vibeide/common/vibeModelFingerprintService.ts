@@ -77,6 +77,7 @@ class VibeModelFingerprintService extends Disposable implements IVibeModelFinger
 		if (this._auditLogService.isEnabled()) {
 			this._auditLogService.append({
 				ts: fingerprint.timestamp,
+				actor: 'agent',
 				action: 'prompt',
 				model: fingerprint.modelId,
 				latencyMs: fingerprint.latencyMs,

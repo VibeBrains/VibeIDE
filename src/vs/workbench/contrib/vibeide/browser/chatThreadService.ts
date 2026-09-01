@@ -2148,6 +2148,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		if (this._auditLogService.isEnabled()) {
 			void this._auditLogService.append({
 				ts: Date.now(),
+				actor: 'agent',
 				action: 'plan_started',
 				ok: true,
 				meta: { planId, threadId: params.threadId, stepsTotal: params.plan.steps.length },
@@ -2274,6 +2275,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		if (this._auditLogService.isEnabled()) {
 			void this._auditLogService.append({
 				ts: Date.now(),
+				actor: 'agent',
 				action: 'plan_failed',
 				ok: false,
 				meta: { threadId: opts.threadId, reason: 'aborted' },
@@ -2572,6 +2574,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		if (this._auditLogService.isEnabled()) {
 			void this._auditLogService.append({
 				ts: Date.now(),
+				actor: 'agent',
 				action: 'plan_resumed',
 				ok: true,
 				meta: { threadId, stepsTotal: plan.steps.length, planId: plan.persistedPlanId },
@@ -2843,6 +2846,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		if (this._auditLogService.isEnabled()) {
 			void this._auditLogService.append({
 				ts: Date.now(),
+				actor: 'agent',
 				action: succeeded ? 'plan_step_completed' : 'plan_failed',
 				ok: succeeded,
 				meta: { threadId, stepNumber: currentStep.step.stepNumber },
@@ -5828,6 +5832,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			if (auditEnabled && modelSelection) {
 				await this._auditLogService.append({
 					ts: Date.now(),
+					actor: 'human',
 					action: 'prompt',
 					model: `${modelSelection.providerName}/${modelSelection.modelName}`,
 					ok: true,
@@ -6140,7 +6145,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							shouldRetryLLM = true;
 							watchdogAbortFn?.();
 						} else if (fx.kind === 'audit') {
-							void this._auditLogService.append({ ts: Date.now(), action: fx.event as unknown as AuditEvent['action'], ok: true });
+							void this._auditLogService.append({ actor: 'system', ts: Date.now(), action: fx.event as unknown as AuditEvent['action'], ok: true });
 						}
 					}
 				};
@@ -6432,6 +6437,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						if (auditEnabled && modelSelection) {
 							await this._auditLogService.append({
 								ts: Date.now(),
+								actor: 'agent',
 								action: 'reply',
 								model: `${modelSelection.providerName}/${modelSelection.modelName}`,
 								latencyMs: metrics ? metrics.tts : undefined,
@@ -6808,6 +6814,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							if (auditEnabled && modelSelection) {
 								await this._auditLogService.append({
 									ts: Date.now(),
+									actor: 'agent',
 									action: 'reply',
 									model: `${modelSelection.providerName}/${modelSelection.modelName}`,
 									ok: false,
@@ -8670,7 +8677,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 	): void {
 		if (!this._auditLogService.isEnabled()) { return; }
 		const { files, meta } = buildToolCallAudit(input);
-		void this._auditLogService.append({ ts: Date.now(), action, ok, files, latencyMs, meta })
+		void this._auditLogService.append({ actor: 'agent', ts: Date.now(), action, ok, files, latencyMs, meta })
 			.catch(() => { /* audit is observation, not control flow */ });
 	}
 

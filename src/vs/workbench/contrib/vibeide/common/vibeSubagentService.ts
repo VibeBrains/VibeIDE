@@ -330,7 +330,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		});
 
 		this._log.info(`[VibeSubagent] Spawning ${handoff.type} subagent ${id} for thread ${handoff.parentThreadId}`);
-		this._audit.append({ ts: Date.now(), action: 'subagent_spawned', ok: true, meta: { subagentId: id, type: handoff.type, parentThreadId: handoff.parentThreadId } });
+		this._audit.append({ actor: 'subagent', actorId: id, ts: Date.now(), action: 'subagent_spawned', ok: true, meta: { subagentId: id, type: handoff.type, parentThreadId: handoff.parentThreadId } });
 
 		// Cumulative role budget. `maxTokens` caps one run; this caps the role across many, so a
 		// role that already spent its allowance does not start at all. The refusal is recorded as
@@ -576,7 +576,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			summary: result.summary,
 			failureReason: result.status === 'success' ? undefined : result.reason,
 		});
-		this._audit.append({ ts: Date.now(), action: 'subagent_completed', ok: result.status === 'success', meta: { subagentId: entry.id, status: result.status, tokensUsed: result.tokensUsed } });
+		this._audit.append({ actor: 'subagent', actorId: entry.id, ts: Date.now(), action: 'subagent_completed', ok: result.status === 'success', meta: { subagentId: entry.id, status: result.status, tokensUsed: result.tokensUsed } });
 
 		const waiter = this._waiters.get(entry.id);
 		if (waiter) {

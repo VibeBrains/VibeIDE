@@ -123,6 +123,7 @@ class VibeVerifyGateService extends Disposable implements IVibeVerifyGateService
 			if (this._auditLogService.isEnabled()) {
 				void this._auditLogService.append({
 					ts: Date.now(),
+					actor: 'agent',
 					action: 'verify_gate:result',
 					ok: passed,
 					latencyMs: Date.now() - start,
@@ -137,6 +138,7 @@ class VibeVerifyGateService extends Disposable implements IVibeVerifyGateService
 			if (this._auditLogService.isEnabled()) {
 				void this._auditLogService.append({
 					ts: Date.now(),
+					actor: 'agent',
 					action: 'verify_gate:result',
 					ok: false,
 					latencyMs: Date.now() - start,

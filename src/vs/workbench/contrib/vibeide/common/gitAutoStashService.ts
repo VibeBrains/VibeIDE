@@ -154,6 +154,7 @@ class GitAutoStashService extends Disposable implements IGitAutoStashService {
 			if (this._auditLogService.isEnabled()) {
 				await this._auditLogService.append({
 					ts: Date.now(),
+					actor: 'agent',
 					action: 'git:stash',
 					ok: true,
 					meta: { operationId, stashRef },
@@ -166,6 +167,7 @@ class GitAutoStashService extends Disposable implements IGitAutoStashService {
 			if (this._auditLogService.isEnabled()) {
 				await this._auditLogService.append({
 					ts: Date.now(),
+					actor: 'agent',
 					action: 'git:stash',
 					ok: false,
 					meta: { operationId, error: String(error) },
@@ -201,6 +203,7 @@ class GitAutoStashService extends Disposable implements IGitAutoStashService {
 			if (this._auditLogService.isEnabled()) {
 				await this._auditLogService.append({
 					ts: Date.now(),
+					actor: 'agent',
 					action: 'git:stash:restore',
 					ok: true,
 					meta: { stashRef },
@@ -217,6 +220,7 @@ class GitAutoStashService extends Disposable implements IGitAutoStashService {
 			if (this._auditLogService.isEnabled()) {
 				await this._auditLogService.append({
 					ts: Date.now(),
+					actor: 'agent',
 					action: 'git:stash:restore',
 					ok: false,
 					meta: { stashRef, error: String(error) },

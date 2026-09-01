@@ -60,6 +60,7 @@ class VibeRefactorAuditService extends Disposable implements IVibeRefactorAuditS
 		if (this._auditLogService.isEnabled()) {
 			this._auditLogService.append({
 				ts: Date.now(),
+				actor: 'agent',
 				action: 'apply',
 				files: operation.affectedFiles,
 				ok: true,

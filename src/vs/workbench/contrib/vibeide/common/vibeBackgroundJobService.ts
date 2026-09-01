@@ -253,7 +253,7 @@ class VibeBackgroundJobService extends Disposable implements IVibeBackgroundJobS
 		const exceeded = currentSessionTokensUsed >= ceiling;
 		if (exceeded) {
 			this._log.warn(`[VibeBackgroundJob] Budget exceeded for job ${job.jobId}: ${currentSessionTokensUsed} >= ${ceiling}`);
-			this._audit.append({ ts: Date.now(), action: 'background_job_budget_exceeded', ok: false, meta: { jobId: job.jobId, tokensUsed: currentSessionTokensUsed, ceiling } });
+			this._audit.append({ actor: 'system', ts: Date.now(), action: 'background_job_budget_exceeded', ok: false, meta: { jobId: job.jobId, tokensUsed: currentSessionTokensUsed, ceiling } });
 		}
 		return { exceeded, tokensUsed: currentSessionTokensUsed, ceiling };
 	}

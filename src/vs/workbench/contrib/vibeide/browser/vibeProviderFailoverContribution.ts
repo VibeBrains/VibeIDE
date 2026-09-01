@@ -110,7 +110,7 @@ export class VibeProviderFailoverContribution extends Disposable implements IWor
 						decision.to,
 					),
 			});
-			void this._audit.append({ ts: Date.now(), action: 'provider_failover_switch', ok: true, meta: { from: decision.from, to: decision.to } });
+			void this._audit.append({ actor: 'system', ts: Date.now(), action: 'provider_failover_switch', ok: true, meta: { from: decision.from, to: decision.to } });
 		} else if (decision.kind === 'chain-exhausted') {
 			this._log.error(`[ProviderFailover] All providers exhausted — last tried: ${decision.lastTriedProviderId}`);
 			this._notifications.notify({

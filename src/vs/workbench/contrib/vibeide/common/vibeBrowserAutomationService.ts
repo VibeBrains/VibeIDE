@@ -162,7 +162,7 @@ class VibeBrowserAutomationService extends Disposable implements IVibeBrowserAut
 		this._runs.set(runId, entry);
 		this._onRunStatusChanged.fire({ runId, status: 'pending_consent' });
 		this._log.info(`[VibeBrowserAutomation] Run ${runId} proposed for thread ${request.parentThreadId}: ${request.goal.slice(0, 80)}`);
-		this._audit.append({ ts: Date.now(), action: 'browser_run_proposed', ok: true, meta: { runId, goal: request.goal.slice(0, 200) } });
+		this._audit.append({ actor: 'agent', ts: Date.now(), action: 'browser_run_proposed', ok: true, meta: { runId, goal: request.goal.slice(0, 200) } });
 
 		return runId;
 	}
@@ -183,7 +183,7 @@ class VibeBrowserAutomationService extends Disposable implements IVibeBrowserAut
 		entry.result = result;
 		this._onRunStatusChanged.fire({ runId, status: 'rejected' });
 		entry.resolve?.(result);
-		this._audit.append({ ts: Date.now(), action: 'browser_run_proposed', ok: false, meta: { runId, reason: 'user_rejected' } });
+		this._audit.append({ actor: 'agent', ts: Date.now(), action: 'browser_run_proposed', ok: false, meta: { runId, reason: 'user_rejected' } });
 	}
 
 	awaitResult(runId: string): Promise<BrowserRunResult> {
@@ -213,7 +213,7 @@ class VibeBrowserAutomationService extends Disposable implements IVibeBrowserAut
 			entry.status = result.status as BrowserRunStatus;
 			this._onRunStatusChanged.fire({ runId: entry.runId, status: entry.status });
 			entry.resolve?.(result);
-			this._audit.append({ ts: Date.now(), action: 'browser_run_proposed', ok: result.status === 'completed', meta: { runId: entry.runId, status: result.status, elapsedMs: result.elapsedMs } });
+			this._audit.append({ actor: 'agent', ts: Date.now(), action: 'browser_run_proposed', ok: result.status === 'completed', meta: { runId: entry.runId, status: result.status, elapsedMs: result.elapsedMs } });
 		} catch (err) {
 			const result: BrowserRunResult = { runId: entry.runId, status: 'failed', message: String(err), elapsedMs: Date.now() - start };
 			entry.result = result;

@@ -186,7 +186,7 @@ class VibeMCPSamplingService extends Disposable implements IVibeMCPSamplingServi
 		}
 
 		this._log.info(`[VibeMCPSampling] Incoming sampling request ${request.requestId} from ${request.mcpServerId}`);
-		this._audit.append({ ts: Date.now(), action: 'mcp_sampling_request', ok: true, meta: { requestId: request.requestId, mcpServerId: request.mcpServerId } });
+		this._audit.append({ actor: 'system', ts: Date.now(), action: 'mcp_sampling_request', ok: true, meta: { requestId: request.requestId, mcpServerId: request.mcpServerId } });
 
 		const approvalPolicy = this._config.getValue<string>('vibeide.mcp.sampling.requireApproval') ?? 'always';
 		const samplingRequest: SamplingRequest = {
@@ -213,7 +213,7 @@ class VibeMCPSamplingService extends Disposable implements IVibeMCPSamplingServi
 		});
 
 		if (!confirmed.confirmed) {
-			this._audit.append({ ts: Date.now(), action: 'mcp_sampling_request', ok: false, meta: { requestId: request.requestId, reason: 'user_rejected' } });
+			this._audit.append({ actor: 'system', ts: Date.now(), action: 'mcp_sampling_request', ok: false, meta: { requestId: request.requestId, reason: 'user_rejected' } });
 			return { requestId: request.requestId, status: 'rejected', reason: 'User rejected MCP sampling request.' };
 		}
 

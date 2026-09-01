@@ -100,6 +100,7 @@ export class VibeAgentHistoryService extends Disposable implements IVibeAgentHis
 		if (this._auditLogService.isEnabled()) {
 			this._auditLogService.append({
 				ts: full.timestamp,
+				actor: 'agent',
 				action: entry.action as AuditEvent['action'],
 				files: entry.files,
 				ok: true,

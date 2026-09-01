@@ -200,7 +200,7 @@ class VibeSubagentOrchestratorService extends Disposable implements IVibeSubagen
 		const hasImages = !!(images && images.length);
 		const route = buildRoute(taskText, { hasImages });
 		this._log.info(`[SubagentOrchestrator] route ${route.kind}: ${route.roles.join(' → ')}${route.securityAdded ? ' (+security)' : ''}`);
-		this._audit.append({ ts: Date.now(), action: 'agent_route_started', ok: true, meta: { kind: route.kind, roles: route.roles, securityAdded: route.securityAdded } });
+		this._audit.append({ actor: 'agent', ts: Date.now(), action: 'agent_route_started', ok: true, meta: { kind: route.kind, roles: route.roles, securityAdded: route.securityAdded } });
 
 		const results: SubagentResult[] = [];
 		let priorSummary = '';
@@ -419,7 +419,7 @@ class VibeSubagentOrchestratorService extends Disposable implements IVibeSubagen
 				artifacts: result.artifacts,
 				completedAt: Date.now(),
 			};
-			this._audit.append({ ts: Date.now(), action: 'plan_step_completed', ok: true, meta: { stepId, planId, subagentId: result.subagentId, artifacts: result.artifacts } });
+			this._audit.append({ actor: 'subagent', actorId: result.subagentId, ts: Date.now(), action: 'plan_step_completed', ok: true, meta: { stepId, planId, subagentId: result.subagentId, artifacts: result.artifacts } });
 
 		} else if (result.status === 'failed' || result.status === 'stopped') {
 			// 'stopped' (limit hit, partial work) goes through the same recover-or-skip retry machinery
@@ -447,7 +447,7 @@ class VibeSubagentOrchestratorService extends Disposable implements IVibeSubagen
 				reason: result.reason ?? `Failed after ${retriesUsed} retries`,
 				completedAt: Date.now(),
 			};
-			this._audit.append({ ts: Date.now(), action: 'plan_step_completed', ok: false, meta: { stepId, planId, status: completionStatus, reason: record.reason } });
+			this._audit.append({ actor: 'subagent', ts: Date.now(), action: 'plan_step_completed', ok: false, meta: { stepId, planId, status: completionStatus, reason: record.reason } });
 			this._log.warn(`[SubagentOrchestrator] Step ${stepId} exhausted retries — ${completionStatus}`);
 
 		} else {
@@ -461,7 +461,7 @@ class VibeSubagentOrchestratorService extends Disposable implements IVibeSubagen
 				reason: result.reason,
 				completedAt: Date.now(),
 			};
-			this._audit.append({ ts: Date.now(), action: 'plan_step_completed', ok: false, meta: { stepId, planId, status: 'skipped', reason: result.reason } });
+			this._audit.append({ actor: 'subagent', ts: Date.now(), action: 'plan_step_completed', ok: false, meta: { stepId, planId, status: 'skipped', reason: result.reason } });
 		}
 
 		// Record in history

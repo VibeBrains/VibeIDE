@@ -2285,6 +2285,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				const sessionActive = this.configurationService.getValue<string[]>('vibeide.skills.sessionActiveIds') ?? [];
 				void this.auditLogService.append({
 					ts: Date.now(),
+					actor: 'system',
 					action: 'skill_suggestion',
 					ok: true,
 					meta: {

@@ -78,6 +78,7 @@ class RecoveryAudit {
 		if (auditLogService?.isEnabled()) {
 			auditLogService.append({
 				ts: Date.now(),
+				actor: 'system',
 				action: 'rollback',
 				ok: success,
 				meta: {

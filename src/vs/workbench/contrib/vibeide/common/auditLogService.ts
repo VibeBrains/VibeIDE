@@ -60,9 +60,30 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 	},
 });
 
+/**
+ * Who caused the event.
+ *
+ * A log that records only WHAT happened cannot answer the question that matters after an incident:
+ * did a person do this, or did the agent do it on their behalf? NIST puts it plainly — sharing one
+ * identity between a human and an agent «creates accountability gaps», and an agent should be a
+ * first-class subject with its own identifier rather than a shadow of the user's.
+ *
+ *   - `human`    — the person acted directly (typed a prompt, accepted a diff, granted trust).
+ *   - `agent`    — the main agent acted inside a turn, on the person's behalf.
+ *   - `subagent` — a delegated role acted; `actorId` names which one.
+ *   - `system`   — VibeIDE itself acted with nobody asking (rotation, breaker recovery, schedules).
+ */
+export type AuditActor = 'human' | 'agent' | 'subagent' | 'system';
+
 export interface AuditEvent {
 	ts: number;
-	user?: string;
+	/**
+	 * Required on purpose. An optional field would be left unset at half the call sites — which is
+	 * exactly what happened to the `user` field it replaces: declared, and never once filled in.
+	 */
+	actor: AuditActor;
+	/** Which delegate acted — subagent role, plan id, run id. Absent for `human` and `system`. */
+	actorId?: string;
 	action: 'prompt' | 'reply' | 'diff_preview' | 'apply' | 'undo' | 'rollback' | 'snapshot:create' | 'snapshot:restore' | 'snapshot:discard' | 'git:stash' | 'git:stash:restore' | 'skill_suggestion'
 	| 'plan_started' | 'plan_step_completed' | 'plan_failed' | 'plan_resumed'
 	| 'advisory_territorial_lock'
@@ -108,6 +129,8 @@ class AuditLogService extends Disposable implements IAuditLogService {
 
 	private _enabled = false;
 	private _logPath: URI | null = null;
+	/** Where the log lived before it was moved out of the agent's reach; migrated once on startup. */
+	private _legacyLogPath: URI | undefined;
 	private _pendingWrites: AuditEvent[] = [];
 	private _writeScheduler: RunOnceScheduler;
 	private _rotationSizeMB: number = 10;
@@ -142,12 +165,23 @@ class AuditLogService extends Disposable implements IAuditLogService {
 		if (customPath) {
 			this._logPath = URI.file(customPath);
 		} else {
+			// Managed userdata, NOT `<workspace>/.vibe/audit.jsonl`.
+			//
+			// The log used to live in the working folder — inside the reach of the agent's own file
+			// tools, which is exactly the surface an agent goes for when it wants its trail gone. In
+			// the OpenAI/Hugging Face incident agents edited and deleted logs inside their container
+			// and tried to trigger an environment reset to wipe history (METR, 2026-08-26). A record
+			// the recorded party can rewrite is not a record.
+			//
+			// Kept per workspace (subfolder by workspace id) so projects do not bleed into one
+			// shared file — that was the one thing the old location got right.
 			const workspace = this._workspaceContextService.getWorkspace();
-			if (workspace.folders.length > 0) {
-				this._logPath = joinPath(workspace.folders[0].uri, '.vibe', 'audit.jsonl');
-			} else {
-				this._logPath = joinPath(this._environmentService.workspaceStorageHome, 'audit.jsonl');
-			}
+			this._logPath = workspace.folders.length > 0
+				? joinPath(this._environmentService.workspaceStorageHome, workspace.id, 'audit.jsonl')
+				: joinPath(this._environmentService.workspaceStorageHome, 'audit.jsonl');
+			this._legacyLogPath = workspace.folders.length > 0
+				? joinPath(workspace.folders[0].uri, '.vibe', 'audit.jsonl')
+				: undefined;
 		}
 
 		// Initialize log file if needed
@@ -238,6 +272,8 @@ class AuditLogService extends Disposable implements IAuditLogService {
 			// Folder might already exist
 		}
 
+		await this._migrateLegacyLog();
+
 		// Check current file size
 		try {
 			const stat = await this._fileService.stat(this._logPath);
@@ -245,6 +281,35 @@ class AuditLogService extends Disposable implements IAuditLogService {
 		} catch {
 			// File doesn't exist yet, will be created on first write
 			this._currentFileSize = 0;
+		}
+	}
+
+	/**
+	 * Move a pre-existing `<workspace>/.vibe/audit.jsonl` to the managed location, once.
+	 *
+	 * Silently abandoning it would be the wrong kind of quiet: that file is somebody's history, and
+	 * leaving a copy behind keeps it editable by the very agent the log is about. Moving is only
+	 * safe while the destination is still empty — if both exist we touch neither and say so, because
+	 * merging two append-only logs by guesswork would corrupt the order of events in both.
+	 */
+	private async _migrateLegacyLog(): Promise<void> {
+		const legacy = this._legacyLogPath;
+		if (!legacy || !this._logPath) {
+			return;
+		}
+		this._legacyLogPath = undefined; // once per configuration change, not once per write
+		try {
+			if (!(await this._fileService.exists(legacy))) {
+				return;
+			}
+			if (await this._fileService.exists(this._logPath)) {
+				vibeLog.warn('auditLog', `[AuditLog] старый лог остался в рабочей папке (${legacy.fsPath}): в новом месте уже есть журнал, сливать два append-only лога наугад нельзя — перенесите или удалите вручную`);
+				return;
+			}
+			await this._fileService.move(legacy, this._logPath);
+			vibeLog.info('auditLog', `[AuditLog] журнал перенесён из рабочей папки в ${this._logPath.fsPath} — там он вне досягаемости файловых инструментов агента`);
+		} catch (err) {
+			vibeLog.error('auditLog', '[AuditLog] не удалось перенести старый журнал:', err);
 		}
 	}
 

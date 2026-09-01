@@ -80,6 +80,7 @@ class VibePartialRollbackService extends Disposable implements IVibePartialRollb
 		if (this._auditLogService.isEnabled()) {
 			await this._auditLogService.append({
 				ts: Date.now(),
+				actor: 'human',
 				action: 'rollback',
 				files: toRestore,
 				ok: true,
