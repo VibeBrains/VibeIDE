@@ -28,6 +28,7 @@ import { Extensions, IOutputChannelRegistry, IOutputService } from '../../../ser
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { HeapSnapshot, classifyHeapGrowth, decodeHeapSnapshot, renderHeapGrowthMarkdown } from '../common/heapGrowthClassifier.js';
+import { VIBE_DEV_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 const STORAGE_KEY = 'vibeide.dev.memorySnapshotBaseline.v1';
 const CHANNEL_ID = 'vibeide-memory-snapshot';
@@ -62,7 +63,7 @@ class VibeMemorySnapshotAction extends Action2 {
 		super({
 			id: VibeMemorySnapshotAction.ID,
 			title: localize2('vibeide.dev.memorySnapshot.title', 'Снять снапшот памяти'),
-			category: { value: 'VibeIDE Dev', original: 'VibeIDE Dev' },
+			category: VIBE_DEV_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

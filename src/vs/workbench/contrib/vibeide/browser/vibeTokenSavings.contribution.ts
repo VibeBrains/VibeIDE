@@ -9,6 +9,7 @@ import { Action2, registerAction2 } from '../../../../platform/actions/common/ac
 import { ServicesAccessor } from '../../../../editor/browser/editorExtensions.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IVibeTokenSavingsService } from './vibeTokenSavingsService.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 registerAction2(
 	class VibeTokenSavingsReport extends Action2 {
@@ -16,7 +17,7 @@ registerAction2(
 			super({
 				id: 'vibeide.tokenSavings.report',
 				title: localize2('vibeide.tokenSavings.report', 'Экономия на сжатии вывода'),
-				category: localize2('vibeCategory', 'VibeIDE'),
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 			});
 		}

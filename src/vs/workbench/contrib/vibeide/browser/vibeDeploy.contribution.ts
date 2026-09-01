@@ -18,6 +18,7 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { ServicesAccessor } from '../../../../editor/browser/editorExtensions.js';
 import { IChatThreadService } from './chatThreadService.js';
 import { VIBE_SERVER_VIEW_ID } from './vibeServer/vibeServerConstants.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 const DEPLOY_REQUEST = localize('vibeide.vibeDeploy.request', "Задеплой этот проект, используя скилл vibe-deploy. Сначала проанализируй проект и покажи план; не выполняй внешних действий (создание инфраструктуры, push, смена DNS) без моего подтверждения.");
 
@@ -28,7 +29,7 @@ registerAction2(
 				id: 'vibeide.vibeDeploy.deploy',
 				title: localize2('vibeDeploy.deploy', 'Vibe Deploy: Задеплоить проект'),
 				icon: Codicon.cloudUpload,
-				category: localize2('vibeCategory', 'VibeIDE'),
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 				menu: [
 					{ id: MenuId.ViewTitle, group: 'navigation', order: 8, when: ContextKeyExpr.equals('view', VIBE_SERVER_VIEW_ID) },

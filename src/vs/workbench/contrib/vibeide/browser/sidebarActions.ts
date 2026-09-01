@@ -269,7 +269,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibe.webSearch',
 			title: localize2('vibeWebSearch', 'Поиск в интернете'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
@@ -304,7 +304,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibe.browseUrl',
 			title: localize2('vibeBrowseUrl', 'Открыть URL в ридере'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

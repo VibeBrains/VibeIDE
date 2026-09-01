@@ -16,25 +16,33 @@
  * Отдельно предупреждает о правилах, чьё наблюдение старше года: не ошибка, но повод перепроверить.
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+// `scripts/package.json` pins CommonJS, so this file uses require() like its neighbours.
+const fs: typeof import('fs') = require('fs');
+const path: typeof import('path') = require('path');
 
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = path.join(__dirname, '..');
 const CATALOGUE = path.join(ROOT, 'resources', 'model-quirks.json');
 const DRAFTS = path.join(ROOT, 'resources', 'model-quirks-drafts.txt');
 const STALE_AFTER_DAYS = 365;
 
-const rules = JSON.parse(fs.readFileSync(CATALOGUE, 'utf8')).rules ?? [];
+/** Shape read from the catalogue — only the fields this check judges. */
+interface QuirkRule {
+	readonly match: string;
+	readonly provider?: string;
+	readonly source?: string;
+	readonly observedAt?: string;
+}
+
+const rules: QuirkRule[] = JSON.parse(fs.readFileSync(CATALOGUE, 'utf8')).rules ?? [];
 const allowed = new Set(
 	fs.existsSync(DRAFTS)
 		? fs.readFileSync(DRAFTS, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))
 		: []
 );
 
-const keyOf = rule => `${rule.provider ?? '*'}::${rule.match}`;
-const missing = [];
-const stale = [];
+const keyOf = (rule: QuirkRule) => `${rule.provider ?? '*'}::${rule.match}`;
+const missing: string[] = [];
+const stale: string[] = [];
 const now = Date.now();
 
 for (const rule of rules) {
@@ -50,7 +58,7 @@ for (const rule of rules) {
 
 console.log('🔎 Происхождение правил каталога квирков');
 console.log('─'.repeat(60));
-console.log(`  правил: ${rules.length}, с источником: ${rules.filter(r => r.source).length}, исторических черновиков: ${allowed.size}`);
+console.log(`  правил: ${rules.length}, с источником: ${rules.filter((r: QuirkRule) => r.source).length}, исторических черновиков: ${allowed.size}`);
 
 if (stale.length) {
 	console.log(`\n⚠️  Наблюдение старше года (${stale.length}) — стоит перепроверить:`);

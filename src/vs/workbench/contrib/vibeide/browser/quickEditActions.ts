@@ -95,7 +95,7 @@ registerAction2(class extends Action2 {
 			id: 'vibe.inlineEdit',
 			f1: true,
 			title: localize2('vibeInlineEditAction', 'Правка на месте (AI)'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyE,
 				weight: KeybindingWeight.ExternalExtension,

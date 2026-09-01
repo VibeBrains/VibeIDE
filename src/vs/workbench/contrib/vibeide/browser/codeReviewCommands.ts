@@ -17,6 +17,7 @@ import { KeybindingWeight } from '../../../../platform/keybinding/common/keybind
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { URI } from '../../../../base/common/uri.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 /**
  * Command to review the current file
@@ -27,7 +28,7 @@ registerAction2(class extends Action2 {
 			id: 'vibe.codeReview.reviewFile',
 			f1: true,
 			title: localize2('vibeCodeReviewFile', 'Провести код-ревью этого файла'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyR,
 				weight: KeybindingWeight.ExternalExtension,

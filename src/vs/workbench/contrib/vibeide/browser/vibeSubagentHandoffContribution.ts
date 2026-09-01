@@ -19,6 +19,7 @@ import { IQuickInputService } from '../../../../platform/quickinput/common/quick
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IVibeSubagentOrchestratorService } from '../common/vibeSubagentOrchestratorService.js';
 import { IVibeSubagentRegistryService } from '../common/vibeSubagentRegistryService.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 const RESUME_COMMAND_ID = 'vibeide.subagent.resumeHandoff';
 
@@ -27,7 +28,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: RESUME_COMMAND_ID,
 			title: localize2('vibeAgents.resumeHandoff', 'Vibe Agents: Продолжить остановленную роль'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

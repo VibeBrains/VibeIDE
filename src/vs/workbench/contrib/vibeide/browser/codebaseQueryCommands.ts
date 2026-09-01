@@ -17,6 +17,7 @@ import { KeybindingWeight } from '../../../../platform/keybinding/common/keybind
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 /**
  * Command to query the codebase using natural language
@@ -27,7 +28,7 @@ registerAction2(class extends Action2 {
 			id: 'vibe.codebase.query',
 			f1: true,
 			title: localize2('vibeCodebaseQuery', 'Спросить по кодовой базе'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyQ,
 				weight: KeybindingWeight.ExternalExtension,

@@ -95,7 +95,7 @@
     "docs-graph-check": "node scripts/vibe-docs-graph.mjs --check",
     "providers-fields-check": "node scripts/vibe-providers-fields.mjs",
     "quirks-conflicts-check": "node scripts/vibe-quirks-conflicts.mjs",
-    "quirks-provenance-check": "node scripts/vibe-quirks-provenance.mjs",
+    "quirks-provenance-check": "node scripts/vibe-quirks-provenance.ts",
     "command-titles-check": "node scripts/vibe-command-titles.ts",
     "generated-fresh-check": "node scripts/vibe-generated-fresh.ts",
     "audit-actor-check": "node scripts/vibe-audit-actor.ts",

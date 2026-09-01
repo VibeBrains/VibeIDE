@@ -15,6 +15,7 @@ import { INotificationService, Severity } from '../../../../platform/notificatio
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { vibeLog } from '../common/vibeLog.js';
 import { IVibeNotifySoundService } from './vibeNotifySoundService.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 // Lets the user hear the currently-selected notification sound from the command palette.
 // The richer per-variant click-preview lives in the settings UI (Уведомления) and the «VibeIDE Звуки» editor.
@@ -23,7 +24,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.notify.sound.preview',
 			title: localize2('vibeide.notify.sound.preview', 'Прослушать звук уведомления'),
-			category: localize2('vibeide.notify.category', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

@@ -4653,7 +4653,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		vibeLog.debug('toolExec', 'start', { tool: toolName, hint: _toolHint, mcp: mcpServerName ?? null }); recordChatTrace('toolExec:start', { tool: toolName, hint: _toolHint });
 		// Audit the access itself: until now the only record that the agent touched the machine lived
 		// in the debug trace, which is not retained and not covered by the log's export/erase pair.
-		this._auditToolCall('tool_call:start', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, true);
+		this._auditToolCall('tool_call:start', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, true, threadId);
 
 		let interrupted = false;
 		let resolveInterruptor: (r: () => void) => void = () => { };
@@ -4774,7 +4774,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			const errorMessage = getErrorMessage(error);
 			this._agentActivityLog.logError(`${toolActivityLabel}: ${errorMessage}`);
 			vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false });
-			this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, false, Date.now() - _toolExecStartMs);
+			this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, false, threadId, Date.now() - _toolExecStartMs);
 			// A failed edit leaves the cache stale in the one case that matters: the tool refused
 			// BECAUSE the file changed under the agent. Invalidation used to live past the try/catch,
 			// so an error returned before it ran — the agent was then told to re-read, got the cached
@@ -4809,7 +4809,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			const errorMessage = this.toolErrMsgs.errWhenStringifying(error);
 			this._agentActivityLog.logError(`${toolActivityLabel}: stringify ${errorMessage}`);
 			vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false });
-			this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, false, Date.now() - _toolExecStartMs);
+			this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, false, threadId, Date.now() - _toolExecStartMs);
 			// A failed edit leaves the cache stale in the one case that matters: the tool refused
 			// BECAUSE the file changed under the agent. Invalidation used to live past the try/catch,
 			// so an error returned before it ran — the agent was then told to re-read, got the cached
@@ -4847,7 +4847,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			&& (toolResult as { resolveReason?: TerminalResolveReason }).resolveReason?.type === 'timeout';
 		const _toolOk = !_foregroundTerminalTimedOut;
 		vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: _toolOk }); recordChatTrace('toolExec:done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: _toolOk });
-		this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, _toolOk, Date.now() - _toolExecStartMs);
+		this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, _toolOk, threadId, Date.now() - _toolExecStartMs);
 		this._updateLatestTool(threadId, { role: 'tool', type: 'success', params: toolParams, result: toolResult, name: toolName, content: toolResultStr, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
 		this._agentActivityLog.logFinished(toolActivityLabel);
 
@@ -8673,11 +8673,15 @@ We only need to do it for files that were edited since `from`, ie files between 
 		action: 'tool_call:start' | 'tool_call:done',
 		input: ToolCallAuditInput,
 		ok: boolean,
+		threadId: string,
 		latencyMs?: number,
 	): void {
 		if (!this._auditLogService.isEnabled()) { return; }
 		const { files, meta } = buildToolCallAudit(input);
-		void this._auditLogService.append({ actor: 'agent', ts: Date.now(), action, ok, files, latencyMs, meta })
+		// `actorId` is the thread: it is what ties the agent's action back to the person who asked
+		// for it. Without it the log says «an agent edited this file» and stops there — and the one
+		// question worth asking afterwards is on whose behalf.
+		void this._auditLogService.append({ actor: 'agent', actorId: threadId, ts: Date.now(), action, ok, files, latencyMs, meta })
 			.catch(() => { /* audit is observation, not control flow */ });
 	}
 

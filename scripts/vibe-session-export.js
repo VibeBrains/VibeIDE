@@ -41,13 +41,56 @@ const EMBED_PLAN_STEPS = args.includes('--embed-plan-steps');
 
 const WORKSPACE = process.cwd();
 
+/**
+ * Every place an audit log can live, newest location first.
+ *
+ * The journal moved out of `<workspace>/.vibe/` into managed userdata — it used to sit inside the
+ * reach of the agent's own file tools. Export and erasure MUST follow it: a GDPR «delete all» that
+ * quietly cleans an empty legacy path and reports success is worse than one that fails loudly,
+ * because the data stays and the user is told it is gone. The old path is still checked — a machine
+ * that has not launched the new build yet keeps its log there.
+ */
+function auditLogPaths() {
+	const home = process.env.HOME || process.env.USERPROFILE || '';
+	const roots = [];
+	if (home) {
+		// Same folders VS Code derives from the product name; both product and dev profiles.
+		const bases = process.platform === 'darwin'
+			? [path.join(home, 'Library', 'Application Support')]
+			: process.platform === 'win32'
+				? [process.env.APPDATA || path.join(home, 'AppData', 'Roaming')]
+				: [process.env.XDG_CONFIG_HOME || path.join(home, '.config')];
+		for (const base of bases) {
+			for (const app of ['vibeide', 'vibeide-dev-dev', 'vibeide-dev']) {
+				roots.push(path.join(base, app, 'User', 'workspaceStorage'));
+			}
+		}
+	}
+	const found = [];
+	for (const root of roots) {
+		if (!fs.existsSync(root)) { continue; }
+		for (const entry of fs.readdirSync(root)) {
+			const candidate = path.join(root, entry, 'audit.jsonl');
+			if (fs.existsSync(candidate)) { found.push(candidate); }
+		}
+	}
+	// Legacy location, still read so nothing is left behind on an older profile.
+	const legacy = path.join(WORKSPACE, '.vibe', 'audit.jsonl');
+	if (fs.existsSync(legacy)) { found.push(legacy); }
+	return found;
+}
+
 function loadAuditLog() {
-	const auditPath = path.join(WORKSPACE, '.vibe', 'audit.jsonl');
-	if (!fs.existsSync(auditPath)) {return [];}
-	try {
-		return fs.readFileSync(auditPath, 'utf-8').trim().split('\n').filter(Boolean)
-			.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-	} catch { return []; }
+	const events = [];
+	for (const auditPath of auditLogPaths()) {
+		try {
+			const parsed = fs.readFileSync(auditPath, 'utf-8').trim().split('\n').filter(Boolean)
+				.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+			events.push(...parsed);
+		} catch { /* an unreadable file is skipped, the rest still export */ }
+	}
+	// Merged from several files, so order by time rather than by which file came first.
+	return events.sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
 }
 
 function anonymize(obj) {
@@ -64,10 +107,12 @@ function anonymize(obj) {
 
 if (DELETE_ALL) {
 	console.log('⚠️  GDPR erasure: deleting all audit logs...');
-	const auditPath = path.join(WORKSPACE, '.vibe', 'audit.jsonl');
 	const snapshotsDir = path.join(WORKSPACE, '.vibe', 'snapshots');
 	let deleted = 0;
-	if (fs.existsSync(auditPath)) { fs.unlinkSync(auditPath); deleted++; }
+	for (const auditPath of auditLogPaths()) {
+		fs.unlinkSync(auditPath); deleted++;
+		console.log(`   removed ${auditPath}`);
+	}
 	if (fs.existsSync(snapshotsDir)) {
 		fs.readdirSync(snapshotsDir).forEach(f => {
 			fs.unlinkSync(path.join(snapshotsDir, f)); deleted++;

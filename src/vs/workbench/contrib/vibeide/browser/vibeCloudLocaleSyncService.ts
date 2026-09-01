@@ -31,6 +31,7 @@ import { INotificationService, Severity } from '../../../../platform/notificatio
 import { localize, localize2 } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { decideLocaleSync, describeLocaleSyncDecision, LocaleSyncDecision } from '../common/cloudLocaleSync.js';
+import { VIBE_CLOUD_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'vibeide',
@@ -204,7 +205,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'vibeide.cloud.syncLocale',
 			title: localize2('vibeide.cloud.syncLocale.title', 'Синхронизировать локаль с облаком'),
-			category: { value: 'VibeIDE Cloud', original: 'VibeIDE Cloud' },
+			category: VIBE_CLOUD_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}

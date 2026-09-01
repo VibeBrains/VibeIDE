@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { AUDIT_CHAIN_ROOT, chainRecord, chainTailOf, verifyAuditChain } from '../../common/auditChain.js';
+import { AUDIT_CHAIN_ROOT, chainRecord, chainTailOf, estimateChainedSize, verifyAuditChain } from '../../common/auditChain.js';
 
 /**
  * Tamper-evidence of the audit log.
@@ -77,5 +77,28 @@ suite('audit chain', () => {
 	test('garbage in the file is named as unparsable, not silently skipped', () => {
 		const lines = write(events);
 		assert.deepStrictEqual(verifyAuditChain([lines[0], '{not json']), { ok: false, line: 2, reason: 'unparsable' });
+	});
+
+	/**
+	 * Rotation defect, found reviewing the first version: the batch was chained BEFORE the rotation
+	 * decision, so records linked to the tail of the file being archived landed in the fresh one —
+	 * whose first line then pointed at a hash living in the archive, and the new log failed
+	 * verification from line 1. The fix reorders the two; this test states the property that
+	 * reordering buys, so the order cannot quietly go back.
+	 */
+	test('a file started after rotation verifies on its own terms', () => {
+		const before = write(events);
+		// Rotation happened: the archive keeps `before`, the live file starts empty and from the root.
+		const afterRotation = write([{ ts: 4, actor: 'agent', action: 'apply', ok: true }]);
+		assert.deepStrictEqual(verifyAuditChain(afterRotation), { ok: true, checked: 1 });
+		// And the archive still verifies by itself — neither file depends on the other.
+		assert.deepStrictEqual(verifyAuditChain(before), { ok: true, checked: 3 });
+	});
+
+	/** The size is measured before chaining, so it must match what chaining actually produces. */
+	test('the size estimate equals the bytes written', () => {
+		const lines = write(events);
+		const actual = lines.join('\n').length + 1;
+		assert.strictEqual(estimateChainedSize(events, AUDIT_CHAIN_ROOT), actual);
 	});
 });

@@ -17,7 +17,7 @@ import { IEnvironmentService } from '../../../../platform/environment/common/env
 import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
-import { AUDIT_CHAIN_ROOT, chainRecord, chainTailOf } from './auditChain.js';
+import { AUDIT_CHAIN_ROOT, AuditChainVerdict, chainRecord, chainTailOf, estimateChainedSize, verifyAuditChain } from './auditChain.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 
 import { localize } from '../../../../nls.js';
@@ -123,6 +123,15 @@ export interface IAuditLogService {
 
 	/** VibeIDE: Query recent audit events */
 	queryRecent(limit?: number): Promise<AuditEvent[]>;
+
+	/**
+	 * Check the hash chain of the current log.
+	 *
+	 * Writing the chain and never offering to read it would be theatre: the file would carry
+	 * evidence nobody can look at. `undefined` when logging is off or the file does not exist yet —
+	 * that is «nothing to check», not «checked and fine», and the caller must not conflate them.
+	 */
+	verifyIntegrity(): Promise<AuditChainVerdict | undefined>;
 }
 
 class AuditLogService extends Disposable implements IAuditLogService {
@@ -167,6 +176,10 @@ class AuditLogService extends Disposable implements IAuditLogService {
 
 		if (customPath) {
 			this._logPath = URI.file(customPath);
+			// No migration into a folder the user picked: moving their old log there is a decision
+			// we were not asked to make, and a stale value here would do exactly that after the
+			// setting changed mid-session.
+			this._legacyLogPath = undefined;
 		} else {
 			// Managed userdata, NOT `<workspace>/.vibe/audit.jsonl`.
 			//
@@ -327,6 +340,16 @@ class AuditLogService extends Disposable implements IAuditLogService {
 		}
 
 		const events = this._pendingWrites.splice(0);
+
+		// Rotate FIRST, then chain. The other order looked harmless and was not: the records were
+		// linked to the tail of the file being archived, then landed in the fresh one — whose very
+		// first line pointed at a hash living in the archive, so the new log failed verification
+		// from line 1. Rotation is judged on the serialized size, so measure it before deciding.
+		const sizeBytes = estimateChainedSize(events, this._chainTail);
+		if (this._currentFileSize + sizeBytes > this._rotationSizeMB * 1024 * 1024) {
+			await this._rotateLogFile();
+		}
+
 		// Chain the batch: every record carries the hash of the one before it, so a line cut out of
 		// the middle stops adding up at a nameable place instead of vanishing without trace.
 		const chained: string[] = [];
@@ -335,14 +358,7 @@ class AuditLogService extends Disposable implements IAuditLogService {
 			chained.push(line);
 			this._chainTail = hash;
 		}
-		const lines = chained.join('\n') + '\n';
-		const buffer = VSBuffer.fromString(lines);
-		const sizeBytes = buffer.byteLength;
-
-		// Check if rotation needed
-		if (this._currentFileSize + sizeBytes > this._rotationSizeMB * 1024 * 1024) {
-			await this._rotateLogFile();
-		}
+		const buffer = VSBuffer.fromString(chained.join('\n') + '\n');
 
 		try {
 			// Append to file (non-blocking)
@@ -356,9 +372,24 @@ class AuditLogService extends Disposable implements IAuditLogService {
 			}
 			const combined = VSBuffer.concat([existingContent, buffer]);
 			await this._fileService.writeFile(this._logPath, combined);
-			this._currentFileSize += sizeBytes;
+			this._currentFileSize += buffer.byteLength;
 		} catch (err) {
 			vibeLog.error('auditLog', '[AuditLog] Failed to write audit log:', err);
+		}
+	}
+
+	async verifyIntegrity(): Promise<AuditChainVerdict | undefined> {
+		if (!this._enabled || !this._logPath) {
+			return undefined;
+		}
+		// Flush first: records still sitting in the buffer are not in the file, and a verdict on a
+		// half-written file would accuse the log of a gap we made ourselves.
+		await this._flushWrites();
+		try {
+			const content = await this._fileService.readFile(this._logPath);
+			return verifyAuditChain(content.value.toString().split('\n'));
+		} catch {
+			return undefined;
 		}
 	}
 

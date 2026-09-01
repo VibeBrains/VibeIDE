@@ -62,6 +62,7 @@ export class MockAuditLogService implements IAuditLogService {
 	async queryRecent(limit: number = 100): Promise<AuditEvent[]> {
 		return this.events.slice(-limit);
 	}
+	async verifyIntegrity() { return undefined; }
 }
 
 /**

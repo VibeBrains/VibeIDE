@@ -19,8 +19,8 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { IConfigurationService, ConfigurationTarget } from '../../../../platform/configuration/common/configuration.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { vibeLog, LEVEL_NAMES } from '../common/vibeLog.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
-const CATEGORY = localize2('vibeCategory', 'VibeIDE');
 
 registerAction2(class extends Action2 {
 	constructor() {
@@ -28,7 +28,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.logging.copyRecent',
 			f1: true,
 			title: localize2('vibeide.logging.copyRecent', 'Скопировать недавние логи'),
-			category: CATEGORY,
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
@@ -50,7 +50,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.logging.setLevel',
 			f1: true,
 			title: localize2('vibeide.logging.setLevel', 'Уровень логирования'),
-			category: CATEGORY,
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
@@ -74,7 +74,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.logging.filterCategories',
 			f1: true,
 			title: localize2('vibeide.logging.filterCategories', 'Фильтр категорий логов'),
-			category: CATEGORY,
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
@@ -104,7 +104,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.logging.toggle',
 			f1: true,
 			title: localize2('vibeide.logging.toggle', 'Включить/выключить логирование'),
-			category: CATEGORY,
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {

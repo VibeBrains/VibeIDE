@@ -81,3 +81,21 @@ export function chainTailOf(lines: readonly string[]): string {
 	}
 	return AUDIT_CHAIN_ROOT;
 }
+
+/**
+ * Serialized size of a batch, without committing to the hashes it would produce.
+ *
+ * Rotation is decided before chaining (a batch chained to the old tail must never land in the fresh
+ * file), so the size has to be known one step earlier. The chain field has a fixed width, which is
+ * what makes the estimate exact rather than approximate.
+ */
+export function estimateChainedSize(records: readonly object[], previousHash: string): number {
+	let tail = previousHash;
+	let bytes = 0;
+	for (const record of records) {
+		const { line, hash } = chainRecord(record, tail);
+		tail = hash;
+		bytes += line.length + 1; // + newline
+	}
+	return bytes;
+}

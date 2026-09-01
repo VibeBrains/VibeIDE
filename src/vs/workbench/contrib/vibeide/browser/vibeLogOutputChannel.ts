@@ -22,6 +22,7 @@ import { IEnvironmentService } from '../../../../platform/environment/common/env
 import { joinPath } from '../../../../base/common/resources.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { vibeLog, formatVibeLogEntry } from '../common/vibeLog.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 export const VIBE_LOG_CHANNEL_ID = 'vibeideLog';
 
@@ -85,7 +86,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.logging.showChannel',
 			f1: true,
 			title: localize2('vibeide.logging.showChannel', 'Показать лог-канал'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {

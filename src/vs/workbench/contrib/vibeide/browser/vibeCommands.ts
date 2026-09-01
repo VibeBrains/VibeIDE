@@ -51,6 +51,7 @@ import { IAuditLogService } from '../common/auditLogService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { ProviderId } from '../common/vibeideSettingsTypes.js';
 import { isWindows, isMacintosh, isLinux } from '../../../../base/common/platform.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 const VIBEIDE_OPEN_SIDEBAR_CMD = 'vibeide.sidebar.open';
 
@@ -233,7 +234,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.git.setGithubToken',
 			f1: true,
 			title: localize2('vibeide.git.setToken.title', 'Задать GitHub-токен для job-PR'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -396,7 +397,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.diff.commentLine',
 			f1: true,
 			title: localize2('vibeide.diff.commentLine.title', 'Комментарий к строке → в пакет правок'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 			menu: [{ id: MenuId.EditorContext, group: 'vibeide', order: 10 }],
 		});
 	}
@@ -447,7 +448,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.preview.toggleEditBatch',
 			f1: true,
 			title: localize2('vibeide.preview.toggleEditBatch.title', 'Копить правки пакетом (прицел в превью)'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -476,7 +477,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.agent.showTurnTrace',
 			f1: true,
 			title: localize2('vibeide.agent.showTurnTrace.title', 'Показать трейс хода агента'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -551,6 +552,54 @@ CommandsRegistry.registerCommand('vibeide.audit.deleteAll', async (accessor: Ser
 	await runInVibeTerminal(terminal, 'VibeIDE Audit Delete', 'node scripts/vibe-session-export.js --delete-all');
 });
 
+/**
+ * «Проверить целостность журнала аудита» — читает цепочку хешей и говорит вердикт словами.
+ *
+ * Без этой команды цепочка была бы доказательством, которое некому предъявить: файл несёт признаки
+ * подделки, а посмотреть на них человек не может. Вердикт намеренно различает три исхода, а не два:
+ * «сходится», «расходится вот на этой строке» и «проверять нечего» — журнал выключен или пуст.
+ * Слить последнее с первым значило бы отвечать «всё в порядке» там, где ничего не проверялось.
+ */
+registerAction2(class VibeAuditVerify extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.audit.verifyIntegrity',
+			title: localize2('vibeide.audit.verifyIntegrity', 'Проверить целостность журнала аудита'),
+			category: VIBE_COMMAND_CATEGORY,
+			f1: true,
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const audit = accessor.get(IAuditLogService);
+		const dialogs = accessor.get(IDialogService);
+		const verdict = await audit.verifyIntegrity();
+		if (!verdict) {
+			await dialogs.info(
+				localize('vibeide.audit.verify.nothing', 'Проверять нечего'),
+				localize('vibeide.audit.verify.nothingDetail', 'Журнал аудита выключен или ещё пуст. Это НЕ значит «всё в порядке» — значит, что проверять было нечего. Включается настройкой `{0}`.', 'vibeide.audit.enable'),
+			);
+			return;
+		}
+		if (verdict.ok) {
+			await dialogs.info(
+				localize('vibeide.audit.verify.ok', 'Журнал цел'),
+				localize('vibeide.audit.verify.okDetail', 'Проверено записей: {0}. Каждая ссылается на предыдущую, разрывов нет.', verdict.checked),
+			);
+			return;
+		}
+		const reason = verdict.reason === 'broken-link'
+			? localize('vibeide.audit.verify.brokenLink', 'запись не ссылается на предыдущую — строку выше либо удалили, либо изменили')
+			: verdict.reason === 'unchained'
+				? localize('vibeide.audit.verify.unchained', 'у записи снята связь с предыдущей')
+				: localize('vibeide.audit.verify.unparsable', 'строка не читается как запись журнала');
+		await dialogs.error(
+			localize('vibeide.audit.verify.broken', 'Журнал изменён после записи'),
+			localize('vibeide.audit.verify.brokenDetail', 'Строка {0}: {1}.\n\nЗаписи до неё проверены и в порядке. Файл: {2}', verdict.line, reason, 'vibeide.audit.path'),
+		);
+	}
+});
+
 // Transparency dashboard
 CommandsRegistry.registerCommand('vibeide.transparency.show', async (accessor: ServicesAccessor) => {
 	await runInVibeTerminal(accessor.get(ITerminalService), 'VibeIDE Transparency', 'node scripts/vibe-transparency-dashboard.js --markdown');
@@ -596,7 +645,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.skills.showFolder',
 			f1: true,
 			title: localize2('vibeideSkillsShowFolderTitle', 'Открыть папку скиллов агента (.vibe/skills)'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -632,7 +681,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.toolFormat.resetAutoDetectedOverrides',
 			f1: true,
 			title: localize2('vibeideResetToolFormatTitle', 'Сбросить авто-определённые tool-format оверрайды (включить native tool calling)'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -677,7 +726,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.rules.addRule',
 			f1: true,
 			title: localize2('vibeideAddRuleTitle', 'Добавить правило в .vibe/rules.md'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -731,7 +780,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.skills.newTemplate',
 			f1: true,
 			title: localize2('vibeideSkillsNewTemplateTitle', 'Новый шаблон скилла агента (.vibe/skills)'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -782,7 +831,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.skills.pickSession',
 			f1: true,
 			title: localize2('vibeideSkillsPickSessionTitle', 'Скиллы — выбрать для сессии'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -831,7 +880,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.skills.clearSession',
 			f1: true,
 			title: localize2('vibeideSkillsClearSessionTitle', 'Скиллы — очистить фильтр сессии'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -846,7 +895,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.plans.newInWorkspace',
 			f1: true,
 			title: localize2('vibeidePlansNewInWorkspaceTitle', 'Новый план в рабочей области (.vibe/plans)'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -905,7 +954,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.plans.showPlansFolder',
 			f1: true,
 			title: localize2('vibeidePlansShowFolderTitle', 'Открыть папку .vibe/plans в проводнике'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -934,7 +983,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.plans.explainRisk',
 			f1: true,
 			title: localize2('vibeidePlansExplainRiskTitle', 'VibeIDE Plan: Объяснить риски плана (эвристический анализ)'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -1012,7 +1061,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.plans.findSimilar',
 			f1: true,
 			title: localize2('vibeidePlansFindSimilarTitle', 'VibeIDE Plan: Найти похожие завершённые планы (локально)'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -1068,7 +1117,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.context.attachApiSpec',
 			f1: true,
 			title: localize2('vibeideAttachApiSpecTitle', 'Прикрепить спецификацию OpenAPI / GraphQL к чату'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -1139,7 +1188,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.skills.importCommunityUrl',
 			f1: true,
 			title: localize2('vibeideSkillsImportCommunityUrlTitle', 'Импортировать скилл агента из URL (манифест сообщества или сырой SKILL.md)'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -1231,7 +1280,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.skills.browseCommunityCatalog',
 			f1: true,
 			title: localize2('vibeideSkillsBrowseCommunityCatalogTitle', 'Просмотр каталога скиллов агента сообщества'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -1319,7 +1368,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.skills.saveAsFromChat',
 			f1: true,
 			title: localize2('vibeideSkillsSaveAsFromChatTitle', 'Сохранить последний ответ ассистента как скилл агента'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 
@@ -1397,7 +1446,7 @@ registerAction2(class extends Action2 {
 			id: 'vibeide.copyIssueReport',
 			f1: true,
 			title: localize2('vibeideCopyIssueReportTitle', 'Скопировать диагностический отчёт для отчёта об ошибке'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 		});
 	}
 

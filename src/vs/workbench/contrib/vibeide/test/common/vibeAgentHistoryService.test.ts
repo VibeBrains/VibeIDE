@@ -17,6 +17,7 @@ class DisabledAuditLog implements IAuditLogService {
 	async exportAll(): Promise<string> { return '[]'; }
 	async deleteAll(): Promise<void> { }
 	async queryRecent(_limit?: number): Promise<AuditEvent[]> { return []; }
+	async verifyIntegrity() { return undefined; }
 }
 
 suite('vibeAgentHistoryService — recorded actions must be readable back', () => {

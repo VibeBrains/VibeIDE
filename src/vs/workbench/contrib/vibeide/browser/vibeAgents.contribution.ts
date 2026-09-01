@@ -22,6 +22,7 @@ import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { subagentCostUsd, formatUsd } from '../common/subagentCostEstimate.js';
 import { IChatThreadService } from './chatThreadService.js';
 import type { ChatImageAttachment } from '../common/chatThreadServiceTypes.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 registerAction2(
 	class VibeAgentsPlanRoute extends Action2 {
@@ -29,7 +30,7 @@ registerAction2(
 			super({
 				id: 'vibeide.vibeAgents.planRoute',
 				title: localize2('vibeAgents.planRoute', 'Vibe Agents: Показать маршрут ролей для задачи'),
-				category: localize2('vibeCategory', 'VibeIDE'),
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 			});
 		}
@@ -63,7 +64,7 @@ registerAction2(
 			super({
 				id: 'vibeide.vibeAgents.executeRoute',
 				title: localize2('vibeAgents.executeRoute', 'Vibe Agents: Выполнить маршрут ролей для задачи'),
-				category: localize2('vibeCategory', 'VibeIDE'),
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 			});
 		}
@@ -163,7 +164,7 @@ registerAction2(
 			super({
 				id: 'vibeide.vibeAgents.listRoles',
 				title: localize2('vibeAgents.listRoles', 'Vibe Agents: Показать роли и их права'),
-				category: localize2('vibeCategory', 'VibeIDE'),
+				category: VIBE_COMMAND_CATEGORY,
 				f1: true,
 			});
 		}

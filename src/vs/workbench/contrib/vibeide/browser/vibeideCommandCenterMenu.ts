@@ -37,6 +37,7 @@ import { IQuickInputService } from '../../../../platform/quickinput/common/quick
 import { readVibeDocsFile, searchVibeDocs } from '../common/vibeDocsIndex.js';
 import { VibeSpecsCommands } from './vibeSpecsConstants.js';
 import { VIBEIDE_APPLY_DEFAULTS_CMD, VIBEIDE_SHOW_DEFAULTS_CMD } from './vibeDefaultsContribution.js';
+import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 
 // ─── Submenu ID ───────────────────────────────────────────────────────────────
 
@@ -67,7 +68,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_SHOW_CHAT_HISTORY_CMD,
 			title: localize2('vibeideChatHistory', 'История чата'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
@@ -98,7 +99,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_SEARCH_DOCS_CMD,
 			title: localize2('vibeideSearchDocs', 'Справка — поиск по документации'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
@@ -160,7 +161,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: VIBEIDE_PROVIDER_DASHBOARD_CMD,
 			title: localize2('vibeideProviderDashboard', 'Ключи и расход'),
-			category: localize2('vibeCategory', 'VibeIDE'),
+			category: VIBE_COMMAND_CATEGORY,
 			f1: true,
 		});
 	}
