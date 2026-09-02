@@ -583,10 +583,18 @@ registerAction2(class VibeAuditVerify extends Action2 {
 			return;
 		}
 		if (verdict.ok) {
-			await dialogs.info(
-				localize('vibeide.audit.verify.ok', 'Журнал цел'),
-				localize('vibeide.audit.verify.okDetail', 'Проверено записей: {0}. Каждая ссылается на предыдущую, разрывов нет.', verdict.checked),
-			);
+			// Записи, сделанные до появления цепочки, называются отдельным числом, а не растворяются
+			// в «проверено N»: «проверено 3 из 5» и «проверено 5» — разные утверждения, и человек,
+			// читающий вердикт, имеет право на разницу.
+			const detail = verdict.legacyPrefix
+				? localize(
+					'vibeide.audit.verify.okLegacyDetail',
+					'Проверено записей: {0}. Каждая ссылается на предыдущую, разрывов нет.\n\nПервые {1} записи сделаны до появления цепочки (перенесены из старого журнала) — их подлинность подтвердить нечем, но и признаков правки в файле нет.',
+					verdict.checked,
+					verdict.legacyPrefix,
+				)
+				: localize('vibeide.audit.verify.okDetail', 'Проверено записей: {0}. Каждая ссылается на предыдущую, разрывов нет.', verdict.checked);
+			await dialogs.info(localize('vibeide.audit.verify.ok', 'Журнал цел'), detail);
 			return;
 		}
 		const reason = verdict.reason === 'broken-link'

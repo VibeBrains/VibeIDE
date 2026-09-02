@@ -101,4 +101,40 @@ suite('audit chain', () => {
 		const actual = lines.join('\n').length + 1;
 		assert.strictEqual(estimateChainedSize(events, AUDIT_CHAIN_ROOT), actual);
 	});
+
+	/**
+	 * Migration defect, found by live smoke: after the journal moved out of `.vibe/`, the records it
+	 * brought along had no `prev` — they predate the chain — and the check called an untouched file
+	 * «изменён после записи». A mechanism built to detect tampering was manufacturing false
+	 * accusations, which is the one failure it must never have.
+	 */
+	test('pre-chain records at the head of the file are history, not tampering', () => {
+		const legacy = [
+			JSON.stringify({ ts: 1, actor: 'human', action: 'prompt', ok: true }),
+			JSON.stringify({ ts: 2, actor: 'agent', action: 'apply', ok: true }),
+		];
+		// The first chained record links to the last legacy line, exactly as the service does.
+		let tail = chainTailOf(legacy);
+		const chained = events.map(r => { const { line, hash } = chainRecord(r, tail); tail = hash; return line; });
+		assert.deepStrictEqual(
+			verifyAuditChain([...legacy, ...chained]),
+			{ ok: true, checked: 3, legacyPrefix: 2 },
+		);
+	});
+
+	/**
+	 * The tolerance is for a HEAD run only. Once chained records have started, a missing `prev` is
+	 * somebody cutting a line loose — which is what the field was added to make visible.
+	 */
+	test('a record stripped of its link AFTER the chain started is still an accusation', () => {
+		const lines = write(events);
+		const stripped = [...lines];
+		stripped[2] = JSON.stringify({ ts: 3, actor: 'agent', action: 'tool_call:done', ok: true });
+		assert.deepStrictEqual(verifyAuditChain(stripped), { ok: false, line: 3, reason: 'unchained' });
+	});
+
+	test('a file that is entirely pre-chain verifies, and says how much it could not check', () => {
+		const legacy = [JSON.stringify({ ts: 1, actor: 'human', action: 'prompt', ok: true })];
+		assert.deepStrictEqual(verifyAuditChain(legacy), { ok: true, checked: 0, legacyPrefix: 1 });
+	});
 });

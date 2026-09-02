@@ -38,20 +38,36 @@ export function chainRecord(record: object, previousHash: string): { line: strin
 }
 
 export type AuditChainVerdict =
-	| { readonly ok: true; readonly checked: number }
+	| {
+		readonly ok: true;
+		readonly checked: number;
+		/**
+		 * Records written before chaining existed, sitting as an unbroken run at the head of the
+		 * file. Reported rather than hidden: «checked 3 of 5» is a different statement from
+		 * «checked 5», and the person reading the verdict is entitled to the difference.
+		 */
+		readonly legacyPrefix?: number;
+	}
 	/** `line` is 1-based — it is meant to be read by a human looking at the file. */
 	| { readonly ok: false; readonly line: number; readonly reason: 'broken-link' | 'unparsable' | 'unchained' };
 
 /**
  * Walk the file and report the first place the chain stops adding up.
  *
- * Records written before chaining existed have no `prev` field. They are reported as `unchained`
- * rather than skipped: silence would let someone strip the field from a record to erase its link,
- * and «no chain here» would look exactly like «old file».
+ * Records written before chaining existed have no `prev` field, and a journal migrated from the old
+ * location is full of them. Those are tolerated ONLY as an unbroken run at the head of the file —
+ * that shape can only come from history that predates the feature. The moment a chained record
+ * appears, every later record must be chained too: a missing `prev` after that point is somebody
+ * stripping the field to cut a line loose, and it is reported as `unchained`.
+ *
+ * Found by live smoke: after the journal moved out of `.vibe/`, the migrated records made the check
+ * accuse an untouched file — the exact failure this whole mechanism exists to avoid producing.
  */
 export function verifyAuditChain(lines: readonly string[]): AuditChainVerdict {
 	let expected = AUDIT_CHAIN_ROOT;
 	let checked = 0;
+	let legacyPrefix = 0;
+	let sawChained = false;
 	for (let i = 0; i < lines.length; i++) {
 		const raw = lines[i];
 		if (raw.trim() === '') { continue; }
@@ -63,15 +79,23 @@ export function verifyAuditChain(lines: readonly string[]): AuditChainVerdict {
 		}
 		const prev = parsed[AUDIT_CHAIN_FIELD];
 		if (typeof prev !== 'string') {
-			return { ok: false, line: i + 1, reason: 'unchained' };
+			if (sawChained) {
+				return { ok: false, line: i + 1, reason: 'unchained' };
+			}
+			// Pre-chain history. The next chained record links to THIS line's hash, so the chain
+			// continues from the file as it actually is rather than restarting blind.
+			legacyPrefix++;
+			expected = auditLineHash(raw);
+			continue;
 		}
 		if (prev !== expected) {
 			return { ok: false, line: i + 1, reason: 'broken-link' };
 		}
+		sawChained = true;
 		expected = auditLineHash(raw);
 		checked++;
 	}
-	return { ok: true, checked };
+	return legacyPrefix > 0 ? { ok: true, checked, legacyPrefix } : { ok: true, checked };
 }
 
 /** Hash to continue an existing file from — the last record's, or the root for an empty one. */

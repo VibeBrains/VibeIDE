@@ -99,7 +99,11 @@ export interface AuditEvent {
 	| 'verify_gate:result'
 	| 'project_command:start' | 'project_command:complete' | 'project_command:trust_granted' | 'project_command:trust_revoked'
 	// Agent tool access. Arguments and command bodies are never recorded — see `toolCallAudit.ts`.
-	| 'tool_call:start' | 'tool_call:done';
+	| 'tool_call:start' | 'tool_call:done'
+	// Streaming watchdog. These were written through a cast until a live smoke run showed
+	// `stream_completed` in the journal — an action the union said could not exist. A union with a
+	// cast around it is not a union; naming them here is what makes the compiler answer honestly.
+	| 'stream_gap_recovered' | 'stream_failed' | 'stream_cancelled' | 'stream_completed';
 	files?: string[];
 	diffStats?: { linesAdded: number; linesRemoved: number; hunks: number };
 	model?: string;

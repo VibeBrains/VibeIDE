@@ -80,7 +80,7 @@ import { localize } from '../../../../nls.js';
 import { QueryMetrics } from './repoIndexerService.js';
 import { getActiveWindow } from '../../../../base/browser/dom.js';
 
-import { AuditEvent, IAuditLogService } from '../common/auditLogService.js';
+import { IAuditLogService } from '../common/auditLogService.js';
 import { IVibeAgentActivityLogService } from './vibeAgentActivityLogService.js';
 import { IVibeLLMJudgeService } from '../common/vibeLLMJudgeService.js';
 import { IVibePersistedPlanService } from '../common/vibePersistedPlanService.js';
@@ -6145,7 +6145,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							shouldRetryLLM = true;
 							watchdogAbortFn?.();
 						} else if (fx.kind === 'audit') {
-							void this._auditLogService.append({ actor: 'system', ts: Date.now(), action: fx.event as unknown as AuditEvent['action'], ok: true });
+							void this._auditLogService.append({ actor: 'system', ts: Date.now(), action: fx.event, ok: true });
 						}
 					}
 				};
