@@ -167,6 +167,20 @@ try {
 # .vibe-defaults/ → seeded agent scaffolding, docs/manuals/specsWorkflow.md → «Спеки» help modal.
 # Nothing here is hard-coded; add new generators to `gen:all`, not to this file.
 if (-not $SkipCompile) {
+    # `.vibe-defaults/` is a git SUBMODULE. On a checkout where it was never initialised the
+    # folder exists but is EMPTY, and `gen:all` faithfully generates an EMPTY manifest — no
+    # error, no warning. The build then succeeds, packages, passes the smoke check and ships
+    # an IDE that seeds nothing: no providers, no prompts, no rules, no design context.
+    # This shipped once (1.16.0 Windows, re-uploaded) precisely because nothing complained.
+    # Fail loudly here instead: an empty source folder can only mean an uninitialised submodule.
+    $defaultsDir = "$Root\.vibe-defaults"
+    $defaultsCount = if (Test-Path $defaultsDir) { (Get-ChildItem $defaultsDir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count } else { 0 }
+    if ($defaultsCount -eq 0) {
+        Write-Error "[release] .vibe-defaults/ is empty — the submodule is not initialised. Run: git submodule update --init --recursive. Building now would ship an IDE that seeds no agent scaffolding."
+        exit 1
+    }
+    OK "Agent defaults present: $defaultsCount file(s) in .vibe-defaults/"
+
     Step "Regenerating embedded artifacts (.vibe-defaults, specs help)..."
     Npm "run gen:all"
     OK "Embedded artifacts regenerated"

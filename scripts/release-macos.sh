@@ -158,6 +158,19 @@ if [[ "$SKIP_COMPILE" != '1' ]]; then
 	step 'Extracting VibeIDE NLS strings...'
 	gulp_task extract-vibeide-locale-strings || echo '⚠ NLS extraction failed (non-fatal)'
 
+	# `.vibe-defaults/` is a git SUBMODULE. On a checkout where it was never initialised the
+	# folder exists but is EMPTY, and `gen:all` faithfully generates an EMPTY manifest — no
+	# error, no warning. The build then succeeds, packages, passes the smoke check and ships
+	# an IDE that seeds nothing: no providers, no prompts, no rules, no design context.
+	# This shipped once (1.16.0 Windows, re-uploaded) precisely because nothing complained;
+	# the guard lives on both platforms so neither can repeat it.
+	defaults_count=$(find "$ROOT/.vibe-defaults" -type f 2>/dev/null | wc -l | tr -d ' ')
+	if [[ "$defaults_count" -eq 0 ]]; then
+		echo "[release] .vibe-defaults/ is empty — the submodule is not initialised. Run: git submodule update --init --recursive. Building now would ship an IDE that seeds no agent scaffolding." >&2
+		exit 1
+	fi
+	ok "Agent defaults present: $defaults_count file(s) in .vibe-defaults/"
+
 	step 'Regenerating embedded artifacts (.vibe-defaults, specs help)...'
 	npm run gen:all
 
