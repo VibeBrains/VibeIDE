@@ -27,6 +27,15 @@ export interface ModelQuirksCatalogStatus {
 export interface IModelQuirksCatalogStatusServiceIPC {
 	getStatus(): Promise<ModelQuirksCatalogStatus>;
 	refresh(): Promise<boolean>;
+	/**
+	 * Is this model's reasoning bound to it, so a switch away silently drops it?
+	 *
+	 * Answered from the quirks catalogue, which lives in the main process. Exposed as its own
+	 * question rather than «give me the whole quirk entry» on purpose: the browser layer has no
+	 * business with sampling presets and tool-call formats, and a narrow question cannot grow into
+	 * a second, diverging copy of the quirks logic on this side of the IPC.
+	 */
+	isReasoningBoundToModel(modelId: string, providerName?: string): Promise<boolean>;
 }
 
 export interface IModelQuirksCatalogStatusService extends IModelQuirksCatalogStatusServiceIPC {

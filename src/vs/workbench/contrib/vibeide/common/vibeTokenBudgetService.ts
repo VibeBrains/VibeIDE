@@ -106,11 +106,35 @@ export function computeBudgetStatus(used: number, limit: number, enabled: boolea
 }
 
 /**
+ * What a cache-read token costs relative to a cold input token.
+ *
+ * The budget exists to stop a runaway agent from spending money, so it should count what is spent —
+ * and a token served from the prompt cache is not priced like one the provider had to read. Claude
+ * charges 0.1x for cache reads across the family, and Fable 5.1 charges $0.25/MTok against $10/MTok
+ * input — 0.025x. We weigh at 0.1: the conservative end of the observed range, so the budget can
+ * only over-count, never let a session run longer than the money says.
+ *
+ * Without this the counter punished good caching: a long session that cached well hit the ceiling
+ * sooner than a short one that cached badly, which is the opposite of what the limit is for.
+ */
+export const CACHE_READ_TOKEN_WEIGHT = 0.1;
+
+/**
  * Pure helper. Folds an LLM usage report into the running session counter, clamping
  * negative values to zero. Returns the new running total.
+ *
+ * `cachedInputTokens` is a SUBSET of `inputTokens` (that is how providers report it), so it is
+ * discounted in place rather than added — counting it twice would make caching look expensive.
+ * Absent or malformed, the number falls back to the old behaviour: everything at full weight.
  */
-export function accumulateUsage(prev: number, inputTokens: number, outputTokens: number): number {
-	return prev + Math.max(0, inputTokens) + Math.max(0, outputTokens);
+export function accumulateUsage(prev: number, inputTokens: number, outputTokens: number, cachedInputTokens?: number): number {
+	const input = Math.max(0, inputTokens);
+	const output = Math.max(0, outputTokens);
+	// Clamped to `input`: a provider reporting more cache hits than input tokens is reporting
+	// nonsense, and trusting it would silently hand the session a bigger budget than it has.
+	const cached = Math.min(input, Math.max(0, cachedInputTokens ?? 0));
+	const billable = (input - cached) + cached * CACHE_READ_TOKEN_WEIGHT;
+	return prev + billable + output;
 }
 
 /**
@@ -190,7 +214,7 @@ class VibeTokenBudgetService extends Disposable implements IVibeTokenBudgetServi
 
 	recordUsage(inputTokens: number, outputTokens: number, cachedInputTokens?: number): void {
 		const previous = this._sessionTokensUsed;
-		this._sessionTokensUsed = accumulateUsage(previous, inputTokens, outputTokens);
+		this._sessionTokensUsed = accumulateUsage(previous, inputTokens, outputTokens, cachedInputTokens);
 		const total = this._sessionTokensUsed - previous;
 
 		if (this._splitEnabled && this._activeQueueTaskId && total > 0) {

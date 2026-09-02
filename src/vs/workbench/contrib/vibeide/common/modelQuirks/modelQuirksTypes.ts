@@ -110,6 +110,20 @@ export interface ModelQuirksRule {
 	 */
 	readonly forcedToolChoiceUnsupported?: boolean;
 
+	/**
+	 * This model's reasoning blocks are bound to it — no other model can read them.
+	 *
+	 * Anthropic states it for the Fable/Mythos family: Fable 5.1 reads earlier models' thinking, but
+	 * no earlier model reads its own. Nothing breaks when the blocks travel to a different model —
+	 * they are dropped and not billed. That silence is the problem: after a failover the agent
+	 * carries on without the reasoning it built up, and the person is never told why the answers got
+	 * shallower. The flag exists so we can say it out loud at the moment of the switch.
+	 *
+	 * Default (undefined) = reasoning survives a model change, which is how every other family we
+	 * talk to behaves.
+	 */
+	readonly reasoningBoundToModel?: boolean;
+
 	// ---------- Metadata ----------
 	/** Free-text note for catalog contributors. Not consumed at runtime. */
 	readonly note?: string;
@@ -243,6 +257,7 @@ export function validateCatalog(raw: unknown): ModelQuirksCatalog {
 			...readString(rr, 'reasoningEffortInSystemPrompt'),
 			...readEnum(rr, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 			...readBool(rr, 'forcedToolChoiceUnsupported'),
+			...readBool(rr, 'reasoningBoundToModel'),
 			...readString(rr, 'note'),
 		};
 		rules.push(rule);
@@ -322,6 +337,7 @@ export function applyUserOverride(catalogQuirks: ResolvedModelQuirks, userOverri
 		...readString(oo, 'reasoningEffortInSystemPrompt'),
 		...readEnum(oo, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 		...readBool(oo, 'forcedToolChoiceUnsupported'),
+		...readBool(oo, 'reasoningBoundToModel'),
 	};
 	return sanitized;
 }

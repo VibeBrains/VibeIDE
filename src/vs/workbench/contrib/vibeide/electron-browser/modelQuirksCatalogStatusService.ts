@@ -35,6 +35,10 @@ export class ModelQuirksCatalogStatusService implements IModelQuirksCatalogStatu
 		return this.proxy.getStatus();
 	}
 
+	isReasoningBoundToModel(modelId: string, providerName?: string): Promise<boolean> {
+		return this.proxy.isReasoningBoundToModel(modelId, providerName);
+	}
+
 	refresh(): Promise<boolean> {
 		return this.proxy.refresh();
 	}

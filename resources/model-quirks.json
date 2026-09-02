@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"date": "2026-08-12",
+	"date": "2026-09-02",
 	"description": "VibeIDE model behaviour quirks. Source of truth — see README.md section 'Model behaviour quirks'. PRs welcome. Каждое правило — утверждение о чужом сервере: указывайте `source` (ссылка/коммит/лог) и `observedAt`; правило без источника считается черновиком и называется проверкой `npm run quirks-provenance-check`. Schema: ./src/vs/workbench/contrib/vibeide/common/modelQuirks/modelQuirksTypes.ts.",
 	"docs": "https://github.com/VibeBrains/VibeIDE#model-behaviour-quirks",
 	"rules": [
@@ -174,6 +174,22 @@
 			"topP": 0.95,
 			"topK": 64,
 			"note": "Gemini 1.5 via aggregator — same sampling preset as 2.x, kept for the legacy generation that still honours these parameters."
+		},
+		{
+			"match": "fable",
+			"forcedToolChoiceUnsupported": true,
+			"source": "https://support.claude.com/en/articles/16761192 + https://www.anthropic.com/claude-fable-and-mythos-5-1 (запуск 5.1); симптом описан в разборе marktechpost 01.09.2026: «tool_choice set to any or tool returns a 400»",
+			"observedAt": "2026-09-02",
+			"note": "Claude Fable 5/5.1 и Mythos: принудительный вызов инструмента снят на уровне API — tool_choice any/tool отвечает 400, в том числе на count_tokens и Batches. Мы понижаем forceToolUse до auto (единственная точка — aiSdkAdapter). tool_choice:none не затронут, disable_parallel_tool_use с auto продолжает работать. НЕ ПРОВЕРЕНО ЖИВЬЁМ: ключа Anthropic нет, правило поставлено превентивно по документации вендора. Плюс: reasoning-блоки привязаны к модели — «Fable 5.1 reads earlier models' thinking, but no earlier model reads its own», поэтому при переключении вниз рассуждения теряются молча (блоки отбрасываются и не биллятся).",
+			"reasoningBoundToModel": true
+		},
+		{
+			"match": "mythos",
+			"forcedToolChoiceUnsupported": true,
+			"source": "https://support.claude.com/en/articles/16761192 + https://www.anthropic.com/claude-fable-and-mythos-5-1 (запуск 5.1); симптом описан в разборе marktechpost 01.09.2026: «tool_choice set to any or tool returns a 400»",
+			"observedAt": "2026-09-02",
+			"note": "Claude Fable 5/5.1 и Mythos: принудительный вызов инструмента снят на уровне API — tool_choice any/tool отвечает 400, в том числе на count_tokens и Batches. Мы понижаем forceToolUse до auto (единственная точка — aiSdkAdapter). tool_choice:none не затронут, disable_parallel_tool_use с auto продолжает работать. НЕ ПРОВЕРЕНО ЖИВЬЁМ: ключа Anthropic нет, правило поставлено превентивно по документации вендора. Плюс: reasoning-блоки привязаны к модели — «Fable 5.1 reads earlier models' thinking, but no earlier model reads its own», поэтому при переключении вниз рассуждения теряются молча (блоки отбрасываются и не биллятся).",
+			"reasoningBoundToModel": true
 		}
 	]
 }

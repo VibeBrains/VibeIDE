@@ -144,5 +144,26 @@ suite('Guard layer — pure helpers', () => {
 			assert.strictEqual(accumulateUsage(10, 5, -100), 15, 'negative output clamped to 0');
 			assert.strictEqual(accumulateUsage(0, 0, 0), 0);
 		});
+
+		/**
+		 * Cache reads are cheap money, so they must be cheap budget. Before this the counter
+		 * punished good caching: a long session that cached well hit the ceiling sooner than a
+		 * short one that cached badly — the opposite of what the limit is for.
+		 */
+		test('cache-read tokens are discounted, not double-counted', () => {
+			// 1000 input of which 800 came from cache: 200 cold + 800 × 0.1 = 280, plus 50 output.
+			assert.strictEqual(accumulateUsage(0, 1000, 50, 800), 330);
+			// The same traffic with no cache costs far more — that difference is the whole point.
+			assert.strictEqual(accumulateUsage(0, 1000, 50, 0), 1050);
+			// Omitted entirely → old behaviour, everything at full weight.
+			assert.strictEqual(accumulateUsage(0, 1000, 50), 1050);
+		});
+
+		test('a nonsensical cache report cannot enlarge the budget', () => {
+			// More cache hits than input tokens is the provider talking nonsense; trusting it would
+			// hand the session a bigger allowance than it has. Clamped to the input it reported.
+			assert.strictEqual(accumulateUsage(0, 100, 0, 999999), 10);
+			assert.strictEqual(accumulateUsage(0, 100, 0, -50), 100, 'negative cache clamped to 0');
+		});
 	});
 });
