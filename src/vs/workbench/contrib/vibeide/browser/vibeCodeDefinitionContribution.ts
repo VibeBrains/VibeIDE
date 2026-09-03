@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../nls.js';
-import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -79,9 +79,22 @@ interface LanguageIndex {
 	readonly byName: Map<string, RankedCandidate[]>;
 }
 
+/** Resolves when the token is cancelled, so a caller can stop waiting without stopping the work. */
+function cancellationPromise(token: CancellationToken): Promise<void> {
+	if (token.isCancellationRequested) {
+		return Promise.resolve();
+	}
+	return new Promise<void>(resolve => {
+		const registration = token.onCancellationRequested(() => { registration.dispose(); resolve(); });
+	});
+}
+
 class VibeCodeDefinitionContribution extends Disposable implements IWorkbenchContribution {
 
 	static readonly ID = 'workbench.contrib.vibeCodeDefinition';
+
+	/** Cancels every running scan when the window goes away — never a single request. */
+	private readonly _buildCancellation = this._register(new CancellationTokenSource());
 
 	/** Built lazily per language, dropped when a file of that language changes. */
 	private readonly _indexes = new Map<string, LanguageIndex>();
@@ -195,20 +208,30 @@ class VibeCodeDefinitionContribution extends Disposable implements IWorkbenchCon
 		this._indexes.delete(languageId);
 	}
 
+	/**
+	 * Build the index once, and never on the request's own cancellation token.
+	 *
+	 * The editor cancels a definition request freely — a keystroke, a second F12, a mouse move over
+	 * another symbol. If the scan died with the request, a large project could cancel every attempt
+	 * just before it finished and the feature would look permanently broken while working correctly.
+	 * The scan is therefore tied to the lifetime of this contribution; the request's token only stops
+	 * the caller from waiting.
+	 */
 	private async _ensureIndex(languageId: string, token: CancellationToken): Promise<void> {
 		if (this._indexes.has(languageId)) {
 			return;
 		}
 		let building = this._building.get(languageId);
 		if (!building) {
-			building = this._build(languageId, token).finally(() => this._building.delete(languageId));
+			building = this._build(languageId).finally(() => this._building.delete(languageId));
 			this._building.set(languageId, building);
 		}
-		await building;
+		await Promise.race([building, cancellationPromise(token)]);
 	}
 
-	private async _build(languageId: string, token: CancellationToken): Promise<void> {
+	private async _build(languageId: string): Promise<void> {
 		const started = Date.now();
+		const token = this._buildCancellation.token;
 		let parser: LanguageIndex['parser'] | undefined;
 		try {
 			const [ParserClass, language] = await Promise.all([
@@ -292,6 +315,7 @@ class VibeCodeDefinitionContribution extends Disposable implements IWorkbenchCon
 	}
 
 	override dispose(): void {
+		this._buildCancellation.cancel();
 		for (const languageId of [...this._indexes.keys()]) {
 			this._dropIndex(languageId);
 		}
