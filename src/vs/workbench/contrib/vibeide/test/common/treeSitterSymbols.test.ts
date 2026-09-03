@@ -82,9 +82,9 @@ suite('tree-sitter symbols', () => {
 
 	/** Members use `::`, types use `\` — the same strings a caller would write in PHP. */
 	test('qualified names follow PHP notation', () => {
-		assert.strictEqual(qualifiedName({ name: 'pay', kind: 'method', container: ['App', 'Invoice'], startLine: 0, startColumn: 0, endLine: 0, endColumn: 0 }), 'App\\Invoice::pay');
-		assert.strictEqual(qualifiedName({ name: 'Invoice', kind: 'class', container: ['App'], startLine: 0, startColumn: 0, endLine: 0, endColumn: 0 }), 'App\\Invoice');
-		assert.strictEqual(qualifiedName({ name: 'helper', kind: 'function', container: [], startLine: 0, startColumn: 0, endLine: 0, endColumn: 0 }), 'helper');
+		assert.strictEqual(qualifiedName({ name: 'pay', kind: 'method', container: ['App', 'Invoice'], startLine: 0, startColumn: 0, endLine: 0, endColumn: 0 }, 'php'), 'App\\Invoice::pay');
+		assert.strictEqual(qualifiedName({ name: 'Invoice', kind: 'class', container: ['App'], startLine: 0, startColumn: 0, endLine: 0, endColumn: 0 }, 'php'), 'App\\Invoice');
+		assert.strictEqual(qualifiedName({ name: 'helper', kind: 'function', container: [], startLine: 0, startColumn: 0, endLine: 0, endColumn: 0 }, 'php'), 'helper');
 	});
 
 	test('document order is preserved, and an unknown language yields nothing', () => {

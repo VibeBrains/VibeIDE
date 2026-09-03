@@ -31,8 +31,8 @@ export interface DefinitionQuery {
 	readonly wordStartColumn: number;
 	/** Container path of the declaration the cursor sits inside, if any. Ranks `$this->…`. */
 	readonly enclosingContainer?: readonly string[];
-	/** Which language's access operators to read. Defaults to PHP's when omitted. */
-	readonly languageId?: string;
+	/** Which language's access operators to read. */
+	readonly languageId: string;
 }
 
 export interface RankedCandidate {
@@ -73,7 +73,7 @@ function escapeForRegExp(text: string): string {
  * member access in Go and Java but string concatenation in PHP, where treating it as access would
  * make `$a . helper()` look like a member of `$a`.
  */
-export function readCallShape(lineText: string, wordStartColumn: number, languageId: string = 'php'): { shape: CallShape; owner?: string } {
+export function readCallShape(lineText: string, wordStartColumn: number, languageId: string): { shape: CallShape; owner?: string } {
 	const before = lineText.slice(0, Math.max(0, wordStartColumn));
 	const after = lineText.slice(Math.max(0, wordStartColumn));
 	const isCall = /^[A-Za-z_][\w]*\s*\(/.test(after);

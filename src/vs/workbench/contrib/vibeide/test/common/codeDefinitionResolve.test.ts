@@ -36,12 +36,12 @@ suite('code definition resolve', () => {
 	test('the call shape is read from the text around the cursor', () => {
 		const line = '        $total = Invoice::pay($this->rate(), new Money(1));';
 		const at = (needle: string) => line.indexOf(needle);
-		assert.deepStrictEqual(readCallShape(line, at('pay(')), { shape: 'static-member', owner: 'Invoice' });
-		assert.deepStrictEqual(readCallShape(line, at('rate(')), { shape: 'this-member' });
-		assert.deepStrictEqual(readCallShape(line, at('Money(')), { shape: 'instantiation' });
-		assert.deepStrictEqual(readCallShape('helper($x);', 0), { shape: 'call' });
-		assert.deepStrictEqual(readCallShape('$repo->save();', '$repo->'.length), { shape: 'instance-member' });
-		assert.deepStrictEqual(readCallShape('use App\\Invoice;', 'use App\\'.length), { shape: 'plain' });
+		assert.deepStrictEqual(readCallShape(line, at('pay('), 'php'), { shape: 'static-member', owner: 'Invoice' });
+		assert.deepStrictEqual(readCallShape(line, at('rate('), 'php'), { shape: 'this-member' });
+		assert.deepStrictEqual(readCallShape(line, at('Money('), 'php'), { shape: 'instantiation' });
+		assert.deepStrictEqual(readCallShape('helper($x);', 0, 'php'), { shape: 'call' });
+		assert.deepStrictEqual(readCallShape('$repo->save();', '$repo->'.length, 'php'), { shape: 'instance-member' });
+		assert.deepStrictEqual(readCallShape('use App\\Invoice;', 'use App\\'.length, 'php'), { shape: 'plain' });
 	});
 
 	test('a named owner puts its own member first', () => {
@@ -49,7 +49,7 @@ suite('code definition resolve', () => {
 			candidate('other.php', sym('pay', 'method', ['App', 'Order'])),
 			candidate('invoice.php', sym('pay', 'method', ['App', 'Invoice'])),
 		);
-		const ranked = rankDefinitions({ word: 'pay', lineText: 'Invoice::pay();', wordStartColumn: 'Invoice::'.length }, index);
+		const ranked = rankDefinitions({ word: 'pay', lineText: 'Invoice::pay();', wordStartColumn: 'Invoice::'.length, languageId: 'php' }, index);
 		assert.strictEqual(ranked[0].file, 'invoice.php');
 		// The other class stays in the list: it is a real declaration of that name, just less likely.
 		assert.strictEqual(ranked.length, 2);
@@ -61,7 +61,7 @@ suite('code definition resolve', () => {
 			candidate('invoice.php', sym('rate', 'method', ['App', 'Invoice'])),
 		);
 		const ranked = rankDefinitions({
-			word: 'rate', lineText: '$this->rate();', wordStartColumn: '$this->'.length,
+			word: 'rate', lineText: '$this->rate();', wordStartColumn: '$this->'.length, languageId: 'php',
 			enclosingContainer: ['App', 'Invoice'],
 		}, index);
 		assert.strictEqual(ranked[0].file, 'invoice.php');
@@ -74,7 +74,7 @@ suite('code definition resolve', () => {
 			candidate('invoice.php', sym('make', 'method', ['App', 'Invoice'])),
 		);
 		const ranked = rankDefinitions({
-			word: 'make', lineText: 'self::make();', wordStartColumn: 'self::'.length,
+			word: 'make', lineText: 'self::make();', wordStartColumn: 'self::'.length, languageId: 'php',
 			enclosingContainer: ['App', 'Invoice'],
 		}, index);
 		assert.strictEqual(ranked[0].file, 'invoice.php');
@@ -85,8 +85,8 @@ suite('code definition resolve', () => {
 			candidate('class.php', sym('Money', 'class')),
 			candidate('func.php', sym('Money', 'function')),
 		);
-		assert.strictEqual(rankDefinitions({ word: 'Money', lineText: 'new Money(1);', wordStartColumn: 'new '.length }, index)[0].file, 'class.php');
-		assert.strictEqual(rankDefinitions({ word: 'Money', lineText: 'Money(1);', wordStartColumn: 0 }, index)[0].file, 'func.php');
+		assert.strictEqual(rankDefinitions({ word: 'Money', lineText: 'new Money(1);', wordStartColumn: 'new '.length, languageId: 'php' }, index)[0].file, 'class.php');
+		assert.strictEqual(rankDefinitions({ word: 'Money', lineText: 'Money(1);', wordStartColumn: 0, languageId: 'php' }, index)[0].file, 'func.php');
 	});
 
 	/**
@@ -99,7 +99,7 @@ suite('code definition resolve', () => {
 			candidate('a.php', sym('save', 'method', ['App', 'UserRepo'])),
 			candidate('b.php', sym('save', 'method', ['App', 'OrderRepo'])),
 		);
-		const ranked = rankDefinitions({ word: 'save', lineText: '$repo->save();', wordStartColumn: '$repo->'.length }, index);
+		const ranked = rankDefinitions({ word: 'save', lineText: '$repo->save();', wordStartColumn: '$repo->'.length, languageId: 'php' }, index);
 		assert.strictEqual(ranked.length, 2);
 		assert.strictEqual(ranked[0].score, ranked[1].score, 'ни один кандидат не должен выигрывать без причины');
 		// Order stays as indexed, so the same jump twice lands in the same place.
@@ -108,9 +108,9 @@ suite('code definition resolve', () => {
 
 	test('an unknown name yields nothing rather than a guess', () => {
 		const index = indexOf(candidate('a.php', sym('save', 'method', ['App', 'UserRepo'])));
-		assert.deepStrictEqual(rankDefinitions({ word: 'missing', lineText: 'missing();', wordStartColumn: 0 }, index), []);
-		assert.deepStrictEqual(rankDefinitions({ word: '', lineText: '', wordStartColumn: 0 }, index), []);
-		assert.deepStrictEqual(rankDefinitions({ word: '$', lineText: '$;', wordStartColumn: 0 }, index), []);
+		assert.deepStrictEqual(rankDefinitions({ word: 'missing', lineText: 'missing();', wordStartColumn: 0, languageId: 'php' }, index), []);
+		assert.deepStrictEqual(rankDefinitions({ word: '', lineText: '', wordStartColumn: 0, languageId: 'php' }, index), []);
+		assert.deepStrictEqual(rankDefinitions({ word: '$', lineText: '$;', wordStartColumn: 0, languageId: 'php' }, index), []);
 	});
 
 	/**

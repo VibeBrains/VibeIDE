@@ -193,6 +193,16 @@ export function grammarNameOf(languageId: string): string {
 	return PROFILES.get(languageId)?.grammar ?? languageId;
 }
 
+/**
+ * The container path written as the language writes it: `App\\Billing`, `app.billing`, `App::Billing`.
+ *
+ * Shown next to a name in the symbol picker, so it is read by a person — borrowing another
+ * language's punctuation makes a correct answer look like someone else's project.
+ */
+export function containerLabel(container: readonly string[], languageId: string): string {
+	return container.join(PROFILES.get(languageId)?.scopeSeparator ?? '.');
+}
+
 /** Operators meaning «member of» in this language, longest first. */
 export function memberAccessOperators(languageId: string): readonly string[] {
 	return PROFILES.get(languageId)?.memberAccess ?? [];
@@ -344,12 +354,14 @@ export function extractSymbols(root: SyntaxNodeLike | null | undefined, language
  * Built from the container path rather than from the source text, so a method declared inside a
  * namespaced class is findable by the same string a caller would write.
  */
-export function qualifiedName(symbol: CodeSymbol, languageId: string = 'php'): string {
+export function qualifiedName(symbol: CodeSymbol, languageId: string): string {
 	if (symbol.container.length === 0) {
 		return symbol.name;
 	}
+	// An unknown language keeps the dot: neutral punctuation is better than another language's.
 	const profile = PROFILES.get(languageId);
+	const scope = profile?.scopeSeparator ?? '.';
 	const isMember = symbol.kind === 'method' || symbol.kind === 'property' || symbol.kind === 'constant';
-	const owner = symbol.container.join(profile?.scopeSeparator ?? '\\');
-	return isMember ? `${owner}${profile?.memberSeparator ?? '::'}${symbol.name}` : `${owner}${profile?.scopeSeparator ?? '\\'}${symbol.name}`;
+	const owner = symbol.container.join(scope);
+	return `${owner}${isMember ? (profile?.memberSeparator ?? scope) : scope}${symbol.name}`;
 }

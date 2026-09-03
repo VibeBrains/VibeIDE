@@ -11,6 +11,7 @@ import { ILanguageFeaturesService } from '../../../../editor/common/services/lan
 import { ITreeSitterLibraryService } from '../../../../editor/common/services/treeSitter/treeSitterLibraryService.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { CodeSymbol, CodeSymbolKind, extractSymbols, grammarNameOf, symbolLanguageIds, SyntaxNodeLike } from '../common/codeSymbols/treeSitterSymbols.js';
+import { IVibeCodeIndexService } from './vibeCodeIndexService.js';
 import { vibeLog } from '../common/vibeLog.js';
 
 /**
@@ -37,7 +38,7 @@ import { vibeLog } from '../common/vibeLog.js';
  */
 const SUPPORTED_LANGUAGES = symbolLanguageIds();
 
-const KIND_MAP: Readonly<Record<CodeSymbolKind, SymbolKind>> = {
+export const SYMBOL_KIND_MAP: Readonly<Record<CodeSymbolKind, SymbolKind>> = {
 	namespace: SymbolKind.Namespace,
 	class: SymbolKind.Class,
 	interface: SymbolKind.Interface,
@@ -75,7 +76,7 @@ export function toOutline(symbols: readonly CodeSymbol[]): DocumentSymbol[] {
 		return {
 			name: s.name,
 			detail: '',
-			kind: KIND_MAP[s.kind],
+			kind: SYMBOL_KIND_MAP[s.kind],
 			tags: [] as SymbolTag[],
 			range,
 			// Same range for selection: without a name-only range the editor still reveals the
@@ -110,6 +111,7 @@ class VibeCodeSymbolsContribution extends Disposable implements IWorkbenchContri
 	constructor(
 		@ILanguageFeaturesService languageFeaturesService: ILanguageFeaturesService,
 		@ITreeSitterLibraryService private readonly _treeSitter: ITreeSitterLibraryService,
+		@IVibeCodeIndexService private readonly _index: IVibeCodeIndexService,
 	) {
 		super();
 		const store = this._register(new DisposableStore());
@@ -122,6 +124,11 @@ class VibeCodeSymbolsContribution extends Disposable implements IWorkbenchContri
 	}
 
 	private async _provide(model: ITextModel, languageId: string, token: CancellationToken): Promise<DocumentSymbol[] | undefined> {
+		// One setting governs every navigation surface: a language switched off must not keep
+		// producing our outline while its jumps come from somewhere else.
+		if (!this._index.isEnabled(languageId)) {
+			return undefined;
+		}
 		try {
 			const [ParserClass, language] = await Promise.all([
 				this._treeSitter.getParserClass(),

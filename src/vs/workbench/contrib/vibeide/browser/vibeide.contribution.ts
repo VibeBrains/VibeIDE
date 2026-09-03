@@ -61,6 +61,8 @@ import './vibeTokenSavings.contribution.js';
 import './vibeDocs.contribution.js';
 import './vibeCodeSymbolsContribution.js';
 import './vibeCodeDefinitionContribution.js';
+import './vibeCodeWorkspaceSymbolsContribution.js';
+import './vibeCodeHighlightContribution.js';
 
 // Local preview server with live reload (Vibe Server)
 import './vibeServer/vibeServer.contribution.js';
