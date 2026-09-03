@@ -23,6 +23,7 @@
 | Файл | О чём |
 |---|---|
 | [chatPane.md](architecture/chatPane.md) | Две поверхности чата, `VibeChatEditorPane`, multi-chat tabs, lockdown, session restore |
+| [codeNavigationWithoutLanguageServer.md](architecture/codeNavigationWithoutLanguageServer.md) | Переход по методам без языкового сервера: грамматики tree-sitter уже в сборке и снимают стену Windows (Phpactor требует `posix`); TS работает из коробки, PHP не имел definition-провайдера вовсе; грабля `namespace X;` как соседа |
 | [plansAndAgents.md](architecture/plansAndAgents.md) | Persisted plans, lease, JSONL journal, dashboard, subagents, background agent, stall watchdog, project rules, agent skills |
 | [localModelMemory.md](architecture/localModelMemory.md) | Влезет ли локальная модель в память: KV-кэш считается по форме внимания, а не «долей от веса» (GQA ломает прикидку в разы); ключи `model_info` префиксованы архитектурой; без формы внимания — `unknown`, а не «влезет» |
 | [llmAndContext.md](architecture/llmAndContext.md) | LLM-провайдеры, remote catalog, OpenCode Zen vs Go vs OpenRouter, context filter, `@diagram` |
