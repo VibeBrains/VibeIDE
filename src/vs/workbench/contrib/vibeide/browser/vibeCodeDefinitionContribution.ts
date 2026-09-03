@@ -12,8 +12,9 @@ import { Hover, LocationLink } from '../../../../editor/common/languages.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { CodeSymbol, qualifiedName, symbolLanguageIds } from '../common/codeSymbols/treeSitterSymbols.js';
+import { kindLabel, rangeOf } from './vibeCodeSymbolPresentation.js';
 import { rankDefinitions, RankedCandidate } from '../common/codeSymbols/codeDefinitionResolve.js';
-import { IndexedSymbol, IVibeCodeIndexService } from './vibeCodeIndexService.js';
+import { IVibeCodeIndexService } from './vibeCodeIndexService.js';
 
 /**
  * «Перейти к определению» and the hover that goes with it, for the languages we read declarations of.
@@ -60,15 +61,13 @@ class VibeCodeDefinitionContribution extends Disposable implements IWorkbenchCon
 		if (found.length === 0 || token.isCancellationRequested) {
 			return [];
 		}
-		const byName = new Map<string, RankedCandidate[]>();
-		byName.set(word.word.replace(/^\$/, ''), found.map(entry => ({ symbol: entry.symbol, file: entry.file, score: 0 })));
 		return rankDefinitions({
 			word: word.word,
 			lineText: model.getLineContent(position.lineNumber),
 			wordStartColumn: word.startColumn - 1,
 			enclosingContainer: await this._enclosingContainer(model, languageId, position),
 			languageId,
-		}, byName);
+		}, found.map(entry => ({ symbol: entry.symbol, file: entry.file, score: 0 })));
 	}
 
 	private async _provideDefinition(model: ITextModel, languageId: string, position: IPosition, token: CancellationToken): Promise<LocationLink[] | undefined> {
@@ -126,31 +125,6 @@ class VibeCodeDefinitionContribution extends Disposable implements IWorkbenchCon
 		} catch {
 			return undefined;
 		}
-	}
-}
-
-export function rangeOf(symbol: IndexedSymbol['symbol']) {
-	return {
-		startLineNumber: symbol.startLine + 1,
-		startColumn: symbol.startColumn + 1,
-		endLineNumber: symbol.endLine + 1,
-		endColumn: symbol.endColumn + 1,
-	};
-}
-
-/** Human word for a declaration kind — shown in the hover, so it is read, not parsed. */
-export function kindLabel(kind: CodeSymbol['kind']): string {
-	switch (kind) {
-		case 'namespace': return 'пространство имён';
-		case 'class': return 'класс';
-		case 'interface': return 'интерфейс';
-		case 'trait': return 'трейт';
-		case 'enum': return 'перечисление';
-		case 'method': return 'метод';
-		case 'function': return 'функция';
-		case 'property': return 'свойство';
-		case 'constant': return 'константа';
-		case 'variable': return 'переменная';
 	}
 }
 

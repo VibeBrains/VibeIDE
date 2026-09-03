@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { createSymbolIndex, IndexedSymbol, preferOpenBuffers, replaceFileSymbols } from '../../common/codeSymbols/codeIndexCore.js';
+import { collectMatches, createSymbolIndex, IndexedSymbol, preferOpenBuffers, replaceFileSymbols } from '../../common/codeSymbols/codeIndexCore.js';
 import { CodeSymbol, CodeSymbolKind } from '../../common/codeSymbols/treeSitterSymbols.js';
 
 /**
@@ -60,5 +60,28 @@ suite('code index core', () => {
 		assert.deepStrictEqual(names(preferOpenBuffers(disk, open)), ['open.php:pay@42', 'other.php:pay@7'],
 			'правка в редакторе перекрывает свой файл и не прячет остальные');
 		assert.deepStrictEqual(names(preferOpenBuffers(disk, [])), ['open.php:pay@5', 'other.php:pay@7']);
+	});
+
+	/**
+	 * The picker opens with an EMPTY query, so «no filter» must not mean «the whole project». It
+	 * re-scores everything it is handed on every keystroke — the limit is what keeps a large
+	 * repository from turning the feature into a stutter.
+	 */
+	test('the symbol search is filtered and bounded', () => {
+		const byName = new Map<string, IndexedSymbol[]>();
+		for (let i = 0; i < 50; i++) {
+			byName.set(`name${i}`, [{ file: `f${i}.php`, symbol: sym(`name${i}`) }]);
+		}
+		byName.set('payInvoice', [{ file: 'inv.php', symbol: sym('payInvoice') }]);
+
+		assert.strictEqual(collectMatches(byName, new Map(), '', 10).length, 10, 'пустой запрос ограничен пределом');
+		assert.deepStrictEqual(names(collectMatches(byName, new Map(), 'PAYinv', 10)), ['inv.php:payInvoice@0'],
+			'фильтр не зависит от регистра и ищет подстроку');
+		assert.deepStrictEqual(collectMatches(byName, new Map(), 'нетакого', 10), []);
+	});
+
+	test('a declaration living only in an unsaved buffer is still findable', () => {
+		const open = new Map<string, IndexedSymbol[]>([['brandNew', [{ file: 'draft.php', symbol: sym('brandNew') }]]]);
+		assert.deepStrictEqual(names(collectMatches(new Map(), open, 'brand', 10)), ['draft.php:brandNew@0']);
 	});
 });

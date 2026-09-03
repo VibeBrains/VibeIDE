@@ -23,14 +23,8 @@ suite('code definition resolve', () => {
 
 	const candidate = (file: string, symbol: CodeSymbol): RankedCandidate => ({ file, symbol, score: 0 });
 
-	const indexOf = (...entries: RankedCandidate[]): ReadonlyMap<string, readonly RankedCandidate[]> => {
-		const map = new Map<string, RankedCandidate[]>();
-		for (const entry of entries) {
-			const list = map.get(entry.symbol.name);
-			if (list) { list.push(entry); } else { map.set(entry.symbol.name, [entry]); }
-		}
-		return map;
-	};
+	/** The candidates a caller would have looked up — a plain list, as the ranking now takes. */
+	const indexOf = (...entries: RankedCandidate[]): readonly RankedCandidate[] => entries;
 
 	/** The shape is read right-to-left from the identifier, so several calls on one line resolve separately. */
 	test('the call shape is read from the text around the cursor', () => {

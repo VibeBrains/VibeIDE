@@ -17,7 +17,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { CodeSymbol, extensionsOf, extractSymbols, grammarNameOf, symbolLanguageIds, SyntaxNodeLike } from '../common/codeSymbols/treeSitterSymbols.js';
-import { createSymbolIndex, IndexedSymbol, preferOpenBuffers, replaceFileSymbols, SymbolIndex } from '../common/codeSymbols/codeIndexCore.js';
+import { collectMatches, createSymbolIndex, IndexedSymbol, preferOpenBuffers, replaceFileSymbols, SymbolIndex } from '../common/codeSymbols/codeIndexCore.js';
 import { vibeLog } from '../common/vibeLog.js';
 
 /**
@@ -43,6 +43,14 @@ export const CONFIG_EXCLUDED_FOLDERS = 'vibeide.codeNavigation.excludedFolders';
 
 const DEFAULT_MAX_FILES = 4000;
 const DEFAULT_MAX_FILE_KB = 1500;
+
+/**
+ * Ceiling on rows handed to the symbol picker.
+ *
+ * Not a setting: it is not a matter of taste but of what a list can usefully show. The picker scores
+ * and sorts everything it is given on every keystroke, and a person reads the first screen of it.
+ */
+const MAX_SEARCH_RESULTS = 512;
 
 /**
  * Folders that hold dependencies or build output in the supported languages. A default, not a law:
@@ -237,7 +245,7 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 		const needle = query.trim().toLowerCase();
 		const out: IndexedSymbol[] = [];
 		for (const languageId of symbolLanguageIds()) {
-			if (!this.isEnabled(languageId)) {
+			if (!this.isEnabled(languageId) || out.length >= MAX_SEARCH_RESULTS) {
 				continue;
 			}
 			// Only languages already indexed answer here: opening the symbol picker must not kick off
@@ -246,21 +254,16 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 			if (!index || token.isCancellationRequested) {
 				continue;
 			}
-			const open = await this._openModelSymbols(languageId);
-			for (const [name, entries] of index.symbols.byName) {
-				if (needle && !name.toLowerCase().includes(needle)) {
-					continue;
-				}
-				out.push(...preferOpenBuffers(entries, open.filter(entry => entry.symbol.name === name)));
+			// Open buffers are grouped once. Filtering the whole list per name turned the picker into
+			// a quadratic scan the moment a project had more than a handful of declarations.
+			const openByName = new Map<string, IndexedSymbol[]>();
+			for (const entry of await this._openModelSymbols(languageId)) {
+				const list = openByName.get(entry.symbol.name);
+				if (list) { list.push(entry); } else { openByName.set(entry.symbol.name, [entry]); }
 			}
-			// Names that exist only in an open buffer — a declaration written but never yet saved.
-			for (const entry of open) {
-				if ((!needle || entry.symbol.name.toLowerCase().includes(needle)) && !index.symbols.byName.has(entry.symbol.name)) {
-					out.push(entry);
-				}
-			}
+			out.push(...collectMatches(index.symbols.byName, openByName, needle, MAX_SEARCH_RESULTS - out.length));
 		}
-		return out;
+		return out.slice(0, MAX_SEARCH_RESULTS);
 	}
 
 	/**

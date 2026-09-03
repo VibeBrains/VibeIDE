@@ -6,13 +6,12 @@
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { ITextModel } from '../../../../editor/common/model.js';
-import { DocumentSymbol, SymbolKind, SymbolTag } from '../../../../editor/common/languages.js';
+import { DocumentSymbol, SymbolTag } from '../../../../editor/common/languages.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
-import { ITreeSitterLibraryService } from '../../../../editor/common/services/treeSitter/treeSitterLibraryService.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
-import { CodeSymbol, CodeSymbolKind, extractSymbols, grammarNameOf, symbolLanguageIds, SyntaxNodeLike } from '../common/codeSymbols/treeSitterSymbols.js';
+import { CodeSymbol, symbolLanguageIds } from '../common/codeSymbols/treeSitterSymbols.js';
+import { rangeOf, SYMBOL_KIND_MAP } from './vibeCodeSymbolPresentation.js';
 import { IVibeCodeIndexService } from './vibeCodeIndexService.js';
-import { vibeLog } from '../common/vibeLog.js';
 
 /**
  * Outline for languages the editor ships no symbol provider for — PHP first.
@@ -38,27 +37,6 @@ import { vibeLog } from '../common/vibeLog.js';
  */
 const SUPPORTED_LANGUAGES = symbolLanguageIds();
 
-export const SYMBOL_KIND_MAP: Readonly<Record<CodeSymbolKind, SymbolKind>> = {
-	namespace: SymbolKind.Namespace,
-	class: SymbolKind.Class,
-	interface: SymbolKind.Interface,
-	// The editor has no «trait»; Class reads better in the outline than Object.
-	trait: SymbolKind.Class,
-	enum: SymbolKind.Enum,
-	method: SymbolKind.Method,
-	function: SymbolKind.Function,
-	property: SymbolKind.Property,
-	constant: SymbolKind.Constant,
-	variable: SymbolKind.Variable,
-};
-
-/**
- * Flat list of declarations → the nested shape the outline draws.
- *
- * Nesting is rebuilt from each symbol's container path rather than from source ranges: a bare
- * `namespace X;` does not span the file it governs, so range containment would put every class
- * outside the namespace it belongs to.
- */
 /** Joins container paths into a lookup key. Not a language separator — no identifier contains it. */
 const PATH_KEY_SEPARATOR = '\u0000';
 
@@ -67,12 +45,7 @@ export function toOutline(symbols: readonly CodeSymbol[]): DocumentSymbol[] {
 	const byPath = new Map<string, DocumentSymbol>();
 
 	const asDocumentSymbol = (s: CodeSymbol): DocumentSymbol => {
-		const range = {
-			startLineNumber: s.startLine + 1,
-			startColumn: s.startColumn + 1,
-			endLineNumber: s.endLine + 1,
-			endColumn: s.endColumn + 1,
-		};
+		const range = rangeOf(s);
 		return {
 			name: s.name,
 			detail: '',
@@ -110,7 +83,6 @@ class VibeCodeSymbolsContribution extends Disposable implements IWorkbenchContri
 
 	constructor(
 		@ILanguageFeaturesService languageFeaturesService: ILanguageFeaturesService,
-		@ITreeSitterLibraryService private readonly _treeSitter: ITreeSitterLibraryService,
 		@IVibeCodeIndexService private readonly _index: IVibeCodeIndexService,
 	) {
 		super();
@@ -129,35 +101,10 @@ class VibeCodeSymbolsContribution extends Disposable implements IWorkbenchContri
 		if (!this._index.isEnabled(languageId)) {
 			return undefined;
 		}
-		try {
-			const [ParserClass, language] = await Promise.all([
-				this._treeSitter.getParserClass(),
-				this._treeSitter.getLanguagePromise(grammarNameOf(languageId)),
-			]);
-			if (!language || token.isCancellationRequested) {
-				return undefined;
-			}
-			const parser = new ParserClass();
-			try {
-				parser.setLanguage(language);
-				const tree = parser.parse(model.getValue());
-				if (!tree || token.isCancellationRequested) {
-					return undefined;
-				}
-				try {
-					return toOutline(extractSymbols(tree.rootNode as unknown as SyntaxNodeLike, languageId));
-				} finally {
-					tree.delete();
-				}
-			} finally {
-				// The parser holds WASM memory: an outline recomputed on every keystroke would leak
-				// it steadily, and the leak would look like «the editor got slow», not like a bug.
-				parser.delete();
-			}
-		} catch (err) {
-			vibeLog.warn('codeSymbols', `структуру файла построить не удалось (${languageId}): ${err}`);
-			return undefined;
-		}
+		// Parsed through the index service, which owns one parser per language. Creating a parser here
+		// would mean a second WASM parser built and destroyed on every keystroke.
+		const symbols = await this._index.parseText(languageId, model.getValue());
+		return token.isCancellationRequested ? undefined : toOutline(symbols);
 	}
 }
 

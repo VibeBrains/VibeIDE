@@ -11,8 +11,7 @@ import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase 
 import { IWorkspaceSymbol, IWorkspaceSymbolProvider, WorkspaceSymbolProviderRegistry } from '../../search/common/search.js';
 import { containerLabel, extensionsOf, symbolLanguageIds } from '../common/codeSymbols/treeSitterSymbols.js';
 import { IVibeCodeIndexService } from './vibeCodeIndexService.js';
-import { SYMBOL_KIND_MAP } from './vibeCodeSymbolsContribution.js';
-import { rangeOf } from './vibeCodeDefinitionContribution.js';
+import { rangeOf, SYMBOL_KIND_MAP } from './vibeCodeSymbolPresentation.js';
 
 /**
  * «Перейти к символу в рабочей области» (⌘T) for the languages we read declarations of.

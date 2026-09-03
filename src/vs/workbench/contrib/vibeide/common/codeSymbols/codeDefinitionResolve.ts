@@ -108,16 +108,21 @@ function baseName(name: string): string {
 /**
  * Rank the declarations that could be what the cursor points at.
  *
+ * Takes the candidates for that name directly — a list, not a map: the caller already knows which
+ * name it looked up, and building a one-key map to hand it over was ceremony.
+ *
  * Returns an empty list rather than a guess when nothing matches by name: a jump that lands
  * somewhere arbitrary is worse than a jump that politely does not happen.
  */
-export function rankDefinitions(query: DefinitionQuery, index: ReadonlyMap<string, readonly RankedCandidate[]>): RankedCandidate[] {
+export function rankDefinitions(query: DefinitionQuery, candidates: readonly RankedCandidate[]): RankedCandidate[] {
 	const word = query.word.replace(/^\$/, '');
-	if (!word) {
+	if (!word || candidates.length === 0) {
 		return [];
 	}
-	const byName = index.get(word);
-	if (!byName || byName.length === 0) {
+	// Callers pass the declarations of this one name; filtering here keeps the contract honest even
+	// if a caller hands over a wider list.
+	const byName = candidates.filter(candidate => candidate.symbol.name === word);
+	if (byName.length === 0) {
 		return [];
 	}
 	const { shape, owner } = readCallShape(query.lineText, query.wordStartColumn, query.languageId);

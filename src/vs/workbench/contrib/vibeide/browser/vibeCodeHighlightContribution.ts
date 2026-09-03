@@ -10,6 +10,7 @@ import { ITextModel } from '../../../../editor/common/model.js';
 import { DocumentHighlight, DocumentHighlightKind } from '../../../../editor/common/languages.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
+import { USUAL_WORD_SEPARATORS } from '../../../../editor/common/core/wordHelper.js';
 import { symbolLanguageIds } from '../common/codeSymbols/treeSitterSymbols.js';
 import { IVibeCodeIndexService } from './vibeCodeIndexService.js';
 
@@ -24,8 +25,11 @@ import { IVibeCodeIndexService } from './vibeCodeIndexService.js';
  * Scope is one file, on purpose — the same honesty as the jump. Without knowing types, «every use in
  * the project» would light up unrelated methods that merely share a name.
  */
-/** Word separators for whole-word matching — the editor's own default set. */
-const USUAL_WORD_SEPARATORS = '`~!@#$%^&*()-=+[{]}\\|;:\'",.<>/?';
+/**
+ * Ceiling on highlighted occurrences. A name repeated thousands of times in one file is a generated
+ * blob, and painting every hit there costs more than it tells anyone.
+ */
+const MAX_HIGHLIGHTS = 1000;
 
 class VibeCodeHighlightContribution extends Disposable implements IWorkbenchContribution {
 
@@ -59,8 +63,9 @@ class VibeCodeHighlightContribution extends Disposable implements IWorkbenchCont
 		}
 		const declarationLines = new Set(declared.filter(symbol => symbol.name === name).map(symbol => symbol.startLine + 1));
 
-		// Whole-word, case-sensitive: `pay` must not light up inside `payment` or match `Pay`.
-		const matches = model.findMatches(name, true, false, true, USUAL_WORD_SEPARATORS, false);
+		// Whole-word, case-sensitive: `pay` must not light up inside `payment` or match `Pay`. The
+		// separators come from the editor's own constant — a private copy would drift from it.
+		const matches = model.findMatches(name, true, false, true, USUAL_WORD_SEPARATORS, false, MAX_HIGHLIGHTS);
 		if (token.isCancellationRequested) {
 			return undefined;
 		}

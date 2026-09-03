@@ -72,3 +72,40 @@ export function preferOpenBuffers(fromDisk: readonly IndexedSymbol[], open: read
 	const overridden = new Set(open.map(entry => entry.file));
 	return [...open, ...fromDisk.filter(entry => !overridden.has(entry.file))];
 }
+
+/**
+ * Rows for the symbol picker: names matching the filter, with open buffers winning over the disk.
+ *
+ * The limit is the point of this function. The picker opens with an EMPTY query and re-scores
+ * everything it is handed on every keystroke, so answering «no filter» with the whole project is
+ * how a working feature turns into a stuttering one on a real repository.
+ */
+export function collectMatches(
+	byName: ReadonlyMap<string, IndexedSymbol[]>,
+	openByName: ReadonlyMap<string, IndexedSymbol[]>,
+	needle: string,
+	limit: number,
+): IndexedSymbol[] {
+	const filter = needle.trim().toLowerCase();
+	const matches = (name: string) => !filter || name.toLowerCase().includes(filter);
+	const out: IndexedSymbol[] = [];
+
+	for (const [name, entries] of byName) {
+		if (out.length >= limit) {
+			return out.slice(0, limit);
+		}
+		if (matches(name)) {
+			out.push(...preferOpenBuffers(entries, openByName.get(name) ?? []));
+		}
+	}
+	// Names that exist only in an open buffer — a declaration written but never yet saved.
+	for (const [name, entries] of openByName) {
+		if (out.length >= limit) {
+			break;
+		}
+		if (matches(name) && !byName.has(name)) {
+			out.push(...entries);
+		}
+	}
+	return out.slice(0, limit);
+}
