@@ -6,6 +6,7 @@
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
+import { basename } from '../../../../base/common/resources.js';
 import { IPosition } from '../../../../editor/common/core/position.js';
 import { ITextModel } from '../../../../editor/common/model.js';
 import { Hover, LocationLink } from '../../../../editor/common/languages.js';
@@ -90,13 +91,22 @@ class VibeCodeDefinitionContribution extends Disposable implements IWorkbenchCon
 			return undefined;
 		}
 		const word = model.getWordAtPosition(position);
-		const best = ranked[0].symbol;
-		const lines = [`**${kindLabel(best.kind)}** \`${qualifiedName(best, languageId)}\``];
+		const best = ranked[0];
+		const lines = [`**${kindLabel(best.symbol.kind)}** \`${qualifiedName(best.symbol, languageId)}\``];
+		// Where it is declared — the hover's job is to answer without making the jump. The file of
+		// the current editor is named as «здесь», because repeating its own path tells the reader
+		// nothing they cannot see.
+		const declaredIn = best.file === model.uri.toString()
+			? `здесь, строка ${best.symbol.startLine + 1}`
+			: `${basename(URI.parse(best.file))}, строка ${best.symbol.startLine + 1}`;
+		lines.push('', declaredIn);
 		if (ranked.length > 1) {
 			lines.push('', `Ещё ${ranked.length - 1} объявлен${ranked.length - 1 === 1 ? 'ие' : 'ий'} с этим именем — переход покажет список.`);
 		}
 		return {
-			contents: lines.map(value => ({ value, isTrusted: false })),
+			// One markdown value, not one per line: the hover renders each entry as its own block, and
+			// an empty entry between them showed as nothing at all rather than as a blank line.
+			contents: [{ value: lines.filter(line => line !== '').join('\n\n'), isTrusted: false }],
 			range: word ? {
 				startLineNumber: position.lineNumber, startColumn: word.startColumn,
 				endLineNumber: position.lineNumber, endColumn: word.endColumn,

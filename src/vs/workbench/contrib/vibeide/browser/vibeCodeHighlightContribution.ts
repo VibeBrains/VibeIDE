@@ -11,7 +11,7 @@ import { DocumentHighlight, DocumentHighlightKind } from '../../../../editor/com
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { USUAL_WORD_SEPARATORS } from '../../../../editor/common/core/wordHelper.js';
-import { symbolLanguageIds } from '../common/codeSymbols/treeSitterSymbols.js';
+import { isInsideSpans, symbolLanguageIds } from '../common/codeSymbols/treeSitterSymbols.js';
 import { IVibeCodeIndexService } from './vibeCodeIndexService.js';
 
 /**
@@ -57,11 +57,11 @@ class VibeCodeHighlightContribution extends Disposable implements IWorkbenchCont
 			return undefined;
 		}
 		const name = word.word;
-		const declared = await this._index.parseText(languageId, model.getValue());
+		const { symbols, nonCode } = await this._index.parseFile(languageId, model.getValue());
 		if (token.isCancellationRequested) {
 			return undefined;
 		}
-		const declarationLines = new Set(declared.filter(symbol => symbol.name === name).map(symbol => symbol.startLine + 1));
+		const declarationLines = new Set(symbols.filter(symbol => symbol.name === name).map(symbol => symbol.startLine + 1));
 
 		// Whole-word, case-sensitive: `pay` must not light up inside `payment` or match `Pay`. The
 		// separators come from the editor's own constant — a private copy would drift from it.
@@ -69,7 +69,10 @@ class VibeCodeHighlightContribution extends Disposable implements IWorkbenchCont
 		if (token.isCancellationRequested) {
 			return undefined;
 		}
-		return matches.map(match => ({
+		return matches
+			// A name inside a docblock or a quoted string is a mention, not an occurrence of the symbol.
+			.filter(match => !isInsideSpans(nonCode, match.range.startLineNumber - 1, match.range.startColumn - 1))
+			.map(match => ({
 			range: match.range,
 			// The declaration is a write, every other occurrence a read — that is what the two
 			// different highlight colours in the editor mean.

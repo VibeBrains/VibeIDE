@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { CodeSymbol, extensionsOf, extractSymbols, grammarNameOf, qualifiedName, supportsSymbolExtraction, symbolLanguageIds, SyntaxNodeLike } from '../../common/codeSymbols/treeSitterSymbols.js';
+import { CodeSymbol, extensionsOf, extractSymbols, grammarNameOf, isInsideSpans, nonCodeSpans, qualifiedName, supportsSymbolExtraction, symbolLanguageIds, SyntaxNodeLike } from '../../common/codeSymbols/treeSitterSymbols.js';
 
 /**
  * Declarations read out of a tree-sitter tree.
@@ -155,5 +155,46 @@ suite('tree-sitter symbols', () => {
 		assert.strictEqual(grammarNameOf('csharp'), 'c-sharp', 'грамматика C# лежит в файле c-sharp');
 		assert.strictEqual(grammarNameOf('php'), 'php');
 		assert.deepStrictEqual(languages.filter(id => extensionsOf(id).length === 0), []);
+	});
+
+	/**
+	 * A name inside a comment or a string is a mention, not a use of the symbol — the distinction
+	 * that keeps docblocks out of «references» and out of occurrence highlighting.
+	 */
+	test('comments and string literals are recognised across the grammars', () => {
+		const positioned = (type: string, startLine: number, startColumn: number, endLine: number, endColumn: number): SyntaxNodeLike => ({
+			type, text: '', startPosition: { row: startLine, column: startColumn }, endPosition: { row: endLine, column: endColumn },
+			namedChildCount: 0, namedChild: () => null, childForFieldName: () => null,
+		});
+		// The names differ per language; all of them must be caught by shape, not by a hand-kept list.
+		const root = node('program', '', [
+			positioned('comment', 1, 0, 1, 20),
+			positioned('block_comment', 3, 4, 5, 6),
+			positioned('encapsed_string', 7, 8, 7, 20),
+			positioned('interpreted_string_literal', 9, 0, 9, 10),
+			positioned('line_comment', 11, 0, 11, 8),
+			decl('function_definition', 'helper'),
+		]);
+		const spans = nonCodeSpans(root);
+		assert.strictEqual(spans.length, 5, 'объявление в список не-кода не попадает');
+
+		assert.deepStrictEqual({
+			внутриКомментария: isInsideSpans(spans, 1, 5),
+			наГраницеНачала: isInsideSpans(spans, 1, 0),
+			наГраницеКонца: isInsideSpans(spans, 1, 20),
+			многострочный: isInsideSpans(spans, 4, 0),
+			передСтрокой: isInsideSpans(spans, 7, 7),
+			вСтроке: isInsideSpans(spans, 7, 9),
+			вКоде: isInsideSpans(spans, 20, 0),
+		}, {
+			внутриКомментария: true,
+			наГраницеНачала: true,
+			// The end column is exclusive: the character after a comment is code again.
+			наГраницеКонца: false,
+			многострочный: true,
+			передСтрокой: false,
+			вСтроке: true,
+			вКоде: false,
+		});
 	});
 });

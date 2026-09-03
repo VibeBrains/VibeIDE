@@ -13,10 +13,13 @@ import { ITreeSitterLibraryService } from '../../../../editor/common/services/tr
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { ConfigurationScope, Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import * as glob from '../../../../base/common/glob.js';
+import { IProgressService, ProgressLocation } from '../../../../platform/progress/common/progress.js';
+import { getExcludes, ISearchConfiguration } from '../../../services/search/common/search.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { CodeSymbol, extensionsOf, extractSymbols, grammarNameOf, symbolLanguageIds, SyntaxNodeLike } from '../common/codeSymbols/treeSitterSymbols.js';
+import { CodeSymbol, extensionsOf, extractSymbols, grammarNameOf, isInsideSpans, nonCodeSpans, supportsSymbolExtraction, symbolLanguageIds, SyntaxNodeLike, TextSpan } from '../common/codeSymbols/treeSitterSymbols.js';
 import { collectMatches, createSymbolIndex, IndexedSymbol, preferOpenBuffers, replaceFileSymbols, SymbolIndex } from '../common/codeSymbols/codeIndexCore.js';
 import { vibeLog } from '../common/vibeLog.js';
 
@@ -51,6 +54,14 @@ const DEFAULT_MAX_FILE_KB = 1500;
  * and sorts everything it is given on every keystroke, and a person reads the first screen of it.
  */
 const MAX_SEARCH_RESULTS = 512;
+
+/**
+ * How many files are re-read to strip comment matches out of a reference list.
+ *
+ * A ceiling because this is a nicety, not the answer: past it the list is shown unfiltered rather
+ * than made slow. Reference lists that big are read by machines, not people.
+ */
+const MAX_FILTERED_FILES = 200;
 
 /**
  * Folders that hold dependencies or build output in the supported languages. A default, not a law:
@@ -116,6 +127,15 @@ export interface IVibeCodeIndexService {
 	 * whose language has never been scanned.
 	 */
 	parseText(languageId: string, text: string): Promise<CodeSymbol[]>;
+	/** Declarations plus the comment and string spans of the same text, from a single parse. */
+	parseFile(languageId: string, text: string): Promise<{ symbols: CodeSymbol[]; nonCode: TextSpan[] }>;
+	/**
+	 * Drop the positions that fall inside comments or string literals.
+	 *
+	 * Takes zero-based positions grouped by file and returns the same shape. A file it cannot read
+	 * is left untouched — filtering is an improvement, and failing to improve must not lose data.
+	 */
+	filterToCode(languageId: string, files: ReadonlyMap<string, readonly { line: number; column: number }[]>, token: CancellationToken): Promise<Map<string, Set<string>>>;
 }
 
 export const IVibeCodeIndexService = createDecorator<IVibeCodeIndexService>('vibeCodeIndexService');
@@ -159,8 +179,26 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 		@IConfigurationService private readonly _configuration: IConfigurationService,
 		@IModelService private readonly _modelService: IModelService,
+		@IProgressService private readonly _progressService: IProgressService,
 	) {
 		super();
+		// Warm up the language of every file that opens. Without this the index exists only after the
+		// first F12, so ⌘T and references answer nothing until then — and «nothing» reads as «this
+		// language is not supported», not as «not ready yet».
+		//
+		// Existing models are walked as well, not just the event: this service is created lazily, by
+		// which time the editors restored at startup are already open. Subscribing without handling
+		// the current state means the files the user actually has open are the ones never warmed.
+		const warmUp = (languageId: string) => {
+			if (supportsSymbolExtraction(languageId) && this.isEnabled(languageId) && !this._indexes.has(languageId)) {
+				void this._ensureIndex(languageId, CancellationToken.None);
+			}
+		};
+		for (const model of this._modelService.getModels()) {
+			warmUp(model.getLanguageId());
+		}
+		this._register(this._modelService.onModelAdded(model => warmUp(model.getLanguageId())));
+		this._register(this._modelService.onModelLanguageChanged(e => warmUp(e.model.getLanguageId())));
 		// Only the changed files are re-read. Dropping the whole index here would make every save
 		// cost the next jump a full walk of the project, which is what this replaces.
 		this._register(this._fileService.onDidFilesChange(e => {
@@ -192,8 +230,65 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 	}
 
 	async parseText(languageId: string, text: string): Promise<CodeSymbol[]> {
+		return (await this.parseFile(languageId, text)).symbols;
+	}
+
+	async parseFile(languageId: string, text: string): Promise<{ symbols: CodeSymbol[]; nonCode: TextSpan[] }> {
 		const parser = await this._ensureParser(languageId);
-		return parser ? parseWith(parser, languageId, text) : [];
+		if (!parser) {
+			return { symbols: [], nonCode: [] };
+		}
+		const tree = parser.parse(text);
+		if (!tree) {
+			return { symbols: [], nonCode: [] };
+		}
+		try {
+			const root = tree.rootNode as SyntaxNodeLike;
+			// One parse for both: the highlighter needs the declarations and the comment spans at once.
+			return { symbols: extractSymbols(root, languageId), nonCode: nonCodeSpans(root) };
+		} finally {
+			tree.delete();
+		}
+	}
+
+	async filterToCode(languageId: string, files: ReadonlyMap<string, readonly { line: number; column: number }[]>, token: CancellationToken): Promise<Map<string, Set<string>>> {
+		const out = new Map<string, Set<string>>();
+		let parsed = 0;
+		for (const [file, positions] of files) {
+			if (token.isCancellationRequested || parsed >= MAX_FILTERED_FILES) {
+				break;
+			}
+			const text = await this._textOf(file);
+			if (text === undefined) {
+				continue;
+			}
+			parsed++;
+			const { nonCode } = await this.parseFile(languageId, text);
+			if (nonCode.length === 0) {
+				continue;
+			}
+			const dropped = new Set<string>();
+			for (const position of positions) {
+				if (isInsideSpans(nonCode, position.line, position.column)) {
+					dropped.add(`${position.line}:${position.column}`);
+				}
+			}
+			if (dropped.size > 0) {
+				out.set(file, dropped);
+			}
+		}
+		return out;
+	}
+
+	/** The editor's copy of a file if it is open, the disk otherwise. */
+	private async _textOf(file: string): Promise<string | undefined> {
+		for (const model of this._modelService.getModels()) {
+			if (!model.isDisposed() && model.uri.toString() === file) {
+				return model.getValue();
+			}
+		}
+		const content = await this._fileService.readFile(URI.parse(file)).catch(() => undefined);
+		return content?.value.toString();
 	}
 
 	/**
@@ -304,6 +399,19 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 		return out;
 	}
 
+	/**
+	 * The user's own idea of what is not source: `files.exclude` and `search.exclude`.
+	 *
+	 * Read here so the index and «find all references» agree on what the project is. They did not
+	 * before: the search service honours these settings, while the index only knew its own folder
+	 * list — so a symbol could be indexed while its file was invisible to references, and the two
+	 * features contradicted each other on the same repository.
+	 */
+	private _userExcludes(): glob.ParsedExpression | undefined {
+		const expression = getExcludes(this._configuration.getValue<ISearchConfiguration>());
+		return expression ? glob.parse(expression) : undefined;
+	}
+
 	private _limits(): { maxFiles: number; maxBytes: number; excluded: ReadonlySet<string> } {
 		const maxFiles = this._configuration.getValue<number>(CONFIG_MAX_FILES);
 		const maxFileKB = this._configuration.getValue<number>(CONFIG_MAX_FILE_KB);
@@ -340,7 +448,14 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 		}
 		let building = this._building.get(languageId);
 		if (!building) {
-			building = this._build(languageId).finally(() => this._building.delete(languageId));
+			// Shown in the status bar, not as a notification: the first jump in a large repository
+			// waits for a walk of thousands of files, and silence there is indistinguishable from a
+			// feature that does not work. A modal or a toast for something this routine would be worse
+			// than the silence it replaces.
+			building = this._progressService.withProgress(
+				{ location: ProgressLocation.Window, title: localize('vibeide.codeNavigation.indexing', 'Собираю объявления: {0}', languageId) },
+				() => this._build(languageId),
+			).finally(() => this._building.delete(languageId));
 			this._building.set(languageId, building);
 		}
 		await Promise.race([building, cancellationPromise(token)]);
@@ -351,6 +466,7 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 		const started = Date.now();
 		const token = this._scanCancellation.token;
 		const { maxFiles, maxBytes, excluded } = this._limits();
+		const userExcludes = this._userExcludes();
 		try {
 			const parser = await this._ensureParser(languageId);
 			if (!parser) {
@@ -360,7 +476,13 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 			const extensions = extensionsOf(languageId);
 			let scanned = 0;
 
-			const walk = async (dir: URI): Promise<void> => {
+			/** Path relative to its workspace folder — what the exclude globs are written against. */
+			const relativeTo = (folder: URI, resource: URI): string => {
+				const prefix = folder.path.endsWith('/') ? folder.path : `${folder.path}/`;
+				return resource.path.startsWith(prefix) ? resource.path.slice(prefix.length) : resource.path;
+			};
+
+			const walk = async (folder: URI, dir: URI): Promise<void> => {
 				if (token.isCancellationRequested || scanned >= maxFiles) {
 					return;
 				}
@@ -369,14 +491,16 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 					if (token.isCancellationRequested || scanned >= maxFiles) {
 						return;
 					}
+					const relative = relativeTo(folder, child.resource);
 					if (child.isDirectory) {
-						if (!child.name.startsWith('.') && !excluded.has(child.name)) {
-							await walk(child.resource);
+						const skipped = child.name.startsWith('.') || excluded.has(child.name) || !!userExcludes?.(relative);
+						if (!skipped) {
+							await walk(folder, child.resource);
 						}
 						continue;
 					}
 					const lower = child.name.toLowerCase();
-					if (!extensions.some(ext => lower.endsWith(ext)) || (child.size ?? 0) > maxBytes) {
+					if (!extensions.some(ext => lower.endsWith(ext)) || (child.size ?? 0) > maxBytes || userExcludes?.(relative)) {
 						continue;
 					}
 					scanned++;
@@ -392,7 +516,7 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 			};
 
 			for (const folder of this._workspace.getWorkspace().folders) {
-				await walk(folder.uri);
+				await walk(folder.uri, folder.uri);
 			}
 			if (token.isCancellationRequested) {
 				return;

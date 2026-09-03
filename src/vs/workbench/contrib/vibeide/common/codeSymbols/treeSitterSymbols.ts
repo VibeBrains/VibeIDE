@@ -365,3 +365,75 @@ export function qualifiedName(symbol: CodeSymbol, languageId: string): string {
 	const owner = symbol.container.join(scope);
 	return `${owner}${isMember ? (profile?.memberSeparator ?? scope) : scope}${symbol.name}`;
 }
+
+/** A span of text that is not code: a comment or a string literal. Zero-based, like tree-sitter. */
+export interface TextSpan {
+	readonly startLine: number;
+	readonly startColumn: number;
+	readonly endLine: number;
+	readonly endColumn: number;
+}
+
+/**
+ * Is this node a comment or a string literal?
+ *
+ * Matched by SUBSTRING, not by prefix, and that is the whole trick: the word is not always at the
+ * front. PHP calls its strings `encapsed_string` and Go calls them `interpreted_string_literal`, so
+ * an anchored pattern silently failed on exactly the two languages this was written for — caught by
+ * a test, not by reading.
+ *
+ * Known limit: a string with interpolation (`"{$invoice->total}"` in PHP) is treated as non-code in
+ * full, so a name used inside one is not counted as an occurrence. Rare enough to accept, and the
+ * failure is a missing highlight rather than a wrong jump.
+ */
+function isNonCodeNode(type: string): boolean {
+	return /comment|string|heredoc|char_literal/.test(type);
+}
+
+/**
+ * Comments and string literals of a file.
+ *
+ * Used to keep a name mentioned in a docblock or inside a quoted string out of «occurrences» and
+ * «references»: it is a mention, not a use, and a list a person has to filter by eye is worth less
+ * than a shorter honest one.
+ */
+export function nonCodeSpans(root: SyntaxNodeLike | null | undefined): TextSpan[] {
+	const out: TextSpan[] = [];
+	if (!root) {
+		return out;
+	}
+	const walk = (node: SyntaxNodeLike): void => {
+		if (isNonCodeNode(node.type)) {
+			// The whole span is taken, children included: nothing inside a comment is code.
+			out.push({
+				startLine: node.startPosition.row,
+				startColumn: node.startPosition.column,
+				endLine: node.endPosition.row,
+				endColumn: node.endPosition.column,
+			});
+			return;
+		}
+		for (let i = 0; i < node.namedChildCount; i++) {
+			const child = node.namedChild(i);
+			if (child) { walk(child); }
+		}
+	};
+	walk(root);
+	return out;
+}
+
+/** Does a zero-based position fall inside any of the spans? */
+export function isInsideSpans(spans: readonly TextSpan[], line: number, column: number): boolean {
+	return spans.some(span => {
+		if (line < span.startLine || line > span.endLine) {
+			return false;
+		}
+		if (line === span.startLine && column < span.startColumn) {
+			return false;
+		}
+		if (line === span.endLine && column >= span.endColumn) {
+			return false;
+		}
+		return true;
+	});
+}

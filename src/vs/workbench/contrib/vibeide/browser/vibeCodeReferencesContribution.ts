@@ -77,21 +77,50 @@ class VibeCodeReferencesContribution extends Disposable implements IWorkbenchCon
 			return undefined;
 		}
 
-		const declarations: Location[] = [];
-		if (includeDeclaration) {
-			for (const entry of await this._index.lookup(languageId, name, token)) {
-				declarations.push({ uri: URI.parse(entry.file), range: rangeOf(entry.symbol) });
-			}
-		}
+		// Looked up regardless of the flag: when declarations are NOT wanted they still have to be
+		// known, or the text search would quietly put them back as ordinary occurrences.
+		const known = (await this._index.lookup(languageId, name, token))
+			.map((entry): Location => ({ uri: URI.parse(entry.file), range: rangeOf(entry.symbol) }));
 		if (token.isCancellationRequested) {
 			return undefined;
 		}
 
 		const occurrences = await this._occurrences(name, languageId, folders.map(f => f.uri), token);
+		const filtered = await this._withoutCommentsAndStrings(languageId, occurrences, token);
+		const declarationLines = new Set(known.map(lineKeyOf));
+		const uses = filtered.filter(location => !declarationLines.has(lineKeyOf(location)));
+
 		// Declarations first: «where is this declared» is the question people bring to this list, and
 		// the rest is the answer to «and where is it used».
-		const seen = new Set(declarations.map(keyOf));
-		return [...declarations, ...occurrences.filter(location => !seen.has(keyOf(location)))];
+		return includeDeclaration ? [...known, ...uses] : uses;
+	}
+
+	/**
+	 * Drop occurrences that sit inside comments or string literals.
+	 *
+	 * A name in a docblock is a mention, not a call site, and a list the reader has to filter by eye
+	 * is worth less than a shorter honest one. Files are re-parsed for this, so it is bounded inside
+	 * the index service; whatever it cannot check is kept rather than dropped.
+	 */
+	private async _withoutCommentsAndStrings(languageId: string, locations: readonly Location[], token: CancellationToken): Promise<Location[]> {
+		if (locations.length === 0) {
+			return [];
+		}
+		const byFile = new Map<string, { line: number; column: number }[]>();
+		for (const location of locations) {
+			const file = location.uri.toString();
+			const position = { line: location.range.startLineNumber - 1, column: location.range.startColumn - 1 };
+			const list = byFile.get(file);
+			if (list) { list.push(position); } else { byFile.set(file, [position]); }
+		}
+		const dropped = await this._index.filterToCode(languageId, byFile, token);
+		if (dropped.size === 0) {
+			return [...locations];
+		}
+		return locations.filter(location => {
+			const perFile = dropped.get(location.uri.toString());
+			return !perFile?.has(`${location.range.startLineNumber - 1}:${location.range.startColumn - 1}`);
+		});
 	}
 
 	private async _occurrences(name: string, languageId: string, folders: readonly URI[], token: CancellationToken): Promise<Location[]> {
@@ -150,8 +179,14 @@ class VibeCodeReferencesContribution extends Disposable implements IWorkbenchCon
 	}
 }
 
-function keyOf(location: Location): string {
-	return `${location.uri.toString()}:${location.range.startLineNumber}:${location.range.startColumn}`;
+/**
+ * A declaration is recognised by its file and line, not by an exact column.
+ *
+ * The index points at the whole declaration node while the text search points at the name inside it,
+ * so comparing columns would never match and every declaration would be listed twice.
+ */
+function lineKeyOf(location: Location): string {
+	return `${location.uri.toString()}:${location.range.startLineNumber}`;
 }
 
 registerWorkbenchContribution2(VibeCodeReferencesContribution.ID, VibeCodeReferencesContribution, WorkbenchPhase.AfterRestored);
