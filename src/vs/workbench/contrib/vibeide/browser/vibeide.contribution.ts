@@ -60,6 +60,7 @@ import './vibeSpecs.contribution.js';
 import './vibeTokenSavings.contribution.js';
 import './vibeDocs.contribution.js';
 import './vibePhpSymbolsContribution.js';
+import './vibePhpDefinitionContribution.js';
 
 // Local preview server with live reload (Vibe Server)
 import './vibeServer/vibeServer.contribution.js';
