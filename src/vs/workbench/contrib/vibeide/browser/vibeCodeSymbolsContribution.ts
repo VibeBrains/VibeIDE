@@ -10,7 +10,7 @@ import { DocumentSymbol, SymbolKind, SymbolTag } from '../../../../editor/common
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { ITreeSitterLibraryService } from '../../../../editor/common/services/treeSitter/treeSitterLibraryService.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
-import { CodeSymbol, CodeSymbolKind, extractSymbols, SyntaxNodeLike } from '../common/codeSymbols/treeSitterSymbols.js';
+import { CodeSymbol, CodeSymbolKind, extractSymbols, grammarNameOf, symbolLanguageIds, SyntaxNodeLike } from '../common/codeSymbols/treeSitterSymbols.js';
 import { vibeLog } from '../common/vibeLog.js';
 
 /**
@@ -31,7 +31,11 @@ import { vibeLog } from '../common/vibeLog.js';
  * outline has no business being gated behind an unrelated experiment.
  */
 
-const SUPPORTED_LANGUAGES = ['php'] as const;
+/**
+ * Languages come from the declaration tables themselves, so adding a language is one table and no
+ * second list to keep in step with it.
+ */
+const SUPPORTED_LANGUAGES = symbolLanguageIds();
 
 const KIND_MAP: Readonly<Record<CodeSymbolKind, SymbolKind>> = {
 	namespace: SymbolKind.Namespace,
@@ -54,6 +58,9 @@ const KIND_MAP: Readonly<Record<CodeSymbolKind, SymbolKind>> = {
  * `namespace X;` does not span the file it governs, so range containment would put every class
  * outside the namespace it belongs to.
  */
+/** Joins container paths into a lookup key. Not a language separator — no identifier contains it. */
+const PATH_KEY_SEPARATOR = '\u0000';
+
 export function toOutline(symbols: readonly CodeSymbol[]): DocumentSymbol[] {
 	const roots: DocumentSymbol[] = [];
 	const byPath = new Map<string, DocumentSymbol>();
@@ -80,13 +87,13 @@ export function toOutline(symbols: readonly CodeSymbol[]): DocumentSymbol[] {
 
 	for (const symbol of symbols) {
 		const entry = asDocumentSymbol(symbol);
-		const parent = symbol.container.length > 0 ? byPath.get(symbol.container.join('\\')) : undefined;
+		const parent = symbol.container.length > 0 ? byPath.get(symbol.container.join(PATH_KEY_SEPARATOR)) : undefined;
 		if (parent) {
 			parent.children!.push(entry);
 		} else {
 			roots.push(entry);
 		}
-		const ownPath = [...symbol.container, symbol.name].join('\\');
+		const ownPath = [...symbol.container, symbol.name].join(PATH_KEY_SEPARATOR);
 		// First declaration of a path wins: a redeclared class is a mistake in the file, and letting
 		// the second one capture the children would move half the outline under it.
 		if (!byPath.has(ownPath)) {
@@ -96,9 +103,9 @@ export function toOutline(symbols: readonly CodeSymbol[]): DocumentSymbol[] {
 	return roots;
 }
 
-class VibePhpSymbolsContribution extends Disposable implements IWorkbenchContribution {
+class VibeCodeSymbolsContribution extends Disposable implements IWorkbenchContribution {
 
-	static readonly ID = 'workbench.contrib.vibePhpSymbols';
+	static readonly ID = 'workbench.contrib.vibeCodeSymbols';
 
 	constructor(
 		@ILanguageFeaturesService languageFeaturesService: ILanguageFeaturesService,
@@ -118,7 +125,7 @@ class VibePhpSymbolsContribution extends Disposable implements IWorkbenchContrib
 		try {
 			const [ParserClass, language] = await Promise.all([
 				this._treeSitter.getParserClass(),
-				this._treeSitter.getLanguagePromise(languageId),
+				this._treeSitter.getLanguagePromise(grammarNameOf(languageId)),
 			]);
 			if (!language || token.isCancellationRequested) {
 				return undefined;
@@ -141,10 +148,10 @@ class VibePhpSymbolsContribution extends Disposable implements IWorkbenchContrib
 				parser.delete();
 			}
 		} catch (err) {
-			vibeLog.warn('phpSymbols', `структуру файла построить не удалось (${languageId}): ${err}`);
+			vibeLog.warn('codeSymbols', `структуру файла построить не удалось (${languageId}): ${err}`);
 			return undefined;
 		}
 	}
 }
 
-registerWorkbenchContribution2(VibePhpSymbolsContribution.ID, VibePhpSymbolsContribution, WorkbenchPhase.AfterRestored);
+registerWorkbenchContribution2(VibeCodeSymbolsContribution.ID, VibeCodeSymbolsContribution, WorkbenchPhase.AfterRestored);

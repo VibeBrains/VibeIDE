@@ -51,6 +51,14 @@ interface DeclarationRule {
 	readonly nameField?: string;
 	/** Does this declaration open a container others nest into (class, namespace)? */
 	readonly opensScope?: boolean;
+	/** Child node types the name hides inside (`type_spec`, `variable_declarator`, …). */
+	readonly nameInChild?: readonly string[];
+	/** Kind used instead of `kind` when the declaration sits inside a container. */
+	readonly kindInContainer?: CodeSymbolKind;
+	/** Field naming the owner this declaration belongs to (Go's method receiver). */
+	readonly ownerField?: string;
+	/** Opens a container but is not itself a declaration (Rust's `impl` block). */
+	readonly containerOnly?: boolean;
 }
 
 /**
@@ -71,26 +79,165 @@ const PHP_RULES: ReadonlyMap<string, DeclarationRule> = new Map([
 	['const_declaration', { kind: 'constant' }],
 ]);
 
-const RULES_BY_LANGUAGE: ReadonlyMap<string, ReadonlyMap<string, DeclarationRule>> = new Map([
-	['php', PHP_RULES],
+/**
+ * The other languages: same machinery, different node names.
+ *
+ * Each table was read off the shipped grammar with a probe, not written from memory — the node names
+ * differ more than one would guess (Go hides the type name in a `type_spec`, Java and C# hide a field
+ * name in a `variable_declarator`, Rust's `impl` block has no `name` field at all but a `type` one).
+ */
+const PYTHON_RULES: ReadonlyMap<string, DeclarationRule> = new Map([
+	['class_definition', { kind: 'class', nameField: 'name', opensScope: true }],
+	// A `def` is a function at file level and a method inside a class — the grammar spells both the same.
+	['function_definition', { kind: 'function', nameField: 'name', kindInContainer: 'method' }],
 ]);
+
+const GO_RULES: ReadonlyMap<string, DeclarationRule> = new Map([
+	['type_declaration', { kind: 'class', nameField: 'name', nameInChild: ['type_spec'], opensScope: true }],
+	// `func (i *Invoice) Pay()` — the owner is the receiver, not the nesting.
+	['method_declaration', { kind: 'method', nameField: 'name', ownerField: 'receiver' }],
+	['function_declaration', { kind: 'function', nameField: 'name' }],
+	['const_declaration', { kind: 'constant', nameInChild: ['const_spec'] }],
+]);
+
+const RUBY_RULES: ReadonlyMap<string, DeclarationRule> = new Map([
+	['module', { kind: 'namespace', nameField: 'name', opensScope: true }],
+	['class', { kind: 'class', nameField: 'name', opensScope: true }],
+	// `def` at file level is a plain function; the same node inside a class is a method.
+	['method', { kind: 'function', nameField: 'name', kindInContainer: 'method' }],
+	['singleton_method', { kind: 'method', nameField: 'name' }],
+]);
+
+const RUST_RULES: ReadonlyMap<string, DeclarationRule> = new Map([
+	['mod_item', { kind: 'namespace', nameField: 'name', opensScope: true }],
+	['struct_item', { kind: 'class', nameField: 'name', opensScope: true }],
+	['enum_item', { kind: 'enum', nameField: 'name', opensScope: true }],
+	['trait_item', { kind: 'interface', nameField: 'name', opensScope: true }],
+	// `impl Invoice { … }` is not a declaration of `Invoice` — the struct is declared elsewhere. It
+	// only opens the scope its functions belong to, so it must not appear in the outline itself.
+	['impl_item', { kind: 'class', nameField: 'type', opensScope: true, containerOnly: true }],
+	['function_item', { kind: 'function', nameField: 'name', kindInContainer: 'method' }],
+	['function_signature_item', { kind: 'method', nameField: 'name' }],
+	['const_item', { kind: 'constant', nameField: 'name' }],
+]);
+
+const JAVA_RULES: ReadonlyMap<string, DeclarationRule> = new Map([
+	['class_declaration', { kind: 'class', nameField: 'name', opensScope: true }],
+	['interface_declaration', { kind: 'interface', nameField: 'name', opensScope: true }],
+	['enum_declaration', { kind: 'enum', nameField: 'name', opensScope: true }],
+	['record_declaration', { kind: 'class', nameField: 'name', opensScope: true }],
+	['method_declaration', { kind: 'method', nameField: 'name' }],
+	['constructor_declaration', { kind: 'method', nameField: 'name' }],
+	['field_declaration', { kind: 'property', nameField: 'name', nameInChild: ['variable_declarator'] }],
+]);
+
+const CSHARP_RULES: ReadonlyMap<string, DeclarationRule> = new Map([
+	['namespace_declaration', { kind: 'namespace', nameField: 'name', opensScope: true }],
+	['file_scoped_namespace_declaration', { kind: 'namespace', nameField: 'name', opensScope: true }],
+	['class_declaration', { kind: 'class', nameField: 'name', opensScope: true }],
+	['struct_declaration', { kind: 'class', nameField: 'name', opensScope: true }],
+	['record_declaration', { kind: 'class', nameField: 'name', opensScope: true }],
+	['interface_declaration', { kind: 'interface', nameField: 'name', opensScope: true }],
+	['enum_declaration', { kind: 'enum', nameField: 'name', opensScope: true }],
+	['method_declaration', { kind: 'method', nameField: 'name' }],
+	['constructor_declaration', { kind: 'method', nameField: 'name' }],
+	['property_declaration', { kind: 'property', nameField: 'name' }],
+	// The name sits two levels down: field_declaration → variable_declaration → variable_declarator.
+	['field_declaration', { kind: 'property', nameField: 'name', nameInChild: ['variable_declaration', 'variable_declarator'] }],
+]);
+
+/**
+ * How a language writes a qualified name. Separate from the rules because it is the half a user sees:
+ * `App\Invoice::pay` in PHP is `app.Invoice.Pay` in Go and `Invoice::pay` in Rust, and showing the
+ * wrong punctuation makes a correct answer look like someone else's language.
+ */
+interface LanguageProfile {
+	readonly rules: ReadonlyMap<string, DeclarationRule>;
+	/** Between containers: `App` + `Invoice`. */
+	readonly scopeSeparator: string;
+	/** Between the owner and a member declared in it. */
+	readonly memberSeparator: string;
+	/** Does a bare `namespace X;` apply to its siblings rather than its children? */
+	readonly bareNamespaceCoversSiblings?: boolean;
+	/** Grammar file name when it differs from the language id (`csharp` → `tree-sitter-c-sharp`). */
+	readonly grammar?: string;
+	/** Extensions the project index scans for this language. */
+	readonly extensions: readonly string[];
+	/**
+	 * Operators that mean «member of», longest first.
+	 *
+	 * Language-specific on purpose: `.` accesses a member in Go and Java, but concatenates strings in
+	 * PHP, where reading it as access would resolve `$a . helper()` against a phantom owner.
+	 */
+	readonly memberAccess: readonly string[];
+}
+
+const PROFILES: ReadonlyMap<string, LanguageProfile> = new Map<string, LanguageProfile>([
+	['php', { rules: PHP_RULES, scopeSeparator: '\\', memberSeparator: '::', bareNamespaceCoversSiblings: true, extensions: ['.php'], memberAccess: ['::', '->'] }],
+	['python', { rules: PYTHON_RULES, scopeSeparator: '.', memberSeparator: '.', extensions: ['.py', '.pyi'], memberAccess: ['.'] }],
+	['go', { rules: GO_RULES, scopeSeparator: '.', memberSeparator: '.', extensions: ['.go'], memberAccess: ['.'] }],
+	['ruby', { rules: RUBY_RULES, scopeSeparator: '::', memberSeparator: '#', extensions: ['.rb', '.rake'], memberAccess: ['::', '.'] }],
+	['rust', { rules: RUST_RULES, scopeSeparator: '::', memberSeparator: '::', extensions: ['.rs'], memberAccess: ['::', '.'] }],
+	['java', { rules: JAVA_RULES, scopeSeparator: '.', memberSeparator: '.', extensions: ['.java'], memberAccess: ['.'] }],
+	// The editor calls the language `csharp`; the grammar file is named `c-sharp`.
+	['csharp', { rules: CSHARP_RULES, scopeSeparator: '.', memberSeparator: '.', grammar: 'c-sharp', extensions: ['.cs'], memberAccess: ['.'] }],
+]);
+
+/** Languages this module can read declarations of. Used to register providers and nothing else. */
+export function symbolLanguageIds(): readonly string[] {
+	return [...PROFILES.keys()];
+}
+
+/** Name of the grammar file to load for a language — not always the language id. */
+export function grammarNameOf(languageId: string): string {
+	return PROFILES.get(languageId)?.grammar ?? languageId;
+}
+
+/** Operators meaning «member of» in this language, longest first. */
+export function memberAccessOperators(languageId: string): readonly string[] {
+	return PROFILES.get(languageId)?.memberAccess ?? [];
+}
+
+/** File extensions worth indexing for a language, lower-case and dotted. */
+export function extensionsOf(languageId: string): readonly string[] {
+	return PROFILES.get(languageId)?.extensions ?? [];
+}
 
 /** Is there a declaration table for this language? Asked before loading a grammar for nothing. */
 export function supportsSymbolExtraction(languageId: string): boolean {
-	return RULES_BY_LANGUAGE.has(languageId);
+	return PROFILES.has(languageId);
+}
+
+function firstDescendantOfTypes(node: SyntaxNodeLike, types: readonly string[]): SyntaxNodeLike | undefined {
+	if (types.length === 0) {
+		return node;
+	}
+	for (let i = 0; i < node.namedChildCount; i++) {
+		const child = node.namedChild(i);
+		if (child?.type === types[0]) {
+			return firstDescendantOfTypes(child, types.slice(1));
+		}
+	}
+	return undefined;
 }
 
 function nameOf(node: SyntaxNodeLike, rule: DeclarationRule): string | undefined {
+	// The name may hide one or two levels down: Go puts a type name in a `type_spec`, Java a field
+	// name in a `variable_declarator`, C# one level deeper still.
+	const host = rule.nameInChild ? firstDescendantOfTypes(node, rule.nameInChild) : node;
+	if (!host) {
+		return undefined;
+	}
 	if (rule.nameField) {
-		const named = node.childForFieldName(rule.nameField);
+		const named = host.childForFieldName(rule.nameField);
 		if (named?.text) { return named.text; }
 	}
 	// Declarations whose name hides one level down (`property_element`, `const_element`) — and the
 	// fallback for any rule without a name field.
-	for (let i = 0; i < node.namedChildCount; i++) {
-		const child = node.namedChild(i);
+	for (let i = 0; i < host.namedChildCount; i++) {
+		const child = host.namedChild(i);
 		if (!child) { continue; }
-		if (child.type === 'name' || child.type === 'variable_name') { return child.text; }
+		if (child.type === 'name' || child.type === 'variable_name' || child.type === 'identifier') { return child.text; }
 		if (child.type.endsWith('_element')) {
 			for (let j = 0; j < child.namedChildCount; j++) {
 				const inner = child.namedChild(j);
@@ -102,16 +249,42 @@ function nameOf(node: SyntaxNodeLike, rule: DeclarationRule): string | undefined
 }
 
 /**
+ * The type a Go method is declared on: `func (i *Invoice) Pay()` belongs to `Invoice`.
+ *
+ * Read from the receiver rather than from nesting, because Go has no nesting here — the method sits
+ * at file level and would otherwise land in the index with no owner, making `invoice.Pay()` rank the
+ * same as every other `Pay` in the project.
+ */
+function ownerFromField(node: SyntaxNodeLike, field: string): string | undefined {
+	const receiver = node.childForFieldName(field);
+	if (!receiver) {
+		return undefined;
+	}
+	let found: string | undefined;
+	const dig = (n: SyntaxNodeLike): void => {
+		if (found) { return; }
+		if (n.type === 'type_identifier') { found = n.text; return; }
+		for (let i = 0; i < n.namedChildCount; i++) {
+			const child = n.namedChild(i);
+			if (child) { dig(child); }
+		}
+	};
+	dig(receiver);
+	return found;
+}
+
+/**
  * Walk the tree and collect every declaration, innermost containers tracked as we descend.
  *
  * Order is document order, not alphabetical: this feeds an outline, and an outline that reorders
  * the file stops being a map of it.
  */
 export function extractSymbols(root: SyntaxNodeLike | null | undefined, languageId: string): CodeSymbol[] {
-	const rules = RULES_BY_LANGUAGE.get(languageId);
-	if (!root || !rules) {
+	const profile = PROFILES.get(languageId);
+	if (!root || !profile) {
 		return [];
 	}
+	const rules = profile.rules;
 	const out: CodeSymbol[] = [];
 
 	/**
@@ -132,16 +305,21 @@ export function extractSymbols(root: SyntaxNodeLike | null | undefined, language
 		if (rule) {
 			const name = nameOf(node, rule);
 			if (name) {
-				out.push({
-					name,
-					kind: rule.kind,
-					container: rule.kind === 'namespace' ? [] : effective,
-					startLine: node.startPosition.row,
-					startColumn: node.startPosition.column,
-					endLine: node.endPosition.row,
-					endColumn: node.endPosition.column,
-				});
-				if (rule.kind === 'namespace' && !node.childForFieldName('body')) {
+				const owner = rule.ownerField ? ownerFromField(node, rule.ownerField) : undefined;
+				const declaredIn = owner ? [...effective, owner] : effective;
+				if (!rule.containerOnly) {
+					out.push({
+						name,
+						// A `def`/`fn` is a function alone and a method inside a type — same node either way.
+						kind: (rule.kindInContainer && declaredIn.length > 0) ? rule.kindInContainer : rule.kind,
+						container: rule.kind === 'namespace' ? [] : declaredIn,
+						startLine: node.startPosition.row,
+						startColumn: node.startPosition.column,
+						endLine: node.endPosition.row,
+						endColumn: node.endPosition.column,
+					});
+				}
+				if (rule.kind === 'namespace' && profile.bareNamespaceCoversSiblings && !node.childForFieldName('body')) {
 					// Bare `namespace X;` — applies to everything after it, not to children.
 					nextSiblingPrefix = [name];
 				} else if (rule.opensScope) {
@@ -166,11 +344,12 @@ export function extractSymbols(root: SyntaxNodeLike | null | undefined, language
  * Built from the container path rather than from the source text, so a method declared inside a
  * namespaced class is findable by the same string a caller would write.
  */
-export function qualifiedName(symbol: CodeSymbol): string {
+export function qualifiedName(symbol: CodeSymbol, languageId: string = 'php'): string {
 	if (symbol.container.length === 0) {
 		return symbol.name;
 	}
+	const profile = PROFILES.get(languageId);
 	const isMember = symbol.kind === 'method' || symbol.kind === 'property' || symbol.kind === 'constant';
-	const owner = symbol.container.join('\\');
-	return isMember ? `${owner}::${symbol.name}` : `${owner}\\${symbol.name}`;
+	const owner = symbol.container.join(profile?.scopeSeparator ?? '\\');
+	return isMember ? `${owner}${profile?.memberSeparator ?? '::'}${symbol.name}` : `${owner}${profile?.scopeSeparator ?? '\\'}${symbol.name}`;
 }

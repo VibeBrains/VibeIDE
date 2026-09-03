@@ -6,7 +6,7 @@
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { SymbolKind } from '../../../../../editor/common/languages.js';
-import { toOutline } from '../../browser/vibePhpSymbolsContribution.js';
+import { toOutline } from '../../browser/vibeCodeSymbolsContribution.js';
 import { CodeSymbol, CodeSymbolKind } from '../../common/codeSymbols/treeSitterSymbols.js';
 
 /**

@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { CodeSymbol, extractSymbols, qualifiedName, supportsSymbolExtraction, SyntaxNodeLike } from '../../common/codeSymbols/treeSitterSymbols.js';
+import { CodeSymbol, extensionsOf, extractSymbols, grammarNameOf, qualifiedName, supportsSymbolExtraction, symbolLanguageIds, SyntaxNodeLike } from '../../common/codeSymbols/treeSitterSymbols.js';
 
 /**
  * Declarations read out of a tree-sitter tree.
@@ -34,7 +34,7 @@ suite('tree-sitter symbols', () => {
 	const decl = (type: string, text: string, children: SyntaxNodeLike[] = []) =>
 		node(type, text, [name(text), ...children], { name: name(text) });
 
-	const shown = (symbols: readonly CodeSymbol[]) => symbols.map(s => `${s.kind} ${qualifiedName(s)}`);
+	const shown = (symbols: readonly CodeSymbol[], languageId = 'php') => symbols.map(s => `${s.kind} ${qualifiedName(s, languageId)}`);
 
 	/**
 	 * The defect this test exists for: a bare `namespace` is a sibling of the classes it governs.
@@ -90,9 +90,70 @@ suite('tree-sitter symbols', () => {
 	test('document order is preserved, and an unknown language yields nothing', () => {
 		const root = node('program', '', [decl('function_definition', 'zeta'), decl('function_definition', 'alpha')]);
 		assert.deepStrictEqual(extractSymbols(root, 'php').map(s => s.name), ['zeta', 'alpha']);
-		assert.deepStrictEqual(extractSymbols(root, 'ruby'), []);
+		assert.deepStrictEqual(extractSymbols(root, 'kotlin'), []);
 		assert.deepStrictEqual(extractSymbols(null, 'php'), []);
 		assert.strictEqual(supportsSymbolExtraction('php'), true);
-		assert.strictEqual(supportsSymbolExtraction('ruby'), false);
+		assert.strictEqual(supportsSymbolExtraction('kotlin'), false);
+	});
+
+	/**
+	 * The same node means different things depending on where it sits: Ruby's `def` is a function at
+	 * file level and a method inside a class. Getting this wrong makes every top-level helper look
+	 * like a member of nothing.
+	 */
+	test('a definition inside a type is a method, outside it a function', () => {
+		const root = node('program', '', [
+			decl('class', 'Invoice', [decl('method', 'pay')]),
+			decl('method', 'helper'),
+		]);
+		assert.deepStrictEqual(shown(extractSymbols(root, 'ruby'), 'ruby'), ['class Invoice', 'method Invoice#pay', 'function helper']);
+	});
+
+	/**
+	 * Rust's `impl Invoice` does not declare `Invoice` — the struct is declared elsewhere. Emitting it
+	 * would put a second `Invoice` in the outline and a second candidate behind every jump.
+	 */
+	test('a Rust impl block scopes its functions without declaring the type again', () => {
+		const impl = node('impl_item', '', [decl('function_item', 'pay')], { type: node('type_identifier', 'Invoice') });
+		assert.deepStrictEqual(shown(extractSymbols(node('source_file', '', [impl]), 'rust'), 'rust'), ['method Invoice::pay']);
+	});
+
+	/**
+	 * A Go method belongs to its receiver, not to its nesting — it sits at file level. Without this
+	 * every method in a Go project would be indexed with no owner at all.
+	 */
+	test('a Go method belongs to its receiver', () => {
+		const receiver = node('parameter_list', '', [node('parameter_declaration', '', [node('pointer_type', '', [node('type_identifier', 'Invoice')])])]);
+		const method = node('method_declaration', '', [name('Pay')], { name: name('Pay'), receiver });
+		assert.deepStrictEqual(shown(extractSymbols(node('source_file', '', [method]), 'go'), 'go'), ['method Invoice.Pay']);
+	});
+
+	/** A name can hide one or two levels down — the grammars disagree on how deep. */
+	test('names nested inside a declarator are still found', () => {
+		const goType = node('type_declaration', '', [node('type_spec', '', [name('Invoice')], { name: name('Invoice') })]);
+		assert.deepStrictEqual(extractSymbols(node('source_file', '', [goType]), 'go').map(s => s.name), ['Invoice']);
+
+		const javaField = node('field_declaration', '', [node('variable_declarator', '', [], { name: node('identifier', 'total') })]);
+		assert.deepStrictEqual(extractSymbols(node('program', '', [javaField]), 'java').map(s => s.name), ['total']);
+
+		const csField = node('field_declaration', '', [node('variable_declaration', '', [node('variable_declarator', '', [], { name: node('identifier', 'Total') })])]);
+		assert.deepStrictEqual(extractSymbols(node('compilation_unit', '', [csField]), 'csharp').map(s => s.name), ['Total']);
+	});
+
+	/** Each language writes qualified names its own way, and the user reads exactly that. */
+	test('qualified names use the punctuation of their own language', () => {
+		const method: CodeSymbol = { name: 'pay', kind: 'method', container: ['App', 'Invoice'], startLine: 0, startColumn: 0, endLine: 0, endColumn: 0 };
+		assert.deepStrictEqual([
+			qualifiedName(method, 'php'), qualifiedName(method, 'go'), qualifiedName(method, 'ruby'), qualifiedName(method, 'rust'),
+		], ['App\\Invoice::pay', 'App.Invoice.pay', 'App::Invoice#pay', 'App::Invoice::pay']);
+	});
+
+	/** Everything a provider needs comes from the tables, so a new language is one table and no lists. */
+	test('every supported language declares a grammar and extensions', () => {
+		const languages = symbolLanguageIds();
+		assert.ok(languages.includes('php') && languages.includes('csharp'));
+		assert.strictEqual(grammarNameOf('csharp'), 'c-sharp', 'грамматика C# лежит в файле c-sharp');
+		assert.strictEqual(grammarNameOf('php'), 'php');
+		assert.deepStrictEqual(languages.filter(id => extensionsOf(id).length === 0), []);
 	});
 });

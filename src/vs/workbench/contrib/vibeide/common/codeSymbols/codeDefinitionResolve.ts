@@ -3,10 +3,11 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { CodeSymbol, CodeSymbolKind } from './treeSitterSymbols.js';
+import { CodeSymbol, CodeSymbolKind, memberAccessOperators } from './treeSitterSymbols.js';
 
 /**
- * «Что имел в виду курсор» — pure decision layer for jumping to a PHP declaration.
+ * «Что имел в виду курсор» — pure decision layer for jumping to a declaration, in any of the
+ * supported languages.
  *
  * HONEST SCOPE, stated here because the UI cannot state it: this resolves NAMES, not types. Nothing
  * infers what `$repo` holds, so `$repo->save()` matches every `save` declared anywhere in the
@@ -15,8 +16,8 @@ import { CodeSymbol, CodeSymbolKind } from './treeSitterSymbols.js';
  * class.
  *
  * What the surrounding text does buy is ranking, and it buys a lot:
- *   - `Invoice::pay` and `new Invoice` name the owner outright → its members come first;
- *   - `$this->pay()` means the enclosing class → its own members first;
+ *   - `Invoice::pay`, `Invoice.pay` and `new Invoice` name the owner outright → its members first;
+ *   - `$this->pay()`, `this.pay()`, `self.pay()` mean the enclosing class → its own members first;
  *   - a call `pay(` is a function or a method, never a property;
  *   - a bare `Invoice` is a type, so classes outrank methods of the same name.
  */
@@ -30,6 +31,8 @@ export interface DefinitionQuery {
 	readonly wordStartColumn: number;
 	/** Container path of the declaration the cursor sits inside, if any. Ranks `$this->…`. */
 	readonly enclosingContainer?: readonly string[];
+	/** Which language's access operators to read. Defaults to PHP's when omitted. */
+	readonly languageId?: string;
 }
 
 export interface RankedCandidate {
@@ -47,29 +50,48 @@ const MEMBER_KINDS: ReadonlySet<CodeSymbolKind> = new Set<CodeSymbolKind>(['meth
 const TYPE_KINDS: ReadonlySet<CodeSymbolKind> = new Set<CodeSymbolKind>(['class', 'interface', 'trait', 'enum']);
 const CALLABLE_KINDS: ReadonlySet<CodeSymbolKind> = new Set<CodeSymbolKind>(['method', 'function']);
 
-/** `self`, `static` and `parent` name the enclosing class rather than a type spelled out. */
-const RELATIVE_OWNERS: ReadonlySet<string> = new Set(['self', 'static', 'parent']);
+/**
+ * Owners that name the enclosing type rather than a type spelled out.
+ *
+ * One set for every language on purpose: `self` means the same thing in PHP, Python, Rust and Ruby,
+ * and a language that does not use a word simply never produces it.
+ */
+const RELATIVE_OWNERS: ReadonlySet<string> = new Set(['self', '$this', 'this', 'static', 'parent', 'Self', 'super', 'base', 'me']);
+
+/** Escape a literal operator for use inside a regular expression. */
+function escapeForRegExp(text: string): string {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 /**
  * Read the shape around the identifier, plus the owner when the source names one.
  *
  * The prefix is examined right-to-left from the identifier, so a line holding several calls
  * resolves the one under the cursor rather than the first on the line.
+ *
+ * Which characters count as «member of» comes from the language, not from a fixed list: `.` is
+ * member access in Go and Java but string concatenation in PHP, where treating it as access would
+ * make `$a . helper()` look like a member of `$a`.
  */
-export function readCallShape(lineText: string, wordStartColumn: number): { shape: CallShape; owner?: string } {
+export function readCallShape(lineText: string, wordStartColumn: number, languageId: string = 'php'): { shape: CallShape; owner?: string } {
 	const before = lineText.slice(0, Math.max(0, wordStartColumn));
 	const after = lineText.slice(Math.max(0, wordStartColumn));
 	const isCall = /^[A-Za-z_][\w]*\s*\(/.test(after);
 
-	const staticOwner = before.match(/([\\\w]+)\s*::\s*$/);
-	if (staticOwner) {
-		return { shape: 'static-member', owner: staticOwner[1] };
-	}
-	if (/\$this\s*->\s*$/.test(before)) {
-		return { shape: 'this-member' };
-	}
-	if (/\$[\w]+\s*->\s*$/.test(before)) {
-		return { shape: 'instance-member' };
+	const operators = memberAccessOperators(languageId);
+	for (const operator of operators) {
+		const match = before.match(new RegExp(`([$@]?[\\\\\\w]+)\\s*${escapeForRegExp(operator)}\\s*$`));
+		if (!match) {
+			continue;
+		}
+		const owner = match[1];
+		if (RELATIVE_OWNERS.has(owner)) {
+			return { shape: 'this-member' };
+		}
+		// A named type is an owner we can rank against; a variable's type is unknowable here, so the
+		// owner is deliberately dropped rather than passed on as a guess.
+		const base = baseName(owner);
+		return /^[A-Z]/.test(base) ? { shape: 'static-member', owner } : { shape: 'instance-member' };
 	}
 	if (/\bnew\s+$/.test(before)) {
 		return { shape: 'instantiation' };
@@ -77,9 +99,9 @@ export function readCallShape(lineText: string, wordStartColumn: number): { shap
 	return { shape: isCall ? 'call' : 'plain' };
 }
 
-/** Last segment of a possibly qualified PHP name: `\App\Invoice` → `Invoice`. */
+/** Last segment of a qualified name: `\App\Invoice` → `Invoice`, `app.Invoice` → `Invoice`. */
 function baseName(name: string): string {
-	const parts = name.split('\\');
+	const parts = name.split(/[\\.]|::/);
 	return parts[parts.length - 1] || name;
 }
 
@@ -98,10 +120,11 @@ export function rankDefinitions(query: DefinitionQuery, index: ReadonlyMap<strin
 	if (!byName || byName.length === 0) {
 		return [];
 	}
-	const { shape, owner } = readCallShape(query.lineText, query.wordStartColumn);
+	const { shape, owner } = readCallShape(query.lineText, query.wordStartColumn, query.languageId);
 	const ownerBase = owner ? baseName(owner) : undefined;
 	const enclosing = query.enclosingContainer ?? [];
 	const enclosingOwner = enclosing.length > 0 ? enclosing[enclosing.length - 1] : undefined;
+	const isCallShaped = /^[\w]+\s*\(/.test(query.lineText.slice(Math.max(0, query.wordStartColumn)));
 
 	const scored = byName.map(candidate => {
 		const { kind, container } = candidate.symbol;
@@ -123,6 +146,9 @@ export function rankDefinitions(query: DefinitionQuery, index: ReadonlyMap<strin
 			case 'instance-member':
 				// The variable's type is unknown by construction; members simply outrank types.
 				if (MEMBER_KINDS.has(kind)) { score += 3; }
+				// In Go and Rust the same shape also spells a package or module function
+				// (`billing.Charge()`), so a callable declared at file level stays plausible.
+				if (isCallShaped && CALLABLE_KINDS.has(kind) && container.length === 0) { score += 3; }
 				break;
 			case 'instantiation':
 				if (TYPE_KINDS.has(kind)) { score += 6; }

@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { rankDefinitions, RankedCandidate, readCallShape } from '../../common/codeSymbols/phpDefinitionResolve.js';
+import { rankDefinitions, RankedCandidate, readCallShape } from '../../common/codeSymbols/codeDefinitionResolve.js';
 import { CodeSymbol, CodeSymbolKind } from '../../common/codeSymbols/treeSitterSymbols.js';
 
 /**
@@ -15,7 +15,7 @@ import { CodeSymbol, CodeSymbolKind } from '../../common/codeSymbols/treeSitterS
  * surrounding text is read correctly, and that an ambiguous case stays ambiguous instead of being
  * resolved by a confident guess.
  */
-suite('php definition resolve', () => {
+suite('code definition resolve', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	const sym = (name: string, kind: CodeSymbolKind, container: string[] = []): CodeSymbol =>
@@ -111,5 +111,42 @@ suite('php definition resolve', () => {
 		assert.deepStrictEqual(rankDefinitions({ word: 'missing', lineText: 'missing();', wordStartColumn: 0 }, index), []);
 		assert.deepStrictEqual(rankDefinitions({ word: '', lineText: '', wordStartColumn: 0 }, index), []);
 		assert.deepStrictEqual(rankDefinitions({ word: '$', lineText: '$;', wordStartColumn: 0 }, index), []);
+	});
+
+	/**
+	 * The trap that makes a language-agnostic reader wrong: `.` means «member of» in Go, Java and
+	 * Python, but string concatenation in PHP. Reading it as access there resolves `$a . helper()`
+	 * against an owner that does not exist.
+	 */
+	test('the access operator comes from the language', () => {
+		assert.deepStrictEqual(readCallShape('$total = $a . helper($x);', '$total = $a . '.length, 'php'), { shape: 'call' });
+		assert.deepStrictEqual(readCallShape('invoice.Pay()', 'invoice.'.length, 'go'), { shape: 'instance-member' });
+		assert.deepStrictEqual(readCallShape('Invoice.Pay()', 'Invoice.'.length, 'go'), { shape: 'static-member', owner: 'Invoice' });
+		assert.deepStrictEqual(readCallShape('self.pay()', 'self.'.length, 'python'), { shape: 'this-member' });
+		assert.deepStrictEqual(readCallShape('this.pay()', 'this.'.length, 'java'), { shape: 'this-member' });
+		assert.deepStrictEqual(readCallShape('Invoice::pay()', 'Invoice::'.length, 'rust'), { shape: 'static-member', owner: 'Invoice' });
+	});
+
+	/** In Go and Rust a lower-case owner is usually a package or module, so its functions stay in play. */
+	test('a package-qualified call keeps file-level functions plausible', () => {
+		const index = indexOf(
+			candidate('billing.go', sym('Charge', 'function')),
+			candidate('other.go', sym('Charge', 'property', ['App', 'Invoice'])),
+		);
+		const ranked = rankDefinitions({ word: 'Charge', lineText: 'billing.Charge(1)', wordStartColumn: 'billing.'.length, languageId: 'go' }, index);
+		assert.strictEqual(ranked[0].file, 'billing.go');
+	});
+
+	/** `$this` in PHP, `self` in Python and Rust, `this` in Java — one meaning, four spellings. */
+	test('the enclosing type is found under every spelling of self', () => {
+		const index = indexOf(
+			candidate('order.py', sym('rate', 'method', ['Order'])),
+			candidate('invoice.py', sym('rate', 'method', ['Invoice'])),
+		);
+		const ranked = rankDefinitions({
+			word: 'rate', lineText: 'self.rate()', wordStartColumn: 'self.'.length,
+			enclosingContainer: ['Invoice'], languageId: 'python',
+		}, index);
+		assert.strictEqual(ranked[0].file, 'invoice.py');
 	});
 });
