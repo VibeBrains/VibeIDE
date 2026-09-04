@@ -37,6 +37,13 @@ export interface CodeSymbol {
 	readonly kind: CodeSymbolKind;
 	/** Container path, outermost first: `["App\\Billing", "Invoice"]`. Empty at file level. */
 	readonly container: readonly string[];
+	/**
+	 * Parameter list as written, brackets included: `(int $x, string $y = "z")`.
+	 *
+	 * Kept as source text rather than parsed into a structure: it is shown to a person, and every
+	 * language writes its own defaults, types and modifiers that a common shape would flatten away.
+	 */
+	readonly params?: string;
 	/** Zero-based, like tree-sitter itself. The editor layer converts to its own 1-based lines. */
 	readonly startLine: number;
 	readonly startColumn: number;
@@ -336,8 +343,11 @@ export function extractSymbols(root: SyntaxNodeLike | null | undefined, language
 				const owner = rule.ownerField ? ownerFromField(node, rule.ownerField) : undefined;
 				const declaredIn = owner ? [...effective, owner] : effective;
 				if (!rule.containerOnly) {
+					// Verified against all seven grammars: they agree on the field name.
+					const parameters = node.childForFieldName('parameters')?.text;
 					out.push({
 						name,
+						params: parameters,
 						// A `def`/`fn` is a function alone and a method inside a type — same node either way.
 						kind: (rule.kindInContainer && declaredIn.length > 0) ? rule.kindInContainer : rule.kind,
 						container: rule.kind === 'namespace' ? [] : declaredIn,

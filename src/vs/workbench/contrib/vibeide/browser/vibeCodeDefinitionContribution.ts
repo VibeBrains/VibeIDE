@@ -93,7 +93,9 @@ class VibeCodeDefinitionContribution extends Disposable implements IWorkbenchCon
 		}
 		const word = model.getWordAtPosition(position);
 		const best = ranked[0];
-		const lines = [`**${kindLabel(best.symbol.kind)}** \`${qualifiedName(best.symbol, languageId)}\``];
+		// The parameter list is what a person actually wants from a hover over a method name.
+		const signature = `${qualifiedName(best.symbol, languageId)}${best.symbol.params ?? ''}`;
+		const lines = [`**${kindLabel(best.symbol.kind)}** \`${signature}\``];
 		// Where it is declared — the hover's job is to answer without making the jump. The file of
 		// the current editor is named as «здесь», because repeating its own path tells the reader
 		// nothing they cannot see.

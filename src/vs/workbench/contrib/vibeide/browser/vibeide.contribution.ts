@@ -66,6 +66,7 @@ import './vibeCodeHighlightContribution.js';
 import './vibeCodeReferencesContribution.js';
 import './vibeCodeIndexCommands.js';
 import './vibeCodeCompletionContribution.js';
+import './vibeCodeSignatureContribution.js';
 
 // Local preview server with live reload (Vibe Server)
 import './vibeServer/vibeServer.contribution.js';

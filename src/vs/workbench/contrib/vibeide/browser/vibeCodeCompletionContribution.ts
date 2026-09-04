@@ -14,7 +14,7 @@ import { ILanguageFeaturesService } from '../../../../editor/common/services/lan
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { CodeSymbol, containerLabel, memberAccessOperators, symbolLanguageIds } from '../common/codeSymbols/treeSitterSymbols.js';
 import { enclosingContainerOf } from '../common/codeSymbols/codeIndexCore.js';
-import { readCallShape } from '../common/codeSymbols/codeDefinitionResolve.js';
+import { CallShape, readCallShape } from '../common/codeSymbols/codeDefinitionResolve.js';
 import { IVibeCodeIndexService } from './vibeCodeIndexService.js';
 
 /**
@@ -32,6 +32,14 @@ import { IVibeCodeIndexService } from './vibeCodeIndexService.js';
 
 /** Ceiling on rows. The list is read by a person, and the editor re-filters it on every keystroke. */
 const MAX_ITEMS = 300;
+
+/**
+ * How much must be typed before we offer members of unknown ownership.
+ *
+ * With no prefix at all, `$repo->` matches every member in the project — a wall of names that buries
+ * whatever the editor itself had to offer. Two characters is enough to mean something.
+ */
+const MIN_GUESS_PREFIX = 2;
 
 const KIND_MAP: Readonly<Record<CodeSymbol['kind'], CompletionItemKind>> = {
 	namespace: CompletionItemKind.Module,
@@ -82,7 +90,7 @@ class VibeCodeCompletionContribution extends Disposable implements IWorkbenchCon
 		const lineText = model.getLineContent(position.lineNumber);
 		const { shape, owner } = readCallShape(lineText, word.startColumn - 1, languageId);
 
-		const candidates = await this._candidates(model, languageId, shape, owner, position, token);
+		const candidates = await this._candidates(model, languageId, shape, owner, position, word.word, token);
 		if (token.isCancellationRequested || candidates.length === 0) {
 			return undefined;
 		}
@@ -96,7 +104,10 @@ class VibeCodeCompletionContribution extends Disposable implements IWorkbenchCon
 			}
 			seen.add(key);
 			suggestions.push({
-				label: symbol.name,
+				// The parameter list belongs on the label: choosing between two methods usually means
+				// choosing by what they take.
+				label: symbol.params ? { label: `${symbol.name}${symbol.params}`, description: undefined } : symbol.name,
+				filterText: symbol.name,
 				kind: KIND_MAP[symbol.kind],
 				// Where it comes from — the row has to carry this, because two identical names from
 				// different classes are otherwise indistinguishable in the list.
@@ -113,8 +124,9 @@ class VibeCodeCompletionContribution extends Disposable implements IWorkbenchCon
 				break;
 			}
 		}
-		// `incomplete`: the list is filtered by a prefix, so a longer prefix must ask us again.
-		return { suggestions, incomplete: true };
+		// `incomplete` only when the list was cut short: a complete answer must not make the editor ask
+		// again on the next keystroke.
+		return { suggestions, incomplete: suggestions.length >= MAX_ITEMS };
 	}
 
 	/**
@@ -123,10 +135,12 @@ class VibeCodeCompletionContribution extends Disposable implements IWorkbenchCon
 	 * `exact` is the honest half: true only when the source names the owner (`$this->`, `Invoice::`),
 	 * false when we are offering the project because the type of a variable is unknowable.
 	 */
-	private async _candidates(model: ITextModel, languageId: string, shape: string, owner: string | undefined, position: IPosition, token: CancellationToken): Promise<{ symbol: CodeSymbol; exact: boolean }[]> {
-		// Only this language: a PHP file has no use for Ruby methods, and the list is short enough to
-		// read only while it stays on topic.
-		const all = await this._index.search('', token, languageId);
+	private async _candidates(model: ITextModel, languageId: string, shape: CallShape, owner: string | undefined, position: IPosition, prefix: string, token: CancellationToken): Promise<{ symbol: CodeSymbol; exact: boolean }[]> {
+		// The typed prefix is passed to the index instead of being re-filtered here: with `incomplete`
+		// the editor asks again after every keystroke, so a full pass per letter is the difference
+		// between a list that appears and one that lags behind the typing.
+		// Only this language: a PHP file has no use for Ruby methods.
+		const all = await this._index.search(prefix, token, languageId);
 		if (token.isCancellationRequested) {
 			return [];
 		}
@@ -144,7 +158,11 @@ class VibeCodeCompletionContribution extends Disposable implements IWorkbenchCon
 				}
 			}
 			// `$repo->` — the variable's type is unknowable here, so every member in the project is a
-			// candidate. Offered, but each row says it is a name match rather than a fact.
+			// candidate. On an empty prefix that is a dump rather than a suggestion, so guesses wait
+			// until the user has typed enough to mean something.
+			if (prefix.length < MIN_GUESS_PREFIX) {
+				return [];
+			}
 			return all.filter(entry => MEMBER_KINDS.has(entry.symbol.kind)).map(entry => ({ symbol: entry.symbol, exact: false }));
 		}
 
