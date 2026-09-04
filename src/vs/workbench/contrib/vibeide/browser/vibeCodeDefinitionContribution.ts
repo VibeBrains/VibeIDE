@@ -12,7 +12,8 @@ import { ITextModel } from '../../../../editor/common/model.js';
 import { Hover, LocationLink } from '../../../../editor/common/languages.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
-import { CodeSymbol, qualifiedName, symbolLanguageIds } from '../common/codeSymbols/treeSitterSymbols.js';
+import { qualifiedName, symbolLanguageIds } from '../common/codeSymbols/treeSitterSymbols.js';
+import { enclosingContainerOf } from '../common/codeSymbols/codeIndexCore.js';
 import { kindLabel, rangeOf } from './vibeCodeSymbolPresentation.js';
 import { rankDefinitions, RankedCandidate } from '../common/codeSymbols/codeDefinitionResolve.js';
 import { IVibeCodeIndexService } from './vibeCodeIndexService.js';
@@ -66,7 +67,7 @@ class VibeCodeDefinitionContribution extends Disposable implements IWorkbenchCon
 			word: word.word,
 			lineText: model.getLineContent(position.lineNumber),
 			wordStartColumn: word.startColumn - 1,
-			enclosingContainer: await this._enclosingContainer(model, languageId, position),
+			enclosingContainer: await this._enclosingContainer(model, position),
 			languageId,
 		}, found.map(entry => ({ symbol: entry.symbol, file: entry.file, score: 0 })));
 	}
@@ -120,18 +121,10 @@ class VibeCodeDefinitionContribution extends Disposable implements IWorkbenchCon
 	 * Parsed from the editor's own text rather than from the index: the file on disk may differ from
 	 * what the user sees, and `$this->` must mean the class as it is written right now.
 	 */
-	private async _enclosingContainer(model: ITextModel, languageId: string, position: IPosition): Promise<readonly string[] | undefined> {
+	private async _enclosingContainer(model: ITextModel, position: IPosition): Promise<readonly string[] | undefined> {
 		try {
-			const line = position.lineNumber - 1;
-			let best: CodeSymbol | undefined;
-			for (const symbol of (await this._index.parseModel(model)).symbols) {
-				const isType = symbol.kind === 'class' || symbol.kind === 'interface' || symbol.kind === 'trait' || symbol.kind === 'enum';
-				if (isType && symbol.startLine <= line && line <= symbol.endLine) {
-					// Innermost container whose range covers the cursor.
-					if (!best || symbol.startLine >= best.startLine) { best = symbol; }
-				}
-			}
-			return best ? [...best.container, best.name] : undefined;
+			const { symbols } = await this._index.parseModel(model);
+			return enclosingContainerOf(symbols, position.lineNumber - 1);
 		} catch {
 			return undefined;
 		}

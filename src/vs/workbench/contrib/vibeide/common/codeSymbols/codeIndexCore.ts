@@ -114,3 +114,28 @@ export function collectMatches(
 	}
 	return out.slice(0, limit);
 }
+
+/** Declaration kinds that can contain members — the things `$this` and `self` can refer to. */
+const CONTAINER_KINDS: ReadonlySet<CodeSymbol['kind']> = new Set<CodeSymbol['kind']>(['class', 'interface', 'trait', 'enum']);
+
+/**
+ * The type declaration a line sits inside, innermost first — the meaning of `$this` at that line.
+ *
+ * Pure, so both «go to definition» and completion answer it the same way; they used to each have
+ * their own copy, which is how two features start disagreeing about the same file.
+ *
+ * @param line zero-based, as tree-sitter counts.
+ */
+export function enclosingContainerOf(symbols: readonly CodeSymbol[], line: number): readonly string[] | undefined {
+	let best: CodeSymbol | undefined;
+	for (const symbol of symbols) {
+		if (!CONTAINER_KINDS.has(symbol.kind) || symbol.startLine > line || line > symbol.endLine) {
+			continue;
+		}
+		// Innermost wins: a nested class is a better answer than the file's outer one.
+		if (!best || symbol.startLine >= best.startLine) {
+			best = symbol;
+		}
+	}
+	return best ? [...best.container, best.name] : undefined;
+}

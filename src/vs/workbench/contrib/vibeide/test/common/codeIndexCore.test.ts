@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { collectMatches, createSymbolIndex, IndexedSymbol, preferOpenBuffers, replaceFileSymbols } from '../../common/codeSymbols/codeIndexCore.js';
+import { collectMatches, createSymbolIndex, enclosingContainerOf, IndexedSymbol, preferOpenBuffers, replaceFileSymbols } from '../../common/codeSymbols/codeIndexCore.js';
 import { indexKeyOf } from '../../common/codeSymbols/treeSitterSymbols.js';
 import { CodeSymbol, CodeSymbolKind } from '../../common/codeSymbols/treeSitterSymbols.js';
 
@@ -112,5 +112,35 @@ suite('code index core', () => {
 		replaceFileSymbols(index, 'a.php', [sym('ProcessInputData')], key);
 		replaceFileSymbols(index, 'a.php', [], key);
 		assert.deepStrictEqual({ names: [...index.byName.keys()], files: [...index.byFile.keys()] }, { names: [], files: [] });
+	});
+
+	/**
+	 * What `$this` means at a given line. Shared by «go to definition» and completion — each used to
+	 * carry its own copy, which is how two features start disagreeing about the same file.
+	 */
+	test('the enclosing type is the innermost one covering the line', () => {
+		const type = (name: string, kind: CodeSymbolKind, startLine: number, endLine: number, container: string[] = []): CodeSymbol =>
+			({ name, kind, container, startLine, startColumn: 0, endLine, endColumn: 0 });
+		const symbols = [
+			type('Outer', 'class', 0, 40),
+			type('Inner', 'class', 10, 20, ['Outer']),
+			type('pay', 'method', 12, 14, ['Outer', 'Inner']),
+		];
+
+		assert.deepStrictEqual({
+			внутриВложенного: enclosingContainerOf(symbols, 13),
+			толькоВнешний: enclosingContainerOf(symbols, 30),
+			внеВсего: enclosingContainerOf(symbols, 99),
+			наГранице: enclosingContainerOf(symbols, 20),
+		}, {
+			внутриВложенного: ['Outer', 'Inner'],
+			толькоВнешний: ['Outer'],
+			внеВсего: undefined,
+			// The end line belongs to the declaration that ends there.
+			наГранице: ['Outer', 'Inner'],
+		});
+
+		// A method is not a container: `$this` inside it still means the class.
+		assert.deepStrictEqual(enclosingContainerOf([type('pay', 'method', 0, 5)], 3), undefined);
 	});
 });

@@ -143,8 +143,13 @@ export interface IVibeCodeIndexService {
 	isEnabled(languageId: string): boolean;
 	/** Declarations of one name, across the project. Empty when the name is unknown. */
 	lookup(languageId: string, name: string, token: CancellationToken): Promise<readonly IndexedSymbol[]>;
-	/** Every declaration whose name matches the filter — for «go to symbol in workspace». */
-	search(query: string, token: CancellationToken): Promise<readonly IndexedSymbol[]>;
+	/**
+	 * Declarations whose name matches the filter.
+	 *
+	 * `languageId` narrows the answer to one language — what completion needs, because offering Ruby
+	 * methods inside a PHP file is noise. «Go to symbol in workspace» omits it and searches all.
+	 */
+	search(query: string, token: CancellationToken, languageId?: string): Promise<readonly IndexedSymbol[]>;
 	/**
 	 * Declarations of a single text, parsed on the spot — for the file being edited.
 	 *
@@ -242,6 +247,8 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 			warmUp(model.getLanguageId());
 		}
 		this._register(this._modelService.onModelAdded(model => warmUp(model.getLanguageId())));
+		// Without this the parse of every file ever opened stays in memory for the life of the window.
+		this._register(this._modelService.onModelRemoved(model => this._openModelCache.delete(model.uri.toString())));
 		this._register(this._modelService.onModelLanguageChanged(e => warmUp(e.model.getLanguageId())));
 		// Only the changed files are re-read. Dropping the whole index here would make every save
 		// cost the next jump a full walk of the project, which is what this replaces.
@@ -287,6 +294,11 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 		for (const languageId of [...this._indexes.keys()]) {
 			this._disposeIndex(languageId);
 		}
+		// An explicit rebuild is a new question, so it deserves a new answer: if the index comes back
+		// truncated again, say so again — the user may have just raised the limit expecting a fix.
+		this._warnedTruncated.clear();
+		this._truncated.clear();
+		this._openModelCache.clear();
 	}
 
 	isEnabled(languageId: string): boolean {
@@ -339,12 +351,12 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 			if (token.isCancellationRequested || parsed >= MAX_FILTERED_FILES) {
 				break;
 			}
-			const text = await this._textOf(file);
-			if (text === undefined) {
-				continue;
-			}
+			const model = this._modelOf(file);
 			parsed++;
-			const { nonCode } = await this.parseFile(languageId, text);
+			// An open file is parsed through the cache; only files on disk are read and parsed here.
+			const { nonCode } = model
+				? await this.parseModel(model)
+				: await this.parseFile(languageId, (await this._fileService.readFile(URI.parse(file)).catch(() => undefined))?.value.toString() ?? '');
 			if (nonCode.length === 0) {
 				continue;
 			}
@@ -361,15 +373,9 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 		return out;
 	}
 
-	/** The editor's copy of a file if it is open, the disk otherwise. */
-	private async _textOf(file: string): Promise<string | undefined> {
-		for (const model of this._modelService.getModels()) {
-			if (!model.isDisposed() && model.uri.toString() === file) {
-				return model.getValue();
-			}
-		}
-		const content = await this._fileService.readFile(URI.parse(file)).catch(() => undefined);
-		return content?.value.toString();
+	/** The editor's own model for a file, when that file is open. */
+	private _modelOf(file: string): ITextModel | undefined {
+		return this._modelService.getModels().find(model => !model.isDisposed() && model.uri.toString() === file);
 	}
 
 	/**
@@ -420,11 +426,11 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 		return preferOpenBuffers(fromDisk, open);
 	}
 
-	async search(query: string, token: CancellationToken): Promise<readonly IndexedSymbol[]> {
+	async search(query: string, token: CancellationToken, onlyLanguage?: string): Promise<readonly IndexedSymbol[]> {
 		const needle = query.trim().toLowerCase();
 		const out: IndexedSymbol[] = [];
 		for (const languageId of symbolLanguageIds()) {
-			if (!this.isEnabled(languageId) || out.length >= MAX_SEARCH_RESULTS) {
+			if ((onlyLanguage && languageId !== onlyLanguage) || !this.isEnabled(languageId) || out.length >= MAX_SEARCH_RESULTS) {
 				continue;
 			}
 			// Only languages already indexed answer here: opening the symbol picker must not kick off
@@ -535,6 +541,20 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 			// waits for a walk of thousands of files, and silence there is indistinguishable from a
 			// feature that does not work. A modal or a toast for something this routine would be worse
 			// than the silence it replaces.
+			this._scan = this._progressService.withProgress(
+				{ location: ProgressLocation.Window, title: localize('vibeide.codeNavigation.indexing', 'Собираю объявления по коду…') },
+				progress => this._scanAll(progress),
+			).finally(() => { this._scan = undefined; });
+		}
+		await Promise.race([this._scan, cancellationPromise(token)]);
+		const built = this._indexes.get(languageId);
+		if (built || token.isCancellationRequested) {
+			return built;
+		}
+		// The walk fixes its list of languages when it starts. A file opened WHILE it ran therefore
+		// misses it entirely, and the first jump in that language would answer «не найдено» — the exact
+		// silence that reads as «фича не работает». One more pass covers the latecomer.
+		if (!this._scan) {
 			this._scan = this._progressService.withProgress(
 				{ location: ProgressLocation.Window, title: localize('vibeide.codeNavigation.indexing', 'Собираю объявления по коду…') },
 				progress => this._scanAll(progress),
