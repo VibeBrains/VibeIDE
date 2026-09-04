@@ -164,6 +164,14 @@ interface LanguageProfile {
 	/** Extensions the project index scans for this language. */
 	readonly extensions: readonly string[];
 	/**
+	 * Does the language itself ignore case in declaration names?
+	 *
+	 * PHP does: `$this->ProcessInputData()` calls a method declared as `processInputData()`, and both
+	 * spellings are the same symbol to the engine. Looking such a name up case-sensitively answers
+	 * «not found» for code that runs perfectly well.
+	 */
+	readonly caseInsensitiveNames?: boolean;
+	/**
 	 * Operators that mean «member of», longest first.
 	 *
 	 * Language-specific on purpose: `.` accesses a member in Go and Java, but concatenates strings in
@@ -173,7 +181,7 @@ interface LanguageProfile {
 }
 
 const PROFILES: ReadonlyMap<string, LanguageProfile> = new Map<string, LanguageProfile>([
-	['php', { rules: PHP_RULES, scopeSeparator: '\\', memberSeparator: '::', bareNamespaceCoversSiblings: true, extensions: ['.php'], memberAccess: ['::', '->'] }],
+	['php', { rules: PHP_RULES, scopeSeparator: '\\', memberSeparator: '::', bareNamespaceCoversSiblings: true, extensions: ['.php', '.phtml', '.inc', '.php5', '.module'], memberAccess: ['::', '->'], caseInsensitiveNames: true }],
 	['python', { rules: PYTHON_RULES, scopeSeparator: '.', memberSeparator: '.', extensions: ['.py', '.pyi'], memberAccess: ['.'] }],
 	['go', { rules: GO_RULES, scopeSeparator: '.', memberSeparator: '.', extensions: ['.go'], memberAccess: ['.'] }],
 	['ruby', { rules: RUBY_RULES, scopeSeparator: '::', memberSeparator: '#', extensions: ['.rb', '.rake'], memberAccess: ['::', '.'] }],
@@ -201,6 +209,16 @@ export function grammarNameOf(languageId: string): string {
  */
 export function containerLabel(container: readonly string[], languageId: string): string {
 	return container.join(PROFILES.get(languageId)?.scopeSeparator ?? '.');
+}
+
+/**
+ * The key a name is indexed and looked up under.
+ *
+ * Identity for languages that distinguish case; lower-cased for those that do not, so PHP's
+ * `ProcessInputData` and `processInputData` meet in the same bucket — as they do at runtime.
+ */
+export function indexKeyOf(name: string, languageId: string): string {
+	return PROFILES.get(languageId)?.caseInsensitiveNames ? name.toLowerCase() : name;
 }
 
 /** Operators meaning «member of» in this language, longest first. */

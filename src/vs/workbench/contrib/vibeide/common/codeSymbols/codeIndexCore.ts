@@ -14,6 +14,10 @@ import { CodeSymbol } from './treeSitterSymbols.js';
  *    make the next jump re-read the entire project, which is a cost the user pays for nothing;
  *  - an open editor outranks the disk for the same file, so a method typed a second ago is findable
  *    before it is saved — exactly when it is needed most.
+ *
+ * Names are stored under a key the caller supplies, which is how a case-insensitive language (PHP)
+ * gets `ProcessInputData` and `processInputData` into the same bucket without this module knowing
+ * anything about languages.
  */
 
 /** A declaration together with the file it lives in. The file is an opaque key (a URI string). */
@@ -38,14 +42,14 @@ export function createSymbolIndex(): SymbolIndex {
  * An empty `symbols` list removes the file — which is also what a deletion means, so callers need no
  * separate path for it.
  */
-export function replaceFileSymbols(index: SymbolIndex, file: string, symbols: readonly CodeSymbol[]): void {
+export function replaceFileSymbols(index: SymbolIndex, file: string, symbols: readonly CodeSymbol[], keyOf: (name: string) => string = name => name): void {
 	for (const previous of index.byFile.get(file) ?? []) {
-		const list = index.byName.get(previous.name);
+		const list = index.byName.get(keyOf(previous.name));
 		if (!list) {
 			continue;
 		}
 		const kept = list.filter(entry => entry.file !== file);
-		if (kept.length > 0) { index.byName.set(previous.name, kept); } else { index.byName.delete(previous.name); }
+		if (kept.length > 0) { index.byName.set(keyOf(previous.name), kept); } else { index.byName.delete(keyOf(previous.name)); }
 	}
 	if (symbols.length === 0) {
 		index.byFile.delete(file);
@@ -53,9 +57,10 @@ export function replaceFileSymbols(index: SymbolIndex, file: string, symbols: re
 	}
 	index.byFile.set(file, [...symbols]);
 	for (const symbol of symbols) {
-		const list = index.byName.get(symbol.name);
+		const key = keyOf(symbol.name);
+		const list = index.byName.get(key);
 		const entry: IndexedSymbol = { symbol, file };
-		if (list) { list.push(entry); } else { index.byName.set(symbol.name, [entry]); }
+		if (list) { list.push(entry); } else { index.byName.set(key, [entry]); }
 	}
 }
 

@@ -19,7 +19,7 @@ import { getExcludes, ISearchConfiguration } from '../../../services/search/comm
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { CodeSymbol, extensionsOf, extractSymbols, grammarNameOf, isInsideSpans, nonCodeSpans, supportsSymbolExtraction, symbolLanguageIds, SyntaxNodeLike, TextSpan } from '../common/codeSymbols/treeSitterSymbols.js';
+import { CodeSymbol, extensionsOf, extractSymbols, grammarNameOf, indexKeyOf, isInsideSpans, nonCodeSpans, supportsSymbolExtraction, symbolLanguageIds, SyntaxNodeLike, TextSpan } from '../common/codeSymbols/treeSitterSymbols.js';
 import { collectMatches, createSymbolIndex, IndexedSymbol, preferOpenBuffers, replaceFileSymbols, SymbolIndex } from '../common/codeSymbols/codeIndexCore.js';
 import { vibeLog } from '../common/vibeLog.js';
 
@@ -44,7 +44,15 @@ export const CONFIG_MAX_FILES = 'vibeide.codeNavigation.maxIndexedFiles';
 export const CONFIG_MAX_FILE_KB = 'vibeide.codeNavigation.maxFileSizeKB';
 export const CONFIG_EXCLUDED_FOLDERS = 'vibeide.codeNavigation.excludedFolders';
 
-const DEFAULT_MAX_FILES = 4000;
+/**
+ * Files scanned per language by default.
+ *
+ * Raised from 4000 after a real project hit the ceiling: the walk simply stopped part-way, so a
+ * declaration that existed was absent from the index and «go to definition» reported nothing —
+ * indistinguishable from «there is no such method». A partial index must be rare and, when it
+ * happens, said out loud (see `truncated` in the status).
+ */
+const DEFAULT_MAX_FILES = 20000;
 const DEFAULT_MAX_FILE_KB = 1500;
 
 /**
@@ -68,8 +76,11 @@ const MAX_FILTERED_FILES = 200;
  * the setting exists because every monorepo draws this line somewhere else.
  */
 const DEFAULT_EXCLUDED_FOLDERS = [
-	'vendor', 'node_modules', 'storage', 'cache', 'var',
-	'target', 'build', 'dist', 'bin', 'obj', '__pycache__', '.venv', 'venv',
+	// Dependencies and build output only. `bin` and `var` were here and are now not: in PHP projects
+	// they routinely hold real sources (console entry points, application code), and excluding them
+	// made declarations invisible with no way for the user to guess why.
+	'vendor', 'node_modules', 'storage', 'cache',
+	'target', 'build', 'dist', 'obj', '__pycache__', '.venv', 'venv',
 ];
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
@@ -111,6 +122,18 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 
 export { IndexedSymbol };
 
+/** A language's index as a person would want it described. */
+export interface IndexStatus {
+	readonly languageId: string;
+	readonly enabled: boolean;
+	readonly built: boolean;
+	readonly building: boolean;
+	readonly names: number;
+	readonly files: number;
+	/** The walk stopped at the file limit, so the index is knowingly incomplete. */
+	readonly truncated: boolean;
+}
+
 export interface IVibeCodeIndexService {
 	readonly _serviceBrand: undefined;
 	/** Is this language ours to answer for, per the user's setting? */
@@ -126,6 +149,10 @@ export interface IVibeCodeIndexService {
 	 * project index: highlighting a name and reading the class around the cursor must work in a file
 	 * whose language has never been scanned.
 	 */
+	/** What the index currently holds, per language — for the «состояние индекса» command. */
+	status(): readonly IndexStatus[];
+	/** Throw the index away so the next request rebuilds it from disk. */
+	rebuild(): void;
 	parseText(languageId: string, text: string): Promise<CodeSymbol[]>;
 	/** Declarations plus the comment and string spans of the same text, from a single parse. */
 	parseFile(languageId: string, text: string): Promise<{ symbols: CodeSymbol[]; nonCode: TextSpan[] }>;
@@ -172,6 +199,8 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 	private readonly _parsers = new Map<string, LanguageIndex['parser']>();
 	private readonly _parserLoads = new Map<string, Promise<LanguageIndex['parser'] | undefined>>();
 	private readonly _building = new Map<string, Promise<void>>();
+	/** Languages whose walk hit the file ceiling — their index is incomplete and says so. */
+	private readonly _truncated = new Set<string>();
 
 	constructor(
 		@ITreeSitterLibraryService private readonly _treeSitter: ITreeSitterLibraryService,
@@ -206,7 +235,7 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 				const extensions = extensionsOf(languageId);
 				const matches = (resource: URI) => extensions.some(ext => resource.path.toLowerCase().endsWith(ext));
 				for (const resource of e.rawDeleted.filter(matches)) {
-					replaceFileSymbols(index.symbols, resource.toString(), []);
+					replaceFileSymbols(index.symbols, resource.toString(), [], name => indexKeyOf(name, languageId));
 				}
 				const touched = [...e.rawAdded, ...e.rawUpdated].filter(matches);
 				if (touched.length > 0) {
@@ -222,6 +251,27 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 				}
 			}
 		}));
+	}
+
+	status(): readonly IndexStatus[] {
+		return symbolLanguageIds().map(languageId => {
+			const index = this._indexes.get(languageId);
+			return {
+				languageId,
+				enabled: this.isEnabled(languageId),
+				built: !!index,
+				building: this._building.has(languageId),
+				names: index?.symbols.byName.size ?? 0,
+				files: index?.symbols.byFile.size ?? 0,
+				truncated: this._truncated.has(languageId),
+			};
+		});
+	}
+
+	rebuild(): void {
+		for (const languageId of [...this._indexes.keys()]) {
+			this._disposeIndex(languageId);
+		}
 	}
 
 	isEnabled(languageId: string): boolean {
@@ -331,8 +381,11 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 		if (!index) {
 			return [];
 		}
-		const fromDisk = index.symbols.byName.get(name) ?? [];
-		const open = (await this._openModelSymbols(languageId)).filter(entry => entry.symbol.name === name);
+		// PHP calls `ProcessInputData()` and `processInputData()` the same method, so the lookup key —
+		// not the displayed name — decides what matches.
+		const key = indexKeyOf(name, languageId);
+		const fromDisk = index.symbols.byName.get(key) ?? [];
+		const open = (await this._openModelSymbols(languageId)).filter(entry => indexKeyOf(entry.symbol.name, languageId) === key);
 		return preferOpenBuffers(fromDisk, open);
 	}
 
@@ -353,8 +406,9 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 			// a quadratic scan the moment a project had more than a handful of declarations.
 			const openByName = new Map<string, IndexedSymbol[]>();
 			for (const entry of await this._openModelSymbols(languageId)) {
-				const list = openByName.get(entry.symbol.name);
-				if (list) { list.push(entry); } else { openByName.set(entry.symbol.name, [entry]); }
+				const key = indexKeyOf(entry.symbol.name, languageId);
+				const list = openByName.get(key);
+				if (list) { list.push(entry); } else { openByName.set(key, [entry]); }
 			}
 			out.push(...collectMatches(index.symbols.byName, openByName, needle, MAX_SEARCH_RESULTS - out.length));
 		}
@@ -427,7 +481,7 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 		for (const resource of resources) {
 			const content = await this._fileService.readFile(resource).catch(() => undefined);
 			// Unreadable now means gone or unreachable; dropping its symbols beats keeping stale ones.
-			replaceFileSymbols(index.symbols, resource.toString(), content ? await this.parseText(languageId, content.value.toString()) : []);
+			replaceFileSymbols(index.symbols, resource.toString(), content ? await this.parseText(languageId, content.value.toString()) : [], name => indexKeyOf(name, languageId));
 		}
 	}
 
@@ -510,7 +564,7 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 					}
 					const content = await this._fileService.readFile(child.resource).catch(() => undefined);
 					if (content) {
-						replaceFileSymbols(index.symbols, child.resource.toString(), parseWith(parser, languageId, content.value.toString()));
+						replaceFileSymbols(index.symbols, child.resource.toString(), parseWith(parser, languageId, content.value.toString()), name => indexKeyOf(name, languageId));
 					}
 				}
 			};
@@ -522,6 +576,14 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 				return;
 			}
 			this._indexes.set(languageId, index);
+			if (scanned >= maxFiles) {
+				// Not a warning the user can be expected to find in a log: the status command reports it,
+				// because «не найдено» from a truncated index is a lie by omission.
+				this._truncated.add(languageId);
+				vibeLog.warn('codeIndex', `индекс ${languageId} НЕПОЛНЫЙ: достигнут предел ${maxFiles} файлов`);
+			} else {
+				this._truncated.delete(languageId);
+			}
 			vibeLog.debug('codeIndex', `индекс ${languageId}: ${index.symbols.byName.size} имён из ${scanned} файлов за ${Date.now() - started} мс`);
 		} catch (err) {
 			vibeLog.warn('codeIndex', `индекс ${languageId} построить не удалось: ${err}`);

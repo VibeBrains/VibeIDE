@@ -6,6 +6,7 @@
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { collectMatches, createSymbolIndex, IndexedSymbol, preferOpenBuffers, replaceFileSymbols } from '../../common/codeSymbols/codeIndexCore.js';
+import { indexKeyOf } from '../../common/codeSymbols/treeSitterSymbols.js';
 import { CodeSymbol, CodeSymbolKind } from '../../common/codeSymbols/treeSitterSymbols.js';
 
 /**
@@ -83,5 +84,33 @@ suite('code index core', () => {
 	test('a declaration living only in an unsaved buffer is still findable', () => {
 		const open = new Map<string, IndexedSymbol[]>([['brandNew', [{ file: 'draft.php', symbol: sym('brandNew') }]]]);
 		assert.deepStrictEqual(names(collectMatches(new Map(), open, 'brand', 10)), ['draft.php:brandNew@0']);
+	});
+
+	/**
+	 * PHP does not distinguish case in method names: `$this->ProcessInputData()` calls a method
+	 * declared as `processInputData()`. Looking that up case-sensitively answers «определение не
+	 * найдено» for code that runs perfectly well — which is exactly what a user reported.
+	 */
+	test('PHP names meet in one bucket regardless of case', () => {
+		const key = (name: string) => indexKeyOf(name, 'php');
+		const index = createSymbolIndex();
+		replaceFileSymbols(index, 'base.php', [sym('processInputData')], key);
+
+		assert.deepStrictEqual(names(index.byName.get(key('ProcessInputData')) ?? []), ['base.php:processInputData@0']);
+		// The displayed name keeps the author's spelling — only the lookup key is normalised.
+		assert.strictEqual(index.byName.get(key('PROCESSINPUTDATA'))?.[0].symbol.name, 'processInputData');
+
+		// Case-sensitive languages are untouched: Go's `Pay` and `pay` are genuinely different.
+		assert.notStrictEqual(indexKeyOf('Pay', 'go'), indexKeyOf('pay', 'go'));
+		assert.strictEqual(indexKeyOf('Pay', 'go'), 'Pay');
+	});
+
+	/** Rewriting a file must clean up under the normalised key too, or stale entries survive. */
+	test('a case-insensitive index cleans up on rewrite', () => {
+		const key = (name: string) => indexKeyOf(name, 'php');
+		const index = createSymbolIndex();
+		replaceFileSymbols(index, 'a.php', [sym('ProcessInputData')], key);
+		replaceFileSymbols(index, 'a.php', [], key);
+		assert.deepStrictEqual({ names: [...index.byName.keys()], files: [...index.byFile.keys()] }, { names: [], files: [] });
 	});
 });
