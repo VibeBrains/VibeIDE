@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { CodeSymbol, CodeSymbolKind, memberAccessOperators } from './treeSitterSymbols.js';
+import { RELATIVE_OWNERS, shortNameOf } from './nameConventions.js';
 
 /**
  * «Что имел в виду курсор» — pure decision layer for jumping to a declaration, in any of the
@@ -57,14 +58,6 @@ const MEMBER_KINDS: ReadonlySet<CodeSymbolKind> = new Set<CodeSymbolKind>(['meth
 const TYPE_KINDS: ReadonlySet<CodeSymbolKind> = new Set<CodeSymbolKind>(['class', 'interface', 'trait', 'enum']);
 const CALLABLE_KINDS: ReadonlySet<CodeSymbolKind> = new Set<CodeSymbolKind>(['method', 'function']);
 
-/**
- * Owners that name the enclosing type rather than a type spelled out.
- *
- * One set for every language on purpose: `self` means the same thing in PHP, Python, Rust and Ruby,
- * and a language that does not use a word simply never produces it.
- */
-const RELATIVE_OWNERS: ReadonlySet<string> = new Set(['self', '$this', 'this', 'static', 'parent', 'Self', 'super', 'base', 'me']);
-
 /** Escape a literal operator for use inside a regular expression. */
 function escapeForRegExp(text: string): string {
 	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -97,19 +90,13 @@ export function readCallShape(lineText: string, wordStartColumn: number, languag
 		}
 		// A named type is an owner we can rank against; a variable's type is unknowable here, so the
 		// owner is deliberately dropped rather than passed on as a guess.
-		const base = baseName(owner);
+		const base = shortNameOf(owner);
 		return /^[A-Z]/.test(base) ? { shape: 'static-member', owner } : { shape: 'instance-member' };
 	}
 	if (/\bnew\s+$/.test(before)) {
 		return { shape: 'instantiation' };
 	}
 	return { shape: isCall ? 'call' : 'plain' };
-}
-
-/** Last segment of a qualified name: `\App\Invoice` → `Invoice`, `app.Invoice` → `Invoice`. */
-function baseName(name: string): string {
-	const parts = name.split(/[\\.]|::/);
-	return parts[parts.length - 1] || name;
 }
 
 /**
@@ -133,7 +120,7 @@ export function rankDefinitions(query: DefinitionQuery, candidates: readonly Ran
 		return [];
 	}
 	const { shape, owner } = readCallShape(query.lineText, query.wordStartColumn, query.languageId);
-	const ownerBase = owner ? baseName(owner) : undefined;
+	const ownerBase = owner ? shortNameOf(owner) : undefined;
 	const enclosing = query.enclosingContainer ?? [];
 	const enclosingOwner = enclosing.length > 0 ? enclosing[enclosing.length - 1] : undefined;
 	/** Position in the inheritance chain: 0 is the class itself, larger is further up. */

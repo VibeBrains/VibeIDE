@@ -14,6 +14,7 @@ import { ILanguageFeaturesService } from '../../../../editor/common/services/lan
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { CodeSymbol, containerLabel, memberAccessOperators, symbolLanguageIds } from '../common/codeSymbols/treeSitterSymbols.js';
 import { enclosingContainerOf } from '../common/codeSymbols/codeIndexCore.js';
+import { shortNameOf } from '../common/codeSymbols/nameConventions.js';
 import { CallShape, readCallShape } from '../common/codeSymbols/codeDefinitionResolve.js';
 import { IVibeCodeIndexService } from './vibeCodeIndexService.js';
 
@@ -148,7 +149,7 @@ class VibeCodeCompletionContribution extends Disposable implements IWorkbenchCon
 		if (shape === 'this-member' || shape === 'static-member' || shape === 'instance-member') {
 			const ownerName = shape === 'this-member'
 				? (await this._enclosingType(model, position))?.at(-1)
-				: owner ? baseName(owner) : undefined;
+				: owner ? shortNameOf(owner) : undefined;
 
 			if (ownerName) {
 				// Members of the class AND of everything it inherits — an inherited method is as much
@@ -183,11 +184,6 @@ class VibeCodeCompletionContribution extends Disposable implements IWorkbenchCon
 		const { symbols } = await this._index.parseModel(model);
 		return enclosingContainerOf(symbols, position.lineNumber - 1);
 	}
-}
-
-function baseName(name: string): string {
-	const parts = name.split(/[\\.]|::/);
-	return parts[parts.length - 1] || name;
 }
 
 registerWorkbenchContribution2(VibeCodeCompletionContribution.ID, VibeCodeCompletionContribution, WorkbenchPhase.AfterRestored);

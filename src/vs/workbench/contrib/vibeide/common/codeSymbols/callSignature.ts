@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { RELATIVE_OWNERS, shortNameOf } from './nameConventions.js';
+
 /**
  * Reading a call being typed — pure, so it is testable without an editor.
  *
@@ -88,9 +90,6 @@ const DECLARATION_KEYWORDS: ReadonlySet<string> = new Set([
 	'function', 'def', 'fn', 'func', 'sub', 'method', 'class', 'interface', 'trait', 'enum', 'struct', 'record',
 ]);
 
-/** Owners that mean «the class this code is in» rather than a type spelled out. */
-const RELATIVE_OWNERS: ReadonlySet<string> = new Set(['$this', 'this', 'self', 'static', 'parent', 'Self', 'super', 'base', 'me']);
-
 /**
  * The identifier immediately before the opening bracket, and what it is called on.
  *
@@ -116,7 +115,7 @@ function calleeBefore(text: string): { name: string; owner?: string; throughThis
 		return { name: match[1], throughThis: true };
 	}
 	// A lower-case owner is a variable whose type we cannot know; only a named type is useful here.
-	const short = owner.split(/[\\.]|::/).pop() ?? owner;
+	const short = shortNameOf(owner);
 	return /^[A-Z]/.test(short) ? { name: match[1], owner: short } : { name: match[1] };
 }
 

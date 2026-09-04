@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { ancestryOf, collectMatches, createSymbolIndex, enclosingContainerOf, IndexedSymbol, preferOpenBuffers, replaceFileSymbols } from '../../common/codeSymbols/codeIndexCore.js';
+import { ancestryOf, collectMatches, createSymbolIndex, descendantsOf, enclosingContainerOf, IndexedSymbol, preferOpenBuffers, replaceFileSymbols } from '../../common/codeSymbols/codeIndexCore.js';
 import { indexKeyOf } from '../../common/codeSymbols/treeSitterSymbols.js';
 import { CodeSymbol, CodeSymbolKind } from '../../common/codeSymbols/treeSitterSymbols.js';
 
@@ -166,5 +166,29 @@ suite('code index core', () => {
 		assert.deepStrictEqual(ancestryOf('Order', new Map([['Order', ['\\App\\Billing\\Base']]])), ['Order', 'Base']);
 		const cyclic = new Map<string, readonly string[]>([['A', ['B']], ['B', ['A']]]);
 		assert.deepStrictEqual(ancestryOf('A', cyclic), ['A', 'B'], 'цикл проходится один раз');
+	});
+
+	/**
+	 * The path DOWN the hierarchy — «кто это реализует». Transitive on purpose: a class inheriting a
+	 * subclass is a descendant too, and listing only the direct ones answers half the question.
+	 */
+	test('descendants are found through intermediate types', () => {
+		const types = [
+			{ name: 'Report', bases: ['BaseController'] },
+			{ name: 'PdfReport', bases: ['Report'] },
+			{ name: 'Invoice', bases: ['\\App\\Billing\\BaseController'] },
+			{ name: 'Unrelated', bases: ['Something'] },
+			{ name: 'NoBases' },
+		];
+		assert.deepStrictEqual(descendantsOf('BaseController', types), ['Report', 'Invoice', 'PdfReport'],
+			'квалифицированное имя предка тоже засчитывается, потомки — по слоям');
+		assert.deepStrictEqual(descendantsOf('Report', types), ['PdfReport']);
+		assert.deepStrictEqual(descendantsOf('NoBases', types), []);
+	});
+
+	/** Broken code can loop; the walk must end rather than hang the editor. */
+	test('a cycle among descendants terminates', () => {
+		const cyclic = [{ name: 'A', bases: ['B'] }, { name: 'B', bases: ['A'] }];
+		assert.deepStrictEqual(descendantsOf('A', cyclic), ['B']);
 	});
 });

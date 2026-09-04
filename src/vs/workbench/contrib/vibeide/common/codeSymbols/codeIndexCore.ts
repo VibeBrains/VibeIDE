@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { CodeSymbol } from './treeSitterSymbols.js';
+import { shortNameOf } from './nameConventions.js';
 
 /**
  * The bookkeeping of the declaration index — pure, so it is testable without a workspace.
@@ -165,7 +166,7 @@ export function ancestryOf(typeName: string, basesByType: ReadonlyMap<string, re
 			chain.push(name);
 			for (const base of basesByType.get(name) ?? []) {
 				// A qualified base (`\App\Base`) is indexed under its last segment.
-				const short = base.split(/[\\.]|::/).pop() ?? base;
+				const short = shortNameOf(base);
 				if (short && !seen.has(short)) {
 					next.push(short);
 				}
@@ -174,4 +175,32 @@ export function ancestryOf(typeName: string, basesByType: ReadonlyMap<string, re
 		frontier = next;
 	}
 	return chain;
+}
+
+/**
+ * Names of the types that inherit from `typeName`, directly or through another.
+ *
+ * Breadth-first and transitive: a class inheriting a subclass is a descendant too, and stopping at
+ * the direct ones would answer half the question. Cycles in broken code are visited once.
+ */
+export function descendantsOf(
+	typeName: string,
+	types: readonly { readonly name: string; readonly bases?: readonly string[] }[],
+	maxDepth = 16,
+): string[] {
+	const wanted = new Set([typeName]);
+	const out: string[] = [];
+
+	for (let depth = 0; depth < maxDepth; depth++) {
+		const found = types.filter(type =>
+			!wanted.has(type.name) && type.bases?.some(base => wanted.has(shortNameOf(base))));
+		if (found.length === 0) {
+			break;
+		}
+		for (const type of found) {
+			wanted.add(type.name);
+			out.push(type.name);
+		}
+	}
+	return out;
 }

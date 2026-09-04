@@ -23,7 +23,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { CodeSymbol, extensionsOf, extractSymbols, grammarNameOf, indexKeyOf, isInsideSpans, nonCodeSpans, supportsSymbolExtraction, symbolLanguageIds, SyntaxNodeLike, TextSpan } from '../common/codeSymbols/treeSitterSymbols.js';
-import { ancestryOf, collectMatches, createSymbolIndex, IndexedSymbol, preferOpenBuffers, replaceFileSymbols, SymbolIndex } from '../common/codeSymbols/codeIndexCore.js';
+import { ancestryOf, collectMatches, createSymbolIndex, descendantsOf, IndexedSymbol, preferOpenBuffers, replaceFileSymbols, SymbolIndex } from '../common/codeSymbols/codeIndexCore.js';
 import { vibeLog } from '../common/vibeLog.js';
 
 /**
@@ -73,6 +73,7 @@ const MAX_SEARCH_RESULTS = 512;
  * than made slow. Reference lists that big are read by machines, not people.
  */
 const MAX_FILTERED_FILES = 200;
+
 
 /**
  * Folders that hold dependencies or build output in the supported languages. A default, not a law:
@@ -169,6 +170,13 @@ export interface IVibeCodeIndexService {
 	 * does not offer inherited members at all.
 	 */
 	ancestry(languageId: string, typeName: string, token: CancellationToken): Promise<readonly string[]>;
+	/**
+	 * Types that inherit from this one, directly or through another — the path DOWN the hierarchy.
+	 *
+	 * Navigation could only go up (to the declaration); «who implements this» is asked about someone
+	 * else's code just as often.
+	 */
+	descendants(languageId: string, typeName: string, token: CancellationToken): Promise<readonly IndexedSymbol[]>;
 	parseText(languageId: string, text: string): Promise<CodeSymbol[]>;
 	/** Declarations plus the comment and string spans of the same text, from a single parse. */
 	parseFile(languageId: string, text: string): Promise<{ symbols: CodeSymbol[]; nonCode: TextSpan[] }>;
@@ -333,6 +341,23 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 			this._basesByType.set(languageId, bases);
 		}
 		return ancestryOf(typeName, bases);
+	}
+
+	async descendants(languageId: string, typeName: string, token: CancellationToken): Promise<readonly IndexedSymbol[]> {
+		const index = await this._ensureIndex(languageId, token);
+		if (!index) {
+			return [];
+		}
+		const byName = new Map<string, IndexedSymbol>();
+		for (const entries of index.symbols.byName.values()) {
+			for (const entry of entries) {
+				if (entry.symbol.bases?.length && !byName.has(entry.symbol.name)) {
+					byName.set(entry.symbol.name, entry);
+				}
+			}
+		}
+		const names = descendantsOf(typeName, [...byName.values()].map(entry => entry.symbol));
+		return names.map(name => byName.get(name)).filter((entry): entry is IndexedSymbol => !!entry);
 	}
 
 	isEnabled(languageId: string): boolean {
