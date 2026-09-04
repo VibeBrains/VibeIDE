@@ -25,9 +25,36 @@ export interface ActiveCall {
 	readonly throughThis?: boolean;
 }
 
-/** Brackets and quotes that must be balanced before a comma or `(` counts. */
-const CLOSERS: ReadonlyMap<string, string> = new Map([[')', '('], [']', '['], ['}', '{']]);
+/** Brackets that open and close nesting. A comma only separates when nesting is back to zero. */
 const OPENERS: ReadonlySet<string> = new Set(['(', '[', '{']);
+const CLOSERS: ReadonlySet<string> = new Set([')', ']', '}']);
+const QUOTES: ReadonlySet<string> = new Set(['"', '\'', '`']);
+
+/**
+ * Walks text one character at a time, tracking what is inside a string and how deep the brackets go.
+ *
+ * Both readers below need exactly this and nothing more, but in opposite directions — forwards to
+ * split a parameter list, backwards to find the call being typed. So the STATE is shared and the
+ * direction is not: forcing one loop to serve both would cost more in indirection than the twelve
+ * lines it saves.
+ */
+class NestingScanner {
+	private _quote: string | undefined;
+	depth = 0;
+
+	/** @returns whether this character is ordinary text — not a quote, bracket, or inside a string. */
+	step(char: string, previous: string | undefined): boolean {
+		if (this._quote) {
+			// An escaped quote does not close the string: `"a, \"b"` is one argument.
+			if (char === this._quote && previous !== '\\') { this._quote = undefined; }
+			return false;
+		}
+		if (QUOTES.has(char)) { this._quote = char; return false; }
+		if (OPENERS.has(char)) { this.depth++; return false; }
+		if (CLOSERS.has(char)) { this.depth--; return false; }
+		return true;
+	}
+}
 
 /**
  * The call whose argument list the cursor is inside, if any.
@@ -37,44 +64,33 @@ const OPENERS: ReadonlySet<string> = new Set(['(', '[', '{']);
  */
 export function activeCallAt(lineText: string, cursorColumn: number): ActiveCall | undefined {
 	const text = lineText.slice(0, Math.max(0, cursorColumn));
-	let depth = 0;
 	let argumentIndex = 0;
+	// Scanned right to left: the call being typed is the nearest bracket left of the cursor that is
+	// still open. Its own arguments are the commas passed on the way, at nesting level zero.
+	let depth = 0;
 	let quote: string | undefined;
 
 	for (let i = text.length - 1; i >= 0; i--) {
 		const char = text[i];
 
-		// Inside a string nothing counts — a comma there is text, not an argument separator.
 		if (quote) {
-			if (char === quote && text[i - 1] !== '\\') {
-				quote = undefined;
-			}
+			// Backwards, a string ends where it began; the escape lives BEFORE the quote.
+			if (char === quote && text[i - 1] !== '\\') { quote = undefined; }
 			continue;
 		}
-		if (char === '"' || char === '\'' || char === '`') {
-			quote = char;
-			continue;
-		}
-		if (CLOSERS.has(char)) {
-			depth++;
-			continue;
-		}
+		if (QUOTES.has(char)) { quote = char; continue; }
+		if (CLOSERS.has(char)) { depth++; continue; }
 		if (OPENERS.has(char)) {
-			if (depth > 0) {
-				depth--;
-				continue;
-			}
+			if (depth > 0) { depth--; continue; }
 			if (char !== '(') {
-				// An unclosed `[` or `{` means the cursor is in a list or a block, not in a call.
+				// An unclosed `[` or `{` means a list or a block, not a call.
 				return undefined;
 			}
 			const callee = calleeBefore(text.slice(0, i));
 			return callee ? { ...callee, argumentIndex } : undefined;
 		}
 		// Commas of nested calls belong to those calls, not to this one.
-		if (char === ',' && depth === 0) {
-			argumentIndex++;
-		}
+		if (char === ',' && depth === 0) { argumentIndex++; }
 	}
 	return undefined;
 }
@@ -131,21 +147,17 @@ export function splitParameters(params: string): string[] {
 		return [];
 	}
 	const out: string[] = [];
-	let depth = 0;
-	let quote: string | undefined;
+	const scanner = new NestingScanner();
 	let current = '';
 
 	for (let i = 0; i < inner.length; i++) {
 		const char = inner[i];
-		if (quote) {
-			current += char;
-			if (char === quote && inner[i - 1] !== '\\') { quote = undefined; }
+		const isPlain = scanner.step(char, inner[i - 1]);
+		if (isPlain && char === ',' && scanner.depth === 0) {
+			out.push(current.trim());
+			current = '';
 			continue;
 		}
-		if (char === '"' || char === '\'' || char === '`') { quote = char; current += char; continue; }
-		if (OPENERS.has(char)) { depth++; current += char; continue; }
-		if (CLOSERS.has(char)) { depth--; current += char; continue; }
-		if (char === ',' && depth === 0) { out.push(current.trim()); current = ''; continue; }
 		current += char;
 	}
 	if (current.trim().length > 0) {

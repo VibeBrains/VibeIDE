@@ -58,6 +58,9 @@ export const CONFIG_EXCLUDED_FOLDERS = 'vibeide.codeNavigation.excludedFolders';
 const DEFAULT_MAX_FILES = 20000;
 const DEFAULT_MAX_FILE_KB = 1500;
 
+/** Declaration kinds that can take part in a hierarchy. */
+const TYPE_KINDS: ReadonlySet<CodeSymbol['kind']> = new Set<CodeSymbol['kind']>(['class', 'interface', 'trait', 'enum']);
+
 /**
  * Ceiling on rows handed to the symbol picker.
  *
@@ -235,8 +238,13 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 	private readonly _warnedTruncated = new Set<string>();
 	/** The single running walk: one scan serves every language. */
 	private _scan: Promise<void> | undefined;
-	/** type name → what it inherits, per language. Rebuilt whenever the index is. */
-	private readonly _basesByType = new Map<string, Map<string, readonly string[]>>();
+	/**
+	 * type name → its declaration, per language. Rebuilt whenever the index is.
+	 *
+	 * Serves both directions of the hierarchy. They used to live differently — one cached, the other
+	 * re-scanned the whole index on every call — which is the same information at two prices.
+	 */
+	private readonly _typesByLanguage = new Map<string, Map<string, IndexedSymbol>>();
 
 	constructor(
 		@ITreeSitterLibraryService private readonly _treeSitter: ITreeSitterLibraryService,
@@ -276,12 +284,12 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 				const matches = (resource: URI) => extensions.some(ext => resource.path.toLowerCase().endsWith(ext));
 				for (const resource of e.rawDeleted.filter(matches)) {
 					replaceFileSymbols(index.symbols, resource.toString(), [], name => indexKeyOf(name, languageId));
-					this._basesByType.delete(languageId);
+					this._typesByLanguage.delete(languageId);
 				}
 				const touched = [...e.rawAdded, ...e.rawUpdated].filter(matches);
 				if (touched.length > 0) {
 					// A changed file may have changed what a class extends.
-					this._basesByType.delete(languageId);
+					this._typesByLanguage.delete(languageId);
 					void this._reindexFiles(languageId, index, touched);
 				}
 			}
@@ -323,41 +331,50 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 	}
 
 	async ancestry(languageId: string, typeName: string, token: CancellationToken): Promise<readonly string[]> {
-		const index = await this._ensureIndex(languageId, token);
-		if (!index) {
+		const types = await this._types(languageId, token);
+		if (!types) {
 			return [typeName];
 		}
-		// Built lazily from the index and cached: the map changes only when the index does.
-		let bases = this._basesByType.get(languageId);
-		if (!bases) {
-			bases = new Map<string, readonly string[]>();
-			for (const entries of index.symbols.byName.values()) {
-				for (const entry of entries) {
-					if (entry.symbol.bases?.length) {
-						bases.set(entry.symbol.name, entry.symbol.bases);
-					}
-				}
+		const bases = new Map<string, readonly string[]>();
+		for (const [name, entry] of types) {
+			if (entry.symbol.bases?.length) {
+				bases.set(name, entry.symbol.bases);
 			}
-			this._basesByType.set(languageId, bases);
 		}
 		return ancestryOf(typeName, bases);
 	}
 
-	async descendants(languageId: string, typeName: string, token: CancellationToken): Promise<readonly IndexedSymbol[]> {
+	/** Every type declaration of a language, by name. Built once per index. */
+	private async _types(languageId: string, token: CancellationToken): Promise<Map<string, IndexedSymbol> | undefined> {
 		const index = await this._ensureIndex(languageId, token);
 		if (!index) {
-			return [];
+			return undefined;
 		}
-		const byName = new Map<string, IndexedSymbol>();
+		const cached = this._typesByLanguage.get(languageId);
+		if (cached) {
+			return cached;
+		}
+		const types = new Map<string, IndexedSymbol>();
 		for (const entries of index.symbols.byName.values()) {
 			for (const entry of entries) {
-				if (entry.symbol.bases?.length && !byName.has(entry.symbol.name)) {
-					byName.set(entry.symbol.name, entry);
+				// First declaration of a name wins, as everywhere else: a redeclared type is a mistake
+				// in the project, and letting the later one replace it would move the hierarchy under it.
+				if (TYPE_KINDS.has(entry.symbol.kind) && !types.has(entry.symbol.name)) {
+					types.set(entry.symbol.name, entry);
 				}
 			}
 		}
-		const names = descendantsOf(typeName, [...byName.values()].map(entry => entry.symbol));
-		return names.map(name => byName.get(name)).filter((entry): entry is IndexedSymbol => !!entry);
+		this._typesByLanguage.set(languageId, types);
+		return types;
+	}
+
+	async descendants(languageId: string, typeName: string, token: CancellationToken): Promise<readonly IndexedSymbol[]> {
+		const types = await this._types(languageId, token);
+		if (!types) {
+			return [];
+		}
+		const names = descendantsOf(typeName, [...types.values()].map(entry => entry.symbol));
+		return names.map(name => types.get(name)).filter((entry): entry is IndexedSymbol => !!entry);
 	}
 
 	isEnabled(languageId: string): boolean {
@@ -772,7 +789,7 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 	private _disposeIndex(languageId: string): void {
 		this._indexes.delete(languageId);
 		// The inheritance map is derived from the index; keeping it would answer from a dead one.
-		this._basesByType.delete(languageId);
+		this._typesByLanguage.delete(languageId);
 	}
 
 	override dispose(): void {
