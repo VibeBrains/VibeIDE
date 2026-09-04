@@ -5,7 +5,8 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { collectMatches, createSymbolIndex, IndexedSymbol, preferOpenBuffers, replaceFileSymbols } from '../../common/codeSymbols/codeIndexCore.js';
+import { ancestryOf, collectMatches, createSymbolIndex, descendantsOf, enclosingContainerOf, IndexedSymbol, preferOpenBuffers, replaceFileSymbols } from '../../common/codeSymbols/codeIndexCore.js';
+import { indexKeyOf } from '../../common/codeSymbols/treeSitterSymbols.js';
 import { CodeSymbol, CodeSymbolKind } from '../../common/codeSymbols/treeSitterSymbols.js';
 
 /**
@@ -83,5 +84,111 @@ suite('code index core', () => {
 	test('a declaration living only in an unsaved buffer is still findable', () => {
 		const open = new Map<string, IndexedSymbol[]>([['brandNew', [{ file: 'draft.php', symbol: sym('brandNew') }]]]);
 		assert.deepStrictEqual(names(collectMatches(new Map(), open, 'brand', 10)), ['draft.php:brandNew@0']);
+	});
+
+	/**
+	 * PHP does not distinguish case in method names: `$this->ProcessInputData()` calls a method
+	 * declared as `processInputData()`. Looking that up case-sensitively answers «определение не
+	 * найдено» for code that runs perfectly well — which is exactly what a user reported.
+	 */
+	test('PHP names meet in one bucket regardless of case', () => {
+		const key = (name: string) => indexKeyOf(name, 'php');
+		const index = createSymbolIndex();
+		replaceFileSymbols(index, 'base.php', [sym('processInputData')], key);
+
+		assert.deepStrictEqual(names(index.byName.get(key('ProcessInputData')) ?? []), ['base.php:processInputData@0']);
+		// The displayed name keeps the author's spelling — only the lookup key is normalised.
+		assert.strictEqual(index.byName.get(key('PROCESSINPUTDATA'))?.[0].symbol.name, 'processInputData');
+
+		// Case-sensitive languages are untouched: Go's `Pay` and `pay` are genuinely different.
+		assert.notStrictEqual(indexKeyOf('Pay', 'go'), indexKeyOf('pay', 'go'));
+		assert.strictEqual(indexKeyOf('Pay', 'go'), 'Pay');
+	});
+
+	/** Rewriting a file must clean up under the normalised key too, or stale entries survive. */
+	test('a case-insensitive index cleans up on rewrite', () => {
+		const key = (name: string) => indexKeyOf(name, 'php');
+		const index = createSymbolIndex();
+		replaceFileSymbols(index, 'a.php', [sym('ProcessInputData')], key);
+		replaceFileSymbols(index, 'a.php', [], key);
+		assert.deepStrictEqual({ names: [...index.byName.keys()], files: [...index.byFile.keys()] }, { names: [], files: [] });
+	});
+
+	/**
+	 * What `$this` means at a given line. Shared by «go to definition» and completion — each used to
+	 * carry its own copy, which is how two features start disagreeing about the same file.
+	 */
+	test('the enclosing type is the innermost one covering the line', () => {
+		const type = (name: string, kind: CodeSymbolKind, startLine: number, endLine: number, container: string[] = []): CodeSymbol =>
+			({ name, kind, container, startLine, startColumn: 0, endLine, endColumn: 0 });
+		const symbols = [
+			type('Outer', 'class', 0, 40),
+			type('Inner', 'class', 10, 20, ['Outer']),
+			type('pay', 'method', 12, 14, ['Outer', 'Inner']),
+		];
+
+		assert.deepStrictEqual({
+			внутриВложенного: enclosingContainerOf(symbols, 13),
+			толькоВнешний: enclosingContainerOf(symbols, 30),
+			внеВсего: enclosingContainerOf(symbols, 99),
+			наГранице: enclosingContainerOf(symbols, 20),
+		}, {
+			внутриВложенного: ['Outer', 'Inner'],
+			толькоВнешний: ['Outer'],
+			внеВсего: undefined,
+			// The end line belongs to the declaration that ends there.
+			наГранице: ['Outer', 'Inner'],
+		});
+
+		// A method is not a container: `$this` inside it still means the class.
+		assert.deepStrictEqual(enclosingContainerOf([type('pay', 'method', 0, 5)], 3), undefined);
+	});
+
+	/**
+	 * The inheritance chain, nearest first.
+	 *
+	 * This is what makes `$this->pay()` in a subclass find the parent's `pay` — the case the whole
+	 * feature looked broken on: the method exists, but the index only knew the class's own members.
+	 */
+	test('the ancestry is ordered from the class outwards', () => {
+		const bases = new Map<string, readonly string[]>([
+			['Order', ['BaseController', 'Payable', 'HasRules']],
+			['BaseController', ['Kernel']],
+			['Kernel', []],
+		]);
+		assert.deepStrictEqual(ancestryOf('Order', bases), ['Order', 'BaseController', 'Payable', 'HasRules', 'Kernel']);
+		assert.deepStrictEqual(ancestryOf('Kernel', bases), ['Kernel']);
+		assert.deepStrictEqual(ancestryOf('Unknown', bases), ['Unknown'], 'неизвестный тип — сам себе цепочка');
+	});
+
+	/** Qualified bases are indexed under their last segment, and broken code may loop. */
+	test('qualified names are shortened and cycles do not hang', () => {
+		assert.deepStrictEqual(ancestryOf('Order', new Map([['Order', ['\\App\\Billing\\Base']]])), ['Order', 'Base']);
+		const cyclic = new Map<string, readonly string[]>([['A', ['B']], ['B', ['A']]]);
+		assert.deepStrictEqual(ancestryOf('A', cyclic), ['A', 'B'], 'цикл проходится один раз');
+	});
+
+	/**
+	 * The path DOWN the hierarchy — «кто это реализует». Transitive on purpose: a class inheriting a
+	 * subclass is a descendant too, and listing only the direct ones answers half the question.
+	 */
+	test('descendants are found through intermediate types', () => {
+		const types = [
+			{ name: 'Report', bases: ['BaseController'] },
+			{ name: 'PdfReport', bases: ['Report'] },
+			{ name: 'Invoice', bases: ['\\App\\Billing\\BaseController'] },
+			{ name: 'Unrelated', bases: ['Something'] },
+			{ name: 'NoBases' },
+		];
+		assert.deepStrictEqual(descendantsOf('BaseController', types), ['Report', 'Invoice', 'PdfReport'],
+			'квалифицированное имя предка тоже засчитывается, потомки — по слоям');
+		assert.deepStrictEqual(descendantsOf('Report', types), ['PdfReport']);
+		assert.deepStrictEqual(descendantsOf('NoBases', types), []);
+	});
+
+	/** Broken code can loop; the walk must end rather than hang the editor. */
+	test('a cycle among descendants terminates', () => {
+		const cyclic = [{ name: 'A', bases: ['B'] }, { name: 'B', bases: ['A'] }];
+		assert.deepStrictEqual(descendantsOf('A', cyclic), ['B']);
 	});
 });

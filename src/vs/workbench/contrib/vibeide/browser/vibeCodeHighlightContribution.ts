@@ -57,7 +57,7 @@ class VibeCodeHighlightContribution extends Disposable implements IWorkbenchCont
 			return undefined;
 		}
 		const name = word.word;
-		const { symbols, nonCode } = await this._index.parseFile(languageId, model.getValue());
+		const { symbols, nonCode } = await this._index.parseModel(model);
 		if (token.isCancellationRequested) {
 			return undefined;
 		}

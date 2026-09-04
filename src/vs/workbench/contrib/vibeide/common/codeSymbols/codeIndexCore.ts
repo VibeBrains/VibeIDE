@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { CodeSymbol } from './treeSitterSymbols.js';
+import { shortNameOf } from './nameConventions.js';
 
 /**
  * The bookkeeping of the declaration index — pure, so it is testable without a workspace.
@@ -14,6 +15,10 @@ import { CodeSymbol } from './treeSitterSymbols.js';
  *    make the next jump re-read the entire project, which is a cost the user pays for nothing;
  *  - an open editor outranks the disk for the same file, so a method typed a second ago is findable
  *    before it is saved — exactly when it is needed most.
+ *
+ * Names are stored under a key the caller supplies, which is how a case-insensitive language (PHP)
+ * gets `ProcessInputData` and `processInputData` into the same bucket without this module knowing
+ * anything about languages.
  */
 
 /** A declaration together with the file it lives in. The file is an opaque key (a URI string). */
@@ -38,14 +43,14 @@ export function createSymbolIndex(): SymbolIndex {
  * An empty `symbols` list removes the file — which is also what a deletion means, so callers need no
  * separate path for it.
  */
-export function replaceFileSymbols(index: SymbolIndex, file: string, symbols: readonly CodeSymbol[]): void {
+export function replaceFileSymbols(index: SymbolIndex, file: string, symbols: readonly CodeSymbol[], keyOf: (name: string) => string = name => name): void {
 	for (const previous of index.byFile.get(file) ?? []) {
-		const list = index.byName.get(previous.name);
+		const list = index.byName.get(keyOf(previous.name));
 		if (!list) {
 			continue;
 		}
 		const kept = list.filter(entry => entry.file !== file);
-		if (kept.length > 0) { index.byName.set(previous.name, kept); } else { index.byName.delete(previous.name); }
+		if (kept.length > 0) { index.byName.set(keyOf(previous.name), kept); } else { index.byName.delete(keyOf(previous.name)); }
 	}
 	if (symbols.length === 0) {
 		index.byFile.delete(file);
@@ -53,9 +58,10 @@ export function replaceFileSymbols(index: SymbolIndex, file: string, symbols: re
 	}
 	index.byFile.set(file, [...symbols]);
 	for (const symbol of symbols) {
-		const list = index.byName.get(symbol.name);
+		const key = keyOf(symbol.name);
+		const list = index.byName.get(key);
 		const entry: IndexedSymbol = { symbol, file };
-		if (list) { list.push(entry); } else { index.byName.set(symbol.name, [entry]); }
+		if (list) { list.push(entry); } else { index.byName.set(key, [entry]); }
 	}
 }
 
@@ -108,4 +114,93 @@ export function collectMatches(
 		}
 	}
 	return out.slice(0, limit);
+}
+
+/** Declaration kinds that can contain members — the things `$this` and `self` can refer to. */
+const CONTAINER_KINDS: ReadonlySet<CodeSymbol['kind']> = new Set<CodeSymbol['kind']>(['class', 'interface', 'trait', 'enum']);
+
+/**
+ * The type declaration a line sits inside, innermost first — the meaning of `$this` at that line.
+ *
+ * Pure, so both «go to definition» and completion answer it the same way; they used to each have
+ * their own copy, which is how two features start disagreeing about the same file.
+ *
+ * @param line zero-based, as tree-sitter counts.
+ */
+export function enclosingContainerOf(symbols: readonly CodeSymbol[], line: number): readonly string[] | undefined {
+	let best: CodeSymbol | undefined;
+	for (const symbol of symbols) {
+		if (!CONTAINER_KINDS.has(symbol.kind) || symbol.startLine > line || line > symbol.endLine) {
+			continue;
+		}
+		// Innermost wins: a nested class is a better answer than the file's outer one.
+		if (!best || symbol.startLine >= best.startLine) {
+			best = symbol;
+		}
+	}
+	return best ? [...best.container, best.name] : undefined;
+}
+
+/**
+ * The class itself plus everything it inherits from, nearest first.
+ *
+ * WHY it must be ordered: a method redeclared in a subclass overrides the parent's, so «closest wins»
+ * is the whole answer to which declaration a call means. Cycles are possible in broken code (`A`
+ * extends `B` extends `A`) and are simply not followed twice.
+ *
+ * Names are matched as written — this layer resolves inheritance by NAME, like everything else here,
+ * so two unrelated classes sharing a name are indistinguishable to it.
+ */
+export function ancestryOf(typeName: string, basesByType: ReadonlyMap<string, readonly string[]>, maxDepth = 16): string[] {
+	const chain: string[] = [];
+	const seen = new Set<string>();
+	let frontier: string[] = [typeName];
+
+	for (let depth = 0; depth < maxDepth && frontier.length > 0; depth++) {
+		const next: string[] = [];
+		for (const name of frontier) {
+			if (seen.has(name)) {
+				continue;
+			}
+			seen.add(name);
+			chain.push(name);
+			for (const base of basesByType.get(name) ?? []) {
+				// A qualified base (`\App\Base`) is indexed under its last segment.
+				const short = shortNameOf(base);
+				if (short && !seen.has(short)) {
+					next.push(short);
+				}
+			}
+		}
+		frontier = next;
+	}
+	return chain;
+}
+
+/**
+ * Names of the types that inherit from `typeName`, directly or through another.
+ *
+ * Breadth-first and transitive: a class inheriting a subclass is a descendant too, and stopping at
+ * the direct ones would answer half the question. Cycles in broken code are visited once.
+ */
+export function descendantsOf(
+	typeName: string,
+	types: readonly { readonly name: string; readonly bases?: readonly string[] }[],
+	maxDepth = 16,
+): string[] {
+	const wanted = new Set([typeName]);
+	const out: string[] = [];
+
+	for (let depth = 0; depth < maxDepth; depth++) {
+		const found = types.filter(type =>
+			!wanted.has(type.name) && type.bases?.some(base => wanted.has(shortNameOf(base))));
+		if (found.length === 0) {
+			break;
+		}
+		for (const type of found) {
+			wanted.add(type.name);
+			out.push(type.name);
+		}
+	}
+	return out;
 }

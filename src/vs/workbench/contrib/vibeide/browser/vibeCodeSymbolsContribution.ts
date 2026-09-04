@@ -103,7 +103,7 @@ class VibeCodeSymbolsContribution extends Disposable implements IWorkbenchContri
 		}
 		// Parsed through the index service, which owns one parser per language. Creating a parser here
 		// would mean a second WASM parser built and destroyed on every keystroke.
-		const symbols = await this._index.parseText(languageId, model.getValue());
+		const { symbols } = await this._index.parseModel(model);
 		return token.isCancellationRequested ? undefined : toOutline(symbols);
 	}
 }

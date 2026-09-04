@@ -37,6 +37,20 @@ export interface CodeSymbol {
 	readonly kind: CodeSymbolKind;
 	/** Container path, outermost first: `["App\\Billing", "Invoice"]`. Empty at file level. */
 	readonly container: readonly string[];
+	/**
+	 * Parameter list as written, brackets included: `(int $x, string $y = "z")`.
+	 *
+	 * Kept as source text rather than parsed into a structure: it is shown to a person, and every
+	 * language writes its own defaults, types and modifiers that a common shape would flatten away.
+	 */
+	readonly params?: string;
+	/**
+	 * Types this declaration inherits from: base classes, interfaces, and PHP traits.
+	 *
+	 * Names only, exactly as written at the declaration — resolving them to files is the index's
+	 * job, and doing it here would drag I/O into a pure module.
+	 */
+	readonly bases?: readonly string[];
 	/** Zero-based, like tree-sitter itself. The editor layer converts to its own 1-based lines. */
 	readonly startLine: number;
 	readonly startColumn: number;
@@ -164,6 +178,14 @@ interface LanguageProfile {
 	/** Extensions the project index scans for this language. */
 	readonly extensions: readonly string[];
 	/**
+	 * Does the language itself ignore case in declaration names?
+	 *
+	 * PHP does: `$this->ProcessInputData()` calls a method declared as `processInputData()`, and both
+	 * spellings are the same symbol to the engine. Looking such a name up case-sensitively answers
+	 * «not found» for code that runs perfectly well.
+	 */
+	readonly caseInsensitiveNames?: boolean;
+	/**
 	 * Operators that mean «member of», longest first.
 	 *
 	 * Language-specific on purpose: `.` accesses a member in Go and Java, but concatenates strings in
@@ -173,7 +195,7 @@ interface LanguageProfile {
 }
 
 const PROFILES: ReadonlyMap<string, LanguageProfile> = new Map<string, LanguageProfile>([
-	['php', { rules: PHP_RULES, scopeSeparator: '\\', memberSeparator: '::', bareNamespaceCoversSiblings: true, extensions: ['.php'], memberAccess: ['::', '->'] }],
+	['php', { rules: PHP_RULES, scopeSeparator: '\\', memberSeparator: '::', bareNamespaceCoversSiblings: true, extensions: ['.php', '.phtml', '.inc', '.php5', '.module'], memberAccess: ['::', '->'], caseInsensitiveNames: true }],
 	['python', { rules: PYTHON_RULES, scopeSeparator: '.', memberSeparator: '.', extensions: ['.py', '.pyi'], memberAccess: ['.'] }],
 	['go', { rules: GO_RULES, scopeSeparator: '.', memberSeparator: '.', extensions: ['.go'], memberAccess: ['.'] }],
 	['ruby', { rules: RUBY_RULES, scopeSeparator: '::', memberSeparator: '#', extensions: ['.rb', '.rake'], memberAccess: ['::', '.'] }],
@@ -201,6 +223,16 @@ export function grammarNameOf(languageId: string): string {
  */
 export function containerLabel(container: readonly string[], languageId: string): string {
 	return container.join(PROFILES.get(languageId)?.scopeSeparator ?? '.');
+}
+
+/**
+ * The key a name is indexed and looked up under.
+ *
+ * Identity for languages that distinguish case; lower-cased for those that do not, so PHP's
+ * `ProcessInputData` and `processInputData` meet in the same bucket — as they do at runtime.
+ */
+export function indexKeyOf(name: string, languageId: string): string {
+	return PROFILES.get(languageId)?.caseInsensitiveNames ? name.toLowerCase() : name;
 }
 
 /** Operators meaning «member of» in this language, longest first. */
@@ -318,8 +350,13 @@ export function extractSymbols(root: SyntaxNodeLike | null | undefined, language
 				const owner = rule.ownerField ? ownerFromField(node, rule.ownerField) : undefined;
 				const declaredIn = owner ? [...effective, owner] : effective;
 				if (!rule.containerOnly) {
+					// Verified against all seven grammars: they agree on the field name.
+					const parameters = node.childForFieldName('parameters')?.text;
+					const bases = rule.opensScope ? basesOf(node) : [];
 					out.push({
 						name,
+						params: parameters,
+						bases: bases.length > 0 ? bases : undefined,
 						// A `def`/`fn` is a function alone and a method inside a type — same node either way.
 						kind: (rule.kindInContainer && declaredIn.length > 0) ? rule.kindInContainer : rule.kind,
 						container: rule.kind === 'namespace' ? [] : declaredIn,
@@ -364,6 +401,63 @@ export function qualifiedName(symbol: CodeSymbol, languageId: string): string {
 	const isMember = symbol.kind === 'method' || symbol.kind === 'property' || symbol.kind === 'constant';
 	const owner = symbol.container.join(scope);
 	return `${owner}${isMember ? (profile?.memberSeparator ?? scope) : scope}${symbol.name}`;
+}
+
+/**
+ * Node types that carry the list of types a declaration inherits from.
+ *
+ * One pattern for seven grammars, verified by probing each: PHP writes `base_clause` and
+ * `class_interface_clause`, Java `superclass` and `super_interfaces`, Ruby `superclass`, C#
+ * `base_list`, and Python puts the bases in the class's `argument_list`.
+ */
+function isInheritanceNode(type: string): boolean {
+	return /^(base_clause|base_list|superclass|super_interfaces|class_interface_clause|extends_type_clause|argument_list)$/.test(type);
+}
+
+/** Identifier-ish node types that spell a type name inside an inheritance clause. */
+function isTypeNameNode(type: string): boolean {
+	return /^(type_identifier|qualified_name|name|constant|identifier|scoped_type_identifier|generic_type)$/.test(type);
+}
+
+/**
+ * The types a declaration inherits from, plus the traits it uses.
+ *
+ * WHY this matters more than it looks: without it `$this->pay()` in a subclass does not recognise
+ * `pay()` declared in the parent as its own — the method ends up ranked beside same-named methods of
+ * unrelated classes, and completion after `$this->` does not offer it at all.
+ */
+function basesOf(node: SyntaxNodeLike): string[] {
+	const out: string[] = [];
+	const collectNames = (from: SyntaxNodeLike): void => {
+		for (let i = 0; i < from.namedChildCount; i++) {
+			const child = from.namedChild(i);
+			if (!child) { continue; }
+			if (isTypeNameNode(child.type)) {
+				const name = child.text.trim();
+				if (name) { out.push(name); }
+			} else {
+				collectNames(child);
+			}
+		}
+	};
+	for (let i = 0; i < node.namedChildCount; i++) {
+		const child = node.namedChild(i);
+		if (!child) { continue; }
+		if (isInheritanceNode(child.type)) {
+			collectNames(child);
+			continue;
+		}
+		// PHP traits live inside the class body as `use HasRules;`, not in a clause of their own.
+		if (child.type === 'declaration_list' || child.type === 'body_statement' || child.type === 'class_body') {
+			for (let j = 0; j < child.namedChildCount; j++) {
+				const member = child.namedChild(j);
+				if (member && (member.type === 'use_declaration' || member.type === 'trait_use_clause')) {
+					collectNames(member);
+				}
+			}
+		}
+	}
+	return out;
 }
 
 /** A span of text that is not code: a comment or a string literal. Zero-based, like tree-sitter. */
