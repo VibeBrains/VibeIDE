@@ -124,7 +124,7 @@ class VibeCodeDefinitionContribution extends Disposable implements IWorkbenchCon
 		try {
 			const line = position.lineNumber - 1;
 			let best: CodeSymbol | undefined;
-			for (const symbol of await this._index.parseText(languageId, model.getValue())) {
+			for (const symbol of (await this._index.parseModel(model)).symbols) {
 				const isType = symbol.kind === 'class' || symbol.kind === 'interface' || symbol.kind === 'trait' || symbol.kind === 'enum';
 				if (isType && symbol.startLine <= line && line <= symbol.endLine) {
 					// Innermost container whose range covers the cursor.

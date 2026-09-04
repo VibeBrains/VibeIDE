@@ -8,13 +8,16 @@ import { CancellationToken, CancellationTokenSource } from '../../../../base/com
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { URI } from '../../../../base/common/uri.js';
+import { ITextModel } from '../../../../editor/common/model.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { ITreeSitterLibraryService } from '../../../../editor/common/services/treeSitter/treeSitterLibraryService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { ConfigurationScope, Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import * as glob from '../../../../base/common/glob.js';
-import { IProgressService, ProgressLocation } from '../../../../platform/progress/common/progress.js';
+import { IProgress, IProgressService, ProgressLocation } from '../../../../platform/progress/common/progress.js';
+import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
+import { IPreferencesService } from '../../../services/preferences/common/preferences.js';
 import { getExcludes, ISearchConfiguration } from '../../../services/search/common/search.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
@@ -157,6 +160,13 @@ export interface IVibeCodeIndexService {
 	/** Declarations plus the comment and string spans of the same text, from a single parse. */
 	parseFile(languageId: string, text: string): Promise<{ symbols: CodeSymbol[]; nonCode: TextSpan[] }>;
 	/**
+	 * The same, for an open editor — cached by the model's version.
+	 *
+	 * The hover fires on every mouse move and the highlighter on every cursor move; without this the
+	 * file is re-parsed dozens of times a second while nothing about it has changed.
+	 */
+	parseModel(model: ITextModel): Promise<{ symbols: CodeSymbol[]; nonCode: TextSpan[] }>;
+	/**
 	 * Drop the positions that fall inside comments or string literals.
 	 *
 	 * Takes zero-based positions grouped by file and returns the same shape. A file it cannot read
@@ -194,13 +204,16 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 	private readonly _scanCancellation = this._register(new CancellationTokenSource());
 	private readonly _indexes = new Map<string, LanguageIndex>();
 	/** Parsed open buffers, keyed by file, invalidated by the model's version. */
-	private readonly _openModelCache = new Map<string, { version: number; symbols: CodeSymbol[]; languageId: string }>();
+	private readonly _openModelCache = new Map<string, { version: number; symbols: CodeSymbol[]; nonCode: TextSpan[]; languageId: string }>();
 	/** One parser per language, shared by the scan and by every open-file parse. */
 	private readonly _parsers = new Map<string, LanguageIndex['parser']>();
 	private readonly _parserLoads = new Map<string, Promise<LanguageIndex['parser'] | undefined>>();
 	private readonly _building = new Map<string, Promise<void>>();
 	/** Languages whose walk hit the file ceiling — their index is incomplete and says so. */
 	private readonly _truncated = new Set<string>();
+	private readonly _warnedTruncated = new Set<string>();
+	/** The single running walk: one scan serves every language. */
+	private _scan: Promise<void> | undefined;
 
 	constructor(
 		@ITreeSitterLibraryService private readonly _treeSitter: ITreeSitterLibraryService,
@@ -209,6 +222,8 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 		@IConfigurationService private readonly _configuration: IConfigurationService,
 		@IModelService private readonly _modelService: IModelService,
 		@IProgressService private readonly _progressService: IProgressService,
+		@INotificationService private readonly _notificationService: INotificationService,
+		@IPreferencesService private readonly _preferencesService: IPreferencesService,
 	) {
 		super();
 		// Warm up the language of every file that opens. Without this the index exists only after the
@@ -281,6 +296,22 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 
 	async parseText(languageId: string, text: string): Promise<CodeSymbol[]> {
 		return (await this.parseFile(languageId, text)).symbols;
+	}
+
+	async parseModel(model: ITextModel): Promise<{ symbols: CodeSymbol[]; nonCode: TextSpan[] }> {
+		const languageId = model.getLanguageId();
+		const file = model.uri.toString();
+		const version = model.getVersionId();
+		const cached = this._openModelCache.get(file);
+		if (cached && cached.version === version && cached.languageId === languageId) {
+			return { symbols: cached.symbols, nonCode: cached.nonCode };
+		}
+		const parsed = await this.parseFile(languageId, model.getValue());
+		// The model may have moved on while the grammar loaded; caching that would serve stale symbols.
+		if (!model.isDisposed() && model.getVersionId() === version) {
+			this._openModelCache.set(file, { version, symbols: parsed.symbols, nonCode: parsed.nonCode, languageId });
+		}
+		return parsed;
 	}
 
 	async parseFile(languageId: string, text: string): Promise<{ symbols: CodeSymbol[]; nonCode: TextSpan[] }> {
@@ -434,13 +465,8 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 			}
 			const file = model.uri.toString();
 			seen.add(file);
-			const version = model.getVersionId();
-			let cached = this._openModelCache.get(file);
-			if (!cached || cached.version !== version) {
-				cached = { version, symbols: await this.parseText(languageId, model.getValue()), languageId };
-				this._openModelCache.set(file, cached);
-			}
-			for (const symbol of cached.symbols) {
+			const { symbols } = await this.parseModel(model);
+			for (const symbol of symbols) {
 				out.push({ symbol, file });
 			}
 		}
@@ -486,11 +512,15 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 	}
 
 	/**
-	 * Build once per language, never on a caller's cancellation token.
+	 * Build the index, never on a caller's cancellation token.
 	 *
 	 * The editor cancels navigation requests freely — a keystroke, a second F12, a mouse move. If the
 	 * scan died with the request, a large project could cancel every attempt just before it finished,
 	 * and the feature would look permanently broken while working correctly.
+	 *
+	 * The scan covers EVERY enabled language in one walk, not just the one asked for: walking a large
+	 * tree costs the same whichever language triggered it, and doing it per language meant paying for
+	 * the whole repository again each time a file of another language was opened.
 	 */
 	private async _ensureIndex(languageId: string, token: CancellationToken): Promise<LanguageIndex | undefined> {
 		if (!this.isEnabled(languageId)) {
@@ -500,35 +530,54 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 		if (existing) {
 			return existing;
 		}
-		let building = this._building.get(languageId);
-		if (!building) {
+		if (!this._scan) {
 			// Shown in the status bar, not as a notification: the first jump in a large repository
 			// waits for a walk of thousands of files, and silence there is indistinguishable from a
 			// feature that does not work. A modal or a toast for something this routine would be worse
 			// than the silence it replaces.
-			building = this._progressService.withProgress(
-				{ location: ProgressLocation.Window, title: localize('vibeide.codeNavigation.indexing', 'Собираю объявления: {0}', languageId) },
-				() => this._build(languageId),
-			).finally(() => this._building.delete(languageId));
-			this._building.set(languageId, building);
+			this._scan = this._progressService.withProgress(
+				{ location: ProgressLocation.Window, title: localize('vibeide.codeNavigation.indexing', 'Собираю объявления по коду…') },
+				progress => this._scanAll(progress),
+			).finally(() => { this._scan = undefined; });
 		}
-		await Promise.race([building, cancellationPromise(token)]);
+		await Promise.race([this._scan, cancellationPromise(token)]);
 		return this._indexes.get(languageId);
 	}
 
-	private async _build(languageId: string): Promise<void> {
+	/** One walk of the workspace that fills the index of every enabled language at once. */
+	private async _scanAll(progress: IProgress<{ message?: string }>): Promise<void> {
 		const started = Date.now();
 		const token = this._scanCancellation.token;
 		const { maxFiles, maxBytes, excluded } = this._limits();
 		const userExcludes = this._userExcludes();
+
 		try {
-			const parser = await this._ensureParser(languageId);
-			if (!parser) {
+			// Extension → language, built once. A file is parsed by the first language claiming it.
+			const byExtension = new Map<string, string>();
+			const parsers = new Map<string, LanguageIndex['parser']>();
+			const pending = new Map<string, SymbolIndex>();
+			const scanned = new Map<string, number>();
+
+			for (const languageId of symbolLanguageIds()) {
+				if (!this.isEnabled(languageId) || this._indexes.has(languageId)) {
+					continue;
+				}
+				const parser = await this._ensureParser(languageId);
+				if (!parser) {
+					continue;
+				}
+				parsers.set(languageId, parser);
+				pending.set(languageId, createSymbolIndex());
+				scanned.set(languageId, 0);
+				for (const extension of extensionsOf(languageId)) {
+					if (!byExtension.has(extension)) {
+						byExtension.set(extension, languageId);
+					}
+				}
+			}
+			if (pending.size === 0) {
 				return;
 			}
-			const index: LanguageIndex = { parser, symbols: createSymbolIndex() };
-			const extensions = extensionsOf(languageId);
-			let scanned = 0;
 
 			/** Path relative to its workspace folder — what the exclude globs are written against. */
 			const relativeTo = (folder: URI, resource: URI): string => {
@@ -536,13 +585,25 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 				return resource.path.startsWith(prefix) ? resource.path.slice(prefix.length) : resource.path;
 			};
 
+			/** Which language claims this file, if any and if that language still has room. */
+			const languageOf = (name: string): string | undefined => {
+				const lower = name.toLowerCase();
+				for (const [extension, languageId] of byExtension) {
+					if (lower.endsWith(extension) && (scanned.get(languageId) ?? 0) < maxFiles) {
+						return languageId;
+					}
+				}
+				return undefined;
+			};
+
+			let seen = 0;
 			const walk = async (folder: URI, dir: URI): Promise<void> => {
-				if (token.isCancellationRequested || scanned >= maxFiles) {
+				if (token.isCancellationRequested) {
 					return;
 				}
 				const entry = await this._fileService.resolve(dir).catch(() => undefined);
 				for (const child of entry?.children ?? []) {
-					if (token.isCancellationRequested || scanned >= maxFiles) {
+					if (token.isCancellationRequested) {
 						return;
 					}
 					const relative = relativeTo(folder, child.resource);
@@ -553,18 +614,26 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 						}
 						continue;
 					}
-					const lower = child.name.toLowerCase();
-					if (!extensions.some(ext => lower.endsWith(ext)) || (child.size ?? 0) > maxBytes || userExcludes?.(relative)) {
+					if ((child.size ?? 0) > maxBytes || userExcludes?.(relative)) {
 						continue;
 					}
-					scanned++;
+					const languageId = languageOf(child.name);
+					if (!languageId) {
+						continue;
+					}
+					scanned.set(languageId, (scanned.get(languageId) ?? 0) + 1);
+					seen++;
 					// Yield regularly: indexing a large project must not freeze the window.
-					if (scanned % 40 === 0) {
+					if (seen % 40 === 0) {
+						// The count is the difference between «работает» and «завис» on a big repository.
+						progress.report({ message: localize('vibeide.codeNavigation.indexingCount', 'файлов: {0}', seen) });
 						await new Promise(resolve => setTimeout(resolve, 0));
 					}
 					const content = await this._fileService.readFile(child.resource).catch(() => undefined);
-					if (content) {
-						replaceFileSymbols(index.symbols, child.resource.toString(), parseWith(parser, languageId, content.value.toString()), name => indexKeyOf(name, languageId));
+					const symbols = pending.get(languageId);
+					const parser = parsers.get(languageId);
+					if (content && symbols && parser) {
+						replaceFileSymbols(symbols, child.resource.toString(), parseWith(parser, languageId, content.value.toString()), name => indexKeyOf(name, languageId));
 					}
 				}
 			};
@@ -575,19 +644,49 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 			if (token.isCancellationRequested) {
 				return;
 			}
-			this._indexes.set(languageId, index);
-			if (scanned >= maxFiles) {
-				// Not a warning the user can be expected to find in a log: the status command reports it,
-				// because «не найдено» from a truncated index is a lie by omission.
-				this._truncated.add(languageId);
-				vibeLog.warn('codeIndex', `индекс ${languageId} НЕПОЛНЫЙ: достигнут предел ${maxFiles} файлов`);
-			} else {
-				this._truncated.delete(languageId);
+
+			for (const [languageId, symbols] of pending) {
+				const parser = parsers.get(languageId);
+				if (!parser) {
+					continue;
+				}
+				this._indexes.set(languageId, { parser, symbols });
+				const count = scanned.get(languageId) ?? 0;
+				if (count >= maxFiles) {
+					this._truncated.add(languageId);
+					vibeLog.warn('codeIndex', `индекс ${languageId} НЕПОЛНЫЙ: достигнут предел ${maxFiles} файлов`);
+					this._warnTruncated(languageId, maxFiles);
+				} else {
+					this._truncated.delete(languageId);
+				}
+				vibeLog.debug('codeIndex', `индекс ${languageId}: ${symbols.byName.size} имён из ${count} файлов`);
 			}
-			vibeLog.debug('codeIndex', `индекс ${languageId}: ${index.symbols.byName.size} имён из ${scanned} файлов за ${Date.now() - started} мс`);
+			vibeLog.debug('codeIndex', `обход завершён: ${seen} файлов, ${pending.size} языков за ${Date.now() - started} мс`);
 		} catch (err) {
-			vibeLog.warn('codeIndex', `индекс ${languageId} построить не удалось: ${err}`);
+			vibeLog.warn('codeIndex', `индекс построить не удалось: ${err}`);
 		}
+	}
+
+	/**
+	 * Say once, out loud, that the index is incomplete.
+	 *
+	 * A truncated index answers «определение не найдено» for declarations that exist, which reads as
+	 * «такого метода нет» — the one failure mode a user cannot diagnose from the outside. Reported
+	 * once per language per window: a repeat on every jump would be worse than the silence.
+	 */
+	private _warnTruncated(languageId: string, maxFiles: number): void {
+		if (this._warnedTruncated.has(languageId)) {
+			return;
+		}
+		this._warnedTruncated.add(languageId);
+		this._notificationService.prompt(
+			Severity.Warning,
+			localize('vibeide.codeNavigation.truncatedWarning', 'Индекс {0} неполный: обход остановился на пределе в {1} файлов. Переход к определению может не найти то, что в проекте есть.', languageId, maxFiles),
+			[{
+				label: localize('vibeide.codeNavigation.truncatedOpenSetting', 'Изменить предел'),
+				run: () => this._preferencesService.openSettings({ query: CONFIG_MAX_FILES }),
+			}],
+		);
 	}
 
 	/** The parser is shared and outlives the index, so dropping an index frees no WASM memory. */
