@@ -63,11 +63,15 @@ class VibeCodeDefinitionContribution extends Disposable implements IWorkbenchCon
 		if (found.length === 0 || token.isCancellationRequested) {
 			return [];
 		}
+		const enclosingContainer = await this._enclosingContainer(model, position);
+		const enclosingType = enclosingContainer?.at(-1);
 		return rankDefinitions({
 			word: word.word,
 			lineText: model.getLineContent(position.lineNumber),
 			wordStartColumn: word.startColumn - 1,
-			enclosingContainer: await this._enclosingContainer(model, position),
+			enclosingContainer,
+			// `$this->` must recognise methods of parent classes and traits as its own.
+			ownerChain: enclosingType ? await this._index.ancestry(languageId, enclosingType, token) : undefined,
 			languageId,
 		}, found.map(entry => ({ symbol: entry.symbol, file: entry.file, score: 0 })));
 	}

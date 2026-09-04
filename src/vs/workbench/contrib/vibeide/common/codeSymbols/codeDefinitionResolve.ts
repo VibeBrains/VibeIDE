@@ -31,6 +31,13 @@ export interface DefinitionQuery {
 	readonly wordStartColumn: number;
 	/** Container path of the declaration the cursor sits inside, if any. Ranks `$this->…`. */
 	readonly enclosingContainer?: readonly string[];
+	/**
+	 * The owner's own name followed by everything it inherits from, nearest first.
+	 *
+	 * Without it a method declared in a parent class is not recognised as «mine»: `$this->pay()` in a
+	 * subclass would rank the parent's `pay` no higher than a same-named method of an unrelated class.
+	 */
+	readonly ownerChain?: readonly string[];
 	/** Which language's access operators to read. */
 	readonly languageId: string;
 }
@@ -129,6 +136,12 @@ export function rankDefinitions(query: DefinitionQuery, candidates: readonly Ran
 	const ownerBase = owner ? baseName(owner) : undefined;
 	const enclosing = query.enclosingContainer ?? [];
 	const enclosingOwner = enclosing.length > 0 ? enclosing[enclosing.length - 1] : undefined;
+	/** Position in the inheritance chain: 0 is the class itself, larger is further up. */
+	const chainDepth = (owner: string | undefined): number => {
+		if (!owner) { return -1; }
+		const index = query.ownerChain?.indexOf(owner) ?? -1;
+		return index >= 0 ? index : (owner === enclosingOwner ? 0 : -1);
+	};
 	const isCallShaped = /^[\w]+\s*\(/.test(query.lineText.slice(Math.max(0, query.wordStartColumn)));
 
 	const scored = byName.map(candidate => {
@@ -137,17 +150,26 @@ export function rankDefinitions(query: DefinitionQuery, candidates: readonly Ran
 		let score = 0;
 
 		switch (shape) {
-			case 'static-member':
+			case 'static-member': {
 				if (MEMBER_KINDS.has(kind)) { score += 3; }
-				if (declaredOwner && ownerBase && (declaredOwner === ownerBase
-					|| (RELATIVE_OWNERS.has(ownerBase) && declaredOwner === enclosingOwner))) {
+				const relative = !!ownerBase && RELATIVE_OWNERS.has(ownerBase);
+				if (declaredOwner && ownerBase && declaredOwner === ownerBase) {
 					score += 6;
+				} else if (relative) {
+					// `self::` / `parent::` mean the enclosing class and whatever it inherits.
+					const depth = chainDepth(declaredOwner);
+					if (depth >= 0) { score += Math.max(1, 6 - depth); }
 				}
 				break;
-			case 'this-member':
+			}
+			case 'this-member': {
+				// The nearest declaration in the inheritance chain wins: a method redeclared in the
+				// subclass overrides the parent's, and an inherited one still beats a stranger's.
 				if (MEMBER_KINDS.has(kind)) { score += 3; }
-				if (declaredOwner && declaredOwner === enclosingOwner) { score += 6; }
+				const depth = chainDepth(declaredOwner);
+				if (depth >= 0) { score += Math.max(1, 6 - depth); }
 				break;
+			}
 			case 'instance-member':
 				// The variable's type is unknown by construction; members simply outrank types.
 				if (MEMBER_KINDS.has(kind)) { score += 3; }
@@ -165,8 +187,9 @@ export function rankDefinitions(query: DefinitionQuery, candidates: readonly Ran
 				if (TYPE_KINDS.has(kind)) { score += 2; }
 				break;
 		}
-		// A declaration in the class being edited is likelier than one across the project.
-		if (declaredOwner && declaredOwner === enclosingOwner) { score += 1; }
+		// A declaration in the class being edited — or in one it inherits from — is likelier than one
+		// found anywhere across the project.
+		if (chainDepth(declaredOwner) >= 0) { score += 1; }
 		return { ...candidate, score };
 	});
 

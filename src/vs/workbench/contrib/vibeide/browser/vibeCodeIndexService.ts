@@ -23,7 +23,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { CodeSymbol, extensionsOf, extractSymbols, grammarNameOf, indexKeyOf, isInsideSpans, nonCodeSpans, supportsSymbolExtraction, symbolLanguageIds, SyntaxNodeLike, TextSpan } from '../common/codeSymbols/treeSitterSymbols.js';
-import { collectMatches, createSymbolIndex, IndexedSymbol, preferOpenBuffers, replaceFileSymbols, SymbolIndex } from '../common/codeSymbols/codeIndexCore.js';
+import { ancestryOf, collectMatches, createSymbolIndex, IndexedSymbol, preferOpenBuffers, replaceFileSymbols, SymbolIndex } from '../common/codeSymbols/codeIndexCore.js';
 import { vibeLog } from '../common/vibeLog.js';
 
 /**
@@ -161,6 +161,14 @@ export interface IVibeCodeIndexService {
 	status(): readonly IndexStatus[];
 	/** Throw the index away so the next request rebuilds it from disk. */
 	rebuild(): void;
+	/**
+	 * The type itself followed by everything it inherits from, nearest first.
+	 *
+	 * Answers «is this method mine» for a subclass: without it a method declared in a parent is
+	 * ranked no higher than a same-named method of an unrelated class, and completion after `$this->`
+	 * does not offer inherited members at all.
+	 */
+	ancestry(languageId: string, typeName: string, token: CancellationToken): Promise<readonly string[]>;
 	parseText(languageId: string, text: string): Promise<CodeSymbol[]>;
 	/** Declarations plus the comment and string spans of the same text, from a single parse. */
 	parseFile(languageId: string, text: string): Promise<{ symbols: CodeSymbol[]; nonCode: TextSpan[] }>;
@@ -219,6 +227,8 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 	private readonly _warnedTruncated = new Set<string>();
 	/** The single running walk: one scan serves every language. */
 	private _scan: Promise<void> | undefined;
+	/** type name → what it inherits, per language. Rebuilt whenever the index is. */
+	private readonly _basesByType = new Map<string, Map<string, readonly string[]>>();
 
 	constructor(
 		@ITreeSitterLibraryService private readonly _treeSitter: ITreeSitterLibraryService,
@@ -258,9 +268,12 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 				const matches = (resource: URI) => extensions.some(ext => resource.path.toLowerCase().endsWith(ext));
 				for (const resource of e.rawDeleted.filter(matches)) {
 					replaceFileSymbols(index.symbols, resource.toString(), [], name => indexKeyOf(name, languageId));
+					this._basesByType.delete(languageId);
 				}
 				const touched = [...e.rawAdded, ...e.rawUpdated].filter(matches);
 				if (touched.length > 0) {
+					// A changed file may have changed what a class extends.
+					this._basesByType.delete(languageId);
 					void this._reindexFiles(languageId, index, touched);
 				}
 			}
@@ -299,6 +312,27 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 		this._warnedTruncated.clear();
 		this._truncated.clear();
 		this._openModelCache.clear();
+	}
+
+	async ancestry(languageId: string, typeName: string, token: CancellationToken): Promise<readonly string[]> {
+		const index = await this._ensureIndex(languageId, token);
+		if (!index) {
+			return [typeName];
+		}
+		// Built lazily from the index and cached: the map changes only when the index does.
+		let bases = this._basesByType.get(languageId);
+		if (!bases) {
+			bases = new Map<string, readonly string[]>();
+			for (const entries of index.symbols.byName.values()) {
+				for (const entry of entries) {
+					if (entry.symbol.bases?.length) {
+						bases.set(entry.symbol.name, entry.symbol.bases);
+					}
+				}
+			}
+			this._basesByType.set(languageId, bases);
+		}
+		return ancestryOf(typeName, bases);
 	}
 
 	isEnabled(languageId: string): boolean {
@@ -712,6 +746,8 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 	/** The parser is shared and outlives the index, so dropping an index frees no WASM memory. */
 	private _disposeIndex(languageId: string): void {
 		this._indexes.delete(languageId);
+		// The inheritance map is derived from the index; keeping it would answer from a dead one.
+		this._basesByType.delete(languageId);
 	}
 
 	override dispose(): void {

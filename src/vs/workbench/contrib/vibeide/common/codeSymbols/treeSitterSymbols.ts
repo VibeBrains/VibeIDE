@@ -44,6 +44,13 @@ export interface CodeSymbol {
 	 * language writes its own defaults, types and modifiers that a common shape would flatten away.
 	 */
 	readonly params?: string;
+	/**
+	 * Types this declaration inherits from: base classes, interfaces, and PHP traits.
+	 *
+	 * Names only, exactly as written at the declaration — resolving them to files is the index's
+	 * job, and doing it here would drag I/O into a pure module.
+	 */
+	readonly bases?: readonly string[];
 	/** Zero-based, like tree-sitter itself. The editor layer converts to its own 1-based lines. */
 	readonly startLine: number;
 	readonly startColumn: number;
@@ -345,9 +352,11 @@ export function extractSymbols(root: SyntaxNodeLike | null | undefined, language
 				if (!rule.containerOnly) {
 					// Verified against all seven grammars: they agree on the field name.
 					const parameters = node.childForFieldName('parameters')?.text;
+					const bases = rule.opensScope ? basesOf(node) : [];
 					out.push({
 						name,
 						params: parameters,
+						bases: bases.length > 0 ? bases : undefined,
 						// A `def`/`fn` is a function alone and a method inside a type — same node either way.
 						kind: (rule.kindInContainer && declaredIn.length > 0) ? rule.kindInContainer : rule.kind,
 						container: rule.kind === 'namespace' ? [] : declaredIn,
@@ -392,6 +401,63 @@ export function qualifiedName(symbol: CodeSymbol, languageId: string): string {
 	const isMember = symbol.kind === 'method' || symbol.kind === 'property' || symbol.kind === 'constant';
 	const owner = symbol.container.join(scope);
 	return `${owner}${isMember ? (profile?.memberSeparator ?? scope) : scope}${symbol.name}`;
+}
+
+/**
+ * Node types that carry the list of types a declaration inherits from.
+ *
+ * One pattern for seven grammars, verified by probing each: PHP writes `base_clause` and
+ * `class_interface_clause`, Java `superclass` and `super_interfaces`, Ruby `superclass`, C#
+ * `base_list`, and Python puts the bases in the class's `argument_list`.
+ */
+function isInheritanceNode(type: string): boolean {
+	return /^(base_clause|base_list|superclass|super_interfaces|class_interface_clause|extends_type_clause|argument_list)$/.test(type);
+}
+
+/** Identifier-ish node types that spell a type name inside an inheritance clause. */
+function isTypeNameNode(type: string): boolean {
+	return /^(type_identifier|qualified_name|name|constant|identifier|scoped_type_identifier|generic_type)$/.test(type);
+}
+
+/**
+ * The types a declaration inherits from, plus the traits it uses.
+ *
+ * WHY this matters more than it looks: without it `$this->pay()` in a subclass does not recognise
+ * `pay()` declared in the parent as its own — the method ends up ranked beside same-named methods of
+ * unrelated classes, and completion after `$this->` does not offer it at all.
+ */
+function basesOf(node: SyntaxNodeLike): string[] {
+	const out: string[] = [];
+	const collectNames = (from: SyntaxNodeLike): void => {
+		for (let i = 0; i < from.namedChildCount; i++) {
+			const child = from.namedChild(i);
+			if (!child) { continue; }
+			if (isTypeNameNode(child.type)) {
+				const name = child.text.trim();
+				if (name) { out.push(name); }
+			} else {
+				collectNames(child);
+			}
+		}
+	};
+	for (let i = 0; i < node.namedChildCount; i++) {
+		const child = node.namedChild(i);
+		if (!child) { continue; }
+		if (isInheritanceNode(child.type)) {
+			collectNames(child);
+			continue;
+		}
+		// PHP traits live inside the class body as `use HasRules;`, not in a clause of their own.
+		if (child.type === 'declaration_list' || child.type === 'body_statement' || child.type === 'class_body') {
+			for (let j = 0; j < child.namedChildCount; j++) {
+				const member = child.namedChild(j);
+				if (member && (member.type === 'use_declaration' || member.type === 'trait_use_clause')) {
+					collectNames(member);
+				}
+			}
+		}
+	}
+	return out;
 }
 
 /** A span of text that is not code: a comment or a string literal. Zero-based, like tree-sitter. */

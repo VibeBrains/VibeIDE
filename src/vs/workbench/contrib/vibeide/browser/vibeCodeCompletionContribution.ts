@@ -151,7 +151,13 @@ class VibeCodeCompletionContribution extends Disposable implements IWorkbenchCon
 				: owner ? baseName(owner) : undefined;
 
 			if (ownerName) {
-				const own = all.filter(entry => MEMBER_KINDS.has(entry.symbol.kind) && entry.symbol.container.at(-1) === ownerName);
+				// Members of the class AND of everything it inherits — an inherited method is as much
+				// «mine» as a declared one, and offering only the latter is how a list looks broken.
+				const chain = await this._index.ancestry(languageId, ownerName, token);
+				const rank = new Map(chain.map((name, index) => [name, index]));
+				const own = all
+					.filter(entry => MEMBER_KINDS.has(entry.symbol.kind) && rank.has(entry.symbol.container.at(-1) ?? ''))
+					.sort((a, b) => (rank.get(a.symbol.container.at(-1)!) ?? 0) - (rank.get(b.symbol.container.at(-1)!) ?? 0));
 				if (own.length > 0) {
 					// The source names the owner, so these members are not a guess.
 					return own.map(entry => ({ symbol: entry.symbol, exact: true }));

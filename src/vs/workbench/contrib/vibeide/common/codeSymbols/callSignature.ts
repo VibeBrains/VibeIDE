@@ -17,6 +17,10 @@ export interface ActiveCall {
 	readonly name: string;
 	/** Zero-based index of the argument the cursor is on. */
 	readonly argumentIndex: number;
+	/** Type the call is made on, when the source names one: `Invoice::pay(`. */
+	owner?: string;
+	/** The call goes through `$this`/`self`/`this` — the owner is the enclosing class. */
+	readonly throughThis?: boolean;
 }
 
 /** Brackets and quotes that must be balanced before a comma or `(` counts. */
@@ -62,8 +66,8 @@ export function activeCallAt(lineText: string, cursorColumn: number): ActiveCall
 				// An unclosed `[` or `{` means the cursor is in a list or a block, not in a call.
 				return undefined;
 			}
-			const name = calleeBefore(text.slice(0, i));
-			return name ? { name, argumentIndex } : undefined;
+			const callee = calleeBefore(text.slice(0, i));
+			return callee ? { ...callee, argumentIndex } : undefined;
 		}
 		// Commas of nested calls belong to those calls, not to this one.
 		if (char === ',' && depth === 0) {
@@ -84,8 +88,16 @@ const DECLARATION_KEYWORDS: ReadonlySet<string> = new Set([
 	'function', 'def', 'fn', 'func', 'sub', 'method', 'class', 'interface', 'trait', 'enum', 'struct', 'record',
 ]);
 
-/** The identifier immediately before the opening bracket: `$this->pay` → `pay`. */
-function calleeBefore(text: string): string | undefined {
+/** Owners that mean «the class this code is in» rather than a type spelled out. */
+const RELATIVE_OWNERS: ReadonlySet<string> = new Set(['$this', 'this', 'self', 'static', 'parent', 'Self', 'super', 'base', 'me']);
+
+/**
+ * The identifier immediately before the opening bracket, and what it is called on.
+ *
+ * `$this->pay(` → `pay` through `this`; `Invoice::pay(` → `pay` on `Invoice`. The owner is what lets
+ * the signature of the RIGHT method be shown when several classes declare that name.
+ */
+function calleeBefore(text: string): { name: string; owner?: string; throughThis?: boolean } | undefined {
 	const match = text.match(/([A-Za-z_][\w]*)\s*$/);
 	if (!match) {
 		return undefined;
@@ -95,7 +107,17 @@ function calleeBefore(text: string): string | undefined {
 	if (previousWord && DECLARATION_KEYWORDS.has(previousWord.toLowerCase())) {
 		return undefined;
 	}
-	return match[1];
+	const access = before.match(/([$@]?[\\\w]+)\s*(->|::|\.)\s*$/);
+	if (!access) {
+		return { name: match[1] };
+	}
+	const owner = access[1];
+	if (RELATIVE_OWNERS.has(owner)) {
+		return { name: match[1], throughThis: true };
+	}
+	// A lower-case owner is a variable whose type we cannot know; only a named type is useful here.
+	const short = owner.split(/[\\.]|::/).pop() ?? owner;
+	return /^[A-Z]/.test(short) ? { name: match[1], owner: short } : { name: match[1] };
 }
 
 /**

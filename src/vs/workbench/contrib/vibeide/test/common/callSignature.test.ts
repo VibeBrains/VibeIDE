@@ -22,9 +22,10 @@ suite('call signature', () => {
 
 	test('the call under the cursor and the argument index', () => {
 		const cases: [string, unknown][] = [
-			['$this->pay(|', { name: 'pay', argumentIndex: 0 }],
-			['$this->pay(1, |', { name: 'pay', argumentIndex: 1 }],
-			['$this->pay(1, 2, |', { name: 'pay', argumentIndex: 2 }],
+			// `$this` names the owner implicitly — the caller resolves it to the enclosing class.
+			['$this->pay(|', { name: 'pay', argumentIndex: 0, throughThis: true }],
+			['$this->pay(1, |', { name: 'pay', argumentIndex: 1, throughThis: true }],
+			['$this->pay(1, 2, |', { name: 'pay', argumentIndex: 2, throughThis: true }],
 			// A nested call owns its own commas: the cursor is in `inner`, on its first argument.
 			['pay(1, inner(|', { name: 'inner', argumentIndex: 0 }],
 			// …and after the nested call closes, we are back in the outer one — third argument, since
@@ -32,7 +33,11 @@ suite('call signature', () => {
 			['pay(1, inner(2, 3), |', { name: 'pay', argumentIndex: 2 }],
 			// A comma inside a string is text, not a separator.
 			['pay("a, b", |', { name: 'pay', argumentIndex: 1 }],
-			['Invoice::make(|', { name: 'make', argumentIndex: 0 }],
+			// A named type is worth keeping: it says whose signature to show first.
+			['Invoice::make(|', { name: 'make', argumentIndex: 0, owner: 'Invoice' }],
+			['App\\Billing\\Invoice::make(|', { name: 'make', argumentIndex: 0, owner: 'Invoice' }],
+			// A lower-case owner is a variable, and its type is unknowable here.
+			['$repo->save(|', { name: 'save', argumentIndex: 0 }],
 		];
 		assert.deepStrictEqual(
 			cases.map(([line]) => at(clean(line))),

@@ -13,6 +13,7 @@ import { ILanguageFeaturesService } from '../../../../editor/common/services/lan
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { containerLabel, symbolLanguageIds } from '../common/codeSymbols/treeSitterSymbols.js';
 import { activeCallAt, splitParameters } from '../common/codeSymbols/callSignature.js';
+import { enclosingContainerOf } from '../common/codeSymbols/codeIndexCore.js';
 import { IVibeCodeIndexService } from './vibeCodeIndexService.js';
 
 /**
@@ -52,12 +53,27 @@ class VibeCodeSignatureContribution extends Disposable implements IWorkbenchCont
 		if (!call) {
 			return undefined;
 		}
+		// `$this->pay(` — the call names its owner implicitly; resolve it to the enclosing class.
+		if (call.throughThis) {
+			const { symbols } = await this._index.parseModel(model);
+			call.owner = enclosingContainerOf(symbols, position.lineNumber - 1)?.at(-1);
+		}
 		const found = await this._index.lookup(languageId, call.name, token);
 		if (token.isCancellationRequested) {
 			return undefined;
 		}
 		// Only declarations that take parameters can answer this question.
-		const withParams = found.filter(entry => entry.symbol.params);
+		const withParams = [...found.filter(entry => entry.symbol.params)];
+		if (call.owner) {
+			// `$this->pay(` — put the enclosing class and its ancestors first, so the signature shown
+			// is the one that will actually be called rather than a stranger's overload.
+			const chain = await this._index.ancestry(languageId, call.owner, token);
+			const rank = (entry: typeof withParams[number]) => {
+				const index = chain.indexOf(entry.symbol.container.at(-1) ?? '');
+				return index >= 0 ? index : chain.length + 1;
+			};
+			withParams.sort((a, b) => rank(a) - rank(b));
+		}
 		if (withParams.length === 0) {
 			return undefined;
 		}

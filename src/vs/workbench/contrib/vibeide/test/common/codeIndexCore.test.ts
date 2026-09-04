@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { collectMatches, createSymbolIndex, enclosingContainerOf, IndexedSymbol, preferOpenBuffers, replaceFileSymbols } from '../../common/codeSymbols/codeIndexCore.js';
+import { ancestryOf, collectMatches, createSymbolIndex, enclosingContainerOf, IndexedSymbol, preferOpenBuffers, replaceFileSymbols } from '../../common/codeSymbols/codeIndexCore.js';
 import { indexKeyOf } from '../../common/codeSymbols/treeSitterSymbols.js';
 import { CodeSymbol, CodeSymbolKind } from '../../common/codeSymbols/treeSitterSymbols.js';
 
@@ -142,5 +142,29 @@ suite('code index core', () => {
 
 		// A method is not a container: `$this` inside it still means the class.
 		assert.deepStrictEqual(enclosingContainerOf([type('pay', 'method', 0, 5)], 3), undefined);
+	});
+
+	/**
+	 * The inheritance chain, nearest first.
+	 *
+	 * This is what makes `$this->pay()` in a subclass find the parent's `pay` — the case the whole
+	 * feature looked broken on: the method exists, but the index only knew the class's own members.
+	 */
+	test('the ancestry is ordered from the class outwards', () => {
+		const bases = new Map<string, readonly string[]>([
+			['Order', ['BaseController', 'Payable', 'HasRules']],
+			['BaseController', ['Kernel']],
+			['Kernel', []],
+		]);
+		assert.deepStrictEqual(ancestryOf('Order', bases), ['Order', 'BaseController', 'Payable', 'HasRules', 'Kernel']);
+		assert.deepStrictEqual(ancestryOf('Kernel', bases), ['Kernel']);
+		assert.deepStrictEqual(ancestryOf('Unknown', bases), ['Unknown'], 'неизвестный тип — сам себе цепочка');
+	});
+
+	/** Qualified bases are indexed under their last segment, and broken code may loop. */
+	test('qualified names are shortened and cycles do not hang', () => {
+		assert.deepStrictEqual(ancestryOf('Order', new Map([['Order', ['\\App\\Billing\\Base']]])), ['Order', 'Base']);
+		const cyclic = new Map<string, readonly string[]>([['A', ['B']], ['B', ['A']]]);
+		assert.deepStrictEqual(ancestryOf('A', cyclic), ['A', 'B'], 'цикл проходится один раз');
 	});
 });

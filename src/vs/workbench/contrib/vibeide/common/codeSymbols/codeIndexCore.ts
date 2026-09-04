@@ -139,3 +139,39 @@ export function enclosingContainerOf(symbols: readonly CodeSymbol[], line: numbe
 	}
 	return best ? [...best.container, best.name] : undefined;
 }
+
+/**
+ * The class itself plus everything it inherits from, nearest first.
+ *
+ * WHY it must be ordered: a method redeclared in a subclass overrides the parent's, so «closest wins»
+ * is the whole answer to which declaration a call means. Cycles are possible in broken code (`A`
+ * extends `B` extends `A`) and are simply not followed twice.
+ *
+ * Names are matched as written — this layer resolves inheritance by NAME, like everything else here,
+ * so two unrelated classes sharing a name are indistinguishable to it.
+ */
+export function ancestryOf(typeName: string, basesByType: ReadonlyMap<string, readonly string[]>, maxDepth = 16): string[] {
+	const chain: string[] = [];
+	const seen = new Set<string>();
+	let frontier: string[] = [typeName];
+
+	for (let depth = 0; depth < maxDepth && frontier.length > 0; depth++) {
+		const next: string[] = [];
+		for (const name of frontier) {
+			if (seen.has(name)) {
+				continue;
+			}
+			seen.add(name);
+			chain.push(name);
+			for (const base of basesByType.get(name) ?? []) {
+				// A qualified base (`\App\Base`) is indexed under its last segment.
+				const short = base.split(/[\\.]|::/).pop() ?? base;
+				if (short && !seen.has(short)) {
+					next.push(short);
+				}
+			}
+		}
+		frontier = next;
+	}
+	return chain;
+}
