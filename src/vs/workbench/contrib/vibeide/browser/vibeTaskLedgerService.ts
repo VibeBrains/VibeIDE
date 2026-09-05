@@ -14,6 +14,7 @@ import { IEnvironmentService } from '../../../../platform/environment/common/env
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { IAuditLogService } from '../common/auditLogService.js';
 import { chainRecord, chainTailOf, verifyAuditChain, AUDIT_CHAIN_ROOT } from '../common/auditChain.js';
 import {
 	applyEvent, blockingDependencies, canTransition, dependencyCycle, operationKeyOf, replayEvents,
@@ -106,6 +107,7 @@ class VibeTaskLedgerService extends Disposable implements IVibeTaskLedgerService
 		@IFileService private readonly _fileService: IFileService,
 		@IEnvironmentService private readonly _environmentService: IEnvironmentService,
 		@IWorkspaceContextService workspaceContextService: IWorkspaceContextService,
+		@IAuditLogService private readonly _auditLog: IAuditLogService,
 	) {
 		super();
 		const workspace = workspaceContextService.getWorkspace();
@@ -238,6 +240,16 @@ class VibeTaskLedgerService extends Disposable implements IVibeTaskLedgerService
 			return { ok: false, error: 'событие записано, но не применилось' };
 		}
 		this._onDidChange.fire();
+		// Also into the audit log: the register says WHAT the work is, the audit says who moved it and
+		// when. Keeping both is not duplication — one is a board, the other is evidence.
+		void this._auditLog.append({
+			ts: event.at,
+			actor: event.actor === 'human' ? 'human' : 'agent',
+			actorId: event.actor === 'human' ? undefined : event.actor,
+			action: event.kind === 'created' ? 'task_created' : 'task_transitioned',
+			ok: true,
+			meta: { taskId: event.taskId, title: task.title, from: event.from, to: event.to, blockedReason: event.blockedReason },
+		}).catch(() => { /* the register is written already; a missing audit line must not undo it */ });
 		return { ok: true, task, repeated: false };
 	}
 

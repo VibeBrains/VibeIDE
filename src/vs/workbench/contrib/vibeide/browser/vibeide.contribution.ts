@@ -70,6 +70,7 @@ import './vibeCodeSignatureContribution.js';
 import './vibeCodeImplementationContribution.js';
 import './vibeCodeTypeHierarchyContribution.js';
 import './vibeTaskLedgerService.js';
+import './vibeTaskLedgerCommands.js';
 
 // Local preview server with live reload (Vibe Server)
 import './vibeServer/vibeServer.contribution.js';
