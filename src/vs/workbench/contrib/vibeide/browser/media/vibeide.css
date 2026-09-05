@@ -1396,3 +1396,66 @@ body.monaco-workbench,
 	width: 17px;
 	height: 17px;
 }
+
+/* Доска задач (панель «Задачи проекта»).
+   Плоский список с заголовками состояний, а не колонки: панель снизу узкая по высоте, и колонки в
+   ней превращаются в восемь полос по две строки. */
+.vibe-tasks-view {
+	padding: 8px 12px 12px;
+	overflow-y: auto;
+	height: 100%;
+	user-select: none;
+}
+
+.vibe-tasks-empty {
+	padding: 12px 4px;
+	opacity: 0.8;
+	line-height: 1.5;
+}
+
+.vibe-tasks-section {
+	margin-bottom: 12px;
+}
+
+.vibe-tasks-heading {
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	opacity: 0.7;
+	margin-bottom: 4px;
+}
+
+.vibe-tasks-row {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	padding: 4px 6px;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.vibe-tasks-row:hover,
+.vibe-tasks-row:focus {
+	background-color: var(--vscode-list-hoverBackground);
+	outline: none;
+}
+
+.vibe-tasks-row:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+}
+
+.vibe-tasks-title {
+	flex: 1 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Причина блокировки и «чего ждём» — второстепенный текст: он объясняет строку, но не спорит с ней
+   за внимание. */
+.vibe-tasks-note {
+	flex: 0 0 auto;
+	font-size: 11px;
+	opacity: 0.75;
+	color: var(--vscode-descriptionForeground);
+}
