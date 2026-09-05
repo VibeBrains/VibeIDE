@@ -19,6 +19,8 @@ import { EditorInput } from '../../../common/editor/editorInput.js';
 import * as nls from '../../../../nls.js';
 import { EditorExtensions, IEditorFactoryRegistry, IEditorSerializer } from '../../../common/editor.js';
 import { mainWindow } from '../../../../base/browser/window.js';
+import { addDisposableListener, EventType } from '../../../../base/browser/dom.js';
+import { IDisposable } from '../../../../base/common/lifecycle.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { VIBEIDE_NEW_CHAT_CMD, VIBEIDE_OPEN_CHAT_EDITOR_CMD } from './actionIDs.js';
@@ -28,7 +30,7 @@ import { IChatThreadService } from './chatThreadService.js';
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
-import { IStorageService, StorageScope } from '../../../../platform/storage/common/storage.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 
 // ---------------------------------------------------------------------------
 // Open / new-chat routing (chat is a View now)
@@ -221,8 +223,112 @@ function applyChatFullscreenMode(target: ChatFullscreenMode, accessor: ServicesA
 	// Body marker: lets vibeide.css collapse landing-page chrome (model chip, quick actions, past
 	// chats / suggestions) so only the input + token line remain visible in zen mode.
 	mainWindow.document.body.classList.toggle('vibeide-chat-zen', target === 'zen');
+	// The other marker keeps the CONTENT in a column instead of stretching it across the window:
+	// a chat 1800 pixels wide cannot be read — the line runs past where the eye can follow, and the
+	// start of the next one is lost. Both modes give the panel the width; neither gives it to the text.
+	mainWindow.document.body.classList.toggle('vibeide-chat-wide', !willBeOff);
+	_storage = accessor.get(IStorageService);
+	applyStoredColumnWidth();
+	updateColumnResizer(accessor.get(IWorkbenchLayoutService), !willBeOff);
 
 	_chatFullscreenMode = target;
+}
+
+/** Настройка ширины колонки: одна на оба режима, помнится между сеансами. */
+const CHAT_COLUMN_WIDTH_KEY = 'vibeide.chat.wideColumnWidth';
+const CHAT_COLUMN_DEFAULT = 900;
+/** Bounds. Narrower stops being a chat, wider stops being readable — the reason the column exists. */
+const CHAT_COLUMN_MIN = 480;
+const CHAT_COLUMN_MAX = 1600;
+
+let _resizer: HTMLElement | undefined;
+let _resizerListeners: IDisposable[] = [];
+
+/**
+ * Services are captured ONCE, when the mode is switched.
+ *
+ * `ServicesAccessor` is only valid inside the command that received it. Keeping it in a closure and
+ * asking it for a service during a later drag throws — which is exactly what happened: the handle
+ * appeared, the pointer moved, and nothing changed, because the first line of the handler failed.
+ */
+let _storage: IStorageService | undefined;
+
+function storedColumnWidth(): number {
+	const stored = _storage?.getNumber(CHAT_COLUMN_WIDTH_KEY, StorageScope.PROFILE, CHAT_COLUMN_DEFAULT) ?? CHAT_COLUMN_DEFAULT;
+	return Math.min(CHAT_COLUMN_MAX, Math.max(CHAT_COLUMN_MIN, stored));
+}
+
+function applyStoredColumnWidth(): void {
+	mainWindow.document.body.style.setProperty('--vibeide-chat-wide-width', `${storedColumnWidth()}px`);
+}
+
+/**
+ * Полоса перетаскивания у правого края колонки.
+ *
+ * Placed over the auxiliary bar rather than inside the React tree: the modes are switched from here,
+ * the column is a layout decision made here, and threading a resize handle through the chat's own
+ * markup would put window layout inside a component that knows nothing about it.
+ */
+function updateColumnResizer(layoutService: IWorkbenchLayoutService, active: boolean): void {
+	for (const listener of _resizerListeners) { listener.dispose(); }
+	_resizerListeners = [];
+	if (!active) {
+		_resizer?.remove();
+		_resizer = undefined;
+		return;
+	}
+
+	const container = layoutService.getContainer(mainWindow, Parts.AUXILIARYBAR_PART);
+	if (!container) {
+		return;
+	}
+	const handle = _resizer ?? mainWindow.document.createElement('div');
+	handle.className = 'vibeide-chat-wide-resizer';
+	if (!handle.isConnected) {
+		container.appendChild(handle);
+	}
+	_resizer = handle;
+
+	const place = () => {
+		// Right edge of the centred column, in the panel's own coordinates.
+		const width = storedColumnWidth();
+		const panelWidth = container.getBoundingClientRect().width;
+		handle.style.left = `${Math.round((panelWidth + Math.min(width, panelWidth)) / 2) - 5}px`;
+	};
+	place();
+
+	_resizerListeners.push(addDisposableListener(handle, EventType.MOUSE_DOWN, (event: MouseEvent) => {
+		event.preventDefault();
+		handle.classList.add('vibeide-chat-wide-resizing');
+		const startX = event.clientX;
+		const startWidth = storedColumnWidth();
+
+		const move = (moveEvent: MouseEvent) => {
+			// Dragging right widens the column by twice the travel: it is centred, so both edges move.
+			const next = Math.min(CHAT_COLUMN_MAX, Math.max(CHAT_COLUMN_MIN, startWidth + (moveEvent.clientX - startX) * 2));
+			mainWindow.document.body.style.setProperty('--vibeide-chat-wide-width', `${Math.round(next)}px`);
+			const panelWidth = container.getBoundingClientRect().width;
+			handle.style.left = `${Math.round((panelWidth + Math.min(next, panelWidth)) / 2) - 5}px`;
+		};
+		const up = () => {
+			handle.classList.remove('vibeide-chat-wide-resizing');
+			const applied = parseInt(mainWindow.document.body.style.getPropertyValue('--vibeide-chat-wide-width'), 10);
+			if (Number.isFinite(applied)) {
+				// Stored on release, not on every pointer move: a drag would otherwise write hundreds
+				// of times for one adjustment.
+				_storage?.store(CHAT_COLUMN_WIDTH_KEY, applied, StorageScope.PROFILE, StorageTarget.USER);
+			}
+			for (const listener of dragListeners) { listener.dispose(); }
+		};
+		// Listened on the window, not on the handle: during a drag the pointer leaves a 10-pixel strip
+		// immediately, and a handler bound to the strip stops hearing about the drag it started.
+		const dragListeners = [
+			addDisposableListener(mainWindow, EventType.MOUSE_MOVE, move),
+			addDisposableListener(mainWindow, EventType.MOUSE_UP, up),
+		];
+		_resizerListeners.push(...dragListeners);
+	}));
+	_resizerListeners.push(addDisposableListener(mainWindow, EventType.RESIZE, place));
 }
 
 const VIBEIDE_CHAT_TOGGLE_MAXIMIZE_CMD = 'vibeide.chat.toggleMaximize';
