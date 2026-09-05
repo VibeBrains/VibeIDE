@@ -29,6 +29,7 @@ import { LEARNING_STATE_TOOL } from './learning_state.js';
 import { LEARNING_RECORD_TOOL } from './learning_record.js';
 import { EXPAND_OUTPUT_TOOL } from './expand_output.js';
 import { DOCS_SEARCH_TOOL } from './docs_search.js';
+import { TASKS_TOOL } from './tasks.js';
 import { DESIGN_REVIEW_TOOL } from './design_review.js';
 import { DESIGN_CONTEXT_TOOL } from './design_context.js';
 import { DESIGN_DOCUMENT_TOOL } from './design_document.js';
@@ -86,6 +87,7 @@ export const builtinToolDefs = {
 	search_symbols: SEARCH_SYMBOLS_TOOL,
 	code_graph: CODE_GRAPH_TOOL,
 	docs_search: DOCS_SEARCH_TOOL,
+	tasks: TASKS_TOOL,
 	// design: read the context, measure the page, write the context back
 	design_context: DESIGN_CONTEXT_TOOL,
 	design_review: DESIGN_REVIEW_TOOL,
