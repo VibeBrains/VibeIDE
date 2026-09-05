@@ -157,16 +157,27 @@ registerWorkbenchContribution2(
 
 // ---------------------------------------------------------------------------
 // Chat fullscreen modes (toggled via icons in the chat composer):
-//   "maximize" — hide primary sidebar + bottom panel to give the chat view room.
+//   "maximize" — hide primary sidebar and bottom panel, and MAXIMIZE the auxiliary bar so the chat
+//                 actually takes the freed width.
 //   "zen"     — same + hide activity bar + collapse landing chrome (body marker).
-// The chat lives in the AuxiliaryBar now, so — unlike the old editor-based version — we MUST NOT
-// hide the auxiliary bar (that would hide the chat itself). Modes are mutually exclusive; clicking
-// the active mode exits to "off". State is module-level (single window).
+//
+// Widening the chat is the whole point since it moved out of the editor area: back when the chat WAS
+// an editor tab, «maximize» only had to clear what surrounded it. Now the editors keep the middle of
+// the window, and hiding them by hand freed the space without giving it to anyone — measured on a
+// live window: the editor area went 1040 → 0 and the chat stayed at 489.
+//
+// So the auxiliary bar is maximized through the workbench's own mechanism, which both collapses the
+// editor area and hands its width over. The auxiliary bar itself is never hidden — that is where the
+// chat is — and nothing is maximized when it is not visible: the chat is then somewhere else, and
+// this would be rearranging a window around something that is not there.
+//
+// Modes are mutually exclusive; clicking the active mode exits to "off". State is module-level
+// (single window).
 // ---------------------------------------------------------------------------
 
 type ChatFullscreenMode = 'off' | 'maximize' | 'zen';
 let _chatFullscreenMode: ChatFullscreenMode = 'off';
-let _saved: { sidebar?: boolean; panel?: boolean; activitybar?: boolean } = {};
+let _saved: { sidebar?: boolean; panel?: boolean; activitybar?: boolean; auxiliaryMaximized?: boolean } = {};
 
 function applyChatFullscreenMode(target: ChatFullscreenMode, accessor: ServicesAccessor): void {
 	if (target === _chatFullscreenMode) { return; }
@@ -181,6 +192,8 @@ function applyChatFullscreenMode(target: ChatFullscreenMode, accessor: ServicesA
 			sidebar: layoutService.isVisible(Parts.SIDEBAR_PART),
 			panel: layoutService.isVisible(Parts.PANEL_PART),
 			activitybar: layoutService.isVisible(Parts.ACTIVITYBAR_PART),
+			// Maximizing only makes sense while the chat is in the auxiliary bar.
+			auxiliaryMaximized: layoutService.isVisible(Parts.AUXILIARYBAR_PART),
 		};
 	}
 
@@ -188,10 +201,13 @@ function applyChatFullscreenMode(target: ChatFullscreenMode, accessor: ServicesA
 	if (wasOff && !willBeOff) {
 		if (_saved.sidebar) { layoutService.setPartHidden(true, Parts.SIDEBAR_PART); }
 		if (_saved.panel) { layoutService.setPartHidden(true, Parts.PANEL_PART); }
+		if (_saved.auxiliaryMaximized) { layoutService.setAuxiliaryBarMaximized(true); }
 	}
 	if (!wasOff && willBeOff) {
 		if (_saved.sidebar) { layoutService.setPartHidden(false, Parts.SIDEBAR_PART); }
 		if (_saved.panel) { layoutService.setPartHidden(false, Parts.PANEL_PART); }
+		// Back to the ordinary split; the editor area returns with it.
+		if (_saved.auxiliaryMaximized) { layoutService.setAuxiliaryBarMaximized(false); }
 	}
 
 	// Activity bar: hidden ONLY in zen mode; re-shown when switching back to maximize / off.
