@@ -92,8 +92,12 @@ export class VibeTasksViewPane extends ViewPane {
 		const tasks = await this._ledger.tasks();
 		// Everything the rows need, fetched at once. Asking per row meant a hundred tasks were a
 		// hundred waits in a row, each for an answer the register already had in memory.
+		// Only for tasks that can still be waiting: a finished task waits for nothing, and asking about
+		// it is a question with a known answer.
 		const waitingByTask = new Map(await Promise.all(
-			tasks.map(async task => [task.id, await this._ledger.waitingFor(task.id)] as const),
+			tasks
+				.filter(task => task.status !== 'done' && task.status !== 'cancelled')
+				.map(async task => [task.id, await this._ledger.waitingFor(task.id)] as const),
 		));
 		this._rowListeners.clear();
 		DOM.clearNode(body);

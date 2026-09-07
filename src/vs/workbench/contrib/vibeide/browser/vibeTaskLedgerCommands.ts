@@ -219,6 +219,7 @@ class VibeTasksFromPlanAction extends Action2 {
 		const ledger = accessor.get(IVibeTaskLedgerService);
 		const threads = accessor.get(IChatThreadService);
 		const notification = accessor.get(INotificationService);
+		const quickInput = accessor.get(IQuickInputService);
 
 		const thread = threads.state.allThreads[threads.state.currentThreadId];
 		// The most recent plan in the thread: an older one has already been superseded, and carrying
@@ -240,6 +241,24 @@ class VibeTasksFromPlanAction extends Action2 {
 			return;
 		}
 
+		// Asked before writing: fifteen tasks appearing without warning is a register the user did not
+		// choose, and the register is the thing meant to outlive this conversation.
+		const confirmed = await quickInput.pick(
+			[
+				{ label: localize('vibeide.tasks.fromPlanYes', 'Завести {0} задач(и)', requests.length), value: true },
+				{ label: localize('vibeide.tasks.fromPlanNo', 'Отмена'), value: false },
+			],
+			{ title: localize('vibeide.tasks.fromPlanConfirm', 'Перенести незавершённые шаги плана в реестр?') },
+		);
+		if (!confirmed?.value) {
+			return;
+		}
+
+		// A stable intent per step, so running the command twice does not duplicate the plan: this is
+		// exactly what the register's idempotency is for, and the first version of this command did
+		// not use it.
+		const planKey = planMessage?.persistedPlanId ?? `${threads.state.currentThreadId}:${planMessage?.summary ?? ''}`;
+
 		const idByStep = new Map<number, string>();
 		let created = 0;
 		for (const request of requests) {
@@ -248,10 +267,14 @@ class VibeTasksFromPlanAction extends Action2 {
 				// Dependencies by position: a plan is a sequence, and losing that turns it into a pile.
 				dependencyIds: request.afterStepNumbers.map(step => idByStep.get(step)).filter((id): id is string => !!id),
 				actor: 'human',
+				intent: `plan:${planKey}:${request.stepNumber}`,
 			});
 			if (result.ok) {
 				idByStep.set(request.stepNumber, result.task.id);
-				created++;
+				// A repeat is not a creation: saying «заведено 15» after the second run would be a lie.
+				if (!result.repeated) {
+					created++;
+				}
 			} else {
 				notification.error(result.error);
 				break;
@@ -259,6 +282,8 @@ class VibeTasksFromPlanAction extends Action2 {
 		}
 		if (created > 0) {
 			notification.info(localize('vibeide.tasks.fromPlanDone', 'Заведено задач: {0}. Они ждут друг друга в том же порядке, что шаги плана.', created));
+		} else {
+			notification.info(localize('vibeide.tasks.fromPlanAlready', 'Эти шаги уже заведены — реестр не изменился.'));
 		}
 	}
 }

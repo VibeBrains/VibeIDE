@@ -104,6 +104,7 @@ suite('image token cost', () => {
 		assert.strictEqual(estimatePromptTokens(shape, 1_200), Math.ceil(20 / 4) + 1_200);
 	});
 
+	/** Anthropic's shape is `type: 'image'` with a `source`; it must count once, not slip through. */
 	test('every shape we send is recognised', () => {
 		const shapes = shapeOfPrompt([
 			{ role: 'user', content: 'просто текст' },

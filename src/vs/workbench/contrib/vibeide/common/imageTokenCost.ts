@@ -124,9 +124,11 @@ interface UnknownPart {
 }
 
 function isImagePart(part: UnknownPart): boolean {
-	// The four shapes we actually send: OpenAI, Anthropic, Gemini, and the AI SDK's own.
-	return part.type === 'image_url' || part.type === 'image' || !!part.image_url || !!part.inlineData
-		|| (part.type === 'image' && !!part.source);
+	// The shapes we actually send: OpenAI (`image_url`), Anthropic (`type: 'image'` with a `source`),
+	// Gemini (`inlineData`). `type: 'image'` alone already covers Anthropic's — the extra check for
+	// its `source` that used to be here could never run, because the same condition had matched two
+	// terms earlier.
+	return part.type === 'image_url' || part.type === 'image' || !!part.image_url || !!part.inlineData;
 }
 
 /** Count text characters and images across a message list of any of our supported shapes. */
