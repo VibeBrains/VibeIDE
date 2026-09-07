@@ -29,6 +29,8 @@ import { IMainProcessService } from '../../../../platform/ipc/common/mainProcess
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { estimatePromptTokens, PromptShape, shapeOfPrompt } from '../common/imageTokenCost.js';
+import { IVibeImageCostService } from '../browser/vibeImageCostService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { IMCPService } from '../common/mcpService.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
@@ -97,6 +99,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		@ISecretDetectionService private readonly secretDetectionService: ISecretDetectionService,
 		@IVibeTokenBudgetService private readonly tokenBudgetService: IVibeTokenBudgetService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@IVibeImageCostService private readonly imageCostService: IVibeImageCostService,
 	) {
 		super();
 
@@ -287,11 +290,17 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		const mcpTools = this.mcpService.getMCPTools();
 
 		let approxInputTokens = 1000;
+		// Shape of what we are about to send, kept for two purposes: a truthful estimate now, and the
+		// anchor the next response is measured against.
+		let promptShape: PromptShape | undefined;
 		if (proxyParams.messagesType === 'chatMessages' && proxyParams.messages) {
 			try {
-				const msgsLen = JSON.stringify(proxyParams.messages).length;
+				// Measured by structure, not by `JSON.stringify().length`: that counted a base64
+				// screenshot as prose and read one image as tens of thousands of tokens.
+				promptShape = shapeOfPrompt(proxyParams.messages as readonly unknown[]);
 				const sysExtra = (proxyParams.separateSystemMessage?.length ?? 0);
-				approxInputTokens = Math.max(200, Math.ceil(msgsLen / 4) + Math.ceil(sysExtra / 4));
+				const imageTokens = this.imageCostService.costFor(modelSelection.providerName, modelSelection.modelName);
+				approxInputTokens = Math.max(200, estimatePromptTokens(promptShape, imageTokens) + Math.ceil(sysExtra / 4));
 			} catch {
 				approxInputTokens = 2000;
 			}
@@ -319,6 +328,15 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			}
 			if (!excludeFromSessionBudget) {
 				this.tokenBudgetService.recordUsage(inForBudget, outForBudget, p.usage?.cachedInputTokens);
+			}
+			// Learn the price of an image from what the provider actually charged. Only real usage
+			// teaches anything: our own estimate compared against itself would just confirm itself.
+			if (typeof realIn === 'number' && realIn > 0 && promptShape) {
+				this.imageCostService.observe(modelSelection.providerName, modelSelection.modelName, {
+					promptTokens: realIn,
+					textTokens: Math.ceil(promptShape.textChars / 4),
+					images: promptShape.images,
+				});
 			}
 			onFinalMessage(p);
 		};

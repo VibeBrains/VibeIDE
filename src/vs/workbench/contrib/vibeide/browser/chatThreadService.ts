@@ -20,6 +20,7 @@ import { nextChatTraceTurn, recordChatTrace } from './vibeChatRunTrace.js';
 import { availableTools, builtinTools, builtinToolNames, chat_userMessageContent, isABuiltinToolName } from '../common/prompt/prompts.js';
 import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '../common/prompt/toolAliases.js';
 import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, looksLikeCompletionText, QUESTION_AUTO_CONTINUE_DEFAULT } from '../common/agentLoopHeuristics.js';
+import { IVibeImageCostService } from './vibeImageCostService.js';
 import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
 import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
 import { ProviderRefusalDiagnostics, AnthropicReasoning, getErrorMessage, GeminiLLMChatMessage, LLMChatMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
@@ -1036,6 +1037,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@INotificationService private readonly _notificationService: INotificationService,
 		@IConvertToLLMMessageService private readonly _convertToLLMMessagesService: IConvertToLLMMessageService,
 		@IVibeTokenBudgetService private readonly _tokenBudgetService: IVibeTokenBudgetService,
+		@IVibeImageCostService private readonly _imageCostService: IVibeImageCostService,
 		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 		@IDirectoryStrService private readonly _directoryStringService: IDirectoryStrService,
 		@IFileService private readonly _fileService: IFileService,
@@ -5936,6 +5938,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							// Only update if we got valid messages
 							if (messages && messages.length > 0) {
 								// Update finalRequestId context with new prompt tokens
+								// One image used to count as 100 tokens here — an order of magnitude below every
+								// real price. The estimate stayed small, compaction never fired, and the
+								// provider rejected a request that had been over the limit all along. The
+								// price is now what this model was observed to charge.
+								const imageTokens = this._imageCostService.costFor(modelSelection.providerName, modelSelection.modelName);
 								const promptTokens = messages.reduce((acc, m) => {
 									// Handle Gemini messages (use 'parts' instead of 'content')
 									if (isGeminiLLMChatMessage(m)) {
@@ -5943,7 +5950,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 											if (isGeminiTextPart(part)) {
 												return sum + Math.ceil(part.text.length / 4);
 											} else if (isGeminiInlineDataPart(part)) {
-												return sum + 100;
+												return sum + imageTokens;
 											}
 											return sum;
 										}, 0);
@@ -5956,7 +5963,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 											if (part.type === 'text') {
 												return sum + Math.ceil(part.text.length / 4);
 											} else if (part.type === 'image_url') {
-												return sum + 100;
+												return sum + imageTokens;
 											}
 											return sum;
 										}, 0);

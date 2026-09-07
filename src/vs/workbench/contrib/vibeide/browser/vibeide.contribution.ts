@@ -71,6 +71,7 @@ import './vibeCodeImplementationContribution.js';
 import './vibeCodeTypeHierarchyContribution.js';
 import './vibeTaskLedgerService.js';
 import './vibeTaskLedgerCommands.js';
+import './vibeImageCostService.js';
 import './vibeTasks.contribution.js';
 
 // Local preview server with live reload (Vibe Server)
