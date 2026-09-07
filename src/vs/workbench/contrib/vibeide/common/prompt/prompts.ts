@@ -15,6 +15,7 @@ import { approvalTypeOfBuiltinToolName, builtinToolDefs } from './tools/index.js
 import { ChatMode, MinimalismMode } from '../vibeideSettingsTypes.js';
 import type { ModelFamily } from './modelFamily.js';
 import { DIVIDER, FINAL, ORIGINAL, searchReplaceBlockTemplate, tripleTick } from './tools/_constants.js';
+import { resolveToolNameCollisions } from './toolNameCollisions.js';
 import { applyToolBudget } from './toolBudget.js';
 
 // Re-export shared leaf-constants for external callers that still import them
@@ -185,6 +186,15 @@ export const availableTools = (
 
 	if (opts?.disableExpensiveSearchInNonAgent && (chatMode === 'gather' || chatMode === 'plan') && tools) {
 		tools = tools.filter(t => !EXPENSIVE_SEARCH_TOOLS.has(t.name));
+	}
+
+	// Before any budgeting: a duplicate name is a hard 400 at strict providers, and at permissive
+	// ones it silently lets an MCP server take over a built-in. Resolved here, at the single place
+	// the list is assembled, so every transport sees the same names.
+	if (tools) {
+		// The collisions themselves are not reported from here: this module stays pure, and whoever
+		// wants to tell the user calls `resolveToolNameCollisions` for the answer.
+		tools = resolveToolNameCollisions(tools, BUILTIN_TOOL_NAME_SET).tools;
 	}
 
 	if (tools && opts?.maxTools !== undefined) {
