@@ -15,6 +15,8 @@
  * electron-browser.
  */
 
+import { localize } from '../../../../nls.js';
+import { builtinTools } from '../common/prompt/prompts.js';
 import { vibeLog } from '../common/vibeLog.js';
 import { URI } from '../../../../base/common/uri.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -150,8 +152,41 @@ class MCPService extends Disposable implements IMCPService {
 				}
 			};
 		}
+		this._warnAboutShadowedBuiltins(serverName, newServer);
 		this._onDidChangeState.fire();
 	};
+
+	/**
+	 * Сказать вслух, если инструмент сервера получил имя встроенного.
+	 *
+	 * MCP tools are already namespaced as `<server>_<tool>`, so this is rare rather than routine — it
+	 * takes a server called `read` offering a tool called `file`. Rare is not the same as harmless:
+	 * the tool is renamed to keep the request valid, and a rename nobody is told about is exactly the
+	 * silent shadowing the renaming exists to prevent.
+	 *
+	 * Reported once per server per session: the state fires on every refresh, and a notification that
+	 * repeats is one the user learns to dismiss unread.
+	 */
+	private readonly _shadowWarned = new Set<string>();
+
+	private _warnAboutShadowedBuiltins(serverName: string, server: MCPServer | undefined): void {
+		if (!server?.tools?.length || this._shadowWarned.has(serverName)) {
+			return;
+		}
+		const sanitizedServer = sanitizeMcpIdentifier(serverName);
+		const shadowed = server.tools
+			.map(tool => `${sanitizedServer}_${sanitizeMcpIdentifier(tool.name)}`)
+			.filter(name => MCPService._builtinNames.has(name));
+		if (shadowed.length === 0) {
+			return;
+		}
+		this._shadowWarned.add(serverName);
+		this._notificationService.warn(localize(
+			'vibeide.mcp.shadowedBuiltin',
+			'Сервер «{0}» объявил инструменты с именами встроенных: {1}. Они переименованы (к имени добавлен «_mcp»), иначе запрос с двумя одинаковыми именами отклоняют строгие провайдеры. Вызывать их можно по новому имени.',
+			serverName, shadowed.join(', '),
+		));
+	}
 
 	private readonly _setHasError = async (errMsg: string | undefined) => {
 		this.state = {
@@ -198,6 +233,9 @@ class MCPService extends Disposable implements IMCPService {
 			vibeLog.error('mcp', 'Error opening MCP config file:', error);
 		}
 	}
+
+	/** Names the model already knows from the built-in toolset. */
+	private static readonly _builtinNames = new Set(Object.keys(builtinTools));
 
 	public getMCPTools(): InternalToolInfo[] | undefined {
 		const allTools: InternalToolInfo[] = [];

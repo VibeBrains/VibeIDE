@@ -22,6 +22,8 @@ import { IVibeIgnoreService } from './vibeIgnoreService.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator, IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { IVibeTaskLedgerService } from './vibeTaskLedgerService.js';
+import { Task, TaskStatus } from '../common/taskLedger/taskModel.js';
 import { QueryBuilder } from '../../../services/search/common/queryBuilder.js';
 import { ISearchService } from '../../../services/search/common/search.js';
 import { IEditCodeService } from './editCodeServiceInterface.js';
@@ -317,6 +319,7 @@ export class ToolsService extends Disposable implements IToolsService {
 	private readonly _backgroundCommands = new Map<string, { persistentTerminalId: string; command: string; startedAt: number; exitedAt?: number }>();
 
 	constructor(
+		@IVibeTaskLedgerService private readonly _vibeTaskLedgerService: IVibeTaskLedgerService,
 		@IFileService private readonly fileService: IFileService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@ISearchService searchService: ISearchService,
@@ -685,6 +688,24 @@ export class ToolsService extends Disposable implements IToolsService {
 				// 'system' overwrites a measured file, so it shows the draft unless told otherwise.
 				const apply = typeof applyUnknown === 'boolean' ? applyUnknown : target === 'product';
 				return { target, name: text(name), ...product, platform, notes: text(notes), apply };
+			},
+
+			tasks: (params: RawToolParamsObj) => {
+				const { action: actionUnknown, title, task_id, to, blocked_reason, dependency_ids, intent } = params;
+				const action = typeof actionUnknown === 'string' ? actionUnknown.trim() : '';
+				if (action !== 'list' && action !== 'create' && action !== 'transition') {
+					throw new Error(`Invalid LLM output: action must be 'list', 'create' or 'transition', got ${actionUnknown}`);
+				}
+				const asString = (value: unknown): string | null => typeof value === 'string' && value.trim() ? value.trim() : null;
+				// Ids arrive as an array or as one string — both spellings are common from models, and
+				// rejecting the second would fail a call that meant something perfectly clear.
+				const ids = Array.isArray(dependency_ids)
+					? dependency_ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+					: (asString(dependency_ids) ? [asString(dependency_ids)!] : null);
+				return {
+					action, title: asString(title), task_id: asString(task_id), to: asString(to),
+					blocked_reason: asString(blocked_reason), dependency_ids: ids, intent: asString(intent),
+				};
 			},
 
 			docs_search: (params: RawToolParamsObj) => {
@@ -1706,6 +1727,41 @@ export class ToolsService extends Disposable implements IToolsService {
 				}
 				const writtenTo = await this.designContextService.writeDesign(draft);
 				return { result: { target, writtenTo, draft: rendered } };
+			},
+
+			tasks: async ({ action, title, task_id, to, blocked_reason, dependency_ids, intent }) => {
+				const ledger = this._vibeTaskLedgerService;
+				const snapshot = async () => {
+					const tasks = await ledger.tasks();
+					return Promise.all(tasks.map(async (task: Task) => ({
+						id: task.id, title: task.title, status: task.status,
+						waitingFor: [...await ledger.waitingFor(task.id)],
+						blockedReason: task.blockedReason,
+					})));
+				};
+
+				if (action === 'list') {
+					return { result: { action, tasks: await snapshot() } };
+				}
+				if (action === 'create') {
+					if (!title) {
+						return { result: { action, tasks: await snapshot(), refused: 'нужно название задачи' } };
+					}
+					const created = await ledger.create({ title, dependencyIds: dependency_ids ?? [], actor: 'agent', intent: intent ?? undefined });
+					return created.ok
+						? { result: { action, tasks: await snapshot(), changed: { id: created.task.id, title: created.task.title, status: created.task.status }, repeated: created.repeated } }
+						: { result: { action, tasks: await snapshot(), refused: created.error } };
+				}
+				if (!task_id || !to) {
+					return { result: { action, tasks: await snapshot(), refused: 'нужны taskId и целевое состояние' } };
+				}
+				const moved = await ledger.transition({
+					taskId: task_id, to: to as TaskStatus, actor: 'agent',
+					blockedReason: blocked_reason ?? undefined, intent: intent ?? undefined,
+				});
+				return moved.ok
+					? { result: { action, tasks: await snapshot(), changed: { id: moved.task.id, title: moved.task.title, status: moved.task.status }, repeated: moved.repeated } }
+					: { result: { action, tasks: await snapshot(), refused: moved.error } };
 			},
 
 			docs_search: async ({ query, limit }) => {
@@ -3420,6 +3476,32 @@ export class ToolsService extends Disposable implements IToolsService {
 					return `Черновик ${result.target === 'product' ? 'product.md' : 'design.md'} (НЕ записан, покажите пользователю и спросите, что поправить):\n\n${result.draft ?? ''}`;
 				}
 				return `Записано в ${result.writtenTo}. Файл принадлежит пользователю — предложите прочитать и вычеркнуть лишнее.\n\n${result.draft ?? ''}`;
+			},
+
+			tasks: (_params, result) => {
+				const lines = result.tasks.map(task => {
+					const parts = [`[${task.status}]`, task.title, `id=${task.id}`];
+					if (task.waitingFor.length > 0) {
+						// Ids, not a count: the model's next move is usually to finish one of them.
+						parts.push(`waiting for: ${task.waitingFor.join(', ')}`);
+					}
+					if (task.blockedReason) {
+						parts.push(`blocked: ${task.blockedReason}`);
+					}
+					return parts.join(' · ');
+				});
+				const header: string[] = [];
+				if (result.refused) {
+					// Refusals are stated as such. A model told only «nothing happened» tries again the
+					// same way; a model told why can choose a different move.
+					header.push(`Refused: ${result.refused}`);
+				} else if (result.repeated) {
+					header.push('This call repeated an earlier one — nothing changed, by design.');
+				} else if (result.changed) {
+					header.push(`Now: "${result.changed.title}" is ${result.changed.status}.`);
+				}
+				header.push(result.tasks.length > 0 ? `Register (${result.tasks.length}):` : 'The register is empty.');
+				return [...header, ...lines].join('\n');
 			},
 
 			docs_search: (params, result) => {

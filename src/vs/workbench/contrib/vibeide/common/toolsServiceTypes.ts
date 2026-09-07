@@ -70,6 +70,15 @@ export type BuiltinToolCallParams = {
 	'learning_state': Record<never, never>;
 	'learning_record': { lesson: string; learned: string[]; stuck: string[] };
 	'docs_search': { query: string; limit: number | null };
+	'tasks': {
+		action: 'list' | 'create' | 'transition';
+		title: string | null;
+		task_id: string | null;
+		to: string | null;
+		blocked_reason: string | null;
+		dependency_ids: string[] | null;
+		intent: string | null;
+	};
 	'design_review': { severity: 'error' | 'warning' | 'info' | null; viewport: 'desktop' | 'mobile' | 'both'; annotate: boolean };
 	// No parameters: the context is whatever the project wrote, and there is nothing to narrow.
 	'design_context': Record<never, never>;
@@ -147,6 +156,17 @@ export type BuiltinToolResultType = {
 		/** Источник: вшит в приложение — на диске проекта его нет. */
 		source: 'shipped-docs';
 		hits: Array<{ file: string; heading: string; line: number; excerpt: string }>;
+	};
+	'tasks': {
+		action: 'list' | 'create' | 'transition';
+		/** Present for every action: the register as it stands after the call. */
+		tasks: Array<{ id: string; title: string; status: string; waitingFor: string[]; blockedReason?: string }>;
+		/** What this particular call changed, when it changed something. */
+		changed?: { id: string; title: string; status: string };
+		/** True when the call was a repeat of one already applied — nothing changed, by design. */
+		repeated?: boolean;
+		/** Why the call was refused, in the register's own words. */
+		refused?: string;
 	};
 	'code_graph': {
 		indexReady: boolean;

@@ -87,6 +87,7 @@ export interface AuditEvent {
 	actorId?: string;
 	action: 'prompt' | 'reply' | 'diff_preview' | 'apply' | 'undo' | 'rollback' | 'snapshot:create' | 'snapshot:restore' | 'snapshot:discard' | 'git:stash' | 'git:stash:restore' | 'skill_suggestion'
 	| 'plan_started' | 'plan_step_completed' | 'plan_failed' | 'plan_resumed'
+	| 'task_created' | 'task_transitioned'
 	| 'advisory_territorial_lock'
 	| 'circuit_breaker_opened' | 'circuit_breaker_recovered'
 	| 'subagent_spawned' | 'subagent_completed' | 'agent_route_started'

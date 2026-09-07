@@ -229,17 +229,58 @@ body.vibeide-chat-zen .vibe-chat-landing > *:not(:first-child) {
 	display: none !important;
 }
 
-/* Zen mode landing: constrain the input wrapper to a readable width and center it both axes.
- * The parent .vibe-chat-landing is a flex column, so justify-content centers vertically and
- * align-self centers the (only-visible) child horizontally. */
+/* Zen mode landing: center what is left vertically; the width comes from the shared rule below. */
 body.vibeide-chat-zen .vibe-chat-landing {
 	justify-content: center;
 }
 
-body.vibeide-chat-zen .vibe-chat-landing > *:first-child {
-	max-width: 600px;
+/* Развёрнутый чат: содержимое в колонке, а не во всю ширину окна.
+ *
+ * Растянутый на 1800 пикселей чат читать нельзя — строка уезжает за пределы взгляда, и глаз теряет
+ * начало следующей. Поэтому оба режима («развернуть» и «дзен») отдают панели всю ширину, а внутри
+ * держат колонку постоянной ширины по центру. Ширина живёт в переменной, потому что её меняют
+ * перетаскиванием и запоминают между сеансами: 900 подходит для чтения, но не всем и не всегда. */
+body.vibeide-chat-wide {
+	--vibeide-chat-wide-width: 900px;
+}
+
+body.vibeide-chat-wide .vibe-chat-landing > *:first-child,
+body.vibeide-chat-wide .vibe-chat-scroll-root > * {
+	max-width: var(--vibeide-chat-wide-width);
 	width: 100%;
 	align-self: center;
+	margin-left: auto;
+	margin-right: auto;
+}
+
+/* Полоса перетаскивания вдоль правого края колонки. Узкая, невидимая в покое и заметная под
+ * курсором: постоянная линия посреди пустого поля выглядела бы как граница чего-то. */
+.vibeide-chat-wide-resizer {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 10px;
+	cursor: ew-resize;
+	z-index: 20;
+	background: transparent;
+}
+
+.vibeide-chat-wide-resizer::after {
+	content: '';
+	position: absolute;
+	top: 12px;
+	bottom: 12px;
+	left: 4px;
+	width: 2px;
+	border-radius: 1px;
+	background: var(--vscode-sash-hoverBorder);
+	opacity: 0;
+	transition: opacity 120ms ease;
+}
+
+.vibeide-chat-wide-resizer:hover::after,
+.vibeide-chat-wide-resizer.vibeide-chat-wide-resizing::after {
+	opacity: 1;
 }
 
 /* HISTORY composite header: hide the auxiliary-bar maximize toggle (codicon-auxiliarybar-maximize)
@@ -1395,4 +1436,67 @@ body.monaco-workbench,
 .vibeide-brain-command-center-item .vibeide-brain-glyph svg {
 	width: 17px;
 	height: 17px;
+}
+
+/* Доска задач (панель «Задачи проекта»).
+   Плоский список с заголовками состояний, а не колонки: панель снизу узкая по высоте, и колонки в
+   ней превращаются в восемь полос по две строки. */
+.vibe-tasks-view {
+	padding: 8px 12px 12px;
+	overflow-y: auto;
+	height: 100%;
+	user-select: none;
+}
+
+.vibe-tasks-empty {
+	padding: 12px 4px;
+	opacity: 0.8;
+	line-height: 1.5;
+}
+
+.vibe-tasks-section {
+	margin-bottom: 12px;
+}
+
+.vibe-tasks-heading {
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	opacity: 0.7;
+	margin-bottom: 4px;
+}
+
+.vibe-tasks-row {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	padding: 4px 6px;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.vibe-tasks-row:hover,
+.vibe-tasks-row:focus {
+	background-color: var(--vscode-list-hoverBackground);
+	outline: none;
+}
+
+.vibe-tasks-row:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+}
+
+.vibe-tasks-title {
+	flex: 1 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Причина блокировки и «чего ждём» — второстепенный текст: он объясняет строку, но не спорит с ней
+   за внимание. */
+.vibe-tasks-note {
+	flex: 0 0 auto;
+	font-size: 11px;
+	opacity: 0.75;
+	color: var(--vscode-descriptionForeground);
 }
