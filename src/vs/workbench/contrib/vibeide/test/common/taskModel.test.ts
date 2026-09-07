@@ -6,7 +6,7 @@
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
-	blockingDependencies, canTransition, dependencyCycle, operationKeyOf, replayEvents,
+	blockingDependencies, canTransition, dependencyCycle, operationKeyOf, replayEvents, snapshotEvents,
 	Task, TaskEvent, TaskStatus,
 } from '../../common/taskLedger/taskModel.js';
 
@@ -151,5 +151,38 @@ suite('task ledger model', () => {
 		});
 		// `b` is done, so `a` no longer waits for it — the board is usable straight after a rotation.
 		assert.deepStrictEqual(blockingDependencies(tasks.get('a')!, tasks), []);
+	});
+
+	/**
+	 * Ротация журнала: что переживает архивацию.
+	 *
+	 * The property that matters is a round trip — the register rebuilt from a snapshot must be the
+	 * register that was snapshotted. An error here does not corrupt anything visibly; it empties the
+	 * board, which is the one thing a ledger exists not to do.
+	 */
+	test('a register survives a round trip through a snapshot', () => {
+		const before = replayEvents([
+			created('a', 'выпустить'), created('b', 'собрать'),
+			moved('a', 'planned'), moved('a', 'blocked', { blockedReason: 'ждёт ключ', operationKey: 'op-x' }),
+			moved('b', 'planned'), moved('b', 'ready'), moved('b', 'running'), moved('b', 'review'), moved('b', 'done'),
+		]).tasks;
+
+		const after = replayEvents(snapshotEvents(before.values())).tasks;
+
+		assert.deepStrictEqual(
+			[...after.values()].map(t => ({ id: t.id, title: t.title, status: t.status, reason: t.blockedReason, deps: t.dependencyIds })),
+			[...before.values()].map(t => ({ id: t.id, title: t.title, status: t.status, reason: t.blockedReason, deps: t.dependencyIds })),
+		);
+	});
+
+	/** Each snapshot event needs a key of its own, or the replay skips it as an already-seen retry. */
+	test('snapshot events do not collide with the operations that produced them', () => {
+		const { tasks } = replayEvents([created('a'), moved('a', 'planned')]);
+		const snapshot = snapshotEvents(tasks.values());
+		assert.strictEqual(snapshot.length, 1);
+		assert.notStrictEqual(snapshot[0].operationKey, 'op-a-inbox');
+		assert.notStrictEqual(snapshot[0].operationKey, 'op-a-planned');
+		// And replaying the snapshot twice is still one task: the key is stable for the same revision.
+		assert.strictEqual(replayEvents([...snapshot, ...snapshot]).tasks.size, 1);
 	});
 });

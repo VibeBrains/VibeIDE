@@ -17,7 +17,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IAuditLogService } from '../common/auditLogService.js';
 import { chainRecord, chainTailOf, verifyAuditChain, AUDIT_CHAIN_ROOT } from '../common/auditChain.js';
 import {
-	applyEvent, blockingDependencies, canTransition, dependencyCycle, operationKeyOf, replayEvents,
+	applyEvent, blockingDependencies, canTransition, dependencyCycle, operationKeyOf, replayEvents, snapshotEvents,
 	Task, TaskEvent, TaskStatus,
 } from '../common/taskLedger/taskModel.js';
 import { vibeLog } from '../common/vibeLog.js';
@@ -283,19 +283,11 @@ class VibeTaskLedgerService extends Disposable implements IVibeTaskLedgerService
 		// would make the fresh journal fail from its first line.
 		this._chainTail = AUDIT_CHAIN_ROOT;
 		const snapshot: string[] = [];
-		for (const task of this._tasks.values()) {
-			const event: TaskEvent = {
-				kind: 'created', taskId: task.id, at: task.updatedAt, actor: task.createdBy,
-				// A key of its own: the snapshot is not a repeat of the operation that created the
-				// task, and reusing that key would make the replay skip it as an already-seen retry.
-				operationKey: operationKeyOf('snapshot', task.id, task.revision),
-				to: task.status,
-				task: { title: task.title, dependencyIds: task.dependencyIds, createdBy: task.createdBy },
-				blockedReason: task.blockedReason,
-			};
+		for (const event of snapshotEvents(this._tasks.values())) {
 			const { line, hash } = chainRecord(event as unknown as object, this._chainTail);
 			snapshot.push(line);
 			this._chainTail = hash;
+			this._operationTasks.set(event.operationKey, event.taskId);
 		}
 		await this._fileService.writeFile(path, VSBuffer.fromString(snapshot.length ? snapshot.join('\n') + '\n' : ''));
 		vibeLog.debug('taskLedger', `журнал задач заархивирован в ${archive.path}, перенесено задач: ${snapshot.length}`);

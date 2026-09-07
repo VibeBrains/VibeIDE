@@ -12,6 +12,9 @@ import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 import { ALLOWED_TRANSITIONS, Task, TaskStatus } from '../common/taskLedger/taskModel.js';
 import { IVibeTaskLedgerService } from './vibeTaskLedgerService.js';
+import { planToTaskRequests } from '../common/taskLedger/planToTasks.js';
+import { IChatThreadService } from './chatThreadService.js';
+import type { PlanStep } from '../common/chatThreadServiceTypes.js';
 
 /**
  * Команды реестра задач: завести работу, перевести её в другое состояние, проверить журнал.
@@ -199,6 +202,68 @@ function taskItem(task: Task, waiting: readonly string[] = []): TaskPickItem {
 	return { label: task.title, description: parts.join(' · '), taskId: task.id };
 }
 
+class VibeTasksFromPlanAction extends Action2 {
+
+	static readonly ID = 'vibeide.tasks.fromPlan';
+
+	constructor() {
+		super({
+			id: VibeTasksFromPlanAction.ID,
+			title: localize2('vibeide.tasks.fromPlan', 'Завести задачи из плана'),
+			category: VIBE_COMMAND_CATEGORY,
+			f1: true,
+		});
+	}
+
+	override async run(accessor: ServicesAccessor): Promise<void> {
+		const ledger = accessor.get(IVibeTaskLedgerService);
+		const threads = accessor.get(IChatThreadService);
+		const notification = accessor.get(INotificationService);
+
+		const thread = threads.state.allThreads[threads.state.currentThreadId];
+		// The most recent plan in the thread: an older one has already been superseded, and carrying
+		// over a plan the model itself abandoned would fill the register with retracted work.
+		const planMessage = [...(thread?.messages ?? [])].reverse()
+			.find(message => message.role === 'plan');
+		const steps: PlanStep[] | undefined = planMessage && 'steps' in planMessage && Array.isArray(planMessage.steps)
+			? planMessage.steps
+			: undefined;
+		if (!steps) {
+			notification.info(localize('vibeide.tasks.noPlan', 'В этом чате нет плана, из которого можно завести задачи.'));
+			return;
+		}
+
+		const requests = planToTaskRequests(steps);
+		if (requests.length === 0) {
+			// Said as a fact, not as a failure: a finished plan has nothing left to carry.
+			notification.info(localize('vibeide.tasks.planDone', 'В плане нет незавершённых шагов — переносить нечего.'));
+			return;
+		}
+
+		const idByStep = new Map<number, string>();
+		let created = 0;
+		for (const request of requests) {
+			const result = await ledger.create({
+				title: request.title,
+				// Dependencies by position: a plan is a sequence, and losing that turns it into a pile.
+				dependencyIds: request.afterStepNumbers.map(step => idByStep.get(step)).filter((id): id is string => !!id),
+				actor: 'human',
+			});
+			if (result.ok) {
+				idByStep.set(request.stepNumber, result.task.id);
+				created++;
+			} else {
+				notification.error(result.error);
+				break;
+			}
+		}
+		if (created > 0) {
+			notification.info(localize('vibeide.tasks.fromPlanDone', 'Заведено задач: {0}. Они ждут друг друга в том же порядке, что шаги плана.', created));
+		}
+	}
+}
+
 registerAction2(VibeTaskCreateAction);
+registerAction2(VibeTasksFromPlanAction);
 registerAction2(VibeTaskMoveAction);
 registerAction2(VibeTaskVerifyAction);

@@ -236,3 +236,39 @@ export function replayEvents(events: readonly TaskEvent[]): ReplayResult {
 	}
 	return { tasks, rejected, operationKeys };
 }
+
+/**
+ * События, которыми реестр восстанавливается после ротации журнала.
+ *
+ * WHY it exists: rotation archives the history and starts a fresh file, and loading reads only the
+ * current one. Writing an empty file there would empty the board — so the new file opens with each
+ * task recreated in the state it is in.
+ *
+ * WHAT IS LOST, said plainly: the path a task took to get here. That stays in the archive. What is
+ * kept is everything the board and the agent read — status, title, dependencies, the reason it is
+ * blocked.
+ *
+ * THE LIMIT OF IDEMPOTENCY, also plainly: these events carry keys of their own, so the keys of the
+ * original `create` and `transition` operations do not survive into the new file. A retry of an
+ * operation from before the rotation would therefore create a duplicate rather than being
+ * recognised. In practice an `intent` is generated per request and a restart makes a new one, so
+ * this is a boundary worth naming rather than a hazard worth engineering around.
+ */
+export function snapshotEvents(tasks: Iterable<Task>): TaskEvent[] {
+	const events: TaskEvent[] = [];
+	for (const task of tasks) {
+		events.push({
+			kind: 'created',
+			taskId: task.id,
+			at: task.updatedAt,
+			actor: task.createdBy,
+			// A key of its own: reusing the original would make the replay skip this event as a retry
+			// that already landed — and the task would vanish exactly when it was being rescued.
+			operationKey: operationKeyOf('snapshot', task.id, task.revision),
+			to: task.status,
+			task: { title: task.title, dependencyIds: task.dependencyIds, createdBy: task.createdBy },
+			blockedReason: task.blockedReason,
+		});
+	}
+	return events;
+}
