@@ -71,17 +71,20 @@ export function resolveToolNameCollisions(
 	serverNameOf?: (tool: InternalToolInfo) => string | undefined,
 ): CollisionResult {
 	const collisions: ToolCollision[] = [];
-	// Every name already spoken for: built-ins first, then each tool as it is accepted, so a rename
-	// cannot collide with a name taken later in the same list.
-	const taken = new Set<string>(builtinNames);
 	const out: InternalToolInfo[] = [];
+	// Every name already spoken for. Seeded with the built-ins so the rule needs no second thought:
+	// a name a built-in owns is taken before the loop starts, whether or not that built-in is in
+	// this particular list.
+	const taken = new Set<string>(builtinNames);
+	// Built-ins pass through untouched, so they are recognised by identity of name rather than by
+	// looking back at what has already been decided.
+	const seenBuiltins = new Set<string>();
 
 	for (const tool of tools) {
-		const isBuiltin = builtinNames.has(tool.name) && !collisions.some(c => c.requested === tool.name);
-		if (isBuiltin && !out.some(existing => existing.name === tool.name)) {
-			// The built-in itself, on its first appearance.
+		if (builtinNames.has(tool.name) && !seenBuiltins.has(tool.name)) {
+			// The built-in itself, on its first appearance: it keeps its name by definition.
+			seenBuiltins.add(tool.name);
 			out.push(tool);
-			taken.add(tool.name);
 			continue;
 		}
 		if (!taken.has(tool.name)) {

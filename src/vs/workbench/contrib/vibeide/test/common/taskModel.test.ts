@@ -120,4 +120,36 @@ suite('task ledger model', () => {
 		assert.notStrictEqual(first, operationKeyOf('create', 'intent-1', { title: 'b' }));
 		assert.notStrictEqual(first, operationKeyOf('transition', 'intent-1', { title: 'a' }));
 	});
+
+	/**
+	 * What a rotated journal replays: each task recreated in the state it was in.
+	 *
+	 * The snapshot is written as `created` events because that is what an empty file can be read
+	 * from — and a blocked task must come back with its reason, or the board shows a state nobody
+	 * can act on.
+	 */
+	test('a task can be recreated in any state, reason included', () => {
+		const snapshot: TaskEvent[] = [
+			event({
+				kind: 'created', taskId: 'a', to: 'blocked', blockedReason: 'ждёт ключ API',
+				task: { title: 'выпустить', dependencyIds: ['b'], createdBy: 'human' },
+			}),
+			event({ kind: 'created', taskId: 'b', to: 'done', task: { title: 'собрать', dependencyIds: [], createdBy: 'agent' } }),
+		];
+		const { tasks, rejected } = replayEvents(snapshot);
+		assert.deepStrictEqual(rejected, []);
+		assert.deepStrictEqual({
+			статусA: tasks.get('a')?.status,
+			причинаA: tasks.get('a')?.blockedReason,
+			зависимостиA: tasks.get('a')?.dependencyIds,
+			статусB: tasks.get('b')?.status,
+		}, {
+			статусA: 'blocked',
+			причинаA: 'ждёт ключ API',
+			зависимостиA: ['b'],
+			статусB: 'done',
+		});
+		// `b` is done, so `a` no longer waits for it — the board is usable straight after a rotation.
+		assert.deepStrictEqual(blockingDependencies(tasks.get('a')!, tasks), []);
+	});
 });

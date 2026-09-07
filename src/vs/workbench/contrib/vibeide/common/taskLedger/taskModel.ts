@@ -177,6 +177,10 @@ export function applyEvent(tasks: ReadonlyMap<string, Task>, event: TaskEvent): 
 			title: event.task?.title ?? event.taskId,
 			status: event.to,
 			dependencyIds: event.task?.dependencyIds ?? [],
+			// Carried on creation too, not only on a transition: a snapshot written when the journal
+			// rotates recreates a task in whatever state it was in, and a blocked task without its
+			// reason is a task nobody can act on.
+			blockedReason: event.to === 'blocked' ? event.blockedReason : undefined,
 			createdBy: event.task?.createdBy ?? event.actor,
 			createdAt: event.at,
 			updatedAt: event.at,

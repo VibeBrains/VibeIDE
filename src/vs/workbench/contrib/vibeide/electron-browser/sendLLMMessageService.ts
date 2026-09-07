@@ -297,6 +297,11 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			try {
 				// Measured by structure, not by `JSON.stringify().length`: that counted a base64
 				// screenshot as prose and read one image as tens of thousands of tokens.
+				//
+				// Counted on what WE assembled, while the provider prices what the adapter finally
+				// sent — the two differ by whatever the transport adds or drops. That drift is why the
+				// learned price is banded: a measurement outside plausible bounds is thrown away rather
+				// than blamed on the image.
 				promptShape = shapeOfPrompt(proxyParams.messages as readonly unknown[]);
 				const sysExtra = (proxyParams.separateSystemMessage?.length ?? 0);
 				const imageTokens = this.imageCostService.costFor(modelSelection.providerName, modelSelection.modelName);

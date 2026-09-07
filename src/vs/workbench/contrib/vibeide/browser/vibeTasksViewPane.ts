@@ -90,6 +90,11 @@ export class VibeTasksViewPane extends ViewPane {
 			return;
 		}
 		const tasks = await this._ledger.tasks();
+		// Everything the rows need, fetched at once. Asking per row meant a hundred tasks were a
+		// hundred waits in a row, each for an answer the register already had in memory.
+		const waitingByTask = new Map(await Promise.all(
+			tasks.map(async task => [task.id, await this._ledger.waitingFor(task.id)] as const),
+		));
 		this._rowListeners.clear();
 		DOM.clearNode(body);
 
@@ -117,12 +122,12 @@ export class VibeTasksViewPane extends ViewPane {
 			const heading = DOM.append(section, $('.vibe-tasks-heading'));
 			heading.textContent = `${COLUMN_TITLES[status]} · ${column.length}`;
 			for (const task of column) {
-				await this._renderTask(section, task);
+				this._renderTask(section, task, waitingByTask.get(task.id) ?? []);
 			}
 		}
 	}
 
-	private async _renderTask(parent: HTMLElement, task: Task): Promise<void> {
+	private _renderTask(parent: HTMLElement, task: Task, waiting: readonly string[]): void {
 		const row = DOM.append(parent, $('.vibe-tasks-row'));
 		row.tabIndex = 0;
 		row.setAttribute('role', 'button');
@@ -130,7 +135,6 @@ export class VibeTasksViewPane extends ViewPane {
 		const title = DOM.append(row, $('.vibe-tasks-title'));
 		title.textContent = task.title;
 
-		const waiting = await this._ledger.waitingFor(task.id);
 		if (waiting.length > 0 || task.blockedReason) {
 			const note = DOM.append(row, $('.vibe-tasks-note'));
 			// What it waits for, in words the reader can act on — a count answers nothing.

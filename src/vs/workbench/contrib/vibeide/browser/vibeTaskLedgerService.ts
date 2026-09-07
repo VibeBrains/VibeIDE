@@ -253,6 +253,17 @@ class VibeTaskLedgerService extends Disposable implements IVibeTaskLedgerService
 		return { ok: true, task, repeated: false };
 	}
 
+	/**
+	 * Заархивировать журнал и начать новый — со снапшота, а не с пустоты.
+	 *
+	 * The archive keeps the history; the register keeps the work. Writing an empty file here looked
+	 * harmless and was not: loading reads only the current file, so the first rotation would have
+	 * quietly emptied the board — breaking the one thing a ledger promises over a chat plan.
+	 *
+	 * The snapshot is written as `created` events carrying each task's CURRENT status, which is
+	 * exactly how the replay reads them back. What is lost is the path a task took to get there, and
+	 * that is the honest trade: the journey stays in the archive, the state stays usable.
+	 */
 	private async _rotateIfNeeded(path: URI): Promise<void> {
 		const stat = await this._fileService.stat(path).catch(() => undefined);
 		if (!stat?.size || stat.size < MAX_LEDGER_MB * 1024 * 1024) {
@@ -267,11 +278,27 @@ class VibeTaskLedgerService extends Disposable implements IVibeTaskLedgerService
 		if (content) {
 			await this._fileService.writeFile(archive, content.value);
 		}
-		await this._fileService.writeFile(path, VSBuffer.fromString(''));
-		// The chain restarts here: the archived part is verified on its own, and linking across files
-		// would make a fresh journal fail from its first line.
+
+		// The chain restarts here: the archived part verifies on its own, and linking across files
+		// would make the fresh journal fail from its first line.
 		this._chainTail = AUDIT_CHAIN_ROOT;
-		vibeLog.debug('taskLedger', `журнал задач заархивирован в ${archive.path}`);
+		const snapshot: string[] = [];
+		for (const task of this._tasks.values()) {
+			const event: TaskEvent = {
+				kind: 'created', taskId: task.id, at: task.updatedAt, actor: task.createdBy,
+				// A key of its own: the snapshot is not a repeat of the operation that created the
+				// task, and reusing that key would make the replay skip it as an already-seen retry.
+				operationKey: operationKeyOf('snapshot', task.id, task.revision),
+				to: task.status,
+				task: { title: task.title, dependencyIds: task.dependencyIds, createdBy: task.createdBy },
+				blockedReason: task.blockedReason,
+			};
+			const { line, hash } = chainRecord(event as unknown as object, this._chainTail);
+			snapshot.push(line);
+			this._chainTail = hash;
+		}
+		await this._fileService.writeFile(path, VSBuffer.fromString(snapshot.length ? snapshot.join('\n') + '\n' : ''));
+		vibeLog.debug('taskLedger', `журнал задач заархивирован в ${archive.path}, перенесено задач: ${snapshot.length}`);
 	}
 
 	private async _readLines(): Promise<string[]> {
