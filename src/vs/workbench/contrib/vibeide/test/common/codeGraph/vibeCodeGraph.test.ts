@@ -134,6 +134,36 @@ suite('Code graph — pure core', () => {
 		test('no call edges are invented', () => {
 			assert.deepStrictEqual(buildCodeGraph(files).edges.filter(edge => edge.kind === 'calls'), []);
 		});
+
+		/**
+		 * Наследование. The base class routinely lives in a file the builder has not reached yet, so
+		 * the pass runs after every declaration is a node — a one-pass version would silently drop
+		 * exactly the cross-file edges that make the question worth asking.
+		 */
+		test('inheritance links to the file that declares the base, whatever the order', () => {
+			const graph = buildCodeGraph([
+				{ path: '/p/Invoice.php', symbols: [{ name: 'Invoice', bases: ['\\App\\Billing\\Document', 'Serializable'] }] },
+				{ path: '/p/Document.php', symbols: [{ name: 'Document' }] },
+			]);
+			assert.deepStrictEqual(
+				graph.edges.filter(e => e.kind === 'extends'),
+				// `Serializable` is not declared in the project — an edge to a node that does not exist
+				// would be a claim we cannot support, so there is none.
+				[{ from: 'symbol:/p/Invoice.php#Invoice', to: 'symbol:/p/Document.php#Document', kind: 'extends', provenance: 'extracted' }],
+			);
+		});
+
+		test('two classes of one name make the inheritance edge ambiguous, not absent', () => {
+			const graph = buildCodeGraph([
+				{ path: '/p/a/Child.php', symbols: [{ name: 'Child', bases: ['Base'] }] },
+				{ path: '/p/b/Base.php', symbols: [{ name: 'Base' }] },
+				{ path: '/p/c/Base.php', symbols: [{ name: 'Base' }] },
+			]);
+			assert.deepStrictEqual(
+				graph.edges.filter(e => e.kind === 'extends').map(e => [e.to, e.provenance]),
+				[['symbol:/p/b/Base.php#Base', 'ambiguous']],
+			);
+		});
 	});
 
 	suite('queries', () => {

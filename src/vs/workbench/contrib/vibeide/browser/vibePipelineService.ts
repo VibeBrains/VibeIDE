@@ -27,11 +27,13 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
-import { isSubagentType, IVibeSubagentService, SUBAGENT_TYPES } from '../common/vibeSubagentService.js';
+import { isSubagentType, IVibeSubagentService, SUBAGENT_TYPES, SubagentType } from '../common/vibeSubagentService.js';
+import { ProviderId } from '../common/vibeideSettingsTypes.js';
 import { vibeLog } from '../common/vibeLog.js';
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 import {
 	buildStepInput,
+	parseModelRef,
 	parsePipelineFile,
 	PipelineStepOutcome,
 	shouldRunStep,
@@ -135,23 +137,46 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 					if (!isSubagentType(step.role)) {
 						throw new Error(localize('vibeide.pipeline.badRole', 'Неизвестная роль «{0}». Доступны: {1}', step.role, SUBAGENT_TYPES.join(', ')));
 					}
-					const subagentId = await this._subagents.spawn({
-						parentThreadId,
-						type: step.role,
-						goal: input.goal,
-						...(step.acceptance ? { acceptanceCriteria: step.acceptance } : {}),
-						...(input.contextItems.length > 0 ? { contextItems: [...input.contextItems] } : {}),
-						...(step.maxTokens !== undefined ? { maxTokens: step.maxTokens } : {}),
-						...(step.maxSteps !== undefined ? { maxSteps: step.maxSteps } : {}),
-					});
-					const result = await this._subagents.awaitResult(subagentId);
+					const runStep = async (modelRef: string | undefined, cascadeDraft: boolean, escalatedFrom?: { runId: string; model: string }) => {
+						const model = parseModelRef(modelRef);
+						const subagentId = await this._subagents.spawn({
+							parentThreadId,
+							type: step.role as SubagentType,
+							goal: input.goal,
+							...(step.acceptance ? { acceptanceCriteria: step.acceptance } : {}),
+							...(input.contextItems.length > 0 ? { contextItems: [...input.contextItems] } : {}),
+							...(step.maxTokens !== undefined ? { maxTokens: step.maxTokens } : {}),
+							...(step.maxSteps !== undefined ? { maxSteps: step.maxSteps } : {}),
+							...(model ? { modelSelection: { providerName: model.providerName as ProviderId, modelName: model.modelName } } : {}),
+							...(cascadeDraft ? { cascadeDraft: true } : {}),
+							...(escalatedFrom ? { escalatedFrom } : {}),
+						});
+						const result = await this._subagents.awaitResult(subagentId);
+						this._subagents.disposeSubagent(subagentId);
+						return { subagentId, result };
+					};
+
+					// Cascade: the cheap model drafts, and the step's own outcome is the gate. Asking a
+					// model whether its answer was good enough gets an answer shaped like «yes», so the
+					// gate is the run's verdict — the acceptance check and the tools that ran it.
+					const drafting = step.escalateTo !== undefined;
+					const first = await runStep(step.model, drafting);
+					let result = first.result;
+					let escalated = false;
+					if (drafting && result.status !== 'success' && !cancellation.token.isCancellationRequested) {
+						vibeLog.info('Pipeline', `${pipelineId} шаг ${i + 1}: черновик не прошёл, эскалация на ${step.escalateTo}`);
+						this._onProgress.fire({ pipelineId, stepIndex: i, totalSteps: pipeline.steps.length, role: step.role, state: 'started' });
+						const second = await runStep(step.escalateTo, false, { runId: first.subagentId, model: step.model ?? '' });
+						result = second.result;
+						escalated = true;
+					}
 					outcomes.push({
 						role: step.role,
 						status: result.status,
 						summary: result.summary,
 						artifacts: result.artifacts ?? [],
+						...(escalated ? { escalatedTo: step.escalateTo } : {}),
 					});
-					this._subagents.disposeSubagent(subagentId);
 				} catch (err) {
 					// A step that could not even start is a failed step, not a crashed pipeline: the
 					// outcomes collected so far are the user's answer to "what did it manage to do".

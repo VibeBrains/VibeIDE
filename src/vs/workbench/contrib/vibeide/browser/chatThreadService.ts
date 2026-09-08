@@ -82,6 +82,7 @@ import { QueryMetrics } from './repoIndexerService.js';
 import { getActiveWindow } from '../../../../base/browser/dom.js';
 
 import { IAuditLogService } from '../common/auditLogService.js';
+import { IVibeToolContextCostService } from './vibeToolContextCostService.js';
 import { IVibeAgentActivityLogService } from './vibeAgentActivityLogService.js';
 import { IVibeLLMJudgeService } from '../common/vibeLLMJudgeService.js';
 import { IVibePersistedPlanService } from '../common/vibePersistedPlanService.js';
@@ -1051,6 +1052,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IModelService private readonly _modelService: IModelService,
 		@ICommandService private readonly _commandService: ICommandService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
+		@IVibeToolContextCostService private readonly _toolContextCostService: IVibeToolContextCostService,
 		@IVibeAgentActivityLogService private readonly _agentActivityLog: IVibeAgentActivityLogService,
 		@IVibeLLMJudgeService private readonly _llmJudgeService: IVibeLLMJudgeService,
 		@IWorkbenchEnvironmentService private readonly _environmentService: IWorkbenchEnvironmentService,
@@ -4852,6 +4854,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, _toolOk, threadId, Date.now() - _toolExecStartMs);
 		this._updateLatestTool(threadId, { role: 'tool', type: 'success', params: toolParams, result: toolResult, name: toolName, content: toolResultStr, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
 		this._agentActivityLog.logFinished(toolActivityLabel);
+		// What this result will cost from here on. Measured after compression and hook notes, because
+		// that is the string the model actually carries — the raw one was never sent.
+		this._toolContextCostService.noteResult(toolName, toolResultStr.length);
 
 		// Cache read_file results to prevent duplicate reads
 		if (toolName === 'read_file' && isBuiltInTool) {
@@ -6251,6 +6256,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// requests tool_choice=required so a weak caller can't return prose again.
 				const forceThisTurn = forceToolUseNextTurn;
 				forceToolUseNextTurn = false;
+				// Everything the tools have left in the window is about to be paid for again. This is
+				// the moment the re-billing happens, so this is where it is counted.
+				this._toolContextCostService.noteRoundTrip();
 				const llmCancelToken = this._llmMessageService.sendLLMMessage({
 					messagesType: 'chatMessages',
 					chatMode,
@@ -7244,6 +7252,8 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					// policy scripts) run here rather than being described to the model in a rule.
 					// A refusal is delivered as a message the agent must answer, not as a block —
 					// the turn is already over, and stopping it retroactively is not a thing.
+					// The turn's context is done being re-sent: stop charging its tool results.
+					this._toolContextCostService.noteTurnEnd();
 					const turnHooks = await this._hooksService.run('turnEnd', { changedFiles: [...touchedPathsThisRun] });
 					if (turnHooks.agentMessage) {
 						this._addMessageToThread(threadId, { role: 'assistant', displayContent: `🪝 ПРОВЕРКА ПРОЕКТА\n\n${turnHooks.agentMessage}`, reasoning: '', anthropicReasoning: null });

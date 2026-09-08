@@ -163,6 +163,14 @@ export interface IVibeCodeIndexService {
 	 */
 	/** What the index currently holds, per language — for the «состояние индекса» command. */
 	status(): readonly IndexStatus[];
+	/**
+	 * Everything already indexed, file by file. Synchronous, and never starts a scan.
+	 *
+	 * For readers that want to project what is known rather than ask a question — the code graph
+	 * builds inheritance edges out of this. Triggering a walk here would turn opening a graph into a
+	 * multi-minute scan of a repository the caller never asked about.
+	 */
+	declarations(): ReadonlyMap<string, readonly CodeSymbol[]>;
 	/** Throw the index away so the next request rebuilds it from disk. */
 	rebuild(): void;
 	/**
@@ -302,6 +310,18 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 				}
 			}
 		}));
+	}
+
+	declarations(): ReadonlyMap<string, readonly CodeSymbol[]> {
+		const byFile = new Map<string, readonly CodeSymbol[]>();
+		for (const index of this._indexes.values()) {
+			for (const [file, symbols] of index.symbols.byFile) {
+				// One file belongs to one language, so no merge is needed — and if a repository ever
+				// managed two, the later language would be as right as the earlier one.
+				byFile.set(file, symbols);
+			}
+		}
+		return byFile;
 	}
 
 	status(): readonly IndexStatus[] {

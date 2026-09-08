@@ -281,3 +281,97 @@ export function scanMcpConfig(servers: Record<string, MCPConfigFileEntryJSON> | 
 	}
 	return findings;
 }
+
+// --- .vibe/skills/**/SKILL.md ------------------------------------------------------------------
+
+/**
+ * Instructions that try to talk the agent out of the user's own rules.
+ *
+ * A skill is untrusted prose that goes into the system context verbatim, so the classic
+ * prompt-injection openers matter here in a way they do not in ordinary project files. Matching is
+ * deliberately narrow — imperative phrases aimed at the agent — because a skill ABOUT prompt
+ * injection is a legitimate thing to write, and a guard that cries at the word «ignore» would be
+ * turned off within a day.
+ */
+const SKILL_OVERRIDE_PHRASES: readonly RegExp[] = [
+	/\bignore (?:all |any )?(?:previous|prior|above|preceding) (?:instructions|rules|prompts)\b/i,
+	/\bdisregard (?:all |any )?(?:previous|prior|the) (?:instructions|rules|system prompt)\b/i,
+	// NOTE: no `\b` around the Russian alternatives. In JavaScript `\w` and `\b` are ASCII-only
+	// without the `u` flag, so a boundary before «без» never matches — a space and a Cyrillic letter
+	// are both non-word characters to the engine. The rule silently never fired until a test caught
+	// it; the phrases below are anchored by their own words instead.
+	/(?:игнорируй|забудь|отмени)\s+(?:все\s+)?(?:предыдущие|прежние|данные ранее)\s+(?:инструкции|правила|указания)/i,
+	/(?:не\s+спрашивай|без)\s+подтвержден[а-яё]*/i,
+	/\bwithout asking (?:the user |for )?(?:permission|confirmation)\b/i,
+	/\bdo not (?:tell|inform|mention to) the user\b/i,
+	/не\s+сообщай\s+пользователю/i,
+];
+
+/** What a skill declares about itself, as the library parsed it. */
+export interface SkillGuardInput {
+	readonly skillId: string;
+	/** Path inside the skill directory to a validation script, exactly as written. */
+	readonly precheck?: string;
+	/** Frontmatter fields as strings, for the secret check. */
+	readonly frontmatter?: Readonly<Record<string, string>>;
+	/** The prose handed to the model. */
+	readonly body: string;
+}
+
+/**
+ * Scan skills before their text reaches the model.
+ *
+ * WHY skills need this at all: everything else the guard covers is configuration the user wrote,
+ * while a skill is routinely someone else's — the format is a shared standard, and «скилл,
+ * написанный для другого агента, работает и здесь» is a feature we advertise. That makes a skill
+ * the one artefact in `.vibe/` that arrives from outside and is fed to the model verbatim.
+ *
+ * The checks stay narrow on purpose. This is not a content filter and cannot be one: it reports the
+ * three shapes that are hard to explain away — a precheck escaping its own directory, a literal
+ * secret, and instructions aimed at overriding the user — and leaves judgement to the person.
+ */
+export function scanSkills(skills: readonly SkillGuardInput[]): ConfigGuardFinding[] {
+	const findings: ConfigGuardFinding[] = [];
+	for (const skill of skills) {
+		const id = skill.skillId;
+
+		const precheck = skill.precheck?.trim();
+		if (precheck && (precheck.startsWith('/') || precheck.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(precheck) || precheck.split(/[\\/]/).includes('..'))) {
+			findings.push({
+				ruleId: 'skill-precheck-escapes', severity: 'critical', subject: id,
+				message: `Скилл «${id}»: precheck указывает за пределы своей папки («${precheck}») — путь к чужому скрипту, а не к проверке скилла.`,
+			});
+		}
+
+		for (const [name, value] of stringEntries(skill.frontmatter)) {
+			if (isEmbeddedSecret(name, value)) {
+				findings.push({
+					ruleId: 'skill-embedded-secret', severity: 'critical', subject: id,
+					message: `Скилл «${id}»: поле «${name}» содержит секрет в открытом виде.`,
+				});
+			}
+		}
+		if (SECRET_VALUE_PATTERNS.some(re => re.test(skill.body))) {
+			findings.push({
+				ruleId: 'skill-embedded-secret', severity: 'critical', subject: id,
+				message: `Скилл «${id}»: в тексте скилла лежит ключ вендора в открытом виде — он уедет в модель вместе со скиллом.`,
+			});
+		}
+
+		if (REMOTE_PIPE.test(skill.body)) {
+			findings.push({
+				ruleId: 'skill-remote-execution', severity: 'high', subject: id,
+				message: `Скилл «${id}»: предлагает агенту скачать и выполнить удалённый скрипт (curl … | sh).`,
+			});
+		}
+
+		const override = SKILL_OVERRIDE_PHRASES.find(re => re.test(skill.body));
+		if (override) {
+			findings.push({
+				ruleId: 'skill-override-instructions', severity: 'medium', subject: id,
+				message: `Скилл «${id}»: содержит указание обойти ваши правила или скрыть действие от вас — прочитайте текст скилла перед использованием.`,
+			});
+		}
+	}
+	return findings;
+}

@@ -47,6 +47,40 @@ export interface VibePipelineStep {
 	readonly continueOnFailure?: boolean;
 	/** Do not hand this step the previous artifacts (a deliberately fresh pair of eyes). */
 	readonly ignorePreviousArtifacts?: boolean;
+	/**
+	 * Model this step runs on, as `провайдер/модель`. Absent = whatever the role resolves to.
+	 *
+	 * Exists for the cheap half of a cascade: the point of drafting with a small model is lost if
+	 * the step silently uses the same model as everything else.
+	 */
+	readonly model?: string;
+	/**
+	 * Stronger model to retry this step with, once, if it does not succeed.
+	 *
+	 * The gate is the step's own outcome — a failed run, a refused acceptance check, a red
+	 * verify-gate — not a model's opinion of itself. Asking a model whether its answer is good
+	 * enough gets an answer shaped like «yes».
+	 */
+	readonly escalateTo?: string;
+}
+
+/**
+ * `провайдер/модель` → the pair, or nothing.
+ *
+ * A bare model name is rejected on purpose: the same id exists at several providers at different
+ * prices, and guessing which one was meant is guessing with the user's money.
+ */
+export function parseModelRef(ref: string | undefined): { readonly providerName: string; readonly modelName: string } | undefined {
+	if (typeof ref !== 'string') {
+		return undefined;
+	}
+	const slash = ref.indexOf('/');
+	if (slash <= 0 || slash === ref.length - 1) {
+		return undefined;
+	}
+	const providerName = ref.slice(0, slash).trim();
+	const modelName = ref.slice(slash + 1).trim();
+	return providerName && modelName ? { providerName, modelName } : undefined;
 }
 
 export interface VibePipeline {
@@ -152,6 +186,14 @@ function parseStep(raw: unknown): { ok: true; value: VibePipelineStep } | { ok: 
 	};
 	const maxTokens = positive('maxTokens');
 	const maxSteps = positive('maxSteps');
+	// A malformed model reference is a hard error for the step, not a field quietly dropped: the
+	// alternative is a step that runs on the role's default model while the file says otherwise —
+	// and the whole point of naming a model here is that a cheap draft is actually cheap.
+	for (const key of ['model', 'escalateTo'] as const) {
+		if (s[key] !== undefined && !parseModelRef(s[key] as string | undefined)) {
+			return { ok: false, reason: `поле ${key} должно быть «провайдер/модель»` };
+		}
+	}
 	return {
 		ok: true,
 		value: {
@@ -162,6 +204,8 @@ function parseStep(raw: unknown): { ok: true; value: VibePipelineStep } | { ok: 
 			...(maxSteps !== undefined ? { maxSteps } : {}),
 			...(s['continueOnFailure'] === true ? { continueOnFailure: true } : {}),
 			...(s['ignorePreviousArtifacts'] === true ? { ignorePreviousArtifacts: true } : {}),
+			...(parseModelRef(s['model'] as string | undefined) ? { model: (s['model'] as string).trim() } : {}),
+			...(parseModelRef(s['escalateTo'] as string | undefined) ? { escalateTo: (s['escalateTo'] as string).trim() } : {}),
 		},
 	};
 }
@@ -172,6 +216,8 @@ export interface PipelineStepOutcome {
 	readonly status: 'success' | 'failed' | 'stopped' | 'skipped';
 	readonly summary: string;
 	readonly artifacts: readonly string[];
+	/** Set when the cheap draft did not pass and the step was retried on this model. */
+	readonly escalatedTo?: string;
 }
 
 export interface PipelineStepInput {

@@ -14,6 +14,7 @@ import { ILanguageFeaturesService } from '../../../../../editor/common/services/
 import { ITextModelService } from '../../../../../editor/common/services/resolverService.js';
 import { DocumentSymbol } from '../../../../../editor/common/languages.js';
 import { IRepoIndexerService } from '../repoIndexerService.js';
+import { IVibeCodeIndexService } from '../vibeCodeIndexService.js';
 import {
 	buildCodeGraph,
 	CodeGraph,
@@ -72,6 +73,7 @@ class VibeCodeGraphService extends Disposable implements IVibeCodeGraphService {
 
 	constructor(
 		@IRepoIndexerService private readonly _indexer: IRepoIndexerService,
+		@IVibeCodeIndexService private readonly _codeIndex: IVibeCodeIndexService,
 		@IFileService private readonly _files: IFileService,
 		@ITextModelService private readonly _models: ITextModelService,
 		@ILanguageFeaturesService private readonly _languageFeatures: ILanguageFeaturesService,
@@ -113,7 +115,47 @@ class VibeCodeGraphService extends Disposable implements IVibeCodeGraphService {
 
 	/** Index snapshot → graph input. Paths are plain fs paths so node ids stay readable. */
 	private _structuralInputs(): CodeGraphFileInput[] {
-		return this._indexer.listStructure().map(entry => toInput(entry.uri, entry.symbols, entry.importedFrom));
+		return this._withInheritance(this._indexer.listStructure().map(entry => toInput(entry.uri, entry.symbols, entry.importedFrom)));
+	}
+
+	/**
+	 * Attach what the navigation index knows about inheritance.
+	 *
+	 * The repo indexer reports symbol NAMES; the navigation index parses the same files with a
+	 * grammar and knows which types each declaration extends. Both already exist, and the graph was
+	 * the only thing that could not see the second one — so «кто наследует этот класс» had to be
+	 * answered by grepping, in a product that had parsed the answer minutes earlier.
+	 *
+	 * Only files the navigation index actually holds are touched. It covers seven languages and the
+	 * repo indexer covers everything, so a file it never saw keeps exactly the input it had.
+	 */
+	private _withInheritance(inputs: CodeGraphFileInput[]): CodeGraphFileInput[] {
+		const declarations = this._codeIndex.declarations();
+		if (declarations.size === 0) {
+			return inputs;
+		}
+		return inputs.map(input => {
+			const parsed = declarations.get(input.path);
+			if (!parsed || parsed.length === 0) {
+				return input;
+			}
+			const basesOfName = new Map<string, readonly string[]>();
+			for (const symbol of parsed) {
+				if (symbol.bases && symbol.bases.length > 0) {
+					basesOfName.set(symbol.name, symbol.bases);
+				}
+			}
+			if (basesOfName.size === 0) {
+				return input;
+			}
+			// Names come from the repo indexer and stay its business: this only adds the bases, so a
+			// disagreement between the two indexes cannot make symbols appear or disappear.
+			const symbols = (input.symbols ?? []).map(symbol => {
+				const bases = basesOfName.get(symbol.name);
+				return bases ? { ...symbol, bases } : symbol;
+			});
+			return { ...input, symbols };
+		});
 	}
 
 	private async _enrichFile(input: CodeGraphFileInput, uri: URI): Promise<CodeGraphFileInput> {
