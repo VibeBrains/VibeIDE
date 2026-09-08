@@ -151,10 +151,22 @@ export function enclosingContainerOf(symbols: readonly CodeSymbol[], line: numbe
  * Names are matched as written — this layer resolves inheritance by NAME, like everything else here,
  * so two unrelated classes sharing a name are indistinguishable to it.
  */
-export function ancestryOf(typeName: string, basesByType: ReadonlyMap<string, readonly string[]>, maxDepth = 16): string[] {
+export function ancestryOf(
+	typeName: string,
+	basesByType: ReadonlyMap<string, readonly string[]>,
+	/**
+	 * How a name becomes a key.
+	 *
+	 * Identity by default; case-folding for languages that ignore case. Passed in rather than assumed:
+	 * without it the SECOND level of the chain is looked up under the spelling found in `extends`,
+	 * and a grandparent written in another case simply disappears from the ancestry.
+	 */
+	normalize: (name: string) => string = name => name,
+	maxDepth = 16,
+): string[] {
 	const chain: string[] = [];
 	const seen = new Set<string>();
-	let frontier: string[] = [typeName];
+	let frontier: string[] = [normalize(typeName)];
 
 	for (let depth = 0; depth < maxDepth && frontier.length > 0; depth++) {
 		const next: string[] = [];
@@ -166,7 +178,7 @@ export function ancestryOf(typeName: string, basesByType: ReadonlyMap<string, re
 			chain.push(name);
 			for (const base of basesByType.get(name) ?? []) {
 				// A qualified base (`\App\Base`) is indexed under its last segment.
-				const short = shortNameOf(base);
+				const short = normalize(shortNameOf(base));
 				if (short && !seen.has(short)) {
 					next.push(short);
 				}

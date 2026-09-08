@@ -335,13 +335,15 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 		if (!types) {
 			return [typeName];
 		}
+		// Keyed the language's way: PHP writes `extends swController` for `class SwController`, and a
+		// case-sensitive map would simply not find the parent.
 		const bases = new Map<string, readonly string[]>();
 		for (const [name, entry] of types) {
 			if (entry.symbol.bases?.length) {
-				bases.set(name, entry.symbol.bases);
+				bases.set(indexKeyOf(name, languageId), entry.symbol.bases);
 			}
 		}
-		return ancestryOf(typeName, bases);
+		return ancestryOf(typeName, bases, name => indexKeyOf(name, languageId));
 	}
 
 	/** Every type declaration of a language, by name. Built once per index. */
