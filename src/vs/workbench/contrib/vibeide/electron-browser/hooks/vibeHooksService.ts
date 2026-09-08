@@ -19,6 +19,7 @@ import { vibeLog } from '../../common/vibeLog.js';
 import { hooksFor, parseHookConfig, VibeHookConfig, VibeHookEvent } from '../../common/hooks/hookConfig.js';
 import { decideHooks, VibeHookDecision, verdictOf } from '../../common/hooks/hookOutcome.js';
 import { IVibeHooksMain, IVibeHooksService, VIBE_HOOKS_CHANNEL, VibeHookPayload, VibeHooksConfigKeys } from '../../common/hooks/vibeHookTypes.js';
+import { recordToolCall, ToolTrailEntry, trailView } from '../../common/hooks/toolCallTrail.js';
 
 const HOOKS_FILE = ['.vibe', 'hooks.json'];
 
@@ -43,6 +44,9 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 	private _cached: Promise<VibeHookConfig> | undefined;
 	/** Problems already told to the user — a broken hook must not nag on every tool call. */
 	private readonly _reported = new Set<string>();
+
+	/** Recent tool calls, so a hook can judge a sequence rather than a single call. */
+	private _trail: readonly ToolTrailEntry[] = [];
 
 	constructor(
 		@IMainProcessService mainProcessService: IMainProcessService,
@@ -96,8 +100,20 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 		}
 	}
 
-	async run(event: VibeHookEvent, context: { toolName?: string; params?: { [name: string]: unknown }; changedFiles?: readonly string[] }): Promise<VibeHookDecision> {
+	async run(event: VibeHookEvent, context: { toolName?: string; params?: { [name: string]: unknown }; mcpServerName?: string; changedFiles?: readonly string[] }): Promise<VibeHookDecision> {
 		try {
+			// Remembered before the enabled/trust checks below, and before we know whether any hook
+			// matches: a trail with holes in it is worse than no trail, because a rule written
+			// against it would read «nothing happened» where something did. Switching hooks on
+			// mid-session then gives the next call real history instead of an empty list.
+			const now = Date.now();
+			if (event === 'preToolUse' && context.toolName) {
+				this._trail = recordToolCall(this._trail, {
+					toolName: context.toolName,
+					params: context.params,
+					mcpServerName: context.mcpServerName,
+				}, now);
+			}
 			const folder = this._folder();
 			if (!folder) {
 				return NOTHING;
@@ -123,6 +139,9 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 				params: context.params,
 				cwd: folder.fsPath,
 				changedFiles: context.changedFiles,
+				// Without the current call: it is already in `tool`/`params`, and a rule counting
+				// occurrences would double-count it.
+				recent: trailView(this._trail.slice(0, -1), now),
 			};
 
 			// Sequential on purpose: hooks of one event are a chain the project wrote in order,

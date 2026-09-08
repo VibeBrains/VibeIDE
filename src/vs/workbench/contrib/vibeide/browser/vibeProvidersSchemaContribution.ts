@@ -73,6 +73,12 @@ const modelSchema: IJSONSchema = {
 			type: 'object', additionalProperties: false, description: '$/1M токенов — для индикатора бюджета.',
 			properties: { input: { type: 'number' }, output: { type: 'number' }, cacheRead: { type: 'number' }, cacheWrite: { type: 'number' } },
 		},
+		costValidUntil: { type: 'string', description: 'До какого момента действует cost. ISO-дата (2026-09-25) или момент с зоной (2026-09-09T16:00:00Z) — дедлайны вендоров объявляются в местном времени.' },
+		costAfter: {
+			type: 'object', additionalProperties: false, description: 'Цена после costValidUntil. Без неё дата ничего не меняет: срок без новой ставки нечего применять.',
+			properties: { input: { type: 'number' }, output: { type: 'number' }, cacheRead: { type: 'number' }, cacheWrite: { type: 'number' } },
+		},
+		costNote: { type: 'string', description: 'Где объявлено изменение цены — ссылка или фраза.' },
 		temperature: { type: 'number' },
 		topP: { type: 'number' },
 		topK: { type: 'number' },

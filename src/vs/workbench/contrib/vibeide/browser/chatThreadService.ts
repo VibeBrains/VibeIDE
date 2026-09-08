@@ -4668,7 +4668,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			// Project hooks, before the call. A refusal here is the project's policy speaking, not
 			// a model decision — so the tool does not run and the agent is told why in its own
 			// result, where it will read it as the outcome of the action it attempted.
-			const preHooks = await this._hooksService.run('preToolUse', { toolName, params: opts.unvalidatedToolParams as { [name: string]: unknown } });
+			const preHooks = await this._hooksService.run('preToolUse', { toolName, params: opts.unvalidatedToolParams as { [name: string]: unknown }, mcpServerName });
 			if (preHooks.blocked) {
 				resolveInterruptor(() => { });
 				throw new Error(preHooks.agentMessage ?? 'Действие остановлено проверкой проекта.');
@@ -4828,7 +4828,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// Project hooks, after the call. They cannot undo what ran, so their verdict is appended to
 		// the tool result instead: the agent reads it in the same place it reads the outcome, which
 		// is where a "починить это" actually lands.
-		const postHooks = await this._hooksService.run('postToolUse', { toolName, params: opts.unvalidatedToolParams as { [name: string]: unknown } });
+		const postHooks = await this._hooksService.run('postToolUse', { toolName, params: opts.unvalidatedToolParams as { [name: string]: unknown }, mcpServerName });
 		if (postHooks.agentMessage) {
 			toolResultStr = `${toolResultStr}\n\n[проверка проекта] ${postHooks.agentMessage}`;
 		}

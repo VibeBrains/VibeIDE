@@ -23,7 +23,7 @@
  */
 
 import { vibeLog } from '../common/vibeLog.js';
-import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
@@ -40,8 +40,9 @@ import { builtinProviderIdOf, isBuiltinProviderId, VibeideStatefulModelInfo } fr
 import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig, DynamicProviderSeed } from '../common/vibeideSettingsService.js';
 import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo } from '../common/modelCapabilities.js';
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
-import { VibeProviderEntry, VibeProviderModelEntry, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseProvidersFile } from '../common/vibeProvidersFile.js';
+import { VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseProvidersFile } from '../common/vibeProvidersFile.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
+import { effectiveCost, nextPriceChangeMoment, priceChangeStatus } from '../common/modelPriceSchedule.js';
 import { VIBE_CONFIG_PROVIDERS_CACHE_KEY } from '../common/storageKeys.js';
 import { ILifecycleService, LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
@@ -49,6 +50,9 @@ import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase 
 const TOOL_FORMAT_MAP: Record<string, 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined> = {
 	openai: 'openai-style', anthropic: 'anthropic-style', gemini: 'gemini-style', none: undefined,
 };
+/** setTimeout overflows above ~24.8 days and fires at once; wait no longer and re-arm. */
+const MAX_PRICE_TIMER_MS = 7 * 24 * 60 * 60 * 1000;
+
 const SYS_MSG_MAP: Record<string, 'system-role' | 'developer-role' | 'separated'> = {
 	system: 'system-role', developer: 'developer-role', separated: 'separated',
 };
@@ -89,11 +93,15 @@ export function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStat
 	if (typeof m.fim === 'boolean') { c.supportsFIM = m.fim; }
 	if (m.systemMessage === false) { c.supportsSystemMessage = false; }
 	else if (m.systemMessage) { c.supportsSystemMessage = SYS_MSG_MAP[m.systemMessage]; }
-	if (m.cost) {
+	// The rate in effect right now, not the one that was true when the file was written: a promo
+	// that expired yesterday must not keep under-reporting today's bill. The judgement needs the
+	// clock, and the caller re-runs this mapping when the next declared moment passes.
+	const cost = effectiveCost(m.cost, m.costValidUntil, m.costAfter, Date.now());
+	if (cost) {
 		c.cost = {
-			input: m.cost.input ?? 0, output: m.cost.output ?? 0,
-			...(m.cost.cacheRead !== undefined ? { cache_read: m.cost.cacheRead } : {}),
-			...(m.cost.cacheWrite !== undefined ? { cache_write: m.cost.cacheWrite } : {}),
+			input: cost.input ?? 0, output: cost.output ?? 0,
+			...(cost.cacheRead !== undefined ? { cache_read: cost.cacheRead } : {}),
+			...(cost.cacheWrite !== undefined ? { cache_write: cost.cacheWrite } : {}),
 		};
 	}
 	// extraBody → additionalOpenAIPayload: the AI-SDK path spreads this verbatim into the request
@@ -244,6 +252,11 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	private _lastGuardSig = '';
 	/** Config Guard findings from the last reload — surfaced by the diagnostic command. */
 	private _lastGuardFindings: readonly ConfigGuardFinding[] = [];
+
+	/** Dedupe for the «price changes soon» warning: one notification per distinct set. */
+	private _lastPriceWarningSig = '';
+
+	private readonly _priceChangeTimer = this._register(new MutableDisposable());
 
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
@@ -533,6 +546,57 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		}
 		for (const w of allWarnings) { vibeLog.warn('DynProviders', `  ⚠ ${w}`); }
 		this._setState({ fileExists: true, providers: effectiveProviders, warnings: allWarnings });
+		this._watchPriceSchedules(entries);
+	}
+
+	/**
+	 * Announce upcoming price changes, and re-resolve when one takes effect.
+	 *
+	 * Two jobs, one pass over the same declarations. The warning is the point of the field: a
+	 * ten-fold rise met mid-task is the one moment when switching models is expensive. The timer is
+	 * what keeps the promise honest — a rate that flips at midnight would otherwise stay stale until
+	 * the window happened to be restarted, and the spend report would quietly under-count for as
+	 * long as the session lasted.
+	 */
+	private _watchPriceSchedules(entries: readonly VibeProviderEntry[]): void {
+		const now = Date.now();
+		const schedules: { validUntil?: string; costAfter?: VibeProviderModelCost }[] = [];
+		const dueSoon: string[] = [];
+		for (const entry of entries) {
+			for (const model of entry.models?.static ?? []) {
+				if (!model.costAfter) {
+					continue;
+				}
+				schedules.push({ validUntil: model.costValidUntil, costAfter: model.costAfter });
+				const status = priceChangeStatus(model.cost, model.costValidUntil, model.costAfter, now, model.costNote);
+				if (status?.severity === 'soon') {
+					const factor = status.inputMultiplier;
+					// The multiplier is the part that decides whether this is worth acting on, so it
+					// leads when we know it. «×10 через 2 дн.» reads at a glance; a bare date does not.
+					const scale = factor && factor > 1 ? ` (дороже в ${Math.round(factor * 10) / 10} раза)` : '';
+					dueSoon.push(`${entry.id}/${model.id} — через ${status.daysLeft} дн.${scale}`);
+				}
+			}
+		}
+
+		const signature = dueSoon.join('|');
+		if (dueSoon.length > 0 && signature !== this._lastPriceWarningSig) {
+			this._lastPriceWarningSig = signature;
+			this._notificationService.warn(`Скоро меняется цена: ${dueSoon.join('; ')}. Проверьте .vibe/providers.json.`);
+		} else if (dueSoon.length === 0) {
+			this._lastPriceWarningSig = '';
+		}
+
+		this._priceChangeTimer.clear();
+		const next = nextPriceChangeMoment(schedules, now);
+		if (next === undefined) {
+			return;
+		}
+		// setTimeout saturates above ~24.8 days, firing immediately instead of never — which would
+		// spin a reload loop. Cap the wait and re-arm on the next pass instead.
+		const delay = Math.min(next - now, MAX_PRICE_TIMER_MS);
+		const handle = setTimeout(() => this._applyEntries(entries, [], /*fromCache*/ false), delay);
+		this._priceChangeTimer.value = toDisposable(() => clearTimeout(handle));
 	}
 
 	/**
