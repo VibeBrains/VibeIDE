@@ -5,6 +5,7 @@
 
 import { localize } from '../../../../nls.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -48,14 +49,19 @@ export const CONFIG_MAX_FILE_KB = 'vibeide.codeNavigation.maxFileSizeKB';
 export const CONFIG_EXCLUDED_FOLDERS = 'vibeide.codeNavigation.excludedFolders';
 
 /**
- * Files scanned per language by default.
+ * Ceiling on files scanned per language.
  *
- * Raised from 4000 after a real project hit the ceiling: the walk simply stopped part-way, so a
- * declaration that existed was absent from the index and «go to definition» reported nothing —
- * indistinguishable from «there is no such method». A partial index must be rare and, when it
- * happens, said out loud (see `truncated` in the status).
+ * NOT a budget — a fuse. Someone who opened a project wants the project indexed; capping that at a
+ * round number just makes «go to definition» quietly miss declarations that are right there, which
+ * is worse than a slow first scan. The limit exists for the cases that are not projects at all: a
+ * home directory opened by accident, a repository with a gigabyte of generated output, a mounted
+ * volume. There it stops a scan that would run for a quarter of an hour and eat memory for nothing.
+ *
+ * Raised 4 000 → 20 000 → 100 000 as real projects kept hitting it. Promed — 34 526 PHP files —
+ * still wants a limit above the round number one would guess.
  */
-const DEFAULT_MAX_FILES = 20000;
+const DEFAULT_MAX_FILES = 100000;
+
 const DEFAULT_MAX_FILE_KB = 1500;
 
 /** Declaration kinds that can take part in a hierarchy. */
@@ -107,7 +113,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			type: 'number',
 			default: DEFAULT_MAX_FILES,
 			minimum: 100,
-			description: localize('vibeide.codeNavigation.maxIndexedFilesDescription', 'Сколько файлов одного языка обходить при построении индекса объявлений. Больше — полнее переход в огромном репозитории, дольше первое построение. Индекс строится один раз и дальше обновляется только по изменившимся файлам.'),
+			description: localize('vibeide.codeNavigation.maxIndexedFilesDescription', 'Предохранитель: сколько файлов одного языка обходить, прежде чем остановиться. Это не норма, а защита от случайно открытой домашней папки или репозитория с гигабайтом генерата — обычный проект индексируется целиком. Если предел всё же достигнут, IDE скажет об этом: переход к определению может не найти то, что в проекте есть. Индекс строится один раз, дальше обновляется только по изменившимся файлам.'),
 			scope: ConfigurationScope.WINDOW,
 		},
 		[CONFIG_MAX_FILE_KB]: {
@@ -143,6 +149,8 @@ export interface IndexStatus {
 
 export interface IVibeCodeIndexService {
 	readonly _serviceBrand: undefined;
+	/** Fires when a scan finishes — the moment «полный / неполный» can change. */
+	readonly onDidFinishScan: Event<void>;
 	/** Is this language ours to answer for, per the user's setting? */
 	isEnabled(languageId: string): boolean;
 	/** Declarations of one name, across the project. Empty when the name is unknown. */
@@ -223,6 +231,9 @@ function parseWith(parser: LanguageIndex['parser'], languageId: string, text: st
 class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 
 	declare readonly _serviceBrand: undefined;
+
+	private readonly _onDidFinishScan = this._register(new Emitter<void>());
+	readonly onDidFinishScan: Event<void> = this._onDidFinishScan.event;
 
 	/** Cancels running scans when the window goes away — never a single request. */
 	private readonly _scanCancellation = this._register(new CancellationTokenSource());
@@ -765,6 +776,7 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 				vibeLog.debug('codeIndex', `индекс ${languageId}: ${symbols.byName.size} имён из ${count} файлов`);
 			}
 			vibeLog.debug('codeIndex', `обход завершён: ${seen} файлов, ${pending.size} языков за ${Date.now() - started} мс`);
+			this._onDidFinishScan.fire();
 		} catch (err) {
 			vibeLog.warn('codeIndex', `индекс построить не удалось: ${err}`);
 		}
