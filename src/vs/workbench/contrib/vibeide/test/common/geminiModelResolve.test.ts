@@ -30,11 +30,18 @@ suite('Gemini — model resolution, pricing and thinking levels', () => {
 		};
 	};
 
+	/**
+	 * Flash carries the INTRODUCTORY rate — $0.75 / $3.75 until 01.01.2027 — because that is what the
+	 * vendor bills today. The profile used to hold the 2027 number alone, which doubled every estimate
+	 * a user saw through all of 2026; the schedule now swaps it over on the date.
+	 */
+	const flashCost = { input: 0.75, output: 3.75, cache_read: 0.075 };
+
 	test('exact 3.x profiles carry vendor pricing and their own thinking levels', () => {
 		assert.deepStrictEqual(
 			[shape('gemini', 'gemini-3.6-flash'), shape('gemini', 'gemini-3.5-flash-lite'), shape('gemini', 'gemini-3-pro-preview')],
 			[
-				{ recognized: 'gemini-3.6-flash', cost: { input: 1.50, output: 7.50 }, effort: { values: ['minimal', 'low', 'medium', 'high'], default: 'medium' } },
+				{ recognized: 'gemini-3.6-flash', cost: flashCost, effort: { values: ['minimal', 'low', 'medium', 'high'], default: 'medium' } },
 				{ recognized: 'gemini-3.5-flash-lite', cost: { input: 0.30, output: 2.50 }, effort: { values: ['minimal', 'low', 'medium', 'high'], default: 'minimal' } },
 				// Pro has no 'minimal' level and defaults to 'high'.
 				{ recognized: 'gemini-3-pro-preview', cost: { input: 2.00, output: 12.00 }, effort: { values: ['low', 'medium', 'high'], default: 'high' } },
@@ -52,9 +59,9 @@ suite('Gemini — model resolution, pricing and thinking levels', () => {
 				shape('openRouter', 'gemini-3.1-pro-preview'),       // Pro really does belong on the Pro profile
 			],
 			[
-				{ recognized: 'gemini-3.6-flash', cost: { input: 1.50, output: 7.50 }, effort: { values: ['minimal', 'low', 'medium', 'high'], default: 'medium' } },
+				{ recognized: 'gemini-3.6-flash', cost: flashCost, effort: { values: ['minimal', 'low', 'medium', 'high'], default: 'medium' } },
 				{ recognized: 'gemini-3.5-flash-lite', cost: { input: 0.30, output: 2.50 }, effort: { values: ['minimal', 'low', 'medium', 'high'], default: 'minimal' } },
-				{ recognized: 'gemini-3.6-flash', cost: { input: 1.50, output: 7.50 }, effort: { values: ['minimal', 'low', 'medium', 'high'], default: 'medium' } },
+				{ recognized: 'gemini-3.6-flash', cost: flashCost, effort: { values: ['minimal', 'low', 'medium', 'high'], default: 'medium' } },
 				{ recognized: 'gemini-3.5-flash-lite', cost: { input: 0.30, output: 2.50 }, effort: { values: ['minimal', 'low', 'medium', 'high'], default: 'minimal' } },
 				{ recognized: 'gemini-3-pro-preview', cost: { input: 2.00, output: 12.00 }, effort: { values: ['low', 'medium', 'high'], default: 'high' } },
 			],

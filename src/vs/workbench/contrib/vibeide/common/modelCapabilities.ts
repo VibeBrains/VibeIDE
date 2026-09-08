@@ -19,6 +19,7 @@
  */
 
 import { FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderId, ProviderName } from './vibeideSettingsTypes.js';
+import { effectiveCost } from './modelPriceSchedule.js';
 
 
 
@@ -227,6 +228,21 @@ export type VibeideStaticModelInfo = { // not stateful
 		output: number;
 		cache_read?: number;
 		cache_write?: number;
+	};
+	/**
+	 * Promotional pricing with a published end date.
+	 *
+	 * Vendors announce both halves at once — «$0.75 / $3.75 through December 31, then $1.50 / $7.50».
+	 * Storing only the first half means the report is wrong from the new year on, and storing only
+	 * the second means it is wrong until then; we did the latter for `gemini-3.6-flash`. Resolved
+	 * against the clock in `getModelCapabilities`, so no consumer has to know about it.
+	 */
+	costSchedule?: {
+		/** ISO date or a full instant — vendor deadlines are announced in local time. */
+		readonly validUntil: string;
+		readonly after: { input: number; output: number; cache_read?: number; cache_write?: number };
+		/** Where it was announced, so the claim can be checked rather than believed. */
+		readonly note?: string;
 	};
 	downloadable: false | {
 		sizeGb: number | 'not-known';
@@ -1255,7 +1271,14 @@ export const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pri
 	'gemini-3.6-flash': {
 		contextWindow: 1_048_576, // 1M tokens input
 		reservedOutputTokenSpace: 65_536, // 64K tokens output
-		cost: { input: 1.50, output: 7.50 }, // output includes thinking tokens
+		// Introductory rate, in force until the new year; output includes thinking tokens. We used to
+		// carry the 2027 number alone, which doubled every estimate a user saw all through 2026.
+		cost: { input: 0.75, output: 3.75, cache_read: 0.075 },
+		costSchedule: {
+			validUntil: '2027-01-01',
+			after: { input: 1.50, output: 7.50 },
+			note: 'вводная цена до 31.12.2026, дальше стандартная (ai.google.dev/gemini-api/docs/pricing)',
+		},
 		downloadable: false,
 		supportsFIM: false,
 		supportsSystemMessage: 'separated',
@@ -2367,7 +2390,32 @@ export type CatalogModelHint = {
  * resolve a provider that isn't in the compile-time `modelSettingsOfProvider`. Module-level, like
  * the settings service's override holder — keeps this function pure of any service dependency.
  */
+type ResolvedModelCapabilities = VibeideStaticModelInfo & (
+	| { modelName: string; recognizedModelName: string; isUnrecognizedModel: false }
+	| { modelName: string; recognizedModelName?: undefined; isUnrecognizedModel: true }
+);
+
+/**
+ * Возможности модели с учётом расписания цены.
+ *
+ * A promotional rate is a price with an expiry date, and both halves are published together. The
+ * schedule is resolved HERE, at the single point every consumer already goes through, so the spend
+ * report, the router's cheap-model preference and the pre-flight cost estimate cannot disagree
+ * about what a model costs today. Resolving it at each call site is what let our own built-in
+ * `gemini-3.6-flash` carry the 2027 price while the vendor was still charging half of it.
+ */
 export const getModelCapabilities = (
+	providerName: ProviderId,
+	modelName: string,
+	overridesOfModel: OverridesOfModel | undefined,
+	catalogInfo?: CatalogModelHint | undefined,
+): ResolvedModelCapabilities => {
+	const resolved = resolveModelCapabilities(providerName, modelName, overridesOfModel, catalogInfo);
+	const scheduled = effectiveCost(resolved.cost, resolved.costSchedule?.validUntil, resolved.costSchedule?.after, Date.now());
+	return scheduled && scheduled !== resolved.cost ? { ...resolved, cost: scheduled } : resolved;
+};
+
+const resolveModelCapabilities = (
 	providerName: ProviderId,
 	modelName: string,
 	overridesOfModel: OverridesOfModel | undefined,

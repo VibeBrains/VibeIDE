@@ -31,6 +31,14 @@ export interface VibeModelDeprecation {
 	readonly note?: string;
 }
 
+/** Rates per 1M tokens, as the vendor publishes them. */
+export interface VibeProviderModelCost {
+	readonly input?: number;
+	readonly output?: number;
+	readonly cacheRead?: number;
+	readonly cacheWrite?: number;
+}
+
 export type VibeProviderProtocol = 'openai' | 'openai-responses' | 'anthropic' | 'gemini';
 
 /** Auth shorthand `"bearer"` or the explicit object form. `header`/`query` carry the field name. */
@@ -97,7 +105,27 @@ export interface VibeProviderModelEntry {
 	readonly fim?: boolean;
 	readonly reasoning?: false | VibeProviderModelReasoning;
 
-	readonly cost?: { readonly input?: number; readonly output?: number; readonly cacheRead?: number; readonly cacheWrite?: number };
+	readonly cost?: VibeProviderModelCost;
+
+	/**
+	 * When the rate in `cost` stops being the rate.
+	 *
+	 * ISO date (`2026-09-25`) or a full instant (`2026-09-09T16:00:00Z`). The instant form exists
+	 * because vendor deadlines are announced in local time — «24:00 UTC+8» — and a bare date would
+	 * be wrong by most of a day, in the direction that costs money.
+	 */
+	readonly costValidUntil?: string;
+
+	/**
+	 * The rate that replaces `cost` once `costValidUntil` passes.
+	 *
+	 * Without it an expiry date says a promotion ends but not what follows, so nothing can be
+	 * recalculated — and inventing a number would be worse than keeping the old one.
+	 */
+	readonly costAfter?: VibeProviderModelCost;
+
+	/** Where the price change was announced. Kept so the claim can be checked, not believed. */
+	readonly costNote?: string;
 	readonly temperature?: number;
 	readonly topP?: number;
 	readonly topK?: number;

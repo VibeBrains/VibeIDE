@@ -11,6 +11,7 @@ import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { displayInfoOfProviderName, ProviderId } from '../common/vibeideSettingsTypes.js';
 import { SpendTotals } from '../common/spendLedger.js';
+import { IVibeToolContextCostService } from './vibeToolContextCostService.js';
 
 export const IVibeProviderDashboardService = createDecorator<IVibeProviderDashboardService>('vibeProviderDashboardService');
 
@@ -19,6 +20,9 @@ export interface IVibeProviderDashboardService {
 	/** Markdown report: which keys are configured and what they cost. */
 	generateReport(): string;
 }
+
+/** How many tools the context-tax table names before the tail stops being actionable. */
+const CONTEXT_TAX_ROWS = 10;
 
 /** Windows the report breaks the spending into. */
 const WINDOWS: Array<{ days: number; label: string }> = [
@@ -45,6 +49,7 @@ class VibeProviderDashboardService extends Disposable implements IVibeProviderDa
 	constructor(
 		@IVibeSpendLedgerService private readonly _ledger: IVibeSpendLedgerService,
 		@IVibeideSettingsService private readonly _settingsService: IVibeideSettingsService,
+		@IVibeToolContextCostService private readonly _toolCost: IVibeToolContextCostService,
 	) {
 		super();
 		vibeLog.debug('ProviderDashboard', 'ready');
@@ -55,6 +60,7 @@ class VibeProviderDashboardService extends Disposable implements IVibeProviderDa
 
 		lines.push(...this._keysSection(), '');
 		lines.push(...this._spendSection());
+		lines.push('', ...this._contextTaxSection());
 
 		lines.push(
 			'',
@@ -146,6 +152,43 @@ class VibeProviderDashboardService extends Disposable implements IVibeProviderDa
 		}
 
 		return lines;
+	}
+
+	/**
+	 * Which tools the model keeps paying for.
+	 *
+	 * The spend table above says what a month cost and the tool log says which tool ran; neither says
+	 * which tool's output is being re-sent on every step. That connection exists only in the bill,
+	 * and it is the one number that changes behaviour: a tool at the top of this table is a tool
+	 * worth narrowing, not a month worth economising.
+	 */
+	private _contextTaxSection(): string[] {
+		const { produced, carried } = this._toolCost.totals();
+		if (produced === 0) {
+			return [
+				'## Контекстный налог',
+				'',
+				'_Пока нечего показать — счёт появится после первого вызова инструмента._',
+			];
+		}
+		const top = this._toolCost.top(CONTEXT_TAX_ROWS);
+		const share = produced + carried > 0 ? Math.round((carried / (produced + carried)) * 100) : 0;
+		return [
+			'## Контекстный налог',
+			'',
+			`Результаты инструментов принесли **${tokens(produced)}** токенов, а перечитывание их же обошлось`,
+			`в **${tokens(carried)}** — это ${share}% всего, что заняли инструменты в промптах.`,
+			'',
+			'| Инструмент | Вызовов | Принёс | Перечитано | Всего |',
+			'|---|---|---|---|---|',
+			...top.map(t => `| ${t.tool} | ${t.calls} | ${tokens(t.produced)} | ${tokens(t.carried)} | ${tokens(t.produced + t.carried)} |`),
+			'',
+			'«Принёс» — токены результата, оплаченные один раз. «Перечитано» — те же токены, уехавшие',
+			'снова с каждым следующим запросом хода: результат на втором шаге сорокашагового хода',
+			'оплачивается тридцать восемь раз. Результат, выброшенный обрезкой истории, дальше не',
+			'считается — учитывается то, что реально ушло в запрос. Объём в токенах при этом оценочный:',
+			'провайдер тарифицирует промпт целиком и не говорит, чья это часть.',
+		];
 	}
 }
 

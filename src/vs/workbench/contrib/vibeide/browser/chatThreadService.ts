@@ -82,6 +82,7 @@ import { QueryMetrics } from './repoIndexerService.js';
 import { getActiveWindow } from '../../../../base/browser/dom.js';
 
 import { IAuditLogService } from '../common/auditLogService.js';
+import { IVibeToolContextCostService } from './vibeToolContextCostService.js';
 import { IVibeAgentActivityLogService } from './vibeAgentActivityLogService.js';
 import { IVibeLLMJudgeService } from '../common/vibeLLMJudgeService.js';
 import { IVibePersistedPlanService } from '../common/vibePersistedPlanService.js';
@@ -1051,6 +1052,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IModelService private readonly _modelService: IModelService,
 		@ICommandService private readonly _commandService: ICommandService,
 		@IAuditLogService private readonly _auditLogService: IAuditLogService,
+		@IVibeToolContextCostService private readonly _toolContextCostService: IVibeToolContextCostService,
 		@IVibeAgentActivityLogService private readonly _agentActivityLog: IVibeAgentActivityLogService,
 		@IVibeLLMJudgeService private readonly _llmJudgeService: IVibeLLMJudgeService,
 		@IWorkbenchEnvironmentService private readonly _environmentService: IWorkbenchEnvironmentService,
@@ -1394,6 +1396,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			}
 		} else {
 			this._streamStateSetAt.delete(threadId);
+			// The thread stopped: its context window is no longer being re-sent, so the tool results
+			// in it stop being re-billed. Hooked to this funnel rather than to the end of the happy
+			// path — a turn also ends by interrupt, by error and by the user pressing stop, and the
+			// weights left live after any of those would be charged to the NEXT turn.
+			this._toolContextCostService.noteTurnEnd(threadId);
 		}
 
 		// Clear the submit-level watchdog only when the stream has truly reached the
@@ -4668,7 +4675,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			// Project hooks, before the call. A refusal here is the project's policy speaking, not
 			// a model decision — so the tool does not run and the agent is told why in its own
 			// result, where it will read it as the outcome of the action it attempted.
-			const preHooks = await this._hooksService.run('preToolUse', { toolName, params: opts.unvalidatedToolParams as { [name: string]: unknown } });
+			const preHooks = await this._hooksService.run('preToolUse', { toolName, params: opts.unvalidatedToolParams as { [name: string]: unknown }, mcpServerName });
 			if (preHooks.blocked) {
 				resolveInterruptor(() => { });
 				throw new Error(preHooks.agentMessage ?? 'Действие остановлено проверкой проекта.');
@@ -4828,7 +4835,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// Project hooks, after the call. They cannot undo what ran, so their verdict is appended to
 		// the tool result instead: the agent reads it in the same place it reads the outcome, which
 		// is where a "починить это" actually lands.
-		const postHooks = await this._hooksService.run('postToolUse', { toolName, params: opts.unvalidatedToolParams as { [name: string]: unknown } });
+		const postHooks = await this._hooksService.run('postToolUse', { toolName, params: opts.unvalidatedToolParams as { [name: string]: unknown }, mcpServerName });
 		if (postHooks.agentMessage) {
 			toolResultStr = `${toolResultStr}\n\n[проверка проекта] ${postHooks.agentMessage}`;
 		}
@@ -4852,6 +4859,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, _toolOk, threadId, Date.now() - _toolExecStartMs);
 		this._updateLatestTool(threadId, { role: 'tool', type: 'success', params: toolParams, result: toolResult, name: toolName, content: toolResultStr, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
 		this._agentActivityLog.logFinished(toolActivityLabel);
+		// What this result will cost from here on. Measured after compression and hook notes, because
+		// that is the string the model actually carries — the raw one was never sent.
+		this._toolContextCostService.noteResult(threadId, toolName, toolResultStr.length, toolId);
 
 		// Cache read_file results to prevent duplicate reads
 		if (toolName === 'read_file' && isBuiltInTool) {
@@ -6251,6 +6261,11 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				// requests tool_choice=required so a weak caller can't return prose again.
 				const forceThisTurn = forceToolUseNextTurn;
 				forceToolUseNextTurn = false;
+				// Everything the tools have left in the window is about to be paid for again. This is
+				// the moment the re-billing happens, so this is where it is counted.
+				// The messages themselves answer «что реально уехало»: history compaction drops tool
+				// results, and a result that is no longer sent must stop being billed.
+				this._toolContextCostService.noteRoundTrip(threadId, messages);
 				const llmCancelToken = this._llmMessageService.sendLLMMessage({
 					messagesType: 'chatMessages',
 					chatMode,

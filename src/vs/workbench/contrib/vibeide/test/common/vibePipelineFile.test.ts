@@ -7,7 +7,9 @@ import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	buildStepInput,
+	parseModelRef,
 	parsePipelineFile,
+	parseReviewVerdict,
 	PipelineStepOutcome,
 	shouldRunStep,
 	VibePipelineStep,
@@ -139,5 +141,61 @@ suite('vibePipelineFile — handing work to the next step', () => {
 			[shouldRunStep(step, []), shouldRunStep(step, [ok()]), shouldRunStep(step, failed), shouldRunStep({ ...step, continueOnFailure: true }, failed)],
 			[true, true, false, true],
 		);
+	});
+});
+
+/**
+ * Каскад и критика — два паттерна из HydraFusion, перенесённые на наш стек.
+ *
+ * Обе ставки денежные: эскалация оплачивается сверх черновика, а ревью — это лишний прогон модели.
+ * Поэтому в разборе они обязаны быть однозначными: ссылка на модель без провайдера — ошибка шага,
+ * а вердикт ревьюера, которого нет, — «не распознан», а не «принято».
+ */
+suite('vibePipelineFile — каскад и критика', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	const step = (over: Record<string, unknown>) => parsePipelineFile({
+		version: 1,
+		pipelines: [{ id: 'p', steps: [{ role: 'coder', task: 'сделай', ...over }] }],
+	});
+
+	test('модель, эскалация и ревьюер разбираются как «провайдер/модель»', () => {
+		const parsed = step({ model: ' zai/glm-5.3-flash ', escalateTo: 'anthropic/claude-opus-5', reviewWith: 'openAI/gpt-5.6' });
+		assert.deepStrictEqual(parsed.file.pipelines[0].steps[0], {
+			role: 'coder', task: 'сделай',
+			model: 'zai/glm-5.3-flash', escalateTo: 'anthropic/claude-opus-5', reviewWith: 'openAI/gpt-5.6',
+		});
+	});
+
+	/**
+	 * Одна и та же модель живёт у нескольких провайдеров по разным ценам, поэтому голое имя —
+	 * ошибка шага, а не поле, которое молча отбросили: иначе дешёвый черновик тихо поедет на модели
+	 * роли, и весь смысл каскада исчезнет, не сообщив об этом.
+	 */
+	test('ссылка без провайдера роняет шаг с внятной причиной', () => {
+		const parsed = step({ model: 'glm-5.3-flash' });
+		assert.deepStrictEqual(
+			[parsed.file.pipelines.length, parsed.warnings.some(w => w.includes('провайдер/модель'))],
+			[0, true],
+		);
+	});
+
+	test('parseModelRef отделяет провайдера от модели и не гадает', () => {
+		assert.deepStrictEqual(parseModelRef('zai/glm-5.3-flash'), { providerName: 'zai', modelName: 'glm-5.3-flash' });
+		assert.deepStrictEqual(
+			[parseModelRef('glm'), parseModelRef('/glm'), parseModelRef('zai/'), parseModelRef(undefined)],
+			[undefined, undefined, undefined, undefined],
+		);
+	});
+
+	/** Вердикт нужен машине: проза «в целом неплохо, но…» — это принято или доработать? */
+	test('вердикт ревьюера читается по последнему упоминанию, иначе — «не распознан»', () => {
+		assert.strictEqual(parseReviewVerdict('Всё хорошо.\nВЕРДИКТ: принято'), 'accepted');
+		assert.strictEqual(parseReviewVerdict('Есть замечания.\nвердикт: доработать'), 'rework');
+		// Ревьюер процитировал инструкцию, а потом ответил — читаем ответ, а не инструкцию.
+		assert.strictEqual(parseReviewVerdict('Ответьте «ВЕРДИКТ: принято» или «ВЕРДИКТ: доработать».\nВЕРДИКТ: доработать'), 'rework');
+		assert.strictEqual(parseReviewVerdict('Выглядит нормально, но я бы переделал'), 'unclear');
+		assert.strictEqual(parseReviewVerdict(undefined), 'unclear');
 	});
 });

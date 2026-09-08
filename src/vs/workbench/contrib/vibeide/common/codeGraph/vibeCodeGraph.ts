@@ -34,6 +34,8 @@ export type CodeEdgeKind =
 	| 'imports'
 	/** symbol → symbol it invokes. Not produced by this core yet — see `buildCodeGraph`. */
 	| 'calls'
+	/** symbol → base class, interface or trait it inherits from. */
+	| 'extends'
 	/** note → the file or symbol it explains. */
 	| 'explains';
 
@@ -90,6 +92,13 @@ export function noteNodeId(path: string, line: number): string {
 
 export interface CodeGraphSymbolInput {
 	readonly name: string;
+	/**
+	 * Types this one inherits from, as written at the declaration.
+	 *
+	 * Names, not paths: resolving a base to the file that declares it is this builder's job, and it
+	 * can only be done once every file in the project is known.
+	 */
+	readonly bases?: readonly string[];
 	/** 1-based range, when the symbol provider gave one. Enables attaching notes to symbols. */
 	readonly startLine?: number;
 	readonly endLine?: number;
@@ -273,6 +282,45 @@ export function buildCodeGraph(files: readonly CodeGraphFileInput[]): CodeGraph 
 				// Inside a known range it is a fact; without ranges the file-level attachment is a fallback.
 				provenance: owner ? 'extracted' : 'inferred',
 			});
+		}
+	}
+
+	// Inheritance is resolved in a second pass, once every declaration in the project is a node: a
+	// base class is routinely declared in a file that comes later than the one extending it, and a
+	// single pass would drop exactly those edges — the cross-file ones, which are the interesting kind.
+	const declaringFiles = new Map<string, string[]>();
+	for (const node of nodes) {
+		if (node.kind === 'symbol') {
+			const files = declaringFiles.get(node.label);
+			if (files) { files.push(node.file); } else { declaringFiles.set(node.label, [node.file]); }
+		}
+	}
+	for (const file of files) {
+		for (const symbol of file.symbols ?? []) {
+			for (const base of symbol.bases ?? []) {
+				// Written as `\App\Billing\Invoice` or `billing.Invoice`; the index keys declarations by
+				// their own short name, so compare on that and let ambiguity be reported as ambiguity.
+				const shortBase = base.split(/[\\.]/).filter(Boolean).pop();
+				const targets = shortBase ? declaringFiles.get(shortBase) : undefined;
+				if (!targets || targets.length === 0) {
+					// A base outside the project — a framework class, a stdlib type. Saying nothing is
+					// right: an edge to a node that does not exist would be a fact we cannot support.
+					continue;
+				}
+				const from = symbolNodeId(file.path, symbol.name);
+				const to = symbolNodeId(targets[0], shortBase!);
+				if (from === to) {
+					continue;
+				}
+				edges.push({
+					from,
+					to,
+					kind: 'extends',
+					// One declaration of that name is a fact; several are a deterministic guess, and the
+					// agent must be able to tell which it was told.
+					provenance: targets.length === 1 ? 'extracted' : 'ambiguous',
+				});
+			}
 		}
 	}
 

@@ -98,6 +98,7 @@
     "quirks-provenance-check": "node scripts/vibe-quirks-provenance.ts",
     "command-titles-check": "node scripts/vibe-command-titles.ts",
     "generated-fresh-check": "node scripts/vibe-generated-fresh.ts",
+    "seed-fields-check": "node scripts/vibe-seed-fields.ts",
     "audit-actor-check": "node scripts/vibe-audit-actor.ts",
     "scripts-typecheck": "tsgo --project scripts/tsconfig.json",
     "service-registration-check": "node scripts/vibe-service-registration-check.mjs --check",

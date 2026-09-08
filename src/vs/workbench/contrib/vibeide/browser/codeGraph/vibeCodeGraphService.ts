@@ -14,6 +14,8 @@ import { ILanguageFeaturesService } from '../../../../../editor/common/services/
 import { ITextModelService } from '../../../../../editor/common/services/resolverService.js';
 import { DocumentSymbol } from '../../../../../editor/common/languages.js';
 import { IRepoIndexerService } from '../repoIndexerService.js';
+import { IVibeCodeIndexService } from '../vibeCodeIndexService.js';
+import { CodeSymbol } from '../../common/codeSymbols/treeSitterSymbols.js';
 import {
 	buildCodeGraph,
 	CodeGraph,
@@ -72,6 +74,7 @@ class VibeCodeGraphService extends Disposable implements IVibeCodeGraphService {
 
 	constructor(
 		@IRepoIndexerService private readonly _indexer: IRepoIndexerService,
+		@IVibeCodeIndexService private readonly _codeIndex: IVibeCodeIndexService,
 		@IFileService private readonly _files: IFileService,
 		@ITextModelService private readonly _models: ITextModelService,
 		@ILanguageFeaturesService private readonly _languageFeatures: ILanguageFeaturesService,
@@ -93,7 +96,10 @@ class VibeCodeGraphService extends Disposable implements IVibeCodeGraphService {
 			const uri = wanted.has(input.path) ? uriOfPath.get(input.path) : undefined;
 			return uri ? this._enrichFile(input, uri) : input;
 		}));
-		return buildCodeGraph(enriched);
+		// Inheritance is added here too, not only in `getGraph`: `explain()` — the question the agent
+		// actually asks — goes through this path, and a graph that answers «кто наследует» only when
+		// asked the other way round is worse than one that never answers.
+		return buildCodeGraph(this._withInheritance(enriched));
 	}
 
 	neighborsOf(nodeId: string): NeighborResult | undefined {
@@ -113,7 +119,67 @@ class VibeCodeGraphService extends Disposable implements IVibeCodeGraphService {
 
 	/** Index snapshot → graph input. Paths are plain fs paths so node ids stay readable. */
 	private _structuralInputs(): CodeGraphFileInput[] {
-		return this._indexer.listStructure().map(entry => toInput(entry.uri, entry.symbols, entry.importedFrom));
+		return this._withInheritance(this._indexer.listStructure().map(entry => toInput(entry.uri, entry.symbols, entry.importedFrom)));
+	}
+
+	/**
+	 * Attach what the navigation index knows about inheritance.
+	 *
+	 * The repo indexer reports symbol NAMES; the navigation index parses the same files with a
+	 * grammar and knows which types each declaration extends. Both already exist, and the graph was
+	 * the only thing that could not see the second one — so «кто наследует этот класс» had to be
+	 * answered by grepping, in a product that had parsed the answer minutes earlier.
+	 *
+	 * Only files the navigation index actually holds are touched. It covers seven languages and the
+	 * repo indexer covers everything, so a file it never saw keeps exactly the input it had.
+	 */
+	private _withInheritance(inputs: CodeGraphFileInput[]): CodeGraphFileInput[] {
+		const declarations = this._codeIndex.declarations();
+		if (declarations.size === 0) {
+			return inputs;
+		}
+		// The two indexes key files differently — the navigation index by `URI.toString()`
+		// (`file:///Volumes/…`), the graph by the plain path. A direct lookup between them matches
+		// NOTHING, and the failure is silent: the graph builds, the inheritance edges simply never
+		// appear. Found only by comparing the two key formats, which is the argument for doing the
+		// conversion in one named place instead of at the call site.
+		const byPath = new Map<string, readonly CodeSymbol[]>();
+		for (const [uri, symbols] of declarations) {
+			byPath.set(URI.parse(uri).path, symbols);
+		}
+		let matched = 0;
+		const enriched = inputs.map(input => {
+			const parsed = byPath.get(input.path);
+			if (!parsed || parsed.length === 0) {
+				return input;
+			}
+			// Counted on the PATH matching, not on finding bases: a project whose classes inherit from
+			// nothing is a normal project, and warning about it would be crying wolf at every graph.
+			matched++;
+			const basesOfName = new Map<string, readonly string[]>();
+			for (const symbol of parsed) {
+				if (symbol.bases && symbol.bases.length > 0) {
+					basesOfName.set(symbol.name, symbol.bases);
+				}
+			}
+			if (basesOfName.size === 0) {
+				return input;
+			}
+			// Names come from the repo indexer and stay its business: this only adds the bases, so a
+			// disagreement between the two indexes cannot make symbols appear or disappear.
+			const symbols = (input.symbols ?? []).map(symbol => {
+				const bases = basesOfName.get(symbol.name);
+				return bases ? { ...symbol, bases } : symbol;
+			});
+			return { ...input, symbols };
+		});
+		if (matched === 0) {
+			// Both indexes hold files and none of them met: that is the key-format mismatch above
+			// coming back, not an inheritance-free repository. Said out loud because the symptom —
+			// a graph with no `extends` edges — is indistinguishable from «этот проект без наследования».
+			this._log.warn(`[vibeCodeGraph] индекс навигации знает ${declarations.size} файл(ов), но ни один не совпал с графом — проверьте формат путей`);
+		}
+		return enriched;
 	}
 
 	private async _enrichFile(input: CodeGraphFileInput, uri: URI): Promise<CodeGraphFileInput> {

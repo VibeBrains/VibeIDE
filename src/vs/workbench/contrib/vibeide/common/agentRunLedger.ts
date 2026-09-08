@@ -80,6 +80,19 @@ export interface AgentRunRecord {
 	readonly resumeReason?: string;
 	/** Set when this run is a replay of an earlier one — the pair the comparison report reads. */
 	readonly replayOfRunId?: string;
+	/**
+	 * This run was a cascade draft: a cheap model attempting work that a stronger one stands behind.
+	 *
+	 * Recorded on the draft rather than inferred later, because the denominator of «how often do we
+	 * escalate» is exactly the set of attempts that COULD have escalated. Without it the share can
+	 * only be guessed, and a cascade whose share is guessed is a cascade that might be losing money
+	 * without anyone noticing — the escalation is paid on top of the draft, not instead of it.
+	 */
+	readonly cascadeDraft?: boolean;
+	/** Set on the escalation run: the draft it replaced. */
+	readonly escalatedFromRunId?: string;
+	/** Model of that draft, kept here so the report survives the draft record being rotated away. */
+	readonly escalatedFromModel?: string;
 	readonly failureReason?: string;
 }
 
@@ -317,6 +330,9 @@ function decodeUpdate(line: string): AgentRunUpdate | undefined {
 	assignIfDefined(update, 'fingerprint', readString(raw.fingerprint));
 	assignIfDefined(update, 'resumeReason', readString(raw.resumeReason));
 	assignIfDefined(update, 'replayOfRunId', readString(raw.replayOfRunId));
+	assignIfDefined(update, 'cascadeDraft', typeof raw.cascadeDraft === 'boolean' ? raw.cascadeDraft : undefined);
+	assignIfDefined(update, 'escalatedFromRunId', readString(raw.escalatedFromRunId));
+	assignIfDefined(update, 'escalatedFromModel', readString(raw.escalatedFromModel));
 	assignIfDefined(update, 'failureReason', readString(raw.failureReason));
 
 	return update as AgentRunUpdate;

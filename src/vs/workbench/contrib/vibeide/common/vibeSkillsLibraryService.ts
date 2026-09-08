@@ -18,6 +18,8 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../platfo
 import { joinPath, relativePath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ChatMode } from './vibeideSettingsTypes.js';
+import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { scanSkills } from './vibeConfigGuard.js';
 
 export interface VibeSkillEntry {
 	/** Slash id: /skill:<skillId> */
@@ -427,6 +429,9 @@ class VibeSkillsLibraryService extends Disposable implements IVibeSkillsLibraryS
 
 	private _cachedSkillsList: VibeSkillEntry[] | undefined;
 
+	/** rule+skill pairs already reported, so a rescan does not repeat the same warning. */
+	private readonly _reportedSkillRisks = new Set<string>();
+
 	/** Bundled/built-in skills roots (URI strings); scanned at lowest discovery priority. */
 	private readonly _builtinRoots = new Set<string>();
 
@@ -436,6 +441,7 @@ class VibeSkillsLibraryService extends Disposable implements IVibeSkillsLibraryS
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@IProductService private readonly _productService: IProductService,
 		@IStorageService private readonly _storageService: IStorageService,
+		@INotificationService private readonly _notificationService: INotificationService,
 	) {
 		super();
 
@@ -526,7 +532,43 @@ class VibeSkillsLibraryService extends Disposable implements IVibeSkillsLibraryS
 		}
 		const fresh = await this._mergeAllSkillsFresh();
 		this._cachedSkillsList = fresh;
+		this._reportSkillRisks(fresh);
 		return [...fresh];
+	}
+
+	/**
+	 * Say once what a skill asks for before its text reaches the model.
+	 *
+	 * Skills are the one thing under `.vibe/` that routinely comes from someone else — the format is
+	 * a shared standard and we advertise that a skill written for another agent works here. Config
+	 * Guard already reads providers and MCP servers this way; a skill is fed to the model verbatim,
+	 * which makes it the more direct route in.
+	 *
+	 * Warned about, never blocked: the findings are «прочитайте текст», and a guard that silently
+	 * dropped a skill would be indistinguishable from a skill that does not work.
+	 */
+	private _reportSkillRisks(skills: readonly VibeSkillEntry[]): void {
+		if (this._configurationService.getValue<boolean>('vibeide.configGuard.enabled') === false) {
+			return;
+		}
+		const findings = scanSkills(skills.map(skill => ({
+			skillId: skill.skillId,
+			...(skill.precheck ? { precheck: skill.precheck } : {}),
+			frontmatter: { description: skill.description, compatibility: skill.compatibility ?? '' },
+			body: skill.body,
+		})));
+		for (const finding of findings) {
+			// Deduped by rule+subject: the list is rebuilt whenever a file under `.vibe/skills`
+			// changes, and repeating the same warning on every keystroke would train the user to
+			// ignore it — which is the failure mode a security notice can least afford.
+			const key = `${finding.ruleId}:${finding.subject}`;
+			if (this._reportedSkillRisks.has(key)) {
+				continue;
+			}
+			this._reportedSkillRisks.add(key);
+			vibeLog.warn('Skills', `Config Guard [${finding.severity}] ${finding.message}`);
+			this._notificationService.warn(finding.message);
+		}
 	}
 
 	async resolveDependencies(skillId: string): Promise<string[]> {

@@ -37,6 +37,7 @@ import './vibeAgentPreflightService.js';
 import './vibeAgentPreflightCommand.js';
 import './vibeTurnChecksService.js';
 import './vibeAgentReplayCommand.js';
+import './vibeCascadeReportCommand.js';
 import './vibeCircuitBreakerService.js';
 import './vibeCircuitBreakerCommands.js';
 
@@ -73,6 +74,7 @@ import './vibeTaskLedgerService.js';
 import './vibeTaskLedgerCommands.js';
 import './vibeCodeIndexStatusContribution.js';
 import './vibeImageCostService.js';
+import './vibeToolContextCostService.js';
 import './vibeTasks.contribution.js';
 
 // Local preview server with live reload (Vibe Server)

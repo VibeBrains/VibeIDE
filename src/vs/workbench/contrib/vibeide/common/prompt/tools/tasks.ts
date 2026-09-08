@@ -20,7 +20,7 @@ Unlike a plan inside the chat, entries here survive a restart, name what they wa
 
 Actions:
 - 'list' — what is in the register and what each task is waiting for. Call this before creating, so you do not duplicate work already there.
-- 'create' — add a task. Optionally give 'dependency_ids' from a previous 'list': a task that waits for others cannot be started until they are done.
+- 'create' — add a task. Optionally give 'dependency_ids', taken from a previous 'list' call: a task that waits for others cannot be started until they are done.
 - 'transition' — move a task. Legal moves only: inbox → planned → ready → running → review → done, plus 'blocked' and 'cancelled' from most states. 'done' and 'cancelled' are final; reopening means creating a new task.
 
 Rules the register enforces, so you do not have to check them yourself:
@@ -38,7 +38,7 @@ Every change is recorded in the audit journal under your name.`,
 		task_id: { description: `For 'transition': which task, as returned by 'list'.` },
 		to: { description: `For 'transition': target state — 'planned', 'ready', 'running', 'review', 'done', 'blocked' or 'cancelled'.` },
 		blocked_reason: { description: `Required when 'to' is 'blocked': what exactly is in the way.` },
-		dependency_ids: { description: `For 'create': ids of tasks this one waits for. Take them from 'list'; a made-up id counts as unfinished and will block the task.` },
+		dependency_ids: { description: `For 'create': ids of tasks this one waits for. Use the ids returned by a previous 'list' call; a made-up id counts as unfinished and will block the task.` },
 		intent: { description: `Your own identifier of this request. Reuse it verbatim when retrying the same call; use a fresh one for new work.` },
 	},
 };

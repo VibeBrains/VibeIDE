@@ -19,6 +19,7 @@ import { vibeLog } from '../../common/vibeLog.js';
 import { hooksFor, parseHookConfig, VibeHookConfig, VibeHookEvent } from '../../common/hooks/hookConfig.js';
 import { decideHooks, VibeHookDecision, verdictOf } from '../../common/hooks/hookOutcome.js';
 import { IVibeHooksMain, IVibeHooksService, VIBE_HOOKS_CHANNEL, VibeHookPayload, VibeHooksConfigKeys } from '../../common/hooks/vibeHookTypes.js';
+import { DEFAULT_TRAIL_LIMITS, recordToolCall, ToolTrailEntry, TrailLimits, trailView } from '../../common/hooks/toolCallTrail.js';
 
 const HOOKS_FILE = ['.vibe', 'hooks.json'];
 
@@ -43,6 +44,9 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 	private _cached: Promise<VibeHookConfig> | undefined;
 	/** Problems already told to the user — a broken hook must not nag on every tool call. */
 	private readonly _reported = new Set<string>();
+
+	/** Recent tool calls, so a hook can judge a sequence rather than a single call. */
+	private _trail: readonly ToolTrailEntry[] = [];
 
 	constructor(
 		@IMainProcessService mainProcessService: IMainProcessService,
@@ -96,8 +100,21 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 		}
 	}
 
-	async run(event: VibeHookEvent, context: { toolName?: string; params?: { [name: string]: unknown }; changedFiles?: readonly string[] }): Promise<VibeHookDecision> {
+	async run(event: VibeHookEvent, context: { toolName?: string; params?: { [name: string]: unknown }; mcpServerName?: string; changedFiles?: readonly string[] }): Promise<VibeHookDecision> {
 		try {
+			// Remembered before the enabled/trust checks below, and before we know whether any hook
+			// matches: a trail with holes in it is worse than no trail, because a rule written
+			// against it would read «nothing happened» where something did. Switching hooks on
+			// mid-session then gives the next call real history instead of an empty list.
+			const now = Date.now();
+			const limits = this._trailLimits();
+			if (event === 'preToolUse' && context.toolName) {
+				this._trail = recordToolCall(this._trail, {
+					toolName: context.toolName,
+					params: context.params,
+					mcpServerName: context.mcpServerName,
+				}, now, limits);
+			}
 			const folder = this._folder();
 			if (!folder) {
 				return NOTHING;
@@ -123,6 +140,12 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 				params: context.params,
 				cwd: folder.fsPath,
 				changedFiles: context.changedFiles,
+				// The current call is dropped only where there IS one: for `preToolUse` it was just
+				// appended, and for `postToolUse` the last entry is that same call, so in both cases it
+				// is already in `tool`/`params` and would be counted twice. `turnEnd` has no current
+				// call — slicing there would hide the turn's last tool from the hook that exists to
+				// look at what the turn did.
+				recent: trailView(event === 'turnEnd' ? this._trail : this._trail.slice(0, -1), now, limits),
 			};
 
 			// Sequential on purpose: hooks of one event are a chain the project wrote in order,
@@ -154,6 +177,16 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 			vibeLog.error('Hooks', `hook machinery failed on ${event}: ${(e as Error).message}`);
 			return NOTHING;
 		}
+	}
+
+	/** How far back the trail reaches, as the project configured it. */
+	private _trailLimits(): TrailLimits {
+		const length = this._configuration.getValue<number>(VibeHooksConfigKeys.trailLength);
+		const minutes = this._configuration.getValue<number>(VibeHooksConfigKeys.trailMinutes);
+		return {
+			length: typeof length === 'number' && length >= 0 ? Math.floor(length) : DEFAULT_TRAIL_LIMITS.length,
+			ttlMs: typeof minutes === 'number' && minutes > 0 ? Math.floor(minutes) * 60_000 : DEFAULT_TRAIL_LIMITS.ttlMs,
+		};
 	}
 
 	/** Says once per session that the project ships hooks while the setting is off. */

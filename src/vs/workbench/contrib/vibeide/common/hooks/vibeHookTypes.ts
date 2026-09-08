@@ -6,6 +6,7 @@
 import { createDecorator } from '../../../../../platform/instantiation/common/instantiation.js';
 import { VibeHookEvent, VibeHookConfig } from './hookConfig.js';
 import { VibeHookDecision } from './hookOutcome.js';
+import { ToolTrailView } from './toolCallTrail.js';
 
 export const VIBE_HOOKS_CHANNEL = 'vibeide-channel-hooks';
 
@@ -13,6 +14,8 @@ export const VIBE_HOOKS_CHANNEL = 'vibeide-channel-hooks';
 export const VibeHooksConfigKeys = {
 	section: 'vibeide.hooks',
 	enabled: 'vibeide.hooks.enabled',
+	trailLength: 'vibeide.hooks.trailLength',
+	trailMinutes: 'vibeide.hooks.trailMinutes',
 } as const;
 
 /** What a hook reads from stdin. Stable shape: hooks are user scripts, not our code. */
@@ -26,6 +29,14 @@ export interface VibeHookPayload {
 	readonly cwd: string;
 	/** Files changed during the turn — only for `turnEnd`. */
 	readonly changedFiles?: readonly string[];
+	/**
+	 * Calls that came before this one, oldest first.
+	 *
+	 * The reason a hook can judge a SEQUENCE and not just a call: «read a secret, then run a
+	 * command» is dangerous in a way neither half is. Tool names and target paths only — arguments
+	 * and command lines never travel, the same line the audit log draws.
+	 */
+	readonly recent?: readonly ToolTrailView[];
 }
 
 export interface VibeHookRunRequest {
@@ -63,7 +74,7 @@ export interface IVibeHooksService {
 	 * Runs the hooks attached to this moment and folds them into one decision.
 	 * Never throws: a failure inside the hook machinery must not take the turn down with it.
 	 */
-	run(event: VibeHookEvent, context: { toolName?: string; params?: { [name: string]: unknown }; changedFiles?: readonly string[] }): Promise<VibeHookDecision>;
+	run(event: VibeHookEvent, context: { toolName?: string; params?: { [name: string]: unknown }; mcpServerName?: string; changedFiles?: readonly string[] }): Promise<VibeHookDecision>;
 	/** Hooks declared by the project right now, for the settings panel and the doctor. */
 	readConfig(): Promise<VibeHookConfig>;
 }
