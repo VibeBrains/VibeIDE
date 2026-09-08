@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -72,6 +72,13 @@ class VibeToolContextCostService extends Disposable implements IVibeToolContextC
 		@IStorageService private readonly _storage: IStorageService,
 	) {
 		super();
+		// Batched writes lose at most a few results to a crash — but they must not lose them to an
+		// orderly shutdown, which is the common case and the one the user would notice.
+		this._register(toDisposable(() => {
+			if (this._unsavedResults > 0) {
+				this._persist();
+			}
+		}));
 		try {
 			this._totals = deserializeToolCost(JSON.parse(this._storage.get(STORAGE_KEY, StorageScope.PROFILE, '{}')));
 		} catch {

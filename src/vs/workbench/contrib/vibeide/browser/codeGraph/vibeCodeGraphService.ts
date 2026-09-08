@@ -15,6 +15,7 @@ import { ITextModelService } from '../../../../../editor/common/services/resolve
 import { DocumentSymbol } from '../../../../../editor/common/languages.js';
 import { IRepoIndexerService } from '../repoIndexerService.js';
 import { IVibeCodeIndexService } from '../vibeCodeIndexService.js';
+import { CodeSymbol } from '../../common/codeSymbols/treeSitterSymbols.js';
 import {
 	buildCodeGraph,
 	CodeGraph,
@@ -95,7 +96,10 @@ class VibeCodeGraphService extends Disposable implements IVibeCodeGraphService {
 			const uri = wanted.has(input.path) ? uriOfPath.get(input.path) : undefined;
 			return uri ? this._enrichFile(input, uri) : input;
 		}));
-		return buildCodeGraph(enriched);
+		// Inheritance is added here too, not only in `getGraph`: `explain()` — the question the agent
+		// actually asks — goes through this path, and a graph that answers «кто наследует» only when
+		// asked the other way round is worse than one that never answers.
+		return buildCodeGraph(this._withInheritance(enriched));
 	}
 
 	neighborsOf(nodeId: string): NeighborResult | undefined {
@@ -134,11 +138,24 @@ class VibeCodeGraphService extends Disposable implements IVibeCodeGraphService {
 		if (declarations.size === 0) {
 			return inputs;
 		}
-		return inputs.map(input => {
-			const parsed = declarations.get(input.path);
+		// The two indexes key files differently — the navigation index by `URI.toString()`
+		// (`file:///Volumes/…`), the graph by the plain path. A direct lookup between them matches
+		// NOTHING, and the failure is silent: the graph builds, the inheritance edges simply never
+		// appear. Found only by comparing the two key formats, which is the argument for doing the
+		// conversion in one named place instead of at the call site.
+		const byPath = new Map<string, readonly CodeSymbol[]>();
+		for (const [uri, symbols] of declarations) {
+			byPath.set(URI.parse(uri).path, symbols);
+		}
+		let matched = 0;
+		const enriched = inputs.map(input => {
+			const parsed = byPath.get(input.path);
 			if (!parsed || parsed.length === 0) {
 				return input;
 			}
+			// Counted on the PATH matching, not on finding bases: a project whose classes inherit from
+			// nothing is a normal project, and warning about it would be crying wolf at every graph.
+			matched++;
 			const basesOfName = new Map<string, readonly string[]>();
 			for (const symbol of parsed) {
 				if (symbol.bases && symbol.bases.length > 0) {
@@ -156,6 +173,13 @@ class VibeCodeGraphService extends Disposable implements IVibeCodeGraphService {
 			});
 			return { ...input, symbols };
 		});
+		if (matched === 0) {
+			// Both indexes hold files and none of them met: that is the key-format mismatch above
+			// coming back, not an inheritance-free repository. Said out loud because the symptom —
+			// a graph with no `extends` edges — is indistinguishable from «этот проект без наследования».
+			this._log.warn(`[vibeCodeGraph] индекс навигации знает ${declarations.size} файл(ов), но ни один не совпал с графом — проверьте формат путей`);
+		}
+		return enriched;
 	}
 
 	private async _enrichFile(input: CodeGraphFileInput, uri: URI): Promise<CodeGraphFileInput> {

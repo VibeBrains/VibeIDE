@@ -140,9 +140,12 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 				params: context.params,
 				cwd: folder.fsPath,
 				changedFiles: context.changedFiles,
-				// Without the current call: it is already in `tool`/`params`, and a rule counting
-				// occurrences would double-count it.
-				recent: trailView(this._trail.slice(0, -1), now, limits),
+				// The current call is dropped only where there IS one: for `preToolUse` it was just
+				// appended, and for `postToolUse` the last entry is that same call, so in both cases it
+				// is already in `tool`/`params` and would be counted twice. `turnEnd` has no current
+				// call — slicing there would hide the turn's last tool from the hook that exists to
+				// look at what the turn did.
+				recent: trailView(event === 'turnEnd' ? this._trail : this._trail.slice(0, -1), now, limits),
 			};
 
 			// Sequential on purpose: hooks of one event are a chain the project wrote in order,

@@ -68,7 +68,9 @@ function checkEntry(entry: unknown, where: string, types: string, spec: string, 
 		checked++;
 		// `readonly key?:` in the type, and the key in a spec table cell — both are how a field is
 		// written in those files, and both are cheap to check without parsing TypeScript or Markdown.
-		const inType = new RegExp(`readonly\\s+${key}\\??\\s*:`).test(types);
+		// The key comes from a hand-written file, so it is escaped before it becomes a pattern: a
+		// stray `.` would match anything and a stray `[` would throw, taking the gate down with it.
+		const inType = new RegExp(`readonly\\s+${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\??\\s*:`).test(types);
 		const inSpec = spec.includes(`\`${key}\``);
 		if (!inType && !inSpec) {
 			problems.push(`${where}: поле «${key}» не знает ни тип, ни спека — продукт молча его отбросит`);

@@ -63,4 +63,17 @@ suite('tool call trail', () => {
 		assert.deepStrictEqual(trailView(old, later), []);
 		assert.deepStrictEqual(record(old, 'run_command', undefined, later).map(e => e.tool), ['run_command']);
 	});
+
+	/**
+	 * `turnEnd` не имеет «текущего вызова», и срезать последний там — значит спрятать от хука
+	 * последний инструмент хода: ровно то, ради чего этот хук и существует.
+	 */
+	test('the current call is dropped only where there is one', () => {
+		let trail = record([], 'read_file', { path: '.env' }, t0);
+		trail = record(trail, 'run_command', undefined, t0 + 1000);
+		// preToolUse / postToolUse: последний элемент — это и есть текущий вызов.
+		assert.deepStrictEqual(trailView(trail.slice(0, -1), t0 + 1000).map(e => e.tool), ['read_file']);
+		// turnEnd: текущего вызова нет, видно оба.
+		assert.deepStrictEqual(trailView(trail, t0 + 1000).map(e => e.tool), ['read_file', 'run_command']);
+	});
 });

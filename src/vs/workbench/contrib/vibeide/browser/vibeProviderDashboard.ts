@@ -21,6 +21,9 @@ export interface IVibeProviderDashboardService {
 	generateReport(): string;
 }
 
+/** How many tools the context-tax table names before the tail stops being actionable. */
+const CONTEXT_TAX_ROWS = 10;
+
 /** Windows the report breaks the spending into. */
 const WINDOWS: Array<{ days: number; label: string }> = [
 	{ days: 1, label: 'Сегодня' },
@@ -168,7 +171,7 @@ class VibeProviderDashboardService extends Disposable implements IVibeProviderDa
 				'_Пока нечего показать — счёт появится после первого вызова инструмента._',
 			];
 		}
-		const top = this._toolCost.top(10);
+		const top = this._toolCost.top(CONTEXT_TAX_ROWS);
 		const share = produced + carried > 0 ? Math.round((carried / (produced + carried)) * 100) : 0;
 		return [
 			'## Контекстный налог',

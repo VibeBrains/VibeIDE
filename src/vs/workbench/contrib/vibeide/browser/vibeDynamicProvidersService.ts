@@ -550,7 +550,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		}
 		for (const w of allWarnings) { vibeLog.warn('DynProviders', `  ⚠ ${w}`); }
 		this._setState({ fileExists: true, providers: effectiveProviders, warnings: allWarnings });
-		this._watchPriceSchedules(entries);
+		this._watchPriceSchedules(entries, initialWarnings);
 	}
 
 	/**
@@ -562,7 +562,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	 * the window happened to be restarted, and the spend report would quietly under-count for as
 	 * long as the session lasted.
 	 */
-	private _watchPriceSchedules(entries: readonly VibeProviderEntry[]): void {
+	private _watchPriceSchedules(entries: readonly VibeProviderEntry[], warnings: readonly string[]): void {
 		const now = Date.now();
 		const configuredDays = this._configurationService.getValue<number>('vibeide.providers.priceChangeWarningDays');
 		const soonDays = typeof configuredDays === 'number' && configuredDays >= 0 ? Math.floor(configuredDays) : DEFAULT_PRICE_CHANGE_SOON_DAYS;
@@ -601,7 +601,9 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		// setTimeout saturates above ~24.8 days, firing immediately instead of never — which would
 		// spin a reload loop. Cap the wait and re-arm on the next pass instead.
 		const delay = Math.min(next - now, MAX_PRICE_TIMER_MS);
-		const handle = setTimeout(() => this._applyEntries(entries, [], /*fromCache*/ false), delay);
+		// The load's warnings travel with the re-apply: dropping them would quietly empty the warning
+		// list at midnight, and a user whose file has a typo would stop being told about it.
+		const handle = setTimeout(() => this._applyEntries(entries, [...warnings], /*fromCache*/ false), delay);
 		this._priceChangeTimer.value = toDisposable(() => clearTimeout(handle));
 	}
 
