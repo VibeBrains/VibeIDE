@@ -511,9 +511,14 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 			if ((onlyLanguage && languageId !== onlyLanguage) || !this.isEnabled(languageId) || out.length >= MAX_SEARCH_RESULTS) {
 				continue;
 			}
-			// Only languages already indexed answer here: opening the symbol picker must not kick off
-			// a scan of every language in the workspace at once.
-			const index = this._indexes.get(languageId);
+			// The index is BUILT if it is missing, not skipped.
+			//
+			// It used to answer only from what was already there, on the reasoning that opening the
+			// picker must not start a scan per language. That reasoning died when the walk became one
+			// pass for all languages — and what remained was a feature that returned «нет символов»
+			// to anyone who opened the picker before their first jump. Found on Promed with a full
+			// index of 73 946 names sitting right there.
+			const index = await this._ensureIndex(languageId, token);
 			if (!index || token.isCancellationRequested) {
 				continue;
 			}
