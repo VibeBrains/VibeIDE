@@ -83,6 +83,16 @@ const MAX_SEARCH_RESULTS = 512;
  */
 const MAX_FILTERED_FILES = 200;
 
+/**
+ * How many files are read at once, and how many directories are listed at once.
+ *
+ * Both are bounded on purpose: the work here is waiting on the disk, so some parallelism comes
+ * almost free — but «all of them» would open twenty thousand handles on a large project and trade
+ * one problem for a worse one. Sixteen is enough to hide the latency of a single read.
+ */
+const FILE_BATCH = 16;
+const DIRECTORY_BATCH = 8;
+
 
 /**
  * Folders that hold dependencies or build output in the supported languages. A default, not a law:
@@ -731,11 +741,19 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 			};
 
 			let seen = 0;
+			/**
+			 * Первый проход: собрать, что индексировать, ничего не читая.
+			 *
+			 * Splitting collection from reading is what makes the second half parallel: a walk that
+			 * reads each file as it meets it can only ever go one file at a time.
+			 */
+			const queue: { resource: URI; languageId: string }[] = [];
 			const walk = async (folder: URI, dir: URI): Promise<void> => {
 				if (token.isCancellationRequested) {
 					return;
 				}
 				const entry = await this._fileService.resolve(dir).catch(() => undefined);
+				const subdirectories: URI[] = [];
 				for (const child of entry?.children ?? []) {
 					if (token.isCancellationRequested) {
 						return;
@@ -744,7 +762,7 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 					if (child.isDirectory) {
 						const skipped = child.name.startsWith('.') || excluded.has(child.name) || !!userExcludes?.(relative);
 						if (!skipped) {
-							await walk(folder, child.resource);
+							subdirectories.push(child.resource);
 						}
 						continue;
 					}
@@ -756,25 +774,56 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 						continue;
 					}
 					scanned.set(languageId, (scanned.get(languageId) ?? 0) + 1);
-					seen++;
-					// Yield regularly: indexing a large project must not freeze the window.
-					if (seen % 40 === 0) {
-						// The count is the difference between «работает» and «завис» on a big repository.
-						progress.report({ message: localize('vibeide.codeNavigation.indexingCount', 'файлов: {0}', seen) });
-						await new Promise(resolve => setTimeout(resolve, 0));
+					queue.push({ resource: child.resource, languageId });
+				}
+				// Directories of one level are listed together: `resolve` is a round trip to the disk,
+				// and on a deep tree those round trips are most of the walk.
+				for (let i = 0; i < subdirectories.length; i += DIRECTORY_BATCH) {
+					if (token.isCancellationRequested) {
+						return;
 					}
-					const content = await this._fileService.readFile(child.resource).catch(() => undefined);
-					const symbols = pending.get(languageId);
-					const parser = parsers.get(languageId);
-					if (content && symbols && parser) {
-						replaceFileSymbols(symbols, child.resource.toString(), parseWith(parser, languageId, content.value.toString()), name => indexKeyOf(name, languageId));
-					}
+					await Promise.all(subdirectories.slice(i, i + DIRECTORY_BATCH).map(sub => walk(folder, sub)));
 				}
 			};
 
 			for (const folder of this._workspace.getWorkspace().folders) {
 				await walk(folder.uri, folder.uri);
 			}
+			if (token.isCancellationRequested) {
+				return;
+			}
+
+			/**
+			 * Второй проход: читать пачками, разбирать по одному.
+			 *
+			 * Reading is waiting on the disk, so it goes in parallel; parsing is WebAssembly on this
+			 * thread, so it does not — running it «in parallel» would only interleave the same work.
+			 * The batch is bounded because a project of twenty thousand files would otherwise open
+			 * twenty thousand handles at once.
+			 */
+			for (let i = 0; i < queue.length; i += FILE_BATCH) {
+				if (token.isCancellationRequested) {
+					return;
+				}
+				const batch = queue.slice(i, i + FILE_BATCH);
+				const contents = await Promise.all(batch.map(item =>
+					this._fileService.readFile(item.resource).then(file => file.value.toString()).catch(() => undefined)));
+
+				for (const [index, item] of batch.entries()) {
+					const text = contents[index];
+					const symbols = pending.get(item.languageId);
+					const parser = parsers.get(item.languageId);
+					if (text !== undefined && symbols && parser) {
+						replaceFileSymbols(symbols, item.resource.toString(), parseWith(parser, item.languageId, text), name => indexKeyOf(name, item.languageId));
+					}
+				}
+				seen += batch.length;
+				// The count is the difference between «работает» and «завис» on a big repository, and
+				// the yield keeps the window answering while it counts.
+				progress.report({ message: localize('vibeide.codeNavigation.indexingCount', 'файлов: {0}', seen) });
+				await new Promise(resolve => setTimeout(resolve, 0));
+			}
+
 			if (token.isCancellationRequested) {
 				return;
 			}
