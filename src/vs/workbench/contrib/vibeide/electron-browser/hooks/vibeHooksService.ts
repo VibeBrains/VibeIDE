@@ -19,7 +19,7 @@ import { vibeLog } from '../../common/vibeLog.js';
 import { hooksFor, parseHookConfig, VibeHookConfig, VibeHookEvent } from '../../common/hooks/hookConfig.js';
 import { decideHooks, VibeHookDecision, verdictOf } from '../../common/hooks/hookOutcome.js';
 import { IVibeHooksMain, IVibeHooksService, VIBE_HOOKS_CHANNEL, VibeHookPayload, VibeHooksConfigKeys } from '../../common/hooks/vibeHookTypes.js';
-import { recordToolCall, ToolTrailEntry, trailView } from '../../common/hooks/toolCallTrail.js';
+import { DEFAULT_TRAIL_LIMITS, recordToolCall, ToolTrailEntry, TrailLimits, trailView } from '../../common/hooks/toolCallTrail.js';
 
 const HOOKS_FILE = ['.vibe', 'hooks.json'];
 
@@ -107,12 +107,13 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 			// against it would read «nothing happened» where something did. Switching hooks on
 			// mid-session then gives the next call real history instead of an empty list.
 			const now = Date.now();
+			const limits = this._trailLimits();
 			if (event === 'preToolUse' && context.toolName) {
 				this._trail = recordToolCall(this._trail, {
 					toolName: context.toolName,
 					params: context.params,
 					mcpServerName: context.mcpServerName,
-				}, now);
+				}, now, limits);
 			}
 			const folder = this._folder();
 			if (!folder) {
@@ -141,7 +142,7 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 				changedFiles: context.changedFiles,
 				// Without the current call: it is already in `tool`/`params`, and a rule counting
 				// occurrences would double-count it.
-				recent: trailView(this._trail.slice(0, -1), now),
+				recent: trailView(this._trail.slice(0, -1), now, limits),
 			};
 
 			// Sequential on purpose: hooks of one event are a chain the project wrote in order,
@@ -173,6 +174,16 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 			vibeLog.error('Hooks', `hook machinery failed on ${event}: ${(e as Error).message}`);
 			return NOTHING;
 		}
+	}
+
+	/** How far back the trail reaches, as the project configured it. */
+	private _trailLimits(): TrailLimits {
+		const length = this._configuration.getValue<number>(VibeHooksConfigKeys.trailLength);
+		const minutes = this._configuration.getValue<number>(VibeHooksConfigKeys.trailMinutes);
+		return {
+			length: typeof length === 'number' && length >= 0 ? Math.floor(length) : DEFAULT_TRAIL_LIMITS.length,
+			ttlMs: typeof minutes === 'number' && minutes > 0 ? Math.floor(minutes) * 60_000 : DEFAULT_TRAIL_LIMITS.ttlMs,
+		};
 	}
 
 	/** Says once per session that the project ships hooks while the setting is off. */

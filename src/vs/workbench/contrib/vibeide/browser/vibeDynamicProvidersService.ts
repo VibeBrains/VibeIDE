@@ -42,7 +42,7 @@ import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInf
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
 import { VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseProvidersFile } from '../common/vibeProvidersFile.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
-import { effectiveCost, nextPriceChangeMoment, priceChangeStatus } from '../common/modelPriceSchedule.js';
+import { DEFAULT_PRICE_CHANGE_SOON_DAYS, effectiveCost, nextPriceChangeMoment, priceChangeStatus } from '../common/modelPriceSchedule.js';
 import { VIBE_CONFIG_PROVIDERS_CACHE_KEY } from '../common/storageKeys.js';
 import { ILifecycleService, LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
@@ -57,14 +57,6 @@ const SYS_MSG_MAP: Record<string, 'system-role' | 'developer-role' | 'separated'
 	system: 'system-role', developer: 'developer-role', separated: 'separated',
 };
 
-/**
- * Pure mapper: one `static` model entry from `.vibe/providers.json` → capability overrides.
- *
- * Exported for tests. A field declared in the type, documented in the spec and offered by the
- * JSON schema but missing from this function is dropped in silence — that is how `fim` went
- * missing once and `temperature`/`topP`/`topK` went missing after it. The test asserts the whole
- * mapping at once so the next addition to the file format cannot be half-wired.
- */
 /**
  * Per-model wire format from the file's `static` list → map for the transport config.
  *
@@ -82,6 +74,18 @@ export function modelProtocolsOf(models: readonly VibeProviderModelEntry[] | und
 	return declared.length ? Object.fromEntries(declared.map(m => [m.id.toLowerCase(), m.protocol!])) : undefined;
 }
 
+/**
+ * One `static` model entry from `.vibe/providers.json` → capability overrides.
+ *
+ * Reads the clock, and therefore is NOT pure: a price with an expiry has to be resolved against
+ * «now», and the caller re-runs the mapping when the next declared moment passes. Everything else
+ * here is a straight projection of the file.
+ *
+ * Exported for tests. A field declared in the type, documented in the spec and offered by the
+ * JSON schema but missing from this function is dropped in silence — that is how `fim` went
+ * missing once and `temperature`/`topP`/`topK` went missing after it. The test asserts the whole
+ * mapping at once so the next addition to the file format cannot be half-wired.
+ */
 export function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStaticModelInfo> {
 	const c: Record<string, unknown> = {};
 	if (typeof m.contextWindow === 'number') { c.contextWindow = m.contextWindow; }
@@ -560,6 +564,8 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	 */
 	private _watchPriceSchedules(entries: readonly VibeProviderEntry[]): void {
 		const now = Date.now();
+		const configuredDays = this._configurationService.getValue<number>('vibeide.providers.priceChangeWarningDays');
+		const soonDays = typeof configuredDays === 'number' && configuredDays >= 0 ? Math.floor(configuredDays) : DEFAULT_PRICE_CHANGE_SOON_DAYS;
 		const schedules: { validUntil?: string; costAfter?: VibeProviderModelCost }[] = [];
 		const dueSoon: string[] = [];
 		for (const entry of entries) {
@@ -568,7 +574,7 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 					continue;
 				}
 				schedules.push({ validUntil: model.costValidUntil, costAfter: model.costAfter });
-				const status = priceChangeStatus(model.cost, model.costValidUntil, model.costAfter, now, model.costNote);
+				const status = priceChangeStatus(model.cost, model.costValidUntil, model.costAfter, now, model.costNote, soonDays);
 				if (status?.severity === 'soon') {
 					const factor = status.inputMultiplier;
 					// The multiplier is the part that decides whether this is worth acting on, so it

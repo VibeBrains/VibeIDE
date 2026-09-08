@@ -35,9 +35,11 @@ import {
 	buildStepInput,
 	parseModelRef,
 	parsePipelineFile,
+	parseReviewVerdict,
 	PipelineStepOutcome,
 	shouldRunStep,
 	VibePipeline,
+	VibePipelineStep,
 } from '../common/pipeline/vibePipelineFile.js';
 
 export interface PipelineRunResult {
@@ -105,6 +107,48 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		return { pipelines: parsed.file.pipelines, warnings: parsed.warnings };
 	}
 
+	/**
+	 * Ask a second model whether the step's result stands.
+	 *
+	 * The reviewer is a `reviewer` role — read-only by construction, so a critique cannot quietly
+	 * become a second implementation. It is told to end with a verdict word, because the pipeline has
+	 * to act on the answer and prose cannot be acted on; an answer without one is reported as
+	 * «вердикт не распознан» rather than guessed in either direction.
+	 */
+	private async _review(step: VibePipelineStep, result: { summary: string; artifacts?: readonly string[] }, parentThreadId: string): Promise<PipelineStepOutcome['review']> {
+		const reviewer = parseModelRef(step.reviewWith);
+		if (!reviewer) {
+			return undefined;
+		}
+		const worker = parseModelRef(step.model);
+		if (worker && worker.providerName === reviewer.providerName) {
+			// Not refused — the provider is a weak proxy for the model family, and one provider does
+			// serve several families. Said out loud because a critique by a sibling model is the case
+			// where the whole exercise quietly stops working.
+			vibeLog.warn('Pipeline', `шаг ${step.role}: ревьюер и исполнитель у одного провайдера (${reviewer.providerName}) — критика своего же семейства`);
+		}
+		const goal = [
+			`Проверьте результат шага «${step.role}».`,
+			step.acceptance ? `Критерий готовности: ${step.acceptance}` : '',
+			`Что сделано: ${result.summary}`,
+			'',
+			'Проверьте по файлам, а не по пересказу. Закончите ответ строкой «ВЕРДИКТ: принято» или',
+			'«ВЕРДИКТ: доработать», а перед ней перечислите замечания, если они есть.',
+		].filter(Boolean).join('\n');
+		const reviewerId = await this._subagents.spawn({
+			parentThreadId,
+			// `code-reviewer` is read-only by construction — a critique cannot quietly become a second
+			// implementation, which is the failure mode of «let another model fix it».
+			type: 'code-reviewer',
+			goal,
+			...(result.artifacts && result.artifacts.length > 0 ? { contextItems: [...result.artifacts] } : {}),
+			modelSelection: { providerName: reviewer.providerName as ProviderId, modelName: reviewer.modelName },
+		});
+		const verdictResult = await this._subagents.awaitResult(reviewerId);
+		this._subagents.disposeSubagent(reviewerId);
+		return { by: step.reviewWith!, verdict: parseReviewVerdict(verdictResult.summary), notes: verdictResult.summary };
+	}
+
 	async run(pipelineId: string, parentThreadId: string, token?: CancellationToken): Promise<PipelineRunResult> {
 		const { pipelines } = await this.list();
 		const pipeline = pipelines.find(p => p.id === pipelineId);
@@ -137,12 +181,12 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 					if (!isSubagentType(step.role)) {
 						throw new Error(localize('vibeide.pipeline.badRole', 'Неизвестная роль «{0}». Доступны: {1}', step.role, SUBAGENT_TYPES.join(', ')));
 					}
-					const runStep = async (modelRef: string | undefined, cascadeDraft: boolean, escalatedFrom?: { runId: string; model: string }) => {
+					const runStep = async (modelRef: string | undefined, cascadeDraft: boolean, escalatedFrom?: { runId: string; model?: string }, reviewNotes?: string) => {
 						const model = parseModelRef(modelRef);
 						const subagentId = await this._subagents.spawn({
 							parentThreadId,
 							type: step.role as SubagentType,
-							goal: input.goal,
+							goal: reviewNotes ? `${input.goal}\n\nЗАМЕЧАНИЯ РЕВЬЮЕРА (устраните их):\n${reviewNotes}` : input.goal,
 							...(step.acceptance ? { acceptanceCriteria: step.acceptance } : {}),
 							...(input.contextItems.length > 0 ? { contextItems: [...input.contextItems] } : {}),
 							...(step.maxTokens !== undefined ? { maxTokens: step.maxTokens } : {}),
@@ -166,9 +210,27 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 					if (drafting && result.status !== 'success' && !cancellation.token.isCancellationRequested) {
 						vibeLog.info('Pipeline', `${pipelineId} шаг ${i + 1}: черновик не прошёл, эскалация на ${step.escalateTo}`);
 						this._onProgress.fire({ pipelineId, stepIndex: i, totalSteps: pipeline.steps.length, role: step.role, state: 'started' });
-						const second = await runStep(step.escalateTo, false, { runId: first.subagentId, model: step.model ?? '' });
+						// The draft's model is named only when the step named it: an empty string would look
+						// like a model in the report, and «ran on the role's default» is the honest answer.
+						const second = await runStep(step.escalateTo, false, { runId: first.subagentId, ...(step.model ? { model: step.model } : {}) });
 						result = second.result;
 						escalated = true;
+					}
+					// Critique: a second model reads the result and says whether it stands. Only after a
+					// successful run — reviewing a step that failed tells the user what they already
+					// know, and costs a model call to say it.
+					let review: PipelineStepOutcome['review'];
+					if (step.reviewWith && result.status === 'success' && !cancellation.token.isCancellationRequested) {
+						review = await this._review(step, result, parentThreadId);
+						if (review?.verdict === 'rework') {
+							vibeLog.info('Pipeline', `${pipelineId} шаг ${i + 1}: ревьюер требует доработки, переделываю один раз`);
+							this._onProgress.fire({ pipelineId, stepIndex: i, totalSteps: pipeline.steps.length, role: step.role, state: 'started' });
+							// One revision, not a loop: two models disagreeing can trade opinions forever,
+							// and the user is paying per exchange. The verdict travels with the outcome, so
+							// a result that stayed unconvincing is visible rather than retried in silence.
+							const revised = await runStep(escalated ? step.escalateTo : step.model, false, undefined, review.notes);
+							result = revised.result;
+						}
 					}
 					outcomes.push({
 						role: step.role,
@@ -176,6 +238,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 						summary: result.summary,
 						artifacts: result.artifacts ?? [],
 						...(escalated ? { escalatedTo: step.escalateTo } : {}),
+						...(review ? { review } : {}),
 					});
 				} catch (err) {
 					// A step that could not even start is a failed step, not a crashed pipeline: the

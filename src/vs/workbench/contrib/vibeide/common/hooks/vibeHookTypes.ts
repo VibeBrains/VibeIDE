@@ -14,6 +14,8 @@ export const VIBE_HOOKS_CHANNEL = 'vibeide-channel-hooks';
 export const VibeHooksConfigKeys = {
 	section: 'vibeide.hooks',
 	enabled: 'vibeide.hooks.enabled',
+	trailLength: 'vibeide.hooks.trailLength',
+	trailMinutes: 'vibeide.hooks.trailMinutes',
 } as const;
 
 /** What a hook reads from stdin. Stable shape: hooks are user scripts, not our code. */

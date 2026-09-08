@@ -37,20 +37,20 @@ export interface ToolTrailView {
 }
 
 /**
- * How many calls back the trail reaches.
+ * How far the trail reaches, in calls and in time.
  *
- * Long enough to hold a real sequence — read, transform, send — and short enough that the payload
- * stays a payload. A hook that needs the full history has the audit log for that.
+ * Both are settings (`vibeide.hooks.trailLength` / `vibeide.hooks.trailMinutes`) rather than
+ * constants: how long a chain a project needs to describe is a property of that project's rules,
+ * and the right expiry depends on how long its turns run. The defaults below are what the service
+ * passes when configuration says nothing — long enough to hold a real sequence (read, transform,
+ * send), short enough that the payload stays a payload and yesterday's read is not today's evidence.
  */
-export const TRAIL_LENGTH = 20;
+export interface TrailLimits {
+	readonly length: number;
+	readonly ttlMs: number;
+}
 
-/**
- * How long a call stays relevant.
- *
- * A trail with no expiry turns yesterday's read into today's evidence, and rules written against it
- * would fire on coincidence. Half an hour is well past any single agent turn.
- */
-export const TRAIL_TTL_MS = 30 * 60 * 1000;
+export const DEFAULT_TRAIL_LIMITS: TrailLimits = { length: 20, ttlMs: 30 * 60 * 1000 };
 
 /**
  * Append a call to the trail, returning the new trail.
@@ -63,6 +63,7 @@ export function recordToolCall(
 	trail: readonly ToolTrailEntry[],
 	call: { readonly toolName: string; readonly params: Readonly<Record<string, unknown>> | undefined; readonly mcpServerName?: string },
 	now: number,
+	limits: TrailLimits = DEFAULT_TRAIL_LIMITS,
 ): ToolTrailEntry[] {
 	const path = toolCallTargetPath({ toolName: call.toolName, params: call.params, mcpServerName: call.mcpServerName });
 	const entry: ToolTrailEntry = {
@@ -71,8 +72,12 @@ export function recordToolCall(
 		...(path ? { path } : {}),
 		...(call.mcpServerName ? { server: call.mcpServerName } : {}),
 	};
-	const fresh = trail.filter(e => now - e.at <= TRAIL_TTL_MS);
-	return [...fresh, entry].slice(-TRAIL_LENGTH);
+	if (limits.length <= 0) {
+		// The trail is switched off: keep nothing rather than keeping a list nobody will be shown.
+		return [];
+	}
+	const fresh = trail.filter(e => now - e.at <= limits.ttlMs);
+	return [...fresh, entry].slice(-limits.length);
 }
 
 /**
@@ -81,9 +86,9 @@ export function recordToolCall(
  * Seconds rather than timestamps because a rule asks «did this happen just now», and answering that
  * from an absolute clock means every hook re-implements the subtraction — differently.
  */
-export function trailView(trail: readonly ToolTrailEntry[], now: number): ToolTrailView[] {
+export function trailView(trail: readonly ToolTrailEntry[], now: number, limits: TrailLimits = DEFAULT_TRAIL_LIMITS): ToolTrailView[] {
 	return trail
-		.filter(e => now - e.at <= TRAIL_TTL_MS)
+		.filter(e => now - e.at <= limits.ttlMs)
 		.map(e => ({
 			tool: e.tool,
 			secondsAgo: Math.max(0, Math.round((now - e.at) / 1000)),

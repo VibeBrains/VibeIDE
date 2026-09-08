@@ -22,8 +22,13 @@ import { VibeProviderModelCost } from './vibeProvidersFile.js';
  * postpone. We say what we know and let the person decide — the same stance as `modelDeprecation`.
  */
 
-/** Inside this many days an upcoming price change stops being a footnote. */
-export const PRICE_CHANGE_SOON_DAYS = 14;
+/**
+ * Inside this many days an upcoming price change stops being a footnote.
+ *
+ * A default rather than a constant: `vibeide.providers.priceChangeWarningDays` decides, because how
+ * much notice is useful depends on how quickly the person can actually switch models.
+ */
+export const DEFAULT_PRICE_CHANGE_SOON_DAYS = 14;
 
 const MS_PER_DAY = 86_400_000;
 
@@ -119,6 +124,7 @@ export function priceChangeStatus(
 	costAfter: VibeProviderModelCost | undefined,
 	now: number,
 	note?: string,
+	soonDays: number = DEFAULT_PRICE_CHANGE_SOON_DAYS,
 ): PriceChangeStatus | undefined {
 	if (!costAfter) {
 		return undefined;
@@ -130,7 +136,7 @@ export function priceChangeStatus(
 	const daysLeft = Math.floor((moment - now) / MS_PER_DAY);
 	const severity: PriceChangeSeverity = now >= moment
 		? 'in-effect'
-		: daysLeft <= PRICE_CHANGE_SOON_DAYS ? 'soon' : 'announced';
+		: daysLeft <= soonDays ? 'soon' : 'announced';
 	return {
 		severity,
 		daysLeft,

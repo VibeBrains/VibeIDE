@@ -6,7 +6,7 @@
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
-	effectiveCost, nextPriceChangeMoment, parseDeclaredMoment, priceChangeStatus, PRICE_CHANGE_SOON_DAYS,
+	effectiveCost, nextPriceChangeMoment, parseDeclaredMoment, priceChangeStatus, DEFAULT_PRICE_CHANGE_SOON_DAYS,
 } from '../../common/modelPriceSchedule.js';
 
 /**
@@ -58,7 +58,7 @@ suite('model price schedule', () => {
 			{ severity: 'soon', daysLeft: 1, inputMultiplier: 10, outputMultiplier: 10, note: 'из блога вендора' },
 		);
 		assert.strictEqual(priceChangeStatus(promo, deadline, full, after)?.severity, 'in-effect');
-		const far = Date.parse('2026-09-10T23:59:00Z') - (PRICE_CHANGE_SOON_DAYS + 2) * 86_400_000;
+		const far = Date.parse('2026-09-10T23:59:00Z') - (DEFAULT_PRICE_CHANGE_SOON_DAYS + 2) * 86_400_000;
 		assert.strictEqual(priceChangeStatus(promo, deadline, full, far)?.severity, 'announced');
 	});
 
@@ -69,6 +69,13 @@ suite('model price schedule', () => {
 			[status?.severity, status?.inputMultiplier, status?.outputMultiplier],
 			['soon', undefined, undefined],
 		);
+	});
+
+	/** Порог — настройка: кто может переключить модель за день, тому не нужны две недели шума. */
+	test('the warning window is a parameter, not a constant', () => {
+		const twoDaysBefore = Date.parse('2026-09-08T23:59:00Z');
+		assert.strictEqual(priceChangeStatus(promo, deadline, full, twoDaysBefore, undefined, 1)?.severity, 'announced');
+		assert.strictEqual(priceChangeStatus(promo, deadline, full, twoDaysBefore, undefined, 5)?.severity, 'soon');
 	});
 
 	test('the next moment is the soonest one still ahead', () => {

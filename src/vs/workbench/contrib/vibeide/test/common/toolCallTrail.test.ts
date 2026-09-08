@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { recordToolCall, trailView, TRAIL_LENGTH, TRAIL_TTL_MS } from '../../common/hooks/toolCallTrail.js';
+import { DEFAULT_TRAIL_LIMITS, recordToolCall, trailView } from '../../common/hooks/toolCallTrail.js';
 
 /**
  * След вызовов, который видит хук.
@@ -41,19 +41,25 @@ suite('tool call trail', () => {
 
 	test('the trail is bounded, keeping the most recent calls', () => {
 		let trail: ReturnType<typeof recordToolCall> = [];
-		for (let i = 0; i < TRAIL_LENGTH + 5; i++) {
+		for (let i = 0; i < DEFAULT_TRAIL_LIMITS.length + 5; i++) {
 			trail = record(trail, `tool_${i}`, undefined, t0 + i * 1000);
 		}
 		assert.deepStrictEqual(
 			[trail.length, trail[0].tool, trail[trail.length - 1].tool],
-			[TRAIL_LENGTH, 'tool_5', `tool_${TRAIL_LENGTH + 4}`],
+			[DEFAULT_TRAIL_LIMITS.length, 'tool_5', `tool_${DEFAULT_TRAIL_LIMITS.length + 4}`],
 		);
+	});
+
+	/** Настройка «нулевой длины» — способ выключить след, а не оставить его прежним. */
+	test('a length of zero switches the trail off', () => {
+		const trail = record([], 'read_file', { path: '.env' }, t0);
+		assert.deepStrictEqual(recordToolCall(trail, { toolName: 'run_command', params: undefined }, t0, { length: 0, ttlMs: 60_000 }), []);
 	});
 
 	/** A trail with no expiry turns an idle morning into evidence, and rules fire on coincidence. */
 	test('stale calls drop out, on the way in and on the way out', () => {
 		const old = record([], 'read_file', { path: '.env' }, t0);
-		const later = t0 + TRAIL_TTL_MS + 1000;
+		const later = t0 + DEFAULT_TRAIL_LIMITS.ttlMs + 1000;
 		assert.deepStrictEqual(trailView(old, later), []);
 		assert.deepStrictEqual(record(old, 'run_command', undefined, later).map(e => e.tool), ['run_command']);
 	});

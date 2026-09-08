@@ -118,7 +118,7 @@ export interface SubagentHandoff {
 	 */
 	cascadeDraft?: boolean;
 	/** Set on the escalation run: which draft it replaced, and on what model that draft ran. */
-	escalatedFrom?: { readonly runId: string; readonly model: string };
+	escalatedFrom?: { readonly runId: string; readonly model?: string };
 }
 
 /** Statuses that still hold the key — a finished run must not block a new attempt. */
@@ -337,7 +337,10 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			startedAt: entry.startedAt,
 			...(handoff.replayOfRunId ? { replayOfRunId: handoff.replayOfRunId } : {}),
 			...(handoff.cascadeDraft ? { cascadeDraft: true } : {}),
-			...(handoff.escalatedFrom ? { escalatedFromRunId: handoff.escalatedFrom.runId, escalatedFromModel: handoff.escalatedFrom.model } : {}),
+			...(handoff.escalatedFrom ? {
+				escalatedFromRunId: handoff.escalatedFrom.runId,
+				...(handoff.escalatedFrom.model ? { escalatedFromModel: handoff.escalatedFrom.model } : {}),
+			} : {}),
 		});
 
 		this._log.info(`[VibeSubagent] Spawning ${handoff.type} subagent ${id} for thread ${handoff.parentThreadId}`);

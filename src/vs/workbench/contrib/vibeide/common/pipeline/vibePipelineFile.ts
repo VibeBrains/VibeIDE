@@ -62,6 +62,41 @@ export interface VibePipelineStep {
 	 * enough gets an answer shaped like «yes».
 	 */
 	readonly escalateTo?: string;
+	/**
+	 * Model that reviews this step's result, as `провайдер/модель`.
+	 *
+	 * A reviewer from ANOTHER provider on purpose: a model asked to check its own answer agrees with
+	 * itself, and two runs of one family share the same blind spots. The pipeline warns when the
+	 * reviewer and the worker come from the same provider — it is a weak proxy for «another family»,
+	 * but it catches the case that makes the review pointless.
+	 */
+	readonly reviewWith?: string;
+}
+
+/** What a reviewer decided about the work it was shown. */
+export type ReviewVerdict = 'accepted' | 'rework' | 'unclear';
+
+/**
+ * The word the reviewer is asked to end with, and what we do when it is missing.
+ *
+ * A verdict has to be machine-readable for the pipeline to act on it, and prose is not: «в целом
+ * неплохо, но…» is an accept for one reader and a rework for another. So the reviewer is told to
+ * finish with `ВЕРДИКТ: принято` or `ВЕРДИКТ: доработать`, and anything else is `unclear` —
+ * reported to the user, never guessed. Guessing would either revise on a compliment or accept on a
+ * complaint, and both are worse than saying «вердикт не распознан».
+ */
+export function parseReviewVerdict(summary: string | undefined): ReviewVerdict {
+	if (!summary) {
+		return 'unclear';
+	}
+	// The last verdict wins: a reviewer that quotes the instruction and then answers would otherwise
+	// be read by its own prompt.
+	const matches = [...summary.matchAll(/ВЕРДИКТ\s*:\s*(принято|доработать)/giu)];
+	const last = matches[matches.length - 1];
+	if (!last) {
+		return 'unclear';
+	}
+	return last[1].toLowerCase() === 'принято' ? 'accepted' : 'rework';
 }
 
 /**
@@ -189,7 +224,7 @@ function parseStep(raw: unknown): { ok: true; value: VibePipelineStep } | { ok: 
 	// A malformed model reference is a hard error for the step, not a field quietly dropped: the
 	// alternative is a step that runs on the role's default model while the file says otherwise —
 	// and the whole point of naming a model here is that a cheap draft is actually cheap.
-	for (const key of ['model', 'escalateTo'] as const) {
+	for (const key of ['model', 'escalateTo', 'reviewWith'] as const) {
 		if (s[key] !== undefined && !parseModelRef(s[key] as string | undefined)) {
 			return { ok: false, reason: `поле ${key} должно быть «провайдер/модель»` };
 		}
@@ -206,6 +241,7 @@ function parseStep(raw: unknown): { ok: true; value: VibePipelineStep } | { ok: 
 			...(s['ignorePreviousArtifacts'] === true ? { ignorePreviousArtifacts: true } : {}),
 			...(parseModelRef(s['model'] as string | undefined) ? { model: (s['model'] as string).trim() } : {}),
 			...(parseModelRef(s['escalateTo'] as string | undefined) ? { escalateTo: (s['escalateTo'] as string).trim() } : {}),
+			...(parseModelRef(s['reviewWith'] as string | undefined) ? { reviewWith: (s['reviewWith'] as string).trim() } : {}),
 		},
 	};
 }
@@ -218,6 +254,8 @@ export interface PipelineStepOutcome {
 	readonly artifacts: readonly string[];
 	/** Set when the cheap draft did not pass and the step was retried on this model. */
 	readonly escalatedTo?: string;
+	/** Set when a second model reviewed the result: what it decided, and on which model. */
+	readonly review?: { readonly by: string; readonly verdict: ReviewVerdict; readonly notes: string };
 }
 
 export interface PipelineStepInput {

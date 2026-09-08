@@ -1396,6 +1396,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			}
 		} else {
 			this._streamStateSetAt.delete(threadId);
+			// The thread stopped: its context window is no longer being re-sent, so the tool results
+			// in it stop being re-billed. Hooked to this funnel rather than to the end of the happy
+			// path — a turn also ends by interrupt, by error and by the user pressing stop, and the
+			// weights left live after any of those would be charged to the NEXT turn.
+			this._toolContextCostService.noteTurnEnd(threadId);
 		}
 
 		// Clear the submit-level watchdog only when the stream has truly reached the
@@ -4856,7 +4861,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		this._agentActivityLog.logFinished(toolActivityLabel);
 		// What this result will cost from here on. Measured after compression and hook notes, because
 		// that is the string the model actually carries — the raw one was never sent.
-		this._toolContextCostService.noteResult(toolName, toolResultStr.length);
+		this._toolContextCostService.noteResult(threadId, toolName, toolResultStr.length);
 
 		// Cache read_file results to prevent duplicate reads
 		if (toolName === 'read_file' && isBuiltInTool) {
@@ -6258,7 +6263,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				forceToolUseNextTurn = false;
 				// Everything the tools have left in the window is about to be paid for again. This is
 				// the moment the re-billing happens, so this is where it is counted.
-				this._toolContextCostService.noteRoundTrip();
+				this._toolContextCostService.noteRoundTrip(threadId);
 				const llmCancelToken = this._llmMessageService.sendLLMMessage({
 					messagesType: 'chatMessages',
 					chatMode,
@@ -7252,8 +7257,6 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 					// policy scripts) run here rather than being described to the model in a rule.
 					// A refusal is delivered as a message the agent must answer, not as a block —
 					// the turn is already over, and stopping it retroactively is not a thing.
-					// The turn's context is done being re-sent: stop charging its tool results.
-					this._toolContextCostService.noteTurnEnd();
 					const turnHooks = await this._hooksService.run('turnEnd', { changedFiles: [...touchedPathsThisRun] });
 					if (turnHooks.agentMessage) {
 						this._addMessageToThread(threadId, { role: 'assistant', displayContent: `🪝 ПРОВЕРКА ПРОЕКТА\n\n${turnHooks.agentMessage}`, reasoning: '', anthropicReasoning: null });
