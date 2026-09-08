@@ -48,8 +48,15 @@ export interface ToolContextTally {
 /** Running totals per tool — the persisted half, shared by every conversation. */
 export type ToolCostTotals = ReadonlyMap<string, ToolContextTally>;
 
-/** Tokens each tool currently has sitting in ONE conversation's context window. */
-export type TurnLiveWeights = ReadonlyMap<string, number>;
+/**
+ * What ONE conversation still carries, keyed by the tool call's own id.
+ *
+ * By call rather than by tool name because the context is trimmed by call: when history compaction
+ * drops the third of five `read_file` results, the other four keep costing. The id is the same one
+ * that travels on the wire as `tool_call_id` / `tool_use_id`, so «is it still in the prompt» is a
+ * question we can answer exactly instead of estimating.
+ */
+export type TurnLiveWeights = ReadonlyMap<string, { readonly tool: string; readonly tokens: number }>;
 
 export const EMPTY_TOOL_COST_TOTALS: ToolCostTotals = new Map();
 export const EMPTY_LIVE_WEIGHTS: TurnLiveWeights = new Map();
@@ -70,6 +77,7 @@ export function recordToolResult(
 	live: TurnLiveWeights,
 	tool: string,
 	resultChars: number,
+	callId: string,
 ): { totals: ToolCostTotals; live: TurnLiveWeights } {
 	const added = resultTokens(resultChars);
 	if (added === 0) {
@@ -84,29 +92,72 @@ export function recordToolResult(
 		carried: previous?.carried ?? 0,
 	});
 	const nextLive = new Map(live);
-	nextLive.set(tool, (nextLive.get(tool) ?? 0) + added);
+	nextLive.set(callId, { tool, tokens: added });
 	return { totals: nextTotals, live: nextLive };
 }
 
 /**
  * Charge one conversation's live results for one more round-trip.
  *
- * Called when a request goes out carrying the accumulated context. Everything a tool left in that
- * window is billed again, which is precisely the cost the caller cannot see anywhere else.
+ * `stillSent` is the set of tool call ids actually present in the request being made. A result the
+ * history compactor has dropped is no longer paid for — and is forgotten, not merely skipped, so it
+ * cannot come back as a charge if a later message happens to mention it. Omit the set and everything
+ * live is charged, which is the right answer for a caller that cannot see the prompt.
  */
-export function chargeRoundTrip(totals: ToolCostTotals, live: TurnLiveWeights): ToolCostTotals {
+export function chargeRoundTrip(
+	totals: ToolCostTotals,
+	live: TurnLiveWeights,
+	stillSent?: ReadonlySet<string>,
+): { totals: ToolCostTotals; live: TurnLiveWeights } {
 	if (live.size === 0) {
-		return totals;
+		return { totals, live };
 	}
-	const next = new Map(totals);
-	for (const [tool, weight] of live) {
-		const previous = next.get(tool);
-		if (!previous || weight === 0) {
+	const nextTotals = new Map(totals);
+	const nextLive = new Map<string, { tool: string; tokens: number }>();
+	for (const [callId, entry] of live) {
+		if (stillSent && !stillSent.has(callId)) {
+			continue; // trimmed out of the context: it stops costing from here on
+		}
+		nextLive.set(callId, entry);
+		const previous = nextTotals.get(entry.tool);
+		if (!previous || entry.tokens === 0) {
 			continue;
 		}
-		next.set(tool, { ...previous, carried: previous.carried + weight });
+		nextTotals.set(entry.tool, { ...previous, carried: previous.carried + entry.tokens });
 	}
-	return next;
+	return { totals: nextTotals, live: nextLive };
+}
+
+/**
+ * Tool call ids present in a request, across the three wire formats we speak.
+ *
+ * The answer to «что реально уехало» has to come from the messages themselves: the estimate used to
+ * assume every result stays in the window forever, so a long turn that compacted its history kept
+ * being billed for text it no longer sent. Each vendor names the field differently — OpenAI's
+ * `tool_call_id` on a `tool` message, Anthropic's `tool_result.tool_use_id` inside a user message,
+ * Gemini's `functionResponse.id` — but all three carry the same id we recorded.
+ */
+export function toolCallIdsInMessages(messages: readonly unknown[]): Set<string> {
+	const ids = new Set<string>();
+	for (const raw of messages) {
+		const message = raw as { role?: unknown; tool_call_id?: unknown; content?: unknown; parts?: unknown };
+		if (typeof message?.tool_call_id === 'string') {
+			ids.add(message.tool_call_id);
+		}
+		for (const part of Array.isArray(message?.content) ? message.content : []) {
+			const p = part as { type?: unknown; tool_use_id?: unknown };
+			if (p?.type === 'tool_result' && typeof p.tool_use_id === 'string') {
+				ids.add(p.tool_use_id);
+			}
+		}
+		for (const part of Array.isArray(message?.parts) ? message.parts : []) {
+			const p = part as { functionResponse?: { id?: unknown } };
+			if (typeof p?.functionResponse?.id === 'string') {
+				ids.add(p.functionResponse.id);
+			}
+		}
+	}
+	return ids;
 }
 
 /**

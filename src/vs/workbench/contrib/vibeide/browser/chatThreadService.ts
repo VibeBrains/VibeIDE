@@ -4861,7 +4861,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		this._agentActivityLog.logFinished(toolActivityLabel);
 		// What this result will cost from here on. Measured after compression and hook notes, because
 		// that is the string the model actually carries — the raw one was never sent.
-		this._toolContextCostService.noteResult(threadId, toolName, toolResultStr.length);
+		this._toolContextCostService.noteResult(threadId, toolName, toolResultStr.length, toolId);
 
 		// Cache read_file results to prevent duplicate reads
 		if (toolName === 'read_file' && isBuiltInTool) {
@@ -6263,7 +6263,9 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 				forceToolUseNextTurn = false;
 				// Everything the tools have left in the window is about to be paid for again. This is
 				// the moment the re-billing happens, so this is where it is counted.
-				this._toolContextCostService.noteRoundTrip(threadId);
+				// The messages themselves answer «что реально уехало»: history compaction drops tool
+				// results, and a result that is no longer sent must stop being billed.
+				this._toolContextCostService.noteRoundTrip(threadId, messages);
 				const llmCancelToken = this._llmMessageService.sendLLMMessage({
 					messagesType: 'chatMessages',
 					chatMode,

@@ -9,7 +9,8 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import {
 	chargeRoundTrip, deserializeToolCost, EMPTY_LIVE_WEIGHTS, EMPTY_TOOL_COST_TOTALS, recordToolResult,
-	serializeToolCost, ToolContextTally, ToolCostTotals, totalContextCost, TurnLiveWeights, worstOffenders,
+	serializeToolCost, toolCallIdsInMessages, ToolContextTally, ToolCostTotals, totalContextCost,
+	TurnLiveWeights, worstOffenders,
 } from '../common/toolContextCost.js';
 import { vibeLog } from '../common/vibeLog.js';
 
@@ -28,10 +29,14 @@ export const IVibeToolContextCostService = createDecorator<IVibeToolContextCostS
 
 export interface IVibeToolContextCostService {
 	readonly _serviceBrand: undefined;
-	/** A tool returned this much text into this conversation's context. */
-	noteResult(threadId: string, toolName: string, resultChars: number): void;
-	/** A request went out carrying everything this conversation's turn has accumulated. */
-	noteRoundTrip(threadId: string): void;
+	/** A tool returned this much text into this conversation's context, under this call id. */
+	noteResult(threadId: string, toolName: string, resultChars: number, callId: string): void;
+	/**
+	 * A request went out. `messages` is what it actually carries — results the history compactor
+	 * dropped are neither charged nor remembered, so a long turn stops paying for text it no longer
+	 * sends.
+	 */
+	noteRoundTrip(threadId: string, messages: readonly unknown[]): void;
 	/**
 	 * This conversation stopped running: its context is gone and stops being re-billed.
 	 *
@@ -87,8 +92,8 @@ class VibeToolContextCostService extends Disposable implements IVibeToolContextC
 		}
 	}
 
-	noteResult(threadId: string, toolName: string, resultChars: number): void {
-		const next = recordToolResult(this._totals, this._live.get(threadId) ?? EMPTY_LIVE_WEIGHTS, toolName, resultChars);
+	noteResult(threadId: string, toolName: string, resultChars: number, callId: string): void {
+		const next = recordToolResult(this._totals, this._live.get(threadId) ?? EMPTY_LIVE_WEIGHTS, toolName, resultChars, callId);
 		if (next.totals === this._totals) {
 			return;
 		}
@@ -101,11 +106,14 @@ class VibeToolContextCostService extends Disposable implements IVibeToolContextC
 		}
 	}
 
-	noteRoundTrip(threadId: string): void {
+	noteRoundTrip(threadId: string, messages: readonly unknown[]): void {
 		const live = this._live.get(threadId);
-		if (live) {
-			this._totals = chargeRoundTrip(this._totals, live);
+		if (!live) {
+			return;
 		}
+		const next = chargeRoundTrip(this._totals, live, toolCallIdsInMessages(messages));
+		this._totals = next.totals;
+		this._live.set(threadId, next.live);
 	}
 
 	noteTurnEnd(threadId: string): void {
