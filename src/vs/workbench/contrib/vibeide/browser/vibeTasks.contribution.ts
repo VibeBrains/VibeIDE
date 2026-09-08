@@ -11,7 +11,7 @@ import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContaine
 import {
 	Extensions as ViewContainerExtensions, IViewContainersRegistry, IViewsRegistry, ViewContainerLocation,
 } from '../../../common/views.js';
-import { VibeTasksViewPane } from './vibeTasksViewPane.js';
+import { VibeTasksViewPane, VIBE_TASKS_VIEW_ID } from './vibeTasksViewPane.js';
 
 /**
  * Где живёт доска задач.
@@ -22,7 +22,6 @@ import { VibeTasksViewPane } from './vibeTasksViewPane.js';
  */
 
 const VIBE_TASKS_VIEWLET_ID = 'workbench.view.vibeTasks';
-const VIBE_TASKS_VIEW_ID = 'workbench.view.vibeTasks.board';
 
 /* Codicon, not Font Awesome: the panel's other tabs are outline codicons, and a filled glyph beside
  * them reads as a foreign icon set. */
