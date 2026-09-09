@@ -24,9 +24,18 @@ export type VibeHookEvent =
 	/** After a tool ran. Exit 2 does not undo it — it tells the agent to fix what it just did. */
 	| 'postToolUse'
 	/** After a turn finished (the agent stopped calling tools). */
-	| 'turnEnd';
+	| 'turnEnd'
+	/**
+	 * After a cascade step produced a draft, before the pipeline decides to escalate.
+	 *
+	 * The acceptance gate of a cascade: exit 0 accepts the draft and the expensive model is never
+	 * called; exit 2 rejects it and the step escalates. It exists because the alternative gate is
+	 * asking a model whether its own answer was good enough, and that question has one answer.
+	 * `tools` does not apply — the event is not about a tool call.
+	 */
+	| 'pipelineStepEnd';
 
-export const VIBE_HOOK_EVENTS: readonly VibeHookEvent[] = ['preToolUse', 'postToolUse', 'turnEnd'];
+export const VIBE_HOOK_EVENTS: readonly VibeHookEvent[] = ['preToolUse', 'postToolUse', 'turnEnd', 'pipelineStepEnd'];
 
 /** Default ceiling for one hook, in milliseconds. A hook is a check, not a build. */
 export const VIBE_HOOK_DEFAULT_TIMEOUT_MS = 30000;
@@ -107,8 +116,8 @@ export function parseHookConfig(raw: string): VibeHookConfig {
 		}
 		const rawTools = record?.['tools'];
 		const tools = Array.isArray(rawTools) ? rawTools.map(asString).filter((t): t is string => !!t) : [];
-		if (event === 'turnEnd' && tools.length) {
-			problems.push(`Хук №${index + 1}: «tools» не применяется к событию turnEnd — список проигнорирован.`);
+		if ((event === 'turnEnd' || event === 'pipelineStepEnd') && tools.length) {
+			problems.push(`Хук №${index + 1}: «tools» не применяется к событию ${event} — список проигнорирован.`);
 		}
 		const rawTimeout = record?.['timeoutMs'];
 		let timeoutMs = typeof rawTimeout === 'number' && Number.isFinite(rawTimeout) ? Math.floor(rawTimeout) : VIBE_HOOK_DEFAULT_TIMEOUT_MS;
@@ -119,7 +128,8 @@ export function parseHookConfig(raw: string): VibeHookConfig {
 			problems.push(`Хук №${index + 1}: таймаут ${timeoutMs} мс урезан до ${VIBE_HOOK_MAX_TIMEOUT_MS} мс.`);
 			timeoutMs = VIBE_HOOK_MAX_TIMEOUT_MS;
 		}
-		hooks.push({ event, command, tools: event === 'turnEnd' ? [] : tools, timeoutMs, label: asString(record?.['label']) });
+		const toolsApply = event !== 'turnEnd' && event !== 'pipelineStepEnd';
+		hooks.push({ event, command, tools: toolsApply ? tools : [], timeoutMs, label: asString(record?.['label']) });
 	});
 
 	return { hooks, problems };
@@ -131,7 +141,7 @@ export function hooksFor(config: VibeHookConfig, event: VibeHookEvent, toolName?
 		if (hook.event !== event) {
 			return false;
 		}
-		if (event === 'turnEnd' || !hook.tools.length) {
+		if (event === 'turnEnd' || event === 'pipelineStepEnd' || !hook.tools.length) {
 			return true;
 		}
 		return toolName !== undefined && hook.tools.includes(toolName);

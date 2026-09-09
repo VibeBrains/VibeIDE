@@ -14,6 +14,7 @@
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { safeParseConfigJson } from '../common/vibeConfigJsonParser.js';
+import { IVibeHooksService } from '../common/hooks/vibeHookTypes.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -79,6 +80,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		@IFileService private readonly _fileService: IFileService,
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 		@IVibeSubagentService private readonly _subagents: IVibeSubagentService,
+		@IVibeHooksService private readonly _hooks: IVibeHooksService,
 	) {
 		super();
 	}
@@ -208,8 +210,26 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 					const first = await runStep(step.model, drafting);
 					let result = first.result;
 					let escalated = false;
-					if (drafting && result.status !== 'success' && !cancellation.token.isCancellationRequested) {
-						vibeLog.info('Pipeline', `${pipelineId} шаг ${i + 1}: черновик не прошёл, эскалация на ${step.escalateTo}`);
+					// A project-owned gate on top of the step's own outcome: a draft can succeed and
+					// still be too thin to keep. Exit 2 from a `pipelineStepEnd` hook rejects it, which
+					// is a deterministic answer to a question a model cannot be trusted with about its
+					// own work. No hook, hooks off, or a broken script — the outcome decides as before.
+					let rejectedByGate: string | undefined;
+					if (drafting && result.status === 'success' && !cancellation.token.isCancellationRequested) {
+						const gate = await this._hooks.run('pipelineStepEnd', {
+							pipeline: pipelineId,
+							step: i + 1,
+							role: step.role,
+							model: step.model,
+							answer: result.summary,
+						});
+						if (gate.blocked) {
+							rejectedByGate = gate.agentMessage;
+							vibeLog.info('Pipeline', `${pipelineId} шаг ${i + 1}: гейт приёмки отклонил черновик`);
+						}
+					}
+					if (drafting && (result.status !== 'success' || rejectedByGate !== undefined) && !cancellation.token.isCancellationRequested) {
+						vibeLog.info('Pipeline', `${pipelineId} шаг ${i + 1}: ${rejectedByGate ? 'гейт отклонил черновик' : 'черновик не прошёл'}, эскалация на ${step.escalateTo}`);
 						this._onProgress.fire({ pipelineId, stepIndex: i, totalSteps: pipeline.steps.length, role: step.role, state: 'started' });
 						// The draft's model is named only when the step named it: an empty string would look
 						// like a model in the report, and «ran on the role's default» is the honest answer.

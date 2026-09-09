@@ -151,4 +151,32 @@ suite('Project hooks — verdicts', () => {
 			явныйFalse: commandsOf(', "active": false'),
 		}, { безПоля: 1, явныйTrue: 1, явныйFalse: 0 });
 	});
+
+	suite('pipelineStepEnd — гейт приёмки каскада', () => {
+		/** Контракт общего набора сидов: событие есть, и «tools» к нему не применяется. */
+		test('событие принимается, а tools игнорируется как у turnEnd', () => {
+			const config = parseHookConfig(`{"hooks":[
+				{"event":"pipelineStepEnd","command":"node gate.js","tools":["read_file"]}
+			]}`);
+			assert.deepStrictEqual({
+				событий: config.hooks.length,
+				инструменты: config.hooks[0]?.tools,
+				проблемы: config.problems,
+			}, {
+				событий: 1,
+				инструменты: [],
+				проблемы: ['Хук №1: «tools» не применяется к событию pipelineStepEnd — список проигнорирован.'],
+			});
+		});
+
+		/** Хук события выбирается независимо от имени инструмента — вызова тут нет вовсе. */
+		test('выбирается без привязки к инструменту', () => {
+			const config = parseHookConfig(`{"hooks":[{"event":"pipelineStepEnd","command":"node gate.js"}]}`);
+			assert.deepStrictEqual({
+				безИнструмента: hooksFor(config, 'pipelineStepEnd').map(h => h.command),
+				сЧужимИменем: hooksFor(config, 'pipelineStepEnd', 'read_file').map(h => h.command),
+				чужоеСобытие: hooksFor(config, 'turnEnd').map(h => h.command),
+			}, { безИнструмента: ['node gate.js'], сЧужимИменем: ['node gate.js'], чужоеСобытие: [] });
+		});
+	});
 });
