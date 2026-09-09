@@ -92,6 +92,9 @@ agent-locks.json
 agent-runs.jsonl
 commands.trust.json
 snapshots/
+# Планы агента и лизы выполнения внутри них: план пишет IDE, а .leases/ — это замки
+# конкретного окна конкретной машины, коммит которых бессмысленен всегда.
+plans/
 # Секреты провайдеров (apiKeyEnv из .vibe/providers.json резолвится отсюда) — НИКОГДА не коммитить.
 .env
 `;
