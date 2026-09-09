@@ -35,7 +35,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
-import { scanProviderConfig, ConfigGuardFinding } from '../common/vibeConfigGuard.js';
+import { scanProviderConfig, scanEnvFileSecrets, ConfigGuardFinding } from '../common/vibeConfigGuard.js';
 import { builtinProviderIdOf, isBuiltinProviderId, VibeideStatefulModelInfo } from '../common/vibeideSettingsTypes.js';
 import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig, DynamicProviderSeed } from '../common/vibeideSettingsService.js';
 import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo } from '../common/modelCapabilities.js';
@@ -240,6 +240,11 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	private _state: VibeDynamicProvidersState = EMPTY_STATE;
 	/** Parsed `.vibe/.env` (global `~/.vibe` + workspace, workspace wins per var). Refreshed on every reload. */
 	private _envFileVars: Record<string, string> = {};
+	/**
+	 * What the workspace `.vibe/.env` exposes, for the Config Guard. Kept apart from the merged map
+	 * above because only the WORKSPACE file can reach a git remote — `~/.vibe/.env` never does.
+	 */
+	private _workspaceEnvExposure: { readonly variableNames: string[]; readonly gitIgnored: boolean } | undefined = undefined;
 	/** Resolved `~/.vibe` directory URI (set once at construct; undefined until resolved / on failure). */
 	private _globalVibeDir: URI | undefined = undefined;
 	/** Bumped on every state change so a slow async catalog fetch can detect it raced a newer reload. */
@@ -429,6 +434,25 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 		}
 	}
 
+	/**
+	 * Whether `.vibe/.env` is excluded from git.
+	 *
+	 * Deliberately reads the seeded `.vibe/.gitignore` and nothing else: a full git-ignore evaluation
+	 * means walking parent directories and asking git itself, which is a lot of machinery for one
+	 * warning. The narrow check is honest about the common case — the seed lists `.env`, so a project
+	 * that kept the seed reads as ignored and a project that lost or edited it does not.
+	 */
+	private async _envIsGitIgnored(): Promise<boolean> {
+		const folder = this._workspaceContextService.getWorkspace().folders[0]?.uri;
+		if (!folder) { return false; }
+		try {
+			const buf = await this._fileService.readFile(joinPath(folder, '.vibe', '.gitignore'));
+			return buf.value.toString().split(/\r?\n/).some(line => line.trim() === '.env');
+		} catch {
+			return false;
+		}
+	}
+
 	/** Read a providers.json. `undefined` = file absent (normal); string = raw contents. */
 	private async _readProvidersFileAt(uri: URI | undefined): Promise<string | undefined> {
 		if (!uri) { return undefined; }
@@ -478,6 +502,9 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 			this._readEnvFileAt(this._envFileUri()),
 		]);
 		this._envFileVars = { ...globalEnv, ...wsEnv };
+		this._workspaceEnvExposure = Object.keys(wsEnv).length > 0
+			? { variableNames: Object.keys(wsEnv), gitIgnored: await this._envIsGitIgnored() }
+			: undefined;
 
 		// Four layers, weakest first. The seeded `providers/` catalogue sits BELOW both hand-written
 		// files: it ships with every project and stands in for built-in providers, so ranking it
@@ -615,14 +642,20 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 	private _runConfigGuard(entries: readonly VibeProviderEntry[]): { blockedIds: Set<string>; lines: string[] } {
 		const blockedIds = new Set<string>();
 		if (this._configurationService.getValue<boolean>('vibeide.configGuard.enabled') === false) { this._lastGuardFindings = []; return { blockedIds, lines: [] }; }
-		const findings = scanProviderConfig(entries);
+		const findings = [
+			...scanProviderConfig(entries),
+			...scanEnvFileSecrets(this._workspaceEnvExposure ? { path: '.vibe/.env', ...this._workspaceEnvExposure } : undefined),
+		];
 		this._lastGuardFindings = findings;
 		if (findings.length === 0) { this._lastGuardSig = ''; return { blockedIds, lines: [] }; }
 		const block = this._configurationService.getValue<string>('vibeide.configGuard.mode') === 'block';
 		const lines: string[] = [];
 		for (const f of findings) {
 			lines.push(`Config Guard [${f.severity}] ${f.message}`);
-			if (block && f.severity === 'critical') { blockedIds.add(f.subject); }
+			// An env-file finding names a PATH, not a provider — blocking on it would add a phantom id
+			// to the blocked set and, worse, suggest the fix is to switch a provider off. It is not:
+			// the key is exposed wherever it is used.
+			if (block && f.severity === 'critical' && !f.ruleId.startsWith('env-file-')) { blockedIds.add(f.subject); }
 		}
 		this._notifyGuard(findings, block);
 		return { blockedIds, lines };

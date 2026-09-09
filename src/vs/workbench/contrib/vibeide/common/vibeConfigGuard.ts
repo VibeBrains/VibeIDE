@@ -37,6 +37,9 @@ export interface ConfigGuardFinding {
 
 // --- shared secret / URL heuristics -----------------------------------------------------------
 
+/** Variable names that announce a secret regardless of the value's shape. */
+const SECRET_KEY_NAME_PATTERN = /(?:API[_-]?KEY|ACCESS[_-]?TOKEN|SECRET|PASSWORD|CREDENTIAL)/i;
+
 /** Vendor key shapes that are unambiguous secrets wherever they appear. */
 const SECRET_VALUE_PATTERNS: readonly RegExp[] = [
 	/sk-[A-Za-z0-9_-]{16,}/,            // OpenAI / Anthropic
@@ -193,6 +196,49 @@ function npxConcern(args: readonly string[]): string | undefined {
  * side concerns from upstream rule sets (bind 0.0.0.0, wildcard CORS) are intentionally OUT of scope:
  * VibeIDE is the MCP *client*, it connects — it does not bind a listener.
  */
+/** What the caller managed to learn about the project's `.vibe/.env` before asking. */
+export interface EnvFileGuardInput {
+	/** Path shown to the user, e.g. `.vibe/.env`. */
+	readonly path: string;
+	/** Variable names found in the file. Values are deliberately NOT passed in. */
+	readonly variableNames: readonly string[];
+	/** Whether the file is covered by git ignore rules. */
+	readonly gitIgnored: boolean;
+}
+
+/**
+ * Ключи, лежащие в файле проекта, а не в хранилище ОС.
+ *
+ * WHY this is worth saying even though `apiKeyEnv` is the recommended alternative to a literal in
+ * the config: the recommendation is about the config file, not about the whole machine. A key in a
+ * project `.env` is plaintext on disk, and that is exactly what the infostealer families behind the
+ * August 2026 Claude session thefts collect wholesale (Vidar, Lumma/LummaC2, StealC, RedLine,
+ * Acreed on Windows; Atomic on macOS). Keys entered in settings go to Electron `safeStorage`
+ * (Keychain / DPAPI / libsecret) and are not readable by a file grab.
+ *
+ * Severity splits on ONE question — will this key also leave the machine through git:
+ * an ignored file is a local exposure, a tracked one is a published secret.
+ */
+export function scanEnvFileSecrets(input: EnvFileGuardInput | undefined): ConfigGuardFinding[] {
+	if (!input || input.variableNames.length === 0) {
+		return [];
+	}
+	const keyLike = input.variableNames.filter(name => SECRET_KEY_NAME_PATTERN.test(name));
+	if (keyLike.length === 0) {
+		return [];
+	}
+	const names = keyLike.join(', ');
+	return [input.gitIgnored
+		? {
+			ruleId: 'env-file-plaintext-key', severity: 'medium', subject: input.path,
+			message: `${input.path}: ключи (${names}) лежат на диске открытым текстом. Файл не уедет в git, но его читает любая программа от вашего имени — введите ключ в настройках, и он попадёт в хранилище ОС.`,
+		}
+		: {
+			ruleId: 'env-file-tracked-key', severity: 'critical', subject: input.path,
+			message: `${input.path}: ключи (${names}) лежат открытым текстом и файл НЕ исключён из git — при следующем коммите секрет уедет в историю репозитория.`,
+		}];
+}
+
 export function scanMcpConfig(servers: Record<string, MCPConfigFileEntryJSON> | undefined): ConfigGuardFinding[] {
 	const findings: ConfigGuardFinding[] = [];
 	if (!servers || typeof servers !== 'object') { return findings; }
