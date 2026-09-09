@@ -13,6 +13,7 @@
  */
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { safeParseConfigJson } from '../common/vibeConfigJsonParser.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -97,13 +98,13 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 			// No file is the ordinary case, not an error worth reporting.
 			return { pipelines: [], warnings: [] };
 		}
-		let raw: unknown;
-		try {
-			raw = JSON.parse(text);
-		} catch (err) {
-			return { pipelines: [], warnings: [localize('vibeide.pipeline.badJson', '.vibe/pipelines.json — не разобрать JSON: {0}', String(err))] };
+		// JSONC, not JSON: the seeded file documents each step in a comment beside it, and a strict
+		// parser would reject the seed on its first line.
+		const result = safeParseConfigJson(text);
+		if (!result.ok) {
+			return { pipelines: [], warnings: [localize('vibeide.pipeline.badJson', '.vibe/pipelines.json — не разобрать JSON: {0}', result.reason)] };
 		}
-		const parsed = parsePipelineFile(raw);
+		const parsed = parsePipelineFile(result.value);
 		return { pipelines: parsed.file.pipelines, warnings: parsed.warnings };
 	}
 

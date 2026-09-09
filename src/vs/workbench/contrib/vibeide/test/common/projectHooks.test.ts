@@ -120,4 +120,35 @@ suite('Project hooks — verdicts', () => {
 			{ preBlocked: true, preSaysNoFirst: true, postBlocked: false, broken: ['хук сломан'], quiet: undefined },
 		);
 	});
+
+	/**
+	 * Два предусловия общего набора сидов: файл засевается с комментариями и с выключенными
+	 * записями. Строгий парсер сломался бы на первой строке, а невыключённый хук запустил бы
+	 * чужую команду сразу после засева.
+	 */
+	test('комментарии не ломают файл, а active:false не выполняется', () => {
+		const raw = `{
+			// Проверки проекта. Снимите active, чтобы включить.
+			"hooks": [
+				{ "event": "preToolUse", "command": "echo выключен", "active": false },
+				{ "event": "preToolUse", "command": "echo включен" }, // висячая запятая ниже тоже допустима
+			]
+		}`;
+		const config = parseHookConfig(raw);
+		assert.deepStrictEqual({
+			команды: config.hooks.map(h => h.command),
+			проблемы: config.problems,
+		}, { команды: ['echo включен'], проблемы: [] });
+	});
+
+	/** Отсутствие поля — не повод выключать: файл, написанный человеком, пишется чтобы работать. */
+	test('active по умолчанию включён, и только явный false выключает', () => {
+		const commandsOf = (active: string) =>
+			parseHookConfig(`{"hooks":[{"event":"turnEnd","command":"c"${active}}]}`).hooks.length;
+		assert.deepStrictEqual({
+			безПоля: commandsOf(''),
+			явныйTrue: commandsOf(', "active": true'),
+			явныйFalse: commandsOf(', "active": false'),
+		}, { безПоля: 1, явныйTrue: 1, явныйFalse: 0 });
+	});
 });

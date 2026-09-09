@@ -97,6 +97,39 @@ function stripJsoncComments(s: string): string {
  * @param validator     optional function returning true iff the parsed value is shaped
  *                      as expected. Useful for `permissions.json` / `constraints.json`.
  */
+/**
+ * Drop a comma whose next meaningful character closes the object or array.
+ *
+ * WHY alongside the comment stripper: the shared `.vibe` seeds are written to be edited by hand and
+ * by an agent, and both leave a trailing comma after commenting out the last entry. A file that
+ * fails to parse for that reason reads to the user as «сид сломан», not as «уберите запятую».
+ *
+ * String-aware for the obvious reason: `{"note": "a, }"}` must survive untouched.
+ */
+function stripTrailingCommas(s: string): string {
+	let out = '';
+	let inString = false;
+	let quote: string | null = null;
+	for (let i = 0; i < s.length; i++) {
+		const c = s[i];
+		if (inString) {
+			out += c;
+			if (c === '\\' && i + 1 < s.length) { out += s[++i]; continue; }
+			if (c === quote) { inString = false; quote = null; }
+			continue;
+		}
+		if (c === '"' || c === '\'') { inString = true; quote = c; out += c; continue; }
+		if (c === ',') {
+			let j = i + 1;
+			while (j < s.length && /\s/.test(s[j])) { j++; }
+			// Only a comma that closes a container is trailing; every other comma is structural.
+			if (s[j] === '}' || s[j] === ']') { continue; }
+		}
+		out += c;
+	}
+	return out;
+}
+
 export function safeParseConfigJson<T = unknown>(
 	raw: string | undefined | null,
 	validator?: (value: unknown) => value is T,
@@ -110,7 +143,7 @@ export function safeParseConfigJson<T = unknown>(
 	}
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(stripJsoncComments(raw));
+		parsed = JSON.parse(stripTrailingCommas(stripJsoncComments(raw)));
 	} catch (e: unknown) {
 		const message = e instanceof Error ? e.message : 'unknown';
 		return { ok: false, reason: `json-parse: ${message}` };

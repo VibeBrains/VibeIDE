@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { safeParseConfigJson } from '../vibeConfigJsonParser.js';
+
 /**
  * Project hooks — deterministic commands the project runs around the agent's own loop.
  *
@@ -69,13 +71,13 @@ export function parseHookConfig(raw: string): VibeHookConfig {
 	if (!raw.trim()) {
 		return EMPTY;
 	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(raw);
-	} catch (e) {
-		return { hooks: [], problems: [`Файл не читается как JSON: ${(e as Error).message}`] };
+	// JSONC, not JSON: the seeded file explains each hook in a comment beside the line it explains,
+	// and a strict parser would fail on the very first one.
+	const result = safeParseConfigJson(raw);
+	if (!result.ok) {
+		return { hooks: [], problems: [`Файл не читается как JSON: ${result.reason}`] };
 	}
-	const list = (parsed as { hooks?: unknown })?.hooks;
+	const list = (result.value as { hooks?: unknown })?.hooks;
 	if (!Array.isArray(list)) {
 		return { hooks: [], problems: ['Ожидался объект с массивом «hooks».'] };
 	}
@@ -107,6 +109,13 @@ export function parseHookConfig(raw: string): VibeHookConfig {
 		if (timeoutMs > VIBE_HOOK_MAX_TIMEOUT_MS) {
 			problems.push(`Хук №${index + 1}: таймаут ${timeoutMs} мс урезан до ${VIBE_HOOK_MAX_TIMEOUT_MS} мс.`);
 			timeoutMs = VIBE_HOOK_MAX_TIMEOUT_MS;
+		}
+		// `active: false` describes a hook without running it — how the shipped seed stays inert.
+		// Filtered HERE rather than at selection time so a disabled hook cannot reach any consumer,
+		// present or future. Default is `true`: a file written by a human is written to work, and a
+		// missing field must not silently disable what someone wrote.
+		if (record?.['active'] === false) {
+			return;
 		}
 		hooks.push({ event, command, tools: event === 'turnEnd' ? [] : tools, timeoutMs, label: asString(record?.['label']) });
 	});
