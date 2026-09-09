@@ -10,6 +10,7 @@ import { parseVibeAgentsFileOrEmpty, activeAgents } from '../../common/acp/vibeA
 import { parseServersFile } from '../../common/vibeServer/vibeServersFile.js';
 import { parseHookConfig } from '../../common/hooks/hookConfig.js';
 import { parseProvidersFile } from '../../common/vibeProvidersFile.js';
+import { parseDeclaredMoment } from '../../common/modelPriceSchedule.js';
 
 /**
  * Засеянное окружение обязано молчать.
@@ -68,5 +69,34 @@ suite('засеянное окружение .vibe инертно', () => {
 			if (!parsed.ok) { bad.push(`${file.path}: ${parsed.error}`); }
 		}
 		assert.deepStrictEqual(bad, []);
+	});
+
+	/**
+	 * Гейт на даты в наборе, а не соглашение о них.
+	 *
+	 * WHY: `cost*` сломалось у соседа именно потому, что договорённость о написании поля не была
+	 * ничем проверена — переименование прошло зелёным у автора и молча оставило читателя без цен.
+	 * Дата — то же самое: значение, которое один разборщик берёт, а другой нет, и разница не видна
+	 * никак, потому что модель без срока годности выглядит как модель без срока годности.
+	 *
+	 * Проверяются ОТГРУЖАЕМЫЕ байты: любое объявленное в наборе время обязано читаться нашим
+	 * разбором. Голая дата и момент с зоной оба допустимы — непригодным считается только то, что
+	 * не читается вовсе.
+	 */
+	test('каждое объявленное в наборе время читается нашим разбором', () => {
+		const unreadable: string[] = [];
+		let checked = 0;
+		for (const file of VIBE_DEFAULTS_MANIFEST) {
+			for (const [, value] of file.contents.matchAll(/"(?:cost|price)ValidUntil"\s*:\s*"([^"]+)"/g)) {
+				checked++;
+				if (parseDeclaredMoment(value) === undefined) {
+					unreadable.push(`${file.path}: ${value}`);
+				}
+			}
+		}
+		assert.deepStrictEqual(unreadable, []);
+		// A gate that silently checks nothing is worse than no gate: it reports success for a set
+		// whose date fields were renamed out from under it.
+		assert.ok(checked > 0, 'в наборе не нашлось ни одного costValidUntil — поле переименовали, а гейт не обновили');
 	});
 });
