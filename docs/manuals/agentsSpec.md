@@ -85,6 +85,21 @@
 
 > Пакет `@zed-industries/claude-code-acp` — прежнее имя того же адаптера, помечен устаревшим. В новых файлах используйте `@agentclientprotocol/claude-agent-acp`.
 
+### OpenHands
+
+Адаптер **не нужен** — CLI OpenHands говорит на ACP сам, подкоманда `acp`:
+
+```jsonc
+{
+  "id": "openhands",
+  "name": "OpenHands",
+  "command": "openhands",
+  "args": ["acp"]
+}
+```
+
+CLI ставится отдельно. После установки один раз запустите `openhands` и через `/settings` выберите LLM-провайдера и ключ — ACP-режим читает настройки оттуда, поэтому ключ в `agents.json` писать не нужно.
+
 ### Агент для одного пакета монорепо
 
 ```jsonc
