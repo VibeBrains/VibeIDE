@@ -86,6 +86,15 @@ export function parseHookConfig(raw: string): VibeHookConfig {
 	const problems: string[] = [];
 	list.forEach((item, index) => {
 		const record = item as Record<string, unknown> | null;
+		// `active: false` describes a hook without running it — how the shipped seed stays inert.
+		//
+		// Checked FIRST, before the entry is validated at all: a disabled hook is not going to fire,
+		// so complaining about its event helps nobody. It also lets the shared `.vibe` set carry a
+		// disabled hook for an event only the sibling product implements without VibeIDE reporting
+		// the seed as broken. Default is `true`: a file written by a human is written to work.
+		if (record?.['active'] === false) {
+			return;
+		}
 		const event = asString(record?.['event']) as VibeHookEvent | undefined;
 		const command = asString(record?.['command']);
 		if (!event || !VIBE_HOOK_EVENTS.includes(event)) {
@@ -109,13 +118,6 @@ export function parseHookConfig(raw: string): VibeHookConfig {
 		if (timeoutMs > VIBE_HOOK_MAX_TIMEOUT_MS) {
 			problems.push(`Хук №${index + 1}: таймаут ${timeoutMs} мс урезан до ${VIBE_HOOK_MAX_TIMEOUT_MS} мс.`);
 			timeoutMs = VIBE_HOOK_MAX_TIMEOUT_MS;
-		}
-		// `active: false` describes a hook without running it — how the shipped seed stays inert.
-		// Filtered HERE rather than at selection time so a disabled hook cannot reach any consumer,
-		// present or future. Default is `true`: a file written by a human is written to work, and a
-		// missing field must not silently disable what someone wrote.
-		if (record?.['active'] === false) {
-			return;
 		}
 		hooks.push({ event, command, tools: event === 'turnEnd' ? [] : tools, timeoutMs, label: asString(record?.['label']) });
 	});
