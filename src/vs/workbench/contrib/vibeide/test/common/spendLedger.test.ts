@@ -6,8 +6,10 @@
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
+	byKey,
 	byModel,
 	byProvider,
+	keySpendAnomalies,
 	costOf,
 	dayKey,
 	emptyLedger,
@@ -148,5 +150,74 @@ suite('spendLedger', () => {
 		});
 
 		assert.deepStrictEqual(parseLedger(raw).entries.map(e => e.modelId), ['good']);
+	});
+
+	suite('расход по ключу', () => {
+		/** The seeded MiniMax pair: two provider entries, one key. */
+		const keyRefOf = (providerId: string) => ({
+			'minimax': 'minimax', 'minimax-anthropic': 'minimax', 'openai': 'openai',
+		} as Record<string, string>)[providerId];
+
+		const spend = (state: ReturnType<typeof emptyLedger>, at: number, providerId: string, outputTokens: number) =>
+			recordSpend(state, { timestampMs: at, providerId, modelId: 'm', inputTokens: 0, outputTokens, price: PRICE });
+
+		/** The whole reason this exists: per-provider rows split one key's spend and understate both. */
+		test('two providers on one key collapse into one row', () => {
+			let s = spend(emptyLedger(), T0, 'minimax', 100_000);
+			s = spend(s, T0, 'minimax-anthropic', 100_000);
+			const rows = byKey(s.entries, keyRefOf);
+			assert.deepStrictEqual(rows.map(r => ({ key: r.keyRef, providers: r.providerIds, usd: r.totals.costUsd })), [
+				{ key: 'minimax', providers: ['minimax', 'minimax-anthropic'], usd: 3 },
+			]);
+		});
+
+		test('a provider with no key is dropped, not lumped under "unknown"', () => {
+			const s = spend(emptyLedger(), T0, 'ollama-local', 100_000);
+			assert.deepStrictEqual(byKey(s.entries, keyRefOf), []);
+		});
+
+		/** Today unlike the key's own fortnight — the only local signal that a key is being spent. */
+		test('a threefold jump over the median is reported', () => {
+			let s = emptyLedger();
+			for (let d = 5; d >= 1; d--) { s = spend(s, T0 - d * DAY, 'openai', 100_000); }
+			s = spend(s, T0, 'openai', 1_000_000);
+			assert.deepStrictEqual(keySpendAnomalies(s, keyRefOf, T0).map(a => ({ key: a.keyRef, today: a.todayUsd, base: a.baselineUsd })), [
+				{ key: 'openai', today: 15, base: 1.5 },
+			]);
+		});
+
+		test('an ordinary busy day and a short history stay quiet', () => {
+			let ordinary = emptyLedger();
+			for (let d = 5; d >= 1; d--) { ordinary = spend(ordinary, T0 - d * DAY, 'openai', 100_000); }
+			ordinary = spend(ordinary, T0, 'openai', 200_000);
+
+			// Two days of history is not a baseline — the second day of use must not look anomalous.
+			let fresh = spend(emptyLedger(), T0 - DAY, 'openai', 100_000);
+			fresh = spend(fresh, T0, 'openai', 5_000_000);
+
+			assert.deepStrictEqual({
+				обычныйДень: keySpendAnomalies(ordinary, keyRefOf, T0).length,
+				короткаяИстория: keySpendAnomalies(fresh, keyRefOf, T0).length,
+			}, { обычныйДень: 0, короткаяИстория: 0 });
+		});
+
+		/**
+		 * Days the key was not used at all are absent from the baseline rather than counted as zero:
+		 * a fortnight of holidays would otherwise make the first working day an anomaly every time.
+		 */
+		test('idle days do not drag the baseline to zero', () => {
+			let s = emptyLedger();
+			for (const d of [12, 8, 3]) { s = spend(s, T0 - d * DAY, 'openai', 100_000); }
+			s = spend(s, T0, 'openai', 200_000);
+			assert.deepStrictEqual(keySpendAnomalies(s, keyRefOf, T0), []);
+		});
+
+		/** An unpriced bucket counted as zero would make a busy day look cheap — exactly backwards. */
+		test('unpriced buckets are excluded rather than counted as free', () => {
+			let s = emptyLedger();
+			for (let d = 5; d >= 1; d--) { s = spend(s, T0 - d * DAY, 'openai', 100_000); }
+			s = recordSpend(s, { timestampMs: T0, providerId: 'openai', modelId: 'm', inputTokens: 0, outputTokens: 9_000_000, price: undefined });
+			assert.deepStrictEqual(keySpendAnomalies(s, keyRefOf, T0), []);
+		});
 	});
 });

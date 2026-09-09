@@ -8,6 +8,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { vibeLog } from '../common/vibeLog.js';
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
+import { IVibeDynamicProvidersService } from './vibeDynamicProvidersService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { displayInfoOfProviderName, ProviderId } from '../common/vibeideSettingsTypes.js';
 import { SpendTotals } from '../common/spendLedger.js';
@@ -50,6 +51,7 @@ class VibeProviderDashboardService extends Disposable implements IVibeProviderDa
 		@IVibeSpendLedgerService private readonly _ledger: IVibeSpendLedgerService,
 		@IVibeideSettingsService private readonly _settingsService: IVibeideSettingsService,
 		@IVibeToolContextCostService private readonly _toolCost: IVibeToolContextCostService,
+		@IVibeDynamicProvidersService private readonly _dynamicProviders: IVibeDynamicProvidersService,
 	) {
 		super();
 		vibeLog.debug('ProviderDashboard', 'ready');
@@ -59,6 +61,7 @@ class VibeProviderDashboardService extends Disposable implements IVibeProviderDa
 		const lines: string[] = ['# Ключи и расход', ''];
 
 		lines.push(...this._keysSection(), '');
+		lines.push(...this._perKeySection(), '');
 		lines.push(...this._spendSection());
 		lines.push('', ...this._contextTaxSection());
 
@@ -101,6 +104,53 @@ class VibeProviderDashboardService extends Disposable implements IVibeProviderDa
 			'| Провайдер | id | Расход за 30 дней | Запросов |',
 			'|---|---|---|---|',
 			...rows,
+		];
+	}
+
+	/**
+	 * Ключ, а не провайдер.
+	 *
+	 * WHY a section of its own next to «Ключи»: one key can back several provider entries (the seeded
+	 * MiniMax pair shares a single `apiKeyRef`), so the per-provider table above splits that key's
+	 * spend in two. After a key leaks the question is what THIS key cost, wherever it was used.
+	 */
+	private _perKeySection(): string[] {
+		// A dynamic entry names its key explicitly; a built-in provider has one key of its own, so its
+		// id IS the key. Same shape either way, no special case downstream.
+		const refs = new Map<string, string | undefined>(this._dynamicProviders.getState().providers.map(p => [p.id, p.entry.apiKeyRef]));
+		const keyRefOf = (providerId: string) => refs.get(providerId) ?? providerId;
+
+		const rows = this._ledger.perKey(30, keyRefOf);
+		const shared = rows.filter(r => r.providerIds.length > 1);
+		if (shared.length === 0) {
+			// Every key backs exactly one provider — the table above already answers the question, and a
+			// second identical table would be noise.
+			return this._anomalySection(keyRefOf);
+		}
+
+		return [
+			'## Расход по ключу',
+			'',
+			'| Ключ | Провайдеры | Расход за 30 дней | Запросов |',
+			'|---|---|---|---|',
+			...rows.map(r => `| \`${r.keyRef}\` | ${r.providerIds.map(id => `\`${id}\``).join(', ')} | ${costCell(r.totals)} | ${r.totals.requests} |`),
+			...this._anomalySection(keyRefOf),
+		];
+	}
+
+	/** Said only when there is something to say: a permanent «всё в порядке» badge is noise. */
+	private _anomalySection(keyRefOf: (providerId: string) => string | undefined): string[] {
+		const anomalies = this._ledger.keyAnomalies(keyRefOf);
+		if (anomalies.length === 0) {
+			return [];
+		}
+		return [
+			'',
+			'> **Сегодня расход непохож на обычный.**',
+			...anomalies.map(a => `> Ключ \`${a.keyRef}\` (${a.providerIds.join(', ')}): сегодня $${a.todayUsd.toFixed(2)} против обычных $${a.baselineUsd.toFixed(2)} в день.`),
+			'>',
+			'> Это не приговор: тяжёлый рабочий день выглядит так же. Но если день был обычный —',
+			'> отзовите ключ у провайдера и заведите новый, не дожидаясь отчёта по почте.',
 		];
 	}
 

@@ -11,7 +11,10 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../platfo
 import { vibeLog } from '../common/vibeLog.js';
 import {
 	byModel,
+	byKey,
 	byProvider,
+	keySpendAnomalies,
+	SpendAnomaly,
 	emptyLedger,
 	entriesInWindow,
 	ModelPrice,
@@ -46,6 +49,13 @@ export interface IVibeSpendLedgerService {
 	totals(days: number): SpendTotals;
 	perProvider(days: number): Array<{ providerId: string; totals: SpendTotals }>;
 	perModel(days: number): Array<{ providerId: string; modelId: string; totals: SpendTotals }>;
+	/**
+	 * Totals per KEY. The mapping is supplied by the caller rather than resolved here: this service
+	 * knows about money, and teaching it where keys come from would tie it to the provider registry.
+	 */
+	perKey(days: number, keyRefOf: (providerId: string) => string | undefined): Array<{ keyRef: string; providerIds: string[]; totals: SpendTotals }>;
+	/** Keys whose today does not look like their own recent history. Advisory, not a verdict. */
+	keyAnomalies(keyRefOf: (providerId: string) => string | undefined, nowMs?: number): SpendAnomaly[];
 	/** Wipes the history. Irreversible by design — this is the user's "forget my spending". */
 	clear(): void;
 }
@@ -99,6 +109,14 @@ class VibeSpendLedgerService extends Disposable implements IVibeSpendLedgerServi
 
 	perProvider(days: number): Array<{ providerId: string; totals: SpendTotals }> {
 		return byProvider(this.window(days));
+	}
+
+	perKey(days: number, keyRefOf: (providerId: string) => string | undefined): Array<{ keyRef: string; providerIds: string[]; totals: SpendTotals }> {
+		return byKey(this.window(days), keyRefOf);
+	}
+
+	keyAnomalies(keyRefOf: (providerId: string) => string | undefined, nowMs: number = Date.now()): SpendAnomaly[] {
+		return keySpendAnomalies(this._state, keyRefOf, nowMs);
 	}
 
 	perModel(days: number): Array<{ providerId: string; modelId: string; totals: SpendTotals }> {
