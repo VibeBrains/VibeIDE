@@ -23,7 +23,6 @@
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IntervalTimer, RunOnceScheduler } from '../../../../base/common/async.js';
-import { joinPath } from '../../../../base/common/resources.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
@@ -36,6 +35,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { vibeLog } from './vibeLog.js';
 import { AgentRunFence, formatAgentRunEpoch, nextAgentRunFence } from './agentRunFence.js';
+import { resolveRuntimeStatePath } from './vibeRuntimeStateLocation.js';
 import {
 	AgentRunRecord, AgentRunSummary, AgentRunUpdate, compactAgentRunLog, isTerminalRunStatus,
 	markOrphanedRuns, parseAgentRunLog, pruneAgentRuns, serializeAgentRunUpdate, summariseAgentRuns,
@@ -174,7 +174,7 @@ class VibeAgentRunLedgerService extends Disposable implements IVibeAgentRunLedge
 	}
 
 	async getRuns(): Promise<readonly AgentRunRecord[]> {
-		const path = this._logPath();
+		const path = await this._logPath();
 		if (!path) {
 			return [];
 		}
@@ -193,9 +193,18 @@ class VibeAgentRunLedgerService extends Disposable implements IVibeAgentRunLedge
 
 	// ── Private ─────────────────────────────────────────────────────────────
 
-	private _logPath(): URI | undefined {
-		const folders = this._workspaceContextService.getWorkspace().folders;
-		return folders.length > 0 ? joinPath(folders[0].uri, '.vibe', 'agent-runs.jsonl') : undefined;
+	/**
+	 * Resolved once and cached: the answer includes carrying the old file into `.vibe/local/`, and
+	 * repeating that check on every write would ask the filesystem the same settled question.
+	 */
+	private _pathPromise: Promise<URI | undefined> | undefined;
+
+	private _logPath(): Promise<URI | undefined> {
+		if (!this._pathPromise) {
+			const folder = this._workspaceContextService.getWorkspace().folders[0]?.uri;
+			this._pathPromise = resolveRuntimeStatePath(this._fileService, folder, 'agent-runs.jsonl');
+		}
+		return this._pathPromise;
 	}
 
 	private _enqueue(update: AgentRunUpdate): void {
@@ -266,11 +275,11 @@ class VibeAgentRunLedgerService extends Disposable implements IVibeAgentRunLedge
 	}
 
 	private _serialise(operation: (path: URI) => Promise<void>): Promise<void> {
-		const path = this._logPath();
-		if (!path) {
-			return Promise.resolve();
-		}
 		this._writeChain = this._writeChain.then(async () => {
+			const path = await this._logPath();
+			if (!path) {
+				return;
+			}
 			try {
 				await operation(path);
 			} catch (error) {
