@@ -34,6 +34,46 @@ const ZERO_WIDTH_PATTERN = /\u200B|\u200C|\u200D|\uFEFF|\u00AD/g;
 // Unicode Bidi override chars: U+202A-U+202E, U+2066-U+2069, U+200E, U+200F
 const BIDI_OVERRIDE_PATTERN = /[‪-‮⁦-⁩‎‏]/g;
 
+/**
+ * Unicode Tag block (U+E0000-U+E007F) — invisible characters that carry a full ASCII alphabet.
+ *
+ * WHY separately from the zero-width set: a tag run renders as nothing at all, so a whole
+ * paragraph of instructions survives a human review of a SKILL.md or an MCP manifest. This is the
+ * vector reported in embracethered.com/blog/posts/2026/scary-agent-skills (2026-09).
+ */
+const TAG_CHARACTER_PATTERN = /[\u{E0000}-\u{E007F}]/gu;
+
+/**
+ * The ONE legitimate use of tag characters: emoji subdivision flags, e.g. 🏴󠁧󠁢󠁳󠁣󠁴󠁿 — a U+1F3F4 base,
+ * up to six tag letters and the U+E007F terminator. Stripping the block blindly would mangle them,
+ * so these sequences are carried across the strip untouched.
+ */
+const EMOJI_TAG_SEQUENCE_PATTERN = /\u{1F3F4}[\u{E0020}-\u{E007E}]{1,6}\u{E007F}/gu;
+
+/**
+ * A run longer than this is reported as deliberate rather than incidental.
+ *
+ * The threshold is the one the `aid` scanner uses: below it the finding is dominated by false
+ * positives from sparse emoji, above it a run is long enough to spell an instruction.
+ */
+const TAG_RUN_CRITICAL_LENGTH = 10;
+
+/** Longest run of consecutive tag characters, used to tell a stray codepoint from a payload. */
+function longestTagRun(content: string): number {
+	let longest = 0;
+	let current = 0;
+	for (const character of content) {
+		const codePoint = character.codePointAt(0)!;
+		if (codePoint >= 0xE0000 && codePoint <= 0xE007F) {
+			current++;
+			longest = Math.max(longest, current);
+		} else {
+			current = 0;
+		}
+	}
+	return longest;
+}
+
 // Invisible CSS (display:none / visibility:hidden / opacity:0 / font-size:0)
 const INVISIBLE_CSS_PATTERN = /<[^>]+style\s*=\s*["'][^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0|font-size\s*:\s*0)[^"']*["'][^>]*>/gi;
 
@@ -61,6 +101,26 @@ export function sanitizePromptText(content: string, filePath: string): PromptGua
 	if (bidiMatches && bidiMatches.length > 0) {
 		sanitized = sanitized.replace(BIDI_OVERRIDE_PATTERN, '');
 		warnings.push(`Context poisoning: ${bidiMatches.length} Unicode Bidi override characters removed from ${filePath}`);
+	}
+
+	const tagMatches = sanitized.match(TAG_CHARACTER_PATTERN);
+	if (tagMatches && tagMatches.length > 0) {
+		const preservedFlags: string[] = [];
+		// Park the legitimate flag sequences behind a marker that cannot itself be a tag character,
+		// strip what is left, then put them back.
+		const parked = sanitized.replace(EMOJI_TAG_SEQUENCE_PATTERN, match => {
+			preservedFlags.push(match);
+			return `\u0000${preservedFlags.length - 1}\u0000`;
+		});
+		const stripped = parked.replace(TAG_CHARACTER_PATTERN, '');
+		const removedCount = tagMatches.length - preservedFlags.reduce((sum, flag) => sum + [...flag].length - 1, 0);
+		if (removedCount > 0) {
+			sanitized = stripped.replace(/\u0000(\d+)\u0000/g, (_, index: string) => preservedFlags[Number(index)]);
+			const run = longestTagRun(content);
+			warnings.push(run > TAG_RUN_CRITICAL_LENGTH
+				? `Context poisoning: ${removedCount} invisible Unicode Tag characters removed from ${filePath} — a run of ${run} spells hidden instructions`
+				: `Context poisoning: ${removedCount} invisible Unicode Tag characters removed from ${filePath}`);
+		}
 	}
 
 	if (/\.(html?|svg|xml)$/i.test(filePath)) {

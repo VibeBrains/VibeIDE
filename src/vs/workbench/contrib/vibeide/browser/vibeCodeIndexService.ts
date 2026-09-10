@@ -5,6 +5,7 @@
 
 import { localize } from '../../../../nls.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -48,14 +49,19 @@ export const CONFIG_MAX_FILE_KB = 'vibeide.codeNavigation.maxFileSizeKB';
 export const CONFIG_EXCLUDED_FOLDERS = 'vibeide.codeNavigation.excludedFolders';
 
 /**
- * Files scanned per language by default.
+ * Ceiling on files scanned per language.
  *
- * Raised from 4000 after a real project hit the ceiling: the walk simply stopped part-way, so a
- * declaration that existed was absent from the index and «go to definition» reported nothing —
- * indistinguishable from «there is no such method». A partial index must be rare and, when it
- * happens, said out loud (see `truncated` in the status).
+ * NOT a budget — a fuse. Someone who opened a project wants the project indexed; capping that at a
+ * round number just makes «go to definition» quietly miss declarations that are right there, which
+ * is worse than a slow first scan. The limit exists for the cases that are not projects at all: a
+ * home directory opened by accident, a repository with a gigabyte of generated output, a mounted
+ * volume. There it stops a scan that would run for a quarter of an hour and eat memory for nothing.
+ *
+ * Raised 4 000 → 20 000 → 100 000 as real projects kept hitting it. Promed — 34 526 PHP files —
+ * still wants a limit above the round number one would guess.
  */
-const DEFAULT_MAX_FILES = 20000;
+const DEFAULT_MAX_FILES = 100000;
+
 const DEFAULT_MAX_FILE_KB = 1500;
 
 /** Declaration kinds that can take part in a hierarchy. */
@@ -76,6 +82,16 @@ const MAX_SEARCH_RESULTS = 512;
  * than made slow. Reference lists that big are read by machines, not people.
  */
 const MAX_FILTERED_FILES = 200;
+
+/**
+ * How many files are read at once, and how many directories are listed at once.
+ *
+ * Both are bounded on purpose: the work here is waiting on the disk, so some parallelism comes
+ * almost free — but «all of them» would open twenty thousand handles on a large project and trade
+ * one problem for a worse one. Sixteen is enough to hide the latency of a single read.
+ */
+const FILE_BATCH = 16;
+const DIRECTORY_BATCH = 8;
 
 
 /**
@@ -107,7 +123,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			type: 'number',
 			default: DEFAULT_MAX_FILES,
 			minimum: 100,
-			description: localize('vibeide.codeNavigation.maxIndexedFilesDescription', 'Сколько файлов одного языка обходить при построении индекса объявлений. Больше — полнее переход в огромном репозитории, дольше первое построение. Индекс строится один раз и дальше обновляется только по изменившимся файлам.'),
+			description: localize('vibeide.codeNavigation.maxIndexedFilesDescription', 'Предохранитель: сколько файлов одного языка обходить, прежде чем остановиться. Это не норма, а защита от случайно открытой домашней папки или репозитория с гигабайтом генерата — обычный проект индексируется целиком. Если предел всё же достигнут, IDE скажет об этом: переход к определению может не найти то, что в проекте есть. Индекс строится один раз, дальше обновляется только по изменившимся файлам.'),
 			scope: ConfigurationScope.WINDOW,
 		},
 		[CONFIG_MAX_FILE_KB]: {
@@ -143,6 +159,8 @@ export interface IndexStatus {
 
 export interface IVibeCodeIndexService {
 	readonly _serviceBrand: undefined;
+	/** Fires when a scan finishes — the moment «полный / неполный» can change. */
+	readonly onDidFinishScan: Event<void>;
 	/** Is this language ours to answer for, per the user's setting? */
 	isEnabled(languageId: string): boolean;
 	/** Declarations of one name, across the project. Empty when the name is unknown. */
@@ -231,6 +249,9 @@ function parseWith(parser: LanguageIndex['parser'], languageId: string, text: st
 class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 
 	declare readonly _serviceBrand: undefined;
+
+	private readonly _onDidFinishScan = this._register(new Emitter<void>());
+	readonly onDidFinishScan: Event<void> = this._onDidFinishScan.event;
 
 	/** Cancels running scans when the window goes away — never a single request. */
 	private readonly _scanCancellation = this._register(new CancellationTokenSource());
@@ -355,13 +376,15 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 		if (!types) {
 			return [typeName];
 		}
+		// Keyed the language's way: PHP writes `extends swController` for `class SwController`, and a
+		// case-sensitive map would simply not find the parent.
 		const bases = new Map<string, readonly string[]>();
 		for (const [name, entry] of types) {
 			if (entry.symbol.bases?.length) {
-				bases.set(name, entry.symbol.bases);
+				bases.set(indexKeyOf(name, languageId), entry.symbol.bases);
 			}
 		}
-		return ancestryOf(typeName, bases);
+		return ancestryOf(typeName, bases, name => indexKeyOf(name, languageId));
 	}
 
 	/** Every type declaration of a language, by name. Built once per index. */
@@ -529,9 +552,14 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 			if ((onlyLanguage && languageId !== onlyLanguage) || !this.isEnabled(languageId) || out.length >= MAX_SEARCH_RESULTS) {
 				continue;
 			}
-			// Only languages already indexed answer here: opening the symbol picker must not kick off
-			// a scan of every language in the workspace at once.
-			const index = this._indexes.get(languageId);
+			// The index is BUILT if it is missing, not skipped.
+			//
+			// It used to answer only from what was already there, on the reasoning that opening the
+			// picker must not start a scan per language. That reasoning died when the walk became one
+			// pass for all languages — and what remained was a feature that returned «нет символов»
+			// to anyone who opened the picker before their first jump. Found on Promed with a full
+			// index of 73 946 names sitting right there.
+			const index = await this._ensureIndex(languageId, token);
 			if (!index || token.isCancellationRequested) {
 				continue;
 			}
@@ -713,11 +741,19 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 			};
 
 			let seen = 0;
+			/**
+			 * Первый проход: собрать, что индексировать, ничего не читая.
+			 *
+			 * Splitting collection from reading is what makes the second half parallel: a walk that
+			 * reads each file as it meets it can only ever go one file at a time.
+			 */
+			const queue: { resource: URI; languageId: string }[] = [];
 			const walk = async (folder: URI, dir: URI): Promise<void> => {
 				if (token.isCancellationRequested) {
 					return;
 				}
 				const entry = await this._fileService.resolve(dir).catch(() => undefined);
+				const subdirectories: URI[] = [];
 				for (const child of entry?.children ?? []) {
 					if (token.isCancellationRequested) {
 						return;
@@ -726,7 +762,7 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 					if (child.isDirectory) {
 						const skipped = child.name.startsWith('.') || excluded.has(child.name) || !!userExcludes?.(relative);
 						if (!skipped) {
-							await walk(folder, child.resource);
+							subdirectories.push(child.resource);
 						}
 						continue;
 					}
@@ -738,25 +774,56 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 						continue;
 					}
 					scanned.set(languageId, (scanned.get(languageId) ?? 0) + 1);
-					seen++;
-					// Yield regularly: indexing a large project must not freeze the window.
-					if (seen % 40 === 0) {
-						// The count is the difference between «работает» and «завис» on a big repository.
-						progress.report({ message: localize('vibeide.codeNavigation.indexingCount', 'файлов: {0}', seen) });
-						await new Promise(resolve => setTimeout(resolve, 0));
+					queue.push({ resource: child.resource, languageId });
+				}
+				// Directories of one level are listed together: `resolve` is a round trip to the disk,
+				// and on a deep tree those round trips are most of the walk.
+				for (let i = 0; i < subdirectories.length; i += DIRECTORY_BATCH) {
+					if (token.isCancellationRequested) {
+						return;
 					}
-					const content = await this._fileService.readFile(child.resource).catch(() => undefined);
-					const symbols = pending.get(languageId);
-					const parser = parsers.get(languageId);
-					if (content && symbols && parser) {
-						replaceFileSymbols(symbols, child.resource.toString(), parseWith(parser, languageId, content.value.toString()), name => indexKeyOf(name, languageId));
-					}
+					await Promise.all(subdirectories.slice(i, i + DIRECTORY_BATCH).map(sub => walk(folder, sub)));
 				}
 			};
 
 			for (const folder of this._workspace.getWorkspace().folders) {
 				await walk(folder.uri, folder.uri);
 			}
+			if (token.isCancellationRequested) {
+				return;
+			}
+
+			/**
+			 * Второй проход: читать пачками, разбирать по одному.
+			 *
+			 * Reading is waiting on the disk, so it goes in parallel; parsing is WebAssembly on this
+			 * thread, so it does not — running it «in parallel» would only interleave the same work.
+			 * The batch is bounded because a project of twenty thousand files would otherwise open
+			 * twenty thousand handles at once.
+			 */
+			for (let i = 0; i < queue.length; i += FILE_BATCH) {
+				if (token.isCancellationRequested) {
+					return;
+				}
+				const batch = queue.slice(i, i + FILE_BATCH);
+				const contents = await Promise.all(batch.map(item =>
+					this._fileService.readFile(item.resource).then(file => file.value.toString()).catch(() => undefined)));
+
+				for (const [index, item] of batch.entries()) {
+					const text = contents[index];
+					const symbols = pending.get(item.languageId);
+					const parser = parsers.get(item.languageId);
+					if (text !== undefined && symbols && parser) {
+						replaceFileSymbols(symbols, item.resource.toString(), parseWith(parser, item.languageId, text), name => indexKeyOf(name, item.languageId));
+					}
+				}
+				seen += batch.length;
+				// The count is the difference between «работает» and «завис» on a big repository, and
+				// the yield keeps the window answering while it counts.
+				progress.report({ message: localize('vibeide.codeNavigation.indexingCount', 'файлов: {0}', seen) });
+				await new Promise(resolve => setTimeout(resolve, 0));
+			}
+
 			if (token.isCancellationRequested) {
 				return;
 			}
@@ -778,6 +845,7 @@ class VibeCodeIndexService extends Disposable implements IVibeCodeIndexService {
 				vibeLog.debug('codeIndex', `индекс ${languageId}: ${symbols.byName.size} имён из ${count} файлов`);
 			}
 			vibeLog.debug('codeIndex', `обход завершён: ${seen} файлов, ${pending.size} языков за ${Date.now() - started} мс`);
+			this._onDidFinishScan.fire();
 		} catch (err) {
 			vibeLog.warn('codeIndex', `индекс построить не удалось: ${err}`);
 		}

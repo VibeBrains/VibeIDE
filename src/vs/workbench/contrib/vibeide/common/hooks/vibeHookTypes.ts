@@ -37,6 +37,16 @@ export interface VibeHookPayload {
 	 * and command lines never travel, the same line the audit log draws.
 	 */
 	readonly recent?: readonly ToolTrailView[];
+	/** Cascade context — only for `pipelineStepEnd`. */
+	readonly pipeline?: string;
+	readonly step?: number;
+	readonly role?: string;
+	readonly model?: string;
+	/**
+	 * The draft the gate is judging, truncated. Full text is not sent: a hook decides on a sample,
+	 * and a megabyte through stdin is a way to hang the turn, not to inform the script.
+	 */
+	readonly answer?: string;
 }
 
 export interface VibeHookRunRequest {
@@ -74,7 +84,7 @@ export interface IVibeHooksService {
 	 * Runs the hooks attached to this moment and folds them into one decision.
 	 * Never throws: a failure inside the hook machinery must not take the turn down with it.
 	 */
-	run(event: VibeHookEvent, context: { toolName?: string; params?: { [name: string]: unknown }; mcpServerName?: string; changedFiles?: readonly string[] }): Promise<VibeHookDecision>;
+	run(event: VibeHookEvent, context: { toolName?: string; params?: { [name: string]: unknown }; mcpServerName?: string; changedFiles?: readonly string[]; pipeline?: string; step?: number; role?: string; model?: string; answer?: string }): Promise<VibeHookDecision>;
 	/** Hooks declared by the project right now, for the settings panel and the doctor. */
 	readConfig(): Promise<VibeHookConfig>;
 }

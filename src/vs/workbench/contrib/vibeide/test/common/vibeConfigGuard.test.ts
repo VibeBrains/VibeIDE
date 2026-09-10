@@ -5,7 +5,7 @@
 
 
 import * as assert from 'assert';
-import { scanProviderConfig, scanMcpConfig, scanSkills, ConfigGuardFinding } from '../../common/vibeConfigGuard.js';
+import { scanProviderConfig, scanMcpConfig, scanSkills, scanEnvFileSecrets, ConfigGuardFinding } from '../../common/vibeConfigGuard.js';
 import { VibeProviderEntry } from '../../common/vibeProvidersFile.js';
 import { MCPConfigFileEntryJSON } from '../../common/mcpServiceTypes.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
@@ -199,5 +199,35 @@ suite('VibeConfigGuard — skills', () => {
 			body: 'Этот скилл объясняет, что такое prompt injection, и почему нельзя игнорировать проверки безопасности.',
 		})), []);
 		assert.deepStrictEqual(scanSkills([]), []);
+	});
+
+	suite('scanEnvFileSecrets', () => {
+		const env = (over: Partial<Parameters<typeof scanEnvFileSecrets>[0] & object> = {}) => scanEnvFileSecrets({
+			path: '.vibe/.env', variableNames: ['MINIMAX_API_KEY'], gitIgnored: true, ...over,
+		});
+
+		/**
+		 * The whole point of the split: an ignored file is a local exposure, a tracked one is a secret
+		 * on its way into the repository history, where deleting it later does not help.
+		 */
+		test('severity turns on whether git will carry the key away', () => {
+			assert.deepStrictEqual({
+				игнорируется: env().map(f => f.severity),
+				отслеживается: env({ gitIgnored: false }).map(f => f.severity),
+			}, { игнорируется: ['medium'], отслеживается: ['critical'] });
+		});
+
+		test('names every key-looking variable and stays quiet about the rest', () => {
+			const findings = env({ variableNames: ['OPENAI_API_KEY', 'NODE_ENV', 'DB_PASSWORD', 'PORT'] });
+			assert.strictEqual(findings.length, 1);
+			assert.ok(findings[0].message.includes('OPENAI_API_KEY, DB_PASSWORD'));
+			assert.ok(!findings[0].message.includes('NODE_ENV'));
+		});
+
+		test('a file without key-shaped names is not a finding', () => {
+			assert.deepStrictEqual(env({ variableNames: ['NODE_ENV', 'PORT'] }), []);
+			assert.deepStrictEqual(env({ variableNames: [] }), []);
+			assert.deepStrictEqual(scanEnvFileSecrets(undefined), []);
+		});
 	});
 });

@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { safeParseConfigJson } from '../vibeConfigJsonParser.js';
+
 /**
  * Project hooks — deterministic commands the project runs around the agent's own loop.
  *
@@ -22,9 +24,18 @@ export type VibeHookEvent =
 	/** After a tool ran. Exit 2 does not undo it — it tells the agent to fix what it just did. */
 	| 'postToolUse'
 	/** After a turn finished (the agent stopped calling tools). */
-	| 'turnEnd';
+	| 'turnEnd'
+	/**
+	 * After a cascade step produced a draft, before the pipeline decides to escalate.
+	 *
+	 * The acceptance gate of a cascade: exit 0 accepts the draft and the expensive model is never
+	 * called; exit 2 rejects it and the step escalates. It exists because the alternative gate is
+	 * asking a model whether its own answer was good enough, and that question has one answer.
+	 * `tools` does not apply — the event is not about a tool call.
+	 */
+	| 'pipelineStepEnd';
 
-export const VIBE_HOOK_EVENTS: readonly VibeHookEvent[] = ['preToolUse', 'postToolUse', 'turnEnd'];
+export const VIBE_HOOK_EVENTS: readonly VibeHookEvent[] = ['preToolUse', 'postToolUse', 'turnEnd', 'pipelineStepEnd'];
 
 /** Default ceiling for one hook, in milliseconds. A hook is a check, not a build. */
 export const VIBE_HOOK_DEFAULT_TIMEOUT_MS = 30000;
@@ -69,13 +80,13 @@ export function parseHookConfig(raw: string): VibeHookConfig {
 	if (!raw.trim()) {
 		return EMPTY;
 	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(raw);
-	} catch (e) {
-		return { hooks: [], problems: [`Файл не читается как JSON: ${(e as Error).message}`] };
+	// JSONC, not JSON: the seeded file explains each hook in a comment beside the line it explains,
+	// and a strict parser would fail on the very first one.
+	const result = safeParseConfigJson(raw);
+	if (!result.ok) {
+		return { hooks: [], problems: [`Файл не читается как JSON: ${result.reason}`] };
 	}
-	const list = (parsed as { hooks?: unknown })?.hooks;
+	const list = (result.value as { hooks?: unknown })?.hooks;
 	if (!Array.isArray(list)) {
 		return { hooks: [], problems: ['Ожидался объект с массивом «hooks».'] };
 	}
@@ -84,6 +95,15 @@ export function parseHookConfig(raw: string): VibeHookConfig {
 	const problems: string[] = [];
 	list.forEach((item, index) => {
 		const record = item as Record<string, unknown> | null;
+		// `active: false` describes a hook without running it — how the shipped seed stays inert.
+		//
+		// Checked FIRST, before the entry is validated at all: a disabled hook is not going to fire,
+		// so complaining about its event helps nobody. It also lets the shared `.vibe` set carry a
+		// disabled hook for an event only the sibling product implements without VibeIDE reporting
+		// the seed as broken. Default is `true`: a file written by a human is written to work.
+		if (record?.['active'] === false) {
+			return;
+		}
 		const event = asString(record?.['event']) as VibeHookEvent | undefined;
 		const command = asString(record?.['command']);
 		if (!event || !VIBE_HOOK_EVENTS.includes(event)) {
@@ -96,8 +116,8 @@ export function parseHookConfig(raw: string): VibeHookConfig {
 		}
 		const rawTools = record?.['tools'];
 		const tools = Array.isArray(rawTools) ? rawTools.map(asString).filter((t): t is string => !!t) : [];
-		if (event === 'turnEnd' && tools.length) {
-			problems.push(`Хук №${index + 1}: «tools» не применяется к событию turnEnd — список проигнорирован.`);
+		if ((event === 'turnEnd' || event === 'pipelineStepEnd') && tools.length) {
+			problems.push(`Хук №${index + 1}: «tools» не применяется к событию ${event} — список проигнорирован.`);
 		}
 		const rawTimeout = record?.['timeoutMs'];
 		let timeoutMs = typeof rawTimeout === 'number' && Number.isFinite(rawTimeout) ? Math.floor(rawTimeout) : VIBE_HOOK_DEFAULT_TIMEOUT_MS;
@@ -108,7 +128,8 @@ export function parseHookConfig(raw: string): VibeHookConfig {
 			problems.push(`Хук №${index + 1}: таймаут ${timeoutMs} мс урезан до ${VIBE_HOOK_MAX_TIMEOUT_MS} мс.`);
 			timeoutMs = VIBE_HOOK_MAX_TIMEOUT_MS;
 		}
-		hooks.push({ event, command, tools: event === 'turnEnd' ? [] : tools, timeoutMs, label: asString(record?.['label']) });
+		const toolsApply = event !== 'turnEnd' && event !== 'pipelineStepEnd';
+		hooks.push({ event, command, tools: toolsApply ? tools : [], timeoutMs, label: asString(record?.['label']) });
 	});
 
 	return { hooks, problems };
@@ -120,7 +141,7 @@ export function hooksFor(config: VibeHookConfig, event: VibeHookEvent, toolName?
 		if (hook.event !== event) {
 			return false;
 		}
-		if (event === 'turnEnd' || !hook.tools.length) {
+		if (event === 'turnEnd' || event === 'pipelineStepEnd' || !hook.tools.length) {
 			return true;
 		}
 		return toolName !== undefined && hook.tools.includes(toolName);

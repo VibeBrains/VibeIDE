@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { CodeSymbol, CodeSymbolKind, memberAccessOperators } from './treeSitterSymbols.js';
+import { CodeSymbol, CodeSymbolKind, indexKeyOf, memberAccessOperators } from './treeSitterSymbols.js';
 import { RELATIVE_OWNERS, shortNameOf } from './nameConventions.js';
 
 /**
@@ -124,10 +124,20 @@ export function rankDefinitions(query: DefinitionQuery, candidates: readonly Ran
 	const enclosing = query.enclosingContainer ?? [];
 	const enclosingOwner = enclosing.length > 0 ? enclosing[enclosing.length - 1] : undefined;
 	/** Position in the inheritance chain: 0 is the class itself, larger is further up. */
+	// Compared through the language's own key, not by exact text.
+	//
+	// Found on a real project: `class TreeSelectionCombo extends swController` while the declaration
+	// lives in `class SwController` — legal PHP and utterly ordinary, but an exact comparison put the
+	// parent's method on the same footing as a same-named method of an unrelated class, and the jump
+	// landed in the wrong file.
+	const chainKeys = new Set((query.ownerChain ?? []).map(name => indexKeyOf(name, query.languageId)));
+	const enclosingKey = enclosingOwner ? indexKeyOf(enclosingOwner, query.languageId) : undefined;
 	const chainDepth = (owner: string | undefined): number => {
 		if (!owner) { return -1; }
-		const index = query.ownerChain?.indexOf(owner) ?? -1;
-		return index >= 0 ? index : (owner === enclosingOwner ? 0 : -1);
+		const key = indexKeyOf(owner, query.languageId);
+		const index = (query.ownerChain ?? []).findIndex(name => indexKeyOf(name, query.languageId) === key);
+		if (index >= 0) { return index; }
+		return chainKeys.has(key) ? 0 : (key === enclosingKey ? 0 : -1);
 	};
 	const isCallShaped = /^[\w]+\s*\(/.test(query.lineText.slice(Math.max(0, query.wordStartColumn)));
 
@@ -140,7 +150,7 @@ export function rankDefinitions(query: DefinitionQuery, candidates: readonly Ran
 			case 'static-member': {
 				if (MEMBER_KINDS.has(kind)) { score += 3; }
 				const relative = !!ownerBase && RELATIVE_OWNERS.has(ownerBase);
-				if (declaredOwner && ownerBase && declaredOwner === ownerBase) {
+				if (declaredOwner && ownerBase && indexKeyOf(declaredOwner, query.languageId) === indexKeyOf(ownerBase, query.languageId)) {
 					score += 6;
 				} else if (relative) {
 					// `self::` / `parent::` mean the enclosing class and whatever it inherits.

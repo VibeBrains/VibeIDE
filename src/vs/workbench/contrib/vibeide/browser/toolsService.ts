@@ -2803,14 +2803,20 @@ export class ToolsService extends Disposable implements IToolsService {
 					const isHigh = parsed.estimatedRisk === 'high';
 					const { confirmed } = await this.dialogService.confirm({
 						type: isHigh ? 'warning' : 'info',
-						message: isHigh ? `Destructive command detected` : `Review command before running`,
-						detail: `"${parsed.command}"\n\n${parsed.explanation || ''}\n\n${isHigh
-							? 'This command may cause irreversible data loss. Proceed only if you are sure.'
-							: 'Risk is ambiguous — confirm intent before execution.'}`,
-						primaryButton: isHigh ? 'Run anyway' : 'Run',
+						message: isHigh
+							? localize('vibeide.commandRisk.high', "Команда выглядит разрушительной")
+							: localize('vibeide.commandRisk.medium', "Проверьте команду перед запуском"),
+						detail: isHigh
+							? localize('vibeide.commandRisk.high.detail', "{0}\n\n{1}\n\nКоманда может безвозвратно уничтожить данные. Запускайте, только если уверены.", parsed.command, parsed.explanation || '')
+							: localize('vibeide.commandRisk.medium.detail', "{0}\n\n{1}\n\nРиск неоднозначный: подтвердите, что команда делает именно то, что вы ожидаете.", parsed.command, parsed.explanation || ''),
+						primaryButton: isHigh
+							? localize('vibeide.commandRisk.high.run', "Всё равно выполнить")
+							: localize('vibeide.commandRisk.medium.run', "Выполнить"),
 					});
 					if (!confirmed) {
-						const abortMsg = `[Aborted by user: ${isHigh ? 'destructive' : 'ambiguous'} command not confirmed]`;
+						// Model-facing, and deliberately says WHO decided: a refusal that reads like a
+						// tool failure invites the model to retry the same command.
+						const abortMsg = `[Пользователь не подтвердил ${isHigh ? 'разрушительную' : 'неоднозначную'} команду. Решение принял человек — не повторяйте её, предложите более безопасный путь.]`;
 						return {
 							result: Promise.resolve({
 								result: abortMsg,

@@ -120,4 +120,63 @@ suite('Project hooks — verdicts', () => {
 			{ preBlocked: true, preSaysNoFirst: true, postBlocked: false, broken: ['хук сломан'], quiet: undefined },
 		);
 	});
+
+	/**
+	 * Два предусловия общего набора сидов: файл засевается с комментариями и с выключенными
+	 * записями. Строгий парсер сломался бы на первой строке, а невыключённый хук запустил бы
+	 * чужую команду сразу после засева.
+	 */
+	test('комментарии не ломают файл, а active:false не выполняется', () => {
+		const raw = `{
+			// Проверки проекта. Снимите active, чтобы включить.
+			"hooks": [
+				{ "event": "preToolUse", "command": "echo выключен", "active": false },
+				{ "event": "preToolUse", "command": "echo включен" }, // висячая запятая ниже тоже допустима
+			]
+		}`;
+		const config = parseHookConfig(raw);
+		assert.deepStrictEqual({
+			команды: config.hooks.map(h => h.command),
+			проблемы: config.problems,
+		}, { команды: ['echo включен'], проблемы: [] });
+	});
+
+	/** Отсутствие поля — не повод выключать: файл, написанный человеком, пишется чтобы работать. */
+	test('active по умолчанию включён, и только явный false выключает', () => {
+		const commandsOf = (active: string) =>
+			parseHookConfig(`{"hooks":[{"event":"turnEnd","command":"c"${active}}]}`).hooks.length;
+		assert.deepStrictEqual({
+			безПоля: commandsOf(''),
+			явныйTrue: commandsOf(', "active": true'),
+			явныйFalse: commandsOf(', "active": false'),
+		}, { безПоля: 1, явныйTrue: 1, явныйFalse: 0 });
+	});
+
+	suite('pipelineStepEnd — гейт приёмки каскада', () => {
+		/** Контракт общего набора сидов: событие есть, и «tools» к нему не применяется. */
+		test('событие принимается, а tools игнорируется как у turnEnd', () => {
+			const config = parseHookConfig(`{"hooks":[
+				{"event":"pipelineStepEnd","command":"node gate.js","tools":["read_file"]}
+			]}`);
+			assert.deepStrictEqual({
+				событий: config.hooks.length,
+				инструменты: config.hooks[0]?.tools,
+				проблемы: config.problems,
+			}, {
+				событий: 1,
+				инструменты: [],
+				проблемы: ['Хук №1: «tools» не применяется к событию pipelineStepEnd — список проигнорирован.'],
+			});
+		});
+
+		/** Хук события выбирается независимо от имени инструмента — вызова тут нет вовсе. */
+		test('выбирается без привязки к инструменту', () => {
+			const config = parseHookConfig(`{"hooks":[{"event":"pipelineStepEnd","command":"node gate.js"}]}`);
+			assert.deepStrictEqual({
+				безИнструмента: hooksFor(config, 'pipelineStepEnd').map(h => h.command),
+				сЧужимИменем: hooksFor(config, 'pipelineStepEnd', 'read_file').map(h => h.command),
+				чужоеСобытие: hooksFor(config, 'turnEnd').map(h => h.command),
+			}, { безИнструмента: ['node gate.js'], сЧужимИменем: ['node gate.js'], чужоеСобытие: [] });
+		});
+	});
 });

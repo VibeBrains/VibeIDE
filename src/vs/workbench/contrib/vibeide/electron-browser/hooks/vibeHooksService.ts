@@ -23,6 +23,9 @@ import { DEFAULT_TRAIL_LIMITS, recordToolCall, ToolTrailEntry, TrailLimits, trai
 
 const HOOKS_FILE = ['.vibe', 'hooks.json'];
 
+/** How much of a draft a gate script gets. A hook decides on a sample, not on a megabyte. */
+const PIPELINE_ANSWER_LIMIT = 4000;
+
 const NOTHING: VibeHookDecision = { blocked: false, agentMessage: undefined, brokenHooks: [] };
 
 /**
@@ -100,7 +103,7 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 		}
 	}
 
-	async run(event: VibeHookEvent, context: { toolName?: string; params?: { [name: string]: unknown }; mcpServerName?: string; changedFiles?: readonly string[] }): Promise<VibeHookDecision> {
+	async run(event: VibeHookEvent, context: { toolName?: string; params?: { [name: string]: unknown }; mcpServerName?: string; changedFiles?: readonly string[]; pipeline?: string; step?: number; role?: string; model?: string; answer?: string }): Promise<VibeHookDecision> {
 		try {
 			// Remembered before the enabled/trust checks below, and before we know whether any hook
 			// matches: a trail with holes in it is worse than no trail, because a rule written
@@ -145,7 +148,13 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 				// is already in `tool`/`params` and would be counted twice. `turnEnd` has no current
 				// call — slicing there would hide the turn's last tool from the hook that exists to
 				// look at what the turn did.
-				recent: trailView(event === 'turnEnd' ? this._trail : this._trail.slice(0, -1), now, limits),
+				recent: trailView(event === 'turnEnd' || event === 'pipelineStepEnd' ? this._trail : this._trail.slice(0, -1), now, limits),
+				pipeline: context.pipeline,
+				step: context.step,
+				role: context.role,
+				model: context.model,
+				// Truncated deliberately — see the field's note in `VibeHookPayload`.
+				answer: context.answer === undefined ? undefined : context.answer.slice(0, PIPELINE_ANSWER_LIMIT),
 			};
 
 			// Sequential on purpose: hooks of one event are a chain the project wrote in order,

@@ -18,6 +18,14 @@ import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js';
+import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
+import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { IViewsService } from '../../../services/views/common/viewsService.js';
+import { Codicon } from '../../../../base/common/codicons.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { localize2 } from '../../../../nls.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { ALLOWED_TRANSITIONS, Task, TaskStatus } from '../common/taskLedger/taskModel.js';
 import { IVibeTaskLedgerService } from './vibeTaskLedgerService.js';
@@ -44,6 +52,20 @@ const COLUMN_TITLES: Readonly<Record<TaskStatus, string>> = {
 	cancelled: localize('vibeide.tasksView.cancelled', 'Отменены'),
 };
 
+/**
+ * Идентификатор доски.
+ *
+ * Declared here, not in the contribution that registers it: the title actions need it, the
+ * contribution needs the pane — and importing the contribution back would close the ring. The
+ * compiler allows such a cycle; the bundler does not, which is how this was caught.
+ */
+export const VIBE_TASKS_VIEW_ID = 'workbench.view.vibeTasks.board';
+
+/** Per workspace: one project's board settles differently from another's. */
+const SHOW_FINISHED_KEY = 'vibeide.tasksView.showFinished';
+
+const FINISHED: ReadonlySet<TaskStatus> = new Set<TaskStatus>(['done', 'cancelled']);
+
 export class VibeTasksViewPane extends ViewPane {
 
 	private _body: HTMLElement | undefined;
@@ -54,6 +76,17 @@ export class VibeTasksViewPane extends ViewPane {
 	 * and the board redraws on every change to the register.
 	 */
 	private readonly _rowListeners = this._register(new DisposableStore());
+
+	/**
+	 * Показывать ли законченное.
+	 *
+	 * Off by default and remembered: a board that accumulates every finished task stops answering
+	 * «что сейчас в работе», which is the question it is opened with. The history is not deleted —
+	 * it is one toggle away.
+	 */
+	private get _showFinished(): boolean {
+		return this._storage.getBoolean(SHOW_FINISHED_KEY, StorageScope.WORKSPACE, false);
+	}
 
 	constructor(
 		options: IViewPaneOptions,
@@ -69,6 +102,7 @@ export class VibeTasksViewPane extends ViewPane {
 		@IVibeTaskLedgerService private readonly _ledger: IVibeTaskLedgerService,
 		@IQuickInputService private readonly _quickInput: IQuickInputService,
 		@INotificationService private readonly _notification: INotificationService,
+		@IStorageService private readonly _storage: IStorageService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService,
 			viewDescriptorService, instantiationService, openerService, themeService, hoverService);
@@ -89,7 +123,11 @@ export class VibeTasksViewPane extends ViewPane {
 		if (!body) {
 			return;
 		}
-		const tasks = await this._ledger.tasks();
+		const all = await this._ledger.tasks();
+		const tasks = this._showFinished ? all : all.filter(task => !FINISHED.has(task.status));
+		// Titles by id: the board says what a task waits FOR, and an id is not something a reader can
+		// act on. The register answers in ids because that is what it stores; the naming happens here.
+		const titleById = new Map(all.map(task => [task.id, task.title]));
 		// Everything the rows need, fetched at once. Asking per row meant a hundred tasks were a
 		// hundred waits in a row, each for an answer the register already had in memory.
 		// Only for tasks that can still be waiting: a finished task waits for nothing, and asking about
@@ -126,12 +164,12 @@ export class VibeTasksViewPane extends ViewPane {
 			const heading = DOM.append(section, $('.vibe-tasks-heading'));
 			heading.textContent = `${COLUMN_TITLES[status]} · ${column.length}`;
 			for (const task of column) {
-				this._renderTask(section, task, waitingByTask.get(task.id) ?? []);
+				this._renderTask(section, task, waitingByTask.get(task.id) ?? [], titleById);
 			}
 		}
 	}
 
-	private _renderTask(parent: HTMLElement, task: Task, waiting: readonly string[]): void {
+	private _renderTask(parent: HTMLElement, task: Task, waiting: readonly string[], titleById: ReadonlyMap<string, string>): void {
 		const row = DOM.append(parent, $('.vibe-tasks-row'));
 		row.tabIndex = 0;
 		row.setAttribute('role', 'button');
@@ -141,9 +179,10 @@ export class VibeTasksViewPane extends ViewPane {
 
 		if (waiting.length > 0 || task.blockedReason) {
 			const note = DOM.append(row, $('.vibe-tasks-note'));
-			// What it waits for, in words the reader can act on — a count answers nothing.
-			note.textContent = task.blockedReason
-				?? localize('vibeide.tasksView.waiting', 'ждёт: {0}', waiting.length);
+			// What it waits for, by name: «ждёт: 2» tells the reader nothing they can act on, while
+			// «ждёт: Собрать релиз» names the next thing to finish. Two names, then a count for the
+			// rest — a row is one line, not a list.
+			note.textContent = task.blockedReason ?? waitingLabel(waiting, titleById);
 		}
 
 		const open = () => this._move(task);
@@ -154,6 +193,11 @@ export class VibeTasksViewPane extends ViewPane {
 				open();
 			}
 		}));
+	}
+
+	/** Redraws on demand — used by the title actions, which change what the board shows. */
+	refresh(): void {
+		void this._render();
 	}
 
 	private async _move(task: Task): Promise<void> {
@@ -181,3 +225,67 @@ export class VibeTasksViewPane extends ViewPane {
 		}
 	}
 }
+
+/** «ждёт: Собрать релиз, Проверить ключи и ещё 3» — имена, потом остаток числом. */
+function waitingLabel(waiting: readonly string[], titleById: ReadonlyMap<string, string>): string {
+	const named = waiting.map(id => titleById.get(id) ?? id);
+	const shown = named.slice(0, 2).join(', ');
+	return named.length <= 2
+		? localize('vibeide.tasksView.waitingNamed', 'ждёт: {0}', shown)
+		: localize('vibeide.tasksView.waitingMore', 'ждёт: {0} и ещё {1}', shown, named.length - 2);
+}
+
+/**
+ * Действия в заголовке доски.
+ *
+ * Both duplicate something the palette can already do — and both belong here anyway: the palette is
+ * where one goes knowing the name of the command, the title bar is where one looks while already
+ * staring at the board.
+ */
+class VibeTasksCreateInViewAction extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.tasksView.create',
+			title: localize2('vibeide.tasksView.createAction', 'Завести задачу'),
+			icon: Codicon.add,
+			// Only in the board's title bar: the palette already has «VibeIDE: Завести задачу», and two
+			// identical names there would make the reader choose between things that do the same.
+			f1: false,
+			menu: [{ id: MenuId.ViewTitle, when: ContextKeyExpr.equals('view', VIBE_TASKS_VIEW_ID), group: 'navigation', order: 1 }],
+		});
+	}
+
+	override async run(accessor: ServicesAccessor): Promise<void> {
+		// Reuses the palette command instead of repeating its dialogue: two ways of creating a task
+		// would drift, and the one that drifts is always the one nobody tests.
+		await accessor.get(ICommandService).executeCommand('vibeide.tasks.create');
+	}
+}
+
+class VibeTasksToggleFinishedAction extends Action2 {
+	constructor() {
+		super({
+			id: 'vibeide.tasksView.toggleFinished',
+			title: localize2('vibeide.tasksView.toggleFinishedAction', 'Показывать завершённые'),
+			icon: Codicon.history,
+			// A view-local toggle: outside the board it has nothing to toggle.
+			f1: false,
+			toggled: ContextKeyExpr.true(),
+			menu: [{ id: MenuId.ViewTitle, when: ContextKeyExpr.equals('view', VIBE_TASKS_VIEW_ID), group: 'navigation', order: 2 }],
+		});
+	}
+
+	override async run(accessor: ServicesAccessor): Promise<void> {
+		const storage = accessor.get(IStorageService);
+		const next = !storage.getBoolean(SHOW_FINISHED_KEY, StorageScope.WORKSPACE, false);
+		storage.store(SHOW_FINISHED_KEY, next, StorageScope.WORKSPACE, StorageTarget.USER);
+		// The board redraws itself: the toggle changes what is shown, not what is stored in the ledger.
+		const view = accessor.get(IViewsService).getViewWithId(VIBE_TASKS_VIEW_ID);
+		if (view instanceof VibeTasksViewPane) {
+			view.refresh();
+		}
+	}
+}
+
+registerAction2(VibeTasksCreateInViewAction);
+registerAction2(VibeTasksToggleFinishedAction);

@@ -72,6 +72,7 @@ import './vibeCodeImplementationContribution.js';
 import './vibeCodeTypeHierarchyContribution.js';
 import './vibeTaskLedgerService.js';
 import './vibeTaskLedgerCommands.js';
+import './vibeCodeIndexStatusContribution.js';
 import './vibeImageCostService.js';
 import './vibeToolContextCostService.js';
 import './vibeTasks.contribution.js';

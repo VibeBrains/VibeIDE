@@ -28,6 +28,9 @@ import { decideStop, hopTokenCost, truncateSummary, chatModeForAllowedTools, col
 import { IConvertToLLMMessageService } from './convertToLLMMessageService.js';
 import { IToolsService } from './toolsService.js';
 import { IVibeAgentActivityLogService } from './vibeAgentActivityLogService.js';
+import { URI } from '../../../../base/common/uri.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { stepMayWrite } from '../common/pipeline/vibePipelineFile.js';
 
 /** Under Autopilot, resource limits auto-extend rather than stop the role. This cooldown backstops a
  *  pathological tight loop (instant hops) from resetting the budget hundreds of times per second —
@@ -65,6 +68,20 @@ type HopOutcome =
  * answered with a corrective tool error, not executed). Approval-requiring tools of
  * full roles go through an explicit user confirm — the runner never silently writes.
  */
+/**
+ * Путь, в который инструмент СОБИРАЕТСЯ писать, или `undefined` для читающего вызова.
+ *
+ * An explicit list rather than «anything with a uri»: `read_file` and `ls_dir` carry a `uri` too,
+ * and scoping those would quietly cut a step off from the context it needs to do its job.
+ */
+function writeTargetOf(toolName: string, params: unknown): URI | undefined {
+	if (toolName !== 'edit_file' && toolName !== 'rewrite_file' && toolName !== 'create_file_or_folder') {
+		return undefined;
+	}
+	const uri = (params as { uri?: URI } | undefined)?.uri;
+	return uri instanceof URI ? uri : undefined;
+}
+
 class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunner {
 	declare readonly _serviceBrand: undefined;
 
@@ -77,6 +94,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 		@INotificationService private readonly _notification: INotificationService,
 		@IVibeAgentActivityLogService private readonly _activityLog: IVibeAgentActivityLogService,
 		@IVibeSubagentRegistryService private readonly _registry: IVibeSubagentRegistryService,
+		@IWorkspaceContextService private readonly _workspaceContextService: IWorkspaceContextService,
 		@IVibeSpendLedgerService private readonly _spendLedger: IVibeSpendLedgerService,
 	) {
 		super();
@@ -296,6 +314,21 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 				continue;
 			}
 
+			// Path scope of a pipeline step: same tool, different target. The role whitelist above
+			// answers «may this role write at all», this answers «may it write HERE» — the two are
+			// independent, and a step scoped to `docs/**` must not rewrite a neighbour's `src/`.
+			// Only writes are scoped: narrowing what a step may READ would break the shared context
+			// the pipeline exists to pass along.
+			const scopedPath = req.writeScope ? writeTargetOf(toolName, params) : undefined;
+			if (req.writeScope && scopedPath !== undefined) {
+				const relative = this._workspaceRelative(scopedPath);
+				if (!stepMayWrite(req.writeScope, relative)) {
+					deniedActions++;
+					history.push(this._invalidToolMessage(toolCall, `Шагу разрешено писать только в ${(req.writeScope.paths ?? ['(без ограничений)']).join(', ')}${req.writeScope.denyPaths ? `, кроме ${req.writeScope.denyPaths.join(', ')}` : ''}. Путь «${relative}» вне этих границ — выбери другой или сообщи, что задача требует выхода за них.`));
+					continue;
+				}
+			}
+
 			// Approval gate: the runner bypasses the chat-thread approval flow, so approval-requiring
 			// tools (writes/terminal) get an explicit user confirm here — UNLESS the parent's own
 			// auto-approve gates already opt in. We mirror chatThreadService exactly (constraints are
@@ -401,6 +434,21 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 			// hop — otherwise a disposed subagent still finishes (and pays for) this hop.
 			cancelSub = opts.req.cancellationToken?.onCancellationRequested(() => this._llm.abort(requestId));
 		});
+	}
+
+	/**
+	 * Workspace-relative path for the scope check.
+	 *
+	 * A path outside the workspace comes back as the absolute one, which no `paths` pattern matches —
+	 * so a scoped step cannot reach out of the project at all. That is the intended answer, not an
+	 * accident of normalisation.
+	 */
+	private _workspaceRelative(uri: URI): string {
+		const folder = this._workspaceContextService.getWorkspace().folders[0]?.uri;
+		if (!folder) { return uri.fsPath; }
+		const root = folder.fsPath.replace(/\\/g, '/').replace(/\/+$/, '');
+		const target = uri.fsPath.replace(/\\/g, '/');
+		return target.startsWith(`${root}/`) ? target.slice(root.length + 1) : target;
 	}
 
 	private _invalidToolMessage(toolCall: RawToolCallObj, content: string): ChatMessage {

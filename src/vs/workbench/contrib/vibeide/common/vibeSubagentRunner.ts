@@ -30,6 +30,13 @@ export interface SubagentRunRequest {
 	readonly images?: readonly ChatImageAttachment[];
 	/** Runtime-enforced tool whitelist (constraints inheritance — never weakened). */
 	readonly allowedTools: readonly string[];
+	/**
+	 * Границы записи для этого прогона, если он — шаг пайплайна.
+	 *
+	 * Independent of `allowedTools`: that says whether the role writes at all, this says where.
+	 * Absent means no path restriction — every run that is not a scoped pipeline step.
+	 */
+	readonly writeScope?: { readonly paths?: readonly string[]; readonly denyPaths?: readonly string[] };
 	readonly maxSteps: number;
 	/** Estimated-token quota (0 = unlimited). */
 	readonly maxTokensEst: number;

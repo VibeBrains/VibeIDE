@@ -191,4 +191,24 @@ suite('code index core', () => {
 		const cyclic = [{ name: 'A', bases: ['B'] }, { name: 'B', bases: ['A'] }];
 		assert.deepStrictEqual(descendantsOf('A', cyclic), ['B']);
 	});
+
+	/**
+	 * PHP writes `extends swController` for a class declared as `SwController` — legal, ordinary, and
+	 * fatal to an exact-match ancestry: the parent drops out of the chain, its method stops counting
+	 * as «mine», and the jump lands in a same-named method of an unrelated class. Found on a real
+	 * project (Promed), not by reading the code.
+	 */
+	test('ancestry follows the language spelling rules, not the exact text', () => {
+		const fold = (name: string) => name.toLowerCase();
+		const bases = new Map<string, readonly string[]>([
+			['treeselectioncombo', ['swController']],
+			['swcontroller', ['CI_Controller']],
+		]);
+		assert.deepStrictEqual(ancestryOf('TreeSelectionCombo', bases, fold),
+			['treeselectioncombo', 'swcontroller', 'ci_controller'],
+			'второй уровень цепочки тоже ищется по ключу, иначе дед теряется');
+
+		// A case-sensitive language keeps exact matching: Go's `Pay` and `pay` are different types.
+		assert.deepStrictEqual(ancestryOf('Order', new Map([['Order', ['base']]])), ['Order', 'base']);
+	});
 });

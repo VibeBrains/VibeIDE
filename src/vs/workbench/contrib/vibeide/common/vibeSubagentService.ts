@@ -116,6 +116,8 @@ export interface SubagentHandoff {
 	 * Marked at spawn because it is the denominator of «how often do we escalate», and that set —
 	 * attempts that COULD have escalated — cannot be reconstructed afterwards.
 	 */
+	/** Границы записи шага пайплайна: куда этому прогону можно писать. Нет поля — без ограничений. */
+	writeScope?: { readonly paths?: readonly string[]; readonly denyPaths?: readonly string[] };
 	cascadeDraft?: boolean;
 	/** Set on the escalation run: which draft it replaced, and on what model that draft ran. */
 	escalatedFrom?: { readonly runId: string; readonly model?: string };
@@ -530,6 +532,8 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			contextItems: handoff.contextItems,
 			images: handoff.images,
 			allowedTools,
+			// Границы записи шага доезжают до раннера — именно там стоит проверка пути.
+			...(handoff.writeScope ? { writeScope: handoff.writeScope } : {}),
 			maxSteps,
 			maxTokensEst: Math.max(0, maxTokens),
 			maxWallClockMs: handoff.maxWallClockMs ?? 0,
