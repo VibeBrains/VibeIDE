@@ -277,6 +277,14 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			scope: ConfigurationScope.RESOURCE,
 			markdownDescription: localize('vibeide.hooks.trailMinutes', 'Сколько минут вызов остаётся в следе `recent` для хуков.\n\nБез срока вчерашнее чтение становится сегодняшней уликой, и правила срабатывают на совпадение. По умолчанию — заметно больше любого одного хода агента.'),
 		},
+		'vibeide.hooks.sequenceWindowSeconds': {
+			type: 'number',
+			default: 120,
+			minimum: 0,
+			maximum: 3600,
+			scope: ConfigurationScope.RESOURCE,
+			markdownDescription: localize('vibeide.hooks.sequenceWindowSeconds', 'За сколько секунд после чтения секрета сетевой вызов считается связанным с ним.\n\nIDE замечает пару «прочитал `.env` — обратился в сеть»: порознь и то и другое — норма, опасна пара и промежуток. Шире окно — больше ложных пар (сессия, однажды прочитавшая конфиг, помечается надолго); уже — модель, задумавшаяся между вызовами, проходит мимо.\n\nЭто **предупреждение, а не остановка**: агент, честно открывший документацию после конфига, выглядит так же. `0` выключает проверку.\n\nЧисло наше: в отчётах, описывающих такие атаки, порогов не публикуют.'),
+		},
 		'vibeide.agent.referenceFolders': {
 			type: 'array',
 			items: { type: 'string' },

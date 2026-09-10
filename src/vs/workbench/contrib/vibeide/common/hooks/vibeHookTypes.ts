@@ -16,6 +16,7 @@ export const VibeHooksConfigKeys = {
 	enabled: 'vibeide.hooks.enabled',
 	trailLength: 'vibeide.hooks.trailLength',
 	trailMinutes: 'vibeide.hooks.trailMinutes',
+	sequenceWindowSeconds: 'vibeide.hooks.sequenceWindowSeconds',
 } as const;
 
 /** What a hook reads from stdin. Stable shape: hooks are user scripts, not our code. */

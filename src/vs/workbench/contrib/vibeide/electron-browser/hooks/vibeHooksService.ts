@@ -20,7 +20,7 @@ import { hooksFor, parseHookConfig, VibeHookConfig, VibeHookEvent } from '../../
 import { decideHooks, VibeHookDecision, verdictOf } from '../../common/hooks/hookOutcome.js';
 import { IVibeHooksMain, IVibeHooksService, VIBE_HOOKS_CHANNEL, VibeHookPayload, VibeHooksConfigKeys } from '../../common/hooks/vibeHookTypes.js';
 import { DEFAULT_TRAIL_LIMITS, recordToolCall, ToolTrailEntry, ToolTrailView, TrailLimits, trailView } from '../../common/hooks/toolCallTrail.js';
-import { describeExfiltrationFinding, findExfiltrationSequences } from '../../common/hooks/exfiltrationSequence.js';
+import { DEFAULT_EXFILTRATION_WINDOW_SECONDS, describeExfiltrationFinding, findExfiltrationSequences } from '../../common/hooks/exfiltrationSequence.js';
 
 const HOOKS_FILE = ['.vibe', 'hooks.json'];
 
@@ -223,8 +223,18 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 	 * сразу, а не восстанавливается задним числом — если вообще восстанавливается.
 	 */
 	private _reportExfiltrationSequences(trail: readonly ToolTrailView[]): void {
+		const configured = this._configuration.getValue<number>(VibeHooksConfigKeys.sequenceWindowSeconds);
+		const windowSeconds = typeof configured === 'number' && Number.isFinite(configured) && configured >= 0
+			? configured
+			: DEFAULT_EXFILTRATION_WINDOW_SECONDS;
+		// Ноль — осознанное выключение проверки, а не «окно нулевой ширины»: пара с нулевым
+		// промежутком и так не считается последовательностью, и без этой ветки настройка выглядела
+		// бы работающей, ничего не выключая.
+		if (windowSeconds === 0) {
+			return;
+		}
 		const now = Date.now();
-		for (const finding of findExfiltrationSequences(trail)) {
+		for (const finding of findExfiltrationSequences(trail, windowSeconds)) {
 			const key = `${finding.secretPath}|${finding.networkTool}|${finding.server ?? ''}`;
 			const saidAt = this._reportedSequences.get(key);
 			if (saidAt !== undefined && now - saidAt < SEQUENCE_REPEAT_SILENCE_MS) {
