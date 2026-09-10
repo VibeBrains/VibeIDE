@@ -12,6 +12,7 @@ import {
 	parseReviewVerdict,
 	PipelineStepOutcome,
 	shouldRunStep,
+	stepMayWrite,
 	VibePipelineStep,
 } from '../../common/pipeline/vibePipelineFile.js';
 
@@ -197,5 +198,61 @@ suite('vibePipelineFile — каскад и критика', () => {
 		assert.strictEqual(parseReviewVerdict('Ответьте «ВЕРДИКТ: принято» или «ВЕРДИКТ: доработать».\nВЕРДИКТ: доработать'), 'rework');
 		assert.strictEqual(parseReviewVerdict('Выглядит нормально, но я бы переделал'), 'unclear');
 		assert.strictEqual(parseReviewVerdict(undefined), 'unclear');
+	});
+
+	suite('права шага на пути', () => {
+		const step = (paths?: string[], denyPaths?: string[]) => ({ paths, denyPaths });
+
+		/** Нет полей — ограничения нет вовсе: шаг пишет куда угодно, как раньше. */
+		test('без полей ограничения нет', () => {
+			assert.deepStrictEqual({
+				вИсходники: stepMayWrite(step(), 'src/a.ts'),
+				вДоки: stepMayWrite(step(), 'docs/b.md'),
+			}, { вИсходники: true, вДоки: true });
+		});
+
+		/** Ради чего всё: роль «документация» не переписывает исходники соседнего шага. */
+		test('разрешение сужает, и всё остальное закрыто', () => {
+			const docs = step(['docs/**', '*.md']);
+			assert.deepStrictEqual({
+				своя: stepMayWrite(docs, 'docs/guide.md'),
+				// Шаблон без слэша по правилу .gitignore ловит любой уровень.
+				вКорне: stepMayWrite(docs, 'README.md'),
+				глубоко: stepMayWrite(docs, 'src/nested/notes.md'),
+				чужая: stepMayWrite(docs, 'src/index.ts'),
+			}, { своя: true, вКорне: true, глубоко: true, чужая: false });
+		});
+
+		/** Запрет проверяется первым и сильнее разрешения — иначе «src/**» открыл бы и секреты. */
+		test('запрет сильнее разрешения', () => {
+			const impl = step(['src/**'], ['**/secrets/**']);
+			assert.deepStrictEqual({
+				обычный: stepMayWrite(impl, 'src/app/main.ts'),
+				секрет: stepMayWrite(impl, 'src/secrets/key.ts'),
+			}, { обычный: true, секрет: false });
+		});
+
+		/**
+		 * Порядок записей внутри списка не меняет ответ.
+		 *
+		 * Здесь мы намеренно расходимся с gitignore, где побеждает последнее совпадение: файл,
+		 * строки которого кто-то отсортировал, не должен менять то, что агенту можно писать.
+		 */
+		test('порядок записей ничего не решает', () => {
+			const прямой = stepMayWrite(step(['src/**', 'docs/**'], ['**/secrets/**']), 'src/secrets/k.ts');
+			const обратный = stepMayWrite(step(['docs/**', 'src/**'], ['**/secrets/**']), 'src/secrets/k.ts');
+			assert.deepStrictEqual({ прямой, обратный }, { прямой: false, обратный: false });
+		});
+
+		test('пустой список — это отсутствие ограничения, а не запрет всего', () => {
+			const parsed = parsePipelineFile({ version: 1, pipelines: [{ id: 'p', steps: [{ role: 'coder', task: 't', paths: [] }] }] });
+			assert.strictEqual(parsed.file.pipelines[0]?.steps[0]?.paths, undefined);
+			assert.strictEqual(stepMayWrite(parsed.file.pipelines[0].steps[0], 'anything.ts'), true);
+		});
+
+		/** Абсолютный путь не угадываем: матчер, отвечающий «можно» на непонятое, опаснее отказа. */
+		test('пустой путь закрыт', () => {
+			assert.strictEqual(stepMayWrite(step(['src/**']), ''), false);
+		});
 	});
 });

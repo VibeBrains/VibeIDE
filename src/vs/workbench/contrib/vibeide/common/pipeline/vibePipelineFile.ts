@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { createIgnoreMatcher } from '../vibeIgnore.js';
+
 /**
  * Pipelines — a sequence of agent steps where each step picks up what the previous one produced.
  *
@@ -47,6 +49,22 @@ export interface VibePipelineStep {
 	readonly continueOnFailure?: boolean;
 	/** Do not hand this step the previous artifacts (a deliberately fresh pair of eyes). */
 	readonly ignorePreviousArtifacts?: boolean;
+	/**
+	 * Куда шагу можно писать, синтаксисом `.gitignore`.
+	 *
+	 * Absent (or empty) means no restriction at all — a step writes wherever the role lets it, as
+	 * before. The point is the opposite of a security boundary: it keeps three steps of one feature
+	 * out of each other's way, so «документация» cannot quietly rewrite `src/`.
+	 */
+	readonly paths?: readonly string[];
+	/**
+	 * Куда нельзя. Проверяется ПЕРВЫМ и сильнее `paths`.
+	 *
+	 * Deny-first rather than gitignore's own last-match-wins: within one list the order of entries
+	 * must not change the answer, or a file whose lines were sorted alphabetically would change what
+	 * an agent may write.
+	 */
+	readonly denyPaths?: readonly string[];
 	/**
 	 * Model this step runs on, as `провайдер/модель`. Absent = whatever the role resolves to.
 	 *
@@ -143,6 +161,37 @@ export interface ParsedPipelineFile {
  * the fifth pipeline must not take away the four that are fine — that is the behaviour the
  * providers file already established, and users expect the same shape of forgiveness.
  */
+/** Non-empty list of non-empty strings, or `undefined` — an empty list is «no restriction». */
+function patternList(raw: unknown): string[] | undefined {
+	if (!Array.isArray(raw)) { return undefined; }
+	const out = raw.filter((v): v is string => typeof v === 'string' && v.trim().length > 0).map(v => v.trim());
+	return out.length > 0 ? out : undefined;
+}
+
+/**
+ * Можно ли шагу писать в этот путь.
+ *
+ * Syntax is `.gitignore` and is borrowed wholesale from `vibeIgnore` — the same patterns the user
+ * already writes for `.vibe/ignore`, so there is one thing to learn rather than two. What is NOT
+ * borrowed is gitignore's «last matching rule wins»: here denies are a separate list checked first,
+ * so sorting the entries of either list cannot change the answer.
+ *
+ * `relPath` is workspace-relative. An absolute path is refused rather than guessed at: resolving it
+ * would need the workspace root, and a matcher that silently answers «allowed» for anything it does
+ * not understand is the wrong kind of wrong.
+ */
+export function stepMayWrite(step: Pick<VibePipelineStep, 'paths' | 'denyPaths'>, relPath: string): boolean {
+	const normalised = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
+	if (normalised === '') { return false; }
+	if (step.denyPaths && createIgnoreMatcher(step.denyPaths.join('\n')).isIgnored(normalised)) {
+		return false;
+	}
+	if (!step.paths) {
+		return true;
+	}
+	return createIgnoreMatcher(step.paths.join('\n')).isIgnored(normalised);
+}
+
 export function parsePipelineFile(raw: unknown): ParsedPipelineFile {
 	const warnings: string[] = [];
 	const empty: VibePipelineFile = { version: VIBE_PIPELINE_FORMAT_VERSION, pipelines: [] };
@@ -239,6 +288,8 @@ function parseStep(raw: unknown): { ok: true; value: VibePipelineStep } | { ok: 
 			...(maxSteps !== undefined ? { maxSteps } : {}),
 			...(s['continueOnFailure'] === true ? { continueOnFailure: true } : {}),
 			...(s['ignorePreviousArtifacts'] === true ? { ignorePreviousArtifacts: true } : {}),
+			...(patternList(s['paths']) ? { paths: patternList(s['paths']) } : {}),
+			...(patternList(s['denyPaths']) ? { denyPaths: patternList(s['denyPaths']) } : {}),
 			...(parseModelRef(s['model'] as string | undefined) ? { model: (s['model'] as string).trim() } : {}),
 			...(parseModelRef(s['escalateTo'] as string | undefined) ? { escalateTo: (s['escalateTo'] as string).trim() } : {}),
 			...(parseModelRef(s['reviewWith'] as string | undefined) ? { reviewWith: (s['reviewWith'] as string).trim() } : {}),
