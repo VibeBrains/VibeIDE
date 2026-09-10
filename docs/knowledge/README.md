@@ -99,6 +99,7 @@
 | [settingsStack.md](vibeDotfolder/settingsStack.md) | Приоритетный стек, `constraints.json` enforcement, CortexIDE как стартовая точка |
 | [ruleLinkResolution.md](vibeDotfolder/ruleLinkResolution.md) | Cursor-style резолюция ссылок в правилах (`mdc:`/относительные `.md`) → пассивный блок `<referenced_files>`; рекурсия по настройке/тоглу, within-tree + секрет-санитайз, лимиты |
 | [specFirstDefaults.md](vibeDotfolder/specFirstDefaults.md) | Spec-скиллы уже засеяны — пробел был в правиле-триггере (`spec-first.mdc`), а не в контенте; сверка со Spec Kit; анти-дубль MASTER.md; ре-ген манифеста |
+| [sharedSeedContract.md](vibeDotfolder/sharedSeedContract.md) | Общий набор сидов на несколько продуктов: словарь живёт в `products.json` набора, а не константой у каждого — дубль расходится молча (так сломалась цена под `cost*`). Соглашение без гейта не механизм; гейт обязан заявлять непустоту; инвариант засева ПОФАЙЛОВЫЙ (хук выключен, каталог провайдеров включён); выключенная запись не валидируется — так чужой `pipelineStepEnd` проходит молча; адресация в генераторе, а не в рантайме; проверять поломкой, а не компиляцией |
 
 ### [voice/](voice/) — голосовой ввод (локальный STT)
 
