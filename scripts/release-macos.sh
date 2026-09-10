@@ -169,7 +169,18 @@ if [[ "$SKIP_COMPILE" != '1' ]]; then
 		echo "[release] .vibe-defaults/ is empty — the submodule is not initialised. Run: git submodule update --init --recursive. Building now would ship an IDE that seeds no agent scaffolding." >&2
 		exit 1
 	fi
-	ok "Agent defaults present: $defaults_count file(s) in .vibe-defaults/"
+	# Counting files is not enough: a stale checkout has the right NUMBER of files and the wrong
+	# CONTENT. Seeds live in another repository, so a submodule left at an older commit seeds an
+	# outdated set — different providers, missing configs — while every count-based check stays
+	# happy. That is exactly what the Windows tree looked like before 1.20.0: 69 files at c1ac2a53
+	# while the release pinned 76 at f1903c5c. Compare the pointers instead.
+	defaults_expected=$(git ls-files -s .vibe-defaults | awk '{print $2}')
+	defaults_actual=$(git -C "$ROOT/.vibe-defaults" rev-parse HEAD 2>/dev/null || true)
+	if [[ -n "$defaults_expected" && -n "$defaults_actual" && "$defaults_expected" != "$defaults_actual" ]]; then
+		echo "[release] .vibe-defaults/ is at ${defaults_actual:0:8} but this commit pins ${defaults_expected:0:8} — the seeds would ship outdated. Run: git submodule update --init --recursive." >&2
+		exit 1
+	fi
+	ok "Agent defaults present: $defaults_count file(s) at ${defaults_actual:0:8} (matches the pinned commit)"
 
 	step 'Regenerating embedded artifacts (.vibe-defaults, specs help)...'
 	npm run gen:all

@@ -179,7 +179,18 @@ if (-not $SkipCompile) {
         Write-Error "[release] .vibe-defaults/ is empty — the submodule is not initialised. Run: git submodule update --init --recursive. Building now would ship an IDE that seeds no agent scaffolding."
         exit 1
     }
-    OK "Agent defaults present: $defaultsCount file(s) in .vibe-defaults/"
+    # Counting files is not enough: a stale checkout has the right NUMBER of files and the wrong
+    # CONTENT. Seeds live in another repository, so a submodule left at an older commit seeds an
+    # outdated set — different providers, missing configs — while every count-based check stays
+    # happy. That is exactly what this repo looked like before 1.20.0: the tree held 69 files at
+    # c1ac2a53 while the release wanted 76 at f1903c5c. Compare the pointers instead.
+    $defaultsExpected = (git ls-files -s .vibe-defaults) -split '\s+' | Select-Object -Index 1
+    $defaultsActual = (git -C $defaultsDir rev-parse HEAD 2>$null)
+    if ($defaultsExpected -and $defaultsActual -and $defaultsExpected -ne $defaultsActual) {
+        Write-Error "[release] .vibe-defaults/ is at $($defaultsActual.Substring(0,8)) but this commit pins $($defaultsExpected.Substring(0,8)) — the seeds would ship outdated. Run: git submodule update --init --recursive."
+        exit 1
+    }
+    OK "Agent defaults present: $defaultsCount file(s) at $($defaultsActual.Substring(0,8)) (matches the pinned commit)"
 
     Step "Regenerating embedded artifacts (.vibe-defaults, specs help)..."
     Npm "run gen:all"
