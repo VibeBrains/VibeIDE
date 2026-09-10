@@ -13,19 +13,26 @@ import { parseProvidersFile } from '../../common/vibeProvidersFile.js';
 import { parseDeclaredMoment } from '../../common/modelPriceSchedule.js';
 
 /**
- * Засеянное окружение обязано молчать.
+ * Что засеянное окружение делает само, а чего не делает.
  *
  * WHY this test and not a reading of the seed: since the shared set dropped `*.example.*`, the
- * seeded file IS the working file — `.vibe/agents.json`, not `agents.example.jsonc`. Two properties
- * that used to be free now have to be proven on every release: the seed parses at all (it is
- * JSONC, densely commented), and nothing in it runs, connects or launches until a human removes an
- * `"active": false`. A regression here does not look like a bug; it looks like the IDE quietly
- * doing something on a project that only just opened.
+ * seeded file IS the working file — `.vibe/agents.json`, not `agents.example.jsonc`. Whatever the
+ * seed says now happens on a project that has just been opened, so it has to be proven on every
+ * release rather than assumed.
+ *
+ * THE INVARIANT IS PER FILE, NOT PER SET — and stating it as one rule would be wrong:
+ *
+ *  • a hook ships DISABLED: it runs someone else's command, and an enabled sample would execute
+ *    code on the first turn;
+ *  • an agent ships DISABLED: it launches an external process that may not even be installed;
+ *  • the provider catalogue ships ENABLED, deliberately. A disabled catalogue means an IDE with
+ *    no models in the list on first run, and the product is useless until a key appears. The test
+ *    below locks that in, so nobody «fixes» the catalogue into silence.
  *
  * The fixtures are the SHIPPED bytes — read from the generated manifest, not retyped here, so the
  * test cannot pass against a copy while the real seed drifts.
  */
-suite('засеянное окружение .vibe инертно', () => {
+suite('засеянное окружение .vibe: что включено, а что нет', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	const seed = (path: string): string => {
@@ -98,5 +105,23 @@ suite('засеянное окружение .vibe инертно', () => {
 		// A gate that silently checks nothing is worse than no gate: it reports success for a set
 		// whose date fields were renamed out from under it.
 		assert.ok(checked > 0, 'в наборе не нашлось ни одного costValidUntil — поле переименовали, а гейт не обновили');
+	});
+
+	/**
+	 * Обратное к инертности, и это не оплошность.
+	 *
+	 * The catalogue is the one seeded file that must arrive live: it is what puts models in the
+	 * list on a first run. If it ever ships switched off, the product greets a new user with an
+	 * empty picker — a failure that looks like «VibeIDE не видит моделей», not like a seed change.
+	 */
+	test('каталог провайдеров приезжает ЖИВЫМ — это исключение, и оно закреплено', () => {
+		let active = 0;
+		for (const file of VIBE_DEFAULTS_MANIFEST) {
+			if (!file.path.startsWith('providers/') || !file.path.endsWith('.jsonc')) { continue; }
+			const parsed = parseProvidersFile(file.contents);
+			if (!parsed.ok) { continue; }
+			active += parsed.providers.filter(p => p.active !== false).length;
+		}
+		assert.ok(active > 0, 'ни одного включённого провайдера в каталоге — на первом запуске список моделей будет пуст');
 	});
 });
