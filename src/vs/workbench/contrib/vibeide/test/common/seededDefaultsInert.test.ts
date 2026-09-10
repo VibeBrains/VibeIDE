@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { VIBE_DEFAULTS_MANIFEST } from '../../common/vibeDefaultsManifest.generated.js';
+import { VIBE_DEFAULTS_MANIFEST, VIBE_KNOWN_PRODUCTS, VIBE_FILE_ADDRESSING, VIBE_PRODUCT_ID } from '../../common/vibeDefaultsManifest.generated.js';
 import { parseVibeAgentsFileOrEmpty, activeAgents } from '../../common/acp/vibeAgentsFile.js';
 import { parseServersFile } from '../../common/vibeServer/vibeServersFile.js';
 import { parseHookConfig } from '../../common/hooks/hookConfig.js';
@@ -123,5 +123,44 @@ suite('засеянное окружение .vibe: что включено, а 
 			active += parsed.providers.filter(p => p.active !== false).length;
 		}
 		assert.ok(active > 0, 'ни одного включённого провайдера в каталоге — на первом запуске список моделей будет пуст');
+	});
+
+	suite('адресация продуктов', () => {
+		/**
+		 * Словарь берётся из набора, своего списка у нас нет — и это не удобство, а условие.
+		 *
+		 * A test that checks ids against a list it keeps itself checks itself: the two lists drift,
+		 * and the drift is invisible — a product added on one side turns the other side's entries
+		 * into nobody's. That is exactly how the `cost*` rename went unnoticed, with a field name
+		 * instead of a product name.
+		 */
+		test('словарь продуктов приходит из набора и не пуст', () => {
+			// An empty dictionary means a set without addressing — the gate must say so rather than
+			// report success for a comparison it never made.
+			assert.ok(VIBE_KNOWN_PRODUCTS.length > 0, 'в наборе нет словаря продуктов — сверять опечатку не с чем');
+			assert.ok(VIBE_KNOWN_PRODUCTS.includes(VIBE_PRODUCT_ID), `наш id «${VIBE_PRODUCT_ID}» не объявлен в наборе`);
+		});
+
+		/** Опечатка в id делает запись ничьей: она молча не сработает нигде, поймать может только тест. */
+		test('каждый адрес в наборе есть в словаре', () => {
+			const unknown: string[] = [];
+			for (const entry of VIBE_FILE_ADDRESSING) {
+				for (const product of entry.products) {
+					if (!VIBE_KNOWN_PRODUCTS.includes(product)) { unknown.push(`${entry.path}: ${product}`); }
+				}
+			}
+			assert.deepStrictEqual(unknown, []);
+		});
+
+		/** Файл для чужого продукта не «выключен» у нас — его нет в сборке вовсе. */
+		test('манифест не несёт файлов, адресованных другому продукту', () => {
+			const foreign = VIBE_FILE_ADDRESSING
+				.filter(entry => !entry.products.includes(VIBE_PRODUCT_ID))
+				.filter(entry => VIBE_DEFAULTS_MANIFEST.some(file => file.path === entry.path))
+				.map(entry => entry.path);
+			assert.deepStrictEqual(foreign, []);
+			// And the addressing is not decorative: today it excludes something real.
+			assert.ok(VIBE_FILE_ADDRESSING.length > 0, 'адресация пуста — генератор её потерял');
+		});
 	});
 });

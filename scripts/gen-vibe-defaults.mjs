@@ -26,6 +26,39 @@ const SRC_DIR = path.join(repoRoot, '.vibe-defaults');
 const OUT_FILE = path.join(repoRoot, 'src', 'vs', 'workbench', 'contrib', 'vibeide', 'common', 'vibeDefaultsManifest.generated.ts');
 
 /** Recursively collect file paths under `dir`, returned as POSIX-relative to SRC_DIR. */
+/**
+ * Minimal JSONC → JSON for the set's hand-written metadata: `//` comments outside strings and
+ * trailing commas. Deliberately local to this script — the generator must not import from `src/`,
+ * and the set's own files are the only thing it parses.
+ */
+function stripJsonc(text) {
+	let out = '';
+	let inString = false;
+	let quote = null;
+	for (let i = 0; i < text.length; i++) {
+		const c = text[i];
+		if (inString) {
+			out += c;
+			if (c === '\\' && i + 1 < text.length) { out += text[++i]; continue; }
+			if (c === quote) { inString = false; quote = null; }
+			continue;
+		}
+		if (c === '"') { inString = true; quote = c; out += c; continue; }
+		if (c === '/' && text[i + 1] === '/') {
+			while (i < text.length && text[i] !== '\n') { i++; }
+			out += '\n';
+			continue;
+		}
+		if (c === ',') {
+			let j = i + 1;
+			while (j < text.length && /\s/.test(text[j])) { j++; }
+			if (text[j] === '}' || text[j] === ']') { continue; }
+		}
+		out += c;
+	}
+	return out;
+}
+
 async function collectFiles(dir) {
 	const out = [];
 	const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -59,6 +92,39 @@ async function main() {
 	const entries = [];
 	let deprecated = [];
 	let versions = {};
+
+	// Our own id, and ONLY our own. The list of who else exists is deliberately not here: a second
+	// copy of that list is how two products drift apart silently — exactly how the `cost*` rename
+	// went unnoticed. The dictionary is read from the set below.
+	const PRODUCT_ID = 'vibeide';
+
+	// Read before the loop: addressing decides whether a file is emitted at all, and the loop
+	// cannot depend on the alphabetical position of `products.json`.
+	let knownProducts = [];
+	let fileAddressing = new Map();
+	{
+		const abs = path.join(SRC_DIR, 'products.json');
+		let raw;
+		try {
+			raw = (await fs.readFile(abs, 'utf8')).replace(/\r\n/g, '\n');
+		} catch {
+			raw = undefined; // an older set without addressing: everything is for everyone
+		}
+		if (raw !== undefined) {
+			try {
+				const parsed = JSON.parse(stripJsonc(raw));
+				knownProducts = Array.isArray(parsed.products) ? parsed.products : [];
+				for (const entry of parsed.files ?? []) {
+					if (entry && typeof entry.path === 'string' && Array.isArray(entry.products)) {
+						fileAddressing.set(entry.path, entry.products);
+					}
+				}
+			} catch (err) {
+				console.error(`[gen-vibe-defaults] bad products.json: ${err.message}`);
+				process.exit(1);
+			}
+		}
+	}
 	for (const abs of files) {
 		const rel = path.relative(SRC_DIR, abs).split(path.sep).join('/');
 		// Normalize CRLF → LF so the embedded bytes are platform-independent. The generator reads the
@@ -82,6 +148,15 @@ async function main() {
 		}
 		if (rel === 'bump.mjs') {
 			continue; // скрипт набора, не сид
+		}
+		if (rel === 'products.json') {
+			continue; // словарь продуктов и адресация — метаданные набора, не сид
+		}
+		const addressedTo = fileAddressing.get(rel);
+		if (addressedTo && !addressedTo.includes(PRODUCT_ID)) {
+			// Not «disabled» — absent. A file for a product we are not has nothing to switch off.
+			console.log(`[gen-vibe-defaults] ${rel} — адресован ${addressedTo.join(', ')}, не встраиваем`);
+			continue;
 		}
 		if (rel === 'deprecated.json') {
 			try {
@@ -145,6 +220,23 @@ export interface VibeSeedRevision {
 
 export const VIBE_VERSIONS_MANIFEST: ReadonlyArray<VibeSeedRevision> = [
 ${versionEntries.join('\n')}
+];
+
+/** Наш собственный id в наборе. */
+export const VIBE_PRODUCT_ID = ${JSON.stringify(PRODUCT_ID)};
+
+/**
+ * Словарь продуктов, объявленный САМИМ набором (\`products.json\`).
+ *
+ * Встроен, а не переписан константой: строгую проверку делает тест, а тест, сверяющийся с
+ * собственным списком, проверяет себя. Пустой список означает набор без адресации — тест обязан
+ * это заметить и сказать, а не отрапортовать успех.
+ */
+export const VIBE_KNOWN_PRODUCTS: readonly string[] = ${JSON.stringify(knownProducts)};
+
+/** Адресация файлов набора: путь → продукты, которым он предназначен. */
+export const VIBE_FILE_ADDRESSING: ReadonlyArray<{ readonly path: string; readonly products: readonly string[] }> = [
+${[...fileAddressing.entries()].map(([p, list]) => `\t{ path: ${JSON.stringify(p)}, products: ${JSON.stringify(list)} },`).join('\n')}
 ];
 `;
 
