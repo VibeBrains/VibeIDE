@@ -19,12 +19,23 @@ import { vibeLog } from '../../common/vibeLog.js';
 import { hooksFor, parseHookConfig, VibeHookConfig, VibeHookEvent } from '../../common/hooks/hookConfig.js';
 import { decideHooks, VibeHookDecision, verdictOf } from '../../common/hooks/hookOutcome.js';
 import { IVibeHooksMain, IVibeHooksService, VIBE_HOOKS_CHANNEL, VibeHookPayload, VibeHooksConfigKeys } from '../../common/hooks/vibeHookTypes.js';
-import { DEFAULT_TRAIL_LIMITS, recordToolCall, ToolTrailEntry, TrailLimits, trailView } from '../../common/hooks/toolCallTrail.js';
+import { DEFAULT_TRAIL_LIMITS, recordToolCall, ToolTrailEntry, ToolTrailView, TrailLimits, trailView } from '../../common/hooks/toolCallTrail.js';
+import { describeExfiltrationFinding, findExfiltrationSequences } from '../../common/hooks/exfiltrationSequence.js';
 
 const HOOKS_FILE = ['.vibe', 'hooks.json'];
 
 /** How much of a draft a gate script gets. A hook decides on a sample, not on a megabyte. */
 const PIPELINE_ANSWER_LIMIT = 4000;
+
+/**
+ * Сколько молчать о той же связке «секрет → сеть».
+ *
+ * Ten minutes rather than «once per session»: the pair stays in the trail for several calls, so
+ * without silence the warning repeats on each of them; but the same pair forming AGAIN later is a
+ * stronger signal than the first time, and suppressing it forever would hide exactly the case worth
+ * seeing. Ours, not the report's — it publishes no thresholds.
+ */
+const SEQUENCE_REPEAT_SILENCE_MS = 10 * 60 * 1000;
 
 const NOTHING: VibeHookDecision = { blocked: false, agentMessage: undefined, brokenHooks: [] };
 
@@ -117,6 +128,11 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 					params: context.params,
 					mcpServerName: context.mcpServerName,
 				}, now, limits);
+				// Проверяется здесь же, а не в конце хода: пара «прочитал секрет — пошёл в сеть»
+				// интересна в момент, когда она сложилась, а не при разборе журнала потом.
+				// Ход НЕ останавливается — см. модуль: порогов в первоисточнике нет, а стоп по
+				// придуманному порогу стоил бы дороже пропущенной пары.
+				this._reportExfiltrationSequences(trailView(this._trail, now, limits));
 			}
 			const folder = this._folder();
 			if (!folder) {
@@ -189,6 +205,38 @@ class VibeHooksService extends Disposable implements IVibeHooksService {
 	}
 
 	/** How far back the trail reaches, as the project configured it. */
+	/**
+	 * Когда о связке говорили в последний раз.
+	 *
+	 * Время, а не факт: связка остаётся в следе несколько вызовов подряд, и без подавления
+	 * предупреждение повторялось бы на каждом. Но подавлять НАВСЕГДА нельзя — если та же пара
+	 * сложилась снова через час, это более тревожно, а не менее, и промолчать здесь значит
+	 * оставить человека без единственного признака ровно тогда, когда он важнее всего.
+	 */
+	private readonly _reportedSequences = new Map<string, number>();
+
+	/**
+	 * Сообщить о замеченной паре — один раз на связку.
+	 *
+	 * Уведомление предупреждающее, а не блокирующее: агент, честно прочитавший конфиг и следом
+	 * открывший документацию, выглядит точно так же. Ценность в том, что пара становится ВИДНА
+	 * сразу, а не восстанавливается задним числом — если вообще восстанавливается.
+	 */
+	private _reportExfiltrationSequences(trail: readonly ToolTrailView[]): void {
+		const now = Date.now();
+		for (const finding of findExfiltrationSequences(trail)) {
+			const key = `${finding.secretPath}|${finding.networkTool}|${finding.server ?? ''}`;
+			const saidAt = this._reportedSequences.get(key);
+			if (saidAt !== undefined && now - saidAt < SEQUENCE_REPEAT_SILENCE_MS) {
+				continue;
+			}
+			this._reportedSequences.set(key, now);
+			const line = describeExfiltrationFinding(finding);
+			vibeLog.warn('Hooks', `Последовательность «секрет → сеть»: ${line}`);
+			this._notifications.warn(`Агент ${line}. Если это не то, о чём вы просили, — отзовите ключи из этого файла.`);
+		}
+	}
+
 	private _trailLimits(): TrailLimits {
 		const length = this._configuration.getValue<number>(VibeHooksConfigKeys.trailLength);
 		const minutes = this._configuration.getValue<number>(VibeHooksConfigKeys.trailMinutes);

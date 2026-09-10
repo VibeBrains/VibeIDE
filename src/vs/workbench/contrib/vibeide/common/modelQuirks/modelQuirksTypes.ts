@@ -150,7 +150,7 @@ export interface ModelQuirksCatalog {
  * key. Returned by `IModelQuirksService.getQuirks()` — empty object means
  * "no quirks, use provider defaults for everything".
  */
-export type ResolvedModelQuirks = Omit<ModelQuirksRule, 'match' | 'note'>;
+export type ResolvedModelQuirks = Omit<ModelQuirksRule, 'match' | 'provider' | 'note'>;
 
 /** Empty quirks — convenient sentinel. */
 export const EMPTY_QUIRKS: ResolvedModelQuirks = Object.freeze({});
