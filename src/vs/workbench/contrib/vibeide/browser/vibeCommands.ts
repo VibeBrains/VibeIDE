@@ -853,6 +853,7 @@ registerAction2(class extends Action2 {
 		const qi = accessor.get(IQuickInputService);
 		const notifications = accessor.get(INotificationService);
 		const workspace = accessor.get(IWorkspaceContextService);
+		const fileService = accessor.get(IFileService);
 		if (!workspace.getWorkspace().folders.length) {
 			notifications.notify({ severity: Severity.Warning, message: localize('vibeideSkillsPickNoWs', 'Сначала откройте папку рабочей области.') });
 			return;
@@ -867,11 +868,31 @@ registerAction2(class extends Action2 {
 		// регулярно приходит от чужих людей, а по тексту помощник не отличается от вредителя.
 		// Момент выбора — единственный, когда вопрос «откуда это у меня» ещё что-то меняет.
 		const provenanceOf = new Map<string, string>();
+		const wsFolder = workspace.getWorkspace().folders[0]?.uri;
 		await Promise.all(loaded.map(async skill => {
 			const setPath = setRelativeSkillPath(skill.relativePath);
-			const known = setPath !== undefined && VIBE_DEFAULTS_MANIFEST.some(f => f.path === setPath);
-			const untouched = known ? await isUntouchedPastRevision(setPath!, skill.body) : false;
-			provenanceOf.set(skill.skillId, classifySkillProvenance(known, untouched).label);
+			if (setPath === undefined || !VIBE_DEFAULTS_MANIFEST.some(f => f.path === setPath)) {
+				provenanceOf.set(skill.skillId, classifySkillProvenance(false, false).label);
+				return;
+			}
+			// Сверяются ИСХОДНЫЕ байты файла, а не `skill.body`.
+			//
+			// Реестр ревизий хранит sha256 файла целиком, вместе с фронтматтером, а `body` — это
+			// уже разобранный текст без него. Сравнение одного с другим не совпало бы НИКОГДА, и
+			// каждый засеянный скилл объявлялся бы изменённым — то есть подпись врала бы ровно
+			// в том, ради чего она есть.
+			let untouched = false;
+			if (wsFolder) {
+				try {
+					const raw = await fileService.readFile(joinPath(wsFolder, '.vibe', ...setPath.split('/')));
+					untouched = await isUntouchedPastRevision(setPath, raw.value.toString());
+				} catch {
+					// Файл не прочитался — «из релиза, изменён» честнее, чем «не тронут»: второе
+					// утверждало бы то, чего мы не проверяли.
+					untouched = false;
+				}
+			}
+			provenanceOf.set(skill.skillId, classifySkillProvenance(true, untouched).label);
 		}));
 		const active = new Set((cfg.getValue<string[]>('vibeide.skills.sessionActiveIds') ?? []).map(s => s.trim().toLowerCase()).filter(Boolean));
 		const toItem = (s: typeof loaded[number]): IQuickPickItem & { picked?: boolean } => {

@@ -11,6 +11,7 @@ import { parseServersFile } from '../../common/vibeServer/vibeServersFile.js';
 import { parseHookConfig } from '../../common/hooks/hookConfig.js';
 import { parseProvidersFile } from '../../common/vibeProvidersFile.js';
 import { parseDeclaredMoment } from '../../common/modelPriceSchedule.js';
+import { isUntouchedPastRevision } from '../../common/vibeDefaults.js';
 
 /**
  * Что засеянное окружение делает само, а чего не делает.
@@ -123,6 +124,27 @@ suite('засеянное окружение .vibe: что включено, а 
 			active += parsed.providers.filter(p => p.active !== false).length;
 		}
 		assert.ok(active > 0, 'ни одного включённого провайдера в каталоге — на первом запуске список моделей будет пуст');
+	});
+
+	/**
+	 * Реестр ревизий сверяет ФАЙЛ ЦЕЛИКОМ, а не его разобранное тело.
+	 *
+	 * Этот тест написан по следам собственного дефекта: происхождение скилла сравнивало sha256
+	 * реестра с `skill.body`, из которого разбор уже вырезал фронтматтер. Совпасть это не могло
+	 * никогда, и каждый отгруженный скилл помечался бы как «изменён» — подпись врала бы ровно в
+	 * том, ради чего она есть. Тест фиксирует обе стороны, чтобы ошибку нельзя было повторить
+	 * «удобным» сравнением.
+	 */
+	test('нетронутость считается по целому файлу, а не по телу без фронтматтера', async () => {
+		const skill = VIBE_DEFAULTS_MANIFEST.find(f => f.path.startsWith('skills/') && f.path.endsWith('/SKILL.md'));
+		assert.ok(skill, 'в наборе нет ни одного скилла — тест устарел вместе с набором');
+		assert.strictEqual(await isUntouchedPastRevision(skill.path, skill.contents), true,
+			'отгружаемый файл не опознан реестром ревизий — рассинхрон набора и манифеста');
+
+		const withoutFrontmatter = skill.contents.replace(/^---\s*\r?\n[\s\S]*?\r?\n---\s*\r?\n?/, '').trim();
+		assert.notStrictEqual(withoutFrontmatter, skill.contents, 'у скилла нет фронтматтера — возьмите другой образец');
+		assert.strictEqual(await isUntouchedPastRevision(skill.path, withoutFrontmatter), false,
+			'тело без фронтматтера опознано как нетронутый файл — сверка стала бессмысленной');
 	});
 
 	suite('адресация продуктов', () => {
