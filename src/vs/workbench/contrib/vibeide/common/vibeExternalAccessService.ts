@@ -154,7 +154,7 @@ export class VibeExternalAccessService extends Disposable implements IVibeExtern
 
 	/** Allow-lists compare exactly on case-sensitive platforms: a mismatch can only err towards refusal. */
 	private readonly _caseSensitive = !isWindows;
-	/** Deny-lists fold case wherever the filesystem does — one rule for every deny list, see there. */
+	/** Deny-lists fold case — one rule for every deny list, see `DENY_RULES_IGNORE_CASE`. */
 	private readonly _denyCaseSensitive = !DENY_RULES_IGNORE_CASE;
 	// Session scope is intentionally NOT persisted — cleared on reload (least-privilege default).
 	private readonly _session = new Set<string>();

@@ -119,5 +119,15 @@ suite('VibePerFilePermissionsService — pure helpers', () => {
 				разрешениеСовпало: canWriteWithPermissions('src/a.ts', permissions, true),
 			}, { запретСвёрнут: false, разрешениеТочное: false, разрешениеСовпало: true });
 		});
+
+		/** Прецедент: проект в `~/src/app` — по полному пути белый список `src/**` пропускал всё. */
+		test('an allow list is read from the project root, not from the whole disk', () => {
+			const allowSrc = { allow_write: ['src/**'] };
+			assert.deepStrictEqual({
+				мимоБелогоСписка: canWriteWithPermissions({ absolute: '/home/me/src/app/lib/x.ts', relative: 'lib/x.ts' }, allowSrc),
+				вБеломСписке: canWriteWithPermissions({ absolute: '/home/me/src/app/src/y.ts', relative: 'src/y.ts' }, allowSrc),
+				снаружиБезПолногоПути: canWriteWithPermissions({ absolute: '/tmp/src/z.ts' }, allowSrc),
+			}, { мимоБелогоСписка: false, вБеломСписке: true, снаружиБезПолногоПути: false });
+		});
 	});
 });

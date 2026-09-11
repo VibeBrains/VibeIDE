@@ -5,7 +5,6 @@
 
 import { URI } from '../../../../base/common/uri.js';
 import { isAbsolute } from '../../../../base/common/path.js';
-import { isLinux } from '../../../../base/common/platform.js';
 import { extUri, extUriIgnorePathCase, isEqualOrParent, joinPath, normalizePath } from '../../../../base/common/resources.js';
 
 /** A workspace root as the agent's path resolution sees it. */
@@ -65,13 +64,16 @@ export function resolveAgentPath(raw: string, roots: readonly AgentPathRoot[]): 
 }
 
 /**
- * Deny rules compare paths ignoring case wherever the filesystem does.
+ * Deny rules compare paths ignoring case — on every OS.
  *
  * On APFS and NTFS `Secrets/` and `secrets/` are one folder, so a deny rule written one way must
- * catch the other — a case-sensitive check let `/proj/Raw/x.md` into a source folder declared as
- * `raw`. Linux keeps them apart. Allow rules never fold case: a mismatch there can only refuse.
+ * catch the other; a case-sensitive check once let `/proj/Raw/x.md` into a source folder declared as
+ * `raw`. Folding only where the filesystem folds was tried first and dropped: case-insensitive
+ * volumes exist on Linux too (WSL's `/mnt/c` is NTFS), the OS says nothing about the volume a path
+ * lives on, and folding everywhere can only err towards refusing. VibeIDEA reads the shared rule files
+ * the same way. Allow rules never fold case.
  */
-export const DENY_RULES_IGNORE_CASE = !isLinux;
+export const DENY_RULES_IGNORE_CASE = true;
 
 /**
  * `uri` relative to `root`, or undefined when it is not under it — a sibling that merely shares a
@@ -84,4 +86,75 @@ export function pathUnder(root: URI, uri: URI, ignoreCase: boolean): string | un
 		return undefined;
 	}
 	return uri.path.slice(root.path.replace(/\/+$/, '').length).replace(/^\/+/, '');
+}
+
+/**
+ * A path as the project's rules see it.
+ *
+ * Rules are written against the project, like `.gitignore`: `src/**` means «src inside this project».
+ * Matched against the full path it also meant every folder called `src` ABOVE the root — a project
+ * checked out under `~/src/` got an allow list that allowed everything. So a file inside a workspace
+ * root carries its path from that root, and one outside every root carries only its absolute path.
+ */
+export interface RuleSubject {
+	/** Absolute path, forward slashes. */
+	readonly absolute: string;
+	/** Path from the workspace root the file lies under, forward slashes; absent outside every root. */
+	readonly relative?: string;
+}
+
+/**
+ * The rule subject of a path as callers have it: absolute, or already written against the project
+ * (a project command's `cwd`). The containing root is found ignoring case — a deny must not miss a
+ * file because the caller spelled the root differently — and the tail keeps its own case for the
+ * exact allow rules.
+ */
+export function ruleSubjectOf(filePath: string, roots: readonly URI[]): RuleSubject {
+	const uri = isAbsolute(filePath) ? URI.file(filePath) : roots.length > 0 ? joinPath(roots[0], filePath) : undefined;
+	if (!uri) {
+		const slashed = filePath.replace(/\\/g, '/');
+		return { absolute: slashed, relative: slashed.replace(/^(?:\.?\/)+/, '') };
+	}
+	const absolute = uri.fsPath.replace(/\\/g, '/');
+	for (const root of roots) {
+		const relative = pathUnder(root, uri, DENY_RULES_IGNORE_CASE);
+		if (relative !== undefined) {
+			return { absolute, relative };
+		}
+	}
+	return { absolute };
+}
+
+/** A bare string is matched as given — the frame the older callers and the tests use. */
+export function asRuleSubject(target: string | RuleSubject): RuleSubject {
+	if (typeof target !== 'string') {
+		return target;
+	}
+	const slashed = target.replace(/\\/g, '/');
+	return { absolute: slashed, relative: slashed };
+}
+
+/**
+ * Whether a rule pattern names this subject; `test` matches one path string against the pattern.
+ *
+ * - A pattern without a leading `/` is matched against the path inside the project, never against
+ *   folders above the root. For a file outside every root a DENY still looks at the absolute path (a
+ *   secret is a secret wherever it lies); an ALLOW does not (a project's rule cannot grant a place
+ *   outside the project — that takes a full path).
+ * - A leading `/` anchors the pattern at the project root, as in `.gitignore`, or names a full path
+ *   on disk. Both readings are tried: `/dist` meets `dist/` at the root, `/Users/me/p/**` the full path.
+ * - A drive-letter or UNC pattern is a place on disk and meets the absolute path only.
+ */
+export function ruleMatches(subject: RuleSubject, pattern: string, kind: 'deny' | 'allow', test: (path: string) => boolean): boolean {
+	const slashed = pattern.replace(/\\/g, '/');
+	if (/^[A-Za-z]:\//.test(slashed) || slashed.startsWith('//')) {
+		return test(subject.absolute);
+	}
+	if (slashed.startsWith('/')) {
+		return (subject.relative !== undefined && test('/' + subject.relative)) || test(subject.absolute);
+	}
+	if (subject.relative !== undefined) {
+		return test(subject.relative);
+	}
+	return kind === 'deny' && test(subject.absolute);
 }

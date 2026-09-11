@@ -14,6 +14,7 @@
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
+import { isAbsolute } from '../../../../base/common/path.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -24,8 +25,9 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { localize } from '../../../../nls.js';
 import { vibeLog } from '../common/vibeLog.js';
 import { DEFAULT_ENABLED_CHECKS, TurnCheckId, TurnChecksMode, TurnFacts } from '../common/agentTurnChecks.js';
-import { IVibeConstraintsService, findDenyingConstraint } from '../common/vibeConstraintsService.js';
-import { IVibePerFilePermissionsService, canWriteWithPermissions } from '../common/vibePerFilePermissionsService.js';
+import { ConstraintViolationError, IVibeConstraintsService } from '../common/vibeConstraintsService.js';
+import { IVibePerFilePermissionsService } from '../common/vibePerFilePermissionsService.js';
+import { resolveAgentPath } from '../common/agentPathResolution.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
 
 const CONFIG_MODE = 'vibeide.agent.turnChecks.mode';
@@ -168,17 +170,23 @@ class VibeTurnChecksService extends Disposable implements IVibeTurnChecksService
 	}
 
 	private _findProtectedWrites(files: readonly string[]): { file: string; pattern: string }[] {
-		const rules = this._constraints.getRules();
-		const permissions = this._permissions.getPermissions();
 		const hits: { file: string; pattern: string }[] = [];
 
 		for (const file of files) {
-			const denying = findDenyingConstraint(file, 'deny_write', [...rules]);
-			if (denying?.pattern) {
-				hits.push({ file, pattern: denying.pattern });
+			// The file the tool wrote, asked through the services: the same rules, placed against the
+			// workspace roots the same way the file tools place them.
+			const path = this._toUri(file)?.fsPath ?? file;
+			try {
+				this._constraints.checkWriteAllowed(path);
+			} catch (error) {
+				if (error instanceof ConstraintViolationError) {
+					hits.push({ file, pattern: error.constraint.pattern ?? error.constraint.type });
+				} else {
+					vibeLog.warn('turnChecks', `проверка закрытых путей пропустила «${file}»`, error);
+				}
 				continue;
 			}
-			if (!canWriteWithPermissions(file, permissions)) {
+			if (!this._permissions.canWrite(path)) {
 				hits.push({ file, pattern: 'permissions.json' });
 			}
 		}
@@ -220,16 +228,18 @@ class VibeTurnChecksService extends Disposable implements IVibeTurnChecksService
 		}
 	}
 
+	/**
+	 * The path a tool acted on, resolved the way the tool resolved it (`resolveAgentPath`). The turn
+	 * records the raw argument, which may be project-relative, a `file://` URI or carry `..` — and a
+	 * check that reads it differently from the tool is checking a different file.
+	 */
 	private _toUri(path: string): URI | undefined {
 		try {
-			if (path.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(path)) {
-				return URI.file(path);
-			}
-			const folders = this._workspace.getWorkspace().folders;
-			if (folders.length === 0) {
+			const roots = this._workspace.getWorkspace().folders.map(folder => ({ uri: folder.uri, name: folder.name }));
+			if (roots.length === 0 && !isAbsolute(path) && !path.includes('://')) {
 				return undefined;
 			}
-			return URI.joinPath(folders[0].uri, path);
+			return resolveAgentPath(path, roots);
 		} catch (error) {
 			vibeLog.warn('turnChecks', `не удалось разобрать путь «${path}»`, error);
 			return undefined;

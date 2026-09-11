@@ -17,7 +17,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { parseConfigJsonOrDefaults } from './vibeConfigJsonParser.js';
-import { DENY_RULES_IGNORE_CASE } from './agentPathResolution.js';
+import { asRuleSubject, DENY_RULES_IGNORE_CASE, RuleSubject, ruleMatches, ruleSubjectOf } from './agentPathResolution.js';
 
 export interface VibeConstraintRule {
 	type: 'deny_write' | 'deny_read' | 'max_lines_per_function' | 'deny_age';
@@ -101,19 +101,21 @@ export function matchConstraintPattern(filePath: string, pattern: string, ignore
 }
 
 /**
- * Pure helper. Returns the first deny rule that matches `filePath` for `kind`,
- * or null if no rule denies. Caller is responsible for throwing. Every rule asked here is a deny
- * rule, so case is folded wherever the filesystem folds it.
+ * Pure helper. Returns the first deny rule that matches for `kind`, or null if no rule denies.
+ * Caller is responsible for throwing. `target` is a rule subject (`ruleSubjectOf`: placed against
+ * the workspace roots) or a bare string matched as given. Every rule asked here is a deny rule, so
+ * case is folded (`DENY_RULES_IGNORE_CASE`).
  */
 export function findDenyingConstraint(
-	filePath: string,
+	target: string | RuleSubject,
 	kind: 'deny_write' | 'deny_read',
 	rules: VibeConstraintRule[],
 	ignoreCase = DENY_RULES_IGNORE_CASE,
 ): VibeConstraintRule | null {
-	const normalized = filePath.replace(/\\/g, '/');
+	const subject = asRuleSubject(target);
 	for (const rule of rules) {
-		if (rule.type === kind && rule.pattern && matchConstraintPattern(normalized, rule.pattern, ignoreCase)) {
+		const pattern = rule.pattern;
+		if (rule.type === kind && pattern && ruleMatches(subject, pattern, 'deny', path => matchConstraintPattern(path, pattern, ignoreCase))) {
 			return rule;
 		}
 	}
@@ -268,17 +270,22 @@ class VibeConstraintsService extends Disposable implements IVibeConstraintsServi
 	}
 
 	checkWriteAllowed(filePath: string): void {
-		const denying = findDenyingConstraint(filePath, 'deny_write', this._constraints.rules ?? []);
+		const denying = findDenyingConstraint(this._subject(filePath), 'deny_write', this._constraints.rules ?? []);
 		if (denying) {
 			throw new ConstraintViolationError(denying, filePath);
 		}
 	}
 
 	checkReadAllowed(filePath: string): void {
-		const denying = findDenyingConstraint(filePath, 'deny_read', this._constraints.rules ?? []);
+		const denying = findDenyingConstraint(this._subject(filePath), 'deny_read', this._constraints.rules ?? []);
 		if (denying) {
 			throw new ConstraintViolationError(denying, filePath);
 		}
+	}
+
+	/** The rules are the project's: a path is placed against the workspace roots, not the whole disk. */
+	private _subject(filePath: string): RuleSubject {
+		return ruleSubjectOf(filePath, this._workspaceContextService.getWorkspace().folders.map(folder => folder.uri));
 	}
 }
 

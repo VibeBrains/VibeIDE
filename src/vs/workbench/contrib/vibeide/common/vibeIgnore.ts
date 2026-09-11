@@ -51,8 +51,7 @@ function patternToRegExp(pattern: string, anchored: boolean, ignoreCase: boolean
 
 /**
  * Parse `.vibe/ignore` content into ordered rules (order matters — last match wins). Patterns are
- * taken in NFC; `ignoreCase` folds case in every rule — for deny lists, where on APFS and NTFS
- * `Dist/` is `dist/`.
+ * taken in NFC; `ignoreCase` folds case in every rule — for deny lists (`DENY_RULES_IGNORE_CASE`).
  */
 export function parseIgnore(content: string, ignoreCase = false): IgnoreRule[] {
 	const rules: IgnoreRule[] = [];

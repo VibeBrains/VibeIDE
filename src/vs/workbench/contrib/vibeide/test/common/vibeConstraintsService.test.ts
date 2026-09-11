@@ -88,6 +88,14 @@ suite('VibeConstraintsService — pure helpers', () => {
 				точно: findDenyingConstraint('Secrets/key.pem', 'deny_read', rules, false),
 			}, { свёрнуто: 'secrets are off-limits', точно: null });
 		});
+
+		/** Правила проектные: папка `secrets` над корнем не закрывает весь проект. */
+		test('relative patterns never see folders above the workspace root', () => {
+			assert.deepStrictEqual({
+				надКорнем: findDenyingConstraint({ absolute: '/home/me/secrets/app/src/a.ts', relative: 'src/a.ts' }, 'deny_read', rules),
+				внутри: findDenyingConstraint({ absolute: '/home/me/app/secrets/k', relative: 'secrets/k' }, 'deny_read', rules)?.message,
+			}, { надКорнем: null, внутри: 'secrets are off-limits' });
+		});
 	});
 
 	suite('isModelAllowedByList', () => {

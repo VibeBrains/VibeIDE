@@ -7,7 +7,8 @@ import assert from 'assert';
 import { isWindows } from '../../../../../base/common/platform.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { pathUnder, resolveAgentPath } from '../../common/agentPathResolution.js';
+import { pathUnder, resolveAgentPath, RuleSubject, ruleMatches, ruleSubjectOf } from '../../common/agentPathResolution.js';
+import { matchConstraintPattern } from '../../common/vibeConstraintsService.js';
 
 /**
  * Путь агента разворачивается до любой проверки.
@@ -85,5 +86,55 @@ import { pathUnder, resolveAgentPath } from '../../common/agentPathResolution.js
 			регистрТочно: pathUnder(proj, URI.file('/proj/src/a.ts'), false),
 			регистрСвёрнут: pathUnder(proj, URI.file('/proj/src/a.ts'), true),
 		}, { внутри: 'src/a.ts', корень: '', сосед: undefined, регистрТочно: undefined, регистрСвёрнут: 'src/a.ts' });
+	});
+
+	/**
+	 * Правила — проектные: у файла внутри корня есть путь от корня, у файла снаружи — только полный.
+	 * Корень находится без учёта регистра, хвост сохраняет свой.
+	 */
+	test('предмет правила: путь от корня, снаружи — только полный', () => {
+		const roots = [URI.file('/home/me/src/app')];
+		assert.deepStrictEqual({
+			внутри: ruleSubjectOf('/home/me/src/app/lib/x.ts', roots),
+			снаружи: ruleSubjectOf('/etc/passwd', roots),
+			отКорня: ruleSubjectOf('lib/x.ts', roots),
+			регистрКорня: ruleSubjectOf('/home/me/SRC/app/Lib/x.ts', roots),
+		}, {
+			внутри: { absolute: '/home/me/src/app/lib/x.ts', relative: 'lib/x.ts' },
+			снаружи: { absolute: '/etc/passwd' },
+			отКорня: { absolute: '/home/me/src/app/lib/x.ts', relative: 'lib/x.ts' },
+			регистрКорня: { absolute: '/home/me/SRC/app/Lib/x.ts', relative: 'Lib/x.ts' },
+		});
+	});
+
+	/**
+	 * Какой путь спрашивает шаблон. Прецедент: проект в `~/src/app` и белый список `src/**` — по
+	 * полному пути он пропускал всё.
+	 */
+	test('шаблон: без / — внутри проекта, с / — от корня или полный путь, снаружи разрешает только полный', () => {
+		const inside: RuleSubject = { absolute: '/home/me/src/app/lib/x.ts', relative: 'lib/x.ts' };
+		const deeper: RuleSubject = { absolute: '/home/me/src/app/a/lib/x.ts', relative: 'a/lib/x.ts' };
+		const outside: RuleSubject = { absolute: '/home/me/.ssh/id_rsa' };
+		const m = (subject: RuleSubject, pattern: string, kind: 'deny' | 'allow') =>
+			ruleMatches(subject, pattern, kind, path => matchConstraintPattern(path, pattern));
+		assert.deepStrictEqual({
+			надКорнемНеВидно: m(inside, 'src/**', 'allow'),
+			внутриПроекта: m(inside, 'lib/**', 'allow'),
+			отКорня: m(inside, '/lib/**', 'allow'),
+			отКорняНеГлубже: m(deeper, '/lib/**', 'allow'),
+			полныйПуть: m(inside, '/home/me/src/app/**', 'deny'),
+			запретСнаружи: m(outside, '**/.ssh/**', 'deny'),
+			разрешениеСнаружи: m(outside, '**/.ssh/**', 'allow'),
+			разрешениеСнаружиПолнымПутём: m(outside, '/home/me/.ssh/**', 'allow'),
+		}, {
+			надКорнемНеВидно: false,
+			внутриПроекта: true,
+			отКорня: true,
+			отКорняНеГлубже: false,
+			полныйПуть: true,
+			запретСнаружи: true,
+			разрешениеСнаружи: false,
+			разрешениеСнаружиПолнымПутём: true,
+		});
 	});
 });

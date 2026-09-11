@@ -84,8 +84,8 @@ class VibeIgnoreService extends Disposable implements IVibeIgnoreService {
 		const matcher = this._matcher;
 		const root = this._root;
 		if (!matcher || !root) { return false; }
-		// A deny list, so the root is matched the way the filesystem matches it: on APFS a model that
-		// wrote `/users/…` still names a file under `/Users/…`. Outside the workspace → not governed.
+		// A deny list, so the root is matched ignoring case: a model that wrote `/users/…` still names a
+		// file under `/Users/…`. Outside the workspace → not governed.
 		const rel = pathUnder(root, uri, DENY_RULES_IGNORE_CASE);
 		if (rel === undefined || rel === '') { return false; }
 		return matcher.isIgnored(rel);

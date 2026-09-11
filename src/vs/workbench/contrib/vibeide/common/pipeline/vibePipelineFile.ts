@@ -184,8 +184,8 @@ function patternList(raw: unknown): string[] | undefined {
 export function stepMayWrite(step: Pick<VibePipelineStep, 'paths' | 'denyPaths'>, relPath: string, denyIgnoresCase = DENY_RULES_IGNORE_CASE): boolean {
 	const normalised = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
 	if (normalised === '') { return false; }
-	// Denies fold case wherever the filesystem does; the allow list stays exact — a mismatch there
-	// can only refuse.
+	// Denies fold case (`DENY_RULES_IGNORE_CASE`); the allow list stays exact — a mismatch there can
+	// only refuse.
 	if (step.denyPaths && createIgnoreMatcher(step.denyPaths.join('\n'), { ignoreCase: denyIgnoresCase }).isIgnored(normalised)) {
 		return false;
 	}

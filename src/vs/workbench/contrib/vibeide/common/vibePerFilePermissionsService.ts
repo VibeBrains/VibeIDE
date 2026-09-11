@@ -17,7 +17,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { dirname, joinPath } from '../../../../base/common/resources.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { parseConfigJsonOrDefaults } from './vibeConfigJsonParser.js';
-import { DENY_RULES_IGNORE_CASE } from './agentPathResolution.js';
+import { asRuleSubject, DENY_RULES_IGNORE_CASE, RuleSubject, ruleMatches, ruleSubjectOf } from './agentPathResolution.js';
 
 export interface VibePermissions {
 	vibeVersion?: string;
@@ -82,23 +82,24 @@ export function matchPermissionPattern(filePath: string, pattern: string, ignore
  *
  * Kept apart from the allow half because the two are asked about different names of one file: a
  * symlink gives it several, a deny must hold for every one of them, an allow only for the place the
- * file really is. Deny lists fold case wherever the filesystem does (`DENY_RULES_IGNORE_CASE`).
+ * file really is. Deny lists fold case (`DENY_RULES_IGNORE_CASE`). `target` is a rule subject
+ * (`ruleSubjectOf`: placed against the workspace roots) or a bare string matched as given.
  */
-export function isDeniedByPermissions(filePath: string, permissions: VibePermissions, access: 'read' | 'write', ignoreCase = DENY_RULES_IGNORE_CASE): boolean {
-	const normalized = filePath.replace(/\\/g, '/');
+export function isDeniedByPermissions(target: string | RuleSubject, permissions: VibePermissions, access: 'read' | 'write', ignoreCase = DENY_RULES_IGNORE_CASE): boolean {
+	const subject = asRuleSubject(target);
 	const deny = access === 'write' ? permissions.deny_write : permissions.deny_read;
-	return !!deny?.some(p => matchPermissionPattern(normalized, p, ignoreCase));
+	return !!deny?.some(p => ruleMatches(subject, p, 'deny', path => matchPermissionPattern(path, p, ignoreCase)));
 }
 
 /** Deny first, then the allow list if one is set; no allow list means everything not denied. */
-function allowedByPermissions(filePath: string, permissions: VibePermissions, access: 'read' | 'write', denyIgnoresCase: boolean): boolean {
-	if (isDeniedByPermissions(filePath, permissions, access, denyIgnoresCase)) {
+function allowedByPermissions(target: string | RuleSubject, permissions: VibePermissions, access: 'read' | 'write', denyIgnoresCase: boolean): boolean {
+	const subject = asRuleSubject(target);
+	if (isDeniedByPermissions(subject, permissions, access, denyIgnoresCase)) {
 		return false;
 	}
 	const allow = access === 'write' ? permissions.allow_write : permissions.allow_read;
 	if (allow && allow.length > 0) {
-		const normalized = filePath.replace(/\\/g, '/');
-		return allow.some(p => matchPermissionPattern(normalized, p));
+		return allow.some(p => ruleMatches(subject, p, 'allow', path => matchPermissionPattern(path, p)));
 	}
 	return true;
 }
@@ -107,15 +108,15 @@ function allowedByPermissions(filePath: string, permissions: VibePermissions, ac
  * Pure decision: given the user's `permissions` doc and a filesystem path, returns
  * whether write is allowed. Independent of IFileService / DI.
  */
-export function canWriteWithPermissions(filePath: string, permissions: VibePermissions, denyIgnoresCase = DENY_RULES_IGNORE_CASE): boolean {
-	return allowedByPermissions(filePath, permissions, 'write', denyIgnoresCase);
+export function canWriteWithPermissions(target: string | RuleSubject, permissions: VibePermissions, denyIgnoresCase = DENY_RULES_IGNORE_CASE): boolean {
+	return allowedByPermissions(target, permissions, 'write', denyIgnoresCase);
 }
 
 /**
  * Pure decision: read counterpart of `canWriteWithPermissions`.
  */
-export function canReadWithPermissions(filePath: string, permissions: VibePermissions, denyIgnoresCase = DENY_RULES_IGNORE_CASE): boolean {
-	return allowedByPermissions(filePath, permissions, 'read', denyIgnoresCase);
+export function canReadWithPermissions(target: string | RuleSubject, permissions: VibePermissions, denyIgnoresCase = DENY_RULES_IGNORE_CASE): boolean {
+	return allowedByPermissions(target, permissions, 'read', denyIgnoresCase);
 }
 
 /**
@@ -209,15 +210,20 @@ class VibePerFilePermissionsService extends Disposable implements IVibePerFilePe
 	}
 
 	canWrite(filePath: string): boolean {
-		return canWriteWithPermissions(filePath, this._permissions);
+		return canWriteWithPermissions(this._subject(filePath), this._permissions);
 	}
 
 	canRead(filePath: string): boolean {
-		return canReadWithPermissions(filePath, this._permissions);
+		return canReadWithPermissions(this._subject(filePath), this._permissions);
 	}
 
 	isDenied(filePath: string, access: 'read' | 'write'): boolean {
-		return isDeniedByPermissions(filePath, this._permissions, access);
+		return isDeniedByPermissions(this._subject(filePath), this._permissions, access);
+	}
+
+	/** The lists are the project's: a path is placed against the workspace roots, not the whole disk. */
+	private _subject(filePath: string): RuleSubject {
+		return ruleSubjectOf(filePath, this._workspaceContextService.getWorkspace().folders.map(folder => folder.uri));
 	}
 }
 
