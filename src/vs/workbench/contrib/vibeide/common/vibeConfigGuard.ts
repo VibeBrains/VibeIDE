@@ -22,6 +22,8 @@
 
 import { VibeProviderEntry } from './vibeProvidersFile.js';
 import { MCPConfigFileEntryJSON } from './mcpServiceTypes.js';
+import { fetchesAndRuns, findFetchAndRunInText } from './nlShellSafetyAnalyzer.js';
+import { SkillOrigin } from './vibeSkillProvenance.js';
 
 export type ConfigGuardSeverity = 'critical' | 'high' | 'medium';
 
@@ -156,9 +158,16 @@ export function scanProviderConfig(entries: readonly VibeProviderEntry[]): Confi
 
 const CRITICAL_ENV_OVERRIDES = new Set(['PATH', 'LD_PRELOAD', 'LD_LIBRARY_PATH', 'DYLD_INSERT_LIBRARIES', 'DYLD_LIBRARY_PATH', 'NODE_OPTIONS', 'PYTHONPATH']);
 const DISABLED_SECURITY_FLAGS = ['--no-sandbox', '--disable-web-security', '--disable-gpu-sandbox', '--disable-setuid-sandbox', '--allow-running-insecure-content', '--ignore-certificate-errors'];
-const REMOTE_PIPE = /\b(?:curl|wget|iwr|invoke-webrequest)\b[\s\S]*?\|\s*(?:sh|bash|zsh|dash|python[0-9.]*|node|pwsh|powershell|iex)\b/i;
 const SHELL_BASENAMES = /(?:^|[/\\])(?:sh|bash|zsh|dash|ksh)$/i;
 const SHELL_METACHARS = /[`$;|&<>]/;
+
+/**
+ * One argument as a shell would need it written, so that the joined command line parses back into the
+ * same words — `sh -c "curl … | sh"` must reach the analyzer as a script, not as loose words.
+ */
+function shellQuote(arg: string): string {
+	return /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`;
+}
 
 function basename(p: string): string {
 	const m = /[^/\\]+$/.exec(p.trim());
@@ -247,9 +256,10 @@ export function scanMcpConfig(servers: Record<string, MCPConfigFileEntryJSON> | 
 		if (!raw || typeof raw !== 'object') { continue; }
 		const cmd = typeof raw.command === 'string' ? raw.command : '';
 		const args = Array.isArray(raw.args) ? raw.args.filter((a): a is string => typeof a === 'string') : [];
-		const cmdline = [cmd, ...args].join(' ');
-
-		const remote = REMOTE_PIPE.test(cmdline);
+		// The same composition rule as the terminal gate: a download handed to an interpreter that takes
+		// its program from it. A regex over the joined line flagged `curl … | python3 -m json.tool`,
+		// which only reads an answer, and missed `bash <(curl …)`.
+		const remote = fetchesAndRuns([cmd, ...args].map(shellQuote).join(' '));
 		if (remote) {
 			findings.push({
 				ruleId: 'mcp-remote-command', severity: 'critical', subject: name,
@@ -362,6 +372,71 @@ export interface SkillGuardInput {
 	readonly frontmatter?: Readonly<Record<string, string>>;
 	/** The prose handed to the model. */
 	readonly body: string;
+	/** Where the skill came from; the executable-files rule speaks only about skills not from the release. */
+	readonly origin?: SkillOrigin;
+	/** Files of the skill's package, with the text of the executable ones small enough to read. */
+	readonly files?: readonly SkillGuardFile[];
+}
+
+/** One file of a skill's package, as Config Guard needs it. */
+export interface SkillGuardFile {
+	/** Path inside the skill's directory. */
+	readonly path: string;
+	readonly executable: boolean;
+	/** The file's text, for scripts; absent for binaries and for anything too large to read. */
+	readonly text?: string;
+}
+
+/** How much of an offending command a finding quotes: enough to find it in the file. */
+const QUOTED_COMMAND_CHARS = 120;
+
+/** How many file names a finding lists before «и ещё N». */
+const LISTED_FILES = 6;
+
+/** Lines of a markdown text, each marked as code (inside a ``` or ~~~ fence) or prose. */
+function markdownLines(markdown: string): { readonly text: string; readonly code: boolean }[] {
+	const lines: { text: string; code: boolean }[] = [];
+	let fence: string | undefined;
+	for (const text of markdown.split(/\r?\n/)) {
+		const marker = /^\s*(`{3,}|~{3,})/.exec(text)?.[1];
+		// A closing fence repeats the opening character at least as many times.
+		if (marker && (fence === undefined || marker.startsWith(fence))) {
+			fence = fence === undefined ? marker : undefined;
+			continue;
+		}
+		lines.push({ text, code: fence !== undefined });
+	}
+	return lines;
+}
+
+/**
+ * A download the skill would have the agent run — in its text or in one of its scripts.
+ *
+ * Prose is read with markdown's inline code unwrapped, code blocks and scripts as they are; comment
+ * lines of code are skipped, because a commented-out `curl … | sh` is the one form that does not run.
+ */
+function findRemoteExecution(skill: SkillGuardInput): { readonly command: string; readonly file?: string } | undefined {
+	for (const line of markdownLines(skill.body)) {
+		if (line.code && line.text.trimStart().startsWith('#')) {
+			continue;
+		}
+		const command = findFetchAndRunInText(line.code ? line.text : line.text.replace(/`+/g, ' '));
+		if (command) {
+			return { command: command.slice(0, QUOTED_COMMAND_CHARS) };
+		}
+	}
+	for (const file of skill.files ?? []) {
+		for (const line of (file.text ?? '').split(/\r?\n/)) {
+			if (line.trimStart().startsWith('#')) {
+				continue;
+			}
+			const command = findFetchAndRunInText(line);
+			if (command) {
+				return { command: command.slice(0, QUOTED_COMMAND_CHARS), file: file.path };
+			}
+		}
+	}
+	return undefined;
 }
 
 /**
@@ -373,8 +448,9 @@ export interface SkillGuardInput {
  * the one artefact in `.vibe/` that arrives from outside and is fed to the model verbatim.
  *
  * The checks stay narrow on purpose. This is not a content filter and cannot be one: it reports the
- * three shapes that are hard to explain away — a precheck escaping its own directory, a literal
- * secret, and instructions aimed at overriding the user — and leaves judgement to the person.
+ * shapes that are hard to explain away — a precheck escaping its own directory, a literal secret,
+ * code fetched and run, instructions aimed at overriding the user — plus the scripts a skill from
+ * outside the release brings, and leaves judgement to the person.
  */
 export function scanSkills(skills: readonly SkillGuardInput[]): ConfigGuardFinding[] {
 	const findings: ConfigGuardFinding[] = [];
@@ -404,10 +480,26 @@ export function scanSkills(skills: readonly SkillGuardInput[]): ConfigGuardFindi
 			});
 		}
 
-		if (REMOTE_PIPE.test(skill.body)) {
+		const remote = findRemoteExecution(skill);
+		if (remote) {
 			findings.push({
 				ruleId: 'skill-remote-execution', severity: 'high', subject: id,
-				message: `Скилл «${id}»: предлагает агенту скачать и выполнить удалённый скрипт (curl … | sh).`,
+				message: remote.file
+					? `Скилл «${id}»: скрипт ${remote.file} скачивает и выполняет код из сети — ${remote.command}.`
+					: `Скилл «${id}»: предлагает агенту скачать и выполнить код из сети — ${remote.command}.`,
+			});
+		}
+
+		// The model sees what a script prints, never its source — so in a skill from outside the
+		// release, the scripts are exactly what a person should read before approving it.
+		const executables = (skill.files ?? []).filter(file => file.executable).map(file => file.path);
+		if (skill.origin !== undefined && skill.origin !== 'shipped' && executables.length > 0) {
+			const listed = executables.length <= LISTED_FILES
+				? executables.join(', ')
+				: `${executables.slice(0, LISTED_FILES).join(', ')} и ещё ${executables.length - LISTED_FILES}`;
+			findings.push({
+				ruleId: 'skill-executable-files', severity: 'medium', subject: id,
+				message: `Скилл «${id}» не из релиза и приносит исполняемые файлы: ${listed}. Модель увидит их вывод, но не код — прочитайте их перед одобрением.`,
 			});
 		}
 

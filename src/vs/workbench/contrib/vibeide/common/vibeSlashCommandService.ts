@@ -14,6 +14,8 @@ import { IVibePromptLibraryService } from './vibePromptLibraryService.js';
 import { IVibeWorkflowService } from './vibeWorkflowService.js';
 import { IVibeSkillsLibraryService, VibeSkillEntry } from './vibeSkillsLibraryService.js';
 import { IVibePromptGuardService } from './vibePromptGuardService.js';
+import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
+import { describeSkillForApproval } from './skillApproval.js';
 
 /**
  * Pure helper — builds the raw expanded string for a skill expansion.
@@ -102,16 +104,62 @@ Skip findings that would trim validation, error handling, security, or accessibi
  * Workflows: /workflow:name
  * Agent skills: /skill:skill-id (from .vibe/skills/.../SKILL.md)
  */
-class VibeSlashCommandService extends Disposable implements IVibeSlashCommandService {
+export class VibeSlashCommandService extends Disposable implements IVibeSlashCommandService {
 	declare readonly _serviceBrand: undefined;
+
+	/**
+	 * Skill versions the person refused in this window. The chat asks for the expansion on every
+	 * step of the agent loop; without this a refusal would come back as the same dialog each step.
+	 */
+	private readonly _declined = new Set<string>();
 
 	constructor(
 		@IVibePromptLibraryService private readonly _promptLibrary: IVibePromptLibraryService,
 		@IVibeWorkflowService private readonly _workflowService: IVibeWorkflowService,
 		@IVibeSkillsLibraryService private readonly _skillsLibrary: IVibeSkillsLibraryService,
 		@IVibePromptGuardService private readonly _promptGuard: IVibePromptGuardService,
+		@IDialogService private readonly _dialogService: IDialogService,
 	) {
 		super();
+	}
+
+	/**
+	 * Asks before a skill the person has not approved reaches the model — the dependencies it pulls
+	 * in included, since their text reaches the model just the same. Approving here approves these
+	 * files as they are now; any later change asks again.
+	 */
+	private async _confirmSkillsForUse(chain: readonly VibeSkillEntry[]): Promise<boolean> {
+		const pending = chain.filter(skill => !this._skillsLibrary.isSkillAvailableToModel(skill));
+		if (pending.length === 0) {
+			return true;
+		}
+		const version = pending.map(skill => `${skill.package?.root.toString() ?? skill.skillId}#${skill.package?.digest ?? ''}`).join('|');
+		if (this._declined.has(version)) {
+			return false;
+		}
+		const described = pending.map(skill => skill.package ? describeSkillForApproval(skill.skillId, skill.package) : `«${skill.skillId}»`);
+		if (pending.some(skill => !skill.package?.digest)) {
+			this._declined.add(version);
+			await this._dialogService.info(
+				localize('vibeide.skills.use.cannotApprove', "Скилл нельзя одобрить: отпечаток его файлов не снят"),
+				described.join('\n\n'),
+			);
+			return false;
+		}
+		const { confirmed } = await this._dialogService.confirm({
+			type: 'warning',
+			message: pending.length === 1
+				? localize('vibeide.skills.use.one', "Скилл «{0}» ещё не одобрен", pending[0].skillId)
+				: localize('vibeide.skills.use.many', "Скиллы ещё не одобрены: {0}", pending.map(skill => skill.skillId).join(', ')),
+			detail: [...described, localize('vibeide.skills.use.note', "Одобряются именно эти файлы: любая их правка снова спросит разрешения.")].join('\n\n'),
+			primaryButton: localize('vibeide.skills.use.approve', "Одобрить и использовать"),
+		});
+		if (!confirmed) {
+			this._declined.add(version);
+			return false;
+		}
+		await this._skillsLibrary.approveSkills(pending);
+		return true;
 	}
 
 	private _sanitizeExpanded(text: string, virtualPath: string): string {
@@ -183,14 +231,17 @@ class VibeSlashCommandService extends Disposable implements IVibeSlashCommandSer
 			const skill = await this._skillsLibrary.getSkill(skillId);
 			if (skill) {
 				const depIds = await this._skillsLibrary.resolveDependencies(skill.skillId);
-				const chunks: string[] = [];
+				const deps: VibeSkillEntry[] = [];
 				for (const depId of depIds) {
 					const dep = await this._skillsLibrary.getSkill(depId);
 					if (dep) {
-						chunks.push(buildSkillExpansion(dep));
+						deps.push(dep);
 					}
 				}
-				chunks.push(buildSkillExpansion(skill, args));
+				if (!(await this._confirmSkillsForUse([...deps, skill]))) {
+					return null;
+				}
+				const chunks = [...deps.map(dep => buildSkillExpansion(dep)), buildSkillExpansion(skill, args)];
 				const merged = chunks.join('\n\n---\n\n');
 				return this._sanitizeExpanded(merged, skill.relativePath);
 			}

@@ -21,6 +21,8 @@
  * revision the set ever published.
  */
 
+import { localize } from '../../../../nls.js';
+
 export type SkillOrigin =
 	/** Приехал с релизом и не тронут. */
 	| 'shipped'
@@ -64,12 +66,17 @@ export function setRelativeSkillPath(relativePath: string): string | undefined {
  * otherwise, and passing `false` for an unknown path does not change the answer.
  */
 export function classifySkillProvenance(knownToSet: boolean, isUntouched: boolean): SkillProvenance {
-	if (!knownToSet) {
+	const origin: SkillOrigin = !knownToSet ? 'foreign' : isUntouched ? 'shipped' : 'shipped-edited';
+	return { origin, label: skillOriginLabel(origin) };
+}
+
+/** The words for an origin, ready to show. */
+export function skillOriginLabel(origin: SkillOrigin): string {
+	switch (origin) {
 		// Deliberately not called «чужой»: a skill the user wrote themselves lands here too, and
 		// calling their own work foreign teaches them to ignore the label.
-		return { origin: 'foreign', label: 'не из релиза — свой или со стороны' };
+		case 'foreign': return localize('vibeide.skills.origin.foreign', "не из релиза — свой или со стороны");
+		case 'shipped': return localize('vibeide.skills.origin.shipped', "из релиза");
+		case 'shipped-edited': return localize('vibeide.skills.origin.shippedEdited', "из релиза, изменён");
 	}
-	return isUntouched
-		? { origin: 'shipped', label: 'из релиза' }
-		: { origin: 'shipped-edited', label: 'из релиза, изменён' };
 }

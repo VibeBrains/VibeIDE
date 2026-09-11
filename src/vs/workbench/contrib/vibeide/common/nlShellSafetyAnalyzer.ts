@@ -435,6 +435,38 @@ export function fetchesAndRuns(line: string): boolean {
 	return findFetchAndRun(parseShellLine(line), 0) !== undefined;
 }
 
+/**
+ * A command that fetches code and runs it, inside one line of free text — prose or a script.
+ *
+ * Prose puts words before the command («Сначала выполни: curl … | sh»), and a line-level parse takes
+ * «Сначала» for the command. So every word that can begin such a command — a download, an
+ * interpreter, an evaluator, a wrapper — is tried as the start of the line. Returns the command from
+ * that word on, or undefined. Markdown inline code is the caller's to unwrap: a backtick here is
+ * shell syntax.
+ */
+export function findFetchAndRunInText(line: string): string | undefined {
+	const words = /\S+/g;
+	for (let match = words.exec(line); match; match = words.exec(line)) {
+		// Punctuation that opens prose or a subshell: «(curl», «"eval».
+		const lead = /^[("'«]*/.exec(match[0])?.[0].length ?? 0;
+		if (!startsCommand(programOf(match[0].slice(lead).replace(/[.,:;!?»"')]+$/, '')))) {
+			continue;
+		}
+		// Sentence punctuation after the command is not part of it: «… | sh.» ends with `sh`.
+		const candidate = line.slice(match.index + lead).replace(/[\s.,:!?»]+$/, '');
+		if (fetchesAndRuns(candidate)) {
+			return candidate;
+		}
+	}
+	return undefined;
+}
+
+/** Words that can begin a fetch-and-run command. */
+function startsCommand(program: string): boolean {
+	return FETCHERS.has(program) || EVALUATORS.has(program) || INPUT_EVALUATORS.has(program)
+		|| COMMAND_WRAPPERS.has(program) || INTERPRETERS.some(interpreter => interpreter.names.test(program));
+}
+
 /** The line a command runs as code: the script of `sh -c "<script>"` / `pwsh -Command`, the words of `eval`. */
 function scriptOf(command: string, args: readonly string[]): string | undefined {
 	const program = programOf(command);
