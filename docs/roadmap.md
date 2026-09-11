@@ -5421,6 +5421,69 @@ prompts, tools, and preceding messages») действует на API-аккау
       На macOS последний полный прогон (2026-09-10): 27034 passing, 392 pending, 0 failing. Нужна
       вторая машина.
 
+## PORTAL-0911. Разбор spotify/portal-ai-plugins — что взять (2026-09-11)
+
+Набор плагинов Spotify для кодовых агентов (HEAD `3c24ca30`, 17.08.2026, Apache-2.0): `portal` — шесть
+скиллов-обёрток над `npx @spotify/portal-cli` для Claude Code, Codex и Cursor; `shunt` — хуки
+`PreToolUse` на `Read` и `Bash` отказывают в полном чтении больших файлов и называют скилл, который
+отдаёт чтение дешёвой модели. Сопоставлено с кодом VibeIDE и VibeIDEA; попутно нашлись места, где наша
+документация обещает то, чего нет в коде.
+
+- [x] **Разбор** — ✅ (2026-09-11, next) Не берём: формулу `description` «что + когда применять» —
+      `skillSpec.md` учит тому же; скиллы Portal — они про чужой продукт; делегирование чтения по образцу
+      `shunt` — у нас окна `read_file` с бюджетом символов и субагенты с моделью на роль. Отложено до
+      решения владельца: импорт плагинов Claude Code — парсер `.claude-plugin/plugin.json` лежит в
+      апстрим-коде (`src/vs/platform/agentPlugins/common/pluginParsers.ts:165`), но чат апстрима у нас
+      выключен (`product.json`: `chatExtensionId: "vibeide.none"`). Knowledge:
+      `architecture/projectHooks.md` — чужой прецедент с JSON-ответом хука.
+
+**Что взять:**
+
+- [ ] **Config Guard: пакетный раннер без версии в скилле** — `npx`/`uvx` без точной версии (`@latest` —
+      не версия) в блоках кода `SKILL.md` и в скриптах скилла. Сейчас правило есть только для
+      MCP-конфига (`npxConcern`, `vibeConfigGuard.ts:178`, находка `mcp-npx-no-pin`), а `scanSkills`
+      через `findRemoteExecution` (`:418`) ищет лишь «скачать и выполнить». В VibeIDEA правило уже
+      работает: `SkillCodeScan.unpinnedRunner` (`SkillCodeScan.kt:72`, на `ac1592a0d8`), там же PEP 723
+      без пина (`:83`) — переносить их поведение и завести общий тест-вектор, а не изобретать своё. Живой
+      образец — `plugins/shunt/scripts/lib/aika.sh:37` у Spotify: `npx --yes @spotify/portal-cli`.
+- [ ] **Скиллы из `.claude/skills`** — корни сейчас: `vibeide.skills.globalPaths`, `.vibe/skills`,
+      `.cursor/skills` (`vibeSkillsLibraryService.ts:812-824`); проектные скиллы Claude Code не видны,
+      хотя `functional.md:61` обещает, что скилл другого агента работает и здесь. Чужой корень
+      закрывает одобрение по отпечатку. Решение за владельцем: для правил проекта принято «только свои
+      источники» (`vibeProjectRulesService.ts:10`). Вместе с этим — порядок: `.cursor/skills` грузится
+      последним и при совпадении id перетирает `.vibe/skills` (`into.set` без проверки, `:1062`), а
+      комментарий `:818-820` обещает обратное.
+- [ ] **`hooksSpec.md`: отказ, который маршрутизирует** — текст отказа уже доходит до модели дословно
+      (`hookOutcome.ts:67-69`, смоук 09.08.2026); дописать совет «в отказе назовите, что делать вместо» и
+      пример: полное чтение огромного файла → чтение диапазоном.
+- [ ] **`skillSpec.md`: раздел для навыков, управляющих CLI** — `--help` перед незнакомым флагом,
+      `--json`, когда вывод читает агент, мутации через `--dry-run` → показать → подтверждение, `--yes`
+      только с разрешения; «dry-run — не значит выполнено», «недоступно — не значит здорово».
+
+**Нашлось попутно — документация обещает то, чего нет в коде:**
+
+- [ ] **`triggers`, `glob`, `keywords` скилла ни на что не влияют** — разбираются и хранятся
+      (`vibeSkillsLibraryService.ts:379-398`, `:423-425`), но неявный подбор смотрит только id, заголовок,
+      описание и теги (`:1206`), а `glob` не читает никто. Подхват обещают `skillSpec.md:102-106` и
+      комментарии типа (`:79-91`). Реализовать или убрать из спеки.
+- [ ] **В чате раскрывается только `/skill:`** — встроенные `/fix /tests /explain /refactor /review /docs
+      /simplify`, `/my:<имя>` и `/workflow:<имя>` объявлены в `vibeSlashCommandService.ts`, но `expand()`
+      вызывается в одном месте и только для `/skill:` (`convertToLLMMessageService.ts:2241`), а
+      автодополнение показывает одни скиллы (`SidebarChat.tsx:6531`). `/simplify` обещают
+      `functional.md:58` и What's New (`vibeWhatsNew.ts:431`). Запуск workflow отправляет в чат буквальный
+      `/workflow:<имя>` (`vibeWorkflowService.ts:122`) — содержимое workflow до модели не доходит.
+- [ ] **`functional.md:106` обещает `.cursor/rules` и `.cursorrules`** — сервис правил читает только
+      `.vibe/rules.md`, `AGENTS.md` и `.vibe/rules/**` и прямо пишет «no foreign tools' rule files»
+      (`vibeProjectRulesService.ts:10-13`); устарел и комментарий панели правил (`Settings.tsx:2762-2764`).
+- [ ] **Скилл «только явно» попадает в неявные подсказки** — `disable-model-invocation: true` уводит его
+      в раздел «Explicit-only» списка (`vibeSkillsLibraryService.ts:1175-1181`), но
+      `getImplicitSkillRankedMatches` его не исключает (`:1200`).
+- [ ] **Мелкое** — `.yaml` в `.vibe/workflows` принимается по имени и молча отбрасывается `JSON.parse`
+      (`vibeWorkflowService.ts:95-102`); `$ARGS` подставляется без границы слова, `$ARGUMENTS` станет
+      `<args>UMENTS` (`vibePromptLibraryService.ts:84`; пока недостижимо — `/my:` не подключён);
+      опубликованная схема `skill-package.schema.json` требует `vibeVersion` (`:8`), парсер — только
+      `name` и `description`, так что стандартный `SKILL.md` схему не проходит.
+
 ## DIGEST-0910. Дайджест 10.09.2026 — шесть тем, три закрылись проверкой (2026-09-10)
 
 Три темы из шести не потребовали работы: `ant apply` у нас реализован полнее (реестр ревизий
