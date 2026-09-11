@@ -6,7 +6,7 @@
 
 ## [инструмент] Как устроен и чинится pre-commit hygiene
 
-**Контекст:** husky pre-commit → `npm run -s precommit` → `tsx build/hygiene.ts && npx lint-staged && node scripts/i18n-sync.js --apply`. `build/hygiene.ts` гоняет copyright/unicode/indentation/formatting/ESLint/stylelint на staged-файлах. Долго хук был фактически сломан и накопленный код коммитился через `--no-verify`; починен 2026-06-30 (merge `2a854384`).
+**Контекст:** husky pre-commit → `npm run -s precommit` → `node scripts/vibe-seeds-pointer.ts && tsx build/hygiene.ts && npx lint-staged && node scripts/i18n-sync.js --apply` (гейт указателя набора — первым, см. последний раздел). `build/hygiene.ts` гоняет copyright/unicode/indentation/formatting/ESLint/stylelint на staged-файлах. Долго хук был фактически сломан и накопленный код коммитился через `--no-verify`; починен 2026-06-30 (merge `2a854384`).
 
 **Суть — почему `tsx`, а не `node`:**
 - `eslint.config.js` импортирует `./.eslint-plugin-local/index.ts`, который через `require()` грузит правила (`.eslint-plugin-local/*.ts`), написанные в CJS-стиле `export = new class …`.
@@ -22,7 +22,7 @@
 - В `eslint.config.js`: `local/code-no-unexternalized-strings` = off для `browser/react/**` и тестов — raw Russian-first строки React и CSS-классы не являются локализуемым контентом.
 
 **Суть — `lint-staged` НЕ должен гонять ESLint:**
-- ESLint staged-файлов уже делает `hygiene`. Дублирующий `npm run eslint -- --fix` в `lint-staged` (1) запускал по отдельному `tsx`-процессу на каждый чанк — на больших коммитах десятки node-процессов → зависание/OOM; (2) флаг `--fix` фактически игнорировался (`build/eslint.ts` не передаёт `fix` в ESLint). Удалён 2026-06-30; в `lint-staged` остались только markdown- и `SKILL.md`-хуки.
+- ESLint staged-файлов уже делает `hygiene`. Дублирующий `npm run eslint -- --fix` в `lint-staged` (1) запускал по отдельному `tsx`-процессу на каждый чанк — на больших коммитах десятки node-процессов → зависание/OOM; (2) флаг `--fix` фактически игнорировался (`build/eslint.ts` не передаёт `fix` в ESLint). Удалён 2026-06-30; в `lint-staged` остались только markdown- и `SKILL.md`-хуки (с 2026-09-11 к ним добавлен гейт покрытия `deprecated.json` на сгенерированном манифесте).
 
 **Применение:**
 - Проверить hygiene вручную на staged: `tsx build/hygiene.ts` (без аргументов читает `git diff --cached`). На конкретных файлах: `tsx build/hygiene.ts <path...>`.
@@ -96,3 +96,26 @@ all ⊃ eol ⊇ indentation ⊃ copyright ⊃ typescript
 - **product.json extensionsGallery (D8):** upstream-гард `if (product.extensionsGallery) error` **ретаргетнут** на реальную цель — блокировать проприетарный MS-маркетплейс. VibeIDE намеренно шипает Open VSX (`open-vsx.org`); чек теперь падает только если URL галереи ведёт на `visualstudio.com`/`marketplace.visualstudio`/`*.microsoft.com`. Гард `BUILD_SOURCEVERSION` в CI **не** установлен → чек в CI работает, поэтому это был реальный красный, не локальный артефакт.
 
 **Проверено:** `npm run gulp hygiene` → exit 0, 0 ошибок; `build/` typecheck → exit 0. Расхождение счётчиков CI-лога (5 copyright) и локали (39) — из-за неполного лог-фетча + тайминга генерации `.tsbuildinfo`; авторитетен полный локальный прогон.
+
+## [foot-gun] Хук и подмодули: гейт трижды числился подключённым и не работал (2026-09-11)
+
+**Контекст:** гейт `scripts/vibe-seeds-pointer.ts` — указатель подмодуля `.vibe-defaults` обязан быть достижим из `origin/main` VibeBrains. Каждый раз «подключено» оказывалось неправдой, и каждый раз это показал живой прогон, а не чтение конфига.
+
+**1. lint-staged 16 не видит подмодули — по устройству.** `node_modules/lint-staged/lib/getStagedFiles.js` отсеивает режим `160000` («Filter out submodules and symlinks»). Задача с ключом `.vibe-defaults` стоит в списке lint-staged и не может сработать никогда: в `--debug` git показывает указатель в индексе, а список проиндексированных файлов у lint-staged пуст. Проверка подмодуля — только прямо из цепочки `precommit`.
+
+**2. `build/hygiene.ts` падает на коммите «только указатель».** Он тоже не видит подмодуль, получает пустой список и выходит с кодом 1: «No staged files found. Pass file paths to check unstaged files.» Стоя в цепочке раньше гейта, он подменял причину: при плохом указателе человек видел «нет файлов», а гейт не успевал сказать ни слова. Поэтому гейт — первым; сам сбой hygiene — открытый пункт роадмапа.
+
+**3. Git протекает окружением хука в дочерние процессы.** Внутри pre-commit хука git экспортирует (проверено временным хуком, сохраняющим `GIT_*`): `GIT_INDEX_FILE=.git/index` — **относительный** путь, `GIT_PREFIX`, `GIT_EDITOR=:`, `GIT_AUTHOR_*`, `GIT_EXEC_PATH`, а при `-c` — ещё `GIT_CONFIG_PARAMETERS`. Дочерний `git`, запущенный с рабочим каталогом в подмодуле, наследует `GIT_INDEX_FILE` и работает не с тем репозиторием. Итог: все прямые запуски гейта верны, а настоящий `git commit` пропускает указатель на незапушенный коммит.
+
+**Применение:**
+- Для git-команд в ДРУГОМ репозитории (подмодуль, соседний клон), запускаемых из хука, — очищать переменные из `git rev-parse --local-env-vars` (собственный список git, 15 имён). Команды основного репозитория окружение сохраняют: `GIT_INDEX_FILE` — то, как хук видит индекс, который коммитится на самом деле, а при `git commit <пути>` он временный.
+- **Хук доказывается только настоящим `git commit`**, в обе стороны и со страховкой: запомнить `HEAD`, после попытки сравнить и при сдвиге сделать `git reset --soft`. Прямой запуск скрипта доказывает скрипт, но не хук.
+- Фильтр вывода при такой проверке — по **всем** маркерам скрипта, включая «пропускающие» (`⚠️ НЕ ПРОВЕРЕНО`): однажды провал спрятался ровно в строку, которую фильтр не ловил, а код выхода `tail` в конце конвейера был прочитан как код гейта.
+- Чтобы hygiene не валил тестовый коммит «только указатель», проиндексировать рядом безвредную правку `.md`: `docs/` в набор `all` не входит, hygiene её не проверяет.
+
+**Антипаттерны:**
+- Ключ lint-staged на путь подмодуля — мёртвый конфиг, выглядящий подключённой проверкой.
+- Относительные `GIT_*` плюс рабочий каталог в другом репозитории — тихая работа не с тем репозиторием.
+- «Проверил прямым запуском» как доказательство для хука.
+
+**Связано:** [../vibeDotfolder/sharedSeedContract.md](../vibeDotfolder/sharedSeedContract.md), [gitFlow.md](gitFlow.md).
