@@ -3979,13 +3979,14 @@ ${lines.join('\n\n')}`;
 	 * is a question for the natural-language parser, which has to guess an intent; a shell line that
 	 * says exactly `git` is harmless, and a dialog there would train the user to click through.
 	 *
-	 * The medium-risk notification stays as it was: informational, non-blocking.
+	 * Risky-but-not-destructive commands still only get a notification. Code fetched from the network
+	 * and handed to an interpreter (`curl … | sh`) is destructive and stops here like `rm -rf`.
 	 */
 	private async _gateDestructiveCommand(command: string): Promise<void> {
 		const destructive = analyzeShellLine(command);
 		if (!destructive) {
-			if (this._detectCommandDanger(command) === 'medium') {
-				this.notificationService.info(`⚠️ Potentially risky command: ${command}\nReview before execution.`);
+			if (this._isRiskyCommand(command)) {
+				this.notificationService.info(localize('vibeide.riskyCommand', "Команда с риском: {0}. Проверьте её перед выполнением.", command.split('\n')[0].slice(0, 300)));
 			}
 			return;
 		}
@@ -4008,37 +4009,20 @@ ${lines.join('\n\n')}`;
 		}
 	}
 
-	private _detectCommandDanger(command: string): 'high' | 'medium' | 'low' {
+	/**
+	 * Risky but not destructive — worth a line in the notifications, not a dialog.
+	 *
+	 * Destructive commands (data loss, code from the network) are decided by `analyzeShellLine` and
+	 * gated above. This used to grade a 'high' tier as well, and nothing read it: the caller acted on
+	 * 'medium' alone, so the most dangerous patterns here (`curl … | sh`, `git push -f`, `fdisk`)
+	 * produced no signal at all. Those now live in the analyzer, where they stop the command; what is
+	 * left here only informs.
+	 */
+	private _isRiskyCommand(command: string): boolean {
 		const normalizedCmd = command.trim().toLowerCase();
-
-		// High-risk commands: data loss, system modification, privilege escalation
-		const highRiskPatterns = [
-			/rm\s+-rf/,           // Recursive force delete
-			/rm\s+-r\s+/,
-			/dd\s+if=/,           // Disk operations
-			/sudo\s+(rm|del|format|mkfs|fdisk)/, // Sudo with destructive ops
-			/chmod\s+.*777/,       // Dangerous permissions
-			/chown\s+-R/,         // Recursive ownership changes
-			/format\s+/,
-			/fdisk\s+/,
-			/parted\s+/,
-			/curl\s+.*\|?\s*sh\s*$/, // Piping to shell
-			/wget\s+.*\|?\s*sh\s*$/,
-			/echo\s+.*\|?\s*sh\s*$/,
-			/\$\(curl\s+/,
-			/\$\(wget\s+/,
-			/uninstall/,
-			/purge\s+/,
-			/npm\s+uninstall\s+-g/,
-			/pip\s+uninstall/,
-			/git\s+reset\s+--hard/,
-			/git\s+clean\s+-fd/,
-			/git\s+push\s+--force/,
-			/git\s+push\s+-f/,
-		];
-
-		// Medium-risk commands: potentially risky but context-dependent
-		const mediumRiskPatterns = [
+		// Lower-case patterns only: the command is lower-cased above, and the capital `-R` that
+		// `chown -R` / `pacman -R` were written with never matched anything.
+		const riskyPatterns = [
 			/sudo\s+/,            // Privilege escalation
 			/chmod\s+/,           // Permission changes
 			/chown\s+/,           // Ownership changes
@@ -4052,6 +4036,8 @@ ${lines.join('\n\n')}`;
 			/git\s+reset/,        // Git reset
 			/npm\s+install\s+-g/, // Global npm installs
 			/pip\s+install\s+--user/, // User-level pip installs
+			/uninstall/,          // npm/pip/apt uninstalls
+			/purge\s+/,
 			/docker\s+rm/,        // Docker container removal
 			/docker\s+rmi/,       // Docker image removal
 			/kubectl\s+delete/,   // Kubernetes deletion
@@ -4059,22 +4045,10 @@ ${lines.join('\n\n')}`;
 			/service\s+/,
 			/apt\s+remove/,
 			/yum\s+remove/,
-			/pacman\s+-R/,
+			/pacman\s+-r/,
+			/echo\s+.*\|\s*(?:ba|z)?sh\b/, // Local text piped into a shell
 		];
-
-		for (const pattern of highRiskPatterns) {
-			if (pattern.test(normalizedCmd)) {
-				return 'high';
-			}
-		}
-
-		for (const pattern of mediumRiskPatterns) {
-			if (pattern.test(normalizedCmd)) {
-				return 'medium';
-			}
-		}
-
-		return 'low';
+		return riskyPatterns.some(pattern => pattern.test(normalizedCmd));
 	}
 
 	/**
