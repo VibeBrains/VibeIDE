@@ -7,25 +7,98 @@
 import { vibeLog } from './vibeLog.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
+import { isObject } from '../../../../base/common/types.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { joinPath } from '../../../../base/common/resources.js';
+import { isSlashCommandFileName } from './chatSlashCommands.js';
 
 export interface WorkflowStep {
-	name: string;
-	description: string;
-	requiresApproval?: boolean;
-	toolConstraints?: string[]; // Allowed tool types for this step
-	prompt?: string;
+	readonly name: string;
+	readonly description: string;
+	/** Instructions for this step, handed to the agent as written. */
+	readonly prompt?: string;
+	/** The agent stops and asks the person before starting this step. */
+	readonly requiresApproval?: boolean;
 }
 
 export interface VibeWorkflow {
-	name: string;
-	description: string;
-	steps: WorkflowStep[];
-	allowedModels?: string[];
+	/** The file name without `.json`: what follows `/workflow:`. */
+	readonly id: string;
+	/** A title for people; the id when the file has none. */
+	readonly name: string;
+	readonly description: string;
+	readonly steps: readonly WorkflowStep[];
+}
+
+export type WorkflowFileParseResult =
+	| { readonly workflow: VibeWorkflow }
+	| { readonly error: string };
+
+/**
+ * Reads one `.vibe/workflows/<id>.json`. Pure: text in, the workflow or the reason it is not one out.
+ * The reason gets logged instead of swallowed — before, a typo made the command vanish without a word.
+ *
+ * `toolConstraints` and `allowedModels` are not part of the format: nothing ever read them, and hard
+ * per-step limits (role, tools, model, paths) are what `.vibe/pipelines.json` is for.
+ */
+export function parseWorkflowFile(text: string, id: string): WorkflowFileParseResult {
+	let raw: unknown;
+	try {
+		raw = JSON.parse(text);
+	} catch (e) {
+		return { error: `not valid JSON (${e instanceof Error ? e.message : String(e)})` };
+	}
+	if (!isObject(raw)) {
+		return { error: 'the file must hold a JSON object' };
+	}
+	const file = raw as Record<string, unknown>;
+	for (const key of ['name', 'description'] as const) {
+		if (file[key] !== undefined && typeof file[key] !== 'string') {
+			return { error: `"${key}" must be a string` };
+		}
+	}
+	const rawSteps: unknown = file.steps;
+	if (!Array.isArray(rawSteps) || rawSteps.length === 0) {
+		return { error: '"steps" must be a non-empty array' };
+	}
+	const steps: WorkflowStep[] = [];
+	for (let i = 0; i < rawSteps.length; i++) {
+		const entry: unknown = rawSteps[i];
+		if (!isObject(entry)) {
+			return { error: `step ${i + 1} must be an object` };
+		}
+		const step = entry as Record<string, unknown>;
+		if (typeof step.name !== 'string' || !step.name.trim()) {
+			return { error: `step ${i + 1} has no "name"` };
+		}
+		for (const key of ['description', 'prompt'] as const) {
+			if (step[key] !== undefined && typeof step[key] !== 'string') {
+				return { error: `step ${i + 1}: "${key}" must be a string` };
+			}
+		}
+		if (step.requiresApproval !== undefined && typeof step.requiresApproval !== 'boolean') {
+			return { error: `step ${i + 1}: "requiresApproval" must be true or false` };
+		}
+		const prompt = typeof step.prompt === 'string' ? step.prompt.trim() : '';
+		steps.push({
+			name: step.name.trim(),
+			description: typeof step.description === 'string' ? step.description.trim() : '',
+			...(prompt ? { prompt } : {}),
+			...(step.requiresApproval === true ? { requiresApproval: true } : {}),
+		});
+	}
+	const name = typeof file.name === 'string' ? file.name.trim() : '';
+	return {
+		workflow: {
+			id,
+			name: name || id,
+			description: typeof file.description === 'string' ? file.description.trim() : '',
+			steps,
+		},
+	};
 }
 
 export const IVibeWorkflowService = createDecorator<IVibeWorkflowService>('vibeWorkflowService');
@@ -42,37 +115,39 @@ export interface WorkflowRunResult {
 export interface IVibeWorkflowService {
 	readonly _serviceBrand: undefined;
 
-	/** Get all workflows from .vibe/workflows/ */
+	/** Workflows from `.vibe/workflows/*.json`; a file that fails to parse is logged and left out. */
 	getWorkflows(): Promise<VibeWorkflow[]>;
 
-	/** Get a specific workflow by name */
-	getWorkflow(name: string): Promise<VibeWorkflow | null>;
+	/** A workflow by its id — the file name without `.json`. */
+	getWorkflow(id: string): Promise<VibeWorkflow | null>;
 
 	/**
 	 * Fired when run() is called. Browser contributions listen and dispatch to chat.
-	 * payload: the /workflow:name string ready to be injected into the chat input.
+	 * payload: the /workflow:<id> string ready to be injected into the chat input.
 	 */
 	readonly onWorkflowRunRequested: Event<{ workflowName: string; chatCommand: string }>;
 
 	/**
-	 * Dispatch a workflow by name via /workflow:<name> into chat.
-	 * Phase 3b: real IPC executor. Currently emits onWorkflowRunRequested so a
-	 * browser contribution can open the chat editor and inject the command.
+	 * Dispatch a workflow by id: emits onWorkflowRunRequested, and a browser contribution sends
+	 * `/workflow:<id>` to the current chat, where the request builder expands it.
 	 */
-	run(name: string): Promise<WorkflowRunResult>;
+	run(id: string): Promise<WorkflowRunResult>;
 }
 
 /**
- * VibeIDE Workflow Service (.vibe/workflows/).
- * Structured multi-step agent workflows with step-by-step approval.
- * Different from .vibe/prompts/ — workflows have named steps with dependencies.
- * Access via /workflow:name in chat.
+ * VibeIDE Workflow Service (.vibe/workflows/<id>.json, invoked as /workflow:<id>).
+ * Multi-step scenarios for the chat agent: the agent follows the steps in one conversation and stops to
+ * ask before a step marked `requiresApproval`. Different from .vibe/prompts/ (one request) and from
+ * .vibe/pipelines.json (steps run by separate agents with their own role, tools and model).
  */
 class VibeWorkflowService extends Disposable implements IVibeWorkflowService {
 	declare readonly _serviceBrand: undefined;
 
 	private readonly _onWorkflowRunRequested = this._register(new Emitter<{ workflowName: string; chatCommand: string }>());
 	readonly onWorkflowRunRequested: Event<{ workflowName: string; chatCommand: string }> = this._onWorkflowRunRequested.event;
+
+	/** Problems already logged: the list is read on every step of the agent loop, a file reports once. */
+	private readonly _reported = new Set<string>();
 
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
@@ -81,48 +156,64 @@ class VibeWorkflowService extends Disposable implements IVibeWorkflowService {
 		super();
 	}
 
+	private _report(problem: string): void {
+		if (!this._reported.has(problem)) {
+			this._reported.add(problem);
+			vibeLog.warn('vibeWorkflow', problem);
+		}
+	}
+
 	async getWorkflows(): Promise<VibeWorkflow[]> {
 		const folders = this._workspaceContextService.getWorkspace().folders;
 		if (folders.length === 0) { return []; }
 
-		const workflowsDir = joinPath(folders[0].uri, '.vibe', 'workflows');
-		try {
-			const dir = await this._fileService.resolve(workflowsDir);
-			if (!dir.children) { return []; }
+		const dir = await this._fileService.resolve(joinPath(folders[0].uri, '.vibe', 'workflows')).catch(() => undefined);
+		if (!dir?.children) { return []; }
 
-			const workflows: VibeWorkflow[] = [];
-			for (const child of dir.children) {
-				if (!child.name.endsWith('.json') && !child.name.endsWith('.yaml')) { continue; }
-				try {
-					const content = await this._fileService.readFile(child.resource);
-					const text = content.value.toString();
-					const wf = JSON.parse(text) as VibeWorkflow;
-					wf.name = wf.name || child.name.replace(/\.(json|yaml)$/, '');
-					workflows.push(wf);
-				} catch { /* skip invalid */ }
+		const workflows: VibeWorkflow[] = [];
+		for (const child of dir.children) {
+			const lower = child.name.toLowerCase();
+			if (lower.endsWith('.yaml') || lower.endsWith('.yml')) {
+				this._report(`.vibe/workflows/${child.name}: workflows are JSON files; this one is not read`);
+				continue;
 			}
-			return workflows;
-		} catch {
-			return [];
+			if (!lower.endsWith('.json')) { continue; }
+			const id = child.name.slice(0, -'.json'.length);
+			if (!isSlashCommandFileName(id)) {
+				this._report(`.vibe/workflows/${child.name}: the name cannot follow /workflow: (letters, digits, "_", ".", "-"); not read`);
+				continue;
+			}
+			try {
+				const content = await this._fileService.readFile(child.resource);
+				const parsed = parseWorkflowFile(content.value.toString(), id);
+				if ('error' in parsed) {
+					this._report(`.vibe/workflows/${child.name}: ${parsed.error}`);
+				} else {
+					workflows.push(parsed.workflow);
+				}
+			} catch (e) {
+				this._report(`.vibe/workflows/${child.name}: unreadable (${e instanceof Error ? e.message : String(e)})`);
+			}
 		}
+		return workflows;
 	}
 
-	async getWorkflow(name: string): Promise<VibeWorkflow | null> {
+	async getWorkflow(id: string): Promise<VibeWorkflow | null> {
 		const workflows = await this.getWorkflows();
-		return workflows.find(w => w.name === name) ?? null;
+		return workflows.find(w => w.id === id) ?? null;
 	}
 
-	async run(name: string): Promise<WorkflowRunResult> {
-		const workflow = await this.getWorkflow(name);
+	async run(id: string): Promise<WorkflowRunResult> {
+		const workflow = await this.getWorkflow(id);
 		if (!workflow) {
-			vibeLog.warn('vibeWorkflow', `[VibeWorkflow] run(): workflow "${name}" not found in .vibe/workflows/`);
-			return { workflowName: name, chatMessage: null, dispatched: false };
+			vibeLog.warn('vibeWorkflow', `[VibeWorkflow] run(): workflow "${id}" not found in .vibe/workflows/`);
+			return { workflowName: id, chatMessage: null, dispatched: false };
 		}
 
-		const chatCommand = `/workflow:${name}`;
-		this._onWorkflowRunRequested.fire({ workflowName: name, chatCommand });
+		const chatCommand = `/workflow:${workflow.id}`;
+		this._onWorkflowRunRequested.fire({ workflowName: workflow.id, chatCommand });
 		vibeLog.info('vibeWorkflow', `[VibeWorkflow] run(): dispatched "${chatCommand}" via event`);
-		return { workflowName: name, chatMessage: chatCommand, dispatched: true };
+		return { workflowName: workflow.id, chatMessage: chatCommand, dispatched: true };
 	}
 }
 

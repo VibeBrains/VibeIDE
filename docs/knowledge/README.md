@@ -89,6 +89,7 @@
 | [modelStalls.md](chatUx/modelStalls.md) | **`turn=` в таймлайне** (чей таймер выстрелил: повторы накладываются, событие старой попытки помечается «от прошлой попытки» — верный лог иначе читается как мгновенное залипание). Журнал обрывов/зависаний LLM-ассистента: триггерные слова, шаблон инцидента, гипотезы, митигации |
 | [stuckChatRecovery.md](chatUx/stuckChatRecovery.md) | Stuck-chat recovery — три слоя защиты (abortRunning hard-timeout, stuck-state detection, submit-watchdog forceReset), `forceResetChatState` API, `recoverable` UI variants, Command Palette twins |
 | [circuitBreakers.md](chatUx/circuitBreakers.md) | Circuit breakers для repetitive failures: tool-invalid-params (Stage C) и empty-response (Stage K), no-hardcoded-names rule, reset semantics, anti-patterns (no auto-switch, no adaptive thresholds) |
+| [chatCommands.md](chatUx/chatCommands.md) | Команды чата двух видов: IDE выполняет сама (`/watch`, `/shot`) или раскрывает для модели в ход пользователя, как `/skill:` (встроенные `/simplify`, `/commit`…, `/my:`, `/workflow:`). Урок: `expand()` и шаблоны жили с мая, а чат их не звал — зелёный тест функции не говорит, что её вызывают. Имя команды — имя файла, сценарии только JSON; дефис в классе регулярки с флагом `u` |
 
 ### [vibeDotfolder/](vibeDotfolder/) — `.vibe/` config
 

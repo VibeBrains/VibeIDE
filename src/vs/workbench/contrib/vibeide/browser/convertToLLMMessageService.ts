@@ -94,7 +94,8 @@ import { IRepoIndexerService, QueryMetrics } from './repoIndexerService.js';
 import { IVibeDocsGraphService } from './vibeDocsGraphService.js';
 import { IMemoriesService } from '../common/memoriesService.js';
 import { IVibeSkillsLibraryService } from '../common/vibeSkillsLibraryService.js';
-import { IVibeSlashCommandService } from '../common/vibeSlashCommandService.js';
+import { IVibeSlashCommandService, buildCommandInvocationBlock } from '../common/vibeSlashCommandService.js';
+import { parsePromptSlashInvocation } from '../common/chatSlashCommands.js';
 import { IAuditLogService } from '../common/auditLogService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { VIBE_DOTVIBE_AGENT_PLAYBOOK } from '../common/vibeDotVibeAgentPlaybook.js';
@@ -2220,6 +2221,21 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const skillsDiscovery = await this.skillsLibraryService.getDiscoveryText(chatMode);
 		const implicitSkills = await this.skillsLibraryService.getImplicitSkillRetrievalHints(lastUserTextForSkills, chatMode);
 
+		// A prompt command at the start of the message (`/simplify`, `/commit`, `/my:name`, `/workflow:name`)
+		// is expanded like `/skill:` below and for the same reason: the request goes into the user turn,
+		// while the chat bubble keeps what the person typed. The commands the IDE runs itself (`/watch`,
+		// `/shot`) never reach this point — SidebarChat handles them before sending.
+		const promptCommand = parsePromptSlashInvocation(lastUserTextForSkills);
+		let commandInvocationPrefix = '';
+		if (promptCommand) {
+			try {
+				const expanded = await this.slashCommandService.expand(`/${promptCommand.command}`, promptCommand.args);
+				commandInvocationPrefix = buildCommandInvocationBlock(promptCommand.command, expanded);
+			} catch (err) {
+				vibeLog.warn('SlashCommands', 'expand threw', { command: promptCommand.command, err: String(err) });
+			}
+		}
+
 		// Explicit `/skill:NAME` invocations — expand the full SKILL.md body via
 		// IVibeSlashCommandService. The expanded body is injected as a `<skill_invocation>`
 		// block PREPENDED to the last user message (not buried in the system prompt).
@@ -2347,7 +2363,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// load-bearing step that makes /skill:NAME and @rule:NAME actually take effect, and the
 		// cache-friendly home for everything that varies per turn (repo retrieval, implicit skill
 		// hints, language directive) — see knowledge/roadmap/tokenEconomy.md (A).
-		const userTurnPrefix = [repoContextUserBlock, knowledgeNotesUserBlock, explicitSkillsUserPrefix, ruleInvocationPrefix, implicitSkills.trim(), langDirective.trim()].filter(s => s.length > 0).join('\n\n');
+		const userTurnPrefix = [repoContextUserBlock, knowledgeNotesUserBlock, commandInvocationPrefix, explicitSkillsUserPrefix, ruleInvocationPrefix, implicitSkills.trim(), langDirective.trim()].filter(s => s.length > 0).join('\n\n');
 		if (userTurnPrefix.length > 0) {
 			for (let i = llmMessages.length - 1; i >= 0; i--) {
 				const m = llmMessages[i];

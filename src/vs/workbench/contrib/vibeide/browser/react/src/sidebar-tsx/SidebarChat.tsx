@@ -34,7 +34,7 @@ import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputToke
 import { AlertTriangle, File, Ban, Check, ChevronRight, ChevronDown, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Paperclip, Waypoints, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward, Footprints, Mic, GitBranch } from 'lucide-react';
 import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, ScoutMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment, normalizePendingInjections, ReviewChecklist, EditBatch } from '../../../../common/chatThreadServiceTypes.js';
 import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER } from '../../../../common/chatTimestampFormatter.js';
-import { parseChatSlashCommand, splitWatchArgs, CHAT_SLASH_COMMANDS } from '../../../../common/chatSlashCommands.js';
+import { parseChatSlashCommand, splitWatchArgs, CHAT_SLASH_COMMANDS, SLASH_COMMAND_FILE_NAME_CHARS, findChatCommandSpans } from '../../../../common/chatSlashCommands.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../../../../common/prompt/tools/index.js';
 import { CopyButton, EditToolAcceptRejectButtonsHTML, IconShell1, JumpToFileButton, JumpToTerminalButton, StatusIndicator, StatusIndicatorForApplyButton, useApplyStreamState, useEditToolStreamState } from '../markdown/ApplyBlockHoverButtons.js';
@@ -2379,13 +2379,11 @@ const SimplifiedToolHeader = ({
 };
 
 
-// Highlights `/skill:name` and the built-in chat commands (`/watch`, `/commit`) inline.
-// Matches only when the slash starts the message or follows whitespace — avoids false
-// positives on paths (`/usr/bin`), URLs, or code fragments. Built-in names come from the
-// CHAT_SLASH_COMMANDS catalog so the pill list can never drift from what actually parses;
-// any other `/foo` is intentionally NOT highlighted to avoid promising behavior that
-// won't fire. Returns alternating plain-string and pill spans; rendered text is identical.
-const SLASH_COMMAND_RE = new RegExp(`(^|\\s)(\\/skill:[\\w.-]+|\\/(?:${CHAT_SLASH_COMMANDS.map(c => c.name).join('|')})\\b)`, 'g');
+// Highlights `/skill:name` and a chat command at the very start of the message — where the
+// commands actually work (mid-sentence, `/docs` is a path). The spans come from
+// findChatCommandSpans (chatSlashCommands.ts), built from the command catalogs, so the pills never
+// drift from what actually parses and the input overlay (util/inputs.tsx) marks the same text.
+// Returns alternating plain-string and pill spans; rendered text is identical.
 // Inline fallback for builds where vibeide.css hasn't been re-bundled. Inline wins
 // specificity and matches what util/inputs.tsx ships for the input overlay.
 // Geometry-neutral outline: same shape as the overlay version, no border/padding so
@@ -2399,21 +2397,23 @@ const SKILL_PILL_INLINE_STYLE: React.CSSProperties = {
 };
 const renderWithSkillHighlights = (text: string): React.ReactNode => {
 	if (!text || !text.includes('/')) {return text;}
+	const spans = findChatCommandSpans(text);
+	if (spans.length === 0) {return text;}
 	const out: React.ReactNode[] = [];
 	let lastIdx = 0;
-	let m: RegExpExecArray | null;
-	SLASH_COMMAND_RE.lastIndex = 0;
-	while ((m = SLASH_COMMAND_RE.exec(text)) !== null) {
-		const [, leading, cmd] = m;
-		const cmdStart = m.index + leading.length;
-		if (cmdStart > lastIdx) {out.push(text.slice(lastIdx, cmdStart));}
-		out.push(<span key={cmdStart} className="vibe-skill-pill" style={SKILL_PILL_INLINE_STYLE}>{cmd}</span>);
-		lastIdx = cmdStart + cmd.length;
+	for (const { start, end } of spans) {
+		if (start > lastIdx) {out.push(text.slice(lastIdx, start));}
+		out.push(<span key={start} className="vibe-skill-pill" style={SKILL_PILL_INLINE_STYLE}>{text.slice(start, end)}</span>);
+		lastIdx = end;
 	}
-	if (lastIdx === 0) {return text;}
 	if (lastIdx < text.length) {out.push(text.slice(lastIdx));}
 	return <>{out}</>;
 };
+
+// Bare-`/` menu: what may follow the slash while the menu stays open — a command name and, for
+// `/my:` and `/workflow:`, the colon and a file name (SLASH_COMMAND_FILE_NAME_CHARS).
+const SLASH_MENU_TRIGGER_RE = new RegExp(`^\\s*\\/([:${SLASH_COMMAND_FILE_NAME_CHARS}]*)$`, 'u');
+const SLASH_MENU_INSERT_RE = new RegExp(`\\/[:${SLASH_COMMAND_FILE_NAME_CHARS}]*$`, 'u');
 
 
 const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, currCheckpointIdx, _scrollToBottom }: { chatMessage: ChatMessage & { role: 'user' }; messageIdx: number; currCheckpointIdx: number | undefined; isCheckpointGhost: boolean; _scrollToBottom: (() => void) | null }) => {
@@ -6500,11 +6500,12 @@ export const SidebarChat = () => {
 	// ----- slash autocomplete ------------------------------------------------------
 	// One drop-down, two sources. `/skill:` lists available skills sorted MRU-first (via
 	// vibeSkillsLibraryService.getRecentSkills); a bare `/` at the start of the message
-	// lists the built-in chat commands (CHAT_SLASH_COMMANDS: /watch, /commit) plus a
-	// `/skill:` entry that chains into the skills menu. Filter-as-you-type, arrow/Tab/
-	// Enter to insert, Escape to dismiss. The trigger is detected from text-before-cursor
-	// on every onChangeText; we re-derive open state rather than tracking it imperatively
-	// so it always reflects current cursor context.
+	// lists the chat commands — the ones the IDE runs itself (CHAT_SLASH_COMMANDS: /watch,
+	// /shot) and the prompt commands of the command service (/simplify, /commit …, the
+	// project's /my: and /workflow: files) — plus a `/skill:` entry that chains into the
+	// skills menu. Filter-as-you-type, arrow/Tab/Enter to insert, Escape to dismiss. The
+	// trigger is detected from text-before-cursor on every onChangeText; we re-derive open
+	// state rather than tracking it imperatively so it always reflects current cursor context.
 	type SkillCmd = { name: string; description: string; category: 'skill' | 'builtin' };
 	const [skillCmds, setSkillCmds] = useState<SkillCmd[]>([]);
 	const [skillMenuOpen, setSkillMenuOpen] = useState(false);
@@ -6553,7 +6554,27 @@ export const SidebarChat = () => {
 		el?.scrollIntoView({ block: 'nearest' });
 	}, [skillIdx, skillMenuOpen]);
 
-	// Built-in chat commands for the bare-`/` menu. The `/skill:` entry has no trailing
+	// Prompt commands for the bare-`/` menu — the built-ins (/simplify, /commit …) and the project's
+	// /my: prompts and /workflow: files. Loaded when that menu opens rather than on every keystroke:
+	// the list reads `.vibe/prompts` and `.vibe/workflows` from disk.
+	const [promptCmds, setPromptCmds] = useState<SkillCmd[]>([]);
+	const loadPromptCmds = useCallback(() => {
+		const slashSvc = accessor.get('IVibeSlashCommandService');
+		if (!slashSvc) {return;}
+		slashSvc.getCommands().then(cmds => {
+			setPromptCmds(cmds
+				.filter(c => c.category !== 'skill')
+				.map(c => ({ name: c.name, description: c.description, category: 'builtin' as const })));
+		}).catch(() => { /* service not ready — the menu keeps the IDE's own commands */ });
+	}, [accessor]);
+
+	useEffect(() => {
+		if (skillMenuOpen && slashMenuKind === 'builtin') {
+			loadPromptCmds();
+		}
+	}, [skillMenuOpen, slashMenuKind, loadPromptCmds]);
+
+	// Chat commands for the bare-`/` menu. The `/skill:` entry has no trailing
 	// space on insert, so picking it immediately re-triggers the skills menu.
 	const builtinSlashCmds = useMemo<SkillCmd[]>(() => [
 		...CHAT_SLASH_COMMANDS.map(c => ({
@@ -6561,8 +6582,9 @@ export const SidebarChat = () => {
 			description: c.argsHint ? `${c.argsHint} — ${c.description}` : c.description,
 			category: 'builtin' as const,
 		})),
+		...promptCmds,
 		{ name: 'skill:', description: 'Вызвать навык из .vibe/skills', category: 'builtin' as const },
-	], []);
+	], [promptCmds]);
 
 	// Filtered list shown in dropdown (source depends on which trigger opened the menu).
 	const filteredSkillCmds = useMemo(() => {
@@ -6580,7 +6602,7 @@ export const SidebarChat = () => {
 		const cursorPos = ta.selectionStart;
 		const before = text.slice(0, cursorPos);
 		const after = text.slice(cursorPos);
-		const trigger = cmd.category === 'builtin' ? /\/[\w-]*$/.exec(before) : /\/skill:([\w.-]*)$/.exec(before);
+		const trigger = cmd.category === 'builtin' ? SLASH_MENU_INSERT_RE.exec(before) : /\/skill:([\w.-]*)$/.exec(before);
 		if (!trigger) {return;}
 		const insertion = '/' + cmd.name + (cmd.name.endsWith(':') ? '' : ' ');
 		const newText = before.slice(0, trigger.index) + insertion + after;
@@ -6611,7 +6633,7 @@ export const SidebarChat = () => {
 		const cursorPos = ta.selectionStart;
 		const before = newStr.slice(0, cursorPos);
 		const m = /\/skill:([\w.-]*)$/.exec(before);
-		const mBuiltin = m ? null : /^\s*\/([\w-]*)$/.exec(before);
+		const mBuiltin = m ? null : SLASH_MENU_TRIGGER_RE.exec(before);
 		if (m || mBuiltin) {
 			if (m) {
 				loadSkillCmds(); // refresh on open so late-seeded/changed skills appear (cached → cheap)

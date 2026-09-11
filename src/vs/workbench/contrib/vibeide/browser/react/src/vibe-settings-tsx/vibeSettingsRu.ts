@@ -1292,7 +1292,7 @@ export const workspaceS = {
 	promptTooLarge: 'Слишком большой для этой формы.',
 	selectPrompt: 'Выберите или создайте промпт',
 	workflowsHint:
-		'Файлы `.vibe/workflows/*.json` — многошаговые сценарии для чата. Вызов: `/workflow:имя` (как имя файла без `.json`). Поля: `name`, `description`, массив `steps` с объектами `name` и `description`; опционально `requiresApproval`, `toolConstraints`, `allowedModels`.',
+		'Файлы `.vibe/workflows/*.json` — многошаговые сценарии для чата. Вызов: `/workflow:имя`, где имя — имя файла без `.json`. Обязателен массив `steps` с объектами `name` и `description`; у шага можно задать `prompt` — инструкцию агенту — и `requiresApproval: true`, чтобы агент спросил разрешения перед шагом. `name` файла — заголовок, `description` — описание в меню команд. Ограничения шагов по роли, инструментам и модели — в пайплайнах `.vibe/pipelines.json`.',
 	addWorkflow: 'Добавить workflow',
 	noWorkflows: 'Нет workflow',
 	workflowFileId: 'Идентификатор (имя файла без .json)',

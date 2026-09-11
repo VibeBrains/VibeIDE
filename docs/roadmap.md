@@ -5466,23 +5466,32 @@ prompts, tools, and preceding messages») действует на API-аккау
       (`vibeSkillsLibraryService.ts:379-398`, `:423-425`), но неявный подбор смотрит только id, заголовок,
       описание и теги (`:1206`), а `glob` не читает никто. Подхват обещают `skillSpec.md:102-106` и
       комментарии типа (`:79-91`). Реализовать или убрать из спеки.
-- [ ] **В чате раскрывается только `/skill:`** — встроенные `/fix /tests /explain /refactor /review /docs
-      /simplify`, `/my:<имя>` и `/workflow:<имя>` объявлены в `vibeSlashCommandService.ts`, но `expand()`
-      вызывается в одном месте и только для `/skill:` (`convertToLLMMessageService.ts:2241`), а
-      автодополнение показывает одни скиллы (`SidebarChat.tsx:6531`). `/simplify` обещают
-      `functional.md:58` и What's New (`vibeWhatsNew.ts:431`). Запуск workflow отправляет в чат буквальный
-      `/workflow:<имя>` (`vibeWorkflowService.ts:122`) — содержимое workflow до модели не доходит.
+- [x] **Команды в чате: встроенные, `/commit`, `/my:`, `/workflow:`** — ✅ (2026-09-11, next) Чат раскрывал
+      только `/skill:`: встроенные `/fix /tests /explain /refactor /review /docs` жили в сервисе команд с
+      первого импорта, `/simplify` — с 05.07, но `expand()` для них никто не вызывал; `/commit` стоял в меню
+      без обработчика и уходил модели голым текстом; запуск workflow слал буквальный `/workflow:<имя>`.
+      Теперь у команд два вида с каталогами в `common/chatSlashCommands.ts`: IDE выполняет сама (`/watch`,
+      `/shot`) или раскрывает для модели — `parsePromptSlashInvocation` → `expand()` → блок
+      `<command_invocation>` в ход пользователя рядом с `/skill:` (`convertToLLMMessageService`). `/commit` —
+      промпт: коммит застейдженного по Conventional Commits в стиле репозитория, `--push` — и пуш, сам не
+      стейджит; список типов общий с `conventionalCommitFormat.ts`. Workflow уходит модели целиком, с
+      `prompt` шага и остановкой `requiresApproval`; id — имя файла, как обещали настройки, «Команды
+      проекта» ищут по нему же; `.yaml` и файл с ошибкой — предупреждение в журнал вместо молчаливого
+      пропуска; неиспользуемые `toolConstraints`/`allowedModels` убраны из формата. `$ARGS` — только целым
+      словом и без разбора `$&`. Меню по `/` показывает команды-промпты и файлы проекта; подсветку в ленте
+      и в поле ввода считает одна `findChatCommandSpans`. Спека `manuals/chatCommandsSpec.md`, запись
+      «Команды чата» в `functional.md`, knowledge `chatUx/chatCommands.md`. Проверено: тайпчек, React,
+      слои; тесты `chatSlashCommands.test.ts` и `slashCommandExpansion.test.ts`, набор vibeide — 3909
+      passing, 0 failing. Живьём в dev-IDE не прогонялось — нужен чат с моделью.
 - [ ] **`functional.md:106` обещает `.cursor/rules` и `.cursorrules`** — сервис правил читает только
       `.vibe/rules.md`, `AGENTS.md` и `.vibe/rules/**` и прямо пишет «no foreign tools' rule files»
       (`vibeProjectRulesService.ts:10-13`); устарел и комментарий панели правил (`Settings.tsx:2762-2764`).
 - [ ] **Скилл «только явно» попадает в неявные подсказки** — `disable-model-invocation: true` уводит его
       в раздел «Explicit-only» списка (`vibeSkillsLibraryService.ts:1175-1181`), но
       `getImplicitSkillRankedMatches` его не исключает (`:1200`).
-- [ ] **Мелкое** — `.yaml` в `.vibe/workflows` принимается по имени и молча отбрасывается `JSON.parse`
-      (`vibeWorkflowService.ts:95-102`); `$ARGS` подставляется без границы слова, `$ARGUMENTS` станет
-      `<args>UMENTS` (`vibePromptLibraryService.ts:84`; пока недостижимо — `/my:` не подключён);
-      опубликованная схема `skill-package.schema.json` требует `vibeVersion` (`:8`), парсер — только
-      `name` и `description`, так что стандартный `SKILL.md` схему не проходит.
+- [ ] **Мелкое** — опубликованная схема `skill-package.schema.json` требует `vibeVersion` (`:8`), парсер —
+      только `name` и `description`, так что стандартный `SKILL.md` схему не проходит. (`.yaml` в
+      `.vibe/workflows` и `$ARGS` без границы слова закрыты вместе с командами чата.)
 
 ## DIGEST-0910. Дайджест 10.09.2026 — шесть тем, три закрылись проверкой (2026-09-10)
 

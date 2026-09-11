@@ -11,11 +11,13 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 
 import { IVibePromptLibraryService } from './vibePromptLibraryService.js';
-import { IVibeWorkflowService } from './vibeWorkflowService.js';
+import { IVibeWorkflowService, VibeWorkflow } from './vibeWorkflowService.js';
 import { IVibeSkillsLibraryService, VibeSkillEntry } from './vibeSkillsLibraryService.js';
 import { IVibePromptGuardService } from './vibePromptGuardService.js';
 import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { describeSkillForApproval } from './skillApproval.js';
+import { PROMPT_SLASH_COMMAND_NAMES, PromptSlashCommandName, isSlashCommandFileName } from './chatSlashCommands.js';
+import { CONVENTIONAL_COMMIT_TYPES } from './conventionalCommitFormat.js';
 
 /**
  * Pure helper — builds the raw expanded string for a skill expansion.
@@ -24,6 +26,66 @@ import { describeSkillForApproval } from './skillApproval.js';
 export function buildSkillExpansion(skill: VibeSkillEntry, args?: string): string {
 	const extra = args ? `\n\nAdditional context from user:\n${args}` : '';
 	return `Follow this project Agent Skill (from ${skill.relativePath}):\n\n${skill.body}${extra}`;
+}
+
+/**
+ * What `/commit` asks for: commit what is already staged, in the repository's own style; `--push`
+ * pushes afterwards. Staging stays with the person — a commit of files nobody chose is not what was
+ * asked for. The git commands go through run_command, so they are confirmed like any other command.
+ */
+export function buildCommitRequest(args: string): string {
+	const words = args.split(/\s+/).filter(word => word.length > 0);
+	const push = words.includes('--push');
+	const note = words.filter(word => word !== '--push').join(' ');
+	return [
+		'Create a git commit from the changes that are already staged.',
+		'1. Run `git diff --cached --stat` and `git diff --cached` via run_command to see what is staged. If nothing is staged, say so and stop: do not stage files unless the user asks.',
+		'2. Run `git log -5 --format=%s` and follow the language and conventions of the existing commit messages.',
+		`3. Write the message as a Conventional Commit: \`type(scope): subject\`, where type is one of ${CONVENTIONAL_COMMIT_TYPES.join(', ')}; the subject is imperative; add a short body when the change needs explaining.`,
+		push
+			? '4. Show the message, run `git commit` with it, then run `git push`.'
+			: '4. Show the message, then run `git commit` with it.',
+		...(note ? [`The user's note about this commit: ${note}`] : []),
+	].join('\n');
+}
+
+/**
+ * What `/workflow:<name>` asks for: the whole scenario — every step, its instructions and the stops
+ * where the person must approve. The agent follows the steps in one conversation; steps with their own
+ * role, tools and model are what pipelines (`.vibe/pipelines.json`) are for.
+ */
+export function buildWorkflowExpansion(workflow: VibeWorkflow): string {
+	const steps = workflow.steps.map((step, i) => {
+		const lines = [`${i + 1}. ${step.name}${step.description ? `: ${step.description}` : ''}`];
+		if (step.prompt) {
+			lines.push(`   Instructions: ${step.prompt}`);
+		}
+		if (step.requiresApproval) {
+			lines.push('   Before starting this step, stop and ask the user for approval.');
+		}
+		return lines.join('\n');
+	});
+	const head = `Execute workflow "${workflow.name}"${workflow.description ? `: ${workflow.description}` : ''}`;
+	return `${head}\n\nSteps:\n${steps.join('\n')}\n\nWork through the steps in order.`;
+}
+
+/**
+ * The block a prompt command becomes at the head of the user turn — where `/skill:` bodies go, and for
+ * the same reason: guidance in the system prompt is read as standing rules, not as this request
+ * (modelStalls.md #002). When the file behind `/my:` or `/workflow:` is missing, the model is told to
+ * say so rather than guess what the command meant.
+ */
+export function buildCommandInvocationBlock(command: string, expanded: string | null): string {
+	if (expanded !== null) {
+		return `The user invoked /${command}. The block below is the request itself; text after the command in the user's message adds to it.\n\n<command_invocation name="${command}">\n${expanded}\n</command_invocation>`;
+	}
+	const colon = command.indexOf(':');
+	if (colon < 0) {
+		return '';
+	}
+	const name = command.slice(colon + 1);
+	const file = command.startsWith('workflow:') ? `.vibe/workflows/${name}.json` : `.vibe/prompts/${name}.md`;
+	return `The user typed /${command}, but ${file} does not exist in this project. Say so in one sentence, then answer the rest of the message, if there is any.`;
 }
 
 export interface SlashCommand {
@@ -48,61 +110,62 @@ export interface IVibeSlashCommandService {
 	isSlashCommand(input: string): boolean;
 }
 
-// Built-in slash commands
-const BUILTIN_COMMANDS: SlashCommand[] = [
-	{
-		name: 'fix',
+/** A built-in prompt command: what the menu says about it and what it asks of the model. */
+interface BuiltinPromptCommand {
+	readonly description: string;
+	readonly execute: (args: string) => string;
+}
+
+// Built-in prompt commands, keyed by the shared name list in chatSlashCommands.ts: a name without a
+// template does not compile.
+const BUILTIN_PROMPTS: Record<PromptSlashCommandName, BuiltinPromptCommand> = {
+	fix: {
 		description: localize('vibeide.slash.fix.desc', 'Исправить текущую ошибку или проблему'),
-		category: 'builtin',
 		execute: (args) => `Fix the following issue: ${args || 'Fix all errors in the current file'}. Explain what was wrong and how you fixed it.`,
 	},
-	{
-		name: 'tests',
+	tests: {
 		description: localize('vibeide.slash.tests.desc', 'Написать тесты для текущего кода'),
-		category: 'builtin',
 		execute: (args) => `Write comprehensive tests for ${args || 'the current file'}. Include happy path, edge cases, and error cases.`,
 	},
-	{
-		name: 'explain',
+	explain: {
 		description: localize('vibeide.slash.explain.desc', 'Объяснить текущий код'),
-		category: 'builtin',
 		execute: (args) => `Explain ${args || 'the current file'} in clear language. Describe what it does, how it works, and any important patterns.`,
 	},
-	{
-		name: 'refactor',
+	refactor: {
 		description: localize('vibeide.slash.refactor.desc', 'Рефакторинг для ясности и производительности'),
-		category: 'builtin',
 		execute: (args) => `Refactor ${args || 'this code'} for clarity, performance, and maintainability. Follow best practices. Explain your changes.`,
 	},
-	{
-		name: 'review',
+	review: {
 		description: localize('vibeide.slash.review.desc', 'Код-ревью с рекомендациями'),
-		category: 'builtin',
 		execute: (args) => `Review ${args || 'this code'} for bugs, security issues, performance problems, and style. Provide actionable suggestions.`,
 	},
-	{
-		name: 'docs',
+	docs: {
 		description: localize('vibeide.slash.docs.desc', 'Добавить документацию / комментарии'),
-		category: 'builtin',
 		execute: (args) => `Add clear documentation and comments to ${args || 'this code'}. Use the appropriate doc format (JSDoc, docstring, etc.).`,
 	},
-	{
-		name: 'simplify',
+	simplify: {
 		description: localize('vibeide.slash.simplify.desc', 'Ревью диффа на оверинжиниринг: делит-лист'),
-		category: 'builtin',
 		execute: (args) => `Review ${args || 'the current git diff'} for over-engineering. ${args ? '' : 'First run \`git diff HEAD\` via run_command (fall back to \`git diff\` / \`git show HEAD\` if empty) to get the changes. '}\
 Walk the minimalism ladder over every addition: does it need to exist at all (YAGNI); does the codebase, stdlib, platform, or an installed dependency already do it; could it be smaller.
 Return a DELETE-LIST: for each finding — file:line, what to delete or simplify, why, and the estimated lines saved. Order by lines saved, largest first. Do NOT change any files — this is a review.
 Skip findings that would trim validation, error handling, security, or accessibility. If the diff is already minimal, say so briefly instead of inventing findings.`,
 	},
-];
+	commit: {
+		description: localize('vibeide.slash.commit.desc', "Закоммитить застейдженное: сообщение по Conventional Commits, с --push — и запушить"),
+		execute: buildCommitRequest,
+	},
+};
+
+const BUILTIN_COMMANDS: readonly SlashCommand[] = PROMPT_SLASH_COMMAND_NAMES.map((name): SlashCommand => ({ name, category: 'builtin', ...BUILTIN_PROMPTS[name] }));
 
 /**
- * VibeIDE Slash Commands Service.
- * Built-in: /fix, /tests, /explain, /refactor, /review, /docs, /simplify
- * User prompts: /my:template-name
- * Workflows: /workflow:name
+ * VibeIDE Slash Commands Service — the commands that are prompts for the model.
+ * Built-in: /fix, /tests, /explain, /refactor, /review, /docs, /simplify, /commit
+ * User prompts: /my:<file name> (.vibe/prompts/<file name>.md)
+ * Workflows: /workflow:<file name> (.vibe/workflows/<file name>.json)
  * Agent skills: /skill:skill-id (from .vibe/skills/.../SKILL.md)
+ * The request builder (convertToLLMMessageService) expands them into the user turn; the commands the
+ * IDE runs itself (/watch, /shot) never get here — see chatSlashCommands.ts.
  */
 export class VibeSlashCommandService extends Disposable implements IVibeSlashCommandService {
 	declare readonly _serviceBrand: undefined;
@@ -169,19 +232,20 @@ export class VibeSlashCommandService extends Disposable implements IVibeSlashCom
 	async getCommands(): Promise<SlashCommand[]> {
 		const commands: SlashCommand[] = [...BUILTIN_COMMANDS];
 
-		// Add user prompts as /my:name
+		// User prompts as /my:name. A file whose name cannot follow the colon is not offered: picking it
+		// would insert a command that does not parse.
 		const prompts = await this._promptLibrary.getPrompts();
-		prompts.forEach(p => commands.push({
-			name: `my:${p.name}`,
-			description: p.content.split('\n')[0].replace(/^#\s*/, ''),
-			category: 'prompt',
-		}));
+		for (const p of prompts) {
+			if (isSlashCommandFileName(p.name)) {
+				commands.push({ name: `my:${p.name}`, description: p.content.split('\n')[0].replace(/^#\s*/, ''), category: 'prompt' });
+			}
+		}
 
-		// Add workflows as /workflow:name
+		// Workflows as /workflow:<file name>
 		const workflows = await this._workflowService.getWorkflows();
 		workflows.forEach(w => commands.push({
-			name: `workflow:${w.name}`,
-			description: w.description,
+			name: `workflow:${w.id}`,
+			description: w.description || w.name,
 			category: 'workflow',
 		}));
 
@@ -215,13 +279,12 @@ export class VibeSlashCommandService extends Disposable implements IVibeSlashCom
 			}
 		}
 
-		// Workflow: /workflow:name
+		// Workflow: /workflow:<file name>
 		if (cmdName.startsWith('workflow:')) {
-			const workflowName = cmdName.slice(9);
-			const workflow = await this._workflowService.getWorkflow(workflowName);
+			const workflowId = cmdName.slice('workflow:'.length);
+			const workflow = await this._workflowService.getWorkflow(workflowId);
 			if (workflow) {
-				const raw = `Execute workflow "${workflow.name}": ${workflow.description}\n\nSteps:\n${workflow.steps.map((s, i) => `${i + 1}. ${s.name}: ${s.description}`).join('\n')}`;
-				return this._sanitizeExpanded(raw, `.vibe/workflows/${workflowName}.md`);
+				return this._sanitizeExpanded(buildWorkflowExpansion(workflow), `.vibe/workflows/${workflowId}.json`);
 			}
 		}
 

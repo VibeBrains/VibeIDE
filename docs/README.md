@@ -40,6 +40,7 @@
 - [httpApiSpec.md](manuals/httpApiSpec.md) — входящий HTTP API: запуск агента из CI, бота или крона с продолжением сессии (скормить LLM → готовый вызов).
 - [pipelinesSpec.md](manuals/pipelinesSpec.md) — формат `.vibe/pipelines.json`: последовательность шагов агентов с передачей артефактов (скормить LLM → готовый файл).
 - [skillSpec.md](manuals/skillSpec.md) — формат `SKILL.md`: навыки агента, поля, ограничения, наши расширения (скормить LLM → готовый навык).
+- [chatCommandsSpec.md](manuals/chatCommandsSpec.md) — команды чата: встроенные (`/simplify`, `/commit`…), формат `.vibe/prompts/*.md` для `/my:` и `.vibe/workflows/*.json` для `/workflow:` (скормить LLM → готовый файл).
 - [optimizeByMetric.md](manuals/optimizeByMetric.md) — оптимизация под метрику: команда замера, контракт вывода, порог шума, что защищает честность цикла.
 - [learningWorkspaceSpec.md](manuals/learningWorkspaceSpec.md) — формат `.vibe/learning/`: миссия, источники, следы уроков, правила выбора сложности (скормить LLM → готовый `MISSION.md`).
 - [teachLearning.md](manuals/teachLearning.md) — как учиться в VibeIDE: отдельная папка на тему, миссия-гейт, цикл уроков, что ломает систему.
