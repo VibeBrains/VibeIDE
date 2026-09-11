@@ -60,7 +60,7 @@ jobs:
         timeout-minutes: 45
 
       - name: Upload compiled output
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: compiled-output
           path: |
@@ -87,7 +87,7 @@ jobs:
           node-version-file: .nvmrc
 
       - name: Download compiled output
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: compiled-output
 
@@ -115,7 +115,7 @@ jobs:
         timeout-minutes: 10
 
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-${{ matrix.arch }}
           path: |
@@ -138,7 +138,7 @@ jobs:
           node-version-file: .nvmrc
 
       - name: Download compiled output
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: compiled-output
 
@@ -168,7 +168,7 @@ jobs:
         timeout-minutes: 20
 
       - name: Upload macOS artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: macos-universal
           path: .build/darwin-arm64/VibeIDE-*.dmg
@@ -192,7 +192,7 @@ jobs:
           node-version-file: .nvmrc
 
       - name: Download compiled output
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: compiled-output
 
@@ -223,7 +223,7 @@ jobs:
         timeout-minutes: 10
 
       - name: Upload Linux artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-${{ matrix.arch }}
           path: |
@@ -247,7 +247,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: release-artifacts/
 
@@ -292,7 +292,7 @@ jobs:
           VIBE_VERSION: ${{ env.VIBE_VERSION }}
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ env.VIBE_VERSION }}
           name: "VibeIDE ${{ env.VIBE_VERSION }}"

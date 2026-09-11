@@ -5264,6 +5264,20 @@ prompts, tools, and preceding messages») действует на API-аккау
       частью строки. `actionlint` до и после — те же 40 находок `shellcheck`, вывод побайтно совпал.
       На Node 20 остались `upload-artifact@v4`, `github-script@v7`, `create-or-update-comment@v4`,
       `deploy-pages@v4` — следующая волна. Knowledge: `build/githubActionsPins.md`.
+- [x] **GitHub Actions: остальные actions — тоже по SHA** — ✅ (2026-09-11, next) 18 ссылок на 8 actions.
+      `download-artifact` v8.0.1, `action-gh-release` v3.0.3 и `upload-artifact@v7` → v7.0.1 закреплены на
+      тех коммитах, куда указывали их теги. Пять actions, работавших на Node 20 (`upload-pages-artifact@v3`
+      — через вложенный `upload-artifact@v4`), подняты до мажоров на Node 24 и закреплены:
+      `upload-artifact` v4 → v7.0.1, `github-script` v7 → v9.0.0, `deploy-pages` v4 → v5.0.1,
+      `upload-pages-artifact` v3 → v5.0.0, `create-or-update-comment` v4 → v5.0.0. Каждый SHA сверен через
+      API с коммитом тега, `runs.using` на нём — `node24`, все восемь версий — последние релизы. По release
+      notes и нашему использованию: скрипт в `test-coverage.yml` не зовёт `require('@actions/github')` и не
+      объявляет `getOctokit` (ломается в v9); в `_site` у `publish-schemas` нет dotfiles (с v4 не попадают в
+      артефакт); наши входы есть в новых `action.yml`; шаги со сменой мажора — на `ubuntu-latest`.
+      `actionlint` — вывод совпал с прежним. Незакреплённых внешних `uses:` в `.github` не осталось: из 176
+      строк 147 по SHA и 29 локальных. Живьём не прогонялось: пуш в `next` эти шаги не запускает (они идут на
+      PR, при падении джоба, в `main` и по тегу), открытых PR нет, а ручной запуск `publish-schemas`,
+      `release` и `sbom` публикует. Knowledge: `build/githubActionsPins.md`.
 
 ## HANDOFFS-0911. Сверка открытых потоков — хвосты переехали сюда (2026-09-11)
 
