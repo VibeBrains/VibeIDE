@@ -6,7 +6,8 @@
 
 import { localize } from '../../../../nls.js';
 import { URI } from '../../../../base/common/uri.js';
-import { isWindows } from '../../../../base/common/platform.js';
+import { isLinux, isWindows } from '../../../../base/common/platform.js';
+import { posix } from '../../../../base/common/path.js';
 import { dirname } from '../../../../base/common/resources.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
@@ -51,11 +52,19 @@ export const SOURCE_FOLDERS_KEY = 'vibeide.agent.sourceFolders';
 
 // ── Pure core (testable, no DI) ────────────────────────────────────────────────
 
-/** Normalize a folder path for allowlist comparison: `\`→`/`, drop trailing slash,
- *  lowercase only on case-insensitive (Windows) filesystems. */
+/**
+ * Normalize a folder path for comparison: `\`→`/`, `.` and `..` resolved, trailing slash dropped,
+ * NFC, and lowercased when the comparison is case-insensitive.
+ *
+ * `..` is resolved HERE, not trusted to the caller: a path compared as written lets
+ * `/proj/x/../raw/file.md` pass a source folder `/proj/raw` it sits inside. NFC because `й` exists
+ * as one code point and as `и` + combining breve, and both name the same file.
+ */
 export const normalizeFolderPath = (p: string, caseSensitive: boolean): string => {
-	const s = p.replace(/\\/g, '/').replace(/\/+$/, '');
-	return caseSensitive ? s : s.toLowerCase();
+	const slashed = p.replace(/\\/g, '/').trim();
+	if (!slashed) { return ''; }
+	const resolved = posix.normalize(slashed).replace(/\/+$/, '').normalize('NFC');
+	return caseSensitive ? resolved : resolved.toLowerCase();
 };
 
 /** True when `targetPath` is inside (or equal to) any allowed folder. Matches on a folder
@@ -142,7 +151,14 @@ export const IVibeExternalAccessService = createDecorator<IVibeExternalAccessSer
 export class VibeExternalAccessService extends Disposable implements IVibeExternalAccessService {
 	declare readonly _serviceBrand: undefined;
 
+	/** Allow-lists compare exactly on case-sensitive platforms: a mismatch can only err towards refusal. */
 	private readonly _caseSensitive = !isWindows;
+	/**
+	 * Deny-lists compare case-INSENSITIVELY wherever the filesystem is: APFS and NTFS treat `Raw/` and
+	 * `raw/` as one folder, so a case-sensitive deny check on macOS let `/proj/Raw/x.md` be written
+	 * into a source folder declared as `raw`. Only Linux is treated as case-sensitive.
+	 */
+	private readonly _denyCaseSensitive = isLinux;
 	// Session scope is intentionally NOT persisted — cleared on reload (least-privilege default).
 	private readonly _session = new Set<string>();
 	// Dedup concurrent prompts for the same folder (parallel tools hitting one dir → one modal).
@@ -178,7 +194,7 @@ export class VibeExternalAccessService extends Disposable implements IVibeExtern
 		const patterns = this._config.getValue<string[]>(SOURCE_FOLDERS_KEY) ?? [];
 		if (patterns.length === 0) { return false; }
 		const roots = this._workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
-		return isPathAllowed(uri.fsPath, resolveSourceFolders(patterns, roots), this._caseSensitive);
+		return isPathAllowed(uri.fsPath, resolveSourceFolders(patterns, roots), this._denyCaseSensitive);
 	}
 
 	async allowFolder(folder: URI, scope: ExternalAccessScope): Promise<void> {

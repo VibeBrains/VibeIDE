@@ -7,8 +7,7 @@
 import { vibeLog } from '../common/vibeLog.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { URI } from '../../../../base/common/uri.js';
-import { isAbsolute as pathIsAbsolute } from '../../../../base/common/path.js';
-import { joinPath } from '../../../../base/common/resources.js';
+import { resolveAgentPath } from '../common/agentPathResolution.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IVibeConstraintsService, ConstraintViolationError } from '../common/vibeConstraintsService.js';
 import { IVibeExternalAccessService, ExternalAccessRequiredError, SourceFolderReadOnlyError } from '../common/vibeExternalAccessService.js';
@@ -145,51 +144,10 @@ const validateURI = (uriStr: unknown, workspaceContextService?: IWorkspaceContex
 	if (uriStr === null) { throw new Error(`Invalid LLM output: uri was null.`); }
 	if (typeof uriStr !== 'string') { throw new Error(`Invalid LLM output format: Provided uri must be a string, but it's a(n) ${typeof uriStr}. Full value: ${JSON.stringify(uriStr)}.`); }
 
-	let uri: URI;
-	// Check if it's already a full URI with scheme (e.g., vscode-remote://, file://, etc.)
-	if (uriStr.includes('://')) {
-		try {
-			uri = URI.parse(uriStr);
-		} catch (e) {
-			throw new Error(`Invalid URI format: ${uriStr}. Error: ${e}`);
-		}
-	} else {
-		// No scheme present, treat as file path
-		uri = URI.file(uriStr);
-
-		// If we have a workspace and the path is relative, resolve against workspace root.
-		// On Windows, absolute paths are like `D:\proj\...` — they do NOT start with `/`; without
-		// an absolute-path check we'd join(workspaceRoot, fullPath) → doubled fsPath bug.
-		if (workspaceContextService && !pathIsAbsolute(uriStr)) {
-			const workspace = workspaceContextService.getWorkspace();
-			if (workspace.folders.length > 0) {
-				// Resolve relative path against workspace root
-				uri = joinPath(workspace.folders[0].uri, uriStr);
-			}
-		}
-		// If path is absolute (starts with /), check if it's actually within workspace
-		// This handles cases where LLM returns paths like "/carepilot-api/src" that should be relative
-		else if (workspaceContextService && uriStr.startsWith('/')) {
-			const workspace = workspaceContextService.getWorkspace();
-			for (const folder of workspace.folders) {
-				const workspacePath = folder.uri.fsPath;
-				// Check if the absolute path is actually within this workspace folder
-				// by checking if workspace path is a prefix
-				if (uriStr.startsWith(workspacePath)) {
-					// Path is already correctly absolute within workspace
-					break;
-				}
-				// Check if path starts with workspace folder name (common LLM mistake)
-				const workspaceFolderName = folder.name || folder.uri.path.split('/').pop() || '';
-				if (uriStr.startsWith(`/${workspaceFolderName}/`) || uriStr === `/${workspaceFolderName}`) {
-					// Treat as relative path - remove leading slash and folder name
-					const relativePath = uriStr.replace(`/${workspaceFolderName}`, '').replace(/^\//, '');
-					uri = joinPath(folder.uri, relativePath);
-					break;
-				}
-			}
-		}
-	}
+	// Resolved BEFORE any check, and the resolved URI is returned: the boundary below and the tool
+	// that acts afterwards must name the same file. See `resolveAgentPath` for why `..` used to slip by.
+	const roots = workspaceContextService?.getWorkspace().folders.map(folder => ({ uri: folder.uri, name: folder.name })) ?? [];
+	const uri = resolveAgentPath(uriStr, roots);
 
 	// Workspace-boundary enforcement. Whether reads/writes outside the open
 	// workspace are allowed is config-driven (the caller passes the resolved

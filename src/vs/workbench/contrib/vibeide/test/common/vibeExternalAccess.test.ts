@@ -117,3 +117,39 @@ suite('vibeExternalAccess — source folders inside the workspace', () => {
 		);
 	});
 });
+
+suite('vibeExternalAccess — путь сравнивается развёрнутым', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	/**
+	 * A path compared as written: `..` let a file inside a source folder look like it was elsewhere,
+	 * and a file outside an allowed folder look like it was inside.
+	 */
+	test('`..` разворачивается до сравнения — в обе стороны', () => {
+		const sources = ['/w/raw'];
+		assert.deepStrictEqual({
+			вИсточникЧерезСоседа: isPathAllowed('/w/x/../raw/f.md', sources, true),
+			изИсточникаНаружу: isPathAllowed('/w/raw/../docs/f.md', sources, true),
+			побегИзРазрешённой: isPathAllowed('/a/proj/../../etc/passwd', ['/a/proj'], true),
+			запись_в_папке: normalizeFolderPath('/w/x/../raw/', true),
+		}, {
+			вИсточникЧерезСоседа: true,
+			изИсточникаНаружу: false,
+			побегИзРазрешённой: false,
+			запись_в_папке: '/w/raw',
+		});
+	});
+
+	/** `й` as one code point and as `и` + combining breve name the same file. */
+	test('составные символы сравниваются в NFC', () => {
+		assert.strictEqual(isPathAllowed('/w/\u0438\u0306/f.md', ['/w/\u0439'], true), true);
+	});
+
+	test('пустая запись по-прежнему не совпадает ни с чем', () => {
+		assert.deepStrictEqual({
+			пусто: normalizeFolderPath('', true),
+			пробелы: normalizeFolderPath('   ', true),
+			корень: isPathAllowed('/any/file', ['/'], true),
+		}, { пусто: '', пробелы: '', корень: false });
+	});
+});
