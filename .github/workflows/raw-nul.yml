@@ -1,0 +1,55 @@
+name: raw-nul
+
+# Second line behind the pre-commit gate `scripts/vibe-no-raw-nul.ts`. A raw NUL byte (0x00) in a
+# text source makes the whole file "binary" to search tools, and `grep -I` skips it SILENTLY — no
+# match, no error. On 2026-09-11 that hid convertToLLMMessageService.ts and nearly produced a false
+# «this code is never called»; the first full scan then found another byte that had sat in a
+# knowledge article for two months.
+#
+# The hook is skipped by `git commit --no-verify`, by edits in the GitHub web UI and by a clone
+# without husky installed; this job runs the same full scan on what actually got pushed.
+#
+# Unlike the heavier guards here it also runs on pushes to `next`: daily work lands there, the scan
+# takes about a second, and a stray byte is cheapest to fix the day it arrives.
+
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "docs/**"
+      - "build/**"
+      - "package.json"
+      - ".github/workflows/raw-nul.yml"
+  push:
+    branches: [main, next]
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "docs/**"
+      - "build/**"
+      - "package.json"
+      - ".github/workflows/raw-nul.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: no raw NUL bytes in text sources
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The version from .nvmrc: the gate is a .ts file run by node directly, which needs a Node
+      # with type stripping on by default.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      # Dependency-free (child_process, fs, path) — no `npm ci`, so the job takes about as long as
+      # the scan itself.
+      - name: Scan tracked text sources
+        run: npm run raw-nul-check

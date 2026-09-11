@@ -5245,6 +5245,14 @@ prompts, tools, and preceding messages») действует на API-аккау
       в самом коде (`vibeDocsViewPane.ts:67`). Проверено на намеренной поломке: staged-файл с сырым NUL —
       `--staged` и lint-staged отказали с `scripts/nul-probe.ts:2:20`, файл убран; после починки полный
       скан — 0 находок. `scripts-typecheck` — exit 0.
+- [x] **Полный скан NUL — и в CI** — ✅ (2026-09-11, next) `.github/workflows/raw-nul.yml` гоняет
+      `npm run raw-nul-check` на пушах в `main` и `next` и на PR; фильтр путей — `src/`, `scripts/`,
+      `docs/`, `build/`, `package.json` и сам workflow. Вторая линия за pre-commit: хук обходят
+      `--no-verify`, правка в веб-интерфейсе GitHub и клон без husky. Отдельный workflow, а не шаг в
+      `pr.yml`: тот игнорирует `docs/**` и срабатывает только на PR в `main`, а четвёртый байт был
+      как раз в `.md`. В отличие от соседних гейтов — и на пушах в `next`: работа приземляется туда,
+      скан стоит секунду. Node — из `.nvmrc` (гейт — `.ts`, его запускает сам Node), без `npm ci`.
+      `actionlint` 1.7.12 с `shellcheck` — 0 находок.
 
 ## HANDOFFS-0911. Сверка открытых потоков — хвосты переехали сюда (2026-09-11)
 
