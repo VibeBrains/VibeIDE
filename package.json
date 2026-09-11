@@ -100,6 +100,7 @@
     "generated-fresh-check": "node scripts/vibe-generated-fresh.ts",
     "seed-fields-check": "node scripts/vibe-seed-fields.ts",
     "deprecated-coverage-check": "node scripts/vibe-deprecated-coverage.ts",
+    "seeds-pointer-check": "node scripts/vibe-seeds-pointer.ts",
     "audit-actor-check": "node scripts/vibe-audit-actor.ts",
     "scripts-typecheck": "tsgo --project scripts/tsconfig.json",
     "service-registration-check": "node scripts/vibe-service-registration-check.mjs --check",
@@ -443,6 +444,9 @@
     ],
     "src/vs/workbench/contrib/vibeide/common/vibeDefaultsManifest.generated.ts": [
       "node scripts/vibe-deprecated-coverage.ts"
+    ],
+    ".vibe-defaults": [
+      "node scripts/vibe-seeds-pointer.ts"
     ]
   }
 }

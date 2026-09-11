@@ -163,13 +163,29 @@ git submodule update --remote .vibe-defaults
 URL подмодуля — https://github.com/VibeBrains/VibeBrains (локальный клон-спутник:
 `/Users/borodatych/Projects/VibeCode/VibeBrains`).
 
-**Правка сидов делается в VibeBrains, а не здесь.** Коммит уходит в тот репозиторий, после чего
-в этом бампается указатель submodule:
+**Правка сидов делается в VibeBrains, а не здесь.** Порядок строгий: догнать ветку набора до
+origin, коммит в набор, `node bump.mjs` (реестр ревизий), **пуш набора** — и только потом бамп
+указателя здесь, вместе с перегенерированным манифестом:
 
 ```bash
-cd .vibe-defaults && git add -A && git commit && cd ..
-git add .vibe-defaults && git commit -m "chore(defaults): бамп указателя сидов"
+git -C .vibe-defaults switch main && git -C .vibe-defaults merge --ff-only origin/main
+cd .vibe-defaults && node bump.mjs && git add -A && git commit && git push origin HEAD:main && cd ..
+node scripts/gen-vibe-defaults.mjs
+git add .vibe-defaults src/vs/workbench/contrib/vibeide/common/vibeDefaultsManifest.generated.ts && git commit -m "chore(defaults): бамп указателя сидов"
 ```
+
+**Пуш набора — до бампа, а не после.** Указатель в запушенном коммите VibeIDE обязан указывать на
+коммит из `origin/main` VibeBrains: иначе чекаут этого коммита не восстановит сиды, а собранные из
+него сборки унесут версию сида, которой нет ни в одной истории. Прецедент 09.09.2026: пять коммитов
+`next` указывали на локальный, потом выброшенный коммит набора (история починена тегом
+`archive/edf534b`). Порядок стерегут два гейта, оба запускает lint-staged:
+`scripts/vibe-seeds-pointer.ts` — при изменении указателя (без сети предупреждает, а не блокирует),
+`scripts/vibe-deprecated-coverage.ts` — при изменении манифеста (убранное из засева обязано
+удаляться у пользователей).
+
+**Догнать ветку до origin — первым шагом.** `git submodule update --remote` оставляет detached HEAD,
+а отставшая локальная `main` при переключении откатывает сиды назад, и правка ложится поверх
+устаревшего состояния (09.09.2026 — на 22 коммита).
 
 Правка файлов внутри `.vibe-defaults/` без коммита в VibeBrains потеряется при следующем
 `submodule update`: для этого репозитория подмодуль — указатель на чужой коммит, а не рабочая копия.
