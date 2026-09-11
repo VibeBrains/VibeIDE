@@ -41,7 +41,7 @@
     "watch-extensions": "npm run gulp watch-extensions watch-extension-media",
     "watch-extensionsd": "deemon npm run watch-extensions",
     "kill-watch-extensionsd": "deemon --kill npm run watch-extensions",
-    "precommit": "tsx build/hygiene.ts && npx lint-staged && node scripts/vibe-seeds-pointer.ts && node scripts/i18n-sync.js --apply",
+    "precommit": "node scripts/vibe-seeds-pointer.ts && tsx build/hygiene.ts && npx lint-staged && node scripts/i18n-sync.js --apply",
     "gulp": "node --max-old-space-size=8192 ./node_modules/gulp/bin/gulp.js",
     "electron": "node build/lib/electron.ts",
     "7z": "7z",
