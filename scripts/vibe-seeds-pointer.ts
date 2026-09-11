@@ -33,6 +33,12 @@
  * Running on every commit means the ordinary case — pointer untouched — must cost nothing, hence the
  * first check below needs neither network nor the submodule.
  *
+ * A pointer that moves while the generated manifest does not is refused before any network: the bump
+ * either changes nothing the product ships, or the manifest was not regenerated and the commit would
+ * carry a manifest that lies about what the pointer means. Owner's decision of 2026-09-11. It also
+ * removes the one commit shape on which build/hygiene.ts fails with a misleading «No staged files
+ * found» and invites --no-verify — which would switch this gate off as well.
+ *
  * Usage: node scripts/vibe-seeds-pointer.ts
  */
 
@@ -44,6 +50,8 @@ const ROOT = path.join(__dirname, '..');
 const SUBMODULE = '.vibe-defaults';
 const CANON = 'origin/main';
 const FETCH_TIMEOUT_MS = 60_000;
+/** What the product actually ships from the set — the pointer exists to change this file. */
+const MANIFEST_REL = 'src/vs/workbench/contrib/vibeide/common/vibeDefaultsManifest.generated.ts';
 
 /**
  * Environment for git commands run INSIDE the submodule.
@@ -109,6 +117,20 @@ if (head[0] === '160000' && head[2] === pointer) {
 console.log('🔗 Указатель набора сидов: коммит обязан быть в main VibeBrains');
 console.log('─'.repeat(60));
 console.log(`указатель в индексе: ${pointer.slice(0, 9)} (был ${head[0] === '160000' ? head[2].slice(0, 9) : 'не задан'})`);
+
+// Cheap and local, so it goes before the network: a moved pointer must come with a moved manifest.
+// Checked against the INDEX being committed (the hook's own GIT_INDEX_FILE), not the working tree.
+if (head[0] === '160000') {
+	const diff = git(['diff', '--cached', '--quiet', 'HEAD', '--', MANIFEST_REL]);
+	if (diff.code === 0) {
+		fail('Указатель набора меняется, а сгенерированный манифест — нет.',
+			'Выполните `node scripts/gen-vibe-defaults.mjs` и закоммитьте манифест вместе с указателем. Если манифест и после этого не изменился — для продукта бамп ничего не меняет, и указатель двигать не нужно.');
+	}
+	if (diff.code !== 1) {
+		fail(`Не удалось сравнить манифест с HEAD (${diff.err.split('\n')[0] || `код ${diff.code}`}).`,
+			'Без этого сравнения гейт не может сказать, меняет ли бамп что-нибудь для продукта, — и не пропускает молча.');
+	}
+}
 
 const setDir = path.join(ROOT, SUBMODULE);
 const inSet = { env: submoduleEnv() };
