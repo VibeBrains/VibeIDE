@@ -1594,6 +1594,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 						inputTokens?: number; outputTokens?: number; totalTokens?: number;
 						promptTokens?: number; completionTokens?: number;
 						cachedInputTokens?: number;
+						inputTokenDetails?: { cacheWriteTokens?: number };
 					} | undefined;
 					if (u) {
 						const inTok = typeof u.inputTokens === 'number' ? u.inputTokens
@@ -1603,12 +1604,16 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 						const totTok = typeof u.totalTokens === 'number' ? u.totalTokens : undefined;
 						// AI SDK v5+ surfaces provider prompt-cache hits as `cachedInputTokens`.
 						const cachedTok = typeof u.cachedInputTokens === 'number' ? u.cachedInputTokens : undefined;
+						// AI SDK 6 reports cache WRITES apart, in `inputTokenDetails`, and counts them inside
+						// `inputTokens` — the whole prompt, for every provider.
+						const cacheWriteTok = typeof u.inputTokenDetails?.cacheWriteTokens === 'number' ? u.inputTokenDetails.cacheWriteTokens : undefined;
 						if (typeof inTok === 'number' || typeof outTok === 'number' || typeof totTok === 'number') {
 							lastUsage = {
 								promptTokens: typeof inTok === 'number' ? inTok : lastUsage?.promptTokens,
 								completionTokens: typeof outTok === 'number' ? outTok : lastUsage?.completionTokens,
 								totalTokens: typeof totTok === 'number' ? totTok : lastUsage?.totalTokens,
 								cachedInputTokens: typeof cachedTok === 'number' ? cachedTok : lastUsage?.cachedInputTokens,
+								cacheWriteTokens: typeof cacheWriteTok === 'number' ? cacheWriteTok : lastUsage?.cacheWriteTokens,
 							};
 						}
 						// One-time debug log: surface the exact shape returned by the

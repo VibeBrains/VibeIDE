@@ -200,7 +200,9 @@ export type AnthropicReasoning = ({ type: 'thinking'; thinking: string; signatur
 // `cachedInputTokens` — provider-reported prompt-cache hits (subset of promptTokens);
 // surfaced so the TokenBudget log shows whether cache-friendly prompt assembly works
 // (knowledge/roadmap/tokenEconomy.md, A).
-export type LLMTokenUsage = { promptTokens?: number; completionTokens?: number; totalTokens?: number; cachedInputTokens?: number };
+// `cacheWriteTokens` — prompt tokens written INTO the cache, also a subset of promptTokens: vendors
+// that charge for them bill above the input rate, so the spend ledger prices them apart.
+export type LLMTokenUsage = { promptTokens?: number; completionTokens?: number; totalTokens?: number; cachedInputTokens?: number; cacheWriteTokens?: number };
 
 export type OnText = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj }) => void;
 // `providerQuota` — the key's remaining rate-limit allowance as the provider reported it on the

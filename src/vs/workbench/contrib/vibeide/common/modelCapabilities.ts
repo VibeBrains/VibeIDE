@@ -155,6 +155,20 @@ export const defaultModelsOfProvider = {
 
 
 
+/**
+ * Price of a model, USD per million tokens — the ONE shape every consumer of money reads.
+ *
+ * The spend ledger once kept its own camelCase copy (`cacheRead`), was handed this object, found no
+ * `cacheRead` in it and billed every cached token at the full input rate. No type error said so:
+ * an optional field is not checked for excess keys when the object is not a fresh literal.
+ */
+export type ModelCost = {
+	input: number;
+	output: number;
+	cache_read?: number;
+	cache_write?: number;
+};
+
 export type VibeideStaticModelInfo = { // not stateful
 	// Void uses the information below to know how to handle each model.
 	// for some examples, see openAIModelOptions and anthropicModelOptions (below).
@@ -223,12 +237,7 @@ export type VibeideStaticModelInfo = { // not stateful
 
 
 	// --- below is just informative, not used in sending / receiving, cannot be customized in settings ---
-	cost: {
-		input: number;
-		output: number;
-		cache_read?: number;
-		cache_write?: number;
-	};
+	cost: ModelCost;
 	/**
 	 * Promotional pricing with a published end date.
 	 *
@@ -240,7 +249,7 @@ export type VibeideStaticModelInfo = { // not stateful
 	costSchedule?: {
 		/** ISO date or a full instant — vendor deadlines are announced in local time. */
 		readonly validUntil: string;
-		readonly after: { input: number; output: number; cache_read?: number; cache_write?: number };
+		readonly after: ModelCost;
 		/** Where it was announced, so the claim can be checked rather than believed. */
 		readonly note?: string;
 	};

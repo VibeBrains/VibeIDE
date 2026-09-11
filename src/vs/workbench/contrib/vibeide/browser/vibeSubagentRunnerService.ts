@@ -480,6 +480,7 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 					inputTokens: usage.promptTokens ?? 0,
 					outputTokens: usage.completionTokens ?? 0,
 					cachedInputTokens: usage.cachedInputTokens ?? 0,
+					cacheWriteTokens: usage.cacheWriteTokens ?? 0,
 					price: capabilities.cost,
 				});
 			} catch (err) {

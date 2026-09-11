@@ -17,7 +17,6 @@ import {
 	SpendAnomaly,
 	emptyLedger,
 	entriesInWindow,
-	ModelPrice,
 	parseLedger,
 	recordSpend,
 	SpendEntry,
@@ -25,6 +24,7 @@ import {
 	SpendTotals,
 	totalsOf,
 } from '../common/spendLedger.js';
+import type { ModelCost } from '../common/modelCapabilities.js';
 
 /** Where the ledger lives. APPLICATION scope: the bill follows the user, not the folder. */
 const SPEND_STORAGE_KEY = 'vibeide.spendLedger';
@@ -42,7 +42,8 @@ export interface IVibeSpendLedgerService {
 		inputTokens: number;
 		outputTokens: number;
 		cachedInputTokens?: number;
-		price?: ModelPrice;
+		cacheWriteTokens?: number;
+		price?: ModelCost;
 	}): void;
 	/** Entries of the last `days` days (day 1 = today), newest day first. */
 	window(days: number): SpendEntry[];
@@ -87,7 +88,8 @@ class VibeSpendLedgerService extends Disposable implements IVibeSpendLedgerServi
 		inputTokens: number;
 		outputTokens: number;
 		cachedInputTokens?: number;
-		price?: ModelPrice;
+		cacheWriteTokens?: number;
+		price?: ModelCost;
 	}): void {
 		// An exchange with no tokens carries no cost and no signal — recording it would only
 		// inflate the request count with aborts and early timeouts.
