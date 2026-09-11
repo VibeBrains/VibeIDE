@@ -26,8 +26,14 @@
  * Without network it WARNS and lets the commit through: blocking offline work teaches people to
  * bypass the hook, and the push of VibeIDE itself is still ahead of them.
  *
- * Usage: node scripts/vibe-seeds-pointer.ts — lint-staged runs it when `.vibe-defaults` is staged;
- * the paths it appends are ignored.
+ * WHY it runs from the `precommit` chain and not from lint-staged: lint-staged drops submodules by
+ * design — `getStagedFiles.js` filters out mode 160000 («Filter out submodules and symlinks»), so a
+ * lint-staged task keyed on `.vibe-defaults` is registered and never fires. Found by a live run, not
+ * by reading the config: the task sat in the list while two opposite pointers both passed silently.
+ * Running on every commit means the ordinary case — pointer untouched — must cost nothing, hence the
+ * first check below needs neither network nor the submodule.
+ *
+ * Usage: node scripts/vibe-seeds-pointer.ts
  */
 
 // `scripts/package.json` pins CommonJS, so this file uses require() like its neighbours.
@@ -56,9 +62,6 @@ function fail(message: string, fix: string): never {
 	process.exit(1);
 }
 
-console.log('🔗 Указатель набора сидов: коммит обязан быть в main VibeBrains');
-console.log('─'.repeat(60));
-
 // `160000 <sha> 0\t.vibe-defaults` — mode 160000 is a gitlink; anything else is not a submodule.
 const staged = git(['ls-files', '--stage', '--', SUBMODULE]).out.split(/\s+/);
 if (staged[0] !== '160000' || !/^[0-9a-f]{40}$/.test(staged[1] ?? '')) {
@@ -66,7 +69,18 @@ if (staged[0] !== '160000' || !/^[0-9a-f]{40}$/.test(staged[1] ?? '')) {
 		'Если набор убирается из проекта намеренно, это отдельное решение, а не бамп указателя.');
 }
 const pointer = staged[1];
-console.log(`указатель в индексе: ${pointer.slice(0, 9)}`);
+
+// `160000 commit <sha>\t.vibe-defaults`. Unchanged pointer — nothing to judge, and no reason to touch
+// the network on a commit that does not move it. A missing HEAD (first commit) falls through to a check.
+const head = git(['ls-tree', 'HEAD', '--', SUBMODULE]).out.split(/\s+/);
+if (head[0] === '160000' && head[2] === pointer) {
+	console.log(`🔗 Указатель набора не менялся (${pointer.slice(0, 9)}) — проверять нечего.`);
+	process.exit(0);
+}
+
+console.log('🔗 Указатель набора сидов: коммит обязан быть в main VibeBrains');
+console.log('─'.repeat(60));
+console.log(`указатель в индексе: ${pointer.slice(0, 9)} (был ${head[0] === '160000' ? head[2].slice(0, 9) : 'не задан'})`);
 
 if (git(['rev-parse', '--git-dir'], path.join(ROOT, SUBMODULE)).code !== 0) {
 	warnAndPass(`подмодуль ${SUBMODULE} не инициализирован — сверять не с чем.`);
