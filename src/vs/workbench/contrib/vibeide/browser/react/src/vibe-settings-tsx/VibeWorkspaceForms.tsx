@@ -50,6 +50,7 @@ import {
 	VIBE_CONSTRAINTS_JSON_EXAMPLE,
 	VIBE_GENERIC_ROOT_JSON_EXAMPLE,
 	VIBE_GOALS_FORM_EXAMPLE,
+	VIBE_PERMISSIONS_JSON_EXAMPLE,
 	VIBE_PINNED_JSON_EXAMPLE,
 } from './vibeSettingsRu.js';
 
@@ -98,6 +99,8 @@ function rootJsonExampleSnippet(basename: string): string {
 			return VIBE_PINNED_JSON_EXAMPLE;
 		case 'agent-locks.json':
 			return VIBE_AGENT_LOCKS_JSON_EXAMPLE;
+		case 'permissions.json':
+			return VIBE_PERMISSIONS_JSON_EXAMPLE;
 		default:
 			return VIBE_GENERIC_ROOT_JSON_EXAMPLE;
 	}

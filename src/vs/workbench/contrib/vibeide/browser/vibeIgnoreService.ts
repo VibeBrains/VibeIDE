@@ -14,12 +14,13 @@
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
-import { joinPath, relativePath } from '../../../../base/common/resources.js';
+import { joinPath } from '../../../../base/common/resources.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { createIgnoreMatcher, IgnoreMatcher } from '../common/vibeIgnore.js';
+import { DENY_RULES_IGNORE_CASE, pathUnder } from '../common/agentPathResolution.js';
 import { vibeLog } from '../common/vibeLog.js';
 
 export const IVibeIgnoreService = createDecorator<IVibeIgnoreService>('vibeIgnoreService');
@@ -71,7 +72,7 @@ class VibeIgnoreService extends Disposable implements IVibeIgnoreService {
 		if (!uri) { this._matcher = undefined; this._onDidChange.fire(); return; }
 		try {
 			const buf = await this._fileService.readFile(uri);
-			this._matcher = createIgnoreMatcher(buf.value.toString());
+			this._matcher = createIgnoreMatcher(buf.value.toString(), { ignoreCase: DENY_RULES_IGNORE_CASE });
 			vibeLog.debug('VibeIgnore', `.vibe/ignore loaded: ${this._matcher.ruleCount} rule(s)`);
 		} catch {
 			this._matcher = undefined; // absent/unreadable → ignore nothing (never block on error)
@@ -83,9 +84,10 @@ class VibeIgnoreService extends Disposable implements IVibeIgnoreService {
 		const matcher = this._matcher;
 		const root = this._root;
 		if (!matcher || !root) { return false; }
-		const rel = relativePath(root, uri);
-		// Outside the workspace (undefined or escaping `..`) → not governed by the project's ignore file.
-		if (rel === undefined || rel === '' || rel.startsWith('..')) { return false; }
+		// A deny list, so the root is matched the way the filesystem matches it: on APFS a model that
+		// wrote `/users/…` still names a file under `/Users/…`. Outside the workspace → not governed.
+		const rel = pathUnder(root, uri, DENY_RULES_IGNORE_CASE);
+		if (rel === undefined || rel === '') { return false; }
 		return matcher.isIgnored(rel);
 	}
 }

@@ -5,7 +5,8 @@
 
 import { URI } from '../../../../base/common/uri.js';
 import { isAbsolute } from '../../../../base/common/path.js';
-import { isEqualOrParent, joinPath, normalizePath } from '../../../../base/common/resources.js';
+import { isLinux } from '../../../../base/common/platform.js';
+import { extUri, extUriIgnorePathCase, isEqualOrParent, joinPath, normalizePath } from '../../../../base/common/resources.js';
 
 /** A workspace root as the agent's path resolution sees it. */
 export interface AgentPathRoot {
@@ -61,4 +62,26 @@ export function resolveAgentPath(raw: string, roots: readonly AgentPathRoot[]): 
 		}
 	}
 	return normalizePath(uri);
+}
+
+/**
+ * Deny rules compare paths ignoring case wherever the filesystem does.
+ *
+ * On APFS and NTFS `Secrets/` and `secrets/` are one folder, so a deny rule written one way must
+ * catch the other — a case-sensitive check let `/proj/Raw/x.md` into a source folder declared as
+ * `raw`. Linux keeps them apart. Allow rules never fold case: a mismatch there can only refuse.
+ */
+export const DENY_RULES_IGNORE_CASE = !isLinux;
+
+/**
+ * `uri` relative to `root`, or undefined when it is not under it — a sibling that merely shares a
+ * prefix (`/ws-evil` next to `/ws`) is not. Unlike `relativePath` from resources this honours
+ * `ignoreCase` for `file:` URIs too: that one defers to `path.relative`, which compares
+ * case-sensitively on macOS whatever the flag says.
+ */
+export function pathUnder(root: URI, uri: URI, ignoreCase: boolean): string | undefined {
+	if (!(ignoreCase ? extUriIgnorePathCase : extUri).isEqualOrParent(uri, root)) {
+		return undefined;
+	}
+	return uri.path.slice(root.path.replace(/\/+$/, '').length).replace(/^\/+/, '');
 }

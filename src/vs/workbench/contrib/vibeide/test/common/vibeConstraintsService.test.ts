@@ -24,6 +24,17 @@ suite('VibeConstraintsService — pure helpers', () => {
 		test('case-sensitive', () => {
 			assert.strictEqual(matchConstraintPattern('Src/Auth/Login.ts', '**/auth/**'), false);
 		});
+		/**
+		 * A deny rule folds case on request (on APFS `Auth/` is `auth/`), and every rule compares in NFC:
+		 * `й` is one code point or two depending on who wrote the name. Routing rules share this matcher
+		 * and keep the exact default.
+		 */
+		test('ignoreCase folds case; NFC always', () => {
+			assert.deepStrictEqual({
+				регистр: matchConstraintPattern('Src/Auth/Login.ts', '**/auth/**', true),
+				nfc: matchConstraintPattern('docs/и\u0306/x.md', 'docs/й/**'),
+			}, { регистр: true, nfc: true });
+		});
 		test('returns false for malformed pattern (regex escape catches it)', () => {
 			// Constructing a pattern that yields invalid regex would normally throw; the
 			// helper escapes special chars before substituting glob metas, so invalid input
@@ -68,6 +79,14 @@ suite('VibeConstraintsService — pure helpers', () => {
 			const r = findDenyingConstraint('foo.ts', 'deny_write',
 				[{ type: 'deny_write' }]);
 			assert.strictEqual(r, null);
+		});
+
+		/** `Secrets/` written with a capital must not walk past `secrets/**` where they are one folder. */
+		test('deny rules fold case when the filesystem does', () => {
+			assert.deepStrictEqual({
+				свёрнуто: findDenyingConstraint('Secrets/key.pem', 'deny_read', rules, true)?.message,
+				точно: findDenyingConstraint('Secrets/key.pem', 'deny_read', rules, false),
+			}, { свёрнуто: 'secrets are off-limits', точно: null });
 		});
 	});
 

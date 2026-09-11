@@ -32,7 +32,7 @@ export interface IgnoreRule {
 const escapeRe = (c: string): string => /[.+^${}()|[\]\\]/.test(c) ? '\\' + c : c;
 
 /** Translate one gitignore pattern body (no leading `!`, no trailing `/`) into a RegExp. */
-function patternToRegExp(pattern: string, anchored: boolean): RegExp {
+function patternToRegExp(pattern: string, anchored: boolean, ignoreCase: boolean): RegExp {
 	let out = '';
 	for (let i = 0; i < pattern.length;) {
 		const c = pattern[i];
@@ -46,11 +46,15 @@ function patternToRegExp(pattern: string, anchored: boolean): RegExp {
 	}
 	const prefix = anchored ? '^' : '(?:^|.*/)';
 	// `(?:/.*)?$` so ignoring `dir` (or `dir/`) also ignores everything under it.
-	return new RegExp(prefix + out + '(?:/.*)?$');
+	return new RegExp(prefix + out + '(?:/.*)?$', ignoreCase ? 'i' : '');
 }
 
-/** Parse `.vibe/ignore` content into ordered rules (order matters — last match wins). */
-export function parseIgnore(content: string): IgnoreRule[] {
+/**
+ * Parse `.vibe/ignore` content into ordered rules (order matters — last match wins). Patterns are
+ * taken in NFC; `ignoreCase` folds case in every rule — for deny lists, where on APFS and NTFS
+ * `Dist/` is `dist/`.
+ */
+export function parseIgnore(content: string, ignoreCase = false): IgnoreRule[] {
 	const rules: IgnoreRule[] = [];
 	for (const raw of content.split(/\r?\n/)) {
 		let line = raw.replace(/^\s+/, '');                  // leading whitespace is not significant
@@ -64,7 +68,7 @@ export function parseIgnore(content: string): IgnoreRule[] {
 		if (hadLeadingSlash) { line = line.slice(1); }
 		if (line === '') { continue; }
 		const anchored = hadLeadingSlash || line.includes('/');
-		rules.push({ negate, source: line, re: patternToRegExp(line, anchored) });
+		rules.push({ negate, source: line, re: patternToRegExp(line.normalize('NFC'), anchored, ignoreCase) });
 	}
 	return rules;
 }
@@ -75,12 +79,17 @@ export interface IgnoreMatcher {
 	readonly ruleCount: number;
 }
 
-export function createIgnoreMatcher(content: string): IgnoreMatcher {
-	const rules = parseIgnore(content);
+export interface IgnoreMatcherOptions {
+	/** Fold case in every rule. For deny lists only — see `DENY_RULES_IGNORE_CASE`. */
+	readonly ignoreCase?: boolean;
+}
+
+export function createIgnoreMatcher(content: string, options: IgnoreMatcherOptions = {}): IgnoreMatcher {
+	const rules = parseIgnore(content, options.ignoreCase ?? false);
 	return {
 		ruleCount: rules.length,
 		isIgnored(relPath: string): boolean {
-			const p = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
+			const p = relPath.replace(/\\/g, '/').replace(/^\/+/, '').normalize('NFC');
 			if (p === '') { return false; }
 			let ignored = false;
 			for (const r of rules) {

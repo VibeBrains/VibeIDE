@@ -8,6 +8,7 @@ import * as assert from 'assert';
 import {
 	canReadWithPermissions,
 	canWriteWithPermissions,
+	isDeniedByPermissions,
 	matchPermissionPattern,
 } from '../../common/vibePerFilePermissionsService.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
@@ -92,6 +93,31 @@ suite('VibePerFilePermissionsService — pure helpers', () => {
 				{ allow_read: ['src/**'] }), true);
 			assert.strictEqual(canReadWithPermissions('node_modules/bar/index.js',
 				{ allow_read: ['src/**'] }), false);
+		});
+	});
+
+	/**
+	 * Deny and allow are separate questions: a symlink gives one file several names, a deny must hold
+	 * for every one of them, an allow only for the place the file really is.
+	 */
+	suite('isDeniedByPermissions', () => {
+		const permissions = { deny_write: ['.env'], deny_read: ['secrets/**'], allow_write: ['src/**'] };
+
+		test('answers only the deny half, per access', () => {
+			assert.deepStrictEqual({
+				запись: isDeniedByPermissions('.env', permissions, 'write', false),
+				чтение: isDeniedByPermissions('secrets/k', permissions, 'read', false),
+				мимоСписка: isDeniedByPermissions('lib/x.ts', permissions, 'write', false),
+				чужойСписок: isDeniedByPermissions('secrets/k', permissions, 'write', false),
+			}, { запись: true, чтение: true, мимоСписка: false, чужойСписок: false });
+		});
+
+		test('deny folds case when asked; allow never does', () => {
+			assert.deepStrictEqual({
+				запретСвёрнут: canWriteWithPermissions('.ENV', permissions, true),
+				разрешениеТочное: canWriteWithPermissions('SRC/a.ts', permissions, true),
+				разрешениеСовпало: canWriteWithPermissions('src/a.ts', permissions, true),
+			}, { запретСвёрнут: false, разрешениеТочное: false, разрешениеСовпало: true });
 		});
 	});
 });

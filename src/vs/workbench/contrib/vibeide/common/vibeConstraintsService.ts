@@ -17,6 +17,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { parseConfigJsonOrDefaults } from './vibeConfigJsonParser.js';
+import { DENY_RULES_IGNORE_CASE } from './agentPathResolution.js';
 
 export interface VibeConstraintRule {
 	type: 'deny_write' | 'deny_read' | 'max_lines_per_function' | 'deny_age';
@@ -77,11 +78,13 @@ export class ConstraintViolationError extends Error {
 /**
  * Pure helper. Glob-like match with `*` (single segment), `**` (cross segment), `?` (single char).
  * Anchored to path-segment boundaries via `(^|/)` ... `($|/)`. Returns false on invalid pattern
- * instead of throwing.
+ * instead of throwing. Both sides are compared in NFC — `й` has two byte spellings, and a rule must
+ * not depend on which one the filesystem returned; `ignoreCase` is for deny rules only (routing
+ * rules share this matcher and stay exact).
  */
-export function matchConstraintPattern(filePath: string, pattern: string): boolean {
-	const normalizedPath = filePath.replace(/\\/g, '/');
-	const normalizedPattern = pattern.replace(/\\/g, '/');
+export function matchConstraintPattern(filePath: string, pattern: string, ignoreCase = false): boolean {
+	const normalizedPath = filePath.replace(/\\/g, '/').normalize('NFC');
+	const normalizedPattern = pattern.replace(/\\/g, '/').normalize('NFC');
 	const regexStr = normalizedPattern
 		.replace(/[.+^${}()|[\]\\]/g, '\\$&')
 		.replace(/\*\*\//g, '§DOUBLESTARSLASH§')
@@ -91,7 +94,7 @@ export function matchConstraintPattern(filePath: string, pattern: string): boole
 		.replace(/§DOUBLESTARSLASH§/g, '(?:.*/)?')
 		.replace(/§DOUBLESTAR§/g, '.*');
 	try {
-		return new RegExp(`(^|/)${regexStr}($|/)`).test(normalizedPath);
+		return new RegExp(`(^|/)${regexStr}($|/)`, ignoreCase ? 'i' : '').test(normalizedPath);
 	} catch {
 		return false;
 	}
@@ -99,16 +102,18 @@ export function matchConstraintPattern(filePath: string, pattern: string): boole
 
 /**
  * Pure helper. Returns the first deny rule that matches `filePath` for `kind`,
- * or null if no rule denies. Caller is responsible for throwing.
+ * or null if no rule denies. Caller is responsible for throwing. Every rule asked here is a deny
+ * rule, so case is folded wherever the filesystem folds it.
  */
 export function findDenyingConstraint(
 	filePath: string,
 	kind: 'deny_write' | 'deny_read',
 	rules: VibeConstraintRule[],
+	ignoreCase = DENY_RULES_IGNORE_CASE,
 ): VibeConstraintRule | null {
 	const normalized = filePath.replace(/\\/g, '/');
 	for (const rule of rules) {
-		if (rule.type === kind && rule.pattern && matchConstraintPattern(normalized, rule.pattern)) {
+		if (rule.type === kind && rule.pattern && matchConstraintPattern(normalized, rule.pattern, ignoreCase)) {
 			return rule;
 		}
 	}

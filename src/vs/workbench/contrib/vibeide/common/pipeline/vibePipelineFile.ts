@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { createIgnoreMatcher } from '../vibeIgnore.js';
+import { DENY_RULES_IGNORE_CASE } from '../agentPathResolution.js';
 
 /**
  * Pipelines — a sequence of agent steps where each step picks up what the previous one produced.
@@ -180,10 +181,12 @@ function patternList(raw: unknown): string[] | undefined {
  * would need the workspace root, and a matcher that silently answers «allowed» for anything it does
  * not understand is the wrong kind of wrong.
  */
-export function stepMayWrite(step: Pick<VibePipelineStep, 'paths' | 'denyPaths'>, relPath: string): boolean {
+export function stepMayWrite(step: Pick<VibePipelineStep, 'paths' | 'denyPaths'>, relPath: string, denyIgnoresCase = DENY_RULES_IGNORE_CASE): boolean {
 	const normalised = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
 	if (normalised === '') { return false; }
-	if (step.denyPaths && createIgnoreMatcher(step.denyPaths.join('\n')).isIgnored(normalised)) {
+	// Denies fold case wherever the filesystem does; the allow list stays exact — a mismatch there
+	// can only refuse.
+	if (step.denyPaths && createIgnoreMatcher(step.denyPaths.join('\n'), { ignoreCase: denyIgnoresCase }).isIgnored(normalised)) {
 		return false;
 	}
 	if (!step.paths) {

@@ -7,7 +7,7 @@ import assert from 'assert';
 import { isWindows } from '../../../../../base/common/platform.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { resolveAgentPath } from '../../common/agentPathResolution.js';
+import { pathUnder, resolveAgentPath } from '../../common/agentPathResolution.js';
 
 /**
  * Путь агента разворачивается до любой проверки.
@@ -70,5 +70,20 @@ import { resolveAgentPath } from '../../common/agentPathResolution.js';
 
 	test('без рабочей области путь остаётся как есть, но развёрнутым', () => {
 		assert.strictEqual(resolveAgentPath('/a/b/../c', []).fsPath, '/a/c');
+	});
+
+	/**
+	 * «Под корнем» — только по границе папки, и регистр сворачивается, только когда попросили: для
+	 * запретов на APFS `/proj` и `/Proj` — одна папка, для разрешений — нет.
+	 */
+	test('pathUnder: граница папки и регистр', () => {
+		const proj = URI.file('/Proj');
+		assert.deepStrictEqual({
+			внутри: pathUnder(proj, URI.file('/Proj/src/a.ts'), false),
+			корень: pathUnder(proj, URI.file('/Proj'), false),
+			сосед: pathUnder(proj, URI.file('/Proj-evil/a.ts'), false),
+			регистрТочно: pathUnder(proj, URI.file('/proj/src/a.ts'), false),
+			регистрСвёрнут: pathUnder(proj, URI.file('/proj/src/a.ts'), true),
+		}, { внутри: 'src/a.ts', корень: '', сосед: undefined, регистрТочно: undefined, регистрСвёрнут: 'src/a.ts' });
 	});
 });

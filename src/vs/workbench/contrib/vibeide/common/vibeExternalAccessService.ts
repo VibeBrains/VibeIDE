@@ -6,7 +6,8 @@
 
 import { localize } from '../../../../nls.js';
 import { URI } from '../../../../base/common/uri.js';
-import { isLinux, isWindows } from '../../../../base/common/platform.js';
+import { isWindows } from '../../../../base/common/platform.js';
+import { DENY_RULES_IGNORE_CASE } from './agentPathResolution.js';
 import { posix } from '../../../../base/common/path.js';
 import { dirname } from '../../../../base/common/resources.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
@@ -153,12 +154,8 @@ export class VibeExternalAccessService extends Disposable implements IVibeExtern
 
 	/** Allow-lists compare exactly on case-sensitive platforms: a mismatch can only err towards refusal. */
 	private readonly _caseSensitive = !isWindows;
-	/**
-	 * Deny-lists compare case-INSENSITIVELY wherever the filesystem is: APFS and NTFS treat `Raw/` and
-	 * `raw/` as one folder, so a case-sensitive deny check on macOS let `/proj/Raw/x.md` be written
-	 * into a source folder declared as `raw`. Only Linux is treated as case-sensitive.
-	 */
-	private readonly _denyCaseSensitive = isLinux;
+	/** Deny-lists fold case wherever the filesystem does — one rule for every deny list, see there. */
+	private readonly _denyCaseSensitive = !DENY_RULES_IGNORE_CASE;
 	// Session scope is intentionally NOT persisted — cleared on reload (least-privilege default).
 	private readonly _session = new Set<string>();
 	// Dedup concurrent prompts for the same folder (parallel tools hitting one dir → one modal).

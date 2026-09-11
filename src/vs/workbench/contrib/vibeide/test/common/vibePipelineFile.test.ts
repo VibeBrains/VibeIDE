@@ -254,5 +254,14 @@ suite('vibePipelineFile — каскад и критика', () => {
 		test('пустой путь закрыт', () => {
 			assert.strictEqual(stepMayWrite(step(['src/**']), ''), false);
 		});
+
+		/** Запрет сворачивает регистр там, где его сворачивает файловая система; разрешение — никогда. */
+		test('запрет не обходится регистром, разрешение точное', () => {
+			const impl = step(['src/**'], ['**/secrets/**']);
+			assert.deepStrictEqual({
+				секретДругимРегистром: stepMayWrite(impl, 'src/Secrets/key.ts', true),
+				разрешениеДругимРегистром: stepMayWrite(impl, 'SRC/app.ts', true),
+			}, { секретДругимРегистром: false, разрешениеДругимРегистром: false });
+		});
 	});
 });

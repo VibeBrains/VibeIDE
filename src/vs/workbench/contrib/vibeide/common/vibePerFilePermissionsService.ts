@@ -14,8 +14,10 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { URI } from '../../../../base/common/uri.js';
-import { joinPath } from '../../../../base/common/resources.js';
+import { dirname, joinPath } from '../../../../base/common/resources.js';
+import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { parseConfigJsonOrDefaults } from './vibeConfigJsonParser.js';
+import { DENY_RULES_IGNORE_CASE } from './agentPathResolution.js';
 
 export interface VibePermissions {
 	vibeVersion?: string;
@@ -37,6 +39,13 @@ export interface IVibePerFilePermissionsService {
 	canRead(filePath: string): boolean;
 
 	/**
+	 * Whether a deny list names this path — the half of `canWrite`/`canRead` that must hold for EVERY
+	 * name of a file (a symlink gives one file several). The allow half is asked only about the place
+	 * the file really is.
+	 */
+	isDenied(filePath: string, access: 'read' | 'write'): boolean;
+
+	/**
 	 * The loaded permission set. `canWrite`/`canRead` answer for one path; the launch preflight
 	 * reports the whole picture before a path is even chosen.
 	 */
@@ -52,48 +61,61 @@ export interface IVibePerFilePermissionsService {
  * `**` matches across segments. A double-star-then-slash token collapses to zero-or-more
  * segments so a "src/[double-star]/foo.ts" pattern also matches "src/foo.ts". Single-star
  * and `?` exclude both `/` and `\` so a glob never silently spans a Windows path
- * separator. Anchored to path-segment boundaries via `(^|/)` ... `($|/)`.
+ * separator. Anchored to path-segment boundaries via `(^|/)` ... `($|/)`. Both sides are compared
+ * in NFC; `ignoreCase` is for deny lists only (see `isDeniedByPermissions`).
  */
-export function matchPermissionPattern(filePath: string, pattern: string): boolean {
-	const regexStr = pattern.replace(/\\/g, '/')
+export function matchPermissionPattern(filePath: string, pattern: string, ignoreCase = false): boolean {
+	const regexStr = pattern.replace(/\\/g, '/').normalize('NFC')
 		.replace(/[.+^${}()|[\]\\]/g, '\\$&')
 		.replace(/\*\*\//g, '§DSS§').replace(/\*\*/g, '§DS§')
 		.replace(/\*/g, '[^/\\\\]*').replace(/\?/g, '[^/\\\\]')
 		.replace(/§DSS§/g, '(?:.*/)?').replace(/§DS§/g, '.*');
 	try {
-		return new RegExp(`(^|/)${regexStr}($|/)`).test(filePath);
+		return new RegExp(`(^|/)${regexStr}($|/)`, ignoreCase ? 'i' : '').test(filePath.normalize('NFC'));
 	} catch {
 		return false;
 	}
 }
 
 /**
- * Pure decision: given the user's `permissions` doc and a filesystem path, returns
- * whether write is allowed. Independent of IFileService / DI.
+ * Pure decision: does a deny list of `permissions` name this path.
+ *
+ * Kept apart from the allow half because the two are asked about different names of one file: a
+ * symlink gives it several, a deny must hold for every one of them, an allow only for the place the
+ * file really is. Deny lists fold case wherever the filesystem does (`DENY_RULES_IGNORE_CASE`).
  */
-export function canWriteWithPermissions(filePath: string, permissions: VibePermissions): boolean {
+export function isDeniedByPermissions(filePath: string, permissions: VibePermissions, access: 'read' | 'write', ignoreCase = DENY_RULES_IGNORE_CASE): boolean {
 	const normalized = filePath.replace(/\\/g, '/');
-	if (permissions.deny_write?.some(p => matchPermissionPattern(normalized, p))) {
+	const deny = access === 'write' ? permissions.deny_write : permissions.deny_read;
+	return !!deny?.some(p => matchPermissionPattern(normalized, p, ignoreCase));
+}
+
+/** Deny first, then the allow list if one is set; no allow list means everything not denied. */
+function allowedByPermissions(filePath: string, permissions: VibePermissions, access: 'read' | 'write', denyIgnoresCase: boolean): boolean {
+	if (isDeniedByPermissions(filePath, permissions, access, denyIgnoresCase)) {
 		return false;
 	}
-	if (permissions.allow_write && permissions.allow_write.length > 0) {
-		return permissions.allow_write.some(p => matchPermissionPattern(normalized, p));
+	const allow = access === 'write' ? permissions.allow_write : permissions.allow_read;
+	if (allow && allow.length > 0) {
+		const normalized = filePath.replace(/\\/g, '/');
+		return allow.some(p => matchPermissionPattern(normalized, p));
 	}
 	return true;
 }
 
 /**
+ * Pure decision: given the user's `permissions` doc and a filesystem path, returns
+ * whether write is allowed. Independent of IFileService / DI.
+ */
+export function canWriteWithPermissions(filePath: string, permissions: VibePermissions, denyIgnoresCase = DENY_RULES_IGNORE_CASE): boolean {
+	return allowedByPermissions(filePath, permissions, 'write', denyIgnoresCase);
+}
+
+/**
  * Pure decision: read counterpart of `canWriteWithPermissions`.
  */
-export function canReadWithPermissions(filePath: string, permissions: VibePermissions): boolean {
-	const normalized = filePath.replace(/\\/g, '/');
-	if (permissions.deny_read?.some(p => matchPermissionPattern(normalized, p))) {
-		return false;
-	}
-	if (permissions.allow_read && permissions.allow_read.length > 0) {
-		return permissions.allow_read.some(p => matchPermissionPattern(normalized, p));
-	}
-	return true;
+export function canReadWithPermissions(filePath: string, permissions: VibePermissions, denyIgnoresCase = DENY_RULES_IGNORE_CASE): boolean {
+	return allowedByPermissions(filePath, permissions, 'read', denyIgnoresCase);
 }
 
 /**
@@ -105,6 +127,7 @@ class VibePerFilePermissionsService extends Disposable implements IVibePerFilePe
 	declare readonly _serviceBrand: undefined;
 
 	private _permissions: VibePermissions = {};
+	private readonly _reloadScheduler: RunOnceScheduler;
 
 	constructor(
 		@IFileService private readonly _fileService: IFileService,
@@ -112,6 +135,8 @@ class VibePerFilePermissionsService extends Disposable implements IVibePerFilePe
 		@INotificationService private readonly _notificationService: INotificationService,
 	) {
 		super();
+		this._reloadScheduler = this._register(new RunOnceScheduler(() => this.reload(), 500));
+		this._watch();
 		this.reload();
 	}
 
@@ -119,11 +144,30 @@ class VibePerFilePermissionsService extends Disposable implements IVibePerFilePe
 		return this._permissions;
 	}
 
-	async reload(): Promise<void> {
-		const folders = this._workspaceContextService.getWorkspace().folders;
-		if (folders.length === 0) { return; }
+	private _permissionsUri(): URI | undefined {
+		const folder = this._workspaceContextService.getWorkspace().folders[0]?.uri;
+		return folder ? joinPath(folder, '.vibe', 'permissions.json') : undefined;
+	}
 
-		const uri = joinPath(folders[0].uri, '.vibe', 'permissions.json');
+	/**
+	 * Picks up an edit without a window reload. These rules gate every read and write of the agent,
+	 * and a rule that works only after a restart looks broken to whoever just saved it —
+	 * constraints.json has always been reloaded this way, permissions.json was read once. The folder
+	 * is watched rather than the file, so creating the file is noticed too.
+	 */
+	private _watch(): void {
+		const uri = this._permissionsUri();
+		if (!uri) { return; }
+		const watcher = this._register(this._fileService.createWatcher(dirname(uri), { recursive: false, excludes: [] }));
+		this._register(watcher.onDidChange(e => {
+			if (e.contains(uri)) { this._reloadScheduler.schedule(); }
+		}));
+	}
+
+	async reload(): Promise<void> {
+		const uri = this._permissionsUri();
+		if (!uri) { return; }
+
 		let raw: string | undefined;
 		try {
 			const content = await this._fileService.readFile(uri);
@@ -170,6 +214,10 @@ class VibePerFilePermissionsService extends Disposable implements IVibePerFilePe
 
 	canRead(filePath: string): boolean {
 		return canReadWithPermissions(filePath, this._permissions);
+	}
+
+	isDenied(filePath: string, access: 'read' | 'write'): boolean {
+		return isDeniedByPermissions(filePath, this._permissions, access);
 	}
 }
 
