@@ -2991,6 +2991,7 @@ const titleOfBuiltinToolName = {
 	'expand_output': { done: 'Развернул свёрнутый вывод', proposed: 'Развернуть свёрнутый вывод', running: loadingTitleWrapper('Разворачивает вывод') },
 	'learning_state': { done: 'Посмотрел прогресс обучения', proposed: 'Посмотреть прогресс обучения', running: loadingTitleWrapper('Смотрит прогресс обучения') },
 	'learning_record': { done: 'Записал след урока', proposed: 'Записать след урока', running: loadingTitleWrapper('Записывает след урока') },
+	'tasks': { done: 'Поработал со списком задач', proposed: 'Поработать со списком задач', running: loadingTitleWrapper('Работает со списком задач') },
 } as const satisfies Record<BuiltinToolName, { done: any; proposed: any; running: any }>;
 
 
