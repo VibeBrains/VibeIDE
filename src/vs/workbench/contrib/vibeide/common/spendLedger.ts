@@ -216,7 +216,7 @@ export function byProvider(entries: SpendEntry[]): Array<{ providerId: string; t
 export function byModel(entries: SpendEntry[]): Array<{ providerId: string; modelId: string; totals: SpendTotals }> {
 	const map = new Map<string, { providerId: string; modelId: string; totals: SpendTotals }>();
 	for (const e of entries) {
-		const key = `${e.providerId} ${e.modelId}`;
+		const key = `${e.providerId}\u0000${e.modelId}`;
 		const prev = map.get(key) ?? { providerId: e.providerId, modelId: e.modelId, totals: emptyTotals() };
 		map.set(key, { ...prev, totals: addInto(prev.totals, e) });
 	}

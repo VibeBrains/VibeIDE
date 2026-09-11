@@ -2526,7 +2526,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				// hash; on a miss use the textual body THIS turn and fill the cache in the background.
 				let summaryBody = textualBody;
 				if (this.configurationService.getValue<boolean>('vibeide.chat.historySummaryLLM') === true) {
-					const headKey = String(hash(head.map(m => `${m.role}:${m.content}`).join(' ')));
+					const headKey = String(hash(head.map(m => `${m.role}:${m.content}`).join('\u0000')));
 					const cachedLLM = this._historySummaryCache.get(headKey);
 					if (cachedLLM) {
 						summaryBody = `${pinnedOriginal}Prior conversation summarized (${head.length} older messages; ${keep.length} kept in full incl. pinned). Key points:\n${cachedLLM}`;
