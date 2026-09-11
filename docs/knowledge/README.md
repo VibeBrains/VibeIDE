@@ -140,6 +140,7 @@
 | [updateService.md](build/updateService.md) | GitHub releases + `IUpdateService`, semver сравнение |
 | [vibeKeybindings.md](build/vibeKeybindings.md) | Встроенный IntelliJ-keymap `extensions/vibe-keybindings/`; модель владения keymap + история |
 | [thirdPartyLicensing.md](build/thirdPartyLicensing.md) | Провенанс-флажок ДО сборки/релиза: сторонний код = поднять лицензию явно, не доводить молча до релиза |
+| [githubActionsPins.md](build/githubActionsPins.md) | GitHub Actions: `checkout` и `setup-node` — v6 по SHA из `pr.yml` во всех workflow (82 ссылки, 33 файла). Что сверено перед сменой мажора: раннер не старше v2.327.1, учётные данные checkout v6 в `$RUNNER_TEMP` (`git push` в `run:` не задет), автокэш setup-node только при `packageManager`. Грабля — ссылка в кавычках: комментарий становится частью строки. Долг — четыре actions ещё на Node 20 |
 
 ### [gitAndTools/](gitAndTools/) — git, скрипты, инструменты
 

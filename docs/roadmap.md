@@ -5253,6 +5253,17 @@ prompts, tools, and preceding messages») действует на API-аккау
       как раз в `.md`. В отличие от соседних гейтов — и на пушах в `next`: работа приземляется туда,
       скан стоит секунду. Node — из `.nvmrc` (гейт — `.ts`, его запускает сам Node), без `npm ci`.
       `actionlint` 1.7.12 с `shellcheck` — 0 находок.
+- [x] **GitHub Actions: `checkout` и `setup-node` — v6 по SHA во всех workflow** — ✅ (2026-09-11, next)
+      82 ссылки в 33 файлах (47 на `@v4`, 35 на незакреплённом `@v6`) закреплены на SHA из `pr.yml`:
+      `actions/checkout` v6.1.0 (`d23441a4`), `actions/setup-node` v6.5.0 (`24997072`) — текущие теги
+      `v6`. Повод — предупреждение GitHub: v4 написаны под Node 20 и принудительно гоняются на Node 24.
+      Совместимость сверена по release notes: учётные данные checkout v6 лежат в `$RUNNER_TEMP`, и
+      `git push` в шагах `run:` работает как раньше (Docker-actions у нас нет); автокэш setup-node v5+
+      включается только при `packageManager` — поля нет; входам `with:` всех 105 шагов v6 не
+      противоречит. В `telemetry-audit.yml` ссылки стояли в кавычках — сняты, иначе `# v6.1.0` стал бы
+      частью строки. `actionlint` до и после — те же 40 находок `shellcheck`, вывод побайтно совпал.
+      На Node 20 остались `upload-artifact@v4`, `github-script@v7`, `create-or-update-comment@v4`,
+      `deploy-pages@v4` — следующая волна. Knowledge: `build/githubActionsPins.md`.
 
 ## HANDOFFS-0911. Сверка открытых потоков — хвосты переехали сюда (2026-09-11)
 
