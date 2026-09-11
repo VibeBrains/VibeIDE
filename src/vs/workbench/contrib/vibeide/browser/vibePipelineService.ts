@@ -26,6 +26,9 @@ import { IQuickInputService } from '../../../../platform/quickinput/common/quick
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IChatThreadService } from './chatThreadService.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { Registry } from '../../../../platform/registry/common/platform.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
@@ -35,6 +38,7 @@ import { vibeLog } from '../common/vibeLog.js';
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 import {
 	buildStepInput,
+	composeReviewGoal,
 	parseModelRef,
 	parsePipelineFile,
 	parseReviewVerdict,
@@ -43,6 +47,21 @@ import {
 	VibePipeline,
 	VibePipelineStep,
 } from '../common/pipeline/vibePipelineFile.js';
+
+const CONFIG_REVIEWER_SEES_SUMMARY = 'vibeide.pipeline.reviewerSeesStepSummary';
+
+Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
+	id: 'vibeide',
+	title: localize('vibeide.pipeline.configTitle', "VibeIDE — пайплайны"),
+	type: 'object',
+	properties: {
+		[CONFIG_REVIEWER_SEES_SUMMARY]: {
+			type: 'boolean',
+			default: false,
+			description: localize('vibeide.pipeline.reviewerSeesStepSummary', "Показывать ревьюеру шага пересказ исполнителя. По умолчанию выключено: ревьюер получает задачу шага, критерий готовности и файлы и проверяет по ним, а не по словам «всё сделано». Включается для сравнения режимов: у каждого вердикта в логе и в результате прогона отмечено, видел ли ревьюер пересказ."),
+		},
+	},
+});
 
 export interface PipelineRunResult {
 	readonly pipelineId: string;
@@ -81,6 +100,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 		@IVibeSubagentService private readonly _subagents: IVibeSubagentService,
 		@IVibeHooksService private readonly _hooks: IVibeHooksService,
+		@IConfigurationService private readonly _configuration: IConfigurationService,
 	) {
 		super();
 	}
@@ -117,6 +137,10 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 	 * become a second implementation. It is told to end with a verdict word, because the pipeline has
 	 * to act on the answer and prose cannot be acted on; an answer without one is reported as
 	 * «вердикт не распознан» rather than guessed in either direction.
+	 *
+	 * It is told what the step was asked to do, not what the worker says it did — `composeReviewGoal`
+	 * has the reasoning. The setting that brings the worker's account back exists to compare the two,
+	 * so the mode is logged next to every verdict and kept in the outcome.
 	 */
 	private async _review(step: VibePipelineStep, result: { summary: string; artifacts?: readonly string[] }, parentThreadId: string): Promise<PipelineStepOutcome['review']> {
 		const reviewer = parseModelRef(step.reviewWith);
@@ -130,14 +154,8 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 			// where the whole exercise quietly stops working.
 			vibeLog.warn('Pipeline', `шаг ${step.role}: ревьюер и исполнитель у одного провайдера (${reviewer.providerName}) — критика своего же семейства`);
 		}
-		const goal = [
-			`Проверьте результат шага «${step.role}».`,
-			step.acceptance ? `Критерий готовности: ${step.acceptance}` : '',
-			`Что сделано: ${result.summary}`,
-			'',
-			'Проверьте по файлам, а не по пересказу. Закончите ответ строкой «ВЕРДИКТ: принято» или',
-			'«ВЕРДИКТ: доработать», а перед ней перечислите замечания, если они есть.',
-		].filter(Boolean).join('\n');
+		const sawWorkerSummary = this._configuration.getValue<boolean>(CONFIG_REVIEWER_SEES_SUMMARY) === true;
+		const goal = composeReviewGoal(step, result.summary, sawWorkerSummary);
 		const reviewerId = await this._subagents.spawn({
 			parentThreadId,
 			// `code-reviewer` is read-only by construction — a critique cannot quietly become a second
@@ -149,7 +167,9 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		});
 		const verdictResult = await this._subagents.awaitResult(reviewerId);
 		this._subagents.disposeSubagent(reviewerId);
-		return { by: step.reviewWith!, verdict: parseReviewVerdict(verdictResult.summary), notes: verdictResult.summary };
+		const verdict = parseReviewVerdict(verdictResult.summary);
+		vibeLog.info('Pipeline', `шаг ${step.role}: ревью ${step.reviewWith} — ${verdict}, пересказ исполнителя ${sawWorkerSummary ? 'показан' : 'скрыт'}`);
+		return { by: step.reviewWith!, verdict, notes: verdictResult.summary, sawWorkerSummary };
 	}
 
 	async run(pipelineId: string, parentThreadId: string, token?: CancellationToken): Promise<PipelineRunResult> {

@@ -7,6 +7,8 @@ import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	buildStepInput,
+	composeReviewGoal,
+	EARLIER_STEP_NOTE_CHARS,
 	parseModelRef,
 	parsePipelineFile,
 	parseReviewVerdict,
@@ -104,17 +106,49 @@ suite('vibePipelineFile — handing work to the next step', () => {
 		assert.deepStrictEqual(buildStepInput(step, []), { goal: 'проверь работу', contextItems: [] });
 	});
 
-	test('paths accumulate across steps, the story comes only from the last one', () => {
-		// Step three must still be able to open what step one created; hearing all three summaries
-		// would turn the prompt into a diary.
+	test('earlier steps are told in a line each, the previous one in full, the paths accumulate', () => {
+		// Step three must still be able to open what step one created, and must know what step one
+		// decided — or it decides again, differently.
 		const input = buildStepInput(step, [
 			ok({ role: 'architect', summary: 'спроектировал', artifacts: ['docs/plan.md'] }),
 			ok({ role: 'coder', summary: 'написал код', artifacts: ['src/a.ts', 'docs/plan.md'] }),
 		]);
 		assert.deepStrictEqual(input, {
-			goal: 'проверь работу\n\nПредыдущий шаг (coder) сообщил: написал код\n\nФайлы, затронутые предыдущими шагами (прочитайте нужные сами): docs/plan.md, src/a.ts',
+			goal: 'проверь работу\n\nХод работы до этого:\n- architect: спроектировал\n\nПредыдущий шаг (coder) сообщил: написал код\n\nФайлы, затронутые предыдущими шагами (прочитайте нужные сами): docs/plan.md, src/a.ts',
 			contextItems: ['docs/plan.md', 'src/a.ts'],
 		});
+	});
+
+	/** A diary is a matter of length: an earlier step gets one line however much it wrote. */
+	test('an earlier step is capped to one line, the previous one is not', () => {
+		const long = `начало ${'слово '.repeat(200)}`;
+		const goal = buildStepInput(step, [ok({ role: 'architect', summary: `${long}\n\nвторой абзац` }), ok({ summary: long })]).goal;
+		const earlierLine = goal.split('\n').find(line => line.startsWith('- architect: ')) ?? '';
+		assert.deepStrictEqual({
+			earlierLength: earlierLine.length,
+			earlierEndsWithEllipsis: earlierLine.endsWith('…'),
+			previousInFull: goal.includes(`сообщил: ${long}`),
+		}, {
+			earlierLength: '- architect: '.length + EARLIER_STEP_NOTE_CHARS,
+			earlierEndsWithEllipsis: true,
+			previousInFull: true,
+		});
+	});
+
+	/** Without the verdicts a later step cannot tell a settled decision from a disputed one. */
+	test('how each step ended and what its reviewer said travel along', () => {
+		const accepted = { by: 'openAI/gpt-5.6', verdict: 'accepted' as const, notes: 'ок', sawWorkerSummary: false };
+		const goal = buildStepInput({ ...step, continueOnFailure: true }, [
+			ok({ role: 'architect', summary: 'спроектировал', review: accepted }),
+			ok({ role: 'qa', status: 'failed', summary: 'тесты не запустились' }),
+			ok({ role: 'coder', summary: 'написал код', artifacts: [], review: { ...accepted, verdict: 'rework' } }),
+		]).goal;
+		assert.strictEqual(goal, [
+			'проверь работу',
+			'Ход работы до этого:\n- architect: спроектировал [ревью openAI/gpt-5.6: принято]\n- qa (не удался): тесты не запустились',
+			'Предыдущий шаг (coder) сообщил: написал код [ревью openAI/gpt-5.6: требовал доработки — шаг переделан один раз, повторно не проверялся]',
+			'Файлы, затронутые предыдущими шагами (прочитайте нужные сами): src/a.ts',
+		].join('\n\n'));
 	});
 
 	test('acceptance criteria ride along with the task', () => {
@@ -132,7 +166,7 @@ suite('vibePipelineFile — handing work to the next step', () => {
 	});
 
 	test('nothing produced → no empty section is invented', () => {
-		const input = buildStepInput(step, [ok({ summary: '', artifacts: [] })]);
+		const input = buildStepInput(step, [ok({ summary: '', artifacts: [] }), ok({ summary: '', artifacts: [] })]);
 		assert.deepStrictEqual(input, { goal: 'проверь работу', contextItems: [] });
 	});
 
@@ -188,6 +222,23 @@ suite('vibePipelineFile — каскад и критика', () => {
 			[parseModelRef('glm'), parseModelRef('/glm'), parseModelRef('zai/'), parseModelRef(undefined)],
 			[undefined, undefined, undefined, undefined],
 		);
+	});
+
+	/**
+	 * Ревьюер проверяет файлы, а не рассказ о них: пересказ «сделал, всё проверил» — это история
+	 * разработки, и, прочитав её первой, ревьюер проверяет утверждение, а не работу.
+	 */
+	test('ревьюер получает задачу и критерий, а пересказ исполнителя — только по настройке', () => {
+		const reviewed = { role: 'coder', task: 'добавь эндпоинт', acceptance: 'тесты зелёные' };
+		const head = 'Проверьте результат шага «coder».\nЗадача шага: добавь эндпоинт\nКритерий готовности: тесты зелёные\n';
+		const tail = ' Закончите ответ строкой «ВЕРДИКТ: принято» или\n«ВЕРДИКТ: доработать», а перед ней перечислите замечания, если они есть.';
+		assert.deepStrictEqual({
+			безПересказа: composeReviewGoal(reviewed, 'сделал, всё проверил', false),
+			сПересказом: composeReviewGoal(reviewed, 'сделал, всё проверил', true),
+		}, {
+			безПересказа: `${head}Проверьте по файлам: пересказа исполнителя здесь нет намеренно.${tail}`,
+			сПересказом: `${head}Что сделано, со слов исполнителя: сделал, всё проверил\nПроверьте по файлам, а не по пересказу.${tail}`,
+		});
 	});
 
 	/** Вердикт нужен машине: проза «в целом неплохо, но…» — это принято или доработать? */

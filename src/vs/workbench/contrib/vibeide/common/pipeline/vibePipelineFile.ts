@@ -20,9 +20,12 @@ import { DENY_RULES_IGNORE_CASE } from '../agentPathResolution.js';
  *   one wrote would blow the context window on the third step of any real task, and it would do so
  *   silently. Paths plus a summary let the next agent read exactly what it needs with the tools it
  *   already has.
- * - **Paths accumulate, the summary does not.** Step four can still open a file step one created —
- *   losing it would make long pipelines useless — but it hears the story only from step three.
- *   Concatenating every summary turns the prompt into a diary nobody asked for.
+ * - **Paths accumulate; earlier steps are told briefly, the last one in full.** Step four can still
+ *   open a file step one created — losing it would make long pipelines useless — and it also hears,
+ *   one capped line per step, what every earlier step decided and what its reviewer said. A step that
+ *   knows only the last word re-decides what step one already settled, and decisions made apart
+ *   contradict each other (Cognition, 2025). The cap is what keeps this from becoming the diary the
+ *   first version of this rule was written against: a diary is a matter of length, not of memory.
  * - **A failed step stops the pipeline by default.** Continuing means step three works on the
  *   assumption that step two succeeded, and the result looks like work while being founded on
  *   nothing. `continueOnFailure` exists for the genuinely independent step, and it must be typed
@@ -309,7 +312,13 @@ export interface PipelineStepOutcome {
 	/** Set when the cheap draft did not pass and the step was retried on this model. */
 	readonly escalatedTo?: string;
 	/** Set when a second model reviewed the result: what it decided, and on which model. */
-	readonly review?: { readonly by: string; readonly verdict: ReviewVerdict; readonly notes: string };
+	readonly review?: {
+		readonly by: string;
+		readonly verdict: ReviewVerdict;
+		readonly notes: string;
+		/** Whether the reviewer read the worker's own summary — recorded so the two modes can be compared. */
+		readonly sawWorkerSummary: boolean;
+	};
 }
 
 export interface PipelineStepInput {
@@ -320,11 +329,18 @@ export interface PipelineStepInput {
 }
 
 /**
+ * How much of an earlier step's summary the next step hears: one line's worth — enough for «what was
+ * decided», too little for a retelling. The previous step is the one told in full.
+ */
+export const EARLIER_STEP_NOTE_CHARS = 300;
+
+/**
  * Build the input for step `index` from what came before.
  *
- * The previous step's story is told once, in words, and the files are listed as paths. Both parts
- * are omitted entirely when there is nothing to say — an agent told "предыдущий шаг ничего не
- * изменил" as a matter of routine starts to ignore the section.
+ * Earlier steps are told in one capped line each, with how they ended and what their reviewer said;
+ * the previous step's story is told in full; the files are listed as paths. Each part is omitted
+ * entirely when there is nothing to say — an agent told "предыдущий шаг ничего не изменил" as a
+ * matter of routine starts to ignore the section.
  */
 export function buildStepInput(
 	step: VibePipelineStep,
@@ -344,8 +360,14 @@ export function buildStepInput(
 	}
 	const last = previous[previous.length - 1];
 	const parts = [composeGoal(step)];
-	if (last.summary) {
-		parts.push(`Предыдущий шаг (${last.role}) сообщил: ${last.summary}`);
+	const earlier = previous.slice(0, -1).map(describeEarlierStep).filter((line): line is string => line !== undefined);
+	if (earlier.length > 0) {
+		parts.push(`Ход работы до этого:\n${earlier.join('\n')}`);
+	}
+	const lastStatus = statusWord(last);
+	const lastReview = describeReview(last);
+	if (last.summary || lastStatus || lastReview) {
+		parts.push(`Предыдущий шаг (${last.role}${lastStatus ? `, ${lastStatus}` : ''})${last.summary ? ` сообщил: ${last.summary}` : ''}${lastReview}`);
 	}
 	if (artifacts.length > 0) {
 		parts.push(`Файлы, затронутые предыдущими шагами (прочитайте нужные сами): ${artifacts.join(', ')}`);
@@ -353,8 +375,60 @@ export function buildStepInput(
 	return { goal: parts.join('\n\n'), contextItems: artifacts };
 }
 
+/** How a step ended, in words — nothing for a success, which is the case not worth a word. */
+function statusWord(outcome: PipelineStepOutcome): string {
+	switch (outcome.status) {
+		case 'failed': return 'не удался';
+		case 'skipped': return 'пропущен';
+		case 'stopped': return 'остановлен';
+		default: return '';
+	}
+}
+
+/** One line for an earlier step — who, how it ended, what it said (capped) — or nothing to say. */
+function describeEarlierStep(outcome: PipelineStepOutcome): string | undefined {
+	const status = statusWord(outcome);
+	const summary = outcome.summary.replace(/\s+/g, ' ').trim();
+	const said = summary ? `: ${summary.length > EARLIER_STEP_NOTE_CHARS ? `${summary.slice(0, EARLIER_STEP_NOTE_CHARS - 1)}…` : summary}` : '';
+	const review = describeReview(outcome);
+	return status || said || review ? `- ${outcome.role}${status ? ` (${status})` : ''}${said}${review}` : undefined;
+}
+
+/** The reviewer's verdict in words, or nothing when the step was not reviewed. */
+function describeReview(outcome: PipelineStepOutcome): string {
+	if (!outcome.review) {
+		return '';
+	}
+	const verdict = outcome.review.verdict === 'accepted' ? 'принято'
+		: outcome.review.verdict === 'rework' ? 'требовал доработки — шаг переделан один раз, повторно не проверялся'
+			: 'вердикт не распознан';
+	return ` [ревью ${outcome.review.by}: ${verdict}]`;
+}
+
 function composeGoal(step: VibePipelineStep): string {
 	return step.acceptance ? `${step.task}\n\nКритерий готовности: ${step.acceptance}` : step.task;
+}
+
+/**
+ * Задание ревьюеру шага.
+ *
+ * The reviewer is told what the step was ASKED to do, not what the worker says it did. Cognition
+ * measured review working better in a context free of the development story (2026-04-22), and the
+ * worker's summary is that story: a reviewer who first reads «сделал X, всё проверил» checks the
+ * claim instead of the files. `showWorkerSummary` brings the old behaviour back for comparison; the
+ * mode travels with the verdict, so the two can be told apart afterwards.
+ */
+export function composeReviewGoal(step: Pick<VibePipelineStep, 'role' | 'task' | 'acceptance'>, workerSummary: string, showWorkerSummary: boolean): string {
+	return [
+		`Проверьте результат шага «${step.role}».`,
+		`Задача шага: ${step.task}`,
+		step.acceptance ? `Критерий готовности: ${step.acceptance}` : '',
+		showWorkerSummary && workerSummary ? `Что сделано, со слов исполнителя: ${workerSummary}` : '',
+		showWorkerSummary
+			? 'Проверьте по файлам, а не по пересказу. Закончите ответ строкой «ВЕРДИКТ: принято» или'
+			: 'Проверьте по файлам: пересказа исполнителя здесь нет намеренно. Закончите ответ строкой «ВЕРДИКТ: принято» или',
+		'«ВЕРДИКТ: доработать», а перед ней перечислите замечания, если они есть.',
+	].filter(Boolean).join('\n');
 }
 
 /**
