@@ -77,17 +77,38 @@ export function dayKey(timestampMs: number): string {
  * catalogue's snake_case object, found no `cacheRead` and billed every cached token at the full
  * input rate — tenfold for Claude. A missing cache rate still falls back to the input rate: that is
  * what an undeclared rate means, and it is no longer what a declared one silently becomes.
+ *
+ * A long-prompt surcharge (`long_context`) prices the WHOLE request higher once the prompt is longer
+ * than the threshold — «for the full request», as vendors word it. The threshold is the whole prompt,
+ * cache included: the cached part was sent too.
  */
-export function costOf(price: ModelCost | undefined, tokens: ExchangeTokens): number | undefined {
+export function costOf(price: ModelCost | undefined, tokens: ExchangeTokens, options: CostOptions = {}): number | undefined {
 	if (!price || (price.input === 0 && price.output === 0)) { return undefined; }
 	const cacheRead = Math.max(0, tokens.cacheRead ?? 0);
 	const cacheWrite = Math.max(0, tokens.cacheWrite ?? 0);
 	const fresh = Math.max(0, tokens.input - cacheRead - cacheWrite);
-	return (fresh / 1_000_000) * price.input
-		+ (cacheRead / 1_000_000) * (price.cache_read ?? price.input)
-		+ (cacheWrite / 1_000_000) * (price.cache_write ?? price.input)
-		+ (tokens.output / 1_000_000) * price.output;
+	const longContext = price.long_context;
+	const tier = !options.aggregate && longContext && longContext.over_input_tokens > 0 && tokens.input > longContext.over_input_tokens
+		? longContext
+		: undefined;
+	const inputFactor = tier?.input ?? 1;
+	const cacheFactor = tier?.cache ?? 1;
+	const outputFactor = tier?.output ?? 1;
+	return (fresh / 1_000_000) * price.input * inputFactor
+		+ (cacheRead / 1_000_000) * (price.cache_read ?? price.input) * cacheFactor
+		+ (cacheWrite / 1_000_000) * (price.cache_write ?? price.input) * cacheFactor
+		+ (tokens.output / 1_000_000) * price.output * outputFactor;
 }
+
+/** How a cost is asked for. */
+export type CostOptions = {
+	/**
+	 * The tokens are a SUM over several requests — a role's run, a replayed run. The long-prompt
+	 * surcharge is decided per request, and a sum cannot say which request was long, so a sum is
+	 * priced at the base rates and stays the estimate its caller already labels it.
+	 */
+	readonly aggregate?: boolean;
+};
 
 export type SpendRecord = {
 	timestampMs: number;

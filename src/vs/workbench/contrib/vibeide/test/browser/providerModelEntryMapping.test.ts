@@ -64,7 +64,7 @@ suite('providers.json → model capabilities', () => {
 			vision: true,
 			fim: true,
 			systemMessage: 'system',
-			cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 3 },
+			cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 3, longContext: { overInputTokens: 272000, input: 2, cache: 2, output: 1.5 } },
 			temperature: 0.6,
 			topP: 0.95,
 			topK: 20,
@@ -78,11 +78,25 @@ suite('providers.json → model capabilities', () => {
 			supportsVision: true,
 			supportsFIM: true,
 			supportsSystemMessage: 'system-role',
-			cost: { input: 1, output: 2, cache_read: 0.1, cache_write: 3 },
+			cost: { input: 1, output: 2, cache_read: 0.1, cache_write: 3, long_context: { over_input_tokens: 272000, input: 2, cache: 2, output: 1.5 } },
 			additionalOpenAIPayload: { tool_stream: true },
 			defaultTemperature: 0.6,
 			defaultTopP: 0.95,
 			defaultTopK: 20,
+		});
+	});
+
+	/** Блок без порога или из одних единиц — необъявлен: так его читают общий набор и VibeIDEA. */
+	test('an unstated long-context block is dropped', () => {
+		const costOfEntry = (longContext: object) => modelEntryToCaps({ id: 'm', cost: { input: 1, output: 2, longContext } }).cost;
+		assert.deepStrictEqual({
+			безПорога: costOfEntry({ input: 2 }),
+			всеЕдиницы: costOfEntry({ overInputTokens: 1000, input: 1, cache: 1, output: 1 }),
+			безМножителей: costOfEntry({ overInputTokens: 1000 }),
+		}, {
+			безПорога: { input: 1, output: 2 },
+			всеЕдиницы: { input: 1, output: 2 },
+			безМножителей: { input: 1, output: 2 },
 		});
 	});
 

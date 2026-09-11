@@ -167,6 +167,16 @@ export type ModelCost = {
 	output: number;
 	cache_read?: number;
 	cache_write?: number;
+	/** Surcharge on a long prompt: past `over_input_tokens` the whole request is priced with the multipliers. */
+	long_context?: ModelLongContext;
+};
+
+/** Multipliers on the base rates, applied to the whole request once the prompt is longer than the threshold. */
+export type ModelLongContext = {
+	over_input_tokens: number;
+	input?: number;
+	cache?: number;
+	output?: number;
 };
 
 export type VibeideStaticModelInfo = { // not stateful

@@ -38,9 +38,9 @@ import { IPathService } from '../../../services/path/common/pathService.js';
 import { scanProviderConfig, scanEnvFileSecrets, ConfigGuardFinding } from '../common/vibeConfigGuard.js';
 import { builtinProviderIdOf, isBuiltinProviderId, VibeideStatefulModelInfo } from '../common/vibeideSettingsTypes.js';
 import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig, DynamicProviderSeed } from '../common/vibeideSettingsService.js';
-import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo } from '../common/modelCapabilities.js';
+import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo, ModelLongContext } from '../common/modelCapabilities.js';
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
-import { VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseProvidersFile } from '../common/vibeProvidersFile.js';
+import { VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseProvidersFile, VibeProviderLongContext } from '../common/vibeProvidersFile.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
 import { DEFAULT_PRICE_CHANGE_SOON_DAYS, effectiveCost, nextPriceChangeMoment, priceChangeStatus } from '../common/modelPriceSchedule.js';
 import { VIBE_CONFIG_PROVIDERS_CACHE_KEY } from '../common/storageKeys.js';
@@ -86,6 +86,24 @@ export function modelProtocolsOf(models: readonly VibeProviderModelEntry[] | und
  * missing once and `temperature`/`topP`/`topK` went missing after it. The test asserts the whole
  * mapping at once so the next addition to the file format cannot be half-wired.
  */
+/**
+ * The long-prompt surcharge as the catalogue carries it — or nothing when the block says nothing: no
+ * threshold, or every multiplier at 1. That is how the shared set's contract defines «not declared»,
+ * and VibeIDEA reads it the same way.
+ */
+function longContextOf(lc: VibeProviderLongContext | undefined): { long_context?: ModelLongContext } {
+	if (!lc || typeof lc.overInputTokens !== 'number' || lc.overInputTokens <= 0) {
+		return {};
+	}
+	const input = lc.input ?? 1;
+	const cache = lc.cache ?? 1;
+	const output = lc.output ?? 1;
+	if (input === 1 && cache === 1 && output === 1) {
+		return {};
+	}
+	return { long_context: { over_input_tokens: lc.overInputTokens, input, cache, output } };
+}
+
 export function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStaticModelInfo> {
 	const c: Record<string, unknown> = {};
 	if (typeof m.contextWindow === 'number') { c.contextWindow = m.contextWindow; }
@@ -106,6 +124,7 @@ export function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStat
 			input: cost.input ?? 0, output: cost.output ?? 0,
 			...(cost.cacheRead !== undefined ? { cache_read: cost.cacheRead } : {}),
 			...(cost.cacheWrite !== undefined ? { cache_write: cost.cacheWrite } : {}),
+			...longContextOf(cost.longContext),
 		};
 	}
 	// extraBody → additionalOpenAIPayload: the AI-SDK path spreads this verbatim into the request

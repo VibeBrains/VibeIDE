@@ -37,6 +37,27 @@ export interface VibeProviderModelCost {
 	readonly output?: number;
 	readonly cacheRead?: number;
 	readonly cacheWrite?: number;
+	/** Surcharge on a long prompt, when the vendor announces one — see `VibeProviderLongContext`. */
+	readonly longContext?: VibeProviderLongContext;
+}
+
+/**
+ * Надбавка за длинный промпт.
+ *
+ * Multipliers, not a second price table: vendors announce it as «N times» — «prompts with more than
+ * 272K input tokens are priced at 2x input and cache rates and 1.5x output for the full request»
+ * (GPT-6 Astra) — and a second table would drift from the first on the next change of the base rate.
+ * The shape is the shared set's contract: VibeIDEA reads the same block.
+ */
+export interface VibeProviderLongContext {
+	/** Threshold on the PROMPT length, strictly above: fresh input, cache reads and cache writes. */
+	readonly overInputTokens?: number;
+	/** Multiplier on the fresh-input rate. Absent — 1. */
+	readonly input?: number;
+	/** Multiplier on the cache rates, read and write alike. Absent — 1. */
+	readonly cache?: number;
+	/** Multiplier on the output rate. Absent — 1. */
+	readonly output?: number;
 }
 
 export type VibeProviderProtocol = 'openai' | 'openai-responses' | 'anthropic' | 'gemini';

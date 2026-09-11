@@ -67,6 +67,21 @@ suite('spendLedger', () => {
 		}, { всёИзКэша: cost.cache_read, всёВКэш: cost.cache_write });
 	});
 
+	/**
+	 * Длинный промпт у GPT-6 Astra: больше 272K — вход и кэш вдвое, выход в полтора раза, и это цена
+	 * всего запроса. Порог — по всему промпту; по сумме за прогон надбавку не решить.
+	 */
+	test('the long-prompt surcharge prices the whole request, only past the threshold, only per request', () => {
+		const astra: ModelCost = { input: 10, output: 50, cache_read: 1, long_context: { over_input_tokens: 272_000, input: 2, cache: 2, output: 1.5 } };
+		const long = { input: 300_000, output: 10_000, cacheRead: 100_000 };
+		assert.deepStrictEqual({
+			// 200k fresh × $10 × 2 + 100k cached × $1 × 2 + 10k out × $50 × 1.5 = 4 + 0.2 + 0.75.
+			длинный: Math.round(costOf(astra, long)! * 100) / 100,
+			ровноНаПороге: Math.round(costOf(astra, { input: 272_000, output: 0 })! * 100) / 100,
+			суммаЗаПрогон: Math.round(costOf(astra, long, { aggregate: true })! * 100) / 100,
+		}, { длинный: 4.95, ровноНаПороге: 2.72, суммаЗаПрогон: 2.6 });
+	});
+
 	test('cache writes are billed at the write rate; an undeclared rate falls back to input', () => {
 		// 1M prompt: 600k fresh × $3 + 300k written × $3.75 + 100k read × $0.30 = 1.8 + 1.125 + 0.03.
 		const withWrites: ModelCost = { input: 3, output: 15, cache_read: 0.3, cache_write: 3.75 };

@@ -50,7 +50,7 @@ function costOf(record: AgentRunRecord, overrides: Parameters<typeof getModelCap
 	// The ledger records one total, not an input/output split, so the whole amount is priced as
 	// input. Both sides of the comparison are computed the same way, which is what makes the delta
 	// meaningful; the absolute figure stays an estimate and is labelled as such in the report.
-	return exchangeCostUsd(price, { input: record.tokensUsed, output: 0, cacheRead: record.cachedTokens ?? 0 });
+	return exchangeCostUsd(price, { input: record.tokensUsed, output: 0, cacheRead: record.cachedTokens ?? 0 }, { aggregate: true });
 }
 
 registerAction2(class extends Action2 {

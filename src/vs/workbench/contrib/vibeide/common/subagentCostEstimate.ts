@@ -22,11 +22,12 @@ import type { SubagentResult } from './vibeSubagentService.js';
 export function subagentCostUsd(result: Pick<SubagentResult, 'providerName' | 'modelName' | 'promptTokensUsed' | 'completionTokensUsed' | 'cachedTokensUsed'>, overrides: OverridesOfModel | undefined): number | undefined {
 	if (!result.providerName || !result.modelName) { return undefined; }
 	if (!result.promptTokensUsed && !result.completionTokensUsed) { return undefined; }
+	// Sums over the whole run: which request crossed a long-prompt threshold is not known from them.
 	return costOf(getModelCapabilities(result.providerName, result.modelName, overrides).cost, {
 		input: result.promptTokensUsed ?? 0,
 		output: result.completionTokensUsed ?? 0,
 		cacheRead: result.cachedTokensUsed ?? 0,
-	});
+	}, { aggregate: true });
 }
 
 /** Compact money formatting: cents get 2 decimals, sub-cent amounts keep 4. */
