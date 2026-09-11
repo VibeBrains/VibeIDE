@@ -8,10 +8,13 @@
  *
  * WHY it matters more for skills than for any other file in `.vibe`: a skill is the one thing there
  * that routinely arrives from strangers — the format is shared, and someone else's skill works here
- * as-is. Researchers counted 17 800 public AI add-ons across 6.7 million installs pulling
- * instructions from unverified sources, some impersonating vendors
- * (aiagentstore.ai/ai-agent-news/daily/2026-09-08). «Откуда это у меня» is the question a user
- * cannot answer by reading the file, because a hostile skill reads like a helpful one.
+ * as-is, and hostile skills are a documented supply chain rather than a hypothesis: 386 malicious
+ * skills on ClawHub posing as exchange integrations and stealing keys, wallets and SSH credentials
+ * (Infosecurity Magazine, 2026-02-03), and the ClawHavoc campaign with more than 1184 infected
+ * skills (arXiv 2604.02837, April 2026). A figure that circulated with a 2026-09-08 digest —
+ * 17 800 add-ons across 6.7 million installs (aiagentstore.ai) — has no primary source behind it
+ * and is deliberately not relied on here. «Откуда это у меня» is the question a user cannot answer
+ * by reading the file, because a hostile skill reads like a helpful one.
  *
  * Pure and free of I/O: both facts it needs are already computed elsewhere — the set's manifest
  * knows which paths it ships, and `isUntouchedPastRevision` knows whether a copy matches any
