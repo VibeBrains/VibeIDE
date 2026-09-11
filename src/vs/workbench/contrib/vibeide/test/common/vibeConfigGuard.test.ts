@@ -108,6 +108,17 @@ suite('VibeConfigGuard — mcp.json', () => {
 		assert.ok(!has(fs, 'mcp-npx-no-pin'));
 	});
 
+	/** One notion of a pin for MCP servers and skills: only an exact version, and a local path is no download. */
+	test('npx: a range or a tag is not a pin, a local path is not a download', () => {
+		const npxFinding = (args: string[]) => has(scanMcpConfig(server({ command: 'npx', args })), 'mcp-npx-no-pin');
+		assert.deepStrictEqual({
+			range: npxFinding(['@scope/mcp-server@^1.2.3']),
+			tag: npxFinding(['@scope/mcp-server@latest']),
+			local: npxFinding(['./servers/local.js']),
+			exact: npxFinding(['--package=@scope/mcp-server@1.2.3', 'mcp-server']),
+		}, { range: true, tag: true, local: false, exact: false });
+	});
+
 	test('critical env override (LD_PRELOAD) → critical env-override', () => {
 		const fs = scanMcpConfig(server({ command: 'node', args: ['s.js'], env: { LD_PRELOAD: '/tmp/x.so' } }));
 		assert.ok(has(fs, 'mcp-env-override-critical'));
@@ -250,6 +261,46 @@ suite('VibeConfigGuard — skills', () => {
 			body: 'Этот скилл объясняет, что такое prompt injection, и почему нельзя игнорировать проверки безопасности.',
 		})), []);
 		assert.deepStrictEqual(scanSkills([]), []);
+	});
+
+	/**
+	 * The package-runner rule shared with VibeIDEA: these cases are theirs word for word
+	 * (SkillValidatorTest, SkillCodeScanTest); lines added here go back to them.
+	 */
+	test('пакет без точной версии — в блоке кода и в скрипте; тег не версия, проза не команда', () => {
+		const script = (text: string) => skill({ files: [{ path: 'scripts/run.sh', executable: true, text }] });
+		const says = (fs: ConfigGuardFinding[], text: string) => fs.some(f => f.message.includes(text));
+		assert.deepStrictEqual({
+			вБлокеКода: ids(skill({ body: 'Установка:\n```\nnpx some-tool\n```' })),
+			вПрозе: ids(skill({ body: '# party\nНе запускайте `npx agents-party@latest` на каждый шаг.' })),
+			npx: says(script('#!/bin/sh\nnpx -y create-thing --out .\n'), 'npx create-thing'),
+			uvx: says(script('uvx ruff check .'), 'uvx ruff'),
+			тег: says(script('npx create-thing@latest'), 'create-thing@latest'),
+			закреплено: ids(script('npx -y create-thing@1.4.2\nnpx --package @scope/tool@2.0.0 tool\nuvx ruff==0.6.9 check .\nuvx --from \'httpie==3.2.2\' http\n')),
+		}, {
+			вБлокеКода: ['skill-unpinned-runner'],
+			вПрозе: [],
+			npx: true,
+			uvx: true,
+			тег: true,
+			закреплено: [],
+		});
+	});
+
+	test('зависимость PEP 723 без точной версии — находка; почти-версия разбирается без перебора', () => {
+		const pep723 = '# /// script\n# dependencies = [\n#   "requests<3",\n#   "rich[jupyter]==13.7.1",\n# ]\n# ///\nimport requests\n';
+		const script = (path: string, text: string) => skill({ files: [{ path, executable: true, text }] });
+		const unpinned = script('scripts/fetch.py', pep723);
+		assert.deepStrictEqual({
+			безВерсии: [ids(unpinned), unpinned.some(f => f.message.includes('requests<3'))],
+			закреплено: ids(script('scripts/fetch.py', pep723.replace('requests<3', 'requests==2.32.3'))),
+			// A version pattern with nested quantifiers would take hours here: each extra letter doubled the work.
+			почтиВерсия: ids(script('scripts/run.sh', `uvx pkg@1${'a'.repeat(40)}!`)),
+		}, {
+			безВерсии: [['skill-unpinned-inline-deps'], true],
+			закреплено: [],
+			почтиВерсия: ['skill-unpinned-runner'],
+		});
 	});
 
 	suite('scanEnvFileSecrets', () => {

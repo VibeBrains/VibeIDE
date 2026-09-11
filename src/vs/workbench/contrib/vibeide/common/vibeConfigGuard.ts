@@ -22,7 +22,7 @@
 
 import { VibeProviderEntry } from './vibeProvidersFile.js';
 import { MCPConfigFileEntryJSON } from './mcpServiceTypes.js';
-import { fetchesAndRuns, findFetchAndRunInText } from './nlShellSafetyAnalyzer.js';
+import { fetchesAndRuns, findFetchAndRunInText, splitShellSegments } from './nlShellSafetyAnalyzer.js';
 import { SkillOrigin } from './vibeSkillProvenance.js';
 
 export type ConfigGuardSeverity = 'critical' | 'high' | 'medium';
@@ -174,27 +174,113 @@ function basename(p: string): string {
 	return m ? m[0] : p.trim();
 }
 
+// --- package runners: `npx` / `uvx` without an exact version -----------------------------------
+//
+// The same rule as VibeIDEA's `SkillCodeScan.kt`, kept in step through a shared test vector: a package
+// runner executes whatever is published under the name today, so only an exact version is a pin — a tag
+// (`@latest`) or a range (`@^1.2.3`) is not. A local path is not fetched at all.
+
+const EXACT_SEMVER = /^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+/**
+ * `1.2`, `2024.1-post1`, `1.0rc1`. Written so that each character has one way to match: VibeIDEA's
+ * `v?\d+(\.\d+)*([.-]?[A-Za-z0-9]+)*` accepts the same strings but nests quantifiers, and on a near-miss
+ * from a skill's text (`1aaaa…!`) its backtracking doubles with every character.
+ */
+const PYTHON_VERSION = /^v?\d[A-Za-z0-9]*(?:[.-][A-Za-z0-9]+)*$/;
+const COMMIT = /^[0-9a-f]{7,40}$/;
+/** `uvx` options that take a value: skipping only the flag would take its value for the package. */
+const UVX_VALUE_OPTIONS: ReadonlySet<string> = new Set([
+	'--with', '--with-editable', '--with-requirements', '--python', '-p', '--index', '--index-url',
+	'--extra-index-url', '--constraint', '--constraints', '--overrides', '--directory', '--cache-dir',
+	'--config-file',
+]);
+
+function isLocalSpec(spec: string): boolean {
+	return spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('file:');
+}
+
+/** The package npx runs: the value of `-p`/`--package`, else its first operand. */
+function npxPackage(args: readonly string[]): string | undefined {
+	for (let i = 0; i < args.length; i++) {
+		const arg = args[i];
+		if (arg === '-p' || arg === '--package') {
+			return args[i + 1];
+		}
+		if (arg.startsWith('--package=')) {
+			return arg.slice('--package='.length);
+		}
+		if (!arg.startsWith('-')) {
+			return arg;
+		}
+	}
+	return undefined;
+}
+
+/** The package uvx runs: the value of `--from`, else its first operand past options that take a value. */
+function uvxPackage(args: readonly string[]): string | undefined {
+	for (let i = 0; i < args.length; i++) {
+		const arg = args[i];
+		if (arg === '--from') {
+			return args[i + 1];
+		}
+		if (arg.startsWith('--from=')) {
+			return arg.slice('--from='.length);
+		}
+		if (UVX_VALUE_OPTIONS.has(arg)) {
+			i++;
+		} else if (!arg.startsWith('-')) {
+			return arg;
+		}
+	}
+	return undefined;
+}
+
+/** `name@1.2.3` or `@scope/name@1.2.3`; a range or a tag is not a pin. */
+function npmPinned(spec: string): boolean {
+	if (isLocalSpec(spec)) {
+		return true;
+	}
+	const at = spec.lastIndexOf('@');
+	return at > 0 && EXACT_SEMVER.test(spec.slice(at + 1));
+}
+
+/** `name==1.2`, `name@1.2` or `name@<commit>`; `@latest` is not a pin. */
+function pythonPinned(spec: string): boolean {
+	if (isLocalSpec(spec)) {
+		return true;
+	}
+	if (spec.includes('==')) {
+		return spec.slice(spec.indexOf('==') + 2).trim().length > 0;
+	}
+	const at = spec.lastIndexOf('@');
+	if (at <= 0) {
+		return false;
+	}
+	const ref = spec.slice(at + 1);
+	return PYTHON_VERSION.test(ref) || COMMIT.test(ref);
+}
+
+/** `npx <package>` or `uvx <package>` without an exact version, as «npx package», or undefined. */
+function findUnpinnedRunner(line: string): string | undefined {
+	for (const { command, args } of splitShellSegments(line)) {
+		const name = basename(command).toLowerCase();
+		const pkg = name === 'npx' ? npxPackage(args) : name === 'uvx' ? uvxPackage(args) : undefined;
+		if (pkg !== undefined && !(name === 'npx' ? npmPinned(pkg) : pythonPinned(pkg))) {
+			return `${name} ${pkg}`;
+		}
+	}
+	return undefined;
+}
+
 /** Describe an npx supply-chain concern (auto-install / unpinned version), or undefined if clean. */
 function npxConcern(args: readonly string[]): string | undefined {
 	const hasYes = args.some(a => a === '-y' || a === '--yes');
-	// First non-flag token is the package spec (skip -y/--yes and -p/--package <value> pairs).
-	let pkg: string | undefined;
-	for (let i = 0; i < args.length; i++) {
-		const a = args[i];
-		if (a === '-y' || a === '--yes') { continue; }
-		if (a === '-p' || a === '--package') { i++; pkg = args[i]; break; }
-		if (a.startsWith('-')) { continue; }
-		pkg = a; break;
-	}
-	let unpinned = false;
-	if (pkg) {
-		const at = pkg.startsWith('@') ? pkg.indexOf('@', 1) : pkg.indexOf('@');
-		const version = at >= 0 ? pkg.slice(at + 1) : '';
-		unpinned = at < 0 || version === '' || version.toLowerCase() === 'latest';
-	}
-	if (hasYes && unpinned) { return `auto-установка без подтверждения (-y) и без фиксации версии (${pkg ?? '?'})`; }
+	// The same notion of a pin as the skill rule below: a tag or a range is not a version.
+	const pkg = npxPackage(args);
+	const unpinned = pkg !== undefined && !npmPinned(pkg);
+	if (hasYes && unpinned) { return `auto-установка без подтверждения (-y) и без фиксации версии (${pkg})`; }
 	if (hasYes) { return `auto-установка пакета без подтверждения (-y)`; }
-	if (unpinned && pkg) { return `пакет без фиксации версии (${pkg}) — может подтянуть вредоносное обновление`; }
+	if (unpinned) { return `пакет без фиксации версии (${pkg}) — может подтянуть вредоносное обновление`; }
 	return undefined;
 }
 
@@ -440,6 +526,83 @@ function findRemoteExecution(skill: SkillGuardInput): { readonly command: string
 }
 
 /**
+ * A package run without an exact version — in a code block of the skill's text or in one of its
+ * scripts. Prose is not read here: a package named in a sentence is not a command (VibeIDEA draws the
+ * same line). Comment lines are skipped, and a leading `$ ` is a prompt in documentation, not part of
+ * the command.
+ */
+function findUnpinnedRunnerInSkill(skill: SkillGuardInput): { readonly command: string; readonly file?: string } | undefined {
+	const sources: { readonly lines: readonly string[]; readonly file?: string }[] = [
+		{ lines: markdownLines(skill.body).filter(line => line.code).map(line => line.text) },
+		...(skill.files ?? []).map(file => ({ lines: (file.text ?? '').split(/\r?\n/), file: file.path })),
+	];
+	for (const { lines, file } of sources) {
+		for (const raw of lines) {
+			const line = raw.trim().replace(/^\$ /, '').trim();
+			if (!line || line.startsWith('#')) {
+				continue;
+			}
+			const command = findUnpinnedRunner(line);
+			if (command) {
+				return { command: command.slice(0, QUOTED_COMMAND_CHARS), ...(file ? { file } : {}) };
+			}
+		}
+	}
+	return undefined;
+}
+
+const PEP723_START = /^#\s*\/\/\/\s*script$/;
+const PEP723_END = /^#\s*\/\/\/$/;
+
+/** The quoted items of `dependencies = [ … ]`; brackets inside quotes (`pkg[extra]`) do not end the list. */
+function inlineDependencies(toml: string): string[] {
+	const at = toml.indexOf('dependencies');
+	const open = at < 0 ? -1 : toml.indexOf('[', at);
+	if (open < 0) {
+		return [];
+	}
+	const found: string[] = [];
+	let item = '';
+	let quote: string | undefined;
+	for (const ch of toml.slice(open + 1)) {
+		if (quote !== undefined) {
+			if (ch === quote) {
+				found.push(item);
+				item = '';
+				quote = undefined;
+			} else {
+				item += ch;
+			}
+		} else if (ch === '"' || ch === '\'') {
+			quote = ch;
+		} else if (ch === ']') {
+			break;
+		}
+	}
+	return found;
+}
+
+/**
+ * The first dependency of a script's PEP 723 block (`# /// script`) without an exact version, or
+ * undefined. `==` and `===` pin; a direct reference (`name @ url`) names one artifact.
+ */
+function unpinnedInlineDependency(text: string): string | undefined {
+	const lines = text.split(/\r?\n/);
+	const start = lines.findIndex(line => PEP723_START.test(line.trim()));
+	if (start < 0) {
+		return undefined;
+	}
+	const block: string[] = [];
+	for (const line of lines.slice(start + 1)) {
+		if (PEP723_END.test(line.trim())) {
+			break;
+		}
+		block.push(line.trimStart().replace(/^#/, '').replace(/^ /, ''));
+	}
+	return inlineDependencies(block.join('\n')).find(requirement => !requirement.includes('==') && !requirement.includes('@ '));
+}
+
+/**
  * Scan skills before their text reaches the model.
  *
  * WHY skills need this at all: everything else the guard covers is configuration the user wrote,
@@ -449,8 +612,8 @@ function findRemoteExecution(skill: SkillGuardInput): { readonly command: string
  *
  * The checks stay narrow on purpose. This is not a content filter and cannot be one: it reports the
  * shapes that are hard to explain away — a precheck escaping its own directory, a literal secret,
- * code fetched and run, instructions aimed at overriding the user — plus the scripts a skill from
- * outside the release brings, and leaves judgement to the person.
+ * code fetched and run, a package run without an exact version, instructions aimed at overriding the
+ * user — plus the scripts a skill from outside the release brings, and leaves judgement to the person.
  */
 export function scanSkills(skills: readonly SkillGuardInput[]): ConfigGuardFinding[] {
 	const findings: ConfigGuardFinding[] = [];
@@ -487,6 +650,27 @@ export function scanSkills(skills: readonly SkillGuardInput[]): ConfigGuardFindi
 				message: remote.file
 					? `Скилл «${id}»: скрипт ${remote.file} скачивает и выполняет код из сети — ${remote.command}.`
 					: `Скилл «${id}»: предлагает агенту скачать и выполнить код из сети — ${remote.command}.`,
+			});
+		}
+
+		// A package runner without an exact version runs whatever is published under the name on the day
+		// the skill is used — code nobody reviewed, the same as a download piped into a shell.
+		const runner = findUnpinnedRunnerInSkill(skill);
+		if (runner) {
+			findings.push({
+				ruleId: 'skill-unpinned-runner', severity: 'medium', subject: id,
+				message: runner.file
+					? `Скилл «${id}»: скрипт ${runner.file} запускает пакет без точной версии — ${runner.command}. Выполнится то, что опубликовано под этим именем в день запуска.`
+					: `Скилл «${id}»: предлагает запустить пакет без точной версии — ${runner.command}. Выполнится то, что опубликовано под этим именем в день запуска.`,
+			});
+		}
+		const inline = (skill.files ?? [])
+			.map(file => ({ file: file.path, requirement: unpinnedInlineDependency(file.text ?? '') }))
+			.find(entry => entry.requirement !== undefined);
+		if (inline) {
+			findings.push({
+				ruleId: 'skill-unpinned-inline-deps', severity: 'medium', subject: id,
+				message: `Скилл «${id}»: скрипт ${inline.file} ставит зависимость без точной версии — ${inline.requirement}.`,
 			});
 		}
 

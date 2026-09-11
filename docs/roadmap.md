@@ -5439,13 +5439,26 @@ prompts, tools, and preceding messages») действует на API-аккау
 
 **Что взять:**
 
-- [ ] **Config Guard: пакетный раннер без версии в скилле** — `npx`/`uvx` без точной версии (`@latest` —
-      не версия) в блоках кода `SKILL.md` и в скриптах скилла. Сейчас правило есть только для
-      MCP-конфига (`npxConcern`, `vibeConfigGuard.ts:178`, находка `mcp-npx-no-pin`), а `scanSkills`
-      через `findRemoteExecution` (`:418`) ищет лишь «скачать и выполнить». В VibeIDEA правило уже
-      работает: `SkillCodeScan.unpinnedRunner` (`SkillCodeScan.kt:72`, на `ac1592a0d8`), там же PEP 723
-      без пина (`:83`) — переносить их поведение и завести общий тест-вектор, а не изобретать своё. Живой
-      образец — `plugins/shunt/scripts/lib/aika.sh:37` у Spotify: `npx --yes @spotify/portal-cli`.
+- [x] **Config Guard: пакетный раннер без версии в скилле** — ✅ (2026-09-11, next) Правило перенесено из
+      VibeIDEA (`SkillCodeScan.kt`) и сверено их вектором дословно (`SkillValidatorTest.kt:94-121`,
+      `SkillCodeScanTest.kt`): `skill-unpinned-runner` — `npx`/`uvx` без точной версии в блоке кода `SKILL.md`
+      или в скрипте, `skill-unpinned-inline-deps` — зависимость PEP 723 без `==`; проза не читается. Одно
+      понятие «закреплено» и у MCP-правила: только точная версия (тег `@latest` и диапазон `@^1.2.3` — нет),
+      локальный путь — не загрузка; раньше `npx pkg@^1.2.3` в `mcp.json` считался закреплённым. Регулярку
+      версии Python у VibeIDEA (`(a+)*`, перебор удваивается на символ: 62 мс на 24 символах) заменили тем же
+      языком без перебора, тест на 40 символов проходит мгновенно; хендофф VibeIDEA —
+      `sessions/skill-runner-redos-from-vibeide.md`. Проверено: тайпчек, слои, React; набор vibeide — 3912
+      passing, 0 failing. Knowledge: `security/configGuard.md`; дополнены `skillSpec.md` и `functional.md`.
+- [ ] **`uvx` в MCP-скане** — `uvx mcp-server-x` без версии в `mcp.json` несёт тот же риск, что `npx`, но не
+      проверяется. Разбор (`uvxPackage`, `pythonPinned`) уже есть в `vibeConfigGuard.ts`: нужны правило и
+      строка в векторе.
+- [ ] **Брошенные с мая заделы «wave-2»** — `common/userPromptLibrary.ts` (второй, несовместимый разборщик
+      `.vibe/prompts`: frontmatter, режим chat/ctrl-k, модель, `{{selection}}`/`{{file}}`/`{{ask:ИМЯ}}`) и
+      хелперы `conventionalCommitFormat.ts` (формат, разбор, автоопределение типа и области) — потребителей
+      нет. Записать идеи и решить: доделать поверх `/my:` и `/commit` или удалить.
+- [ ] **Образец `prompts/example.md` в наборе VibeBrains** — показывает `$ASPECT` и `$CODE`, которые IDE не
+      заполняет (подставляется только `$ARGS`); переписать на `$ARGS`. Правка — в VibeBrains, затем бамп
+      указателя.
 - [ ] **Скиллы из `.claude/skills`** — корни сейчас: `vibeide.skills.globalPaths`, `.vibe/skills`,
       `.cursor/skills` (`vibeSkillsLibraryService.ts:812-824`); проектные скиллы Claude Code не видны,
       хотя `functional.md:61` обещает, что скилл другого агента работает и здесь. Чужой корень
