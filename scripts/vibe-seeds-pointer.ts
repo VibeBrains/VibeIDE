@@ -45,8 +45,36 @@ const SUBMODULE = '.vibe-defaults';
 const CANON = 'origin/main';
 const FETCH_TIMEOUT_MS = 60_000;
 
-function git(args: readonly string[], cwd: string = ROOT, timeout?: number): { code: number; out: string; err: string } {
-	const result = cp.spawnSync('git', [...args], { cwd, encoding: 'utf8', timeout });
+/**
+ * Environment for git commands run INSIDE the submodule.
+ *
+ * Inside a git hook, git exports variables such as GIT_INDEX_FILE that point at the SUPERPROJECT. A
+ * child `git` started in the submodule inherits them and quietly works against the wrong repository.
+ * The first version of this gate let a pointer to an unpushed commit through for exactly that reason,
+ * and only a real `git commit` showed it — every direct run, outside a hook, was correct.
+ * `git rev-parse --local-env-vars` is git's own list of variables to clear when moving to another
+ * repository; the fallback covers a git too old to print it.
+ *
+ * Commands against the superproject keep the environment on purpose: GIT_INDEX_FILE is how a hook sees
+ * the index actually being committed, which for `git commit <paths>` is a temporary one.
+ */
+const LOCAL_ENV_FALLBACK = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_PREFIX'];
+const LOCAL_ENV_VARS = (() => {
+	const listed = cp.spawnSync('git', ['rev-parse', '--local-env-vars'], { cwd: ROOT, encoding: 'utf8' }).stdout ?? '';
+	const names = listed.split('\n').map(line => line.trim()).filter(Boolean);
+	return names.length > 0 ? names : LOCAL_ENV_FALLBACK;
+})();
+
+function submoduleEnv(): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = { ...process.env };
+	for (const name of LOCAL_ENV_VARS) {
+		delete env[name];
+	}
+	return env;
+}
+
+function git(args: readonly string[], cwd: string = ROOT, options: { timeout?: number; env?: NodeJS.ProcessEnv } = {}): { code: number; out: string; err: string } {
+	const result = cp.spawnSync('git', [...args], { cwd, encoding: 'utf8', timeout: options.timeout, env: options.env ?? process.env });
 	return { code: result.status ?? -1, out: (result.stdout ?? '').trim(), err: (result.stderr ?? '').trim() };
 }
 
@@ -82,24 +110,25 @@ console.log('🔗 Указатель набора сидов: коммит об�
 console.log('─'.repeat(60));
 console.log(`указатель в индексе: ${pointer.slice(0, 9)} (был ${head[0] === '160000' ? head[2].slice(0, 9) : 'не задан'})`);
 
-if (git(['rev-parse', '--git-dir'], path.join(ROOT, SUBMODULE)).code !== 0) {
+const setDir = path.join(ROOT, SUBMODULE);
+const inSet = { env: submoduleEnv() };
+if (git(['rev-parse', '--git-dir'], setDir, inSet).code !== 0) {
 	warnAndPass(`подмодуль ${SUBMODULE} не инициализирован — сверять не с чем.`);
 }
 
-const setDir = path.join(ROOT, SUBMODULE);
-const fetched = git(['fetch', '--quiet', 'origin', 'main'], setDir, FETCH_TIMEOUT_MS);
+const fetched = git(['fetch', '--quiet', 'origin', 'main'], setDir, { ...inSet, timeout: FETCH_TIMEOUT_MS });
 if (fetched.code !== 0) {
 	warnAndPass(`нет связи с удалённым VibeBrains (${fetched.err.split('\n')[0] || 'fetch не удался'}).`);
 }
 
-const reach = git(['merge-base', '--is-ancestor', pointer, CANON], setDir);
+const reach = git(['merge-base', '--is-ancestor', pointer, CANON], setDir, inSet);
 if (reach.code === 0) {
 	console.log(`\n✅ ${pointer.slice(0, 9)} есть в ${CANON} набора — указатель разворачивается у любого.`);
 	process.exit(0);
 }
 // Exit 1 means «known here, but not in main»; anything else (128) means the commit is not even known
 // locally after the fetch — so it is in no remote branch we ship from either way.
-const known = git(['cat-file', '-e', `${pointer}^{commit}`], setDir).code === 0;
+const known = git(['cat-file', '-e', `${pointer}^{commit}`], setDir, inSet).code === 0;
 fail(
 	known
 		? `Коммит набора ${pointer.slice(0, 9)} есть только у вас: в ${CANON} VibeBrains его нет.`
