@@ -100,6 +100,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Type check React sources
+        # react/src is excluded from src/tsconfig.json, so core-ci above never type-checks it — and a
+        # change OUTSIDE react/src can break it: 90ee35f86 added the `tasks` tool to BuiltinToolName and
+        # the `satisfies Record<BuiltinToolName, …>` title map in SidebarChat.tsx stayed broken for six
+        # days. A separate step, after the parallel batch: its own line in the log, no extra peak memory.
+        run: npm run react-typecheck
+
       - name: Check Codex protocol client is in sync
         run: |
           git fetch --no-tags --depth=1 origin "$CODEX_SYNC_BASE" || true

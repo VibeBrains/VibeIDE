@@ -13,6 +13,12 @@
  * (`compile-check-ts-native`, `valid-layers-check`), not to this one. So the exit code is driven
  * by errors under `react/src/` only; everything else is printed as an informational tail.
  *
+ * Where it runs: CI (`pr.yml`, job «Compile & Hygiene») and pre-commit via lint-staged for any staged
+ * `src/vs/**` TS file — a change OUTSIDE react/src can break react/src (90ee35f86: a new tool in
+ * `BuiltinToolName` left the `satisfies Record<BuiltinToolName, …>` title map broken for six days),
+ * and the whole run takes about two seconds. lint-staged appends the staged paths; they are ignored
+ * on purpose — the check is whole-program, a file list would not make it any narrower.
+ *
  * Usage: node scripts/vibe-react-typecheck.mjs
  */
 

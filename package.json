@@ -444,6 +444,9 @@
     ],
     "src/vs/workbench/contrib/vibeide/common/vibeDefaultsManifest.generated.ts": [
       "node scripts/vibe-deprecated-coverage.ts"
+    ],
+    "src/vs/**/*.{ts,tsx}": [
+      "node scripts/vibe-react-typecheck.mjs"
     ]
   }
 }
