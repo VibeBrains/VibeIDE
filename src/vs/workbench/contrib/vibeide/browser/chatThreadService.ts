@@ -120,6 +120,13 @@ import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IVibeWorkspaceSnapshotService } from '../common/vibeideSCMTypes.js';
 import { checkpointCoverage, isShellToolName } from '../common/checkpointCoverage.js';
 import { buildToolCallAudit, ToolCallAuditInput } from '../common/toolCallAudit.js';
+import { isModelSubstituted } from '../common/modelEcho.js';
+
+/**
+ * Пары «просили → ответила», о которых уже сказано в этом окне. Строка о подмене модели полезна один
+ * раз: на каждом ходе она превратилась бы в шум, который перестают читать.
+ */
+const saidModelSubstituted = new Set<string>();
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IVibeTokenCostForecastService } from '../common/vibeTokenCostForecastService.js';
 import {
@@ -4662,7 +4669,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		vibeLog.debug('toolExec', 'start', { tool: toolName, hint: _toolHint, mcp: mcpServerName ?? null }); recordChatTrace('toolExec:start', { tool: toolName, hint: _toolHint });
 		// Audit the access itself: until now the only record that the agent touched the machine lived
 		// in the debug trace, which is not retained and not covered by the log's export/erase pair.
-		this._auditToolCall('tool_call:start', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, true, threadId);
+		// Один span на вызов: старт и итог одной записи связываются им, а `toolId` — то, с чем позже
+		// можно сопоставить системный лог. Оба идентификатора — не аргументы инструмента.
+		const toolSpanId = generateUuid();
+		this._auditToolCall('tool_call:start', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, true, threadId, undefined, { toolCallId: toolId, spanId: toolSpanId });
 
 		let interrupted = false;
 		let resolveInterruptor: (r: () => void) => void = () => { };
@@ -4783,7 +4793,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			const errorMessage = getErrorMessage(error);
 			this._agentActivityLog.logError(`${toolActivityLabel}: ${errorMessage}`);
 			vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false });
-			this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, false, threadId, Date.now() - _toolExecStartMs);
+			this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, false, threadId, Date.now() - _toolExecStartMs, { toolCallId: toolId, spanId: toolSpanId });
 			// A failed edit leaves the cache stale in the one case that matters: the tool refused
 			// BECAUSE the file changed under the agent. Invalidation used to live past the try/catch,
 			// so an error returned before it ran — the agent was then told to re-read, got the cached
@@ -4818,7 +4828,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			const errorMessage = this.toolErrMsgs.errWhenStringifying(error);
 			this._agentActivityLog.logError(`${toolActivityLabel}: stringify ${errorMessage}`);
 			vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false });
-			this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, false, threadId, Date.now() - _toolExecStartMs);
+			this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, false, threadId, Date.now() - _toolExecStartMs, { toolCallId: toolId, spanId: toolSpanId });
 			// A failed edit leaves the cache stale in the one case that matters: the tool refused
 			// BECAUSE the file changed under the agent. Invalidation used to live past the try/catch,
 			// so an error returned before it ran — the agent was then told to re-read, got the cached
@@ -4856,7 +4866,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			&& (toolResult as { resolveReason?: TerminalResolveReason }).resolveReason?.type === 'timeout';
 		const _toolOk = !_foregroundTerminalTimedOut;
 		vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: _toolOk }); recordChatTrace('toolExec:done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: _toolOk });
-		this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, _toolOk, threadId, Date.now() - _toolExecStartMs);
+		this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, _toolOk, threadId, Date.now() - _toolExecStartMs, { toolCallId: toolId, spanId: toolSpanId });
 		this._updateLatestTool(threadId, { role: 'tool', type: 'success', params: toolParams, result: toolResult, name: toolName, content: toolResultStr, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
 		this._agentActivityLog.logFinished(toolActivityLabel);
 		// What this result will cost from here on. Measured after compression and hook notes, because
@@ -6348,7 +6358,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: fullText, reasoningSoFar: fullReasoning, toolCallSoFar: toolCall ?? null }, interrupt: Promise.resolve(() => { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } }) });
 						});
 					},
-					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage, providerQuota }) => {
+					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage, providerQuota, answeredModel }) => {
 						vibeLog.debug('llmTurn', 'done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null, textLen: fullText?.length ?? 0, reasoningLen: fullReasoning?.length ?? 0 }); recordChatTrace('llmTurn:done', { turn: traceTurn, afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null });
 						// Mark message as done to prevent late onText updates
 						messageIsDone = true;
@@ -6379,6 +6389,33 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							if (isQuotaLow(providerQuota, Date.now())) {
 								const bucket = tightestBucket(providerQuota);
 								vibeLog.warn('chatThread', `provider quota low: ${modelSelection?.providerName ?? 'provider'} ${bucket?.kind ?? 'quota'} ${bucket?.remaining}${bucket?.limit ? `/${bucket.limit}` : ''}`);
+							}
+						}
+
+						// Кто ответил на самом деле. Прокси, агрегатор и запасная цель подменяют модель молча, а счёт
+						// считается по запрошенной — поэтому расхождение называется вслух. В ленте один раз на пару
+						// «просили → ответила» за окно: повтор на каждый ход научил бы эту строку не читать. В журнал
+						// пишется каждый случай — там нужна история, а не заголовок.
+						if (answeredModel && modelSelection && isModelSubstituted(modelSelection.modelName, answeredModel)) {
+							const pair = `${modelSelection.providerName}:${modelSelection.modelName}→${answeredModel}`;
+							if (!saidModelSubstituted.has(pair)) {
+								saidModelSubstituted.add(pair);
+								this.addAssistantNotice(threadId, [
+									'**Ответила другая модель**',
+									`Просили: \`${modelSelection.modelName}\``,
+									`Ответила: \`${answeredModel}\``,
+									'Счёт считается по запрошенной — у прокси, агрегатора и запасной цели это обычное дело',
+								].join('\n\n'));
+							}
+							if (this._auditLogService.isEnabled()) {
+								void this._auditLogService.append({
+									ts: Date.now(),
+									actor: 'system',
+									action: 'model_substituted',
+									ok: true,
+									model: modelSelection.modelName,
+									meta: { answeredModel, providerName: modelSelection.providerName },
+								});
 							}
 						}
 
@@ -8698,13 +8735,21 @@ We only need to do it for files that were edited since `from`, ie files between 
 		ok: boolean,
 		threadId: string,
 		latencyMs?: number,
+		ids?: { readonly toolCallId: string; readonly spanId: string },
 	): void {
 		if (!this._auditLogService.isEnabled()) { return; }
 		const { files, meta } = buildToolCallAudit(input);
 		// `actorId` is the thread: it is what ties the agent's action back to the person who asked
 		// for it. Without it the log says «an agent edited this file» and stops there — and the one
 		// question worth asking afterwards is on whose behalf.
-		void this._auditLogService.append({ actor: 'agent', actorId: threadId, ts: Date.now(), action, ok, files, latencyMs, meta })
+		// `traceId` is the thread, `spanId` the same for the start and the done of one call: that pair is
+		// what makes the journal readable when two tools overlap, and the model's own `toolCallId` is what
+		// a system log can be matched against later.
+		void this._auditLogService.append({
+			actor: 'agent', actorId: threadId, ts: Date.now(), action, ok, files, latencyMs, meta,
+			traceId: threadId,
+			...(ids ? { spanId: ids.spanId, toolCallId: ids.toolCallId } : {}),
+		})
 			.catch(() => { /* audit is observation, not control flow */ });
 	}
 

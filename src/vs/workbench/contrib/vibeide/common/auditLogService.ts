@@ -95,6 +95,8 @@ export interface AuditEvent {
 	| 'mcp_sampling_request'
 	| 'background_job_budget_exceeded'
 	| 'provider_failover_switch'
+	// Who actually answered: a proxy, an aggregator or a failover target can serve another model.
+	| 'model_substituted'
 	| 'job_pr_creation'
 	| 'run_tests:start' | 'run_tests:complete'
 	| 'verify_gate:result'
@@ -105,6 +107,23 @@ export interface AuditEvent {
 	// `stream_completed` in the journal — an action the union said could not exist. A union with a
 	// cast around it is not a union; naming them here is what makes the compiler answer honestly.
 	| 'stream_gap_recovered' | 'stream_failed' | 'stream_cancelled' | 'stream_completed';
+	/**
+	 * Correlation ids — what ties «the model called a tool» to «something happened in the system».
+	 * Without them this journal and any system log are matched by time and tool name, and that stops
+	 * working the moment two calls overlap.
+	 *
+	 * `traceId` is the run the record belongs to (the chat thread), `spanId` this record, `toolCallId`
+	 * the model's own id for the call — the same on `tool_call:start` and `tool_call:done`, so the pair
+	 * is one call rather than two events that happened to look close. A parent-span field is deliberately
+	 * absent: there is no span above a tool call yet, and an optional field nobody fills is what happened
+	 * to the `user` field this type replaced.
+	 *
+	 * Names are ours on purpose. The OpenTelemetry GenAI convention that would fit (`gen_ai.tool.call.id`)
+	 * is still Development and allowed to break; the mapping is documented instead of imported.
+	 */
+	traceId?: string;
+	spanId?: string;
+	toolCallId?: string;
 	files?: string[];
 	diffStats?: { linesAdded: number; linesRemoved: number; hunks: number };
 	model?: string;

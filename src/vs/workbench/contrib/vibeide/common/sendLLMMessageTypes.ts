@@ -208,7 +208,10 @@ export type OnText = (p: { fullText: string; fullReasoning: string; toolCall?: R
 // `providerQuota` — the key's remaining rate-limit allowance as the provider reported it on the
 // response (passive quota tracking). Optional: not every provider sends the headers, and paths
 // that never reached the network have nothing to report.
-export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; usage?: LLMTokenUsage; providerQuota?: ProviderQuotaSnapshot }) => void; // id is tool_use_id
+// `answeredModel` — the model the provider says it served (modelEcho.ts reads it off the wire).
+// A proxy, an aggregator or a failover target can answer with a different model while the price is
+// still counted by the one we asked for, and the substitution is otherwise silent.
+export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; answeredModel?: string; usage?: LLMTokenUsage; providerQuota?: ProviderQuotaSnapshot }) => void; // id is tool_use_id
 /**
  * What the provider actually said at the moment it refused, captured verbatim.
  *

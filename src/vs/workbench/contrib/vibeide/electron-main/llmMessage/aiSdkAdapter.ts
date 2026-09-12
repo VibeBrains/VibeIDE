@@ -6,6 +6,7 @@
 // disable foreign import complaints
 /* eslint-disable */
 import { vibeLog } from '../../common/vibeLog.js';
+import { ANSWERED_MODEL_PEEK_CHARS, readAnsweredModel } from '../../common/modelEcho.js';
 import { streamText, jsonSchema, tool, type ModelMessage, type ToolSet, type TextStreamPart, type LanguageModel } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createAnthropic } from '@ai-sdk/anthropic';
@@ -182,6 +183,37 @@ const REFUSAL_BODY_PEEK_LIMIT = 64 * 1024;
  * need an active second reader (back-pressure), a `clone()` would double-buffer the whole
  * stream. Peeking must never break the stream — every failure here is swallowed.
  */
+/**
+ * Reads the model the provider says it served off the head of the answer, then leaves the stream
+ * alone. Mirrors `observeBodyTail` and for the same reason: peeking must never break the body, so
+ * every failure here is swallowed and the scan stops once the name is found or the head is spent.
+ */
+const observeAnsweredModel = (response: Response, onModel: (model: string) => void): Response => {
+	if (!response.body) { return response; }
+	let head = '';
+	let done = false;
+	const decoder = new TextDecoder();
+	const observer = new TransformStream<Uint8Array, Uint8Array>({
+		transform(chunk, controller) {
+			controller.enqueue(chunk);
+			if (done) { return; }
+			try {
+				const text = decoder.decode(chunk, { stream: true });
+				if (!text) { return; }
+				head = (head + text).slice(0, ANSWERED_MODEL_PEEK_CHARS);
+				const named = readAnsweredModel(head);
+				if (named) { done = true; onModel(named); return; }
+				if (head.length >= ANSWERED_MODEL_PEEK_CHARS) { done = true; }
+			} catch { done = true; }
+		},
+	});
+	return new Response(response.body.pipeThrough(observer), {
+		status: response.status,
+		statusText: response.statusText,
+		headers: response.headers,
+	});
+};
+
 const observeBodyTail = (response: Response, onTail: (tail: string) => void): Response => {
 	if (!response.body) { return response; }
 	let tail = '';
@@ -235,6 +267,8 @@ const REFUSAL_BODY_PEEK_CHARS = 4_000;
 const makeCustomFetch = (opts: {
 	providerName: string;
 	onQuota?: (snapshot: ProviderQuotaSnapshot) => void;
+	/** The model named in the answer — a proxy or a failover target may serve a different one. */
+	onAnsweredModel?: (model: string) => void;
 	/**
 	 * Called with what the provider said, as soon as we know it. Fires up to twice per request:
 	 * once on the headers, again if a `base_resp` refusal turns up in the body. Last call wins.
@@ -280,6 +314,11 @@ const makeCustomFetch = (opts: {
 				refusalAmbiguous: refusal.ambiguous,
 			});
 		});
+	}
+
+	if (opts.onAnsweredModel) {
+		const onAnsweredModel = opts.onAnsweredModel;
+		observed = observeAnsweredModel(observed, model => onAnsweredModel(model));
 	}
 
 	// "Out of funds" must not be retried: the answer cannot change until money is added or the
@@ -1129,12 +1168,14 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// Latest quota the provider reported during THIS call; attached to the final message so the
 	// renderer can show the key's real remaining allowance next to our own token estimate.
 	let lastQuota: ProviderQuotaSnapshot | undefined;
+	let lastAnsweredModel: string | undefined;
 	// Kept for the failure paths: without it an "empty response" cannot be told apart from a
 	// refusal the provider hid in the body of an HTTP 200 (modelStalls.md #001).
 	let lastDiagnostics: ProviderRefusalDiagnostics | undefined;
 	const callFetch = makeCustomFetch({
 		providerName,
 		onQuota: snapshot => { lastQuota = snapshot; },
+		onAnsweredModel: model => { lastAnsweredModel = model; },
 		onDiagnostics: diagnostics => { lastDiagnostics = diagnostics; },
 	});
 
@@ -1394,6 +1435,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				...(tc ? { toolCall: tc } : {}),
 				...(lastUsage ? { usage: lastUsage } : {}),
 				...(lastQuota ? { providerQuota: lastQuota } : {}),
+				...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
 			});
 		} else {
 			onError({ message: errMessage, fullError: null });
@@ -1673,6 +1715,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			...(tc ? { toolCall: tc } : {}),
 			...(lastUsage ? { usage: lastUsage } : {}),
 			...(lastQuota ? { providerQuota: lastQuota } : {}),
+			...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
 		});
 	} catch (error) {
 		clearAllTimers();
