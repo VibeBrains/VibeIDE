@@ -2234,12 +2234,13 @@ const sakanaModelOptions = {
 		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['high', 'xhigh', 'max'], default: 'high' } },
 	},
 	// Ultra v2 — `fugu-ultra` on the vendor API, `fugu-ultra-v2` on OpenRouter. Its price is TIERED:
-	// above 272K input tokens the vendor charges $10/$45 instead of $5/$30, and this flat shape cannot
-	// say that, so a long-context estimate reads low. Tiered pricing is a separate roadmap item.
+	// past 272K prompt tokens the whole request is billed at $10/$45 with cache at $1.00 instead of
+	// $5/$30 and $0.50 — the multipliers below. Read off the vendor's own tier in the live catalogue
+	// (`pricing.overrides[0]`: prompt ×2, completion ×1.5, input_cache_read ×2), checked 12.09.2026.
 	'fugu-ultra': {
 		contextWindow: 1_000_000,
 		reservedOutputTokenSpace: 32_768,
-		cost: { input: 5.00, output: 30.00, cache_read: 0.50 },
+		cost: { input: 5.00, output: 30.00, cache_read: 0.50, long_context: { over_input_tokens: 272_000, input: 2, output: 1.5, cache: 2 } },
 		downloadable: false,
 		supportsFIM: false,
 		supportsVision: true,
@@ -2258,10 +2259,12 @@ const minimaxModelOptions = {
 	'MiniMax-M3': {
 		contextWindow: 1_000_000,
 		reservedOutputTokenSpace: 8_192,
-		// Standard tier, prompts up to 512K; above that the vendor charges 0.60/2.40, which this
-		// flat model cannot express. The old note here claimed cost was "not used for routing" —
-		// it is: `modelRouter` scores `costPerM === 0` as a FREE model and adds points for it.
-		cost: { input: 0.30, output: 1.20, cache_read: 0.06 },
+		// Standard tier, prompts up to 512K; past that the vendor charges 0.60/2.40 — both rates
+		// doubled, hence the tier below. The cache rate above the step is not published, and an
+		// undeclared factor stays 1 rather than becoming a guess.
+		// The old note here claimed cost was "not used for routing" — it is: `modelRouter` scores
+		// `costPerM === 0` as a FREE model and adds points for it.
+		cost: { input: 0.30, output: 1.20, cache_read: 0.06, long_context: { over_input_tokens: 512_000, input: 2, output: 2 } },
 		downloadable: false,
 		supportsFIM: false,
 		supportsVision: true,
@@ -2442,7 +2445,7 @@ export type CatalogModelHint = {
 	contextWindow?: number;
 	supportsVision?: boolean;
 	modality?: string;
-	cost?: { input: number; output: number };
+	cost?: ModelCost;
 };
 
 /**
@@ -2554,8 +2557,10 @@ const catalogFields = (info: CatalogModelHint | undefined): Partial<VibeideStati
 	if (typeof info.contextWindow === 'number' && info.contextWindow > 0) { out.contextWindow = info.contextWindow; }
 	if (typeof info.supportsVision === 'boolean') { out.supportsVision = info.supportsVision; }
 	if (typeof info.modality === 'string' && info.modality.length > 0) { out.modality = info.modality; }
+	// Copied whole, not field by field: a hand-listed copy is how the cache rates and the
+	// long-prompt tier were dropped on their way from the catalogue to the ledger.
 	if (info.cost && typeof info.cost.input === 'number' && typeof info.cost.output === 'number') {
-		out.cost = { input: info.cost.input, output: info.cost.output };
+		out.cost = { ...info.cost };
 	}
 	return out;
 };

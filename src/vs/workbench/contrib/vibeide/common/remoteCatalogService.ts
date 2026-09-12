@@ -13,6 +13,8 @@ import { ProviderId, ProviderName } from './vibeideSettingsTypes.js';
 // его берут `browser/vibeDynamicProvidersService.ts` И `common/refreshModelService.ts` — второй
 // живёт в common, поэтому контракт не может уехать даже в browser.
 
+import { ModelCost } from './modelCapabilities.js';
+
 export interface RemoteModelInfo {
 	id: string;
 	name: string;
@@ -23,10 +25,8 @@ export interface RemoteModelInfo {
 	supportsCode?: boolean;
 	/** OpenRouter-style display literal e.g. "text->text" / "text+image->text" / "text+image+audio+video->text". Display-only. */
 	modality?: string;
-	cost?: {
-		input: number;
-		output: number;
-	};
+	/** The full catalogue price, cache rates and long-prompt tier included — see `catalogPricing.ts`. */
+	cost?: ModelCost;
 	deprecated?: boolean;
 	beta?: boolean;
 	preview?: boolean;
