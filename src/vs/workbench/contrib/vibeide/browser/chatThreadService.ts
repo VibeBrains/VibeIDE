@@ -1379,6 +1379,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	}
 
 
+	/** True when some OTHER thread is still mid-turn — its grants must not be dropped with this one. */
+	private _anyThreadStillRunning(exceptThreadId: string): boolean {
+		return Object.entries(this.streamState).some(([id, s]) => id !== exceptThreadId && s?.isRunning !== undefined);
+	}
+
 	private _setStreamState(threadId: string, state: ThreadStreamState[string]) {
 		const prior = this.streamState[threadId];
 		this.streamState[threadId] = state;
@@ -1408,6 +1413,13 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			// path — a turn also ends by interrupt, by error and by the user pressing stop, and the
 			// weights left live after any of those would be charged to the NEXT turn.
 			this._toolContextCostService.noteTurnEnd(threadId);
+			// Folder grants issued «на задачу» end with the task. Only a fully finished turn counts —
+			// 'idle' parks a thread BETWEEN calls of the same turn, and dropping the grant there would
+			// make the agent ask again in the middle of the work it was granted access for. Другие
+			// треды тоже учитываются: разрешение выдано агенту, а не вкладке.
+			if (state?.isRunning === undefined && !this._anyThreadStillRunning(threadId)) {
+				this._externalAccessService.endRunScope();
+			}
 		}
 
 		// Clear the submit-level watchdog only when the stream has truly reached the

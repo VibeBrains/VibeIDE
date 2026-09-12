@@ -131,8 +131,41 @@ export function revokedFoldersAfterGrant(revoked: readonly string[], granted: st
 
 // ── Service ─────────────────────────────────────────────────────────────────────
 
-export type ExternalAccessScope = 'session' | 'workspace';
-export interface ExternalAccessEntry { readonly path: string; readonly scope: ExternalAccessScope }
+/**
+ * How long a grant lives.
+ *
+ * `run` is the least privilege that is still useful: the agent asked for a folder to finish the
+ * task in hand, and when the task ends the reason for the grant ends with it. Before it existed the
+ * smallest answer was «на сессию» — a folder opened for one file stayed open until the window was
+ * reloaded, which nobody does on purpose.
+ */
+export type ExternalAccessScope = 'run' | 'session' | 'workspace';
+export interface ExternalAccessEntry {
+	readonly path: string;
+	readonly scope: ExternalAccessScope;
+	/** When this grant stops being valid (epoch ms). Absent = until the window or the run ends. */
+	readonly expiresAt?: number;
+}
+
+/** Configured lifetime of a session grant, in minutes. `0` keeps the old behaviour: until reload. */
+export const EXTERNAL_ACCESS_TTL_KEY = 'vibeide.agent.externalAccessTtlMinutes';
+
+/** A session-lifetime grant as the service holds it. */
+export interface SessionGrant { readonly scope: 'run' | 'session'; readonly expiresAt?: number }
+
+/**
+ * Grants still valid at `now`. Pure, so the rule can be tested without a clock or a service graph.
+ *
+ * Expiry is decided on READ rather than by a timer: a timer firing in a window nobody is looking at
+ * buys nothing, and every question about access already passes through here.
+ */
+export function liveGrants(grants: ReadonlyMap<string, SessionGrant>, now: number): string[] {
+	const live: string[] = [];
+	for (const [path, grant] of grants) {
+		if (grant.expiresAt === undefined || grant.expiresAt > now) { live.push(path); }
+	}
+	return live;
+}
 
 export interface IVibeExternalAccessService {
 	readonly _serviceBrand: undefined;
@@ -165,6 +198,13 @@ export interface IVibeExternalAccessService {
 	 * refused without a prompt there — see {@link requestAccess}.
 	 */
 	isRevoked(uri: URI): boolean;
+	/**
+	 * The current agent turn is over: grants issued «на задачу» end with it.
+	 *
+	 * Called from the one place a turn finishes, rather than being timed out — a task has no
+	 * duration to guess at, and a grant that outlives its reason is the thing this scope removes.
+	 */
+	endRunScope(): void;
 }
 
 export const IVibeExternalAccessService = createDecorator<IVibeExternalAccessService>('vibeExternalAccessService');
@@ -177,7 +217,9 @@ export class VibeExternalAccessService extends Disposable implements IVibeExtern
 	/** Deny-lists fold case — one rule for every deny list, see `DENY_RULES_IGNORE_CASE`. */
 	private readonly _denyCaseSensitive = !DENY_RULES_IGNORE_CASE;
 	// Session scope is intentionally NOT persisted — cleared on reload (least-privilege default).
-	private readonly _session = new Set<string>();
+	// A map rather than a set since grants carry a lifetime: the scope that issued them and, for
+	// session grants under a configured TTL, the moment they stop counting.
+	private readonly _session = new Map<string, SessionGrant>();
 	/**
 	 * Folders the user revoked in this session. Kept beyond the allowlist edit on purpose: a run in
 	 * flight hits the revoked path on its very next tool call, and the old code answered that by
@@ -209,7 +251,7 @@ export class VibeExternalAccessService extends Disposable implements IVibeExtern
 	}
 
 	isAllowed(uri: URI, accessKind: 'read' | 'write' = 'read'): boolean {
-		const writable = [...this._session, ...this._workspaceFolders()];
+		const writable = [...this._liveSessionFolders(), ...this._workspaceFolders()];
 		const folders = accessKind === 'write' ? writable : [...writable, ...this._referenceFolders()];
 		return isPathAllowed(uri.fsPath, folders, this._caseSensitive);
 	}
@@ -221,14 +263,50 @@ export class VibeExternalAccessService extends Disposable implements IVibeExtern
 		return isPathAllowed(uri.fsPath, resolveSourceFolders(patterns, roots), this._denyCaseSensitive);
 	}
 
+	/**
+	 * Session-scoped folders that are still valid right now. Expired grants are dropped on read
+	 * rather than on a timer: a timer that fires in a window nobody is looking at buys nothing, and
+	 * every question about access already passes through here.
+	 */
+	private _liveSessionFolders(): string[] {
+		const live = liveGrants(this._session, Date.now());
+		if (live.length !== this._session.size) {
+			const keep = new Set(live);
+			for (const path of [...this._session.keys()]) {
+				if (!keep.has(path)) { this._session.delete(path); }
+			}
+		}
+		return live;
+	}
+
+	/** Minutes a session grant stays valid, or 0 for «until the window closes». */
+	private _sessionTtlMinutes(): number {
+		const raw = this._config.getValue<number>(EXTERNAL_ACCESS_TTL_KEY);
+		return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : 0;
+	}
+
+	endRunScope(): void {
+		let changed = false;
+		for (const [path, grant] of [...this._session]) {
+			if (grant.scope === 'run') {
+				this._session.delete(path);
+				changed = true;
+			}
+		}
+		if (changed) {
+			this._onDidChangeAllowlist.fire();
+		}
+	}
+
 	async allowFolder(folder: URI, scope: ExternalAccessScope): Promise<void> {
 		const path = folder.fsPath;
 		// An explicit grant by the human outranks their earlier revoke.
 		const left = revokedFoldersAfterGrant([...this._revoked], path, this._caseSensitive);
 		this._revoked.clear();
 		for (const r of left) { this._revoked.add(r); }
-		if (scope === 'session') {
-			this._session.add(path);
+		if (scope === 'run' || scope === 'session') {
+			const ttl = scope === 'session' ? this._sessionTtlMinutes() : 0;
+			this._session.set(path, { scope, ...(ttl > 0 ? { expiresAt: Date.now() + ttl * 60_000 } : {}) });
 		} else {
 			const norm = normalizeFolderPath(path, this._caseSensitive);
 			const current = this._workspaceFolders();
@@ -254,18 +332,21 @@ export class VibeExternalAccessService extends Disposable implements IVibeExtern
 		const key = normalizeFolderPath(folder.fsPath, this._caseSensitive);
 		const existing = this._inflight.get(key);
 		if (existing) { return existing; }
-		const prompt = this._modal.showModal<'session' | 'workspace' | 'deny'>({
+		const prompt = this._modal.showModal<'run' | 'session' | 'workspace' | 'deny'>({
 			title: localize('vibeide.externalAccess.title', 'Доступ вне рабочей области'),
 			body: `Агент запрашивает доступ к файлу вне рабочей области:\n\n${uri.fsPath}\n\nРазрешить доступ к папке «${folder.fsPath}»?`,
 			icon: 'warning',
 			size: 'medium',
+			// Ordered by increasing privilege, least first: the cheapest answer to «дай доступ ради
+			// этой задачи» should be the one nearest to hand, not the one that lasts until reload.
 			buttons: [
 				{ id: 'deny', label: 'Запретить', role: 'secondary' },
+				{ id: 'run', label: 'Разрешить на задачу', role: 'primary' },
 				{ id: 'session', label: 'Разрешить на сессию', role: 'primary' },
 				{ id: 'workspace', label: 'Разрешить для проекта', role: 'primary' },
 			],
 		}).then(async r => {
-			if (r.buttonId === 'session' || r.buttonId === 'workspace') {
+			if (r.buttonId === 'run' || r.buttonId === 'session' || r.buttonId === 'workspace') {
 				await this.allowFolder(folder, r.buttonId);
 				return true;
 			}
@@ -277,7 +358,10 @@ export class VibeExternalAccessService extends Disposable implements IVibeExtern
 
 	listAllowed(): ExternalAccessEntry[] {
 		const out: ExternalAccessEntry[] = [];
-		for (const p of this._session) { out.push({ path: p, scope: 'session' }); }
+		for (const path of this._liveSessionFolders()) {
+			const grant = this._session.get(path);
+			out.push({ path, scope: grant?.scope ?? 'session', ...(grant?.expiresAt !== undefined ? { expiresAt: grant.expiresAt } : {}) });
+		}
 		for (const p of this._workspaceFolders()) { out.push({ path: p, scope: 'workspace' }); }
 		return out;
 	}
@@ -285,7 +369,7 @@ export class VibeExternalAccessService extends Disposable implements IVibeExtern
 	async revoke(folderPath: string): Promise<void> {
 		const norm = normalizeFolderPath(folderPath, this._caseSensitive);
 		// Session: drop matching entries.
-		for (const p of [...this._session]) {
+		for (const p of [...this._session.keys()]) {
 			if (normalizeFolderPath(p, this._caseSensitive) === norm) { this._session.delete(p); }
 		}
 		// Workspace: rewrite setting without the matching entry.

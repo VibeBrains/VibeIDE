@@ -234,6 +234,13 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			scope: ConfigurationScope.RESOURCE,
 			description: localize('vibeide.agent.externalAccessAllowlist', 'Список папок ВНЕ рабочей области, к которым агенту разрешён доступ (гранулярная альтернатива глобальному тогглу). Доступ распространяется на папку и её содержимое. Управляется командами «VibeIDE: Разрешить папку для доступа агента» / «Отозвать». Сессионные разрешения сюда не пишутся (живут до перезагрузки окна).'),
 		},
+		'vibeide.agent.externalAccessTtlMinutes': {
+			type: 'number',
+			default: 0,
+			minimum: 0,
+			scope: ConfigurationScope.RESOURCE,
+			markdownDescription: localize('vibeide.agent.externalAccessTtlMinutes', 'Сколько минут живёт разрешение, выданное **на сессию**. `0` — до перезакрытия окна, как раньше.\n\nЗачем ограничивать: разрешение, выданное ради одного файла, иначе остаётся открытым весь рабочий день. Разрешение **на задачу** сроку не подчиняется — оно и так кончается вместе с ходом агента, а разрешение **для проекта** живёт в настройке и снимается только отзывом.'),
+		},
 		'vibeide.council.advisers': {
 			type: 'array',
 			items: { type: 'string' },
