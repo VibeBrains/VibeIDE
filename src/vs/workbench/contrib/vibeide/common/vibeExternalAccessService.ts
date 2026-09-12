@@ -114,6 +114,21 @@ export class SourceFolderReadOnlyError extends Error {
 	}
 }
 
+/**
+ * The revoked-folder list after the user explicitly grants `granted`.
+ *
+ * A revoke is remembered for the rest of the session so that the agent cannot walk around it by
+ * asking again (see {@link IVibeExternalAccessService.requestAccess}). An explicit grant by the
+ * same human is the one thing that clears the memory — otherwise a folder revoked by mistake could
+ * never be handed back, and the setting would start lying about what is allowed.
+ *
+ * Both directions count: granting the revoked folder itself clears it, and so does granting a
+ * parent of it, because a parent grant already covers everything below.
+ */
+export function revokedFoldersAfterGrant(revoked: readonly string[], granted: string, caseSensitive: boolean): string[] {
+	return revoked.filter(r => !isPathAllowed(r, [granted], caseSensitive) && !isPathAllowed(granted, [r], caseSensitive));
+}
+
 // ── Service ─────────────────────────────────────────────────────────────────────
 
 export type ExternalAccessScope = 'session' | 'workspace';
@@ -145,6 +160,11 @@ export interface IVibeExternalAccessService {
 	listAllowed(): ExternalAccessEntry[];
 	/** Remove a folder from both scopes (by normalized path equality). */
 	revoke(folderPath: string): Promise<void>;
+	/**
+	 * True when this path sits under a folder the user revoked during this session. The agent is
+	 * refused without a prompt there — see {@link requestAccess}.
+	 */
+	isRevoked(uri: URI): boolean;
 }
 
 export const IVibeExternalAccessService = createDecorator<IVibeExternalAccessService>('vibeExternalAccessService');
@@ -158,6 +178,13 @@ export class VibeExternalAccessService extends Disposable implements IVibeExtern
 	private readonly _denyCaseSensitive = !DENY_RULES_IGNORE_CASE;
 	// Session scope is intentionally NOT persisted — cleared on reload (least-privilege default).
 	private readonly _session = new Set<string>();
+	/**
+	 * Folders the user revoked in this session. Kept beyond the allowlist edit on purpose: a run in
+	 * flight hits the revoked path on its very next tool call, and the old code answered that by
+	 * showing the access prompt again — the agent undid the revoke with a dialog the user had to
+	 * fight. Session-lifetime, like the session scope itself.
+	 */
+	private readonly _revoked = new Set<string>();
 	// Dedup concurrent prompts for the same folder (parallel tools hitting one dir → one modal).
 	private readonly _inflight = new Map<string, Promise<boolean>>();
 
@@ -196,6 +223,10 @@ export class VibeExternalAccessService extends Disposable implements IVibeExtern
 
 	async allowFolder(folder: URI, scope: ExternalAccessScope): Promise<void> {
 		const path = folder.fsPath;
+		// An explicit grant by the human outranks their earlier revoke.
+		const left = revokedFoldersAfterGrant([...this._revoked], path, this._caseSensitive);
+		this._revoked.clear();
+		for (const r of left) { this._revoked.add(r); }
 		if (scope === 'session') {
 			this._session.add(path);
 		} else {
@@ -208,8 +239,16 @@ export class VibeExternalAccessService extends Disposable implements IVibeExtern
 		this._onDidChangeAllowlist.fire();
 	}
 
+	isRevoked(uri: URI): boolean {
+		return isPathAllowed(uri.fsPath, [...this._revoked], this._caseSensitive);
+	}
+
 	requestAccess(uri: URI): Promise<boolean> {
 		if (this.isAllowed(uri)) { return Promise.resolve(true); }
+		// Revoked during this session: refuse silently instead of asking again. Asking would put the
+		// user back in the dialog they just closed, and answering "нет" in a modal is not how a
+		// decision already made should have to be defended.
+		if (this.isRevoked(uri)) { return Promise.resolve(false); }
 		// Grant at folder granularity — the containing folder of the accessed path.
 		const folder = dirname(uri);
 		const key = normalizeFolderPath(folder.fsPath, this._caseSensitive);
@@ -255,6 +294,7 @@ export class VibeExternalAccessService extends Disposable implements IVibeExtern
 		if (next.length !== current.length) {
 			await this._config.updateValue(PERSISTED_ALLOWLIST_KEY, next, ConfigurationTarget.WORKSPACE);
 		}
+		this._revoked.add(folderPath);
 		this._onDidChangeAllowlist.fire();
 	}
 }

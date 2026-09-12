@@ -6,7 +6,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { isPathAllowed, normalizeFolderPath, resolveSourceFolders } from '../../common/vibeExternalAccessService.js';
+import { isPathAllowed, normalizeFolderPath, resolveSourceFolders, revokedFoldersAfterGrant } from '../../common/vibeExternalAccessService.js';
 
 suite('vibeExternalAccess — per-folder allowlist (O.13 Variant A)', () => {
 
@@ -151,5 +151,32 @@ suite('vibeExternalAccess — путь сравнивается развёрну
 			пробелы: normalizeFolderPath('   ', true),
 			корень: isPathAllowed('/any/file', ['/'], true),
 		}, { пусто: '', пробелы: '', корень: false });
+	});
+});
+
+suite('vibeExternalAccess — отозванная папка не спрашивается заново', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('отзыв накрывает папку и всё под ней — иначе агент обойдёт его вложенным путём', () => {
+		assert.deepStrictEqual(
+			[
+				isPathAllowed('/work/secrets', ['/work/secrets'], true),
+				isPathAllowed('/work/secrets/keys/id_rsa', ['/work/secrets'], true),
+				isPathAllowed('/work/secretsauce/x', ['/work/secrets'], true),
+			],
+			[true, true, false],
+		);
+	});
+
+	test('явное разрешение человека снимает отзыв — и на саму папку, и на родителя', () => {
+		assert.deepStrictEqual(
+			[
+				revokedFoldersAfterGrant(['/work/secrets', '/other'], '/work/secrets', true),
+				revokedFoldersAfterGrant(['/work/secrets'], '/work', true),
+				revokedFoldersAfterGrant(['/work/secrets'], '/elsewhere', true),
+			],
+			[['/other'], [], ['/work/secrets']],
+		);
 	});
 });

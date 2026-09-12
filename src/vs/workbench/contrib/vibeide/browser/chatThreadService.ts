@@ -4404,6 +4404,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// and on approval re-validate (the folder is now in the allowlist). On deny,
 						// rethrow so the normal validation-error path reports the refusal.
 						if (e instanceof ExternalAccessRequiredError) {
+							// Revoked mid-run: say so in the error the model reads. "Requires
+							// authorization" invites another attempt at the same path; "the user
+							// took this folder away" is a fact the run can act on.
+							if (this._externalAccessService.isRevoked(e.uri)) {
+								throw new Error(localize('vibeide.externalAccess.revokedDuringRun', "Доступ к этой папке отозван пользователем во время прогона: {0}. Продолжайте без неё и не запрашивайте доступ снова.", e.uri.fsPath));
+							}
 							const granted = await this._externalAccessService.requestAccess(e.uri);
 							if (!granted) { throw e; }
 							params = this._toolsService.validateParams[toolName](opts.unvalidatedToolParams);
