@@ -119,6 +119,17 @@ suite('VibeConfigGuard — mcp.json', () => {
 		}, { range: true, tag: true, local: false, exact: false });
 	});
 
+	/** uvx ставит пакет ровно так же, как npx, и спрашивать про `-y` у него нечего — важна только версия. */
+	test('uvx без точной версии — находка; закреплённый и --from с версией — нет', () => {
+		const uvx = (e: MCPConfigFileEntryJSON) => has(scanMcpConfig(server(e)), 'mcp-uvx-no-pin');
+		assert.deepStrictEqual({
+			unpinned: uvx({ command: 'uvx', args: ['mcp-server-fetch'] }),
+			pinned: uvx({ command: 'uvx', args: ['mcp-server-fetch==0.6.2'] }),
+			from: uvx({ command: 'uvx', args: ['--from', 'httpie==3.2.2', 'http'] }),
+			wrapped: uvx({ command: 'sudo', args: ['uvx', 'mcp-server-fetch'] }),
+		}, { unpinned: true, pinned: false, from: false, wrapped: true });
+	});
+
 	test('critical env override (LD_PRELOAD) → critical env-override', () => {
 		const fs = scanMcpConfig(server({ command: 'node', args: ['s.js'], env: { LD_PRELOAD: '/tmp/x.so' } }));
 		assert.ok(has(fs, 'mcp-env-override-critical'));

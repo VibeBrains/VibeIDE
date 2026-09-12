@@ -272,6 +272,15 @@ function findUnpinnedRunner(line: string): string | undefined {
 	return undefined;
 }
 
+/** Args of `<runner>` when it is the command itself or is wrapped in the args (`sudo npx …`). */
+function runnerArgs(runner: string, cmd: string, args: readonly string[]): string[] | undefined {
+	if (basename(cmd).toLowerCase() === runner) {
+		return [...args];
+	}
+	const idx = args.findIndex(a => basename(a).toLowerCase() === runner);
+	return idx >= 0 ? args.slice(idx + 1) : undefined;
+}
+
 /** Describe an npx supply-chain concern (auto-install / unpinned version), or undefined if clean. */
 function npxConcern(args: readonly string[]): string | undefined {
 	const hasYes = args.some(a => a === '-y' || a === '--yes');
@@ -365,19 +374,23 @@ export function scanMcpConfig(servers: Record<string, MCPConfigFileEntryJSON> | 
 			});
 		}
 
-		// npx supply-chain — applies whether npx is the command or wrapped in args.
-		let npxArgs: string[] | undefined;
-		if (basename(cmd).toLowerCase() === 'npx') {
-			npxArgs = [...args];
-		} else {
-			const idx = args.findIndex(a => basename(a).toLowerCase() === 'npx');
-			if (idx >= 0) { npxArgs = args.slice(idx + 1); }
-		}
+		// npx / uvx supply-chain — applies whether the runner is the command or wrapped in args.
+		const npxArgs = runnerArgs('npx', cmd, args);
 		if (npxArgs) {
 			const concern = npxConcern(npxArgs);
 			if (concern) {
 				findings.push({ ruleId: 'mcp-npx-no-pin', severity: 'medium', subject: name, message: `MCP-сервер «${name}»: ${concern}.` });
 			}
+		}
+
+		// uvx carries the same risk and has no `-y` to ask about: only the pin matters.
+		const uvxArgs = runnerArgs('uvx', cmd, args);
+		const uvxPkg = uvxArgs ? uvxPackage(uvxArgs) : undefined;
+		if (uvxPkg !== undefined && !pythonPinned(uvxPkg)) {
+			findings.push({
+				ruleId: 'mcp-uvx-no-pin', severity: 'medium', subject: name,
+				message: `MCP-сервер «${name}»: пакет без фиксации версии (${uvxPkg}) — может подтянуть вредоносное обновление.`,
+			});
 		}
 
 		// Shell metacharacters — skip when the remote-pipe rule already covers this line.

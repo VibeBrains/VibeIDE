@@ -2760,7 +2760,7 @@ const PerfGuardrailsPanel = () => {
 // Pulls in-memory snapshot from IVibeSessionMemoryService for the current
 // chat thread; manual refresh button so we don't subscribe to every append.
 // R.4.1 — Project rules panel: lists discovered rule sources (.vibe/rules.md, AGENTS.md,
-// .vibe/rules/**, .cursor/rules/** — .md/.mdc), with an enable/disable toggle (per-workspace,
+// .vibe/rules/** — .md/.mdc; foreign rule files are deliberately not read), with an enable/disable toggle (per-workspace,
 // honored in the prompt combine) and click-to-preview of the (frontmatter-stripped, sanitized) body.
 const ProjectRulesPanel = () => {
 	const accessor = useAccessor();

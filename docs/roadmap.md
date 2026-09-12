@@ -5473,9 +5473,10 @@ prompts, tools, and preceding messages») действует на API-аккау
       переносимо дословно: префикс агрегатора и датированная сборка — не подмена, хвост-слово
       (`gpt-4o-mini` вместо `gpt-4o`) — подмена. Обоснование — решение №88 в журнале VibeIDEA, чистый
       разборщик — `providers/ModelEcho.kt` с тестами.
-- [ ] **`uvx` в MCP-скане** — `uvx mcp-server-x` без версии в `mcp.json` несёт тот же риск, что `npx`, но не
-      проверяется. Разбор (`uvxPackage`, `pythonPinned`) уже есть в `vibeConfigGuard.ts`: нужны правило и
-      строка в векторе.
+- [x] **`uvx` в MCP-скане** — ✅ (2026-09-12, next) Находка `mcp-uvx-no-pin` (medium): `uvx` без точной
+      версии в `mcp.json`, в том числе обёрнутый (`sudo uvx …`); `--from` с версией и `pkg==1.2.3` чистые.
+      Разбор общий с правилом скиллов (`runnerArgs`, `uvxPackage`, `pythonPinned`). Проверки всей пачки:
+      тайпчек, слои, React; набор vibeide — 3917 passing, 0 failing.
 - [ ] **Брошенные с мая заделы «wave-2»** — `common/userPromptLibrary.ts` (второй, несовместимый разборщик
       `.vibe/prompts`: frontmatter, режим chat/ctrl-k, модель, `{{selection}}`/`{{file}}`/`{{ask:ИМЯ}}`) и
       хелперы `conventionalCommitFormat.ts` (формат, разбор, автоопределение типа и области) — потребителей
@@ -5483,16 +5484,14 @@ prompts, tools, and preceding messages») действует на API-аккау
 - [ ] **Образец `prompts/example.md` в наборе VibeBrains** — показывает `$ASPECT` и `$CODE`, которые IDE не
       заполняет (подставляется только `$ARGS`); переписать на `$ARGS`. Правка — в VibeBrains, затем бамп
       указателя.
-- [ ] **Скиллы из `.claude/skills`** — корни сейчас: `vibeide.skills.globalPaths`, `.vibe/skills`,
-      `.cursor/skills` (`vibeSkillsLibraryService.ts:812-824`); проектные скиллы Claude Code не видны,
-      хотя `functional.md:61` обещает, что скилл другого агента работает и здесь. Чужой корень
-      закрывает одобрение по отпечатку. Решение за владельцем: для правил проекта принято «только свои
-      источники» (`vibeProjectRulesService.ts:10`). Вместе с этим — порядок: `.cursor/skills` грузится
-      последним и при совпадении id перетирает `.vibe/skills` (`into.set` без проверки, `:1062`), а
-      комментарий `:818-820` обещает обратное.
-- [ ] **`hooksSpec.md`: отказ, который маршрутизирует** — текст отказа уже доходит до модели дословно
-      (`hookOutcome.ts:67-69`, смоук 09.08.2026); дописать совет «в отказе назовите, что делать вместо» и
-      пример: полное чтение огромного файла → чтение диапазоном.
+- [x] **Скиллы из `.claude/skills` и порядок корней** — ✅ (2026-09-12, next) Корни читаются в порядке
+      «чужие → свой»: `.cursor/skills` и новый `.claude/skills` добавляют навыки, а при совпадении имени
+      побеждает `.vibe/skills`. Раньше `.cursor` грузился последним и молча подменял одноимённый навык
+      проекта, хотя комментарий обещал обратное. Новый корень добавлен и в вотчер; тесты на подмену и на
+      новый корень — в `vibeSkillsApproval.test.ts`.
+- [x] **`hooksSpec.md`: отказ, который маршрутизирует** — ✅ (2026-09-12, next) Раздел «Отказ, который
+      называет, что делать вместо» с рабочим примером; в knowledge `architecture/projectHooks.md` строка
+      про отложенный совет заменена ссылкой на спеку.
 - [x] **`skillSpec.md`: раздел для навыков, управляющих CLI** — ✅ (2026-09-12, next) правила легли
       полным текстом в общий засеянный навык `update-skill` (VibeBrains, v3), а спеки обоих продуктов
       ссылаются на него коротким списком — так контракт живёт в одном месте: `--help` перед
@@ -5525,15 +5524,16 @@ prompts, tools, and preceding messages») действует на API-аккау
       «Команды чата» в `functional.md`, knowledge `chatUx/chatCommands.md`. Проверено: тайпчек, React,
       слои; тесты `chatSlashCommands.test.ts` и `slashCommandExpansion.test.ts`, набор vibeide — 3909
       passing, 0 failing. Живьём в dev-IDE не прогонялось — нужен чат с моделью.
-- [ ] **`functional.md:106` обещает `.cursor/rules` и `.cursorrules`** — сервис правил читает только
-      `.vibe/rules.md`, `AGENTS.md` и `.vibe/rules/**` и прямо пишет «no foreign tools' rule files»
-      (`vibeProjectRulesService.ts:10-13`); устарел и комментарий панели правил (`Settings.tsx:2762-2764`).
-- [ ] **Скилл «только явно» попадает в неявные подсказки** — `disable-model-invocation: true` уводит его
-      в раздел «Explicit-only» списка (`vibeSkillsLibraryService.ts:1175-1181`), но
-      `getImplicitSkillRankedMatches` его не исключает (`:1200`).
-- [ ] **Мелкое** — опубликованная схема `skill-package.schema.json` требует `vibeVersion` (`:8`), парсер —
-      только `name` и `description`, так что стандартный `SKILL.md` схему не проходит. (`.yaml` в
-      `.vibe/workflows` и `$ARGS` без границы слова закрыты вместе с командами чата.)
+- [x] **`functional.md:106` про `.cursor/rules`** — ✅ (2026-09-12, next) Запись переписана по факту:
+      читаются `.vibe/rules.md`, корневой `AGENTS.md` и `.vibe/rules/**` (у `.mdc` — `description`,
+      `globs`, `alwaysApply`, `triggers`), файлы правил чужих инструментов намеренно не читаются, перенос
+      делает агент по просьбе. Устаревший комментарий панели правил в `Settings.tsx` тоже поправлен.
+- [x] **Скилл «только явно» не попадает в неявные подсказки** — ✅ (2026-09-12, next)
+      `getImplicitSkillRankedMatches` исключает скиллы с `disable-model-invocation`: список просит модель
+      не брать такой навык самой, а подсказка в том же промпте говорила обратное.
+- [x] **Опубликованная схема навыка** — ✅ (2026-09-12, next) `skill-package.schema.json` больше не требует
+      `vibeVersion`: парсеру хватает `name` и `description`, и навык, написанный по общему стандарту,
+      проходит схему, которую мы публикуем на Pages.
 
 ## DIGEST-0910. Дайджест 10.09.2026 — шесть тем, три закрылись проверкой (2026-09-10)
 

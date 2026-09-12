@@ -10,7 +10,7 @@
 
 **Суть:**
 - Чистый модуль детекта — [common/vibeConfigGuard.ts](../../../src/vs/workbench/contrib/vibeide/common/vibeConfigGuard.ts). Без I/O, без VS Code-зависимостей, без чтения конфига → тестируем из `test/common/`. Две функции: `scanProviderConfig(entries)` и `scanMcpConfig(servers)` → `ConfigGuardFinding[]` (`ruleId`, `severity`, `subject`, `message`).
-- **12 правил** (provider × 3, mcp × 9):
+- **13 правил** (provider × 3, mcp × 10):
 
   | Файл | ruleId | Severity |
   |---|---|---|
@@ -21,6 +21,7 @@
   | mcp | `mcp-shell-wrapper` (`sh -c`) | high |
   | mcp | `mcp-disabled-security` (`--no-sandbox` …) | critical |
   | mcp | `mcp-npx-no-pin` (`-y` / без точной версии: тег и диапазон — не версия, локальный путь — не загрузка) | medium |
+  | mcp | `mcp-uvx-no-pin` (`uvx` без точной версии; `-y` у него нет) | medium |
   | mcp | `mcp-env-override-critical` (PATH/LD_PRELOAD/NODE_OPTIONS…) | critical |
   | mcp | `mcp-hardcoded-env-secret` | critical |
   | mcp | `mcp-shell-metacharacters` | medium |
@@ -137,7 +138,8 @@ HTTP API запускает агента, MCP-gateway вызывает инст�
   Проза не читается: пакет, названный в предложении, — не команда (так же у VibeIDEA).
 - «Закреплено» — только точная версия: `@latest` и `@^1.2.3` — нет; локальный путь (`./tool`, `file:`) — не
   загрузка. То же понятие теперь у MCP-правила: раньше `npx pkg@^1.2.3` в `mcp.json` считался закреплённым,
-  а `npx ./local.js` — нет.
+  а `npx ./local.js` — нет. Отдельным правилом `mcp-uvx-no-pin` закрыт и `uvx` в `mcp.json`: спрашивать
+  про `-y` у него нечего, важна только версия.
 - Правило перенесено из VibeIDEA и сверено их вектором дословно (`SkillValidatorTest`, `SkillCodeScanTest`).
 
 **Грабля:** регулярка версии Python у VibeIDEA — `v?\d+(\.\d+)*([.-]?[A-Za-z0-9]+)*` — это `(a+)*`: на

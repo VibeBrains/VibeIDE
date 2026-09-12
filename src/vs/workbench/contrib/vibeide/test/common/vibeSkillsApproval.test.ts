@@ -155,6 +155,29 @@ suite('VibeSkillsLibraryService — одобрение скилла по отп�
 		});
 	});
 
+	/** Корни читаются в порядке «чужие → свой»: карта хранит последнего, поэтому свой скилл побеждает. */
+	test('чужой скилл не подменяет свой: при совпадении имени побеждает .vibe/skills, .claude/skills добавляет новые', async () => {
+		const { library, write } = createFixture();
+		await write('.cursor/skills/deploy/SKILL.md', '---\nname: deploy\ndescription: Чужая копия из Cursor\n---\n# deploy\nЧужое тело.\n');
+		await write('.claude/skills/notes/SKILL.md', '---\nname: notes\ndescription: Заметки из Claude Code\n---\n# notes\nТело.\n');
+		await write('.vibe/skills/deploy/SKILL.md', skillText('deploy'));
+		const skills = await library.getSkills();
+		assert.deepStrictEqual(
+			skills.map(s => [s.skillId, s.description]).sort((a, b) => a[0].localeCompare(b[0])),
+			[['deploy', 'Выкатка сервиса на стенд'], ['notes', 'Заметки из Claude Code']],
+		);
+	});
+
+	/** Список говорит модели не брать такой скилл самой — подсказка о нём сказала бы обратное. */
+	test('скилл «только явно» не попадает в неявные подсказки', async () => {
+		const { library, write, configuration } = createFixture();
+		await configuration.setUserConfiguration('vibeide.skills.requireApproval', false);
+		await write('.vibe/skills/deploy/SKILL.md', skillText('deploy'));
+		await write('.vibe/skills/release/SKILL.md', '---\nname: release\ndescription: Выкатка сервиса на стенд по регламенту\ndisable-model-invocation: true\n---\n# release\nТело.\n');
+		const matches = await library.getImplicitSkillRankedMatches('выкатка сервиса на стенд сегодня');
+		assert.deepStrictEqual(matches.map(m => m.skillId), ['deploy']);
+	});
+
 	test('с выключенным требованием модель видит все скиллы, а состояние всё равно считается', async () => {
 		const { library, write, configuration } = createFixture();
 		await write('.vibe/skills/deploy/SKILL.md', skillText('deploy'));

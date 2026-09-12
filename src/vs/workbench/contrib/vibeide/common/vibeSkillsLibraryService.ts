@@ -604,7 +604,7 @@ export class VibeSkillsLibraryService extends Disposable implements IVibeSkillsL
 		const roots = this._globalRootPaths().map(path => URI.file(path));
 		const folder = this._workspaceContextService.getWorkspace().folders[0]?.uri;
 		if (folder) {
-			roots.push(joinPath(folder, '.vibe', 'skills'), joinPath(folder, '.cursor', 'skills'));
+			roots.push(joinPath(folder, '.vibe', 'skills'), joinPath(folder, '.cursor', 'skills'), joinPath(folder, '.claude', 'skills'));
 		}
 		return roots;
 	}
@@ -811,17 +811,18 @@ export class VibeSkillsLibraryService extends Disposable implements IVibeSkillsL
 
 		const folders = this._workspaceContextService.getWorkspace().folders;
 		if (folders.length > 0) {
-			// Primary workspace skills root (.vibe/skills/ — workspace wins over global)
-			const skillsRoot = joinPath(folders[0].uri, '.vibe', 'skills');
-			await this._collectSkillsIntoMap(skillsRoot, byId, sources, false);
+			// § H.2.1: skills of the other agents in the same project — Cursor and Claude Code keep them in
+			// their own folders, and the format is the shared standard. Read BEFORE `.vibe/skills/`: the map
+			// keeps the last writer, so on a clashing id ours wins. The other order let a foreign copy of
+			// `deploy` replace the project's own without a word.
+			for (const foreignRoot of [['.cursor', 'skills'], ['.claude', 'skills']]) {
+				try {
+					await this._collectSkillsIntoMap(joinPath(folders[0].uri, ...foreignRoot), byId, sources, false);
+				} catch { /* the folder may not exist */ }
+			}
 
-			// § H.2.1: also scan .cursor/skills/ for Cursor-compatible skill import
-			// Priority: .vibe/skills/ already loaded above (workspace-wins rule from globalPaths logic)
-			// .cursor/skills/ adds extra skills that don't conflict by id
-			const cursorSkillsRoot = joinPath(folders[0].uri, '.cursor', 'skills');
-			try {
-				await this._collectSkillsIntoMap(cursorSkillsRoot, byId, sources, false);
-			} catch { /* .cursor/skills/ may not exist */ }
+			// Primary workspace skills root (.vibe/skills/ — wins over global paths and foreign folders)
+			await this._collectSkillsIntoMap(joinPath(folders[0].uri, '.vibe', 'skills'), byId, sources, false);
 		}
 
 		// Only the skills that won their id are fingerprinted: an overridden one is not shown to anybody.
@@ -1197,7 +1198,10 @@ export class VibeSkillsLibraryService extends Disposable implements IVibeSkillsL
 		}
 		const qTokens = tokenizeSkillText(q);
 		// Only skills the model may see: a hint about an unapproved one would be a way around approval.
-		const skills = this._filterSkillsForSession(await this.getSkills()).filter(skill => this.isSkillAvailableToModel(skill));
+		// `disable-model-invocation` is excluded here too: the list tells the model not to reach for such a
+		// skill on its own, and a hint about it would say the opposite in the same prompt.
+		const skills = this._filterSkillsForSession(await this.getSkills())
+			.filter(skill => this.isSkillAvailableToModel(skill) && !skill.disableModelInvocation);
 		if (qTokens.size < 2) {
 			return [];
 		}
