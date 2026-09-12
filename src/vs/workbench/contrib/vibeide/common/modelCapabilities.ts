@@ -695,6 +695,12 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 	if (lower.includes('qwen')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen3'); }
 	if (lower.includes('qwq')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwq'); }
 
+	// Sakana Fugu: the narrow branch goes first — `fugu-ultra` carries Ultra pricing and starts at
+	// `xhigh`, while every other fugu id (fugu-max, fugu, fugu-cyber) takes the Max profile. What must
+	// not fall through is the effort ladder: this family rejects `low`/`medium` with an error.
+	if (lower.includes('fugu') && lower.includes('ultra')) { return toFallback(sakanaModelOptions, 'fugu-ultra'); }
+	if (lower.includes('fugu')) { return toFallback(sakanaModelOptions, 'fugu-max'); }
+
 	// GLM and Kimi had no branch at all — every id fell through to `defaultModelOptions`, whose
 	// price is zero, so the router read them as free. Newer generations map to the newest profile
 	// we know: an approximate price beats a zero that lies.
@@ -2207,6 +2213,42 @@ const openRouterSettings: VoidStaticProviderInfo = {
 // MiniMax-M2 is a thinking model (interleaved, always on) that streams its
 // chain-of-thought in `reasoning_content`. Context spec: 204,800 tokens.
 // Reference: https://platform.minimax.io/docs/api-reference/text-chat-openai
+/**
+ * Sakana Fugu — an orchestrator: it picks an executor from its own pool, and that executor's work is
+ * billed as ordinary input/output tokens, so the visible tokens undercount the bill (`usage.token_details`
+ * carries the split). Reasoning is MANDATORY here and the ladder is its own: `high` | `xhigh`, with `max`
+ * accepted for compatibility and meaning `xhigh` (a distinct `max` exists only on fugu-ultra-v1.1). The
+ * API rejects `low` and `medium` outright — which is exactly what our old default would have sent.
+ * Verified 2026-09-12 against console.sakana.ai/get-started and the live OpenRouter catalog.
+ */
+const sakanaModelOptions = {
+	'fugu-max': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 2.00, output: 6.00, cache_read: 0.25 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsVision: true,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['high', 'xhigh', 'max'], default: 'high' } },
+	},
+	// Ultra v2 — `fugu-ultra` on the vendor API, `fugu-ultra-v2` on OpenRouter. Its price is TIERED:
+	// above 272K input tokens the vendor charges $10/$45 instead of $5/$30, and this flat shape cannot
+	// say that, so a long-context estimate reads low. Tiered pricing is a separate roadmap item.
+	'fugu-ultra': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 5.00, output: 30.00, cache_read: 0.50 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsVision: true,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['high', 'xhigh', 'max'], default: 'xhigh' } },
+	},
+} as const satisfies { [s: string]: VibeideStaticModelInfo };
+
 const minimaxModelOptions = {
 	// M3: 1M-token context (MSA architecture), native multimodality, three thinking modes via
 	// `thinking:{type}`: 'adaptive' (model decides per request; the API default), 'enabled'
