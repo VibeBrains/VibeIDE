@@ -5439,6 +5439,15 @@ prompts, tools, and preceding messages») действует на API-аккау
 
 **Что взять:**
 
+- [x] **Хук из Claude Code: отказ джейсоном исполняется** — ✅ (2026-09-12, next) обратная сторона их
+      issue #10, найденная при разборе того же репозитория со стороны VibeIDEA: `verdictOf` читал только
+      код выхода, поэтому перенесённый оттуда хук с `permissionDecision: "deny"` и кодом 0 молча
+      разрешал действие, а его запрет уходил модели заметкой. Теперь `deny`/`block` и `continue: false` —
+      отказ, `allow`/`approve` — разрешение без заметки агенту, `ask` — предупреждение пользователю;
+      решением считается только вывод от `{` до `}` (правило их хоста дословно), код `2` сильнее любого
+      JSON. Таблица случаев одинакова с VibeIDEA (`projectHooks.test.ts` ↔ `HookOutcomeTest.kt`),
+      обоснование — решение №87 в журнале VibeIDEA. Дополнены `hooksSpec.md`, `functional.md` и
+      knowledge `architecture/projectHooks.md`.
 - [x] **Config Guard: пакетный раннер без версии в скилле** — ✅ (2026-09-11, next) Правило перенесено из
       VibeIDEA (`SkillCodeScan.kt`) и сверено их вектором дословно (`SkillValidatorTest.kt:94-121`,
       `SkillCodeScanTest.kt`): `skill-unpinned-runner` — `npx`/`uvx` без точной версии в блоке кода `SKILL.md`
