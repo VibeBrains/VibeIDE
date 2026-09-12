@@ -195,6 +195,7 @@ export type VibeideStaticModelInfo = { // not stateful
 	supportsFIM: boolean; // whether the model was specifically designed for autocomplete or "FIM" ("fill-in-middle" format)
 	supportsVision?: boolean; // image input. Optional — undefined falls back to provider heuristics. Catalog-driven providers (OpenRouter, etc.) populate this from `architecture.input_modalities`.
 	modality?: string; // display-only literal from catalog (e.g. "text+image->text"). Not used for routing — purely informational, surfaced in the model list UI.
+	floatsTo?: string; // display-only: what a FLOATING catalog id points at today (alias target or dated snapshot). See catalogAliases.ts — a quirk pinned to such an id is pinned to moving ground.
 
 	additionalOpenAIPayload?: { [key: string]: string }; // additional payload in the message body for requests that are openai-compatible (ollama, vllm, openai, openrouter, etc)
 
@@ -279,6 +280,7 @@ export const modelOverrideKeys = [
 	'supportsFIM',
 	'supportsVision',
 	'modality',
+	'floatsTo',
 	'reasoningCapabilities',
 	'additionalOpenAIPayload'
 ] as const;
@@ -2445,6 +2447,7 @@ export type CatalogModelHint = {
 	contextWindow?: number;
 	supportsVision?: boolean;
 	modality?: string;
+	floatsTo?: string;
 	cost?: ModelCost;
 };
 
@@ -2557,6 +2560,7 @@ const catalogFields = (info: CatalogModelHint | undefined): Partial<VibeideStati
 	if (typeof info.contextWindow === 'number' && info.contextWindow > 0) { out.contextWindow = info.contextWindow; }
 	if (typeof info.supportsVision === 'boolean') { out.supportsVision = info.supportsVision; }
 	if (typeof info.modality === 'string' && info.modality.length > 0) { out.modality = info.modality; }
+	if (typeof info.floatsTo === 'string' && info.floatsTo.length > 0) { out.floatsTo = info.floatsTo; }
 	// Copied whole, not field by field: a hand-listed copy is how the cache rates and the
 	// long-prompt tier were dropped on their way from the catalogue to the ledger.
 	if (info.cost && typeof info.cost.input === 'number' && typeof info.cost.output === 'number') {

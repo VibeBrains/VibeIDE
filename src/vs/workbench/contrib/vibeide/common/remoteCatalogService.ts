@@ -25,6 +25,8 @@ export interface RemoteModelInfo {
 	supportsCode?: boolean;
 	/** OpenRouter-style display literal e.g. "text->text" / "text+image->text" / "text+image+audio+video->text". Display-only. */
 	modality?: string;
+	/** What a FLOATING id points at right now — see `floatingTargetOf`. Absent for a fixed id. */
+	floatsTo?: string;
 	/** The full catalogue price, cache rates and long-prompt tier included — see `catalogPricing.ts`. */
 	cost?: ModelCost;
 	deprecated?: boolean;
