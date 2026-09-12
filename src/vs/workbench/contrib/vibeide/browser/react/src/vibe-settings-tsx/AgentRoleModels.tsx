@@ -66,10 +66,12 @@ export const AgentRoleModels = () => {
 			<div className='text-sm text-vibe-fg-3 mt-1'>
 				Какая модель исполняет каждую роль Vibe Agents. По умолчанию — модель чата. Read-only роли
 				(планировщик, ревьюер, security) выгодно сажать на лёгкую модель: дешевле и быстрее, а
-				писать код им всё равно запрещено. Бюджет — потолок суммарного расхода роли за окно
-				(по умолчанию сутки, ключ <code>vibeide.subagent.budgetWindowDays</code>): пусто —
-				без ограничения. Исчерпав его, роль не запустится, а прогон появится в
-				«Диспетчерской» как пропущенный с причиной.
+				писать код им всё равно запрещено. Потолков три: токены за окно, доллары за один прогон
+				и доллары за окно (окно по умолчанию сутки, ключ
+				<code>vibeide.subagent.budgetWindowDays</code>); пусто — без ограничения. Потолок
+				за прогон превращается в квоту токенов по цене выбранной модели, поэтому у модели
+				без известной цены он не действует. Исчерпав потолок за окно, роль не запустится,
+				а прогон появится в «Диспетчерской» как пропущенный с причиной.
 			</div>
 			{/* Inline styles (not Tailwind utilities) for the layout: this card is a shared
 			    cross-bundle component (Settings page + in-chat modal), and the modal bundle's
@@ -78,7 +80,7 @@ export const AgentRoleModels = () => {
 			<div
 				style={{
 					display: 'grid',
-					gridTemplateColumns: 'max-content minmax(0, 1fr) max-content',
+					gridTemplateColumns: 'max-content minmax(0, 1fr) max-content max-content max-content',
 					alignItems: 'center',
 					columnGap: '12px',
 					rowGap: '6px',
@@ -124,12 +126,42 @@ export const AgentRoleModels = () => {
 								type='number'
 								min={0}
 								step={10000}
-								placeholder='без лимита'
-								title='Потолок суммарного расхода роли за окно бюджета. Пусто или 0 — без ограничения.'
+								placeholder='токены'
+								title='Потолок суммарного расхода роли в ТОКЕНАХ за окно бюджета. Пусто или 0 — без ограничения.'
 								value={settingsState.tokenBudgetOfRole?.[preset.type] ?? ''}
 								onChange={(e) => {
 									const raw = e.target.value.trim();
 									void vibeideSettingsService.setTokenBudgetOfRole(preset.type, raw === '' ? null : Number(raw));
+								}}
+							/>
+							<input
+								className='text-xs'
+								style={roleBudgetInputStyle}
+								type='number'
+								min={0}
+								step={0.5}
+								placeholder='$ / прогон'
+								title='Потолок ОДНОГО прогона в долларах. Превращается в квоту токенов по цене выбранной модели; у модели без известной цены не применяется.'
+								value={settingsState.usdBudgetOfRole?.[preset.type]?.perRun ?? ''}
+								onChange={(e) => {
+									const raw = e.target.value.trim();
+									const current = settingsState.usdBudgetOfRole?.[preset.type] ?? {};
+									void vibeideSettingsService.setUsdBudgetOfRole(preset.type, { ...current, perRun: raw === '' ? undefined : Number(raw) });
+								}}
+							/>
+							<input
+								className='text-xs'
+								style={roleBudgetInputStyle}
+								type='number'
+								min={0}
+								step={1}
+								placeholder='$ / окно'
+								title='Потолок суммарного расхода роли в долларах за окно бюджета. Прогоны с неизвестной ценой в сумму не входят и называются в отказе.'
+								value={settingsState.usdBudgetOfRole?.[preset.type]?.perDay ?? ''}
+								onChange={(e) => {
+									const raw = e.target.value.trim();
+									const current = settingsState.usdBudgetOfRole?.[preset.type] ?? {};
+									void vibeideSettingsService.setUsdBudgetOfRole(preset.type, { ...current, perDay: raw === '' ? undefined : Number(raw) });
 								}}
 							/>
 						</React.Fragment>

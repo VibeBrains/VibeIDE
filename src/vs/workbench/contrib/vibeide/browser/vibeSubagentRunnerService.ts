@@ -15,6 +15,7 @@ import { RawToolCallObj, LLMChatMessage, LLMTokenUsage } from '../common/sendLLM
 import { vibeLog } from '../common/vibeLog.js';
 import { ModelSelection } from '../common/vibeideSettingsTypes.js';
 import { getModelCapabilities } from '../common/modelCapabilities.js';
+import { tokenQuotaForUsd } from '../common/agentRoleBudget.js';
 import { isModelVisionCapable } from '../common/modelVisionHeuristics.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { ChatMessage } from '../common/chatThreadServiceTypes.js';
@@ -143,9 +144,17 @@ class VibeSubagentRunnerService extends Disposable implements IVibeSubagentRunne
 
 		const chatMode = chatModeForAllowedTools(req.allowedTools);
 		const deadlineAtMs = req.maxWallClockMs > 0 ? Date.now() + req.maxWallClockMs : 0;
+		// The role's money ceiling for ONE run becomes this run's token quota, now that the model — and
+		// therefore the exchange rate between tokens and dollars — is finally known. Converting here
+		// means there is exactly one mechanism that stops a run on resources, not two that can disagree.
+		// A model without a known price keeps the token quota it already had: an unknown rate cannot
+		// be turned into a ceiling, and refusing the run instead would punish the user for our gap.
+		const usdPerRun = this._settings.state.usdBudgetOfRole?.[req.type]?.perRun;
+		const usdQuota = tokenQuotaForUsd(usdPerRun, getModelCapabilities(modelSelection.providerName, modelSelection.modelName, this._settings.state.overridesOfModel).cost);
+		const maxTokensEst = usdQuota !== undefined ? Math.min(req.maxTokensEst, usdQuota) : req.maxTokensEst;
 		// Mutable: under Autopilot the resource limits are SOFT — they auto-extend instead of stopping
 		// the role (see the reset block in the loop). cancelled/denied-actions stay hard.
-		let limits = { maxSteps: req.maxSteps, maxTokensEst: req.maxTokensEst, deadlineAtMs, maxDeniedActions: SUBAGENT_MAX_DENIED_ACTIONS };
+		let limits = { maxSteps: req.maxSteps, maxTokensEst, deadlineAtMs, maxDeniedActions: SUBAGENT_MAX_DENIED_ACTIONS };
 
 		const taskMessage = buildSubagentTaskMessage({ displayName: preset.displayName, systemAppendix: preset.systemAppendix, goal: req.goal, acceptanceCriteria: req.acceptanceCriteria, contextItems: req.contextItems });
 		const history: ChatMessage[] = [{

@@ -112,6 +112,12 @@ export type VibeideSettingsState = {
 	 *  this caps how much a role may spend across many. Consumed by `vibeSubagentService.spawn`. */
 	readonly tokenBudgetOfRole?: Readonly<Record<string, number | null>>;
 
+	/** Money ceilings per role: `perRun` becomes that run's token quota at launch, `perDay` refuses a
+	 *  launch once the window's spend reaches it. Kept beside the token ceiling, not instead of it —
+	 *  tokens bound the context a run chews through, dollars bound the bill, and the rate between them
+	 *  differs tenfold between models. Absent key / null = no money ceiling. */
+	readonly usdBudgetOfRole?: Readonly<Record<string, { readonly perRun?: number; readonly perDay?: number } | null>>;
+
 	readonly _modelOptions: ModelOption[]; // computed based on the two above items
 };
 
@@ -138,6 +144,7 @@ export interface IVibeideSettingsService {
 	/** VA.2 «модель на роль»: set/replace a role's model; `null` clears the mapping (inherit Chat). */
 	setModelSelectionOfRole(roleType: string, selection: ModelSelection | null): Promise<void>;
 	setTokenBudgetOfRole(roleType: string, budget: number | null): Promise<void>;
+	setUsdBudgetOfRole(roleType: string, budget: { perRun?: number; perDay?: number } | null): Promise<void>;
 	setOptionsOfModelSelection: SetOptionsOfModelSelection;
 	setGlobalSetting: SetGlobalSettingFn;
 	// setMCPServerStates: (newStates: MCPServerStates) => Promise<void>;
@@ -509,6 +516,7 @@ const defaultState = () => {
 		dynamicModelHidden: {},
 		modelSelectionOfRole: {},
 		tokenBudgetOfRole: {},
+		usdBudgetOfRole: {},
 	};
 	return d;
 };
@@ -841,6 +849,24 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 			next[roleType] = Math.floor(budget);
 		}
 		const newState: VibeideSettingsState = { ...this.state, tokenBudgetOfRole: next };
+		this.state = _validatedModelState(newState);
+		await this._storeState();
+		this._onDidChangeState.fire();
+	};
+
+	setUsdBudgetOfRole = async (roleType: string, budget: { perRun?: number; perDay?: number } | null): Promise<void> => {
+		const next: Record<string, { perRun?: number; perDay?: number } | null> = { ...(this.state.usdBudgetOfRole ?? {}) };
+		// Same rule as the token ceiling: a non-positive number is «no ceiling» clumsily expressed,
+		// and storing it as zero would refuse every run instead of allowing every run.
+		const positive = (v: number | undefined) => typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
+		const perRun = positive(budget?.perRun);
+		const perDay = positive(budget?.perDay);
+		if (budget === null || (perRun === undefined && perDay === undefined)) {
+			delete next[roleType];
+		} else {
+			next[roleType] = { ...(perRun !== undefined ? { perRun } : {}), ...(perDay !== undefined ? { perDay } : {}) };
+		}
+		const newState: VibeideSettingsState = { ...this.state, usdBudgetOfRole: next };
 		this.state = _validatedModelState(newState);
 		await this._storeState();
 		this._onDidChangeState.fire();

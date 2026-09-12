@@ -35,7 +35,8 @@ import { IVibeConstraintsService } from './vibeConstraintsService.js';
 import { IVibeSubagentRunner } from './vibeSubagentRunner.js';
 import { IVibeAgentRunLedgerService } from './vibeAgentRunLedgerService.js';
 import { AgentRunStatus } from './agentRunLedger.js';
-import { describeRoleBudgetRefusal, evaluateRoleBudget } from './agentRoleBudget.js';
+import { describeRoleBudgetRefusal, describeRoleUsdRefusal, evaluateRoleBudget, evaluateRoleUsdBudget } from './agentRoleBudget.js';
+import { getModelCapabilities } from './modelCapabilities.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { IVibeSubagentRegistryService } from './vibeSubagentRegistryService.js';
 import { breakerName, IVibeCircuitBreakerService, PROTECTIVE_BREAKERS } from './agentCircuitBreakers.js';
@@ -472,16 +473,31 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 	 */
 	private async _roleBudgetRefusal(role: SubagentType): Promise<string | undefined> {
 		const budgets = this._settings.state.tokenBudgetOfRole ?? {};
-		if (!budgets[role]) {
+		const usdBudgets = this._settings.state.usdBudgetOfRole ?? {};
+		// `perRun` is not checked here: it becomes this run's token quota once the model is known
+		// (see the runner). Only the cumulative daily ceiling can refuse a launch outright.
+		const hasUsdDay = typeof usdBudgets[role]?.perDay === 'number';
+		if (!budgets[role] && !hasUsdDay) {
 			return undefined;
 		}
 		const windowDays = this._configuration.getValue<number>('vibeide.subagent.budgetWindowDays');
 		const days = typeof windowDays === 'number' && Number.isFinite(windowDays) && windowDays > 0 ? windowDays : 1;
-		const state = evaluateRoleBudget(await this._ledger.getRuns(), role, budgets, Date.now(), days);
-		if (!state.exhausted) {
-			return undefined;
+		const runs = await this._ledger.getRuns();
+		if (budgets[role]) {
+			const state = evaluateRoleBudget(runs, role, budgets, Date.now(), days);
+			if (state.exhausted) {
+				return describeRoleBudgetRefusal(state, this._roleRegistry.getPreset(role).displayName, days);
+			}
 		}
-		return describeRoleBudgetRefusal(state, this._roleRegistry.getPreset(role).displayName, days);
+		if (hasUsdDay) {
+			const overrides = this._settings.state.overridesOfModel;
+			const usdState = evaluateRoleUsdBudget(runs, role, usdBudgets, Date.now(), days,
+				(provider, model) => provider && model ? getModelCapabilities(provider as ProviderId, model, overrides).cost : undefined);
+			if (usdState.exhausted) {
+				return describeRoleUsdRefusal(usdState, this._roleRegistry.getPreset(role).displayName, days);
+			}
+		}
+		return undefined;
 	}
 
 	private async _runSubagent(entry: SubagentEntry): Promise<void> {
