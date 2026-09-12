@@ -5458,6 +5458,14 @@ prompts, tools, and preceding messages») действует на API-аккау
       языком без перебора, тест на 40 символов проходит мгновенно; хендофф VibeIDEA —
       `sessions/skill-runner-redos-from-vibeide.md`. Проверено: тайпчек, слои, React; набор vibeide — 3912
       passing, 0 failing. Knowledge: `security/configGuard.md`; дополнены `skillSpec.md` и `functional.md`.
+- [ ] **Чья модель ответила** — VibeIDEA читает имя модели из ответа провода (`model` у
+      OpenAI-совместимых и Anthropic, `modelVersion` у Gemini) и сравнивает с запрошенной: прокси,
+      агрегатор и запасная цель подменяют модель молча, а цена считается по запрошенной. Расхождение
+      там — строка в ленте один раз на пару «просили → ответила» за сессию, событие
+      `model_substituted` в журнале, поле `answeredModel` гейту шага пайплайна. Правило сравнения
+      переносимо дословно: префикс агрегатора и датированная сборка — не подмена, хвост-слово
+      (`gpt-4o-mini` вместо `gpt-4o`) — подмена. Обоснование — решение №88 в журнале VibeIDEA, чистый
+      разборщик — `providers/ModelEcho.kt` с тестами.
 - [ ] **`uvx` в MCP-скане** — `uvx mcp-server-x` без версии в `mcp.json` несёт тот же риск, что `npx`, но не
       проверяется. Разбор (`uvxPackage`, `pythonPinned`) уже есть в `vibeConfigGuard.ts`: нужны правило и
       строка в векторе.
