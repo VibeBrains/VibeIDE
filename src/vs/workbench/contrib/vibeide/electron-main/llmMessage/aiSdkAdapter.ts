@@ -7,6 +7,7 @@
 /* eslint-disable */
 import { vibeLog } from '../../common/vibeLog.js';
 import { ANSWERED_MODEL_PEEK_CHARS, readAnsweredModel } from '../../common/modelEcho.js';
+import { OrchestrationTokens, orchestrationTokensOfTail, withOrchestration } from '../../common/orchestrationUsage.js';
 import { streamText, jsonSchema, tool, type ModelMessage, type ToolSet, type TextStreamPart, type LanguageModel } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createAnthropic } from '@ai-sdk/anthropic';
@@ -188,6 +189,9 @@ const REFUSAL_BODY_PEEK_LIMIT = 64 * 1024;
  * alone. Mirrors `observeBodyTail` and for the same reason: peeking must never break the body, so
  * every failure here is swallowed and the scan stops once the name is found or the head is spent.
  */
+/** The `usage` field of a final message, or nothing when there is no usage at all. */
+const usageField = (usage: LLMTokenUsage | undefined): { usage?: LLMTokenUsage } => usage ? { usage } : {};
+
 const observeAnsweredModel = (response: Response, onModel: (model: string) => void): Response => {
 	if (!response.body) { return response; }
 	let head = '';
@@ -269,6 +273,8 @@ const makeCustomFetch = (opts: {
 	onQuota?: (snapshot: ProviderQuotaSnapshot) => void;
 	/** The model named in the answer — a proxy or a failover target may serve a different one. */
 	onAnsweredModel?: (model: string) => void;
+	/** Orchestration tokens found at the end of the answer — see common/orchestrationUsage.ts. */
+	onOrchestrationTokens?: (tokens: OrchestrationTokens) => void;
 	/**
 	 * Called with what the provider said, as soon as we know it. Fires up to twice per request:
 	 * once on the headers, again if a `base_resp` refusal turns up in the body. Last call wins.
@@ -319,6 +325,18 @@ const makeCustomFetch = (opts: {
 	if (opts.onAnsweredModel) {
 		const onAnsweredModel = opts.onAnsweredModel;
 		observed = observeAnsweredModel(observed, model => onAnsweredModel(model));
+	}
+
+	// An orchestrator bills its internal calls on top of the visible tokens, and the SDK drops those
+	// fields. They arrive with the final usage, at the END of the answer — the head peek above never
+	// sees them, so the tail is watched instead. A body that never mentions them costs one substring
+	// check per chunk and nothing else.
+	if (opts.onOrchestrationTokens && response.ok) {
+		const onOrchestrationTokens = opts.onOrchestrationTokens;
+		observed = observeBodyTail(observed, tail => {
+			const tokens = orchestrationTokensOfTail(tail);
+			if (tokens) { onOrchestrationTokens(tokens); }
+		});
 	}
 
 	// "Out of funds" must not be retried: the answer cannot change until money is added or the
@@ -1176,6 +1194,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 		providerName,
 		onQuota: snapshot => { lastQuota = snapshot; },
 		onAnsweredModel: model => { lastAnsweredModel = model; },
+		onOrchestrationTokens: tokens => { lastOrchestrationTokens = tokens; },
 		onDiagnostics: diagnostics => { lastDiagnostics = diagnostics; },
 	});
 
@@ -1367,6 +1386,8 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// We surface this in onFinalMessage so the UI can display real prompt/completion
 	// token counts from the provider instead of relying on length/4 heuristics.
 	let lastUsage: LLMTokenUsage | undefined;
+	// Set by the response tail observer; added to the SDK's usage when the answer is final.
+	let lastOrchestrationTokens: OrchestrationTokens | undefined;
 
 	const clearAllTimers = () => {
 		if (firstTokenTimeoutId) { clearTimeout(firstTokenTimeoutId); firstTokenTimeoutId = null; }
@@ -1433,7 +1454,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				fullReasoning: fullReasoningSoFar,
 				anthropicReasoning: null,
 				...(tc ? { toolCall: tc } : {}),
-				...(lastUsage ? { usage: lastUsage } : {}),
+				...usageField(withOrchestration(lastUsage, lastOrchestrationTokens)),
 				...(lastQuota ? { providerQuota: lastQuota } : {}),
 				...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
 			});
@@ -1713,7 +1734,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			fullReasoning: fullReasoningSoFar,
 			anthropicReasoning: null,
 			...(tc ? { toolCall: tc } : {}),
-			...(lastUsage ? { usage: lastUsage } : {}),
+			...usageField(withOrchestration(lastUsage, lastOrchestrationTokens)),
 			...(lastQuota ? { providerQuota: lastQuota } : {}),
 			...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
 		});
