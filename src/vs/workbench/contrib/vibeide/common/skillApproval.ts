@@ -146,9 +146,15 @@ export async function sha256OfBytes(bytes: Uint8Array): Promise<string> {
 /**
  * The package fingerprint: SHA-256 over one `path NUL sha256` line per file, sorted by path. Names are
  * part of it, so a file renamed into `scripts/` is a change even when its bytes are not.
+ *
+ * The format is shared with VibeIDEA, and so is its test vector: the same skill must fingerprint the
+ * same in both products, or an approval given in one asks again in the other. Paths are brought to
+ * NFC HERE, not only by the caller — one name comes back composed on one file system and decomposed
+ * on another, and a shared vector is only a contract if the function itself honours it.
  */
 export async function skillPackageDigest(files: readonly SkillFileFingerprint[]): Promise<string> {
-	const listing = [...files]
+	const listing = files
+		.map(file => ({ path: file.path.normalize('NFC'), sha256: file.sha256 }))
 		.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
 		.map(file => `${file.path}\u0000${file.sha256}\n`)
 		.join('');

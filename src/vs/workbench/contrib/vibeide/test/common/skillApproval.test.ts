@@ -35,6 +35,21 @@ suite('skillApproval — отпечаток каталога и решение �
 		assert.strictEqual(await sha256OfBytes(bytes('abc')), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
 	});
 
+	test('общий вектор с VibeIDEA: тот же отпечаток, и путь в NFD даёт то же самое', async () => {
+		// Vector from VibeIDEA's SkillApprovalTest, 11.09.2026: file hashes are sha256 of «a», «b», «c».
+		const composed = 'résumé.md'.normalize('NFC');
+		const files = async (path: string) => [
+			{ path: 'SKILL.md', sha256: await sha256OfBytes(bytes('a')) },
+			{ path: 'scripts/run.sh', sha256: await sha256OfBytes(bytes('b')) },
+			{ path, sha256: await sha256OfBytes(bytes('c')) },
+		];
+		const expected = '46de3a000870b52d31029ab78032af0c28158143253c6b4a3321abc91cb10ce8';
+		assert.deepStrictEqual(
+			[await skillPackageDigest(await files(composed)), await skillPackageDigest(await files(composed.normalize('NFD')))],
+			[expected, expected],
+		);
+	});
+
 	test('отпечаток не зависит от порядка файлов, но зависит от имён и содержимого', async () => {
 		const text = { path: 'SKILL.md', sha256: '1' };
 		const script = { path: 'scripts/run.sh', sha256: '2' };

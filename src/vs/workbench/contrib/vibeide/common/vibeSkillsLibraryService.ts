@@ -473,8 +473,13 @@ const MAX_MEGABYTES_KEY = 'vibeide.skills.approvalMaxMegabytes';
 /** Scripts larger than this are fingerprinted but not read for Config Guard: that size is a program, not a step. */
 const GUARD_SCRIPT_MAX_BYTES = 64 * 1024;
 
-/** Directories that are never part of a skill's content. */
-const SKIPPED_PACKAGE_DIRS: ReadonlySet<string> = new Set(['.git']);
+/**
+ * Noise left by version control, interpreters and the OS — nothing an author ships. The same list as
+ * VibeIDEA's `SkillFiles`: a `.DS_Store` Finder drops into the folder must not change the fingerprint
+ * in one product and not the other, or the same skill asks for approval again for no reason.
+ */
+const SKIPPED_PACKAGE_DIRS: ReadonlySet<string> = new Set(['.git', '__pycache__']);
+const SKIPPED_PACKAGE_FILES: ReadonlySet<string> = new Set(['.DS_Store']);
 
 /** Where a loaded skill came from: its file, its package root, and whether it ships inside the product. */
 interface SkillSource {
@@ -956,6 +961,9 @@ export class VibeSkillsLibraryService extends Disposable implements IVibeSkillsL
 			for (const child of dir.children ?? []) {
 				const path = (prefix ? `${prefix}/${child.name}` : child.name).normalize('NFC');
 				if (!child.isDirectory) {
+					if (SKIPPED_PACKAGE_FILES.has(child.name)) {
+						continue;
+					}
 					files.push({ uri: child.resource, path });
 					if (files.length > limits.maxFiles) {
 						return localize('vibeide.skills.package.tooManyFiles', "В каталоге скилла больше {0} файлов — отпечаток не снимается. Вынесите зависимости из каталога скилла или поднимите vibeide.skills.approvalMaxFiles.", limits.maxFiles);
