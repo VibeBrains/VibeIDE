@@ -40,6 +40,7 @@ import { getModelCapabilities } from './modelCapabilities.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { IVibeSubagentRegistryService } from './vibeSubagentRegistryService.js';
 import { breakerName, IVibeCircuitBreakerService, PROTECTIVE_BREAKERS } from './agentCircuitBreakers.js';
+import { effectiveWriteScope, WriteScope } from './pipeline/vibePipelineFile.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,7 +48,7 @@ export type SubagentType =
 	// Roadmap-agent delegation roles
 	| 'explore' | 'implement-step' | 'recover-or-skip'
 	// Vibe Agents — curated role pack (VA). Read-only roles get a read-only tool whitelist.
-	| 'orchestrator' | 'planner' | 'designer' | 'frontend-dev' | 'backend-dev' | 'code-reviewer' | 'qa' | 'security';
+	| 'orchestrator' | 'planner' | 'designer' | 'frontend-dev' | 'backend-dev' | 'code-reviewer' | 'qa' | 'security' | 'critic';
 /**
  * Every role id, as data. The union above is the contract; this is the same list a runtime caller
  * can check a string against — a pipeline file names roles as plain text, and casting an unknown
@@ -55,7 +56,7 @@ export type SubagentType =
  */
 export const SUBAGENT_TYPES: readonly SubagentType[] = [
 	'explore', 'implement-step', 'recover-or-skip',
-	'orchestrator', 'planner', 'designer', 'frontend-dev', 'backend-dev', 'code-reviewer', 'qa', 'security',
+	'orchestrator', 'planner', 'designer', 'frontend-dev', 'backend-dev', 'code-reviewer', 'qa', 'security', 'critic',
 ];
 
 export function isSubagentType(value: string): value is SubagentType {
@@ -266,16 +267,25 @@ const TOOL_WHITELIST: Record<SubagentType, string[]> = {
 	'implement-step': FULL_TOOLS,
 	'recover-or-skip': ['read_file', 'run_command', 'grep'],
 	// Vibe Agents (VA) — must mirror allowedTools in vibeSubagentRegistryService presets.
-	// Read-only roles (orchestrator/planner/code-reviewer/security) cannot write or run.
+	// Read-only roles (orchestrator/planner/code-reviewer/security/critic) cannot write or run.
 	'orchestrator': READONLY_TOOLS,
 	'planner': READONLY_TOOLS,
 	'code-reviewer': READONLY_TOOLS,
 	'security': READONLY_TOOLS,
+	// Judges another model's draft — the shared `cascade-review` pipeline names it, and VibeIDEA runs
+	// it read-only. A critic that can edit turns «what is wrong here» into a second implementation.
+	'critic': READONLY_TOOLS,
 	'designer': FULL_TOOLS,
 	'frontend-dev': FULL_TOOLS,
 	'backend-dev': FULL_TOOLS,
+	// Full tools, but the write scope is narrowed to tests by default — see `effectiveWriteScope`.
 	'qa': FULL_TOOLS,
 };
+
+/** The runner request field, or nothing when there is no scope at all. */
+function writeScopeField(scope: WriteScope | undefined): { writeScope?: WriteScope } {
+	return scope ? { writeScope: scope } : {};
+}
 
 // ── Implementation ────────────────────────────────────────────────────────────
 
@@ -551,8 +561,10 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			contextItems: handoff.contextItems,
 			images: handoff.images,
 			allowedTools,
-			// Границы записи шага доезжают до раннера — именно там стоит проверка пути.
-			...(handoff.writeScope ? { writeScope: handoff.writeScope } : {}),
+			// Границы записи шага доезжают до раннера — именно там стоит проверка пути. Умолчание роли
+			// (у `qa` — только тесты) подставляется ЗДЕСЬ, а не в пайплайне: делегирование от
+			// оркестратора пайплайн не проходит, и границы там иначе не было бы вовсе.
+			...writeScopeField(effectiveWriteScope(entry.type, handoff.writeScope)),
 			maxSteps,
 			maxTokensEst: Math.max(0, maxTokens),
 			maxWallClockMs: handoff.maxWallClockMs ?? 0,

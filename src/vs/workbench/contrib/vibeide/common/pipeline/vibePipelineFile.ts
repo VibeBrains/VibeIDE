@@ -198,6 +198,46 @@ export function stepMayWrite(step: Pick<VibePipelineStep, 'paths' | 'denyPaths'>
 	return createIgnoreMatcher(step.paths.join('\n')).isIgnored(normalised);
 }
 
+/**
+ * Where tests live across the stacks the family's IDEs serve: JVM, TS/JS, PHP, Python, Go.
+ *
+ * Verbatim VibeIDEA's `RolePaths.TEST_PATHS` (13.09.2026): the shared `pipelines.json` runs in both
+ * products, and a `qa` step that may write a file in one and not in the other is the same pipeline
+ * doing two different things. Change it in both places or in neither.
+ */
+export const QA_DEFAULT_WRITE_PATHS: readonly string[] = [
+	'**/test/**', '**/tests/**', '**/testSrc/**', '**/testData/**', '**/__tests__/**', '**/spec/**',
+	'*Test.kt', '*Test.java', '*Tests.kt', '*Test.php', '*.test.ts', '*.test.tsx', '*.test.js',
+	'*.spec.ts', '*.spec.tsx', '*.spec.js', 'test_*.py', '*_test.py', '*_test.go',
+];
+
+/** Where a run may write: the step's own scope, merged with its role's default. */
+export interface WriteScope {
+	readonly paths?: readonly string[];
+	readonly denyPaths?: readonly string[];
+}
+
+/**
+ * The write scope a role actually gets.
+ *
+ * Only `qa` has a default: it writes tests, and a tester that «just fixes» the code under test makes
+ * the test and the fix one act nobody checked. Before this it could write anywhere, held back by one
+ * sentence in its prompt — a wish, not a rule.
+ *
+ * The step's own `paths` REPLACE the default (a project with an unusual test layout says so, and no
+ * default can guess every layout). `denyPaths` alone does not: it narrows the default further, it
+ * does not quietly lift it. Same rule as VibeIDEA's `RolePaths.effective`.
+ */
+export function effectiveWriteScope(role: string, stated: WriteScope | undefined): WriteScope | undefined {
+	if (stated?.paths && stated.paths.length > 0) {
+		return stated;
+	}
+	if (role.trim().toLowerCase() !== 'qa') {
+		return stated;
+	}
+	return { paths: QA_DEFAULT_WRITE_PATHS, ...(stated?.denyPaths ? { denyPaths: stated.denyPaths } : {}) };
+}
+
 export function parsePipelineFile(raw: unknown): ParsedPipelineFile {
 	const warnings: string[] = [];
 	const empty: VibePipelineFile = { version: VIBE_PIPELINE_FORMAT_VERSION, pipelines: [] };

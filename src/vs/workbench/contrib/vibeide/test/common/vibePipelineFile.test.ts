@@ -9,14 +9,17 @@ import {
 	buildStepInput,
 	composeReviewGoal,
 	EARLIER_STEP_NOTE_CHARS,
+	effectiveWriteScope,
 	parseModelRef,
 	parsePipelineFile,
 	parseReviewVerdict,
 	PipelineStepOutcome,
+	QA_DEFAULT_WRITE_PATHS,
 	shouldRunStep,
 	stepMayWrite,
 	VibePipelineStep,
 } from '../../common/pipeline/vibePipelineFile.js';
+import { isSubagentType } from '../../common/vibeSubagentService.js';
 
 const ok = (over: Partial<PipelineStepOutcome> = {}): PipelineStepOutcome => ({
 	role: 'coder', status: 'success', summary: 'сделал', artifacts: ['src/a.ts'], ...over,
@@ -314,5 +317,49 @@ suite('vibePipelineFile — каскад и критика', () => {
 				разрешениеДругимРегистром: stepMayWrite(impl, 'SRC/app.ts', true),
 			}, { секретДругимРегистром: false, разрешениеДругимРегистром: false });
 		});
+	});
+});
+
+suite('vibePipelineFile — роли, которые общие с VibeIDEA', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('qa без своих путей пишет только в тесты: тест можно, проверяемый код нельзя', () => {
+		const scope = effectiveWriteScope('qa', undefined)!;
+		assert.deepStrictEqual(
+			[
+				stepMayWrite(scope, 'src/order.test.ts'),
+				stepMayWrite(scope, 'web/__tests__/button.tsx'),
+				stepMayWrite(scope, 'plugins/core/src/OrderTest.kt'),
+				stepMayWrite(scope, 'app/test_order.py'),
+				stepMayWrite(scope, 'src/order.ts'),
+				stepMayWrite(scope, 'plugins/core/src/Order.kt'),
+			],
+			[true, true, true, true, false, false],
+		);
+	});
+
+	test('свои paths шага заменяют умолчание, а одни denyPaths его не снимают', () => {
+		assert.deepStrictEqual(
+			[
+				effectiveWriteScope('qa', { paths: ['e2e/**'] }),
+				effectiveWriteScope('qa', { denyPaths: ['**/fixtures/**'] }),
+			],
+			[
+				{ paths: ['e2e/**'] },
+				{ paths: QA_DEFAULT_WRITE_PATHS, denyPaths: ['**/fixtures/**'] },
+			],
+		);
+	});
+
+	test('умолчание есть только у qa — остальным роли границы не навязываются', () => {
+		assert.deepStrictEqual(
+			[effectiveWriteScope('backend-dev', undefined), effectiveWriteScope('backend-dev', { denyPaths: ['dist/**'] })],
+			[undefined, { denyPaths: ['dist/**'] }],
+		);
+	});
+
+	test('критик — известная роль: шаг из общего cascade-review больше не падает на её имени', () => {
+		assert.deepStrictEqual([isSubagentType('critic'), isSubagentType('criitc')], [true, false]);
 	});
 });
