@@ -1066,7 +1066,9 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	const { providerReasoningIOSettings } = getProviderCapabilities(providerName);
 	const reasoningInfo = getSendableReasoningInfo('Chat', providerName, modelName_, modelSelectionOptions, overridesOfModel);
 	const reasoningInputPayload = providerReasoningIOSettings?.input?.includeInPayload?.(reasoningInfo) ?? {};
-	const openAICompatExtraBody: Record<string, unknown> = { ...(additionalOpenAIPayload as Record<string, unknown> | undefined ?? {}), ...reasoningInputPayload };
+	// The per-request `extraBody` goes last: it is a contract for this one call (a JSON Schema for an
+	// extraction), and a provider-wide default must not overwrite it.
+	const openAICompatExtraBody: Record<string, unknown> = { ...(additionalOpenAIPayload as Record<string, unknown> | undefined ?? {}), ...reasoningInputPayload, ...(runtimeOptions?.extraBody ?? {}) };
 
 	// Honor `vibeide.llm.toolFallbackMode` (with backward-compat from legacy
 	// `vibeide.llm.assumeNativeTools`) for aggregator-synthesized fallbacks.

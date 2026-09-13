@@ -241,6 +241,12 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			scope: ConfigurationScope.RESOURCE,
 			markdownDescription: localize('vibeide.agent.externalAccessTtlMinutes', 'Сколько минут живёт разрешение, выданное **на сессию**. `0` — до перезакрытия окна, как раньше.\n\nЗачем ограничивать: разрешение, выданное ради одного файла, иначе остаётся открытым весь рабочий день. Разрешение **на задачу** сроку не подчиняется — оно и так кончается вместе с ходом агента, а разрешение **для проекта** живёт в настройке и снимается только отзывом.'),
 		},
+		'vibeide.extract.model': {
+			type: 'string',
+			default: '',
+			scope: ConfigurationScope.APPLICATION,
+			markdownDescription: localize('vibeide.extract.model', 'Модель для инструмента агента «извлечь по схеме» (`extract_structured`), в форме `провайдер/модель` — например `openRouter/inference-net/schematron-v2-turbo`.\n\nИнструмент берёт страницу и JSON-схему и возвращает данные строго по схеме. Модели извлечения вроде Schematron не принимают инструкций вовсе — поэтому запрос уходит одним сообщением со страницей, без системного промпта, со схемой в `response_format`.\n\nПусто — инструмент выключен и честно об этом говорит.'),
+		},
 		'vibeide.council.advisers': {
 			type: 'array',
 			items: { type: 'string' },

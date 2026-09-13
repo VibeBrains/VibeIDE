@@ -52,6 +52,7 @@ import { KILL_BACKGROUND_COMMAND_TOOL } from './kill_background_command.js';
 import { READ_BACKGROUND_OUTPUT_TOOL } from './read_background_output.js';
 import { WEB_SEARCH_TOOL } from './web_search.js';
 import { BROWSE_URL_TOOL } from './browse_url.js';
+import { EXTRACT_STRUCTURED_TOOL } from './extract_structured.js';
 import { VIBE_COMPLETE_TOOL } from './vibe_complete.js';
 
 /**
@@ -122,6 +123,7 @@ export const builtinToolDefs = {
 	// web
 	web_search: WEB_SEARCH_TOOL,
 	browse_url: BROWSE_URL_TOOL,
+	extract_structured: EXTRACT_STRUCTURED_TOOL,
 	// agent control
 	vibe_complete: VIBE_COMPLETE_TOOL,
 } satisfies { [T in BuiltinToolName]: ToolDef<T> };

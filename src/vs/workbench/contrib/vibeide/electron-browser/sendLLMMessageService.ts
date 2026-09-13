@@ -172,7 +172,9 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 	}
 
 	sendLLMMessage(params: ServiceSendLLMMessageParams) {
-		const { onText, onFinalMessage, onError, onAbort, modelSelection, forceToolUse, excludeFromSessionBudget, ...proxyParams } = params;
+		// `extraBody` is taken out by name: left in `proxyParams` it would travel to the main process as a
+		// top-level field nobody reads, instead of inside `runtimeOptions` where the adapter merges it.
+		const { onText, onFinalMessage, onError, onAbort, modelSelection, forceToolUse, excludeFromSessionBudget, extraBody, ...proxyParams } = params;
 
 		// VibeIDE: Enforce session token budget before sending. Subagent sends opt out — they have
 		// their own quota, and the session gate must not block a role on the main-agent limit.
@@ -373,6 +375,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			toolFallbackMode,
 			forceToolUse, // per-turn: agent loop forces tool_choice on the corrective nudge
 			proxyUrl: this.configurationService.getValue<string>('vibeide.llm.proxy.url'), // route provider traffic through a proxy (geo-block bypass)
+			...(extraBody ? { extraBody } : {}), // per-call body fields, e.g. a JSON Schema for an extraction
 		};
 
 		// Transiently overlay dynamic-provider transport configs (.vibe/providers.json) so a dynamic

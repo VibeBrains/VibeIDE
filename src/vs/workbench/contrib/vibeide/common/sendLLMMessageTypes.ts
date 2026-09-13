@@ -267,6 +267,8 @@ export type ServiceSendLLMMessageParams = {
 	modelSelectionOptions: ModelSelectionOptions | undefined;
 	overridesOfModel: OverridesOfModel | undefined;
 	onAbort: OnAbort;
+	/** Extra request-body fields for this one call — see `LLMRuntimeOptions.extraBody`. */
+	extraBody?: Record<string, unknown>;
 	/** Per-turn: request `tool_choice: 'required'` for this send (agent-loop corrective nudge). */
 	forceToolUse?: boolean;
 	/**
@@ -285,6 +287,12 @@ export type ServiceSendLLMMessageParams = {
  * IPC payloads).
  */
 export type LLMRuntimeOptions = {
+	/**
+	 * Extra fields merged into THIS request's body, last — they override what the SDK built. For a call
+	 * that needs a per-request contract the provider file cannot carry, such as `response_format` with a
+	 * JSON Schema. OpenAI-compatible transport only, like the provider file's `extraBody`.
+	 */
+	extraBody?: Record<string, unknown>;
 	timeoutMs?: {
 		local?: number;
 		cloud?: number;

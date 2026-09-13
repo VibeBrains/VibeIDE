@@ -118,6 +118,8 @@ export type BuiltinToolCallParams = {
 	// ---
 	'web_search': { query: string; k?: number; refresh?: boolean };
 	'browse_url': { url: string; refresh?: boolean };
+	/** Extraction by a dedicated model: the page's HTML and a JSON Schema in, JSON matching it out. */
+	'extract_structured': { url: string; schema: Record<string, unknown> };
 	// ---
 	'vibe_complete': { summary: string };
 };
@@ -302,6 +304,7 @@ export type BuiltinToolResultType = {
 	// ---
 	'web_search': { results: Array<{ title: string; snippet: string; url: string }> };
 	'browse_url': { content: string; title?: string; url: string; metadata?: { publishedDate?: string } };
+	'extract_structured': { data: unknown; url: string; model: string; truncated: boolean };
 	// ---
 	'vibe_complete': { summary: string };
 };

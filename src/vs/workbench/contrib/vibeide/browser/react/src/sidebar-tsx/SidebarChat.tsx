@@ -2962,6 +2962,7 @@ const titleOfBuiltinToolName = {
 	'search_in_file': { done: 'Searched in file', proposed: 'Search in file', running: loadingTitleWrapper('Searching in file') },
 	'web_search': { done: 'Searched the web', proposed: 'Search the web', running: loadingTitleWrapper('Searching the web') },
 	'browse_url': { done: 'Fetched web page', proposed: 'Fetch web page', running: loadingTitleWrapper('Fetching web page') },
+	'extract_structured': { done: 'Извлёк данные по схеме', proposed: 'Извлечь данные по схеме', running: loadingTitleWrapper('Извлекает данные по схеме') },
 	'vibe_complete': { done: 'Завершил ход', proposed: 'Завершить ход', running: loadingTitleWrapper('Завершает ход') },
 
 	'glob': { done: 'Нашёл файлы по маске', proposed: 'Найти файлы по маске', running: loadingTitleWrapper('Ищет файлы по маске') },
@@ -3150,6 +3151,13 @@ const toolNameToDesc = (toolName: BuiltinToolName, _toolParams: BuiltinToolCallP
 		},
 		'browse_url': () => {
 			const toolParams = _toolParams as BuiltinToolCallParams['browse_url'];
+			return {
+				desc1: toolParams.url,
+				desc1Info: new URL(toolParams.url).hostname,
+			};
+		},
+		'extract_structured': () => {
+			const toolParams = _toolParams as BuiltinToolCallParams['extract_structured'];
 			return {
 				desc1: toolParams.url,
 				desc1Info: new URL(toolParams.url).hostname,
@@ -4139,6 +4147,56 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]?: { resultWrapper: Re
 						</div>
 					</ToolChildrenWrapper>;
 				}
+			}
+			else if (toolMessage.type === 'tool_error') {
+				const { result } = toolMessage;
+				componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenError}>
+					<CodeChildren>
+						{result}
+					</CodeChildren>
+				</BottomChildren>;
+			}
+
+			return <ToolHeaderWrapper {...componentParams} />;
+		},
+	},
+	'extract_structured': {
+		resultWrapper: ({ toolMessage }) => {
+			const accessor = useAccessor();
+			const title = getTitle(toolMessage);
+			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor);
+			const icon = null;
+
+			if (toolMessage.type === 'tool_request') { return null; } // do not show past requests
+			if (toolMessage.type === 'running_now') {
+				const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError: false, icon, isRejected: false };
+				componentParams.children = <ToolChildrenWrapper>
+					<div className='flex items-center gap-2 text-sm text-vibe-fg-3'>
+						<IconLoading state="processing" inline />
+						<span>Загружает страницу и извлекает поля по схеме…</span>
+					</div>
+				</ToolChildrenWrapper>;
+				return <ToolHeaderWrapper {...componentParams} />;
+			}
+
+			const isRejected = toolMessage.type === 'rejected';
+			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError: false, icon, isRejected };
+
+			if (toolMessage.type === 'success') {
+				const { result } = toolMessage;
+				componentParams.info = `Модель: ${result.model}`;
+				componentParams.children = <ToolChildrenWrapper>
+					<div className='space-y-2'>
+						{result.truncated && (
+							<div className='text-xs text-vibe-fg-3'>
+								Страница была длиннее окна модели и обрезана — поля из её конца могли не попасть.
+							</div>
+						)}
+						<div className='text-sm text-vibe-fg-2 whitespace-pre-wrap font-mono max-h-96 overflow-y-auto border border-vibe-border-2 bg-vibe-bg-3 rounded p-3'>
+							{JSON.stringify(result.data, null, 2)}
+						</div>
+					</div>
+				</ToolChildrenWrapper>;
 			}
 			else if (toolMessage.type === 'tool_error') {
 				const { result } = toolMessage;

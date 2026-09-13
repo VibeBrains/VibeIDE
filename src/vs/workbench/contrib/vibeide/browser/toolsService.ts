@@ -101,6 +101,10 @@ import { getDocsFiles, searchVibeDocs } from '../common/vibeDocsIndex.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { detectShellMisuse, ToolValidationError, truncateHeadTail, looksLikeShellAwaitingInput, formatTerminalTimeoutNotice, clampLineWindowToCharBudget } from '../common/toolHardening.js';
 import { IShellHardeningService } from './shellHardeningService.js';
+import { ILLMMessageService } from '../common/sendLLMMessageService.js';
+import { parseModelRef } from '../common/pipeline/vibePipelineFile.js';
+import { cleanHtmlForExtraction, extractionRequestBody, isUsableSchema, parseExtractionAnswer } from '../common/structuredExtraction.js';
+import { ModelSelection, ProviderName } from '../common/vibeideSettingsTypes.js';
 
 // tool use for AI
 type ValidateBuiltinParams = { [T in BuiltinToolName]: (p: RawToolParamsObj) => BuiltinToolCallParams[T] };
@@ -247,6 +251,12 @@ export interface IToolsService {
 
 export const IToolsService = createDecorator<IToolsService>('ToolsService');
 
+/** Setting naming the model the `extract_structured` tool calls, as `провайдер/модель`. */
+const EXTRACT_MODEL_KEY = 'vibeide.extract.model';
+
+/** How long one extraction may take. A page of HTML is a long prompt, but not a minute-and-a-half one. */
+const EXTRACT_TIMEOUT_MS = 90_000;
+
 export class ToolsService extends Disposable implements IToolsService {
 
 	readonly _serviceBrand: undefined;
@@ -322,6 +332,7 @@ export class ToolsService extends Disposable implements IToolsService {
 		@IVibeOutputArchiveService private readonly _outputArchive: IVibeOutputArchiveService,
 		@IVibeIgnoreService vibeIgnoreService: IVibeIgnoreService,
 		@IAgentNetworkFilterService private readonly _networkFilter: IAgentNetworkFilterService,
+		@ILLMMessageService private readonly _llmMessageService: ILLMMessageService,
 	) {
 		super();
 		this._offlineGate = new OfflinePrivacyGate();
@@ -1100,6 +1111,22 @@ export class ToolsService extends Disposable implements IToolsService {
 					refresh = refreshUnknown.toLowerCase() === 'true';
 				}
 				return { query, k: validK, refresh };
+			},
+
+			extract_structured: (params: RawToolParamsObj) => {
+				const url = validateStr('url', params.url);
+				if (!url.startsWith('http://') && !url.startsWith('https://')) {
+					throw new Error(`Invalid URL format: ${url}. URL must start with http:// or https://`);
+				}
+				// Models send the schema as an object or as a JSON string; both are one schema.
+				let schema: unknown = params.schema;
+				if (typeof schema === 'string') {
+					try { schema = JSON.parse(schema); } catch { throw new Error('schema must be a JSON Schema object'); }
+				}
+				if (!isUsableSchema(schema)) {
+					throw new Error('schema must be a JSON Schema object with "type" or "properties"');
+				}
+				return { url, schema };
 			},
 
 			browse_url: (params: RawToolParamsObj) => {
@@ -3259,6 +3286,32 @@ export class ToolsService extends Disposable implements IToolsService {
 				throw new Error(`Web search failed: ${allErrors}. This could be due to network issues or all search services being temporarily unavailable. Please check your internet connection and try again.`);
 			},
 
+			extract_structured: async ({ url, schema }) => {
+				this._offlineGate.ensureNotOfflineOrPrivacy('Structured extraction', false);
+				const modelRef = (this._configurationService.getValue<string>(EXTRACT_MODEL_KEY) ?? '').trim();
+				const model = parseModelRef(modelRef);
+				if (!model) {
+					throw new Error(`Структурное извлечение выключено: задайте модель в настройке ${EXTRACT_MODEL_KEY} в форме «провайдер/модель», например openRouter/inference-net/schematron-v2-turbo.`);
+				}
+				// Same network filter as browse_url, asked before the page is fetched.
+				const requested = URI.parse(url);
+				if (!this._networkFilter.isUriAllowed(requested)) {
+					throw new Error(this._networkFilter.formatError(requested));
+				}
+				const response = await this.requestService.request({ type: 'GET', url, timeout: 15000, callSite: 'vibeToolsExtract' }, CancellationToken.None);
+				const rawHtml = await asTextOrError(response);
+				if (!rawHtml) {
+					throw new Error(`Не удалось загрузить страницу: ${url}`);
+				}
+				const { html, truncated } = cleanHtmlForExtraction(rawHtml);
+				const answer = await this._askExtractionModel({ providerName: model.providerName as ProviderName, modelName: model.modelName }, html, schema);
+				const parsed = parseExtractionAnswer(answer);
+				if (!parsed.ok) {
+					throw new Error(`Извлечение не удалось: ${parsed.reason}.`);
+				}
+				return { result: { data: parsed.data, url, model: modelRef, truncated } };
+			},
+
 			browse_url: async ({ url, refresh }) => {
 				// Check offline/privacy mode (centralized gate)
 				this._offlineGate.ensureNotOfflineOrPrivacy('URL browsing', false);
@@ -3898,6 +3951,10 @@ ${lines.join('\n\n')}`;
 				).join('\n\n');
 			},
 
+			extract_structured: (_params, result) => {
+				const note = result.truncated ? '\n\n(страница была длиннее окна модели и обрезана — поля из её конца могли не попасть)' : '';
+				return `Извлечено из ${result.url} моделью ${result.model}:\n\n${JSON.stringify(result.data, null, 2)}${note}`;
+			},
 			browse_url: (params, result) => {
 				const titleStr = result.title ? `Title: ${result.title}\n\n` : '';
 				const metadataStr = result.metadata?.publishedDate ? `Published: ${result.metadata.publishedDate}\n\n` : '';
@@ -4180,6 +4237,48 @@ ${lines.join('\n\n')}`;
 	}
 
 
+
+	/**
+	 * One extraction call, the way the extraction model expects it: a single user message holding the
+	 * page, no system prompt, the schema in `response_format`. It never goes through the chat path,
+	 * which would add a system prompt the model cannot take.
+	 */
+	private _askExtractionModel(selection: ModelSelection, html: string, schema: Record<string, unknown>): Promise<string> {
+		return new Promise<string>((resolve, reject) => {
+			let settled = false;
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			const finish = (outcome: { text?: string; error?: string }) => {
+				if (settled) { return; }
+				settled = true;
+				if (timer !== undefined) { clearTimeout(timer); }
+				if (outcome.error !== undefined) { reject(new Error(`Модель извлечения не ответила: ${outcome.error}`)); }
+				else { resolve(outcome.text ?? ''); }
+			};
+			const requestId = this._llmMessageService.sendLLMMessage({
+				messagesType: 'chatMessages',
+				messages: [{ role: 'user', content: html } as never],
+				separateSystemMessage: undefined,
+				chatMode: 'normal',
+				modelSelection: selection,
+				modelSelectionOptions: undefined,
+				overridesOfModel: this.vibeideSettingsService.state.overridesOfModel,
+				extraBody: extractionRequestBody(schema),
+				onText: () => { },
+				onFinalMessage: p => finish({ text: p.fullText }),
+				onError: e => finish({ error: e.message || String(e) }),
+				onAbort: () => finish({ error: 'запрос прерван' }),
+				logging: { loggingName: `Extract/${selection.providerName}` },
+			});
+			if (requestId === null) {
+				finish({ error: 'провайдер не принял запрос' });
+				return;
+			}
+			timer = setTimeout(() => {
+				this._llmMessageService.abort(requestId);
+				finish({ error: `нет ответа за ${EXTRACT_TIMEOUT_MS / 1000} с` });
+			}, EXTRACT_TIMEOUT_MS);
+		});
+	}
 }
 
 registerSingleton(IToolsService, ToolsService, InstantiationType.Eager);
