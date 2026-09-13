@@ -228,14 +228,16 @@ export interface WriteScope {
  * default can guess every layout). `denyPaths` alone does not: it narrows the default further, it
  * does not quietly lift it. Same rule as VibeIDEA's `RolePaths.effective`.
  */
-export function effectiveWriteScope(role: string, stated: WriteScope | undefined): WriteScope | undefined {
+export function effectiveWriteScope(role: string, stated: WriteScope | undefined, qaWritePaths: readonly string[] = QA_DEFAULT_WRITE_PATHS): WriteScope | undefined {
 	if (stated?.paths && stated.paths.length > 0) {
 		return stated;
 	}
 	if (role.trim().toLowerCase() !== 'qa') {
 		return stated;
 	}
-	return { paths: QA_DEFAULT_WRITE_PATHS, ...(stated?.denyPaths ? { denyPaths: stated.denyPaths } : {}) };
+	// `qaWritePaths` comes from `.vibe/roles.json` when the project has one. An empty list there means
+	// «qa writes nowhere»: `paths: []` matches no file, so every write is refused.
+	return { paths: qaWritePaths, ...(stated?.denyPaths ? { denyPaths: stated.denyPaths } : {}) };
 }
 
 export function parsePipelineFile(raw: unknown): ParsedPipelineFile {

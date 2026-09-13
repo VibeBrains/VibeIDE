@@ -37,6 +37,7 @@
 - [agentsSpec.md](manuals/agentsSpec.md) — формат `.vibe/agents.json`: внешние агенты проекта по ACP, разрешения и чекпоинты по их правкам (скормить LLM → готовый конфиг).
 - [hooksSpec.md](manuals/hooksSpec.md) — формат `.vibe/hooks.json`: команды проекта вокруг работы агента (скормить LLM → готовый конфиг).
 - [mcpSpec.md](manuals/mcpSpec.md) — формат `~/.vibeide/mcp.json`: MCP-серверы агента, команда или адрес, выбор транспорта, проверки при загрузке (скормить LLM → готовый конфиг).
+- [rolesSpec.md](manuals/rolesSpec.md) — формат `.vibe/roles.json`: умолчания ролей агента, общие с VibeIDEA; куда пишет `qa` (скормить LLM → готовый файл).
 - [agentPathRulesSpec.md](manuals/agentPathRulesSpec.md) — правила на пути агента: `.vibe/constraints.json`, `.vibe/permissions.json`, `.vibe/ignore` — шаблоны от корня проекта, порядок решения, примеры (скормить LLM → готовые файлы).
 - [httpApiSpec.md](manuals/httpApiSpec.md) — входящий HTTP API: запуск агента из CI, бота или крона с продолжением сессии (скормить LLM → готовый вызов).
 - [pipelinesSpec.md](manuals/pipelinesSpec.md) — формат `.vibe/pipelines.json`: последовательность шагов агентов с передачей артефактов (скормить LLM → готовый файл).

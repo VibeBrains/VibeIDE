@@ -43,10 +43,12 @@ import {
 	parsePipelineFile,
 	parseReviewVerdict,
 	PipelineStepOutcome,
+	QA_DEFAULT_WRITE_PATHS,
 	shouldRunStep,
 	VibePipeline,
 	VibePipelineStep,
 } from '../common/pipeline/vibePipelineFile.js';
+import { readRolesFile } from '../common/pipeline/vibeRolesFile.js';
 
 const CONFIG_REVIEWER_SEES_SUMMARY = 'vibeide.pipeline.reviewerSeesStepSummary';
 
@@ -179,6 +181,14 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 			throw new Error(localize('vibeide.pipeline.notFound', 'Пайплайн «{0}» не найден в .vibe/pipelines.json', pipelineId));
 		}
 
+		// Read once for the whole run, as VibeIDEA does: editing `.vibe/roles.json` mid-run must not
+		// move the write boundary between one `qa` step and the next.
+		const roles = await readRolesFile(this._fileService, this._workspace);
+		for (const warning of roles.warnings) {
+			vibeLog.warn('Pipeline', warning);
+		}
+		const qaWritePaths = roles.qaWritePaths ?? QA_DEFAULT_WRITE_PATHS;
+
 		const outcomes: PipelineStepOutcome[] = [];
 		// NOT registered on the service: `run` is called repeatedly, and a source registered per
 		// call would accumulate for the lifetime of the window. It is disposed in `finally` below.
@@ -223,6 +233,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 									...(step.denyPaths ? { denyPaths: step.denyPaths } : {}),
 								},
 							} : {}),
+							...(step.role === 'qa' ? { qaWritePaths } : {}),
 							...(cascadeDraft ? { cascadeDraft: true } : {}),
 							...(escalatedFrom ? { escalatedFrom } : {}),
 						});

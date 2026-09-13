@@ -41,6 +41,9 @@ import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { IVibeSubagentRegistryService } from './vibeSubagentRegistryService.js';
 import { breakerName, IVibeCircuitBreakerService, PROTECTIVE_BREAKERS } from './agentCircuitBreakers.js';
 import { effectiveWriteScope, WriteScope } from './pipeline/vibePipelineFile.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { readRolesFile } from './pipeline/vibeRolesFile.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -120,6 +123,12 @@ export interface SubagentHandoff {
 	 */
 	/** Границы записи шага пайплайна: куда этому прогону можно писать. Нет поля — без ограничений. */
 	writeScope?: { readonly paths?: readonly string[]; readonly denyPaths?: readonly string[] };
+	/**
+	 * The `qa` write list the pipeline read from `.vibe/roles.json` ONCE, at the start of its run — so
+	 * editing the file mid-run does not move the boundary between steps. Absent (delegation from the
+	 * orchestrator, which no pipeline run wraps) — the file is read when this run starts.
+	 */
+	qaWritePaths?: readonly string[];
 	cascadeDraft?: boolean;
 	/** Set on the escalation run: which draft it replaced, and on what model that draft ran. */
 	escalatedFrom?: { readonly runId: string; readonly model?: string };
@@ -310,6 +319,8 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		@IVibeideSettingsService private readonly _settings: IVibeideSettingsService,
 		@IVibeSubagentRegistryService private readonly _roleRegistry: IVibeSubagentRegistryService,
 		@IVibeCircuitBreakerService private readonly _breakers: IVibeCircuitBreakerService,
+		@IFileService private readonly _fileService: IFileService,
+		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 	) {
 		super();
 	}
@@ -479,6 +490,21 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 
 	// ── Private ─────────────────────────────────────────────────────────────
 
+	/** The `qa` write list for this run: the pipeline's snapshot, or `.vibe/roles.json` read now. */
+	private async _qaWritePathsFor(type: SubagentType, handoff: SubagentHandoff): Promise<readonly string[] | undefined> {
+		if (type !== 'qa') {
+			return undefined;
+		}
+		if (handoff.qaWritePaths) {
+			return handoff.qaWritePaths;
+		}
+		const roles = await readRolesFile(this._fileService, this._workspace);
+		for (const warning of roles.warnings) {
+			this._log.warn(`[VibeSubagent] ${warning}`);
+		}
+		return roles.qaWritePaths;
+	}
+
 	/**
 	 * Refusal text when the role has no allowance left, or `undefined` when it may run.
 	 * Reads the ledger, so the ceiling is enforced against what actually happened — including
@@ -564,7 +590,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			// Границы записи шага доезжают до раннера — именно там стоит проверка пути. Умолчание роли
 			// (у `qa` — только тесты) подставляется ЗДЕСЬ, а не в пайплайне: делегирование от
 			// оркестратора пайплайн не проходит, и границы там иначе не было бы вовсе.
-			...writeScopeField(effectiveWriteScope(entry.type, handoff.writeScope)),
+			...writeScopeField(effectiveWriteScope(entry.type, handoff.writeScope, await this._qaWritePathsFor(entry.type, handoff))),
 			maxSteps,
 			maxTokensEst: Math.max(0, maxTokens),
 			maxWallClockMs: handoff.maxWallClockMs ?? 0,
