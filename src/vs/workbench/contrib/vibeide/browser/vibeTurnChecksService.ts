@@ -24,7 +24,7 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { localize } from '../../../../nls.js';
 import { vibeLog } from '../common/vibeLog.js';
-import { DEFAULT_ENABLED_CHECKS, TurnCheckId, TurnChecksMode, TurnFacts } from '../common/agentTurnChecks.js';
+import { DEFAULT_ENABLED_CHECKS, DEFAULT_VERIFICATION_PATTERNS, matchVerificationPaths, TurnCheckId, TurnChecksMode, TurnFacts } from '../common/agentTurnChecks.js';
 import { ConstraintViolationError, IVibeConstraintsService } from '../common/vibeConstraintsService.js';
 import { IVibePerFilePermissionsService } from '../common/vibePerFilePermissionsService.js';
 import { resolveAgentPath } from '../common/agentPathResolution.js';
@@ -33,6 +33,10 @@ import { ISecretDetectionService } from '../common/secretDetectionService.js';
 const CONFIG_MODE = 'vibeide.agent.turnChecks.mode';
 const CONFIG_MAX_ATTEMPTS = 'vibeide.agent.turnChecks.maxAttempts';
 const CONFIG_CHECKS = 'vibeide.agent.turnChecks.checks';
+const CONFIG_VERIFICATION_PATHS = 'vibeide.agent.turnChecks.verificationPaths';
+
+/** Every check the setting may name — one list for the schema enum and for reading the setting back. */
+const KNOWN_CHECKS: readonly TurnCheckId[] = ['no-secret-leak', 'no-protected-path', 'forbidden-action', 'budget-exceeded', 'source-location', 'no-verification-edit'];
 
 const DEFAULT_MAX_ATTEMPTS = 2;
 /** Reading every changed file is bounded: a huge refactor must not stall completion. */
@@ -66,9 +70,15 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 		},
 		[CONFIG_CHECKS]: {
 			type: 'array',
-			items: { type: 'string', enum: ['no-secret-leak', 'no-protected-path', 'forbidden-action', 'budget-exceeded', 'source-location'] },
+			items: { type: 'string', enum: [...KNOWN_CHECKS] },
 			default: [...DEFAULT_ENABLED_CHECKS],
-			description: localize('vibeide.agent.turnChecks.checks', "Какие проверки включены. По умолчанию — две, защищающие ваши данные: секреты и закрытые пути."),
+			description: localize('vibeide.agent.turnChecks.checks', "Какие проверки включены. По умолчанию — две, защищающие ваши данные: секреты и закрытые пути. «no-verification-edit» сообщает, что ход изменил тесты или их обвязку: зелёная проверка после такой правки ничего не доказывает. По умолчанию выключена — агенту, которому поручили писать тесты, она мешала бы на каждом ходе."),
+		},
+		[CONFIG_VERIFICATION_PATHS]: {
+			type: 'array',
+			items: { type: 'string' },
+			default: [...DEFAULT_VERIFICATION_PATTERNS],
+			markdownDescription: localize('vibeide.agent.turnChecks.verificationPaths', "Шаблоны файлов, по которым проверяют работу агента, — для проверки `no-verification-edit`. Синтаксис glob, пути относительно корня проекта. Список заменяет значение по умолчанию целиком: проект, где тесты лежат иначе, знает это лучше нас."),
 		},
 	},
 });
@@ -124,7 +134,7 @@ class VibeTurnChecksService extends Disposable implements IVibeTurnChecksService
 		if (!Array.isArray(raw)) {
 			return DEFAULT_ENABLED_CHECKS;
 		}
-		const known = new Set<string>(['no-secret-leak', 'no-protected-path', 'forbidden-action', 'budget-exceeded', 'source-location']);
+		const known = new Set<string>(KNOWN_CHECKS);
 		return raw.filter((id): id is TurnCheckId => known.has(id));
 	}
 
@@ -136,6 +146,7 @@ class VibeTurnChecksService extends Disposable implements IVibeTurnChecksService
 			changedFiles: input.changedFiles,
 			secretHits: await this._findSecrets(files),
 			protectedHits: this._findProtectedWrites(files),
+			verificationHits: matchVerificationPaths(input.changedFiles.map(file => this._workspaceRelative(file)), this._verificationPatterns()),
 			forbiddenTools: input.allowedTools.length === 0
 				// An empty whitelist means "not constrained here", not "everything is forbidden" —
 				// reporting every call would drown the real signal.
@@ -148,6 +159,30 @@ class VibeTurnChecksService extends Disposable implements IVibeTurnChecksService
 	}
 
 	// ── Private ─────────────────────────────────────────────────────────────
+
+	private _verificationPatterns(): readonly string[] {
+		const raw = this._configuration.getValue<unknown>(CONFIG_VERIFICATION_PATHS);
+		return Array.isArray(raw) ? raw.filter((p): p is string => typeof p === 'string' && p.trim().length > 0) : DEFAULT_VERIFICATION_PATTERNS;
+	}
+
+	/**
+	 * A changed file as a path relative to its workspace root: glob patterns in the setting are
+	 * written relative to the project, while tools report absolute paths. A file outside every
+	 * root keeps its own path — the patterns start with `**` and still reach it.
+	 */
+	private _workspaceRelative(file: string): string {
+		const uri = this._toUri(file);
+		if (!uri) {
+			return file;
+		}
+		for (const folder of this._workspace.getWorkspace().folders) {
+			const root = folder.uri.path.endsWith('/') ? folder.uri.path : folder.uri.path + '/';
+			if (uri.path.startsWith(root)) {
+				return uri.path.slice(root.length);
+			}
+		}
+		return uri.path;
+	}
 
 	private async _findSecrets(files: readonly string[]): Promise<{ file: string; kind: string }[]> {
 		const hits: { file: string; kind: string }[] = [];

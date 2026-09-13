@@ -21,6 +21,8 @@
  * an attempt counter and one decision function.
  */
 
+import { match as globMatch } from '../../../../base/common/glob.js';
+
 export type TurnChecksMode =
 	/** Never runs. */
 	| 'off'
@@ -43,7 +45,17 @@ export type TurnCheckId =
 	/** The turn spent more than its token quota. */
 	| 'budget-exceeded'
 	/** The answer cites a file:line that does not exist. */
-	| 'source-location';
+	| 'source-location'
+	/**
+	 * The turn edited files that judge it — tests, their fixtures, their config.
+	 *
+	 * A signal, not a block: an agent asked to write tests edits test files by definition, and
+	 * refusing that would make the check a nuisance people switch off. What it catches is the other
+	 * case — a green gate reached by changing what the gate reads. The Hugging Face intrusion was, in
+	 * the evaluated agent's own terms, an attempt to obtain the answers instead of doing the task;
+	 * editing the test that fails is the same move at the size of one repository.
+	 */
+	| 'no-verification-edit';
 
 export interface TurnFacts {
 	/** Workspace-relative paths the turn wrote to. */
@@ -52,6 +64,8 @@ export interface TurnFacts {
 	readonly secretHits: readonly { readonly file: string; readonly kind: string }[];
 	/** Writes that landed on a closed path, with the pattern that closed it. */
 	readonly protectedHits: readonly { readonly file: string; readonly pattern: string }[];
+	/** Changed files that match the verification patterns — see `matchVerificationPaths`. */
+	readonly verificationHits: readonly string[];
 	/** Tools the turn called that were not in the allowed list. */
 	readonly forbiddenTools: readonly string[];
 	readonly tokensUsed: number;
@@ -84,6 +98,35 @@ export const DEFAULT_ENABLED_CHECKS: readonly TurnCheckId[] = ['no-secret-leak',
  * Run the enabled checks over the recorded facts. Pure; returns one result per enabled check so a
  * report can show passes as well as failures.
  */
+/**
+ * Where tests and their harness usually live. A default, not a rule: the setting replaces it
+ * wholesale, because a project that keeps tests elsewhere knows that and we do not.
+ */
+export const DEFAULT_VERIFICATION_PATTERNS: readonly string[] = ['**/*.test.*', '**/*.spec.*', '**/test/**', '**/tests/**', '**/__tests__/**'];
+
+/**
+ * Changed files that match any verification pattern, `/`-separated, in the order they changed.
+ * Backslashes are folded first so one pattern serves every platform.
+ */
+export function matchVerificationPaths(changedFiles: readonly string[], patterns: readonly string[]): string[] {
+	if (patterns.length === 0) {
+		return [];
+	}
+	const seen = new Set<string>();
+	const hits: string[] = [];
+	for (const raw of changedFiles) {
+		const file = raw.replace(/\\/g, '/');
+		if (seen.has(file)) {
+			continue;
+		}
+		seen.add(file);
+		if (patterns.some(pattern => globMatch(pattern, file))) {
+			hits.push(file);
+		}
+	}
+	return hits;
+}
+
 export function evaluateTurnChecks(facts: TurnFacts, enabled: readonly TurnCheckId[]): TurnCheckResult[] {
 	const results: TurnCheckResult[] = [];
 
@@ -108,6 +151,17 @@ export function evaluateTurnChecks(facts: TurnFacts, enabled: readonly TurnCheck
 					detail: hits.length === 0
 						? 'Закрытые пути не затронуты.'
 						: `Записано в закрытые пути: ${hits.map(h => `${h.file} (правило ${h.pattern})`).join(', ')}.`,
+				});
+				break;
+			}
+			case 'no-verification-edit': {
+				const hits = facts.verificationHits;
+				results.push({
+					id,
+					passed: hits.length === 0,
+					detail: hits.length === 0
+						? 'Файлы проверок не изменялись.'
+						: `Ход изменил файлы, по которым его проверяют: ${hits.join(', ')}. Если так и задумано — всё в порядке; если нет, зелёная проверка ничего не доказывает.`,
 				});
 				break;
 			}
