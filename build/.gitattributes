@@ -1,3 +1,10 @@
 * text eol=lf
+# Images are bytes. The line above forces every file under build/ to text, and it rewrote the CR/LF
+# bytes of the installer background on commit: the committed TIFF differed from the rendered one, and
+# the sha256 gate in scripts/build-dmg-macos.sh compares against this very copy, so a clean clone would
+# ship a broken picture with no error. This file overrides the root .gitattributes for build/.
+*.tiff binary
+*.tif binary
+*.icns binary
 *.exe binary
 *.dll binary
