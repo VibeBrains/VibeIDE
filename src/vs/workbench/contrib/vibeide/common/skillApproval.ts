@@ -161,6 +161,22 @@ export async function skillPackageDigest(files: readonly SkillFileFingerprint[])
 	return sha256OfBytes(new TextEncoder().encode(listing));
 }
 
+/**
+ * The fingerprint value of a symbolic link inside a skill package, in VibeIDEA's format.
+ *
+ * WHY by target and not by the link text: a relative and an absolute link to the same file are the
+ * same package, and must not ask for approval twice. The target is named relative to the skills root,
+ * so moving the whole tree keeps the fingerprint. A link to a file carries the file's content hash —
+ * what the link points at is what runs; a link to a directory carries only `dir`, and the directory is
+ * not walked through it.
+ *
+ * Shared with VibeIDEA (`SkillFiles.link`, 13.09.2026). A link that leaves the skills tree has no
+ * target to name: there the package cannot be fingerprinted at all — see the library.
+ */
+export function skillLinkFingerprint(targetFromSkillsRoot: string, contentSha256: string | 'dir'): string {
+	return `link:${targetFromSkillsRoot.normalize('NFC')}:${contentSha256}`;
+}
+
 /** What changed between the approved files and the current ones, each list sorted. */
 export function diffSkillPackage(approved: readonly SkillFileFingerprint[], current: readonly SkillFileFingerprint[]): SkillPackageChanges {
 	const before = new Map(approved.map(file => [file.path, file.sha256]));

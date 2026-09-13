@@ -200,7 +200,10 @@ suite('VibeSkillsLibraryService — одобрение скилла по отп�
 		);
 	});
 
-	test('вложенный скилл — отдельный пакет со своим одобрением', async () => {
+	test('вложенный SKILL.md — часть пакета родителя, а не второй скилл', async () => {
+		// Как у VibeIDEA: скрипт вложенной папки под отпечатком родителя, и его правка снимает одобрение
+		// родителя. Раньше вложенный скилл был отдельным пакетом, и его скрипты жили вне того, что
+		// человек одобрял у родителя.
 		const { library, write } = createFixture();
 		await write('.vibe/skills/pack/SKILL.md', skillText('pack'));
 		await write('.vibe/skills/pack/inner/SKILL.md', skillText('inner'));
@@ -208,7 +211,7 @@ suite('VibeSkillsLibraryService — одобрение скилла по отп�
 		const skills = await library.getSkills();
 		assert.deepStrictEqual(
 			skills.map(skill => [skill.skillId, skill.package?.files.map(file => file.path).sort()]),
-			[['inner', ['SKILL.md', 'tool.py']], ['pack', ['SKILL.md']]],
+			[['pack', ['SKILL.md', 'inner/SKILL.md', 'inner/tool.py']]],
 		);
 	});
 

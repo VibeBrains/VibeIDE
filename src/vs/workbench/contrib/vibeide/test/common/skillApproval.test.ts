@@ -15,6 +15,7 @@ import {
 	isSkillTrusted,
 	sha256OfBytes,
 	SkillApproval,
+	skillLinkFingerprint,
 	skillPackageDigest,
 	SkillTrustState,
 	VibeSkillPackage,
@@ -47,6 +48,20 @@ suite('skillApproval — отпечаток каталога и решение �
 		assert.deepStrictEqual(
 			[await skillPackageDigest(await files(composed)), await skillPackageDigest(await files(composed.normalize('NFD')))],
 			[expected, expected],
+		);
+	});
+
+	test('ссылка кодируется от цели, как у VibeIDEA: файл — с хэшем содержимого, каталог — пометкой dir', () => {
+		// Формат VibeIDEA `SkillFiles.link`: относительная и абсолютная ссылка на один файл дают одну строку,
+		// потому что строка называет цель от корня скиллов, а не текст ссылки.
+		const composed = 'shared/résumé.md'.normalize('NFC');
+		assert.deepStrictEqual(
+			[
+				skillLinkFingerprint('shared/run.sh', 'ab12'),
+				skillLinkFingerprint('shared/assets', 'dir'),
+				skillLinkFingerprint(composed.normalize('NFD'), 'cd34') === skillLinkFingerprint(composed, 'cd34'),
+			],
+			['link:shared/run.sh:ab12', 'link:shared/assets:dir', true],
 		);
 	});
 

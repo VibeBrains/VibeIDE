@@ -17,7 +17,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
-import { basename, joinPath, relativePath } from '../../../../base/common/resources.js';
+import { basename, dirname, joinPath, relativePath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ChatMode } from './vibeideSettingsTypes.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
@@ -33,6 +33,7 @@ import {
 	isSkillApproval,
 	isSkillTrusted,
 	sha256OfBytes,
+	skillLinkFingerprint,
 	SKILL_APPROVAL_DEFAULT_MAX_FILES,
 	SKILL_APPROVAL_DEFAULT_MAX_MEGABYTES,
 	SKILL_PACKAGE_MAX_DEPTH,
@@ -481,6 +482,13 @@ const GUARD_SCRIPT_MAX_BYTES = 64 * 1024;
 const SKIPPED_PACKAGE_DIRS: ReadonlySet<string> = new Set(['.git', '__pycache__']);
 const SKIPPED_PACKAGE_FILES: ReadonlySet<string> = new Set(['.DS_Store']);
 
+/** One entry of a package listing; `link` is set for a symbolic link, with its target from the skills root. */
+interface PackageListingEntry {
+	readonly uri: URI;
+	readonly path: string;
+	readonly link?: { readonly target: string; readonly dir: boolean };
+}
+
 /** Where a loaded skill came from: its file, its package root, and whether it ships inside the product. */
 interface SkillSource {
 	readonly resource: URI;
@@ -911,7 +919,12 @@ export class VibeSkillsLibraryService extends Disposable implements IVibeSkillsL
 		const scripts: SkillGuardFile[] = [];
 		let untouched = knownToSet;
 		let totalBytes = 0;
-		for (const { uri, path } of listing.files) {
+		for (const { uri, path, link } of listing.files) {
+			if (link?.dir) {
+				// A linked directory is named, not walked: what it holds is the target's own business.
+				files.push({ path, sha256: skillLinkFingerprint(link.target, 'dir'), size: 0, executable: false });
+				continue;
+			}
 			let content: VSBuffer;
 			try {
 				content = (await this._fileService.readFile(uri)).value;
@@ -923,8 +936,14 @@ export class VibeSkillsLibraryService extends Disposable implements IVibeSkillsL
 				return unverifiable(localize('vibeide.skills.package.tooLarge', "Файлы скилла больше {0} МБ — отпечаток не снимается. Вынесите зависимости из каталога скилла или поднимите vibeide.skills.approvalMaxMegabytes.", Math.round(limits.maxBytes / (1024 * 1024))));
 			}
 			const bytes = content.buffer;
+			const contentSha = await sha256OfBytes(bytes);
+			if (link) {
+				// Same as VibeIDEA: a link is fingerprinted by target and content, and is not a script itself.
+				files.push({ path, sha256: skillLinkFingerprint(link.target, contentSha), size: content.byteLength, executable: false });
+				continue;
+			}
 			const executable = isExecutableSkillFile(path, bytes.subarray(0, 4));
-			files.push({ path, sha256: await sha256OfBytes(bytes), size: content.byteLength, executable });
+			files.push({ path, sha256: contentSha, size: content.byteLength, executable });
 			if (executable) {
 				// Config Guard reads scripts for downloads that run; a binary or a huge file is not a
 				// script to read, only a file to name.
@@ -951,15 +970,32 @@ export class VibeSkillsLibraryService extends Disposable implements IVibeSkillsL
 	}
 
 	/**
-	 * Every file of a skill package — minus nested skills, which are packages of their own with their
-	 * own approval, and version-control metadata. Past the limits it stops and says so rather than
-	 * fingerprinting part of the package: half a fingerprint would vouch for files nobody hashed.
+	 * Every file of a skill package, nested SKILL.md folders included, minus version-control and OS
+	 * noise. Past the limits it stops and says so rather than fingerprinting part of the package: half
+	 * a fingerprint would vouch for files nobody hashed.
+	 *
+	 * Symbolic links are recorded by their TARGET (`skillLinkFingerprint`), and a link to a directory is
+	 * not walked through. A link that resolves outside the skills root makes the package unverifiable:
+	 * there is no target inside the tree to name, and VibeIDEA refuses such a skill as well.
 	 */
-	private async _listPackage(root: URI, limits: PackageLimits): Promise<{ files: { uri: URI; path: string }[] } | { unverifiable: string }> {
-		const files: { uri: URI; path: string }[] = [];
+	private async _listPackage(root: URI, limits: PackageLimits): Promise<{ files: PackageListingEntry[] } | { unverifiable: string }> {
+		const files: PackageListingEntry[] = [];
+		const skillsRoot = dirname(root);
 		const walk = async (dir: IFileStat, prefix: string, depth: number): Promise<string | undefined> => {
 			for (const child of dir.children ?? []) {
 				const path = (prefix ? `${prefix}/${child.name}` : child.name).normalize('NFC');
+				if (child.isSymbolicLink) {
+					const real = await this._fileService.realpath(child.resource).catch(() => undefined);
+					const target = real ? relativePath(skillsRoot, real) : undefined;
+					if (!real || target === undefined || target.startsWith('..')) {
+						return localize('vibeide.skills.package.linkOutside', "Ссылка {0} ведёт за пределы каталога скиллов — такой скилл одобрить нельзя.", path);
+					}
+					files.push({ uri: child.resource, path, link: { target, dir: child.isDirectory } });
+					if (files.length > limits.maxFiles) {
+						return localize('vibeide.skills.package.tooManyFiles', "В каталоге скилла больше {0} файлов — отпечаток не снимается. Вынесите зависимости из каталога скилла или поднимите vibeide.skills.approvalMaxFiles.", limits.maxFiles);
+					}
+					continue;
+				}
 				if (!child.isDirectory) {
 					if (SKIPPED_PACKAGE_FILES.has(child.name)) {
 						continue;
@@ -981,9 +1017,6 @@ export class VibeSkillsLibraryService extends Disposable implements IVibeSkillsL
 					sub = await this._fileService.resolve(child.resource);
 				} catch {
 					return localize('vibeide.skills.package.unreadableDir', "Каталог {0} не прочитался — отпечаток каталога скилла не снять.", path);
-				}
-				if (this._pickSkillPrimaryFile((sub.children ?? []).filter(c => !c.isDirectory))) {
-					continue;
 				}
 				const problem = await walk(sub, path, depth + 1);
 				if (problem) {
@@ -1118,6 +1151,14 @@ export class VibeSkillsLibraryService extends Disposable implements IVibeSkillsL
 			await this._tryLoadSkillFromChild(child, into, sources, child.resource, builtin);
 		}
 
+		// A directory with its own SKILL.md is one skill, whole: a SKILL.md deeper inside it is part of
+		// that package, not a second skill. VibeIDEA loads the same way, and it closes a gap — a nested
+		// skill used to be carved out of its parent's fingerprint, so its scripts sat under an approval
+		// of their own that the parent's reviewer never saw. Folders without a SKILL.md are still walked:
+		// grouping skills in folders is ours, VibeIDEA has no groups at all.
+		if (primaryPick) {
+			return;
+		}
 		for (const d of dirs) {
 			await this._collectSkillsIntoMap(d.resource, into, sources, builtin);
 		}
