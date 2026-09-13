@@ -2156,11 +2156,18 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		}
 		let written: { planId: string; uri: URI } | undefined;
 		try {
+			// The model the plan is approved on travels with the plan, so a resume after a restart can
+			// say when it continues on a different one. `auto` names no model and records nothing.
+			const chatModel = this._settingsService.state.modelSelectionOfFeature['Chat'];
+			const plannedModel = chatModel && chatModel.providerName !== 'auto'
+				? { provider: chatModel.providerName, model: chatModel.modelName }
+				: undefined;
 			written = await this._persistedPlanService.writeApprovedAgentPlan({
 				workspaceFolder,
 				threadId: params.threadId,
 				messageIdx: params.messageIdx,
 				plan: params.plan,
+				plannedModel,
 			});
 		} catch (e) {
 			if (e instanceof Error && e.message.includes('Plan file blocked')) {

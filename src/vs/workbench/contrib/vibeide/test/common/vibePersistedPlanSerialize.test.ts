@@ -6,7 +6,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { serializePlanMarkdown } from '../../common/vibePersistedPlanService.js';
+import { parsePlannedModel, planModelDrift, serializePlanMarkdown } from '../../common/vibePersistedPlanService.js';
 import type { PlanMessage } from '../../common/chatThreadServiceTypes.js';
 
 const meta = { planId: 'abc12345-2abb-4588-8e60-5fd957bc1c58', threadId: 'thread-1', messageIdx: 7, createdAt: '2026-06-09T10:00:00.000Z', workspaceRootUri: 'file:///d:/proj' };
@@ -61,5 +61,41 @@ suite('serializePlanMarkdown — reflect step statuses + lifecycle status', () =
 		assert.ok(/^status: running$/m.test(md));
 		assert.ok(md.includes('- [ ] Step 1: done step'), 'all unchecked when queued');
 		assert.ok(!md.includes('[x]'), 'no completed checkbox at creation');
+	});
+});
+
+suite('план помнит модель, на которой его одобрили', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	const sol = { provider: 'openAI', model: 'gpt-5.6-sol' };
+	const flash = { provider: 'deepseek', model: 'deepseek-flash' };
+
+	test('модель одобрения ложится в машинный блок и читается обратно', () => {
+		const md = serializePlanMarkdown(plan, { ...meta, plannedModel: sol }, 'running');
+		const json = JSON.parse(md.match(/```json\s*([\s\S]*?)```/)![1]);
+		assert.deepStrictEqual(parsePlannedModel(json.plannedModel), sol);
+	});
+
+	test('смена модели и пропавший ключ называются по отдельности, совпадение молчит', () => {
+		assert.deepStrictEqual(
+			[
+				planModelDrift(sol, sol, true),
+				planModelDrift(sol, flash, true),
+				planModelDrift(sol, sol, false),
+			],
+			[
+				[],
+				[{ kind: 'model-changed', planned: sol, current: flash }],
+				[{ kind: 'provider-unavailable', planned: sol }],
+			],
+		);
+	});
+
+	test('план, записанный до этого поля, возобновляется без предупреждений — неизвестное прошлое не перемена', () => {
+		assert.deepStrictEqual(
+			[planModelDrift(undefined, flash, false), parsePlannedModel(undefined), parsePlannedModel({ provider: '', model: 'x' }), parsePlannedModel('строка')],
+			[[], undefined, undefined, undefined],
+		);
 	});
 });

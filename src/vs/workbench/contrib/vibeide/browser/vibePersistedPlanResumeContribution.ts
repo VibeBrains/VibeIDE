@@ -16,7 +16,8 @@ import { joinPath } from '../../../../base/common/resources.js';
 import { IChatThreadService } from './chatThreadService.js';
 import { PlanMessage, PlanStep, StepStatus } from '../common/chatThreadServiceTypes.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
-import { IVibePersistedPlanService } from '../common/vibePersistedPlanService.js';
+import { IVibePersistedPlanService, parsePlannedModel, planModelDrift } from '../common/vibePersistedPlanService.js';
+import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
 
 interface PersistedPlanMachineData {
@@ -28,6 +29,7 @@ interface PersistedPlanMachineData {
 	workspaceRootUri: string;
 	boundThreadId: string;
 	planMessageIdx: number;
+	plannedModel?: unknown;
 	steps: Array<{
 		stepNumber: number;
 		description: string;
@@ -69,6 +71,7 @@ export class VibePersistedPlanResumeContribution extends Disposable implements I
 		@ICommandService private readonly _commandService: ICommandService,
 		@IVibePersistedPlanService private readonly _persistedPlanService: IVibePersistedPlanService,
 		@IWorkbenchEnvironmentService private readonly _environmentService: IWorkbenchEnvironmentService,
+		@IVibeideSettingsService private readonly _settingsService: IVibeideSettingsService,
 	) {
 		super();
 		// Delay so all services are fully initialised and thread state is loaded from storage
@@ -147,6 +150,26 @@ export class VibePersistedPlanResumeContribution extends Disposable implements I
 		};
 	}
 
+	/**
+	 * The line that says the plan will not continue on the model it was approved on. Resuming uses
+	 * whatever the chat has selected now; without this note a plan approved on one model quietly
+	 * finished on another, and the person had no way to know.
+	 */
+	private _modelDriftNote(plan: FoundPlan): string {
+		const planned = parsePlannedModel(plan.machineData.plannedModel);
+		if (!planned) {
+			return '';
+		}
+		const state = this._settingsService.state;
+		const chat = state.modelSelectionOfFeature['Chat'];
+		const current = chat && chat.providerName !== 'auto' ? { provider: chat.providerName, model: chat.modelName } : undefined;
+		const settings = (state.settingsOfProvider as Record<string, { _didFillInProviderSettings?: boolean } | undefined>)[planned.provider];
+		const drift = planModelDrift(planned, current, !!settings?._didFillInProviderSettings);
+		return drift.map(item => '\n\n' + (item.kind === 'model-changed'
+			? localize('vibeide.planResume.modelChanged', 'План одобрен на модели {0} ({1}), а сейчас в чате выбрана {2} ({3}) — продолжит она.', item.planned.model, item.planned.provider, item.current.model, item.current.provider)
+			: localize('vibeide.planResume.providerUnavailable', 'У провайдера {0}, на котором план одобрен, сейчас нет рабочего ключа — ключ сменили или удалили.', item.planned.provider))).join('');
+	}
+
 	private async _offerResume(plan: FoundPlan): Promise<void> {
 		// Check if the original thread is still in memory
 		const existingThread = this._chatThreadService.state.allThreads[plan.boundThreadId];
@@ -187,7 +210,7 @@ export class VibePersistedPlanResumeContribution extends Disposable implements I
 				shortSummary,
 			);
 
-		const message = baseMessage + leaseNote;
+		const message = baseMessage + leaseNote + this._modelDriftNote(plan);
 
 		const primary = staleLease
 			? [

@@ -46,6 +46,46 @@ interface PlanFileMeta {
 	readonly messageIdx: number;
 	readonly createdAt: string;
 	readonly workspaceRootUri?: string;
+	/** The model the plan was approved on — see `planModelDrift`. Absent in files written before it existed. */
+	readonly plannedModel?: PlannedModel;
+}
+
+/** Provider and model a plan was approved on. */
+export interface PlannedModel {
+	readonly provider: string;
+	readonly model: string;
+}
+
+/** Why resuming a plan is not quite resuming it where it stopped. */
+export type PlanModelDrift =
+	/** The chat now runs another model than the one that approved the plan. */
+	| { readonly kind: 'model-changed'; readonly planned: PlannedModel; readonly current: PlannedModel }
+	/** The provider the plan was approved on has no usable key any more — rotated or removed. */
+	| { readonly kind: 'provider-unavailable'; readonly planned: PlannedModel };
+
+/**
+ * What changed between approving a plan and resuming it, as far as the model goes.
+ *
+ * WHY this is said out loud: a plan survives a restart, but it does not carry its model with it —
+ * resuming continues on whatever the chat has selected NOW. A plan approved on one model and
+ * finished by another is two different pieces of work under one name, and nothing told the person
+ * that happened. A plan file without a recorded model (written before this existed) reports
+ * nothing: an unknown past is not a change.
+ *
+ * Pure: the caller supplies the current selection and whether the planned provider still has a key.
+ */
+export function planModelDrift(planned: PlannedModel | undefined, current: PlannedModel | undefined, plannedProviderUsable: boolean): PlanModelDrift[] {
+	if (!planned) {
+		return [];
+	}
+	const drift: PlanModelDrift[] = [];
+	if (current && (current.provider !== planned.provider || current.model !== planned.model)) {
+		drift.push({ kind: 'model-changed', planned, current });
+	}
+	if (!plannedProviderUsable) {
+		drift.push({ kind: 'provider-unavailable', planned });
+	}
+	return drift;
 }
 
 /**
@@ -56,6 +96,17 @@ interface PlanFileMeta {
  * instead of a frozen `[ ]` + `running` snapshot. Used at creation (status='running') and on every
  * progress/finalization update.
  */
+/** A stored `plannedModel`, read defensively: plan files are hand-editable and outlive this code. */
+export function parsePlannedModel(value: unknown): PlannedModel | undefined {
+	if (!value || typeof value !== 'object') {
+		return undefined;
+	}
+	const candidate = value as { provider?: unknown; model?: unknown };
+	return typeof candidate.provider === 'string' && candidate.provider && typeof candidate.model === 'string' && candidate.model
+		? { provider: candidate.provider, model: candidate.model }
+		: undefined;
+}
+
 export function serializePlanMarkdown(plan: PlanMessage, meta: PlanFileMeta, status: PersistedPlanStatus): string {
 	const machine = {
 		planKind: 'vibeide.agent-plan',
@@ -66,6 +117,7 @@ export function serializePlanMarkdown(plan: PlanMessage, meta: PlanFileMeta, sta
 		workspaceRootUri: meta.workspaceRootUri,
 		boundThreadId: meta.threadId,
 		planMessageIdx: meta.messageIdx,
+		plannedModel: meta.plannedModel,
 		steps: plan.steps.map(s => ({
 			stepNumber: s.stepNumber,
 			description: s.description,
@@ -152,6 +204,7 @@ export interface IVibePersistedPlanService {
 		threadId: string;
 		messageIdx: number;
 		plan: PlanMessage;
+		plannedModel?: PlannedModel;
 	}): Promise<{ planId: string; uri: URI } | undefined>;
 
 	writePlanMarkdown(uri: URI, content: string): Promise<void>;
@@ -276,6 +329,8 @@ class VibePersistedPlanService extends Disposable implements IVibePersistedPlanS
 		threadId: string;
 		messageIdx: number;
 		plan: PlanMessage;
+		/** The chat model at approval; absent when it was `auto`, which names no model to compare with. */
+		plannedModel?: PlannedModel;
 	}): Promise<{ planId: string; uri: URI } | undefined> {
 		await this.ensurePlansDirectory(params.workspaceFolder);
 		const plansDir = this.plansDirectoryUri(params.workspaceFolder);
@@ -287,7 +342,7 @@ class VibePersistedPlanService extends Disposable implements IVibePersistedPlanS
 
 		const text = serializePlanMarkdown(
 			params.plan,
-			{ planId, threadId: params.threadId, messageIdx: params.messageIdx, createdAt, workspaceRootUri: params.workspaceFolder.toString(true) },
+			{ planId, threadId: params.threadId, messageIdx: params.messageIdx, createdAt, workspaceRootUri: params.workspaceFolder.toString(true), plannedModel: params.plannedModel },
 			'running',
 		);
 
@@ -375,9 +430,11 @@ class VibePersistedPlanService extends Disposable implements IVibePersistedPlanS
 		const jsonMatch = content.match(/```json\s*([\s\S]*?)```/);
 		if (!jsonMatch) { return undefined; }
 		try {
-			const m = JSON.parse(jsonMatch[1]) as { planId?: string; createdAt?: string; boundThreadId?: string; planMessageIdx?: number; workspaceRootUri?: string };
+			const m = JSON.parse(jsonMatch[1]) as { planId?: string; createdAt?: string; boundThreadId?: string; planMessageIdx?: number; workspaceRootUri?: string; plannedModel?: unknown };
 			if (typeof m.createdAt === 'string' && typeof m.boundThreadId === 'string' && typeof m.planMessageIdx === 'number') {
-				return { planId: m.planId ?? planId, threadId: m.boundThreadId, messageIdx: m.planMessageIdx, createdAt: m.createdAt, workspaceRootUri: m.workspaceRootUri };
+				// Carried through every progress rewrite: dropping it here would erase the approval model
+				// on the first step update, and the resume check would silently stop working.
+				return { planId: m.planId ?? planId, threadId: m.boundThreadId, messageIdx: m.planMessageIdx, createdAt: m.createdAt, workspaceRootUri: m.workspaceRootUri, plannedModel: parsePlannedModel(m.plannedModel) };
 			}
 		} catch { /* fall through */ }
 		return undefined;
