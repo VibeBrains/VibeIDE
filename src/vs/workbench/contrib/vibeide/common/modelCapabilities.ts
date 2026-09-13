@@ -2261,12 +2261,12 @@ const minimaxModelOptions = {
 	'MiniMax-M3': {
 		contextWindow: 1_000_000,
 		reservedOutputTokenSpace: 8_192,
-		// Standard tier, prompts up to 512K; past that the vendor charges 0.60/2.40 — both rates
-		// doubled, hence the tier below. The cache rate above the step is not published, and an
-		// undeclared factor stays 1 rather than becoming a guess.
+		// Standard tier, prompts up to 512K; past that the vendor charges 0.60/2.40 with cache reads at
+		// 0.12 instead of 0.06 — every rate doubled, hence the tier below
+		// (platform.minimax.io/docs/guides/pricing-paygo, checked 13.09.2026).
 		// The old note here claimed cost was "not used for routing" — it is: `modelRouter` scores
 		// `costPerM === 0` as a FREE model and adds points for it.
-		cost: { input: 0.30, output: 1.20, cache_read: 0.06, long_context: { over_input_tokens: 512_000, input: 2, output: 2 } },
+		cost: { input: 0.30, output: 1.20, cache_read: 0.06, long_context: { over_input_tokens: 512_000, input: 2, output: 2, cache: 2 } },
 		downloadable: false,
 		supportsFIM: false,
 		supportsVision: true,
