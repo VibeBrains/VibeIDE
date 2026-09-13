@@ -51,6 +51,16 @@ suite('skillApproval — отпечаток каталога и решение �
 		);
 	});
 
+	test('общий вектор со ссылкой: тот же отпечаток в VibeIDE и VibeIDEA', async () => {
+		// Vector agreed with VibeIDEA 13.09.2026, their test «a linked file has one digest in VibeIDEA and
+		// VibeIDE»: both products computed the number independently before comparing.
+		const files = [
+			{ path: 'SKILL.md', sha256: await sha256OfBytes(bytes('a')) },
+			{ path: 'scripts/run.sh', sha256: skillLinkFingerprint('shared/run.sh', await sha256OfBytes(bytes('b'))) },
+		];
+		assert.strictEqual(await skillPackageDigest(files), 'f74191445ee3da6e786f4d8779221f8fd4eba023ee574d10d45bfd0e33b24e53');
+	});
+
 	test('ссылка кодируется от цели, как у VibeIDEA: файл — с хэшем содержимого, каталог — пометкой dir', () => {
 		// Формат VibeIDEA `SkillFiles.link`: относительная и абсолютная ссылка на один файл дают одну строку,
 		// потому что строка называет цель от корня скиллов, а не текст ссылки.
