@@ -50,6 +50,7 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IRequestService, asJson, asTextOrError } from '../../../../platform/request/common/request.js';
+import { IAgentNetworkFilterService } from '../../../../platform/networkFilter/common/networkFilterService.js';
 import { IWebContentExtractorService } from '../../../../platform/webContentExtractor/common/webContentExtractor.js';
 import { LRUCache } from '../../../../base/common/map.js';
 import { OfflinePrivacyGate } from '../common/offlinePrivacyGate.js';
@@ -320,6 +321,7 @@ export class ToolsService extends Disposable implements IToolsService {
 		@IVibeGitReadService private readonly _gitRead: IVibeGitReadService,
 		@IVibeOutputArchiveService private readonly _outputArchive: IVibeOutputArchiveService,
 		@IVibeIgnoreService vibeIgnoreService: IVibeIgnoreService,
+		@IAgentNetworkFilterService private readonly _networkFilter: IAgentNetworkFilterService,
 	) {
 		super();
 		this._offlineGate = new OfflinePrivacyGate();
@@ -3260,6 +3262,15 @@ export class ToolsService extends Disposable implements IToolsService {
 			browse_url: async ({ url, refresh }) => {
 				// Check offline/privacy mode (centralized gate)
 				this._offlineGate.ensureNotOfflineOrPrivacy('URL browsing', false);
+
+				// The agent network filter is asked HERE, before either way of loading the page. The
+				// content extractor consulted it on its own, but the fallback below went straight to
+				// the request service — so a filter the user switched on stopped nothing the moment
+				// the extractor failed. One check in front of both paths leaves no path around it.
+				const requested = URI.parse(url);
+				if (!this._networkFilter.isUriAllowed(requested)) {
+					throw new Error(this._networkFilter.formatError(requested));
+				}
 
 				const cacheKey = `browse:${url}`;
 				const cached = this._browseCache.get(cacheKey);
