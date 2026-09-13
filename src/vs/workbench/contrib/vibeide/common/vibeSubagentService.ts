@@ -347,7 +347,10 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		});
 
 		this._log.info(`[VibeSubagent] Spawning ${handoff.type} subagent ${id} for thread ${handoff.parentThreadId}`);
-		this._audit.append({ actor: 'subagent', actorId: id, ts: Date.now(), action: 'subagent_spawned', ok: true, meta: { subagentId: id, type: handoff.type, parentThreadId: handoff.parentThreadId } });
+		// `traceId` is the parent thread — the same value the chat thread writes on its own records —
+		// and `spanId` is this run, shared by its start and its end. Without them a delegated run was
+		// a separate island in the log, and «what did the turn cause» stopped at the handoff.
+		this._audit.append({ actor: 'subagent', actorId: id, ts: Date.now(), action: 'subagent_spawned', ok: true, traceId: handoff.parentThreadId, spanId: id, meta: { subagentId: id, type: handoff.type, parentThreadId: handoff.parentThreadId } });
 
 		// Cumulative role budget. `maxTokens` caps one run; this caps the role across many, so a
 		// role that already spent its allowance does not start at all. The refusal is recorded as
@@ -610,7 +613,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			summary: result.summary,
 			failureReason: result.status === 'success' ? undefined : result.reason,
 		});
-		this._audit.append({ actor: 'subagent', actorId: entry.id, ts: Date.now(), action: 'subagent_completed', ok: result.status === 'success', meta: { subagentId: entry.id, status: result.status, tokensUsed: result.tokensUsed } });
+		this._audit.append({ actor: 'subagent', actorId: entry.id, ts: Date.now(), action: 'subagent_completed', ok: result.status === 'success', traceId: entry.handoff.parentThreadId, spanId: entry.id, meta: { subagentId: entry.id, status: result.status, tokensUsed: result.tokensUsed } });
 
 		const waiter = this._waiters.get(entry.id);
 		if (waiter) {
