@@ -16,6 +16,7 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 // inline `import('...')` type expressions so no value import reaches module scope.
 import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, RawMCPToolCall, MCPToolErrorResponse, MCPServerEventResponse, MCPToolCallParams } from '../common/mcpServiceTypes.js';
 import { MCPUserStateOfName } from '../common/vibeideSettingsTypes.js';
+import { mergeServerEnv, transportRequestInit } from '../common/mcpServerEnv.js';
 
 const getClientConfig = (serverName: string) => {
 	return {
@@ -269,7 +270,7 @@ export class MCPChannel implements IServerChannel {
 			// If type is explicitly 'sse' or inferred as SSE, use SSE directly
 			if (transportType === 'sse') {
 				try {
-					transport = new SSEClientTransport(url);
+					transport = new SSEClientTransport(url, transportRequestInit(server.headers));
 					await client.connect(transport);
 					vibeLog.info('mcpChannel', `Connected via SSE to ${serverName}`);
 					const { tools } = await client.listTools();
@@ -285,7 +286,7 @@ export class MCPChannel implements IServerChannel {
 			// If type is explicitly 'http', only try HTTP
 			else if (transportType === 'http') {
 				try {
-					transport = new StreamableHTTPClientTransport(url);
+					transport = new StreamableHTTPClientTransport(url, transportRequestInit(server.headers));
 					await client.connect(transport);
 					vibeLog.info('mcpChannel', `Connected via HTTP to ${serverName}`);
 					const { tools } = await client.listTools();
@@ -301,7 +302,7 @@ export class MCPChannel implements IServerChannel {
 			// If type is not specified, try HTTP first, fall back to SSE
 			else {
 				try {
-					transport = new StreamableHTTPClientTransport(url);
+					transport = new StreamableHTTPClientTransport(url, transportRequestInit(server.headers));
 					await client.connect(transport);
 					vibeLog.info('mcpChannel', `Connected via HTTP to ${serverName}`);
 					const { tools } = await client.listTools();
@@ -312,7 +313,7 @@ export class MCPChannel implements IServerChannel {
 					};
 				} catch (httpErr) {
 					vibeLog.warn('mcpChannel', `HTTP failed for ${serverName}, trying SSE…`, httpErr);
-					transport = new SSEClientTransport(url);
+					transport = new SSEClientTransport(url, transportRequestInit(server.headers));
 					await client.connect(transport);
 					const { tools } = await client.listTools();
 					vibeLog.info('mcpChannel', `Connected via SSE to ${serverName}`);
@@ -324,14 +325,11 @@ export class MCPChannel implements IServerChannel {
 				}
 			}
 		} else if (server.command) {
-			// console.log('ENV DATA: ', server.env)
-			// process.env values are `string | undefined`; filter out undefined so the
-			// merged env is a genuine Record<string, string> without a hiding assertion.
-			const mergedEnv: Record<string, string> = { ...server.env };
-			for (const [key, value] of Object.entries(process.env)) {
-				if (value !== undefined) {
-					mergedEnv[key] = value;
-				}
+			// The entry wins over the IDE environment; critical names from the entry never apply.
+			// See common/mcpServerEnv.ts for why both halves of that sentence matter.
+			const { env: mergedEnv, ignored } = mergeServerEnv(process.env, server.env);
+			if (ignored.length > 0) {
+				vibeLog.warn('MCP', `MCP server "${serverName}": variables not applied from mcp.json (critical, would override the IDE environment): ${ignored.join(', ')}`);
 			}
 			transport = new StdioClientTransport({
 				command: server.command,

@@ -156,7 +156,8 @@ export function scanProviderConfig(entries: readonly VibeProviderEntry[]): Confi
 
 // --- mcp.json ---------------------------------------------------------------------------------
 
-const CRITICAL_ENV_OVERRIDES = new Set(['PATH', 'LD_PRELOAD', 'LD_LIBRARY_PATH', 'DYLD_INSERT_LIBRARIES', 'DYLD_LIBRARY_PATH', 'NODE_OPTIONS', 'PYTHONPATH']);
+/** Variables an MCP entry must never override — the guard flags them, and the MCP launcher drops them. */
+export const CRITICAL_ENV_OVERRIDES: ReadonlySet<string> = new Set(['PATH', 'LD_PRELOAD', 'LD_LIBRARY_PATH', 'DYLD_INSERT_LIBRARIES', 'DYLD_LIBRARY_PATH', 'NODE_OPTIONS', 'PYTHONPATH']);
 const DISABLED_SECURITY_FLAGS = ['--no-sandbox', '--disable-web-security', '--disable-gpu-sandbox', '--disable-setuid-sandbox', '--allow-running-insecure-content', '--ignore-certificate-errors'];
 const SHELL_BASENAMES = /(?:^|[/\\])(?:sh|bash|zsh|dash|ksh)$/i;
 const SHELL_METACHARS = /[`$;|&<>]/;
