@@ -39,6 +39,9 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { scanMcpConfig, ConfigGuardFinding } from '../common/vibeConfigGuard.js';
 import { IMCPService, MCPServiceState } from '../common/mcpService.js';
+import { FoundMemoryServer, vibeMemoryServerPathSegments, withDiscoveredMemoryServer } from '../common/vibeMemoryServerDiscovery.js';
+import { joinPath } from '../../../../base/common/resources.js';
+import { isWindows } from '../../../../base/common/platform.js';
 
 const MCP_CONFIG_FILE_NAME = 'mcp.json';
 const MCP_CONFIG_SAMPLE = { mcpServers: {} };
@@ -377,6 +380,25 @@ class MCPService extends Disposable implements IMCPService {
 	}
 
 	// Handle server state changes
+	/**
+	 * The VibeMemory server binary, if installed. Absent is not an error — most people do not run
+	 * VibeMemory — so it is one log line, not a notification.
+	 */
+	private async _findMemoryServer(): Promise<FoundMemoryServer | undefined> {
+		try {
+			const home = await this.pathService.userHome();
+			const binary = joinPath(home, ...vibeMemoryServerPathSegments(isWindows));
+			if (!await this.fileService.exists(binary)) {
+				vibeLog.info('mcp', 'VibeMemory: сервер памяти не установлен — общая память агенту недоступна');
+				return undefined;
+			}
+			return { command: binary.fsPath, homeDir: home.fsPath };
+		} catch (err) {
+			vibeLog.warn('mcp', 'VibeMemory: не удалось проверить сервер памяти', err);
+			return undefined;
+		}
+	}
+
 	private async _refreshMCPServers(): Promise<void> {
 
 		this._setHasError(undefined);
@@ -384,6 +406,10 @@ class MCPService extends Disposable implements IMCPService {
 		const newConfigFileJSON = await this._parseMCPConfigFile();
 		if (!newConfigFileJSON) { vibeLog.info('mcp', `Not setting state: MCP config file not found`); return; }
 		if (!newConfigFileJSON?.mcpServers) { vibeLog.info('mcp', `Not setting state: MCP config file did not have an 'mcpServers' field`); return; }
+
+		// The family's shared memory joins by itself when VibeMemory is installed; a user entry with the
+		// same name wins. Added before Config Guard, so the discovered entry is scanned like any other.
+		newConfigFileJSON.mcpServers = withDiscoveredMemoryServer(newConfigFileJSON.mcpServers, await this._findMemoryServer());
 
 		// Config Guard: static-scan server entries; in block mode, drop critical-flagged servers before
 		// they start (filtering the parsed config so the rest of the refresh logic is untouched).

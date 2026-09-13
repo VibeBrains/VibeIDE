@@ -139,6 +139,13 @@ export interface MCPConfigFileEntryJSON {
 	command?: string;
 	args?: string[];
 	env?: Record<string, string>;
+	/**
+	 * Working directory of a command-based server. Absent keeps the old behaviour: the process inherits
+	 * the IDE's own working directory. It matters for servers that decide something by where they were
+	 * started — the VibeMemory server picks its project that way, and one process here serves every
+	 * window, so the IDE's directory would name a project no window asked for.
+	 */
+	cwd?: string;
 
 	// URL-based server properties
 	url?: string | URL; // String from JSON, or URL object if converted

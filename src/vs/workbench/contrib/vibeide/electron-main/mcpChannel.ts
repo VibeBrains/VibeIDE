@@ -337,6 +337,7 @@ export class MCPChannel implements IServerChannel {
 				command: server.command,
 				args: server.args,
 				env: mergedEnv,
+				...(server.cwd ? { cwd: server.cwd } : {}),
 			});
 
 			await client.connect(transport);
