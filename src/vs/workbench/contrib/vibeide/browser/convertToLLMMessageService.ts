@@ -90,6 +90,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { EndOfLinePreference } from '../../../../editor/common/model.js';
 import { ToolName } from '../common/toolsServiceTypes.js';
 import { IMCPService } from '../common/mcpService.js';
+import { memoryProjectPromptLines } from '../common/vibeMemoryProject.js';
 import { IRepoIndexerService, QueryMetrics } from './repoIndexerService.js';
 import { IVibeDocsGraphService } from './vibeDocsGraphService.js';
 import { IMemoriesService } from '../common/memoriesService.js';
@@ -1707,6 +1708,12 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		}
 	}
 
+	/** VibeMemory project lines for the open folders; the memory server is the only authority on the name. */
+	private async _memoryProjects(workspaceFolders: readonly string[]): Promise<string | undefined> {
+		const answers = await Promise.all(workspaceFolders.map(async folder => ({ folder, answer: await this.mcpService.resolveMemoryProject(folder) })));
+		return memoryProjectPromptLines(answers);
+	}
+
 	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined, providerName?: string, modelName?: string) => {
 		const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
 
@@ -1718,7 +1725,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// Create cache key from relevant factors. modelFamily is folded in so that
 		// future family-specific prompt branches don't bleed across providers.
 		const minimalismMode = this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite';
-		const cacheKey = `${chatMode}|${specialToolFormat}|${providerName ?? ''}|${modelName ?? ''}|${workspaceFolders.join(',')}|${openedURIs.join(',')}|${activeURI || ''}|pj:${preferJsonToolArguments}|min:${minimalismMode}`;
+		// Part of the key: a folder the memory server has just named must not keep a prompt built without it.
+		const memoryProjects = await this._memoryProjects(workspaceFolders);
+		const cacheKey = `${chatMode}|${specialToolFormat}|${providerName ?? ''}|${modelName ?? ''}|${workspaceFolders.join(',')}|${openedURIs.join(',')}|${activeURI || ''}|pj:${preferJsonToolArguments}|min:${minimalismMode}|mem:${memoryProjects ?? ''}`;
 
 		// Check cache
 		const cached = this._systemMessageCache.get(cacheKey);
@@ -1781,7 +1790,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// start trimming a frontier model. `providerName`/`modelName` are already part of the cache
 		// key above, so a per-model budget cannot leak into another model's cached prompt.
 		const budgets = this._promptBudgets(providerName, modelName);
-		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, modelFamily, ...budgets });
+		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, modelFamily, memoryProjects, ...budgets });
 
 		// Cache the result
 		this._systemMessageCache.set(cacheKey, { message: systemMessage, timestamp: now });
@@ -2104,7 +2113,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				}
 			}
 
-			systemMessage = chat_systemMessage_local({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', modelFamily , ...this._promptBudgets(providerName, modelName) });
+			const memoryProjects = await this._memoryProjects(workspaceFolders);
+			systemMessage = chat_systemMessage_local({ memoryProjects, workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', modelFamily , ...this._promptBudgets(providerName, modelName) });
 		} else {
 			// Use full system message for cloud models
 			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat, validProviderName, modelName);

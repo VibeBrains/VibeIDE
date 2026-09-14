@@ -19,7 +19,7 @@ import type { MCPConfigFileEntryJSON } from './mcpServiceTypes.js';
  * that is the VibeIDE repository, so every note would land there whatever folder is open). The home
  * folder has no project in the store, so a write without an explicit `project` is refused rather
  * than filed in the wrong place (VibeMemory `docs/manuals/mcpServer.md`, «Проект по рабочему
- * каталогу»).
+ * каталогу»). The project a folder does write to is named by the server itself — see vibeMemoryProject.ts.
  *
  * Pure: a server map and the discovery result in, a server map out.
  */

@@ -42,11 +42,15 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { scanMcpConfig, ConfigGuardFinding } from '../common/vibeConfigGuard.js';
 import { IMCPService, MCPServiceState } from '../common/mcpService.js';
-import { FoundMemoryServer, vibeMemoryServerPathSegments, withDiscoveredMemoryServer } from '../common/vibeMemoryServerDiscovery.js';
+import { FoundMemoryServer, VIBE_MEMORY_SERVER_NAME, vibeMemoryServerPathSegments, withDiscoveredMemoryServer } from '../common/vibeMemoryServerDiscovery.js';
+import { MEMORY_PROJECT_RESOLVE_TOOL, MemoryProjectAnswer, parseProjectResolveAnswer } from '../common/vibeMemoryProject.js';
+import { raceTimeout } from '../../../../base/common/async.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { isWindows } from '../../../../base/common/platform.js';
 
 const MCP_CONFIG_FILE_NAME = 'mcp.json';
+/** How long prompt assembly waits for the memory server to name a folder's project. */
+const MEMORY_PROJECT_RESOLVE_TIMEOUT_MS = 3000;
 const MCP_CONFIG_SAMPLE = { mcpServers: {} };
 const MCP_CONFIG_SAMPLE_STRING = JSON.stringify(MCP_CONFIG_SAMPLE, null, 2);
 
@@ -163,9 +167,34 @@ class MCPService extends Disposable implements IMCPService {
 				}
 			};
 		}
+		if (serverName === VIBE_MEMORY_SERVER_NAME) {
+			// A reconnected server may have a different store or new rules: ask again.
+			this._memoryProjectOfFolder.clear();
+		}
 		this._warnAboutShadowedBuiltins(serverName, newServer);
 		this._onDidChangeState.fire();
 	};
+
+	/** Answers of `project_resolve` by folder; only real answers are kept, so a slow server is asked again. */
+	private readonly _memoryProjectOfFolder = new Map<string, MemoryProjectAnswer>();
+
+	public async resolveMemoryProject(folder: string): Promise<MemoryProjectAnswer | undefined> {
+		const cached = this._memoryProjectOfFolder.get(folder);
+		if (cached) { return cached; }
+		const server = this.state.mcpServerOfName[VIBE_MEMORY_SERVER_NAME];
+		if (server?.status !== 'success' || !server.tools.some(t => t.name === MEMORY_PROJECT_RESOLVE_TOOL)) {
+			return undefined;
+		}
+		const params: MCPToolCallParams = { serverName: VIBE_MEMORY_SERVER_NAME, toolName: MEMORY_PROJECT_RESOLVE_TOOL, params: { directory: folder } };
+		const result = await raceTimeout(this.channel.call<RawMCPToolCall | undefined>('callTool', params), MEMORY_PROJECT_RESOLVE_TIMEOUT_MS);
+		if (result?.event !== 'text') {
+			vibeLog.info('mcp', `VibeMemory: project_resolve for ${folder} gave no answer`);
+			return undefined;
+		}
+		const answer = parseProjectResolveAnswer(result.text);
+		if (answer) { this._memoryProjectOfFolder.set(folder, answer); }
+		return answer;
+	}
 
 	/**
 	 * Сказать вслух, если инструмент сервера получил имя встроенного.

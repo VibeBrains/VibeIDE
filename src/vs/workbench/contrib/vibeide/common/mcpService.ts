@@ -8,6 +8,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { Event } from '../../../../base/common/event.js';
 import { MCPServerOfName, MCPToolCallParams, RawMCPToolCall } from './mcpServiceTypes.js';
 import { MCP } from '../../mcp/common/modelContextProtocol.js';
+import { MemoryProjectAnswer } from './vibeMemoryProject.js';
 import { InternalToolInfo } from './prompt/prompts.js';
 import { ConfigGuardFinding } from './vibeConfigGuard.js';
 
@@ -32,6 +33,12 @@ export interface IMCPService {
 	getMCPTools(): InternalToolInfo[] | undefined;
 	callMCPTool(toolData: MCPToolCallParams): Promise<{ result: RawMCPToolCall }>;
 	stringifyResult(result: RawMCPToolCall): string;
+
+	/**
+	 * VibeMemory project of a workspace folder, asked of the memory server's `project_resolve`.
+	 * Undefined when the server is absent, lacks the tool, or does not answer in time.
+	 */
+	resolveMemoryProject(folder: string): Promise<MemoryProjectAnswer | undefined>;
 
 	/** MCP Apps: the `ui://` resource a tool's result renders, or undefined when apps are off or the tool has none. */
 	getAppResourceUri(serverName: string, modelToolName: string): string | undefined;
