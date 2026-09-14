@@ -174,6 +174,7 @@
 
 | Файл | О чём |
 |---|---|
+| [mcpAppsHost.md](toolSystem/mcpAppsHost.md) | Хост MCP Apps в нашем React-чате: почему не апстримный `ChatMcpAppModel`, что взято у апстрима экспортом, раскладка по слоям. Грабли: `call` канала глотает ошибку (нужен исход), ответ одним `structuredContent`, возможности клиента только при создании, черновик без внешнего входа |
 | [structuredExtraction.md](toolSystem/structuredExtraction.md) | Модель извлечения без инструкций (Schematron) — не через чат: путь чата несёт системный промпт и вклеивает его в сообщение с HTML. Прямой вызов, схема на вызов через `extraBody` → `runtimeOptions`, слияние после тела SDK. Грабли: `...proxyParams` уносит новое поле мимо адаптера |
 | [overview.md](toolSystem/overview.md) | Карта кода слоя (`toolsServiceTypes`, `prompts`, `toolsService`, `terminalToolService`, `toolHardening`) + зачем закаляли: одна ручка `run_command` = зависание на длинных чтениях (у shell-stdout нет ни пагинации, ни таймаута) |
 | [antiShellContract.md](toolSystem/antiShellContract.md) | Что `run_command` отбивает и почему (`detectShellMisuse`): shell-формы, дублирующие штатные тулы (`Get-Content`/`cat`/`findstr`); error surface; когда расширять список |

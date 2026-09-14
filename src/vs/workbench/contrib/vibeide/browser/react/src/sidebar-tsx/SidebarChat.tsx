@@ -49,6 +49,7 @@ import { chatDiffCountLabel, chatFilesWithChangesLabel, chatModeDetail, chatMode
 
 import { persistentTerminalNameOfId } from '../../../terminalToolService.js';
 import { removeMCPToolNamePrefix } from '../../../../common/mcpServiceTypes.js';
+import { VibeMcpAppHost, IVibeMcpAppData, MCP_APP_DEFAULT_HEIGHT } from '../../../../browser/mcpAppHost.js';
 import { trackRenderLoop } from '../util/renderLoopGuard.js';
 import type { ProviderRefusalDiagnostics } from '../../../../common/sendLLMMessageTypes.js';
 import { useImageAttachments } from '../util/useImageAttachments.js';
@@ -3468,8 +3469,37 @@ const CommandTool = ({ toolMessage, type, threadId }: { threadId: string } & ({
 };
 
 type WrapperProps<T extends ToolName> = { toolMessage: Exclude<ToolMessage<T>, { type: 'invalid_params' }>; messageIdx: number; threadId: string };
+
+/** An MCP App rendered under its tool result; the host owns the webview and the protocol. */
+const McpAppFrame = ({ data, callId }: { data: IVibeMcpAppData; callId: string }) => {
+	const accessor = useAccessor();
+	const instantiationService = accessor.get('IInstantiationService');
+	const containerRef = useRef<HTMLDivElement>(null);
+	const [height, setHeight] = useState(MCP_APP_DEFAULT_HEIGHT);
+	const [error, setError] = useState<string | undefined>(undefined);
+
+	useEffect(() => {
+		if (!containerRef.current) { return; }
+		const host = instantiationService.createInstance(VibeMcpAppHost, containerRef.current, data);
+		const heightListener = host.onDidChangeHeight(setHeight);
+		const failListener = host.onDidFail(setError);
+		return () => {
+			heightListener.dispose();
+			failListener.dispose();
+			host.dispose();
+		};
+		// One host per tool call: the data of a finished call does not change.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [callId]);
+
+	return <div className='w-full'>
+		{error !== undefined && <div className='text-vibe-fg-3 text-xs px-1 py-1'>{`Приложение MCP не открылось: ${error}`}</div>}
+		<div ref={containerRef} className='w-full relative' style={{ height: error !== undefined ? 0 : height }} />
+	</div>;
+};
+
 /** Renders any tool without a bespoke wrapper: every MCP tool, plus built-ins not listed in `builtinToolNameToComponent`. */
-const GenericToolWrapper = ({ toolMessage }: WrapperProps<string>) => {
+const GenericToolWrapper = ({ toolMessage, threadId }: WrapperProps<string>) => {
 	const accessor = useAccessor();
 	const mcpService = accessor.get('IMCPService');
 
@@ -3509,6 +3539,24 @@ const GenericToolWrapper = ({ toolMessage }: WrapperProps<string>) => {
 
 	// Add copy inputs button in desc2
 
+
+	const appResourceUri = toolMessage.type === 'success' && toolMessage.mcpServerName ? mcpService.getAppResourceUri(toolMessage.mcpServerName, toolMessage.name) : undefined;
+
+	if (toolMessage.type === 'success' && appResourceUri && toolMessage.mcpServerName) {
+		const result = toolMessage.result as { callResult?: IVibeMcpAppData['callResult'] } | null;
+		const appData: IVibeMcpAppData = {
+			serverName: toolMessage.mcpServerName,
+			toolName: removeMCPToolNamePrefix(toolMessage.name),
+			resourceUri: appResourceUri,
+			input: (params ?? undefined) as Record<string, unknown> | undefined,
+			callResult: result?.callResult,
+			threadId,
+		};
+		componentParams.children = <ToolChildrenWrapper>
+			<McpAppFrame data={appData} callId={toolMessage.id} />
+		</ToolChildrenWrapper>;
+		return <ToolHeaderWrapper {...componentParams} isOpen={true} />;
+	}
 
 	if (toolMessage.type === 'success' || toolMessage.type === 'tool_request') {
 		const { result } = toolMessage;
@@ -5574,6 +5622,17 @@ export const SidebarChat = () => {
 		const saved = chatThreadsService.getThreadDraft(chatThreadsState.currentThreadId);
 		textAreaFnsRef.current?.setValue(saved);
 		setInstructionsAreEmpty(!saved);
+	}, [chatThreadsState.currentThreadId]);
+
+	// Text an MCP App offered for this thread (`ui/message`): shown in the composer, never sent.
+	useEffect(() => {
+		const listener = chatThreadsService.onDidOfferThreadDraft(({ threadId, text }) => {
+			if (threadId !== chatThreadsState.currentThreadId) { return; }
+			textAreaFnsRef.current?.setValue(text);
+			setInstructionsAreEmpty(false);
+			textAreaRef.current?.focus();
+		});
+		return () => listener.dispose();
 	}, [chatThreadsState.currentThreadId]);
 
 	// ── Per-tab chat config (model / mode / autopilot / iterations) ──────────────────────────────

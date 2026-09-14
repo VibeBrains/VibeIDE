@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-
+import { MCP } from '../../mcp/common/modelContextProtocol.js';
 
 /* -------------------------------------------------- */
 /* Core JSON‑RPC envelope                              */
@@ -40,6 +40,8 @@ export interface MCPTool {
 	inputSchema?: Record<string, unknown>;
 	/** Free‑form annotations describing behaviour, security, etc. */
 	annotations?: Record<string, unknown>;
+	/** Protocol metadata; MCP Apps put the UI resource and the tool visibility under `ui` (see common/mcpApps.ts). */
+	_meta?: Record<string, unknown>;
 }
 
 // export interface ToolsListResult extends Paginated {
@@ -225,6 +227,8 @@ interface MCPToolResponseBase {
 	event: MCPToolResponseType;
 	text?: string;
 	image?: ImageData;
+	/** The whole `tools/call` result, kept for an MCP App that renders it (`ui/notifications/tool-result`). */
+	callResult?: MCP.CallToolResult;
 }
 
 type MCPToolResponseConstraints = {
@@ -265,6 +269,15 @@ export interface MCPToolCallParams {
 	toolName: string;
 	params: Record<string, unknown>;
 }
+
+/** `resources/read` on behalf of an MCP App of that server. */
+export interface MCPReadResourceParams {
+	serverName: string;
+	uri: string;
+}
+
+/** Outcome of a request an MCP App makes through the host: the server's answer or the reason it failed. */
+export type MCPAppRequestOutcome<T> = { ok: true; value: T } | { ok: false; error: string };
 
 
 

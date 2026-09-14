@@ -28,7 +28,10 @@ import { IProductService } from '../../../../platform/product/common/productServ
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
-import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, MCPToolCallParams, RawMCPToolCall, MCPServerEventResponse } from '../common/mcpServiceTypes.js';
+import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, MCPToolCallParams, RawMCPToolCall, MCPServerEventResponse, MCPAppRequestOutcome, MCPReadResourceParams, MCPTool } from '../common/mcpServiceTypes.js';
+import { MCP } from '../../mcp/common/modelContextProtocol.js';
+import { mcpAppsEnabledConfig } from '../../../../platform/mcp/common/mcpManagement.js';
+import { isMcpToolCallableByApp, isMcpToolVisibleToModel, mcpAppUiOfTool } from '../common/mcpApps.js';
 import { Event, Emitter } from '../../../../base/common/event.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { InternalToolInfo } from '../common/prompt/prompts.js';
@@ -114,6 +117,11 @@ class MCPService extends Disposable implements IMCPService {
 		this._register((this.channel.listen('onAdd_server') satisfies Event<MCPServerEventResponse>)(onEvent));
 		this._register((this.channel.listen('onUpdate_server') satisfies Event<MCPServerEventResponse>)(onEvent));
 		this._register((this.channel.listen('onDelete_server') satisfies Event<MCPServerEventResponse>)(onEvent));
+
+		// Turning MCP Apps on or off changes what every client announces, so all servers reconnect.
+		this._register(this._configurationService.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration(mcpAppsEnabledConfig)) { this._scheduleMcpConfigRefresh.schedule(); }
+		}));
 
 		this._initialize();
 	}
@@ -246,6 +254,8 @@ class MCPService extends Disposable implements IMCPService {
 			const server = this.state.mcpServerOfName[serverName];
 			const sanitizedServer = sanitizeMcpIdentifier(serverName);
 			server.tools?.forEach(tool => {
+				// An app-only tool exists for the app's buttons; offering it to the model would break the spec's promise.
+				if (!isMcpToolVisibleToModel(tool)) { return; }
 				const sanitizedTool = sanitizeMcpIdentifier(tool.name);
 				// Model-facing identifier with collision-safe `<server>_<tool>` prefix.
 				// Two MCP servers exposing same-named tools used to alias each other —
@@ -449,7 +459,61 @@ class MCPService extends Disposable implements IMCPService {
 			removedServerNames,
 			updatedServerNames,
 			userStateOfName: this.vibeideSettingsService.state.mcpUserStateOfName,
+			appsEnabled: this._appsEnabled(),
 		});
+	}
+
+	private _appsEnabled(): boolean {
+		return this._configurationService.getValue<boolean>(mcpAppsEnabledConfig) !== false;
+	}
+
+	/** A tool of a server by its model-facing `<server>_<tool>` name or by its raw name. */
+	private _findTool(serverName: string, name: string): MCPTool | undefined {
+		const sanitizedServer = sanitizeMcpIdentifier(serverName);
+		return this.state.mcpServerOfName[serverName]?.tools?.find(t => t.name === name || `${sanitizedServer}_${sanitizeMcpIdentifier(t.name)}` === name);
+	}
+
+	public getAppResourceUri(serverName: string, modelToolName: string): string | undefined {
+		if (!this._appsEnabled()) { return undefined; }
+		const tool = this._findTool(serverName, modelToolName);
+		return tool ? mcpAppUiOfTool(tool).resourceUri : undefined;
+	}
+
+	public async readAppResource(serverName: string, uri: string): Promise<MCP.ReadResourceResult> {
+		const params: MCPReadResourceParams = { serverName, uri };
+		return this._unwrapAppOutcome(await this.channel.call<MCPAppRequestOutcome<MCP.ReadResourceResult> | undefined>('readResource', params));
+	}
+
+	public async callToolFromApp(serverName: string, toolName: string, args: Record<string, unknown>): Promise<MCP.CallToolResult> {
+		const tool = this.state.mcpServerOfName[serverName]?.tools?.find(t => t.name === toolName);
+		if (!tool) {
+			throw new Error(`Tool ${toolName} not found on server ${serverName}`);
+		}
+		if (!isMcpToolCallableByApp(tool)) {
+			throw new Error(`Tool ${toolName} is not callable by an app`);
+		}
+		const params: MCPToolCallParams = { serverName, toolName, params: args };
+		const t0 = Date.now();
+		const outcome = await this.channel.call<MCPAppRequestOutcome<MCP.CallToolResult> | undefined>('callToolForApp', params);
+		this._outboundBuffer.record({
+			timestampMs: t0,
+			url: `mcp://${serverName}/${toolName}`,
+			method: 'CALL',
+			statusCode: outcome?.ok ? 200 : 500,
+			source: 'mcp',
+			context: serverName,
+		});
+		return this._unwrapAppOutcome(outcome);
+	}
+
+	private _unwrapAppOutcome<T>(outcome: MCPAppRequestOutcome<T> | undefined): T {
+		if (!outcome) {
+			throw new Error('MCP channel returned no answer');
+		}
+		if (!outcome.ok) {
+			throw new Error(outcome.error);
+		}
+		return outcome.value;
 	}
 
 	public getLastGuardFindings(): readonly ConfigGuardFinding[] {

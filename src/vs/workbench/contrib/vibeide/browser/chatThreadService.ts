@@ -649,6 +649,13 @@ export interface IChatThreadService {
 	/** Per-thread composer draft (in-memory). Lets each open chat tab keep its own unsent input across tab switches. */
 	getThreadDraft(threadId: string): string;
 	setThreadDraft(threadId: string, text: string): void;
+	/**
+	 * Put text into a thread's composer from outside the composer (an MCP App's `ui/message`). Never
+	 * sends and never overwrites: a draft the user is typing wins, and the offer reports it was refused.
+	 */
+	offerThreadDraft(threadId: string, text: string): boolean;
+	/** Fires when {@link offerThreadDraft} placed text, so the mounted composer shows it. */
+	readonly onDidOfferThreadDraft: Event<{ threadId: string; text: string }>;
 	/** Per-tab chat config snapshot (model/mode/autopilot/iterations), persisted with the thread. */
 	setThreadChatConfig(threadId: string, cfg: ThreadChatConfig): void;
 
@@ -809,6 +816,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	private _xmlRepairFiredNotified = false;
 
 	// this fires when the current thread changes at all (a switch of currentThread, or a message added to it, etc)
+	private readonly _onDidOfferThreadDraft = new Emitter<{ threadId: string; text: string }>();
+	readonly onDidOfferThreadDraft: Event<{ threadId: string; text: string }> = this._onDidOfferThreadDraft.event;
 	private readonly _onDidChangeCurrentThread = new Emitter<void>();
 	readonly onDidChangeCurrentThread: Event<void> = this._onDidChangeCurrentThread.event;
 
@@ -9767,6 +9776,12 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 	setThreadDraft(threadId: string, text: string): void {
 		if (text) { this._threadDrafts.set(threadId, text); } else { this._threadDrafts.delete(threadId); }
+	}
+	offerThreadDraft(threadId: string, text: string): boolean {
+		if (!text.trim() || this.getThreadDraft(threadId).trim()) { return false; }
+		this._threadDrafts.set(threadId, text);
+		this._onDidOfferThreadDraft.fire({ threadId, text });
+		return true;
 	}
 
 	setThreadChatConfig(threadId: string, cfg: ThreadChatConfig): void {

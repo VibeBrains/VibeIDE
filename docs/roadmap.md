@@ -5202,10 +5202,15 @@ Zscaler и Salesforce в дайджесте — пересказ агрегат�
       Knowledge: `toolSystem/structuredExtraction.md`.
       14.09: модели Schematron в наборе скрыты из выбора чата (`"active": false`, VibeBrains `d21a4dc`) —
       извлечение скрытость не проверяет, это сверено по коду; согласовано с VibeIDEA.
-- [ ] **MCP Apps в нашем чате** — спека Final, поддержка у Claude, VS Code Copilot, M365 Copilot и
-      других. Апстрим рендерит через `IWebviewService` (`chatMcpAppModel.ts`), наш клиент возможность
-      не объявляет и `_meta.ui` не читает. Нужны: объявление, рендер, скрытие `visibility: ["app"]`
-      от модели, подтверждение вызовов из приложения.
+- [x] **MCP Apps в нашем чате** — ✅ (2026-09-14, next) Клиент объявляет `io.modelcontextprotocol/ui`
+      (по `chat.mcp.apps.enabled`, смена настройки переподключает серверы), `_meta.ui` читается, инструменты
+      `visibility: ["app"]` скрыты от модели, результат вызова хранится целиком. Свой хост
+      `browser/mcpAppHost.ts` поверх `IWebviewService`: инициализация, вход и результат инструмента,
+      тема, размер, `resources/read`, журнал; вызов инструмента — после согласия раз на окно, ссылка —
+      с подтверждением, `ui/message` — в черновик без отправки. CSP и мост `postMessage` взяты у апстрима
+      вынесенной функцией `injectMcpAppPreamble`. Правила — чистый `common/mcpApps.ts` с тестами.
+      Живьём не проверено: установка примера сервера из `modelcontextprotocol/ext-apps` отклонена
+      авто-режимом. Knowledge: `toolSystem/mcpAppsHost.md`.
 
 - [x] **Порядок провайдеров и сверка трёх конфигов** — ✅ (2026-09-13, next) В наборе DeepSeek стоит
       сразу после MiniMax (`order` 32–33), OpenAI — сразу после DeepSeek (34); VibeBrains `3e8fb32`.
