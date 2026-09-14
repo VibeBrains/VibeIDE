@@ -9,6 +9,7 @@ import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase 
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions, ConfigurationScope } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { localize } from '../../../../nls.js';
+import { SKILL_APPROVAL_DEFAULT_MAX_FILES, SKILL_APPROVAL_DEFAULT_MAX_MEGABYTES } from './skillApproval.js';
 
 export class VibeideGlobalSettingsConfigurationContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.vibeideGlobalSettingsConfiguration';
@@ -91,6 +92,26 @@ export class VibeideGlobalSettingsConfigurationContribution extends Disposable i
 					items: { type: 'string' },
 					default: [],
 					description: localize('vibeide.skills.globalPaths', 'Абсолютные пути дополнительных корней SKILL.md (parity с ~/.cursor/skills/). Workspace `.vibe/skills/` перекрывает скиллы с теми же идентификаторами.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.skills.requireApproval': {
+					type: 'boolean',
+					default: true,
+					description: localize('vibeide.skills.requireApproval', 'Агент видит скилл не из релиза только после вашего одобрения — по отпечатку всего каталога скилла: текста, скриптов и вложений. Любая правка этих файлов снимает одобрение до повторной проверки: команда «Скиллы — проверить и одобрить» или диалог при вызове /skill:. Скиллам, пришедшим с релизом без изменений, и встроенным одобрение не нужно. Настройка только пользовательская — проект выключить её не может.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.skills.approvalMaxFiles': {
+					type: 'number',
+					default: SKILL_APPROVAL_DEFAULT_MAX_FILES,
+					minimum: 1,
+					description: localize('vibeide.skills.approvalMaxFiles', 'Сколько файлов может быть в каталоге скилла, чтобы снять его отпечаток для одобрения. Скилл больше этого одобрить нельзя: частичный отпечаток ручался бы за файлы, которых никто не хешировал.'),
+					scope: ConfigurationScope.APPLICATION,
+				},
+				'vibeide.skills.approvalMaxMegabytes': {
+					type: 'number',
+					default: SKILL_APPROVAL_DEFAULT_MAX_MEGABYTES,
+					minimum: 1,
+					description: localize('vibeide.skills.approvalMaxMegabytes', 'Сколько мегабайт могут занимать файлы скилла, чтобы снять его отпечаток для одобрения. Отпечаток пересчитывается при каждом изменении файлов скиллов.'),
 					scope: ConfigurationScope.APPLICATION,
 				},
 				'vibeide.skills.sessionActiveIds': {

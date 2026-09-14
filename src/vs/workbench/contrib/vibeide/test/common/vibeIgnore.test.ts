@@ -87,4 +87,13 @@ suite('vibeIgnore — gitignore-subset matcher', () => {
 		assert.ok(!matcher('').isIgnored('anything.js'));
 		assert.ok(!matcher('*.js').isIgnored(''));
 	});
+
+	/** An ignore list is a deny list: where the filesystem folds case, the matcher does on request. */
+	test('ignoreCase: Dist/ is dist/; NFC always', () => {
+		assert.deepStrictEqual({
+			точно: createIgnoreMatcher('dist/').isIgnored('Dist/a.js'),
+			свёрнуто: createIgnoreMatcher('dist/', { ignoreCase: true }).isIgnored('Dist/a.js'),
+			nfc: createIgnoreMatcher('й.md').isIgnored('docs/и\u0306.md'),
+		}, { точно: false, свёрнуто: true, nfc: true });
+	});
 });

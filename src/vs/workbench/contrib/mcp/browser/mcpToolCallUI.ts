@@ -49,7 +49,7 @@ export interface IMcpAppCallTransport extends IDisposable {
 	log(params: MCP.LoggingMessageNotificationParams): Promise<void>;
 }
 
-function readResourceContentToHtml(contents: readonly (MCP.TextResourceContents | MCP.BlobResourceContents)[]): IMcpAppResourceContent {
+export function readResourceContentToHtml(contents: readonly (MCP.TextResourceContents | MCP.BlobResourceContents)[]): IMcpAppResourceContent {
 	if (!contents || contents.length === 0) {
 		throw new Error('UI resource not found on server');
 	}

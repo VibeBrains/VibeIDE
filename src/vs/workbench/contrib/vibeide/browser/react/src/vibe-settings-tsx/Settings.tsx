@@ -731,6 +731,9 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 		const overrides = settingsState.overridesOfModel?.[providerName]?.[modelName];
 		const hasOverrides = !!overrides;
 		const modality = typeof overrides?.modality === 'string' ? overrides.modality : undefined;
+		// A floating id points at a different model over time; a quirk pinned here is pinned to
+		// moving ground, so the row says so instead of leaving it to be discovered by behaviour.
+		const floatsTo = typeof overrides?.floatsTo === 'string' ? overrides.floatsTo : undefined;
 		// Tri-state vision override: undefined = auto (heuristic/catalog), true = forced on, false = forced off.
 		const visionOverride: boolean | undefined = typeof overrides?.supportsVision === 'boolean' ? overrides.supportsVision : undefined;
 		const cycleVisionOverride = async () => {
@@ -771,6 +774,16 @@ export const ModelDump = ({ filteredProviders }: { filteredProviders?: ProviderN
 					<span className='text-vibe-fg-3 opacity-50 select-none'>·</span>
 					<span className='text-vibe-fg-3 opacity-60 text-xs truncate font-mono'>{modality}</span>
 				</>}
+				{floatsTo && (
+					<span
+						className='shrink-0 text-[10px] font-mono uppercase tracking-wide px-1.5 py-px rounded border border-current text-[var(--vscode-charts-yellow)] opacity-80 select-none cursor-help'
+						data-tooltip-id='vibe-tooltip'
+						data-tooltip-place='right'
+						data-tooltip-content={`Плавающий идентификатор: сегодня ведёт на ${floatsTo}. Вендор перенацелит его без предупреждения — квирк заводите на снапшот, а не на это имя.`}
+					>
+						плавающий
+					</span>
+				)}
 				{isFreeModel(providerName, modelName) && (
 					<span
 						className='shrink-0 text-[10px] font-mono uppercase tracking-wide px-1.5 py-px rounded border border-current text-[var(--vscode-charts-green)] opacity-80 select-none'
@@ -2760,7 +2773,7 @@ const PerfGuardrailsPanel = () => {
 // Pulls in-memory snapshot from IVibeSessionMemoryService for the current
 // chat thread; manual refresh button so we don't subscribe to every append.
 // R.4.1 — Project rules panel: lists discovered rule sources (.vibe/rules.md, AGENTS.md,
-// .vibe/rules/**, .cursor/rules/** — .md/.mdc), with an enable/disable toggle (per-workspace,
+// .vibe/rules/** — .md/.mdc; foreign rule files are deliberately not read), with an enable/disable toggle (per-workspace,
 // honored in the prompt combine) and click-to-preview of the (frontmatter-stripped, sanitized) body.
 const ProjectRulesPanel = () => {
 	const accessor = useAccessor();

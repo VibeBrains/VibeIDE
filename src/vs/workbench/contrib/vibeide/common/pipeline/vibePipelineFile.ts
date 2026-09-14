@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { createIgnoreMatcher } from '../vibeIgnore.js';
+import { DENY_RULES_IGNORE_CASE } from '../agentPathResolution.js';
 
 /**
  * Pipelines — a sequence of agent steps where each step picks up what the previous one produced.
@@ -19,9 +20,12 @@ import { createIgnoreMatcher } from '../vibeIgnore.js';
  *   one wrote would blow the context window on the third step of any real task, and it would do so
  *   silently. Paths plus a summary let the next agent read exactly what it needs with the tools it
  *   already has.
- * - **Paths accumulate, the summary does not.** Step four can still open a file step one created —
- *   losing it would make long pipelines useless — but it hears the story only from step three.
- *   Concatenating every summary turns the prompt into a diary nobody asked for.
+ * - **Paths accumulate; earlier steps are told briefly, the last one in full.** Step four can still
+ *   open a file step one created — losing it would make long pipelines useless — and it also hears,
+ *   one capped line per step, what every earlier step decided and what its reviewer said. A step that
+ *   knows only the last word re-decides what step one already settled, and decisions made apart
+ *   contradict each other (Cognition, 2025). The cap is what keeps this from becoming the diary the
+ *   first version of this rule was written against: a diary is a matter of length, not of memory.
  * - **A failed step stops the pipeline by default.** Continuing means step three works on the
  *   assumption that step two succeeded, and the result looks like work while being founded on
  *   nothing. `continueOnFailure` exists for the genuinely independent step, and it must be typed
@@ -89,6 +93,13 @@ export interface VibePipelineStep {
 	 * but it catches the case that makes the review pointless.
 	 */
 	readonly reviewWith?: string;
+	/**
+	 * Start the step only outside the peak of its model's price by the hour (`cost.timeOfDay`).
+	 *
+	 * Requires `model`: the schedule belongs to a model, and a step that resolves its model through the
+	 * role has none to look it up in. Waiting is visible and can be skipped — see the pipeline service.
+	 */
+	readonly offPeak?: boolean;
 }
 
 /** What a reviewer decided about the work it was shown. */
@@ -180,16 +191,60 @@ function patternList(raw: unknown): string[] | undefined {
  * would need the workspace root, and a matcher that silently answers «allowed» for anything it does
  * not understand is the wrong kind of wrong.
  */
-export function stepMayWrite(step: Pick<VibePipelineStep, 'paths' | 'denyPaths'>, relPath: string): boolean {
+export function stepMayWrite(step: Pick<VibePipelineStep, 'paths' | 'denyPaths'>, relPath: string, denyIgnoresCase = DENY_RULES_IGNORE_CASE): boolean {
 	const normalised = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
 	if (normalised === '') { return false; }
-	if (step.denyPaths && createIgnoreMatcher(step.denyPaths.join('\n')).isIgnored(normalised)) {
+	// Denies fold case (`DENY_RULES_IGNORE_CASE`); the allow list stays exact — a mismatch there can
+	// only refuse.
+	if (step.denyPaths && createIgnoreMatcher(step.denyPaths.join('\n'), { ignoreCase: denyIgnoresCase }).isIgnored(normalised)) {
 		return false;
 	}
 	if (!step.paths) {
 		return true;
 	}
 	return createIgnoreMatcher(step.paths.join('\n')).isIgnored(normalised);
+}
+
+/**
+ * Where tests live across the stacks the family's IDEs serve: JVM, TS/JS, PHP, Python, Go.
+ *
+ * Verbatim VibeIDEA's `RolePaths.TEST_PATHS` (13.09.2026): the shared `pipelines.json` runs in both
+ * products, and a `qa` step that may write a file in one and not in the other is the same pipeline
+ * doing two different things. Change it in both places or in neither.
+ */
+export const QA_DEFAULT_WRITE_PATHS: readonly string[] = [
+	'**/test/**', '**/tests/**', '**/testSrc/**', '**/testData/**', '**/__tests__/**', '**/spec/**',
+	'*Test.kt', '*Test.java', '*Tests.kt', '*Test.php', '*.test.ts', '*.test.tsx', '*.test.js',
+	'*.spec.ts', '*.spec.tsx', '*.spec.js', 'test_*.py', '*_test.py', '*_test.go',
+];
+
+/** Where a run may write: the step's own scope, merged with its role's default. */
+export interface WriteScope {
+	readonly paths?: readonly string[];
+	readonly denyPaths?: readonly string[];
+}
+
+/**
+ * The write scope a role actually gets.
+ *
+ * Only `qa` has a default: it writes tests, and a tester that «just fixes» the code under test makes
+ * the test and the fix one act nobody checked. Before this it could write anywhere, held back by one
+ * sentence in its prompt — a wish, not a rule.
+ *
+ * The step's own `paths` REPLACE the default (a project with an unusual test layout says so, and no
+ * default can guess every layout). `denyPaths` alone does not: it narrows the default further, it
+ * does not quietly lift it. Same rule as VibeIDEA's `RolePaths.effective`.
+ */
+export function effectiveWriteScope(role: string, stated: WriteScope | undefined, qaWritePaths: readonly string[] = QA_DEFAULT_WRITE_PATHS): WriteScope | undefined {
+	if (stated?.paths && stated.paths.length > 0) {
+		return stated;
+	}
+	if (role.trim().toLowerCase() !== 'qa') {
+		return stated;
+	}
+	// `qaWritePaths` comes from `.vibe/roles.json` when the project has one. An empty list there means
+	// «qa writes nowhere»: `paths: []` matches no file, so every write is refused.
+	return { paths: qaWritePaths, ...(stated?.denyPaths ? { denyPaths: stated.denyPaths } : {}) };
 }
 
 export function parsePipelineFile(raw: unknown): ParsedPipelineFile {
@@ -278,6 +333,9 @@ function parseStep(raw: unknown): { ok: true; value: VibePipelineStep } | { ok: 
 			return { ok: false, reason: `поле ${key} должно быть «провайдер/модель»` };
 		}
 	}
+	if (s['offPeak'] === true && !parseModelRef(s['model'] as string | undefined)) {
+		return { ok: false, reason: 'поле offPeak требует model «провайдер/модель» — расписание цены есть только у модели' };
+	}
 	return {
 		ok: true,
 		value: {
@@ -293,6 +351,7 @@ function parseStep(raw: unknown): { ok: true; value: VibePipelineStep } | { ok: 
 			...(parseModelRef(s['model'] as string | undefined) ? { model: (s['model'] as string).trim() } : {}),
 			...(parseModelRef(s['escalateTo'] as string | undefined) ? { escalateTo: (s['escalateTo'] as string).trim() } : {}),
 			...(parseModelRef(s['reviewWith'] as string | undefined) ? { reviewWith: (s['reviewWith'] as string).trim() } : {}),
+			...(s['offPeak'] === true ? { offPeak: true } : {}),
 		},
 	};
 }
@@ -306,7 +365,13 @@ export interface PipelineStepOutcome {
 	/** Set when the cheap draft did not pass and the step was retried on this model. */
 	readonly escalatedTo?: string;
 	/** Set when a second model reviewed the result: what it decided, and on which model. */
-	readonly review?: { readonly by: string; readonly verdict: ReviewVerdict; readonly notes: string };
+	readonly review?: {
+		readonly by: string;
+		readonly verdict: ReviewVerdict;
+		readonly notes: string;
+		/** Whether the reviewer read the worker's own summary — recorded so the two modes can be compared. */
+		readonly sawWorkerSummary: boolean;
+	};
 }
 
 export interface PipelineStepInput {
@@ -317,11 +382,18 @@ export interface PipelineStepInput {
 }
 
 /**
+ * How much of an earlier step's summary the next step hears: one line's worth — enough for «what was
+ * decided», too little for a retelling. The previous step is the one told in full.
+ */
+export const EARLIER_STEP_NOTE_CHARS = 300;
+
+/**
  * Build the input for step `index` from what came before.
  *
- * The previous step's story is told once, in words, and the files are listed as paths. Both parts
- * are omitted entirely when there is nothing to say — an agent told "предыдущий шаг ничего не
- * изменил" as a matter of routine starts to ignore the section.
+ * Earlier steps are told in one capped line each, with how they ended and what their reviewer said;
+ * the previous step's story is told in full; the files are listed as paths. Each part is omitted
+ * entirely when there is nothing to say — an agent told "предыдущий шаг ничего не изменил" as a
+ * matter of routine starts to ignore the section.
  */
 export function buildStepInput(
 	step: VibePipelineStep,
@@ -341,8 +413,14 @@ export function buildStepInput(
 	}
 	const last = previous[previous.length - 1];
 	const parts = [composeGoal(step)];
-	if (last.summary) {
-		parts.push(`Предыдущий шаг (${last.role}) сообщил: ${last.summary}`);
+	const earlier = previous.slice(0, -1).map(describeEarlierStep).filter((line): line is string => line !== undefined);
+	if (earlier.length > 0) {
+		parts.push(`Ход работы до этого:\n${earlier.join('\n')}`);
+	}
+	const lastStatus = statusWord(last);
+	const lastReview = describeReview(last);
+	if (last.summary || lastStatus || lastReview) {
+		parts.push(`Предыдущий шаг (${last.role}${lastStatus ? `, ${lastStatus}` : ''})${last.summary ? ` сообщил: ${last.summary}` : ''}${lastReview}`);
 	}
 	if (artifacts.length > 0) {
 		parts.push(`Файлы, затронутые предыдущими шагами (прочитайте нужные сами): ${artifacts.join(', ')}`);
@@ -350,8 +428,60 @@ export function buildStepInput(
 	return { goal: parts.join('\n\n'), contextItems: artifacts };
 }
 
+/** How a step ended, in words — nothing for a success, which is the case not worth a word. */
+function statusWord(outcome: PipelineStepOutcome): string {
+	switch (outcome.status) {
+		case 'failed': return 'не удался';
+		case 'skipped': return 'пропущен';
+		case 'stopped': return 'остановлен';
+		default: return '';
+	}
+}
+
+/** One line for an earlier step — who, how it ended, what it said (capped) — or nothing to say. */
+function describeEarlierStep(outcome: PipelineStepOutcome): string | undefined {
+	const status = statusWord(outcome);
+	const summary = outcome.summary.replace(/\s+/g, ' ').trim();
+	const said = summary ? `: ${summary.length > EARLIER_STEP_NOTE_CHARS ? `${summary.slice(0, EARLIER_STEP_NOTE_CHARS - 1)}…` : summary}` : '';
+	const review = describeReview(outcome);
+	return status || said || review ? `- ${outcome.role}${status ? ` (${status})` : ''}${said}${review}` : undefined;
+}
+
+/** The reviewer's verdict in words, or nothing when the step was not reviewed. */
+function describeReview(outcome: PipelineStepOutcome): string {
+	if (!outcome.review) {
+		return '';
+	}
+	const verdict = outcome.review.verdict === 'accepted' ? 'принято'
+		: outcome.review.verdict === 'rework' ? 'требовал доработки — шаг переделан один раз, повторно не проверялся'
+			: 'вердикт не распознан';
+	return ` [ревью ${outcome.review.by}: ${verdict}]`;
+}
+
 function composeGoal(step: VibePipelineStep): string {
 	return step.acceptance ? `${step.task}\n\nКритерий готовности: ${step.acceptance}` : step.task;
+}
+
+/**
+ * Задание ревьюеру шага.
+ *
+ * The reviewer is told what the step was ASKED to do, not what the worker says it did. Cognition
+ * measured review working better in a context free of the development story (2026-04-22), and the
+ * worker's summary is that story: a reviewer who first reads «сделал X, всё проверил» checks the
+ * claim instead of the files. `showWorkerSummary` brings the old behaviour back for comparison; the
+ * mode travels with the verdict, so the two can be told apart afterwards.
+ */
+export function composeReviewGoal(step: Pick<VibePipelineStep, 'role' | 'task' | 'acceptance'>, workerSummary: string, showWorkerSummary: boolean): string {
+	return [
+		`Проверьте результат шага «${step.role}».`,
+		`Задача шага: ${step.task}`,
+		step.acceptance ? `Критерий готовности: ${step.acceptance}` : '',
+		showWorkerSummary && workerSummary ? `Что сделано, со слов исполнителя: ${workerSummary}` : '',
+		showWorkerSummary
+			? 'Проверьте по файлам, а не по пересказу. Закончите ответ строкой «ВЕРДИКТ: принято» или'
+			: 'Проверьте по файлам: пересказа исполнителя здесь нет намеренно. Закончите ответ строкой «ВЕРДИКТ: принято» или',
+		'«ВЕРДИКТ: доработать», а перед ней перечислите замечания, если они есть.',
+	].filter(Boolean).join('\n');
 }
 
 /**

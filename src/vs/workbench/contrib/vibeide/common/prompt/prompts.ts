@@ -348,7 +348,7 @@ ${MINIMALISM_RULES_PRECEDENCE}
 // ======================================================== chat (normal, gather, agent) ========================================================
 
 
-export const chat_systemMessage = ({ maxTools, directoryOverviewChars, workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments, minimalismMode, modelFamily: _modelFamily }: { workspaceFolders: string[]; directoryStr: string; openedURIs: string[]; activeURI: string | undefined; persistentTerminalIDs: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; relevantMemories?: string; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; modelFamily?: ModelFamily; maxTools?: number; directoryOverviewChars?: number }) => {
+export const chat_systemMessage = ({ memoryProjects, maxTools, directoryOverviewChars, workspaceFolders, openedURIs, activeURI, persistentTerminalIDs, directoryStr, chatMode: mode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments, minimalismMode, modelFamily: _modelFamily }: { workspaceFolders: string[]; directoryStr: string; openedURIs: string[]; activeURI: string | undefined; persistentTerminalIDs: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; relevantMemories?: string; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; modelFamily?: ModelFamily; maxTools?: number; directoryOverviewChars?: number; memoryProjects?: string }) => {
 	const header = (`You are an expert coding ${mode === 'agent' ? 'agent' : 'assistant'} running inside VibeIDE whose job is \
 ${mode === 'agent' ? `to help the user develop, run, and make changes to their codebase.`
 			: mode === 'gather' ? `to search, understand, and reference files in the user's codebase.`
@@ -366,7 +366,10 @@ This workspace runs in VibeIDE. Project rules and conventions live in \`.vibe/ru
 - ${os}
 
 - The user's workspace contains these folders:
-${workspaceFolders.join('\n') || 'NO FOLDERS OPEN'}
+${workspaceFolders.join('\n') || 'NO FOLDERS OPEN'}${memoryProjects ? `
+
+- Shared memory (VibeMemory) projects of these folders:
+${memoryProjects}` : ''}
 
 - Active file:
 ${activeURI}
@@ -485,7 +488,7 @@ ${toolDefinitions}
 
 // Minimal chat system message for local models (drastically reduced)
 // Used for local models to minimize token usage and latency
-export const chat_systemMessage_local = ({ maxTools, directoryOverviewChars, workspaceFolders, openedURIs, activeURI, chatMode: mode, includeXMLToolDefinitions, relevantMemories, mcpTools, strictJsonToolArguments, minimalismMode, modelFamily: _modelFamily }: { workspaceFolders: string[]; directoryStr: string; openedURIs: string[]; activeURI: string | undefined; persistentTerminalIDs: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; relevantMemories?: string; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; modelFamily?: ModelFamily; maxTools?: number; directoryOverviewChars?: number }) => {
+export const chat_systemMessage_local = ({ memoryProjects, maxTools, directoryOverviewChars, workspaceFolders, openedURIs, activeURI, chatMode: mode, includeXMLToolDefinitions, relevantMemories, mcpTools, strictJsonToolArguments, minimalismMode, modelFamily: _modelFamily }: { workspaceFolders: string[]; directoryStr: string; openedURIs: string[]; activeURI: string | undefined; persistentTerminalIDs: string[]; chatMode: ChatMode; mcpTools: InternalToolInfo[] | undefined; includeXMLToolDefinitions: boolean; relevantMemories?: string; strictJsonToolArguments?: boolean; minimalismMode?: MinimalismMode; modelFamily?: ModelFamily; maxTools?: number; directoryOverviewChars?: number; memoryProjects?: string }) => {
 	const header = mode === 'agent'
 		? 'Coding agent. Use tools for actions.'
 		: mode === 'gather'
@@ -494,7 +497,7 @@ export const chat_systemMessage_local = ({ maxTools, directoryOverviewChars, wor
 				? 'Planning assistant. Read codebase, produce structured plan. NO file edits or commands.'
 				: 'Code assistant.';
 
-	const sysInfo = `System: ${os}\nWorkspace: ${workspaceFolders.join(', ') || 'none'}\nActive: ${activeURI || 'none'}\nOpen: ${openedURIs.slice(0, 3).join(', ') || 'none'}${openedURIs.length > 3 ? '...' : ''}`;
+	const sysInfo = `System: ${os}\nWorkspace: ${workspaceFolders.join(', ') || 'none'}\nActive: ${activeURI || 'none'}\nOpen: ${openedURIs.slice(0, 3).join(', ') || 'none'}${openedURIs.length > 3 ? '...' : ''}${memoryProjects ? `\nMemory projects:\n${memoryProjects}` : ''}`;
 
 	const toolDefinitions = includeXMLToolDefinitions ? systemToolsXMLPrompt(mode, mcpTools, maxTools) : null;
 

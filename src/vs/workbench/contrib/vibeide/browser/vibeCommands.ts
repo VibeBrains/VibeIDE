@@ -53,9 +53,8 @@ import { ProviderId } from '../common/vibeideSettingsTypes.js';
 import { isWindows, isMacintosh, isLinux } from '../../../../base/common/platform.js';
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 import { groupSkillsByDomain, shouldGroupSkills } from '../common/skillDomains.js';
-import { classifySkillProvenance, setRelativeSkillPath } from '../common/vibeSkillProvenance.js';
-import { isUntouchedPastRevision } from '../common/vibeDefaults.js';
-import { VIBE_DEFAULTS_MANIFEST } from '../common/vibeDefaultsManifest.generated.js';
+import { skillOriginLabel } from '../common/vibeSkillProvenance.js';
+import { describeSkillTrust } from '../common/skillApproval.js';
 
 const VIBEIDE_OPEN_SIDEBAR_CMD = 'vibeide.sidebar.open';
 
@@ -863,26 +862,21 @@ registerAction2(class extends Action2 {
 			return;
 		}
 
-		// Происхождение считается ЗДЕСЬ, до показа списка: скилл — единственное в `.vibe`, что
-		// регулярно приходит от чужих людей, а по тексту помощник не отличается от вредителя.
-		// Момент выбора — единственный, когда вопрос «откуда это у меня» ещё что-то меняет.
-		const provenanceOf = new Map<string, string>();
-		await Promise.all(loaded.map(async skill => {
-			const setPath = setRelativeSkillPath(skill.relativePath);
-			const known = setPath !== undefined && VIBE_DEFAULTS_MANIFEST.some(f => f.path === setPath);
-			const untouched = known ? await isUntouchedPastRevision(setPath!, skill.body) : false;
-			provenanceOf.set(skill.skillId, classifySkillProvenance(known, untouched).label);
-		}));
 		const active = new Set((cfg.getValue<string[]>('vibeide.skills.sessionActiveIds') ?? []).map(s => s.trim().toLowerCase()).filter(Boolean));
 		const toItem = (s: typeof loaded[number]): IQuickPickItem & { picked?: boolean } => {
 			// Требования показываются здесь, в момент выбора: скилл, которому нужен ffmpeg или
 			// доступ к терминалу, должен сообщать об этом до включения, а не отказом в работе.
 			const requirements = describeSkillRequirements(s);
+			// Происхождение — по всему каталогу скилла, как его посчитала библиотека: скилл —
+			// единственное в `.vibe`, что регулярно приходит от чужих людей, а по тексту помощник не
+			// отличается от вредителя. Скилл, которого агент пока не видит, говорит об этом тут же.
+			const origin = s.package ? skillOriginLabel(s.package.origin) : undefined;
+			const trust = s.package && !skillsLib.isSkillAvailableToModel(s) ? describeSkillTrust(s.package.trust) : undefined;
 			return {
 				label: s.skillId,
 				description: s.description.length > 140 ? `${s.description.slice(0, 137)}…` : s.description,
 				// Происхождение идёт первым: оно решает, стоит ли вообще читать требования.
-				detail: [provenanceOf.get(s.skillId), requirements ? `⚙ ${requirements}` : undefined].filter(Boolean).join(' · ') || undefined,
+				detail: [origin, trust, requirements ? `⚙ ${requirements}` : undefined].filter(Boolean).join(' · ') || undefined,
 				picked: active.has(s.skillId.toLowerCase()),
 			};
 		};

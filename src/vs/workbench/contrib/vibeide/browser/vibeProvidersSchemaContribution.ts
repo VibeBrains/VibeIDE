@@ -27,6 +27,33 @@ const FILE_GLOB = '**/.vibe/providers.json';
  *  `examples` (not `enum`) so suggestions appear WITHOUT forbidding brand-new/custom ids. */
 const BUILTIN_PROVIDER_IDS: string[] = [...providerNames];
 
+/** `cost` and `costAfter` share one shape, the long-prompt surcharge included. */
+const costSchema = (description: string): IJSONSchema => ({
+	type: 'object', additionalProperties: false, description,
+	properties: {
+		input: { type: 'number' }, output: { type: 'number' }, cacheRead: { type: 'number' }, cacheWrite: { type: 'number' },
+		longContext: {
+			type: 'object', additionalProperties: false,
+			description: 'Надбавка за длинный промпт: когда промпт длиннее overInputTokens, весь запрос считается по ставкам, умноженным на input / cache / output.',
+			properties: {
+				overInputTokens: { type: 'number', description: 'Порог по длине промпта (свежий вход, чтение и запись кэша), срабатывает строго выше.' },
+				input: { type: 'number', description: 'Множитель ставки свежего входа. Не указан — 1.' },
+				cache: { type: 'number', description: 'Множитель ставок кэша — и чтения, и записи. Не указан — 1.' },
+				output: { type: 'number', description: 'Множитель ставки выхода. Не указан — 1.' },
+			},
+		},
+		timeOfDay: {
+			type: 'object', additionalProperties: false, required: ['peakUtc', 'offPeakFactor'],
+			description: 'Цена по часу: ставки в cost — пиковые, вне пика все они умножаются на offPeakFactor.',
+			properties: {
+				peakUtc: { type: 'array', items: { type: 'string', pattern: '^\\d{2}:\\d{2}-\\d{2}:\\d{2}$' }, description: 'Окна пика «ЧЧ:ММ-ЧЧ:ММ» по UTC, конец не входит; окно через полночь пишется как есть, конец суток — 24:00.' },
+				peakDays: { type: 'array', items: { enum: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] }, description: 'Дни, в которые действуют окна. Не указано — каждый день.' },
+				offPeakFactor: { type: 'number', exclusiveMinimum: 0, description: 'Множитель всех ставок вне пика, например 0.5.' },
+			},
+		},
+	},
+});
+
 const modelSchema: IJSONSchema = {
 	type: 'object',
 	required: ['id'],
@@ -69,15 +96,9 @@ const modelSchema: IJSONSchema = {
 				},
 			],
 		},
-		cost: {
-			type: 'object', additionalProperties: false, description: '$/1M токенов — для индикатора бюджета.',
-			properties: { input: { type: 'number' }, output: { type: 'number' }, cacheRead: { type: 'number' }, cacheWrite: { type: 'number' } },
-		},
+		cost: costSchema('$/1M токенов — для индикатора бюджета.'),
 		costValidUntil: { type: 'string', description: 'До какого момента действует cost. ISO-дата (2026-09-25) или момент с зоной (2026-09-09T16:00:00Z) — дедлайны вендоров объявляются в местном времени.' },
-		costAfter: {
-			type: 'object', additionalProperties: false, description: 'Цена после costValidUntil. Без неё дата ничего не меняет: срок без новой ставки нечего применять.',
-			properties: { input: { type: 'number' }, output: { type: 'number' }, cacheRead: { type: 'number' }, cacheWrite: { type: 'number' } },
-		},
+		costAfter: costSchema('Цена после costValidUntil. Без неё дата ничего не меняет: срок без новой ставки нечего применять.'),
 		costNote: { type: 'string', description: 'Где объявлено изменение цены — ссылка или фраза.' },
 		temperature: { type: 'number' },
 		topP: { type: 'number' },

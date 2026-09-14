@@ -271,6 +271,10 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 				if (typeof m.modality === 'string' && m.modality.length > 0) {
 					partial.modality = m.modality;
 				}
+				// Display-only: what a floating id resolves to today, so a quirk is pinned knowingly.
+				if (typeof m.floatsTo === 'string' && m.floatsTo.length > 0) {
+					partial.floatsTo = m.floatsTo;
+				}
 				if (Object.keys(partial).length) {
 					overrideUpdates[id] = partial;
 				}

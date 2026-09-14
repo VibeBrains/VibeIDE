@@ -123,9 +123,13 @@ registerAction2(class RevokeExternalAccessAction extends Action2 {
 		const entries = [
 			...access.listAllowed().map(e => ({
 				label: e.path,
-				description: e.scope === 'session'
-					? localize('vibeide.agent.revokeExternalAccess.sessionTag', 'сессия')
-					: localize('vibeide.agent.revokeExternalAccess.workspaceTag', 'проект'),
+				description: e.scope === 'run'
+					? localize('vibeide.agent.revokeExternalAccess.runTag', 'до конца задачи')
+					: e.scope === 'session'
+						? (e.expiresAt !== undefined
+							? localize('vibeide.agent.revokeExternalAccess.sessionUntilTag', 'сессия, до {0}', new Date(e.expiresAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }))
+							: localize('vibeide.agent.revokeExternalAccess.sessionTag', 'сессия'))
+						: localize('vibeide.agent.revokeExternalAccess.workspaceTag', 'проект'),
 				path: e.path,
 				reference: false,
 			})),

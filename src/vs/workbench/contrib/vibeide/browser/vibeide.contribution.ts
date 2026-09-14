@@ -376,6 +376,7 @@ import '../common/vibeSkillsLibraryService.js';
 // VibeIDE: Skill file disk change → notification + optional diff (previous snapshot ↔ disk)
 import './vibeSkillDiskDiffContribution.js';
 import './vibeSkillsWorkspaceDiscoveryContribution.js';
+import './vibeSkillApprovalContribution.js';
 
 // VibeIDE: Agent activity log (Output — VibeIDE Agent Activity)
 import './vibeAgentActivityLogService.js';

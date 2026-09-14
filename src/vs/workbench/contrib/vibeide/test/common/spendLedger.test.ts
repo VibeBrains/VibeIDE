@@ -5,6 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
+import { getModelCapabilities, ModelCost } from '../../common/modelCapabilities.js';
 import {
 	byKey,
 	byModel,
@@ -26,7 +27,7 @@ suite('spendLedger', () => {
 	const DAY = 24 * 60 * 60 * 1000;
 	// Fixed local noon, so a timezone shift cannot move the entry to the neighbouring day.
 	const T0 = new Date(2026, 6, 30, 12, 0, 0).getTime();
-	const PRICE = { input: 3, output: 15, cacheRead: 0.3 };
+	const PRICE: ModelCost = { input: 3, output: 15, cache_read: 0.3 };
 
 	test('one exchange becomes one bucket with the cost the price implies', () => {
 		const state = recordSpend(emptyLedger(), {
@@ -50,7 +51,44 @@ suite('spendLedger', () => {
 		// 1M input of which 800k came from cache: 200k × $3 + 800k × $0.30 = 0.6 + 0.24.
 		// Rounded to cents on purpose — binary floating point makes 0.6 + 0.24 land on
 		// 0.8400000000000001, and money is never compared with strict equality.
-		assert.strictEqual(Math.round(costOf(PRICE, 1_000_000, 0, 800_000)! * 100) / 100, 0.84);
+		assert.strictEqual(Math.round(costOf(PRICE, { input: 1_000_000, output: 0, cacheRead: 800_000 })! * 100) / 100, 0.84);
+	});
+
+	/**
+	 * The price exactly as the catalogue ships it. The ledger used to read a camelCase `cacheRead`
+	 * the catalogue never had and billed every cached token at the full input rate — tenfold for
+	 * Claude, silently, because this file fed `costOf` its own camelCase price.
+	 */
+	test('the catalogue price reaches the ledger with its cache rates', () => {
+		const cost = getModelCapabilities('anthropic', 'claude-sonnet-4-5-20250929', undefined).cost;
+		assert.deepStrictEqual({
+			всёИзКэша: costOf(cost, { input: 1_000_000, output: 0, cacheRead: 1_000_000 }),
+			всёВКэш: costOf(cost, { input: 1_000_000, output: 0, cacheWrite: 1_000_000 }),
+		}, { всёИзКэша: cost.cache_read, всёВКэш: cost.cache_write });
+	});
+
+	/**
+	 * Длинный промпт у GPT-6 Astra: больше 272K — вход и кэш вдвое, выход в полтора раза, и это цена
+	 * всего запроса. Порог — по всему промпту; по сумме за прогон надбавку не решить.
+	 */
+	test('the long-prompt surcharge prices the whole request, only past the threshold, only per request', () => {
+		const astra: ModelCost = { input: 10, output: 50, cache_read: 1, long_context: { over_input_tokens: 272_000, input: 2, cache: 2, output: 1.5 } };
+		const long = { input: 300_000, output: 10_000, cacheRead: 100_000 };
+		assert.deepStrictEqual({
+			// 200k fresh × $10 × 2 + 100k cached × $1 × 2 + 10k out × $50 × 1.5 = 4 + 0.2 + 0.75.
+			длинный: Math.round(costOf(astra, long)! * 100) / 100,
+			ровноНаПороге: Math.round(costOf(astra, { input: 272_000, output: 0 })! * 100) / 100,
+			суммаЗаПрогон: Math.round(costOf(astra, long, { aggregate: true })! * 100) / 100,
+		}, { длинный: 4.95, ровноНаПороге: 2.72, суммаЗаПрогон: 2.6 });
+	});
+
+	test('cache writes are billed at the write rate; an undeclared rate falls back to input', () => {
+		// 1M prompt: 600k fresh × $3 + 300k written × $3.75 + 100k read × $0.30 = 1.8 + 1.125 + 0.03.
+		const withWrites: ModelCost = { input: 3, output: 15, cache_read: 0.3, cache_write: 3.75 };
+		assert.deepStrictEqual({
+			сЗаписью: Math.round(costOf(withWrites, { input: 1_000_000, output: 0, cacheRead: 100_000, cacheWrite: 300_000 })! * 1000) / 1000,
+			безСтавкиЗаписи: costOf({ input: 3, output: 15 }, { input: 1_000_000, output: 0, cacheWrite: 1_000_000 }),
+		}, { сЗаписью: 2.955, безСтавкиЗаписи: 3 });
 	});
 
 	test('unknown price stays unknown — never zero', () => {
@@ -60,7 +98,7 @@ suite('spendLedger', () => {
 		});
 
 		assert.deepStrictEqual(
-			[state.entries[0].costUsd, costOf(undefined, 10, 10), costOf({ input: 0, output: 0 }, 10, 10)],
+			[state.entries[0].costUsd, costOf(undefined, { input: 10, output: 10 }), costOf({ input: 0, output: 0 }, { input: 10, output: 10 })],
 			[undefined, undefined, undefined],
 		);
 	});

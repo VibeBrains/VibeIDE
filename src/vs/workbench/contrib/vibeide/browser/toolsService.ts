@@ -7,8 +7,10 @@
 import { vibeLog } from '../common/vibeLog.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { URI } from '../../../../base/common/uri.js';
-import { isAbsolute as pathIsAbsolute } from '../../../../base/common/path.js';
-import { joinPath } from '../../../../base/common/resources.js';
+import { Schemas } from '../../../../base/common/network.js';
+import * as resources from '../../../../base/common/resources.js';
+import { resolveAgentPath } from '../common/agentPathResolution.js';
+import { placePhysicalPath, PhysicalPathProbe, resolvePhysicalEntry, resolvePhysicalPath } from '../common/agentPhysicalPath.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IVibeConstraintsService, ConstraintViolationError } from '../common/vibeConstraintsService.js';
 import { IVibeExternalAccessService, ExternalAccessRequiredError, SourceFolderReadOnlyError } from '../common/vibeExternalAccessService.js';
@@ -48,6 +50,7 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { IRequestService, asJson, asTextOrError } from '../../../../platform/request/common/request.js';
+import { IAgentNetworkFilterService } from '../../../../platform/networkFilter/common/networkFilterService.js';
 import { IWebContentExtractorService } from '../../../../platform/webContentExtractor/common/webContentExtractor.js';
 import { LRUCache } from '../../../../base/common/map.js';
 import { OfflinePrivacyGate } from '../common/offlinePrivacyGate.js';
@@ -98,6 +101,10 @@ import { getDocsFiles, searchVibeDocs } from '../common/vibeDocsIndex.js';
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { detectShellMisuse, ToolValidationError, truncateHeadTail, looksLikeShellAwaitingInput, formatTerminalTimeoutNotice, clampLineWindowToCharBudget } from '../common/toolHardening.js';
 import { IShellHardeningService } from './shellHardeningService.js';
+import { ILLMMessageService } from '../common/sendLLMMessageService.js';
+import { parseModelRef } from '../common/pipeline/vibePipelineFile.js';
+import { cleanHtmlForExtraction, extractionRequestBody, isUsableSchema, parseExtractionAnswer } from '../common/structuredExtraction.js';
+import { ModelSelection, ProviderName } from '../common/vibeideSettingsTypes.js';
 
 // tool use for AI
 type ValidateBuiltinParams = { [T in BuiltinToolName]: (p: RawToolParamsObj) => BuiltinToolCallParams[T] };
@@ -145,51 +152,10 @@ const validateURI = (uriStr: unknown, workspaceContextService?: IWorkspaceContex
 	if (uriStr === null) { throw new Error(`Invalid LLM output: uri was null.`); }
 	if (typeof uriStr !== 'string') { throw new Error(`Invalid LLM output format: Provided uri must be a string, but it's a(n) ${typeof uriStr}. Full value: ${JSON.stringify(uriStr)}.`); }
 
-	let uri: URI;
-	// Check if it's already a full URI with scheme (e.g., vscode-remote://, file://, etc.)
-	if (uriStr.includes('://')) {
-		try {
-			uri = URI.parse(uriStr);
-		} catch (e) {
-			throw new Error(`Invalid URI format: ${uriStr}. Error: ${e}`);
-		}
-	} else {
-		// No scheme present, treat as file path
-		uri = URI.file(uriStr);
-
-		// If we have a workspace and the path is relative, resolve against workspace root.
-		// On Windows, absolute paths are like `D:\proj\...` — they do NOT start with `/`; without
-		// an absolute-path check we'd join(workspaceRoot, fullPath) → doubled fsPath bug.
-		if (workspaceContextService && !pathIsAbsolute(uriStr)) {
-			const workspace = workspaceContextService.getWorkspace();
-			if (workspace.folders.length > 0) {
-				// Resolve relative path against workspace root
-				uri = joinPath(workspace.folders[0].uri, uriStr);
-			}
-		}
-		// If path is absolute (starts with /), check if it's actually within workspace
-		// This handles cases where LLM returns paths like "/carepilot-api/src" that should be relative
-		else if (workspaceContextService && uriStr.startsWith('/')) {
-			const workspace = workspaceContextService.getWorkspace();
-			for (const folder of workspace.folders) {
-				const workspacePath = folder.uri.fsPath;
-				// Check if the absolute path is actually within this workspace folder
-				// by checking if workspace path is a prefix
-				if (uriStr.startsWith(workspacePath)) {
-					// Path is already correctly absolute within workspace
-					break;
-				}
-				// Check if path starts with workspace folder name (common LLM mistake)
-				const workspaceFolderName = folder.name || folder.uri.path.split('/').pop() || '';
-				if (uriStr.startsWith(`/${workspaceFolderName}/`) || uriStr === `/${workspaceFolderName}`) {
-					// Treat as relative path - remove leading slash and folder name
-					const relativePath = uriStr.replace(`/${workspaceFolderName}`, '').replace(/^\//, '');
-					uri = joinPath(folder.uri, relativePath);
-					break;
-				}
-			}
-		}
-	}
+	// Resolved BEFORE any check, and the resolved URI is returned: the boundary below and the tool
+	// that acts afterwards must name the same file. See `resolveAgentPath` for why `..` used to slip by.
+	const roots = workspaceContextService?.getWorkspace().folders.map(folder => ({ uri: folder.uri, name: folder.name })) ?? [];
+	const uri = resolveAgentPath(uriStr, roots);
 
 	// Workspace-boundary enforcement. Whether reads/writes outside the open
 	// workspace are allowed is config-driven (the caller passes the resolved
@@ -285,6 +251,12 @@ export interface IToolsService {
 
 export const IToolsService = createDecorator<IToolsService>('ToolsService');
 
+/** Setting naming the model the `extract_structured` tool calls, as `провайдер/модель`. */
+const EXTRACT_MODEL_KEY = 'vibeide.extract.model';
+
+/** How long one extraction may take. A page of HTML is a long prompt, but not a minute-and-a-half one. */
+const EXTRACT_TIMEOUT_MS = 90_000;
+
 export class ToolsService extends Disposable implements IToolsService {
 
 	readonly _serviceBrand: undefined;
@@ -359,6 +331,8 @@ export class ToolsService extends Disposable implements IToolsService {
 		@IVibeGitReadService private readonly _gitRead: IVibeGitReadService,
 		@IVibeOutputArchiveService private readonly _outputArchive: IVibeOutputArchiveService,
 		@IVibeIgnoreService vibeIgnoreService: IVibeIgnoreService,
+		@IAgentNetworkFilterService private readonly _networkFilter: IAgentNetworkFilterService,
+		@ILLMMessageService private readonly _llmMessageService: ILLMMessageService,
 	) {
 		super();
 		this._offlineGate = new OfflinePrivacyGate();
@@ -464,6 +438,101 @@ export class ToolsService extends Disposable implements IToolsService {
 			if (this._externalAccess.isSourceReadOnly(uri)) { throw new SourceFolderReadOnlyError(uri); }
 			return uri;
 		};
+		// Agent path policy, applied where the file is actually touched.
+		//
+		// validateReadURI/validateWriteURI check the path AS WRITTEN (resolved lexically) and stay where
+		// they are: only there can a refusal still turn into a question to the user. But a path is not a
+		// file — a symlink gives one file several names, and every deny rule must hold for each of them.
+		// So each file tool passes its path through `gateRead` or `gateWrite` before it touches the disk,
+		// and since every dispatcher (chat, subagents, the HTTP API) reaches the disk through the tools,
+		// none of them can go around it. The rule sets live here once: before this, deletes and creates
+		// skipped constraints.json, edits skipped permissions.json, and no read tool asked either file.
+		const physicalProbe: PhysicalPathProbe = { exists: u => fileService.exists(u), realpath: u => fileService.realpath(u) };
+		/**
+		 * Every name the file behind an agent path answers to. Deny rules ask all of them; allow rules
+		 * ask `seen` — where the file really lands, spelled against the workspace roots the user sees.
+		 * `outside` is set when a symlink took the file out of every workspace root.
+		 */
+		const namesOfAgentPath = async (uri: URI, entryOnly: boolean): Promise<{ all: readonly URI[]; seen: URI; outside?: URI }> => {
+			if (uri.scheme !== Schemas.file) { return { all: [uri], seen: uri }; }
+			// A delete removes the entry, not what it points at: a link inside the project may go even
+			// when its target lies elsewhere, so only the folder the entry sits in is resolved.
+			const physical = entryOnly ? await resolvePhysicalEntry(uri, physicalProbe) : await resolvePhysicalPath(uri, physicalProbe);
+			if (physical.kind === 'unsupported') { return { all: [uri], seen: uri }; }
+			if (physical.kind === 'unresolvable') {
+				throw new Error(localize('vibeide.agentPath.unresolvable', "Операция отклонена: путь {0} не удалось развернуть на диске ({1}) — это висячая символическая ссылка или нет прав её прочитать. Неизвестно, какой файл она затронула бы.", uri.fsPath, physical.at.fsPath));
+			}
+			if (resources.isEqual(physical.uri, uri)) { return { all: [uri], seen: uri }; }
+			// Roots are resolved too: on the owner's machine the root itself is reached through a
+			// symlink, and a resolved file compared with an unresolved root would be outside every time.
+			const roots = await Promise.all(workspaceContextService.getWorkspace().folders.map(async folder => ({
+				seen: folder.uri,
+				real: (await fileService.realpath(folder.uri).catch(() => undefined)) ?? folder.uri,
+			})));
+			const placed = placePhysicalPath(physical.uri, roots);
+			const all = [uri, placed.seen, physical.uri].filter((name, i, list) => list.findIndex(other => resources.isEqual(other, name)) === i);
+			return { all, seen: placed.seen, outside: placed.inside ? undefined : physical.uri };
+		};
+		const gateRead = async (uri: URI): Promise<readonly URI[]> => {
+			const names = await namesOfAgentPath(uri, false);
+			if (names.outside && requireWorkspaceForRead() && !isAllowedToRead(names.outside)) {
+				throw new Error(localize('vibeide.agentPath.readOutside', "Чтение отклонено: путь {0} через символическую ссылку ведёт в {1} — это вне рабочей области. Разрешите папку явно или включите `vibeide.agent.allowReadOutsideWorkspace`.", uri.fsPath, names.outside.fsPath));
+			}
+			for (const name of names.all) {
+				try {
+					this.vibeConstraintsService.checkReadAllowed(name.fsPath);
+				} catch (e) {
+					if (e instanceof ConstraintViolationError) {
+						throw new Error(localize('vibeide.agentPath.constraintRead', "Чтение {0} запрещено правилом .vibe/constraints.json: {1}", name.fsPath, e.constraint.message || e.constraint.pattern || e.constraint.type));
+					}
+					throw e;
+				}
+				if (this.vibePermissionsService.isDenied(name.fsPath, 'read')) {
+					throw new Error(localize('vibeide.agentPath.permissionsDenyRead', "Чтение {0} запрещено списком deny_read в .vibe/permissions.json.", name.fsPath));
+				}
+			}
+			if (!this.vibePermissionsService.canRead(names.seen.fsPath)) {
+				throw new Error(localize('vibeide.agentPath.permissionsAllowRead', "Чтение {0} не разрешено: путь не входит в список allow_read в .vibe/permissions.json.", names.seen.fsPath));
+			}
+			return names.all;
+		};
+		const gateWrite = async (uri: URI, entryOnly = false): Promise<void> => {
+			const names = await namesOfAgentPath(uri, entryOnly);
+			if (names.outside && requireWorkspaceForWrite() && !isAllowedToWrite(names.outside)) {
+				throw new Error(localize('vibeide.agentPath.writeOutside', "Запись отклонена: путь {0} через символическую ссылку ведёт в {1} — это вне рабочей области. Разрешите папку явно или включите `vibeide.agent.allowWriteOutsideWorkspace`, если так и задумано.", uri.fsPath, names.outside.fsPath));
+			}
+			for (const name of names.all) {
+				if (this._externalAccess.isSourceReadOnly(name)) { throw new SourceFolderReadOnlyError(name); }
+				try {
+					this.vibeConstraintsService.checkWriteAllowed(name.fsPath);
+				} catch (e) {
+					if (e instanceof ConstraintViolationError) {
+						throw new Error(localize('vibeide.agentPath.constraintWrite', "Запись в {0} запрещена правилом .vibe/constraints.json: {1}", name.fsPath, e.constraint.message || e.constraint.pattern || e.constraint.type));
+					}
+					throw e;
+				}
+				if (this.vibePermissionsService.isDenied(name.fsPath, 'write')) {
+					throw new Error(localize('vibeide.agentPath.permissionsDenyWrite', "Запись в {0} запрещена списком deny_write в .vibe/permissions.json.", name.fsPath));
+				}
+			}
+			if (!this.vibePermissionsService.canWrite(names.seen.fsPath)) {
+				throw new Error(localize('vibeide.agentPath.permissionsAllowWrite', "Запись в {0} не разрешена: путь не входит в список allow_write в .vibe/permissions.json.", names.seen.fsPath));
+			}
+		};
+		// Search results arrive by the hundred and are real files: agent search does not follow
+		// symlinks (`agentSearchScope`), so below the root a result's name is the file itself and the
+		// read rules can be asked about it directly — the rules of `gateRead`, without a disk round trip
+		// per result. `.vibe/ignore` included: search is the other half of what it governs.
+		const isReadableResult = (u: URI): boolean => {
+			if (vibeIgnoreService.isIgnored(u)) { return false; }
+			try { this.vibeConstraintsService.checkReadAllowed(u.fsPath); } catch { return false; }
+			return this.vibePermissionsService.canRead(u.fsPath);
+		};
+		// Agent search never follows symlinks — ripgrep's own default, overriding `search.followSymlinks`
+		// for the agent only. A followed link turns a search into a walk through whatever it points at,
+		// outside the workspace or into a folder a deny rule closes, under names no rule was written for.
+		// Files behind a link stay reachable by path, through `gateRead`.
+		const agentSearchScope = { ignoreSymlinks: true } as const;
 		const validateOptionalReadURI = (u: unknown) => isFalsy(u) ? null : validateReadURI(u);
 
 		this.validateParams = {
@@ -1044,6 +1113,22 @@ export class ToolsService extends Disposable implements IToolsService {
 				return { query, k: validK, refresh };
 			},
 
+			extract_structured: (params: RawToolParamsObj) => {
+				const url = validateStr('url', params.url);
+				if (!url.startsWith('http://') && !url.startsWith('https://')) {
+					throw new Error(`Invalid URL format: ${url}. URL must start with http:// or https://`);
+				}
+				// Models send the schema as an object or as a JSON string; both are one schema.
+				let schema: unknown = params.schema;
+				if (typeof schema === 'string') {
+					try { schema = JSON.parse(schema); } catch { throw new Error('schema must be a JSON Schema object'); }
+				}
+				if (!isUsableSchema(schema)) {
+					throw new Error('schema must be a JSON Schema object with "type" or "properties"');
+				}
+				return { url, schema };
+			},
+
 			browse_url: (params: RawToolParamsObj) => {
 				const { url: urlUnknown, refresh: refreshUnknown } = params;
 				const url = validateStr('url', urlUnknown);
@@ -1093,8 +1178,9 @@ export class ToolsService extends Disposable implements IToolsService {
 			read_file: async ({ uri, startLine, endLine, pageNumber, lineLimit, withLineNumbers }) => {
 				// .vibe/ignore guard: refuse to read files the project excluded from the agent (e.g.
 				// minified single-line bundles that balloon the context window). Fail-safe with a clear
-				// hint instead of silently dumping hundreds of thousands of tokens.
-				if (vibeIgnoreService.isIgnored(uri)) {
+				// hint instead of silently dumping hundreds of thousands of tokens. Every name of the file
+				// is asked: a symlink to an ignored bundle is the same bundle.
+				if ((await gateRead(uri)).some(name => vibeIgnoreService.isIgnored(name))) {
 					throw new Error(`Файл «${uri.fsPath}» закрыт правилом .vibe/ignore — чтение пропущено, чтобы не раздувать контекст. Если эта область нужна, читай несжатую/-debug версию (она многострочная и адресуется по строкам) или временно убери правило из .vibe/ignore.`);
 				}
 				// Directory guard (0.13.23): read_file on a directory previously threw a
@@ -1150,11 +1236,14 @@ export class ToolsService extends Disposable implements IToolsService {
 					const requestedName = uri.fsPath.split(/[/\\]/).pop() || uri.fsPath;
 					try {
 						const query = queryBuilder.file(workspaceContextService.getWorkspace().folders.map(f => f.uri), {
+							...agentSearchScope,
 							filePattern: requestedName,
 							sortByScore: true,
 						});
 						const data = await fileSearchCapped(query);
-						const fallback = data.results[0]?.resource;
+						// The guess must pass the rules the named path would have: a typo must not become
+						// a way to read a file the project closed.
+						const fallback = data.results.map(r => r.resource).find(isReadableResult);
 						if (fallback) {
 							uri = fallback;
 							fullText = toLf((await fileService.readFile(uri)).value.toString());
@@ -1253,11 +1342,13 @@ export class ToolsService extends Disposable implements IToolsService {
 			},
 
 			ls_dir: async ({ uri, pageNumber }) => {
+				await gateRead(uri);
 				const dirResult = await computeDirectoryTree1Deep(fileService, uri, pageNumber);
 				return { result: dirResult };
 			},
 
 			get_dir_tree: async ({ uri }) => {
+				await gateRead(uri);
 				const str = await this.directoryStrService.getDirectoryStrTool(uri, { budgetMs: scanTimeoutMs() });
 				return { result: { str } };
 			},
@@ -1265,24 +1356,27 @@ export class ToolsService extends Disposable implements IToolsService {
 			search_pathnames_only: async ({ query: queryStr, includePattern, pageNumber }) => {
 
 				const query = queryBuilder.file(workspaceContextService.getWorkspace().folders.map(f => f.uri), {
+					...agentSearchScope,
 					filePattern: queryStr,
 					includePattern: includePattern ?? undefined,
 					sortByScore: true, // makes results 10x better
 					maxResults: GLOB_MAX_RESULTS,
 				});
 				const data = await fileSearchCapped(query);
+				const readable = data.results.filter(r => isReadableResult(r.resource));
 
 				const fromIdx = MAX_CHILDREN_URIs_PAGE * (pageNumber - 1);
 				const toIdx = MAX_CHILDREN_URIs_PAGE * pageNumber - 1;
-				const uris = data.results
+				const uris = readable
 					.slice(fromIdx, toIdx + 1) // paginate
 					.map(({ resource, results }) => resource);
 
-				const hasNextPage = (data.results.length - 1) - toIdx >= 1;
+				const hasNextPage = (readable.length - 1) - toIdx >= 1;
 				return { result: { uris, hasNextPage, limitHit: !!data.limitHit } };
 			},
 
 			search_for_files: async ({ query: queryStr, isRegex, searchInFolder, pageNumber }) => {
+				if (searchInFolder !== null) { await gateRead(searchInFolder); }
 				// Try indexer first for non-regex, whole-workspace queries
 				let indexedUris: URI[] | null = null;
 				if (!isRegex && searchInFolder === null) {
@@ -1308,7 +1402,10 @@ export class ToolsService extends Disposable implements IToolsService {
 								catch { continue; }
 								if (!seen.has(u.fsPath)) { seen.add(u.fsPath); parsed.push(u); }
 							}
-							if (parsed.length) { indexedUris = parsed; }
+							// Same rules as any other search result: the index remembers files the rules
+							// may have closed since it was built.
+							const readable = parsed.filter(isReadableResult);
+							if (readable.length) { indexedUris = readable; }
 						}
 					} catch { /* ignore and fall back */ }
 				}
@@ -1329,7 +1426,7 @@ export class ToolsService extends Disposable implements IToolsService {
 				const query = queryBuilder.text({
 					pattern: queryStr,
 					isRegExp: isRegex,
-				}, searchFolders, { maxResults: GLOB_MAX_RESULTS });
+				}, searchFolders, { ...agentSearchScope, maxResults: GLOB_MAX_RESULTS });
 
 				// EH-freeze guard (same class as D.19 glob/search_pathnames): raw uncancellable textSearch
 				// on a huge tree could hang the Extension Host for minutes. Time-cap via scanTimeoutMs().
@@ -1345,17 +1442,19 @@ export class ToolsService extends Disposable implements IToolsService {
 					data = { results: [], messages: [] };
 				}
 				finally { clearTimeout(sfTimer); sfCts.dispose(); }
+				const readable = data.results.filter(r => isReadableResult(r.resource));
 
 				const fromIdx = MAX_CHILDREN_URIs_PAGE * (pageNumber - 1);
 				const toIdx = MAX_CHILDREN_URIs_PAGE * pageNumber - 1;
-				const uris = data.results
+				const uris = readable
 					.slice(fromIdx, toIdx + 1) // paginate
 					.map(({ resource, results }) => resource);
 
-				const hasNextPage = (data.results.length - 1) - toIdx >= 1;
+				const hasNextPage = (readable.length - 1) - toIdx >= 1;
 				return { result: { queryStr, uris, hasNextPage } };
 			},
 			glob: async ({ pattern, searchInFolder, pageNumber }) => {
+				if (searchInFolder !== null) { await gateRead(searchInFolder); }
 				const folders = searchInFolder === null
 					? workspaceContextService.getWorkspace().folders.map(f => f.uri)
 					: [searchInFolder];
@@ -1364,6 +1463,7 @@ export class ToolsService extends Disposable implements IToolsService {
 				// glob **/* on a large repo hung the EH > 10 min). Cap total matches so the backend stops
 				// early, and time-cap the search (fileSearchCapped, 10s) as a safety net.
 				const query = queryBuilder.file(folders, {
+					...agentSearchScope,
 					includePattern: pattern,
 					expandPatterns: true,
 					sortByScore: false,
@@ -1372,13 +1472,14 @@ export class ToolsService extends Disposable implements IToolsService {
 				const data = await fileSearchCapped(query);
 				const fromIdx = MAX_CHILDREN_URIs_PAGE * (pageNumber - 1);
 				const toIdx = MAX_CHILDREN_URIs_PAGE * pageNumber - 1;
-				const all = data.results.map(r => r.resource);
+				const all = data.results.map(r => r.resource).filter(isReadableResult);
 				const uris = all.slice(fromIdx, toIdx + 1);
 				const hasNextPage = (all.length - 1) - toIdx >= 1;
 				return { result: { uris, hasNextPage, totalMatches: all.length, limitHit: !!data.limitHit } };
 			},
 
 			grep: async ({ pattern, glob: globPat, fileType, searchInFolder, outputMode, contextBefore, contextAfter, caseInsensitive, multiline, headLimit, pageNumber }) => {
+				if (searchInFolder !== null) { await gateRead(searchInFolder); }
 				const folders = searchInFolder === null
 					? workspaceContextService.getWorkspace().folders.map(f => f.uri)
 					: [searchInFolder];
@@ -1398,6 +1499,7 @@ export class ToolsService extends Disposable implements IToolsService {
 					isCaseSensitive: !caseInsensitive,
 					isMultiline: multiline,
 				}, folders, {
+					...agentSearchScope,
 					includePattern,
 					expandPatterns: true,
 					surroundingContext: surroundingContext || undefined,
@@ -1435,6 +1537,7 @@ export class ToolsService extends Disposable implements IToolsService {
 				const files: Array<{ uri: URI; count?: number }> = [];
 				let totalMatches = 0;
 				for (const fileMatch of data.results) {
+					if (!isReadableResult(fileMatch.resource)) { continue; }
 					if (Array.isArray(fileMatch.results)) {
 						let perFile = 0;
 						for (const r of fileMatch.results) {
@@ -1482,7 +1585,7 @@ export class ToolsService extends Disposable implements IToolsService {
 			search_in_file: async ({ uri, query, isRegex }) => {
 				// .vibe/ignore guard (same policy as read_file) — don't let the agent search excluded
 				// files and then read the matched lines back into context.
-				if (vibeIgnoreService.isIgnored(uri)) {
+				if ((await gateRead(uri)).some(name => vibeIgnoreService.isIgnored(name))) {
 					throw new Error(`Файл «${uri.fsPath}» закрыт правилом .vibe/ignore — поиск пропущен. Используй несжатую/-debug версию или убери правило из .vibe/ignore.`);
 				}
 				await vibeideModelService.initializeModel(uri);
@@ -1492,11 +1595,13 @@ export class ToolsService extends Disposable implements IToolsService {
 					const requestedName = uri.fsPath.split(/[/\\]/).pop() || uri.fsPath;
 					try {
 						const query_ = queryBuilder.file(workspaceContextService.getWorkspace().folders.map(f => f.uri), {
+							...agentSearchScope,
 							filePattern: requestedName,
 							sortByScore: true,
 						});
 						const data = await fileSearchCapped(query_);
-						const fallback = data.results[0]?.resource;
+						// Same rule as read_file's guess: the replacement must be readable on its own.
+						const fallback = data.results.map(r => r.resource).find(isReadableResult);
 						if (fallback) {
 							uri = fallback;
 							await vibeideModelService.initializeModel(uri);
@@ -1521,6 +1626,7 @@ export class ToolsService extends Disposable implements IToolsService {
 			},
 
 			read_lint_errors: async ({ uri }) => {
+				await gateRead(uri);
 				await timeout(1000);
 				const { lintErrors } = this._getLintErrors(uri);
 				return { result: { lintErrors } };
@@ -1538,6 +1644,7 @@ export class ToolsService extends Disposable implements IToolsService {
 			},
 
 			open_file: async ({ uri }) => {
+				await gateRead(uri);
 				// Verify file exists
 				const exists = await fileService.exists(uri);
 				if (!exists) {
@@ -1680,6 +1787,7 @@ export class ToolsService extends Disposable implements IToolsService {
 					// требования открытого превью — и это единственная ветка, которой оно не нужно.
 					const folders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri);
 					const query = queryBuilder.file(folders, {
+						...agentSearchScope,
 						includePattern: '**/*.{css,scss,sass,less,tsx,jsx,vue,svelte}',
 						excludePattern: [{ pattern: '**/{node_modules,dist,build,out,.next,coverage}/**' }],
 						expandPatterns: true,
@@ -1688,7 +1796,7 @@ export class ToolsService extends Disposable implements IToolsService {
 					});
 					const found = await fileSearchCapped(query);
 					const sources: UiKitSourceFile[] = [];
-					for (const result of found.results.slice(0, UI_KIT_MAX_FILES)) {
+					for (const result of found.results.filter(r => isReadableResult(r.resource)).slice(0, UI_KIT_MAX_FILES)) {
 						try {
 							const content = (await fileService.readFile(result.resource)).value.toString();
 							// Огромный сгенерированный бандл ничего не добавляет в карту, зато съедает
@@ -1836,6 +1944,7 @@ export class ToolsService extends Disposable implements IToolsService {
 			},
 
 			go_to_definition: async ({ uri, line, column }) => {
+				await gateRead(uri);
 				await vibeideModelService.initializeModel(uri);
 				const { model } = await vibeideModelService.getModelSafe(uri);
 				if (model === null) {
@@ -1873,6 +1982,7 @@ export class ToolsService extends Disposable implements IToolsService {
 			},
 
 			find_references: async ({ uri, line, column }) => {
+				await gateRead(uri);
 				await vibeideModelService.initializeModel(uri);
 				const { model } = await vibeideModelService.getModelSafe(uri);
 				if (model === null) {
@@ -1908,6 +2018,7 @@ export class ToolsService extends Disposable implements IToolsService {
 				const symbols: Array<{ name: string; kind: string; uri: URI; startLine: number; startColumn: number; endLine: number; endColumn: number }> = [];
 
 				if (uri) {
+					await gateRead(uri);
 					// Search in specific file
 					await vibeideModelService.initializeModel(uri);
 					const { model } = await vibeideModelService.getModelSafe(uri);
@@ -1948,11 +2059,12 @@ export class ToolsService extends Disposable implements IToolsService {
 				} else {
 					// Search across workspace - use file search to find files, then search symbols in each
 					const query_ = queryBuilder.file(workspaceContextService.getWorkspace().folders.map(f => f.uri), {
+						...agentSearchScope,
 						filePattern: '*.{ts,js,py,java,go,rs,cpp,c,cs}',
 						sortByScore: true,
 					});
 					const fileSearchResults = await fileSearchCapped(query_);
-					const filesToSearch = fileSearchResults.results.slice(0, 50).map(r => r.resource); // Limit to 50 files for performance
+					const filesToSearch = fileSearchResults.results.map(r => r.resource).filter(isReadableResult).slice(0, 50); // Limit to 50 files for performance
 
 					for (const fileUri of filesToSearch) {
 						try {
@@ -2001,6 +2113,7 @@ export class ToolsService extends Disposable implements IToolsService {
 			},
 
 			automated_code_review: async ({ uri }) => {
+				await gateRead(uri);
 				await vibeideModelService.initializeModel(uri);
 				const { model } = await vibeideModelService.getModelSafe(uri);
 				if (model === null) {
@@ -2069,6 +2182,7 @@ export class ToolsService extends Disposable implements IToolsService {
 			},
 
 			generate_tests: async ({ uri, functionName, testFramework }) => {
+				await gateRead(uri); // only reads — the edit it prepares goes through gateWrite
 				await vibeideModelService.initializeModel(uri);
 				const { model } = await vibeideModelService.getModelSafe(uri);
 				if (model === null) {
@@ -2113,6 +2227,7 @@ export class ToolsService extends Disposable implements IToolsService {
 			},
 
 			rename_symbol: async ({ uri, line, column, newName }) => {
+				await gateRead(uri); // only reads — the edit it prepares goes through gateWrite
 				await vibeideModelService.initializeModel(uri);
 				const { model } = await vibeideModelService.getModelSafe(uri);
 				if (model === null) {
@@ -2195,6 +2310,7 @@ export class ToolsService extends Disposable implements IToolsService {
 			},
 
 			extract_function: async ({ uri, startLine, endLine, functionName }) => {
+				await gateRead(uri); // only reads — the edit it prepares goes through gateWrite
 				await vibeideModelService.initializeModel(uri);
 				const { model } = await vibeideModelService.getModelSafe(uri);
 				if (model === null) {
@@ -2228,6 +2344,7 @@ export class ToolsService extends Disposable implements IToolsService {
 			// ---
 
 			create_file_or_folder: async ({ uri, isFolder }) => {
+				await gateWrite(uri);
 				if (!isFolder) {
 					await assertTargetNotDirectory(uri, 'create file');
 					await this._checkAdvisoryTerritorialLocks(uri);
@@ -2271,30 +2388,19 @@ export class ToolsService extends Disposable implements IToolsService {
 			},
 
 			delete_file_or_folder: async ({ uri, isRecursive }) => {
+				await gateWrite(uri, true);
 				await fileService.del(uri, { recursive: isRecursive });
 				return { result: {} };
 			},
 
 			rewrite_file: async ({ uri, newContent }) => {
+				await gateWrite(uri);
 				await assertTargetNotDirectory(uri, 'write file');
 				await vibeideModelService.initializeModel(uri);
 				const streamState = this.commandBarService.getStreamState(uri);
 				if (streamState === 'streaming') {
 					// Only block if actually streaming to the same file - allow if streaming to different file
 					throw new Error(`Cannot edit file ${uri.fsPath}: Another operation is currently streaming changes to this file. Please wait for it to complete or cancel it first.`);
-				}
-				// VibeIDE: Deterministic constraint enforcement before any file write
-				try {
-					this.vibeConstraintsService.checkWriteAllowed(uri.fsPath);
-				} catch (e) {
-					if (e instanceof ConstraintViolationError) {
-						throw new Error(`[VibeIDE] Write blocked by .vibe/constraints.json: ${e.message}`);
-					}
-					throw e;
-				}
-				// VibeIDE: Per-file permissions check (.vibe/permissions.json)
-				if (!this.vibePermissionsService.canWrite(uri.fsPath)) {
-					throw new Error(`[VibeIDE] Write blocked by .vibe/permissions.json: ${uri.fsPath} is not in allow_write list`);
 				}
 				await this._checkAdvisoryTerritorialLocks(uri);
 				// Auto-stash before rewrite (roadmap §L988): preserve dirty working tree before agent overwrites.
@@ -2389,16 +2495,8 @@ export class ToolsService extends Disposable implements IToolsService {
 			},
 
 			edit_file: async ({ uri, searchReplaceBlocks }) => {
+				await gateWrite(uri);
 				await assertTargetNotDirectory(uri, 'edit file');
-				// VibeIDE: Deterministic constraint enforcement before any file edit
-				try {
-					this.vibeConstraintsService.checkWriteAllowed(uri.fsPath);
-				} catch (e) {
-					if (e instanceof ConstraintViolationError) {
-						throw new Error(`[VibeIDE] Edit blocked by .vibe/constraints.json: ${e.message}`);
-					}
-					throw e;
-				}
 				// Pre-flight: SEARCH/REPLACE editing without prior knowledge of the file content
 				// is almost certainly hallucinated. Require a read_file call in this session for
 				// pre-existing files. Skip for files we just created (not yet on disk).
@@ -3188,9 +3286,44 @@ export class ToolsService extends Disposable implements IToolsService {
 				throw new Error(`Web search failed: ${allErrors}. This could be due to network issues or all search services being temporarily unavailable. Please check your internet connection and try again.`);
 			},
 
+			extract_structured: async ({ url, schema }) => {
+				this._offlineGate.ensureNotOfflineOrPrivacy('Structured extraction', false);
+				const modelRef = (this._configurationService.getValue<string>(EXTRACT_MODEL_KEY) ?? '').trim();
+				const model = parseModelRef(modelRef);
+				if (!model) {
+					throw new Error(`Структурное извлечение выключено: задайте модель в настройке ${EXTRACT_MODEL_KEY} в форме «провайдер/модель», например openRouter/inference-net/schematron-v2-turbo.`);
+				}
+				// Same network filter as browse_url, asked before the page is fetched.
+				const requested = URI.parse(url);
+				if (!this._networkFilter.isUriAllowed(requested)) {
+					throw new Error(this._networkFilter.formatError(requested));
+				}
+				const response = await this.requestService.request({ type: 'GET', url, timeout: 15000, callSite: 'vibeToolsExtract' }, CancellationToken.None);
+				const rawHtml = await asTextOrError(response);
+				if (!rawHtml) {
+					throw new Error(`Не удалось загрузить страницу: ${url}`);
+				}
+				const { html, truncated } = cleanHtmlForExtraction(rawHtml);
+				const answer = await this._askExtractionModel({ providerName: model.providerName as ProviderName, modelName: model.modelName }, html, schema);
+				const parsed = parseExtractionAnswer(answer);
+				if (!parsed.ok) {
+					throw new Error(`Извлечение не удалось: ${parsed.reason}.`);
+				}
+				return { result: { data: parsed.data, url, model: modelRef, truncated } };
+			},
+
 			browse_url: async ({ url, refresh }) => {
 				// Check offline/privacy mode (centralized gate)
 				this._offlineGate.ensureNotOfflineOrPrivacy('URL browsing', false);
+
+				// The agent network filter is asked HERE, before either way of loading the page. The
+				// content extractor consulted it on its own, but the fallback below went straight to
+				// the request service — so a filter the user switched on stopped nothing the moment
+				// the extractor failed. One check in front of both paths leaves no path around it.
+				const requested = URI.parse(url);
+				if (!this._networkFilter.isUriAllowed(requested)) {
+					throw new Error(this._networkFilter.formatError(requested));
+				}
 
 				const cacheKey = `browse:${url}`;
 				const cached = this._browseCache.get(cacheKey);
@@ -3818,6 +3951,10 @@ ${lines.join('\n\n')}`;
 				).join('\n\n');
 			},
 
+			extract_structured: (_params, result) => {
+				const note = result.truncated ? '\n\n(страница была длиннее окна модели и обрезана — поля из её конца могли не попасть)' : '';
+				return `Извлечено из ${result.url} моделью ${result.model}:\n\n${JSON.stringify(result.data, null, 2)}${note}`;
+			},
 			browse_url: (params, result) => {
 				const titleStr = result.title ? `Title: ${result.title}\n\n` : '';
 				const metadataStr = result.metadata?.publishedDate ? `Published: ${result.metadata.publishedDate}\n\n` : '';
@@ -3910,13 +4047,14 @@ ${lines.join('\n\n')}`;
 	 * is a question for the natural-language parser, which has to guess an intent; a shell line that
 	 * says exactly `git` is harmless, and a dialog there would train the user to click through.
 	 *
-	 * The medium-risk notification stays as it was: informational, non-blocking.
+	 * Risky-but-not-destructive commands still only get a notification. Code fetched from the network
+	 * and handed to an interpreter (`curl … | sh`) is destructive and stops here like `rm -rf`.
 	 */
 	private async _gateDestructiveCommand(command: string): Promise<void> {
 		const destructive = analyzeShellLine(command);
 		if (!destructive) {
-			if (this._detectCommandDanger(command) === 'medium') {
-				this.notificationService.info(`⚠️ Potentially risky command: ${command}\nReview before execution.`);
+			if (this._isRiskyCommand(command)) {
+				this.notificationService.info(localize('vibeide.riskyCommand', "Команда с риском: {0}. Проверьте её перед выполнением.", command.split('\n')[0].slice(0, 300)));
 			}
 			return;
 		}
@@ -3939,37 +4077,20 @@ ${lines.join('\n\n')}`;
 		}
 	}
 
-	private _detectCommandDanger(command: string): 'high' | 'medium' | 'low' {
+	/**
+	 * Risky but not destructive — worth a line in the notifications, not a dialog.
+	 *
+	 * Destructive commands (data loss, code from the network) are decided by `analyzeShellLine` and
+	 * gated above. This used to grade a 'high' tier as well, and nothing read it: the caller acted on
+	 * 'medium' alone, so the most dangerous patterns here (`curl … | sh`, `git push -f`, `fdisk`)
+	 * produced no signal at all. Those now live in the analyzer, where they stop the command; what is
+	 * left here only informs.
+	 */
+	private _isRiskyCommand(command: string): boolean {
 		const normalizedCmd = command.trim().toLowerCase();
-
-		// High-risk commands: data loss, system modification, privilege escalation
-		const highRiskPatterns = [
-			/rm\s+-rf/,           // Recursive force delete
-			/rm\s+-r\s+/,
-			/dd\s+if=/,           // Disk operations
-			/sudo\s+(rm|del|format|mkfs|fdisk)/, // Sudo with destructive ops
-			/chmod\s+.*777/,       // Dangerous permissions
-			/chown\s+-R/,         // Recursive ownership changes
-			/format\s+/,
-			/fdisk\s+/,
-			/parted\s+/,
-			/curl\s+.*\|?\s*sh\s*$/, // Piping to shell
-			/wget\s+.*\|?\s*sh\s*$/,
-			/echo\s+.*\|?\s*sh\s*$/,
-			/\$\(curl\s+/,
-			/\$\(wget\s+/,
-			/uninstall/,
-			/purge\s+/,
-			/npm\s+uninstall\s+-g/,
-			/pip\s+uninstall/,
-			/git\s+reset\s+--hard/,
-			/git\s+clean\s+-fd/,
-			/git\s+push\s+--force/,
-			/git\s+push\s+-f/,
-		];
-
-		// Medium-risk commands: potentially risky but context-dependent
-		const mediumRiskPatterns = [
+		// Lower-case patterns only: the command is lower-cased above, and the capital `-R` that
+		// `chown -R` / `pacman -R` were written with never matched anything.
+		const riskyPatterns = [
 			/sudo\s+/,            // Privilege escalation
 			/chmod\s+/,           // Permission changes
 			/chown\s+/,           // Ownership changes
@@ -3983,6 +4104,8 @@ ${lines.join('\n\n')}`;
 			/git\s+reset/,        // Git reset
 			/npm\s+install\s+-g/, // Global npm installs
 			/pip\s+install\s+--user/, // User-level pip installs
+			/uninstall/,          // npm/pip/apt uninstalls
+			/purge\s+/,
 			/docker\s+rm/,        // Docker container removal
 			/docker\s+rmi/,       // Docker image removal
 			/kubectl\s+delete/,   // Kubernetes deletion
@@ -3990,22 +4113,10 @@ ${lines.join('\n\n')}`;
 			/service\s+/,
 			/apt\s+remove/,
 			/yum\s+remove/,
-			/pacman\s+-R/,
+			/pacman\s+-r/,
+			/echo\s+.*\|\s*(?:ba|z)?sh\b/, // Local text piped into a shell
 		];
-
-		for (const pattern of highRiskPatterns) {
-			if (pattern.test(normalizedCmd)) {
-				return 'high';
-			}
-		}
-
-		for (const pattern of mediumRiskPatterns) {
-			if (pattern.test(normalizedCmd)) {
-				return 'medium';
-			}
-		}
-
-		return 'low';
+		return riskyPatterns.some(pattern => pattern.test(normalizedCmd));
 	}
 
 	/**
@@ -4126,6 +4237,48 @@ ${lines.join('\n\n')}`;
 	}
 
 
+
+	/**
+	 * One extraction call, the way the extraction model expects it: a single user message holding the
+	 * page, no system prompt, the schema in `response_format`. It never goes through the chat path,
+	 * which would add a system prompt the model cannot take.
+	 */
+	private _askExtractionModel(selection: ModelSelection, html: string, schema: Record<string, unknown>): Promise<string> {
+		return new Promise<string>((resolve, reject) => {
+			let settled = false;
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			const finish = (outcome: { text?: string; error?: string }) => {
+				if (settled) { return; }
+				settled = true;
+				if (timer !== undefined) { clearTimeout(timer); }
+				if (outcome.error !== undefined) { reject(new Error(`Модель извлечения не ответила: ${outcome.error}`)); }
+				else { resolve(outcome.text ?? ''); }
+			};
+			const requestId = this._llmMessageService.sendLLMMessage({
+				messagesType: 'chatMessages',
+				messages: [{ role: 'user', content: html } as never],
+				separateSystemMessage: undefined,
+				chatMode: 'normal',
+				modelSelection: selection,
+				modelSelectionOptions: undefined,
+				overridesOfModel: this.vibeideSettingsService.state.overridesOfModel,
+				extraBody: extractionRequestBody(schema),
+				onText: () => { },
+				onFinalMessage: p => finish({ text: p.fullText }),
+				onError: e => finish({ error: e.message || String(e) }),
+				onAbort: () => finish({ error: 'запрос прерван' }),
+				logging: { loggingName: `Extract/${selection.providerName}` },
+			});
+			if (requestId === null) {
+				finish({ error: 'провайдер не принял запрос' });
+				return;
+			}
+			timer = setTimeout(() => {
+				this._llmMessageService.abort(requestId);
+				finish({ error: `нет ответа за ${EXTRACT_TIMEOUT_MS / 1000} с` });
+			}, EXTRACT_TIMEOUT_MS);
+		});
+	}
 }
 
 registerSingleton(IToolsService, ToolsService, InstantiationType.Eager);

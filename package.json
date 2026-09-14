@@ -41,7 +41,7 @@
     "watch-extensions": "npm run gulp watch-extensions watch-extension-media",
     "watch-extensionsd": "deemon npm run watch-extensions",
     "kill-watch-extensionsd": "deemon --kill npm run watch-extensions",
-    "precommit": "tsx build/hygiene.ts && npx lint-staged && node scripts/i18n-sync.js --apply",
+    "precommit": "node scripts/vibe-seeds-pointer.ts && tsx build/hygiene.ts && npx lint-staged && node scripts/i18n-sync.js --apply",
     "gulp": "node --max-old-space-size=8192 ./node_modules/gulp/bin/gulp.js",
     "electron": "node build/lib/electron.ts",
     "7z": "7z",
@@ -98,7 +98,10 @@
     "quirks-provenance-check": "node scripts/vibe-quirks-provenance.ts",
     "command-titles-check": "node scripts/vibe-command-titles.ts",
     "generated-fresh-check": "node scripts/vibe-generated-fresh.ts",
+    "raw-nul-check": "node scripts/vibe-no-raw-nul.ts --all",
     "seed-fields-check": "node scripts/vibe-seed-fields.ts",
+    "deprecated-coverage-check": "node scripts/vibe-deprecated-coverage.ts",
+    "seeds-pointer-check": "node scripts/vibe-seeds-pointer.ts",
     "audit-actor-check": "node scripts/vibe-audit-actor.ts",
     "scripts-typecheck": "tsgo --project scripts/tsconfig.json",
     "service-registration-check": "node scripts/vibe-service-registration-check.mjs --check",
@@ -439,6 +442,15 @@
     ],
     ".vibe/skills/**/SKILL.md": [
       "node scripts/vibe-skills-validate.js --staged"
+    ],
+    "src/vs/workbench/contrib/vibeide/common/vibeDefaultsManifest.generated.ts": [
+      "node scripts/vibe-deprecated-coverage.ts"
+    ],
+    "src/vs/**/*.{ts,tsx}": [
+      "node scripts/vibe-react-typecheck.mjs"
+    ],
+    "{src,scripts,docs,build}/**/*.{ts,tsx,md,json,mjs,cjs,js}": [
+      "node scripts/vibe-no-raw-nul.ts"
     ]
   }
 }

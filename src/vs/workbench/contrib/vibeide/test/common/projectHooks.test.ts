@@ -100,6 +100,53 @@ suite('Project hooks — verdicts', () => {
 		);
 	});
 
+	// Хук, перенесённый из Claude Code, отказывает джейсоном, а код выхода оставляет нулевым.
+	// Та же таблица случаев живёт в VibeIDEA (HookOutcomeTest.kt): контракт один — поведение одно.
+	test('a hook written for Claude Code refuses with JSON while the exit code stays 0', () => {
+		const said = (stdout: string) => verdictOf(run({ stdout }));
+		assert.deepStrictEqual(
+			[
+				said('{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Destructive command"}}'),
+				said('{"decision":"block","reason":"нельзя"}'),
+				said('{"continue": false, "stopReason": "хватит"}'),
+				said('{"decision":"approve"}').kind,
+				said('{"hookSpecificOutput":{"permissionDecision":"allow"}}').kind,
+				said('{"hookSpecificOutput":{"permissionDecision":"ask"}}').kind,
+				// Решением считается только вывод, который начинается с { и заканчивается }.
+				said('{"lines": 350}').kind,
+				said('{"decision": }').kind,
+				said('хук говорит {"decision":"block"}').kind,
+				// Их же правило: allow из JSON не отменяет код 2.
+				verdictOf(run({ exitCode: VIBE_HOOK_REFUSE_EXIT_CODE, stdout: '{"decision":"approve"}', stderr: 'стоп' })),
+			],
+			[
+				{ kind: 'refuse', text: 'Destructive command' },
+				{ kind: 'refuse', text: 'нельзя' },
+				{ kind: 'refuse', text: 'хватит' },
+				'ok',
+				'ok',
+				'broken',
+				'note',
+				'note',
+				'note',
+				{ kind: 'refuse', text: 'стоп' },
+			],
+		);
+	});
+
+	test('their refusal blocks preToolUse, and «ask» is told to the user instead', () => {
+		const deny = verdictOf(run({ stdout: '{"decision":"deny","reason":"нельзя"}' }));
+		const ask = verdictOf(run({ stdout: '{"hookSpecificOutput":{"permissionDecision":"ask"}}' }));
+		assert.deepStrictEqual(
+			{
+				denyBlocks: decideHooks('preToolUse', [deny]).blocked,
+				askBlocks: decideHooks('preToolUse', [ask]).blocked,
+				askIsTold: decideHooks('preToolUse', [ask]).brokenHooks.length,
+			},
+			{ denyBlocks: true, askBlocks: false, askIsTold: 1 },
+		);
+	});
+
 	test('a refusal outranks notes, and only preToolUse can block', () => {
 		const verdicts = [
 			{ kind: 'note' as const, text: 'заметка' },

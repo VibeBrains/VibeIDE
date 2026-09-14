@@ -5,27 +5,18 @@
 
 
 /**
- * Conventional Commits helpers (pure, no DI, no I/O). Used by the `/commit`
- * chat slash command (roadmap §"chat-only commits") and the
- * `generate_commit_message` tool. UI wire-up + git diff fetching are wave-2
- * (browser session); the analysis logic lives here so it can be unit-tested
- * in isolation.
+ * Conventional Commits helpers (pure, no DI, no I/O). The `/commit` chat command takes its list of
+ * types from here (vibeSlashCommandService.buildCommitRequest); formatting, parsing and scope/type
+ * detection were written for a `generate_commit_message` tool and a UI wire-up that never landed,
+ * and still wait for a caller. The analysis logic lives here so it can be unit-tested in isolation.
  *
  * Spec: https://www.conventionalcommits.org/en/v1.0.0/
  */
 
-export type ConventionalCommitType =
-	| 'feat'
-	| 'fix'
-	| 'docs'
-	| 'style'
-	| 'refactor'
-	| 'perf'
-	| 'test'
-	| 'chore'
-	| 'build'
-	| 'ci'
-	| 'revert';
+/** The commit types of the format — one list for validation and for the `/commit` request. */
+export const CONVENTIONAL_COMMIT_TYPES = ['feat', 'fix', 'docs', 'style', 'refactor', 'perf', 'test', 'chore', 'build', 'ci', 'revert'] as const;
+
+export type ConventionalCommitType = typeof CONVENTIONAL_COMMIT_TYPES[number];
 
 export interface ConventionalCommit {
 	readonly type: ConventionalCommitType;
@@ -36,10 +27,7 @@ export interface ConventionalCommit {
 	readonly footers?: ReadonlyArray<{ readonly key: string; readonly value: string }>;
 }
 
-const VALID_TYPES: ReadonlySet<ConventionalCommitType> = new Set([
-	'feat', 'fix', 'docs', 'style', 'refactor', 'perf', 'test',
-	'chore', 'build', 'ci', 'revert',
-] as const);
+const VALID_TYPES: ReadonlySet<ConventionalCommitType> = new Set(CONVENTIONAL_COMMIT_TYPES);
 
 /**
  * Format a `ConventionalCommit` into its canonical single-string form:

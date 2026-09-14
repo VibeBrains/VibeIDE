@@ -5,6 +5,7 @@
 
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { escapeRegExpCharacters } from '../../../../base/common/strings.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -33,8 +34,22 @@ export interface IVibePromptLibraryService {
 }
 
 /**
+ * Substitutes `$NAME` placeholders in a prompt template. A name is replaced only as a whole word —
+ * `$ARGS` must not eat the start of `$ARGUMENTS` — and the value goes in literally: `String.replace`
+ * would otherwise read `$&` or `$1` in what the person typed as replacement patterns. Names without a
+ * value stay as they are, visible to whoever reads the result, the model included.
+ */
+export function renderPromptVariables(template: string, variables: Readonly<Record<string, string>>): string {
+	let result = template;
+	for (const [key, value] of Object.entries(variables)) {
+		result = result.replace(new RegExp(`\\$${escapeRegExpCharacters(key)}(?![A-Za-z0-9_])`, 'g'), () => value);
+	}
+	return result;
+}
+
+/**
  * VibeIDE Prompt Library: reads .vibe/prompts/*.md files.
- * Access in chat via /my:template-name
+ * Access in chat via /my:template-name; the rest of the line after the command becomes $ARGS.
  * Variables: $VARIABLE_NAME in template
  */
 class VibePromptLibraryService extends Disposable implements IVibePromptLibraryService {
@@ -79,11 +94,7 @@ class VibePromptLibraryService extends Disposable implements IVibePromptLibraryS
 	}
 
 	render(templateContent: string, variables: Record<string, string>): string {
-		let result = templateContent;
-		for (const [key, value] of Object.entries(variables)) {
-			result = result.replace(new RegExp(`\\$${key}`, 'g'), value);
-		}
-		return result;
+		return renderPromptVariables(templateContent, variables);
 	}
 }
 

@@ -54,7 +54,7 @@ export interface CascadeEconomics {
 }
 
 /** Tokens a run consumed, ignoring the ones it never paid for twice. */
-function billedTokens(run: AgentRunRecord): number {
+export function billedTokens(run: AgentRunRecord): number {
 	return Math.max(0, (run.tokensUsed ?? 0) - (run.cachedTokens ?? 0));
 }
 
@@ -67,7 +67,7 @@ function billedTokens(run: AgentRunRecord): number {
  */
 const INPUT_WEIGHT = 0.85;
 
-function blendedRate(rate: ModelRate | undefined): number | undefined {
+export function blendedRate(rate: ModelRate | undefined): number | undefined {
 	if (!rate) {
 		return undefined;
 	}

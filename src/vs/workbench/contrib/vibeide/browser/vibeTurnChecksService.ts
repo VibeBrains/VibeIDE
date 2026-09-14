@@ -14,6 +14,7 @@
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
+import { isAbsolute } from '../../../../base/common/path.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -23,14 +24,19 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { localize } from '../../../../nls.js';
 import { vibeLog } from '../common/vibeLog.js';
-import { DEFAULT_ENABLED_CHECKS, TurnCheckId, TurnChecksMode, TurnFacts } from '../common/agentTurnChecks.js';
-import { IVibeConstraintsService, findDenyingConstraint } from '../common/vibeConstraintsService.js';
-import { IVibePerFilePermissionsService, canWriteWithPermissions } from '../common/vibePerFilePermissionsService.js';
+import { DEFAULT_ENABLED_CHECKS, DEFAULT_VERIFICATION_PATTERNS, matchVerificationPaths, TurnCheckId, TurnChecksMode, TurnFacts } from '../common/agentTurnChecks.js';
+import { ConstraintViolationError, IVibeConstraintsService } from '../common/vibeConstraintsService.js';
+import { IVibePerFilePermissionsService } from '../common/vibePerFilePermissionsService.js';
+import { resolveAgentPath } from '../common/agentPathResolution.js';
 import { ISecretDetectionService } from '../common/secretDetectionService.js';
 
 const CONFIG_MODE = 'vibeide.agent.turnChecks.mode';
 const CONFIG_MAX_ATTEMPTS = 'vibeide.agent.turnChecks.maxAttempts';
 const CONFIG_CHECKS = 'vibeide.agent.turnChecks.checks';
+const CONFIG_VERIFICATION_PATHS = 'vibeide.agent.turnChecks.verificationPaths';
+
+/** Every check the setting may name — one list for the schema enum and for reading the setting back. */
+const KNOWN_CHECKS: readonly TurnCheckId[] = ['no-secret-leak', 'no-protected-path', 'forbidden-action', 'budget-exceeded', 'source-location', 'no-verification-edit'];
 
 const DEFAULT_MAX_ATTEMPTS = 2;
 /** Reading every changed file is bounded: a huge refactor must not stall completion. */
@@ -64,9 +70,15 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 		},
 		[CONFIG_CHECKS]: {
 			type: 'array',
-			items: { type: 'string', enum: ['no-secret-leak', 'no-protected-path', 'forbidden-action', 'budget-exceeded', 'source-location'] },
+			items: { type: 'string', enum: [...KNOWN_CHECKS] },
 			default: [...DEFAULT_ENABLED_CHECKS],
-			description: localize('vibeide.agent.turnChecks.checks', "Какие проверки включены. По умолчанию — две, защищающие ваши данные: секреты и закрытые пути."),
+			description: localize('vibeide.agent.turnChecks.checks', "Какие проверки включены. По умолчанию — две, защищающие ваши данные: секреты и закрытые пути. «no-verification-edit» сообщает, что ход изменил тесты или их обвязку: зелёная проверка после такой правки ничего не доказывает. По умолчанию выключена — агенту, которому поручили писать тесты, она мешала бы на каждом ходе."),
+		},
+		[CONFIG_VERIFICATION_PATHS]: {
+			type: 'array',
+			items: { type: 'string' },
+			default: [...DEFAULT_VERIFICATION_PATTERNS],
+			markdownDescription: localize('vibeide.agent.turnChecks.verificationPaths', "Шаблоны файлов, по которым проверяют работу агента, — для проверки `no-verification-edit`. Синтаксис glob, пути относительно корня проекта. Список заменяет значение по умолчанию целиком: проект, где тесты лежат иначе, знает это лучше нас."),
 		},
 	},
 });
@@ -122,7 +134,7 @@ class VibeTurnChecksService extends Disposable implements IVibeTurnChecksService
 		if (!Array.isArray(raw)) {
 			return DEFAULT_ENABLED_CHECKS;
 		}
-		const known = new Set<string>(['no-secret-leak', 'no-protected-path', 'forbidden-action', 'budget-exceeded', 'source-location']);
+		const known = new Set<string>(KNOWN_CHECKS);
 		return raw.filter((id): id is TurnCheckId => known.has(id));
 	}
 
@@ -134,6 +146,7 @@ class VibeTurnChecksService extends Disposable implements IVibeTurnChecksService
 			changedFiles: input.changedFiles,
 			secretHits: await this._findSecrets(files),
 			protectedHits: this._findProtectedWrites(files),
+			verificationHits: matchVerificationPaths(input.changedFiles.map(file => this._workspaceRelative(file)), this._verificationPatterns()),
 			forbiddenTools: input.allowedTools.length === 0
 				// An empty whitelist means "not constrained here", not "everything is forbidden" —
 				// reporting every call would drown the real signal.
@@ -146,6 +159,30 @@ class VibeTurnChecksService extends Disposable implements IVibeTurnChecksService
 	}
 
 	// ── Private ─────────────────────────────────────────────────────────────
+
+	private _verificationPatterns(): readonly string[] {
+		const raw = this._configuration.getValue<unknown>(CONFIG_VERIFICATION_PATHS);
+		return Array.isArray(raw) ? raw.filter((p): p is string => typeof p === 'string' && p.trim().length > 0) : DEFAULT_VERIFICATION_PATTERNS;
+	}
+
+	/**
+	 * A changed file as a path relative to its workspace root: glob patterns in the setting are
+	 * written relative to the project, while tools report absolute paths. A file outside every
+	 * root keeps its own path — the patterns start with `**` and still reach it.
+	 */
+	private _workspaceRelative(file: string): string {
+		const uri = this._toUri(file);
+		if (!uri) {
+			return file;
+		}
+		for (const folder of this._workspace.getWorkspace().folders) {
+			const root = folder.uri.path.endsWith('/') ? folder.uri.path : folder.uri.path + '/';
+			if (uri.path.startsWith(root)) {
+				return uri.path.slice(root.length);
+			}
+		}
+		return uri.path;
+	}
 
 	private async _findSecrets(files: readonly string[]): Promise<{ file: string; kind: string }[]> {
 		const hits: { file: string; kind: string }[] = [];
@@ -168,17 +205,23 @@ class VibeTurnChecksService extends Disposable implements IVibeTurnChecksService
 	}
 
 	private _findProtectedWrites(files: readonly string[]): { file: string; pattern: string }[] {
-		const rules = this._constraints.getRules();
-		const permissions = this._permissions.getPermissions();
 		const hits: { file: string; pattern: string }[] = [];
 
 		for (const file of files) {
-			const denying = findDenyingConstraint(file, 'deny_write', [...rules]);
-			if (denying?.pattern) {
-				hits.push({ file, pattern: denying.pattern });
+			// The file the tool wrote, asked through the services: the same rules, placed against the
+			// workspace roots the same way the file tools place them.
+			const path = this._toUri(file)?.fsPath ?? file;
+			try {
+				this._constraints.checkWriteAllowed(path);
+			} catch (error) {
+				if (error instanceof ConstraintViolationError) {
+					hits.push({ file, pattern: error.constraint.pattern ?? error.constraint.type });
+				} else {
+					vibeLog.warn('turnChecks', `проверка закрытых путей пропустила «${file}»`, error);
+				}
 				continue;
 			}
-			if (!canWriteWithPermissions(file, permissions)) {
+			if (!this._permissions.canWrite(path)) {
 				hits.push({ file, pattern: 'permissions.json' });
 			}
 		}
@@ -220,16 +263,18 @@ class VibeTurnChecksService extends Disposable implements IVibeTurnChecksService
 		}
 	}
 
+	/**
+	 * The path a tool acted on, resolved the way the tool resolved it (`resolveAgentPath`). The turn
+	 * records the raw argument, which may be project-relative, a `file://` URI or carry `..` — and a
+	 * check that reads it differently from the tool is checking a different file.
+	 */
 	private _toUri(path: string): URI | undefined {
 		try {
-			if (path.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(path)) {
-				return URI.file(path);
-			}
-			const folders = this._workspace.getWorkspace().folders;
-			if (folders.length === 0) {
+			const roots = this._workspace.getWorkspace().folders.map(folder => ({ uri: folder.uri, name: folder.name }));
+			if (roots.length === 0 && !isAbsolute(path) && !path.includes('://')) {
 				return undefined;
 			}
-			return URI.joinPath(folders[0].uri, path);
+			return resolveAgentPath(path, roots);
 		} catch (error) {
 			vibeLog.warn('turnChecks', `не удалось разобрать путь «${path}»`, error);
 			return undefined;

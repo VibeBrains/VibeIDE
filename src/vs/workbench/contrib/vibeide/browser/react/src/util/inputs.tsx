@@ -5,6 +5,7 @@
 
 
 import { vibeLog } from '../../../../common/vibeLog.js';
+import { findChatCommandSpans } from '../../../../common/chatSlashCommands.js';
 import React, { forwardRef, ForwardRefExoticComponent, MutableRefObject, RefAttributes, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { useAccessor } from './services.js';
@@ -972,19 +973,18 @@ export const VibeInputBox2 = forwardRef<HTMLTextAreaElement, InputBox2Props>(fun
 	};
 	const renderOverlayChildren = (text: string): React.ReactNode => {
 		if (!text) {return null;}
-		// Only `/skill:NAME` — backend expands no other slash form, so highlighting
-		// generic `/foo` would lie about behavior (and pill paths like `/var/lib`).
-		const re = /(^|\s)(\/skill:[\w.-]+)/g;
+		// Only what the chat actually runs or expands — `/skill:NAME` anywhere, a command at the start
+		// of the message (findChatCommandSpans); highlighting generic `/foo` would lie about behavior
+		// (and pill paths like `/var/lib`). The message view marks the same spans.
+		const spans = findChatCommandSpans(text);
+		if (spans.length === 0) {return text;}
 		const out: React.ReactNode[] = [];
 		let lastIdx = 0;
-		let m: RegExpExecArray | null;
-		while ((m = re.exec(text)) !== null) {
-			const cmdStart = m.index + m[1].length;
-			if (cmdStart > lastIdx) {out.push(text.slice(lastIdx, cmdStart));}
-			out.push(<span key={cmdStart} className="vibe-skill-pill" style={skillPillInlineStyle}>{m[2]}</span>);
-			lastIdx = cmdStart + m[2].length;
+		for (const { start, end } of spans) {
+			if (start > lastIdx) {out.push(text.slice(lastIdx, start));}
+			out.push(<span key={start} className="vibe-skill-pill" style={skillPillInlineStyle}>{text.slice(start, end)}</span>);
+			lastIdx = end;
 		}
-		if (lastIdx === 0) {return text;}
 		if (lastIdx < text.length) {out.push(text.slice(lastIdx));}
 		// Trailing newline guard: a final `\n` in textarea creates an extra blank line
 		// that the overlay <div> doesn't reserve (textareas implicitly add it). Append

@@ -51,6 +51,196 @@ export type McpAppLoadState =
 	| { readonly status: 'error'; readonly error: Error };
 
 /**
+ * Injects the MCP App CSP and the postMessage bridge into the app HTML. Shared with the VibeIDE chat host.
+ */
+export function injectMcpAppPreamble({ html, csp }: IMcpAppResourceContent): string {
+	// Note: this is not bulletproof against malformed domains. However it does not
+	// need to be. The server is the one giving us both the CSP as well as the HTML
+	// to render in the iframe. MCP Apps give the CSP separately so that systems that
+	// proxy the HTML from a server can set it in a header, but the CSP and the HTML
+	// come from the same source and are within the same trust boundary. We only
+	// process the CSP enough (escaping HTML special characters) to avoid breaking it.
+	//
+	// It would certainly be more durable to use `DOMParser.parseFromString` here
+	// and operate on the DocumentFragment of the HTML, however (even though keeping
+	// it solely as a detached document is safe) this requires making the HTML trusted
+	// in the renderer and bypassing various tsec warnings. I consider the string
+	// munging here to be the lesser of two evils.
+	const cleanDomains = (s: string[] | undefined) => (s?.join(' ') || '')
+		.replaceAll('&', '&amp;')
+		.replaceAll('<', '&lt;')
+		.replaceAll('>', '&gt;')
+		.replaceAll('"', '&quot;');
+
+	const cspContent = `
+		default-src 'none';
+		script-src 'self' 'unsafe-inline' ${cleanDomains(csp?.resourceDomains)};
+		style-src 'self' 'unsafe-inline' ${cleanDomains(csp?.resourceDomains)};
+		connect-src 'self' ${cleanDomains(csp?.connectDomains)};
+		img-src 'self' data: ${cleanDomains(csp?.resourceDomains)};
+		font-src 'self' ${cleanDomains(csp?.resourceDomains)};
+		media-src 'self' data: ${cleanDomains(csp?.resourceDomains)};
+		frame-src ${cleanDomains(csp?.frameDomains) || `'none'`};
+		object-src 'none';
+		base-uri ${cleanDomains(csp?.baseUriDomains) || `'self'`};
+	`;
+
+	const cspTag = `<meta http-equiv="Content-Security-Policy" content="${cspContent}">`;
+
+	// window.top and window.parent get reset to `window` after the vscode API is made.
+	// However, the MCP App SDK by default tries to use these for postMessage. So, wrap them.
+	// We also need to wrap the event listeners otherwise the event.source won't match
+	// the wrapped window.parent/window.top.
+	// https://github.com/microsoft/vscode/blob/2a4c8f5b8a715d45dd2a36778906b5810e4a1905/src/vs/workbench/contrib/webview/browser/pre/index.html#L242-L244
+	const postMessageRehoist = `
+		<script>(() => {
+			const api = acquireVsCodeApi();
+			const setMessageSource = (obj, src) => new Proxy(obj, {
+				get: (target, prop) => {
+					if (prop === 'source')  {
+						return src;
+					}
+					return target[prop];
+				}
+			});
+
+			const wrappedFns = new WeakMap();
+
+			let patchedPostMessage = (message, transfer) => api.postMessage(message, transfer);
+			const wrap = target => new Proxy(target, {
+				set: (obj, prop, value) => {
+					if (prop === 'postMessage') {
+						patchedPostMessage = (message, transfer) => value.call(target, message, transfer);
+					} else {
+						obj[prop] = value;
+					}
+					return true;
+				},
+				get: (obj, prop) => {
+					if (prop === 'postMessage') {
+						return patchedPostMessage;
+					}
+					return obj[prop];
+				},
+			});
+
+			const originalAddEventListener = window.addEventListener.bind(window);
+			window.addEventListener = (type, listener, options) => {
+				if (type === 'message') {
+					const originalListener = listener;
+					const wrappedListener = (event) => {
+						if (event.origin === document.location.origin && event.source !== window) { event = setMessageSource(event, window.parent); }
+						originalListener(event);
+					};
+					wrappedFns.set(originalListener, wrappedListener);
+					listener = wrappedListener;
+				}
+
+				return originalAddEventListener(type, listener, options);
+			};
+
+			const originalRemoveEventListener = window.removeEventListener.bind(window);
+			window.removeEventListener = (type, listener, options) => {
+				const wrappedListener = wrappedFns.get(listener) || listener;
+				return originalRemoveEventListener(type, wrappedListener, options);
+			};
+
+			window.parent = wrap(window.parent);
+
+			// Scroll boundary detection: bubble wheel events to parent when at scroll boundaries
+			const shouldBubbleScroll = (event) => {
+				// First check element-level scrolling (for elements with overflow: auto/scroll)
+				for (let node = event.target; node; node = node.parentNode) {
+					if (!(node instanceof Element)) {
+						continue;
+					}
+
+					// Skip HTML and BODY - we check document-level scroll separately
+					if (node === document.documentElement || node === document.body) {
+						continue;
+					}
+
+					// Check if the element can actually scroll
+					const overflow = window.getComputedStyle(node).overflowY;
+					if (overflow === 'hidden' || overflow === 'visible') {
+						continue;
+					}
+
+					// Scroll up: if there's content above (scrollTop > 0), don't bubble
+					if (event.deltaY < 0 && node.scrollTop > 0) {
+						return false;
+					}
+
+					// Scroll down: if there's content below, don't bubble
+					if (event.deltaY > 0 && node.scrollTop + node.clientHeight < node.scrollHeight) {
+						// Account for rounding: scrollTop isn't rounded but scrollHeight/clientHeight are
+						if (node.scrollHeight - node.scrollTop - node.clientHeight < 2) {
+							continue;
+						}
+						return false;
+					}
+				}
+
+				// Check document-level scrolling (works even with overflow: visible on html/body)
+				const docEl = document.documentElement;
+				const scrollTop = window.scrollY || docEl.scrollTop || document.body.scrollTop || 0;
+				const scrollHeight = Math.max(docEl.scrollHeight, document.body.scrollHeight);
+				const clientHeight = docEl.clientHeight;
+				const scrollableDistance = scrollHeight - clientHeight;
+
+				if (scrollableDistance > 2) {
+					// Document is scrollable
+					if (event.deltaY < 0 && scrollTop > 0) {
+						return false;
+					}
+					if (event.deltaY > 0 && scrollTop < scrollableDistance - 2) {
+						return false;
+					}
+				}
+
+				return true;
+			};
+
+			window.addEventListener('wheel', (event) => {
+				if (event.defaultPrevented || !shouldBubbleScroll(event)) {
+					return;
+				}
+				api.postMessage({
+					method: 'ui/notifications/sandbox-wheel',
+					params: {
+						deltaMode: event.deltaMode,
+						deltaX: event.deltaX,
+						deltaY: event.deltaY,
+						deltaZ: event.deltaZ,
+					}
+				});
+			}, { passive: true });
+		})();</script>
+	`;
+
+	return prependToHead(html, cspTag + postMessageRehoist);
+}
+
+function prependToHead(html: string, content: string): string {
+	// Try to inject into <head>
+	const headMatch = html.match(/<head[^>]*>/i);
+	if (headMatch) {
+		const insertIndex = headMatch.index! + headMatch[0].length;
+		return html.slice(0, insertIndex) + '\n' + content + html.slice(insertIndex);
+	}
+
+	// If no <head>, try to inject after <html>
+	const htmlMatch = html.match(/<html[^>]*>/i);
+	if (htmlMatch) {
+		const insertIndex = htmlMatch.index! + htmlMatch[0].length;
+		return html.slice(0, insertIndex) + '\n<head>' + content + '</head>' + html.slice(insertIndex);
+	}
+
+	// If no <html>, prepend
+	return `<!DOCTYPE html><html><head>${content}</head><body>${html}</body></html>`;
+}
+
+/**
  * Model that owns an MCP App webview and all its state/logic.
  * The webview is created lazily on first claim and survives across re-renders.
  */
@@ -244,191 +434,8 @@ export class ChatMcpAppModel extends Disposable {
 	/**
 	 * Injects a Content-Security-Policy meta tag into the HTML.
 	 */
-	private _injectPreamble({ html, csp }: IMcpAppResourceContent): string {
-		// Note: this is not bulletproof against malformed domains. However it does not
-		// need to be. The server is the one giving us both the CSP as well as the HTML
-		// to render in the iframe. MCP Apps give the CSP separately so that systems that
-		// proxy the HTML from a server can set it in a header, but the CSP and the HTML
-		// come from the same source and are within the same trust boundary. We only
-		// process the CSP enough (escaping HTML special characters) to avoid breaking it.
-		//
-		// It would certainly be more durable to use `DOMParser.parseFromString` here
-		// and operate on the DocumentFragment of the HTML, however (even though keeping
-		// it solely as a detached document is safe) this requires making the HTML trusted
-		// in the renderer and bypassing various tsec warnings. I consider the string
-		// munging here to be the lesser of two evils.
-		const cleanDomains = (s: string[] | undefined) => (s?.join(' ') || '')
-			.replaceAll('&', '&amp;')
-			.replaceAll('<', '&lt;')
-			.replaceAll('>', '&gt;')
-			.replaceAll('"', '&quot;');
-
-		const cspContent = `
-			default-src 'none';
-			script-src 'self' 'unsafe-inline' ${cleanDomains(csp?.resourceDomains)};
-			style-src 'self' 'unsafe-inline' ${cleanDomains(csp?.resourceDomains)};
-			connect-src 'self' ${cleanDomains(csp?.connectDomains)};
-			img-src 'self' data: ${cleanDomains(csp?.resourceDomains)};
-			font-src 'self' ${cleanDomains(csp?.resourceDomains)};
-			media-src 'self' data: ${cleanDomains(csp?.resourceDomains)};
-			frame-src ${cleanDomains(csp?.frameDomains) || `'none'`};
-			object-src 'none';
-			base-uri ${cleanDomains(csp?.baseUriDomains) || `'self'`};
-		`;
-
-		const cspTag = `<meta http-equiv="Content-Security-Policy" content="${cspContent}">`;
-
-		// window.top and window.parent get reset to `window` after the vscode API is made.
-		// However, the MCP App SDK by default tries to use these for postMessage. So, wrap them.
-		// We also need to wrap the event listeners otherwise the event.source won't match
-		// the wrapped window.parent/window.top.
-		// https://github.com/microsoft/vscode/blob/2a4c8f5b8a715d45dd2a36778906b5810e4a1905/src/vs/workbench/contrib/webview/browser/pre/index.html#L242-L244
-		const postMessageRehoist = `
-			<script>(() => {
-				const api = acquireVsCodeApi();
-				const setMessageSource = (obj, src) => new Proxy(obj, {
-					get: (target, prop) => {
-						if (prop === 'source')  {
-							return src;
-						}
-						return target[prop];
-					}
-				});
-
-				const wrappedFns = new WeakMap();
-
-				let patchedPostMessage = (message, transfer) => api.postMessage(message, transfer);
-				const wrap = target => new Proxy(target, {
-					set: (obj, prop, value) => {
-						if (prop === 'postMessage') {
-							patchedPostMessage = (message, transfer) => value.call(target, message, transfer);
-						} else {
-							obj[prop] = value;
-						}
-						return true;
-					},
-					get: (obj, prop) => {
-						if (prop === 'postMessage') {
-							return patchedPostMessage;
-						}
-						return obj[prop];
-					},
-				});
-
-				const originalAddEventListener = window.addEventListener.bind(window);
-				window.addEventListener = (type, listener, options) => {
-					if (type === 'message') {
-						const originalListener = listener;
-						const wrappedListener = (event) => {
-							if (event.origin === document.location.origin && event.source !== window) { event = setMessageSource(event, window.parent); }
-							originalListener(event);
-						};
-						wrappedFns.set(originalListener, wrappedListener);
-						listener = wrappedListener;
-					}
-
-					return originalAddEventListener(type, listener, options);
-				};
-
-				const originalRemoveEventListener = window.removeEventListener.bind(window);
-				window.removeEventListener = (type, listener, options) => {
-					const wrappedListener = wrappedFns.get(listener) || listener;
-					return originalRemoveEventListener(type, wrappedListener, options);
-				};
-
-				window.parent = wrap(window.parent);
-
-				// Scroll boundary detection: bubble wheel events to parent when at scroll boundaries
-				const shouldBubbleScroll = (event) => {
-					// First check element-level scrolling (for elements with overflow: auto/scroll)
-					for (let node = event.target; node; node = node.parentNode) {
-						if (!(node instanceof Element)) {
-							continue;
-						}
-
-						// Skip HTML and BODY - we check document-level scroll separately
-						if (node === document.documentElement || node === document.body) {
-							continue;
-						}
-
-						// Check if the element can actually scroll
-						const overflow = window.getComputedStyle(node).overflowY;
-						if (overflow === 'hidden' || overflow === 'visible') {
-							continue;
-						}
-
-						// Scroll up: if there's content above (scrollTop > 0), don't bubble
-						if (event.deltaY < 0 && node.scrollTop > 0) {
-							return false;
-						}
-
-						// Scroll down: if there's content below, don't bubble
-						if (event.deltaY > 0 && node.scrollTop + node.clientHeight < node.scrollHeight) {
-							// Account for rounding: scrollTop isn't rounded but scrollHeight/clientHeight are
-							if (node.scrollHeight - node.scrollTop - node.clientHeight < 2) {
-								continue;
-							}
-							return false;
-						}
-					}
-
-					// Check document-level scrolling (works even with overflow: visible on html/body)
-					const docEl = document.documentElement;
-					const scrollTop = window.scrollY || docEl.scrollTop || document.body.scrollTop || 0;
-					const scrollHeight = Math.max(docEl.scrollHeight, document.body.scrollHeight);
-					const clientHeight = docEl.clientHeight;
-					const scrollableDistance = scrollHeight - clientHeight;
-
-					if (scrollableDistance > 2) {
-						// Document is scrollable
-						if (event.deltaY < 0 && scrollTop > 0) {
-							return false;
-						}
-						if (event.deltaY > 0 && scrollTop < scrollableDistance - 2) {
-							return false;
-						}
-					}
-
-					return true;
-				};
-
-				window.addEventListener('wheel', (event) => {
-					if (event.defaultPrevented || !shouldBubbleScroll(event)) {
-						return;
-					}
-					api.postMessage({
-						method: 'ui/notifications/sandbox-wheel',
-						params: {
-							deltaMode: event.deltaMode,
-							deltaX: event.deltaX,
-							deltaY: event.deltaY,
-							deltaZ: event.deltaZ,
-						}
-					});
-				}, { passive: true });
-			})();</script>
-		`;
-
-		return this._prependToHead(html, cspTag + postMessageRehoist);
-	}
-
-	private _prependToHead(html: string, content: string): string {
-		// Try to inject into <head>
-		const headMatch = html.match(/<head[^>]*>/i);
-		if (headMatch) {
-			const insertIndex = headMatch.index! + headMatch[0].length;
-			return html.slice(0, insertIndex) + '\n' + content + html.slice(insertIndex);
-		}
-
-		// If no <head>, try to inject after <html>
-		const htmlMatch = html.match(/<html[^>]*>/i);
-		if (htmlMatch) {
-			const insertIndex = htmlMatch.index! + htmlMatch[0].length;
-			return html.slice(0, insertIndex) + '\n<head>' + content + '</head>' + html.slice(insertIndex);
-		}
-
-		// If no <html>, prepend
-		return `<!DOCTYPE html><html><head>${content}</head><body>${html}</body></html>`;
+	private _injectPreamble(content: IMcpAppResourceContent): string {
+		return injectMcpAppPreamble(content);
 	}
 
 	/**

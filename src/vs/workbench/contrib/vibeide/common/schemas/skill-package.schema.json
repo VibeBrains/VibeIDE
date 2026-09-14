@@ -5,7 +5,7 @@
 	"description": "Machine-readable contract for Agent Skills. Human authoring uses YAML between --- delimiters at the top of SKILL.md.",
 	"type": "object",
 	"additionalProperties": true,
-	"required": ["name", "description", "vibeVersion"],
+	"required": ["name", "description"],
 	"properties": {
 		"name": {
 			"type": "string",
@@ -20,7 +20,7 @@
 		"vibeVersion": {
 			"type": "string",
 			"minLength": 1,
-			"description": "Skill package format version for migrations (align with workspace .vibe/ vibeVersion policy)."
+			"description": "Optional skill package format version for migrations (align with workspace .vibe/ vibeVersion policy). The parser requires only name and description, so a skill written to the shared standard validates as is."
 		},
 		"version": {
 			"type": "string",

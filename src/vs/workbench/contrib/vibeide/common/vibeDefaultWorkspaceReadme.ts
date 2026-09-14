@@ -66,12 +66,12 @@ export function getDefaultVibeReadmeMarkdown(): string {
 | **rules.md** | Проектные правила для ИИ в **.vibe/** → блок GUIDELINES. |
 | **goals.md** | Цели периода; по умолчанию агент может править по запросу; можно запретить через **constraints.json**. |
 | **ignore** | Исключения из контекста/индексации для агента. |
-| **constraints.json** | Жёсткие ограничения IDE до вызова инструментов агента (deny_write по glob). |
+| **constraints.json** | Жёсткие запреты для агента по glob: **deny_write** — любая запись, **deny_read** — чтение и поиск. |
 | **allowed-models.json** | Whitelist моделей; пустой **models** — разрешены все. |
 | **pinned.json** | Закреплённые файлы/символы (задел под контекст; дублируйте важное через @ в чате). |
 | **commands.json** | Проектные команды (терминал/скрипты) — кнопка в статус-баре + палитра + хоткеи; см. справку в Settings → Workspace. |
 | **agent-locks.json** | Консультативные блокировки записи по glob (workspace-level «человек ведёт рефакторинг, агент не трогает»). |
-| **permissions.json** | Точечные allow/deny исключения по путям (по умолчанию в **.gitignore** — локальные). |
+| **permissions.json** | Белые и чёрные списки путей для агента (allow_* и deny_* на запись и на чтение); запреты constraints.json они не отменяют. |
 | **persona.json** | Стиль ответа агента (verbosity, ask_before_assume, tone). |
 
 ### Runtime (пишутся VibeIDE автоматически — не редактировать)

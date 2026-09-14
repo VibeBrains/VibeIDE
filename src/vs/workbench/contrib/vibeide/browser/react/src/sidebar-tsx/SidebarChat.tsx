@@ -34,7 +34,7 @@ import { getModelCapabilities, getIsReasoningEnabledState, getReservedOutputToke
 import { AlertTriangle, File, Ban, Check, ChevronRight, ChevronDown, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Paperclip, Waypoints, LoaderCircle, Maximize2, Maximize, Pin, FileDown, RotateCcw, StepForward, Footprints, Mic, GitBranch } from 'lucide-react';
 import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage, PlanMessage, ReviewMessage, ScoutMessage, PlanStep, StepStatus, PlanApprovalState, ChatImageAttachment, ChatPDFAttachment, normalizePendingInjections, ReviewChecklist, EditBatch } from '../../../../common/chatThreadServiceTypes.js';
 import { formatChatTimestamp, chatTimestampToISO, CHAT_TIMESTAMP_STREAMING_PLACEHOLDER } from '../../../../common/chatTimestampFormatter.js';
-import { parseChatSlashCommand, splitWatchArgs, CHAT_SLASH_COMMANDS } from '../../../../common/chatSlashCommands.js';
+import { parseChatSlashCommand, splitWatchArgs, CHAT_SLASH_COMMANDS, SLASH_COMMAND_FILE_NAME_CHARS, findChatCommandSpans } from '../../../../common/chatSlashCommands.js';
 import { BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
 import { approvalTypeOfBuiltinToolName } from '../../../../common/prompt/tools/index.js';
 import { CopyButton, EditToolAcceptRejectButtonsHTML, IconShell1, JumpToFileButton, JumpToTerminalButton, StatusIndicator, StatusIndicatorForApplyButton, useApplyStreamState, useEditToolStreamState } from '../markdown/ApplyBlockHoverButtons.js';
@@ -49,6 +49,8 @@ import { chatDiffCountLabel, chatFilesWithChangesLabel, chatModeDetail, chatMode
 
 import { persistentTerminalNameOfId } from '../../../terminalToolService.js';
 import { removeMCPToolNamePrefix } from '../../../../common/mcpServiceTypes.js';
+import { effortWithinValues } from '../../../../common/reasoningEffortLevel.js';
+import { VibeMcpAppHost, IVibeMcpAppData, MCP_APP_DEFAULT_HEIGHT } from '../../../../browser/mcpAppHost.js';
 import { trackRenderLoop } from '../util/renderLoopGuard.js';
 import type { ProviderRefusalDiagnostics } from '../../../../common/sendLLMMessageTypes.js';
 import { useImageAttachments } from '../util/useImageAttachments.js';
@@ -492,7 +494,8 @@ const ReasoningOptionSlider = ({ featureName }: { featureName: FeatureName }) =>
 		const min = canTurnOffReasoning ? -1 : 0;
 		const max = values.length - 1;
 
-		const currentEffort = vibeSettingsState.optionsOfModelSelection[featureName][modelSelection.providerName]?.[modelSelection.modelName]?.reasoningEffort ?? defaultVal;
+		// The same level the request sends: a stored level the model lacks is shown as the one it becomes, not as «off».
+		const currentEffort = effortWithinValues(vibeSettingsState.optionsOfModelSelection[featureName][modelSelection.providerName]?.[modelSelection.modelName]?.reasoningEffort, values, defaultVal);
 		const valueIfOff = -1;
 		const value = isReasoningEnabled && currentEffort ? values.indexOf(currentEffort) : valueIfOff;
 
@@ -2379,13 +2382,11 @@ const SimplifiedToolHeader = ({
 };
 
 
-// Highlights `/skill:name` and the built-in chat commands (`/watch`, `/commit`) inline.
-// Matches only when the slash starts the message or follows whitespace — avoids false
-// positives on paths (`/usr/bin`), URLs, or code fragments. Built-in names come from the
-// CHAT_SLASH_COMMANDS catalog so the pill list can never drift from what actually parses;
-// any other `/foo` is intentionally NOT highlighted to avoid promising behavior that
-// won't fire. Returns alternating plain-string and pill spans; rendered text is identical.
-const SLASH_COMMAND_RE = new RegExp(`(^|\\s)(\\/skill:[\\w.-]+|\\/(?:${CHAT_SLASH_COMMANDS.map(c => c.name).join('|')})\\b)`, 'g');
+// Highlights `/skill:name` and a chat command at the very start of the message — where the
+// commands actually work (mid-sentence, `/docs` is a path). The spans come from
+// findChatCommandSpans (chatSlashCommands.ts), built from the command catalogs, so the pills never
+// drift from what actually parses and the input overlay (util/inputs.tsx) marks the same text.
+// Returns alternating plain-string and pill spans; rendered text is identical.
 // Inline fallback for builds where vibeide.css hasn't been re-bundled. Inline wins
 // specificity and matches what util/inputs.tsx ships for the input overlay.
 // Geometry-neutral outline: same shape as the overlay version, no border/padding so
@@ -2399,21 +2400,23 @@ const SKILL_PILL_INLINE_STYLE: React.CSSProperties = {
 };
 const renderWithSkillHighlights = (text: string): React.ReactNode => {
 	if (!text || !text.includes('/')) {return text;}
+	const spans = findChatCommandSpans(text);
+	if (spans.length === 0) {return text;}
 	const out: React.ReactNode[] = [];
 	let lastIdx = 0;
-	let m: RegExpExecArray | null;
-	SLASH_COMMAND_RE.lastIndex = 0;
-	while ((m = SLASH_COMMAND_RE.exec(text)) !== null) {
-		const [, leading, cmd] = m;
-		const cmdStart = m.index + leading.length;
-		if (cmdStart > lastIdx) {out.push(text.slice(lastIdx, cmdStart));}
-		out.push(<span key={cmdStart} className="vibe-skill-pill" style={SKILL_PILL_INLINE_STYLE}>{cmd}</span>);
-		lastIdx = cmdStart + cmd.length;
+	for (const { start, end } of spans) {
+		if (start > lastIdx) {out.push(text.slice(lastIdx, start));}
+		out.push(<span key={start} className="vibe-skill-pill" style={SKILL_PILL_INLINE_STYLE}>{text.slice(start, end)}</span>);
+		lastIdx = end;
 	}
-	if (lastIdx === 0) {return text;}
 	if (lastIdx < text.length) {out.push(text.slice(lastIdx));}
 	return <>{out}</>;
 };
+
+// Bare-`/` menu: what may follow the slash while the menu stays open — a command name and, for
+// `/my:` and `/workflow:`, the colon and a file name (SLASH_COMMAND_FILE_NAME_CHARS).
+const SLASH_MENU_TRIGGER_RE = new RegExp(`^\\s*\\/([:${SLASH_COMMAND_FILE_NAME_CHARS}]*)$`, 'u');
+const SLASH_MENU_INSERT_RE = new RegExp(`\\/[:${SLASH_COMMAND_FILE_NAME_CHARS}]*$`, 'u');
 
 
 const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, currCheckpointIdx, _scrollToBottom }: { chatMessage: ChatMessage & { role: 'user' }; messageIdx: number; currCheckpointIdx: number | undefined; isCheckpointGhost: boolean; _scrollToBottom: (() => void) | null }) => {
@@ -2962,6 +2965,7 @@ const titleOfBuiltinToolName = {
 	'search_in_file': { done: 'Searched in file', proposed: 'Search in file', running: loadingTitleWrapper('Searching in file') },
 	'web_search': { done: 'Searched the web', proposed: 'Search the web', running: loadingTitleWrapper('Searching the web') },
 	'browse_url': { done: 'Fetched web page', proposed: 'Fetch web page', running: loadingTitleWrapper('Fetching web page') },
+	'extract_structured': { done: 'Извлёк данные по схеме', proposed: 'Извлечь данные по схеме', running: loadingTitleWrapper('Извлекает данные по схеме') },
 	'vibe_complete': { done: 'Завершил ход', proposed: 'Завершить ход', running: loadingTitleWrapper('Завершает ход') },
 
 	'glob': { done: 'Нашёл файлы по маске', proposed: 'Найти файлы по маске', running: loadingTitleWrapper('Ищет файлы по маске') },
@@ -2991,6 +2995,7 @@ const titleOfBuiltinToolName = {
 	'expand_output': { done: 'Развернул свёрнутый вывод', proposed: 'Развернуть свёрнутый вывод', running: loadingTitleWrapper('Разворачивает вывод') },
 	'learning_state': { done: 'Посмотрел прогресс обучения', proposed: 'Посмотреть прогресс обучения', running: loadingTitleWrapper('Смотрит прогресс обучения') },
 	'learning_record': { done: 'Записал след урока', proposed: 'Записать след урока', running: loadingTitleWrapper('Записывает след урока') },
+	'tasks': { done: 'Поработал со списком задач', proposed: 'Поработать со списком задач', running: loadingTitleWrapper('Работает со списком задач') },
 } as const satisfies Record<BuiltinToolName, { done: any; proposed: any; running: any }>;
 
 
@@ -3149,6 +3154,13 @@ const toolNameToDesc = (toolName: BuiltinToolName, _toolParams: BuiltinToolCallP
 		},
 		'browse_url': () => {
 			const toolParams = _toolParams as BuiltinToolCallParams['browse_url'];
+			return {
+				desc1: toolParams.url,
+				desc1Info: new URL(toolParams.url).hostname,
+			};
+		},
+		'extract_structured': () => {
+			const toolParams = _toolParams as BuiltinToolCallParams['extract_structured'];
 			return {
 				desc1: toolParams.url,
 				desc1Info: new URL(toolParams.url).hostname,
@@ -3459,8 +3471,36 @@ const CommandTool = ({ toolMessage, type, threadId }: { threadId: string } & ({
 };
 
 type WrapperProps<T extends ToolName> = { toolMessage: Exclude<ToolMessage<T>, { type: 'invalid_params' }>; messageIdx: number; threadId: string };
+
+/** An MCP App rendered under its tool result; the host owns the webview and the protocol. */
+const McpAppFrame = ({ data, callId }: { data: IVibeMcpAppData; callId: string }) => {
+	const accessor = useAccessor();
+	const instantiationService = accessor.get('IInstantiationService');
+	const containerRef = useRef<HTMLDivElement>(null);
+	const [height, setHeight] = useState(MCP_APP_DEFAULT_HEIGHT);
+	const [error, setError] = useState<string | undefined>(undefined);
+
+	useEffect(() => {
+		if (!containerRef.current) { return; }
+		const host = instantiationService.createInstance(VibeMcpAppHost, containerRef.current, data);
+		const heightListener = host.onDidChangeHeight(setHeight);
+		const failListener = host.onDidFail(setError);
+		return () => {
+			heightListener.dispose();
+			failListener.dispose();
+			host.dispose();
+		};
+		// One host per tool call: the data of a finished call does not change.
+	}, [callId]);
+
+	return <div className='w-full'>
+		{error !== undefined && <div className='text-vibe-fg-3 text-xs px-1 py-1'>{`Приложение MCP не открылось: ${error}`}</div>}
+		<div ref={containerRef} className='w-full relative' style={{ height: error !== undefined ? 0 : height }} />
+	</div>;
+};
+
 /** Renders any tool without a bespoke wrapper: every MCP tool, plus built-ins not listed in `builtinToolNameToComponent`. */
-const GenericToolWrapper = ({ toolMessage }: WrapperProps<string>) => {
+const GenericToolWrapper = ({ toolMessage, threadId }: WrapperProps<string>) => {
 	const accessor = useAccessor();
 	const mcpService = accessor.get('IMCPService');
 
@@ -3500,6 +3540,24 @@ const GenericToolWrapper = ({ toolMessage }: WrapperProps<string>) => {
 
 	// Add copy inputs button in desc2
 
+
+	const appResourceUri = toolMessage.type === 'success' && toolMessage.mcpServerName ? mcpService.getAppResourceUri(toolMessage.mcpServerName, toolMessage.name) : undefined;
+
+	if (toolMessage.type === 'success' && appResourceUri && toolMessage.mcpServerName) {
+		const result = toolMessage.result as { callResult?: IVibeMcpAppData['callResult'] } | null;
+		const appData: IVibeMcpAppData = {
+			serverName: toolMessage.mcpServerName,
+			toolName: removeMCPToolNamePrefix(toolMessage.name),
+			resourceUri: appResourceUri,
+			input: (params ?? undefined) as Record<string, unknown> | undefined,
+			callResult: result?.callResult,
+			threadId,
+		};
+		componentParams.children = <ToolChildrenWrapper>
+			<McpAppFrame data={appData} callId={toolMessage.id} />
+		</ToolChildrenWrapper>;
+		return <ToolHeaderWrapper {...componentParams} isOpen={true} />;
+	}
 
 	if (toolMessage.type === 'success' || toolMessage.type === 'tool_request') {
 		const { result } = toolMessage;
@@ -4138,6 +4196,56 @@ const builtinToolNameToComponent: { [T in BuiltinToolName]?: { resultWrapper: Re
 						</div>
 					</ToolChildrenWrapper>;
 				}
+			}
+			else if (toolMessage.type === 'tool_error') {
+				const { result } = toolMessage;
+				componentParams.bottomChildren = <BottomChildren title={chatS.bottomChildrenError}>
+					<CodeChildren>
+						{result}
+					</CodeChildren>
+				</BottomChildren>;
+			}
+
+			return <ToolHeaderWrapper {...componentParams} />;
+		},
+	},
+	'extract_structured': {
+		resultWrapper: ({ toolMessage }) => {
+			const accessor = useAccessor();
+			const title = getTitle(toolMessage);
+			const { desc1, desc1Info } = toolNameToDesc(toolMessage.name, toolMessage.params, accessor);
+			const icon = null;
+
+			if (toolMessage.type === 'tool_request') { return null; } // do not show past requests
+			if (toolMessage.type === 'running_now') {
+				const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError: false, icon, isRejected: false };
+				componentParams.children = <ToolChildrenWrapper>
+					<div className='flex items-center gap-2 text-sm text-vibe-fg-3'>
+						<IconLoading state="processing" inline />
+						<span>Загружает страницу и извлекает поля по схеме…</span>
+					</div>
+				</ToolChildrenWrapper>;
+				return <ToolHeaderWrapper {...componentParams} />;
+			}
+
+			const isRejected = toolMessage.type === 'rejected';
+			const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError: false, icon, isRejected };
+
+			if (toolMessage.type === 'success') {
+				const { result } = toolMessage;
+				componentParams.info = `Модель: ${result.model}`;
+				componentParams.children = <ToolChildrenWrapper>
+					<div className='space-y-2'>
+						{result.truncated && (
+							<div className='text-xs text-vibe-fg-3'>
+								Страница была длиннее окна модели и обрезана — поля из её конца могли не попасть.
+							</div>
+						)}
+						<div className='text-sm text-vibe-fg-2 whitespace-pre-wrap font-mono max-h-96 overflow-y-auto border border-vibe-border-2 bg-vibe-bg-3 rounded p-3'>
+							{JSON.stringify(result.data, null, 2)}
+						</div>
+					</div>
+				</ToolChildrenWrapper>;
 			}
 			else if (toolMessage.type === 'tool_error') {
 				const { result } = toolMessage;
@@ -5517,6 +5625,17 @@ export const SidebarChat = () => {
 		setInstructionsAreEmpty(!saved);
 	}, [chatThreadsState.currentThreadId]);
 
+	// Text an MCP App offered for this thread (`ui/message`): shown in the composer, never sent.
+	useEffect(() => {
+		const listener = chatThreadsService.onDidOfferThreadDraft(({ threadId, text }) => {
+			if (threadId !== chatThreadsState.currentThreadId) { return; }
+			textAreaFnsRef.current?.setValue(text);
+			setInstructionsAreEmpty(false);
+			textAreaRef.current?.focus();
+		});
+		return () => listener.dispose();
+	}, [chatThreadsState.currentThreadId]);
+
 	// ── Per-tab chat config (model / mode / autopilot / iterations) ──────────────────────────────
 	// Each chat tab keeps its own config. SidebarChat is keyed by thread (see Sidebar.tsx), so this
 	// instance == one tab: on mount we APPLY the tab's saved config to the global stores (or snapshot
@@ -6499,11 +6618,12 @@ export const SidebarChat = () => {
 	// ----- slash autocomplete ------------------------------------------------------
 	// One drop-down, two sources. `/skill:` lists available skills sorted MRU-first (via
 	// vibeSkillsLibraryService.getRecentSkills); a bare `/` at the start of the message
-	// lists the built-in chat commands (CHAT_SLASH_COMMANDS: /watch, /commit) plus a
-	// `/skill:` entry that chains into the skills menu. Filter-as-you-type, arrow/Tab/
-	// Enter to insert, Escape to dismiss. The trigger is detected from text-before-cursor
-	// on every onChangeText; we re-derive open state rather than tracking it imperatively
-	// so it always reflects current cursor context.
+	// lists the chat commands — the ones the IDE runs itself (CHAT_SLASH_COMMANDS: /watch,
+	// /shot) and the prompt commands of the command service (/simplify, /commit …, the
+	// project's /my: and /workflow: files) — plus a `/skill:` entry that chains into the
+	// skills menu. Filter-as-you-type, arrow/Tab/Enter to insert, Escape to dismiss. The
+	// trigger is detected from text-before-cursor on every onChangeText; we re-derive open
+	// state rather than tracking it imperatively so it always reflects current cursor context.
 	type SkillCmd = { name: string; description: string; category: 'skill' | 'builtin' };
 	const [skillCmds, setSkillCmds] = useState<SkillCmd[]>([]);
 	const [skillMenuOpen, setSkillMenuOpen] = useState(false);
@@ -6552,7 +6672,27 @@ export const SidebarChat = () => {
 		el?.scrollIntoView({ block: 'nearest' });
 	}, [skillIdx, skillMenuOpen]);
 
-	// Built-in chat commands for the bare-`/` menu. The `/skill:` entry has no trailing
+	// Prompt commands for the bare-`/` menu — the built-ins (/simplify, /commit …) and the project's
+	// /my: prompts and /workflow: files. Loaded when that menu opens rather than on every keystroke:
+	// the list reads `.vibe/prompts` and `.vibe/workflows` from disk.
+	const [promptCmds, setPromptCmds] = useState<SkillCmd[]>([]);
+	const loadPromptCmds = useCallback(() => {
+		const slashSvc = accessor.get('IVibeSlashCommandService');
+		if (!slashSvc) {return;}
+		slashSvc.getCommands().then(cmds => {
+			setPromptCmds(cmds
+				.filter(c => c.category !== 'skill')
+				.map(c => ({ name: c.name, description: c.description, category: 'builtin' as const })));
+		}).catch(() => { /* service not ready — the menu keeps the IDE's own commands */ });
+	}, [accessor]);
+
+	useEffect(() => {
+		if (skillMenuOpen && slashMenuKind === 'builtin') {
+			loadPromptCmds();
+		}
+	}, [skillMenuOpen, slashMenuKind, loadPromptCmds]);
+
+	// Chat commands for the bare-`/` menu. The `/skill:` entry has no trailing
 	// space on insert, so picking it immediately re-triggers the skills menu.
 	const builtinSlashCmds = useMemo<SkillCmd[]>(() => [
 		...CHAT_SLASH_COMMANDS.map(c => ({
@@ -6560,8 +6700,9 @@ export const SidebarChat = () => {
 			description: c.argsHint ? `${c.argsHint} — ${c.description}` : c.description,
 			category: 'builtin' as const,
 		})),
+		...promptCmds,
 		{ name: 'skill:', description: 'Вызвать навык из .vibe/skills', category: 'builtin' as const },
-	], []);
+	], [promptCmds]);
 
 	// Filtered list shown in dropdown (source depends on which trigger opened the menu).
 	const filteredSkillCmds = useMemo(() => {
@@ -6579,7 +6720,7 @@ export const SidebarChat = () => {
 		const cursorPos = ta.selectionStart;
 		const before = text.slice(0, cursorPos);
 		const after = text.slice(cursorPos);
-		const trigger = cmd.category === 'builtin' ? /\/[\w-]*$/.exec(before) : /\/skill:([\w.-]*)$/.exec(before);
+		const trigger = cmd.category === 'builtin' ? SLASH_MENU_INSERT_RE.exec(before) : /\/skill:([\w.-]*)$/.exec(before);
 		if (!trigger) {return;}
 		const insertion = '/' + cmd.name + (cmd.name.endsWith(':') ? '' : ' ');
 		const newText = before.slice(0, trigger.index) + insertion + after;
@@ -6610,7 +6751,7 @@ export const SidebarChat = () => {
 		const cursorPos = ta.selectionStart;
 		const before = newStr.slice(0, cursorPos);
 		const m = /\/skill:([\w.-]*)$/.exec(before);
-		const mBuiltin = m ? null : /^\s*\/([\w-]*)$/.exec(before);
+		const mBuiltin = m ? null : SLASH_MENU_TRIGGER_RE.exec(before);
 		if (m || mBuiltin) {
 			if (m) {
 				loadSkillCmds(); // refresh on open so late-seeded/changed skills appear (cached → cheap)

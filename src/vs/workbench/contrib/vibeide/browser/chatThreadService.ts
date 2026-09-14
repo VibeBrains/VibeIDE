@@ -85,7 +85,7 @@ import { IAuditLogService } from '../common/auditLogService.js';
 import { IVibeToolContextCostService } from './vibeToolContextCostService.js';
 import { IVibeAgentActivityLogService } from './vibeAgentActivityLogService.js';
 import { IVibeLLMJudgeService } from '../common/vibeLLMJudgeService.js';
-import { IVibePersistedPlanService } from '../common/vibePersistedPlanService.js';
+import { IVibePersistedPlanService, PlannedModel, mergeServedModels } from '../common/vibePersistedPlanService.js';
 import { IVibeSubagentService } from '../common/vibeSubagentService.js';
 import { IVibeVerifyGateService } from './vibeVerifyGateService.js';
 import { decideVerifyGate } from '../common/verifyGatePolicy.js';
@@ -120,6 +120,13 @@ import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IVibeWorkspaceSnapshotService } from '../common/vibeideSCMTypes.js';
 import { checkpointCoverage, isShellToolName } from '../common/checkpointCoverage.js';
 import { buildToolCallAudit, ToolCallAuditInput } from '../common/toolCallAudit.js';
+import { isModelSubstituted } from '../common/modelEcho.js';
+
+/**
+ * Пары «просили → ответила», о которых уже сказано в этом окне. Строка о подмене модели полезна один
+ * раз: на каждом ходе она превратилась бы в шум, который перестают читать.
+ */
+const saidModelSubstituted = new Set<string>();
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IVibeTokenCostForecastService } from '../common/vibeTokenCostForecastService.js';
 import {
@@ -642,6 +649,13 @@ export interface IChatThreadService {
 	/** Per-thread composer draft (in-memory). Lets each open chat tab keep its own unsent input across tab switches. */
 	getThreadDraft(threadId: string): string;
 	setThreadDraft(threadId: string, text: string): void;
+	/**
+	 * Put text into a thread's composer from outside the composer (an MCP App's `ui/message`). Never
+	 * sends and never overwrites: a draft the user is typing wins, and the offer reports it was refused.
+	 */
+	offerThreadDraft(threadId: string, text: string): boolean;
+	/** Fires when {@link offerThreadDraft} placed text, so the mounted composer shows it. */
+	readonly onDidOfferThreadDraft: Event<{ threadId: string; text: string }>;
 	/** Per-tab chat config snapshot (model/mode/autopilot/iterations), persisted with the thread. */
 	setThreadChatConfig(threadId: string, cfg: ThreadChatConfig): void;
 
@@ -802,6 +816,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	private _xmlRepairFiredNotified = false;
 
 	// this fires when the current thread changes at all (a switch of currentThread, or a message added to it, etc)
+	private readonly _onDidOfferThreadDraft = new Emitter<{ threadId: string; text: string }>();
+	readonly onDidOfferThreadDraft: Event<{ threadId: string; text: string }> = this._onDidOfferThreadDraft.event;
 	private readonly _onDidChangeCurrentThread = new Emitter<void>();
 	readonly onDidChangeCurrentThread: Event<void> = this._onDidChangeCurrentThread.event;
 
@@ -1372,6 +1388,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	}
 
 
+	/** True when some OTHER thread is still mid-turn — its grants must not be dropped with this one. */
+	private _anyThreadStillRunning(exceptThreadId: string): boolean {
+		return Object.entries(this.streamState).some(([id, s]) => id !== exceptThreadId && s?.isRunning !== undefined);
+	}
+
 	private _setStreamState(threadId: string, state: ThreadStreamState[string]) {
 		const prior = this.streamState[threadId];
 		this.streamState[threadId] = state;
@@ -1401,6 +1422,13 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			// path — a turn also ends by interrupt, by error and by the user pressing stop, and the
 			// weights left live after any of those would be charged to the NEXT turn.
 			this._toolContextCostService.noteTurnEnd(threadId);
+			// Folder grants issued «на задачу» end with the task. Only a fully finished turn counts —
+			// 'idle' parks a thread BETWEEN calls of the same turn, and dropping the grant there would
+			// make the agent ask again in the middle of the work it was granted access for. Другие
+			// треды тоже учитываются: разрешение выдано агенту, а не вкладке.
+			if (state?.isRunning === undefined && !this._anyThreadStillRunning(threadId)) {
+				this._externalAccessService.endRunScope();
+			}
 		}
 
 		// Clear the submit-level watchdog only when the stream has truly reached the
@@ -2137,11 +2165,18 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		}
 		let written: { planId: string; uri: URI } | undefined;
 		try {
+			// The model the plan is approved on travels with the plan, so a resume after a restart can
+			// say when it continues on a different one. `auto` names no model and records nothing.
+			const chatModel = this._settingsService.state.modelSelectionOfFeature['Chat'];
+			const plannedModel = chatModel && chatModel.providerName !== 'auto'
+				? { provider: chatModel.providerName, model: chatModel.modelName }
+				: undefined;
 			written = await this._persistedPlanService.writeApprovedAgentPlan({
 				workspaceFolder,
 				threadId: params.threadId,
 				messageIdx: params.messageIdx,
 				plan: params.plan,
+				plannedModel,
 			});
 		} catch (e) {
 			if (e instanceof Error && e.message.includes('Plan file blocked')) {
@@ -2835,11 +2870,19 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				planId: updatedPlan.persistedPlanId,
 				plan: updatedPlan,
 				status: anyFailed ? 'failed' : 'completed',
+				servedModels: this._servedModelsOfThread.get(threadId),
 			});
 		}
 		this._taskDecompositionService.clearPersistedPlanTask(threadId);
 		this._planCache.delete(threadId);
 		this._generateReviewMessage(threadId, updatedPlan);
+	}
+
+	/** Models that answered per thread, handed to the persisted plan on its next write. */
+	private readonly _servedModelsOfThread = new Map<string, PlannedModel[]>();
+
+	private _rememberServedModel(threadId: string, served: PlannedModel): void {
+		this._servedModelsOfThread.set(threadId, mergeServedModels(this._servedModelsOfThread.get(threadId), [served]));
 	}
 
 	private _markStepCompletedInternal(threadId: string, currentStep: { plan: PlanMessage; planIdx: number; step: PlanStep; stepIdx: number }, succeeded: boolean, error?: string): { plan: PlanMessage; planIdx: number; step: PlanStep; stepIdx: number } | undefined {
@@ -2887,6 +2930,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					planId: progPlanInfo.plan.persistedPlanId,
 					plan: progPlanInfo.plan,
 					status: 'running',
+					servedModels: this._servedModelsOfThread.get(threadId),
 				});
 			}
 		}
@@ -4397,6 +4441,12 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						// and on approval re-validate (the folder is now in the allowlist). On deny,
 						// rethrow so the normal validation-error path reports the refusal.
 						if (e instanceof ExternalAccessRequiredError) {
+							// Revoked mid-run: say so in the error the model reads. "Requires
+							// authorization" invites another attempt at the same path; "the user
+							// took this folder away" is a fact the run can act on.
+							if (this._externalAccessService.isRevoked(e.uri)) {
+								throw new Error(localize('vibeide.externalAccess.revokedDuringRun', "Доступ к этой папке отозван пользователем во время прогона: {0}. Продолжайте без неё и не запрашивайте доступ снова.", e.uri.fsPath));
+							}
 							const granted = await this._externalAccessService.requestAccess(e.uri);
 							if (!granted) { throw e; }
 							params = this._toolsService.validateParams[toolName](opts.unvalidatedToolParams);
@@ -4662,7 +4712,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		vibeLog.debug('toolExec', 'start', { tool: toolName, hint: _toolHint, mcp: mcpServerName ?? null }); recordChatTrace('toolExec:start', { tool: toolName, hint: _toolHint });
 		// Audit the access itself: until now the only record that the agent touched the machine lived
 		// in the debug trace, which is not retained and not covered by the log's export/erase pair.
-		this._auditToolCall('tool_call:start', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, true, threadId);
+		// Один span на вызов: старт и итог одной записи связываются им, а `toolId` — то, с чем позже
+		// можно сопоставить системный лог. Оба идентификатора — не аргументы инструмента.
+		const toolSpanId = generateUuid();
+		this._auditToolCall('tool_call:start', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, true, threadId, undefined, { toolCallId: toolId, spanId: toolSpanId });
 
 		let interrupted = false;
 		let resolveInterruptor: (r: () => void) => void = () => { };
@@ -4783,7 +4836,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			const errorMessage = getErrorMessage(error);
 			this._agentActivityLog.logError(`${toolActivityLabel}: ${errorMessage}`);
 			vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false });
-			this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, false, threadId, Date.now() - _toolExecStartMs);
+			this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, false, threadId, Date.now() - _toolExecStartMs, { toolCallId: toolId, spanId: toolSpanId });
 			// A failed edit leaves the cache stale in the one case that matters: the tool refused
 			// BECAUSE the file changed under the agent. Invalidation used to live past the try/catch,
 			// so an error returned before it ran — the agent was then told to re-read, got the cached
@@ -4818,7 +4871,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			const errorMessage = this.toolErrMsgs.errWhenStringifying(error);
 			this._agentActivityLog.logError(`${toolActivityLabel}: stringify ${errorMessage}`);
 			vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: false });
-			this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, false, threadId, Date.now() - _toolExecStartMs);
+			this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, false, threadId, Date.now() - _toolExecStartMs, { toolCallId: toolId, spanId: toolSpanId });
 			// A failed edit leaves the cache stale in the one case that matters: the tool refused
 			// BECAUSE the file changed under the agent. Invalidation used to live past the try/catch,
 			// so an error returned before it ran — the agent was then told to re-read, got the cached
@@ -4856,7 +4909,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 			&& (toolResult as { resolveReason?: TerminalResolveReason }).resolveReason?.type === 'timeout';
 		const _toolOk = !_foregroundTerminalTimedOut;
 		vibeLog.debug('toolExec', 'done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: _toolOk }); recordChatTrace('toolExec:done', { tool: toolName, ms: Date.now() - _toolExecStartMs, ok: _toolOk });
-		this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, _toolOk, threadId, Date.now() - _toolExecStartMs);
+		this._auditToolCall('tool_call:done', { toolName, params: toolParams as Record<string, unknown> | undefined, mcpServerName }, _toolOk, threadId, Date.now() - _toolExecStartMs, { toolCallId: toolId, spanId: toolSpanId });
 		this._updateLatestTool(threadId, { role: 'tool', type: 'success', params: toolParams, result: toolResult, name: toolName, content: toolResultStr, id: toolId, rawParams: opts.unvalidatedToolParams, mcpServerName });
 		this._agentActivityLog.logFinished(toolActivityLabel);
 		// What this result will cost from here on. Measured after compression and hook notes, because
@@ -6348,7 +6401,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: fullText, reasoningSoFar: fullReasoning, toolCallSoFar: toolCall ?? null }, interrupt: Promise.resolve(() => { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } }) });
 						});
 					},
-					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage, providerQuota }) => {
+					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage, providerQuota, answeredModel, systemFingerprint }) => {
 						vibeLog.debug('llmTurn', 'done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null, textLen: fullText?.length ?? 0, reasoningLen: fullReasoning?.length ?? 0 }); recordChatTrace('llmTurn:done', { turn: traceTurn, afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null });
 						// Mark message as done to prevent late onText updates
 						messageIsDone = true;
@@ -6382,6 +6435,50 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							}
 						}
 
+						// Кто ответил на самом деле. Прокси, агрегатор и запасная цель подменяют модель молча, а счёт
+						// считается по запрошенной — поэтому расхождение называется вслух. В ленте один раз на пару
+						// «просили → ответила» за окно: повтор на каждый ход научил бы эту строку не читать. В журнал
+						// пишется каждый случай — там нужна история, а не заголовок.
+						if (answeredModel && modelSelection && isModelSubstituted(modelSelection.modelName, answeredModel)) {
+							const pair = `${modelSelection.providerName}:${modelSelection.modelName}→${answeredModel}`;
+							if (!saidModelSubstituted.has(pair)) {
+								saidModelSubstituted.add(pair);
+								this.addAssistantNotice(threadId, [
+									'**Ответила другая модель**',
+									`Просили: \`${modelSelection.modelName}\``,
+									`Ответила: \`${answeredModel}\``,
+									'Счёт считается по запрошенной — у прокси, агрегатора и запасной цели это обычное дело',
+								].join('\n\n'));
+							}
+							if (this._auditLogService.isEnabled()) {
+								void this._auditLogService.append({
+									ts: Date.now(),
+									actor: 'system',
+									action: 'model_substituted',
+									ok: true,
+									model: modelSelection.modelName,
+									meta: { answeredModel, providerName: modelSelection.providerName },
+								});
+							}
+						}
+
+						// Every turn, not only a mismatch: under the same model name a different backend shows only in the
+						// fingerprint, and a plan has to know who actually did its steps.
+						if (answeredModel && modelSelection) {
+							this._rememberServedModel(threadId, { provider: modelSelection.providerName, model: answeredModel });
+							if (this._auditLogService.isEnabled()) {
+								void this._auditLogService.append({
+									ts: Date.now(),
+									actor: 'system',
+									action: 'llm_turn',
+									ok: true,
+									traceId: threadId,
+									model: modelSelection.modelName,
+									meta: { providerName: modelSelection.providerName, answeredModel, ...(systemFingerprint ? { systemFingerprint } : {}) },
+								}).catch(() => { });
+							}
+						}
+
 						// Spend ledger: what this exchange actually cost, kept per day × provider × model so the
 						// provider panel can answer "where did the money go" after a restart. Price comes from the
 						// capabilities catalogue; an unknown price is recorded as unknown, never as free.
@@ -6396,6 +6493,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 										inputTokens: usage.promptTokens ?? 0,
 										outputTokens: usage.completionTokens ?? 0,
 										cachedInputTokens: usage.cachedInputTokens ?? 0,
+										cacheWriteTokens: usage.cacheWriteTokens ?? 0,
 										price: capabilities.cost,
 									});
 								} catch (err) {
@@ -8697,13 +8795,21 @@ We only need to do it for files that were edited since `from`, ie files between 
 		ok: boolean,
 		threadId: string,
 		latencyMs?: number,
+		ids?: { readonly toolCallId: string; readonly spanId: string },
 	): void {
 		if (!this._auditLogService.isEnabled()) { return; }
 		const { files, meta } = buildToolCallAudit(input);
 		// `actorId` is the thread: it is what ties the agent's action back to the person who asked
 		// for it. Without it the log says «an agent edited this file» and stops there — and the one
 		// question worth asking afterwards is on whose behalf.
-		void this._auditLogService.append({ actor: 'agent', actorId: threadId, ts: Date.now(), action, ok, files, latencyMs, meta })
+		// `traceId` is the thread, `spanId` the same for the start and the done of one call: that pair is
+		// what makes the journal readable when two tools overlap, and the model's own `toolCallId` is what
+		// a system log can be matched against later.
+		void this._auditLogService.append({
+			actor: 'agent', actorId: threadId, ts: Date.now(), action, ok, files, latencyMs, meta,
+			traceId: threadId,
+			...(ids ? { spanId: ids.spanId, toolCallId: ids.toolCallId } : {}),
+		})
 			.catch(() => { /* audit is observation, not control flow */ });
 	}
 
@@ -9696,6 +9802,12 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 	setThreadDraft(threadId: string, text: string): void {
 		if (text) { this._threadDrafts.set(threadId, text); } else { this._threadDrafts.delete(threadId); }
+	}
+	offerThreadDraft(threadId: string, text: string): boolean {
+		if (!text.trim() || this.getThreadDraft(threadId).trim()) { return false; }
+		this._threadDrafts.set(threadId, text);
+		this._onDidOfferThreadDraft.fire({ threadId, text });
+		return true;
 	}
 
 	setThreadChatConfig(threadId: string, cfg: ThreadChatConfig): void {

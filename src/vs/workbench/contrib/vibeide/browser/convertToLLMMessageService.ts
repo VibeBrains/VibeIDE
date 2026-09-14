@@ -90,11 +90,13 @@ import { URI } from '../../../../base/common/uri.js';
 import { EndOfLinePreference } from '../../../../editor/common/model.js';
 import { ToolName } from '../common/toolsServiceTypes.js';
 import { IMCPService } from '../common/mcpService.js';
+import { memoryProjectPromptLines } from '../common/vibeMemoryProject.js';
 import { IRepoIndexerService, QueryMetrics } from './repoIndexerService.js';
 import { IVibeDocsGraphService } from './vibeDocsGraphService.js';
 import { IMemoriesService } from '../common/memoriesService.js';
 import { IVibeSkillsLibraryService } from '../common/vibeSkillsLibraryService.js';
-import { IVibeSlashCommandService } from '../common/vibeSlashCommandService.js';
+import { IVibeSlashCommandService, buildCommandInvocationBlock } from '../common/vibeSlashCommandService.js';
+import { parsePromptSlashInvocation } from '../common/chatSlashCommands.js';
 import { IAuditLogService } from '../common/auditLogService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { VIBE_DOTVIBE_AGENT_PLAYBOOK } from '../common/vibeDotVibeAgentPlaybook.js';
@@ -1706,6 +1708,12 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		}
 	}
 
+	/** VibeMemory project lines for the open folders; the memory server is the only authority on the name. */
+	private async _memoryProjects(workspaceFolders: readonly string[]): Promise<string | undefined> {
+		const answers = await Promise.all(workspaceFolders.map(async folder => ({ folder, answer: await this.mcpService.resolveMemoryProject(folder) })));
+		return memoryProjectPromptLines(answers);
+	}
+
 	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined, providerName?: string, modelName?: string) => {
 		const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
 
@@ -1717,7 +1725,9 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// Create cache key from relevant factors. modelFamily is folded in so that
 		// future family-specific prompt branches don't bleed across providers.
 		const minimalismMode = this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite';
-		const cacheKey = `${chatMode}|${specialToolFormat}|${providerName ?? ''}|${modelName ?? ''}|${workspaceFolders.join(',')}|${openedURIs.join(',')}|${activeURI || ''}|pj:${preferJsonToolArguments}|min:${minimalismMode}`;
+		// Part of the key: a folder the memory server has just named must not keep a prompt built without it.
+		const memoryProjects = await this._memoryProjects(workspaceFolders);
+		const cacheKey = `${chatMode}|${specialToolFormat}|${providerName ?? ''}|${modelName ?? ''}|${workspaceFolders.join(',')}|${openedURIs.join(',')}|${activeURI || ''}|pj:${preferJsonToolArguments}|min:${minimalismMode}|mem:${memoryProjects ?? ''}`;
 
 		// Check cache
 		const cached = this._systemMessageCache.get(cacheKey);
@@ -1780,7 +1790,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// start trimming a frontier model. `providerName`/`modelName` are already part of the cache
 		// key above, so a per-model budget cannot leak into another model's cached prompt.
 		const budgets = this._promptBudgets(providerName, modelName);
-		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, modelFamily, ...budgets });
+		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode, modelFamily, memoryProjects, ...budgets });
 
 		// Cache the result
 		this._systemMessageCache.set(cacheKey, { message: systemMessage, timestamp: now });
@@ -2103,7 +2113,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				}
 			}
 
-			systemMessage = chat_systemMessage_local({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', modelFamily , ...this._promptBudgets(providerName, modelName) });
+			const memoryProjects = await this._memoryProjects(workspaceFolders);
+			systemMessage = chat_systemMessage_local({ memoryProjects, workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, relevantMemories, strictJsonToolArguments: preferJsonToolArguments, minimalismMode: this.vibeideSettingsService.state.globalSettings.minimalismMode ?? 'lite', modelFamily , ...this._promptBudgets(providerName, modelName) });
 		} else {
 			// Use full system message for cloud models
 			systemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat, validProviderName, modelName);
@@ -2219,6 +2230,21 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const lastUserTextForSkills = typeof lastUserForSkills?.content === 'string' ? lastUserForSkills.content : '';
 		const skillsDiscovery = await this.skillsLibraryService.getDiscoveryText(chatMode);
 		const implicitSkills = await this.skillsLibraryService.getImplicitSkillRetrievalHints(lastUserTextForSkills, chatMode);
+
+		// A prompt command at the start of the message (`/simplify`, `/commit`, `/my:name`, `/workflow:name`)
+		// is expanded like `/skill:` below and for the same reason: the request goes into the user turn,
+		// while the chat bubble keeps what the person typed. The commands the IDE runs itself (`/watch`,
+		// `/shot`) never reach this point — SidebarChat handles them before sending.
+		const promptCommand = parsePromptSlashInvocation(lastUserTextForSkills);
+		let commandInvocationPrefix = '';
+		if (promptCommand) {
+			try {
+				const expanded = await this.slashCommandService.expand(`/${promptCommand.command}`, promptCommand.args);
+				commandInvocationPrefix = buildCommandInvocationBlock(promptCommand.command, expanded);
+			} catch (err) {
+				vibeLog.warn('SlashCommands', 'expand threw', { command: promptCommand.command, err: String(err) });
+			}
+		}
 
 		// Explicit `/skill:NAME` invocations — expand the full SKILL.md body via
 		// IVibeSlashCommandService. The expanded body is injected as a `<skill_invocation>`
@@ -2347,7 +2373,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		// load-bearing step that makes /skill:NAME and @rule:NAME actually take effect, and the
 		// cache-friendly home for everything that varies per turn (repo retrieval, implicit skill
 		// hints, language directive) — see knowledge/roadmap/tokenEconomy.md (A).
-		const userTurnPrefix = [repoContextUserBlock, knowledgeNotesUserBlock, explicitSkillsUserPrefix, ruleInvocationPrefix, implicitSkills.trim(), langDirective.trim()].filter(s => s.length > 0).join('\n\n');
+		const userTurnPrefix = [repoContextUserBlock, knowledgeNotesUserBlock, commandInvocationPrefix, explicitSkillsUserPrefix, ruleInvocationPrefix, implicitSkills.trim(), langDirective.trim()].filter(s => s.length > 0).join('\n\n');
 		if (userTurnPrefix.length > 0) {
 			for (let i = llmMessages.length - 1; i >= 0; i--) {
 				const m = llmMessages[i];
@@ -2526,7 +2552,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 				// hash; on a miss use the textual body THIS turn and fill the cache in the background.
 				let summaryBody = textualBody;
 				if (this.configurationService.getValue<boolean>('vibeide.chat.historySummaryLLM') === true) {
-					const headKey = String(hash(head.map(m => `${m.role}:${m.content}`).join(' ')));
+					const headKey = String(hash(head.map(m => `${m.role}:${m.content}`).join('\u0000')));
 					const cachedLLM = this._historySummaryCache.get(headKey);
 					if (cachedLLM) {
 						summaryBody = `${pinnedOriginal}Prior conversation summarized (${head.length} older messages; ${keep.length} kept in full incl. pinned). Key points:\n${cachedLLM}`;

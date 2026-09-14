@@ -12,7 +12,7 @@
  * live in `common/pipeline/vibePipelineFile.ts`, where they can be tested without spawning agents.
  */
 
-import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
 import { safeParseConfigJson } from '../common/vibeConfigJsonParser.js';
 import { IVibeHooksService } from '../common/hooks/vibeHookTypes.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
@@ -26,6 +26,9 @@ import { IQuickInputService } from '../../../../platform/quickinput/common/quick
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { IChatThreadService } from './chatThreadService.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { Registry } from '../../../../platform/registry/common/platform.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
@@ -35,14 +38,35 @@ import { vibeLog } from '../common/vibeLog.js';
 import { VIBE_COMMAND_CATEGORY } from '../common/vibeCommandCategory.js';
 import {
 	buildStepInput,
+	composeReviewGoal,
 	parseModelRef,
 	parsePipelineFile,
 	parseReviewVerdict,
 	PipelineStepOutcome,
+	QA_DEFAULT_WRITE_PATHS,
 	shouldRunStep,
 	VibePipeline,
 	VibePipelineStep,
 } from '../common/pipeline/vibePipelineFile.js';
+import { readRolesFile } from '../common/pipeline/vibeRolesFile.js';
+import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
+import { getModelCapabilities } from '../common/modelCapabilities.js';
+import { nextOffPeakMoment } from '../common/modelPriceSchedule.js';
+
+const CONFIG_REVIEWER_SEES_SUMMARY = 'vibeide.pipeline.reviewerSeesStepSummary';
+
+Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
+	id: 'vibeide',
+	title: localize('vibeide.pipeline.configTitle', "VibeIDE — пайплайны"),
+	type: 'object',
+	properties: {
+		[CONFIG_REVIEWER_SEES_SUMMARY]: {
+			type: 'boolean',
+			default: false,
+			description: localize('vibeide.pipeline.reviewerSeesStepSummary', "Показывать ревьюеру шага пересказ исполнителя. По умолчанию выключено: ревьюер получает задачу шага, критерий готовности и файлы и проверяет по ним, а не по словам «всё сделано». Включается для сравнения режимов: у каждого вердикта в логе и в результате прогона отмечено, видел ли ревьюер пересказ."),
+		},
+	},
+});
 
 export interface PipelineRunResult {
 	readonly pipelineId: string;
@@ -56,7 +80,9 @@ export interface PipelineProgress {
 	readonly stepIndex: number;
 	readonly totalSteps: number;
 	readonly role: string;
-	readonly state: 'started' | 'finished' | 'skipped';
+	readonly state: 'started' | 'finished' | 'skipped' | 'waiting';
+	/** For `waiting`: when the step starts on its own — the end of its model's price peak. */
+	readonly until?: number;
 }
 
 export const IVibePipelineService = createDecorator<IVibePipelineService>('vibePipelineService');
@@ -81,8 +107,59 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 		@IVibeSubagentService private readonly _subagents: IVibeSubagentService,
 		@IVibeHooksService private readonly _hooks: IVibeHooksService,
+		@IConfigurationService private readonly _configuration: IConfigurationService,
+		@IVibeideSettingsService private readonly _settings: IVibeideSettingsService,
+		@INotificationService private readonly _notifications: INotificationService,
 	) {
 		super();
+	}
+
+	/**
+	 * Hold an `offPeak` step until its model leaves the price peak.
+	 *
+	 * Visible and skippable on purpose: a run that silently stops for hours looks hung. The wait ends by
+	 * itself at the off-peak moment, by «Запустить сейчас», or by cancelling the run. A model without a
+	 * price by the hour starts at once and says why — the field cannot defer to a schedule nobody declared.
+	 */
+	private async _waitForOffPeak(step: VibePipelineStep, pipelineId: string, stepIndex: number, totalSteps: number, token: CancellationToken): Promise<'run' | 'cancelled'> {
+		const model = parseModelRef(step.model);
+		if (!model) {
+			return 'run';
+		}
+		const schedule = getModelCapabilities(model.providerName as ProviderId, model.modelName, this._settings.state.overridesOfModel).cost?.time_of_day;
+		if (!schedule) {
+			vibeLog.warn('Pipeline', `шаг ${step.role}: offPeak, но у ${step.model} нет цены по часу — шаг запускается сразу`);
+			return 'run';
+		}
+		const now = Date.now();
+		const until = nextOffPeakMoment(schedule, now);
+		if (until === undefined || until <= now) {
+			return 'run';
+		}
+		this._onProgress.fire({ pipelineId, stepIndex, totalSteps, role: step.role, state: 'waiting', until });
+		vibeLog.info('Pipeline', `${pipelineId} шаг ${stepIndex + 1}: ждёт конца пика ${step.model} до ${new Date(until).toISOString()}`);
+		return new Promise<'run' | 'cancelled'>(resolve => {
+			const store = new DisposableStore();
+			let settled = false;
+			const finish = (outcome: 'run' | 'cancelled') => {
+				if (settled) { return; }
+				settled = true;
+				store.dispose();
+				resolve(outcome);
+			};
+			const handle = this._notifications.prompt(Severity.Info,
+				localize('vibeide.pipeline.offPeakWaiting', 'Пайплайн «{0}»: шаг «{1}» ждёт конца пиковых цен {2} — запуск в {3} UTC.', pipelineId, step.role, step.model ?? '', new Date(until).toISOString().slice(11, 16)),
+				[
+					{ label: localize('vibeide.pipeline.offPeakRunNow', 'Запустить сейчас'), run: () => finish('run') },
+					{ label: localize('vibeide.pipeline.offPeakCancel', 'Отменить прогон'), run: () => finish('cancelled') },
+				],
+				{ sticky: true },
+			);
+			store.add(toDisposable(() => handle.close()));
+			const timer = setTimeout(() => finish('run'), until - now);
+			store.add(toDisposable(() => clearTimeout(timer)));
+			store.add(token.onCancellationRequested(() => finish('cancelled')));
+		});
 	}
 
 	private _fileUri(): URI | undefined {
@@ -117,6 +194,10 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 	 * become a second implementation. It is told to end with a verdict word, because the pipeline has
 	 * to act on the answer and prose cannot be acted on; an answer without one is reported as
 	 * «вердикт не распознан» rather than guessed in either direction.
+	 *
+	 * It is told what the step was asked to do, not what the worker says it did — `composeReviewGoal`
+	 * has the reasoning. The setting that brings the worker's account back exists to compare the two,
+	 * so the mode is logged next to every verdict and kept in the outcome.
 	 */
 	private async _review(step: VibePipelineStep, result: { summary: string; artifacts?: readonly string[] }, parentThreadId: string): Promise<PipelineStepOutcome['review']> {
 		const reviewer = parseModelRef(step.reviewWith);
@@ -130,14 +211,8 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 			// where the whole exercise quietly stops working.
 			vibeLog.warn('Pipeline', `шаг ${step.role}: ревьюер и исполнитель у одного провайдера (${reviewer.providerName}) — критика своего же семейства`);
 		}
-		const goal = [
-			`Проверьте результат шага «${step.role}».`,
-			step.acceptance ? `Критерий готовности: ${step.acceptance}` : '',
-			`Что сделано: ${result.summary}`,
-			'',
-			'Проверьте по файлам, а не по пересказу. Закончите ответ строкой «ВЕРДИКТ: принято» или',
-			'«ВЕРДИКТ: доработать», а перед ней перечислите замечания, если они есть.',
-		].filter(Boolean).join('\n');
+		const sawWorkerSummary = this._configuration.getValue<boolean>(CONFIG_REVIEWER_SEES_SUMMARY) === true;
+		const goal = composeReviewGoal(step, result.summary, sawWorkerSummary);
 		const reviewerId = await this._subagents.spawn({
 			parentThreadId,
 			// `code-reviewer` is read-only by construction — a critique cannot quietly become a second
@@ -149,7 +224,9 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		});
 		const verdictResult = await this._subagents.awaitResult(reviewerId);
 		this._subagents.disposeSubagent(reviewerId);
-		return { by: step.reviewWith!, verdict: parseReviewVerdict(verdictResult.summary), notes: verdictResult.summary };
+		const verdict = parseReviewVerdict(verdictResult.summary);
+		vibeLog.info('Pipeline', `шаг ${step.role}: ревью ${step.reviewWith} — ${verdict}, пересказ исполнителя ${sawWorkerSummary ? 'показан' : 'скрыт'}`);
+		return { by: step.reviewWith!, verdict, notes: verdictResult.summary, sawWorkerSummary };
 	}
 
 	async run(pipelineId: string, parentThreadId: string, token?: CancellationToken): Promise<PipelineRunResult> {
@@ -158,6 +235,14 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		if (!pipeline) {
 			throw new Error(localize('vibeide.pipeline.notFound', 'Пайплайн «{0}» не найден в .vibe/pipelines.json', pipelineId));
 		}
+
+		// Read once for the whole run, as VibeIDEA does: editing `.vibe/roles.json` mid-run must not
+		// move the write boundary between one `qa` step and the next.
+		const roles = await readRolesFile(this._fileService, this._workspace);
+		for (const warning of roles.warnings) {
+			vibeLog.warn('Pipeline', warning);
+		}
+		const qaWritePaths = roles.qaWritePaths ?? QA_DEFAULT_WRITE_PATHS;
 
 		const outcomes: PipelineStepOutcome[] = [];
 		// NOT registered on the service: `run` is called repeatedly, and a source registered per
@@ -203,6 +288,7 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 									...(step.denyPaths ? { denyPaths: step.denyPaths } : {}),
 								},
 							} : {}),
+							...(step.role === 'qa' ? { qaWritePaths } : {}),
 							...(cascadeDraft ? { cascadeDraft: true } : {}),
 							...(escalatedFrom ? { escalatedFrom } : {}),
 						});
@@ -214,6 +300,10 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 					// Cascade: the cheap model drafts, and the step's own outcome is the gate. Asking a
 					// model whether its answer was good enough gets an answer shaped like «yes», so the
 					// gate is the run's verdict — the acceptance check and the tools that ran it.
+					if (step.offPeak && await this._waitForOffPeak(step, pipelineId, i, pipeline.steps.length, cancellation.token) === 'cancelled') {
+						cancellation.cancel();
+						throw new Error(localize('vibeide.pipeline.offPeakCancelled', 'Прогон отменён, пока шаг ждал конца пиковых цен'));
+					}
 					const drafting = step.escalateTo !== undefined;
 					const first = await runStep(step.model, drafting);
 					let result = first.result;

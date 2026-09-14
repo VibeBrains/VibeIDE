@@ -8,74 +8,33 @@ import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
 	CHAT_SLASH_COMMANDS,
+	PROMPT_SLASH_COMMAND_NAMES,
+	findChatCommandSpans,
+	isSlashCommandFileName,
 	parseChatSlashCommand,
+	parsePromptSlashInvocation,
 	splitWatchArgs,
 } from '../../common/chatSlashCommands.js';
 
 suite('chatSlashCommands', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	suite('parseChatSlashCommand', () => {
+	suite('parseChatSlashCommand — the commands the IDE runs itself', () => {
 
-		test('bare /commit matches', () => {
-			const out = parseChatSlashCommand('/commit');
-			assert.ok(out.matched);
-			assert.strictEqual(out.parsed.command, 'commit');
-			assert.deepStrictEqual([...out.parsed.flags], []);
-			assert.strictEqual(out.parsed.args, '');
+		test('/watch and /shot match with their args; leading whitespace and case are tolerated', () => {
+			assert.deepStrictEqual(
+				['/shot', '   /watch  https://youtu.be/abc  ', '/WATCH x'].map(text => parseChatSlashCommand(text)),
+				[
+					{ matched: true, parsed: { command: 'shot', args: '' } },
+					{ matched: true, parsed: { command: 'watch', args: 'https://youtu.be/abc' } },
+					{ matched: true, parsed: { command: 'watch', args: 'x' } },
+				],
+			);
 		});
 
-		test('/commit with --push flag', () => {
-			const out = parseChatSlashCommand('/commit --push');
-			assert.ok(out.matched);
-			assert.deepStrictEqual([...out.parsed.flags], ['push']);
-			assert.strictEqual(out.parsed.args, '');
-		});
-
-		test('/commit with flag + args', () => {
-			const out = parseChatSlashCommand('/commit --push focus on auth');
-			assert.ok(out.matched);
-			assert.deepStrictEqual([...out.parsed.flags], ['push']);
-			assert.strictEqual(out.parsed.args, 'focus on auth');
-		});
-
-		test('multiple flags', () => {
-			const out = parseChatSlashCommand('/commit --push --amend stuff');
-			assert.ok(out.matched);
-			assert.deepStrictEqual([...out.parsed.flags], ['push', 'amend']);
-			assert.strictEqual(out.parsed.args, 'stuff');
-		});
-
-		test('flags stop at first non-flag token', () => {
-			// `--push` is a flag; `auth` is the start of args; subsequent `--push`
-			// is part of the message body, not a flag.
-			const out = parseChatSlashCommand('/commit --push auth and --push area');
-			assert.ok(out.matched);
-			assert.deepStrictEqual([...out.parsed.flags], ['push']);
-			assert.strictEqual(out.parsed.args, 'auth and --push area');
-		});
-
-		test('leading whitespace is tolerated', () => {
-			const out = parseChatSlashCommand('   /commit  some hint  ');
-			assert.ok(out.matched);
-			assert.strictEqual(out.parsed.args, 'some hint');
-		});
-
-		test('case-insensitive command name', () => {
-			const out = parseChatSlashCommand('/COMMIT');
-			assert.ok(out.matched);
-			assert.strictEqual(out.parsed.command, 'commit');
-		});
-
-		test('unknown command → no match', () => {
-			const out = parseChatSlashCommand('/unknown');
-			assert.strictEqual(out.matched, false);
-		});
-
-		test('not a slash command → no match', () => {
-			assert.strictEqual(parseChatSlashCommand('write a commit message').matched, false);
-			assert.strictEqual(parseChatSlashCommand('').matched, false);
-			assert.strictEqual(parseChatSlashCommand('/').matched, false);
+		test('prompt commands are not the IDE\'s to run — /commit included, it has no handler here', () => {
+			const texts = ['/commit', '/commit --push', '/simplify', '/my:review', '/unknown', 'write a commit message', '', '/'];
+			assert.deepStrictEqual(texts.map(text => parseChatSlashCommand(text).matched), texts.map(() => false));
 		});
 
 		test('non-string input → no match', () => {
@@ -107,12 +66,79 @@ suite('chatSlashCommands', () => {
 		});
 	});
 
-	suite('CHAT_SLASH_COMMANDS catalog', () => {
+	suite('parsePromptSlashInvocation — the commands that are prompts', () => {
 
-		test('contains commit, shot and watch entries', () => {
-			const names = CHAT_SLASH_COMMANDS.map(c => c.name);
-			assert.deepStrictEqual([...names].sort(), ['commit', 'shot', 'watch']);
-			assert.ok(CHAT_SLASH_COMMANDS.every(c => c.description.length > 0));
+		test('every built-in name is recognised at the start of the message, with its args', () => {
+			assert.deepStrictEqual(
+				PROMPT_SLASH_COMMAND_NAMES.map(name => parsePromptSlashInvocation(`/${name} src/app.ts`)),
+				PROMPT_SLASH_COMMAND_NAMES.map(name => ({ command: name, args: 'src/app.ts' })),
+			);
+		});
+
+		test('args keep their lines; leading whitespace and the case of a built-in are tolerated', () => {
+			assert.deepStrictEqual(
+				['  /Simplify\nтолько auth\nи тесты  ', '/commit --push про авторизацию'].map(text => parsePromptSlashInvocation(text)),
+				[
+					{ command: 'simplify', args: 'только auth\nи тесты' },
+					{ command: 'commit', args: '--push про авторизацию' },
+				],
+			);
+		});
+
+		test('/my: and /workflow: take a file name — any alphabet, kept as typed; the namespace is case-insensitive', () => {
+			assert.deepStrictEqual(
+				['/my:Ревью-API.v2 в модуле auth', '/WORKFLOW:release'].map(text => parsePromptSlashInvocation(text)),
+				[
+					{ command: 'my:Ревью-API.v2', args: 'в модуле auth' },
+					{ command: 'workflow:release', args: '' },
+				],
+			);
+		});
+
+		test('not a prompt command: mid-sentence, unknown, a skill, the IDE\'s own, an empty or broken name', () => {
+			const texts = ['look at /docs please', '/unknown', '/simplifyx', '/skill:review', '/watch https://x', '/shot', '/my:', '/workflow: x', '/my:bad!name', '', '/'];
+			assert.deepStrictEqual(texts.map(text => parsePromptSlashInvocation(text)), texts.map(() => undefined));
+		});
+
+		test('non-string input → undefined', () => {
+			// @ts-expect-error — runtime defense
+			assert.strictEqual(parsePromptSlashInvocation(123), undefined);
+		});
+	});
+
+	suite('findChatCommandSpans — what the chat highlights', () => {
+
+		const marked = (text: string) => findChatCommandSpans(text).map(({ start, end }) => text.slice(start, end));
+
+		test('a skill wherever it starts a word; any command only at the very start of the message', () => {
+			assert.deepStrictEqual(marked('/simplify и /skill:review, путь /docs и /watch'), ['/simplify', '/skill:review']);
+		});
+
+		test('leading whitespace, file names of any alphabet, the IDE\'s own commands; nothing inside a word or a path', () => {
+			assert.deepStrictEqual(
+				['  /my:ревью x', '/workflow:release', '/watch https://x', 'путь /usr/bin', 'a/skill:x'].map(marked),
+				[['/my:ревью'], ['/workflow:release'], ['/watch'], [], []],
+			);
+		});
+	});
+
+	suite('isSlashCommandFileName', () => {
+
+		test('letters of any alphabet, digits, "_", ".", "-" — nothing that would end the command', () => {
+			const names = ['example', 'CLAUDE-FABLE-5', 'ревью_v2.1', 'с пробелом', 'a/b', 'a:b', ''];
+			assert.deepStrictEqual(names.map(name => isSlashCommandFileName(name)), [true, true, true, false, false, false, false]);
+		});
+	});
+
+	suite('catalogs', () => {
+
+		test('the IDE runs /shot and /watch itself; the rest are prompts, and no name is in both lists', () => {
+			const ide: readonly string[] = CHAT_SLASH_COMMANDS.map(c => c.name);
+			assert.deepStrictEqual({
+				ide: [...ide].sort(),
+				described: CHAT_SLASH_COMMANDS.every(c => c.description.length > 0),
+				overlap: PROMPT_SLASH_COMMAND_NAMES.filter(name => ide.includes(name)),
+			}, { ide: ['shot', 'watch'], described: true, overlap: [] });
 		});
 	});
 });

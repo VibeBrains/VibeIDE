@@ -1,47 +1,59 @@
 # Natural-language shell parser — safety contract
 
 > Status: normative.
-> Source roadmap entry: roadmap §990 (`nlShellParserService.ts` policy + analyzer hookup).
+> Source roadmap entry: roadmap §990 (`nlShellParserService.ts` policy + analyzer hookup); line policy — DIGEST-0911 (2026-09-11).
 
 ## Why this document exists
 
 The agent can interpret natural-language requests like «удали все .tmp файлы в папке» and translate them to shell commands. Without a deterministic safety gate, the agent could emit `rm -rf` flavoured commands without explicit user confirmation. This document fixes the policy.
 
-## Three components
+## Components
 
-| Component                                | Role                                                                                          |
-|------------------------------------------|-----------------------------------------------------------------------------------------------|
-| `nlShellParserService` (NOT YET BUILT)   | Translates NL request → candidate shell command. Multi-shot; chooses safest interpretation.   |
-| `nlShellSafetyAnalyzer.analyzeNLShellSafety` (`common/nlShellSafetyAnalyzer.ts`, **landed**) | Pure helper — given a command string, returns `'safe' \| 'destructive' \| 'ambiguous'` + reasons. |
-| Chat-mode wiring (NOT YET BUILT)         | Pipes parser output through analyzer; blocks `destructive` without explicit user confirm.     |
+| Component | Role |
+|---|---|
+| `nlShellParserService` (`common/nlShellParserService.ts`) | Translates an NL request → candidate shell command and runs `analyzeNLShellSafety` on it. |
+| `analyzeNLShellSafety` (`common/nlShellSafetyAnalyzer.ts`) | Pure — one parsed `(command, args)` → `'safe' \| 'destructive' \| 'ambiguous'` + reason codes. |
+| `analyzeShellLine` (same module) | Pure — a raw terminal line → the first destructive verdict over every command in it, or none. |
+| Terminal-tool gate (`toolsService._gateDestructiveCommand`) | Runs `analyzeShellLine` on every command the agent sends to the terminal; destructive → confirm dialog naming the command and the reasons (off switch: `vibeide.agent.confirmDestructiveCommands`). |
 
 ## Verdict policy (`analyzeNLShellSafety`)
 
-Pure. Returns `{verdict: 'safe' | 'destructive' | 'ambiguous', reasons: ReasonCode[]}` where reasons are deterministic codes from this set (covered in helper unit tests):
+Assignments (`VAR=1`) and wrappers (`sudo`, `doas`, `env`, `nice`, `timeout`, `stdbuf`, `xargs`, `nohup`, `time`, `command`, `exec`) are peeled off first, with their value options (`sudo -u deploy`), so the command judged is the one that runs. `command -v X` is a lookup, not a run. The program name is compared without directory and `.exe`/`.com`.
 
-**Destructive (reasons that ALWAYS block without confirm):**
-- `rm-recursive` — `rm -rf` / `rm -fr` / `rm -Rf`
-- `rm-root` — `rm` targeting `/`, `/*`, `~`, `$HOME`
-- `dd-write` — `dd` with `of=` outside `/dev/null`
-- `mkfs` — any `mkfs.*` invocation
-- `shred` — `shred -*`
-- `truncate-zero` — `truncate -s 0` against existing files
-- `chmod-777` — `chmod 777` / `chmod -R 777`
-- `git-force-push` — `git push --force` / `git push -f`
-- `git-reset-hard` — `git reset --hard`
-- `git-clean-fd` — `git clean -fd` / `-fdx`
-- `powershell-remove` — `Remove-Item -Recurse -Force` / `rm -recurse -force`
-- `format-volume` — `Format-Volume`
+**Destructive** — reason codes, the exact strings the dialog shows:
 
-**Ambiguous (require user clarification, not auto-block):**
-- `unknown-tool` — first token not in known-tool registry
-- `pipeline-multi-stage` — chains of `&&` / `||` / `|` longer than 2 stages
-- `redirect-overwrite` — `>` to existing file (vs `>>` append)
+| Code | When |
+|---|---|
+| `rm-binary`, `dd-binary`, `mkfs-binary`, `shred-binary`, `truncate-binary` | the command itself |
+| `powershell-remove-item`, `powershell-format-volume`, `powershell-disk` | `Remove-Item`, `Format-Volume`, `Clear-Disk` / `Remove-Partition` |
+| `force-flag`, `rf-flag`, `fr-flag` | `--force` / `-force`, `-rf`, `-fr` in any argument |
+| `root-path`, `home-path`, `wildcard-only` | an argument that is exactly `/` or `\`, `~`, `*` |
+| `chmod-777`, `chmod-666` | an argument `777` / `666` |
+| `git-push-force` | `git push --force`, `git push -f` (or a short-option cluster with `f`) |
+| `git-reset-hard`, `git-clean-force` | `git reset --hard`; `git clean -f` / `-fd` / `-fdx` |
+| `format-drive` | Windows `format D:` — bare `format` is not judged (`npm run format`) |
+| `disk-tool` | `fdisk`, `sfdisk`, `gdisk`, `sgdisk`, `parted`, `wipefs`, `diskpart` asked to write; `diskutil erase*` / `zeroDisk` / `randomDisk` / `secureErase` / `partitionDisk` / `apfs delete*` |
 
-**Safe:**
-- All other commands matching known-safe shell patterns (echo, ls, cat, grep, find without -delete, npm/pnpm/yarn run, git status/log/diff/branch -a, etc.).
+A disk tool that only looks is not destructive: a listing flag (`-l`, `--list`, `-p`, `print`) with nothing else but devices, `-s` and help; `wipefs` without flags only lists signatures.
 
-## Wiring policy (when parser lands)
+**Ambiguous:** `git`, `npm`, `docker` with no arguments (`*-command-needs-context`). The terminal-tool gate does not act on it — a line that says exactly `git` is harmless, and a dialog there trains the user to click through.
+
+**Safe:** everything else.
+
+## Line policy (`analyzeShellLine`)
+
+- The line is grouped as the shell groups it: chains split at `;`, `&&`, `||`, `&`, newline; pipeline stages at `|` and `|&`; words with quotes and backslashes. `2>&1` and `&>file` are redirections, not separators. `$( … )`, `<( … )`, `>( … )` and backtick spans stay one word. `#` is **not** a comment — cmd.exe has none, and `echo # & format D:` formats there.
+- Every simple command is classified; the first destructive one is the verdict, and the dialog names it.
+- Nested lines are classified too, to depth 3: the script of `sh -c "…"` / `pwsh -Command "…"`, the words of `eval`, the inner line of every substitution (`echo $(rm notes.txt)` is destructive).
+- **`fetch-piped-to-interpreter`** — code fetched from the network handed to an interpreter:
+  - a fetcher (`curl`, `wget`, `fetch`, `aria2c`, `iwr`, `irm`, `Invoke-WebRequest`, `Invoke-RestMethod`) followed in the same pipe chain by a stage that takes its **program** from stdin: `| sh`, `| sh -s -- --yes`, `| python3 -`, `| sudo -E bash`, `| iex`;
+  - a fetch inside the program operand of an interpreter or the arguments of `eval` / `source` / `.`: `bash <(curl …)`, `sh -c "$(curl …)"`, `eval "$(wget …)"`, `bash -c "curl … | sh"`;
+  - a download in a PowerShell expression given to `iex`: `iex (iwr …)`, `iex (New-Object Net.WebClient).DownloadString(…)`.
+  - An interpreter with a script operand, or with `-m` / `-c` / `-e`, reads the pipe as data and is not flagged: `| python3 -m json.tool`, `| node script.js`.
+  - Known gap: `curl -o i.sh … && sh i.sh` — two chains; telling it from an ordinary build step needs knowing what the file is.
+- The same reason code and the same test vector live in VibeIDEA (`ShellSafetyAnalyzer.kt`); a change to the rule is made in both.
+
+## Wiring policy (NL parser)
 
 ```
 NL request → nlShellParserService.parse() → candidate command
@@ -64,7 +76,7 @@ NL request → nlShellParserService.parse() → candidate command
 ## What the analyzer does NOT do
 
 - It does **not** invoke a shell or sandbox.
-- It does **not** resolve aliases, env-vars, or shell-functions — `rm -rf` aliased as `r` will pass `analyseAsSafe`. Defence-in-depth: the parser SHOULD canonicalise before passing to the analyzer.
+- It does **not** resolve aliases, env-vars, or shell-functions — `rm -rf` aliased as `r` will pass as safe. Defence-in-depth: the parser SHOULD canonicalise before passing to the analyzer.
 - It does **not** know about the user's filesystem — it cannot tell that `~/.vibe/secrets/api-key.txt` exists. Path-specific rules (`vibeide.safety.permissions.json`) live in `IVibePerFilePermissionsService`, evaluated separately.
 - It does **not** auto-redact / rewrite — only classifies.
 

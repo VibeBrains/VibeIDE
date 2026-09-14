@@ -6,6 +6,8 @@
 // disable foreign import complaints
 /* eslint-disable */
 import { vibeLog } from '../../common/vibeLog.js';
+import { ANSWERED_MODEL_PEEK_CHARS, readServedIdentity } from '../../common/modelEcho.js';
+import { OrchestrationTokens, orchestrationTokensOfTail, withOrchestration } from '../../common/orchestrationUsage.js';
 import { streamText, jsonSchema, tool, type ModelMessage, type ToolSet, type TextStreamPart, type LanguageModel } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createAnthropic } from '@ai-sdk/anthropic';
@@ -182,6 +184,40 @@ const REFUSAL_BODY_PEEK_LIMIT = 64 * 1024;
  * need an active second reader (back-pressure), a `clone()` would double-buffer the whole
  * stream. Peeking must never break the stream — every failure here is swallowed.
  */
+/**
+ * Reads the model the provider says it served off the head of the answer, then leaves the stream
+ * alone. Mirrors `observeBodyTail` and for the same reason: peeking must never break the body, so
+ * every failure here is swallowed and the scan stops once the name is found or the head is spent.
+ */
+/** The `usage` field of a final message, or nothing when there is no usage at all. */
+const usageField = (usage: LLMTokenUsage | undefined): { usage?: LLMTokenUsage } => usage ? { usage } : {};
+
+const observeAnsweredModel = (response: Response, onModel: (model: string, fingerprint: string | undefined) => void): Response => {
+	if (!response.body) { return response; }
+	let head = '';
+	let done = false;
+	const decoder = new TextDecoder();
+	const observer = new TransformStream<Uint8Array, Uint8Array>({
+		transform(chunk, controller) {
+			controller.enqueue(chunk);
+			if (done) { return; }
+			try {
+				const text = decoder.decode(chunk, { stream: true });
+				if (!text) { return; }
+				head = (head + text).slice(0, ANSWERED_MODEL_PEEK_CHARS);
+				const served = readServedIdentity(head);
+				if (served.model) { done = true; onModel(served.model, served.fingerprint); return; }
+				if (head.length >= ANSWERED_MODEL_PEEK_CHARS) { done = true; }
+			} catch { done = true; }
+		},
+	});
+	return new Response(response.body.pipeThrough(observer), {
+		status: response.status,
+		statusText: response.statusText,
+		headers: response.headers,
+	});
+};
+
 const observeBodyTail = (response: Response, onTail: (tail: string) => void): Response => {
 	if (!response.body) { return response; }
 	let tail = '';
@@ -235,6 +271,10 @@ const REFUSAL_BODY_PEEK_CHARS = 4_000;
 const makeCustomFetch = (opts: {
 	providerName: string;
 	onQuota?: (snapshot: ProviderQuotaSnapshot) => void;
+	/** The model named in the answer — a proxy or a failover target may serve a different one. */
+	onAnsweredModel?: (model: string, fingerprint: string | undefined) => void;
+	/** Orchestration tokens found at the end of the answer — see common/orchestrationUsage.ts. */
+	onOrchestrationTokens?: (tokens: OrchestrationTokens) => void;
 	/**
 	 * Called with what the provider said, as soon as we know it. Fires up to twice per request:
 	 * once on the headers, again if a `base_resp` refusal turns up in the body. Last call wins.
@@ -279,6 +319,23 @@ const makeCustomFetch = (opts: {
 				refusalKind: refusal.kind,
 				refusalAmbiguous: refusal.ambiguous,
 			});
+		});
+	}
+
+	if (opts.onAnsweredModel) {
+		const onAnsweredModel = opts.onAnsweredModel;
+		observed = observeAnsweredModel(observed, (model, fingerprint) => onAnsweredModel(model, fingerprint));
+	}
+
+	// An orchestrator bills its internal calls on top of the visible tokens, and the SDK drops those
+	// fields. They arrive with the final usage, at the END of the answer — the head peek above never
+	// sees them, so the tail is watched instead. A body that never mentions them costs one substring
+	// check per chunk and nothing else.
+	if (opts.onOrchestrationTokens && response.ok) {
+		const onOrchestrationTokens = opts.onOrchestrationTokens;
+		observed = observeBodyTail(observed, tail => {
+			const tokens = orchestrationTokensOfTail(tail);
+			if (tokens) { onOrchestrationTokens(tokens); }
 		});
 	}
 
@@ -1009,7 +1066,9 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	const { providerReasoningIOSettings } = getProviderCapabilities(providerName);
 	const reasoningInfo = getSendableReasoningInfo('Chat', providerName, modelName_, modelSelectionOptions, overridesOfModel);
 	const reasoningInputPayload = providerReasoningIOSettings?.input?.includeInPayload?.(reasoningInfo) ?? {};
-	const openAICompatExtraBody: Record<string, unknown> = { ...(additionalOpenAIPayload as Record<string, unknown> | undefined ?? {}), ...reasoningInputPayload };
+	// The per-request `extraBody` goes last: it is a contract for this one call (a JSON Schema for an
+	// extraction), and a provider-wide default must not overwrite it.
+	const openAICompatExtraBody: Record<string, unknown> = { ...(additionalOpenAIPayload as Record<string, unknown> | undefined ?? {}), ...reasoningInputPayload, ...(runtimeOptions?.extraBody ?? {}) };
 
 	// Honor `vibeide.llm.toolFallbackMode` (with backward-compat from legacy
 	// `vibeide.llm.assumeNativeTools`) for aggregator-synthesized fallbacks.
@@ -1129,12 +1188,16 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// Latest quota the provider reported during THIS call; attached to the final message so the
 	// renderer can show the key's real remaining allowance next to our own token estimate.
 	let lastQuota: ProviderQuotaSnapshot | undefined;
+	let lastAnsweredModel: string | undefined;
+	let lastSystemFingerprint: string | undefined;
 	// Kept for the failure paths: without it an "empty response" cannot be told apart from a
 	// refusal the provider hid in the body of an HTTP 200 (modelStalls.md #001).
 	let lastDiagnostics: ProviderRefusalDiagnostics | undefined;
 	const callFetch = makeCustomFetch({
 		providerName,
 		onQuota: snapshot => { lastQuota = snapshot; },
+		onAnsweredModel: (model, fingerprint) => { lastAnsweredModel = model; lastSystemFingerprint = fingerprint; },
+		onOrchestrationTokens: tokens => { lastOrchestrationTokens = tokens; },
 		onDiagnostics: diagnostics => { lastDiagnostics = diagnostics; },
 	});
 
@@ -1326,6 +1389,8 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// We surface this in onFinalMessage so the UI can display real prompt/completion
 	// token counts from the provider instead of relying on length/4 heuristics.
 	let lastUsage: LLMTokenUsage | undefined;
+	// Set by the response tail observer; added to the SDK's usage when the answer is final.
+	let lastOrchestrationTokens: OrchestrationTokens | undefined;
 
 	const clearAllTimers = () => {
 		if (firstTokenTimeoutId) { clearTimeout(firstTokenTimeoutId); firstTokenTimeoutId = null; }
@@ -1392,8 +1457,10 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				fullReasoning: fullReasoningSoFar,
 				anthropicReasoning: null,
 				...(tc ? { toolCall: tc } : {}),
-				...(lastUsage ? { usage: lastUsage } : {}),
+				...usageField(withOrchestration(lastUsage, lastOrchestrationTokens)),
 				...(lastQuota ? { providerQuota: lastQuota } : {}),
+				...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
+			...(lastSystemFingerprint ? { systemFingerprint: lastSystemFingerprint } : {}),
 			});
 		} else {
 			onError({ message: errMessage, fullError: null });
@@ -1594,6 +1661,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 						inputTokens?: number; outputTokens?: number; totalTokens?: number;
 						promptTokens?: number; completionTokens?: number;
 						cachedInputTokens?: number;
+						inputTokenDetails?: { cacheWriteTokens?: number };
 					} | undefined;
 					if (u) {
 						const inTok = typeof u.inputTokens === 'number' ? u.inputTokens
@@ -1603,12 +1671,16 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 						const totTok = typeof u.totalTokens === 'number' ? u.totalTokens : undefined;
 						// AI SDK v5+ surfaces provider prompt-cache hits as `cachedInputTokens`.
 						const cachedTok = typeof u.cachedInputTokens === 'number' ? u.cachedInputTokens : undefined;
+						// AI SDK 6 reports cache WRITES apart, in `inputTokenDetails`, and counts them inside
+						// `inputTokens` — the whole prompt, for every provider.
+						const cacheWriteTok = typeof u.inputTokenDetails?.cacheWriteTokens === 'number' ? u.inputTokenDetails.cacheWriteTokens : undefined;
 						if (typeof inTok === 'number' || typeof outTok === 'number' || typeof totTok === 'number') {
 							lastUsage = {
 								promptTokens: typeof inTok === 'number' ? inTok : lastUsage?.promptTokens,
 								completionTokens: typeof outTok === 'number' ? outTok : lastUsage?.completionTokens,
 								totalTokens: typeof totTok === 'number' ? totTok : lastUsage?.totalTokens,
 								cachedInputTokens: typeof cachedTok === 'number' ? cachedTok : lastUsage?.cachedInputTokens,
+								cacheWriteTokens: typeof cacheWriteTok === 'number' ? cacheWriteTok : lastUsage?.cacheWriteTokens,
 							};
 						}
 						// One-time debug log: surface the exact shape returned by the
@@ -1666,8 +1738,10 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			fullReasoning: fullReasoningSoFar,
 			anthropicReasoning: null,
 			...(tc ? { toolCall: tc } : {}),
-			...(lastUsage ? { usage: lastUsage } : {}),
+			...usageField(withOrchestration(lastUsage, lastOrchestrationTokens)),
 			...(lastQuota ? { providerQuota: lastQuota } : {}),
+			...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
+			...(lastSystemFingerprint ? { systemFingerprint: lastSystemFingerprint } : {}),
 		});
 	} catch (error) {
 		clearAllTimers();

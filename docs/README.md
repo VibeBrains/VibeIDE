@@ -36,9 +36,14 @@
 - [serversSpec.md](manuals/serversSpec.md) — формат `.vibe/servers.json`: дев-стек проекта, порядок запуска, проверки готовности (скормить LLM → готовый конфиг).
 - [agentsSpec.md](manuals/agentsSpec.md) — формат `.vibe/agents.json`: внешние агенты проекта по ACP, разрешения и чекпоинты по их правкам (скормить LLM → готовый конфиг).
 - [hooksSpec.md](manuals/hooksSpec.md) — формат `.vibe/hooks.json`: команды проекта вокруг работы агента (скормить LLM → готовый конфиг).
+- [mcpSpec.md](manuals/mcpSpec.md) — формат `~/.vibeide/mcp.json`: MCP-серверы агента, команда или адрес, выбор транспорта, проверки при загрузке (скормить LLM → готовый конфиг).
+- [extractStructuredSpec.md](manuals/extractStructuredSpec.md) — инструмент `extract_structured`: данные со страницы по JSON-схеме через модель извлечения (скормить LLM → готовая схема).
+- [rolesSpec.md](manuals/rolesSpec.md) — формат `.vibe/roles.json`: умолчания ролей агента, общие с VibeIDEA; куда пишет `qa` (скормить LLM → готовый файл).
+- [agentPathRulesSpec.md](manuals/agentPathRulesSpec.md) — правила на пути агента: `.vibe/constraints.json`, `.vibe/permissions.json`, `.vibe/ignore` — шаблоны от корня проекта, порядок решения, примеры (скормить LLM → готовые файлы).
 - [httpApiSpec.md](manuals/httpApiSpec.md) — входящий HTTP API: запуск агента из CI, бота или крона с продолжением сессии (скормить LLM → готовый вызов).
 - [pipelinesSpec.md](manuals/pipelinesSpec.md) — формат `.vibe/pipelines.json`: последовательность шагов агентов с передачей артефактов (скормить LLM → готовый файл).
 - [skillSpec.md](manuals/skillSpec.md) — формат `SKILL.md`: навыки агента, поля, ограничения, наши расширения (скормить LLM → готовый навык).
+- [chatCommandsSpec.md](manuals/chatCommandsSpec.md) — команды чата: встроенные (`/simplify`, `/commit`…), формат `.vibe/prompts/*.md` для `/my:` и `.vibe/workflows/*.json` для `/workflow:` (скормить LLM → готовый файл).
 - [optimizeByMetric.md](manuals/optimizeByMetric.md) — оптимизация под метрику: команда замера, контракт вывода, порог шума, что защищает честность цикла.
 - [learningWorkspaceSpec.md](manuals/learningWorkspaceSpec.md) — формат `.vibe/learning/`: миссия, источники, следы уроков, правила выбора сложности (скормить LLM → готовый `MISSION.md`).
 - [teachLearning.md](manuals/teachLearning.md) — как учиться в VibeIDE: отдельная папка на тему, миссия-гейт, цикл уроков, что ломает систему.

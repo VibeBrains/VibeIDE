@@ -234,6 +234,19 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			scope: ConfigurationScope.RESOURCE,
 			description: localize('vibeide.agent.externalAccessAllowlist', 'Список папок ВНЕ рабочей области, к которым агенту разрешён доступ (гранулярная альтернатива глобальному тогглу). Доступ распространяется на папку и её содержимое. Управляется командами «VibeIDE: Разрешить папку для доступа агента» / «Отозвать». Сессионные разрешения сюда не пишутся (живут до перезагрузки окна).'),
 		},
+		'vibeide.agent.externalAccessTtlMinutes': {
+			type: 'number',
+			default: 0,
+			minimum: 0,
+			scope: ConfigurationScope.RESOURCE,
+			markdownDescription: localize('vibeide.agent.externalAccessTtlMinutes', 'Сколько минут живёт разрешение, выданное **на сессию**. `0` — до перезакрытия окна, как раньше.\n\nЗачем ограничивать: разрешение, выданное ради одного файла, иначе остаётся открытым весь рабочий день. Разрешение **на задачу** сроку не подчиняется — оно и так кончается вместе с ходом агента, а разрешение **для проекта** живёт в настройке и снимается только отзывом.'),
+		},
+		'vibeide.extract.model': {
+			type: 'string',
+			default: '',
+			scope: ConfigurationScope.APPLICATION,
+			markdownDescription: localize('vibeide.extract.model', 'Модель для инструмента агента «извлечь по схеме» (`extract_structured`), в форме `провайдер/модель` — например `openRouter/inference-net/schematron-v2-turbo`.\n\nИнструмент берёт страницу и JSON-схему и возвращает данные строго по схеме. Модели извлечения вроде Schematron не принимают инструкций вовсе — поэтому запрос уходит одним сообщением со страницей, без системного промпта, со схемой в `response_format`.\n\nМодель, скрытая из выбора в чате (`"active": false`), здесь подходит: инструмент берёт её прямо из этой настройки.\n\nПусто — инструмент выключен и честно об этом говорит.'),
+		},
 		'vibeide.council.advisers': {
 			type: 'array',
 			items: { type: 'string' },
@@ -276,6 +289,14 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			maximum: 1440,
 			scope: ConfigurationScope.RESOURCE,
 			markdownDescription: localize('vibeide.hooks.trailMinutes', 'Сколько минут вызов остаётся в следе `recent` для хуков.\n\nБез срока вчерашнее чтение становится сегодняшней уликой, и правила срабатывают на совпадение. По умолчанию — заметно больше любого одного хода агента.'),
+		},
+		'vibeide.hooks.sequenceWindowSeconds': {
+			type: 'number',
+			default: 120,
+			minimum: 0,
+			maximum: 3600,
+			scope: ConfigurationScope.RESOURCE,
+			markdownDescription: localize('vibeide.hooks.sequenceWindowSeconds', 'За сколько секунд после чтения секрета сетевой вызов считается связанным с ним.\n\nIDE замечает пару «прочитал `.env` — обратился в сеть»: порознь и то и другое — норма, опасна пара и промежуток. Шире окно — больше ложных пар (сессия, однажды прочитавшая конфиг, помечается надолго); уже — модель, задумавшаяся между вызовами, проходит мимо.\n\nЭто **предупреждение, а не остановка**: агент, честно открывший документацию после конфига, выглядит так же. `0` выключает проверку.\n\nЧисло наше: в отчётах, описывающих такие атаки, порогов не публикуют.'),
 		},
 		'vibeide.agent.referenceFolders': {
 			type: 'array',

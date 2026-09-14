@@ -137,4 +137,29 @@ suite('audit chain', () => {
 		const legacy = [JSON.stringify({ ts: 1, actor: 'human', action: 'prompt', ok: true })];
 		assert.deepStrictEqual(verifyAuditChain(legacy), { ok: true, checked: 0, legacyPrefix: 1 });
 	});
+
+	/**
+	 * Связка «вызов модели → действие в системе» едет теми же строками журнала, и цепочка обязана это
+	 * пережить: она хеширует запись целиком, поэтому новые поля ничего не ломают, а пара «старт → итог»
+	 * одного вызова узнаётся по общему span, а не по близкому времени.
+	 */
+	test('идентификаторы связки не ломают цепочку, а старт и итог сшиваются одним span', () => {
+		const call = { traceId: 'thread-1', spanId: 'span-1', toolCallId: 'call_7' };
+		const records = [
+			{ ts: 1, actor: 'agent', action: 'tool_call:start', ok: true, ...call },
+			{ ts: 2, actor: 'agent', action: 'tool_call:done', ok: true, latencyMs: 12, ...call },
+			{ ts: 3, actor: 'system', action: 'stream_completed', ok: true },
+		];
+		let previous = AUDIT_CHAIN_ROOT;
+		const lines: string[] = [];
+		for (const record of records) {
+			const chained = chainRecord(record, previous);
+			lines.push(chained.line);
+			previous = chained.hash;
+		}
+		assert.deepStrictEqual({
+			verdict: verifyAuditChain(lines),
+			pairedBySpan: new Set(lines.filter(l => l.includes('tool_call:')).map(l => JSON.parse(l).spanId)).size,
+		}, { verdict: { ok: true, checked: 3 }, pairedBySpan: 1 });
+	});
 });

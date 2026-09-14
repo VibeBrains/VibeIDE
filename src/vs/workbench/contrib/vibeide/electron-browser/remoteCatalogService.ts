@@ -26,6 +26,7 @@ import { IRequestService, asTextOrError } from '../../../../platform/request/com
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
 import { IRemoteCatalogService, RemoteModelInfo, DynamicKeyValidation } from '../common/remoteCatalogService.js';
 import { normaliseCatalogCost } from '../common/catalogPricing.js';
+import { floatingTargetOf } from '../common/catalogAliases.js';
 
 /** Cached catalog entry with TTL. */
 interface CachedCatalog {
@@ -490,6 +491,7 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 			const inputMods = arch?.input_modalities ?? arch?.modalities;
 			const supportsVision = inputMods?.includes('image');
 			const modality = typeof arch?.modality === 'string' && arch.modality.length > 0 ? arch.modality : undefined;
+			const pricing = (model as { pricing?: { prompt?: unknown; completion?: unknown; input_cache_read?: unknown; input_cache_write?: unknown; overrides?: unknown } }).pricing;
 			return {
 				id,
 				name: nameStr,
@@ -501,10 +503,17 @@ export class RemoteCatalogService implements IRemoteCatalogService {
 				modality,
 				// OpenRouter quotes per token AND sends the numbers as strings — the previous
 				// `pricing.prompt || 0` let a string into a numeric field untouched.
-				cost: normaliseCatalogCost(
-					(model as { pricing?: { prompt?: unknown } }).pricing?.prompt,
-					(model as { pricing?: { completion?: unknown } }).pricing?.completion,
-				),
+				// `pricing` carries more than the two base rates: cache rates, and `overrides` — the
+				// long-prompt tier as absolute rates. Taking only prompt/completion billed every
+				// cached token at the full input rate and priced a 300K-token request as a short one.
+				cost: normaliseCatalogCost(pricing?.prompt, pricing?.completion, {
+					cacheRead: pricing?.input_cache_read,
+					cacheWrite: pricing?.input_cache_write,
+					overrides: pricing?.overrides,
+				}),
+				// A floating id — an alias or a dated snapshot behind a stable name — is display-only,
+				// but it is what tells a person that a quirk pinned here is pinned to moving ground.
+				floatsTo: floatingTargetOf(model, id),
 				deprecated: !!(model as { deprecated?: boolean }).deprecated,
 				beta: !!(model as { beta?: boolean }).beta,
 			};

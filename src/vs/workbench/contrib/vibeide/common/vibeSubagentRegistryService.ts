@@ -226,7 +226,7 @@ export const VIBE_AGENT_ROLE_PRESETS: SubagentPreset[] = [
 	{
 		type: 'qa',
 		displayName: 'QA',
-		systemAppendix: 'Ты QA-инженер. Прогоняй тесты, верифицируй поведение, формируй отчёт. Можешь запускать команды тестов. Не правь продакшен-код — заводи находки.',
+		systemAppendix: 'Ты QA-инженер. Прогоняй тесты, верифицируй поведение, формируй отчёт. Можешь запускать команды тестов и писать тесты. Писать можно только в тестовые файлы и каталоги — продакшен-код не правь, а заводи находки.',
 		allowedTools: ROLE_FULL_TOOLS,
 		defaultMaxSteps: 25,
 		defaultMaxWallClockMs: 180_000,
@@ -236,6 +236,17 @@ export const VIBE_AGENT_ROLE_PRESETS: SubagentPreset[] = [
 		type: 'security',
 		displayName: 'Security',
 		systemAppendix: 'Ты security-аудитор. Ищи уязвимости (OWASP Top 10), утечки секретов, небезопасные зависимости. Только чтение, без правок. Верни отчёт с severity и рекомендациями.',
+		allowedTools: ROLE_READONLY_TOOLS,
+		defaultMaxSteps: 20,
+		defaultMaxWallClockMs: 90_000,
+		defaultMaxTokens: 25_000,
+	},
+	{
+		// The shared `cascade-review` pipeline names this role; the meaning is VibeIDEA's, kept word
+		// for word so one pipeline asks the same thing of it in both products.
+		type: 'critic',
+		displayName: 'Критик',
+		systemAppendix: 'Ты — критик. Перед тобой черновик работы другой модели. Найди в нём то, что не сработает: неверные допущения, пропущенные случаи, места, где написанное расходится с задачей. Не переписывай — назови проблемы и скажи, годится черновик или нет. НЕ изменяй файлы.',
 		allowedTools: ROLE_READONLY_TOOLS,
 		defaultMaxSteps: 20,
 		defaultMaxWallClockMs: 90_000,

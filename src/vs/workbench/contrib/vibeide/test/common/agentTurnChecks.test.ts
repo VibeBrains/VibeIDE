@@ -7,16 +7,17 @@
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import {
-	DEFAULT_ENABLED_CHECKS, TurnCheckId, TurnFacts, decideTurnChecks, evaluateTurnChecks, renderTurnChecksCorrective,
+	DEFAULT_ENABLED_CHECKS, DEFAULT_VERIFICATION_PATTERNS, TurnCheckId, TurnFacts, decideTurnChecks, evaluateTurnChecks, matchVerificationPaths, renderTurnChecksCorrective,
 } from '../../common/agentTurnChecks.js';
 
-const ALL_CHECKS: readonly TurnCheckId[] = ['no-secret-leak', 'no-protected-path', 'forbidden-action', 'budget-exceeded', 'source-location'];
+const ALL_CHECKS: readonly TurnCheckId[] = ['no-secret-leak', 'no-protected-path', 'forbidden-action', 'budget-exceeded', 'source-location', 'no-verification-edit'];
 
 function facts(overrides: Partial<TurnFacts> = {}): TurnFacts {
 	return {
 		changedFiles: ['src/app.ts'],
 		secretHits: [],
 		protectedHits: [],
+		verificationHits: [],
 		forbiddenTools: [],
 		tokensUsed: 1_000,
 		tokenQuota: 100_000,
@@ -37,7 +38,7 @@ suite('agentTurnChecks — deterministic checks on what a turn did', () => {
 		const results = evaluateTurnChecks(facts(), ALL_CHECKS);
 		assert.deepStrictEqual(
 			[results.length, results.every(r => r.passed), failedIds(facts())],
-			[5, true, []],
+			[6, true, []],
 		);
 	});
 
@@ -105,5 +106,49 @@ suite('agentTurnChecks — deterministic checks on what a turn did', () => {
 			[text.includes('dist/a.js'), text.includes('dist/**'), text.includes('попытка 1 из 2')],
 			[true, true, true],
 		);
+	});
+});
+
+suite('agentTurnChecks — ход правил то, что его проверяет', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('правка теста — находка, правка кода — нет', () => {
+		assert.deepStrictEqual(
+			[
+				failedIds(facts({ verificationHits: ['src/app.test.ts'] }), ['no-verification-edit']),
+				failedIds(facts({ verificationHits: [] }), ['no-verification-edit']),
+			],
+			[['no-verification-edit'], []],
+		);
+	});
+
+	test('шаблоны по умолчанию ловят тесты и их обвязку, но не код рядом', () => {
+		assert.deepStrictEqual(
+			matchVerificationPaths([
+				'src/app.ts',
+				'src/app.test.ts',
+				'src/app.spec.tsx',
+				'test/fixtures/data.json',
+				'packages/core/tests/run.ts',
+				'web/__tests__/button.tsx',
+				'src/contest.ts',
+			], DEFAULT_VERIFICATION_PATTERNS),
+			['src/app.test.ts', 'src/app.spec.tsx', 'test/fixtures/data.json', 'packages/core/tests/run.ts', 'web/__tests__/button.tsx'],
+		);
+	});
+
+	test('обратные косые приводятся к прямым, повтор файла не дублируется, пустой список ничего не ловит', () => {
+		assert.deepStrictEqual(
+			[
+				matchVerificationPaths(['src\\app.test.ts', 'src/app.test.ts'], DEFAULT_VERIFICATION_PATTERNS),
+				matchVerificationPaths(['src/app.test.ts'], []),
+			],
+			[['src/app.test.ts'], []],
+		);
+	});
+
+	test('правило не включено по умолчанию — агенту, которому поручили тесты, оно мешало бы на каждом ходе', () => {
+		assert.strictEqual(DEFAULT_ENABLED_CHECKS.includes('no-verification-edit'), false);
 	});
 });

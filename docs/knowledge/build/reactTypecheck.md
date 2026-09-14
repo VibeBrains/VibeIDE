@@ -65,11 +65,18 @@
 - **`@types/react` + `@types/react-dom` + `@types/diff`** добавлены в `devDependencies`; без первых
   двух каждый TSX-файл тонет в `TS7016`/`TS7026`, без третьего `diff/index.tsx` даёт `TS7016`
   (пакет `diff@5` своих типов не поставляет).
+- **Гейт «после правки своей области» не видит поломку, пришедшую извне.** `90ee35f86` добавил
+  инструмент `tasks` в `common/toolsServiceTypes.ts` — вне `react/src`, — и карта
+  `titleOfBuiltinToolName` шесть дней была красной: гейт запускали только после правок `react/src`,
+  а CI и хуки его не знали. React импортирует большую часть workbench, поэтому с 2026-09-11 гейт
+  стоит в CI (`pr.yml`, джоб «Compile & Hygiene», отдельный шаг) и в pre-commit на любой staged
+  `src/vs/**/*.{ts,tsx}` — прогон около 2 с, проверено на пробной поломке той же формы.
 
 ## Применение
 
-- Гонять `npm run react-typecheck` после любой правки в `react/src/**` — `compile-check-ts-native`
-  эту область **не** покрывает и зелёный прогон там ничего о TSX не доказывает.
+- Гейт запускается сам: в pre-commit (любой staged TS под `src/vs/`) и в CI на PR. Руками —
+  `npm run react-typecheck` при правке `react/src/**`: `compile-check-ts-native` эту область
+  **не** покрывает, и зелёный прогон там ничего о TSX не доказывает.
 - Новый инструмент агента в `BuiltinToolResultType` → сразу заголовок в `titleOfBuiltinToolName`
   (гейт заставит: карта объявлена `satisfies Record<BuiltinToolName, …>`). Обёртка результата и
   описание параметров опциональны по дизайну — их карты частичные, есть generic-фолбэк.

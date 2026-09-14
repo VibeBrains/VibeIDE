@@ -22,8 +22,8 @@
 #                                              # stamped out-build (stamp must match product.json),
 #                                              # redo ONLY gulp package + sign + DMG/ZIP + smoke
 #
-# Artifacts: .build/darwin-arm64/VibeIDE-<ver>-darwin-arm64.dmg + .zip (DMG via hdiutil —
-# build/darwin/create-dmg.ts needs Python ≥3.10 which this machine lacks; hdiutil is zero-dep).
+# Artifacts: .build/darwin-arm64/VibeIDE-<ver>-darwin-arm64.dmg + .zip (DMG via scripts/build-dmg-macos.sh —
+# hdiutil + Finder layout, zero-dep; build/darwin/create-dmg.ts needs Python ≥3.10 and dmgbuild).
 # Signing: ad-hoc by default (Gatekeeper will require «Open Anyway» on first launch). When
 # VIBE_MAC_SIGNING_IDENTITY is set, signs Developer ID + hardened runtime instead; notarization
 # stays manual via scripts/notarize-macos.sh until Apple Developer credentials exist.
@@ -292,12 +292,10 @@ if [[ "$SKIP_COMPILE" != '1' || "$PACKAGE_ONLY" == '1' ]]; then
 	mkdir -p "$ARTIFACT_DIR"
 	rm -f "$ARTIFACT_DIR"/VibeIDE-*-darwin-arm64.dmg "$ARTIFACT_DIR"/VibeIDE-*-darwin-arm64.zip
 
-	step 'Building DMG (hdiutil)...'
-	DMG_STAGE="$(mktemp -d)"
-	trap 'rm -rf "$DMG_STAGE"' EXIT
-	ditto "$APP" "$DMG_STAGE/VibeIDE.app"
-	ln -s /Applications "$DMG_STAGE/Applications"
-	hdiutil create -volname 'VibeIDE' -srcfolder "$DMG_STAGE" -ov -format UDZO "$DMG_PATH" > /dev/null
+	# The installer window is designed, not a bare file list: background, layout and the first-run
+	# line for an unsigned build. The script also verifies the shipped image carries our background.
+	step 'Building DMG (designed window)...'
+	"$ROOT/scripts/build-dmg-macos.sh" "$APP" "$DMG_PATH" || die 'DMG build failed'
 	ok "DMG built: $DMG_PATH"
 
 	step 'Building portable ZIP (ditto, preserves signatures/xattrs)...'

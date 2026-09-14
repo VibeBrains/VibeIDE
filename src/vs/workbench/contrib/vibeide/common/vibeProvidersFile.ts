@@ -37,6 +37,46 @@ export interface VibeProviderModelCost {
 	readonly output?: number;
 	readonly cacheRead?: number;
 	readonly cacheWrite?: number;
+	/** Surcharge on a long prompt, when the vendor announces one — see `VibeProviderLongContext`. */
+	readonly longContext?: VibeProviderLongContext;
+	/** Price by the hour: the rates above are PEAK rates — see `VibeProviderTimeOfDay`. */
+	readonly timeOfDay?: VibeProviderTimeOfDay;
+}
+
+/**
+ * Цена по часу.
+ *
+ * The rates of the entry are the peak ones and every rate is multiplied by `offPeakFactor` outside the
+ * peak: vendors (DeepSeek, Z.ai) state the off-peak price as a share of the peak one, and the entry
+ * repeats their price list instead of recomputing it. The shape is the shared set's contract —
+ * VibeIDEA reads the same block (`ProvidersFile.kt`).
+ */
+export interface VibeProviderTimeOfDay {
+	/** Windows `HH:MM-HH:MM` in UTC, end excluded; a window may cross midnight, `24:00` is an end only. */
+	readonly peakUtc?: readonly string[];
+	/** Three-letter English days (`mon` … `sun`) the windows apply on; absent — every day. */
+	readonly peakDays?: readonly string[];
+	/** Multiplier on every rate outside the peak, e.g. `0.5`. */
+	readonly offPeakFactor?: number;
+}
+
+/**
+ * Надбавка за длинный промпт.
+ *
+ * Multipliers, not a second price table: vendors announce it as «N times» — «prompts with more than
+ * 272K input tokens are priced at 2x input and cache rates and 1.5x output for the full request»
+ * (GPT-6 Astra) — and a second table would drift from the first on the next change of the base rate.
+ * The shape is the shared set's contract: VibeIDEA reads the same block.
+ */
+export interface VibeProviderLongContext {
+	/** Threshold on the PROMPT length, strictly above: fresh input, cache reads and cache writes. */
+	readonly overInputTokens?: number;
+	/** Multiplier on the fresh-input rate. Absent — 1. */
+	readonly input?: number;
+	/** Multiplier on the cache rates, read and write alike. Absent — 1. */
+	readonly cache?: number;
+	/** Multiplier on the output rate. Absent — 1. */
+	readonly output?: number;
 }
 
 export type VibeProviderProtocol = 'openai' | 'openai-responses' | 'anthropic' | 'gemini';

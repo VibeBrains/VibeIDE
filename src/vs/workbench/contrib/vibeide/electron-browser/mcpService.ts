@@ -28,7 +28,10 @@ import { IProductService } from '../../../../platform/product/common/productServ
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { IChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
-import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, MCPToolCallParams, RawMCPToolCall, MCPServerEventResponse } from '../common/mcpServiceTypes.js';
+import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, MCPToolCallParams, RawMCPToolCall, MCPServerEventResponse, MCPAppRequestOutcome, MCPReadResourceParams, MCPTool } from '../common/mcpServiceTypes.js';
+import { MCP } from '../../mcp/common/modelContextProtocol.js';
+import { mcpAppsEnabledConfig } from '../../../../platform/mcp/common/mcpManagement.js';
+import { isMcpToolCallableByApp, isMcpToolVisibleToModel, mcpAppUiOfTool } from '../common/mcpApps.js';
 import { Event, Emitter } from '../../../../base/common/event.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { InternalToolInfo } from '../common/prompt/prompts.js';
@@ -39,8 +42,15 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { scanMcpConfig, ConfigGuardFinding } from '../common/vibeConfigGuard.js';
 import { IMCPService, MCPServiceState } from '../common/mcpService.js';
+import { FoundMemoryServer, VIBE_MEMORY_SERVER_NAME, vibeMemoryServerPathSegments, withDiscoveredMemoryServer } from '../common/vibeMemoryServerDiscovery.js';
+import { MEMORY_PROJECT_RESOLVE_TOOL, MemoryProjectAnswer, parseProjectResolveAnswer } from '../common/vibeMemoryProject.js';
+import { raceTimeout } from '../../../../base/common/async.js';
+import { joinPath } from '../../../../base/common/resources.js';
+import { isWindows } from '../../../../base/common/platform.js';
 
 const MCP_CONFIG_FILE_NAME = 'mcp.json';
+/** How long prompt assembly waits for the memory server to name a folder's project. */
+const MEMORY_PROJECT_RESOLVE_TIMEOUT_MS = 3000;
 const MCP_CONFIG_SAMPLE = { mcpServers: {} };
 const MCP_CONFIG_SAMPLE_STRING = JSON.stringify(MCP_CONFIG_SAMPLE, null, 2);
 
@@ -112,6 +122,11 @@ class MCPService extends Disposable implements IMCPService {
 		this._register((this.channel.listen('onUpdate_server') satisfies Event<MCPServerEventResponse>)(onEvent));
 		this._register((this.channel.listen('onDelete_server') satisfies Event<MCPServerEventResponse>)(onEvent));
 
+		// Turning MCP Apps on or off changes what every client announces, so all servers reconnect.
+		this._register(this._configurationService.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration(mcpAppsEnabledConfig)) { this._scheduleMcpConfigRefresh.schedule(); }
+		}));
+
 		this._initialize();
 	}
 
@@ -152,9 +167,34 @@ class MCPService extends Disposable implements IMCPService {
 				}
 			};
 		}
+		if (serverName === VIBE_MEMORY_SERVER_NAME) {
+			// A reconnected server may have a different store or new rules: ask again.
+			this._memoryProjectOfFolder.clear();
+		}
 		this._warnAboutShadowedBuiltins(serverName, newServer);
 		this._onDidChangeState.fire();
 	};
+
+	/** Answers of `project_resolve` by folder; only real answers are kept, so a slow server is asked again. */
+	private readonly _memoryProjectOfFolder = new Map<string, MemoryProjectAnswer>();
+
+	public async resolveMemoryProject(folder: string): Promise<MemoryProjectAnswer | undefined> {
+		const cached = this._memoryProjectOfFolder.get(folder);
+		if (cached) { return cached; }
+		const server = this.state.mcpServerOfName[VIBE_MEMORY_SERVER_NAME];
+		if (server?.status !== 'success' || !server.tools.some(t => t.name === MEMORY_PROJECT_RESOLVE_TOOL)) {
+			return undefined;
+		}
+		const params: MCPToolCallParams = { serverName: VIBE_MEMORY_SERVER_NAME, toolName: MEMORY_PROJECT_RESOLVE_TOOL, params: { directory: folder } };
+		const result = await raceTimeout(this.channel.call<RawMCPToolCall | undefined>('callTool', params), MEMORY_PROJECT_RESOLVE_TIMEOUT_MS);
+		if (result?.event !== 'text') {
+			vibeLog.info('mcp', `VibeMemory: project_resolve for ${folder} gave no answer`);
+			return undefined;
+		}
+		const answer = parseProjectResolveAnswer(result.text);
+		if (answer) { this._memoryProjectOfFolder.set(folder, answer); }
+		return answer;
+	}
 
 	/**
 	 * Сказать вслух, если инструмент сервера получил имя встроенного.
@@ -243,6 +283,8 @@ class MCPService extends Disposable implements IMCPService {
 			const server = this.state.mcpServerOfName[serverName];
 			const sanitizedServer = sanitizeMcpIdentifier(serverName);
 			server.tools?.forEach(tool => {
+				// An app-only tool exists for the app's buttons; offering it to the model would break the spec's promise.
+				if (!isMcpToolVisibleToModel(tool)) { return; }
 				const sanitizedTool = sanitizeMcpIdentifier(tool.name);
 				// Model-facing identifier with collision-safe `<server>_<tool>` prefix.
 				// Two MCP servers exposing same-named tools used to alias each other —
@@ -377,6 +419,25 @@ class MCPService extends Disposable implements IMCPService {
 	}
 
 	// Handle server state changes
+	/**
+	 * The VibeMemory server binary, if installed. Absent is not an error — most people do not run
+	 * VibeMemory — so it is one log line, not a notification.
+	 */
+	private async _findMemoryServer(): Promise<FoundMemoryServer | undefined> {
+		try {
+			const home = await this.pathService.userHome();
+			const binary = joinPath(home, ...vibeMemoryServerPathSegments(isWindows));
+			if (!await this.fileService.exists(binary)) {
+				vibeLog.info('mcp', 'VibeMemory: сервер памяти не установлен — общая память агенту недоступна');
+				return undefined;
+			}
+			return { command: binary.fsPath, homeDir: home.fsPath };
+		} catch (err) {
+			vibeLog.warn('mcp', 'VibeMemory: не удалось проверить сервер памяти', err);
+			return undefined;
+		}
+	}
+
 	private async _refreshMCPServers(): Promise<void> {
 
 		this._setHasError(undefined);
@@ -384,6 +445,10 @@ class MCPService extends Disposable implements IMCPService {
 		const newConfigFileJSON = await this._parseMCPConfigFile();
 		if (!newConfigFileJSON) { vibeLog.info('mcp', `Not setting state: MCP config file not found`); return; }
 		if (!newConfigFileJSON?.mcpServers) { vibeLog.info('mcp', `Not setting state: MCP config file did not have an 'mcpServers' field`); return; }
+
+		// The family's shared memory joins by itself when VibeMemory is installed; a user entry with the
+		// same name wins. Added before Config Guard, so the discovered entry is scanned like any other.
+		newConfigFileJSON.mcpServers = withDiscoveredMemoryServer(newConfigFileJSON.mcpServers, await this._findMemoryServer());
 
 		// Config Guard: static-scan server entries; in block mode, drop critical-flagged servers before
 		// they start (filtering the parsed config so the rest of the refresh logic is untouched).
@@ -423,7 +488,61 @@ class MCPService extends Disposable implements IMCPService {
 			removedServerNames,
 			updatedServerNames,
 			userStateOfName: this.vibeideSettingsService.state.mcpUserStateOfName,
+			appsEnabled: this._appsEnabled(),
 		});
+	}
+
+	private _appsEnabled(): boolean {
+		return this._configurationService.getValue<boolean>(mcpAppsEnabledConfig) !== false;
+	}
+
+	/** A tool of a server by its model-facing `<server>_<tool>` name or by its raw name. */
+	private _findTool(serverName: string, name: string): MCPTool | undefined {
+		const sanitizedServer = sanitizeMcpIdentifier(serverName);
+		return this.state.mcpServerOfName[serverName]?.tools?.find(t => t.name === name || `${sanitizedServer}_${sanitizeMcpIdentifier(t.name)}` === name);
+	}
+
+	public getAppResourceUri(serverName: string, modelToolName: string): string | undefined {
+		if (!this._appsEnabled()) { return undefined; }
+		const tool = this._findTool(serverName, modelToolName);
+		return tool ? mcpAppUiOfTool(tool).resourceUri : undefined;
+	}
+
+	public async readAppResource(serverName: string, uri: string): Promise<MCP.ReadResourceResult> {
+		const params: MCPReadResourceParams = { serverName, uri };
+		return this._unwrapAppOutcome(await this.channel.call<MCPAppRequestOutcome<MCP.ReadResourceResult> | undefined>('readResource', params));
+	}
+
+	public async callToolFromApp(serverName: string, toolName: string, args: Record<string, unknown>): Promise<MCP.CallToolResult> {
+		const tool = this.state.mcpServerOfName[serverName]?.tools?.find(t => t.name === toolName);
+		if (!tool) {
+			throw new Error(`Tool ${toolName} not found on server ${serverName}`);
+		}
+		if (!isMcpToolCallableByApp(tool)) {
+			throw new Error(`Tool ${toolName} is not callable by an app`);
+		}
+		const params: MCPToolCallParams = { serverName, toolName, params: args };
+		const t0 = Date.now();
+		const outcome = await this.channel.call<MCPAppRequestOutcome<MCP.CallToolResult> | undefined>('callToolForApp', params);
+		this._outboundBuffer.record({
+			timestampMs: t0,
+			url: `mcp://${serverName}/${toolName}`,
+			method: 'CALL',
+			statusCode: outcome?.ok ? 200 : 500,
+			source: 'mcp',
+			context: serverName,
+		});
+		return this._unwrapAppOutcome(outcome);
+	}
+
+	private _unwrapAppOutcome<T>(outcome: MCPAppRequestOutcome<T> | undefined): T {
+		if (!outcome) {
+			throw new Error('MCP channel returned no answer');
+		}
+		if (!outcome.ok) {
+			throw new Error(outcome.error);
+		}
+		return outcome.value;
 	}
 
 	public getLastGuardFindings(): readonly ConfigGuardFinding[] {

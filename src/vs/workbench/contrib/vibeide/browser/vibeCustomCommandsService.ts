@@ -523,7 +523,7 @@ class VibeCustomCommandsService extends Disposable implements IVibeCustomCommand
 		// asking the user to invoke the workflow through chat instead.
 		if (cmd.workflowId !== undefined) {
 			const workflows = await this._workflows.getWorkflows();
-			const known = new Set(workflows.map(w => w.name));
+			const known = new Set(workflows.map(w => w.id));
 			const decision = decideWorkflowTrigger({ command: cmd, knownWorkflowIds: known });
 			if (decision.kind === 'refused') {
 				this._log.warn(`[VibeCustomCommands] refused ${id}: workflow ${decision.reason}`);

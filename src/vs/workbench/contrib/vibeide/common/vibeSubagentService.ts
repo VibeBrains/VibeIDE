@@ -35,10 +35,15 @@ import { IVibeConstraintsService } from './vibeConstraintsService.js';
 import { IVibeSubagentRunner } from './vibeSubagentRunner.js';
 import { IVibeAgentRunLedgerService } from './vibeAgentRunLedgerService.js';
 import { AgentRunStatus } from './agentRunLedger.js';
-import { describeRoleBudgetRefusal, evaluateRoleBudget } from './agentRoleBudget.js';
+import { describeRoleBudgetRefusal, describeRoleUsdRefusal, evaluateRoleBudget, evaluateRoleUsdBudget } from './agentRoleBudget.js';
+import { getModelCapabilities } from './modelCapabilities.js';
 import { IVibeideSettingsService } from './vibeideSettingsService.js';
 import { IVibeSubagentRegistryService } from './vibeSubagentRegistryService.js';
 import { breakerName, IVibeCircuitBreakerService, PROTECTIVE_BREAKERS } from './agentCircuitBreakers.js';
+import { effectiveWriteScope, WriteScope } from './pipeline/vibePipelineFile.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { readRolesFile } from './pipeline/vibeRolesFile.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,7 +51,7 @@ export type SubagentType =
 	// Roadmap-agent delegation roles
 	| 'explore' | 'implement-step' | 'recover-or-skip'
 	// Vibe Agents — curated role pack (VA). Read-only roles get a read-only tool whitelist.
-	| 'orchestrator' | 'planner' | 'designer' | 'frontend-dev' | 'backend-dev' | 'code-reviewer' | 'qa' | 'security';
+	| 'orchestrator' | 'planner' | 'designer' | 'frontend-dev' | 'backend-dev' | 'code-reviewer' | 'qa' | 'security' | 'critic';
 /**
  * Every role id, as data. The union above is the contract; this is the same list a runtime caller
  * can check a string against — a pipeline file names roles as plain text, and casting an unknown
@@ -54,7 +59,7 @@ export type SubagentType =
  */
 export const SUBAGENT_TYPES: readonly SubagentType[] = [
 	'explore', 'implement-step', 'recover-or-skip',
-	'orchestrator', 'planner', 'designer', 'frontend-dev', 'backend-dev', 'code-reviewer', 'qa', 'security',
+	'orchestrator', 'planner', 'designer', 'frontend-dev', 'backend-dev', 'code-reviewer', 'qa', 'security', 'critic',
 ];
 
 export function isSubagentType(value: string): value is SubagentType {
@@ -118,6 +123,12 @@ export interface SubagentHandoff {
 	 */
 	/** Границы записи шага пайплайна: куда этому прогону можно писать. Нет поля — без ограничений. */
 	writeScope?: { readonly paths?: readonly string[]; readonly denyPaths?: readonly string[] };
+	/**
+	 * The `qa` write list the pipeline read from `.vibe/roles.json` ONCE, at the start of its run — so
+	 * editing the file mid-run does not move the boundary between steps. Absent (delegation from the
+	 * orchestrator, which no pipeline run wraps) — the file is read when this run starts.
+	 */
+	qaWritePaths?: readonly string[];
 	cascadeDraft?: boolean;
 	/** Set on the escalation run: which draft it replaced, and on what model that draft ran. */
 	escalatedFrom?: { readonly runId: string; readonly model?: string };
@@ -265,16 +276,25 @@ const TOOL_WHITELIST: Record<SubagentType, string[]> = {
 	'implement-step': FULL_TOOLS,
 	'recover-or-skip': ['read_file', 'run_command', 'grep'],
 	// Vibe Agents (VA) — must mirror allowedTools in vibeSubagentRegistryService presets.
-	// Read-only roles (orchestrator/planner/code-reviewer/security) cannot write or run.
+	// Read-only roles (orchestrator/planner/code-reviewer/security/critic) cannot write or run.
 	'orchestrator': READONLY_TOOLS,
 	'planner': READONLY_TOOLS,
 	'code-reviewer': READONLY_TOOLS,
 	'security': READONLY_TOOLS,
+	// Judges another model's draft — the shared `cascade-review` pipeline names it, and VibeIDEA runs
+	// it read-only. A critic that can edit turns «what is wrong here» into a second implementation.
+	'critic': READONLY_TOOLS,
 	'designer': FULL_TOOLS,
 	'frontend-dev': FULL_TOOLS,
 	'backend-dev': FULL_TOOLS,
+	// Full tools, but the write scope is narrowed to tests by default — see `effectiveWriteScope`.
 	'qa': FULL_TOOLS,
 };
+
+/** The runner request field, or nothing when there is no scope at all. */
+function writeScopeField(scope: WriteScope | undefined): { writeScope?: WriteScope } {
+	return scope ? { writeScope: scope } : {};
+}
 
 // ── Implementation ────────────────────────────────────────────────────────────
 
@@ -299,6 +319,8 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		@IVibeideSettingsService private readonly _settings: IVibeideSettingsService,
 		@IVibeSubagentRegistryService private readonly _roleRegistry: IVibeSubagentRegistryService,
 		@IVibeCircuitBreakerService private readonly _breakers: IVibeCircuitBreakerService,
+		@IFileService private readonly _fileService: IFileService,
+		@IWorkspaceContextService private readonly _workspace: IWorkspaceContextService,
 	) {
 		super();
 	}
@@ -346,7 +368,10 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 		});
 
 		this._log.info(`[VibeSubagent] Spawning ${handoff.type} subagent ${id} for thread ${handoff.parentThreadId}`);
-		this._audit.append({ actor: 'subagent', actorId: id, ts: Date.now(), action: 'subagent_spawned', ok: true, meta: { subagentId: id, type: handoff.type, parentThreadId: handoff.parentThreadId } });
+		// `traceId` is the parent thread — the same value the chat thread writes on its own records —
+		// and `spanId` is this run, shared by its start and its end. Without them a delegated run was
+		// a separate island in the log, and «what did the turn cause» stopped at the handoff.
+		this._audit.append({ actor: 'subagent', actorId: id, ts: Date.now(), action: 'subagent_spawned', ok: true, traceId: handoff.parentThreadId, spanId: id, meta: { subagentId: id, type: handoff.type, parentThreadId: handoff.parentThreadId } });
 
 		// Cumulative role budget. `maxTokens` caps one run; this caps the role across many, so a
 		// role that already spent its allowance does not start at all. The refusal is recorded as
@@ -465,6 +490,21 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 
 	// ── Private ─────────────────────────────────────────────────────────────
 
+	/** The `qa` write list for this run: the pipeline's snapshot, or `.vibe/roles.json` read now. */
+	private async _qaWritePathsFor(type: SubagentType, handoff: SubagentHandoff): Promise<readonly string[] | undefined> {
+		if (type !== 'qa') {
+			return undefined;
+		}
+		if (handoff.qaWritePaths) {
+			return handoff.qaWritePaths;
+		}
+		const roles = await readRolesFile(this._fileService, this._workspace);
+		for (const warning of roles.warnings) {
+			this._log.warn(`[VibeSubagent] ${warning}`);
+		}
+		return roles.qaWritePaths;
+	}
+
 	/**
 	 * Refusal text when the role has no allowance left, or `undefined` when it may run.
 	 * Reads the ledger, so the ceiling is enforced against what actually happened — including
@@ -472,16 +512,31 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 	 */
 	private async _roleBudgetRefusal(role: SubagentType): Promise<string | undefined> {
 		const budgets = this._settings.state.tokenBudgetOfRole ?? {};
-		if (!budgets[role]) {
+		const usdBudgets = this._settings.state.usdBudgetOfRole ?? {};
+		// `perRun` is not checked here: it becomes this run's token quota once the model is known
+		// (see the runner). Only the cumulative daily ceiling can refuse a launch outright.
+		const hasUsdDay = typeof usdBudgets[role]?.perDay === 'number';
+		if (!budgets[role] && !hasUsdDay) {
 			return undefined;
 		}
 		const windowDays = this._configuration.getValue<number>('vibeide.subagent.budgetWindowDays');
 		const days = typeof windowDays === 'number' && Number.isFinite(windowDays) && windowDays > 0 ? windowDays : 1;
-		const state = evaluateRoleBudget(await this._ledger.getRuns(), role, budgets, Date.now(), days);
-		if (!state.exhausted) {
-			return undefined;
+		const runs = await this._ledger.getRuns();
+		if (budgets[role]) {
+			const state = evaluateRoleBudget(runs, role, budgets, Date.now(), days);
+			if (state.exhausted) {
+				return describeRoleBudgetRefusal(state, this._roleRegistry.getPreset(role).displayName, days);
+			}
 		}
-		return describeRoleBudgetRefusal(state, this._roleRegistry.getPreset(role).displayName, days);
+		if (hasUsdDay) {
+			const overrides = this._settings.state.overridesOfModel;
+			const usdState = evaluateRoleUsdBudget(runs, role, usdBudgets, Date.now(), days,
+				(provider, model) => provider && model ? getModelCapabilities(provider as ProviderId, model, overrides).cost : undefined);
+			if (usdState.exhausted) {
+				return describeRoleUsdRefusal(usdState, this._roleRegistry.getPreset(role).displayName, days);
+			}
+		}
+		return undefined;
 	}
 
 	private async _runSubagent(entry: SubagentEntry): Promise<void> {
@@ -532,8 +587,10 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			contextItems: handoff.contextItems,
 			images: handoff.images,
 			allowedTools,
-			// Границы записи шага доезжают до раннера — именно там стоит проверка пути.
-			...(handoff.writeScope ? { writeScope: handoff.writeScope } : {}),
+			// Границы записи шага доезжают до раннера — именно там стоит проверка пути. Умолчание роли
+			// (у `qa` — только тесты) подставляется ЗДЕСЬ, а не в пайплайне: делегирование от
+			// оркестратора пайплайн не проходит, и границы там иначе не было бы вовсе.
+			...writeScopeField(effectiveWriteScope(entry.type, handoff.writeScope, await this._qaWritePathsFor(entry.type, handoff))),
 			maxSteps,
 			maxTokensEst: Math.max(0, maxTokens),
 			maxWallClockMs: handoff.maxWallClockMs ?? 0,
@@ -594,7 +651,7 @@ class VibeSubagentService extends Disposable implements IVibeSubagentService {
 			summary: result.summary,
 			failureReason: result.status === 'success' ? undefined : result.reason,
 		});
-		this._audit.append({ actor: 'subagent', actorId: entry.id, ts: Date.now(), action: 'subagent_completed', ok: result.status === 'success', meta: { subagentId: entry.id, status: result.status, tokensUsed: result.tokensUsed } });
+		this._audit.append({ actor: 'subagent', actorId: entry.id, ts: Date.now(), action: 'subagent_completed', ok: result.status === 'success', traceId: entry.handoff.parentThreadId, spanId: entry.id, meta: { subagentId: entry.id, status: result.status, tokensUsed: result.tokensUsed } });
 
 		const waiter = this._waiters.get(entry.id);
 		if (waiter) {

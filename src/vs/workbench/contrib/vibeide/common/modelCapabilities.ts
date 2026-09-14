@@ -19,7 +19,8 @@
  */
 
 import { FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderId, ProviderName } from './vibeideSettingsTypes.js';
-import { effectiveCost } from './modelPriceSchedule.js';
+import { effectiveCost, PriceTimeOfDay } from './modelPriceSchedule.js';
+import { effortWithinValues } from './reasoningEffortLevel.js';
 
 
 
@@ -155,6 +156,32 @@ export const defaultModelsOfProvider = {
 
 
 
+/**
+ * Price of a model, USD per million tokens — the ONE shape every consumer of money reads.
+ *
+ * The spend ledger once kept its own camelCase copy (`cacheRead`), was handed this object, found no
+ * `cacheRead` in it and billed every cached token at the full input rate. No type error said so:
+ * an optional field is not checked for excess keys when the object is not a fresh literal.
+ */
+export type ModelCost = {
+	input: number;
+	output: number;
+	cache_read?: number;
+	cache_write?: number;
+	/** Surcharge on a long prompt: past `over_input_tokens` the whole request is priced with the multipliers. */
+	long_context?: ModelLongContext;
+	/** Price by the hour: the rates above are peak rates, multiplied by `offPeakFactor` outside the peak. */
+	time_of_day?: PriceTimeOfDay;
+};
+
+/** Multipliers on the base rates, applied to the whole request once the prompt is longer than the threshold. */
+export type ModelLongContext = {
+	over_input_tokens: number;
+	input?: number;
+	cache?: number;
+	output?: number;
+};
+
 export type VibeideStaticModelInfo = { // not stateful
 	// Void uses the information below to know how to handle each model.
 	// for some examples, see openAIModelOptions and anthropicModelOptions (below).
@@ -171,6 +198,7 @@ export type VibeideStaticModelInfo = { // not stateful
 	supportsFIM: boolean; // whether the model was specifically designed for autocomplete or "FIM" ("fill-in-middle" format)
 	supportsVision?: boolean; // image input. Optional — undefined falls back to provider heuristics. Catalog-driven providers (OpenRouter, etc.) populate this from `architecture.input_modalities`.
 	modality?: string; // display-only literal from catalog (e.g. "text+image->text"). Not used for routing — purely informational, surfaced in the model list UI.
+	floatsTo?: string; // display-only: what a FLOATING catalog id points at today (alias target or dated snapshot). See catalogAliases.ts — a quirk pinned to such an id is pinned to moving ground.
 
 	additionalOpenAIPayload?: { [key: string]: string }; // additional payload in the message body for requests that are openai-compatible (ollama, vllm, openai, openrouter, etc)
 
@@ -223,12 +251,7 @@ export type VibeideStaticModelInfo = { // not stateful
 
 
 	// --- below is just informative, not used in sending / receiving, cannot be customized in settings ---
-	cost: {
-		input: number;
-		output: number;
-		cache_read?: number;
-		cache_write?: number;
-	};
+	cost: ModelCost;
 	/**
 	 * Promotional pricing with a published end date.
 	 *
@@ -240,7 +263,7 @@ export type VibeideStaticModelInfo = { // not stateful
 	costSchedule?: {
 		/** ISO date or a full instant — vendor deadlines are announced in local time. */
 		readonly validUntil: string;
-		readonly after: { input: number; output: number; cache_read?: number; cache_write?: number };
+		readonly after: ModelCost;
 		/** Where it was announced, so the claim can be checked rather than believed. */
 		readonly note?: string;
 	};
@@ -260,6 +283,7 @@ export const modelOverrideKeys = [
 	'supportsFIM',
 	'supportsVision',
 	'modality',
+	'floatsTo',
 	'reasoningCapabilities',
 	'additionalOpenAIPayload'
 ] as const;
@@ -675,6 +699,12 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 	if (lower.includes('qwen') && lower.includes('3')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen3'); }
 	if (lower.includes('qwen')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwen3'); }
 	if (lower.includes('qwq')) { return toFallback(openSourceModelOptions_assumingOAICompat, 'qwq'); }
+
+	// Sakana Fugu: the narrow branch goes first — `fugu-ultra` carries Ultra pricing and starts at
+	// `xhigh`, while every other fugu id (fugu-max, fugu, fugu-cyber) takes the Max profile. What must
+	// not fall through is the effort ladder: this family rejects `low`/`medium` with an error.
+	if (lower.includes('fugu') && lower.includes('ultra')) { return toFallback(sakanaModelOptions, 'fugu-ultra'); }
+	if (lower.includes('fugu')) { return toFallback(sakanaModelOptions, 'fugu-max'); }
 
 	// GLM and Kimi had no branch at all — every id fell through to `defaultModelOptions`, whose
 	// price is zero, so the router read them as free. Newer generations map to the newest profile
@@ -2188,6 +2218,43 @@ const openRouterSettings: VoidStaticProviderInfo = {
 // MiniMax-M2 is a thinking model (interleaved, always on) that streams its
 // chain-of-thought in `reasoning_content`. Context spec: 204,800 tokens.
 // Reference: https://platform.minimax.io/docs/api-reference/text-chat-openai
+/**
+ * Sakana Fugu — an orchestrator: it picks an executor from its own pool, and that executor's work is
+ * billed as ordinary input/output tokens, so the visible tokens undercount the bill (`usage.token_details`
+ * carries the split). Reasoning is MANDATORY here and the ladder is its own: `high` | `xhigh`, with `max`
+ * accepted for compatibility and meaning `xhigh` (a distinct `max` exists only on fugu-ultra-v1.1). The
+ * API rejects `low` and `medium` outright — which is exactly what our old default would have sent.
+ * Verified 2026-09-12 against console.sakana.ai/get-started and the live OpenRouter catalog.
+ */
+const sakanaModelOptions = {
+	'fugu-max': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 2.00, output: 6.00, cache_read: 0.25 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsVision: true,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['high', 'xhigh', 'max'], default: 'high' } },
+	},
+	// Ultra v2 — `fugu-ultra` on the vendor API, `fugu-ultra-v2` on OpenRouter. Its price is TIERED:
+	// past 272K prompt tokens the whole request is billed at $10/$45 with cache at $1.00 instead of
+	// $5/$30 and $0.50 — the multipliers below. Read off the vendor's own tier in the live catalogue
+	// (`pricing.overrides[0]`: prompt ×2, completion ×1.5, input_cache_read ×2), checked 12.09.2026.
+	'fugu-ultra': {
+		contextWindow: 1_000_000,
+		reservedOutputTokenSpace: 32_768,
+		cost: { input: 5.00, output: 30.00, cache_read: 0.50, long_context: { over_input_tokens: 272_000, input: 2, output: 1.5, cache: 2 } },
+		downloadable: false,
+		supportsFIM: false,
+		supportsVision: true,
+		specialToolFormat: 'openai-style',
+		supportsSystemMessage: 'system-role',
+		reasoningCapabilities: { supportsReasoning: true, canTurnOffReasoning: false, canIOReasoning: false, reasoningSlider: { type: 'effort_slider', values: ['high', 'xhigh', 'max'], default: 'xhigh' } },
+	},
+} as const satisfies { [s: string]: VibeideStaticModelInfo };
+
 const minimaxModelOptions = {
 	// M3: 1M-token context (MSA architecture), native multimodality, three thinking modes via
 	// `thinking:{type}`: 'adaptive' (model decides per request; the API default), 'enabled'
@@ -2197,10 +2264,12 @@ const minimaxModelOptions = {
 	'MiniMax-M3': {
 		contextWindow: 1_000_000,
 		reservedOutputTokenSpace: 8_192,
-		// Standard tier, prompts up to 512K; above that the vendor charges 0.60/2.40, which this
-		// flat model cannot express. The old note here claimed cost was "not used for routing" —
-		// it is: `modelRouter` scores `costPerM === 0` as a FREE model and adds points for it.
-		cost: { input: 0.30, output: 1.20, cache_read: 0.06 },
+		// Standard tier, prompts up to 512K; past that the vendor charges 0.60/2.40 with cache reads at
+		// 0.12 instead of 0.06 — every rate doubled, hence the tier below
+		// (platform.minimax.io/docs/guides/pricing-paygo, checked 13.09.2026).
+		// The old note here claimed cost was "not used for routing" — it is: `modelRouter` scores
+		// `costPerM === 0` as a FREE model and adds points for it.
+		cost: { input: 0.30, output: 1.20, cache_read: 0.06, long_context: { over_input_tokens: 512_000, input: 2, output: 2, cache: 2 } },
 		downloadable: false,
 		supportsFIM: false,
 		supportsVision: true,
@@ -2381,7 +2450,8 @@ export type CatalogModelHint = {
 	contextWindow?: number;
 	supportsVision?: boolean;
 	modality?: string;
-	cost?: { input: number; output: number };
+	floatsTo?: string;
+	cost?: ModelCost;
 };
 
 /**
@@ -2493,8 +2563,11 @@ const catalogFields = (info: CatalogModelHint | undefined): Partial<VibeideStati
 	if (typeof info.contextWindow === 'number' && info.contextWindow > 0) { out.contextWindow = info.contextWindow; }
 	if (typeof info.supportsVision === 'boolean') { out.supportsVision = info.supportsVision; }
 	if (typeof info.modality === 'string' && info.modality.length > 0) { out.modality = info.modality; }
+	if (typeof info.floatsTo === 'string' && info.floatsTo.length > 0) { out.floatsTo = info.floatsTo; }
+	// Copied whole, not field by field: a hand-listed copy is how the cache rates and the
+	// long-prompt tier were dropped on their way from the catalogue to the ledger.
 	if (info.cost && typeof info.cost.input === 'number' && typeof info.cost.output === 'number') {
-		out.cost = { input: info.cost.input, output: info.cost.output };
+		out.cost = { ...info.cost };
 	}
 	return out;
 };
@@ -2522,6 +2595,21 @@ export type SendableReasoningInfo = {
 
 
 
+/**
+ * Whether reasoning is on for a selection.
+ *
+ * A model that cannot turn reasoning off ignores a stored «off»: that value is left over from another
+ * model or an older entry, and honouring it sends no level at all — the vendor then thinks at its own
+ * default, which for GLM-5.3 is `max`, the most expensive one. The slider of such a model has no «off»
+ * position, so the level on the wire is the one the user sees.
+ */
+export function resolveReasoningEnabled(stored: boolean | undefined, canTurnOff: boolean, featureName: FeatureName): boolean {
+	if (!canTurnOff) {
+		return true;
+	}
+	return stored ?? featureName === 'Chat';
+}
+
 export const getIsReasoningEnabledState = (
 	featureName: FeatureName,
 	providerName: ProviderId,
@@ -2532,11 +2620,7 @@ export const getIsReasoningEnabledState = (
 	const { supportsReasoning, canTurnOffReasoning } = getModelCapabilities(providerName, modelName, overridesOfModel).reasoningCapabilities || {};
 	if (!supportsReasoning) { return false; }
 
-	// default to enabled if can't turn off, or if the featureName is Chat.
-	const defaultEnabledVal = featureName === 'Chat' || !canTurnOffReasoning;
-
-	const isReasoningEnabled = modelSelectionOptions?.reasoningEnabled ?? defaultEnabledVal;
-	return isReasoningEnabled;
+	return resolveReasoningEnabled(modelSelectionOptions?.reasoningEnabled, !!canTurnOffReasoning, featureName);
 };
 
 
@@ -2568,7 +2652,8 @@ export const getSendableReasoningInfo = (
 	}
 
 	// check for reasoning effort
-	const reasoningEffort = reasoningBudgetSlider?.type === 'effort_slider' ? modelSelectionOptions?.reasoningEffort ?? reasoningBudgetSlider?.default : undefined;
+	// Brought inside the model's levels: a stored level the model lacks is refused by the vendor (DeepSeek: HTTP 400).
+	const reasoningEffort = reasoningBudgetSlider?.type === 'effort_slider' ? effortWithinValues(modelSelectionOptions?.reasoningEffort, reasoningBudgetSlider.values, reasoningBudgetSlider.default) : undefined;
 	if (reasoningEffort) {
 		return { type: 'effort_slider_value', isReasoningEnabled: isReasoningEnabled, reasoningEffort: reasoningEffort };
 	}

@@ -14,8 +14,11 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 // MCP SDK client/transport modules are heavy and electron-main start-up sensitive; they are
 // loaded lazily via `await import(...)` inside `_createClientUnsafe`. Type-only positions use
 // inline `import('...')` type expressions so no value import reaches module scope.
-import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, RawMCPToolCall, MCPToolErrorResponse, MCPServerEventResponse, MCPToolCallParams } from '../common/mcpServiceTypes.js';
+import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, RawMCPToolCall, MCPToolErrorResponse, MCPServerEventResponse, MCPToolCallParams, MCPReadResourceParams, MCPAppRequestOutcome } from '../common/mcpServiceTypes.js';
+import { MCP } from '../../mcp/common/modelContextProtocol.js';
+import { mcpAppsClientCapabilities } from '../common/mcpApps.js';
 import { MCPUserStateOfName } from '../common/vibeideSettingsTypes.js';
+import { mergeServerEnv, transportRequestInit } from '../common/mcpServerEnv.js';
 
 const getClientConfig = (serverName: string) => {
 	return {
@@ -48,6 +51,8 @@ export class MCPChannel implements IServerChannel {
 
 	private readonly infoOfClientId: InfoOfClientId = {};
 	private readonly _refreshingServerNames: Set<string> = new Set();
+	/** Whether clients announce MCP Apps; set by every refresh, so a toggle reuses the last answer. */
+	private _appsEnabled = false;
 
 	// mcp emitters
 	private readonly mcpEmitters = {
@@ -103,6 +108,14 @@ export class MCPChannel implements IServerChannel {
 				const response = await this._safeCallTool(p.serverName, p.toolName, p.params);
 				return response as T;
 			}
+			else if (command === 'callToolForApp') {
+				const p = params as MCPToolCallParams;
+				return await this._appRequest(p.serverName, async client => await client.callTool({ name: p.toolName, arguments: p.params }) as unknown as MCP.CallToolResult) as T;
+			}
+			else if (command === 'readResource') {
+				const p = params as MCPReadResourceParams;
+				return await this._appRequest(p.serverName, async client => await client.readResource({ uri: p.uri }) as unknown as MCP.ReadResourceResult) as T;
+			}
 			else {
 				throw new Error(`VibeIDE: command "${command}" not recognized.`);
 			}
@@ -116,7 +129,7 @@ export class MCPChannel implements IServerChannel {
 	// server functions
 
 
-	private async _refreshMCPServers(params: { mcpConfigFileJSON: MCPConfigFileJSON; userStateOfName: MCPUserStateOfName; addedServerNames: string[]; removedServerNames: string[]; updatedServerNames: string[] }) {
+	private async _refreshMCPServers(params: { mcpConfigFileJSON: MCPConfigFileJSON; userStateOfName: MCPUserStateOfName; addedServerNames: string[]; removedServerNames: string[]; updatedServerNames: string[]; appsEnabled: boolean }) {
 
 		const {
 			mcpConfigFileJSON,
@@ -125,6 +138,7 @@ export class MCPChannel implements IServerChannel {
 			removedServerNames,
 			updatedServerNames,
 		} = params;
+		this._appsEnabled = params.appsEnabled;
 
 		const { mcpServers: mcpServersJSON } = mcpConfigFileJSON;
 
@@ -246,7 +260,7 @@ export class MCPChannel implements IServerChannel {
 		const { SSEClientTransport } = await import('@modelcontextprotocol/sdk/client/sse.js');
 
 		const clientConfig = getClientConfig(serverName);
-		const client = new Client(clientConfig);
+		const client = new Client(clientConfig, { capabilities: mcpAppsClientCapabilities(this._appsEnabled) });
 		let transport: import('@modelcontextprotocol/sdk/shared/transport.js').Transport;
 		let info: MCPServerNonError;
 
@@ -269,7 +283,7 @@ export class MCPChannel implements IServerChannel {
 			// If type is explicitly 'sse' or inferred as SSE, use SSE directly
 			if (transportType === 'sse') {
 				try {
-					transport = new SSEClientTransport(url);
+					transport = new SSEClientTransport(url, transportRequestInit(server.headers));
 					await client.connect(transport);
 					vibeLog.info('mcpChannel', `Connected via SSE to ${serverName}`);
 					const { tools } = await client.listTools();
@@ -285,7 +299,7 @@ export class MCPChannel implements IServerChannel {
 			// If type is explicitly 'http', only try HTTP
 			else if (transportType === 'http') {
 				try {
-					transport = new StreamableHTTPClientTransport(url);
+					transport = new StreamableHTTPClientTransport(url, transportRequestInit(server.headers));
 					await client.connect(transport);
 					vibeLog.info('mcpChannel', `Connected via HTTP to ${serverName}`);
 					const { tools } = await client.listTools();
@@ -301,7 +315,7 @@ export class MCPChannel implements IServerChannel {
 			// If type is not specified, try HTTP first, fall back to SSE
 			else {
 				try {
-					transport = new StreamableHTTPClientTransport(url);
+					transport = new StreamableHTTPClientTransport(url, transportRequestInit(server.headers));
 					await client.connect(transport);
 					vibeLog.info('mcpChannel', `Connected via HTTP to ${serverName}`);
 					const { tools } = await client.listTools();
@@ -312,7 +326,7 @@ export class MCPChannel implements IServerChannel {
 					};
 				} catch (httpErr) {
 					vibeLog.warn('mcpChannel', `HTTP failed for ${serverName}, trying SSE…`, httpErr);
-					transport = new SSEClientTransport(url);
+					transport = new SSEClientTransport(url, transportRequestInit(server.headers));
 					await client.connect(transport);
 					const { tools } = await client.listTools();
 					vibeLog.info('mcpChannel', `Connected via SSE to ${serverName}`);
@@ -324,19 +338,17 @@ export class MCPChannel implements IServerChannel {
 				}
 			}
 		} else if (server.command) {
-			// console.log('ENV DATA: ', server.env)
-			// process.env values are `string | undefined`; filter out undefined so the
-			// merged env is a genuine Record<string, string> without a hiding assertion.
-			const mergedEnv: Record<string, string> = { ...server.env };
-			for (const [key, value] of Object.entries(process.env)) {
-				if (value !== undefined) {
-					mergedEnv[key] = value;
-				}
+			// The entry wins over the IDE environment; critical names from the entry never apply.
+			// See common/mcpServerEnv.ts for why both halves of that sentence matter.
+			const { env: mergedEnv, ignored } = mergeServerEnv(process.env, server.env);
+			if (ignored.length > 0) {
+				vibeLog.warn('MCP', `MCP server "${serverName}": variables not applied from mcp.json (critical, would override the IDE environment): ${ignored.join(', ')}`);
 			}
 			transport = new StdioClientTransport({
 				command: server.command,
 				args: server.args,
 				env: mergedEnv,
+				...(server.cwd ? { cwd: server.cwd } : {}),
 			});
 
 			await client.connect(transport);
@@ -461,10 +473,20 @@ export class MCPChannel implements IServerChannel {
 			name: toolName,
 			arguments: params
 		});
-		const { content } = response as import('@modelcontextprotocol/sdk/types.js').CallToolResult;
+		const { content, structuredContent } = response as import('@modelcontextprotocol/sdk/types.js').CallToolResult;
+		// Kept whole for an MCP App rendering this result; the model still gets the text below.
+		const callResult = response as unknown as MCP.CallToolResult;
 		const returnValue = content[0];
 
-		if (returnValue.type === 'text') {
+		// App tools often answer with structured content alone; its JSON is the text the model sees.
+		if (!returnValue && structuredContent) {
+			if (response.isError) {
+				throw new Error(`Tool call error: ${JSON.stringify(structuredContent)}`);
+			}
+			return { event: 'text', text: JSON.stringify(structuredContent), toolName, serverName, callResult };
+		}
+
+		if (returnValue?.type === 'text') {
 			// handle text response
 
 			if (response.isError) {
@@ -477,6 +499,7 @@ export class MCPChannel implements IServerChannel {
 				text: returnValue.text,
 				toolName,
 				serverName,
+				callResult,
 			};
 		}
 
@@ -492,7 +515,20 @@ export class MCPChannel implements IServerChannel {
 		// 	// handle resource response
 		// }
 
-		throw new Error(`Tool call error: We don\'t support ${returnValue.type} tool response yet for tool ${toolName} on server ${serverName}`);
+		throw new Error(`Tool call error: We don\'t support ${returnValue?.type ?? 'empty'} tool response yet for tool ${toolName} on server ${serverName}`);
+	}
+
+	/** A request an MCP App makes through the host; failures come back as data, never as a dropped `undefined`. */
+	private async _appRequest<T>(serverName: string, run: (client: import('@modelcontextprotocol/sdk/client/index.js').Client) => Promise<T>): Promise<MCPAppRequestOutcome<T>> {
+		const client = this.infoOfClientId[serverName]?._client;
+		if (!client) {
+			return { ok: false, error: `Server ${serverName} is not connected` };
+		}
+		try {
+			return { ok: true, value: await run(client) };
+		} catch (err) {
+			return { ok: false, error: err instanceof Error ? err.message : String(err) };
+		}
 	}
 
 	// tool call error wrapper

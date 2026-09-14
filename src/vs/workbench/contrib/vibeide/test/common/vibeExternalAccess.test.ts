@@ -6,7 +6,11 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { isPathAllowed, normalizeFolderPath, resolveSourceFolders } from '../../common/vibeExternalAccessService.js';
+import { EXTERNAL_ACCESS_TTL_KEY, isPathAllowed, normalizeFolderPath, resolveSourceFolders, liveGrants, revokedFoldersAfterGrant, VibeExternalAccessService } from '../../common/vibeExternalAccessService.js';
+import { URI } from '../../../../../base/common/uri.js';
+import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
+import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
+import { IVibeModalService } from '../../common/vibeModalService.js';
 
 suite('vibeExternalAccess — per-folder allowlist (O.13 Variant A)', () => {
 
@@ -115,5 +119,126 @@ suite('vibeExternalAccess — source folders inside the workspace', () => {
 			},
 			{ folder: true, inside: true, lookalike: false, elsewhere: false },
 		);
+	});
+});
+
+suite('vibeExternalAccess — путь сравнивается развёрнутым', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	/**
+	 * A path compared as written: `..` let a file inside a source folder look like it was elsewhere,
+	 * and a file outside an allowed folder look like it was inside.
+	 */
+	test('`..` разворачивается до сравнения — в обе стороны', () => {
+		const sources = ['/w/raw'];
+		assert.deepStrictEqual({
+			вИсточникЧерезСоседа: isPathAllowed('/w/x/../raw/f.md', sources, true),
+			изИсточникаНаружу: isPathAllowed('/w/raw/../docs/f.md', sources, true),
+			побегИзРазрешённой: isPathAllowed('/a/proj/../../etc/passwd', ['/a/proj'], true),
+			запись_в_папке: normalizeFolderPath('/w/x/../raw/', true),
+		}, {
+			вИсточникЧерезСоседа: true,
+			изИсточникаНаружу: false,
+			побегИзРазрешённой: false,
+			запись_в_папке: '/w/raw',
+		});
+	});
+
+	/** `й` as one code point and as `и` + combining breve name the same file. */
+	test('составные символы сравниваются в NFC', () => {
+		assert.strictEqual(isPathAllowed('/w/\u0438\u0306/f.md', ['/w/\u0439'], true), true);
+	});
+
+	test('пустая запись по-прежнему не совпадает ни с чем', () => {
+		assert.deepStrictEqual({
+			пусто: normalizeFolderPath('', true),
+			пробелы: normalizeFolderPath('   ', true),
+			корень: isPathAllowed('/any/file', ['/'], true),
+		}, { пусто: '', пробелы: '', корень: false });
+	});
+});
+
+suite('vibeExternalAccess — отозванная папка не спрашивается заново', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('отзыв накрывает папку и всё под ней — иначе агент обойдёт его вложенным путём', () => {
+		assert.deepStrictEqual(
+			[
+				isPathAllowed('/work/secrets', ['/work/secrets'], true),
+				isPathAllowed('/work/secrets/keys/id_rsa', ['/work/secrets'], true),
+				isPathAllowed('/work/secretsauce/x', ['/work/secrets'], true),
+			],
+			[true, true, false],
+		);
+	});
+
+	test('явное разрешение человека снимает отзыв — и на саму папку, и на родителя', () => {
+		assert.deepStrictEqual(
+			[
+				revokedFoldersAfterGrant(['/work/secrets', '/other'], '/work/secrets', true),
+				revokedFoldersAfterGrant(['/work/secrets'], '/work', true),
+				revokedFoldersAfterGrant(['/work/secrets'], '/elsewhere', true),
+			],
+			[['/other'], [], ['/work/secrets']],
+		);
+	});
+});
+
+suite('vibeExternalAccess — срок жизни разрешения', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	/** Минимальное окружение сервиса: настройка, модалка и пустая рабочая область. */
+	const makeService = (ttlMinutes: number) => {
+		const config = { getValue: (key: string) => key === EXTERNAL_ACCESS_TTL_KEY ? ttlMinutes : [], updateValue: async () => { } } as unknown as IConfigurationService;
+		const modal = { showModal: async () => ({ buttonId: 'deny' }) } as unknown as IVibeModalService;
+		const workspace = { getWorkspace: () => ({ folders: [] }) } as unknown as IWorkspaceContextService;
+		return new VibeExternalAccessService(config, modal, workspace);
+	};
+
+	test('разрешение на задачу снимается концом хода, сессионное — нет', async () => {
+		const service = makeService(0);
+		await service.allowFolder(URI.file('/work/task'), 'run');
+		await service.allowFolder(URI.file('/work/session'), 'session');
+		const before = service.listAllowed().map(e => `${e.path}:${e.scope}`).sort();
+		service.endRunScope();
+		const after = service.listAllowed().map(e => `${e.path}:${e.scope}`);
+		assert.deepStrictEqual(
+			[before, after, service.isAllowed(URI.file('/work/task/file.txt'))],
+			[['/work/session:session', '/work/task:run'], ['/work/session:session'], false],
+		);
+		service.dispose();
+	});
+
+	test('истёкшее разрешение перестаёт действовать ровно в свой срок, бессрочное живёт', () => {
+		const grants = new Map([
+			['/work/expired', { scope: 'session' as const, expiresAt: 1_000 }],
+			['/work/exact', { scope: 'session' as const, expiresAt: 2_000 }],
+			['/work/later', { scope: 'session' as const, expiresAt: 3_000 }],
+			['/work/forever', { scope: 'session' as const }],
+		]);
+		assert.deepStrictEqual(
+			liveGrants(grants, 2_000).sort(),
+			['/work/forever', '/work/later'],
+		);
+	});
+
+	test('сессионное разрешение получает срок из настройки, и он виден в списке отзыва', async () => {
+		const service = makeService(30);
+		await service.allowFolder(URI.file('/work/ttl'), 'session');
+		const granted = service.listAllowed()[0];
+		assert.deepStrictEqual(
+			[granted.scope, typeof granted.expiresAt, service.isAllowed(URI.file('/work/ttl/file.txt'))],
+			['session', 'number', true],
+		);
+		service.dispose();
+	});
+
+	test('разрешение на задачу сроку не подчиняется — оно кончается вместе с ходом, а не по часам', async () => {
+		const service = makeService(30);
+		await service.allowFolder(URI.file('/work/run'), 'run');
+		assert.strictEqual(service.listAllowed()[0].expiresAt, undefined);
+		service.dispose();
 	});
 });

@@ -200,13 +200,20 @@ export type AnthropicReasoning = ({ type: 'thinking'; thinking: string; signatur
 // `cachedInputTokens` — provider-reported prompt-cache hits (subset of promptTokens);
 // surfaced so the TokenBudget log shows whether cache-friendly prompt assembly works
 // (knowledge/roadmap/tokenEconomy.md, A).
-export type LLMTokenUsage = { promptTokens?: number; completionTokens?: number; totalTokens?: number; cachedInputTokens?: number };
+// `cacheWriteTokens` — prompt tokens written INTO the cache, also a subset of promptTokens: vendors
+// that charge for them bill above the input rate, so the spend ledger prices them apart.
+export type LLMTokenUsage = { promptTokens?: number; completionTokens?: number; totalTokens?: number; cachedInputTokens?: number; cacheWriteTokens?: number };
 
 export type OnText = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj }) => void;
 // `providerQuota` — the key's remaining rate-limit allowance as the provider reported it on the
 // response (passive quota tracking). Optional: not every provider sends the headers, and paths
 // that never reached the network have nothing to report.
-export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; usage?: LLMTokenUsage; providerQuota?: ProviderQuotaSnapshot }) => void; // id is tool_use_id
+// `answeredModel` — the model the provider says it served (modelEcho.ts reads it off the wire).
+// A proxy, an aggregator or a failover target can answer with a different model while the price is
+// still counted by the one we asked for, and the substitution is otherwise silent.
+// `systemFingerprint` — the backend configuration where the wire names one (OpenAI-compatible); it
+// tells two backends apart when they answer under the same model name.
+export type OnFinalMessage = (p: { fullText: string; fullReasoning: string; toolCall?: RawToolCallObj; anthropicReasoning: AnthropicReasoning[] | null; answeredModel?: string; systemFingerprint?: string; usage?: LLMTokenUsage; providerQuota?: ProviderQuotaSnapshot }) => void; // id is tool_use_id
 /**
  * What the provider actually said at the moment it refused, captured verbatim.
  *
@@ -262,6 +269,8 @@ export type ServiceSendLLMMessageParams = {
 	modelSelectionOptions: ModelSelectionOptions | undefined;
 	overridesOfModel: OverridesOfModel | undefined;
 	onAbort: OnAbort;
+	/** Extra request-body fields for this one call — see `LLMRuntimeOptions.extraBody`. */
+	extraBody?: Record<string, unknown>;
 	/** Per-turn: request `tool_choice: 'required'` for this send (agent-loop corrective nudge). */
 	forceToolUse?: boolean;
 	/**
@@ -280,6 +289,12 @@ export type ServiceSendLLMMessageParams = {
  * IPC payloads).
  */
 export type LLMRuntimeOptions = {
+	/**
+	 * Extra fields merged into THIS request's body, last — they override what the SDK built. For a call
+	 * that needs a per-request contract the provider file cannot carry, such as `response_format` with a
+	 * JSON Schema. OpenAI-compatible transport only, like the provider file's `extraBody`.
+	 */
+	extraBody?: Record<string, unknown>;
 	timeoutMs?: {
 		local?: number;
 		cloud?: number;
