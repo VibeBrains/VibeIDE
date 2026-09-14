@@ -2595,6 +2595,21 @@ export type SendableReasoningInfo = {
 
 
 
+/**
+ * Whether reasoning is on for a selection.
+ *
+ * A model that cannot turn reasoning off ignores a stored «off»: that value is left over from another
+ * model or an older entry, and honouring it sends no level at all — the vendor then thinks at its own
+ * default, which for GLM-5.3 is `max`, the most expensive one. The slider of such a model has no «off»
+ * position, so the level on the wire is the one the user sees.
+ */
+export function resolveReasoningEnabled(stored: boolean | undefined, canTurnOff: boolean, featureName: FeatureName): boolean {
+	if (!canTurnOff) {
+		return true;
+	}
+	return stored ?? featureName === 'Chat';
+}
+
 export const getIsReasoningEnabledState = (
 	featureName: FeatureName,
 	providerName: ProviderId,
@@ -2605,11 +2620,7 @@ export const getIsReasoningEnabledState = (
 	const { supportsReasoning, canTurnOffReasoning } = getModelCapabilities(providerName, modelName, overridesOfModel).reasoningCapabilities || {};
 	if (!supportsReasoning) { return false; }
 
-	// default to enabled if can't turn off, or if the featureName is Chat.
-	const defaultEnabledVal = featureName === 'Chat' || !canTurnOffReasoning;
-
-	const isReasoningEnabled = modelSelectionOptions?.reasoningEnabled ?? defaultEnabledVal;
-	return isReasoningEnabled;
+	return resolveReasoningEnabled(modelSelectionOptions?.reasoningEnabled, !!canTurnOffReasoning, featureName);
 };
 
 

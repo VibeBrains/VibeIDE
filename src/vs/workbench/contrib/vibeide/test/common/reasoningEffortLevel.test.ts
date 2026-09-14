@@ -7,6 +7,7 @@ import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { effortWithinValues } from '../../common/reasoningEffortLevel.js';
 import { readServedIdentity } from '../../common/modelEcho.js';
+import { resolveReasoningEnabled } from '../../common/modelCapabilities.js';
 
 /**
  * Уровень мышления не уходит к вендору, если модель его не принимает; отпечаток бэкенда читается из ответа.
@@ -27,6 +28,13 @@ suite('reasoningEffortLevel — уровень в пределах модели'
 			effortWithinValues('adaptive', deepseek, 'high'),
 			effortWithinValues('medium', ['adaptive', 'enabled'], 'adaptive'),
 		], ['high', 'high', 'high', 'low', 'max', 'max', 'high', 'adaptive']);
+	});
+
+	test('модель без выключения мышления игнорирует сохранённое «выключено»', () => {
+		assert.deepStrictEqual(
+			[resolveReasoningEnabled(false, false, 'Chat'), resolveReasoningEnabled(undefined, false, 'Apply'), resolveReasoningEnabled(false, true, 'Chat'), resolveReasoningEnabled(undefined, true, 'Chat'), resolveReasoningEnabled(undefined, true, 'Apply')],
+			[true, true, false, true, false],
+		);
 	});
 
 	test('отпечаток бэкенда из того же чанка, что и модель', () => {
