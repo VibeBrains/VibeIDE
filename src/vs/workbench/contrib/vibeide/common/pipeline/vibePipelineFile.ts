@@ -93,6 +93,13 @@ export interface VibePipelineStep {
 	 * but it catches the case that makes the review pointless.
 	 */
 	readonly reviewWith?: string;
+	/**
+	 * Start the step only outside the peak of its model's price by the hour (`cost.timeOfDay`).
+	 *
+	 * Requires `model`: the schedule belongs to a model, and a step that resolves its model through the
+	 * role has none to look it up in. Waiting is visible and can be skipped — see the pipeline service.
+	 */
+	readonly offPeak?: boolean;
 }
 
 /** What a reviewer decided about the work it was shown. */
@@ -326,6 +333,9 @@ function parseStep(raw: unknown): { ok: true; value: VibePipelineStep } | { ok: 
 			return { ok: false, reason: `поле ${key} должно быть «провайдер/модель»` };
 		}
 	}
+	if (s['offPeak'] === true && !parseModelRef(s['model'] as string | undefined)) {
+		return { ok: false, reason: 'поле offPeak требует model «провайдер/модель» — расписание цены есть только у модели' };
+	}
 	return {
 		ok: true,
 		value: {
@@ -341,6 +351,7 @@ function parseStep(raw: unknown): { ok: true; value: VibePipelineStep } | { ok: 
 			...(parseModelRef(s['model'] as string | undefined) ? { model: (s['model'] as string).trim() } : {}),
 			...(parseModelRef(s['escalateTo'] as string | undefined) ? { escalateTo: (s['escalateTo'] as string).trim() } : {}),
 			...(parseModelRef(s['reviewWith'] as string | undefined) ? { reviewWith: (s['reviewWith'] as string).trim() } : {}),
+			...(s['offPeak'] === true ? { offPeak: true } : {}),
 		},
 	};
 }

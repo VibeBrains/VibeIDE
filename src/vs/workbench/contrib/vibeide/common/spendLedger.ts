@@ -16,6 +16,7 @@
  */
 
 import type { ModelCost } from './modelCapabilities.js';
+import { timeOfDayFactorAt } from './modelPriceSchedule.js';
 
 /** One line of the ledger: a day × provider × model bucket. */
 export type SpendEntry = {
@@ -88,16 +89,18 @@ export function costOf(price: ModelCost | undefined, tokens: ExchangeTokens, opt
 	const cacheWrite = Math.max(0, tokens.cacheWrite ?? 0);
 	const fresh = Math.max(0, tokens.input - cacheRead - cacheWrite);
 	const longContext = price.long_context;
+	// Peak rates unless the moment of the exchange is known and off-peak — see `timeOfDayFactorAt`.
+	const hour = timeOfDayFactorAt(price.time_of_day, options.at);
 	const tier = !options.aggregate && longContext && longContext.over_input_tokens > 0 && tokens.input > longContext.over_input_tokens
 		? longContext
 		: undefined;
 	const inputFactor = tier?.input ?? 1;
 	const cacheFactor = tier?.cache ?? 1;
 	const outputFactor = tier?.output ?? 1;
-	return (fresh / 1_000_000) * price.input * inputFactor
+	return hour * ((fresh / 1_000_000) * price.input * inputFactor
 		+ (cacheRead / 1_000_000) * (price.cache_read ?? price.input) * cacheFactor
 		+ (cacheWrite / 1_000_000) * (price.cache_write ?? price.input) * cacheFactor
-		+ (tokens.output / 1_000_000) * price.output * outputFactor;
+		+ (tokens.output / 1_000_000) * price.output * outputFactor);
 }
 
 /** How a cost is asked for. */
@@ -108,6 +111,11 @@ export type CostOptions = {
 	 * priced at the base rates and stays the estimate its caller already labels it.
 	 */
 	readonly aggregate?: boolean;
+	/**
+	 * When the exchange ended, for a price by the hour. Absent — the peak rate: a sum over a run spans
+	 * hours, and overstating is safer for a spending ceiling than understating.
+	 */
+	readonly at?: number;
 };
 
 export type SpendRecord = {
@@ -129,7 +137,7 @@ export type SpendRecord = {
 export function recordSpend(state: SpendLedgerState, record: SpendRecord): SpendLedgerState {
 	const day = dayKey(record.timestampMs);
 	const cached = record.cachedInputTokens ?? 0;
-	const cost = costOf(record.price, { input: record.inputTokens, output: record.outputTokens, cacheRead: cached, cacheWrite: record.cacheWriteTokens ?? 0 });
+	const cost = costOf(record.price, { input: record.inputTokens, output: record.outputTokens, cacheRead: cached, cacheWrite: record.cacheWriteTokens ?? 0 }, { at: record.timestampMs });
 
 	const entries = state.entries.slice();
 	const index = entries.findIndex(e => e.day === day && e.providerId === record.providerId && e.modelId === record.modelId);

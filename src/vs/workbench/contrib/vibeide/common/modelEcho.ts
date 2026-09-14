@@ -48,6 +48,17 @@ export function modelFromAnthropicEvent(event: unknown): string | undefined {
 	return nonEmptyString(asRecord(asRecord(event)?.message)?.model);
 }
 
+/**
+ * The backend configuration behind an OpenAI-compatible answer.
+ *
+ * The name alone misses a substitution under the same alias: DeepSeek answers `deepseek-v4-pro` with
+ * that very name while routing it elsewhere, and only the fingerprint tells two backends apart
+ * (checked live 14.09.2026 — `deepseek-v4-pro` and `deepseek-flash` differ there, not in `model`).
+ */
+export function fingerprintFromOpenAiChunk(chunk: unknown): string | undefined {
+	return nonEmptyString(asRecord(chunk)?.system_fingerprint);
+}
+
 /** Gemini repeats it in every event as `modelVersion`. */
 export function modelFromGeminiEvent(event: unknown): string | undefined {
 	return nonEmptyString(asRecord(event)?.modelVersion);
@@ -102,6 +113,17 @@ export function isModelSubstituted(requested: string, answered: string | undefin
  * the method: reading the name matters more than reading it elegantly.
  */
 export function readAnsweredModel(head: string): string | undefined {
+	return readServedIdentity(head).model;
+}
+
+/** Who served the answer: the model name, and the backend fingerprint where the wire carries one. */
+export interface ServedIdentity {
+	readonly model?: string;
+	readonly fingerprint?: string;
+}
+
+/** {@link readAnsweredModel} plus the fingerprint from the same chunk, which is where every OpenAI-compatible wire puts it. */
+export function readServedIdentity(head: string): ServedIdentity {
 	for (const line of head.split(/\r?\n/)) {
 		const payload = (line.startsWith('data:') ? line.slice('data:'.length) : line).trim();
 		if (!payload.startsWith('{')) {
@@ -115,11 +137,13 @@ export function readAnsweredModel(head: string): string | undefined {
 		}
 		const named = modelFromOpenAiChunk(parsed) ?? modelFromAnthropicEvent(parsed) ?? modelFromGeminiEvent(parsed);
 		if (named) {
-			return named;
+			const fingerprint = fingerprintFromOpenAiChunk(parsed);
+			return fingerprint ? { model: named, fingerprint } : { model: named };
 		}
 	}
-	const scanned = /"(?:model|modelVersion)"\s*:\s*"([^"]{1,120})"/.exec(head);
-	return nonEmptyString(scanned?.[1]);
+	const scanned = nonEmptyString(/"(?:model|modelVersion)"\s*:\s*"([^"]{1,120})"/.exec(head)?.[1]);
+	const scannedFingerprint = nonEmptyString(/"system_fingerprint"\s*:\s*"([^"]{1,120})"/.exec(head)?.[1]);
+	return { ...(scanned ? { model: scanned } : {}), ...(scanned && scannedFingerprint ? { fingerprint: scannedFingerprint } : {}) };
 }
 
 export { ANSWERED_MODEL_PEEK_CHARS };

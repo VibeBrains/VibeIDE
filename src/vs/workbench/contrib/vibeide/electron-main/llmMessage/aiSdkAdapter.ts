@@ -6,7 +6,7 @@
 // disable foreign import complaints
 /* eslint-disable */
 import { vibeLog } from '../../common/vibeLog.js';
-import { ANSWERED_MODEL_PEEK_CHARS, readAnsweredModel } from '../../common/modelEcho.js';
+import { ANSWERED_MODEL_PEEK_CHARS, readServedIdentity } from '../../common/modelEcho.js';
 import { OrchestrationTokens, orchestrationTokensOfTail, withOrchestration } from '../../common/orchestrationUsage.js';
 import { streamText, jsonSchema, tool, type ModelMessage, type ToolSet, type TextStreamPart, type LanguageModel } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
@@ -192,7 +192,7 @@ const REFUSAL_BODY_PEEK_LIMIT = 64 * 1024;
 /** The `usage` field of a final message, or nothing when there is no usage at all. */
 const usageField = (usage: LLMTokenUsage | undefined): { usage?: LLMTokenUsage } => usage ? { usage } : {};
 
-const observeAnsweredModel = (response: Response, onModel: (model: string) => void): Response => {
+const observeAnsweredModel = (response: Response, onModel: (model: string, fingerprint: string | undefined) => void): Response => {
 	if (!response.body) { return response; }
 	let head = '';
 	let done = false;
@@ -205,8 +205,8 @@ const observeAnsweredModel = (response: Response, onModel: (model: string) => vo
 				const text = decoder.decode(chunk, { stream: true });
 				if (!text) { return; }
 				head = (head + text).slice(0, ANSWERED_MODEL_PEEK_CHARS);
-				const named = readAnsweredModel(head);
-				if (named) { done = true; onModel(named); return; }
+				const served = readServedIdentity(head);
+				if (served.model) { done = true; onModel(served.model, served.fingerprint); return; }
 				if (head.length >= ANSWERED_MODEL_PEEK_CHARS) { done = true; }
 			} catch { done = true; }
 		},
@@ -272,7 +272,7 @@ const makeCustomFetch = (opts: {
 	providerName: string;
 	onQuota?: (snapshot: ProviderQuotaSnapshot) => void;
 	/** The model named in the answer — a proxy or a failover target may serve a different one. */
-	onAnsweredModel?: (model: string) => void;
+	onAnsweredModel?: (model: string, fingerprint: string | undefined) => void;
 	/** Orchestration tokens found at the end of the answer — see common/orchestrationUsage.ts. */
 	onOrchestrationTokens?: (tokens: OrchestrationTokens) => void;
 	/**
@@ -324,7 +324,7 @@ const makeCustomFetch = (opts: {
 
 	if (opts.onAnsweredModel) {
 		const onAnsweredModel = opts.onAnsweredModel;
-		observed = observeAnsweredModel(observed, model => onAnsweredModel(model));
+		observed = observeAnsweredModel(observed, (model, fingerprint) => onAnsweredModel(model, fingerprint));
 	}
 
 	// An orchestrator bills its internal calls on top of the visible tokens, and the SDK drops those
@@ -1189,13 +1189,14 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 	// renderer can show the key's real remaining allowance next to our own token estimate.
 	let lastQuota: ProviderQuotaSnapshot | undefined;
 	let lastAnsweredModel: string | undefined;
+	let lastSystemFingerprint: string | undefined;
 	// Kept for the failure paths: without it an "empty response" cannot be told apart from a
 	// refusal the provider hid in the body of an HTTP 200 (modelStalls.md #001).
 	let lastDiagnostics: ProviderRefusalDiagnostics | undefined;
 	const callFetch = makeCustomFetch({
 		providerName,
 		onQuota: snapshot => { lastQuota = snapshot; },
-		onAnsweredModel: model => { lastAnsweredModel = model; },
+		onAnsweredModel: (model, fingerprint) => { lastAnsweredModel = model; lastSystemFingerprint = fingerprint; },
 		onOrchestrationTokens: tokens => { lastOrchestrationTokens = tokens; },
 		onDiagnostics: diagnostics => { lastDiagnostics = diagnostics; },
 	});
@@ -1459,6 +1460,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 				...usageField(withOrchestration(lastUsage, lastOrchestrationTokens)),
 				...(lastQuota ? { providerQuota: lastQuota } : {}),
 				...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
+			...(lastSystemFingerprint ? { systemFingerprint: lastSystemFingerprint } : {}),
 			});
 		} else {
 			onError({ message: errMessage, fullError: null });
@@ -1739,6 +1741,7 @@ export const sendViaAISdk = async (params: SendChatParams_Internal): Promise<voi
 			...usageField(withOrchestration(lastUsage, lastOrchestrationTokens)),
 			...(lastQuota ? { providerQuota: lastQuota } : {}),
 			...(lastAnsweredModel ? { answeredModel: lastAnsweredModel } : {}),
+			...(lastSystemFingerprint ? { systemFingerprint: lastSystemFingerprint } : {}),
 		});
 	} catch (error) {
 		clearAllTimers();

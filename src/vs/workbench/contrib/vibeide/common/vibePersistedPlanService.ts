@@ -5,6 +5,7 @@
 
 
 import { vibeLog } from './vibeLog.js';
+import { isModelSubstituted } from './modelEcho.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -48,6 +49,8 @@ interface PlanFileMeta {
 	readonly workspaceRootUri?: string;
 	/** The model the plan was approved on — see `planModelDrift`. Absent in files written before it existed. */
 	readonly plannedModel?: PlannedModel;
+	/** Models that actually answered while the plan ran — see `planModelDrift`. */
+	readonly servedModels?: readonly PlannedModel[];
 }
 
 /** Provider and model a plan was approved on. */
@@ -61,7 +64,9 @@ export type PlanModelDrift =
 	/** The chat now runs another model than the one that approved the plan. */
 	| { readonly kind: 'model-changed'; readonly planned: PlannedModel; readonly current: PlannedModel }
 	/** The provider the plan was approved on has no usable key any more — rotated or removed. */
-	| { readonly kind: 'provider-unavailable'; readonly planned: PlannedModel };
+	| { readonly kind: 'provider-unavailable'; readonly planned: PlannedModel }
+	/** The plan ran, but other models answered: a proxy, an aggregator or a failover target served them. */
+	| { readonly kind: 'served-other'; readonly planned: PlannedModel; readonly served: readonly PlannedModel[] };
 
 /**
  * What changed between approving a plan and resuming it, as far as the model goes.
@@ -74,7 +79,7 @@ export type PlanModelDrift =
  *
  * Pure: the caller supplies the current selection and whether the planned provider still has a key.
  */
-export function planModelDrift(planned: PlannedModel | undefined, current: PlannedModel | undefined, plannedProviderUsable: boolean): PlanModelDrift[] {
+export function planModelDrift(planned: PlannedModel | undefined, current: PlannedModel | undefined, plannedProviderUsable: boolean, served: readonly PlannedModel[] = []): PlanModelDrift[] {
 	if (!planned) {
 		return [];
 	}
@@ -85,7 +90,31 @@ export function planModelDrift(planned: PlannedModel | undefined, current: Plann
 	if (!plannedProviderUsable) {
 		drift.push({ kind: 'provider-unavailable', planned });
 	}
+	// Another spelling of the same model (an aggregator prefix, a dated build) is not a substitution.
+	const others = served.filter(s => s.provider !== planned.provider || isModelSubstituted(planned.model, s.model));
+	if (others.length > 0) {
+		drift.push({ kind: 'served-other', planned, served: others });
+	}
 	return drift;
+}
+
+/** How many distinct answering models a plan keeps; a failover storm must not grow the file without bound. */
+const MAX_SERVED_MODELS = 16;
+
+/** Stored `servedModels`, read defensively like `plannedModel`. */
+export function parseServedModels(value: unknown): PlannedModel[] {
+	return Array.isArray(value) ? value.map(parsePlannedModel).filter((m): m is PlannedModel => m !== undefined).slice(0, MAX_SERVED_MODELS) : [];
+}
+
+/** The union of two lists of answering models, first seen first, capped. */
+export function mergeServedModels(known: readonly PlannedModel[] | undefined, added: readonly PlannedModel[] | undefined): PlannedModel[] {
+	const out: PlannedModel[] = [];
+	for (const m of [...(known ?? []), ...(added ?? [])]) {
+		if (out.length < MAX_SERVED_MODELS && !out.some(o => o.provider === m.provider && o.model === m.model)) {
+			out.push(m);
+		}
+	}
+	return out;
 }
 
 /**
@@ -118,6 +147,7 @@ export function serializePlanMarkdown(plan: PlanMessage, meta: PlanFileMeta, sta
 		boundThreadId: meta.threadId,
 		planMessageIdx: meta.messageIdx,
 		plannedModel: meta.plannedModel,
+		servedModels: meta.servedModels && meta.servedModels.length > 0 ? meta.servedModels : undefined,
 		steps: plan.steps.map(s => ({
 			stepNumber: s.stepNumber,
 			description: s.description,
@@ -221,6 +251,8 @@ export interface IVibePersistedPlanService {
 		planId: string;
 		plan: PlanMessage;
 		status: PersistedPlanStatus;
+		/** Models that answered since the last write; merged into the ones the file already lists. */
+		servedModels?: readonly PlannedModel[];
 	}): Promise<void>;
 }
 
@@ -377,6 +409,7 @@ class VibePersistedPlanService extends Disposable implements IVibePersistedPlanS
 		planId: string;
 		plan: PlanMessage;
 		status: PersistedPlanStatus;
+		servedModels?: readonly PlannedModel[];
 	}): Promise<void> {
 		try {
 			const uri = await this._resolvePlanFileUri(params.workspaceFolder, params.planId);
@@ -392,7 +425,7 @@ class VibePersistedPlanService extends Disposable implements IVibePersistedPlanS
 				vibeLog.warn('vibePersistedPlan', `[VibePersistedPlan] updateProgress: could not parse meta for ${uri.fsPath} — skipping.`);
 				return;
 			}
-			const text = serializePlanMarkdown(params.plan, meta, params.status);
+			const text = serializePlanMarkdown(params.plan, { ...meta, servedModels: mergeServedModels(meta.servedModels, params.servedModels) }, params.status);
 			let outText = text;
 			const secCfg = this._secretDetection.getConfig();
 			if (secCfg.enabled) {
@@ -430,11 +463,11 @@ class VibePersistedPlanService extends Disposable implements IVibePersistedPlanS
 		const jsonMatch = content.match(/```json\s*([\s\S]*?)```/);
 		if (!jsonMatch) { return undefined; }
 		try {
-			const m = JSON.parse(jsonMatch[1]) as { planId?: string; createdAt?: string; boundThreadId?: string; planMessageIdx?: number; workspaceRootUri?: string; plannedModel?: unknown };
+			const m = JSON.parse(jsonMatch[1]) as { planId?: string; createdAt?: string; boundThreadId?: string; planMessageIdx?: number; workspaceRootUri?: string; plannedModel?: unknown; servedModels?: unknown };
 			if (typeof m.createdAt === 'string' && typeof m.boundThreadId === 'string' && typeof m.planMessageIdx === 'number') {
 				// Carried through every progress rewrite: dropping it here would erase the approval model
 				// on the first step update, and the resume check would silently stop working.
-				return { planId: m.planId ?? planId, threadId: m.boundThreadId, messageIdx: m.planMessageIdx, createdAt: m.createdAt, workspaceRootUri: m.workspaceRootUri, plannedModel: parsePlannedModel(m.plannedModel) };
+				return { planId: m.planId ?? planId, threadId: m.boundThreadId, messageIdx: m.planMessageIdx, createdAt: m.createdAt, workspaceRootUri: m.workspaceRootUri, plannedModel: parsePlannedModel(m.plannedModel), servedModels: parseServedModels(m.servedModels) };
 			}
 		} catch { /* fall through */ }
 		return undefined;

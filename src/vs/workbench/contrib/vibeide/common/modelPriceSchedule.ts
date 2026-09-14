@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { VibeProviderModelCost } from './vibeProvidersFile.js';
+import { VibeProviderModelCost, VibeProviderTimeOfDay } from './vibeProvidersFile.js';
 
 /**
  * Цена модели, у которой есть срок годности.
@@ -171,4 +171,114 @@ export function nextPriceChangeMoment(
 		}
 	}
 	return soonest;
+}
+
+/**
+ * A price schedule by the hour, parsed: minutes since midnight UTC and `Date#getUTCDay` numbers.
+ *
+ * WHY: DeepSeek bills off-peak turns at half the peak rate (api-docs.deepseek.com/quick_start/pricing,
+ * 10.09.2026). Without the schedule every off-peak turn is reported at twice its cost.
+ */
+export interface PriceTimeOfDay {
+	/** `[from, to)` in minutes; `to` below `from` crosses midnight, `to` of `0` is the end of the day. */
+	readonly windows: readonly { readonly from: number; readonly to: number }[];
+	/** UTC day numbers the windows apply on; empty — every day. */
+	readonly days: readonly number[];
+	readonly offPeakFactor: number;
+}
+
+const DAY_NUMBERS: Readonly<Record<string, number>> = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+const MINUTES_PER_DAY = 24 * 60;
+const MS_PER_MINUTE = 60_000;
+/** A schedule repeats weekly; a search past a week and a minute found no off-peak moment at all. */
+const OFF_PEAK_SEARCH_MINUTES = 7 * MINUTES_PER_DAY + 1;
+
+function minuteOfDay(text: string, asEnd: boolean): number | undefined {
+	if (asEnd && text === '24:00') {
+		return 0;
+	}
+	const match = /^(\d{2}):(\d{2})$/.exec(text);
+	if (!match) {
+		return undefined;
+	}
+	const hours = Number(match[1]);
+	const minutes = Number(match[2]);
+	return hours < 24 && minutes < 60 ? hours * 60 + minutes : undefined;
+}
+
+/**
+ * The declared schedule, or `undefined` when nothing is declared, or `'invalid'` when the block is broken.
+ *
+ * One broken window or day drops the WHOLE block, and the caller names it aloud: a price computed from
+ * half a schedule looks right and is wrong silently, while without the block it is at least the peak one.
+ * A block that changes nothing (factor 1) counts as not declared, as in VibeIDEA.
+ */
+export function parseTimeOfDay(raw: VibeProviderTimeOfDay | undefined): PriceTimeOfDay | undefined | 'invalid' {
+	if (!raw) {
+		return undefined;
+	}
+	const windows: { from: number; to: number }[] = [];
+	for (const text of Array.isArray(raw.peakUtc) ? raw.peakUtc : []) {
+		const parts = typeof text === 'string' ? text.split('-').map(p => p.trim()) : [];
+		const from = parts.length === 2 ? minuteOfDay(parts[0], false) : undefined;
+		const to = parts.length === 2 ? minuteOfDay(parts[1], true) : undefined;
+		if (from === undefined || to === undefined || from === to) {
+			return 'invalid';
+		}
+		windows.push({ from, to });
+	}
+	const days: number[] = [];
+	if (raw.peakDays !== undefined) {
+		if (!Array.isArray(raw.peakDays)) {
+			return 'invalid';
+		}
+		for (const day of raw.peakDays) {
+			const number = typeof day === 'string' ? DAY_NUMBERS[day.trim().toLowerCase()] : undefined;
+			if (number === undefined) {
+				return 'invalid';
+			}
+			days.push(number);
+		}
+	}
+	const factor = raw.offPeakFactor;
+	if (windows.length === 0 || typeof factor !== 'number' || !Number.isFinite(factor) || factor <= 0) {
+		return 'invalid';
+	}
+	return factor === 1 ? undefined : { windows, days, offPeakFactor: factor };
+}
+
+/** Whether `at` falls inside a peak window. */
+export function isPeakAt(schedule: PriceTimeOfDay, at: number): boolean {
+	const date = new Date(at);
+	if (schedule.days.length > 0 && !schedule.days.includes(date.getUTCDay())) {
+		return false;
+	}
+	const minute = date.getUTCHours() * 60 + date.getUTCMinutes();
+	return schedule.windows.some(({ from, to }) => {
+		const end = to === 0 ? MINUTES_PER_DAY : to;
+		return from < end ? minute >= from && minute < end : minute >= from || minute < end;
+	});
+}
+
+/**
+ * The multiplier on the rates at `at`. An unknown moment counts as peak: overstating a bill is safer
+ * for a spending ceiling than understating it.
+ */
+export function timeOfDayFactorAt(schedule: PriceTimeOfDay | undefined, at: number | undefined): number {
+	return schedule && at !== undefined && !isPeakAt(schedule, at) ? schedule.offPeakFactor : 1;
+}
+
+/** The first off-peak moment at or after `at` (minute precision), or `undefined` when the week has none. */
+export function nextOffPeakMoment(schedule: PriceTimeOfDay, at: number): number | undefined {
+	if (!isPeakAt(schedule, at)) {
+		return at;
+	}
+	const startOfMinute = Math.floor(at / MS_PER_MINUTE) * MS_PER_MINUTE;
+	for (let step = 1; step <= OFF_PEAK_SEARCH_MINUTES; step++) {
+		const candidate = startOfMinute + step * MS_PER_MINUTE;
+		if (!isPeakAt(schedule, candidate)) {
+			return candidate;
+		}
+	}
+	return undefined;
 }

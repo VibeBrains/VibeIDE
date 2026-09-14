@@ -39,6 +39,25 @@ export interface VibeProviderModelCost {
 	readonly cacheWrite?: number;
 	/** Surcharge on a long prompt, when the vendor announces one — see `VibeProviderLongContext`. */
 	readonly longContext?: VibeProviderLongContext;
+	/** Price by the hour: the rates above are PEAK rates — see `VibeProviderTimeOfDay`. */
+	readonly timeOfDay?: VibeProviderTimeOfDay;
+}
+
+/**
+ * Цена по часу.
+ *
+ * The rates of the entry are the peak ones and every rate is multiplied by `offPeakFactor` outside the
+ * peak: vendors (DeepSeek, Z.ai) state the off-peak price as a share of the peak one, and the entry
+ * repeats their price list instead of recomputing it. The shape is the shared set's contract —
+ * VibeIDEA reads the same block (`ProvidersFile.kt`).
+ */
+export interface VibeProviderTimeOfDay {
+	/** Windows `HH:MM-HH:MM` in UTC, end excluded; a window may cross midnight, `24:00` is an end only. */
+	readonly peakUtc?: readonly string[];
+	/** Three-letter English days (`mon` … `sun`) the windows apply on; absent — every day. */
+	readonly peakDays?: readonly string[];
+	/** Multiplier on every rate outside the peak, e.g. `0.5`. */
+	readonly offPeakFactor?: number;
 }
 
 /**

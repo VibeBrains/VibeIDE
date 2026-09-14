@@ -174,6 +174,7 @@
 
 | Файл | О чём |
 |---|---|
+| [priceByHourAndServedModel.md](toolSystem/priceByHourAndServedModel.md) | Цена по часу (`cost.timeOfDay`, контракт с VibeIDEA: момент окончания хода, битый блок целиком), уровень мышления в пределах модели (DeepSeek 400 на неизвестный), смоук DeepSeek: `deepseek-v4-pro` отвечает своим именем, подмену видно только по `system_fingerprint` |
 | [mcpAppsHost.md](toolSystem/mcpAppsHost.md) | Хост MCP Apps в нашем React-чате: почему не апстримный `ChatMcpAppModel`, что взято у апстрима экспортом, раскладка по слоям. Грабли: `call` канала глотает ошибку (нужен исход), ответ одним `structuredContent`, возможности клиента только при создании, черновик без внешнего входа |
 | [structuredExtraction.md](toolSystem/structuredExtraction.md) | Модель извлечения без инструкций (Schematron) — не через чат: путь чата несёт системный промпт и вклеивает его в сообщение с HTML. Прямой вызов, схема на вызов через `extraBody` → `runtimeOptions`, слияние после тела SDK. Грабли: `...proxyParams` уносит новое поле мимо адаптера |
 | [overview.md](toolSystem/overview.md) | Карта кода слоя (`toolsServiceTypes`, `prompts`, `toolsService`, `terminalToolService`, `toolHardening`) + зачем закаляли: одна ручка `run_command` = зависание на длинных чтениях (у shell-stdout нет ни пагинации, ни таймаута) |

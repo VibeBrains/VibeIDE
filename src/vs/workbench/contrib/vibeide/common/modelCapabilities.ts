@@ -19,7 +19,8 @@
  */
 
 import { FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderId, ProviderName } from './vibeideSettingsTypes.js';
-import { effectiveCost } from './modelPriceSchedule.js';
+import { effectiveCost, PriceTimeOfDay } from './modelPriceSchedule.js';
+import { effortWithinValues } from './reasoningEffortLevel.js';
 
 
 
@@ -169,6 +170,8 @@ export type ModelCost = {
 	cache_write?: number;
 	/** Surcharge on a long prompt: past `over_input_tokens` the whole request is priced with the multipliers. */
 	long_context?: ModelLongContext;
+	/** Price by the hour: the rates above are peak rates, multiplied by `offPeakFactor` outside the peak. */
+	time_of_day?: PriceTimeOfDay;
 };
 
 /** Multipliers on the base rates, applied to the whole request once the prompt is longer than the threshold. */
@@ -2638,7 +2641,8 @@ export const getSendableReasoningInfo = (
 	}
 
 	// check for reasoning effort
-	const reasoningEffort = reasoningBudgetSlider?.type === 'effort_slider' ? modelSelectionOptions?.reasoningEffort ?? reasoningBudgetSlider?.default : undefined;
+	// Brought inside the model's levels: a stored level the model lacks is refused by the vendor (DeepSeek: HTTP 400).
+	const reasoningEffort = reasoningBudgetSlider?.type === 'effort_slider' ? effortWithinValues(modelSelectionOptions?.reasoningEffort, reasoningBudgetSlider.values, reasoningBudgetSlider.default) : undefined;
 	if (reasoningEffort) {
 		return { type: 'effort_slider_value', isReasoningEnabled: isReasoningEnabled, reasoningEffort: reasoningEffort };
 	}

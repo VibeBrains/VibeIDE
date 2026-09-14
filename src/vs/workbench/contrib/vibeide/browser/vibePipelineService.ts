@@ -12,7 +12,7 @@
  * live in `common/pipeline/vibePipelineFile.ts`, where they can be tested without spawning agents.
  */
 
-import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
 import { safeParseConfigJson } from '../common/vibeConfigJsonParser.js';
 import { IVibeHooksService } from '../common/hooks/vibeHookTypes.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
@@ -49,6 +49,9 @@ import {
 	VibePipelineStep,
 } from '../common/pipeline/vibePipelineFile.js';
 import { readRolesFile } from '../common/pipeline/vibeRolesFile.js';
+import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
+import { getModelCapabilities } from '../common/modelCapabilities.js';
+import { nextOffPeakMoment } from '../common/modelPriceSchedule.js';
 
 const CONFIG_REVIEWER_SEES_SUMMARY = 'vibeide.pipeline.reviewerSeesStepSummary';
 
@@ -77,7 +80,9 @@ export interface PipelineProgress {
 	readonly stepIndex: number;
 	readonly totalSteps: number;
 	readonly role: string;
-	readonly state: 'started' | 'finished' | 'skipped';
+	readonly state: 'started' | 'finished' | 'skipped' | 'waiting';
+	/** For `waiting`: when the step starts on its own — the end of its model's price peak. */
+	readonly until?: number;
 }
 
 export const IVibePipelineService = createDecorator<IVibePipelineService>('vibePipelineService');
@@ -103,8 +108,58 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 		@IVibeSubagentService private readonly _subagents: IVibeSubagentService,
 		@IVibeHooksService private readonly _hooks: IVibeHooksService,
 		@IConfigurationService private readonly _configuration: IConfigurationService,
+		@IVibeideSettingsService private readonly _settings: IVibeideSettingsService,
+		@INotificationService private readonly _notifications: INotificationService,
 	) {
 		super();
+	}
+
+	/**
+	 * Hold an `offPeak` step until its model leaves the price peak.
+	 *
+	 * Visible and skippable on purpose: a run that silently stops for hours looks hung. The wait ends by
+	 * itself at the off-peak moment, by «Запустить сейчас», or by cancelling the run. A model without a
+	 * price by the hour starts at once and says why — the field cannot defer to a schedule nobody declared.
+	 */
+	private async _waitForOffPeak(step: VibePipelineStep, pipelineId: string, stepIndex: number, totalSteps: number, token: CancellationToken): Promise<'run' | 'cancelled'> {
+		const model = parseModelRef(step.model);
+		if (!model) {
+			return 'run';
+		}
+		const schedule = getModelCapabilities(model.providerName as ProviderId, model.modelName, this._settings.state.overridesOfModel).cost?.time_of_day;
+		if (!schedule) {
+			vibeLog.warn('Pipeline', `шаг ${step.role}: offPeak, но у ${step.model} нет цены по часу — шаг запускается сразу`);
+			return 'run';
+		}
+		const now = Date.now();
+		const until = nextOffPeakMoment(schedule, now);
+		if (until === undefined || until <= now) {
+			return 'run';
+		}
+		this._onProgress.fire({ pipelineId, stepIndex, totalSteps, role: step.role, state: 'waiting', until });
+		vibeLog.info('Pipeline', `${pipelineId} шаг ${stepIndex + 1}: ждёт конца пика ${step.model} до ${new Date(until).toISOString()}`);
+		return new Promise<'run' | 'cancelled'>(resolve => {
+			const store = new DisposableStore();
+			let settled = false;
+			const finish = (outcome: 'run' | 'cancelled') => {
+				if (settled) { return; }
+				settled = true;
+				store.dispose();
+				resolve(outcome);
+			};
+			const handle = this._notifications.prompt(Severity.Info,
+				localize('vibeide.pipeline.offPeakWaiting', 'Пайплайн «{0}»: шаг «{1}» ждёт конца пиковых цен {2} — запуск в {3} UTC.', pipelineId, step.role, step.model ?? '', new Date(until).toISOString().slice(11, 16)),
+				[
+					{ label: localize('vibeide.pipeline.offPeakRunNow', 'Запустить сейчас'), run: () => finish('run') },
+					{ label: localize('vibeide.pipeline.offPeakCancel', 'Отменить прогон'), run: () => finish('cancelled') },
+				],
+				{ sticky: true },
+			);
+			store.add(toDisposable(() => handle.close()));
+			const timer = setTimeout(() => finish('run'), until - now);
+			store.add(toDisposable(() => clearTimeout(timer)));
+			store.add(token.onCancellationRequested(() => finish('cancelled')));
+		});
 	}
 
 	private _fileUri(): URI | undefined {
@@ -245,6 +300,10 @@ export class VibePipelineService extends Disposable implements IVibePipelineServ
 					// Cascade: the cheap model drafts, and the step's own outcome is the gate. Asking a
 					// model whether its answer was good enough gets an answer shaped like «yes», so the
 					// gate is the run's verdict — the acceptance check and the tools that ran it.
+					if (step.offPeak && await this._waitForOffPeak(step, pipelineId, i, pipeline.steps.length, cancellation.token) === 'cancelled') {
+						cancellation.cancel();
+						throw new Error(localize('vibeide.pipeline.offPeakCancelled', 'Прогон отменён, пока шаг ждал конца пиковых цен'));
+					}
 					const drafting = step.escalateTo !== undefined;
 					const first = await runStep(step.model, drafting);
 					let result = first.result;

@@ -40,9 +40,9 @@ import { builtinProviderIdOf, isBuiltinProviderId, VibeideStatefulModelInfo } fr
 import { IVibeideSettingsService, VibeProviderActiveOverrides, ModelOption, DynProviderTransportConfig, DynamicProviderSeed } from '../common/vibeideSettingsService.js';
 import { setExternalProviders, ExternalProviderDescriptor, VibeideStaticModelInfo, ModelLongContext } from '../common/modelCapabilities.js';
 import { IRemoteCatalogService, DynamicKeyValidation } from '../common/remoteCatalogService.js';
-import { VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseProvidersFile, VibeProviderLongContext } from '../common/vibeProvidersFile.js';
+import { VibeProviderEntry, VibeProviderModelCost, VibeProviderModelEntry, isProviderCatalogueFile, mergeProviderEntry, mergeProviderLayers, parseProvidersFile, VibeProviderLongContext, VibeProviderTimeOfDay } from '../common/vibeProvidersFile.js';
 import { parseEnvFile } from '../common/vibeEnvFile.js';
-import { DEFAULT_PRICE_CHANGE_SOON_DAYS, effectiveCost, nextPriceChangeMoment, priceChangeStatus } from '../common/modelPriceSchedule.js';
+import { DEFAULT_PRICE_CHANGE_SOON_DAYS, effectiveCost, nextPriceChangeMoment, parseTimeOfDay, PriceTimeOfDay, priceChangeStatus } from '../common/modelPriceSchedule.js';
 import { VIBE_CONFIG_PROVIDERS_CACHE_KEY } from '../common/storageKeys.js';
 import { ILifecycleService, LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
@@ -104,6 +104,12 @@ function longContextOf(lc: VibeProviderLongContext | undefined): { long_context?
 	return { long_context: { over_input_tokens: lc.overInputTokens, input, cache, output } };
 }
 
+/** The hour schedule as the catalogue carries it; a broken or empty block adds nothing — `_resolve` names the broken one. */
+function timeOfDayOf(raw: VibeProviderTimeOfDay | undefined): { time_of_day?: PriceTimeOfDay } {
+	const parsed = parseTimeOfDay(raw);
+	return parsed && parsed !== 'invalid' ? { time_of_day: parsed } : {};
+}
+
 export function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStaticModelInfo> {
 	const c: Record<string, unknown> = {};
 	if (typeof m.contextWindow === 'number') { c.contextWindow = m.contextWindow; }
@@ -125,6 +131,7 @@ export function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStat
 			...(cost.cacheRead !== undefined ? { cache_read: cost.cacheRead } : {}),
 			...(cost.cacheWrite !== undefined ? { cache_write: cost.cacheWrite } : {}),
 			...longContextOf(cost.longContext),
+			...timeOfDayOf(cost.timeOfDay),
 		};
 	}
 	// extraBody → additionalOpenAIPayload: the AI-SDK path spreads this verbatim into the request
@@ -724,6 +731,12 @@ class VibeDynamicProvidersService extends Disposable implements IVibeDynamicProv
 				kind = 'definition';
 				if (!resolved.baseURL && !resolved.extends) {
 					warnings.push(`«${entry.id}»: новый провайдер без baseURL — он не сможет отправлять запросы`);
+				}
+			}
+			// A broken hour schedule is dropped whole and named: a price from half a schedule is wrong silently.
+			for (const model of resolved.models?.static ?? []) {
+				if (parseTimeOfDay(model.cost?.timeOfDay) === 'invalid' || parseTimeOfDay(model.costAfter?.timeOfDay) === 'invalid') {
+					warnings.push(`«${entry.id}/${model.id}»: cost.timeOfDay не разобран (окна «ЧЧ:ММ-ЧЧ:ММ», дни mon…sun, offPeakFactor больше нуля) — цена считается по пиковой ставке`);
 				}
 			}
 			return { id: builtinSelf ?? entry.id, kind, extendsBuiltin, entry: resolved };

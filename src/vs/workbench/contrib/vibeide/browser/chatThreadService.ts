@@ -85,7 +85,7 @@ import { IAuditLogService } from '../common/auditLogService.js';
 import { IVibeToolContextCostService } from './vibeToolContextCostService.js';
 import { IVibeAgentActivityLogService } from './vibeAgentActivityLogService.js';
 import { IVibeLLMJudgeService } from '../common/vibeLLMJudgeService.js';
-import { IVibePersistedPlanService } from '../common/vibePersistedPlanService.js';
+import { IVibePersistedPlanService, PlannedModel, mergeServedModels } from '../common/vibePersistedPlanService.js';
 import { IVibeSubagentService } from '../common/vibeSubagentService.js';
 import { IVibeVerifyGateService } from './vibeVerifyGateService.js';
 import { decideVerifyGate } from '../common/verifyGatePolicy.js';
@@ -2870,11 +2870,19 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				planId: updatedPlan.persistedPlanId,
 				plan: updatedPlan,
 				status: anyFailed ? 'failed' : 'completed',
+				servedModels: this._servedModelsOfThread.get(threadId),
 			});
 		}
 		this._taskDecompositionService.clearPersistedPlanTask(threadId);
 		this._planCache.delete(threadId);
 		this._generateReviewMessage(threadId, updatedPlan);
+	}
+
+	/** Models that answered per thread, handed to the persisted plan on its next write. */
+	private readonly _servedModelsOfThread = new Map<string, PlannedModel[]>();
+
+	private _rememberServedModel(threadId: string, served: PlannedModel): void {
+		this._servedModelsOfThread.set(threadId, mergeServedModels(this._servedModelsOfThread.get(threadId), [served]));
 	}
 
 	private _markStepCompletedInternal(threadId: string, currentStep: { plan: PlanMessage; planIdx: number; step: PlanStep; stepIdx: number }, succeeded: boolean, error?: string): { plan: PlanMessage; planIdx: number; step: PlanStep; stepIdx: number } | undefined {
@@ -2922,6 +2930,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					planId: progPlanInfo.plan.persistedPlanId,
 					plan: progPlanInfo.plan,
 					status: 'running',
+					servedModels: this._servedModelsOfThread.get(threadId),
 				});
 			}
 		}
@@ -6392,7 +6401,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 							this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: fullText, reasoningSoFar: fullReasoning, toolCallSoFar: toolCall ?? null }, interrupt: Promise.resolve(() => { if (llmCancelToken) { this._llmMessageService.abort(llmCancelToken); } }) });
 						});
 					},
-					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage, providerQuota, answeredModel }) => {
+					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, usage, providerQuota, answeredModel, systemFingerprint }) => {
 						vibeLog.debug('llmTurn', 'done', { afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null, textLen: fullText?.length ?? 0, reasoningLen: fullReasoning?.length ?? 0 }); recordChatTrace('llmTurn:done', { turn: traceTurn, afterMs: Date.now() - _turnStartMs, toolCall: toolCall?.name ?? null });
 						// Mark message as done to prevent late onText updates
 						messageIsDone = true;
@@ -6450,6 +6459,23 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 									model: modelSelection.modelName,
 									meta: { answeredModel, providerName: modelSelection.providerName },
 								});
+							}
+						}
+
+						// Every turn, not only a mismatch: under the same model name a different backend shows only in the
+						// fingerprint, and a plan has to know who actually did its steps.
+						if (answeredModel && modelSelection) {
+							this._rememberServedModel(threadId, { provider: modelSelection.providerName, model: answeredModel });
+							if (this._auditLogService.isEnabled()) {
+								void this._auditLogService.append({
+									ts: Date.now(),
+									actor: 'system',
+									action: 'llm_turn',
+									ok: true,
+									traceId: threadId,
+									model: modelSelection.modelName,
+									meta: { providerName: modelSelection.providerName, answeredModel, ...(systemFingerprint ? { systemFingerprint } : {}) },
+								}).catch(() => { });
 							}
 						}
 

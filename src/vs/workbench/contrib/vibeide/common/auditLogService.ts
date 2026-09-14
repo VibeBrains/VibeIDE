@@ -97,6 +97,9 @@ export interface AuditEvent {
 	| 'provider_failover_switch'
 	// Who actually answered: a proxy, an aggregator or a failover target can serve another model.
 	| 'model_substituted'
+	// Every turn: requested model, the one that answered and the backend fingerprint — a substitution under
+	// the same name shows only in the fingerprint.
+	| 'llm_turn'
 	| 'job_pr_creation'
 	| 'run_tests:start' | 'run_tests:complete'
 	| 'verify_gate:result'

@@ -42,6 +42,15 @@ const costSchema = (description: string): IJSONSchema => ({
 				output: { type: 'number', description: 'Множитель ставки выхода. Не указан — 1.' },
 			},
 		},
+		timeOfDay: {
+			type: 'object', additionalProperties: false, required: ['peakUtc', 'offPeakFactor'],
+			description: 'Цена по часу: ставки в cost — пиковые, вне пика все они умножаются на offPeakFactor.',
+			properties: {
+				peakUtc: { type: 'array', items: { type: 'string', pattern: '^\\d{2}:\\d{2}-\\d{2}:\\d{2}$' }, description: 'Окна пика «ЧЧ:ММ-ЧЧ:ММ» по UTC, конец не входит; окно через полночь пишется как есть, конец суток — 24:00.' },
+				peakDays: { type: 'array', items: { enum: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] }, description: 'Дни, в которые действуют окна. Не указано — каждый день.' },
+				offPeakFactor: { type: 'number', exclusiveMinimum: 0, description: 'Множитель всех ставок вне пика, например 0.5.' },
+			},
+		},
 	},
 });
 

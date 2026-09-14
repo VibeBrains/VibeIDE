@@ -16,7 +16,7 @@ import { joinPath } from '../../../../base/common/resources.js';
 import { IChatThreadService } from './chatThreadService.js';
 import { PlanMessage, PlanStep, StepStatus } from '../common/chatThreadServiceTypes.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
-import { IVibePersistedPlanService, parsePlannedModel, planModelDrift } from '../common/vibePersistedPlanService.js';
+import { IVibePersistedPlanService, parsePlannedModel, parseServedModels, planModelDrift } from '../common/vibePersistedPlanService.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
 
@@ -30,6 +30,7 @@ interface PersistedPlanMachineData {
 	boundThreadId: string;
 	planMessageIdx: number;
 	plannedModel?: unknown;
+	servedModels?: unknown;
 	steps: Array<{
 		stepNumber: number;
 		description: string;
@@ -164,10 +165,14 @@ export class VibePersistedPlanResumeContribution extends Disposable implements I
 		const chat = state.modelSelectionOfFeature['Chat'];
 		const current = chat && chat.providerName !== 'auto' ? { provider: chat.providerName, model: chat.modelName } : undefined;
 		const settings = (state.settingsOfProvider as Record<string, { _didFillInProviderSettings?: boolean } | undefined>)[planned.provider];
-		const drift = planModelDrift(planned, current, !!settings?._didFillInProviderSettings);
-		return drift.map(item => '\n\n' + (item.kind === 'model-changed'
-			? localize('vibeide.planResume.modelChanged', 'План одобрен на модели {0} ({1}), а сейчас в чате выбрана {2} ({3}) — продолжит она.', item.planned.model, item.planned.provider, item.current.model, item.current.provider)
-			: localize('vibeide.planResume.providerUnavailable', 'У провайдера {0}, на котором план одобрен, сейчас нет рабочего ключа — ключ сменили или удалили.', item.planned.provider))).join('');
+		const drift = planModelDrift(planned, current, !!settings?._didFillInProviderSettings, parseServedModels(plan.machineData.servedModels));
+		return drift.map(item => {
+			switch (item.kind) {
+				case 'model-changed': return '\n\n' + localize('vibeide.planResume.modelChanged', 'План одобрен на модели {0} ({1}), а сейчас в чате выбрана {2} ({3}) — продолжит она.', item.planned.model, item.planned.provider, item.current.model, item.current.provider);
+				case 'provider-unavailable': return '\n\n' + localize('vibeide.planResume.providerUnavailable', 'У провайдера {0}, на котором план одобрен, сейчас нет рабочего ключа — ключ сменили или удалили.', item.planned.provider);
+				case 'served-other': return '\n\n' + localize('vibeide.planResume.servedOther', 'План одобрен на модели {0}, а отвечала {1} — прокси, агрегатор или запасная цель подменили модель.', item.planned.model, item.served.map(s => `${s.model} (${s.provider})`).join(', '));
+			}
+		}).join('');
 	}
 
 	private async _offerResume(plan: FoundPlan): Promise<void> {

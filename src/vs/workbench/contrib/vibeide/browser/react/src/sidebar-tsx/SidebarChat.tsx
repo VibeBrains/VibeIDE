@@ -49,6 +49,7 @@ import { chatDiffCountLabel, chatFilesWithChangesLabel, chatModeDetail, chatMode
 
 import { persistentTerminalNameOfId } from '../../../terminalToolService.js';
 import { removeMCPToolNamePrefix } from '../../../../common/mcpServiceTypes.js';
+import { effortWithinValues } from '../../../../common/reasoningEffortLevel.js';
 import { VibeMcpAppHost, IVibeMcpAppData, MCP_APP_DEFAULT_HEIGHT } from '../../../../browser/mcpAppHost.js';
 import { trackRenderLoop } from '../util/renderLoopGuard.js';
 import type { ProviderRefusalDiagnostics } from '../../../../common/sendLLMMessageTypes.js';
@@ -493,7 +494,8 @@ const ReasoningOptionSlider = ({ featureName }: { featureName: FeatureName }) =>
 		const min = canTurnOffReasoning ? -1 : 0;
 		const max = values.length - 1;
 
-		const currentEffort = vibeSettingsState.optionsOfModelSelection[featureName][modelSelection.providerName]?.[modelSelection.modelName]?.reasoningEffort ?? defaultVal;
+		// The same level the request sends: a stored level the model lacks is shown as the one it becomes, not as «off».
+		const currentEffort = effortWithinValues(vibeSettingsState.optionsOfModelSelection[featureName][modelSelection.providerName]?.[modelSelection.modelName]?.reasoningEffort, values, defaultVal);
 		const valueIfOff = -1;
 		const value = isReasoningEnabled && currentEffort ? values.indexOf(currentEffort) : valueIfOff;
 
@@ -3489,7 +3491,6 @@ const McpAppFrame = ({ data, callId }: { data: IVibeMcpAppData; callId: string }
 			host.dispose();
 		};
 		// One host per tool call: the data of a finished call does not change.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [callId]);
 
 	return <div className='w-full'>
