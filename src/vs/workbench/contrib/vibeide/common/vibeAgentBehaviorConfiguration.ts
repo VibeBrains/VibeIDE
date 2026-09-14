@@ -245,7 +245,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			type: 'string',
 			default: '',
 			scope: ConfigurationScope.APPLICATION,
-			markdownDescription: localize('vibeide.extract.model', 'Модель для инструмента агента «извлечь по схеме» (`extract_structured`), в форме `провайдер/модель` — например `openRouter/inference-net/schematron-v2-turbo`.\n\nИнструмент берёт страницу и JSON-схему и возвращает данные строго по схеме. Модели извлечения вроде Schematron не принимают инструкций вовсе — поэтому запрос уходит одним сообщением со страницей, без системного промпта, со схемой в `response_format`.\n\nПусто — инструмент выключен и честно об этом говорит.'),
+			markdownDescription: localize('vibeide.extract.model', 'Модель для инструмента агента «извлечь по схеме» (`extract_structured`), в форме `провайдер/модель` — например `openRouter/inference-net/schematron-v2-turbo`.\n\nИнструмент берёт страницу и JSON-схему и возвращает данные строго по схеме. Модели извлечения вроде Schematron не принимают инструкций вовсе — поэтому запрос уходит одним сообщением со страницей, без системного промпта, со схемой в `response_format`.\n\nМодель, скрытая из выбора в чате (`"active": false`), здесь подходит: инструмент берёт её прямо из этой настройки.\n\nПусто — инструмент выключен и честно об этом говорит.'),
 		},
 		'vibeide.council.advisers': {
 			type: 'array',

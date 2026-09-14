@@ -5200,6 +5200,8 @@ Zscaler и Salesforce в дайджесте — пересказ агрегат�
       Модель — настройкой `vibeide.extract.model`, провайдер inference.net в наборе (`5fe6d04`). Живой
       ответ не проверен — нет ключа. Спека `docs/manuals/extractStructuredSpec.md`.
       Knowledge: `toolSystem/structuredExtraction.md`.
+      14.09: модели Schematron в наборе скрыты из выбора чата (`"active": false`, VibeBrains `d21a4dc`) —
+      извлечение скрытость не проверяет, это сверено по коду; согласовано с VibeIDEA.
 - [ ] **MCP Apps в нашем чате** — спека Final, поддержка у Claude, VS Code Copilot, M365 Copilot и
       других. Апстрим рендерит через `IWebviewService` (`chatMcpAppModel.ts`), наш клиент возможность
       не объявляет и `_meta.ui` не читает. Нужны: объявление, рендер, скрытие `visibility: ["app"]`
