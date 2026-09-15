@@ -5,6 +5,7 @@
 
 // disable foreign import complaints
 /* eslint-disable */
+import { signatureOfFunctionCallParts } from '../../common/thoughtSignature.js';
 import { vibeLog } from '../../common/vibeLog.js';
 import { traceSendEvent } from '../../common/llmSendTrace.js';
 import { lenientJsonParseObject } from '../../common/lenientJson.js';
@@ -1614,6 +1615,7 @@ const sendGeminiChat = async ({
 	let toolName = '';
 	let toolParamsStr = '';
 	let toolId = '';
+	let toolSignature: string | undefined;
 
 
 	genAI.models.generateContentStream({
@@ -1645,6 +1647,8 @@ const sendGeminiChat = async ({
 					toolParamsStr = JSON.stringify(functionCall.args ?? {});
 					toolId = functionCall.id ?? '';
 				}
+				// The signature rides on the part that carries the call; it must go back with that call next turn.
+				toolSignature ??= signatureOfFunctionCallParts(chunk.candidates?.[0]?.content?.parts);
 
 				// (do not handle reasoning yet)
 
@@ -1673,7 +1677,7 @@ const sendGeminiChat = async ({
 			} else {
 				if (!toolId) { toolId = generateUuid(); } // ids are empty, but other providers might expect an id
 				const toolCall = rawToolCallObjOfParamsStr(toolName, toolParamsStr, toolId);
-				const toolCallObj = toolCall ? { toolCall } : {};
+				const toolCallObj = toolCall ? { toolCall: toolSignature ? { ...toolCall, thoughtSignature: toolSignature } : toolCall } : {};
 				onFinalMessage({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, anthropicReasoning: null, ...toolCallObj });
 			}
 		})

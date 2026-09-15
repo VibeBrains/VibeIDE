@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { getModelCapabilities, isFloatingModel } from '../common/modelCapabilities.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
@@ -105,7 +106,8 @@ class VibeModelCouncilService extends Disposable implements IVibeModelCouncilSer
 				if (settled) { return; }
 				settled = true;
 				clearTimeout(timer);
-				resolve({ providerName: selection.providerName, modelName: selection.modelName, text: over.text ?? '', error: over.error, durationMs: Date.now() - startedAt });
+				const floating = isFloatingModel(getModelCapabilities(selection.providerName, selection.modelName, this._settings.state.overridesOfModel));
+				resolve({ providerName: selection.providerName, modelName: selection.modelName, text: over.text ?? '', error: over.error, durationMs: Date.now() - startedAt, ...(floating ? { floating } : {}) });
 			};
 
 			const requestId = this._llm.sendLLMMessage({

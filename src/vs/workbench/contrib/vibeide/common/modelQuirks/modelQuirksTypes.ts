@@ -124,6 +124,13 @@ export interface ModelQuirksRule {
 	 */
 	readonly reasoningBoundToModel?: boolean;
 
+	/**
+	 * The vendor signs its reasoning and requires the signature back on the next turn's function call
+	 * (Gemini 3: «MUST always resend all thought blocks»). Only these models receive `thoughtSignature` in
+	 * the history; for every other model it is stripped — an unknown field in a tool block can be a 400.
+	 */
+	readonly roundtripThoughtSignature?: boolean;
+
 	// ---------- Metadata ----------
 	/** Free-text note for catalog contributors. Not consumed at runtime. */
 	readonly note?: string;
@@ -258,6 +265,7 @@ export function validateCatalog(raw: unknown): ModelQuirksCatalog {
 			...readEnum(rr, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 			...readBool(rr, 'forcedToolChoiceUnsupported'),
 			...readBool(rr, 'reasoningBoundToModel'),
+			...readBool(rr, 'roundtripThoughtSignature'),
 			...readString(rr, 'note'),
 		};
 		rules.push(rule);
@@ -338,6 +346,7 @@ export function applyUserOverride(catalogQuirks: ResolvedModelQuirks, userOverri
 		...readEnum(oo, 'forceToolCallFormat', ['native', 'xml', 'auto']),
 		...readBool(oo, 'forcedToolChoiceUnsupported'),
 		...readBool(oo, 'reasoningBoundToModel'),
+		...readBool(oo, 'roundtripThoughtSignature'),
 	};
 	return sanitized;
 }

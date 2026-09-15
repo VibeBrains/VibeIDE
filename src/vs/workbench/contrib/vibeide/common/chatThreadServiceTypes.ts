@@ -283,6 +283,8 @@ export type ChatMessage =
 		pinned?: boolean; // pin-context: honored by budget-fill truncation; setter (UI) pending
 
 		anthropicReasoning: AnthropicReasoning[] | null; // anthropic reasoning
+		/** Vendor signature of the reasoning behind this turn's tool call (Gemini 3) — sent back with that call. */
+		thoughtSignature?: { toolCallId: string; signature: string };
 		createdAt?: number; // unix ms when message was added to thread
 		// Set on the synthetic notice the agent appends when it stops in agent mode because the
 		// model returned text with NO tool call (and Autopilot is off / nudge budget spent). The UI

@@ -32,8 +32,10 @@ import { MCPConfigFileJSON, MCPConfigFileEntryJSON, MCPServer, MCPToolCallParams
 import { MCP } from '../../mcp/common/modelContextProtocol.js';
 import { mcpAppsEnabledConfig } from '../../../../platform/mcp/common/mcpManagement.js';
 import { isMcpToolCallableByApp, isMcpToolVisibleToModel, mcpAppUiOfTool } from '../common/mcpApps.js';
+import { isMcpToolAllowedByEntry } from '../common/mcpToolAllowlist.js';
+import { IAuditLogService } from '../common/auditLogService.js';
 import { Event, Emitter } from '../../../../base/common/event.js';
-import { RunOnceScheduler } from '../../../../base/common/async.js';
+import { RunOnceScheduler, raceTimeout } from '../../../../base/common/async.js';
 import { InternalToolInfo } from '../common/prompt/prompts.js';
 import { IVibeideSettingsService } from '../common/vibeideSettingsService.js';
 import { MCPUserStateOfName } from '../common/vibeideSettingsTypes.js';
@@ -44,7 +46,6 @@ import { scanMcpConfig, ConfigGuardFinding } from '../common/vibeConfigGuard.js'
 import { IMCPService, MCPServiceState } from '../common/mcpService.js';
 import { FoundMemoryServer, VIBE_MEMORY_SERVER_NAME, vibeMemoryServerPathSegments, withDiscoveredMemoryServer } from '../common/vibeMemoryServerDiscovery.js';
 import { MEMORY_PROJECT_RESOLVE_TOOL, MemoryProjectAnswer, parseProjectResolveAnswer } from '../common/vibeMemoryProject.js';
-import { raceTimeout } from '../../../../base/common/async.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { isWindows } from '../../../../base/common/platform.js';
 
@@ -109,6 +110,7 @@ class MCPService extends Disposable implements IMCPService {
 		@IVibeOutboundRingBuffer private readonly _outboundBuffer: IVibeOutboundRingBuffer,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@INotificationService private readonly _notificationService: INotificationService,
+		@IAuditLogService private readonly _auditLogService: IAuditLogService,
 	) {
 		super();
 		this.channel = this.mainProcessService.getChannel('vibe-channel-mcp');
@@ -285,6 +287,8 @@ class MCPService extends Disposable implements IMCPService {
 			server.tools?.forEach(tool => {
 				// An app-only tool exists for the app's buttons; offering it to the model would break the spec's promise.
 				if (!isMcpToolVisibleToModel(tool)) { return; }
+				// A tool outside the entry's own list is not offered: the model cannot ask for what it never saw.
+				if (!isMcpToolAllowedByEntry(this._serverEntries[serverName], tool.name)) { return; }
 				const sanitizedTool = sanitizeMcpIdentifier(tool.name);
 				// Model-facing identifier with collision-safe `<server>_<tool>` prefix.
 				// Two MCP servers exposing same-named tools used to alias each other —
@@ -445,6 +449,7 @@ class MCPService extends Disposable implements IMCPService {
 		const newConfigFileJSON = await this._parseMCPConfigFile();
 		if (!newConfigFileJSON) { vibeLog.info('mcp', `Not setting state: MCP config file not found`); return; }
 		if (!newConfigFileJSON?.mcpServers) { vibeLog.info('mcp', `Not setting state: MCP config file did not have an 'mcpServers' field`); return; }
+		this._serverEntries = { ...newConfigFileJSON.mcpServers };
 
 		// The family's shared memory joins by itself when VibeMemory is installed; a user entry with the
 		// same name wins. Added before Config Guard, so the discovered entry is scanned like any other.
@@ -521,6 +526,7 @@ class MCPService extends Disposable implements IMCPService {
 		if (!isMcpToolCallableByApp(tool)) {
 			throw new Error(`Tool ${toolName} is not callable by an app`);
 		}
+		this._refuseUnlistedTool(serverName, toolName);
 		const params: MCPToolCallParams = { serverName, toolName, params: args };
 		const t0 = Date.now();
 		const outcome = await this.channel.call<MCPAppRequestOutcome<MCP.CallToolResult> | undefined>('callToolForApp', params);
@@ -543,6 +549,20 @@ class MCPService extends Disposable implements IMCPService {
 			throw new Error(outcome.error);
 		}
 		return outcome.value;
+	}
+
+	/** Entries of the last read `mcp.json`, for the per-server tool list. */
+	private _serverEntries: Record<string, MCPConfigFileEntryJSON> = {};
+
+	/** Refuse a call outside the entry's tool list before it reaches the server, and say so in the audit log. */
+	private _refuseUnlistedTool(serverName: string, toolName: string): void {
+		if (isMcpToolAllowedByEntry(this._serverEntries[serverName], toolName)) {
+			return;
+		}
+		if (this._auditLogService.isEnabled()) {
+			void this._auditLogService.append({ ts: Date.now(), actor: 'agent', action: 'mcp_tool_refused', ok: false, meta: { serverName, toolName } }).catch(() => { });
+		}
+		throw new Error(localize('vibeide.mcp.toolNotListed', 'Инструмент «{0}» сервера «{1}» не входит в список tools его записи в mcp.json — вызов отклонён до обращения к серверу.', toolName, serverName));
 	}
 
 	public getLastGuardFindings(): readonly ConfigGuardFinding[] {
@@ -575,6 +595,7 @@ class MCPService extends Disposable implements IMCPService {
 
 
 	public async callMCPTool(toolData: MCPToolCallParams): Promise<{ result: RawMCPToolCall }> {
+		this._refuseUnlistedTool(toolData.serverName, toolData.toolName);
 		const t0 = Date.now();
 		const result = await this.channel.call<RawMCPToolCall>('callTool', toolData);
 		// Network panel collector (roadmap §1043) — record MCP tool call in ring buffer.

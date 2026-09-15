@@ -161,6 +161,11 @@
 			"note": "GLM family (z.ai) — 4.6/4.7/5/5.1, single preset"
 		},
 		{
+			"match": "gemini-3",
+			"roundtripThoughtSignature": true,
+			"note": "Gemini 3.x signs its reasoning and requires thoughtSignature back on the functionCall part of the next turn (ai.google.dev/gemini-api/docs/thinking: MUST always resend all thought blocks). Without it the OpenAI-compat layer answers 400 and @ai-sdk/google injects a skip-signature placeholder with a warning."
+		},
+		{
 			"match": "gemini-2",
 			"temperature": 1.0,
 			"topP": 0.95,

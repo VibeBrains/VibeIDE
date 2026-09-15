@@ -152,6 +152,8 @@ type SimpleLLMMessage = {
 	 *  `anthropicReasoning` (Anthropic-only structured blocks). Optional and
 	 *  empty when the model didn't produce reasoning. */
 	reasoning?: string;
+	/** Signature of the reasoning behind this turn's tool call — see ChatMessage `thoughtSignature`. */
+	thoughtSignature?: { toolCallId: string; signature: string };
 };
 
 
@@ -639,12 +641,15 @@ type LLMContentBlock = Exclude<AnthropicOrOpenAILLMMessage['content'], string>[n
 
 const prepareMessages_anthropic_tools = (messages: SimpleLLMMessage[], supportsAnthropicReasoning: boolean): AnthropicOrOpenAILLMMessage[] => {
 	const newMessages: (AnthropicLLMChatMessage | (SimpleLLMMessage & { role: 'tool' }))[] = messages;
+	// The array is rewritten in place, so the assistant's signature is kept aside before its message is replaced.
+	let pendingSignature: { toolCallId: string; signature: string } | undefined;
 
 	for (let i = 0; i < messages.length; i += 1) {
 		const currMsg = messages[i];
 
 		// add anthropic reasoning
 		if (currMsg.role === 'assistant') {
+			pendingSignature = currMsg.thoughtSignature;
 			if (currMsg.anthropicReasoning && supportsAnthropicReasoning) {
 				const content = currMsg.content;
 				newMessages[i] = {
@@ -718,7 +723,7 @@ const prepareMessages_anthropic_tools = (messages: SimpleLLMMessage[], supportsA
 			// make it so the assistant called the tool
 			if (prevMsg?.role === 'assistant') {
 				if (typeof prevMsg.content === 'string') { prevMsg.content = [{ type: 'text', text: prevMsg.content }]; }
-				prevMsg.content.push({ type: 'tool_use', id: currMsg.id, name: currMsg.name, input: currMsg.rawParams });
+				prevMsg.content.push({ type: 'tool_use', id: currMsg.id, name: currMsg.name, input: currMsg.rawParams, ...(pendingSignature?.toolCallId === currMsg.id ? { thoughtSignature: pendingSignature.signature } : {}) });
 			}
 
 			// turn each tool into a user message with tool results at the end
@@ -1325,7 +1330,7 @@ const prepareGeminiMessages = (messages: AnthropicLLMChatMessage[]) => {
 					}
 					else if (c.type === 'tool_use') {
 						latestToolName = c.name;
-						return { functionCall: { id: c.id, name: c.name, args: c.input } };
+						return { functionCall: { id: c.id, name: c.name, args: c.input }, ...(c.thoughtSignature ? { thoughtSignature: c.thoughtSignature } : {}) };
 					}
 					else { return null; }
 				}).filter(m => !!m);
@@ -1825,6 +1830,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 					anthropicReasoning: m.anthropicReasoning,
 					reasoning: m.reasoning || undefined,
 					pinned: m.pinned,
+					...(m.thoughtSignature ? { thoughtSignature: m.thoughtSignature } : {}),
 				});
 			}
 			else if (m.role === 'tool') {

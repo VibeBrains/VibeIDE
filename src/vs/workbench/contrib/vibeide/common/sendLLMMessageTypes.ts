@@ -127,7 +127,7 @@ export const parseContextOverflowError = (message: string): { providerName: stri
 export type AnthropicLLMChatMessage = {
 	role: 'assistant';
 	content: string | (AnthropicReasoning | { type: 'text'; text: string }
-		| { type: 'tool_use'; name: string; input: Record<string, unknown>; id: string }
+		| { type: 'tool_use'; name: string; input: Record<string, unknown>; id: string; thoughtSignature?: string }
 	)[];
 } | {
 	role: 'user';
@@ -156,7 +156,7 @@ export type GeminiLLMChatMessage = {
 	role: 'model';
 	parts: (
 		| { text: string }
-		| { functionCall: { id: string; name: ToolName; args: Record<string, unknown> } }
+		| { functionCall: { id: string; name: ToolName; args: Record<string, unknown> }; thoughtSignature?: string }
 	)[];
 } | {
 	role: 'user';
@@ -187,6 +187,8 @@ export type RawToolCallObj = {
 	doneParams: ToolParamName<ToolName>[];
 	id: string;
 	isDone: boolean;
+	/** Vendor signature of the reasoning behind this call (Gemini 3), to be sent back with it next turn. */
+	thoughtSignature?: string;
 };
 
 import type { ProviderQuotaSnapshot } from './providerQuota.js';

@@ -57,6 +57,8 @@ interface PlanFileMeta {
 export interface PlannedModel {
 	readonly provider: string;
 	readonly model: string;
+	/** The approval model is a floating alias: the plan was approved on whatever it pointed at that day. */
+	readonly floating?: boolean;
 }
 
 /** Why resuming a plan is not quite resuming it where it stopped. */
@@ -132,7 +134,7 @@ export function parsePlannedModel(value: unknown): PlannedModel | undefined {
 	}
 	const candidate = value as { provider?: unknown; model?: unknown };
 	return typeof candidate.provider === 'string' && candidate.provider && typeof candidate.model === 'string' && candidate.model
-		? { provider: candidate.provider, model: candidate.model }
+		? { provider: candidate.provider, model: candidate.model, ...((candidate as { floating?: unknown }).floating === true ? { floating: true } : {}) }
 		: undefined;
 }
 

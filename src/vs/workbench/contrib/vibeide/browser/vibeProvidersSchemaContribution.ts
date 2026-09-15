@@ -65,6 +65,7 @@ const modelSchema: IJSONSchema = {
 		default: { type: 'boolean', description: 'Пометить как модель по умолчанию (авто-выбор).' },
 		pinned: { type: 'boolean', description: 'Показывать вверху списка.' },
 		protocol: { enum: ['openai', 'openai-responses', 'anthropic', 'gemini'], description: 'Формат API для ЭТОЙ модели — сильнее protocol провайдера. Нужен агрегаторам, которые на одном ключе отдают разные модели разными форматами.' },
+		floating: { type: 'boolean', description: 'id — плавающий алиас: вендор без предупреждения переводит его на новые снапшоты. «Авто» предпочитает ему закреплённую модель, совет моделей и план это отмечают.' },
 		deprecation: {
 			type: 'object',
 			description: 'Вендор объявил отключение модели. Показывается при выборе модели; отключённая не участвует в авто-выборе.',

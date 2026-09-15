@@ -22,7 +22,7 @@ import { TOOL_NAME_ALIASES, applyParamAliases, detectToolByParamShape } from '..
 import { toolCallSignature, resolveAntiLoopThreshold, endsWithQuestion, looksLikeCompletionText, QUESTION_AUTO_CONTINUE_DEFAULT } from '../common/agentLoopHeuristics.js';
 import { IVibeImageCostService } from './vibeImageCostService.js';
 import { IVibeTokenBudgetService } from '../common/vibeTokenBudgetService.js';
-import type { AutoDowngradeReason } from '../common/modelCapabilities.js';
+import { getModelCapabilities, isFloatingModel, type AutoDowngradeReason } from '../common/modelCapabilities.js';
 import { ProviderRefusalDiagnostics, AnthropicReasoning, getErrorMessage, GeminiLLMChatMessage, LLMChatMessage, LLMTokenUsage, parseContextOverflowError, parseEmptyResponseError, RawToolCallObj, RawToolParamsObj } from '../common/sendLLMMessageTypes.js';
 import { isQuotaLow, pickRateLimitHeaders, ProviderQuotaSnapshot, tightestBucket } from '../common/providerQuota.js';
 import { IVibeSpendLedgerService } from './vibeSpendLedgerService.js';
@@ -127,6 +127,12 @@ import { isModelSubstituted } from '../common/modelEcho.js';
  * раз: на каждом ходе она превратилась бы в шум, который перестают читать.
  */
 const saidModelSubstituted = new Set<string>();
+
+/**
+ * How long a stop waits for the running step to hand back its interruptor before the state is cleared
+ * anyway. A safety ceiling, not a preference: a stop that can hang is not a stop.
+ */
+const ABORT_INTERRUPT_CEILING_MS = 2_000;
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IVibeTokenCostForecastService } from '../common/vibeTokenCostForecastService.js';
 import {
@@ -2169,7 +2175,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			// say when it continues on a different one. `auto` names no model and records nothing.
 			const chatModel = this._settingsService.state.modelSelectionOfFeature['Chat'];
 			const plannedModel = chatModel && chatModel.providerName !== 'auto'
-				? { provider: chatModel.providerName, model: chatModel.modelName }
+				? {
+					provider: chatModel.providerName,
+					model: chatModel.modelName,
+					...(isFloatingModel(getModelCapabilities(chatModel.providerName, chatModel.modelName, this._settingsService.state.overridesOfModel)) ? { floating: true } : {}),
+				}
 				: undefined;
 			written = await this._persistedPlanService.writeApprovedAgentPlan({
 				workspaceFolder,
@@ -3595,6 +3605,10 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 	async abortRunning(threadId: string) {
 		const thread = this.state.allThreads[threadId];
 		if (!thread) { return; } // should never happen
+		// Stopping is enforced, not requested — so it can be measured: from the press to the cleared state.
+		const stopRequestedAt = Date.now();
+		const stoppedWhile = this.streamState[threadId]?.isRunning ?? 'idle';
+		let forcedByCeiling = false;
 
 		// User-initiated stop: suppress the run-end notification sound for this thread (the user is
 		// at the keyboard). Covers the several undefined-transitions one abort can produce.
@@ -3632,20 +3646,31 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 		// quickly, but never blocks a new send for more than that.
 		const interruptPromise = this.streamState[threadId]?.interrupt;
 		if (interruptPromise) {
-			const HANG_MS = 2_000;
 			let timedOut = false;
 			const winner = await Promise.race([
 				interruptPromise,
-				new Promise<'__timeout__'>(resolve => setTimeout(() => { timedOut = true; resolve('__timeout__'); }, HANG_MS)),
+				new Promise<'__timeout__'>(resolve => setTimeout(() => { timedOut = true; resolve('__timeout__'); }, ABORT_INTERRUPT_CEILING_MS)),
 			]);
 			if (timedOut) {
-				vibeLog.warn('chatThread', `abortRunning timeout: interrupt Promise did not resolve within ${HANG_MS}ms (threadId=${threadId}). Forcibly clearing state.`);
+				forcedByCeiling = true;
+				vibeLog.warn('chatThread', `abortRunning timeout: interrupt Promise did not resolve within ${ABORT_INTERRUPT_CEILING_MS}ms (threadId=${threadId}). Forcibly clearing state.`);
 			} else if (typeof winner === 'function') {
 				try { winner(); } catch (e) { vibeLog.warn('chatThread', 'interrupt() threw:', e); }
 			}
 		}
 
 		this._setStreamState(threadId, undefined);
+		if (stoppedWhile !== 'idle' && this._auditLogService.isEnabled()) {
+			void this._auditLogService.append({
+				ts: Date.now(),
+				actor: 'human',
+				action: 'agent_stop',
+				ok: !forcedByCeiling,
+				traceId: threadId,
+				latencyMs: Date.now() - stopRequestedAt,
+				meta: { stoppedWhile, forcedByCeiling },
+			}).catch(() => { });
+		}
 	}
 
 	forceResetChatState(threadId: string): boolean {
@@ -7642,7 +7667,7 @@ Output ONLY the JSON, no other text. Start with { and end with }.`;
 						lastMessage.displayContent === info.fullText;
 
 					if (!messageAlreadyAdded) {
-						this._addMessageToThread(threadId, { role: 'assistant', displayContent: info.fullText, reasoning: info.fullReasoning, anthropicReasoning: info.anthropicReasoning });
+						this._addMessageToThread(threadId, { role: 'assistant', displayContent: info.fullText, reasoning: info.fullReasoning, anthropicReasoning: info.anthropicReasoning, ...(toolCall?.thoughtSignature ? { thoughtSignature: { toolCallId: toolCall.id, signature: toolCall.thoughtSignature } } : {}) });
 					}
 				}
 

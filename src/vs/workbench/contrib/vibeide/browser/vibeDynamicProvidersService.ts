@@ -150,6 +150,7 @@ export function modelEntryToCaps(m: VibeProviderModelEntry): Partial<VibeideStat
 	// Retirement announced by the vendor. Carried through as-is; the judgement (retired / soon /
 	// announced) is made at display time, because it depends on the clock and this mapping does not.
 	if (m.deprecation && typeof m.deprecation === 'object') { c.deprecation = { ...m.deprecation }; }
+	if (m.floating === true) { c.floating = true; }
 	if (typeof m.maxTools === 'number' && m.maxTools > 0) { c.maxTools = Math.floor(m.maxTools); }
 	if (typeof m.maxPromptDirectoryChars === 'number' && m.maxPromptDirectoryChars > 0) { c.maxPromptDirectoryChars = Math.floor(m.maxPromptDirectoryChars); }
 	// reasoning → reasoningCapabilities. An `effort` list maps to an effort_slider, which the

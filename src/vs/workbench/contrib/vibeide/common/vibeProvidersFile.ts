@@ -136,6 +136,11 @@ export interface VibeProviderModelEntry {
 	 * warning seen while choosing the model, which is the only moment when switching is cheap.
 	 */
 	readonly deprecation?: VibeModelDeprecation;
+	/**
+	 * The id is an alias the vendor re-points at new snapshots without notice (`-latest`, `~…`, a renamed
+	 * model routed elsewhere). «Auto» prefers a fixed model over it, and the council and a plan say so.
+	 */
+	readonly floating?: boolean;
 
 	readonly contextWindow?: number;
 	readonly maxOutputTokens?: number;

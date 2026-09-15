@@ -174,6 +174,7 @@
 
 | Файл | О чём |
 |---|---|
+| [geminiThoughtSignatures.md](toolSystem/geminiThoughtSignatures.md) | Подпись мысли Gemini 3 обязана вернуться с вызовом инструмента: где читается (родной путь, `@ai-sdk/google`), где хранится на ходе, почему снимается для других моделей (400 у Anthropic). Грабля: сборка истории переписывает массив на месте. Не покрыты OpenAI-совместимые маршруты Gemini |
 | [priceByHourAndServedModel.md](toolSystem/priceByHourAndServedModel.md) | Цена по часу (`cost.timeOfDay`, контракт с VibeIDEA: момент окончания хода, битый блок целиком), уровень мышления в пределах модели (DeepSeek 400 на неизвестный), смоук DeepSeek: `deepseek-v4-pro` отвечает своим именем, подмену видно только по `system_fingerprint` |
 | [mcpAppsHost.md](toolSystem/mcpAppsHost.md) | Хост MCP Apps в нашем React-чате: почему не апстримный `ChatMcpAppModel`, что взято у апстрима экспортом, раскладка по слоям. Грабли: `call` канала глотает ошибку (нужен исход), ответ одним `structuredContent`, возможности клиента только при создании, черновик без внешнего входа |
 | [structuredExtraction.md](toolSystem/structuredExtraction.md) | Модель извлечения без инструкций (Schematron) — не через чат: путь чата несёт системный промпт и вклеивает его в сообщение с HTML. Прямой вызов, схема на вызов через `extraBody` → `runtimeOptions`, слияние после тела SDK. Грабли: `...proxyParams` уносит новое поле мимо адаптера |

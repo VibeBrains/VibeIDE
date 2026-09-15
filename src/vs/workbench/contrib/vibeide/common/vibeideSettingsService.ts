@@ -13,7 +13,8 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IMetricsService } from './metricsService.js';
-import { defaultProviderSettings, getModelCapabilities, ModelOverrides, VibeideStaticModelInfo } from './modelCapabilities.js';
+import { vibeLog } from './vibeLog.js';
+import { defaultProviderSettings, getModelCapabilities, isFloatingModel, ModelOverrides, VibeideStaticModelInfo } from './modelCapabilities.js';
 import { VOID_SETTINGS_STORAGE_KEY } from './storageKeys.js';
 import { autoFallbackProviderIds, defaultSettingsOfProvider, FeatureName, isBuiltinProviderId, ProviderId, ProviderName, ModelSelectionOfFeature, SettingsOfProvider, SettingName, providerNames, ModelSelection, modelSelectionsEqual, featureNames, VibeideStatefulModelInfo, GlobalSettings, GlobalSettingName, defaultGlobalSettings, ModelSelectionOptions, OptionsOfModelSelection, ChatMode, OverridesOfModel, defaultOverridesOfModel, MCPUserStateOfName as MCPUserStateOfName, MCPUserState, MinimalismMode } from './vibeideSettingsTypes.js';
 
@@ -1186,23 +1187,25 @@ class VoidSettingsService extends Disposable implements IVibeideSettingsService 
 		}
 
 		// Walk the MERGED provider set: config providers first (the user's explicit configuration),
-		// then the curated built-in order — same precedence the model picker shows.
+		// then the curated built-in order — same precedence the model picker shows. A floating alias is
+		// taken only when no fixed model is available at all: «Auto» must not route onto moving ground.
+		let firstFloating: ModelSelection | null = null;
 		for (const providerName of autoFallbackProviderIds(this.state.settingsOfProvider)) {
 			const providerSettings = this.state.settingsOfProvider[providerName];
 			if (providerSettings && providerSettings._didFillInProviderSettings) {
-				const models = providerSettings.models || [];
-				const firstModel = models.find(m => !m.isHidden);
-				if (firstModel) {
-					return {
-						providerName,
-						modelName: firstModel.modelName,
-					};
+				for (const model of (providerSettings.models || []).filter(m => !m.isHidden)) {
+					if (!isFloatingModel(getModelCapabilities(providerName, model.modelName, this.state.overridesOfModel))) {
+						return { providerName, modelName: model.modelName };
+					}
+					firstFloating ??= { providerName, modelName: model.modelName };
 				}
 			}
 		}
 
-		// No models available
-		return null;
+		if (firstFloating) {
+			vibeLog.info('settings', `Auto: только плавающие модели доступны — выбрана ${firstFloating.providerName}/${firstFloating.modelName}`);
+		}
+		return firstFloating;
 	}
 
 }

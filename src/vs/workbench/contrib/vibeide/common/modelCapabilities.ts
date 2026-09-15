@@ -198,6 +198,7 @@ export type VibeideStaticModelInfo = { // not stateful
 	supportsFIM: boolean; // whether the model was specifically designed for autocomplete or "FIM" ("fill-in-middle" format)
 	supportsVision?: boolean; // image input. Optional — undefined falls back to provider heuristics. Catalog-driven providers (OpenRouter, etc.) populate this from `architecture.input_modalities`.
 	modality?: string; // display-only literal from catalog (e.g. "text+image->text"). Not used for routing — purely informational, surfaced in the model list UI.
+	floating?: boolean; // declared in providers.json: the id is an alias re-pointed without notice — see isFloatingModel
 	floatsTo?: string; // display-only: what a FLOATING catalog id points at today (alias target or dated snapshot). See catalogAliases.ts — a quirk pinned to such an id is pinned to moving ground.
 
 	additionalOpenAIPayload?: { [key: string]: string }; // additional payload in the message body for requests that are openai-compatible (ollama, vllm, openai, openrouter, etc)
@@ -284,6 +285,7 @@ export const modelOverrideKeys = [
 	'supportsVision',
 	'modality',
 	'floatsTo',
+	'floating',
 	'reasoningCapabilities',
 	'additionalOpenAIPayload'
 ] as const;
@@ -2660,3 +2662,12 @@ export const getSendableReasoningInfo = (
 
 	return null;
 };
+
+/**
+ * Whether a model id may lead to a different model tomorrow: declared `floating` in providers.json, or
+ * resolved by the catalogue to another slug (`floatsTo`). «Auto», the council and plans use it; routing
+ * a durable decision onto moving ground is what silent substitutions are made of.
+ */
+export function isFloatingModel(capabilities: Pick<VibeideStaticModelInfo, 'floating' | 'floatsTo'>): boolean {
+	return capabilities.floating === true || (typeof capabilities.floatsTo === 'string' && capabilities.floatsTo.length > 0);
+}
