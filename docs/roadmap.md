@@ -5221,8 +5221,9 @@ prompts, tools, and preceding messages») действует на API-аккау
       `kimi` без возврата. Нашла VibeIDEA (грабли в раундах инструментов), у нас подтверждено разбором из `out/`. Первоисточник:
       platform.kimi.ai/docs/api/models-overview. Заодно правилу `gemini-3` (15.09) добавлен `source` — гейт происхождения падал.
       Указатель набора поднят до `cd81d9a`. Живьём не проверено — нет ключа Moonshot.
-- Подписки: Z.AI Coding Plan — «strictly limited to use within officially supported tools»; Kimi Code — 403 для
-  неизвестных клиентов; MiniMax Token Plan ограничений по инструментам не пишет. Замена MiniMax на GLM Lite или Kimi
+- Подписки: Z.AI Coding Plan — «strictly limited to use within officially supported tools»; Kimi Code — сторонние
+  инструменты по ключу API разрешены для личной разработки, подмена User-Agent запрещена (403 для неизвестных клиентов
+  первоисточником не подтверждён — поправка 17.09); MiniMax Token Plan ограничений по инструментам не пишет. Замена MiniMax на GLM Lite или Kimi
   Moderato в VibeIDE нарушит условия или не заработает.
 - Не берём: Atria Dawn Preview — на OpenRouter нет, свой API `api.atria-asi.ai` (256K, XML-вызовы GLM на уровне шаблона);
   Paper2Agent — схема «примеры → тесты → инструмент», для спек без примеров проверять нечем; KISA — требования к агентам
@@ -5241,6 +5242,10 @@ prompts, tools, and preceding messages») действует на API-аккау
       MRTR, CIMD и проверка `iss` (RFC 9207) — либо обновление SDK, когда он их поддержит.
 - ~~**Kimi Code как провайдер**~~ — снято 17.09: вендор отвечает неизвестному клиенту 403 `access_terminated_error`,
       подмену User-Agent называет нарушением условий (kimi.com/en/help/kimi-code/benefits). См. DIGEST-0917.
+      **Поправка 17.09 (сверка VibeIDEA, перепроверено):** страница условий сторонние инструменты **разрешает** — по
+      ключу API («such as OpenCode»), только для личной разработки; запрещена подмена User-Agent. Про 403 на странице
+      ничего нет — это утверждение первоисточником не подтверждено. Основание для снятия ослабло; вернуть пункт — решение
+      владельца. Пример в наборе VibeBrains (`kimi.jsonc`, блок Kimi Code) остаётся.
 - [ ] **ACP v2 (черновик)** — не брать до стабилизации; elicitation (`elicitation/create`, `mode` form/url) и
       `configOptions.currentValue` — когда клиент будет читать настройки агентов.
 - [ ] **Ревью по правилам-данным (open-code-review, Apache-2.0)** — стадии «план → ревью → фильтр ложных → уточнение строки»

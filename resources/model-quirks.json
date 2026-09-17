@@ -44,7 +44,7 @@
 			"temperature": 1.0,
 			"topP": 0.95,
 			"mirrorReasoningContent": true,
-			"note": "Kimi Code (подписка): kimi-for-coding — с 11.09.2026 это K2.8 Preview. При включённом рассуждении вендор требует reasoning_content у каждого сообщения ассистента с вызовом инструмента. Без правила id падал на общий 'kimi' без возврата рассуждения. Оговорка: Kimi Code отвечает сторонним клиентам 403 (kimi.com/en/help/kimi-code/benefits) — правило нужно тем, у кого доступ есть.",
+			"note": "Kimi Code (подписка): kimi-for-coding — с 11.09.2026 это K2.8 Preview. При включённом рассуждении вендор требует reasoning_content у каждого сообщения ассистента с вызовом инструмента. Без правила id падал на общий 'kimi' без возврата рассуждения. Условия вендора (kimi.com/en/help/kimi-code/benefits, сверено 17.09.2026) пускают сторонние инструменты по ключу API и запрещают подмену User-Agent; сообщение о 403 для неизвестных клиентов первоисточником не подтверждено.",
 			"source": "kimi.com/code/docs/en/kimi-code/error-reference.html",
 			"observedAt": "2026-09-17"
 		},
