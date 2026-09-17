@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"date": "2026-09-02",
+	"date": "2026-09-17",
 	"description": "VibeIDE model behaviour quirks. Source of truth — see README.md section 'Model behaviour quirks'. PRs welcome. Каждое правило — утверждение о чужом сервере: указывайте `source` (ссылка/коммит/лог) и `observedAt`; правило без источника считается черновиком и называется проверкой `npm run quirks-provenance-check`. Schema: ./src/vs/workbench/contrib/vibeide/common/modelQuirks/modelQuirksTypes.ts.",
 	"docs": "https://github.com/VibeBrains/VibeIDE#model-behaviour-quirks",
 	"rules": [
@@ -29,6 +29,24 @@
 			"mirrorReasoningContent": true,
 			"note": "kimi-k2.x family — opencode upstream transform.ts:478-510",
 			"source": "transform.ts:478-510"
+		},
+		{
+			"match": "kimi-k2.7",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"mirrorReasoningContent": true,
+			"note": "Kimi K2.7 Code и K2.7 Code Highspeed (Moonshot). Вендор закрепил temperature 1.0 и top_p 0.95 — другое значение даёт ошибку; рассуждение у модели не выключается. Без этого правила id совпадал с устаревшим 'kimi-k2' (T=0.6, без возврата рассуждения): оно длиннее общего 'kimi' и побеждало — модель получала запрещённую температуру и теряла reasoning_content в раундах инструментов (400 со второго хода).",
+			"source": "platform.kimi.ai/docs/api/models-overview",
+			"observedAt": "2026-09-17"
+		},
+		{
+			"match": "kimi-for-coding",
+			"temperature": 1.0,
+			"topP": 0.95,
+			"mirrorReasoningContent": true,
+			"note": "Kimi Code (подписка): kimi-for-coding — с 11.09.2026 это K2.8 Preview. При включённом рассуждении вендор требует reasoning_content у каждого сообщения ассистента с вызовом инструмента. Без правила id падал на общий 'kimi' без возврата рассуждения. Оговорка: Kimi Code отвечает сторонним клиентам 403 (kimi.com/en/help/kimi-code/benefits) — правило нужно тем, у кого доступ есть.",
+			"source": "kimi.com/code/docs/en/kimi-code/error-reference.html",
+			"observedAt": "2026-09-17"
 		},
 		{
 			"match": "kimi-k2.5",
@@ -163,7 +181,9 @@
 		{
 			"match": "gemini-3",
 			"roundtripThoughtSignature": true,
-			"note": "Gemini 3.x signs its reasoning and requires thoughtSignature back on the functionCall part of the next turn (ai.google.dev/gemini-api/docs/thinking: MUST always resend all thought blocks). Without it the OpenAI-compat layer answers 400 and @ai-sdk/google injects a skip-signature placeholder with a warning."
+			"note": "Gemini 3.x signs its reasoning and requires thoughtSignature back on the functionCall part of the next turn (ai.google.dev/gemini-api/docs/thinking: MUST always resend all thought blocks). Without it the OpenAI-compat layer answers 400 and @ai-sdk/google injects a skip-signature placeholder with a warning.",
+			"source": "ai.google.dev/gemini-api/docs/thinking",
+			"observedAt": "2026-09-15"
 		},
 		{
 			"match": "gemini-2",

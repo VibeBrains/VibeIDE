@@ -5186,6 +5186,12 @@ prompts, tools, and preceding messages») действует на API-аккау
       текст, `ru-RU`, сессия до 10 мин), а не `gemini-3.8-live` (только аудио-ответ). Решение владельца: у нас локальный STT.
 - [x] **Остаток подписки по полю `quota`** — ✅ (2026-09-17, next) разбор MiniMax Token Plan и Z.ai по правилам VibeIDEA (`common/subscriptionQuota.ts`), запрос в главном процессе с ключом провайдера, раздел «Остаток подписки» в отчёте «Ключи и расход»; общие векторы в VibeBrains `testVectors/subscriptionQuota.json` (`6ae5028`), читает `test/node/subscriptionQuotaVectors.test.ts`. Живьём не проверено — ключ Z.ai есть, но смоук не прогонялся.
 - [x] **Провайдер Atria Dawn Preview** — ✅ (2026-09-17, next) указатель поднят вместе с `quota`. Было: `atria.jsonc` в VibeBrains (`a44cacb`, выключен); бамп указателя ждёт решения по полю `quota`, которое VibeIDEA добавила в `minimax.jsonc` и `zai.jsonc`: наш `seed-fields-check` его не пропускает.
+- [x] **Причуды Kimi K2.7 Code и `kimi-for-coding`** — ✅ (2026-09-17, next) правила `kimi-k2.7` и `kimi-for-coding`: temperature 1.0,
+      top_p 0.95, возврат `reasoning_content`. Было: `kimi-k2.7-code` совпадал с устаревшим `kimi-k2` (T=0.6, без возврата) —
+      вендор отвечает ошибкой на температуру не 1.0 и 400 со второго хода с инструментами; `kimi-for-coding` падал на общий
+      `kimi` без возврата. Нашла VibeIDEA (грабли в раундах инструментов), у нас подтверждено разбором из `out/`. Первоисточник:
+      platform.kimi.ai/docs/api/models-overview. Заодно правилу `gemini-3` (15.09) добавлен `source` — гейт происхождения падал.
+      Указатель набора поднят до `cd81d9a`. Живьём не проверено — нет ключа Moonshot.
 - Подписки: Z.AI Coding Plan — «strictly limited to use within officially supported tools»; Kimi Code — 403 для
   неизвестных клиентов; MiniMax Token Plan ограничений по инструментам не пишет. Замена MiniMax на GLM Lite или Kimi
   Moderato в VibeIDE нарушит условия или не заработает.
