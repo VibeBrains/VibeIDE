@@ -208,6 +208,12 @@ export interface VibeProviderModelsSpec {
 	readonly static?: readonly VibeProviderModelEntry[];
 }
 
+/** The `quota` field of a provider: raw, as written; validated by `parseQuotaSpec`. */
+export interface VibeProviderQuota {
+	readonly url?: string;
+	readonly format?: string;
+}
+
 export interface VibeProviderEntry {
 	/** Unique key. Matching a built-in id PATCHES that built-in; a new id DEFINES a provider. */
 	readonly id: string;
@@ -232,6 +238,11 @@ export interface VibeProviderEntry {
 	readonly timeoutMs?: number;
 	readonly docsUrl?: string;
 	readonly apiKeyUrl?: string;
+	/**
+	 * Where to ask the vendor what the subscription has left — see `common/subscriptionQuota.ts`. The shared set's
+	 * contract with VibeIDEA: `{ url: https://…, format: minimax-token-plan | zai-monitor }`.
+	 */
+	readonly quota?: VibeProviderQuota;
 
 	readonly models?: VibeProviderModelsSpec;
 }

@@ -4,6 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 
+import { VibeSubscriptionQuotaMainService } from './vibeSubscriptionQuotaMainService.js';
+import { VIBE_SUBSCRIPTION_QUOTA_CHANNEL } from '../common/vibeSubscriptionQuotaService.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { Server as ElectronIPCServer } from '../../../../base/parts/ipc/electron-main/ipc.electron.js';
@@ -101,6 +103,7 @@ export function registerVibeideMainProcessChannels(
 
 	const mcpChannel = new MCPChannel();
 	mainProcessElectronServer.registerChannel('vibe-channel-mcp', mcpChannel);
+	mainProcessElectronServer.registerChannel(VIBE_SUBSCRIPTION_QUOTA_CHANNEL, ProxyChannel.fromService(new VibeSubscriptionQuotaMainService(), disposables));
 
 	const scmService = disposables.add(new VibeideSCMService());
 	mainProcessElectronServer.registerChannel('vibeide-channel-scm', ProxyChannel.fromService(scmService, disposables));

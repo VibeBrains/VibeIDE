@@ -53,8 +53,9 @@ suite('ModelQuirks — настоящий каталог resources/model-quirks.
 		// temperature/top_p/top_k устаревшими, поэтому Gemini 3.x не должен совпасть ни с чем.
 		['gemini-2.5-pro', { temperature: 1.0, topP: 0.95, topK: 64 }],
 		['gemini-1.5-pro', { temperature: 1.0, topP: 0.95, topK: 64 }],
-		['gemini-3.6-flash', null],
-		['gemini-3-pro-preview', null],
+		// Gemini 3 signs its reasoning and wants the signature back with the tool call (rule added 15.09.2026).
+		['gemini-3.6-flash', { roundtripThoughtSignature: true }],
+		['gemini-3-pro-preview', { roundtripThoughtSignature: true }],
 		['mimo-v2-pro', null],
 		['hy3-preview', null],
 	];

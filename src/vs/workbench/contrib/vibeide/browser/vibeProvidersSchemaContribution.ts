@@ -137,6 +137,14 @@ const providerSchema: IJSONSchema = {
 		timeoutMs: { type: 'number', description: 'Таймаут запроса (мс). Агрегаторам нужно больше.' },
 		docsUrl: { type: 'string' },
 		apiKeyUrl: { type: 'string' },
+		quota: {
+			type: 'object', additionalProperties: false, required: ['url', 'format'],
+			description: 'Где спросить у вендора остаток подписки. Спрашивается только при открытии отчёта «Ключи и расход», показывается ответ вендора.',
+			properties: {
+				url: { type: 'string', pattern: '^https://', description: 'Адрес запроса остатка, только https. Запрос уходит с ключом провайдера.' },
+				format: { enum: ['minimax-token-plan', 'zai-monitor'], description: 'Как читать ответ: MiniMax Token Plan или Z.ai GLM Coding Plan.' },
+			},
+		},
 		models: {
 			type: 'object', additionalProperties: false,
 			properties: {

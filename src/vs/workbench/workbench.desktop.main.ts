@@ -217,6 +217,7 @@ import './contrib/vibeide/browser/vibeide.contribution.js';
 // VibeIDE: desktop-only service implementations (need the native host bridge).
 import './contrib/vibeide/electron-browser/metricsService.js';
 import './contrib/vibeide/electron-browser/mcpService.js';
+import './contrib/vibeide/electron-browser/vibeSubscriptionQuotaService.js';
 import './contrib/vibeide/electron-browser/modelQuirksCatalogStatusService.js';
 import './contrib/vibeide/electron-browser/ollamaInstallerService.js';
 import './contrib/vibeide/electron-browser/remoteCatalogService.js';

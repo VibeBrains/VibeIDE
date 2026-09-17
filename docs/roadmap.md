@@ -5184,7 +5184,8 @@ prompts, tools, and preceding messages») действует на API-аккау
       с выбором файла. Живьём не проверено.
 - [x] **Облачная диктовка (опционально)** — ✅ (2026-09-17, next) `vibeide.voice.engine`: `local` по умолчанию или `gemini`; сессия на `ws` в главном процессе, переподключение по `goAway`, согласие при первом облачном запуске, ключ провайдера Gemini; живьём не проверено — нет ключа. Было: для STT подходит `gemini-3.5-transcribe-live` ($0.005/мин вход + $0.004/мин
       текст, `ru-RU`, сессия до 10 мин), а не `gemini-3.8-live` (только аудио-ответ). Решение владельца: у нас локальный STT.
-- [ ] **Провайдер Atria Dawn Preview** — `atria.jsonc` в VibeBrains (`a44cacb`, выключен); бамп указателя ждёт решения по полю `quota`, которое VibeIDEA добавила в `minimax.jsonc` и `zai.jsonc`: наш `seed-fields-check` его не пропускает.
+- [x] **Остаток подписки по полю `quota`** — ✅ (2026-09-17, next) разбор MiniMax Token Plan и Z.ai по правилам VibeIDEA (`common/subscriptionQuota.ts`), запрос в главном процессе с ключом провайдера, раздел «Остаток подписки» в отчёте «Ключи и расход»; общие векторы в VibeBrains `testVectors/subscriptionQuota.json` (`6ae5028`), читает `test/node/subscriptionQuotaVectors.test.ts`. Живьём не проверено — ключ Z.ai есть, но смоук не прогонялся.
+- [x] **Провайдер Atria Dawn Preview** — ✅ (2026-09-17, next) указатель поднят вместе с `quota`. Было: `atria.jsonc` в VibeBrains (`a44cacb`, выключен); бамп указателя ждёт решения по полю `quota`, которое VibeIDEA добавила в `minimax.jsonc` и `zai.jsonc`: наш `seed-fields-check` его не пропускает.
 - Подписки: Z.AI Coding Plan — «strictly limited to use within officially supported tools»; Kimi Code — 403 для
   неизвестных клиентов; MiniMax Token Plan ограничений по инструментам не пишет. Замена MiniMax на GLM Lite или Kimi
   Moderato в VibeIDE нарушит условия или не заработает.
